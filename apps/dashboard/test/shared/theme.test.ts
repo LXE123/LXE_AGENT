@@ -49,6 +49,11 @@ describe("dark palette", () => {
   const light = tokens(":root");
   const dark = tokens(':root[data-theme="dark"]');
 
+  test("keeps the light page plane ten percent closer to white without changing dark mode", () => {
+    expect(light["--bg"]).toBe("#fbf9f6");
+    expect(dark["--bg"]).toBe("#242322");
+  });
+
   test("defines a dark value for every themeable light token", () => {
     // Guards the real failure mode: adding a token to :root and forgetting the
     // dark half, which silently leaves a light colour on a dark page.
