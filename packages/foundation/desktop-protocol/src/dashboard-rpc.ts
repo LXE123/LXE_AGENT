@@ -81,6 +81,8 @@ export type SessionPayload = {
 export type SessionMessage = {
   display_group_id: string;
   role: string;
+  /** Epoch seconds from the immutable transcript event. */
+  created_at?: number;
   content?: unknown;
   tool_call_id?: string;
   tool_name?: string;
@@ -169,6 +171,8 @@ export type DesktopConversationTurnPayload = {
   text: string;
   attachments?: DesktopInputAttachmentPayload[];
   state: DesktopConversationTurnState;
+  /** Epoch milliseconds captured when the desktop message was created. */
+  created_at?: number;
   /** Epoch milliseconds; zero until the scheduler starts this turn. */
   started_at: number;
   user_persisted_at: number;

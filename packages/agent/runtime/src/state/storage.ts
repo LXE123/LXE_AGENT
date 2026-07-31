@@ -117,6 +117,11 @@ const publicMessage = (value: JsonObject): JsonObject => {
   return message;
 };
 
+const transcriptEventTimestamp = (event: JsonObject): number => {
+  const timestamp = Number(event.ts ?? 0);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+};
+
 const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
   const merged: JsonObject = { ...base };
   for (const [key, value] of Object.entries(patch)) {
@@ -287,7 +292,11 @@ const transcriptDisplayPage = (
       if (text(event.kind) === "message") {
         const message = parseObject(event.message);
         if (text(message.role)) {
-          latestMessage = { ...publicMessage(message), display_group_id: displayGroupId };
+          latestMessage = {
+            ...publicMessage(message),
+            display_group_id: displayGroupId,
+            created_at: transcriptEventTimestamp(event),
+          };
           messages.push(latestMessage);
         }
         continue;
@@ -307,13 +316,18 @@ const transcriptDisplayPage = (
           role: "assistant",
           content: [{ type: "text", text: turnError.message }],
           display_group_id: displayGroupId,
+          created_at: turnError.ts,
         };
         messages.push(latestMessage);
         continue;
       }
       const marker = transcriptDisplayMarker(event);
       if (marker) {
-        latestMessage = { ...marker, display_group_id: displayGroupId };
+        latestMessage = {
+          ...marker,
+          display_group_id: displayGroupId,
+          created_at: transcriptEventTimestamp(event),
+        };
         messages.push(latestMessage);
       }
     }
@@ -1699,6 +1713,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
               latestMessage = {
                 ...publicMessage(message),
                 display_group_id: displayGroupId,
+                created_at: transcriptEventTimestamp(event),
                 ...(turn ? { turn } : {}),
               };
               messages.push(latestMessage);
@@ -1720,6 +1735,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
               role: "assistant",
               content: [{ type: "text", text: turnError.message }],
               display_group_id: displayGroupId,
+              created_at: turnError.ts,
               ...(turn ? { turn } : {}),
             };
             messages.push(latestMessage);
@@ -1727,7 +1743,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
           }
           const marker = transcriptDisplayMarker(event);
           if (marker) {
-            latestMessage = { ...marker, display_group_id: displayGroupId };
+            latestMessage = {
+              ...marker,
+              display_group_id: displayGroupId,
+              created_at: transcriptEventTimestamp(event),
+            };
             messages.push(latestMessage);
           }
         }

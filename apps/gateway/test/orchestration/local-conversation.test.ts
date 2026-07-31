@@ -149,6 +149,7 @@ describe("LocalConversationController", () => {
     expect(h.controller.handleStreamBatch(batch)).toBe(true);
     expect(h.activities).toHaveLength(beforeActivities);
     expect(h.controller.activity("session-1").active?.stream?.thinking).toBe("inspect");
+    expect(h.controller.activity("session-1").active?.created_at).toBeGreaterThan(0);
     expect(h.streamBatches).toHaveLength(1);
     expect(JSON.stringify(h.streamBatches)).not.toContain("response_route_id");
     expect(h.controller.handleStreamBatch({ ...batch, seq: 3 })).toBe(false);

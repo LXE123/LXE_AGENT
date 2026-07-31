@@ -7,6 +7,7 @@ import {
   hasToolError,
   liveAnswerProjection,
   liveFinalText,
+  readerFacingMessageText,
   summarizeToolOperations,
   toolCallBlocks,
   toolGroupArtifacts,
@@ -72,6 +73,24 @@ describe("session conversation projection", () => {
     expect(items[3]?.type === "tool_group" ? items[3].group.parts.map((part) => part.part_id) : [])
       .toEqual(["tool-3"]);
     expect(liveFinalText(parts)).toBe("done");
+  });
+
+  test("copies only reader-facing message text", () => {
+    expect(readerFacingMessageText({
+      display_group_id: "response-1",
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "private reasoning" },
+        { type: "text", text: "Visible " },
+        { type: "tool_call", id: "call-1", name: "exec", arguments: {} },
+        { type: "text", text: "answer" },
+      ],
+    })).toBe("Visible \n\nanswer");
+    expect(readerFacingMessageText({
+      display_group_id: "user-1",
+      role: "user",
+      content: "Original user message",
+    })).toBe("Original user message");
   });
 
   test("promotes the text after the latest tool while the answer is streaming", () => {

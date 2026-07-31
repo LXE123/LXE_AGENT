@@ -149,6 +149,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(detail?.messages).toEqual([
       {
         display_group_id: expect.any(String),
+        created_at: expect.any(Number),
         role: "assistant",
         content: "world",
         turn: { turn_id: "turn-1", status: "completed", elapsed_ms: 20 },
@@ -168,6 +169,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect((await store.sessionDetail("s-1", { limit: 1, before: previousCursor }))?.messages)
       .toEqual([{
         display_group_id: expect.any(String),
+        created_at: expect.any(Number),
         role: "user",
         content: "hello",
         turn: { turn_id: "turn-1", status: "completed", elapsed_ms: 20 },

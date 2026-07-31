@@ -39,6 +39,7 @@ import {
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   liveAnswerProjection,
+  readerFacingMessageText,
   roleLabel,
   splitCallArguments,
   summarizeToolOperations,
@@ -46,7 +47,7 @@ import {
   toolOperations,
 } from "./conversation";
 import type { ToolOperation } from "./conversation";
-import { formatDate, formatDurationMs, formatNumber } from "../../shared/format";
+import { formatDate, formatDurationMs, formatMessageTime, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
@@ -103,6 +104,51 @@ function RoleBadge({ role }: { role: string }) {
       {icon}
       <span>{label}</span>
     </span>
+  );
+}
+
+function MessageMeta({
+  createdAt,
+  role,
+  text,
+}: {
+  createdAt: number;
+  role: "assistant" | "user";
+  text: string;
+}) {
+  const t = useUiText();
+  const [copied, setCopied] = useState(false);
+  const timestamp = formatMessageTime(createdAt);
+  const copyLabel = copied ? t.common.copied : t.message.copyMessage;
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const copyButton = text ? (
+    <button
+      aria-label={copyLabel}
+      className="message-meta-copy"
+      onClick={handleCopy}
+      title={copyLabel}
+      type="button"
+    >
+      {copied ? <Check aria-hidden="true" size={15} /> : <Copy aria-hidden="true" size={15} />}
+    </button>
+  ) : null;
+  const time = timestamp ? (
+    <time dateTime={new Date(createdAt * 1000).toISOString()}>{timestamp}</time>
+  ) : null;
+  if (!copyButton && !time) return null;
+  return (
+    <div className={`message-meta role-${role}`}>
+      {role === "user" ? time : copyButton}
+      {role === "user" ? copyButton : time}
+    </div>
   );
 }
 
@@ -657,7 +703,13 @@ function responseProcessLabel(group: ConversationResponseGroup, t: UiText): stri
   }
 }
 
-function PersistedResponseGroup({ group }: { group: ConversationResponseGroup }) {
+function PersistedResponseGroup({
+  deferMeta = false,
+  group,
+}: {
+  deferMeta?: boolean;
+  group: ConversationResponseGroup;
+}) {
   const t = useUiText();
   const [expanded, setExpanded] = useState(false);
   const failed = group.turn?.status === "error";
@@ -683,9 +735,18 @@ function PersistedResponseGroup({ group }: { group: ConversationResponseGroup })
         </section>
       ) : null}
       {group.finalMessage ? (
-        <article className="message-card role-assistant response-final-answer">
-          <MessageContent content={group.finalMessage.content} message={group.finalMessage} />
-        </article>
+        <div className="message-with-meta role-assistant">
+          <article className="message-card role-assistant response-final-answer">
+            <MessageContent content={group.finalMessage.content} message={group.finalMessage} />
+          </article>
+          {!deferMeta ? (
+            <MessageMeta
+              createdAt={Number(group.finalMessage.created_at ?? 0)}
+              role="assistant"
+              text={readerFacingMessageText(group.finalMessage)}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -894,11 +955,13 @@ function LiveProcessBody({ parts }: { parts: TurnProcessPart[] }) {
 function LiveResponseGroup({
   elapsedMs,
   hasElapsed,
+  settledAt,
   stream,
   turnState,
 }: {
   elapsedMs: number;
   hasElapsed: boolean;
+  settledAt: number;
   stream?: DesktopConversationStreamPayload;
   turnState: DesktopConversationTurnPayload["state"];
 }) {
@@ -944,9 +1007,14 @@ function LiveResponseGroup({
         {expanded && visibleProcessParts.length ? <LiveProcessBody parts={visibleProcessParts} /> : null}
       </section>
       {answer.text ? (
-        <article className="message-card role-assistant response-final-answer">
-          <MessageMarkdown streaming={answer.streaming} text={answer.text} />
-        </article>
+        <div className="message-with-meta role-assistant">
+          <article className="message-card role-assistant response-final-answer">
+            <MessageMarkdown streaming={answer.streaming} text={answer.text} />
+          </article>
+          {displayState === "completed" && !answer.streaming ? (
+            <MessageMeta createdAt={settledAt / 1000} role="assistant" text={answer.text} />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -1152,20 +1220,24 @@ function LocalTurnCards({
   return (
     <div className="local-turn" data-turn-id={turn.turn_id}>
       {!userPersisted ? (
-        <article className={turn.attachments?.length
-          ? "message-card role-user optimistic-message has-attachments"
-          : "message-card role-user optimistic-message"}>
-          {turn.text ? <MessageMarkdown text={turn.text} /> : null}
-          {turn.attachments?.length ? (
-            <InputAttachmentList attachments={turn.attachments} />
-          ) : null}
-          {!turn.stream ? <div className="optimistic-message-state">{stateBadge}</div> : null}
-        </article>
+        <div className="message-with-meta role-user">
+          <article className={turn.attachments?.length
+            ? "message-card role-user optimistic-message has-attachments"
+            : "message-card role-user optimistic-message"}>
+            {turn.text ? <MessageMarkdown text={turn.text} /> : null}
+            {turn.attachments?.length ? (
+              <InputAttachmentList attachments={turn.attachments} />
+            ) : null}
+            {!turn.stream ? <div className="optimistic-message-state">{stateBadge}</div> : null}
+          </article>
+          <MessageMeta createdAt={Number(turn.created_at ?? 0) / 1000} role="user" text={turn.text} />
+        </div>
       ) : null}
       {!assistantPersisted && (turn.stream || (userPersisted && (turn.state === "running" || turn.state === "stopping"))) ? (
         <LiveResponseGroup
           elapsedMs={elapsedMs}
           hasElapsed={turn.started_at > 0}
+          settledAt={turn.settled_at}
           stream={turn.stream}
           turnState={turn.state}
         />
@@ -1861,11 +1933,31 @@ export function SessionDetailView({
                 <div className="message-list">
                   {renderItems.map((item, itemIndex) => {
                     if (item.type === "artifact_group") {
-                      return <TurnFileList files={item.group.files} key={item.group.key}
-                        onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
+                      const previous = renderItems[itemIndex - 1];
+                      const finalMessage = previous?.type === "response_group"
+                        && previous.group.turn?.turn_id === item.group.turnId
+                        ? previous.group.finalMessage
+                        : undefined;
+                      return (
+                        <div className="turn-artifacts-with-meta" key={item.group.key}>
+                          <TurnFileList files={item.group.files}
+                            onOpenFile={onOpenFile} onRevealFile={onRevealFile} />
+                          {finalMessage ? (
+                            <MessageMeta
+                              createdAt={Number(finalMessage.created_at ?? 0)}
+                              role="assistant"
+                              text={readerFacingMessageText(finalMessage)}
+                            />
+                          ) : null}
+                        </div>
+                      );
                     }
                     if (item.type === "response_group") {
-                      return <PersistedResponseGroup group={item.group} key={item.group.key} />;
+                      const next = renderItems[itemIndex + 1];
+                      const deferMeta = next?.type === "artifact_group"
+                        && next.group.turnId === item.group.turn?.turn_id;
+                      return <PersistedResponseGroup deferMeta={deferMeta}
+                        group={item.group} key={item.group.key} />;
                     }
                     if (item.type === "tool_group") {
                       return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
@@ -1903,23 +1995,36 @@ export function SessionDetailView({
                         .filter(Boolean).join(" ")
                       : "";
                     const attachmentClass = message.attachments?.length ? "has-attachments" : "";
+                    const messageCard = (
+                      <article className={`message-card role-${role} ${chainClass} ${attachmentClass}`}>
+                        {hasMessageHeader ? (
+                          <div className="message-header">
+                            {showRoleBadge ? <RoleBadge role={role} /> : null}
+                            {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                            {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                          </div>
+                        ) : null}
+                        <MessageContent content={message.content} message={message} />
+                        {message.attachments?.length ? (
+                          <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
+                        ) : null}
+                      </article>
+                    );
+                    const messageWithMeta = role === "assistant" || role === "user" ? (
+                      <div className={`message-with-meta role-${role}`}>
+                        {messageCard}
+                        <MessageMeta
+                          createdAt={Number(message.created_at ?? 0)}
+                          role={role}
+                          text={readerFacingMessageText(message)}
+                        />
+                      </div>
+                    ) : messageCard;
                     // Tool activity sits beside the reply, never inside it, so a
                     // group is always read at the same level wherever it occurs.
                     return (
                       <React.Fragment key={`${role}-${index}`}>
-                        <article className={`message-card role-${role} ${chainClass} ${attachmentClass}`}>
-                          {hasMessageHeader ? (
-                            <div className="message-header">
-                              {showRoleBadge ? <RoleBadge role={role} /> : null}
-                              {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                              {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                            </div>
-                          ) : null}
-                          <MessageContent content={message.content} message={message} />
-                          {message.attachments?.length ? (
-                            <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
-                          ) : null}
-                        </article>
+                        {messageWithMeta}
                         {toolGroups.length ? (
                           <div className="process-step">
                             {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}

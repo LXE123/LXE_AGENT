@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatCompactNumber, formatNumber, groupSkillsByType, skillTypeLabel } from "../../src/shared/format";
+import {
+  formatCompactNumber,
+  formatMessageTime,
+  formatNumber,
+  groupSkillsByType,
+  skillTypeLabel,
+} from "../../src/shared/format";
 import { UI_TEXT } from "../../src/shared/i18n";
 
 describe("formatCompactNumber", () => {
@@ -27,6 +33,17 @@ describe("formatCompactNumber", () => {
   test("keeps an exact value available for accessible labels", () => {
     expect(formatNumber(1_000_000)).toBe("1,000,000");
     expect(formatNumber(32_768)).toBe("32,768");
+  });
+});
+
+describe("formatMessageTime", () => {
+  test("formats a transcript timestamp as local clock time", () => {
+    const timestamp = 1_800_000_000;
+    expect(formatMessageTime(timestamp)).toBe(new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(timestamp * 1000)));
+    expect(formatMessageTime(0)).toBe("");
   });
 });
 

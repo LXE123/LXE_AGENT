@@ -16,6 +16,15 @@ export function formatDate(value: number): string {
   }).format(new Date(value * 1000));
 }
 
+export function formatMessageTime(value: number): string {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp * 1000));
+}
+
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(Math.max(0, Number(value) || 0));
 }

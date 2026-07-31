@@ -151,7 +151,8 @@ export class LocalConversationController {
       extra_data: { platform: DESKTOP_PLATFORM },
     });
 
-    const createdAt = Math.trunc(this.now() / 1_000);
+    const createdAtMs = this.now();
+    const createdAt = Math.trunc(createdAtMs / 1_000);
     const userContentBlocks: JsonObject[] = [];
     for (const attachment of attachments) {
       userContentBlocks.push({
@@ -196,6 +197,7 @@ export class LocalConversationController {
         text,
         ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
         state: "queued",
+        created_at: createdAtMs,
         started_at: 0,
         user_persisted_at: 0,
         settled_at: 0,

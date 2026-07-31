@@ -52,6 +52,16 @@ export function hasReaderFacingText(message: SessionMessage): boolean {
   return message.content.some(isReaderFacingTextBlock);
 }
 
+/** Copy the answer the reader can see, never its hidden thinking or tool calls. */
+export function readerFacingMessageText(message: SessionMessage): string {
+  if (typeof message.content === "string") return message.content;
+  if (!Array.isArray(message.content)) return "";
+  return message.content
+    .filter(isReaderFacingTextBlock)
+    .map((block) => isRecord(block) ? String(block.text ?? "") : "")
+    .join("\n\n");
+}
+
 function isPureToolAssistantMessage(message: SessionMessage): boolean {
   if (roleLabel(message.role) !== "assistant") return false;
   if (!Array.isArray(message.content) || message.content.length === 0) return false;

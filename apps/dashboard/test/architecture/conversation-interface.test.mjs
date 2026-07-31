@@ -242,6 +242,17 @@ test("thinking and tools fold into one response process while the final answer s
   assert.doesNotMatch(view, /live-tool-operation-detail/);
 });
 
+test("reader messages expose only copy and timestamp metadata", () => {
+  assert.match(view, /function MessageMeta/);
+  assert.match(view, /className="message-meta-copy"/);
+  assert.match(view, /formatMessageTime\(createdAt\)/);
+  assert.match(view, /readerFacingMessageText\(group\.finalMessage\)/);
+  assert.match(view, /role === "user" \? time : copyButton/);
+  assert.match(styles, /\.message-meta-copy\s*\{[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.message-with-meta\.role-user\s*\{[^}]*align-items:\s*flex-end;/s);
+  assert.doesNotMatch(view, /message-meta[^\n]*(?:ThumbsUp|ThumbsDown|Maximize)/);
+});
+
 test("the in-flight final answer leaves the process panel before the turn settles", () => {
   assert.match(view, /liveAnswerProjection\(processParts, stream\?\.display_metrics\.phase\)/);
   assert.match(view, /processParts\.filter\(\(part\) => !answerPartIds\.has\(part\.part_id\)\)/);
