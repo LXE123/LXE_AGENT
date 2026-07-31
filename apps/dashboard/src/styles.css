@@ -2407,9 +2407,9 @@ h1 {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 34px;
+  min-height: 31px;
   gap: 10px;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -2440,7 +2440,7 @@ h1 {
 
 .tab.active::before {
   position: absolute;
-  inset: 9px auto 9px 0;
+  inset: 8px auto 8px 0;
   width: 2.5px;
   border-radius: 999px;
   background: var(--sidebar-accent, var(--accent));
