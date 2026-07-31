@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
@@ -718,8 +719,113 @@ def test_formal_success_renders_contracts_locally_without_erp_download(
 
     assert result["success"] is True
     assert result["status"] == "completed"
+    assert result["result_schema"] == "lxe.fba.purchase-summary-result.v1"
+    assert result["quantity_summary"] == {
+        "planned_shipment_quantity": "10",
+        "carryover_applied_quantity": "4",
+        "purchase_quantity": "6",
+    }
+    assert result["artifact_summary"] == {
+        "delivery_count": 1,
+        "restock_count": 1,
+        "contract_count": 1,
+        "deliverable_file_count": 3,
+    }
     assert result["contract_xlsx_paths"] == [str(contract_path)]
+    assert result["contracts"] == [
+        {
+            "contract_id": "00000000-0000-0000-0000-000000000002",
+            "supplier_name": "深圳正飞科技",
+            "contract_no": "ZF20260723001",
+            "output_xlsx": str(contract_path),
+        }
+    ]
+    assert "erp" not in result
+    assert "purchase_lines" not in result
+    assert "restock_outputs" not in result
+    assert "contract_outputs" not in result
     assert seen[0]["contracts"] == response["contracts"]
+
+
+def test_formal_success_result_is_compact_and_keeps_every_deliverable_path() -> None:
+    response = deepcopy(_erp_result())
+    base_line = response["purchase_lines"][0]
+    response["purchase_lines"] = []
+    for index in range(16):
+        line = deepcopy(base_line)
+        line["line_ref"] = f"L{index + 1:04d}"
+        line["model"] = f"MODEL-{index + 1:02d}-完整型号"
+        line["allocation_details"] = [
+            {
+                **deepcopy(base_line["allocation_details"][detail_index % 2]),
+                "stock_sku": f"SKU-{index + 1:02d}-{detail_index + 1:02d}",
+            }
+            for detail_index in range(24)
+        ]
+        response["purchase_lines"].append(line)
+
+    response["contracts"] = [
+        {
+            "contract_id": f"contract-{index + 1:02d}",
+            "supplier_name": f"供应商-{index + 1:02d}",
+            "contract_no": f"HT20260731{index + 1:03d}",
+        }
+        for index in range(14)
+    ]
+    restock_paths = [f"/artifacts/SP-{index + 1:02d}-备货单.xlsx" for index in range(10)]
+    contract_outputs = [
+        {
+            "manufacturer": contract["supplier_name"],
+            "sheet_name": contract["supplier_name"],
+            "contract_no": contract["contract_no"],
+            "output_xlsx": f"/artifacts/{contract['contract_no']}.xlsx",
+        }
+        for contract in response["contracts"]
+    ]
+    formal = {
+        "success": True,
+        "delivery_nos": [f"SP-{index + 1:02d}" for index in range(10)],
+        "csv_paths": [f"/inputs/SP-{index + 1:02d}.csv" for index in range(10)],
+        "master_xlsx": "/inputs/master.xlsx",
+        "gross_margin": "0.3",
+        "pricing_basis": "fixture",
+        "purchase_summary_xlsx": "/artifacts/purchase-summary.xlsx",
+        "restock_xlsx_paths": restock_paths,
+        "restock_outputs": [
+            {"delivery_no": f"SP-{index + 1:02d}", "output_xlsx": path}
+            for index, path in enumerate(restock_paths)
+        ],
+        "sku_count": 415,
+        "manufacturer_count": 15,
+        "warnings": [],
+        "source": "fba_purchase_batch_workbooks",
+        "erp": deepcopy(response),
+        "contracts": deepcopy(response["contracts"]),
+        "purchase_lines": deepcopy(response["purchase_lines"]),
+        "contract_outputs": deepcopy(contract_outputs),
+        "contract_xlsx_paths": [item["output_xlsx"] for item in contract_outputs],
+    }
+    contract_result = {"output_files": contract_outputs, "warnings": []}
+
+    compact = cli._formal_success_result(formal, response, contract_result)
+
+    old_size = len(json.dumps(formal, ensure_ascii=False, separators=(",", ":")))
+    compact_size = len(json.dumps(compact, ensure_ascii=False, separators=(",", ":")))
+    assert compact_size <= old_size * 0.35
+    assert compact_size < 12_000
+    assert compact["artifact_summary"] == {
+        "delivery_count": 10,
+        "restock_count": 10,
+        "contract_count": 14,
+        "deliverable_file_count": 25,
+    }
+    assert compact["manufacturer_count"] == 15
+    assert compact["contract_xlsx_paths"] == [
+        item["output_xlsx"] for item in contract_outputs
+    ]
+    assert compact["restock_xlsx_paths"] == restock_paths
+    assert "erp" not in compact
+    assert "purchase_lines" not in compact
 
 
 def test_cli_preserves_local_artifacts_when_formal_contract_generation_fails(

@@ -72,7 +72,10 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 ## Result Handling
 
-- `success=true`：将 terminal `files` 一次传给 `send_files(paths=<terminal.files>)`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
+- 正式成功结果使用 `result_schema=lxe.fba.purchase-summary-result.v1`。完整 ERP 分配已在 CLI 内部完成校验和制表，不会作为调试数据重复输出。
+- `success=true`：将 terminal `files` 一次传给 `send_files(paths=<terminal.files>)`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同。报告 `batch_no`、`version_no`、`quantity_summary` 和 `contracts`；`contracts` 只含供应商、合同号、合同 ID 和对应文件路径。
+- `artifact_summary.contract_count` 小于 `manufacturer_count` 可能是正常结果：某供应商全部由历史库存满足时不会生成新合同。不要据此声称合同缺失。
+- `purchase_line_count` 只表示 ERP 已处理的型号行数；逐型号明细以采购汇总附件为准，不要因成功结果不含 `purchase_lines` 而重新执行命令。
 - 正式采购汇总和备货单将 `数量` 拆为 `计划发货量`、`本次采购量`、`留存库存抵扣量`。
 - 备货单的新采购行在上方，使用新合同号；历史库存行在底部且整行黄色，使用旧合同号和历史单价。
 - 同一型号使用多个旧合同时，每个“旧合同号＋历史单价”单独一条黄色行。

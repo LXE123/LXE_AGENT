@@ -4,7 +4,7 @@ from collections import OrderedDict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import fill_purchase_contracts as contract_workbook
@@ -13,6 +13,118 @@ from services.agent_cli.mabang import generate_restock_workbook as purchase_summ
 from services.agent_cli.mabang import erp_purchase_batch
 
 SOURCE = "fba_purchase_batch_workbooks"
+FORMAL_SUCCESS_RESULT_SCHEMA = "lxe.fba.purchase-summary-result.v1"
+
+_FORMAL_DIAGNOSTIC_COUNT_FIELDS = (
+    "sku_count",
+    "sku_source_count",
+    "matched_sku_count",
+    "unmatched_sku_count",
+    "restock_matched_sku_count",
+    "restock_unmatched_sku_count",
+    "manufacturer_count",
+    "cross_manufacturer_model_count",
+    "deduped_duplicate_sku_count",
+    "deduped_duplicate_row_count",
+    "skipped_empty_sku_row_count",
+    "unmerged_empty_model_sku_count",
+    "contract_mapping_count",
+    "contract_unmapped_manufacturer_count",
+    "contract_conflict_manufacturer_count",
+    "contract_prefix_conflict_manufacturer_count",
+    "contract_tax_rate_conflict_manufacturer_count",
+)
+
+
+def _quantity_text(value: Decimal) -> str:
+    if value == value.to_integral_value():
+        return str(int(value))
+    return format(value.normalize(), "f").rstrip("0").rstrip(".")
+
+
+def _formal_success_result(
+    formal: Mapping[str, Any],
+    erp_result: Mapping[str, Any],
+    contract_result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Expose only the decision and delivery summary after all formal artifacts exist."""
+    purchase_lines = list(erp_result.get("purchase_lines") or [])
+    quantity_fields = (
+        "planned_shipment_quantity",
+        "carryover_applied_quantity",
+        "purchase_quantity",
+    )
+    quantity_summary = {
+        field: _quantity_text(
+            sum((Decimal(str(line[field])) for line in purchase_lines), Decimal("0"))
+        )
+        for field in quantity_fields
+    }
+
+    server_contracts = {
+        str(item.get("supplier_name") or ""): item
+        for item in list(erp_result.get("contracts") or [])
+        if isinstance(item, Mapping)
+    }
+    contracts: list[dict[str, Any]] = []
+    for raw_output in list(contract_result.get("output_files") or []):
+        if not isinstance(raw_output, Mapping):
+            continue
+        supplier_name = str(raw_output.get("manufacturer") or "")
+        server_contract = server_contracts.get(supplier_name, {})
+        contracts.append(
+            {
+                "contract_id": server_contract.get("contract_id"),
+                "supplier_name": supplier_name,
+                "contract_no": raw_output.get("contract_no"),
+                "output_xlsx": raw_output.get("output_xlsx"),
+            }
+        )
+
+    delivery_nos = list(formal.get("delivery_nos") or erp_result.get("sp_nos") or [])
+    restock_xlsx_paths = list(formal.get("restock_xlsx_paths") or [])
+    contract_xlsx_paths = [
+        str(item.get("output_xlsx") or "")
+        for item in contracts
+        if item.get("output_xlsx")
+    ]
+    warnings = [
+        *list(formal.get("warnings") or []),
+        *list(contract_result.get("warnings") or []),
+    ]
+    result: dict[str, Any] = {
+        "success": True,
+        "status": "completed",
+        "result_schema": FORMAL_SUCCESS_RESULT_SCHEMA,
+        "mode": "formal",
+        "erp_synced": True,
+        "erp_status": erp_result.get("status"),
+        "batch_id": erp_result.get("batch_id"),
+        "batch_no": erp_result.get("batch_no"),
+        "revision_id": erp_result.get("revision_id"),
+        "version_no": erp_result.get("version_no"),
+        "delivery_nos": delivery_nos,
+        "quantity_summary": quantity_summary,
+        "artifact_summary": {
+            "delivery_count": len(delivery_nos),
+            "restock_count": len(restock_xlsx_paths),
+            "contract_count": len(contracts),
+            "deliverable_file_count": 1 + len(restock_xlsx_paths) + len(contract_xlsx_paths),
+        },
+        "purchase_line_count": len(purchase_lines),
+        "contracts": contracts,
+        "purchase_summary_xlsx": formal.get("purchase_summary_xlsx"),
+        "restock_xlsx_paths": restock_xlsx_paths,
+        "contract_xlsx_paths": contract_xlsx_paths,
+        "gross_margin": formal.get("gross_margin"),
+        "pricing_basis": formal.get("pricing_basis"),
+        "warnings": warnings,
+        "source": formal.get("source") or SOURCE,
+    }
+    for field in _FORMAL_DIAGNOSTIC_COUNT_FIELDS:
+        if field in formal:
+            result[field] = formal[field]
+    return result
 
 
 
@@ -248,13 +360,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 contracts=formal["contracts"],
                 purchase_lines=formal["purchase_lines"],
             )
-            formal["contract_template_xlsx"] = contract_result["contract_template_xlsx"]
-            formal["contract_outputs"] = contract_result["output_files"]
-            formal["contract_xlsx_paths"] = [
-                item["output_xlsx"] for item in contract_result["output_files"]
-            ]
-            formal["status"] = "completed"
-            return formal
+            return _formal_success_result(formal, erp_result, contract_result)
         except Exception as exc:
             if isinstance(
                 exc,
