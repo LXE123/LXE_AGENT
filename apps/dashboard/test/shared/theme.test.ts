@@ -74,6 +74,8 @@ describe("dark palette", () => {
   test("keeps conversation muted surfaces neutral instead of blue", () => {
     expect(light["--conversation-muted-fill"]).toBe("#f4f4f4");
     expect(dark["--conversation-muted-fill"]).toBe("#302f2e");
+    expect(light["--table-header-fill"]).toBe("#eeeeee");
+    expect(dark["--table-header-fill"]).toBe("#2b2a29");
   });
 
   test("defines a dark value for every themeable light token", () => {

@@ -108,8 +108,13 @@ test("conversation markdown tables use separated cells instead of a framed grid"
   // drift cool or warm independently of the other.
   assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--conversation-muted-fill\);/s);
   assert.doesNotMatch(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*background:\s*var\(--surface-subtle\);/s);
-  assert.doesNotMatch(styles, /\.message-markdown th \{[^}]*background:/s);
+  assert.match(styles, /\.message-markdown th \{[^}]*background:\s*var\(--table-header-fill\);/s);
   assert.doesNotMatch(styles, /\.message-markdown (?:th|td|tr:last-child td) \{[^}]*border-bottom:/s);
+});
+
+test("conversation quotes and code keep structure without tinted panels", () => {
+  assert.match(styles, /\.message-markdown blockquote \{[^}]*border-left:\s*2px solid var\(--accent-muted\);[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.message-markdown pre \{[^}]*border:\s*1px solid var\(--border\);[^}]*background:\s*transparent;/s);
 });
 
 test("conversation fenced code reaches the syntax highlighter", () => {

@@ -21,6 +21,7 @@
   /* A neutral grey shared by conversation cells and user bubbles. Keeping it
      independent prevents the warm page palette from tinting these surfaces. */
   --conversation-muted-fill: #f4f4f4;
+  --table-header-fill: #eeeeee;
   --row-hover: #f3efe9;
   --border: #ebe4da;
   --border-strong: #ddd2c4;
@@ -135,6 +136,7 @@ button {
   --surface-muted: #2e2c2a;
   --surface-subtle: #2a2827;
   --conversation-muted-fill: #302f2e;
+  --table-header-fill: #2b2a29;
   --row-hover: #3b3835;
   --border: #47423e;
   --border-strong: #5c554e;
@@ -5710,7 +5712,7 @@ h1 {
   padding: 6px 10px;
   border-left: 2px solid var(--accent-muted);
   border-radius: 0 6px 6px 0;
-  background: var(--surface-subtle);
+  background: transparent;
   color: var(--text-soft);
 }
 
@@ -5728,7 +5730,7 @@ h1 {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-subtle);
+  background: transparent;
 }
 
 .message-markdown pre code {
@@ -5772,6 +5774,7 @@ h1 {
 }
 
 .message-markdown th {
+  background: var(--table-header-fill);
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 650;
