@@ -26,6 +26,7 @@ PURCHASE_CONFIRMATION_CODES = frozenset(
         "purchase_batch_replace_confirmation_required",
     }
 )
+PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v1"
 FORMAL_QUANTITY_COLUMNS = ("计划发货量", "本次采购量", "留存库存抵扣量")
 INVENTORY_ROW_FILL_COLOR = "FFFFFF00"
 CONTRACT_OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
@@ -534,160 +535,6 @@ def _validate_allocation_details(
     return carryover_total, purchase_total
 
 
-def _validate_quote(
-    quote: Mapping[str, Any],
-    *,
-    request_payload: Mapping[str, Any],
-    field_prefix: str,
-) -> None:
-    _required_result_text(quote.get("quote_id"), field=f"{field_prefix}.quote_id")
-    _required_result_text(
-        quote.get("intent_sha256"), field=f"{field_prefix}.intent_sha256"
-    )
-    _required_result_text(
-        quote.get("inventory_sha256"), field=f"{field_prefix}.inventory_sha256"
-    )
-    expected_lines = _expected_purchase_lines(request_payload)
-    raw_lines = _required_result_list(quote.get("lines"), field=f"{field_prefix}.lines")
-    actual_refs: set[str] = set()
-    planned_total = Decimal("0")
-    carryover_total = Decimal("0")
-    purchase_total = Decimal("0")
-    for line_index, raw_line in enumerate(raw_lines):
-        line_field = f"{field_prefix}.lines[{line_index}]"
-        if not isinstance(raw_line, Mapping):
-            raise _incomplete(f"{line_field} 必须是对象", field=line_field)
-        line_ref = _required_result_text(raw_line.get("line_ref"), field=f"{line_field}.line_ref")
-        if line_ref in actual_refs or line_ref not in expected_lines:
-            raise _incomplete(f"报价行 line_ref 无法匹配或重复: {line_ref}", field=f"{line_field}.line_ref")
-        actual_refs.add(line_ref)
-        expected = expected_lines[line_ref]
-        supplier_name = _required_result_text(
-            raw_line.get("supplier_name"), field=f"{line_field}.supplier_name"
-        )
-        model = _required_result_text(raw_line.get("model"), field=f"{line_field}.model")
-        for name in ("tax_rate", "contract_product_name", "unit"):
-            _required_result_text(raw_line.get(name), field=f"{line_field}.{name}")
-        _required_result_decimal(
-            raw_line.get("source_tax_unit_price"),
-            field=f"{line_field}.source_tax_unit_price",
-        )
-        if supplier_name != expected["supplier_name"] or model.casefold() != expected["model"].casefold():
-            raise _incomplete(f"报价行 {line_ref} 的供应商或型号与请求不一致", field=line_field)
-        planned = _required_result_decimal(
-            raw_line.get("planned_shipment_quantity"),
-            field=f"{line_field}.planned_shipment_quantity",
-            positive=True,
-        )
-        carryover = _required_result_decimal(
-            raw_line.get("carryover_applied_quantity"),
-            field=f"{line_field}.carryover_applied_quantity",
-        )
-        purchased = _required_result_decimal(
-            raw_line.get("purchase_quantity"), field=f"{line_field}.purchase_quantity"
-        )
-        if planned != expected["planned"] or planned != carryover + purchased:
-            raise _incomplete(f"报价行 {line_ref} 不满足 计划量=采购量+库存抵扣量", field=line_field)
-        detail_carryover, detail_purchase = _validate_allocation_details(
-            raw_line,
-            line_ref=line_ref,
-            expected=expected,
-            field_prefix=line_field,
-        )
-        if detail_carryover != carryover or detail_purchase != purchased:
-            raise _incomplete(f"报价行 {line_ref} 的来源分配与采购/抵扣量不一致", field=line_field)
-        inventory_sources = _required_result_list(
-            raw_line.get("inventory_sources"), field=f"{line_field}.inventory_sources"
-        )
-        suggested_total = Decimal("0")
-        for source_index, raw_source in enumerate(inventory_sources):
-            source_field = f"{line_field}.inventory_sources[{source_index}]"
-            if not isinstance(raw_source, Mapping):
-                raise _incomplete(f"{source_field} 必须是对象", field=source_field)
-            _required_result_text(
-                raw_source.get("carryover_entry_id"),
-                field=f"{source_field}.carryover_entry_id",
-            )
-            _required_result_text(
-                raw_source.get("source_contract_no"),
-                field=f"{source_field}.source_contract_no",
-            )
-            _required_result_decimal(
-                raw_source.get("historical_tax_unit_price"),
-                field=f"{source_field}.historical_tax_unit_price",
-            )
-            available = _required_result_decimal(
-                raw_source.get("available_quantity"),
-                field=f"{source_field}.available_quantity",
-            )
-            suggested = _required_result_decimal(
-                raw_source.get("suggested_applied_quantity"),
-                field=f"{source_field}.suggested_applied_quantity",
-            )
-            if suggested > available:
-                raise _incomplete(f"{source_field} 建议抵扣量超过可用量", field=source_field)
-            suggested_total += suggested
-        if suggested_total != carryover:
-            raise _incomplete(f"报价行 {line_ref} 的库存来源建议抵扣合计不守恒", field=line_field)
-        applications = _required_result_list(
-            raw_line.get("applications"), field=f"{line_field}.applications"
-        )
-        application_total = Decimal("0")
-        for application_index, raw_application in enumerate(applications):
-            application_field = f"{line_field}.applications[{application_index}]"
-            if not isinstance(raw_application, Mapping):
-                raise _incomplete(
-                    f"{application_field} 必须是对象", field=application_field
-                )
-            _required_result_text(
-                raw_application.get("carryover_entry_id"),
-                field=f"{application_field}.carryover_entry_id",
-            )
-            _required_result_text(
-                raw_application.get("source_contract_no"),
-                field=f"{application_field}.source_contract_no",
-            )
-            _required_result_decimal(
-                raw_application.get("historical_tax_unit_price"),
-                field=f"{application_field}.historical_tax_unit_price",
-            )
-            application_total += _required_result_decimal(
-                raw_application.get("applied_quantity"),
-                field=f"{application_field}.applied_quantity",
-                positive=True,
-            )
-        if application_total != carryover:
-            raise _incomplete(f"报价行 {line_ref} 的库存应用合计不守恒", field=line_field)
-        planned_total += planned
-        carryover_total += carryover
-        purchase_total += purchased
-    if actual_refs != set(expected_lines):
-        raise _incomplete(
-            f"报价行集合与请求不一致: missing={sorted(set(expected_lines) - actual_refs)}",
-            field=f"{field_prefix}.lines",
-        )
-    top_planned = _required_result_decimal(
-        quote.get("planned_shipment_quantity"),
-        field=f"{field_prefix}.planned_shipment_quantity",
-    )
-    top_carryover = _required_result_decimal(
-        quote.get("carryover_applied_quantity"),
-        field=f"{field_prefix}.carryover_applied_quantity",
-    )
-    top_purchase = _required_result_decimal(
-        quote.get("purchase_quantity"), field=f"{field_prefix}.purchase_quantity"
-    )
-    if (top_planned, top_carryover, top_purchase) != (
-        planned_total,
-        carryover_total,
-        purchase_total,
-    ) or top_planned != top_carryover + top_purchase:
-        raise _incomplete("报价总量与明细不守恒", field=field_prefix)
-    _required_result_list(
-        quote.get("inventory_issues"), field=f"{field_prefix}.inventory_issues"
-    )
-
-
 def _validate_success_response(
     response: Mapping[str, Any],
     *,
@@ -854,6 +701,180 @@ def _validate_success_response(
         )
 
 
+def _required_nonnegative_int(value: Any, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise _incomplete(f"{field} 必须是非负整数", field=field)
+    return value
+
+
+def _validate_inventory_confirmation(
+    confirmation: Mapping[str, Any],
+    *,
+    request_payload: Mapping[str, Any],
+) -> None:
+    _required_result_text(confirmation.get("quote_id"), field="confirmation.quote_id")
+    planned_total = _required_result_decimal(
+        confirmation.get("planned_shipment_quantity"),
+        field="confirmation.planned_shipment_quantity",
+    )
+    carryover_total = _required_result_decimal(
+        confirmation.get("carryover_applied_quantity"),
+        field="confirmation.carryover_applied_quantity",
+    )
+    purchase_total = _required_result_decimal(
+        confirmation.get("purchase_quantity"),
+        field="confirmation.purchase_quantity",
+    )
+    if planned_total != carryover_total + purchase_total:
+        raise _incomplete(
+            "确认总量不满足 计划量=抵扣量+采购量",
+            field="confirmation",
+        )
+
+    expected_lines = list(_expected_purchase_lines(request_payload).values())
+    expected_by_key = {
+        (line["supplier_name"], str(line["model"]).casefold()): line
+        for line in expected_lines
+    }
+    all_line_count = _required_nonnegative_int(
+        confirmation.get("all_line_count"), field="confirmation.all_line_count"
+    )
+    affected_line_count = _required_nonnegative_int(
+        confirmation.get("affected_line_count"),
+        field="confirmation.affected_line_count",
+    )
+    omitted_line_count = _required_nonnegative_int(
+        confirmation.get("omitted_unaffected_line_count"),
+        field="confirmation.omitted_unaffected_line_count",
+    )
+    _required_nonnegative_int(
+        confirmation.get("omitted_unused_inventory_source_count"),
+        field="confirmation.omitted_unused_inventory_source_count",
+    )
+    raw_lines = _required_result_list(
+        confirmation.get("affected_lines"), field="confirmation.affected_lines"
+    )
+    if (
+        all_line_count != len(expected_lines)
+        or all_line_count != affected_line_count + omitted_line_count
+        or affected_line_count != len(raw_lines)
+    ):
+        raise _incomplete("确认型号计数不守恒", field="confirmation")
+    if planned_total != sum(
+        (line["planned"] for line in expected_lines), Decimal("0")
+    ):
+        raise _incomplete(
+            "确认计划总量与请求不一致",
+            field="confirmation.planned_shipment_quantity",
+        )
+
+    seen_keys: set[tuple[str, str]] = set()
+    affected_carryover_total = Decimal("0")
+    for line_index, raw_line in enumerate(raw_lines):
+        line_field = f"confirmation.affected_lines[{line_index}]"
+        if not isinstance(raw_line, Mapping):
+            raise _incomplete(f"{line_field} 必须是对象", field=line_field)
+        supplier_name = _required_result_text(
+            raw_line.get("supplier_name"), field=f"{line_field}.supplier_name"
+        )
+        model = _required_result_text(
+            raw_line.get("model"), field=f"{line_field}.model"
+        )
+        _required_result_text(
+            raw_line.get("contract_product_name"),
+            field=f"{line_field}.contract_product_name",
+        )
+        key = (supplier_name, model.casefold())
+        expected = expected_by_key.get(key)
+        if expected is None or key in seen_keys:
+            raise _incomplete(
+                f"受影响型号无法匹配请求或重复: {supplier_name}/{model}",
+                field=line_field,
+            )
+        seen_keys.add(key)
+        planned = _required_result_decimal(
+            raw_line.get("planned_shipment_quantity"),
+            field=f"{line_field}.planned_shipment_quantity",
+            positive=True,
+        )
+        carryover = _required_result_decimal(
+            raw_line.get("carryover_applied_quantity"),
+            field=f"{line_field}.carryover_applied_quantity",
+            positive=True,
+        )
+        purchased = _required_result_decimal(
+            raw_line.get("purchase_quantity"),
+            field=f"{line_field}.purchase_quantity",
+        )
+        if planned != expected["planned"] or planned != carryover + purchased:
+            raise _incomplete(
+                f"受影响型号数量不守恒: {supplier_name}/{model}",
+                field=line_field,
+            )
+        sources = _required_result_list(
+            raw_line.get("inventory_sources"),
+            field=f"{line_field}.inventory_sources",
+        )
+        source_total = Decimal("0")
+        for source_index, raw_source in enumerate(sources):
+            source_field = f"{line_field}.inventory_sources[{source_index}]"
+            if not isinstance(raw_source, Mapping):
+                raise _incomplete(f"{source_field} 必须是对象", field=source_field)
+            _required_result_text(
+                raw_source.get("source_contract_no"),
+                field=f"{source_field}.source_contract_no",
+            )
+            _required_result_decimal(
+                raw_source.get("historical_tax_unit_price"),
+                field=f"{source_field}.historical_tax_unit_price",
+            )
+            source_total += _required_result_decimal(
+                raw_source.get("suggested_applied_quantity"),
+                field=f"{source_field}.suggested_applied_quantity",
+                positive=True,
+            )
+        if source_total != carryover:
+            raise _incomplete(
+                f"受影响型号的库存来源合计不守恒: {supplier_name}/{model}",
+                field=line_field,
+            )
+        affected_carryover_total += carryover
+    if affected_carryover_total != carryover_total:
+        raise _incomplete(
+            "受影响型号抵扣合计与确认总量不一致",
+            field="confirmation.carryover_applied_quantity",
+        )
+
+
+def _validate_batch_replacement_confirmation(
+    confirmation: Mapping[str, Any],
+    *,
+    request_payload: Mapping[str, Any],
+) -> None:
+    conflicts = _required_result_list(
+        confirmation.get("conflicts"), field="confirmation.conflicts"
+    )
+    if not conflicts:
+        raise _incomplete("批次替换确认没有冲突明细", field="confirmation.conflicts")
+    requested_sps = {
+        _required_result_text(item.get("sp_no"), field="request.sps[].sp_no").upper()
+        for item in _required_result_list(request_payload.get("sps"), field="request.sps")
+        if isinstance(item, Mapping)
+    }
+    for index, raw_conflict in enumerate(conflicts):
+        field = f"confirmation.conflicts[{index}]"
+        if not isinstance(raw_conflict, Mapping):
+            raise _incomplete(f"{field} 必须是对象", field=field)
+        sp_no = _required_result_text(raw_conflict.get("sp_no"), field=f"{field}.sp_no")
+        if sp_no.upper() not in requested_sps:
+            raise _incomplete(f"{field}.sp_no 不在当前请求中", field=f"{field}.sp_no")
+        for name in ("batch_id", "batch_no"):
+            _required_result_text(raw_conflict.get(name), field=f"{field}.{name}")
+        version = raw_conflict.get("version_no")
+        if isinstance(version, bool) or not isinstance(version, int) or version <= 0:
+            raise _incomplete(f"{field}.version_no 必须是正整数", field=f"{field}.version_no")
+
+
 def validate_purchase_response(
     *,
     status_code: int,
@@ -863,37 +884,50 @@ def validate_purchase_response(
     if status_code < 400:
         _validate_success_response(response, request_payload=request_payload)
         return
-    raw_error = response.get("error")
-    raw_detail = response.get("detail")
-    error = raw_error if isinstance(raw_error, Mapping) else raw_detail
+    schema = _required_result_text(response.get("response_schema"), field="response_schema")
+    if schema != PURCHASE_CONFIRMATION_RESPONSE_SCHEMA:
+        raise PurchaseBatchClientError(
+            "erp_purchase_confirmation_schema_unsupported",
+            f"ERP 采购确认响应版本不受支持: {schema}",
+            detail={"response_schema": schema},
+        )
+    response_request_id = _required_result_text(
+        response.get("request_id"), field="request_id"
+    )
+    if response_request_id != request_payload.get("request_id"):
+        raise _incomplete("409 确认响应 request_id 与请求不一致", field="request_id")
+    error = response.get("error")
     if not isinstance(error, Mapping):
-        raise _incomplete("409 业务响应缺少 error/detail", field="error")
+        raise _incomplete("409 业务响应缺少 error", field="error")
     code = _required_result_text(error.get("code"), field="error.code")
     _required_result_text(error.get("message"), field="error.message")
-    if code == "purchase_inventory_confirmation_required":
-        _validate_quote(response, request_payload=request_payload, field_prefix="quote")
-    elif code == "purchase_inventory_quote_stale":
-        latest_quote = response.get("latest_quote")
-        if not isinstance(latest_quote, Mapping):
-            raise _incomplete("报价过期响应缺少 latest_quote", field="latest_quote")
-        _validate_quote(
-            latest_quote,
+    status = _required_result_text(response.get("status"), field="status")
+    confirmation = response.get("confirmation")
+    if not isinstance(confirmation, Mapping):
+        raise _incomplete("409 业务响应缺少 confirmation", field="confirmation")
+    kind = _required_result_text(confirmation.get("kind"), field="confirmation.kind")
+    if code in {
+        "purchase_inventory_confirmation_required",
+        "purchase_inventory_quote_stale",
+    }:
+        expected_status = (
+            "quote_stale"
+            if code == "purchase_inventory_quote_stale"
+            else "confirmation_required"
+        )
+        if status != expected_status or kind != "inventory_quote":
+            raise _incomplete("库存确认的 status/kind 与 error.code 不一致", field="confirmation")
+        _validate_inventory_confirmation(
+            confirmation,
             request_payload=request_payload,
-            field_prefix="latest_quote",
         )
     elif code == "purchase_batch_replace_confirmation_required":
-        conflicts = _required_result_list(error.get("conflicts"), field="error.conflicts")
-        if not conflicts:
-            raise _incomplete("批次替换确认响应没有冲突明细", field="error.conflicts")
-        for index, raw_conflict in enumerate(conflicts):
-            field = f"error.conflicts[{index}]"
-            if not isinstance(raw_conflict, Mapping):
-                raise _incomplete(f"{field} 必须是对象", field=field)
-            for name in ("sp_no", "batch_id", "batch_no"):
-                _required_result_text(raw_conflict.get(name), field=f"{field}.{name}")
-            version = raw_conflict.get("version_no")
-            if isinstance(version, bool) or not isinstance(version, int) or version <= 0:
-                raise _incomplete(f"{field}.version_no 必须是正整数", field=f"{field}.version_no")
+        if status != "confirmation_required" or kind != "batch_replacement":
+            raise _incomplete("批次替换的 status/kind 与 error.code 不一致", field="confirmation")
+        _validate_batch_replacement_confirmation(
+            confirmation,
+            request_payload=request_payload,
+        )
     else:
         raise _incomplete(f"未识别的确认响应错误码: {code}", field="error.code")
 
@@ -904,43 +938,10 @@ def confirmation_result(
     status_code: int,
     request_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    raw_detail = response.get("detail")
     raw_error = response.get("error")
-    detail = dict(raw_detail) if isinstance(raw_detail, Mapping) else {}
-    top_error = dict(raw_error) if isinstance(raw_error, Mapping) else {}
-    fields = detail or top_error
-    code = str(fields.get("code") or "purchase_confirmation_required")
-    message = str(fields.get("message") or "ERP 要求用户确认后才能创建采购批次")
-    if code == "purchase_inventory_confirmation_required":
-        erp_summary = _inventory_quote_summary(response, field_prefix="quote")
-    elif code == "purchase_inventory_quote_stale":
-        latest_quote = response.get("latest_quote")
-        if not isinstance(latest_quote, Mapping):
-            raise _incomplete("报价过期响应缺少 latest_quote", field="latest_quote")
-        erp_summary = {
-            "latest_quote": _inventory_quote_summary(
-                latest_quote,
-                field_prefix="latest_quote",
-            )
-        }
-    elif code == "purchase_batch_replace_confirmation_required":
-        conflicts = _required_result_list(
-            fields.get("conflicts"), field="error.conflicts"
-        )
-        erp_summary = {
-            "conflicts": [
-                {
-                    "sp_no": conflict.get("sp_no"),
-                    "batch_id": conflict.get("batch_id"),
-                    "batch_no": conflict.get("batch_no"),
-                    "version_no": conflict.get("version_no"),
-                }
-                for conflict in conflicts
-                if isinstance(conflict, Mapping)
-            ]
-        }
-    else:
-        erp_summary = {}
+    error = dict(raw_error) if isinstance(raw_error, Mapping) else {}
+    code = str(error.get("code") or "purchase_confirmation_required")
+    message = str(error.get("message") or "ERP 要求用户确认后才能创建采购批次")
     return {
         "success": False,
         "status": str(response.get("status") or "confirmation_required"),
@@ -951,107 +952,7 @@ def confirmation_result(
             "message": message,
             "http_status": status_code,
         },
-        "erp": erp_summary,
-    }
-
-
-def _inventory_quote_summary(
-    quote: Mapping[str, Any],
-    *,
-    field_prefix: str,
-) -> dict[str, Any]:
-    quote_id = _required_result_text(
-        quote.get("quote_id"), field=f"{field_prefix}.quote_id"
-    )
-    _required_result_decimal(
-        quote.get("planned_shipment_quantity"),
-        field=f"{field_prefix}.planned_shipment_quantity",
-    )
-    _required_result_decimal(
-        quote.get("carryover_applied_quantity"),
-        field=f"{field_prefix}.carryover_applied_quantity",
-    )
-    _required_result_decimal(
-        quote.get("purchase_quantity"),
-        field=f"{field_prefix}.purchase_quantity",
-    )
-    raw_lines = _required_result_list(quote.get("lines"), field=f"{field_prefix}.lines")
-    affected_lines: list[dict[str, Any]] = []
-    omitted_unused_sources = 0
-    for line_index, raw_line in enumerate(raw_lines):
-        line_field = f"{field_prefix}.lines[{line_index}]"
-        if not isinstance(raw_line, Mapping):
-            raise _incomplete(f"{line_field} 必须是对象", field=line_field)
-        line_carryover = _required_result_decimal(
-            raw_line.get("carryover_applied_quantity"),
-            field=f"{line_field}.carryover_applied_quantity",
-        )
-        raw_sources = _required_result_list(
-            raw_line.get("inventory_sources"),
-            field=f"{line_field}.inventory_sources",
-        )
-        used_sources: list[dict[str, Any]] = []
-        for source_index, raw_source in enumerate(raw_sources):
-            source_field = f"{line_field}.inventory_sources[{source_index}]"
-            if not isinstance(raw_source, Mapping):
-                raise _incomplete(f"{source_field} 必须是对象", field=source_field)
-            suggested = _required_result_decimal(
-                raw_source.get("suggested_applied_quantity"),
-                field=f"{source_field}.suggested_applied_quantity",
-            )
-            if suggested <= 0:
-                omitted_unused_sources += 1
-                continue
-            used_sources.append(
-                {
-                    "source_contract_no": _required_result_text(
-                        raw_source.get("source_contract_no"),
-                        field=f"{source_field}.source_contract_no",
-                    ),
-                    "historical_tax_unit_price": raw_source.get(
-                        "historical_tax_unit_price"
-                    ),
-                    "suggested_applied_quantity": raw_source.get(
-                        "suggested_applied_quantity"
-                    ),
-                }
-            )
-        if line_carryover <= 0:
-            continue
-        affected_lines.append(
-            {
-                "supplier_name": _required_result_text(
-                    raw_line.get("supplier_name"),
-                    field=f"{line_field}.supplier_name",
-                ),
-                "model": _required_result_text(
-                    raw_line.get("model"),
-                    field=f"{line_field}.model",
-                ),
-                "contract_product_name": _required_result_text(
-                    raw_line.get("contract_product_name"),
-                    field=f"{line_field}.contract_product_name",
-                ),
-                "planned_shipment_quantity": raw_line.get(
-                    "planned_shipment_quantity"
-                ),
-                "carryover_applied_quantity": raw_line.get(
-                    "carryover_applied_quantity"
-                ),
-                "purchase_quantity": raw_line.get("purchase_quantity"),
-                "inventory_sources": used_sources,
-            }
-        )
-    return {
-        "quote_id": quote_id,
-        "planned_shipment_quantity": quote.get("planned_shipment_quantity"),
-        "carryover_applied_quantity": quote.get("carryover_applied_quantity"),
-        "purchase_quantity": quote.get("purchase_quantity"),
-        "all_line_count": len(raw_lines),
-        "affected_line_count": len(affected_lines),
-        "omitted_unaffected_line_count": len(raw_lines) - len(affected_lines),
-        "omitted_unused_inventory_source_count": omitted_unused_sources,
-        "affected_lines": affected_lines,
+        "erp": dict(response),
     }
 
 
