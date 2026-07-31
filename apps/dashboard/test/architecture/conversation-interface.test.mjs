@@ -111,18 +111,19 @@ test("tool files reach the conversation and open through Main", () => {
 });
 
 test("the file list spends its width on what differs between the files", () => {
-  // A shared type is stated once in the heading; the per-card badge and the
-  // extension in every name were the same fact printed twice per row, and the
-  // names were truncated to pay for it.
-  assert.match(view, /const sharedExtension = extensions\.size === 1 \? \[\.\.\.extensions\]\[0\] : ""/);
-  assert.match(view, /sharedExtension\s*\?\s*t\.conversation\.filesOfType/s);
-  assert.match(view, /sharedExtension\s*\?\s*null\s*:\s*<span[^>]*className="turn-file-extension"/s);
+  // The extension is stated once per row by the marker, so repeating it in the
+  // name only cost the tail - which is the part that differs between files.
   assert.match(view, /className="turn-file-name" title=\{file\.name\}>\{fileDisplayName\(file\.name\)\}/);
   assert.match(view, /function fileDisplayName/);
-  assert.match(styles, /\.turn-file-card\.untyped \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 18px/s);
-  // The base card must keep its own surface: the .untyped variant only swaps
-  // the column track.
-  assert.match(styles, /\.turn-file-card \{[^}]*border:\s*1px solid var\(--border\)[^}]*text-align:\s*left/s);
+  // The marker stays on every row: it is the anchor the eye lands on, so it is
+  // made quiet rather than removed. A filled accent pill outshouted the name.
+  assert.match(view, /<span aria-hidden="true" className="turn-file-extension">\{extension\}<\/span>/);
+  assert.doesNotMatch(styles, /\.turn-file-extension \{[^}]*background:/s);
+  assert.match(styles, /\.turn-file-extension \{[^}]*color:\s*var\(--muted-light\)/s);
+  // Cards are --surface on the --bg plane like the rest of the transcript;
+  // --surface-subtle sits too close to the background to read as a card.
+  assert.match(styles, /\.turn-file-card \{[^}]*background:\s*var\(--surface\)[^}]*text-align:\s*left/s);
+  assert.match(styles, /\.turn-file-card \{[^}]*border:\s*1px solid var\(--border\)/s);
   // Two columns only while both can hold a name; otherwise one full-width row
   // beats two clipped ones.
   assert.match(styles, /\.turn-file-grid \{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(330px, 100%\), 1fr\)\)/s);

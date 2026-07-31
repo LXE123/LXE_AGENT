@@ -971,15 +971,11 @@ function TurnFileList({
       });
     }
   };
-  // Twelve XLSX badges beside twelve names ending in .xlsx spend the row's width
-  // on the one fact that is identical across the set - and the names get
-  // truncated for it. State a shared type once in the heading; the badge earns
-  // its place only when the types actually differ.
-  const extensions = new Set(files.map((file) => fileExtensionLabel(file.name)));
-  const sharedExtension = extensions.size === 1 ? [...extensions][0] : "";
-  const heading = sharedExtension
-    ? t.conversation.filesOfType(formatNumber(files.length), sharedExtension)
-    : t.conversation.files(formatNumber(files.length));
+  // The type marker stays on every row even when the whole set shares a type:
+  // it doubles as the anchor the eye lands on, and without it the list reads as
+  // a wall of text. It earns that by being quiet - the extension itself still
+  // leaves the name, which is where the width was going.
+  const heading = t.conversation.files(formatNumber(files.length));
   return (
     <section className="turn-file-section" aria-label={heading}>
       <div className="turn-file-heading">{heading}</div>
@@ -993,15 +989,13 @@ function TurnFileList({
               <button
                 aria-busy={isOpening}
                 aria-label={t.conversation.openFile(file.name)}
-                className={sharedExtension ? "turn-file-card untyped" : "turn-file-card"}
+                className="turn-file-card"
                 disabled={isOpening}
                 onClick={() => void open(file.artifact_id)}
                 title={t.conversation.openFile(file.name)}
                 type="button"
               >
-                {sharedExtension
-                  ? null
-                  : <span aria-hidden="true" className="turn-file-extension">{extension}</span>}
+                <span aria-hidden="true" className="turn-file-extension">{extension}</span>
                 <span className="turn-file-name" title={file.name}>{fileDisplayName(file.name)}</span>
                 {isOpening
                   ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />

@@ -8616,26 +8616,23 @@ pre {
 
 .turn-file-card {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 18px;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
   min-width: 0;
-  min-height: 48px;
+  min-height: 44px;
   align-items: center;
   gap: 9px;
-  padding: 7px 9px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-subtle);
+  /* White on the --bg plane, like every other card in the transcript.
+     --surface-subtle sat 5 units from the background and turned the list into
+     one flat beige block. */
+  background: var(--surface);
   color: var(--text);
   cursor: pointer;
   font: inherit;
   text-align: left;
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
-}
-
-/* No badge when the whole set shares one type: the 47px it cost went straight
-   into the name, which is what was being truncated. */
-.turn-file-card.untyped {
-  grid-template-columns: minmax(0, 1fr) 18px;
 }
 
 .turn-file-card:hover:not(:disabled) {
@@ -8657,17 +8654,18 @@ pre {
   border-color: var(--danger-border);
 }
 
+/* Kept on every row, including when the whole set shares a type, because it is
+   the anchor the eye lands on - a list of bare names reads as a wall of text.
+   Quiet and narrow so it stops competing with the name for both width and
+   attention: no filled accent pill, just a label. */
 .turn-file-extension {
   display: grid;
-  width: 38px;
-  height: 30px;
+  width: 30px;
   place-items: center;
-  border-radius: 7px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  color: var(--muted-light);
   font-size: 0.5625rem;
-  font-weight: 750;
-  letter-spacing: 0.025em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 .turn-file-name {
