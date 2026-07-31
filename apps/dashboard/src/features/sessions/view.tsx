@@ -1183,7 +1183,6 @@ function ConversationModelPicker({
   models,
   saving,
   onChange,
-  onOpenModels,
 }: {
   current: ModelPayload | null;
   disabled: boolean;
@@ -1191,7 +1190,6 @@ function ConversationModelPicker({
   models: ModelPayload[];
   saving: boolean;
   onChange: (provider: string, model: string) => void;
-  onOpenModels: () => void;
 }) {
   const t = useUiText();
   const [open, setOpen] = useState(false);
@@ -1274,11 +1272,6 @@ function ConversationModelPicker({
             )}
           </div>
           <div className="conversation-model-menu-footer">
-            <button onClick={() => { setOpen(false); onOpenModels(); }} role="menuitem" type="button">
-              <Settings2 aria-hidden size={15} />
-              <span>{t.models.moreModels}</span>
-              <ChevronRight aria-hidden size={14} />
-            </button>
             <small>{t.models.effectiveNextTurn}</small>
           </div>
         </div>
@@ -1405,7 +1398,6 @@ function ConversationComposer({
   thinkingSaving,
   runtimeReady,
   onModelChange,
-  onOpenModels,
   onThinkingLevelChange,
   onSend,
   onStop,
@@ -1419,7 +1411,6 @@ function ConversationComposer({
   thinkingSaving: boolean;
   runtimeReady: boolean;
   onModelChange: (provider: string, model: string) => void;
-  onOpenModels: () => void;
   onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
@@ -1582,7 +1573,6 @@ function ConversationComposer({
               loading={modelLoading}
               models={models}
               onChange={onModelChange}
-              onOpenModels={onOpenModels}
               saving={modelSaving}
             />
             <ConversationThinkingPicker
@@ -1644,7 +1634,6 @@ export function SessionDetailView({
   loadOlderError,
   onLoadOlder,
   onModelChange,
-  onOpenModels,
   onThinkingLevelChange,
   onSend,
   onStop,
@@ -1670,7 +1659,6 @@ export function SessionDetailView({
   loadOlderError: string;
   onLoadOlder: () => Promise<SessionDetailPayload | undefined>;
   onModelChange: (provider: string, model: string) => void;
-  onOpenModels: () => void;
   onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
@@ -1981,7 +1969,6 @@ export function SessionDetailView({
           modelSaving={modelSaving}
           thinkingSaving={thinkingSaving}
           onModelChange={onModelChange}
-          onOpenModels={onOpenModels}
           onThinkingLevelChange={onThinkingLevelChange}
           runtimeReady={runtimeReady}
           onSend={onSend}

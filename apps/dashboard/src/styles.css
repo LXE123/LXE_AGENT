@@ -9234,7 +9234,6 @@ pre {
 
 .conversation-model-trigger:focus-visible,
 .conversation-model-option:focus-visible,
-.conversation-model-menu-footer button:focus-visible,
 .conversation-thinking-trigger:focus-visible,
 .conversation-thinking-level:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -9349,29 +9348,6 @@ pre {
   margin-top: 5px;
   padding-top: 6px;
   border-top: 1px solid var(--border);
-}
-
-.conversation-model-menu-footer button {
-  display: grid;
-  min-height: 34px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.75rem;
-  text-align: left;
-}
-
-.conversation-model-menu-footer button:hover,
-.conversation-model-menu-footer button:focus-visible {
-  background: var(--surface-muted);
-  color: var(--text);
 }
 
 .conversation-model-menu-footer small {

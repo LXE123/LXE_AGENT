@@ -931,7 +931,6 @@ function App({
                       : ""}
                     onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
                     onModelChange={setCurrentModel}
-                    onOpenModels={() => openCapabilityView("models")}
                     onThinkingLevelChange={setCurrentThinkingLevel}
                     onSend={sendConversation}
                     onStop={stopConversation}

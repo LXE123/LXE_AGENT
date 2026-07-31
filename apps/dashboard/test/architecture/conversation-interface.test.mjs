@@ -31,7 +31,7 @@ test("the composer switches the shared model before the next turn", () => {
   assert.match(view, /!runtimeReady \|\| modelSaving \|\| thinkingSaving \|\| sending/);
   assert.match(main, /activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\)/);
   assert.match(main, /onModelChange=\{setCurrentModel\}/);
-  assert.match(main, /onOpenModels=\{\(\) => openCapabilityView\("models"\)\}/);
+  assert.doesNotMatch(view, /t\.models\.moreModels|onOpenModels/);
   assert.match(styles, /\.conversation-model-menu \{[^}]*position:\s*absolute[^}]*bottom:\s*calc\(100% \+ 9px\)/s);
 });
 
