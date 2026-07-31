@@ -9190,10 +9190,10 @@ pre {
   display: grid;
   gap: 3px;
   padding: 7px;
-  border: 1px solid var(--border-strong);
+  border: 0.5px solid var(--border-strong);
   border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 8px 28px var(--shadow-soft);
+  box-shadow: var(--shadow-card);
 }
 
 .conversation-composer.drag-active .conversation-compose-box {
