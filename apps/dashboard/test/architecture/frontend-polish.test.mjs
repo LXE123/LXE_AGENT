@@ -73,8 +73,10 @@ test("sessions persist in the application sidebar with title-only rows", () => {
 
   assert.match(styles, /\.tab-list\s*\{[^}]*gap:\s*1px;/s);
   assert.match(styles, /\.tab\s*\{[^}]*min-height:\s*31px;[^}]*padding:\s*4px 8px;/s);
+  assert.match(styles, /\.tab\s*\{[^}]*font-size:\s*0\.8375rem;[^}]*font-weight:\s*450;/s);
   assert.match(styles, /\.tab\s*\{[^}]*color:\s*var\(--sidebar-ink, var\(--text-strong\)\);/s);
-  assert.match(styles, /\.tab\.active\s*\{[^}]*color:\s*var\(--sidebar-ink, var\(--text-strong\)\);/s);
+  assert.match(styles, /\.tab\.active\s*\{[^}]*color:\s*var\(--sidebar-ink, var\(--text-strong\)\);[^}]*font-weight:\s*450;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-new-button\s*\{[^}]*font-size:\s*0\.8375rem;[^}]*font-weight:\s*450;/s);
   assert.match(styles, /\.sidebar-session-section\s*\{[^}]*margin-top:\s*8px;[^}]*padding-top:\s*8px;/s);
   assert.match(styles, /\.session-index-heading\s*\{[^}]*color:\s*color-mix\([^;]+68%, transparent\);[^}]*font-weight:\s*500;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*gap:\s*1px;/s);

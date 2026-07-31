@@ -2414,8 +2414,8 @@ h1 {
   border-radius: 9px;
   background: transparent;
   color: var(--sidebar-ink, var(--text-strong));
-  font-size: 0.84375rem;
-  font-weight: 500;
+  font-size: 0.8375rem;
+  font-weight: 450;
   text-align: left;
   cursor: pointer;
   transition: background 0.16s ease, color 0.16s ease;
@@ -2435,7 +2435,7 @@ h1 {
 .tab.active {
   background: var(--sidebar-active, var(--surface));
   color: var(--sidebar-ink, var(--text-strong));
-  font-weight: 600;
+  font-weight: 450;
 }
 
 .tab.active::before {
@@ -7875,8 +7875,8 @@ pre {
   border: 0;
   background: transparent;
   color: var(--sidebar-ink);
-  font-size: 0.8125rem;
-  font-weight: 560;
+  font-size: 0.8375rem;
+  font-weight: 450;
 }
 
 .sidebar-session-section .session-new-button:hover,
