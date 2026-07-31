@@ -8979,6 +8979,192 @@ pre {
   gap: 7px;
 }
 
+.conversation-model-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.conversation-model-trigger {
+  display: inline-flex;
+  max-width: 180px;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.conversation-model-trigger > span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-model-trigger > svg,
+.conversation-model-trigger > img {
+  flex: 0 0 auto;
+}
+
+.conversation-model-trigger:hover:not(:disabled),
+.conversation-model-trigger:focus-visible {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.conversation-model-trigger:focus-visible,
+.conversation-model-option:focus-visible,
+.conversation-model-menu-footer button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.conversation-model-trigger:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.conversation-model-menu {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: calc(100% + 9px);
+  display: grid;
+  width: min(320px, calc(100vw - 52px));
+  max-height: min(430px, 58vh);
+  overflow: hidden;
+  padding: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px var(--shadow-strong);
+}
+
+.conversation-model-menu-heading {
+  padding: 6px 8px 5px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.conversation-model-options {
+  display: grid;
+  min-height: 0;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.conversation-model-option {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.conversation-model-option:hover:not(:disabled),
+.conversation-model-option:focus-visible {
+  background: var(--surface-muted);
+}
+
+.conversation-model-option.selected {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.conversation-model-option:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.conversation-model-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conversation-model-option-copy strong,
+.conversation-model-option-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-model-option-copy strong {
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.conversation-model-option.selected .conversation-model-option-copy strong {
+  color: var(--text-strong);
+}
+
+.conversation-model-option-copy > span {
+  color: var(--muted);
+  font-size: 0.625rem;
+}
+
+.conversation-model-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.conversation-model-menu-footer {
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.conversation-model-menu-footer button {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.conversation-model-menu-footer button:hover,
+.conversation-model-menu-footer button:focus-visible {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.conversation-model-menu-footer small {
+  padding: 0 8px 4px;
+  color: var(--muted-light);
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
 .conversation-input-hint,
 .conversation-character-count {
   color: var(--muted-light);
@@ -9035,6 +9221,10 @@ pre {
 
   .conversation-input-hint {
     display: none;
+  }
+
+  .conversation-model-trigger {
+    max-width: 120px;
   }
 
   .sessions-focus .runtime-status-floating {

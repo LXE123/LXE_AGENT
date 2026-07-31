@@ -18,6 +18,24 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(m
     .map(({ model }) => model);
 }
 
+export type ConversationModelChoice = {
+  provider: string;
+  providerLabel: string;
+  model: string;
+};
+
+export function conversationModelChoices(
+  models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "model_options">[],
+): ConversationModelChoice[] {
+  return modelsInDisplayOrder(models).flatMap((provider) => provider.selectable
+    ? provider.model_options.map((option) => ({
+        provider: provider.provider,
+        providerLabel: provider.label,
+        model: option.model,
+      }))
+    : []);
+}
+
 export function reconcileModelSelections(
   models: readonly {
     provider: string;

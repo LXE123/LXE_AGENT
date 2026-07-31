@@ -22,6 +22,19 @@ test("sessions view exposes text conversation controls and IME-safe keyboard beh
   assert.match(main, /attachment_ids: attachments\.map/);
 });
 
+test("the composer switches the shared model before the next turn", () => {
+  assert.match(view, /function ConversationModelPicker/);
+  assert.match(view, /aria-haspopup="menu"/);
+  assert.match(view, /role="menuitemradio"/);
+  assert.match(view, /event\.key !== "Escape"/);
+  assert.match(view, /current\?\.provider !== provider \|\| current\.model !== model/);
+  assert.match(view, /!runtimeReady \|\| modelSaving \|\| sending/);
+  assert.match(main, /activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\)/);
+  assert.match(main, /onModelChange=\{setCurrentModel\}/);
+  assert.match(main, /onOpenModels=\{\(\) => openCapabilityView\("models"\)\}/);
+  assert.match(styles, /\.conversation-model-menu \{[^}]*position:\s*absolute[^}]*bottom:\s*calc\(100% \+ 9px\)/s);
+});
+
 test("optimistic cards retire on transcript watermarks, never on message text", () => {
   assert.match(view, /transcriptCaughtUp\(turn\.user_persisted_at, transcriptFetchedAt\)/);
   assert.match(view, /transcriptCaughtUp\(turn\.settled_at, transcriptFetchedAt\)/);

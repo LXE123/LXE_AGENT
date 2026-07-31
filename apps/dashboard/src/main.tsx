@@ -215,7 +215,9 @@ function App({
   );
   const capabilitiesOpen = activeSection === "capabilities";
   const activityOpen = activeSection === "activity";
-  const modelsQuery = useModelsQuery(capabilitiesOpen && capabilityView === "models");
+  const modelsQuery = useModelsQuery(
+    activeSection === "sessions" || (capabilitiesOpen && capabilityView === "models"),
+  );
   const currentModelQuery = useCurrentModelQuery();
   const connectorsQuery = useConnectorsQuery(capabilitiesOpen && capabilityView === "connections");
   const skillsQuery = useSkillsQuery(capabilitiesOpen && capabilityView === "skills");
@@ -703,7 +705,7 @@ function App({
     || activeSection === "sessions";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   const activeQueries = activeSection === "sessions"
-    ? [sessionDetailQuery, conversationActivityQuery]
+    ? [sessionDetailQuery, conversationActivityQuery, modelsQuery, currentModelQuery]
     : activeSection === "capabilities" && capabilityView === "models"
       ? [modelsQuery, currentModelQuery]
       : activeSection === "capabilities" && capabilityView === "tools"
@@ -910,6 +912,10 @@ function App({
                     fallbackSession={selectedSession}
                     detail={sessionDetail}
                     activity={conversationActivity}
+                    currentModel={currentModelQuery.data ?? null}
+                    models={modelsQuery.data?.items ?? []}
+                    modelLoading={modelsQuery.isPending || currentModelQuery.isPending}
+                    modelSaving={modelMutation.isPending}
                     newConversation={newConversation}
                     runtimeReady={conversationRuntimeReady}
                     transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
@@ -923,6 +929,8 @@ function App({
                       ? queryError(sessionDetailQuery.error)
                       : ""}
                     onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
+                    onModelChange={setCurrentModel}
+                    onOpenModels={() => openCapabilityView("models")}
                     onSend={sendConversation}
                     onStop={stopConversation}
                     onOpenFile={openConversationFile}

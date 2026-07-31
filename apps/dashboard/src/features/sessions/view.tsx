@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Brain,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -54,6 +55,7 @@ import type {
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
   DesktopInputAttachmentPayload,
+  ModelPayload,
   SessionArtifactPayload,
   SessionDetailPayload,
   SessionMessage,
@@ -64,6 +66,8 @@ import type {
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
 import { markdownComponents } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
+import { conversationModelChoices } from "../models/model";
 import { groupSidebarSessions } from "./model";
 
 /** How close to the bottom still counts as "following the reply". */
@@ -1166,16 +1170,139 @@ function LocalTurnCards({
   );
 }
 
+function ConversationModelPicker({
+  current,
+  disabled,
+  loading,
+  models,
+  saving,
+  onChange,
+  onOpenModels,
+}: {
+  current: ModelPayload | null;
+  disabled: boolean;
+  loading: boolean;
+  models: ModelPayload[];
+  saving: boolean;
+  onChange: (provider: string, model: string) => void;
+  onOpenModels: () => void;
+}) {
+  const t = useUiText();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const choices = useMemo(() => conversationModelChoices(models), [models]);
+  const triggerLabel = loading
+    ? t.common.loading
+    : current?.model || t.models.modelOptionUnavailable;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const selectModel = (provider: string, model: string) => {
+    setOpen(false);
+    if (current?.provider !== provider || current.model !== model) onChange(provider, model);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  return (
+    <div className="conversation-model-picker" ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={`${t.models.currentModel}: ${triggerLabel}`}
+        className="conversation-model-trigger"
+        disabled={disabled || loading || !current}
+        onClick={() => setOpen((value) => !value)}
+        ref={triggerRef}
+        title={t.models.effectiveNextTurn}
+        type="button"
+      >
+        <ProviderBrandMark provider={current?.provider} size={15} />
+        <span>{triggerLabel}</span>
+        {saving
+          ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} />
+          : <ChevronDown aria-hidden size={13} />}
+      </button>
+      {open ? (
+        <div aria-label={t.models.model} className="conversation-model-menu" role="menu">
+          <div className="conversation-model-menu-heading">{t.models.model}</div>
+          <div className="conversation-model-options">
+            {choices.length ? choices.map((choice) => {
+              const selected = current?.provider === choice.provider && current.model === choice.model;
+              return (
+                <button
+                  aria-checked={selected}
+                  className={selected ? "conversation-model-option selected" : "conversation-model-option"}
+                  disabled={saving}
+                  key={`${choice.provider}:${choice.model}`}
+                  onClick={() => selectModel(choice.provider, choice.model)}
+                  role="menuitemradio"
+                  type="button"
+                >
+                  <ProviderBrandMark provider={choice.provider} size={17} />
+                  <span className="conversation-model-option-copy">
+                    <strong>{choice.model}</strong>
+                    <span>{choice.providerLabel}</span>
+                  </span>
+                  {selected ? <Check aria-hidden size={15} /> : null}
+                </button>
+              );
+            }) : (
+              <div className="conversation-model-empty">{t.models.modelOptionUnavailable}</div>
+            )}
+          </div>
+          <div className="conversation-model-menu-footer">
+            <button onClick={() => { setOpen(false); onOpenModels(); }} role="menuitem" type="button">
+              <Settings2 aria-hidden size={15} />
+              <span>{t.models.moreModels}</span>
+              <ChevronRight aria-hidden size={14} />
+            </button>
+            <small>{t.models.effectiveNextTurn}</small>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ConversationComposer({
   activity,
   conversationKey,
+  currentModel,
+  modelLoading,
+  models,
+  modelSaving,
   runtimeReady,
+  onModelChange,
+  onOpenModels,
   onSend,
   onStop,
 }: {
   activity: DesktopConversationActivityPayload | null;
   conversationKey: string;
+  currentModel: ModelPayload | null;
+  modelLoading: boolean;
+  models: ModelPayload[];
+  modelSaving: boolean;
   runtimeReady: boolean;
+  onModelChange: (provider: string, model: string) => void;
+  onOpenModels: () => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
 }) {
@@ -1261,7 +1388,7 @@ function ConversationComposer({
   }, [stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
-    if (!runtimeReady || sending || (!message && attachments.length === 0)) return;
+    if (!runtimeReady || modelSaving || sending || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
     try {
@@ -1331,6 +1458,15 @@ function ConversationComposer({
             </span>
           </div>
           <div className="conversation-compose-trailing">
+            <ConversationModelPicker
+              current={currentModel}
+              disabled={!runtimeReady || sending || modelSaving}
+              loading={modelLoading}
+              models={models}
+              onChange={onModelChange}
+              onOpenModels={onOpenModels}
+              saving={modelSaving}
+            />
             {showCharacterCount ? (
               <span className="conversation-character-count">
                 {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
@@ -1345,7 +1481,7 @@ function ConversationComposer({
             <button
               aria-label={sending ? t.conversation.sending : t.conversation.send}
               className="conversation-send-button"
-              disabled={!runtimeReady || sending || (!text.trim() && attachments.length === 0)}
+              disabled={!runtimeReady || modelSaving || sending || (!text.trim() && attachments.length === 0)}
               onClick={() => void submit()}
               title={sending ? t.conversation.sending : t.conversation.send}
               type="button"
@@ -1369,6 +1505,10 @@ export function SessionDetailView({
   fallbackSession,
   detail,
   activity,
+  currentModel,
+  models,
+  modelLoading,
+  modelSaving,
   newConversation,
   runtimeReady,
   transcriptFetchedAt,
@@ -1378,6 +1518,8 @@ export function SessionDetailView({
   loadingOlder,
   loadOlderError,
   onLoadOlder,
+  onModelChange,
+  onOpenModels,
   onSend,
   onStop,
   onOpenFile,
@@ -1387,6 +1529,10 @@ export function SessionDetailView({
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
+  currentModel: ModelPayload | null;
+  models: ModelPayload[];
+  modelLoading: boolean;
+  modelSaving: boolean;
   newConversation: boolean;
   runtimeReady: boolean;
   transcriptFetchedAt: number;
@@ -1396,6 +1542,8 @@ export function SessionDetailView({
   loadingOlder: boolean;
   loadOlderError: string;
   onLoadOlder: () => Promise<SessionDetailPayload | undefined>;
+  onModelChange: (provider: string, model: string) => void;
+  onOpenModels: () => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
@@ -1699,6 +1847,12 @@ export function SessionDetailView({
         <ConversationComposer
           activity={activity}
           conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
+          currentModel={currentModel}
+          modelLoading={modelLoading}
+          models={models}
+          modelSaving={modelSaving}
+          onModelChange={onModelChange}
+          onOpenModels={onOpenModels}
           runtimeReady={runtimeReady}
           onSend={onSend}
           onStop={onStop}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  conversationModelChoices,
   modelsInDisplayOrder,
   reconcileModelSelections,
   thinkingStateForModelOption,
@@ -37,6 +38,35 @@ describe("model display order", () => {
       "provider_b",
       "glm",
       "provider_a"
+    ]);
+  });
+});
+
+describe("conversation model choices", () => {
+  test("flattens selectable providers in product order and omits unavailable providers", () => {
+    expect(conversationModelChoices([
+      {
+        provider: "deepseek",
+        label: "DeepSeek",
+        selectable: true,
+        model_options: [{ model: "deepseek-chat" }, { model: "deepseek-reasoner" }],
+      },
+      {
+        provider: "unconfigured",
+        label: "Unavailable",
+        selectable: false,
+        model_options: [{ model: "hidden-model" }],
+      },
+      {
+        provider: "kimi_coding",
+        label: "Kimi Coding",
+        selectable: true,
+        model_options: [{ model: "kimi-k2.5" }],
+      },
+    ])).toEqual([
+      { provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5" },
+      { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat" },
+      { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner" },
     ]);
   });
 });
