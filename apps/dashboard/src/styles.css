@@ -5733,9 +5733,8 @@ h1 {
   color: inherit;
 }
 
-/* Horizontal rules only: vertical gridlines turn every table into a
-   spreadsheet. The wrapper owns the overflow and the rounded frame; the table
-   keeps its natural width so cells scroll rather than compress. */
+/* The wrapper owns horizontal overflow so tables keep their natural width
+   instead of compressing long values. */
 .markdown-table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -5744,32 +5743,35 @@ h1 {
   background: var(--surface);
 }
 
+.message-markdown .markdown-table-scroll {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .message-markdown table {
   width: max-content;
   min-width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 3px;
 }
 
 .message-markdown th,
 .message-markdown td {
   padding: 7px 11px;
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
   overflow-wrap: normal;
   text-align: left;
   vertical-align: top;
 }
 
-.message-markdown tr:last-child td {
-  border-bottom: 0;
-}
-
 .message-markdown th {
-  border-bottom: 1px solid var(--border-strong);
-  background: transparent;
-  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface-subtle) 96%, var(--text));
+  color: var(--text-strong);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
 }
 

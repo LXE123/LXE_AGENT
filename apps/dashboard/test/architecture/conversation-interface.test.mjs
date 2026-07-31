@@ -99,6 +99,13 @@ test("conversation messages and composer share the same focused reading axis", (
   assert.match(view, /showRoleBadge = role !== "assistant" && role !== "user"/);
 });
 
+test("conversation markdown tables use separated cells instead of a framed grid", () => {
+  assert.match(styles, /\.message-markdown \.markdown-table-scroll \{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.message-markdown table \{[^}]*border-collapse:\s*separate;[^}]*border-spacing:\s*3px;/s);
+  assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--surface-subtle\);/s);
+  assert.doesNotMatch(styles, /\.message-markdown (?:th|td|tr:last-child td) \{[^}]*border-bottom:/s);
+});
+
 test("live turns expose one truthful phase and locally ticking elapsed time", () => {
   assert.match(view, /case "preparing_context": return t\.conversation\.preparingContext/);
   assert.match(view, /case "waiting_model": return t\.conversation\.waitingModel/);
