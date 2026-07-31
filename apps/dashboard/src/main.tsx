@@ -984,13 +984,6 @@ function App({
                       : <ModelsView
                           models={modelsQuery.data.items}
                           current={currentModelQuery.data}
-                          modelSaving={modelMutation.isPending}
-                          thinkingSaving={thinkingMutation.isPending}
-                          onCurrentModelChange={setCurrentModel}
-                          onThinkingLevelChange={setCurrentThinkingLevel}
-                          onConfigureCredentials={onOpenDesktopSettings
-                            ? () => onOpenDesktopSettings("base")
-                            : undefined}
                         />
                 ) : null}
                 {capabilityView === "skills" ? (

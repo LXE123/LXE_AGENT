@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, Settings2, Sparkles } from "lucide-react";
+import { useMemo } from "react";
+import { Check, Sparkles } from "lucide-react";
 
 import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
-  modelDisabledReasonLabel,
   modelsInDisplayOrder,
   modelThinkingLevelLabel,
   modelWithOption,
-  reconcileModelSelections
 } from "./model";
 import { useUiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
@@ -23,115 +21,115 @@ function CompactTokenMetric({ value }: { value: number }) {
   );
 }
 
+function ModelArtwork({ provider }: { provider: string }) {
+  const brandKind = providerBrandKind(provider);
+  if (brandKind === "kimi") {
+    return (
+      <div className="model-kimi-dust" aria-hidden="true">
+        <img alt="" draggable={false} src={kimiMoonDust} />
+      </div>
+    );
+  }
+  if (brandKind === "deepseek") {
+    return (
+      <>
+        <div className="model-deepseek-waves" aria-hidden="true">
+          <svg preserveAspectRatio="none" viewBox="0 0 600 120">
+            <path className="wave-a" d="M0 70 C 90 50, 180 90, 300 72 S 480 52, 600 70 L600 120 L0 120 Z" />
+            <path className="wave-b" d="M0 88 C 110 72, 220 104, 340 88 S 510 70, 600 88 L600 120 L0 120 Z" />
+          </svg>
+        </div>
+        <div className="model-brand-watermark" aria-hidden="true">
+          <ProviderBrandMark provider={provider} size={142} />
+        </div>
+      </>
+    );
+  }
+  return (
+    <div className="model-brand-watermark" aria-hidden="true">
+      <ProviderBrandMark provider={provider} size={142} />
+    </div>
+  );
+}
+
+function ThinkingSpec({ model, current }: { model: ModelPayload; current: boolean }) {
+  const t = useUiText();
+  const levels = model.thinking_levels || [];
+  const activeLevel = current ? model.thinking_state?.level : "";
+  const managed = model.capabilities.supports_thinking
+    && model.thinking_request_style === "provider-managed"
+    && levels.length === 0;
+  return (
+    <div className="model-showcase-thinking">
+      <div className="model-showcase-thinking-label">
+        <Sparkles aria-hidden size={13} />
+        <span>{t.models.thinking}</span>
+      </div>
+      {!model.capabilities.supports_thinking ? (
+        <span className="model-showcase-readout">{t.common.notSupported}</span>
+      ) : managed ? (
+        <span className="model-showcase-readout">{t.models.providerManaged}</span>
+      ) : levels.length ? (
+        <div className="model-showcase-thinking-levels" aria-label={t.models.thinkingEffort}>
+          {levels.map((level) => (
+            <span
+              aria-current={activeLevel === level ? "true" : undefined}
+              className={activeLevel === level ? "active" : undefined}
+              key={level}
+            >
+              {modelThinkingLevelLabel(model, level)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="model-showcase-readout">{t.common.yes}</span>
+      )}
+    </div>
+  );
+}
+
 export function ModelsView({
   models,
   current,
-  modelSaving,
-  thinkingSaving,
-  onCurrentModelChange,
-  onThinkingLevelChange,
-  onConfigureCredentials
 }: {
   models: ModelPayload[];
   current: ModelPayload | null;
-  modelSaving: boolean;
-  thinkingSaving: boolean;
-  onCurrentModelChange: (provider: string, model: string) => void;
-  onThinkingLevelChange: (level: string) => void;
-  onConfigureCredentials?: () => void;
 }) {
   const t = useUiText();
-  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
   const displayedModels = useMemo(() => modelsInDisplayOrder(models), [models]);
-
-  useEffect(() => {
-    setSelectedModels((existing) => reconcileModelSelections(models, current, existing));
-  }, [models, current]);
+  const variantCount = models.reduce((count, model) => count + model.model_options.length, 0);
 
   return (
-    <div className="models-page">
-      <section
-        aria-label={t.models.currentModel}
-        className="models-current-summary"
-        data-provider={current?.provider || "generic"}
-      >
-        <div className="models-current-identity">
-          <div className="models-current-icon">
-            <ProviderBrandMark provider={current?.provider} size={21} />
-          </div>
-          <div className="models-current-copy">
-            <span>{t.models.currentModel}</span>
-            <div className="models-current-name">
-              <strong>{current?.label || t.common.none}</strong>
-              <code>{current?.model || "-"}</code>
-            </div>
-          </div>
+    <div className="models-page models-showcase-page">
+      <section className="models-showcase-hero">
+        <div className="models-showcase-intro">
+          <span>{t.models.galleryEyebrow}</span>
+          <h2>{t.models.galleryTitle}</h2>
+          <p>{t.models.galleryDescription}</p>
         </div>
-        <div className="models-effective-note">
-          <span className="models-effective-dot" aria-hidden="true" />
-          {t.models.effectiveNextTurn}
-        </div>
-        {onConfigureCredentials ? (
-          <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
-            <Settings2 size={14} />
-            {t.connectors.configureCredentials}
-          </button>
-        ) : null}
+        <dl className="models-showcase-counts">
+          <div>
+            <dt>{t.models.providers}</dt>
+            <dd>{formatNumber(models.length)}</dd>
+          </div>
+          <div>
+            <dt>{t.models.variants}</dt>
+            <dd>{formatNumber(variantCount)}</dd>
+          </div>
+        </dl>
       </section>
 
-      <div className="grid-list models-grid">
+      <div className="grid-list models-grid models-showcase-grid">
         {displayedModels.map((model) => {
-          const brandKind = providerBrandKind(model.provider);
           const providerActive = current?.provider === model.provider;
-          const selectedModel = selectedModels[model.provider] || model.model;
-          const selectedOption =
-            model.model_options.find((option) => option.model === selectedModel) ||
-            model.model_options.find((option) => option.model === model.model) ||
-            model.model_options[0];
-          const displayedModel = selectedOption
-            ? modelWithOption(model, selectedOption, providerActive ? model.thinking_state : undefined)
-            : model;
-          const selectedIsCurrent = providerActive && current?.model === displayedModel.model;
-          const thinkingLevels = displayedModel.thinking_levels || [];
-          const showThinkingControl =
-            selectedIsCurrent && Boolean(displayedModel.thinking_state?.editable) && thinkingLevels.length > 0;
-          const showThinkingReadout = !showThinkingControl && thinkingLevels.length > 0;
-          const showThinkingUnsupported = !displayedModel.capabilities.supports_thinking;
-          const showThinkingManaged =
-            displayedModel.capabilities.supports_thinking &&
-            displayedModel.thinking_request_style === "provider-managed" &&
-            thinkingLevels.length === 0;
-          const showThinkingPanel =
-            showThinkingControl || showThinkingReadout || showThinkingUnsupported || showThinkingManaged;
-          const switchDisabled = modelSaving || !model.selectable || !selectedOption || selectedIsCurrent;
           return (
             <article
               aria-current={providerActive ? "true" : undefined}
-              className={`item-card model-card ${providerActive ? "item-active" : ""}`}
+              className={`item-card model-card model-showcase-card ${providerActive ? "item-active" : ""}`}
               data-provider={model.provider}
               key={model.provider}
             >
-              {brandKind === "kimi" ? (
-                <div className="model-kimi-dust" aria-hidden="true">
-                  <img alt="" draggable={false} src={kimiMoonDust} />
-                </div>
-              ) : brandKind === "deepseek" ? (
-                <>
-                  <div className="model-deepseek-waves" aria-hidden="true">
-                    <svg preserveAspectRatio="none" viewBox="0 0 600 120">
-                      <path className="wave-a" d="M0 70 C 90 50, 180 90, 300 72 S 480 52, 600 70 L600 120 L0 120 Z" />
-                      <path className="wave-b" d="M0 88 C 110 72, 220 104, 340 88 S 510 70, 600 88 L600 120 L0 120 Z" />
-                    </svg>
-                  </div>
-                  <div className="model-brand-watermark" aria-hidden="true">
-                    <ProviderBrandMark provider={model.provider} size={142} />
-                  </div>
-                </>
-              ) : (
-                <div className="model-brand-watermark" aria-hidden="true">
-                  <ProviderBrandMark provider={model.provider} size={142} />
-                </div>
-              )}
+              <ModelArtwork provider={model.provider} />
               <div className="model-card-header">
                 <div className="item-heading">
                   <div className="item-icon">
@@ -139,134 +137,70 @@ export function ModelsView({
                   </div>
                   <div className="model-heading-copy">
                     <h3>{model.label}</h3>
+                    <span>{model.api_style}</span>
                   </div>
                 </div>
                 {providerActive ? (
                   <span className="model-current-badge">
-                    <Check size={13} />
-                    {t.models.current}
+                    <Check aria-hidden size={13} />
+                    {t.models.inUse}
                   </span>
                 ) : null}
               </div>
 
-              <div className="model-select-panel">
-                <label className="model-select-label" htmlFor={`model-select-${model.provider}`}>
-                  {t.models.model}
-                </label>
-                <div className="model-select-row">
-                  <select
-                    aria-label={`${model.label} model`}
-                    className="model-select"
-                    disabled={!model.selectable || model.model_options.length <= 1 || modelSaving}
-                    id={`model-select-${model.provider}`}
-                    onChange={(event) =>
-                      setSelectedModels((currentSelections) => ({
-                        ...currentSelections,
-                        [model.provider]: event.target.value
-                      }))
-                    }
-                    value={displayedModel.model}
-                  >
-                    {model.model_options.map((option) => (
-                      <option key={option.model} value={option.model}>
-                        {option.model}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="model-switch-button"
-                    disabled={switchDisabled}
-                    onClick={() => onCurrentModelChange(model.provider, displayedModel.model)}
-                    type="button"
-                  >
-                    {selectedIsCurrent ? <Check size={14} /> : <Settings2 size={14} />}
-                    <span>
-                      {selectedIsCurrent ? t.models.current : modelSaving ? t.models.switching : t.models.setCurrent}
-                    </span>
-                  </button>
-                </div>
-                {!model.selectable && model.disabled_reason ? (
-                  <div className="model-disabled-reason">{modelDisabledReasonLabel(t, model.disabled_reason)}</div>
-                ) : null}
+              <div className="model-showcase-provider-state">
+                <span className={model.configured ? "configured" : "unconfigured"}>
+                  {model.configured ? t.models.configured : t.models.unconfigured}
+                </span>
               </div>
 
-              <details className="model-capabilities-details">
-                <summary>{t.models.capabilities}</summary>
-                <dl className="compact-metrics">
-                  <div>
-                    <dt>{t.models.context}</dt>
-                    <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
-                  </div>
-                  <div>
-                    <dt>{t.models.output}</dt>
-                    <CompactTokenMetric
-                      value={displayedModel.capabilities.max_tokens
-                        ?? displayedModel.capabilities.max_output_tokens
-                        ?? 0}
-                    />
-                  </div>
-                  <div>
-                    <dt>{t.models.vision}</dt>
-                    <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
-                      {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
-                    </dd>
-                  </div>
-                </dl>
-              </details>
-              {showThinkingPanel ? (
-                <div className="model-thinking-panel">
-                  <div className="model-thinking-title">
-                    <span>
-                      <Sparkles size={13} />
-                      {t.models.thinking}
-                    </span>
-                  </div>
-                  {showThinkingControl ? (
-                    <div
-                      className="thinking-level-control"
-                      role="group"
-                      aria-label={`${model.label} thinking level`}
+              <div className="model-showcase-variants">
+                {model.model_options.length ? model.model_options.map((option) => {
+                  const isCurrent = providerActive && current?.model === option.model;
+                  const displayedModel = modelWithOption(
+                    model,
+                    option,
+                    isCurrent ? current?.thinking_state : undefined,
+                  );
+                  return (
+                    <section
+                      aria-current={isCurrent ? "true" : undefined}
+                      className={`model-showcase-variant ${isCurrent ? "current" : ""}`}
+                      key={option.model}
                     >
-                      {thinkingLevels.map((level) => {
-                        const selected = displayedModel.thinking_state?.level === level;
-                        return (
-                          <button
-                            aria-pressed={selected}
-                            className={selected ? "thinking-level-button active" : "thinking-level-button"}
-                            disabled={thinkingSaving}
-                            key={level}
-                            onClick={() => onThinkingLevelChange(level)}
-                            type="button"
-                          >
-                            {modelThinkingLevelLabel(displayedModel, level)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : showThinkingReadout ? (
-                    <div
-                      className="thinking-level-control readonly"
-                      role="group"
-                      aria-label={`${model.label} thinking level`}
-                    >
-                      {thinkingLevels.map((level) => (
-                        <button
-                          className="thinking-level-button"
-                          disabled
-                          key={level}
-                          type="button"
-                        >
-                          {modelThinkingLevelLabel(displayedModel, level)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : showThinkingManaged ? (
-                    <div className="thinking-level-readout">{t.models.providerManaged}</div>
-                  ) : (
-                    <div className="thinking-level-readout">{t.common.notSupported}</div>
-                  )}
-                </div>
-              ) : null}
+                      <header>
+                        <code>{option.model}</code>
+                        {isCurrent ? (
+                          <span><Check aria-hidden size={12} />{t.models.current}</span>
+                        ) : null}
+                      </header>
+                      <dl className="model-showcase-metrics">
+                        <div>
+                          <dt>{t.models.context}</dt>
+                          <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
+                        </div>
+                        <div>
+                          <dt>{t.models.output}</dt>
+                          <CompactTokenMetric
+                            value={displayedModel.capabilities.max_tokens
+                              ?? displayedModel.capabilities.max_output_tokens
+                              ?? 0}
+                          />
+                        </div>
+                        <div>
+                          <dt>{t.models.vision}</dt>
+                          <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
+                            {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
+                          </dd>
+                        </div>
+                      </dl>
+                      <ThinkingSpec current={isCurrent} model={displayedModel} />
+                    </section>
+                  );
+                }) : (
+                  <div className="model-showcase-empty">{t.models.modelOptionUnavailable}</div>
+                )}
+              </div>
             </article>
           );
         })}

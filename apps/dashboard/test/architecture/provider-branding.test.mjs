@@ -18,7 +18,9 @@ const kimiDust = path.join(sourceDir, "assets/providers/kimi/kimi-moon-dust.png"
 test("model and runtime surfaces share local provider marks", () => {
   assert.match(models, /ProviderBrandMark/);
   assert.match(models, /providerBrandKind/);
-  assert.match(models, /className="models-current-summary"[\s\S]*?data-provider=\{current\?\.provider/);
+  assert.match(models, /className="models-showcase-hero"/);
+  assert.match(models, /className="model-showcase-variants"/);
+  assert.match(models, /className="model-showcase-metrics"/);
   assert.match(models, /className="model-brand-watermark"/);
   assert.match(models, /className="model-kimi-dust"/);
   assert.match(models, /kimi-moon-dust\.png/);
@@ -28,6 +30,7 @@ test("model and runtime surfaces share local provider marks", () => {
   );
   assert.doesNotMatch(models, /size=\{520\}/);
   assert.doesNotMatch(models, /<Brain\b/);
+  assert.doesNotMatch(models, /<select\b|<button\b|onCurrentModelChange|onThinkingLevelChange|onConfigureCredentials/);
   assert.match(runtimeStatus, /ProviderBrandMark provider=\{currentModel\?\.provider\}/);
   assert.match(runtimeStatus, /provider=\{currentModel\?\.provider\}/);
   assert.match(providerMark, /kimi-icon-round\.png/);
@@ -52,7 +55,6 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.match(kimiTheme, /overflow:\s*hidden/);
   assert.doesNotMatch(kimiTheme, /#e9a66f|#f2c48f|#9a5835|#0f1118|#15161d/);
   assert.match(styles, /\.model-card\[data-provider="deepseek"\][\s\S]*?--model-card-bg:\s*#f3f7ff/);
-  assert.match(styles, /\.model-card\[data-provider="kimi_coding"\] \.model-select[\s\S]*?color-scheme:\s*dark/);
   assert.match(
     styles,
     /\.model-card\[data-provider="kimi_coding"\]::before[\s\S]*?var\(--kimi-signal\)/,
@@ -72,7 +74,9 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.match(styles, /\.model-card\[data-provider="deepseek"\]::after[\s\S]*?radial-gradient/);
   assert.match(models, /className="model-deepseek-waves"/);
   assert.match(styles, /\.model-deepseek-waves[\s\S]*?mask-image:\s*linear-gradient/);
-  assert.match(styles, /\.models-current-summary\[data-provider="kimi_coding"\] \.models-current-icon/);
+  assert.match(styles, /\.models-showcase-hero[\s\S]*?radial-gradient/);
+  assert.match(styles, /\.model-showcase-variant\.current/);
+  assert.match(styles, /\.model-showcase-thinking-levels > span\.active/);
   assert.match(styles, /\.model-kimi-dust[\s\S]*?mask-image:\s*linear-gradient/);
   const kimiDustImage = styles.match(
     /\.model-kimi-dust > img \{[\s\S]*?\n\}/,

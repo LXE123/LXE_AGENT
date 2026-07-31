@@ -36,29 +36,6 @@ export function conversationModelChoices(
     : []);
 }
 
-export function reconcileModelSelections(
-  models: readonly {
-    provider: string;
-    model: string;
-    model_options: readonly { model: string }[];
-  }[],
-  current: Pick<ModelPayload, "provider" | "model"> | null,
-  existing: Readonly<Record<string, string>>,
-): Record<string, string> {
-  return Object.fromEntries(models.map((model) => {
-    const options = model.model_options.map((option) => option.model);
-    if (current?.provider === model.provider && options.includes(current.model)) {
-      return [model.provider, current.model];
-    }
-    const existingSelection = existing[model.provider];
-    if (existingSelection && options.includes(existingSelection)) {
-      return [model.provider, existingSelection];
-    }
-    const preferred = options.includes(model.model) ? model.model : options[0] || model.model;
-    return [model.provider, preferred];
-  }));
-}
-
 export function modelThinkingLevelLabel(model: ModelPayload, level: string): string {
   const normalized = String(level || "").trim().toLowerCase();
   return model.thinking_level_labels[normalized] || normalized || "-";

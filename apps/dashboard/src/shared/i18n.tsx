@@ -344,7 +344,15 @@ export const ZH_TEXT = {
     error: "错误"
   },
   models: {
-    subtitle: "选择用于后续对话的模型与思考模式。",
+    subtitle: "浏览模型品牌、版本阵容与核心参数。",
+    galleryEyebrow: "MODEL COLLECTION",
+    galleryTitle: "模型图鉴",
+    galleryDescription: "集中浏览品牌视觉、模型版本和能力参数；模型与思考强度请在对话栏切换。",
+    providers: "模型厂商",
+    variants: "模型版本",
+    configured: "已配置",
+    unconfigured: "未配置",
+    inUse: "正在使用",
     model: "模型",
     currentModel: "当前模型",
     current: "当前",
@@ -1094,7 +1102,15 @@ export const UI_TEXT: Record<Language, UiText> = {
       error: "error"
     },
     models: {
-      subtitle: "Choose the model and thinking mode for upcoming conversations.",
+      subtitle: "Browse model brands, variants, and core capabilities.",
+      galleryEyebrow: "MODEL COLLECTION",
+      galleryTitle: "Model gallery",
+      galleryDescription: "Explore brand artwork, model variants, and capabilities. Switch models and thinking effort in the conversation composer.",
+      providers: "Providers",
+      variants: "Variants",
+      configured: "Configured",
+      unconfigured: "Not configured",
+      inUse: "In use",
       model: "Model",
       currentModel: "Current model",
       current: "Current",
