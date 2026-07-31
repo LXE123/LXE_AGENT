@@ -88,6 +88,29 @@ describe("dark palette", () => {
       .toBeGreaterThanOrEqual(contrast(light["--muted-light"], light["--surface"]));
   });
 
+  test("keeps shadows quieter on dark than the light theme's alpha", () => {
+    // A black shadow reads far more strongly against a dark plane. Carrying the
+    // light theme's opacity over smears a halo around every raised element -
+    // which is how the composer painted a band across the transcript.
+    const alpha = (name: string, source: string): number => {
+      const block = styles.slice(styles.indexOf(`${source} {`));
+      const value = block.slice(0, block.indexOf("\n}"));
+      const match = new RegExp(`${name}:\\s*rgba\\([^)]*?([\\d.]+)\\)`).exec(value);
+      return Number(match?.[1] ?? NaN);
+    };
+    // The dark plane is ~14x darker, so the same alpha is nowhere near the same
+    // apparent strength; it is capped rather than matched.
+    expect(alpha("--shadow-soft", ':root[data-theme="dark"]')).toBeLessThanOrEqual(0.25);
+    expect(alpha("--shadow-strong", ':root[data-theme="dark"]')).toBeLessThanOrEqual(0.5);
+  });
+
+  test("paints the transcript plane with --bg so cards have something to sit on", () => {
+    // .conversation-view covers .content-panel-fill, so it - not the panel
+    // beneath - is the plane the reader actually sees.
+    expect(styles).toMatch(/\.conversation-view \{[^}]*background:\s*var\(--bg\)/s);
+    expect(styles).not.toMatch(/\.conversation-view \{[^}]*background:\s*var\(--surface\)/s);
+  });
+
   test("makes emphasis lighter on dark and darker on light", () => {
     expect(luminance(light["--accent-strong"])).toBeLessThan(luminance(light["--accent"]));
     expect(luminance(dark["--accent-strong"])).toBeGreaterThan(luminance(dark["--accent"]));

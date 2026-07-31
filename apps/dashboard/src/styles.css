@@ -178,10 +178,14 @@ button {
   --info-soft: #221f1c;
   --focus-ring: rgba(227, 166, 133, 0.3);
   --scrim: rgba(0, 0, 0, 0.6);
-  --shadow-soft: rgba(0, 0, 0, 0.35);
-  --shadow-medium: rgba(0, 0, 0, 0.45);
-  --shadow-strong: rgba(0, 0, 0, 0.65);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.3);
+  /* Restrained on purpose: a black shadow reads far more strongly against a
+     dark plane than against a light one, so matching the light theme's alpha
+     would smear a halo around every raised element. Elevation here comes from
+     the --bg / --surface step, and the shadow only softens its edge. */
+  --shadow-soft: rgba(0, 0, 0, 0.2);
+  --shadow-medium: rgba(0, 0, 0, 0.28);
+  --shadow-strong: rgba(0, 0, 0, 0.42);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24), 0 6px 20px rgba(0, 0, 0, 0.16);
   --rate-good: #82c082;
   --rate-good-soft: #1f2721;
   --rate-warn: #d8a95f;
@@ -8159,10 +8163,14 @@ pre {
   opacity: 0.6;
 }
 
+/* The plane, not a card. --surface here sits under every card in the
+   transcript, which in light mode differed from --bg by five units and hid the
+   problem; on dark the same pair is far enough apart that the composer dock's
+   fade to --bg showed up as a band across the bottom. */
 .conversation-view {
   position: relative;
   overflow: hidden;
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .conversation-header {
