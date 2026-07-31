@@ -57,10 +57,16 @@ export interface RuntimeTurnResponse {
   usage: RuntimeUsage;
 }
 
+export interface RuntimeProviderUserIdentity {
+  platform: string;
+  userId: string;
+}
+
 export interface RuntimeSummaryRequest {
   messages: RuntimeMessage[];
   signal: AbortSignal;
   kind: "history" | "midturn";
+  userIdentity?: RuntimeProviderUserIdentity;
 }
 
 export interface RuntimeSummaryResult {
@@ -74,6 +80,7 @@ export interface RuntimeProviderRequest {
   tools: ToolSchema[];
   toolChoice: "auto" | "none";
   signal: AbortSignal;
+  userIdentity?: RuntimeProviderUserIdentity;
   onEvent?: (event: RuntimeStreamEvent) => Promise<void> | void;
   wireTrace?: RuntimeWireTraceAttempt;
 }

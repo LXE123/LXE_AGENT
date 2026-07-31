@@ -43,8 +43,11 @@ test("capabilities and activity use compact child navigation", () => {
   assert.match(main, /const nextActivityView = section === "activity" \? "stats" : activityView/);
 });
 
-test("child pages enable only their related server queries", () => {
-  assert.match(main, /useModelsQuery\(capabilitiesOpen && capabilityView === "models"\)/);
+test("pages enable only the server queries required by their active views", () => {
+  assert.match(
+    main,
+    /useModelsQuery\(\s*activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\),?\s*\)/,
+  );
   assert.match(main, /useConnectorsQuery\(capabilitiesOpen && capabilityView === "connections"\)/);
   assert.match(main, /capabilityView === "tools" \|\| capabilityView === "connections"/);
   assert.match(main, /useBackgroundTasksQuery\(activityOpen && activityView === "background-tasks"\)/);

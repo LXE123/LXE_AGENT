@@ -36,26 +36,37 @@
   ],
   "deepseek_effort_cases": [
     {
+      "model": "deepseek-v4-flash",
       "configured": "low",
-      "expected": "high"
+      "expected": "low"
     },
     {
+      "model": "deepseek-v4-flash",
       "configured": "medium",
       "expected": "high"
     },
     {
+      "model": "deepseek-v4-flash",
       "configured": "high",
       "expected": "high"
     },
     {
+      "model": "deepseek-v4-flash",
       "configured": "xhigh",
       "expected": "max"
     },
     {
+      "model": "deepseek-v4-flash",
       "configured": "max",
       "expected": "max"
     },
     {
+      "model": "deepseek-v4-pro",
+      "configured": "low",
+      "expected": "high"
+    },
+    {
+      "model": "deepseek-v4-pro",
       "configured": "wild",
       "expected": "high"
     }

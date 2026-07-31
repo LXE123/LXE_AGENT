@@ -125,7 +125,12 @@ describe("token-aware runtime context", () => {
       ...closedTurn("recent", 400),
     ];
     const result = await pipeline.prepare({
-      sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
+      sessionId: "s1",
+      messages,
+      systemPrompt: "system",
+      toolSchemas: [],
+      signal: new AbortController().signal,
+      userIdentity: { platform: "feishu", userId: "user-123" },
     });
     expect(result.compacted).toBe(true);
     const request = JSON.stringify(provider.requests[0]?.messages);
@@ -134,6 +139,7 @@ describe("token-aware runtime context", () => {
     expect(request).not.toContain("signed-secret");
     expect(request).not.toContain("encrypted-secret");
     expect(request).not.toContain("private reasoning");
+    expect(provider.requests[0]?.userIdentity).toEqual({ platform: "feishu", userId: "user-123" });
   });
 
   test("trims tool text on UTF-8 boundaries, shares inline budget, and preserves images", () => {

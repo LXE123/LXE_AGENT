@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger, envFlag, envText, type Environment } from "@lxe/core";
@@ -9,6 +9,7 @@ import type {
   RuntimeMessage,
   RuntimeProvider,
   RuntimeProviderRequest,
+  RuntimeProviderUserIdentity,
   RuntimeSummaryRequest,
   RuntimeSummaryResult,
   RuntimeStreamEvent,
@@ -113,6 +114,11 @@ const stringRecord = (value: unknown): Record<string, string> => {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .map(([key, item]) => [key.trim(), String(item ?? "").trim()] as const)
     .filter(([key, item]) => Boolean(key && item)));
+};
+
+const configuredRequestIdleTimeout = (value: unknown): number => {
+  const timeout = Math.trunc(Number(value));
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : PROVIDER_REQUEST_IDLE_TIMEOUT_MS;
 };
 
 const THINKING_EFFORT_ALIASES: Readonly<Record<string, string>> = {
@@ -242,7 +248,7 @@ export function loadProviderDescriptor(
     thinkingEffort,
     thinkingDisplay: "omitted",
     contextWindowTokens: Math.max(0, Math.trunc(Number(selectedModel.context_window_tokens ?? 0))),
-    requestIdleTimeoutMs: PROVIDER_REQUEST_IDLE_TIMEOUT_MS,
+    requestIdleTimeoutMs: configuredRequestIdleTimeout(spec.request_idle_timeout_ms),
   };
 }
 
@@ -437,12 +443,12 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
   }
   if (style === "anthropic-effort") {
     if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
-    const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort)
-      ? "max"
-      : "high";
-    if (!["low", "medium", "high", "xhigh", "max"].includes(descriptor.thinkingEffort)) {
-      warnThinkingNormalization(descriptor, effort);
-    }
+    const effort = normalizeThinkingEffort(
+      descriptor.thinkingEffort,
+      descriptor.thinkingLevels.filter((level) => level !== "off"),
+      descriptor.thinkingDefault,
+    );
+    if (effort !== descriptor.thinkingEffort) warnThinkingNormalization(descriptor, effort);
     return { thinking: { type: "enabled" }, output_config: { effort } };
   }
   if (style === "anthropic-adaptive") {
@@ -466,6 +472,18 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
   return {};
 };
 
+const providerMetadata = (
+  descriptor: ProviderDescriptor,
+  identity: RuntimeProviderUserIdentity | undefined,
+): Record<string, unknown> => {
+  if (descriptor.name !== "deepseek" || !identity) return {};
+  const platform = identity.platform.trim();
+  const userId = identity.userId;
+  if (!platform || !userId.trim()) return {};
+  const digest = createHash("sha256").update(platform).update("\0").update(userId).digest("hex");
+  return { metadata: { user_id: `lxe_${digest}` } };
+};
+
 export const buildSummaryThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   if (descriptor.thinkingStyle === "provider-managed") return {};
   if (descriptor.thinkingLevels.length > 0 && !descriptor.thinkingLevels.includes("off")) {
@@ -480,7 +498,7 @@ export const buildSummaryThinkingPayload = (descriptor: ProviderDescriptor): Rec
 
 export function buildProviderRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity">,
 ): Record<string, unknown> {
   return {
     model: descriptor.model,
@@ -494,6 +512,7 @@ export function buildProviderRequest(
         ? { tool_choice: { type: "auto" } }
         : {}),
     stream: true,
+    ...providerMetadata(descriptor, request.userIdentity),
     ...buildThinkingPayload(descriptor),
   };
 }
@@ -876,6 +895,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         system: SUMMARY_SYSTEM_PROMPT,
         messages: adaptMessagesForProvider(request.messages, this.descriptor),
         stream: true,
+        ...providerMetadata(this.descriptor, request.userIdentity),
         ...buildSummaryThinkingPayload(this.descriptor),
       }, { signal: watchdog.signal });
       try {

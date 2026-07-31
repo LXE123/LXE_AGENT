@@ -4,6 +4,7 @@ import { createLogger } from "@lxe/core";
 import type {
   RuntimeMessage,
   RuntimeProvider,
+  RuntimeProviderUserIdentity,
   RuntimeStore,
   RuntimeUsage,
   ToolResultBlock,
@@ -638,6 +639,7 @@ export class ContextPipeline {
     systemPrompt: string;
     toolSchemas: ToolSchema[];
     signal: AbortSignal;
+    userIdentity?: RuntimeProviderUserIdentity;
     trigger?: "pre_call" | "overflow" | "post_turn";
   }): Promise<ContextCompactionResult> {
     const trigger = params.trigger ?? "pre_call";
@@ -676,6 +678,7 @@ export class ContextPipeline {
     messages: RuntimeMessage[];
     systemPrompt: string;
     signal: AbortSignal;
+    userIdentity?: RuntimeProviderUserIdentity;
   }): Promise<ContextCompactionResult> {
     const pruned = pruneProcessedHistoryImages(params.messages);
     let messages = pruned.messages;
@@ -698,6 +701,7 @@ export class ContextPipeline {
     systemPrompt: string;
     toolSchemas: ToolSchema[];
     signal: AbortSignal;
+    userIdentity?: RuntimeProviderUserIdentity;
     trigger: "pre_call" | "overflow" | "post_turn";
     beforeTokens: number;
     triggerLimit: number;
@@ -716,14 +720,14 @@ export class ContextPipeline {
       kind = "midturn";
       target = plan.compacted;
       originalUserMessage = plan.originalUserMessage;
-      const summary = await this.summarize(target, kind, params.signal, usage, originalUserMessage);
+      const summary = await this.summarize(target, kind, params.signal, usage, params.userIdentity, originalUserMessage);
       apiCalls += summary.attempts;
       if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
       nextMessages = [...plan.prefix, plan.originalUserMessage, summaryMessage(summary.text, kind), ...plan.retained];
       return this.persistCompaction(params, nextMessages, summary.text, target.length, usage, apiCalls, kind);
     }
 
-    const summary = await this.summarize(target, kind, params.signal, usage);
+    const summary = await this.summarize(target, kind, params.signal, usage, params.userIdentity);
     apiCalls += summary.attempts;
     if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
     nextMessages = [summaryMessage(summary.text, kind), ...recent.retained];
@@ -738,6 +742,7 @@ export class ContextPipeline {
           "midturn",
           params.signal,
           usage,
+          params.userIdentity,
           midturn.originalUserMessage,
         );
         apiCalls += midSummary.attempts;
@@ -770,6 +775,7 @@ export class ContextPipeline {
     kind: "history" | "midturn",
     signal: AbortSignal,
     usage: RuntimeUsage,
+    userIdentity?: RuntimeProviderUserIdentity,
     originalUserMessage?: RuntimeMessage,
   ): Promise<{ text: string; attempts: number }> {
     const transcript = renderSummaryTranscript(messages);
@@ -785,6 +791,7 @@ export class ContextPipeline {
           messages: [{ role: "user", content: prompt }],
           signal,
           kind,
+          ...(userIdentity ? { userIdentity } : {}),
         });
         addUsage(usage, result.usage);
         if (result.text.trim()) return { text: result.text.trim(), attempts: attempt };
@@ -805,6 +812,7 @@ export class ContextPipeline {
       systemPrompt: string;
       toolSchemas: ToolSchema[];
       signal: AbortSignal;
+      userIdentity?: RuntimeProviderUserIdentity;
       trigger: "pre_call" | "overflow" | "post_turn";
       beforeTokens: number;
     },

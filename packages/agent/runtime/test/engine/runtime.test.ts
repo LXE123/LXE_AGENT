@@ -807,6 +807,7 @@ describe("TypeScriptAgentRuntime", () => {
     expect(captured?.messages.at(-1)?.content).toBe(
       "System: stored first\n\nSystem: stored second\n\nhello",
     );
+    expect(captured?.userIdentity).toEqual({ platform: "feishu", userId: "u1" });
     expect(store.pendingEvents).toEqual([]);
   });
 

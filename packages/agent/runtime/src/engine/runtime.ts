@@ -216,6 +216,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
     });
     const turnPlatform = String(job.source.platform ?? session.source.platform ?? "").trim();
+    const userIdentity = { platform: turnPlatform, userId: String(job.user_id ?? "") };
     const finalAnswerStreamer = job.response_route_id
       && (turnPlatform === "feishu" || turnPlatform === "desktop" || turnPlatform === "cli")
       ? new FinalAnswerStreamer({
@@ -423,6 +424,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           systemPrompt,
           toolSchemas,
           signal: handle.signal,
+          userIdentity,
           trigger: "pre_call",
         });
         accountContext(prepared);
@@ -443,6 +445,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           tools: toolSchemas,
           toolChoice: heartbeat || isLastStep ? "none" as const : "auto" as const,
           signal: handle.signal,
+          userIdentity,
           ...(wireTrace ? { wireTrace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
             attemptObserver.stream(event);
@@ -503,6 +506,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             systemPrompt,
             toolSchemas,
             signal: handle.signal,
+            userIdentity,
             trigger: "overflow",
           });
           accountContext(overflow);
@@ -543,6 +547,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 messages,
                 systemPrompt,
                 signal: handle.signal,
+                userIdentity,
               });
               accountContext(postTurn);
               observer.context(postTurn);

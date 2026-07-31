@@ -154,6 +154,21 @@ describe("Anthropic-compatible provider", () => {
       AGENT_LLM_MODEL: "deepseek-v4-pro",
       DEEPSEEK_API: "secret-key",
     });
+    const deepseekFlash = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-flash",
+      DEEPSEEK_API: "secret-key",
+    });
+    expect(deepseek).toEqual(expect.objectContaining({
+      thinkingLevels: ["off", "high", "max"],
+      thinkingDefault: "high",
+      requestIdleTimeoutMs: 660_000,
+    }));
+    expect(deepseekFlash).toEqual(expect.objectContaining({
+      thinkingLevels: ["off", "low", "high", "max"],
+      thinkingDefault: "high",
+      requestIdleTimeoutMs: 660_000,
+    }));
     for (const [configured, expected] of [
       ["low", "high"], ["medium", "high"], ["high", "high"],
       ["xhigh", "max"], ["max", "max"], ["wild", "high"],
@@ -164,6 +179,10 @@ describe("Anthropic-compatible provider", () => {
       });
     }
     expect(buildThinkingPayload({ ...deepseek, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
+    expect(buildThinkingPayload({ ...deepseekFlash, thinkingEffort: "low" })).toEqual({
+      thinking: { type: "enabled" },
+      output_config: { effort: "low" },
+    });
 
     expect(buildProviderRequest(deepseek, {
       system: " stable \n\n<<system-prompt-cache-breakpoint>>\n\n volatile ",
@@ -188,6 +207,78 @@ describe("Anthropic-compatible provider", () => {
       toolChoice: "none",
     })).not.toHaveProperty("tools");
     expect(buildSystemPayload(" system ")).toBe("system");
+  });
+
+  test("adds a stable opaque DeepSeek user id to turns and summaries only", async () => {
+    const projectRoot = repositoryRoot(import.meta.dir);
+    const deepseek = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-flash",
+      DEEPSEEK_API: "secret-key",
+    });
+    const identity = { platform: "feishu", userId: "user-123" };
+    const expectedMetadata = {
+      user_id: "lxe_b944e0a0e53aa6b3b7d408c97f7b483f0859c9b25c0114673b2c98e0c57cb1f3",
+    };
+    const turn = buildProviderRequest(deepseek, {
+      system: "system",
+      messages: [{ role: "user", content: "hello" }],
+      tools: [],
+      toolChoice: "none",
+      userIdentity: identity,
+    });
+    expect(turn.metadata).toEqual(expectedMetadata);
+    expect(JSON.stringify(turn)).not.toContain("user-123");
+    expect(buildProviderRequest(deepseek, {
+      system: "system",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+      userIdentity: { ...identity, platform: "desktop" },
+    }).metadata).not.toEqual(expectedMetadata);
+    expect(buildProviderRequest(deepseek, {
+      system: "system",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+      userIdentity: { ...identity, userId: "user-123 " },
+    }).metadata).not.toEqual(expectedMetadata);
+
+    let captured: Record<string, unknown> = {};
+    const provider = new AnthropicRuntimeProvider(deepseek, {
+      messages: {
+        stream: (parameters) => {
+          captured = parameters;
+          return {
+            finalMessage: async () => ({
+              content: [{ type: "text", text: "summary" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 3, output_tokens: 4 },
+            }),
+          };
+        },
+      },
+    });
+    await provider.summarize({
+      messages: [{ role: "user", content: "summarize" }],
+      signal: new AbortController().signal,
+      kind: "history",
+      userIdentity: identity,
+    });
+    expect(captured.metadata).toEqual(expectedMetadata);
+    expect(JSON.stringify(captured)).not.toContain("user-123");
+
+    const kimi = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(buildProviderRequest(kimi, {
+      system: "system",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+      userIdentity: identity,
+    })).not.toHaveProperty("metadata");
   });
 
   test("uses K3 default high output effort during summaries", async () => {
@@ -628,6 +719,9 @@ describe("Anthropic-compatible provider", () => {
     const deepseek = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-pro", DEEPSEEK_API: "secret-key",
     });
+    const deepseekFlash = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash", DEEPSEEK_API: "secret-key",
+    });
     for (const fixture of providerCases.kimi_thinking_cases) {
       expect(buildThinkingPayload({
         ...kimi,
@@ -637,7 +731,8 @@ describe("Anthropic-compatible provider", () => {
       })).toEqual(fixture.expected);
     }
     for (const fixture of providerCases.deepseek_effort_cases) {
-      expect(buildThinkingPayload({ ...deepseek, thinkingEffort: fixture.configured })).toEqual({
+      const descriptor = fixture.model === "deepseek-v4-flash" ? deepseekFlash : deepseek;
+      expect(buildThinkingPayload({ ...descriptor, thinkingEffort: fixture.configured })).toEqual({
         thinking: { type: "enabled" }, output_config: { effort: fixture.expected },
       });
     }

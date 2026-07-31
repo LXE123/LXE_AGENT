@@ -102,8 +102,20 @@ describe("DashboardService", () => {
       api_style: "anthropic_messages",
       aliases: ["deep-seek"],
       default_model: "deepseek-v4-pro",
+      request_idle_timeout_ms: 660_000,
       models: {
-        "deepseek-v4-pro": { max_tokens: 384_000, thinking_levels: ["off", "high"], thinking_default: "high" },
+        "deepseek-v4-pro": {
+          context_window_tokens: 1_000_000,
+          max_tokens: 384_000,
+          thinking_levels: ["off", "high", "max"],
+          thinking_default: "high",
+        },
+        "deepseek-v4-flash": {
+          context_window_tokens: 1_000_000,
+          max_tokens: 384_000,
+          thinking_levels: ["off", "low", "high", "max"],
+          thinking_default: "high",
+        },
       },
     }), "utf8");
     writeFileSync(join(root, "config", "llm", "auth-profiles.json"), JSON.stringify({
@@ -331,8 +343,15 @@ describe("DashboardService", () => {
       model: "k3", thinking_levels: ["low", "high", "max"], thinking_default: "high",
       capabilities: { context_window_tokens: 262_144, max_output_tokens: 131_072 },
     });
-    expect(modelList.items.find((model) => model.provider === "deepseek")).toMatchObject({
+    const deepseekModel = modelList.items.find((model) => model.provider === "deepseek")!;
+    expect(deepseekModel).toMatchObject({
       provider: "deepseek", model: "deepseek-v4-pro", configured: true,
+    });
+    const deepseekOptions = deepseekModel.model_options as Array<Record<string, unknown>>;
+    expect(deepseekOptions.find((option) => option.model === "deepseek-v4-flash")).toMatchObject({
+      thinking_levels: ["off", "low", "high", "max"],
+      thinking_default: "high",
+      capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
     });
     expect(await call({ operation: "models.current", input: {} })).toMatchObject({ provider: "kimi_coding" });
     Object.assign(environment, {
