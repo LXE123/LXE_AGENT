@@ -4738,6 +4738,21 @@ h1 {
   flex-direction: column;
 }
 
+/* The mirror of the composer dock's fade at the other end: text dissolves into
+   the plane as it passes under the header rather than being cut through the
+   middle of a glyph. */
+.conversation-scroll-area::before {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 26px;
+  background: linear-gradient(to bottom, var(--bg) 30%, transparent);
+  pointer-events: none;
+}
+
 .conversation-jump-latest {
   position: absolute;
   bottom: 10px;
@@ -8382,10 +8397,10 @@ pre {
   align-items: center;
   gap: 10px;
   padding: 8px 18px;
-  border-bottom: 1px solid var(--border);
-  /* The plane's colour, not a card's. --surface here made the header a slab
-     laid across the top of the transcript; the hairline is the only separation
-     it needs, and it only has to hold while content scrolls underneath. */
+  /* No rule underneath. A line has to be drawn because the content is sliced
+     off at a hard edge; fading it out instead removes the thing the line was
+     there to explain. The fade lives on .conversation-scroll-area::before. */
+  border-bottom: 0;
   background: var(--bg);
   backdrop-filter: none;
 }

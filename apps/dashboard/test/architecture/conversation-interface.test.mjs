@@ -249,3 +249,19 @@ test("expanded tool details use dividers instead of stacked tinted surfaces", ()
   assert.match(styles, /\.code-block > code \{[^}]*background:\s*transparent/s);
   assert.match(styles, /\.tool-call-long-value \{[^}]*grid-template-columns:\s*max-content minmax\(0, 1fr\)/s);
 });
+
+test("the transcript dissolves under the header instead of being cut by a rule", () => {
+  // A border has to be drawn because content is sliced at a hard edge. Fading
+  // it removes the thing the border was there to explain, which is why the
+  // header carries no rule of its own.
+  assert.match(styles, /\.conversation-header \{[^}]*border-bottom:\s*0;/s);
+  assert.doesNotMatch(styles, /\.conversation-header \{[^}]*border-bottom:\s*1px/s);
+  // Mirrors the composer dock's fade at the other end, and starts from the
+  // plane's own colour so the two never drift apart.
+  assert.match(
+    styles,
+    /\.conversation-scroll-area::before \{[^}]*background:\s*linear-gradient\(to bottom, var\(--bg\)/s,
+  );
+  assert.match(styles, /\.conversation-scroll-area::before \{[^}]*pointer-events:\s*none;/s);
+  assert.match(styles, /\.conversation-composer-dock \{[^}]*background:\s*linear-gradient\(to bottom, transparent, var\(--bg\)/s);
+});
