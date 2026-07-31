@@ -115,6 +115,7 @@ test("conversation markdown tables use separated cells instead of a framed grid"
 test("conversation quotes and code keep structure without tinted panels", () => {
   assert.match(styles, /\.message-markdown blockquote \{[^}]*border-left:\s*2px solid var\(--accent-muted\);[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.message-markdown pre \{[^}]*border:\s*1px solid var\(--border\);[^}]*background:\s*transparent;/s);
+  assert.match(styles, /--inline-code-fill:\s*var\(--table-header-fill\);/);
   assert.match(styles, /\.message-markdown code \{[^}]*background:\s*var\(--inline-code-fill\);[^}]*color:\s*var\(--inline-code-text\);/s);
   assert.match(styles, /\.message-markdown pre code \{[^}]*background:\s*transparent;[^}]*color:\s*inherit;/s);
 });
