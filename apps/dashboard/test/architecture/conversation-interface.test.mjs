@@ -263,6 +263,12 @@ test("the transcript dissolves under the header instead of being cut by a rule",
     styles,
     /\.conversation-scroll-area::before \{[^}]*background:\s*linear-gradient\(to bottom, var\(--bg\)/s,
   );
-  assert.match(styles, /\.conversation-scroll-area::before \{[^}]*pointer-events:\s*none;/s);
-  assert.match(styles, /\.conversation-composer-dock \{[^}]*background:\s*linear-gradient\(to bottom, transparent, var\(--bg\)/s);
+  // Both edges of the scroll container do the cutting, so both need covering.
+  // The dock's own gradient sits below the container and never reached the
+  // bottom edge that slices the text.
+  assert.match(
+    styles,
+    /\.conversation-scroll-area::after \{[^}]*background:\s*linear-gradient\(to top, var\(--bg\)/s,
+  );
+  assert.match(styles, /\.conversation-scroll-area::before,\n\.conversation-scroll-area::after \{[^}]*pointer-events:\s*none;/s);
 });
