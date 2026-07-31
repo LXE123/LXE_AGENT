@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Info,
   LoaderCircle,
+  MessageSquareText,
   MoreVertical,
   PackageCheck,
   Paperclip,
@@ -1781,6 +1782,7 @@ export function SessionDetailView({
     <div className="session-detail conversation-view">
       <header className="conversation-header">
         <div className="conversation-header-copy">
+          <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
           <h2>{title}</h2>
           {session ? <span>{sourceLabel(session.source_summary || session.source)}</span> : null}
         </div>

@@ -55,9 +55,12 @@ test("macOS conversations merge the page header into the native title-bar row", 
     styles,
     /\.desktop-platform-darwin:has\(\.app-shell\.sessions-focus\) > \.desktop-window-drag-region\s*\{[^}]*pointer-events:\s*none;[^}]*-webkit-app-region:\s*no-drag;/s
   );
+  // Opaque is the requirement - the drag region sits behind it - and it takes
+  // the plane's colour so merging into the title bar does not lay a slab across
+  // the top of the transcript.
   assert.match(
     styles,
-    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--surface\);[^}]*-webkit-app-region:\s*no-drag;/s
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--bg\);[^}]*-webkit-app-region:\s*no-drag;/s
   );
   assert.match(
     styles,

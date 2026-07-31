@@ -8383,13 +8383,16 @@ pre {
   gap: 10px;
   padding: 8px 18px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  backdrop-filter: blur(14px);
+  /* The plane's colour, not a card's. --surface here made the header a slab
+     laid across the top of the transcript; the hairline is the only separation
+     it needs, and it only has to hold while content scrolls underneath. */
+  background: var(--bg);
+  backdrop-filter: none;
 }
 
 .desktop-platform-darwin .sessions-focus .conversation-header {
   z-index: 21;
-  background: var(--surface);
+  background: var(--bg);
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
@@ -8419,20 +8422,32 @@ pre {
   gap: 9px;
 }
 
+/* A label for where you are, not a headline. Session titles here can be a
+   whole sentence long, and at 650 weight that sentence became the loudest thing
+   on the page. */
 .conversation-header-copy h2 {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.9375rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The anchor the row starts from, so the title is not the first thing the eye
+   has to parse. */
+.conversation-header-icon {
+  flex: 0 0 auto;
+  color: var(--muted-light);
+}
+
+/* The source is short and fixed; the title is the part that should absorb the
+   truncation. Letting this shrink turned a five-character label into "desk..."
+   while the sentence-long title kept its width. */
 .conversation-header-copy > span {
-  min-width: 0;
   overflow: hidden;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   padding: 3px 7px;
   border-radius: 6px;
   background: var(--surface-muted);
