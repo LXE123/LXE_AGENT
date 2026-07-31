@@ -110,6 +110,28 @@ test("tool files reach the conversation and open through Main", () => {
   assert.match(main, /if \(!result\.opened\) throw new Error\(result\.error\)/);
 });
 
+test("the file list spends its width on what differs between the files", () => {
+  // A shared type is stated once in the heading; the per-card badge and the
+  // extension in every name were the same fact printed twice per row, and the
+  // names were truncated to pay for it.
+  assert.match(view, /const sharedExtension = extensions\.size === 1 \? \[\.\.\.extensions\]\[0\] : ""/);
+  assert.match(view, /sharedExtension\s*\?\s*t\.conversation\.filesOfType/s);
+  assert.match(view, /sharedExtension\s*\?\s*null\s*:\s*<span[^>]*className="turn-file-extension"/s);
+  assert.match(view, /className="turn-file-name" title=\{file\.name\}>\{fileDisplayName\(file\.name\)\}/);
+  assert.match(view, /function fileDisplayName/);
+  assert.match(styles, /\.turn-file-card\.untyped \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 18px/s);
+  // The base card must keep its own surface: the .untyped variant only swaps
+  // the column track.
+  assert.match(styles, /\.turn-file-card \{[^}]*border:\s*1px solid var\(--border\)[^}]*text-align:\s*left/s);
+  // Two columns only while both can hold a name; otherwise one full-width row
+  // beats two clipped ones.
+  assert.match(styles, /\.turn-file-grid \{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(330px, 100%\), 1fr\)\)/s);
+  // The arrow is decoration on a card that is entirely clickable, but progress
+  // is feedback and has to stay visible.
+  assert.match(styles, /\.turn-file-action \{[^}]*opacity:\s*0/s);
+  assert.match(styles, /\.turn-file-action\.conversation-spinner \{[^}]*opacity:\s*1/s);
+});
+
 test("input attachments expose opaque chips and open through Main", () => {
   assert.match(view, /InputAttachmentList/);
   assert.match(view, /message\.attachments/);

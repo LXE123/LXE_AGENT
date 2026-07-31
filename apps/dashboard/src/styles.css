@@ -8599,9 +8599,12 @@ pre {
   letter-spacing: 0.01em;
 }
 
+/* Two columns only while both are wide enough to hold a name. Below that a
+   fixed pair just truncates every row; one full-width column reads better than
+   two clipped ones. 330px is where the longest names stop fitting. */
 .turn-file-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -8627,6 +8630,12 @@ pre {
   font: inherit;
   text-align: left;
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+/* No badge when the whole set shares one type: the 47px it cost went straight
+   into the name, which is what was being truncated. */
+.turn-file-card.untyped {
+  grid-template-columns: minmax(0, 1fr) 18px;
 }
 
 .turn-file-card:hover:not(:disabled) {
@@ -8671,14 +8680,24 @@ pre {
   white-space: nowrap;
 }
 
+/* Every card opens on click, so a permanent arrow on all twelve says nothing.
+   The column stays reserved so nothing shifts when it fades in. */
 .turn-file-action {
   color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease;
 }
 
 .turn-file-card:hover:not(:disabled) .turn-file-action,
 .turn-file-card:focus-visible .turn-file-action,
 .turn-file-card:disabled .turn-file-action {
+  opacity: 1;
   color: var(--accent-strong);
+}
+
+/* Progress is feedback, not decoration - it shows whether or not you hover. */
+.turn-file-action.conversation-spinner {
+  opacity: 1;
 }
 
 .turn-file-card-error {

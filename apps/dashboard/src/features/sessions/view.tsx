@@ -971,9 +971,18 @@ function TurnFileList({
       });
     }
   };
+  // Twelve XLSX badges beside twelve names ending in .xlsx spend the row's width
+  // on the one fact that is identical across the set - and the names get
+  // truncated for it. State a shared type once in the heading; the badge earns
+  // its place only when the types actually differ.
+  const extensions = new Set(files.map((file) => fileExtensionLabel(file.name)));
+  const sharedExtension = extensions.size === 1 ? [...extensions][0] : "";
+  const heading = sharedExtension
+    ? t.conversation.filesOfType(formatNumber(files.length), sharedExtension)
+    : t.conversation.files(formatNumber(files.length));
   return (
-    <section className="turn-file-section" aria-label={t.conversation.files(formatNumber(files.length))}>
-      <div className="turn-file-heading">{t.conversation.files(formatNumber(files.length))}</div>
+    <section className="turn-file-section" aria-label={heading}>
+      <div className="turn-file-heading">{heading}</div>
       <div className="turn-file-grid">
         {files.map((file) => {
           const extension = fileExtensionLabel(file.name);
@@ -984,14 +993,16 @@ function TurnFileList({
               <button
                 aria-busy={isOpening}
                 aria-label={t.conversation.openFile(file.name)}
-                className="turn-file-card"
+                className={sharedExtension ? "turn-file-card untyped" : "turn-file-card"}
                 disabled={isOpening}
                 onClick={() => void open(file.artifact_id)}
                 title={t.conversation.openFile(file.name)}
                 type="button"
               >
-                <span aria-hidden="true" className="turn-file-extension">{extension}</span>
-                <span className="turn-file-name" title={file.name}>{file.name}</span>
+                {sharedExtension
+                  ? null
+                  : <span aria-hidden="true" className="turn-file-extension">{extension}</span>}
+                <span className="turn-file-name" title={file.name}>{fileDisplayName(file.name)}</span>
                 {isOpening
                   ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />
                   : <ArrowUpRight aria-hidden="true" className="turn-file-action" size={14} />}
@@ -1007,9 +1018,22 @@ function TurnFileList({
   );
 }
 
+const FILE_EXTENSION_PATTERN = /\.([a-z0-9]{1,8})$/i;
+
 function fileExtensionLabel(name: string): string {
-  const match = /\.([a-z0-9]{1,8})$/i.exec(name.trim());
+  const match = FILE_EXTENSION_PATTERN.exec(name.trim());
   return match?.[1] ? match[1].slice(0, 5).toUpperCase() : "FILE";
+}
+
+/**
+ * The extension is already stated - by the badge, or once in the heading when
+ * every file shares it - so repeating it here only costs the tail of the name,
+ * which is where these names differ from each other.
+ */
+function fileDisplayName(name: string): string {
+  const trimmed = name.trim();
+  const withoutExtension = trimmed.replace(FILE_EXTENSION_PATTERN, "");
+  return withoutExtension || trimmed;
 }
 
 function InputAttachmentList({
