@@ -2,8 +2,10 @@ import React, { useEffect, useId, useMemo, useState } from "react";
 import type { Components } from "react-markdown";
 
 import { useUiText } from "../i18n";
+import { CodeBlock } from "./code-block";
 
 const MERMAID_LANGUAGE_PATTERN = /\blanguage-mermaid\b/;
+const CODE_LANGUAGE_PATTERN = /\blanguage-([^\s]+)\b/;
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -42,9 +44,12 @@ export const markdownComponents: Components = {
     const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
     if (React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)) {
       const className = String(child.props.className || "");
+      const code = String(child.props.children || "").replace(/\n$/, "");
       if (MERMAID_LANGUAGE_PATTERN.test(className)) {
-        return <MermaidBlock chart={String(child.props.children || "").replace(/\n$/, "")} />;
+        return <MermaidBlock chart={code} />;
       }
+      const language = CODE_LANGUAGE_PATTERN.exec(className)?.[1] || "";
+      return <CodeBlock autoDetect={!language} code={code} language={language} />;
     }
     return <pre {...props}>{children}</pre>;
   },

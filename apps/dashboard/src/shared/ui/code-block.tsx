@@ -24,7 +24,7 @@ const LANGUAGE_MODULES: Record<string, () => Promise<{ default: unknown }>> = {
 };
 
 const EXTENSION_LANGUAGES: Record<string, string> = {
-  bash: "bash", sh: "bash", zsh: "bash", fish: "bash",
+  bash: "bash", sh: "bash", shell: "bash", zsh: "bash", fish: "bash",
   css: "css",
   diff: "diff", patch: "diff",
   cfg: "ini", conf: "ini", ini: "ini", toml: "ini",
@@ -37,6 +37,13 @@ const EXTENSION_LANGUAGES: Record<string, string> = {
   htm: "xml", html: "xml", svg: "xml", xml: "xml",
   yaml: "yaml", yml: "yaml",
 };
+
+/** Normalizes a Markdown fence label or extension onto a registered grammar. */
+export function normalizeCodeLanguage(language: string): string {
+  const normalized = language.trim().toLowerCase();
+  if (LANGUAGE_MODULES[normalized]) return normalized;
+  return EXTENSION_LANGUAGES[normalized] || "";
+}
 
 /** Maps a filename or path onto a registered language, or "" when unknown. */
 export function languageForPath(path: string): string {
@@ -65,18 +72,22 @@ function loadHighlighter(): Promise<HighlightApi> {
 /**
  * Renders code as code. Until the highlighter has loaded — and whenever the
  * language is one we do not register — the plain text still shows, so a
- * highlighting failure can never hide a tool's actual output.
+ * highlighting failure can never hide a tool's actual output. Markdown may
+ * opt into detection for an unlabeled fence; tool output never guesses.
  */
 export function CodeBlock({
   code,
   language = "",
   className = "",
+  autoDetect = false,
 }: {
   code: string;
   language?: string;
   className?: string;
+  autoDetect?: boolean;
 }) {
-  const supported = Boolean(language && LANGUAGE_MODULES[language]);
+  const normalizedLanguage = normalizeCodeLanguage(language);
+  const supported = Boolean(normalizedLanguage || autoDetect);
   const [html, setHtml] = useState("");
 
   useEffect(() => {
@@ -88,7 +99,10 @@ export function CodeBlock({
     loadHighlighter()
       .then((highlighter) => {
         if (cancelled) return;
-        setHtml(highlighter.highlight(code, { language, ignoreIllegals: true }).value);
+        const result = normalizedLanguage
+          ? highlighter.highlight(code, { language: normalizedLanguage, ignoreIllegals: true })
+          : highlighter.highlightAuto(code);
+        setHtml(result.value);
       })
       .catch(() => {
         if (!cancelled) setHtml("");
@@ -96,9 +110,9 @@ export function CodeBlock({
     return () => {
       cancelled = true;
     };
-  }, [code, language, supported]);
+  }, [autoDetect, code, normalizedLanguage, supported]);
 
-  const classes = ["code-block", language ? `language-${language}` : "", className]
+  const classes = ["code-block", normalizedLanguage ? `language-${normalizedLanguage}` : "", className]
     .filter(Boolean)
     .join(" ");
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { displayText, splitContentBlocks } from "../../src/shared/content";
 import { splitCallArguments } from "../../src/features/sessions/conversation";
-import { languageForPath } from "../../src/shared/ui/code-block";
+import { languageForPath, normalizeCodeLanguage } from "../../src/shared/ui/code-block";
 
 describe("splitContentBlocks", () => {
   test("keeps a tool result's newlines real instead of escaping them", () => {
@@ -72,5 +72,16 @@ describe("languageForPath", () => {
     expect(languageForPath("db/agent.sqlite3")).toBe("");
     expect(languageForPath("LICENSE")).toBe("");
     expect(languageForPath("")).toBe("");
+  });
+});
+
+describe("normalizeCodeLanguage", () => {
+  test("maps common Markdown fence aliases onto registered grammars", () => {
+    expect(normalizeCodeLanguage("python")).toBe("python");
+    expect(normalizeCodeLanguage("py")).toBe("python");
+    expect(normalizeCodeLanguage("js")).toBe("javascript");
+    expect(normalizeCodeLanguage("ts")).toBe("typescript");
+    expect(normalizeCodeLanguage("shell")).toBe("bash");
+    expect(normalizeCodeLanguage("unknown-language")).toBe("");
   });
 });

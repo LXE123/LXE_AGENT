@@ -8,6 +8,7 @@ const view = readFileSync(path.join(sourceDir, "features/sessions/view.tsx"), "u
 const main = readFileSync(path.join(sourceDir, "main.tsx"), "utf8");
 const queries = readFileSync(path.join(sourceDir, "api/queries.ts"), "utf8");
 const conversation = readFileSync(path.join(sourceDir, "features/sessions/conversation.ts"), "utf8");
+const markdown = readFileSync(path.join(sourceDir, "shared/ui/markdown.tsx"), "utf8");
 const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8").replaceAll("\r\n", "\n");
 
 test("sessions view exposes text conversation controls and IME-safe keyboard behavior", () => {
@@ -109,6 +110,14 @@ test("conversation markdown tables use separated cells instead of a framed grid"
   assert.doesNotMatch(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*background:\s*var\(--surface-subtle\);/s);
   assert.doesNotMatch(styles, /\.message-markdown th \{[^}]*background:/s);
   assert.doesNotMatch(styles, /\.message-markdown (?:th|td|tr:last-child td) \{[^}]*border-bottom:/s);
+});
+
+test("conversation fenced code reaches the syntax highlighter", () => {
+  assert.match(markdown, /import \{ CodeBlock \} from "\.\/code-block"/);
+  assert.match(markdown, /const language = CODE_LANGUAGE_PATTERN\.exec\(className\)\?\.\[1\] \|\| ""/);
+  assert.match(markdown, /return <CodeBlock autoDetect=\{!language\} code=\{code\} language=\{language\} \/>/);
+  assert.match(styles, /\.hljs-keyword,[^}]*color:\s*var\(--accent-strong\)/s);
+  assert.match(styles, /\.hljs-string,[^}]*color:\s*var\(--rate-good\)/s);
 });
 
 test("live turns expose one truthful phase and locally ticking elapsed time", () => {
