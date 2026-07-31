@@ -59,6 +59,7 @@ test("the transcript stays scrollable back through history", () => {
   assert.doesNotMatch(styles, /\.conversation-transcript \{[^}]*align-content: end/);
   assert.doesNotMatch(styles, /\.conversation-transcript > :first-child \{\s*margin-top: auto;/);
   assert.match(styles, /\.conversation-transcript \{[^}]*scrollbar-gutter:\s*stable[^}]*scrollbar-color:\s*rgba\(122, 112, 101, 0\.22\) transparent[^}]*scrollbar-width:\s*thin/s);
+  assert.doesNotMatch(styles, /\.message-markdown tbody tr:hover/);
   assert.match(styles, /\.conversation-transcript::-webkit-scrollbar-track,[\s\S]*?background:\s*transparent/s);
   assert.match(styles, /\.conversation-transcript::-webkit-scrollbar-thumb \{[^}]*border:\s*3px solid transparent[^}]*border-radius:\s*999px/s);
   assert.match(view, /new IntersectionObserver/);

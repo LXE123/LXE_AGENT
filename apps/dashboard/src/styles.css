@@ -5744,10 +5744,6 @@ h1 {
   white-space: nowrap;
 }
 
-.message-markdown tbody tr:hover {
-  background: var(--surface-subtle);
-}
-
 .message-block {
   min-width: 0;
   overflow: hidden;
