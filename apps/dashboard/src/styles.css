@@ -21,7 +21,7 @@
   /* A neutral grey shared by conversation cells and user bubbles. Keeping it
      independent prevents the warm page palette from tinting these surfaces. */
   --conversation-muted-fill: #f4f4f4;
-  --table-header-fill: #eeeeee;
+  --table-header-fill: #f0f0f0;
   --row-hover: #f3efe9;
   --border: #ebe4da;
   --border-strong: #ddd2c4;
@@ -136,7 +136,7 @@ button {
   --surface-muted: #2e2c2a;
   --surface-subtle: #2a2827;
   --conversation-muted-fill: #302f2e;
-  --table-header-fill: #2b2a29;
+  --table-header-fill: #2d2c2b;
   --row-hover: #3b3835;
   --border: #47423e;
   --border-strong: #5c554e;
