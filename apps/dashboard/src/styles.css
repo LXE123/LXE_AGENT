@@ -5768,7 +5768,6 @@ h1 {
 }
 
 .message-markdown th {
-  background: color-mix(in srgb, var(--surface-subtle) 96%, var(--text));
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 650;
