@@ -90,9 +90,9 @@ test("conversation messages and composer share the same focused reading axis", (
   assert.match(styles, /\.conversation-feed \.message-text,\s*\.conversation-feed \.message-markdown \{[^}]*font-size:\s*0\.875rem;[^}]*font-weight:\s*370;[^}]*line-height:\s*1\.7;/s);
   assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(var\(--assistant-content-width\),/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
-  // White bubble on the --bg plane: --surface-subtle is too close to the
-  // conversation background to read as a separate card.
-  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface\)/s);
+  // The user bubble shares the conversation's neutral muted fill instead of
+  // turning into a white card against the light page plane.
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--conversation-muted-fill\)/s);
   assert.match(styles, /\.sessions-focus \.content-panel-fill \{[^}]*background:\s*var\(--bg\)/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
@@ -102,9 +102,9 @@ test("conversation messages and composer share the same focused reading axis", (
 test("conversation markdown tables use separated cells instead of a framed grid", () => {
   assert.match(styles, /\.message-markdown \.markdown-table-scroll \{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.message-markdown table \{[^}]*border-collapse:\s*separate;[^}]*border-spacing:\s*3px;/s);
-  // Cells own their fill: --surface-subtle is shared with 31 other rules, so
-  // the table cannot be re-tinted through it without recolouring the app.
-  assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--table-cell\);/s);
+  // Cells and user bubbles share one deliberately neutral grey so neither can
+  // drift cool or warm independently of the other.
+  assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--conversation-muted-fill\);/s);
   assert.doesNotMatch(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*background:\s*var\(--surface-subtle\);/s);
   assert.doesNotMatch(styles, /\.message-markdown th \{[^}]*background:/s);
   assert.doesNotMatch(styles, /\.message-markdown (?:th|td|tr:last-child td) \{[^}]*border-bottom:/s);

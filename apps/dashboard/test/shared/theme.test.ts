@@ -71,6 +71,11 @@ describe("dark palette", () => {
     expect(light["--bg"]).not.toBe(light["--surface"]);
   });
 
+  test("keeps conversation muted surfaces neutral instead of blue", () => {
+    expect(light["--conversation-muted-fill"]).toBe("#f4f4f4");
+    expect(dark["--conversation-muted-fill"]).toBe("#302f2e");
+  });
+
   test("defines a dark value for every themeable light token", () => {
     // Guards the real failure mode: adding a token to :root and forgetting the
     // dark half, which silently leaves a light colour on a dark page.
