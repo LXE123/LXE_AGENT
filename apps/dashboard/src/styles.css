@@ -22,6 +22,8 @@
      independent prevents the warm page palette from tinting these surfaces. */
   --conversation-muted-fill: #f4f4f4;
   --table-header-fill: #f0f0f0;
+  --inline-code-fill: #f1f1f1;
+  --inline-code-text: #1f1f1f;
   --row-hover: #f3efe9;
   --border: #ebe4da;
   --border-strong: #ddd2c4;
@@ -137,6 +139,8 @@ button {
   --surface-subtle: #2a2827;
   --conversation-muted-fill: #302f2e;
   --table-header-fill: #2d2c2b;
+  --inline-code-fill: #383838;
+  --inline-code-text: #f3f3f3;
   --row-hover: #3b3835;
   --border: #47423e;
   --border-strong: #5c554e;
@@ -5730,11 +5734,11 @@ h1 {
 }
 
 .message-markdown code {
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: var(--surface-muted);
-  color: var(--text-soft);
-  font-size: 0.75rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--inline-code-fill);
+  color: var(--inline-code-text);
+  font-size: 0.8125rem;
 }
 
 .message-markdown pre {
