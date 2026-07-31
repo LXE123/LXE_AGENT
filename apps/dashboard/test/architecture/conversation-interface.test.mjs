@@ -93,7 +93,7 @@ test("conversation messages and composer share the same focused reading axis", (
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
   // The user bubble shares the conversation's neutral muted fill instead of
   // turning into a white card against the light page plane.
-  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--conversation-muted-fill\)/s);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*margin:\s*22px 0 1px;[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--conversation-muted-fill\)/s);
   assert.match(styles, /\.sessions-focus \.content-panel-fill \{[^}]*background:\s*var\(--bg\)/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);

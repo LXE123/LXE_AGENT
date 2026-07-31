@@ -8837,7 +8837,7 @@ pre {
   max-width: min(620px, 78%);
   align-self: flex-end;
   justify-self: end;
-  margin: 20px 0 0;
+  margin: 22px 0 1px;
   padding: 9px 13px;
   border: 1px solid var(--border);
   border-radius: 14px;
