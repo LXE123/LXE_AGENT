@@ -70,6 +70,12 @@ describe("dark palette", () => {
     expect(luminance(sidebar["--sidebar-bg"])).toBeLessThan(luminance(dark["--bg"]));
   });
 
+  test("keeps the main dark planes out of the near-black range", () => {
+    const sidebar = tokens(':root[data-theme="dark"] .app-sidebar');
+    expect(luminance(dark["--bg"])).toBeGreaterThan(0.015);
+    expect(luminance(sidebar["--sidebar-bg"])).toBeGreaterThan(0.01);
+  });
+
   test("meets the light theme's own contrast on every text pair", () => {
     const pairs: ReadonlyArray<[string, string]> = [
       ["--text", "--bg"],
