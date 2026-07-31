@@ -552,7 +552,7 @@ export class DashboardService {
   }
 
   private currentModel(): JsonObject {
-    const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "kimi_coding";
+    const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "deepseek";
     const spec = this.providerSpec(requested);
     if (spec) {
       return this.modelPayload(spec);

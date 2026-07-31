@@ -9,13 +9,14 @@ const sourceDir = path.resolve(testDir, "../../src");
 const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
 const models = readFileSync(path.join(sourceDir, "features/models/view.tsx"), "utf8");
 
-test("model card sections keep stable spacing in natural document flow", () => {
-  const thinkingPanel = styles.match(/\.model-thinking-panel \{[\s\S]*?\n\}/)?.[0] ?? "";
+test("model showcase sections keep stable spacing in natural document flow", () => {
+  const variant = styles.match(/\.model-showcase-variant \{[\s\S]*?\n\}/)?.[0] ?? "";
 
-  assert.match(thinkingPanel, /margin-top:\s*15px/);
-  assert.doesNotMatch(thinkingPanel, /margin-top:\s*auto/);
+  assert.match(variant, /display:\s*grid/);
+  assert.match(variant, /gap:\s*11px/);
+  assert.doesNotMatch(variant, /position:\s*absolute|margin-top:\s*auto/);
   assert.match(
     models,
-    /<details className="model-capabilities-details">[\s\S]*?<\/details>\s*\{showThinkingPanel/,
+    /<dl className="model-showcase-metrics">[\s\S]*?<\/dl>\s*<ThinkingSpec/,
   );
 });

@@ -202,7 +202,7 @@ describe("DesktopConfigImportManager", () => {
   test("leaves provider selection pending when multiple new keys are ambiguous", () => {
     const { root, manager } = createFixture();
     const preview = manager.select(writeEnv(root, [
-      "DEEPSEEK_API=deepseek-key",
+      "KIMI_CODE_API_KEY=kimi-key",
       "GLM_API_KEY=glm-key",
     ].join("\n")));
     expect(preview.warnings).toContain("检测到多个模型 API Key，无法自动选择模型服务，请在导入后手动选择");

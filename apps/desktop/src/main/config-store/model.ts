@@ -83,9 +83,9 @@ const DEFAULT_CONFIG: DesktopConfig = {
   schema_version: SETTINGS_SCHEMA_VERSION,
   migration_version: 0,
   llm: {
-    provider: "kimi_coding",
+    provider: "deepseek",
     profiles: {
-      kimi_coding: { model: "kimi-for-coding", thinking_level: "high" },
+      deepseek: { model: "deepseek-v4-flash", thinking_level: "low" },
     },
   },
   workspace_root: "",
@@ -291,8 +291,8 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       };
     }
   }
-  if (Object.keys(profiles).length === 0 && normalizedProvider === "kimi_coding") {
-    profiles.kimi_coding = structuredClone(DEFAULT_CONFIG.llm.profiles.kimi_coding!);
+  if (Object.keys(profiles).length === 0 && normalizedProvider === DEFAULT_CONFIG.llm.provider) {
+    profiles[normalizedProvider] = structuredClone(DEFAULT_CONFIG.llm.profiles[normalizedProvider]!);
   }
   return {
     schema_version: SETTINGS_SCHEMA_VERSION,

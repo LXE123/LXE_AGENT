@@ -91,6 +91,12 @@ describe("DesktopConfigStore", () => {
     });
 
     expect(store.state()).toMatchObject({ complete: true, provider_key_configured: true });
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-flash",
+      AGENT_LLM_THINKING_ENABLED: "1",
+      AGENT_LLM_THINKING_EFFORT: "low",
+    });
     expect(store.save({
       provider: "kimi_coding",
       workspace_root: join(root, "workspace"),

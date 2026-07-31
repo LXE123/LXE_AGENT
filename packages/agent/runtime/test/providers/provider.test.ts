@@ -81,6 +81,19 @@ describe("Anthropic-compatible provider", () => {
     }));
   });
 
+  test("defaults to DeepSeek Flash low when no runtime model preference exists", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      DEEPSEEK_API: "secret-key",
+    });
+    expect(descriptor).toEqual(expect.objectContaining({
+      name: "deepseek",
+      model: "deepseek-v4-flash",
+      thinkingEnabled: true,
+      thinkingEffort: "low",
+      thinkingDefault: "low",
+    }));
+  });
+
   test("builds fixed-budget K2.7 and output-effort-only K3 request controls", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const kimi = loadProviderDescriptor(projectRoot, {
@@ -166,7 +179,7 @@ describe("Anthropic-compatible provider", () => {
     }));
     expect(deepseekFlash).toEqual(expect.objectContaining({
       thinkingLevels: ["off", "low", "high", "max"],
-      thinkingDefault: "high",
+      thinkingDefault: "low",
       requestIdleTimeoutMs: 660_000,
     }));
     for (const [configured, expected] of [

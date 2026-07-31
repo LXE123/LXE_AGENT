@@ -161,7 +161,7 @@ export function loadProviderDescriptor(
   const specs = readdirSync(providerDir)
     .filter((name) => name.endsWith(".json"))
     .map((name) => readObject(join(providerDir, name)));
-  const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", "kimi_coding"));
+  const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", "deepseek"));
   const spec = specs.find((candidate) => {
     const names = [candidate.name, ...(Array.isArray(candidate.aliases) ? candidate.aliases : [])]
       .map(normalizeProviderKey);

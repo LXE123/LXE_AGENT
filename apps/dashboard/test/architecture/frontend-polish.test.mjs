@@ -135,10 +135,10 @@ test("model cards keep exact token values while using compact visible labels", (
   assert.match(styles, /container-type:\s*inline-size/);
   assert.match(
     styles,
-    /@container model-card \(max-width:\s*340px\)[\s\S]*?\.model-select-row\s*\{[\s\S]*?grid-template-columns:\s*1fr/
+    /@container model-card \(max-width:\s*340px\)[\s\S]*?\.model-showcase-thinking\s*\{[\s\S]*?flex-direction:\s*column/
   );
 
-  const metricRule = styles.match(/\.compact-metrics dd\s*\{([\s\S]*?)\}/)?.[1] || "";
+  const metricRule = styles.match(/\.model-showcase-metrics dd\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(metricRule, /text-overflow/);
   assert.doesNotMatch(metricRule, /overflow:\s*hidden/);
 });

@@ -3,7 +3,7 @@
   "label": "DeepSeek",
   "api_style": "anthropic-messages",
   "base_url": "https://api.deepseek.com/anthropic",
-  "default_model": "deepseek-v4-pro",
+  "default_model": "deepseek-v4-flash",
   "request_idle_timeout_ms": 660000,
   "default_headers": {},
   "aliases": ["deep_seek", "deep-seek"],
@@ -26,7 +26,7 @@
       "supports_temperature": true,
       "thinking_request_style": "anthropic-effort",
       "thinking_levels": ["off", "low", "high", "max"],
-      "thinking_default": "high"
+      "thinking_default": "low"
     }
   }
 }

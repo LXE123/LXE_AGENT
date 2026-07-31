@@ -101,7 +101,7 @@ describe("DashboardService", () => {
       label: "DeepSeek",
       api_style: "anthropic_messages",
       aliases: ["deep-seek"],
-      default_model: "deepseek-v4-pro",
+      default_model: "deepseek-v4-flash",
       request_idle_timeout_ms: 660_000,
       models: {
         "deepseek-v4-pro": {
@@ -114,7 +114,7 @@ describe("DashboardService", () => {
           context_window_tokens: 1_000_000,
           max_tokens: 384_000,
           thinking_levels: ["off", "low", "high", "max"],
-          thinking_default: "high",
+          thinking_default: "low",
         },
       },
     }), "utf8");
@@ -345,14 +345,30 @@ describe("DashboardService", () => {
     });
     const deepseekModel = modelList.items.find((model) => model.provider === "deepseek")!;
     expect(deepseekModel).toMatchObject({
-      provider: "deepseek", model: "deepseek-v4-pro", configured: true,
+      provider: "deepseek", model: "deepseek-v4-flash", configured: true,
     });
     const deepseekOptions = deepseekModel.model_options as Array<Record<string, unknown>>;
     expect(deepseekOptions.find((option) => option.model === "deepseek-v4-flash")).toMatchObject({
       thinking_levels: ["off", "low", "high", "max"],
-      thinking_default: "high",
+      thinking_default: "low",
       capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
     });
+    const activeEnvironment = {
+      AGENT_LLM_PROVIDER: environment.AGENT_LLM_PROVIDER,
+      AGENT_LLM_MODEL: environment.AGENT_LLM_MODEL,
+      AGENT_LLM_THINKING_ENABLED: environment.AGENT_LLM_THINKING_ENABLED,
+      AGENT_LLM_THINKING_EFFORT: environment.AGENT_LLM_THINKING_EFFORT,
+    };
+    delete environment.AGENT_LLM_PROVIDER;
+    delete environment.AGENT_LLM_MODEL;
+    delete environment.AGENT_LLM_THINKING_ENABLED;
+    delete environment.AGENT_LLM_THINKING_EFFORT;
+    expect(await call({ operation: "models.current", input: {} })).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      thinking_state: { enabled: true, level: "low" },
+    });
+    Object.assign(environment, activeEnvironment);
     expect(await call({ operation: "models.current", input: {} })).toMatchObject({ provider: "kimi_coding" });
     Object.assign(environment, {
       AGENT_LLM_MODEL: "k3",
@@ -432,7 +448,7 @@ describe("DashboardService", () => {
     environment.AGENT_LLM_MODEL_DEEPSEEK = "retired-model";
     const modelsWithRetiredPreference = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(modelsWithRetiredPreference.items.find((model) => model.provider === "deepseek")).toMatchObject({
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
     });
 
     const kimiAliasSwitch = await call({
