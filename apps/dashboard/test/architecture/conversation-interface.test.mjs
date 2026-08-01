@@ -260,6 +260,12 @@ test("user message metadata is smaller and revealed on hover", () => {
   assert.match(styles, /@media \(hover:\s*none\)\s*\{\s*\.message-meta\.role-user\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
 });
 
+test("assistant message metadata is smaller and sits closer to the response", () => {
+  assert.match(styles, /\.message-meta\.role-assistant\s*\{[^}]*min-height:\s*25px;[^}]*gap:\s*6px;[^}]*margin-top:\s*2px;[^}]*font-size:\s*0\.6875rem;/s);
+  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy\s*\{[^}]*width:\s*25px;[^}]*height:\s*25px;/s);
+  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/s);
+});
+
 test("the in-flight final answer leaves the process panel before the turn settles", () => {
   assert.match(view, /liveAnswerProjection\(processParts, stream\?\.display_metrics\.phase\)/);
   assert.match(view, /processParts\.filter\(\(part\) => !answerPartIds\.has\(part\.part_id\)\)/);

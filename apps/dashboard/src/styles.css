@@ -8783,7 +8783,22 @@ pre {
 
 .message-meta.role-assistant {
   width: min(100%, var(--assistant-content-width));
+  min-height: 25px;
   justify-content: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+}
+
+.message-meta.role-assistant .message-meta-copy {
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+}
+
+.message-meta.role-assistant .message-meta-copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 .message-meta.role-user {
