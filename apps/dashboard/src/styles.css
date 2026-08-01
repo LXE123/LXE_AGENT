@@ -8757,10 +8757,12 @@ pre {
 }
 
 .message-with-meta.role-user {
+  position: relative;
   width: fit-content;
   max-width: min(620px, 78%);
   align-self: flex-end;
   align-items: flex-end;
+  padding-bottom: 29px;
 }
 
 .conversation-feed .message-with-meta > .message-card {
@@ -8806,9 +8808,13 @@ pre {
 }
 
 .message-meta.role-user {
+  position: absolute;
+  right: 0;
+  bottom: 0;
   min-height: 25px;
   justify-content: flex-end;
   gap: 6px;
+  margin-top: 0;
   font-size: 0.6875rem;
   opacity: 0;
   pointer-events: none;
