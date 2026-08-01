@@ -8787,7 +8787,32 @@ pre {
 }
 
 .message-meta.role-user {
+  min-height: 25px;
   justify-content: flex-end;
+  gap: 6px;
+  font-size: 0.6875rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-1px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.message-with-meta.role-user:hover .message-meta,
+.message-with-meta.role-user:focus-within .message-meta {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.message-meta.role-user .message-meta-copy {
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+}
+
+.message-meta.role-user .message-meta-copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 .message-meta time {
@@ -8823,6 +8848,20 @@ pre {
   width: 100%;
   min-width: 0;
   gap: 4px;
+}
+
+@media (hover: none) {
+  .message-meta.role-user {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-meta.role-user {
+    transition: none;
+  }
 }
 
 .response-process {

@@ -253,6 +253,13 @@ test("reader messages expose only copy and timestamp metadata", () => {
   assert.doesNotMatch(view, /message-meta[^\n]*(?:ThumbsUp|ThumbsDown|Maximize)/);
 });
 
+test("user message metadata is smaller and revealed on hover", () => {
+  assert.match(styles, /\.message-meta\.role-user\s*\{[^}]*min-height:\s*25px;[^}]*gap:\s*6px;[^}]*font-size:\s*0\.6875rem;[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s);
+  assert.match(styles, /\.message-with-meta\.role-user:hover \.message-meta,\s*\.message-with-meta\.role-user:focus-within \.message-meta\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /\.message-meta\.role-user \.message-meta-copy\s*\{[^}]*width:\s*25px;[^}]*height:\s*25px;/s);
+  assert.match(styles, /@media \(hover:\s*none\)\s*\{\s*\.message-meta\.role-user\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
+});
+
 test("the in-flight final answer leaves the process panel before the turn settles", () => {
   assert.match(view, /liveAnswerProjection\(processParts, stream\?\.display_metrics\.phase\)/);
   assert.match(view, /processParts\.filter\(\(part\) => !answerPartIds\.has\(part\.part_id\)\)/);
