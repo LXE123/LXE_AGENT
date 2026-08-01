@@ -54,6 +54,7 @@ test("optimistic cards retire on transcript watermarks, never on message text", 
   // text comparison against the transcript silently stops matching.
   assert.doesNotMatch(view, /transcriptContains/);
   assert.match(main, /transcriptFetchedAt=\{sessionDetail\?\.messages_page\.fetched_at/);
+  assert.match(styles, /\.local-turn > \.message-with-meta\.role-user\s*\{[^}]*justify-self:\s*end;/s);
 });
 
 test("the transcript stays scrollable back through history", () => {

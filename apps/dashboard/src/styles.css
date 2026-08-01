@@ -4853,6 +4853,10 @@ h1 {
   gap: 2px;
 }
 
+.local-turn > .message-with-meta.role-user {
+  justify-self: end;
+}
+
 .optimistic-message {
   background: var(--surface-subtle);
 }
