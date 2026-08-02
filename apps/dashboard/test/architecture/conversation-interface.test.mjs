@@ -35,6 +35,7 @@ test("the composer switches the shared model before the next turn", () => {
   assert.match(main, /onModelChange=\{setCurrentModel\}/);
   assert.doesNotMatch(view, /t\.models\.moreModels|onOpenModels/);
   assert.match(styles, /\.conversation-model-menu \{[^}]*position:\s*absolute[^}]*bottom:\s*calc\(100% \+ 9px\)/s);
+  assert.match(styles, /\.conversation-model-option:disabled \{[^}]*opacity:\s*0\.46;[^}]*filter:\s*grayscale\(1\)/s);
 });
 
 test("the composer edits thinking effort using the shared next-turn preference", () => {
