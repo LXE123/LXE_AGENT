@@ -9565,6 +9565,12 @@ pre {
   white-space: nowrap;
 }
 
+.conversation-model-option-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .conversation-model-option-copy strong {
   color: var(--text);
   font-size: 0.75rem;

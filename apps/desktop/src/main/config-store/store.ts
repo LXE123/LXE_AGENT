@@ -1,7 +1,9 @@
 import type {
   DesktopCloudPermissionSnapshot,
+  CredentialSource,
   DesktopSetupInput,
   DesktopSetupState,
+  ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudConfigService } from "./cloud";
 import { DesktopEnvironmentImport } from "./environment-import";
@@ -51,8 +53,25 @@ export class DesktopConfigStore {
     return this.setup.save(input);
   }
 
-  saveRuntimePreference(provider: string, model: string, thinkingLevel: string): void {
-    this.setup.saveRuntimePreference(provider, model, thinkingLevel);
+  saveRuntimePreference(
+    provider: string,
+    model: string,
+    thinkingLevel: string,
+    credentialSource: CredentialSource = "local",
+  ): void {
+    this.setup.saveRuntimePreference(provider, model, thinkingLevel, credentialSource);
+  }
+
+  managedLlmCredential(): ManagedLlmCredential | null {
+    return this.setup.managedLlmCredential();
+  }
+
+  saveManagedLlmCredential(credential: ManagedLlmCredential): void {
+    this.setup.saveManagedLlmCredential(credential);
+  }
+
+  invalidateManagedLlmCredential(revision: string): void {
+    this.setup.invalidateManagedLlmCredential(revision);
   }
 
   cloudConfiguration(): DesktopCloudConfiguration {

@@ -47,26 +47,49 @@ describe("conversation model choices", () => {
     expect(conversationModelChoices([
       {
         provider: "deepseek",
+        credential_source: "local" as const,
         label: "DeepSeek",
         selectable: true,
         model_options: [{ model: "deepseek-chat" }, { model: "deepseek-reasoner" }],
       },
       {
         provider: "unconfigured",
+        credential_source: "local" as const,
         label: "Unavailable",
         selectable: false,
         model_options: [{ model: "hidden-model" }],
       },
       {
+        provider: "deepseek",
+        credential_source: "cloud" as const,
+        label: "DeepSeek",
+        selectable: true,
+        model_options: [{ model: "deepseek-v4-flash" }],
+      },
+      {
         provider: "kimi_coding",
+        credential_source: "local" as const,
         label: "Kimi Coding",
         selectable: true,
         model_options: [{ model: "kimi-k2.5" }],
       },
     ])).toEqual([
-      { provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5" },
-      { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat" },
-      { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner" },
+      {
+        provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5",
+        credentialSource: "local", title: "kimi-k2.5", subtitle: "Kimi Coding",
+      },
+      {
+        provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat",
+        credentialSource: "local", title: "deepseek-chat", subtitle: "DeepSeek",
+      },
+      {
+        provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner",
+        credentialSource: "local", title: "deepseek-reasoner", subtitle: "DeepSeek",
+      },
+      {
+        provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-v4-flash",
+        credentialSource: "cloud", title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
+      },
     ]);
   });
 });
@@ -75,11 +98,13 @@ describe("showcase model browsing", () => {
   const providers = [
     {
       provider: "kimi_coding",
+      credential_source: "local" as const,
       model: "kimi-default",
       model_options: [{ model: "kimi-default" }, { model: "kimi-long" }],
     },
     {
       provider: "deepseek",
+      credential_source: "local" as const,
       model: "deepseek-flash",
       model_options: [{ model: "deepseek-pro" }, { model: "deepseek-flash" }],
     },
@@ -88,21 +113,21 @@ describe("showcase model browsing", () => {
   test("starts the active provider on its current model and other providers on their defaults", () => {
     expect(reconcileShowcaseSelections(
       providers,
-      { provider: "deepseek", model: "deepseek-pro" },
+      { provider: "deepseek", model: "deepseek-pro", credential_source: "local" },
     )).toEqual({
-      kimi_coding: "kimi-default",
-      deepseek: "deepseek-pro",
+      "kimi_coding:local": "kimi-default",
+      "deepseek:local": "deepseek-pro",
     });
   });
 
   test("preserves a valid local browsing choice without changing the current model", () => {
     expect(reconcileShowcaseSelections(
       providers,
-      { provider: "deepseek", model: "deepseek-flash" },
-      { kimi_coding: "kimi-long", deepseek: "deepseek-pro" },
+      { provider: "deepseek", model: "deepseek-flash", credential_source: "local" },
+      { "kimi_coding:local": "kimi-long", "deepseek:local": "deepseek-pro" },
     )).toEqual({
-      kimi_coding: "kimi-long",
-      deepseek: "deepseek-pro",
+      "kimi_coding:local": "kimi-long",
+      "deepseek:local": "deepseek-pro",
     });
   });
 
@@ -110,8 +135,8 @@ describe("showcase model browsing", () => {
     expect(reconcileShowcaseSelections(
       providers.slice(1),
       null,
-      { kimi_coding: "kimi-long", deepseek: "removed-model" },
-    )).toEqual({ deepseek: "deepseek-flash" });
+      { "kimi_coding:local": "kimi-long", "deepseek:local": "removed-model" },
+    )).toEqual({ "deepseek:local": "deepseek-flash" });
   });
 });
 

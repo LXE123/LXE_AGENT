@@ -983,6 +983,7 @@ describe("TypeScriptAgentRuntime", () => {
       job_kind: "turn",
       provider: "kimi_coding",
       model: "kimi-for-coding",
+      credential_source: "local",
       effort: "high",
       thinking_enabled: true,
       provider_generation: 7,
@@ -1883,6 +1884,128 @@ describe("TypeScriptAgentRuntime", () => {
     expect(fatal.contexts).toBe(1);
     expect(fatal.snapshots).toBe(1);
     expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
+  });
+
+  test("reports a cloud authentication failure once and blocks the invalid revision on later turns", async () => {
+    const store = new MemoryStore();
+    const revision = "d".repeat(64);
+    const environment: Record<string, string> = {
+      LXE_MANAGED_LLM_INVALID_REVISION: "",
+    };
+    let calls = 0;
+    const failures: string[] = [];
+    const snapshot: RuntimeProviderSnapshot = {
+      generation: 1,
+      descriptor: {
+        name: "deepseek",
+        model: "deepseek-v4-flash",
+        credentialSource: "cloud",
+        credentialRevision: revision,
+        baseURL: "https://api.deepseek.test",
+        apiKey: "managed-secret",
+        maxTokens: 4_096,
+        defaultHeaders: {},
+        thinkingStyle: "provider-managed",
+        thinkingLevels: ["off", "low", "high", "max"],
+        thinkingDefault: "low",
+        thinkingEnabled: true,
+        thinkingEffort: "low",
+        thinkingDisplay: "omitted",
+        contextWindowTokens: 1_000_000,
+        requestIdleTimeoutMs: 1_000,
+      },
+      provider: {
+        summarize,
+        turn: async () => {
+          calls += 1;
+          throw new RuntimeProviderError(
+            "invalid authentication",
+            "deepseek",
+            "认证失败",
+            "DeepSeek 认证失败，请检查 API Key 是否正确。",
+            false,
+            401,
+          );
+        },
+      },
+    };
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      providerManager: { acquire: () => snapshot, reconfigure: async () => snapshot },
+      environment,
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onManagedLlmAuthenticationFailure: (_provider, _model, failedRevision) => {
+        failures.push(failedRevision);
+        environment.LXE_MANAGED_LLM_INVALID_REVISION = failedRevision;
+      },
+    });
+    await runtime.start();
+    expect((await runtime.runTurn(job(), handle())).status).toBe("error");
+    expect((await runtime.runTurn({
+      ...job(), job_id: "j2", message_id: "m2",
+    }, handle())).status).toBe("error");
+    await runtime.stop();
+
+    expect(calls).toBe(1);
+    expect(failures).toEqual([revision]);
+  });
+
+  test("does not invalidate a cloud credential for permission-shaped 401 errors", async () => {
+    const store = new MemoryStore();
+    const revision = "e".repeat(64);
+    const failures: string[] = [];
+    const snapshot: RuntimeProviderSnapshot = {
+      generation: 1,
+      descriptor: {
+        name: "deepseek",
+        model: "deepseek-v4-flash",
+        credentialSource: "cloud",
+        credentialRevision: revision,
+        baseURL: "https://api.deepseek.test",
+        apiKey: "managed-secret",
+        maxTokens: 4_096,
+        defaultHeaders: {},
+        thinkingStyle: "provider-managed",
+        thinkingLevels: ["off", "low", "high", "max"],
+        thinkingDefault: "low",
+        thinkingEnabled: true,
+        thinkingEffort: "low",
+        thinkingDisplay: "omitted",
+        contextWindowTokens: 1_000_000,
+        requestIdleTimeoutMs: 1_000,
+      },
+      provider: {
+        summarize,
+        turn: async () => {
+          throw new RuntimeProviderError(
+            "model access denied",
+            "deepseek",
+            "权限错误",
+            "DeepSeek 当前账号无权使用该模型。",
+            false,
+            401,
+          );
+        },
+      },
+    };
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      providerManager: { acquire: () => snapshot, reconfigure: async () => snapshot },
+      environment: { LXE_MANAGED_LLM_INVALID_REVISION: "" },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onManagedLlmAuthenticationFailure: (_provider, _model, failedRevision) => {
+        failures.push(failedRevision);
+      },
+    });
+    await runtime.start();
+    expect((await runtime.runTurn(job(), handle())).status).toBe("error");
+    await runtime.stop();
+
+    expect(failures).toEqual([]);
   });
 
   test("creates distinct zero-based wire attempts for retries and later agent steps", async () => {

@@ -148,6 +148,7 @@ export interface RuntimeTurnContextRecord extends JsonObject {
   job_kind: "turn" | "heartbeat";
   provider: string;
   model: string;
+  credential_source?: "local" | "cloud";
   effort: string;
   thinking_enabled: boolean;
   provider_generation: number;

@@ -172,6 +172,45 @@ describe("desktop agent protocol", () => {
     }
   });
 
+  test("strictly validates secret-bearing managed credential updates and public auth events", () => {
+    const revision = "e".repeat(64);
+    const request = {
+      version: AGENT_PROTOCOL_VERSION,
+      id: "managed-credential-1",
+      command: "update_managed_llm_credential",
+      payload: {
+        credential: {
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          api_key: "secret",
+          credential_revision: revision,
+          fetched_at: 123,
+          invalid_revision: "",
+        },
+      },
+    } as const;
+    expect(parseAgentWireMessage(JSON.stringify(request))).toEqual(request);
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...request,
+      payload: { credential: { ...request.payload.credential, api_key: "" } },
+    }))).toThrow("credential is invalid");
+
+    const event = {
+      version: AGENT_PROTOCOL_VERSION,
+      type: "managed_llm.authentication_failed",
+      payload: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        credential_revision: revision,
+      },
+    } as const;
+    expect(parseAgentWireMessage(JSON.stringify(event))).toEqual(event);
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...event,
+      payload: { ...event.payload, api_key: "must-not-appear" },
+    }))).toThrow("authentication event is invalid");
+  });
+
   test("accepts only directory and worktree in workspace payloads", () => {
     const request = {
       version: AGENT_PROTOCOL_VERSION,
@@ -283,6 +322,21 @@ describe("desktop agent protocol", () => {
       operation: "sessions.delete",
       input: { session_id: " session-1 " },
     })).toEqual({ operation: "sessions.delete", input: { session_id: "session-1" } });
+    expect(parseDashboardRpcCall({
+      operation: "models.update",
+      input: {
+        provider: " deepseek ",
+        model: " deepseek-v4-flash ",
+        credential_source: "cloud",
+      },
+    })).toEqual({
+      operation: "models.update",
+      input: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        credential_source: "cloud",
+      },
+    });
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {

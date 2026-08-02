@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 14;
+const protocolVersion = 15;
 let activeRunRequest;
 let steered = [];
 let cancelCount = 0;
@@ -78,6 +78,10 @@ for await (const line of input) {
     if (process.env.FAKE_SKILL_PERMISSION_PATH) {
       writeFileSync(process.env.FAKE_SKILL_PERMISSION_PATH, JSON.stringify(allowedSkillTypes), "utf8");
     }
+    write({ version: protocolVersion, id: request.id, ok: true, result: { updated: true } });
+    continue;
+  }
+  if (request.command === "update_managed_llm_credential") {
     write({ version: protocolVersion, id: request.id, ok: true, result: { updated: true } });
     continue;
   }

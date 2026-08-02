@@ -183,6 +183,7 @@ describe("Transcript v2", () => {
       reasoning_effort: "high",
       model_config: {
         provider: "kimi_coding",
+        credential_source: "local",
         thinking_enabled: true,
         provider_generation: 3,
         context_window_tokens: 256_000,

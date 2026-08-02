@@ -32,7 +32,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 4,
+      schema_version: 5,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -53,7 +53,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 4,
+      schema_version: 5,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -65,6 +65,27 @@ describe("DesktopConfigRepository", () => {
     });
     expect(existsSync(join(root, "config", "settings.json"))).toBeTrue();
     expect(existsSync(join(root, "config", "desktop.json.migrated-v3.bak"))).toBeTrue();
+  });
+
+  test("migrates schema 4 model settings to local credential-source defaults", () => {
+    const root = createRoot();
+    const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    legacy.schema_version = 4;
+    const llm = legacy.llm as Record<string, unknown>;
+    delete llm.credential_source;
+    delete llm.last_local_provider;
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config", "settings.json"), JSON.stringify(legacy));
+
+    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(repository.readConfig()).toMatchObject({
+      schema_version: 5,
+      llm: {
+        provider: "deepseek",
+        credential_source: "local",
+        last_local_provider: "deepseek",
+      },
+    });
   });
 
   test("keeps every secret encrypted and fails closed without secure storage", () => {

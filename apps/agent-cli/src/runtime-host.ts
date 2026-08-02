@@ -12,6 +12,7 @@ import {
   type AgentDashboardRpcCall,
   type AgentDashboardRpcOperation,
   type DashboardRpcResult,
+  type ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
@@ -58,6 +59,11 @@ export interface AgentRuntimeHostOptions {
   allowedSkillTypes?: ReadonlySet<string>;
   onWake?: (payload: JsonObject) => void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
+  onManagedLlmAuthenticationFailure?: (
+    provider: string,
+    model: string,
+    credentialRevision: string,
+  ) => Promise<void> | void;
   logger?: Logger;
 }
 
@@ -74,6 +80,7 @@ export interface AgentRuntimeHost {
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
+  updateManagedLlmCredential?(credential: ManagedLlmCredential | null): Promise<void>;
   health(): JsonObject;
 }
 
@@ -285,6 +292,9 @@ export function createAgentRuntimeHost(
     },
     emitter: options.emitter,
     ...(options.onSessionChanged ? { onSessionChanged: options.onSessionChanged } : {}),
+    ...(options.onManagedLlmAuthenticationFailure
+      ? { onManagedLlmAuthenticationFailure: options.onManagedLlmAuthenticationFailure }
+      : {}),
     systemPrompt: (context) => buildSystemPrompt({
       soul: context.workspaceSnapshot?.soul ?? "",
       workspace: context.workspace,
@@ -331,6 +341,22 @@ export function createAgentRuntimeHost(
       allowedSkillTypes.clear();
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
+    },
+    updateManagedLlmCredential: async (credential) => {
+      environment.LXE_MANAGED_LLM_PROVIDER = credential?.provider ?? "";
+      environment.LXE_MANAGED_LLM_MODEL = credential?.model ?? "";
+      environment.LXE_MANAGED_LLM_API_KEY = credential?.api_key ?? "";
+      environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = credential?.credential_revision ?? "";
+      environment.LXE_MANAGED_LLM_INVALID_REVISION = credential?.invalid_revision ?? "";
+      if (environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
+        && credential
+        && credential.invalid_revision !== credential.credential_revision) {
+        await providerManager.reconfigure({
+          provider: credential.provider,
+          model: credential.model,
+          credentialSource: "cloud",
+        });
+      }
     },
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();

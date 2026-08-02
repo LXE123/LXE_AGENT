@@ -149,7 +149,9 @@ function modelsWithCurrentModel(
   return {
     ...current,
     items: current.items.map((item) =>
-      item.provider === model.provider ? { ...item, ...model } : item
+      item.provider === model.provider && item.credential_source === model.credential_source
+        ? { ...item, ...model }
+        : item
     ),
   };
 }
@@ -537,12 +539,17 @@ function App({
   const modelMutation = useMutation<
     ModelPayload,
     unknown,
-    { provider: string; model: string; optimistic: ModelPayload },
+    {
+      provider: string;
+      model: string;
+      credentialSource: "local" | "cloud";
+      optimistic: ModelPayload;
+    },
     { current?: ModelPayload; models?: ApiList<ModelPayload> }
   >({
-    mutationFn: ({ provider, model }) => callDashboard({
+    mutationFn: ({ provider, model, credentialSource }) => callDashboard({
       operation: "models.update",
-      input: { provider, model },
+      input: { provider, model, credential_source: credentialSource },
     }),
     onMutate: async ({ optimistic }) => {
       setError("");
@@ -659,9 +666,15 @@ function App({
     thinkingMutation.mutate(level);
   }
 
-  function setCurrentModel(provider: string, modelName: string) {
+  function setCurrentModel(
+    provider: string,
+    modelName: string,
+    credentialSource: "local" | "cloud",
+  ) {
     if (modelMutation.isPending) return;
-    const providerModel = modelsQuery.data?.items.find((item) => item.provider === provider);
+    const providerModel = modelsQuery.data?.items.find((item) =>
+      item.provider === provider && item.credential_source === credentialSource
+    );
     const selectedOption = providerModel?.model_options.find((option) => option.model === modelName);
     if (!providerModel || !selectedOption) {
       setError(t.models.modelOptionUnavailable);
@@ -679,7 +692,7 @@ function App({
       selectedOption,
       currentModelQuery.data?.thinking_state,
     );
-    modelMutation.mutate({ provider, model: modelName, optimistic });
+    modelMutation.mutate({ provider, model: modelName, credentialSource, optimistic });
   }
 
   function toggleConnector(connector: ConnectorPayload) {

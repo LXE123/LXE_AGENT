@@ -367,7 +367,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 4,
+      schema_version: 5,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -434,5 +434,72 @@ describe("DesktopConfigStore", () => {
       apiKey: "replacement-token",
     });
     expect(store.cloudPermissionSnapshot()).toBeNull();
+  });
+
+  test("uses an encrypted managed credential as a standalone cloud model configuration", () => {
+    const root = createRoot();
+    const opaqueStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(Buffer.from(value, "utf8").toString("base64"), "ascii"),
+      decryptString: (value: Buffer) => Buffer.from(String(value), "base64").toString("utf8"),
+    };
+    const revision = "a".repeat(64);
+    const store = new DesktopConfigStore(root, join(root, "workspace"), opaqueStorage);
+    store.saveManagedLlmCredential({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      api_key: "managed-deepseek-secret",
+      credential_revision: revision,
+      fetched_at: 123,
+      invalid_revision: "",
+    });
+
+    expect(store.state()).toMatchObject({
+      complete: true,
+      provider: "deepseek",
+      credential_source: "cloud",
+      provider_key_configured: false,
+      managed_model_configured: true,
+    });
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_CREDENTIAL_SOURCE: "cloud",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "managed-deepseek-secret",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: revision,
+    });
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8"))
+      .not.toContain("managed-deepseek-secret");
+    expect(readFileSync(join(root, "config", "secrets.bin"), "utf8"))
+      .not.toContain("managed-deepseek-secret");
+
+    const restarted = new DesktopConfigStore(root, join(root, "workspace"), opaqueStorage);
+    expect(restarted.state()).toMatchObject({ complete: true, credential_source: "cloud" });
+    restarted.invalidateManagedLlmCredential(revision);
+    expect(restarted.state()).toMatchObject({ complete: false, managed_model_configured: false });
+  });
+
+  test("keeps an existing local model selected when a managed credential arrives", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, {
+      platform: "darwin",
+      secretEnvironment: { DEEPSEEK_API: "local-deepseek-secret" },
+    });
+    store.saveManagedLlmCredential({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      api_key: "managed-deepseek-secret",
+      credential_revision: "c".repeat(64),
+      fetched_at: 123,
+      invalid_revision: "",
+    });
+
+    expect(store.state()).toMatchObject({
+      complete: true,
+      provider: "deepseek",
+      credential_source: "local",
+      provider_key_configured: true,
+      managed_model_configured: true,
+    });
   });
 });

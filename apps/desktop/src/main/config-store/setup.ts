@@ -1,5 +1,10 @@
 import { join, resolve } from "node:path";
-import type { DesktopSetupInput, DesktopSetupState } from "@lxe/desktop-protocol";
+import type {
+  CredentialSource,
+  DesktopSetupInput,
+  DesktopSetupState,
+  ManagedLlmCredential,
+} from "@lxe/desktop-protocol";
 import {
   cloneConfig,
   logProfile,
@@ -25,6 +30,11 @@ export class DesktopSetupService {
     const config = this.repository.readConfig();
     const secrets = this.effectiveSecrets();
     const providerKey = text(secrets.provider_keys[config.llm.provider]);
+    const managedCredential = secrets.managed_llm_credential;
+    const managedModelConfigured = Boolean(
+      managedCredential
+      && managedCredential.invalid_revision !== managedCredential.credential_revision,
+    );
     const workspaceRoot = config.workspace_root || this.defaultWorkspaceRoot;
     const workspaceAvailable = this.validation.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
@@ -37,9 +47,14 @@ export class DesktopSetupService {
     const mabangConfigured = mabang.managed && mabangIssues.length === 0;
     const feishuConfigured = feishu.managed && feishuIssues.length === 0;
     return {
-      complete: Boolean(providerKey && workspaceAvailable),
+      complete: Boolean(
+        workspaceAvailable
+        && (config.llm.credential_source === "cloud" ? managedModelConfigured : providerKey),
+      ),
       provider: config.llm.provider,
+      credential_source: config.llm.credential_source,
       provider_key_configured: Boolean(providerKey),
+      managed_model_configured: managedModelConfigured,
       workspace_root: workspaceRoot,
       ziniao: {
         managed: ziniao.managed,
@@ -85,6 +100,8 @@ export class DesktopSetupService {
     const secrets = this.repository.readSecrets();
     const effectiveSecrets = this.effectiveSecrets(secrets);
     config.llm.provider = provider;
+    config.llm.credential_source = "local";
+    config.llm.last_local_provider = provider;
     config.workspace_root = workspaceRoot;
     config.migration_version = Math.max(config.migration_version, MIGRATION_VERSION);
     if (text(input.api_key)) secrets.provider_keys[provider] = text(input.api_key);
@@ -156,13 +173,20 @@ export class DesktopSetupService {
     return this.state();
   }
 
-  saveRuntimePreference(provider: string, model: string, thinkingLevel: string): void {
+  saveRuntimePreference(
+    provider: string,
+    model: string,
+    thinkingLevel: string,
+    credentialSource: CredentialSource = "local",
+  ): void {
     if (provider !== "kimi_coding" && provider !== "deepseek" && provider !== "glm") {
       throw new Error(`Unsupported model provider: ${provider}`);
     }
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
     config.llm.provider = provider;
+    config.llm.credential_source = credentialSource;
+    if (credentialSource === "local") config.llm.last_local_provider = provider;
     config.llm.profiles[provider] = {
       model: text(model),
       thinking_level: text(thinkingLevel) || "off",
@@ -170,10 +194,42 @@ export class DesktopSetupService {
     this.repository.commit(config, secrets);
   }
 
+  managedLlmCredential(): ManagedLlmCredential | null {
+    return this.repository.readSecrets().managed_llm_credential;
+  }
+
+  saveManagedLlmCredential(credential: ManagedLlmCredential): void {
+    this.repository.requireSafeStorage();
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    const effectiveSecrets = this.effectiveSecrets(secrets);
+    secrets.managed_llm_credential = { ...credential, invalid_revision: "" };
+    const hasLocalProvider = Object.values(effectiveSecrets.provider_keys).some((value) => Boolean(text(value)));
+    if (!hasLocalProvider) {
+      config.llm.provider = credential.provider;
+      config.llm.credential_source = "cloud";
+      config.llm.profiles.deepseek = {
+        model: credential.model,
+        thinking_level: config.llm.profiles.deepseek?.thinking_level || "low",
+      };
+    }
+    this.repository.commit(config, secrets);
+  }
+
+  invalidateManagedLlmCredential(revision: string): void {
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    if (!secrets.managed_llm_credential
+      || secrets.managed_llm_credential.credential_revision !== text(revision)) return;
+    secrets.managed_llm_credential.invalid_revision = text(revision);
+    this.repository.commit(config, secrets);
+  }
+
   environment(): Record<string, string> {
     const config = this.repository.readConfig();
     const secrets = this.effectiveSecrets();
     const provider = config.llm.provider;
+    const managedCredential = secrets.managed_llm_credential;
     const providerEnvironment = {
       KIMI_CODE_API_KEY: text(secrets.provider_keys.kimi_coding),
       DEEPSEEK_API: text(secrets.provider_keys.deepseek),
@@ -200,11 +256,17 @@ export class DesktopSetupService {
     const cloudEnabled = config.cloud.managed && Boolean(text(secrets.data_server_api_key));
     return {
       AGENT_LLM_PROVIDER: provider,
+      AGENT_LLM_CREDENTIAL_SOURCE: config.llm.credential_source,
       AGENT_LLM_MODEL: activePreference?.model ?? "",
       AGENT_LLM_THINKING_ENABLED: activeThinkingLevel === "off" ? "0" : "1",
       AGENT_LLM_THINKING_EFFORT: activeThinkingLevel,
       ...preferenceEnvironment,
       ...providerEnvironment,
+      LXE_MANAGED_LLM_PROVIDER: managedCredential?.provider ?? "",
+      LXE_MANAGED_LLM_MODEL: managedCredential?.model ?? "",
+      LXE_MANAGED_LLM_API_KEY: managedCredential?.api_key ?? "",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: managedCredential?.credential_revision ?? "",
+      LXE_MANAGED_LLM_INVALID_REVISION: managedCredential?.invalid_revision ?? "",
       ...config.output_directories,
       ZINIAO_REGISTER_PLANNER_TOOLS: ziniaoConfigured ? "1" : "0",
       ZINIAO_COMPANY: ziniaoConfigured ? ziniao.company : "",

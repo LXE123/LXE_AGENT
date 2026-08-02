@@ -8,6 +8,7 @@ import type {
   DesktopCloudEnrollmentSelection,
   DesktopCloudPermissionSnapshot,
   DesktopCloudState,
+  ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
@@ -17,6 +18,10 @@ import {
   parseServerDevicePermission,
   permissionSnapshotsEqual,
 } from "./cloud-permissions";
+import {
+  parseManagedLlmCredential,
+  parseManagedLlmStatus,
+} from "./managed-llm";
 
 export interface DesktopCloudClock {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -54,6 +59,7 @@ interface DesktopCloudServiceOptions {
   requestTimeoutMs?: number;
   onConfigured(): Promise<void>;
   onPermissionChanged?(allowedSkillTypes: readonly string[]): Promise<void> | void;
+  onManagedLlmCredentialChanged?(credential: ManagedLlmCredential): Promise<void> | void;
   onStateChanged?(state: DesktopCloudState): void;
   fetch?: typeof globalThis.fetch;
 }
@@ -289,6 +295,7 @@ export class DesktopCloudService {
         {
           method: "GET",
           headers: { authorization: `Bearer ${target.apiToken}` },
+          cache: "no-store",
         },
       );
     } catch (error) {
@@ -317,6 +324,13 @@ export class DesktopCloudService {
         connection: "connected",
       });
       await this.acceptPreviewPermission();
+      try {
+        await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+      } catch (error) {
+        logger.warn("managed_llm_credential_refresh_failed", {
+          observed_error: this.diagnosticError(error, target),
+        });
+      }
       return this.setConnection("connected", "", true, true);
     }
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
@@ -352,6 +366,13 @@ export class DesktopCloudService {
         startedAt,
         error instanceof Error ? error.message : String(error),
       );
+    }
+    try {
+      await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+    } catch (error) {
+      logger.warn("managed_llm_credential_refresh_failed", {
+        observed_error: this.diagnosticError(error, target),
+      });
     }
     logger.info("cloud_status_check_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
@@ -558,6 +579,43 @@ export class DesktopCloudService {
     if (!previous?.allowed_skill_types.includes("*")) {
       await this.options.onPermissionChanged?.(["*"]);
     }
+  }
+
+  private async syncManagedLlmCredential(
+    value: unknown,
+    target: CloudProbeTarget,
+    logger: Logger,
+  ): Promise<void> {
+    const status = parseManagedLlmStatus(value);
+    if (!status) return;
+    const cached = this.options.config.managedLlmCredential();
+    if (cached?.credential_revision === status.credential_revision) return;
+    const path = target.source === "preview"
+      ? "admin/llm-credential"
+      : "devices/llm-credential";
+    const response = await this.request(
+      `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${path}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${target.apiToken}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`managed LLM credential request failed (HTTP ${response.status})`);
+    }
+    const credential = parseManagedLlmCredential(
+      await response.json().catch(() => undefined),
+      status,
+      this.now(),
+    );
+    this.options.config.saveManagedLlmCredential(credential);
+    await this.options.onManagedLlmCredentialChanged?.(credential);
+    logger.info("managed_llm_credential_refreshed", {
+      provider: credential.provider,
+      model: credential.model,
+      credential_revision: credential.credential_revision,
+    });
   }
 
   private permissionState(): Pick<

@@ -204,6 +204,14 @@ describe("ProcessAgentRuntime", () => {
     expect(JSON.parse(readFileSync(permissionPath, "utf8"))).toEqual([]);
     await runtime.updateSkillPermissions(["amazon_fba", "default", "default"]);
     expect(JSON.parse(readFileSync(permissionPath, "utf8"))).toEqual(["amazon_fba", "default"]);
+    await runtime.updateManagedLlmCredential({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      api_key: "managed-secret",
+      credential_revision: "f".repeat(64),
+      fetched_at: 123,
+      invalid_revision: "",
+    });
     expect(runtime.isReady).toBe(true);
   });
 

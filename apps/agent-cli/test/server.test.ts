@@ -233,11 +233,15 @@ describe("AgentProtocolServer", () => {
   test("forwards hot Skill permission updates to the initialized runtime", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const updates: string[][] = [];
+    const credentialRevisions: string[] = [];
     const createHost = (() => ({
       start: async () => undefined,
       stop: async () => undefined,
       health: () => ({ ready: true }),
       updateSkillPermissions: (allowed: readonly string[]) => { updates.push([...allowed]); },
+      updateManagedLlmCredential: async (credential: { credential_revision: string } | null) => {
+        if (credential) credentialRevisions.push(credential.credential_revision);
+      },
     })) as unknown as CreateHost;
     const root = process.cwd();
     const server = new AgentProtocolServer({
@@ -257,10 +261,28 @@ describe("AgentProtocolServer", () => {
       command: "update_skill_permissions",
       payload: { allowed_skill_types: ["amazon_replenish", "default"] },
     }));
+    const revision = "a".repeat(64);
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "managed-credential-update",
+      command: "update_managed_llm_credential",
+      payload: { credential: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        api_key: "managed-secret",
+        credential_revision: revision,
+        fetched_at: 123,
+        invalid_revision: "",
+      } },
+    }));
 
     expect(updates).toEqual([["amazon_replenish", "default"]]);
     expect(output.find((message) => !("type" in message) && message.id === "permission-update"))
       .toMatchObject({ ok: true, result: { updated: true } });
+    expect(credentialRevisions).toEqual([revision]);
+    expect(output.find((message) => !("type" in message) && message.id === "managed-credential-update"))
+      .toMatchObject({ ok: true, result: { updated: true } });
+    expect(JSON.stringify(output)).not.toContain("managed-secret");
     await server.shutdown();
   });
 

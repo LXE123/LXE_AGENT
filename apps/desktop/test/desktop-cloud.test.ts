@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
@@ -117,6 +117,84 @@ const encryptedEnrollment = (password: string): Buffer => {
 };
 
 describe("DesktopCloudService", () => {
+  test("fetches and persists a managed model credential only when its revision changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-managed-llm-"));
+    roots.push(root);
+    mkdirSync(join(root, "workspace"));
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const previewUrl = "http://10.88.0.1:8000";
+    const previewToken = "preview-admin-secret";
+    let revision = "a".repeat(64);
+    let apiKey = "managed-key-one";
+    let offline = false;
+    const requests: string[] = [];
+    const changed: string[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: false,
+      previewTarget: { dataServerUrl: previewUrl, apiToken: previewToken },
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
+      onConfigured: async () => undefined,
+      onManagedLlmCredentialChanged: (credential) => { changed.push(credential.credential_revision); },
+      fetch: async (input) => {
+        if (offline) throw new Error("data server offline");
+        const url = String(input);
+        requests.push(url);
+        if (url.endsWith("/admin/status")) {
+          return Response.json({
+            status: "ok",
+            role: "admin",
+            managed_llm: {
+              available: true,
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              credential_revision: revision,
+            },
+          });
+        }
+        return Response.json({
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          credential_revision: revision,
+          api_key: apiKey,
+        }, { headers: { "cache-control": "no-store" } });
+      },
+    });
+
+    await service.start();
+    expect(requests).toEqual([
+      `${previewUrl}/api/v1/agent-data/admin/status`,
+      `${previewUrl}/api/v1/agent-data/admin/llm-credential`,
+    ]);
+    expect(changed).toEqual(["a".repeat(64)]);
+    expect(config.state()).toMatchObject({ complete: true, credential_source: "cloud" });
+    expect(config.environment()).toMatchObject({ LXE_MANAGED_LLM_API_KEY: "managed-key-one" });
+
+    await service.check();
+    expect(requests.filter((url) => url.endsWith("/llm-credential"))).toHaveLength(1);
+
+    revision = "b".repeat(64);
+    apiKey = "managed-key-two";
+    await service.check();
+    expect(requests.filter((url) => url.endsWith("/llm-credential"))).toHaveLength(2);
+    expect(changed).toEqual(["a".repeat(64), "b".repeat(64)]);
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_API_KEY: "managed-key-two",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "b".repeat(64),
+    });
+
+    offline = true;
+    await service.check();
+    expect(config.state()).toMatchObject({ complete: true, credential_source: "cloud" });
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_API_KEY: "managed-key-two",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "b".repeat(64),
+    });
+  });
+
   test("uses an in-memory Preview target on unsupported platforms and prefers it over managed config", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-"));
     roots.push(root);

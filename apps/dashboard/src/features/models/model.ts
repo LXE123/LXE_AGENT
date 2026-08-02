@@ -18,26 +18,28 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(m
     .map(({ model }) => model);
 }
 
-type ShowcaseModelSource = Pick<ModelPayload, "provider" | "model"> & {
+type ShowcaseModelSource = Pick<ModelPayload, "provider" | "model" | "credential_source"> & {
   model_options: readonly Pick<ModelOptionPayload, "model">[];
 };
 
 export function reconcileShowcaseSelections(
   models: readonly ShowcaseModelSource[],
-  current: Pick<ModelPayload, "provider" | "model"> | null,
+  current: Pick<ModelPayload, "provider" | "model" | "credential_source"> | null,
   existing: Readonly<Record<string, string>> = {},
 ): Record<string, string> {
   const selections: Record<string, string> = {};
   for (const provider of models) {
+    const sourceKey = `${provider.provider}:${provider.credential_source}`;
     const options = provider.model_options.map((option) => option.model);
     if (!options.length) {
       continue;
     }
-    const currentModel = current?.provider === provider.provider ? current.model : "";
-    const selection = [existing[provider.provider], currentModel, provider.model, options[0]]
+    const currentModel = current?.provider === provider.provider
+      && current.credential_source === provider.credential_source ? current.model : "";
+    const selection = [existing[sourceKey], currentModel, provider.model, options[0]]
       .find((model): model is string => Boolean(model && options.includes(model)));
     if (selection) {
-      selections[provider.provider] = selection;
+      selections[sourceKey] = selection;
     }
   }
   return selections;
@@ -47,16 +49,24 @@ export type ConversationModelChoice = {
   provider: string;
   providerLabel: string;
   model: string;
+  credentialSource: "local" | "cloud";
+  title: string;
+  subtitle: string;
 };
 
 export function conversationModelChoices(
-  models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "model_options">[],
+  models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "model_options" | "credential_source">[],
 ): ConversationModelChoice[] {
   return modelsInDisplayOrder(models).flatMap((provider) => provider.selectable
     ? provider.model_options.map((option) => ({
         provider: provider.provider,
         providerLabel: provider.label,
         model: option.model,
+        credentialSource: provider.credential_source,
+        title: provider.credential_source === "cloud" ? "云端" : option.model,
+        subtitle: provider.credential_source === "cloud"
+          ? `${provider.label} · ${option.model}`
+          : provider.label,
       }))
     : []);
 }

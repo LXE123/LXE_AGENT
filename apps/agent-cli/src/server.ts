@@ -98,6 +98,12 @@ export class AgentProtocolServer {
       case "update_skill_permissions":
         this.readyHost().updateSkillPermissions(request.payload.allowed_skill_types);
         return { updated: true };
+      case "update_managed_llm_credential":
+        if (!this.readyHost().updateManagedLlmCredential) {
+          throw new Error("managed LLM credential updates are unavailable");
+        }
+        await this.readyHost().updateManagedLlmCredential!(request.payload.credential);
+        return { updated: true };
       case "run_turn":
         return this.runTurn(request.payload.job);
       case "cancel_turn": {
@@ -220,6 +226,18 @@ export class AgentProtocolServer {
           thread_id: sessionId,
           payload: { changes: [change] },
         }),
+        onManagedLlmAuthenticationFailure: (provider, model, credentialRevision) => {
+          if (provider !== "deepseek" || model !== "deepseek-v4-flash") return;
+          return this.options.write({
+            version: AGENT_PROTOCOL_VERSION,
+            type: "managed_llm.authentication_failed",
+            payload: {
+              provider,
+              model,
+              credential_revision: credentialRevision,
+            },
+          });
+        },
       });
       await host.start();
       this.host = host;

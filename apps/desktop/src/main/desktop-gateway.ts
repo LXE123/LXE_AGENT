@@ -109,6 +109,7 @@ export interface DesktopGatewayOptions {
   ) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
   onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
+  onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
 
 export class DesktopGateway {
@@ -216,6 +217,11 @@ export class DesktopGateway {
       },
       onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
       onEvent: (event) => {
+        if (event.type === "managed_llm.authentication_failed") {
+          void this.options.onManagedLlmAuthenticationFailure?.(
+            event.payload.credential_revision,
+          );
+        }
         composition?.parts.conversations.handleAgentEvent(event);
         const invalidation = dashboardInvalidationForAgentEvent(event);
         if (invalidation) {
@@ -341,6 +347,13 @@ export class DesktopGateway {
     }
   }
 
+  async updateManagedLlmCredential(
+    credential: import("@lxe/desktop-protocol").ManagedLlmCredential,
+  ): Promise<void> {
+    if (!this.runtime) return;
+    await this.runtime.updateManagedLlmCredential(credential);
+  }
+
   async dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> {
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
     if (call.operation === "channels.health") {
@@ -451,12 +464,14 @@ export class DesktopGateway {
       const model = result as unknown as {
         provider: string;
         model: string;
+        credential_source: import("@lxe/desktop-protocol").CredentialSource;
         thinking_state: { level: string };
       };
       this.options.config.saveRuntimePreference(
         model.provider,
         model.model,
         model.thinking_state.level,
+        model.credential_source,
       );
     }
     return result;

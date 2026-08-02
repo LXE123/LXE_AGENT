@@ -22,7 +22,18 @@ import type {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 14 as const;
+export const AGENT_PROTOCOL_VERSION = 15 as const;
+
+export type CredentialSource = "local" | "cloud";
+
+export interface ManagedLlmCredential {
+  provider: "deepseek";
+  model: "deepseek-v4-flash";
+  api_key: string;
+  credential_revision: string;
+  fetched_at: number;
+  invalid_revision: string;
+}
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -48,6 +59,7 @@ export type AgentInitializePayload = {
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
   update_skill_permissions: { allowed_skill_types: string[] };
+  update_managed_llm_credential: { credential: ManagedLlmCredential | null };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string };
   steer_turn: {
@@ -213,6 +225,15 @@ export type AgentEvent =
       version: typeof AGENT_PROTOCOL_VERSION;
       type: "agent.wake";
       payload: JsonObject;
+    }
+  | {
+      version: typeof AGENT_PROTOCOL_VERSION;
+      type: "managed_llm.authentication_failed";
+      payload: {
+        provider: "deepseek";
+        model: "deepseek-v4-flash";
+        credential_revision: string;
+      };
     }
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -388,7 +409,9 @@ export interface DesktopHealth {
 export interface DesktopSetupState {
   complete: boolean;
   provider: string;
+  credential_source: CredentialSource;
   provider_key_configured: boolean;
+  managed_model_configured: boolean;
   workspace_root: string;
   ziniao: {
     managed: boolean;
@@ -589,6 +612,7 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 const agentCommands = new Set<AgentCommand>([
   "initialize",
   "update_skill_permissions",
+  "update_managed_llm_credential",
   "run_turn",
   "cancel_turn",
   "steer_turn",
@@ -605,6 +629,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "conversation.stream.delta",
   "typing.changed",
   "agent.wake",
+  "managed_llm.authentication_failed",
   "session.changed",
   "system.ready",
   "system.status",
@@ -663,6 +688,27 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
         );
       }
       break;
+    case "update_managed_llm_credential": {
+      if (payload.credential === null) break;
+      const credential = objectValue(payload.credential);
+      if (!credential
+        || credential.provider !== "deepseek"
+        || credential.model !== "deepseek-v4-flash"
+        || typeof credential.api_key !== "string"
+        || !credential.api_key.trim()
+        || credential.api_key.length > 4_096
+        || typeof credential.credential_revision !== "string"
+        || !/^[a-f0-9]{64}$/u.test(credential.credential_revision)
+        || typeof credential.fetched_at !== "number"
+        || !Number.isSafeInteger(credential.fetched_at)
+        || credential.fetched_at <= 0
+        || typeof credential.invalid_revision !== "string"
+        || (credential.invalid_revision !== ""
+          && !/^[a-f0-9]{64}$/u.test(credential.invalid_revision))) {
+        throw new Error("agent protocol update_managed_llm_credential.credential is invalid");
+      }
+      break;
+    }
     case "run_turn":
       requireObject("job");
       if (!validateAgentJob(payload.job)) throw new Error("agent protocol run_turn.job is invalid");
@@ -751,6 +797,18 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
         throw new Error("agent protocol session.changed.changes contains an unsupported change type");
       }
       payload.changes = changes;
+    }
+    if (object.type === "managed_llm.authentication_failed") {
+      const payload = objectValue(object.payload)!;
+      const unsupported = Object.keys(payload).filter((name) =>
+        name !== "provider" && name !== "model" && name !== "credential_revision");
+      if (unsupported.length > 0
+        || payload.provider !== "deepseek"
+        || payload.model !== "deepseek-v4-flash"
+        || typeof payload.credential_revision !== "string"
+        || !/^[a-f0-9]{64}$/u.test(payload.credential_revision)) {
+        throw new Error("agent protocol managed LLM authentication event is invalid");
+      }
     }
     if (object.type === "conversation.stream.delta") {
       if (typeof object.thread_id !== "string" || !object.thread_id.trim()

@@ -5,6 +5,8 @@ import type {
   DesktopSetupInput,
   DesktopZiniaoVersion,
   DesktopCloudPermissionSnapshot,
+  CredentialSource,
+  ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { parseStoredDevicePermission } from "../cloud-permissions";
 
@@ -23,10 +25,12 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 4;
+  schema_version: 5;
   migration_version: number;
   llm: {
     provider: DesktopSetupInput["provider"];
+    credential_source: CredentialSource;
+    last_local_provider: DesktopSetupInput["provider"];
     profiles: Partial<Record<DesktopSetupInput["provider"], {
       model: string;
       thinking_level: string;
@@ -72,18 +76,21 @@ export interface DesktopSecrets {
   erp_api_key: string;
   saihu_mcp_api_key: string;
   cloud_permission_snapshot: DesktopCloudPermissionSnapshot | null;
+  managed_llm_credential: ManagedLlmCredential | null;
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MIGRATION_VERSION = 3;
 
-export const SETTINGS_SCHEMA_VERSION = 4 as const;
+export const SETTINGS_SCHEMA_VERSION = 5 as const;
 
 const DEFAULT_CONFIG: DesktopConfig = {
   schema_version: SETTINGS_SCHEMA_VERSION,
   migration_version: 0,
   llm: {
     provider: "deepseek",
+    credential_source: "local",
+    last_local_provider: "deepseek",
     profiles: {
       deepseek: { model: "deepseek-v4-flash", thinking_level: "low" },
     },
@@ -127,6 +134,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   erp_api_key: "",
   saihu_mcp_api_key: "",
   cloud_permission_snapshot: null,
+  managed_llm_credential: null,
 };
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
@@ -195,7 +203,7 @@ const assertOnlyFields = (
 
 export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
   const value = objectValue(raw);
-  if (value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+  if (value.schema_version !== 4 && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
   assertNoSecretFields(value);
@@ -211,8 +219,11 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
   ], "settings");
   assertFieldTypes(value, { migration_version: "number", workspace_root: "string" }, "settings");
   const llm = objectValue(value.llm);
-  assertOnlyFields(llm, ["provider", "profiles"], "settings.llm");
+  assertOnlyFields(llm, ["provider", "credential_source", "last_local_provider", "profiles"], "settings.llm");
   assertFieldTypes(llm, { provider: "string" }, "settings.llm");
+  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+    assertFieldTypes(llm, { credential_source: "string", last_local_provider: "string" }, "settings.llm");
+  }
   if (!llm.profiles || typeof llm.profiles !== "object" || Array.isArray(llm.profiles)) {
     throw new Error("settings.llm.profiles must be an object");
   }
@@ -279,6 +290,13 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
   const normalizedProvider = ["kimi_coding", "deepseek", "glm"].includes(provider)
     ? provider as DesktopConfig["llm"]["provider"]
     : DEFAULT_CONFIG.llm.provider;
+  const credentialSource: CredentialSource = text(rawLlm.credential_source) === "cloud"
+    ? "cloud"
+    : "local";
+  const rawLastLocalProvider = text(rawLlm.last_local_provider);
+  const lastLocalProvider = ["kimi_coding", "deepseek", "glm"].includes(rawLastLocalProvider)
+    ? rawLastLocalProvider as DesktopConfig["llm"]["last_local_provider"]
+    : normalizedProvider;
   const profiles: DesktopConfig["llm"]["profiles"] = {};
   for (const name of ["kimi_coding", "deepseek", "glm"] as const) {
     const profile = objectValue(rawProfiles[name]);
@@ -301,6 +319,8 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       : 0,
     llm: {
       provider: normalizedProvider,
+      credential_source: credentialSource,
+      last_local_provider: lastLocalProvider,
       profiles,
     },
     workspace_root: text(value.workspace_root),
@@ -345,6 +365,27 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
 export const parseSecrets = (raw: unknown): DesktopSecrets => {
   const value = objectValue(raw);
   const keys = objectValue(value.provider_keys);
+  const managedCredential = objectValue(value.managed_llm_credential);
+  const revision = text(managedCredential.credential_revision).toLowerCase();
+  const invalidRevision = text(managedCredential.invalid_revision).toLowerCase();
+  const fetchedAt = Number(managedCredential.fetched_at);
+  const parsedManagedCredential: ManagedLlmCredential | null =
+    managedCredential.provider === "deepseek"
+      && managedCredential.model === "deepseek-v4-flash"
+      && text(managedCredential.api_key)
+      && /^[a-f0-9]{64}$/u.test(revision)
+      && (!invalidRevision || /^[a-f0-9]{64}$/u.test(invalidRevision))
+      && Number.isSafeInteger(fetchedAt)
+      && fetchedAt > 0
+      ? {
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          api_key: text(managedCredential.api_key),
+          credential_revision: revision,
+          fetched_at: fetchedAt,
+          invalid_revision: invalidRevision,
+        }
+      : null;
   return {
     provider_keys: {
       kimi_coding: text(keys.kimi_coding),
@@ -361,5 +402,6 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     cloud_permission_snapshot: parseStoredDevicePermission(
       value.cloud_permission_snapshot,
     ),
+    managed_llm_credential: parsedManagedCredential,
   };
 };

@@ -129,9 +129,11 @@ export function ModelsView({
 
       <div className="grid-list models-grid models-showcase-grid">
         {displayedModels.map((model, index) => {
-          const providerActive = current?.provider === model.provider;
+          const sourceKey = `${model.provider}:${model.credential_source}`;
+          const providerActive = current?.provider === model.provider
+            && current.credential_source === model.credential_source;
           const displayedOption = model.model_options.find(
-            (option) => option.model === showcaseSelections[model.provider],
+            (option) => option.model === showcaseSelections[sourceKey],
           ) ?? model.model_options[0];
           const isCurrent = providerActive && current?.model === displayedOption?.model;
           const displayedModel = displayedOption
@@ -143,7 +145,7 @@ export function ModelsView({
               aria-current={providerActive ? "true" : undefined}
               className={`item-card model-card model-showcase-card ${providerActive ? "item-active" : ""}`}
               data-provider={model.provider}
-              key={model.provider}
+              key={sourceKey}
             >
               <ModelArtwork provider={model.provider} />
               <div className="model-card-header">
@@ -188,7 +190,7 @@ export function ModelsView({
                             const selectedModel = event.currentTarget.value;
                             setShowcaseSelections((existing) => ({
                               ...existing,
-                              [model.provider]: selectedModel,
+                              [sourceKey]: selectedModel,
                             }));
                           }}
                           value={displayedOption.model}

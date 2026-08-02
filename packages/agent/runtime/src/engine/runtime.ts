@@ -73,6 +73,11 @@ export interface TypeScriptAgentRuntimeOptions {
     sessionId: string,
     change: "messages" | "usage" | "artifacts" | "attachments",
   ) => Promise<void> | void;
+  onManagedLlmAuthenticationFailure?: (
+    provider: string,
+    model: string,
+    credentialRevision: string,
+  ) => Promise<void> | void;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
   contextWindowTokens?: number;
@@ -118,6 +123,7 @@ export const MAX_STEP_REPLY = "本轮已达到最大步骤，请发送下一条�
 
 export class TypeScriptAgentRuntime implements AgentRuntime {
   private readonly logger: Logger;
+  private readonly reportedInvalidCredentialRevisions = new Set<string>();
 
   private async notifySessionChanged(
     sessionId: string,
@@ -297,6 +303,19 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
+      if (descriptor?.credentialSource === "cloud"
+        && descriptor.credentialRevision
+        && String(this.options.environment?.LXE_MANAGED_LLM_INVALID_REVISION ?? "").trim().toLowerCase()
+          === descriptor.credentialRevision) {
+        throw new RuntimeProviderError(
+          "managed LLM credential revision is invalid",
+          descriptor.name,
+          "认证失败",
+          "云端模型凭证已失效，正在尝试从公司服务器刷新。",
+          false,
+          401,
+        );
+      }
       if (job.job_kind === "turn" && job.response_route_id) {
         typingStarted = await this.typingBestEffort({
           session_id: job.session_id,
@@ -365,6 +384,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         job_kind: heartbeat ? "heartbeat" : "turn",
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
+        credential_source: descriptor?.credentialSource ?? "local",
         effort: descriptor?.thinkingEffort ?? "",
         thinking_enabled: descriptor?.thinkingEnabled ?? false,
         provider_generation: providerSnapshot?.generation ?? 0,
@@ -743,6 +763,23 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const message = cause instanceof RuntimeProviderError
         ? cause.userMessage
         : cause instanceof Error ? cause.message : String(cause);
+      if (cause instanceof RuntimeProviderError
+        && cause.statusCode === 401
+        && cause.category === "认证失败"
+        && descriptor?.credentialSource === "cloud"
+        && descriptor.credentialRevision
+        && !this.reportedInvalidCredentialRevisions.has(descriptor.credentialRevision)) {
+        this.reportedInvalidCredentialRevisions.add(descriptor.credentialRevision);
+        try {
+          await this.options.onManagedLlmAuthenticationFailure?.(
+            descriptor.name,
+            descriptor.model,
+            descriptor.credentialRevision,
+          );
+        } catch (error) {
+          this.logger.warn("managed_llm_authentication_failure_delivery_failed", { error });
+        }
+      }
       const reply = `执行失败: ${message}`;
       try {
         await this.appendTurnError(job.session_id, job.job_id, reply);

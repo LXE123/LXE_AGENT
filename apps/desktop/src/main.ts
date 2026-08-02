@@ -287,6 +287,13 @@ async function bootstrap(): Promise<void> {
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
     onConversationStreamBatch: broadcastConversationStream,
+    onManagedLlmAuthenticationFailure: async (revision) => {
+      config.invalidateManagedLlmCredential(revision);
+      const credential = config.managedLlmCredential();
+      if (credential) await gateway.updateManagedLlmCredential(credential);
+      invalidations.push(["models"]);
+      await cloud?.retry();
+    },
   });
   activeGateway = gateway;
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
@@ -312,6 +319,15 @@ async function bootstrap(): Promise<void> {
     },
     onPermissionChanged: (allowedSkillTypes) =>
       gateway.updateSkillPermissions(allowedSkillTypes),
+    onManagedLlmCredentialChanged: async (credential) => {
+      if (config.state().complete && gateway.health().gateway === "stopped") {
+        await gateway.start();
+      } else {
+        await gateway.updateManagedLlmCredential(credential);
+      }
+      invalidations.push(["models"]);
+      broadcastHealth(gateway.health());
+    },
     onStateChanged: broadcastCloudState,
   });
   activeCloud = cloud;

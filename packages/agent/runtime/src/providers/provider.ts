@@ -37,6 +37,8 @@ const SUMMARY_SYSTEM_PROMPT = [
 export interface ProviderDescriptor {
   name: string;
   model: string;
+  credentialSource?: "local" | "cloud";
+  credentialRevision?: string;
   baseURL: string;
   apiKey: string;
   maxTokens: number;
@@ -55,6 +57,7 @@ export interface ProviderDescriptor {
 export interface ProviderConfigPatch {
   provider?: string;
   model?: string;
+  credentialSource?: "local" | "cloud";
   thinkingEnabled?: boolean;
   thinkingEffort?: string;
 }
@@ -227,7 +230,28 @@ export function loadProviderDescriptor(
   const profiles = authRoot.profiles as Record<string, unknown> | undefined;
   const profile = profiles?.[name] as Record<string, unknown> | undefined;
   const envNames = Array.isArray(profile?.env_names) ? profile.env_names : [];
-  const apiKey = envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
+  const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud"
+    ? "cloud"
+    : "local";
+  const credentialRevision = credentialSource === "cloud"
+    ? envText(env, "LXE_MANAGED_LLM_CREDENTIAL_REVISION", "").toLowerCase()
+    : "";
+  const managedProvider = normalizeProviderKey(envText(env, "LXE_MANAGED_LLM_PROVIDER", ""));
+  const managedModel = envText(env, "LXE_MANAGED_LLM_MODEL", "");
+  const invalidRevision = envText(env, "LXE_MANAGED_LLM_INVALID_REVISION", "").toLowerCase();
+  const apiKey = credentialSource === "cloud"
+    ? envText(env, "LXE_MANAGED_LLM_API_KEY", "")
+    : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
+  if (credentialSource === "cloud" && (
+    name !== "deepseek"
+    || model !== "deepseek-v4-flash"
+    || managedProvider !== name
+    || managedModel !== model
+    || !/^[a-f0-9]{64}$/u.test(credentialRevision)
+    || invalidRevision === credentialRevision
+  )) {
+    throw new Error(`managed LLM credential is unavailable for provider: ${name}/${model}`);
+  }
   if (!apiKey && profile?.required !== false) throw new Error(`missing API key for provider: ${name}`);
   const defaultHeaders = stringRecord(spec.default_headers);
   if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
@@ -236,6 +260,8 @@ export function loadProviderDescriptor(
   return {
     name,
     model,
+    credentialSource,
+    credentialRevision,
     baseURL: String(spec.base_url ?? "").trim(),
     apiKey,
     maxTokens: Math.max(1, Number(selectedModel.max_tokens ?? DEFAULT_MODEL_MAX_TOKENS)),
@@ -757,6 +783,9 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     const environmentPatch: Record<string, string> = {};
     if (patch.provider !== undefined) environmentPatch.AGENT_LLM_PROVIDER = patch.provider;
     if (patch.model !== undefined) environmentPatch.AGENT_LLM_MODEL = patch.model;
+    if (patch.credentialSource !== undefined) {
+      environmentPatch.AGENT_LLM_CREDENTIAL_SOURCE = patch.credentialSource;
+    }
     if (patch.thinkingEnabled !== undefined) environmentPatch.AGENT_LLM_THINKING_ENABLED = patch.thinkingEnabled ? "1" : "0";
     if (patch.thinkingEffort !== undefined) environmentPatch.AGENT_LLM_THINKING_EFFORT = patch.thinkingEffort;
     const candidateEnvironment = { ...this.environment, ...environmentPatch };

@@ -29,6 +29,7 @@ export type ModelOptionPayload = {
 
 export type ModelPayload = {
   provider: string;
+  credential_source: "local" | "cloud";
   label: string;
   api_style: string;
   model: string;
@@ -524,7 +525,10 @@ export interface DashboardRpcSpec {
   "stats.tools.list": { input: { days?: number }; result: ApiList<ToolStatPayload> & { days: number } };
   "models.list": { input: DashboardRpcEmptyInput; result: ApiList<ModelPayload> };
   "models.current": { input: DashboardRpcEmptyInput; result: ModelPayload };
-  "models.update": { input: { provider: string; model?: string }; result: ModelMutationPayload };
+  "models.update": {
+    input: { provider: string; model?: string; credential_source?: "local" | "cloud" };
+    result: ModelMutationPayload;
+  };
   "models.thinking.update": { input: { level: string }; result: ModelMutationPayload };
 }
 
@@ -766,10 +770,16 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         days: integerValue(input.days, `${operation}.days`, 30, 1, 365),
       } };
     case "models.update":
-      exactKeys(input, ["provider", "model"], `${operation}.input`);
+      exactKeys(input, ["provider", "model", "credential_source"], `${operation}.input`);
+      if (input.credential_source !== undefined
+        && input.credential_source !== "local"
+        && input.credential_source !== "cloud") {
+        return rpcError(`${operation}.credential_source must be local or cloud`);
+      }
       return { operation, input: {
         provider: textValue(input.provider, `${operation}.provider`)!,
         ...(input.model === undefined ? {} : { model: textValue(input.model, `${operation}.model`, { allowEmpty: true })! }),
+        ...(input.credential_source === undefined ? {} : { credential_source: input.credential_source }),
       } };
     case "models.thinking.update":
       exactKeys(input, ["level"], `${operation}.input`);

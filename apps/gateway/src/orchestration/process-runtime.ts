@@ -24,6 +24,7 @@ import {
   type AgentResponse,
   type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
+  type ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
 import type {
@@ -296,6 +297,20 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     if (result.updated !== true) {
       throw new AgentProcessError(
         "agent-cli rejected the Skill permission update",
+        "AgentProtocolError",
+      );
+    }
+  }
+
+  async updateManagedLlmCredential(credential: ManagedLlmCredential | null): Promise<void> {
+    if (!this.isReady) return;
+    const result = objectValue(await this.request(
+      "update_managed_llm_credential",
+      { credential },
+    ));
+    if (result.updated !== true) {
+      throw new AgentProcessError(
+        "agent-cli rejected the managed LLM credential update",
         "AgentProtocolError",
       );
     }

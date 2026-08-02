@@ -797,6 +797,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         job_kind: context.job_kind,
         provider: text(context.provider),
         model: text(context.model),
+        credential_source: context.credential_source === "cloud" ? "cloud" : "local",
         effort: text(context.effort),
         thinking_enabled: context.thinking_enabled === true,
         provider_generation: Math.max(0, Math.trunc(Number(context.provider_generation ?? 0))),
@@ -1604,6 +1605,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       if (latestContext) {
         const modelConfig: JsonObject = {
           provider: text(latestContext.provider),
+          credential_source: latestContext.credential_source === "cloud" ? "cloud" : "local",
           thinking_enabled: latestContext.thinking_enabled === true,
           provider_generation: Math.max(0, Math.trunc(Number(latestContext.provider_generation ?? 0))),
           context_window_tokens: Math.max(0, Math.trunc(Number(latestContext.context_window_tokens ?? 0))),

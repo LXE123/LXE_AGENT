@@ -546,16 +546,20 @@ export class DashboardService {
   }
 
   private models(): JsonObject[] {
-    return this.providerSpecs()
+    const items = this.providerSpecs()
       .map((spec) => this.modelPayload(spec))
       .sort((left, right) => text(left.provider).localeCompare(text(right.provider)));
+    const deepseek = this.providerSpec("deepseek");
+    if (deepseek) items.push(this.modelPayload(deepseek, "deepseek-v4-flash", "cloud"));
+    return items;
   }
 
   private currentModel(): JsonObject {
     const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "deepseek";
+    const source = this.options.environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud" ? "cloud" : "local";
     const spec = this.providerSpec(requested);
     if (spec) {
-      return this.modelPayload(spec);
+      return this.modelPayload(spec, undefined, source);
     }
     return this.models()[0] ?? {};
   }
@@ -574,12 +578,18 @@ export class DashboardService {
     };
   }
 
-  private modelPayload(spec: Record<string, unknown>, modelOverride?: string): JsonObject {
+  private modelPayload(
+    spec: Record<string, unknown>,
+    modelOverride?: string,
+    credentialSource: "local" | "cloud" = "local",
+  ): JsonObject {
     const name = normalizeProviderKey(spec.name);
     const models = object(spec.models);
     const runtimePreference = this.providerRuntimePreference(name);
     const savedPreference = readProviderPreference(this.options.environment, name);
-    const requestedModel = text(modelOverride) || runtimePreference.model || text(spec.default_model);
+    const requestedModel = credentialSource === "cloud"
+      ? "deepseek-v4-flash"
+      : text(modelOverride) || runtimePreference.model || text(spec.default_model);
     const restoredSavedModel = savedPreference.model in models ? savedPreference.model : "";
     const model = requestedModel in models
       ? requestedModel
@@ -589,7 +599,16 @@ export class DashboardService {
       : runtimePreference;
     const selected = object(models[model]);
     const envNames = this.authEnvNames(name);
-    const configured = envNames.some((envName) => Boolean(text(this.options.environment[envName])));
+    const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
+    const configured = credentialSource === "cloud"
+      ? name === "deepseek"
+        && model === "deepseek-v4-flash"
+        && text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === "deepseek"
+        && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === model
+        && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
+        && /^[a-f0-9]{64}$/u.test(managedRevision)
+        && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision
+      : envNames.some((envName) => Boolean(text(this.options.environment[envName])));
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
     const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
     const configuredEffort = preference.thinkingEffort.toLowerCase() || defaultEffort;
@@ -628,13 +647,14 @@ export class DashboardService {
     };
     return {
       provider: name,
+      credential_source: credentialSource,
       label: text(spec.label) || name,
       api_style: text(spec.api_style),
       model,
       configured,
       selectable: configured && ["kimi_coding", "deepseek"].includes(name),
       disabled_reason: configured ? (["kimi_coding", "deepseek"].includes(name) ? "" : "not selectable in WebUI") : "missing API key",
-      model_options: Object.keys(models).map(option),
+      model_options: (credentialSource === "cloud" ? [model] : Object.keys(models)).map(option),
       thinking_request_style: text(selected.thinking_request_style),
       thinking_levels: levels,
       thinking_level_labels: object(selected.thinking_level_labels) as JsonObject,
@@ -662,6 +682,7 @@ export class DashboardService {
     const spec = this.providerSpec(input.provider);
     if (!spec) rpcError("invalid_argument", "Unsupported model provider");
     const provider = normalizeProviderKey(spec.name);
+    const credentialSource: "local" | "cloud" = input.credential_source === "cloud" ? "cloud" : "local";
     const requestedModel = text(input.model);
     const models = object(spec.models);
     const activeProvider = normalizeProviderKey(this.options.environment.AGENT_LLM_PROVIDER);
@@ -669,18 +690,33 @@ export class DashboardService {
     const activeModel = activeProvider ? this.currentModel() : undefined;
     const activeThinkingState = object(activeModel?.thinking_state);
     const savedPreference = readProviderPreference(this.options.environment, provider);
-    const preferredModel = requestedModel || savedPreference.model || text(spec.default_model);
+    const preferredModel = credentialSource === "cloud"
+      ? "deepseek-v4-flash"
+      : requestedModel || savedPreference.model || text(spec.default_model);
     const model = preferredModel in models
       ? preferredModel
       : requestedModel ? preferredModel : text(spec.default_model);
     if (!(model in models)) rpcError("invalid_argument", "Unsupported model for provider");
-    if (!this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) {
+    const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
+    const cloudConfigured = provider === "deepseek"
+      && model === "deepseek-v4-flash"
+      && text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === provider
+      && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === model
+      && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
+      && /^[a-f0-9]{64}$/u.test(managedRevision)
+      && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision;
+    if (credentialSource === "cloud"
+      ? !cloudConfigured
+      : !this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) {
       rpcError("failed_precondition", "missing API key");
     }
     const modelSpec = object(models[model]);
     const levels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
     const defaultEffort = text(modelSpec.thinking_default) || (levels[0] ?? "off");
-    const sameProvider = activeProvider === provider;
+    const activeCredentialSource = this.options.environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
+      ? "cloud"
+      : "local";
+    const sameProvider = activeProvider === provider && activeCredentialSource === credentialSource;
     const savedModelMatches = savedPreference.model === model;
     const preferredEffort = sameProvider
       ? text(activeThinkingState.level) || activePreference?.thinkingEffort
@@ -695,12 +731,14 @@ export class DashboardService {
     const patch = {
       provider,
       model,
+      credentialSource,
       thinkingEnabled: effort !== "off",
       thinkingEffort: effort,
     };
     const environmentPatch = {
       AGENT_LLM_PROVIDER: provider,
       AGENT_LLM_MODEL: model,
+      AGENT_LLM_CREDENTIAL_SOURCE: credentialSource,
       AGENT_LLM_THINKING_ENABLED: effort === "off" ? "0" : "1",
       AGENT_LLM_THINKING_EFFORT: effort,
     };
@@ -727,7 +765,7 @@ export class DashboardService {
       ...providerPreferencePatch(provider, environmentPatch),
     });
     return {
-      ...this.modelPayload(spec, model),
+      ...this.modelPayload(spec, model, credentialSource),
       generation: snapshot?.generation ?? 0,
       effective_from: "next_turn",
     };

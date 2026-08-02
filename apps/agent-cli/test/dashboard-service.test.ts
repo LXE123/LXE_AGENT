@@ -161,8 +161,14 @@ describe("DashboardService", () => {
     const environment: Record<string, string> = {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "kimi-for-coding",
+      AGENT_LLM_CREDENTIAL_SOURCE: "local",
       KIMI_API_KEY: "test-key",
       DEEPSEEK_API: "deepseek-key",
+      LXE_MANAGED_LLM_PROVIDER: "deepseek",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "managed-deepseek-key",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "c".repeat(64),
+      LXE_MANAGED_LLM_INVALID_REVISION: "",
     };
     let providerGeneration = 1;
     const workspaceReloads: string[] = [];
@@ -173,6 +179,9 @@ describe("DashboardService", () => {
         const environmentPatch = {
           AGENT_LLM_PROVIDER: patch.provider ?? environment.AGENT_LLM_PROVIDER ?? "kimi_coding",
           AGENT_LLM_MODEL: patch.model ?? environment.AGENT_LLM_MODEL ?? "kimi-for-coding",
+          AGENT_LLM_CREDENTIAL_SOURCE: patch.credentialSource
+            ?? environment.AGENT_LLM_CREDENTIAL_SOURCE
+            ?? "local",
           AGENT_LLM_THINKING_ENABLED: patch.thinkingEnabled === false ? "0" : "1",
           AGENT_LLM_THINKING_EFFORT: patch.thinkingEffort ?? "off",
         };
@@ -353,6 +362,17 @@ describe("DashboardService", () => {
       thinking_default: "low",
       capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
     });
+    expect(modelList.items.find((model) =>
+      model.provider === "deepseek" && model.credential_source === "cloud"
+    )).toMatchObject({
+      provider: "deepseek",
+      credential_source: "cloud",
+      model: "deepseek-v4-flash",
+      configured: true,
+      selectable: true,
+      capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
+      thinking_levels: ["off", "low", "high", "max"],
+    });
     const activeEnvironment = {
       AGENT_LLM_PROVIDER: environment.AGENT_LLM_PROVIDER,
       AGENT_LLM_MODEL: environment.AGENT_LLM_MODEL,
@@ -476,6 +496,29 @@ describe("DashboardService", () => {
       expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "max" }),
       expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" }),
     ]);
+    expect(await call({
+      operation: "models.update",
+      input: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        credential_source: "cloud",
+      },
+    })).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      credential_source: "cloud",
+      generation: 8,
+    });
+    expect(await call({ operation: "models.current", input: {} })).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      credential_source: "cloud",
+    });
+    expect(reconfigured.at(-1)).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      credentialSource: "cloud",
+    });
 
     const connectors = await call({ operation: "connectors.list", input: {} }) as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);

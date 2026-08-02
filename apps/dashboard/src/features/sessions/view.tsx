@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Brain,
+  Cloud,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -1262,7 +1263,7 @@ function ConversationModelPicker({
   loading: boolean;
   models: ModelPayload[];
   saving: boolean;
-  onChange: (provider: string, model: string) => void;
+  onChange: (provider: string, model: string, credentialSource: "local" | "cloud") => void;
 }) {
   const t = useUiText();
   const [open, setOpen] = useState(false);
@@ -1271,7 +1272,7 @@ function ConversationModelPicker({
   const choices = useMemo(() => conversationModelChoices(models), [models]);
   const triggerLabel = loading
     ? t.common.loading
-    : current?.model || t.models.modelOptionUnavailable;
+    : current?.credential_source === "cloud" ? "云端" : current?.model || t.models.modelOptionUnavailable;
 
   useEffect(() => {
     if (!open) return;
@@ -1291,9 +1292,17 @@ function ConversationModelPicker({
     };
   }, [open]);
 
-  const selectModel = (provider: string, model: string) => {
+  const selectModel = (
+    provider: string,
+    model: string,
+    credentialSource: "local" | "cloud",
+  ) => {
     setOpen(false);
-    if (current?.provider !== provider || current.model !== model) onChange(provider, model);
+    if (current?.provider !== provider
+      || current.model !== model
+      || current.credential_source !== credentialSource) {
+      onChange(provider, model, credentialSource);
+    }
     window.requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
@@ -1321,23 +1330,28 @@ function ConversationModelPicker({
           <div className="conversation-model-menu-heading">{t.models.model}</div>
           <div className="conversation-model-options">
             {choices.length ? choices.map((choice) => {
-              const selected = current?.provider === choice.provider && current.model === choice.model;
+              const selected = current?.provider === choice.provider
+                && current.model === choice.model
+                && current.credential_source === choice.credentialSource;
               return (
                 <button
                   aria-checked={selected}
                   className={selected ? "conversation-model-option selected" : "conversation-model-option"}
                   disabled={saving}
-                  key={`${choice.provider}:${choice.model}`}
-                  onClick={() => selectModel(choice.provider, choice.model)}
+                  key={`${choice.provider}:${choice.model}:${choice.credentialSource}`}
+                  onClick={() => selectModel(choice.provider, choice.model, choice.credentialSource)}
                   role="menuitemradio"
                   type="button"
                 >
                   <ProviderBrandMark provider={choice.provider} size={17} />
                   <span className="conversation-model-option-copy">
-                    <strong>{choice.model}</strong>
-                    <span>{choice.providerLabel}</span>
+                    <strong>{choice.title}</strong>
+                    <span>{choice.subtitle}</span>
                   </span>
-                  {selected ? <Check aria-hidden size={15} /> : null}
+                  <span className="conversation-model-option-status">
+                    {choice.credentialSource === "cloud" ? <Cloud aria-hidden size={15} /> : null}
+                    {selected ? <Check aria-hidden size={15} /> : null}
+                  </span>
                 </button>
               );
             }) : (
@@ -1483,7 +1497,7 @@ function ConversationComposer({
   modelSaving: boolean;
   thinkingSaving: boolean;
   runtimeReady: boolean;
-  onModelChange: (provider: string, model: string) => void;
+  onModelChange: (provider: string, model: string, credentialSource: "local" | "cloud") => void;
   onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
@@ -1731,7 +1745,7 @@ export function SessionDetailView({
   loadingOlder: boolean;
   loadOlderError: string;
   onLoadOlder: () => Promise<SessionDetailPayload | undefined>;
-  onModelChange: (provider: string, model: string) => void;
+  onModelChange: (provider: string, model: string, credentialSource: "local" | "cloud") => void;
   onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;

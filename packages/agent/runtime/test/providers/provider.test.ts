@@ -94,6 +94,36 @@ describe("Anthropic-compatible provider", () => {
     }));
   });
 
+  test("selects a managed DeepSeek credential only for its published model and revision", () => {
+    const revision = "b".repeat(64);
+    const environment = {
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-flash",
+      AGENT_LLM_CREDENTIAL_SOURCE: "cloud",
+      LXE_MANAGED_LLM_PROVIDER: "deepseek",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "managed-secret",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: revision,
+      LXE_MANAGED_LLM_INVALID_REVISION: "",
+    };
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), environment);
+    expect(descriptor).toEqual(expect.objectContaining({
+      name: "deepseek",
+      model: "deepseek-v4-flash",
+      apiKey: "managed-secret",
+      credentialSource: "cloud",
+      credentialRevision: revision,
+    }));
+    expect(() => loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      ...environment,
+      LXE_MANAGED_LLM_INVALID_REVISION: revision,
+    })).toThrow("managed LLM credential is unavailable");
+    expect(() => loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      ...environment,
+      AGENT_LLM_MODEL: "deepseek-v4-pro",
+    })).toThrow("managed LLM credential is unavailable");
+  });
+
   test("builds fixed-budget K2.7 and output-effort-only K3 request controls", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const kimi = loadProviderDescriptor(projectRoot, {
