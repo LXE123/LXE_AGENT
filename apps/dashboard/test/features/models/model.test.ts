@@ -43,7 +43,7 @@ describe("model display order", () => {
 });
 
 describe("conversation model choices", () => {
-  test("flattens selectable providers in product order and omits unavailable providers", () => {
+  test("keeps the cloud entry visible while omitting unavailable local providers", () => {
     expect(conversationModelChoices([
       {
         provider: "deepseek",
@@ -63,7 +63,7 @@ describe("conversation model choices", () => {
         provider: "deepseek",
         credential_source: "cloud" as const,
         label: "DeepSeek",
-        selectable: true,
+        selectable: false,
         model_options: [{ model: "deepseek-v4-flash" }],
       },
       {
@@ -76,19 +76,19 @@ describe("conversation model choices", () => {
     ])).toEqual([
       {
         provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5",
-        credentialSource: "local", title: "kimi-k2.5", subtitle: "Kimi Coding",
+        credentialSource: "local", selectable: true, title: "kimi-k2.5", subtitle: "Kimi Coding",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat",
-        credentialSource: "local", title: "deepseek-chat", subtitle: "DeepSeek",
+        credentialSource: "local", selectable: true, title: "deepseek-chat", subtitle: "DeepSeek",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner",
-        credentialSource: "local", title: "deepseek-reasoner", subtitle: "DeepSeek",
+        credentialSource: "local", selectable: true, title: "deepseek-reasoner", subtitle: "DeepSeek",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-v4-flash",
-        credentialSource: "cloud", title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
+        credentialSource: "cloud", selectable: false, title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
       },
     ]);
   });

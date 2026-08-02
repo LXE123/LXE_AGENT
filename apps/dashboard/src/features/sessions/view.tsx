@@ -1337,7 +1337,7 @@ function ConversationModelPicker({
                 <button
                   aria-checked={selected}
                   className={selected ? "conversation-model-option selected" : "conversation-model-option"}
-                  disabled={saving}
+                  disabled={saving || !choice.selectable}
                   key={`${choice.provider}:${choice.model}:${choice.credentialSource}`}
                   onClick={() => selectModel(choice.provider, choice.model, choice.credentialSource)}
                   role="menuitemradio"

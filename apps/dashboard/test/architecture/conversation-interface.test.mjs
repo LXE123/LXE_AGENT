@@ -29,6 +29,7 @@ test("the composer switches the shared model before the next turn", () => {
   assert.match(view, /role="menuitemradio"/);
   assert.match(view, /event\.key !== "Escape"/);
   assert.match(view, /current\?\.provider !== provider[\s\S]*current\.model !== model[\s\S]*current\.credential_source !== credentialSource/);
+  assert.match(view, /disabled=\{saving \|\| !choice\.selectable\}/);
   assert.match(view, /!runtimeReady \|\| modelSaving \|\| thinkingSaving \|\| sending/);
   assert.match(main, /activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\)/);
   assert.match(main, /onModelChange=\{setCurrentModel\}/);

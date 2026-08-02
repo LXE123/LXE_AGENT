@@ -50,6 +50,7 @@ export type ConversationModelChoice = {
   providerLabel: string;
   model: string;
   credentialSource: "local" | "cloud";
+  selectable: boolean;
   title: string;
   subtitle: string;
 };
@@ -57,12 +58,14 @@ export type ConversationModelChoice = {
 export function conversationModelChoices(
   models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "model_options" | "credential_source">[],
 ): ConversationModelChoice[] {
-  return modelsInDisplayOrder(models).flatMap((provider) => provider.selectable
+  return modelsInDisplayOrder(models).flatMap((provider) =>
+    provider.selectable || provider.credential_source === "cloud"
     ? provider.model_options.map((option) => ({
         provider: provider.provider,
         providerLabel: provider.label,
         model: option.model,
         credentialSource: provider.credential_source,
+        selectable: provider.selectable,
         title: provider.credential_source === "cloud" ? "云端" : option.model,
         subtitle: provider.credential_source === "cloud"
           ? `${provider.label} · ${option.model}`
