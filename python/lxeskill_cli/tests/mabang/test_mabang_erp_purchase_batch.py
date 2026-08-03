@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -450,8 +451,15 @@ def test_draft_never_calls_erp_and_marks_outputs(monkeypatch, tmp_path: Path) ->
     for path, sheet_name in ((purchase_path, "采购汇总"), (restock_path, "备货单")):
         workbook = Workbook()
         workbook.active.title = sheet_name
-        workbook.active.append(["数量"])
-        workbook.active.append([10])
+        columns = (
+            erp.purchase_summary.MANUFACTURER_COLUMNS
+            if path == purchase_path
+            else ("数量",)
+        )
+        workbook.active.append(list(columns))
+        row = [""] * len(columns)
+        row[columns.index("数量")] = 10
+        workbook.active.append(row)
         workbook.save(path)
     generated = {
         "success": True,
@@ -484,12 +492,15 @@ def test_draft_never_calls_erp_and_marks_outputs(monkeypatch, tmp_path: Path) ->
     try:
         assert workbook.sheetnames[0] == "草稿-未同步ERP"
         sheet = workbook["采购汇总"]
-        assert [cell.value for cell in sheet[1]] == [
-            "计划发货量",
-            "本次采购量",
-            "留存库存抵扣量",
-        ]
-        assert [cell.value for cell in sheet[2]] == [10, 10, 0]
+        headers = [cell.value for cell in sheet[1]]
+        assert "合同编号前缀" not in headers
+        assert "本次采购合同编号" in headers
+        assert "历史库存合同编号" in headers
+        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value is None
+        assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value is None
+        assert sheet.cell(2, headers.index("计划发货量") + 1).value == 10
+        assert sheet.cell(2, headers.index("本次采购量") + 1).value == 10
+        assert sheet.cell(2, headers.index("留存库存抵扣量") + 1).value == 0
     finally:
         workbook.close()
 
@@ -533,6 +544,9 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         assert sheet.cell(2, headers.index("计划发货量") + 1).value == 10
         assert sheet.cell(2, headers.index("本次采购量") + 1).value == 6
         assert sheet.cell(2, headers.index("留存库存抵扣量") + 1).value == 4
+        assert "合同编号前缀" not in headers
+        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF20260723001 × 6"
+        assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value == "ZF20260601001 × 4"
     finally:
         summary.close()
 
@@ -551,6 +565,40 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         assert all(cell.fill.fgColor.rgb == "FFFFFF00" for cell in sheet[3])
     finally:
         restock.close()
+
+
+@pytest.mark.parametrize(
+    ("purchased", "contract_no", "applications", "expected"),
+    [
+        (Decimal("6"), "NEW-001", [], ("NEW-001 × 6", "")),
+        (
+            Decimal("4"),
+            "NEW-001",
+            [
+                {"source_contract_no": "OLD-001", "applied_quantity": 2},
+                {"source_contract_no": "OLD-002", "applied_quantity": "1.5"},
+                {"source_contract_no": "OLD-001", "applied_quantity": 1},
+            ],
+            ("NEW-001 × 4", "OLD-001 × 3\nOLD-002 × 1.5"),
+        ),
+        (
+            Decimal("0"),
+            "",
+            [{"source_contract_no": "OLD-001", "applied_quantity": 4}],
+            ("", "OLD-001 × 4"),
+        ),
+    ],
+)
+def test_purchase_contract_source_values_show_actual_quantities(
+    purchased: Decimal,
+    contract_no: str,
+    applications: list[dict[str, object]],
+    expected: tuple[str, str],
+) -> None:
+    assert erp._purchase_contract_source_values(
+        {"contract_no": contract_no, "applications": applications},
+        purchased=purchased,
+    ) == expected
 
 
 @pytest.mark.parametrize(

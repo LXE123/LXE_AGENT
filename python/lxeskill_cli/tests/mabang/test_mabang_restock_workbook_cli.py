@@ -23,7 +23,8 @@ PURCHASE_COLUMNS = (
     "厂家",
     "单位",
     "合同产品名称",
-    "合同编号前缀",
+    "本次采购合同编号",
+    "历史库存合同编号",
     "税率",
     "数量",
     "总价",
@@ -100,7 +101,8 @@ def _purchase_row(
         manufacturer,
         unit,
         contract_product_name,
-        contract_no_prefix,
+        None,
+        None,
         tax_rate,
         quantity,
         total_price,
@@ -115,6 +117,7 @@ def _purchase_total_row(
 ) -> tuple[object, ...]:
     return (
         "合计",
+        None,
         None,
         None,
         None,
@@ -700,10 +703,10 @@ def test_generate_restock_workbook_merges_rows_by_model_with_multiline_skus(tmp_
     assert _cell_wrap_text(output_path, "厂家A", "B2") is True
     assert _cell_wrap_text(output_path, "厂家A", "C2") is True
     widths, heights = _sheet_dimensions(output_path, "厂家A")
-    assert widths == [15] * 16
+    assert widths == [15] * 17
     assert heights == [15] * 3
     widths, heights = _sheet_dimensions(output_path, "采购汇总")
-    assert widths == [15] * 16
+    assert widths == [15] * 17
     assert heights == [15] * 3
 
 
@@ -871,8 +874,8 @@ def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
         ),
         _purchase_total_row(3, 8, 8.01),
     ]
-    assert _cell_number_format(output_path, "采购汇总", "P2") == "0.00"
-    assert _cell_number_format(output_path, "深圳正飞科技", "P2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "Q2") == "0.00"
+    assert _cell_number_format(output_path, "深圳正飞科技", "Q2") == "0.00"
 
 
 def test_generate_restock_workbook_rejects_zhengfei_same_model_with_different_price(tmp_path):
@@ -1082,12 +1085,12 @@ def test_generate_restock_workbook_total_price_number_format(tmp_path):
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "O2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "O3") == "0.000"
-    assert _cell_number_format(output_path, "采购汇总", "P2") == "General"
-    assert _cell_number_format(output_path, "厂家A", "O2") == "0.00"
-    assert _cell_number_format(output_path, "厂家A", "O3") == "0.000"
-    assert _cell_number_format(output_path, "厂家A", "P2") == "General"
+    assert _cell_number_format(output_path, "采购汇总", "P2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "P3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "Q2") == "General"
+    assert _cell_number_format(output_path, "厂家A", "P2") == "0.00"
+    assert _cell_number_format(output_path, "厂家A", "P3") == "0.000"
+    assert _cell_number_format(output_path, "厂家A", "Q2") == "General"
 
 
 def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_path):
@@ -1123,8 +1126,8 @@ def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_pa
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "O2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "O3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "P2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "P3") == "0.000"
 
 
 def test_generate_restock_workbook_dedupes_identical_master_stock_sku(tmp_path):

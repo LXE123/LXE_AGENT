@@ -1069,6 +1069,45 @@ def _formal_row_values(
     return [values.get(column, "") for column in columns]
 
 
+def _purchase_contract_source_values(
+    line: Mapping[str, Any],
+    *,
+    purchased: Decimal,
+) -> tuple[str, str]:
+    current_contract = ""
+    if purchased > 0:
+        contract_no = _required_result_text(
+            line.get("contract_no"), field="purchase_line.contract_no"
+        )
+        current_contract = f"{contract_no} × {_decimal_text(purchased)}"
+
+    historical_quantities: OrderedDict[str, Decimal] = OrderedDict()
+    applications = _required_result_list(
+        line.get("applications"), field="purchase_line.applications"
+    )
+    for index, raw_application in enumerate(applications):
+        field = f"purchase_line.applications[{index}]"
+        if not isinstance(raw_application, Mapping):
+            raise _incomplete(f"{field} 必须是对象", field=field)
+        contract_no = _required_result_text(
+            raw_application.get("source_contract_no"),
+            field=f"{field}.source_contract_no",
+        )
+        quantity = _required_result_decimal(
+            raw_application.get("applied_quantity"),
+            field=f"{field}.applied_quantity",
+            positive=True,
+        )
+        historical_quantities[contract_no] = (
+            historical_quantities.get(contract_no, Decimal("0")) + quantity
+        )
+    historical_contracts = "\n".join(
+        f"{contract_no} × {_decimal_text(quantity)}"
+        for contract_no, quantity in historical_quantities.items()
+    )
+    return current_contract, historical_contracts
+
+
 def _sp_product_names(
     request_payload: Mapping[str, Any],
 ) -> dict[tuple[str, str], str]:
@@ -1154,6 +1193,12 @@ def _rebuild_purchase_sheet(worksheet: Any, lines: Mapping[tuple[str, str], dict
         planned = _decimal(line.get("planned_shipment_quantity"))
         purchased = _decimal(line.get("purchase_quantity"))
         carryover = _decimal(line.get("carryover_applied_quantity"))
+        current_contract, historical_contracts = _purchase_contract_source_values(
+            line,
+            purchased=purchased,
+        )
+        original[purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER] = current_contract
+        original[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = historical_contracts
         original_price = _decimal(original.get("原价"))
         original["总价"] = purchase_summary._decimal_to_cell_value(original_price * purchased)
         tax_unit_price = line.get("tax_unit_price")

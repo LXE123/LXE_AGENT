@@ -34,6 +34,8 @@ CONTRACT_SHEET_NAME = "供应商合同信息"
 CONTRACT_REQUIRED_HEADERS = ("供货方", "单位", "合同产品名称")
 CONTRACT_PREFIX_HEADER = "合同编号前缀"
 CONTRACT_TAX_RATE_HEADER = "税率"
+CURRENT_PURCHASE_CONTRACT_HEADER = "本次采购合同编号"
+HISTORICAL_INVENTORY_CONTRACT_HEADER = "历史库存合同编号"
 MANUFACTURER_COLUMNS = (
     "库存sku",
     "产品名称",
@@ -46,7 +48,8 @@ MANUFACTURER_COLUMNS = (
     "厂家",
     "单位",
     "合同产品名称",
-    "合同编号前缀",
+    CURRENT_PURCHASE_CONTRACT_HEADER,
+    HISTORICAL_INVENTORY_CONTRACT_HEADER,
     "税率",
     "数量",
     "总价",
@@ -719,7 +722,8 @@ def build_restock_rows(
             entry["manufacturer"],
             entry["unit"],
             entry["contract_product_name"],
-            entry["contract_no_prefix"],
+            "",
+            "",
             entry["tax_rate"],
             _decimal_to_cell_value(entry["quantity"]),
             _decimal_to_cell_value(total_price),
@@ -866,6 +870,8 @@ def _write_rows(
         "库存sku（第一行）",
         "产品名称（第一行）",
         "厂家",
+        CURRENT_PURCHASE_CONTRACT_HEADER,
+        HISTORICAL_INVENTORY_CONTRACT_HEADER,
     ):
         if text_column_name not in columns:
             continue
