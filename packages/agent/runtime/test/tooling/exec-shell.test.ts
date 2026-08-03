@@ -43,7 +43,7 @@ describe("ExecShellAdapter", () => {
       fileExists: (path) => existing.has(path),
       which: (command) => command === "pwsh" ? pathPwsh : null,
       powerShellMajor: (path) => path === preferred ? 7 : 6,
-    })).toBe(preferred);
+    })).toEqual({ path: preferred, major: 7 });
   });
 
   test("falls back to built-in Windows PowerShell when pwsh is unavailable", () => {
@@ -54,7 +54,39 @@ describe("ExecShellAdapter", () => {
       fileExists: (path) => path === fallback,
       which: () => null,
       powerShellMajor: () => undefined,
-    })).toBe(fallback);
+    })).toEqual({ path: fallback, major: 5 });
+  });
+
+  test("reports the shell profile the exec description has to document", () => {
+    expect(new ExecShellAdapter({ platform: "darwin" }).shellProfile()).toEqual({ kind: "posix" });
+
+    const pwsh = win32.join("C:\\Program Files", "PowerShell", "7", "pwsh.exe");
+    expect(new ExecShellAdapter({
+      platform: "win32",
+      environment: { ProgramFiles: "C:\\Program Files", SystemRoot: "C:\\Windows" },
+      fileExists: (path) => path === pwsh,
+      which: () => null,
+      powerShellMajor: () => 7,
+    }).shellProfile()).toEqual({ kind: "pwsh", major: 7 });
+
+    const builtin = win32.join("C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    expect(new ExecShellAdapter({
+      platform: "win32",
+      environment: { SystemRoot: "C:\\Windows" },
+      fileExists: (path) => path === builtin,
+      which: () => null,
+      powerShellMajor: () => undefined,
+    }).shellProfile()).toEqual({ kind: "windows-powershell", major: 5 });
+
+    // No PowerShell at all: registration must still succeed, and the stricter 5.1
+    // rules are the safe thing to document because they also parse under 7.
+    expect(new ExecShellAdapter({
+      platform: "win32",
+      environment: { SystemRoot: "C:\\Windows" },
+      fileExists: () => false,
+      which: () => null,
+      powerShellMajor: () => undefined,
+    }).shellProfile()).toEqual({ kind: "windows-powershell" });
   });
 
   test("normalizes Python, pip, and lxeskill with platform-safe quoting", () => {

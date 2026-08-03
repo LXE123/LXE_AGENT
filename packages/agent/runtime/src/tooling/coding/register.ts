@@ -53,7 +53,13 @@ export function registerCodingTools(
     registry.register(tool);
   }
   registry.register(createSendFilesTool({ paths }));
-  for (const tool of createExecTools({ paths, processes, execShell, options })) {
+  for (const tool of createExecTools({
+    paths,
+    processes,
+    execShell,
+    maxOutputBytes: processOutputLimit,
+    options,
+  })) {
     registry.register(tool);
   }
   return processes;

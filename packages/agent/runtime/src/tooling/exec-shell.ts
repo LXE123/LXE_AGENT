@@ -49,7 +49,15 @@ const defaultPowerShellMajor = (executable: string): number | undefined => {
   }
 };
 
-export function resolveWindowsPowerShell(options: ExecShellAdapterOptions = {}): string {
+export interface ResolvedWindowsPowerShell {
+  path: string;
+  /** Probed major version; 5 when only the built-in Windows PowerShell was found. */
+  major: number;
+}
+
+export function resolveWindowsPowerShell(
+  options: ExecShellAdapterOptions = {},
+): ResolvedWindowsPowerShell {
   const environment = options.environment ?? process.env;
   const fileExists = options.fileExists ?? existsSync;
   const which = options.which ?? ((command) => Bun.which(command));
@@ -68,8 +76,9 @@ export function resolveWindowsPowerShell(options: ExecShellAdapterOptions = {}):
     pathPowerShell7,
   ];
   for (const candidate of [...new Set(powershell7.filter(Boolean))]) {
-    if ((powerShellMajor(candidate) ?? 0) >= 7) {
-      return candidate;
+    const major = powerShellMajor(candidate) ?? 0;
+    if (major >= 7) {
+      return { path: candidate, major };
     }
   }
 
@@ -81,15 +90,17 @@ export function resolveWindowsPowerShell(options: ExecShellAdapterOptions = {}):
     "v1.0",
     "powershell.exe",
   );
-  if (fileExists(windowsPowerShell)) return windowsPowerShell;
+  // Anything reached below is the built-in shell, which is 5.1 on every supported
+  // Windows release; probing it again would only add a subprocess launch.
+  if (fileExists(windowsPowerShell)) return { path: windowsPowerShell, major: 5 };
   const fallback = which("powershell") ?? which("powershell.exe");
-  if (fallback) return fallback;
+  if (fallback) return { path: fallback, major: powerShellMajor(fallback) ?? 5 };
   throw new Error("PowerShell is unavailable on this Windows host");
 }
 
-const powershellCommandBody = (executable: string, command: string): string => {
+const powershellCommandBody = (major: number, command: string): string => {
   const parts = ["try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"];
-  if (["pwsh", "pwsh.exe"].includes(win32.basename(executable).toLowerCase())) {
+  if (major >= 7) {
     parts.push("$PSStyle.OutputRendering = 'PlainText'");
   }
   if (command.trim()) parts.push(command.trim());
@@ -123,11 +134,19 @@ const PROJECT_PYTHON_LAUNCHERS = new Set(["py", "python", "python.exe", "python3
 const PROJECT_PIP_LAUNCHERS = new Set(["pip", "pip.exe", "pip3", "pip3.exe"]);
 const PROJECT_PYTHON_VERSIONS = new Set(["-3", "-3.12", "-3.12.10"]);
 
+export type ExecShellKind = "posix" | "pwsh" | "windows-powershell";
+
+export interface ExecShellProfile {
+  kind: ExecShellKind;
+  /** PowerShell major version when it could be probed. */
+  major?: number;
+}
+
 export class ExecShellAdapter {
   readonly platform: NodeJS.Platform;
   private readonly environment: Environment;
   private readonly terminationGraceMs: number;
-  private windowsPowerShell = "";
+  private windowsPowerShell: ResolvedWindowsPowerShell | undefined;
 
   constructor(private readonly options: ExecShellAdapterOptions = {}) {
     this.platform = options.platform ?? process.platform;
@@ -192,21 +211,45 @@ export class ExecShellAdapter {
     return command;
   }
 
+  /**
+   * Describes the shell the model will actually be talking to, so the exec tool can
+   * document this host's rules instead of every platform's at once. Resolution stays
+   * lazy: a host with no PowerShell must still start and fail at the first command,
+   * not at registration. When it cannot be probed the stricter 5.1 rules are
+   * reported, because a command written for 5.1 also parses under 7.
+   */
+  shellProfile(): ExecShellProfile {
+    if (this.platform !== "win32") return { kind: "posix" };
+    try {
+      const resolved = this.resolveWindowsShell();
+      return resolved.major >= 7
+        ? { kind: "pwsh", major: resolved.major }
+        : { kind: "windows-powershell", major: resolved.major };
+    } catch {
+      return { kind: "windows-powershell" };
+    }
+  }
+
   spawnSpec(command: string): ExecSpawnSpec {
     if (this.platform !== "win32") {
       return { argv: ["/bin/sh", "-c", command], detached: true };
     }
-    this.windowsPowerShell ||= resolveWindowsPowerShell({ ...this.options, platform: this.platform });
+    const shell = this.resolveWindowsShell();
     return {
       argv: [
-        this.windowsPowerShell,
+        shell.path,
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        powershellCommandBody(this.windowsPowerShell, command),
+        powershellCommandBody(shell.major, command),
       ],
       detached: false,
     };
+  }
+
+  private resolveWindowsShell(): ResolvedWindowsPowerShell {
+    this.windowsPowerShell ??= resolveWindowsPowerShell({ ...this.options, platform: this.platform });
+    return this.windowsPowerShell;
   }
 
   childEnvironment(root: string, context: ExecEnvironmentContext): Environment {
@@ -282,7 +325,7 @@ export class ExecShellAdapter {
 
   private async killLateWindowsDescendants(rootPid: number): Promise<void> {
     try {
-      this.windowsPowerShell ||= resolveWindowsPowerShell({ ...this.options, platform: this.platform });
+      const cleanupShell = this.resolveWindowsShell();
       const script = [
         "$known = [System.Collections.Generic.HashSet[int]]::new()",
         `[void]$known.Add(${rootPid})`,
@@ -304,7 +347,7 @@ export class ExecShellAdapter {
         "}",
       ].join("\n");
       const cleanup = Bun.spawn([
-        this.windowsPowerShell,
+        cleanupShell.path,
         "-NoProfile",
         "-NonInteractive",
         "-Command",

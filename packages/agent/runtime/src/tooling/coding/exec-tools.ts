@@ -8,6 +8,11 @@ import {
 import { classifyLxeSkillInput, matchLxeSkillInvocation } from "../lxeskill-command";
 import { formatCommandPayload } from "../process-output";
 import {
+  execCommandParameterDescription,
+  execToolDescription,
+  type ExecPromptLimits,
+} from "./exec-prompt";
+import {
   ToolExecutionError,
   type LxeSkillInvocationErrorDetails,
   type LxeSkillInvocationViolation,
@@ -85,6 +90,8 @@ export interface ExecToolDependencies {
   paths: CodingPathPolicy;
   processes: CodingProcessManager;
   execShell: ExecShellAdapter;
+  /** Inline output budget, quoted in the description so the model stops self-truncating. */
+  maxOutputBytes: number;
   options: Pick<
     CodingToolOptions,
     "businessCommands" | "businessCommandCatalog" | "execEnv" | "lxeSkillStatus"
@@ -93,6 +100,14 @@ export interface ExecToolDependencies {
 
 export function createExecTools(dependencies: ExecToolDependencies): ToolDefinition[] {
   const { paths, processes, execShell, options } = dependencies;
+  // Resolved once here so the model is told this host's shell rules rather than a
+  // description that has to cover every platform at the same time.
+  const shellProfile = execShell.shellProfile();
+  const promptLimits: ExecPromptLimits = {
+    maxOutputBytes: dependencies.maxOutputBytes,
+    defaultTimeoutSeconds: DEFAULT_EXEC_TIMEOUT_SECONDS,
+    maxTimeoutSeconds: MAX_EXEC_TIMEOUT_SECONDS,
+  };
   const commandCatalog = options.businessCommandCatalog ?? [];
   const businessCommands = options.businessCommands ?? new Map(
     commandCatalog.map((entry) => [entry.command, [...entry.ownerSkills]] as const),
@@ -106,13 +121,13 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
   return [
     {
       name: "exec",
-      description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python and pip use this project's .venv; lxeskill prefers the precompiled project runtime and falls back to .venv in development. A lxeskill invocation must be the only command in command; use cwd instead of cd and do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
+      description: execToolDescription(shellProfile, promptLimits),
       input_schema: {
         type: "object",
         properties: {
           command: {
             type: "string",
-            description: "Shell command string. For lxeskill, provide exactly one standalone `lxeskill <command> [options]`; do not use uv, python -m, cd, newlines, pipes, redirects, &&, ||, semicolons, backticks, or $(). Use cwd for the working directory. Help/list/describe commands follow the same rule.",
+            description: execCommandParameterDescription(shellProfile),
           },
           cwd: { type: "string", description: "Working directory inside the Git worktree; defaults to the session working directory." },
           timeout: {
