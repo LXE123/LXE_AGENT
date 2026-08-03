@@ -15,7 +15,9 @@ export function registerCodingTools(
   options: CodingToolOptions,
 ): CodingProcessManager {
   const toolOutputLimit = 10_000;
-  const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
+  // Anything past this is still captured: the process manager streams the full
+  // transcript to var/tmp/exec and hands the model the tail plus that path.
+  const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputBytes ?? 50_000));
   const paths = new CodingPathPolicy({
     ...(options.repositorySkillsRoot === undefined ? {} : { repositorySkillsRoot: options.repositorySkillsRoot }),
     ...(options.userSkillsRoot === undefined ? {} : { userSkillsRoot: options.userSkillsRoot }),
@@ -27,7 +29,6 @@ export function registerCodingTools(
   const execShell = options.execShell ?? new ExecShellAdapter();
   const processes = new CodingProcessManager({
     maxOutputBytes: processOutputLimit,
-    maxPendingBytes: 30_000,
     tailBytes: 2_000,
     ttlSeconds: 1_800,
     shell: execShell,

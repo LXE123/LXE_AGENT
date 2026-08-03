@@ -393,9 +393,8 @@ describe("native coding tools", () => {
       status: "completed",
       reason: "process.poll",
     })]);
-    await registry.execute("process", { action: "remove", session }, context(root));
+    await registry.execute("process", { action: "poll", session }, context(root));
     expect(consumed).toHaveLength(1);
-    expect(processes.snapshots()).toHaveLength(0);
 
     const completedText = String((await registry.execute("exec", {
       command: "python -c \"print('x' * 3000)\"",
@@ -409,6 +408,30 @@ describe("native coding tools", () => {
     }, context(root))).content[0]?.text);
     expect(failed).toContain("status: failed");
     expect(failed).toContain("expected failure");
+
+    // Output past the in-context limit keeps its END (where failures land) and the
+    // full transcript stays reachable on disk.
+    const oversized = String((await registry.execute("exec", {
+      command: "python -c \"[print(f'第 {i} 行 构建输出') for i in range(6000)]; print('最终失败：缺少依赖')\"",
+    }, context(root))).content[0]?.text);
+    expect(oversized).toContain("status: completed");
+    expect(oversized).toContain("truncated: true");
+    expect(oversized).toContain("最终失败：缺少依赖");
+    expect(oversized).not.toContain("第 0 行");
+    expect(oversized).not.toContain("�");
+    const spillPath = oversized.match(/^output_path: (.+)$/mu)?.[1];
+    if (!spillPath) throw new Error(`missing output_path in: ${oversized.slice(0, 400)}`);
+    const transcript = readFileSync(spillPath, "utf8");
+    expect(transcript).toContain("第 0 行 构建输出");
+    expect(transcript.trimEnd().endsWith("最终失败：缺少依赖")).toBe(true);
+
+    // Interleaved streams keep their real order instead of being split into blocks.
+    const interleaved = String((await registry.execute("exec", {
+      command: "python -c \"import sys; print('step 1'); print('warn', file=sys.stderr); sys.stderr.flush(); print('step 2')\"",
+    }, context(root))).content[0]?.text);
+    expect(interleaved).toContain("[stderr]");
+    expect(interleaved).toContain("warn");
+    expect(interleaved).toContain("step 2");
 
     // Commands outside the attribution map still run: the CLI owns
     // authorization and list is always known to it.
@@ -441,19 +464,12 @@ describe("native coding tools", () => {
       throw new Error(`timed out waiting for process ${session}`);
     };
 
-    const logged = await start("python -c \"print('logged')\"");
-    await waitFor(logged, (snapshot) => snapshot.status !== "running");
-    await processes.process({ action: "log", session: logged }, "s1");
-    await processes.process({ action: "poll", session: logged }, "s1");
-    expect(consumed.filter((item) => item.task_id === logged)).toEqual([
-      expect.objectContaining({ reason: "process.log" }),
-    ]);
-
-    const removed = await start("python -c \"print('removed')\"");
-    await waitFor(removed, (snapshot) => snapshot.status !== "running");
-    await processes.process({ action: "remove", session: removed }, "s1");
-    expect(consumed.filter((item) => item.task_id === removed)).toEqual([
-      expect.objectContaining({ reason: "process.remove" }),
+    const polled = await start("python -c \"print('polled')\"");
+    await waitFor(polled, (snapshot) => snapshot.status !== "running");
+    await processes.process({ action: "poll", session: polled }, "s1");
+    await processes.process({ action: "poll", session: polled }, "s1");
+    expect(consumed.filter((item) => item.task_id === polled)).toEqual([
+      expect.objectContaining({ reason: "process.poll" }),
     ]);
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
@@ -470,7 +486,7 @@ describe("native coding tools", () => {
     await waitFor(concurrent, (snapshot) => snapshot.status !== "running");
     await Promise.all([
       processes.process({ action: "poll", session: concurrent }, "s1"),
-      processes.process({ action: "log", session: concurrent }, "s1"),
+      processes.process({ action: "poll", session: concurrent }, "s1"),
     ]);
     expect(consumed.filter((item) => item.task_id === concurrent)).toHaveLength(1);
 
@@ -507,21 +523,21 @@ describe("native coding tools", () => {
     expect((await processes.process({ action: "poll", session }, "s1")).new_output).toContain("retry-output");
     expect(attempts).toBe(2);
 
-    const removable = String((await registry.execute("exec", {
-      command: "python -c \"print('remove-retry')\"",
+    const killable = String((await registry.execute("exec", {
+      command: "python -c \"print('kill-retry')\"",
       background: true,
     }, context())).content[0]?.text).match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-    if (!removable) throw new Error("missing removable process session");
-    const removeDeadline = performance.now() + 5_000;
-    while (processes.snapshots().find((item) => item.task_id === removable)?.status === "running") {
-      if (performance.now() >= removeDeadline) throw new Error(`timed out waiting for process ${removable}`);
+    if (!killable) throw new Error("missing killable process session");
+    const killDeadline = performance.now() + 5_000;
+    while (processes.snapshots().find((item) => item.task_id === killable)?.status === "running") {
+      if (performance.now() >= killDeadline) throw new Error(`timed out waiting for process ${killable}`);
       await Bun.sleep(20);
     }
     failNext = true;
-    await expect(processes.process({ action: "remove", session: removable }, "s1")).rejects.toThrow("consume failed");
-    expect(processes.snapshots().some((item) => item.task_id === removable)).toBe(true);
-    await processes.process({ action: "remove", session: removable }, "s1");
-    expect(processes.snapshots().some((item) => item.task_id === removable)).toBe(false);
+    await expect(processes.process({ action: "kill", session: killable }, "s1")).rejects.toThrow("consume failed");
+    expect(processes.snapshots().some((item) => item.task_id === killable)).toBe(true);
+    await processes.process({ action: "kill", session: killable }, "s1");
+    expect(processes.snapshots().some((item) => item.task_id === killable)).toBe(true);
     await processes.stop();
   }, 30_000);
 
@@ -598,7 +614,7 @@ describe("native coding tools", () => {
         await Bun.sleep(25);
         const logged = String((await registry.execute(
           "process",
-          { action: "log", session, offset: 1, limit: 10 },
+          { action: "poll", session },
           context(root),
         )).content[0]?.text);
         observed = `${started}\n${logged}`;

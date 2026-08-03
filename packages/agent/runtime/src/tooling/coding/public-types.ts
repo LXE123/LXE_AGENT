@@ -13,9 +13,7 @@ export type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "ki
 
 export type ProcessCompletionConsumeReason =
   | "process.poll"
-  | "process.log"
-  | "process.kill"
-  | "process.remove";
+  | "process.kill";
 
 export interface ProcessCompletionConsumeRequest {
   session_id: string;
@@ -30,7 +28,8 @@ export interface CodingToolOptions {
   artifactRoot?: string;
   attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
   homeDirectory?: string;
-  maxOutputChars?: number;
+  /** Bytes of process output kept in memory and shown to the model at once. */
+  maxOutputBytes?: number;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   onProcessConsume?: (request: ProcessCompletionConsumeRequest) => Promise<void> | void;
   ripgrepPath?: string | null;

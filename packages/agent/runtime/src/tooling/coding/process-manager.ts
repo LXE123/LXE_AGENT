@@ -1,14 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle } from "../../engine/types";
 import type { ExecShellAdapter } from "../exec-shell";
-import {
-  appendLimitedBytes,
-  appendTailBytes,
-  combineProcessStreams,
-  decodeProcessOutput,
-} from "../process-output";
+import { ProcessOutputStore, sweepSpillDirectory } from "../process-output";
 import type {
   ProcessCompletionConsumeReason,
   ProcessCompletionConsumeRequest,
@@ -29,13 +25,8 @@ interface ProcessEntry {
   explicitBackground: boolean;
   status: ProcessStatus;
   exitCode: number | null;
-  stdout: Uint8Array;
-  stderr: Uint8Array;
-  pendingStdout: Uint8Array;
-  pendingStderr: Uint8Array;
-  stdoutTail: Uint8Array;
-  stderrTail: Uint8Array;
-  truncated: boolean;
+  output: ProcessOutputStore;
+  pollCursor: number;
   completion: Promise<void>;
   consumption?: Promise<void>;
   completionConsumed: boolean;
@@ -46,20 +37,15 @@ interface ProcessEntry {
 
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 
-const processLines = (value: string): string[] => {
-  if (!value) return [];
-  const lines = value.split(/\r?\n/u);
-  if (lines.at(-1) === "") lines.pop();
-  return lines;
-};
+const SPILL_DIRECTORY_SEGMENTS = ["var", "tmp", "exec"] as const;
 
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
+  private readonly sweptSpillRoots = new Set<string>();
   private readonly logger = createLogger("runtime.coding_process");
 
   constructor(private readonly options: {
     maxOutputBytes: number;
-    maxPendingBytes: number;
     tailBytes: number;
     ttlSeconds: number;
     shell: ExecShellAdapter;
@@ -74,6 +60,7 @@ export class CodingProcessManager {
       return this.terminateObserved(entry, "process_force_killed");
     }));
     await Promise.allSettled(incomplete.map((entry) => entry.completion));
+    await Promise.allSettled([...this.entries.values()].map((entry) => entry.output.close()));
   }
 
   snapshots(): JsonObject[] {
@@ -101,7 +88,7 @@ export class CodingProcessManager {
       const spawn = this.options.shell.spawnSpec(request.command);
       child = Bun.spawn(spawn.argv, {
         cwd: request.cwd,
-        stdin: "pipe",
+        stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
         detached: spawn.detached,
@@ -149,6 +136,11 @@ export class CodingProcessManager {
       }));
       return { status: "failed", session: id, error: "spawned process did not expose stdout/stderr pipes" };
     }
+    const spillDirectory = join(request.workspace.worktree, ...SPILL_DIRECTORY_SEGMENTS);
+    if (!this.sweptSpillRoots.has(spillDirectory)) {
+      this.sweptSpillRoots.add(spillDirectory);
+      sweepSpillDirectory(spillDirectory);
+    }
     const entry: ProcessEntry = {
       id,
       command: request.command,
@@ -162,13 +154,11 @@ export class CodingProcessManager {
       explicitBackground: request.background,
       status: "running" as ProcessStatus,
       exitCode: null,
-      stdout: new Uint8Array(),
-      stderr: new Uint8Array(),
-      pendingStdout: new Uint8Array(),
-      pendingStderr: new Uint8Array(),
-      stdoutTail: new Uint8Array(),
-      stderrTail: new Uint8Array(),
-      truncated: false,
+      output: new ProcessOutputStore({
+        retainBytes: this.options.maxOutputBytes,
+        spillPath: join(spillDirectory, `${id}.log`),
+      }),
+      pollCursor: 0,
       completion: Promise.resolve(),
       completionConsumed: false,
       notifyOnExit: request.background,
@@ -178,36 +168,23 @@ export class CodingProcessManager {
     runWithLogContext(this.logContext(entry), () => {
       this.logger.info("process_started", this.processFields(entry));
     });
-    const append = (value: Uint8Array, isStderr: boolean): void => {
-      if (isStderr) {
-        const output = appendLimitedBytes(entry.stderr, value, this.options.maxOutputBytes);
-        const pending = appendLimitedBytes(entry.pendingStderr, value, this.options.maxPendingBytes);
-        entry.stderr = output.bytes;
-        entry.pendingStderr = pending.bytes;
-        entry.stderrTail = appendTailBytes(entry.stderrTail, value, this.options.tailBytes);
-        entry.truncated ||= output.truncated || pending.truncated;
-        return;
-      }
-      const output = appendLimitedBytes(entry.stdout, value, this.options.maxOutputBytes);
-      const pending = appendLimitedBytes(entry.pendingStdout, value, this.options.maxPendingBytes);
-      entry.stdout = output.bytes;
-      entry.pendingStdout = pending.bytes;
-      entry.stdoutTail = appendTailBytes(entry.stdoutTail, value, this.options.tailBytes);
-      entry.truncated ||= output.truncated || pending.truncated;
-    };
-    const pump = async (stream: ReadableStream<Uint8Array>, isStderr: boolean): Promise<void> => {
+    const pump = async (
+      stream: ReadableStream<Uint8Array>,
+      source: "stdout" | "stderr",
+    ): Promise<void> => {
       const reader = stream.getReader();
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
-        append(chunk.value, isStderr);
+        entry.output.append(source, chunk.value);
       }
     };
-    const stdoutTask = pump(stdout, false);
-    const stderrTask = pump(stderr, true);
+    const stdoutTask = pump(stdout, "stdout");
+    const stderrTask = pump(stderr, "stderr");
     entry.completion = runWithLogContext(this.logContext(entry), async () => {
       const exitCode = await child.exited;
       await Promise.allSettled([stdoutTask, stderrTask]);
+      await entry.output.close();
       entry.exitCode = exitCode;
       entry.endedAt = Date.now() / 1_000;
       if (entry.status === "running") entry.status = exitCode === 0 ? "completed" : "failed";
@@ -283,58 +260,33 @@ export class CodingProcessManager {
     if (!id) return { error: "需要指定 session 参数。" };
     if (!entry || entry.sessionId !== sessionId) return { error: `会话 ${id} 不存在。` };
     if (action === "poll") {
-      if (entry.status === "running" && entry.pendingStdout.byteLength === 0 && entry.pendingStderr.byteLength === 0) {
-        await Promise.race([entry.completion, Bun.sleep(5_000)]);
+      // Wake as soon as the command produces something rather than sleeping out the
+      // whole window: a process that prints immediately and then keeps running used
+      // to cost a full 5 seconds per poll.
+      const deadline = Date.now() + 5_000;
+      while (
+        entry.status === "running"
+        && entry.output.cursor === entry.pollCursor
+        && Date.now() < deadline
+      ) {
+        await Promise.race([entry.completion, Bun.sleep(50)]);
       }
+      const slice = entry.output.renderSince(entry.pollCursor);
       const payload: JsonObject = {
         session: entry.id,
         status: entry.status,
-        new_output: combineProcessStreams(entry.pendingStdout, entry.pendingStderr) || "(no new output)",
+        new_output: slice.text || "(no new output)",
       };
       if (entry.status !== "running") {
         payload.exit_code = entry.exitCode;
         payload.duration_sec = this.duration(entry);
       }
-      if (entry.truncated) payload.truncated = true;
+      this.describeTruncation(entry, payload, slice.missed);
+      // Only mark the slice delivered once consumption succeeded, so a failing
+      // completion notification leaves the output readable on the next poll.
       if (entry.status !== "running") await this.consumeCompletion(entry, "process.poll");
-      entry.pendingStdout = new Uint8Array();
-      entry.pendingStderr = new Uint8Array();
+      entry.pollCursor = slice.cursor;
       return payload;
-    }
-    if (action === "log") {
-      const stdoutLines = processLines(decodeProcessOutput(entry.stdout));
-      const stderrLines = processLines(decodeProcessOutput(entry.stderr));
-      const offset = Math.max(0, Number(input.offset ?? 1) - 1);
-      const limit = Math.max(1, Math.min(Number(input.limit ?? 2_000), 10_000));
-      const totalLines = Math.max(stdoutLines.length, stderrLines.length);
-      const showingEnd = Math.min(totalLines, offset + limit);
-      const output = combineProcessStreams(
-        new TextEncoder().encode(stdoutLines.slice(offset, offset + limit).join("\n")),
-        new TextEncoder().encode(stderrLines.slice(offset, offset + limit).join("\n")),
-      ) || "(no output)";
-      const payload: JsonObject = {
-        session: entry.id,
-        total_lines: totalLines,
-        showing: totalLines ? `${offset + 1}-${showingEnd}` : "0-0",
-        output,
-      };
-      if (showingEnd < totalLines) payload.message = `还有 ${totalLines - showingEnd} 行。用 offset=${showingEnd + 1} 继续。`;
-      if (entry.truncated) payload.truncated = true;
-      if (entry.status !== "running") await this.consumeCompletion(entry, "process.log");
-      return payload;
-    }
-    if (action === "write") {
-      const text = inputText(input, "text");
-      if (!text) return { error: "write 操作需要 text 参数。" };
-      if (entry.status !== "running") return { error: `会话 ${id} 已结束，无法写入。` };
-      const stdin = entry.process.stdin;
-      if (!stdin || typeof stdin === "number") return { error: `会话 ${id} 不支持写入。` };
-      try {
-        stdin.write(`${text}\n`);
-        return { status: "ok", session: id, message: `已写入 ${Buffer.byteLength(`${text}\n`)} 字节。` };
-      } catch (error) {
-        return { error: `写入失败: ${error instanceof Error ? error.message : String(error)}` };
-      }
     }
     if (action === "kill") {
       if (entry.status === "running") {
@@ -346,21 +298,90 @@ export class CodingProcessManager {
       if (entry.status !== "killed") return { message: `会话 ${id} 已经结束（${entry.status}）。` };
       return { status: "killed", session: id };
     }
-    if (action === "remove") {
-      if (entry.status === "running") {
-        entry.status = "killed";
-        await this.terminateObserved(entry, "process_killed");
-        await entry.completion;
-      }
-      await this.consumeCompletion(entry, "process.remove");
-      this.entries.delete(id);
-      return { status: "removed", session: id };
-    }
     return { error: `未知 action: ${action}` };
   }
 
   private duration(entry: ProcessEntry): number {
     return Math.max(0, (entry.endedAt ?? Date.now() / 1_000) - entry.startedAt);
+  }
+
+  /**
+   * Truncation is reported both as structured fields and as an inline marker at the
+   * cut point, so the model cannot read a shortened output as if it were complete.
+   */
+  private describeTruncation(entry: ProcessEntry, payload: JsonObject, applies: boolean): void {
+    if (!entry.output.truncated) return;
+    payload.truncated = true;
+    payload.omitted_bytes = entry.output.droppedBytes;
+    if (entry.output.spillPath) payload.output_path = entry.output.spillPath;
+    if (!applies) return;
+    const outputKey = "new_output" in payload ? "new_output" : "output";
+    payload[outputKey] = `${this.truncationMarker(entry)}\n${String(payload[outputKey] ?? "")}`;
+  }
+
+  private truncationMarker(entry: ProcessEntry): string {
+    const omitted = entry.output.droppedBytes;
+    if (!entry.output.spillPath) {
+      return `[... 已省略开头 ${omitted} 字节；只保留了输出末尾 ...]`;
+    }
+    return [
+      `[... 已省略开头 ${omitted} 字节，只保留了输出末尾。`,
+      `完整输出在 ${entry.output.spillPath}`,
+      "——用 grep 检索或 read 带 offset/limit 查看需要的片段，不要整个读回。 ...]",
+    ].join("\n");
+  }
+
+  private completedPayload(entry: ProcessEntry): JsonObject {
+    const payload: JsonObject = {
+      status: entry.status,
+      session: entry.id,
+      exit_code: entry.exitCode,
+      output: entry.output.renderRetained().trim() || "(no output)",
+      duration_sec: this.duration(entry),
+    };
+    this.describeTruncation(entry, payload, true);
+    return payload;
+  }
+
+  private runningPayload(entry: ProcessEntry): JsonObject {
+    const message = entry.explicitBackground
+      ? `命令仍在运行。除非用户明确要求，否则不要用 process(action='poll', session='${entry.id}') 查看进度。`
+      : `命令仍在运行，完成后会自动通知你，请继续处理其他工作，不要轮询等待。只有需要查看中间进度时才用 process(action='poll', session='${entry.id}')。`;
+    const payload: JsonObject = {
+      status: entry.status,
+      session: entry.id,
+      pid: entry.process.pid,
+      message,
+      tail: entry.output.renderTail(this.options.tailBytes) || "(暂无输出)",
+    };
+    this.describeTruncation(entry, payload, false);
+    return payload;
+  }
+
+  private snapshot(entry: ProcessEntry): JsonObject {
+    const endedAt = entry.endedAt ?? null;
+    return {
+      task_id: entry.id,
+      session: entry.id,
+      session_id: entry.sessionId,
+      response_route_id: entry.responseRouteId,
+      session_title: "",
+      origin_turn_id: entry.turnId,
+      card_id: "",
+      status: entry.status,
+      pid: entry.process.pid,
+      command: entry.command,
+      cwd: entry.cwd,
+      workspace: entry.workspace,
+      started_at: entry.startedAt,
+      ended_at: endedAt,
+      duration_sec: this.duration(entry),
+      background: entry.status === "running",
+      exit_code: entry.exitCode,
+      truncated: entry.output.truncated,
+      output_path: entry.output.spillPath,
+      output_tail: entry.output.renderTail(this.options.tailBytes),
+    };
   }
 
   private async consumeCompletion(
@@ -393,56 +414,6 @@ export class CodingProcessManager {
     await consumption;
   }
 
-  private completedPayload(entry: ProcessEntry): JsonObject {
-    return {
-      status: entry.status,
-      session: entry.id,
-      exit_code: entry.exitCode,
-      output: combineProcessStreams(entry.stdout, entry.stderr).trim() || "(no output)",
-      duration_sec: this.duration(entry),
-      ...(entry.truncated ? { truncated: true } : {}),
-    };
-  }
-
-  private runningPayload(entry: ProcessEntry): JsonObject {
-    const message = entry.explicitBackground
-      ? `命令仍在运行。除非用户明确要求，否则不要用 process(action='poll', session='${entry.id}') 查看进度。`
-      : `命令仍在运行，完成后会自动通知你，请继续处理其他工作，不要轮询等待。只有需要查看中间进度时才用 process(action='poll', session='${entry.id}')。`;
-    return {
-      status: entry.status,
-      session: entry.id,
-      pid: entry.process.pid,
-      message,
-      tail: combineProcessStreams(entry.stdoutTail, entry.stderrTail) || "(暂无输出)",
-      ...(entry.truncated ? { truncated: true } : {}),
-    };
-  }
-
-  private snapshot(entry: ProcessEntry): JsonObject {
-    const endedAt = entry.endedAt ?? null;
-    return {
-      task_id: entry.id,
-      session: entry.id,
-      session_id: entry.sessionId,
-      response_route_id: entry.responseRouteId,
-      session_title: "",
-      origin_turn_id: entry.turnId,
-      card_id: "",
-      status: entry.status,
-      pid: entry.process.pid,
-      command: entry.command,
-      cwd: entry.cwd,
-      workspace: entry.workspace,
-      started_at: entry.startedAt,
-      ended_at: endedAt,
-      duration_sec: this.duration(entry),
-      background: entry.status === "running",
-      exit_code: entry.exitCode,
-      truncated: entry.truncated,
-      output_tail: combineProcessStreams(entry.stdoutTail, entry.stderrTail),
-    };
-  }
-
   private sweep(): void {
     const cutoff = Date.now() / 1_000 - this.options.ttlSeconds;
     for (const [id, entry] of this.entries) {
@@ -466,7 +437,8 @@ export class CodingProcessManager {
       status: entry.status,
       duration_ms: Math.max(0, Math.round(((entry.endedAt ?? Date.now() / 1_000) - entry.startedAt) * 1_000)),
       exit_code: entry.exitCode,
-      truncated: entry.truncated,
+      truncated: entry.output.truncated,
+      output_bytes: entry.output.totalBytes,
       cwd: entry.cwd,
     };
   }

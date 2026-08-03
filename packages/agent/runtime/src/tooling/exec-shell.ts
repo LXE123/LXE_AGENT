@@ -232,6 +232,9 @@ export class ExecShellAdapter {
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
+      // stdout is a pipe here, so CPython would block-buffer it and a long-running
+      // command would look silent to poll and to the background tail until it exits.
+      PYTHONUNBUFFERED: "1",
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONNOUSERSITE: "1",
       LXE_WORKSPACE_ROOT: root,

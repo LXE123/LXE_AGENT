@@ -196,8 +196,20 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
     },
     {
       name: "process",
-      description: "Manage exec sessions: list, poll, log, write, kill, or remove.",
-      input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "poll", "log", "write", "kill", "remove"] }, session: { type: "string" }, text: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["action"], additionalProperties: false },
+      description: "Inspect or stop background exec sessions: list them, poll one for new output, or kill one. Completed sessions notify you on their own, so poll only when you need progress before then. Output past the size limit is not in these results; read the output_path file with grep or read instead.",
+      input_schema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "poll", "kill"],
+            description: "list: sessions in this chat. poll: new output since your last poll. kill: terminate a running session.",
+          },
+          session: { type: "string", description: "Session id from exec, required by poll and kill." },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      },
       execute: async (input, context) => commandResult(await processes.process(input, context.session_id)),
     },
   ];
