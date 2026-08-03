@@ -217,6 +217,17 @@ test("dashboard sends through Main, restores activity, and merges cursor history
   assert.doesNotMatch(main, /response_route_id/);
 });
 
+test("a sent user message renders locally before the send RPC settles", () => {
+  const enqueuePending = main.indexOf("setPendingConversationMessages((current) => [...current, pendingMessage])");
+  const sendRpc = main.indexOf('operation: "sessions.send"', enqueuePending);
+  assert.ok(enqueuePending >= 0 && sendRpc > enqueuePending);
+  assert.match(main, /pendingMessages=\{visiblePendingConversationMessages\}/);
+  assert.match(main, /current\.filter\(\(item\) => item\.pendingId !== pendingId\)/);
+  assert.match(view, /pendingMessages\.map\(\(message\) =>/);
+  assert.match(view, /className="local-turn pending-local-turn"/);
+  assert.match(view, /<MessageMeta createdAt=\{message\.createdAt \/ 1000\} role="user" text=\{message\.text\}/);
+});
+
 test("thinking and tools fold into one response process while the final answer stays outside", () => {
   assert.match(view, /<span className="tool-turn-title">\{summary\.text/);
   assert.match(view, /summarizeToolOperations\(operations, toolBatchLabels\(t\)\)/);

@@ -76,6 +76,7 @@ import { applyDesktopStreamBatch } from "./features/sessions/live-stream";
 import { ModelsView } from "./features/models/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import {
+  type PendingConversationMessage,
   SessionDetailView,
   SessionsIndex
 } from "./features/sessions/view";
@@ -202,6 +203,7 @@ function App({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [newConversation, setNewConversation] = useState(false);
+  const [pendingConversationMessages, setPendingConversationMessages] = useState<PendingConversationMessage[]>([]);
   const sidebar = useThreeStateSidebar(browserStorage());
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
@@ -396,6 +398,15 @@ function App({
   }
 
   async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
+    const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const pendingMessage: PendingConversationMessage = {
+      pendingId,
+      sessionId: selectedSessionId,
+      text,
+      attachments,
+      createdAt: Date.now(),
+    };
+    setPendingConversationMessages((current) => [...current, pendingMessage]);
     const result = await callDashboard({
       operation: "sessions.send",
       input: {
@@ -403,6 +414,9 @@ function App({
         text,
         ...(attachments.length ? { attachment_ids: attachments.map((item) => item.attachment_id) } : {}),
       },
+    }).catch((cause) => {
+      setPendingConversationMessages((current) => current.filter((item) => item.pendingId !== pendingId));
+      throw cause;
     });
     queryClient.setQueryData<DesktopConversationActivityPayload>(
       dashboardQueryKeys.sessions.activity(result.session_id),
@@ -438,6 +452,7 @@ function App({
         };
       },
     );
+    setPendingConversationMessages((current) => current.filter((item) => item.pendingId !== pendingId));
     setSelectedSessionId(result.session_id);
     setNewConversation(false);
     await Promise.all([
@@ -710,6 +725,9 @@ function App({
   const conversationActivity = selectedSessionId
     ? conversationActivityQuery.data ?? null
     : null;
+  const visiblePendingConversationMessages = pendingConversationMessages.filter((message) =>
+    message.sessionId === selectedSessionId || (newConversation && !message.sessionId)
+  );
   const conversationRuntimeReady = desktopHealth.gateway === "ready" && desktopHealth.agent_cli === "ready";
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
@@ -950,6 +968,7 @@ function App({
                     onOpenFile={openConversationFile}
                     onRevealFile={revealConversationFile}
                     onOpenAttachment={openConversationAttachment}
+                    pendingMessages={visiblePendingConversationMessages}
                   />
                 ) : (
                   <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

@@ -77,6 +77,14 @@ import { groupSidebarSessions } from "./model";
 /** How close to the bottom still counts as "following the reply". */
 const BOTTOM_PIN_THRESHOLD_PX = 80;
 
+export type PendingConversationMessage = {
+  pendingId: string;
+  sessionId: string;
+  text: string;
+  attachments: DesktopInputAttachmentPayload[];
+  createdAt: number;
+};
+
 function sourceLabel(source: SourceSummary | Record<string, unknown>): string {
   const platform = String(source.platform || "unknown");
   const chatType = String(source.chat_type || "");
@@ -1727,6 +1735,7 @@ export function SessionDetailView({
   onOpenFile,
   onRevealFile,
   onOpenAttachment,
+  pendingMessages,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -1752,6 +1761,7 @@ export function SessionDetailView({
   onOpenFile: (artifactId: string) => Promise<void>;
   onRevealFile: (artifactId: string) => Promise<void>;
   onOpenAttachment: (attachmentId: string) => Promise<void>;
+  pendingMessages: PendingConversationMessage[];
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -1809,7 +1819,7 @@ export function SessionDetailView({
     if (loadingOlderRef.current || !pinnedToBottom) return;
     const frame = window.requestAnimationFrame(scrollToLatest);
     return () => window.cancelAnimationFrame(frame);
-  }, [activity?.active?.stream?.seq, activity?.queued.length, detail?.messages.length, pinnedToBottom]);
+  }, [activity?.active?.stream?.seq, activity?.queued.length, detail?.messages.length, pendingMessages.length, pinnedToBottom]);
   const detailItems = session ? [
     { label: t.sessionDetail.sessionId, value: session.session_id, mono: true },
     { label: t.sessionDetail.source, value: sourceLabel(session.source_summary || session.source) },
@@ -1861,8 +1871,9 @@ export function SessionDetailView({
     const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
     setPinnedToBottom(distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX);
   };
-  const showEmpty = !loading && !error && !messages.length && !liveTurns.length;
-  const showJumpToLatest = !pinnedToBottom && (Boolean(messages.length) || Boolean(liveTurns.length));
+  const showEmpty = !loading && !error && !messages.length && !liveTurns.length && !pendingMessages.length;
+  const showJumpToLatest = !pinnedToBottom
+    && (Boolean(messages.length) || Boolean(liveTurns.length) || Boolean(pendingMessages.length));
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
@@ -2051,6 +2062,21 @@ export function SessionDetailView({
                   })}
                 </div>
               ) : null}
+              {pendingMessages.map((message) => (
+                <div className="local-turn pending-local-turn" key={message.pendingId}>
+                  <div className="message-with-meta role-user">
+                    <article className={message.attachments.length
+                      ? "message-card role-user optimistic-message has-attachments"
+                      : "message-card role-user optimistic-message"}>
+                      {message.text ? <MessageMarkdown text={message.text} /> : null}
+                      {message.attachments.length ? (
+                        <InputAttachmentList attachments={message.attachments} />
+                      ) : null}
+                    </article>
+                    <MessageMeta createdAt={message.createdAt / 1000} role="user" text={message.text} />
+                  </div>
+                </div>
+              ))}
               {liveTurns.map((turn) => (
                 <React.Fragment key={turn.turn_id}>
                   <LocalTurnCards
