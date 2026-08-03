@@ -70,7 +70,10 @@ def _erp_result() -> dict[str, Any]:
             {
                 "contract_id": "00000000-0000-0000-0000-000000000002",
                 "supplier_name": "深圳正飞科技",
-                "contract_no": "ZF20260723001",
+                "contract_no": "ZF202607230001",
+                "daily_sequence": 1,
+                "supplier_contract_sequence": 223,
+                "supplier_contract_count": 223,
             }
         ],
         "purchase_lines": [
@@ -85,7 +88,7 @@ def _erp_result() -> dict[str, Any]:
                 "planned_shipment_quantity": 10,
                 "carryover_applied_quantity": 4,
                 "purchase_quantity": 6,
-                "contract_no": "ZF20260723001",
+                "contract_no": "ZF202607230001",
                 "contract_id": "00000000-0000-0000-0000-000000000002",
                 "tax_unit_price": 3.5,
                 "inventory_sources": [
@@ -545,7 +548,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         assert sheet.cell(2, headers.index("本次采购量") + 1).value == 6
         assert sheet.cell(2, headers.index("留存库存抵扣量") + 1).value == 4
         assert "合同编号前缀" not in headers
-        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF20260723001 × 6"
+        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF202607230001 × 6"
         assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value == "ZF20260601001 × 4"
     finally:
         summary.close()
@@ -558,7 +561,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         planned_col = headers.index("计划发货量") + 1
         purchase_col = headers.index("本次采购量") + 1
         carryover_col = headers.index("留存库存抵扣量") + 1
-        assert sheet.cell(2, order_col).value == "ZF20260723001"
+        assert sheet.cell(2, order_col).value == "ZF202607230001"
         assert (sheet.cell(2, planned_col).value, sheet.cell(2, purchase_col).value, sheet.cell(2, carryover_col).value) == (6, 6, 0)
         assert sheet.cell(3, order_col).value == "ZF20260601001"
         assert (sheet.cell(3, planned_col).value, sheet.cell(3, purchase_col).value, sheet.cell(3, carryover_col).value) == (4, 0, 4)
@@ -610,8 +613,18 @@ def test_purchase_contract_source_values_show_actual_quantities(
             "allocation_details",
             response["purchase_lines"][0]["allocation_details"][:-1],
         ),
+        lambda response: response["contracts"][0].pop("daily_sequence"),
+        lambda response: response["contracts"][0].__setitem__(
+            "supplier_contract_count", 222
+        ),
     ],
-    ids=["missing-required-field", "line-invariant", "sp-sku-conservation"],
+    ids=[
+        "missing-required-field",
+        "line-invariant",
+        "sp-sku-conservation",
+        "missing-daily-sequence",
+        "supplier-count-behind-sequence",
+    ],
 )
 def test_success_response_must_be_complete_and_conserve_allocations(mutate) -> None:
     response = deepcopy(_erp_result())
@@ -690,7 +703,7 @@ def test_formal_success_renders_contracts_locally_without_erp_download(
     response = deepcopy(_erp_result())
     purchase_path = tmp_path / "purchase.xlsx"
     restock_path = tmp_path / "restock.xlsx"
-    contract_path = tmp_path / "ZF20260723001-深圳正飞科技.xlsx"
+    contract_path = tmp_path / "ZF202607230001-深圳正飞科技.xlsx"
     for path in (purchase_path, restock_path, contract_path):
         path.write_text("artifact", encoding="utf-8")
     monkeypatch.setattr(
@@ -739,7 +752,7 @@ def test_formal_success_renders_contracts_locally_without_erp_download(
                 {
                     "manufacturer": "深圳正飞科技",
                     "sheet_name": "深圳正飞科技",
-                    "contract_no": "ZF20260723001",
+                    "contract_no": "ZF202607230001",
                     "output_xlsx": str(contract_path),
                 }
             ],
@@ -784,7 +797,10 @@ def test_formal_success_renders_contracts_locally_without_erp_download(
         {
             "contract_id": "00000000-0000-0000-0000-000000000002",
             "supplier_name": "深圳正飞科技",
-            "contract_no": "ZF20260723001",
+            "contract_no": "ZF202607230001",
+            "daily_sequence": 1,
+            "supplier_contract_sequence": 223,
+            "supplier_contract_count": 223,
             "output_xlsx": str(contract_path),
         }
     ]
@@ -816,7 +832,10 @@ def test_formal_success_result_is_compact_and_keeps_every_deliverable_path() -> 
         {
             "contract_id": f"contract-{index + 1:02d}",
             "supplier_name": f"供应商-{index + 1:02d}",
-            "contract_no": f"HT20260731{index + 1:03d}",
+            "contract_no": f"HT20260731{index + 1:04d}",
+            "daily_sequence": index + 1,
+            "supplier_contract_sequence": index + 1,
+            "supplier_contract_count": index + 1,
         }
         for index in range(14)
     ]
@@ -883,7 +902,7 @@ def test_cli_preserves_local_artifacts_when_formal_contract_generation_fails(
     response = deepcopy(_erp_result())
     purchase_path = tmp_path / "purchase.xlsx"
     restock_path = tmp_path / "restock.xlsx"
-    completed_contract_path = tmp_path / "ZF20260723001-厂家A.xlsx"
+    completed_contract_path = tmp_path / "ZF202607230001-厂家A.xlsx"
     for path in (purchase_path, restock_path, completed_contract_path):
         path.write_text("artifact", encoding="utf-8")
     monkeypatch.setattr(
@@ -931,7 +950,7 @@ def test_cli_preserves_local_artifacts_when_formal_contract_generation_fails(
                     {
                         "manufacturer": "厂家A",
                         "sheet_name": "厂家A",
-                        "contract_no": "ZF20260723001",
+                        "contract_no": "ZF202607230001",
                         "output_xlsx": str(completed_contract_path),
                     }
                 ],

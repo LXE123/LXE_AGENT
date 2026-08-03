@@ -692,6 +692,24 @@ def _validate_success_response(
             raw_contract.get("supplier_name"), field=f"{field}.supplier_name"
         )
         _required_result_text(raw_contract.get("contract_no"), field=f"{field}.contract_no")
+        daily_sequence = _required_nonnegative_int(
+            raw_contract.get("daily_sequence"), field=f"{field}.daily_sequence"
+        )
+        supplier_sequence = _required_nonnegative_int(
+            raw_contract.get("supplier_contract_sequence"),
+            field=f"{field}.supplier_contract_sequence",
+        )
+        supplier_count = _required_nonnegative_int(
+            raw_contract.get("supplier_contract_count"),
+            field=f"{field}.supplier_contract_count",
+        )
+        if daily_sequence == 0 or supplier_sequence == 0 or supplier_count == 0:
+            raise _incomplete(f"{field} 的合同序号必须是正整数", field=field)
+        if supplier_sequence > supplier_count:
+            raise _incomplete(
+                f"{field}.supplier_contract_sequence 不得大于供应商累计合同数",
+                field=field,
+            )
         if supplier_name in contract_suppliers:
             raise _incomplete(f"供应商合同重复: {supplier_name}", field=field)
         contract_suppliers.add(supplier_name)

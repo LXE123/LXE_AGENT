@@ -77,6 +77,13 @@ def _formal_success_result(
                 "contract_id": server_contract.get("contract_id"),
                 "supplier_name": supplier_name,
                 "contract_no": raw_output.get("contract_no"),
+                "daily_sequence": server_contract.get("daily_sequence"),
+                "supplier_contract_sequence": server_contract.get(
+                    "supplier_contract_sequence"
+                ),
+                "supplier_contract_count": server_contract.get(
+                    "supplier_contract_count"
+                ),
                 "output_xlsx": raw_output.get("output_xlsx"),
             }
         )
