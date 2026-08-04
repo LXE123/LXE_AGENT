@@ -19,6 +19,8 @@ $managerInstalledHere = $false
 $existingTunnelWasInstalled = $false
 $existingTunnelRemoved = $false
 $tunnelInstalledHere = $false
+$originalConfigurationPresent = $false
+$replacementCommitted = $false
 $Stage = "validate_host"
 
 function Write-Result(
@@ -83,8 +85,11 @@ try {
   }
   $Stage = "prepare_replacement"
   New-Item -ItemType Directory -Path $ConfigurationRoot -Force | Out-Null
-  if (Test-Path -LiteralPath $SecureConfiguration) {
-    Copy-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration -Force
+  $originalConfigurationPresent = Test-Path -LiteralPath $SecureConfiguration
+  if ($originalConfigurationPresent) {
+    # WireGuard deliberately denies administrators read access to .conf.dpapi files,
+    # while granting the delete permission required to rename them in this directory.
+    Move-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration -Force
   }
   $existingTunnel = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
   $existingTunnelWasInstalled = $null -ne $existingTunnel
@@ -159,6 +164,7 @@ try {
     throw "The cloud returned a different device identity"
   }
   Write-Result $true "ok" $activationState
+  $replacementCommitted = $true
   exit 0
 } catch {
   $failedStage = $Stage
@@ -171,14 +177,15 @@ try {
     & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
   }
   if (Test-Path -LiteralPath $BackupConfiguration) {
-    Copy-Item -LiteralPath $BackupConfiguration -Destination $SecureConfiguration -Force
+    Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath $BackupConfiguration -Destination $SecureConfiguration -Force
     if ($existingTunnelWasInstalled -and $existingTunnelRemoved) {
       & $WireGuardExe /installtunnelservice $SecureConfiguration | Out-Null
       if ($LASTEXITCODE -eq 0) {
         Start-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
       }
     }
-  } else {
+  } elseif (-not $originalConfigurationPresent) {
     Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
   }
   exit 1
@@ -189,5 +196,7 @@ try {
   Remove-Item -LiteralPath $ConfigPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $ActivationPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $PlainConfiguration -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $BackupConfiguration -Force -ErrorAction SilentlyContinue
+  if ($replacementCommitted) {
+    Remove-Item -LiteralPath $BackupConfiguration -Force -ErrorAction SilentlyContinue
+  }
 }
