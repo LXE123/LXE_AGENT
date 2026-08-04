@@ -40,6 +40,62 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal.seq).toBe((batches.at(-1)?.seq ?? 0) + 1);
     expect(terminal.process_parts[0]).toEqual(expect.objectContaining({ text: "x".repeat(10_000) }));
   });
+  test("tracks overlapping tool timers independently", async () => {
+    let clock = 1_000;
+    const emitted: EmitRequest[] = [];
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-parallel",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      now: () => clock,
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+    const first = { type: "tool_call" as const, id: "tool-a", name: "exec", arguments: {} };
+    const second = { type: "tool_call" as const, id: "tool-b", name: "exec", arguments: {} };
+
+    await streamer.pushToolStart(first);
+    clock += 100;
+    await streamer.pushToolStart(second);
+    clock += 200;
+    await Promise.resolve();
+    await Promise.resolve();
+    const inFlight = emitted.at(-1);
+    expect(inFlight?.tool_steps).toEqual([
+      expect.objectContaining({ id: "tool-a", status: "running" }),
+      expect.objectContaining({ id: "tool-b", status: "running" }),
+    ]);
+    expect(inFlight?.tool_elapsed_ms).toBe(500);
+
+    await streamer.pushToolFinish(first, "success", 300);
+    clock += 100;
+    await streamer.pushToolFinish(second, "success", 300);
+    expect(await streamer.finish("done")).toBe(true);
+    expect(emitted.at(-1)?.tool_elapsed_ms).toBe(600);
+  });
+  test("finalizes overlapping active tools with their own elapsed durations", async () => {
+    let clock = 1_000;
+    const emitted: EmitRequest[] = [];
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-cancel-parallel",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      now: () => clock,
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+    await streamer.pushToolStart({ type: "tool_call", id: "tool-a", name: "exec", arguments: {} });
+    clock += 100;
+    await streamer.pushToolStart({ type: "tool_call", id: "tool-b", name: "wait", arguments: {} });
+    clock += 200;
+
+    expect(await streamer.finish("done")).toBe(true);
+    expect(emitted.at(-1)?.tool_elapsed_ms).toBe(500);
+    expect(emitted.at(-1)?.tool_steps).toEqual([
+      expect.objectContaining({ id: "tool-a", status: "error", duration_ms: 300 }),
+      expect.objectContaining({ id: "tool-b", status: "error", duration_ms: 200 }),
+    ]);
+  });
   test("emits redacted counts, cumulative metrics, sanitized tool output and one terminal frame", async () => {
     let clock = 1_000;
     const emitted: EmitRequest[] = [];

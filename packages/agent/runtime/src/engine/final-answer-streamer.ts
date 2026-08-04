@@ -63,7 +63,7 @@ export class FinalAnswerStreamer {
   private thinkingStartedAt = 0;
   private thinkingElapsedMs = 0;
   private toolPending = false;
-  private activeToolStartedAt = 0;
+  private readonly activeToolStartedAt = new Map<string, number>();
   private toolElapsedMs = 0;
   private toolSteps: ToolStep[] = [];
   private readonly detachedToolIds = new Set<string>();
@@ -223,7 +223,7 @@ export class FinalAnswerStreamer {
   async pushToolStart(call: ToolCallBlock): Promise<void> {
     if (this.terminal || this.options.toolUseMode === "off") return;
     this.displayPhase = "running_tool";
-    this.activeToolStartedAt = this.now();
+    this.activeToolStartedAt.set(call.id, this.now());
     this.toolPending = false;
     // Same path treatment as the finished step, or the path visibly changes
     // under the reader the moment the call completes.
@@ -251,7 +251,7 @@ export class FinalAnswerStreamer {
     if (this.terminal || this.options.toolUseMode === "off") return;
     this.toolPending = false;
     this.toolElapsedMs += Math.max(0, Math.trunc(durationMs));
-    this.activeToolStartedAt = 0;
+    this.activeToolStartedAt.delete(call.id);
     if (status === "running") this.detachedToolIds.add(call.id);
     else this.detachedToolIds.delete(call.id);
     const step = buildToolDisplayStep(call.id, call.name, call.arguments, status, durationMs, {
@@ -423,7 +423,10 @@ export class FinalAnswerStreamer {
   }
 
   private snapshot(): StreamSnapshot {
-    const elapsed = this.toolElapsedMs + (this.activeToolStartedAt ? this.now() - this.activeToolStartedAt : 0);
+    const now = this.now();
+    const activeElapsed = [...this.activeToolStartedAt.values()]
+      .reduce((total, startedAt) => total + Math.max(0, now - startedAt), 0);
+    const elapsed = this.toolElapsedMs + activeElapsed;
     return {
       content: this.content,
       thinking: this.thinking,
@@ -532,16 +535,24 @@ export class FinalAnswerStreamer {
     if (this.thinkingStartedAt && !this.thinkingElapsedMs) {
       this.thinkingElapsedMs = Math.max(0, this.now() - this.thinkingStartedAt);
     }
-    if (this.activeToolStartedAt) {
-      this.toolElapsedMs += Math.max(0, this.now() - this.activeToolStartedAt);
-      this.activeToolStartedAt = 0;
+    if (this.activeToolStartedAt.size > 0) {
+      const now = this.now();
+      for (const [toolId, startedAt] of this.activeToolStartedAt) {
+        const elapsed = Math.max(0, now - startedAt);
+        this.toolElapsedMs += elapsed;
+        const step = this.toolSteps.find((candidate) => candidate.id === toolId);
+        if (step) step.duration_ms = Math.max(step.duration_ms, elapsed);
+        const part = this.processPart(this.toolPartIds.get(toolId) ?? "");
+        if (part?.type === "tool") part.tool_step.duration_ms = Math.max(part.tool_step.duration_ms, elapsed);
+      }
+      this.activeToolStartedAt.clear();
     }
     this.toolPending = false;
   }
 
   private finalizeRunningTools(): void {
     this.toolSteps = this.toolSteps.map((step) => step.status === "running" && !this.detachedToolIds.has(step.id)
-      ? { ...step, status: "error", duration_ms: Math.max(step.duration_ms, this.toolElapsedMs) }
+      ? { ...step, status: "error" }
       : step);
     for (const part of this.processParts) {
       if (part.type === "tool" && part.tool_step.status === "running"
@@ -549,7 +560,6 @@ export class FinalAnswerStreamer {
         part.tool_step = {
           ...part.tool_step,
           status: "error",
-          duration_ms: Math.max(part.tool_step.duration_ms, this.toolElapsedMs),
         };
         this.queuePartUpdated(part);
       }

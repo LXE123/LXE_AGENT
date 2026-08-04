@@ -592,43 +592,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
         }
 
-        const results: ToolResultBlock[] = [];
+        const resultSlots: Array<ToolResultBlock | undefined> = new Array(calls.length);
+        const orderedResults = (): ToolResultBlock[] =>
+          resultSlots.filter((result): result is ToolResultBlock => result !== undefined);
         let interruptedBySteering = false;
-        for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
-          const call = calls[callIndex]!;
-          const steering = handle.drainSteering();
-          if (steering.some((item) => String(item.text ?? "").trim())) {
-            for (const pending of calls.slice(callIndex)) {
-              results.push({
-                type: "tool_result",
-                tool_call_id: pending.id,
-                content: "Tool execution skipped because the user steered the active turn before dispatch.",
-                is_error: true,
-              });
-            }
-            const steeredTools: RuntimeMessage = { role: "tool", content: results };
-            messages.push(steeredTools);
-            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered", job.job_id);
-            await appendSteering(steering);
-            interruptedBySteering = true;
-            break;
-          }
-          if (isCancelled(handle)) {
-            for (const pending of calls.slice(callIndex)) {
-              results.push({
-                type: "tool_result",
-                tool_call_id: pending.id,
-                content: "Tool execution cancelled before dispatch.",
-                is_error: true,
-              });
-            }
-            const cancelledTools: RuntimeMessage = { role: "tool", content: results };
-            messages.push(cancelledTools);
-            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled", job.job_id);
-            await finalAnswerStreamer?.cancel();
-            await recordUsage("cancelled");
-            return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
-          }
+        const executeToolCall = async (call: ToolCallBlock, callIndex: number): Promise<void> => {
           toolCalls += 1;
           const startedToolAt = Date.now();
           const definition = this.options.tools.definition(call.name);
@@ -694,11 +662,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 await this.notifySessionChanged(job.session_id, "artifacts");
               }
             }
-            results.push({
+            resultSlots[callIndex] = {
               type: "tool_result",
               tool_call_id: call.id,
               content: result.content,
-            });
+            };
             toolDisplayStatus = result.display_status ?? toolStatus;
             toolDisplayOutput = { result: result.content };
           } catch (cause) {
@@ -719,12 +687,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               }
             }
             toolDisplayOutput = { error: displayMessage };
-            results.push({
+            resultSlots[callIndex] = {
               type: "tool_result",
               tool_call_id: call.id,
               content: modelMessage,
               is_error: true,
-            });
+            };
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
@@ -740,9 +708,58 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, commandId || undefined);
             await finalAnswerStreamer?.pushToolFinish(call, toolDisplayStatus, durationMs, toolDisplayOutput);
           }
+        };
+
+        for (let callIndex = 0; callIndex < calls.length;) {
+          const steering = handle.drainSteering();
+          if (steering.some((item) => String(item.text ?? "").trim())) {
+            for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
+              const pending = calls[pendingIndex]!;
+              resultSlots[pendingIndex] = {
+                type: "tool_result",
+                tool_call_id: pending.id,
+                content: "Tool execution skipped because the user steered the active turn before dispatch.",
+                is_error: true,
+              };
+            }
+            const steeredTools: RuntimeMessage = { role: "tool", content: orderedResults() };
+            messages.push(steeredTools);
+            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered", job.job_id);
+            await appendSteering(steering);
+            interruptedBySteering = true;
+            break;
+          }
+          if (isCancelled(handle)) {
+            for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
+              const pending = calls[pendingIndex]!;
+              resultSlots[pendingIndex] = {
+                type: "tool_result",
+                tool_call_id: pending.id,
+                content: "Tool execution cancelled before dispatch.",
+                is_error: true,
+              };
+            }
+            const cancelledTools: RuntimeMessage = { role: "tool", content: orderedResults() };
+            messages.push(cancelledTools);
+            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled", job.job_id);
+            await finalAnswerStreamer?.cancel();
+            await recordUsage("cancelled");
+            return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
+          }
+          const parallel = this.options.tools.definition(calls[callIndex]!.name)?.supportsParallelCalls === true;
+          let waveEnd = callIndex + 1;
+          if (parallel) {
+            while (waveEnd < calls.length
+              && this.options.tools.definition(calls[waveEnd]!.name)?.supportsParallelCalls === true) {
+              waveEnd += 1;
+            }
+          }
+          await Promise.all(calls.slice(callIndex, waveEnd).map((call, offset) =>
+            executeToolCall(call, callIndex + offset)));
+          callIndex = waveEnd;
         }
         if (interruptedBySteering) continue;
-        const trimmedResults = trimToolResultBlocks(results, contextPipeline.toolResultMaxTokens).results;
+        const trimmedResults = trimToolResultBlocks(orderedResults(), contextPipeline.toolResultMaxTokens).results;
         const toolMessage: RuntimeMessage = { role: "tool", content: trimmedResults };
         messages.push(toolMessage);
         await this.appendMessage(job.session_id, toolMessage, "tool_results", job.job_id);

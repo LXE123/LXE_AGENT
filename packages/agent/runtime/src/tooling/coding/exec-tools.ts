@@ -125,6 +125,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
   return [
     {
       name: "exec",
+      supportsParallelCalls: true,
       description: execToolDescription(shellProfile, promptLimits),
       input_schema: {
         type: "object",
@@ -209,6 +210,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
     },
     {
       name: "wait",
+      supportsParallelCalls: true,
       description: "Wait for a running exec, returning only output produced since the previous observation. Set terminate=true to stop its complete process tree. Different exec ids can be waited concurrently; a completed result closes that exec id for the model.",
       input_schema: {
         type: "object",

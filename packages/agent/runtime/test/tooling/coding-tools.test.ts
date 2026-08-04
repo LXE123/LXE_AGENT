@@ -128,6 +128,11 @@ describe("native coding tools", () => {
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "wait",
     ]);
+    expect(registry.definition("exec")?.supportsParallelCalls).toBe(true);
+    expect(registry.definition("wait")?.supportsParallelCalls).toBe(true);
+    for (const name of ["read", "write", "edit", "grep", "find", "ls", "send_files"]) {
+      expect(registry.definition(name)?.supportsParallelCalls).not.toBe(true);
+    }
     expect(registry.definition("send_file")).toBeUndefined();
     expect(registry.definition("send_files")?.input_schema).toEqual({
       type: "object",
@@ -542,6 +547,80 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
+  test("bounds inherited output-pipe draining and preserves a previously observed natural exit", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    const startWithInheritedPipe = async (childSleepSeconds: number): Promise<string> => {
+      const result = String((await registry.execute("exec", {
+        command: `python -c "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import time; time.sleep(${childSleepSeconds})'], stdout=sys.stdout, stderr=sys.stderr); print('parent done', flush=True)"`,
+        "yield-time-ms": 250,
+      }, context())).content[0]?.text);
+      const execId = result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+      if (!execId) throw new Error(`missing process session in: ${result}`);
+      return execId;
+    };
+
+    const draining = await startWithInheritedPipe(3);
+    const drainStarted = performance.now();
+    const drained = await processes.wait({
+      execId: draining, sessionId: "s1", yieldMs: 5_000, terminate: false,
+      signal: new AbortController().signal,
+    });
+    const drainElapsed = performance.now() - drainStarted;
+    expect(drainElapsed).toBeGreaterThanOrEqual(1_500);
+    expect(drainElapsed).toBeLessThan(3_500);
+    expect(drained).toEqual(expect.objectContaining({
+      status: "completed",
+      output_incomplete: true,
+      output_incomplete_reason: "stream_drain_timeout",
+    }));
+    expect(String(processes.snapshots().find((item) => item.exec_id === draining)?.output_tail))
+      .toContain("parent done");
+
+    const naturallyExited = await startWithInheritedPipe(1);
+    const natural = await processes.wait({
+      execId: naturallyExited, sessionId: "s1", yieldMs: 5_000, terminate: true,
+      signal: new AbortController().signal,
+    });
+    expect(natural.status).toBe("completed");
+    expect(natural.output_incomplete).toBeUndefined();
+    await processes.stop();
+  }, 15_000);
+
+  test("terminate preempts queued observations and wakes an active long poll", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    const started = String((await registry.execute("exec", {
+      command: "python -c \"import time; print('ready', flush=True); time.sleep(60)\"",
+      "yield-time-ms": 250,
+    }, context())).content[0]?.text);
+    const execId = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+    if (!execId) throw new Error(`missing process session in: ${started}`);
+
+    const order: string[] = [];
+    const active = processes.wait({
+      execId, sessionId: "s1", yieldMs: 300_000, terminate: false,
+      signal: new AbortController().signal,
+    }).then((result) => { order.push("active"); return result; });
+    const queued = processes.wait({
+      execId, sessionId: "s1", yieldMs: 300_000, terminate: false,
+      signal: new AbortController().signal,
+    }).then((result) => { order.push("queued"); return result; });
+    await Bun.sleep(50);
+    const terminateStarted = performance.now();
+    const terminating = processes.wait({
+      execId, sessionId: "s1", yieldMs: 300_000, terminate: true,
+      signal: new AbortController().signal,
+    }).then((result) => { order.push("terminate"); return result; });
+    const [activeResult, queuedResult, terminateResult] = await Promise.all([active, queued, terminating]);
+    expect(performance.now() - terminateStarted).toBeLessThan(5_000);
+    expect(activeResult.status).toBe("killed");
+    expect(terminateResult.status).toBe("killed");
+    expect(queuedResult.error).toContain("已经关闭");
+    expect(order).toEqual(["active", "terminate", "queued"]);
+    await processes.stop();
+  }, 15_000);
+
   test("preserves terminal output when the UI completion callback fails", async () => {
     const registry = new ToolRegistry();
     let attempts = 0;
@@ -699,17 +778,16 @@ describe("native coding tools", () => {
   test("keeps at most 64 recent exec records per session", async () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
-    let firstExecId = "";
-    for (let index = 0; index < 65; index += 1) {
+    const executions = await Promise.all(Array.from({ length: 65 }, async (_unused, index) => {
       const result = String((await registry.execute("exec", {
         command: evalCommand(`console.log(${index})`),
-      }, context())).content[0]?.text);
-      const execId = result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1] ?? "";
-      if (index === 0) firstExecId = execId;
-    }
+      }, { ...context(), tool_call_id: `tool-exec-${index}` })).content[0]?.text);
+      return result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1] ?? "";
+    }));
+    expect(executions.every(Boolean)).toBe(true);
     const snapshots = processes.snapshots().filter((item) => item.session_id === "s1");
     expect(snapshots).toHaveLength(64);
-    expect(snapshots.some((item) => item.exec_id === firstExecId)).toBe(false);
+    expect(snapshots.some((item) => item.exec_id === executions[0])).toBe(false);
     await processes.stop();
   }, 30_000);
 

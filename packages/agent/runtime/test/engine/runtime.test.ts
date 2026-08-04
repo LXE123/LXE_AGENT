@@ -1129,6 +1129,86 @@ describe("TypeScriptAgentRuntime", () => {
     expect(services).toEqual(["start", "stop"]);
   });
 
+  test("runs only adjacent opted-in tools concurrently and preserves result order across barriers", async () => {
+    const responses: RuntimeTurnResponse[] = [
+      {
+        content: [
+          { type: "tool_call", id: "t1", name: "exec", arguments: { label: "a", delay: 80 } },
+          { type: "tool_call", id: "t2", name: "exec", arguments: { label: "b", delay: 20, fail: true } },
+          { type: "tool_call", id: "t3", name: "read", arguments: {} },
+          { type: "tool_call", id: "t4", name: "wait", arguments: { label: "c", delay: 40 } },
+          { type: "tool_call", id: "t5", name: "wait", arguments: { label: "d", delay: 40 } },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+      {
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    ];
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    const events: string[] = [];
+    const parallelExecute = async (input: JsonObject) => {
+      const label = String(input.label);
+      events.push(`start:${label}`);
+      try {
+        await Bun.sleep(Number(input.delay));
+        if (input.fail === true) throw new Error(`failed ${label}`);
+        return { content: [{ type: "text", text: `result ${label}` }] };
+      } finally {
+        events.push(`end:${label}`);
+      }
+    };
+    tools.register({
+      name: "exec", description: "exec", input_schema: { type: "object" },
+      supportsParallelCalls: true,
+      execute: parallelExecute,
+    });
+    tools.register({
+      name: "read", description: "read", input_schema: { type: "object" },
+      execute: async () => {
+        events.push("start:read");
+        await Bun.sleep(10);
+        events.push("end:read");
+        return { content: [{ type: "text", text: "read result" }] };
+      },
+    });
+    tools.register({
+      name: "wait", description: "wait", input_schema: { type: "object" },
+      supportsParallelCalls: true,
+      execute: parallelExecute,
+    });
+    const emitted: EmitRequest[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async () => responses.shift()! },
+      emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome.status).toBe("completed");
+    expect(events.slice(0, 2)).toEqual(["start:a", "start:b"]);
+    expect(events.indexOf("start:read")).toBeGreaterThan(events.indexOf("end:a"));
+    expect(events.indexOf("start:read")).toBeGreaterThan(events.indexOf("end:b"));
+    expect(events.indexOf("start:c")).toBeGreaterThan(events.indexOf("end:read"));
+    expect(events.indexOf("start:d")).toBeGreaterThan(events.indexOf("end:read"));
+    expect(events.indexOf("start:d")).toBeLessThan(events.indexOf("end:c"));
+    const toolMessage = store.messages.find((message) => message.role === "tool");
+    if (!toolMessage || typeof toolMessage.content === "string") throw new Error("tool results expected");
+    expect(toolMessage.content.map((block) => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
+    expect(toolMessage.content[1]).toEqual(expect.objectContaining({ tool_call_id: "t2", is_error: true }));
+    expect(JSON.stringify(toolMessage.content[0]?.content)).toContain("result a");
+    const terminal = emitted.slice().reverse().find((request) => request.emit_kind === "stream");
+    expect(terminal?.tool_steps.map((tool) => tool.id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
+    await runtime.stop();
+  });
+
   test("streams a desktop turn while preserving a session originally created by Feishu", async () => {
     const store = new MemoryStore();
     const emitted: EmitRequest[] = [];

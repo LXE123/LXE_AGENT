@@ -13,6 +13,9 @@ const CONTROL_KEYS = [
   "truncated",
   "omitted_bytes",
   "output_path",
+  "output_incomplete",
+  "output_incomplete_reason",
+  "output_warning",
   "message",
   "error",
 ] as const;

@@ -5,6 +5,8 @@ import type { WorkspaceSearchService } from "./workspace-search";
 export interface ToolDefinition extends ToolSchema {
   source?: "native" | "mcp";
   exposure?: "direct" | "deferred";
+  /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
+  supportsParallelCalls?: boolean;
   ownerSkills?: string[];
   connectorName?: string;
   rawName?: string;
