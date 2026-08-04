@@ -47,6 +47,7 @@ import {
 } from "./notice-model";
 import {
   desktopSettingsForm,
+  desktopCloudBindingSwitchAvailable,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
@@ -222,6 +223,8 @@ function DesktopCloudPanel({
   onPasswordChange,
   onRetry,
   onSelect,
+  onSwitchBinding,
+  enrollmentError,
 }: {
   activating: boolean;
   cloud: DesktopCloudState;
@@ -233,6 +236,8 @@ function DesktopCloudPanel({
   onPasswordChange: (value: string) => void;
   onRetry: () => void;
   onSelect: () => void;
+  onSwitchBinding: () => void;
+  enrollmentError: string;
 }) {
   const t = useUiText();
   const connected = cloud.connection === "connected";
@@ -285,12 +290,20 @@ function DesktopCloudPanel({
             <strong>{connected ? t.desktop.cloud.connected : cloud.last_error || t.desktop.cloud.checking}</strong>
             {deviceIdentity ? <span>{deviceIdentity}</span> : null}
           </div>
-          {!connected ? (
-            <button disabled={activating} onClick={onRetry} type="button">
-              <RotateCcw size={15} />
-              {t.desktop.cloud.retry}
-            </button>
-          ) : null}
+          <div className="desktop-cloud-overview-actions">
+            {!connected ? (
+              <button disabled={activating} onClick={onRetry} type="button">
+                <RotateCcw size={15} />
+                {t.desktop.cloud.retry}
+              </button>
+            ) : null}
+            {desktopCloudBindingSwitchAvailable(cloud) ? (
+              <button disabled={activating} onClick={onSwitchBinding} type="button">
+                <FileKey2 size={15} />
+                {t.desktop.cloud.switchBinding}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
       {cloud.configured ? (
@@ -343,7 +356,9 @@ function DesktopCloudPanel({
           </button>
         </div>
       ) : null}
-      {!cloud.configured && cloud.last_error ? <p className="desktop-form-error" role="alert">{cloud.last_error}</p> : null}
+      {!cloud.configured && (enrollmentError || cloud.last_error) ? (
+        <p className="desktop-form-error" role="alert">{enrollmentError || cloud.last_error}</p>
+      ) : null}
       {cloud.configured ? (
         <div className="desktop-cloud-shortcuts">
           <div className="desktop-cloud-shortcuts-heading">
@@ -919,6 +934,100 @@ function ConfigImportDialog({
   );
 }
 
+function CloudBindingDialog({
+  activating,
+  cloud,
+  enrollment,
+  error,
+  password,
+  onActivate,
+  onCancel,
+  onPasswordChange,
+  onSelect,
+}: {
+  activating: boolean;
+  cloud: DesktopCloudState;
+  enrollment: DesktopCloudEnrollmentSelection | null;
+  error: string;
+  password: string;
+  onActivate: () => void;
+  onCancel: () => void;
+  onPasswordChange: (value: string) => void;
+  onSelect: () => void;
+}) {
+  const t = useUiText();
+  const closeDialog = () => {
+    if (!activating) onCancel();
+  };
+  const dialogRef = useDialogFocus<HTMLElement>(true, closeDialog);
+  const currentDevice = [cloud.device_name.trim(), cloud.vpn_ip.trim()].filter(Boolean).join(" · ");
+  return (
+    <div className="modal-backdrop desktop-cloud-binding-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) closeDialog();
+    }}>
+      <section
+        aria-labelledby="desktop-cloud-binding-title"
+        aria-modal="true"
+        className="desktop-cloud-binding-dialog"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header>
+          <div>
+            <p className="desktop-eyebrow">{t.desktop.cloud.bindingDialog.eyebrow}</p>
+            <h2 id="desktop-cloud-binding-title">{t.desktop.cloud.bindingDialog.title}</h2>
+            <p>{t.desktop.cloud.bindingDialog.description}</p>
+          </div>
+          <button
+            aria-label={t.desktop.cloud.bindingDialog.cancelAria}
+            disabled={activating}
+            onClick={onCancel}
+            type="button"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="desktop-cloud-binding-current">
+          <span>{t.desktop.cloud.bindingDialog.currentDevice}</span>
+          <strong>{currentDevice || cloud.device_id}</strong>
+        </div>
+        <p className="desktop-cloud-binding-warning">{t.desktop.cloud.bindingDialog.warning}</p>
+        <div className="desktop-cloud-activation">
+          <button className="desktop-path-button" disabled={activating} onClick={onSelect} type="button">
+            <FileKey2 size={17} />
+            {enrollment?.file_name || t.desktop.cloud.selectEnrollment}
+          </button>
+          <label>
+            <span>{t.desktop.cloud.oneTimePassword}</span>
+            <input
+              autoComplete="off"
+              disabled={activating}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder={t.desktop.cloud.passwordPlaceholder}
+              type="password"
+              value={password}
+            />
+          </label>
+        </div>
+        {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
+        <footer>
+          <button disabled={activating} onClick={onCancel} type="button">{t.desktop.cancel}</button>
+          <button
+            className="desktop-primary-button"
+            disabled={activating || !enrollment || password.trim().length < 12}
+            onClick={onActivate}
+            type="button"
+          >
+            <Cloud size={16} />
+            {activating ? t.desktop.cloud.bindingDialog.switching : t.desktop.cloud.bindingDialog.confirm}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function DesktopConfirmationDialog({
   confirmation,
   onCancel,
@@ -1004,6 +1113,8 @@ export function DesktopShell({
   const [cloudActivating, setCloudActivating] = useState(false);
   const [cloudEnrollment, setCloudEnrollment] = useState<DesktopCloudEnrollmentSelection | null>(null);
   const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudBindingDialogOpen, setCloudBindingDialogOpen] = useState(false);
+  const [cloudEnrollmentError, setCloudEnrollmentError] = useState("");
   const [importPreview, setImportPreview] = useState<DesktopConfigImportPreview | null>(null);
   const [importApplying, setImportApplying] = useState(false);
   const [importDiagnosticConfirmed, setImportDiagnosticConfirmed] = useState(false);
@@ -1023,6 +1134,10 @@ export function DesktopShell({
   };
   const closeSettings = (): void => {
     setConfirmation(null);
+    setCloudBindingDialogOpen(false);
+    setCloudEnrollment(null);
+    setCloudPassword("");
+    setCloudEnrollmentError("");
     setSettingsOpen(false);
   };
   const settingsDialogRef = useDialogFocus<HTMLFormElement>(settingsOpen, closeSettings);
@@ -1114,18 +1229,19 @@ export function DesktopShell({
   };
   const selectCloudEnrollment = async (): Promise<void> => {
     if (importApplying) return;
-    setError("");
+    setCloudEnrollmentError("");
     try {
       const selection = await desktop.selectCloudEnrollment();
       if (selection) setCloudEnrollment(selection);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setCloudEnrollmentError(cause instanceof Error ? cause.message : String(cause));
     }
   };
   const activateCloudEnrollment = async (): Promise<void> => {
     if (!cloudEnrollment || importApplying) return;
+    const switchingBinding = cloudBindingDialogOpen;
     setCloudActivating(true);
-    setError("");
+    setCloudEnrollmentError("");
     try {
       const nextCloud = await desktop.activateCloudEnrollment({
         enrollment_id: cloudEnrollment.enrollment_id,
@@ -1135,14 +1251,35 @@ export function DesktopShell({
       if (nextCloud.configured) {
         setCloudEnrollment(null);
         setCloudPassword("");
-        showSuccessNotice(nextCloud.connection === "connected" ? t.desktop.cloud.activatedConnected : t.desktop.cloud.activatedRetry);
+        setCloudBindingDialogOpen(false);
+        showSuccessNotice(switchingBinding
+          ? nextCloud.connection === "connected"
+            ? t.desktop.cloud.bindingDialog.switchedConnected(nextCloud.device_name)
+            : t.desktop.cloud.bindingDialog.switchedRetry(nextCloud.device_name)
+          : nextCloud.connection === "connected"
+            ? t.desktop.cloud.activatedConnected
+            : t.desktop.cloud.activatedRetry);
       }
     } catch (cause) {
       setCloud(await desktop.getCloudState());
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setCloudEnrollmentError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setCloudActivating(false);
     }
+  };
+  const openCloudBindingDialog = (): void => {
+    setError("");
+    setCloudEnrollment(null);
+    setCloudPassword("");
+    setCloudEnrollmentError("");
+    setCloudBindingDialogOpen(true);
+  };
+  const closeCloudBindingDialog = (): void => {
+    if (cloudActivating) return;
+    setCloudBindingDialogOpen(false);
+    setCloudEnrollment(null);
+    setCloudPassword("");
+    setCloudEnrollmentError("");
   };
   const retryCloudConnection = async (): Promise<void> => {
     if (importApplying) return;
@@ -1369,7 +1506,9 @@ export function DesktopShell({
       onPasswordChange={setCloudPassword}
       onRetry={() => { void retryCloudConnection(); }}
       onSelect={() => { void selectCloudEnrollment(); }}
+      onSwitchBinding={openCloudBindingDialog}
       password={cloudPassword}
+      enrollmentError={cloudEnrollmentError}
     />
   ) : activeSettingsSection === "appearance" ? (
     <DesktopAppearancePanel
@@ -1419,6 +1558,19 @@ export function DesktopShell({
       onConfirm={confirmPendingAction}
     />
   ) : null;
+  const cloudBindingDialog = cloudBindingDialogOpen ? (
+    <CloudBindingDialog
+      activating={cloudActivating || importApplying}
+      cloud={cloud}
+      enrollment={cloudEnrollment}
+      error={cloudEnrollmentError}
+      onActivate={() => { void activateCloudEnrollment(); }}
+      onCancel={closeCloudBindingDialog}
+      onPasswordChange={setCloudPassword}
+      onSelect={() => { void selectCloudEnrollment(); }}
+      password={cloudPassword}
+    />
+  ) : null;
 
   if (!setup.complete) {
     return (
@@ -1462,6 +1614,7 @@ export function DesktopShell({
         </form>
         {importDialog}
         {confirmationDialog}
+        {cloudBindingDialog}
       </main>
     );
   }
@@ -1542,6 +1695,7 @@ export function DesktopShell({
       ) : null}
       {importDialog}
       {confirmationDialog}
+      {cloudBindingDialog}
     </div>
   );
 }

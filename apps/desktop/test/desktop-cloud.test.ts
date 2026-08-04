@@ -82,6 +82,21 @@ const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: num
   erp: { api_token: "erp-dedicated-secret" },
 };
 
+const replacementEnrollmentPayload: CloudEnrollmentPayload & { format: string; version: number } = {
+  ...enrollmentPayload,
+  device: { id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Replacement-PC-02" },
+  wireguard: {
+    ...enrollmentPayload.wireguard,
+    private_key: Buffer.alloc(32, 3).toString("base64"),
+    address: "10.88.0.9/32",
+  },
+  data_server: {
+    ...enrollmentPayload.data_server,
+    api_token: "lxe_dev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.abcdefghijklmnopqrstuvwxyzABCDEF",
+  },
+  erp: { api_token: "replacement-erp-secret" },
+};
+
 const devicePermission = (
   permissionProfile: "fba" | "replenishment" | "full_access" | null = "fba",
   permissionVersion = permissionProfile === null ? 0 : 1,
@@ -95,14 +110,17 @@ const devicePermission = (
       : permissionProfile === "full_access" ? ["*"] : [],
 });
 
-const encryptedEnrollment = (password: string): Buffer => {
+const encryptedEnrollment = (
+  password: string,
+  payload: CloudEnrollmentPayload & { format: string; version: number } = enrollmentPayload,
+): Buffer => {
   const salt = randomBytes(16);
   const nonce = randomBytes(12);
   const normalized = Buffer.from(password.replace(/-/gu, ""), "ascii");
   const key = scryptSync(normalized, salt, 32, { N: 32_768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
   cipher.setAAD(Buffer.from("lxe-agent-enrollment:v1", "ascii"));
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(enrollmentPayload)), cipher.final()]);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final()]);
   return Buffer.from(JSON.stringify({
     format: "lxe-agent-enrollment",
     version: 1,
@@ -445,6 +463,206 @@ describe("DesktopCloudService", () => {
     expect(serialized).not.toContain(enrollmentPayload.wireguard.private_key);
     expect(serialized).not.toContain(enrollmentPayload.data_server.api_token);
     expect(serialized).not.toContain(enrollmentPayload.erp?.api_token ?? "");
+  });
+
+  test("atomically switches an existing managed enrollment and refreshes its permission", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-switch-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+      erpApiKey: enrollmentPayload.erp?.api_token,
+    });
+    config.saveCloudPermissionSnapshot({
+      device_id: enrollmentPayload.device.id,
+      ...devicePermission(),
+      verified_at: 100,
+    });
+    const enrollments = new DesktopCloudEnrollmentManager();
+    const enrollmentPath = join(root, "Replacement-PC-02.lxe-enroll");
+    const password = "ABCD-EFGH-JKLM-NPQR-2345";
+    writeFileSync(enrollmentPath, encryptedEnrollment(password, replacementEnrollmentPayload));
+    const permissionChanges: string[][] = [];
+    let provisionedDevice = "";
+    let restarted = 0;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments,
+      logger: testLogger([]),
+      provisioner: {
+        provision: async (payload) => { provisionedDevice = payload.device.id; },
+      },
+      onConfigured: async () => { restarted += 1; },
+      onPermissionChanged: (allowed) => { permissionChanges.push([...allowed]); },
+      fetch: async (_input, init) => {
+        const request = JSON.parse(String(init?.body)) as { machine_id: string };
+        return Response.json({
+          status: "ok",
+          device_id: replacementEnrollmentPayload.device.id,
+          display_name: replacementEnrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.9",
+          machine_id: request.machine_id,
+          permission: devicePermission("replenishment", 1),
+        });
+      },
+    });
+    const selection = service.select(enrollmentPath);
+
+    const state = await service.activate({ enrollment_id: selection.enrollment_id, password });
+
+    expect(provisionedDevice).toBe(replacementEnrollmentPayload.device.id);
+    expect(restarted).toBe(1);
+    expect(state).toMatchObject({
+      configured: true,
+      connection: "connected",
+      device_id: replacementEnrollmentPayload.device.id,
+      device_name: replacementEnrollmentPayload.device.name,
+      vpn_ip: "10.88.0.9",
+      permission_profile: "replenishment",
+      permission_status: "verified",
+    });
+    expect(config.environment()).toMatchObject({
+      LXE_DATA_SERVER_API_KEY: replacementEnrollmentPayload.data_server.api_token,
+      LXE_ERP_API_KEY: replacementEnrollmentPayload.erp?.api_token,
+    });
+    expect(config.cloudPermissionSnapshot()).toMatchObject({
+      device_id: replacementEnrollmentPayload.device.id,
+      permission_profile: "replenishment",
+    });
+    expect(permissionChanges).toEqual([[], ["amazon_replenish", "default"]]);
+  });
+
+  test("keeps the previous enrollment when replacement provisioning fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-switch-rollback-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+      erpApiKey: enrollmentPayload.erp?.api_token,
+    });
+    config.saveCloudPermissionSnapshot({
+      device_id: enrollmentPayload.device.id,
+      ...devicePermission(),
+      verified_at: 100,
+    });
+    const enrollments = new DesktopCloudEnrollmentManager();
+    const enrollmentPath = join(root, "Replacement-PC-02.lxe-enroll");
+    const password = "ABCD-EFGH-JKLM-NPQR-2345";
+    writeFileSync(enrollmentPath, encryptedEnrollment(password, replacementEnrollmentPayload));
+    let restarted = 0;
+    const permissionChanges: string[][] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments,
+      logger: testLogger([]),
+      provisioner: { provision: async () => { throw new Error("WireGuard replacement tunnel failed"); } },
+      onConfigured: async () => { restarted += 1; },
+      onPermissionChanged: (allowed) => { permissionChanges.push([...allowed]); },
+    });
+    const selection = service.select(enrollmentPath);
+
+    await expect(service.activate({ enrollment_id: selection.enrollment_id, password }))
+      .rejects.toThrow("WireGuard replacement tunnel failed");
+
+    expect(restarted).toBe(0);
+    expect(permissionChanges).toEqual([]);
+    expect(service.state()).toMatchObject({
+      configured: true,
+      connection: "error",
+      device_id: enrollmentPayload.device.id,
+      vpn_ip: "10.88.0.8",
+      permission_profile: "fba",
+      permission_status: "cached",
+    });
+    expect(config.environment()).toMatchObject({
+      LXE_DATA_SERVER_API_KEY: enrollmentPayload.data_server.api_token,
+      LXE_ERP_API_KEY: enrollmentPayload.erp?.api_token,
+    });
+    expect(config.cloudPermissionSnapshot()).toMatchObject({ device_id: enrollmentPayload.device.id });
+  });
+
+  test("waits for an existing device probe before switching enrollment", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-switch-probe-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const enrollments = new DesktopCloudEnrollmentManager();
+    const enrollmentPath = join(root, "Replacement-PC-02.lxe-enroll");
+    const password = "ABCD-EFGH-JKLM-NPQR-2345";
+    writeFileSync(enrollmentPath, encryptedEnrollment(password, replacementEnrollmentPayload));
+    let releaseProbe = (): void => undefined;
+    const probeGate = new Promise<void>((resolve) => { releaseProbe = resolve; });
+    let provisioned = false;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments,
+      logger: testLogger([]),
+      provisioner: { provision: async () => { provisioned = true; } },
+      onConfigured: async () => undefined,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/devices/status")) {
+          await probeGate;
+          return Response.json({
+            status: "ok",
+            activation_required: false,
+            device_id: enrollmentPayload.device.id,
+            display_name: enrollmentPayload.device.name,
+            wireguard_ip: "10.88.0.8",
+            machine_id: machineId,
+            permission: devicePermission(),
+          });
+        }
+        const request = JSON.parse(String(init?.body)) as { machine_id: string };
+        return Response.json({
+          status: "ok",
+          device_id: replacementEnrollmentPayload.device.id,
+          display_name: replacementEnrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.9",
+          machine_id: request.machine_id,
+          permission: devicePermission("replenishment", 1),
+        });
+      },
+    });
+    const probe = service.check();
+    const selection = service.select(enrollmentPath);
+    const activation = service.activate({ enrollment_id: selection.enrollment_id, password });
+
+    await Promise.resolve();
+    expect(provisioned).toBe(false);
+    releaseProbe();
+    await probe;
+    const state = await activation;
+
+    expect(provisioned).toBe(true);
+    expect(state).toMatchObject({
+      connection: "connected",
+      device_id: replacementEnrollmentPayload.device.id,
+      permission_profile: "replenishment",
+    });
   });
 
   test("logs an enrollment decryption failure without provisioning or exposing the password", async () => {

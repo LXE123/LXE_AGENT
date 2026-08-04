@@ -161,6 +161,32 @@ describe("WindowsWireGuardProvisioner", () => {
     });
   });
 
+  test("preserves the explicit UAC cancellation error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-wireguard-uac-cancel-"));
+    roots.push(root);
+    const resources = join(root, "resources", "wireguard");
+    mkdirSync(resources, { recursive: true });
+    writeFileSync(join(resources, "wireguard-amd64-1.1.msi"), "msi");
+    writeFileSync(join(resources, "provision-wireguard.ps1"), "script");
+    const events: LogEvent[] = [];
+    const provisioner = new WindowsWireGuardProvisioner({
+      platform: "win32",
+      arch: "x64",
+      packaged: true,
+      dataRoot: join(root, "data"),
+      resourcesPath: join(root, "resources"),
+      logger: testLogger(events),
+      runElevated: async () => { throw new Error("管理员授权已取消"); },
+    });
+
+    await expect(provisioner.provision(payload, "activation-uac-cancel"))
+      .rejects.toThrow("管理员授权已取消");
+    expect(events.at(-1)).toMatchObject({
+      message: "wireguard_provision_failed",
+      fields: { failed_stage: "read_result", observed_error: "管理员授权已取消" },
+    });
+  });
+
   test("reads the elevated failure result before removing diagnostic and plaintext files", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-wireguard-elevated-failure-"));
     roots.push(root);
@@ -180,7 +206,7 @@ describe("WindowsWireGuardProvisioner", () => {
         const resultPath = arguments_[arguments_.indexOf("-ResultPath") + 1]!;
         writeFileSync(resultPath, JSON.stringify({
           ok: false,
-          message: "WireGuard did not secure the tunnel configuration",
+          message: `WireGuard did not secure the tunnel configuration for ${payload.data_server.api_token}`,
           failed_stage: "secure_configuration",
         }));
         throw new Error("WireGuard 配置未完成");
@@ -188,7 +214,9 @@ describe("WindowsWireGuardProvisioner", () => {
     });
 
     await expect(provisioner.provision(payload, "activation-elevated-failure"))
-      .rejects.toThrow("WireGuard 配置未完成");
+      .rejects.toThrow(
+        "WireGuard 配置失败（secure_configuration）：WireGuard did not secure the tunnel configuration for [redacted]",
+      );
 
     expect(readdirSync(join(root, "data", "config", ".cloud-provisioning"))).toEqual([]);
     expect(events.at(-1)).toMatchObject({
@@ -196,7 +224,7 @@ describe("WindowsWireGuardProvisioner", () => {
       fields: {
         activation_id: "activation-elevated-failure",
         failed_stage: "secure_configuration",
-        observed_error: "WireGuard did not secure the tunnel configuration",
+        observed_error: "WireGuard did not secure the tunnel configuration for [redacted]",
       },
     });
     const serialized = JSON.stringify(events);

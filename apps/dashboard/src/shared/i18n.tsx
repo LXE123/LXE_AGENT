@@ -602,8 +602,21 @@ export const ZH_TEXT = {
       connected: "公司云端连接正常",
       checking: "正在检查公司网络",
       retry: "重试连接",
+      switchBinding: "切换绑定",
       activatedConnected: "公司云端已连接",
       activatedRetry: "公司云端已配置，将自动重试连接",
+      bindingDialog: {
+        eyebrow: "公司云端设备",
+        title: "切换 Enrollment 绑定",
+        description: "选择新的设备文件并输入管理员单独发送的一次性密码。",
+        currentDevice: "当前本机绑定",
+        warning: "切换会替换本机 WireGuard 隧道和设备凭证，但不会解绑云端的旧设备记录。失败时将恢复当前绑定。",
+        cancelAria: "关闭切换绑定窗口",
+        confirm: "确认切换",
+        switching: "正在切换…",
+        switchedConnected: (device: string) => `已切换到 ${device || "新设备"}`,
+        switchedRetry: (device: string) => `已切换到 ${device || "新设备"}，等待联网验证`
+      },
       permission: {
         title: "设备 Skill 权限",
         profile: "权限档案",
@@ -1336,8 +1349,21 @@ export const UI_TEXT: Record<Language, UiText> = {
         connected: "Company cloud connection is healthy",
         checking: "Checking the company network",
         retry: "Retry connection",
+        switchBinding: "Switch binding",
         activatedConnected: "Company cloud connected",
         activatedRetry: "Company cloud configured; the connection will retry automatically",
+        bindingDialog: {
+          eyebrow: "Company cloud device",
+          title: "Switch enrollment binding",
+          description: "Choose a new device file and enter the one-time password sent separately by your admin.",
+          currentDevice: "Current local binding",
+          warning: "Switching replaces this computer's WireGuard tunnel and device credential. It does not unbind the old cloud device. The current binding is restored if switching fails.",
+          cancelAria: "Close switch binding dialog",
+          confirm: "Switch binding",
+          switching: "Switching…",
+          switchedConnected: (device: string) => `Switched to ${device || "the new device"}`,
+          switchedRetry: (device: string) => `Switched to ${device || "the new device"}; waiting for network verification`
+        },
         permission: {
           title: "Device Skill access",
           profile: "Permission profile",

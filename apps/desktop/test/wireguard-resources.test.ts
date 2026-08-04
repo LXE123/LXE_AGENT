@@ -34,11 +34,18 @@ describe("packaged WireGuard resources", () => {
     expect(provision).toContain("$managerInstalledHere");
     expect(provision).toContain("/api/v1/agent-data/devices/activate");
     expect(provision).toContain("This device file is already bound to another computer");
+    const backup = provision.indexOf("Copy-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration");
+    const removeExistingTunnel = provision.indexOf("& $WireGuardExe /uninstalltunnelservice $TunnelName");
+    const stageReplacement = provision.indexOf("Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration");
+    expect(backup).toBeGreaterThan(-1);
+    expect(removeExistingTunnel).toBeGreaterThan(backup);
+    expect(stageReplacement).toBeGreaterThan(removeExistingTunnel);
     for (const stage of [
       "validate_host",
       "inspect_installation",
       "install_wireguard",
       "ensure_manager",
+      "prepare_replacement",
       "stage_configuration",
       "secure_configuration",
       "install_tunnel",

@@ -81,11 +81,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Unable to start the WireGuard secure configuration service" }
     $managerInstalledHere = $true
   }
-  $Stage = "stage_configuration"
+  $Stage = "prepare_replacement"
   New-Item -ItemType Directory -Path $ConfigurationRoot -Force | Out-Null
   if (Test-Path -LiteralPath $SecureConfiguration) {
     Copy-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration -Force
   }
+  $existingTunnel = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
+  $existingTunnelWasInstalled = $null -ne $existingTunnel
+  if ($existingTunnelWasInstalled) {
+    & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
+    $uninstallExitCode = $LASTEXITCODE
+    $existingTunnelRemoved = $null -eq (Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue)
+    if ($uninstallExitCode -ne 0 -or -not $existingTunnelRemoved) {
+      throw "Unable to replace the existing WireGuard tunnel"
+    }
+  }
+
+  $Stage = "stage_configuration"
   Remove-Item -LiteralPath $PlainConfiguration -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
   Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration -Force
@@ -100,13 +112,6 @@ try {
   }
 
   $Stage = "install_tunnel"
-  $existingTunnel = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
-  $existingTunnelWasInstalled = $null -ne $existingTunnel
-  if ($existingTunnelWasInstalled) {
-    & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Unable to replace the existing WireGuard tunnel" }
-    $existingTunnelRemoved = $true
-  }
   & $WireGuardExe /installtunnelservice $SecureConfiguration | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Unable to install the WireGuard tunnel service" }
   $tunnelInstalledHere = $true

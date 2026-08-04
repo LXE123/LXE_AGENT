@@ -1,4 +1,5 @@
 import type {
+  DesktopCloudState,
   DesktopLogProfile,
   DesktopLogRetentionDays,
   DesktopLoggingSinkStatus,
@@ -12,6 +13,11 @@ export interface DesktopLoggingSinkView {
   label: string;
   tone: "ready" | "neutral" | "warning" | "error";
 }
+
+export const desktopCloudBindingSwitchAvailable = (cloud: DesktopCloudState): boolean =>
+  cloud.configured
+  && cloud.connection !== "unsupported"
+  && cloud.device_id.trim().length > 0;
 
 export const desktopLoggingSinkView = (
   text: UiText["desktop"],

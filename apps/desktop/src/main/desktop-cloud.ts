@@ -188,8 +188,12 @@ export class DesktopCloudService {
 
   activate(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
+    const previousProbe = this.probe;
     let tracked: Promise<DesktopCloudState>;
-    tracked = this.activateOnce(input).finally(() => {
+    tracked = Promise.resolve().then(async () => {
+      if (previousProbe) await previousProbe.catch(() => undefined);
+      return this.activateOnce(input);
+    }).finally(() => {
       if (this.activation === tracked) this.activation = undefined;
     });
     this.activation = tracked;

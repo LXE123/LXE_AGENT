@@ -87,6 +87,47 @@ const boundedDiagnostic = (value: unknown): string => {
   return message.trim().slice(0, 500);
 };
 
+const redactedProvisionDiagnostic = (
+  value: unknown,
+  payload: CloudEnrollmentPayload,
+): string => {
+  let message = boundedDiagnostic(value);
+  for (const secret of [
+    payload.wireguard.private_key,
+    payload.data_server.api_token,
+    payload.erp?.api_token ?? "",
+  ]) {
+    if (secret) message = message.replaceAll(secret, "[redacted]");
+  }
+  return message;
+};
+
+const publicProvisionFailure = (
+  message: string,
+  failedStage: string,
+  elevatedError: ElevatedPowerShellError | undefined,
+  fallbackDiagnostic: string,
+): Error => {
+  if (message.includes("already bound to another computer")) {
+    return new Error("该设备文件已绑定到另一台电脑");
+  }
+  if (message.includes("rejected this device credential")) {
+    return new Error("设备凭证已失效，请联系管理员");
+  }
+  if (message) {
+    return new Error(`WireGuard 配置失败（${failedStage}）：${message}`.slice(0, 700));
+  }
+  if (elevatedError?.message === "管理员授权已取消") return elevatedError;
+  if (fallbackDiagnostic && fallbackDiagnostic !== elevatedError?.message) {
+    return new Error(`WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700));
+  }
+  if (elevatedError) return elevatedError;
+  if (fallbackDiagnostic) {
+    return new Error(`WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700));
+  }
+  return new Error("WireGuard 配置未完成，请重试或联系管理员");
+};
+
 const readProvisionResult = (path: string): { result?: WireGuardProvisionResult; error?: string } => {
   try {
     return {
@@ -200,8 +241,11 @@ export class WindowsWireGuardProvisioner {
       if (elevatedError || result?.ok !== true) {
         const message = String(result?.message ?? "");
         const observedError = message && message !== "ok"
-          ? boundedDiagnostic(message)
-          : boundedDiagnostic(elevatedError?.diagnosticMessage || elevatedError || resultRead.error);
+          ? redactedProvisionDiagnostic(message, payload)
+          : redactedProvisionDiagnostic(
+              elevatedError?.diagnosticMessage || elevatedError || resultRead.error,
+              payload,
+            );
         const failedStage = String(result?.failed_stage ?? "").trim() || stage;
         failureLogged = true;
         logger.error("wireguard_provision_failed", {
@@ -210,14 +254,12 @@ export class WindowsWireGuardProvisioner {
           ...(elevatedError?.exitCode === undefined ? {} : { process_exit_code: elevatedError.exitCode }),
           observed_error: observedError || "WireGuard provisioning failed without a diagnostic result",
         });
-        if (elevatedError) throw elevatedError;
-        if (message.includes("already bound to another computer")) {
-          throw new Error("该设备文件已绑定到另一台电脑");
-        }
-        if (message.includes("rejected this device credential")) {
-          throw new Error("设备凭证已失效，请联系管理员");
-        }
-        throw new Error("WireGuard 配置未完成，请重试或联系管理员");
+        throw publicProvisionFailure(
+          message && message !== "ok" ? observedError : "",
+          failedStage,
+          elevatedError,
+          observedError,
+        );
       }
       logger.info("wireguard_provision_completed", {
         duration_ms: Math.max(0, this.now() - startedAt),

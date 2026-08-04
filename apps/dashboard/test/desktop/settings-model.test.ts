@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { DesktopSetupState } from "@lxe/desktop-protocol";
+import type { DesktopCloudState, DesktopSetupState } from "@lxe/desktop-protocol";
 import {
+  desktopCloudBindingSwitchAvailable,
   desktopSettingsForm,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
@@ -9,6 +10,22 @@ import {
 import { ZH_TEXT } from "../../src/shared/i18n";
 
 const text = ZH_TEXT.desktop;
+
+const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState => ({
+  configured: true,
+  is_admin: false,
+  device_name: "Finance-PC-01",
+  device_id: "0123456789abcdef0123456789abcdef",
+  vpn_ip: "10.88.0.8",
+  connection: "connected",
+  last_error: "",
+  last_checked_at: 0,
+  permission_status: "verified",
+  permission_profile: "fba",
+  permission_version: 1,
+  permission_verified_at: 0,
+  ...patch,
+});
 
 const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState => ({
   complete: true,
@@ -50,6 +67,15 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
 });
 
 describe("desktop settings navigation model", () => {
+  test("offers binding switches only for configured managed devices", () => {
+    expect(desktopCloudBindingSwitchAvailable(cloudState())).toBe(true);
+    expect(desktopCloudBindingSwitchAvailable(cloudState({ connection: "offline" }))).toBe(true);
+    expect(desktopCloudBindingSwitchAvailable(cloudState({ connection: "error" }))).toBe(true);
+    expect(desktopCloudBindingSwitchAvailable(cloudState({ configured: false }))).toBe(false);
+    expect(desktopCloudBindingSwitchAvailable(cloudState({ device_id: "" }))).toBe(false);
+    expect(desktopCloudBindingSwitchAvailable(cloudState({ connection: "unsupported" }))).toBe(false);
+  });
+
   test("projects saved state without returning secrets", () => {
     const form = desktopSettingsForm(setupState());
 
