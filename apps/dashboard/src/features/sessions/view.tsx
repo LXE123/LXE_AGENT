@@ -42,8 +42,8 @@ import {
   liveAnswerProjection,
   readerFacingMessageText,
   roleLabel,
-  splitCallArguments,
   summarizeToolOperations,
+  toolOperationArguments,
   toolOperationPresentation,
   toolOperations,
 } from "./conversation";
@@ -450,7 +450,7 @@ function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
  */
 function ToolCallArguments({ operation }: { operation: ToolOperation }) {
   const t = useUiText();
-  const { primary, rest } = splitCallArguments(operation.call);
+  const { primary, rest } = toolOperationArguments(operation);
   const restKeys = Object.keys(rest);
   if (!primary && !restKeys.length) return null;
   const primaryLanguage = operation.action === "run"

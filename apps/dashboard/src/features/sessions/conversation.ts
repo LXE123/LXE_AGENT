@@ -156,12 +156,13 @@ export interface ToolOperation {
   result: unknown;
 }
 
-/** A live row is only expandable when the stream contains real output. */
+/** A live row is expandable when it can reveal its input, output, or error. */
 export function hasLiveToolOperationDetails(step: unknown): boolean {
   if (!isRecord(step)) return false;
+  const detail = String(step.detail ?? "").trim();
   const result = isRecord(step.result_block) ? String(step.result_block.content ?? "").trim() : "";
   const error = isRecord(step.error_block) ? String(step.error_block.content ?? "").trim() : "";
-  return Boolean(result || error);
+  return Boolean(detail || result || error);
 }
 
 export type ToolAction =
@@ -315,6 +316,15 @@ export function splitCallArguments(call: unknown): { primary: string; rest: Reco
     if (key !== primaryKey) rest[key] = input[key];
   }
   return { primary: primaryKey ? scalarText(input[primaryKey]) : "", rest };
+}
+
+/** Live tool steps do not carry the transcript's full call object, so their
+ * display detail is the fallback source for the primary argument. */
+export function toolOperationArguments(
+  operation: Pick<ToolOperation, "argument" | "call">,
+): { primary: string; rest: Record<string, unknown> } {
+  const { primary, rest } = splitCallArguments(operation.call);
+  return { primary: primary || operation.argument.trim(), rest };
 }
 
 const blockId = (block: unknown, keys: string[]): string => {

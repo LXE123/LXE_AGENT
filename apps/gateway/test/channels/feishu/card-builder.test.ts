@@ -49,6 +49,21 @@ describe("official CardKit presentation", () => {
     expect(formatElapsed(62_400)).toBe("1m 2s");
   });
 
+  test("renders complete live exec details without redaction or truncation", () => {
+    const value = state();
+    const command = `TOKEN=raw-secret lxeskill fba shipment prepare-upload\n--payload ${"x".repeat(300)}`;
+    value.toolSteps = [{
+      ...value.toolSteps[0]!,
+      title: "业务技能：fba shipment prepare-upload",
+      detail: command,
+      status: "running",
+    }];
+
+    const serialized = JSON.stringify(buildStreamingCard(value, loadFeishuConfig({}).cardDisplay));
+    expect(serialized).toContain("raw-secret");
+    expect(serialized).toContain("x".repeat(300));
+  });
+
   test("renders pending/error/footer variants and never emits encrypted thinking data", () => {
     const config = loadFeishuConfig({
       FEISHU_TOOL_USE_MODE: "full",

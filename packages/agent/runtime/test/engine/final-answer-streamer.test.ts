@@ -67,20 +67,26 @@ describe("FinalAnswerStreamer display contract", () => {
       cache_read_input_tokens: 10,
       cache_creation_input_tokens: 2,
     });
+    const commandSecret = "command-secret";
+    const outputSecret = "output-secret";
     const call = {
       type: "tool_call" as const,
       id: "tool-1",
       name: "exec",
-      arguments: { command: "run C:\\Users\\Alice\\secret.txt --token=raw-secret" },
+      arguments: { command: `run C:\\Users\\Alice\\command.txt --token=${commandSecret}` },
     };
     await streamer.pushToolStart(call);
     await streamer.pushToolFinish(call, "success", 1_400, {
-      result: { path: "C:\\Users\\Alice\\result.json", token: "raw-secret", output: "x".repeat(5_000) },
+      result: { path: "C:\\Users\\Alice\\result.json", token: outputSecret, output: "x".repeat(5_000) },
     });
-    const failedCall = { ...call, id: "tool-2", arguments: { command: "curl https://user:pass@example.test/private?token=raw-secret" } };
+    const failedCall = {
+      ...call,
+      id: "tool-2",
+      arguments: { command: "curl https://user:pass@example.test/private?token=second-command-secret" },
+    };
     await streamer.pushToolStart(failedCall);
     await streamer.pushToolFinish(failedCall, "error", 600, {
-      error: `failed at C:\\Users\\Alice\\private.log token=raw-secret ${"e".repeat(2_500)}`,
+      error: `failed at C:\\Users\\Alice\\private.log token=${outputSecret} ${"e".repeat(2_500)}`,
     });
     clock += 1_400;
     expect(await streamer.finish("done")).toBe(true);
@@ -106,10 +112,16 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal.tool_steps[0]).toEqual(expect.objectContaining({
       icon_token: "setting_outlined",
       status: "success",
+      detail: call.arguments.command,
     }));
+    expect(terminal.tool_steps[1]?.detail).toBe(failedCall.arguments.command);
     const serialized = JSON.stringify(terminal);
-    expect(serialized).not.toContain("raw-secret");
-    expect(serialized).not.toContain("C:\\\\Users\\\\Alice");
+    expect(serialized).toContain(commandSecret);
+    expect(serialized).toContain("second-command-secret");
+    expect(terminal.tool_steps[0]?.result_block?.content).not.toContain(outputSecret);
+    expect(terminal.tool_steps[0]?.result_block?.content).not.toContain("C:\\Users\\Alice\\result.json");
+    expect(terminal.tool_steps[1]?.error_block?.content).not.toContain(outputSecret);
+    expect(terminal.tool_steps[1]?.error_block?.content).not.toContain("C:\\Users\\Alice\\private.log");
     expect(serialized).not.toContain("encrypted");
     expect(terminal.tool_steps[0]?.result_block?.content.length).toBeLessThanOrEqual(4_000);
     expect(terminal.tool_steps[1]?.error_block?.content.length).toBeLessThanOrEqual(2_000);

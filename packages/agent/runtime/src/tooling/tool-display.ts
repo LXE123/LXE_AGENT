@@ -94,11 +94,12 @@ export function buildToolDisplayStep(
   } = {},
 ): ToolStep {
   const safeName = String(name || "tool").trim() || "tool";
-  const businessInvocation = safeName.toLowerCase() === "exec"
+  const isExec = safeName.toLowerCase() === "exec";
+  const businessInvocation = isExec
     ? matchLxeSkillInvocation(input.command)
     : undefined;
   const descriptor = businessInvocation
-    ? { title: `业务技能：${businessInvocation.commandId}`, icon: "setting_outlined", keys: [] }
+    ? { title: `业务技能：${businessInvocation.commandId}`, icon: "setting_outlined", keys: ["command"] }
     : descriptors[safeName.toLowerCase()] ?? {
     title: humanize(safeName),
     icon: "setting-inter_outlined",
@@ -112,7 +113,12 @@ export function buildToolDisplayStep(
     return scalar(value);
   }).filter(Boolean).join(" ");
   const showFullPaths = options.showFullPaths === true;
-  const safeDetail = safeName.toLowerCase() === "send_files"
+  // The command is reader-visible execution state, just like the persisted
+  // tool call shown after the turn. Keep it byte-for-byte apart from trimming
+  // surrounding whitespace so live and historical views do not disagree.
+  const safeDetail = isExec
+    ? detail
+    : safeName.toLowerCase() === "send_files"
     ? sanitize(detail, showFullPaths)
     : isAbsolute(detail) && !showFullPaths
       ? `.../${basename(detail) || "path"}`

@@ -26,19 +26,18 @@ describe("lxeskill command recognition", () => {
     expect(matchLxeSkillInvocation("lxeskill unknown command", known)).toBeUndefined();
   });
 
-  test("renders an exec call as a business skill without exposing parameters", () => {
+  test("renders an exec call as a business skill with its complete command", () => {
+    const command = "lxeskill fba shipment prepare-upload --context-file secret.json --token raw-secret";
     const step = buildToolDisplayStep(
       "tool-1",
       "exec",
-      { command: "lxeskill fba shipment prepare-upload --context-file secret.json --token raw-secret" },
+      { command },
       "running",
       0,
     );
 
     expect(step.title).toBe("业务技能：fba shipment prepare-upload");
-    expect(step.detail).toBe("");
-    expect(JSON.stringify(step)).not.toContain("raw-secret");
-    expect(JSON.stringify(step)).not.toContain("secret.json");
+    expect(step.detail).toBe(command);
   });
 
   test("loads the artifact dataset registry with module-partitioned directories", () => {
