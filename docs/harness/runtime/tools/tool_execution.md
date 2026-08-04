@@ -22,10 +22,10 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、wait 和 send_files：
 
-- 路径先规范化并限制在 workspace/允许边界。
+- 路径先相对 Session working directory 解析；绝对路径、`~`、`..` 和跨 workspace 符号链接都交给宿主文件系统处理。
+- read/write/edit/grep/find/ls/send_files 和 `exec.cwd` 可以访问 LXE Agent 进程用户有权访问的任意宿主路径；OS 拒绝时只对敏感值做统一脱敏和显式截断，`EACCES`、`EPERM` 等实际系统错误不会改写成泛化提示。
 - read 输出稳定行号，并记录 session read version。
 - 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
-- root private env、用户 session DB 和 runtime state 不可写。
 - binary 不通过文本 read；一个或多个 artifact 使用 `send_files(paths=[...])` 一次交付。
 - `exec` 观察到 `yield-time-ms` 后仍未结束会返回 `status=running` 和 `exec_id`；Session manager 继续持有命令。
 - `wait` 对同一 `exec_id` 串行观察，对不同 id 可并发；终态只返回一次，之后模型侧句柄关闭。
@@ -48,7 +48,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 - Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、yield observation、output limit、Session ownership 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
 
-Skill 只能调用自己声明且由 catalog 归属的命令；生成文件仍需经过 workspace/artifact boundary 才能发送。
+Skill 只能调用自己声明且由 catalog 归属的命令；生成文件和其它可读普通文件都可直接通过 `send_files` 发送。
 
 ## State patch 与 artifact
 
@@ -96,4 +96,4 @@ Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner s
 
 ## 验证
 
-Tests 覆盖 file safety、read-before-edit、exec/wait 生命周期、跨 Session 隔离、进程树终止、tool search、MCP timeout/disable、独立 `lxeskill` 命令约束、skill ownership、result trimming、cancel closure 和 artifact ordering。
+Tests 覆盖宿主路径访问、read-before-edit、exec/wait 生命周期、跨 Session 隔离、进程树终止、tool search、MCP timeout/disable、独立 `lxeskill` 命令约束、skill ownership、result trimming、cancel closure 和 artifact ordering。

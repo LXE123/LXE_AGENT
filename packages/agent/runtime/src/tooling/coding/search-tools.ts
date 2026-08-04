@@ -48,7 +48,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
   return [
     {
       name: "grep",
-      description: "Search UTF-8 files in the workspace or an explicitly addressed read-only skill/artifact root for a regular expression.",
+      description: "Search UTF-8 files at any path readable by the local LXE Agent process for a regular expression. Relative paths resolve from the session working directory.",
       input_schema: { type: "object", properties: {
         pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, type: { type: "string" },
         output_mode: { type: "string", enum: ["files_with_matches", "content", "count"] },
@@ -81,7 +81,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     },
     {
       name: "find",
-      description: "Find files in the workspace or an explicitly addressed read-only skill/artifact root by glob-like pattern.",
+      description: "Find files at any path readable by the local LXE Agent process using a glob-like pattern. Relative paths resolve from the session working directory.",
       input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" }, head_limit: { type: "integer" } }, required: ["pattern"], additionalProperties: false },
       execute: async (input, context) => {
         const target = paths.resolveReadable(context.workspace, input.path ?? ".");
@@ -99,7 +99,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     },
     {
       name: "ls",
-      description: "List directory contents in the workspace or an explicitly addressed read-only skill/artifact root.",
+      description: "List any directory readable by the local LXE Agent process. Relative paths resolve from the session working directory.",
       input_schema: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false },
       execute: async (input, context) => {
         const target = paths.resolveReadable(context.workspace, input.path ?? ".");

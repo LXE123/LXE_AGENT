@@ -15,7 +15,6 @@ export interface CodingToolOptions {
   repositorySkillsRoot?: string;
   userSkillsRoot?: string;
   artifactRoot?: string;
-  attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
   homeDirectory?: string;
   /** Bytes of process output kept in memory and shown to the model at once. */
   maxOutputBytes?: number;

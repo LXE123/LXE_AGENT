@@ -81,7 +81,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
       `Git worktree root: ${options.workspace.worktree}`,
       ...(options.artifactRoot ? [`Artifact root: ${options.artifactRoot}`] : []),
       "Relative paths start from the working directory.",
-      "File operations are limited to the Git worktree root. Root-level .env* files and var/db, var/logs are write-protected.",
+      "Local file, search, delivery, Shell, Python, and lxeskill operations inherit the LXE Agent process permissions. There is no filesystem or network sandbox; the workspace is only the default path base.",
     ].join("\n"),
     `## Current Date & Time\n${date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
   ].filter(Boolean).join("\n\n");

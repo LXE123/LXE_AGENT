@@ -1,6 +1,5 @@
 import {
   type BigIntStats,
-  existsSync,
   mkdirSync,
   readFileSync,
   statSync,
@@ -33,6 +32,10 @@ const READ_HINT_CHAR_RESERVE = 160;
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
+const isMissingPathError = (cause: unknown): boolean =>
+  cause instanceof Error
+  && "code" in cause
+  && (cause.code === "ENOENT" || cause.code === "ENOTDIR");
 
 const truncateHeadTail = (value: string, limit: number): { value: string; truncated: boolean } => {
   if (value.length <= limit) return { value, truncated: false };
@@ -105,7 +108,6 @@ export interface FileToolDependencies {
   ledger: FileVersionLedger;
   imageProcessor: ModelImageProcessor;
   toolOutputLimit: number;
-  attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
 }
 
 export function createFileTools(dependencies: FileToolDependencies): ToolDefinition[] {
@@ -113,20 +115,21 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
   return [
     {
       name: "read",
-      description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, the configured user Skill root, or an exact local file attached to this conversation. External roots are read-only. Reading records the file version required by edit/write.",
+      description: "Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Reading records the file version required by edit/write.",
       input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
       execute: async (input, context) => {
-        const attachmentPaths = await dependencies.attachmentPaths?.(context.session_id) ?? [];
-        const path = paths.resolveReadable(context.workspace, input.path, attachmentPaths).path;
+        const target = paths.resolveReadable(context.workspace, input.path);
+        const path = target.path;
         let info: BigIntStats;
         try {
           info = await stat(path, { bigint: true });
-        } catch {
+        } catch (cause) {
+          if (!isMissingPathError(cause)) throw cause;
           throw new Error(`file not found: ${input.path}`);
         }
         if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
         const version = fileVersionFromStats(info);
-        if (basename(path).toLowerCase() === "skill.md") {
+        if (target.scope.kind !== "host" && basename(path).toLowerCase() === "skill.md") {
           await context.exposureState?.activateSkill(basename(dirname(path)));
         }
         const head = await readHeadBytes(path, 4_100, context.handle.signal);
@@ -186,12 +189,18 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "write",
-      description: "Create or overwrite a UTF-8 file inside the workspace.",
+      description: "Create or overwrite any UTF-8 file writable by the local LXE Agent process. Relative paths resolve from the session working directory.",
       input_schema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"], additionalProperties: false },
       execute: async (input, context) => {
         const path = paths.resolveWritable(context.workspace, input.file_path);
-        if (existsSync(path)) {
-          if (!statSync(path).isFile()) throw new Error(`path is not a regular file: ${input.file_path}`);
+        let existing: ReturnType<typeof statSync> | undefined;
+        try {
+          existing = statSync(path);
+        } catch (cause) {
+          if (!isMissingPathError(cause)) throw cause;
+        }
+        if (existing) {
+          if (!existing.isFile()) throw new Error(`path is not a regular file: ${input.file_path}`);
           ledger.assertCurrent(context.session_id, path, "write");
         }
         mkdirSync(dirname(path), { recursive: true });
@@ -202,11 +211,18 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "edit",
-      description: "Replace exact text in a workspace file.",
+      description: "Replace exact text in any file writable by the local LXE Agent process. Relative paths resolve from the session working directory.",
       input_schema: { type: "object", properties: { file_path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, required: ["file_path", "old_string", "new_string"], additionalProperties: false },
       execute: async (input, context) => {
         const path = paths.resolveWritable(context.workspace, input.file_path);
-        if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.file_path}`);
+        let info: ReturnType<typeof statSync>;
+        try {
+          info = statSync(path);
+        } catch (cause) {
+          if (!isMissingPathError(cause)) throw cause;
+          throw new Error(`file not found: ${input.file_path}`);
+        }
+        if (!info.isFile()) throw new Error(`file not found: ${input.file_path}`);
         ledger.assertCurrent(context.session_id, path, "edit");
         const source = readFileSync(path, "utf8");
         const oldText = inputText(input, "old_string");

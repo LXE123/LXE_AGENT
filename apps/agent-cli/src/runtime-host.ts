@@ -176,7 +176,6 @@ export function createAgentRuntimeHost(
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     artifactRoot: join(options.dataRoot, "artifacts"),
-    attachmentPaths: (sessionId) => store.attachmentPaths(sessionId),
     businessCommands,
     businessCommandCatalog: cliCommands,
     execShell,

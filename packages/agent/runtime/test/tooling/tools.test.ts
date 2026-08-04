@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ToolRegistry } from "../../src/tooling/registry";
+import { ToolRegistry, unknownToolFailureDetails } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
 import { testWorkspace } from "../workspace";
 
@@ -13,6 +13,18 @@ const definition = (name: string, exposure: "direct" | "deferred" = "direct") =>
 });
 
 describe("tool registry exposure", () => {
+  test("keeps real host permission errors while redacting secrets", () => {
+    const details = unknownToolFailureDetails(
+      "read",
+      Object.assign(new Error("EPERM: operation not permitted, open 'C:\\private\\token.txt'; token=raw-secret"), {
+        code: "EPERM",
+      }),
+    );
+    expect(details.observed_message).toContain("EPERM: operation not permitted");
+    expect(details.observed_message).toContain("token=[redacted]");
+    expect(details.observed_message).not.toContain("raw-secret");
+  });
+
   test("rejects duplicate names instead of silently overwriting", () => {
     const registry = new ToolRegistry();
     registry.register(definition("same"));

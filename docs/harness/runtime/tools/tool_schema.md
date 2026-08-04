@@ -63,7 +63,7 @@ State 记录 exposed names 与 active skills，不修改全局 registry。不同
 
 System prompt 只列允许的 skill manifest 路径。repository root 与 workspace root 分离时使用 manifest 的规范绝对路径；同根时保留 workspace-relative 路径。模型通过 read 加载某个 `SKILL.md` 后，coding read hook 验证该 manifest 在当前 allowed set，再激活 owner tools。
 
-`read`、`ls`、`grep` 和 `find` 可显式访问 workspace、repository skills、`~/.agents/skills` 与 runtime artifacts。外部搜索结果使用绝对路径，外部 roots 始终只读；相对路径、`write`、`edit` 和 `exec.cwd` 仍严格属于 workspace。`send_files(paths=[...])` 一次接收一个或多个路径，只允许 workspace/runtime artifacts 与 skill `assets/**`。
+`read`、`write`、`edit`、`ls`、`grep`、`find`、`send_files` 和 `exec.cwd` 都可显式访问 LXE Agent 进程用户有权访问的宿主路径。相对路径以 Session working directory 为基准；外部搜索和文件交付结果使用绝对路径。workspace、repository skills、用户 skills 与 runtime artifacts 的分类只用于展示和 Skill 激活，不提供读写隔离。
 
 Repository skill 同名优先于用户 skill；重复同来源 name/command、越界 reference 或缺失文件导致 catalog error。激活事件进入 skill usage。
 

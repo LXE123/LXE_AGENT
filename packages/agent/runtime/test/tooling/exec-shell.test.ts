@@ -275,6 +275,14 @@ describe("ExecShellAdapter", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
     expect(() => shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))
       .toThrow("through lxeskill");
+    expect(() => shell.normalizeCommand("/work", "cd . && python -m services.agent_cli.demo"))
+      .toThrow("through lxeskill");
+    expect(shell.normalizeCommand("/work", "echo services.agent_cli.demo"))
+      .toBe("echo services.agent_cli.demo");
+    expect(shell.normalizeCommand("/work", "(Get-Command lxeskill).Source"))
+      .toBe("(Get-Command lxeskill).Source");
+    expect(shell.normalizeCommand("/work", "where lxeskill"))
+      .toBe("where lxeskill");
     expect(() => shell.normalizeCommand("/work", "py -3.11 script.py"))
       .toThrow("Python 3.12.10");
   });

@@ -73,6 +73,7 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
   return [
     "Execute a non-interactive shell command. If it outlives yield-time-ms, it keeps running under this chat and exec returns an exec_id for wait.",
     shellLine(profile),
+    "Commands inherit the local LXE Agent process permissions. There is no filesystem or network sandbox; the workspace is only the default working directory.",
     "",
     "Environment: python and pip resolve to this project's .venv; lxeskill prefers the precompiled project runtime and falls back to .venv in development.",
     "Use the cwd parameter for the working directory instead of cd.",

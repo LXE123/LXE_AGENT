@@ -39,7 +39,6 @@ export function registerCodingTools(
     ledger,
     imageProcessor,
     toolOutputLimit,
-    ...(options.attachmentPaths ? { attachmentPaths: options.attachmentPaths } : {}),
   })) {
     registry.register(tool);
   }

@@ -66,9 +66,16 @@ const commandResult = async (
 };
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 
-const BUSINESS_MODULE_PATTERN = /\b(?:services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b/giu;
-const LXESKILL_TOKEN_PATTERN = /\blxeskill(?:\.cmd)?\b/iu;
-const LXESKILL_MODULE_WRAPPER_PATTERN = /-m\s+lxeskill\b/iu;
+const PYTHON_COMMAND_PREFIX = String.raw`(?:(?:uv(?:\.exe)?\s+run(?:\s+--frozen)?\s+)?(?:python3?(?:\.exe)?|py(?:\.exe)?)(?:\s+-[IB])*)`;
+const SHELL_COMMAND_BOUNDARY = String.raw`(?:^|[\r\n]|&&|\|\||[;|])\s*`;
+const DIRECT_BUSINESS_MODULE_PATTERN = new RegExp(
+  String.raw`${SHELL_COMMAND_BOUNDARY}${PYTHON_COMMAND_PREFIX}\s+-m\s+(services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b`,
+  "iu",
+);
+const DIRECT_LXESKILL_MODULE_WRAPPER_PATTERN = new RegExp(
+  String.raw`${SHELL_COMMAND_BOUNDARY}${PYTHON_COMMAND_PREFIX}\s+-m\s+lxeskill\b`,
+  "iu",
+);
 const SHELL_COMPOSITION_PATTERN = /[\r\n]|&&|\|\||[;|`<>]|\$\(/u;
 
 const lxeSkillInvocationError = (
@@ -76,17 +83,18 @@ const lxeSkillInvocationError = (
   knownCommands: ReadonlyMap<string, readonly string[]>,
   commandCatalog: readonly LxeSkillRecoveryCommand[],
 ): ToolExecutionError | undefined => {
+  const command = rawCommand.trim();
   const violations: LxeSkillInvocationViolation[] = [];
-  const modules = [...rawCommand.matchAll(BUSINESS_MODULE_PATTERN)].map((match) => String(match[0] ?? ""));
+  const directBusinessModule = command.match(DIRECT_BUSINESS_MODULE_PATTERN)?.[1];
+  const modules = directBusinessModule ? [directBusinessModule] : [];
   const hasBusinessModule = modules.length > 0;
-  const hasPythonModuleWrapper = LXESKILL_MODULE_WRAPPER_PATTERN.test(rawCommand);
-  const hasLxeSkillToken = LXESKILL_TOKEN_PATTERN.test(rawCommand);
-  const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim());
-  const concernsLxeSkill = hasBusinessModule || hasPythonModuleWrapper || hasLxeSkillToken;
+  const hasPythonModuleWrapper = DIRECT_LXESKILL_MODULE_WRAPPER_PATTERN.test(command);
+  const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(command);
+  const concernsLxeSkill = hasBusinessModule || hasPythonModuleWrapper || directLxeSkill;
 
   if (hasBusinessModule) violations.push("direct_business_module");
   if (hasPythonModuleWrapper) violations.push("python_module_wrapper");
-  if (hasLxeSkillToken && !directLxeSkill) violations.push("not_standalone");
+  if (hasPythonModuleWrapper) violations.push("not_standalone");
   if (concernsLxeSkill && SHELL_COMPOSITION_PATTERN.test(rawCommand)) violations.push("shell_composition");
   if (violations.length === 0) return undefined;
 
@@ -168,7 +176,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
             type: "string",
             description: execCommandParameterDescription(shellProfile),
           },
-          cwd: { type: "string", description: "Working directory inside the Git worktree; defaults to the session working directory." },
+          cwd: { type: "string", description: "Any working directory accessible to the local LXE Agent process; defaults to the session working directory." },
           "yield-time-ms": {
             type: "number", minimum: MIN_EXEC_YIELD_MS, maximum: MAX_EXEC_YIELD_MS, default: DEFAULT_EXEC_YIELD_MS,
             description: "Milliseconds to observe before returning a still-running command with an exec_id.",

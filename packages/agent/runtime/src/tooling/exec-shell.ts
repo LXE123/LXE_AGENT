@@ -167,7 +167,7 @@ export class ExecShellAdapter {
   normalizeCommand(root: string, rawCommand: string): string {
     const command = String(rawCommand ?? "").trim();
     if (!command) return "";
-    if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b/iu.test(command)) {
+    if (/(?:^|[\r\n]|&&|\|\||[;|])\s*(?:(?:uv(?:\.exe)?\s+run(?:\s+--frozen)?\s+)?(?:python3?(?:\.exe)?|py(?:\.exe)?)(?:\s+-[IB])*)\s+-m\s+(?:services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b/iu.test(command)) {
       throw new Error("registered business Python modules must be called through lxeskill");
     }
     const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()

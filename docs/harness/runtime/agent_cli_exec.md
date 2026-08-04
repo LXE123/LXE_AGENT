@@ -73,6 +73,6 @@ CLI 数据库绝不打开 Desktop 的 `var/db/agent.sqlite3`，保持一个 SQLi
 
 ## 安全边界与暂缓项
 
-v1 只适用于可信本地自动化。文件工具仍执行既有路径策略，但 shell、MCP 和业务工具没有统一的 OS 级权限隔离；因此本命令不提供 `--sandbox`，也不等同于 Codex sandbox。不要在不可信仓库、Prompt 或 CI 输入上把它当成安全边界。
+v1 只适用于可信本地自动化。文件、搜索、文件交付、shell、Python、MCP 和业务工具直接继承 agent-cli 进程的宿主用户权限；workspace 只是默认路径，不是安全边界。Runtime 不提供 sandbox、初始化检查或失败回退，也不等同于 Codex sandbox。不要在不可信仓库、Prompt 或 CI 输入上把它当成安全边界。
 
 `--output-schema`、图片参数、逐次模型覆盖、GitHub Action 和系统 `PATH` 安装暂缓，分别需要 Provider 结构化输出、附件加载、非持久配置覆盖和独立发布安全设计。

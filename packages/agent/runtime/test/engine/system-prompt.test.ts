@@ -30,6 +30,8 @@ describe("system prompt builder", () => {
     expect(volatile).toContain("Platform: feishu");
     expect(volatile).toContain("Working directory: /workspace/project");
     expect(volatile).toContain("Git worktree root: /workspace");
+    expect(volatile).toContain("There is no filesystem or network sandbox");
+    expect(volatile).toContain("workspace is only the default path base");
     expect(volatile).not.toContain(`Server ${"scope"}`);
   });
 

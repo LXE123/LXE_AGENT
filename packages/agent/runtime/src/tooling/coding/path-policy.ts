@@ -1,15 +1,7 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { WorkspaceContext } from "@lxe/protocol";
-
-const PROTECTED_ROOT_FILES = new Set([
-  ".env", ".env.local", ".envrc", ".env.development", ".env.production", ".env.test", ".env.staging",
-]);
-
-// Program-managed state the model must never write into. var/tmp stays
-// writable (scratch), as does the root artifacts/ send_files output surface.
-const PROTECTED_PATH_PREFIXES = ["var/db", "var/logs"];
 
 const containsPath = (root: string, path: string): boolean => {
   const relation = relative(resolve(root), resolve(path));
@@ -35,25 +27,11 @@ const normalizedPathKey = (path: string): string => {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 };
 
-const exactPathKey = (path: string): string => {
-  const normalized = resolve(path);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-};
-
 const containsCanonicalPath = (root: string, path: string): boolean =>
   containsPath(root, path)
   && containsPath(canonicalCandidate(root), canonicalCandidate(path));
 
-const safePath = (root: string, value: unknown, base = root): string => {
-  const requested = String(value ?? ".").trim() || ".";
-  const path = resolve(base, requested);
-  if (!containsPath(root, path) || !containsPath(realpathSync(root), canonicalCandidate(path))) {
-    throw new Error(`path escapes workspace: ${requested}`);
-  }
-  return path;
-};
-
-export type ReadableScopeKind = "workspace" | "skills" | "artifacts" | "attachment";
+export type ReadableScopeKind = "workspace" | "skills" | "artifacts" | "host";
 
 export interface ReadableScope {
   root: string;
@@ -76,30 +54,6 @@ const requestedPath = (root: string, home: string, requested: string): string =>
   if (requested === "~") return home;
   if (/^~[\\/]/u.test(requested)) return resolve(home, requested.slice(2));
   return resolve(root, requested);
-};
-
-const isSkillAsset = (skillRoot: string, path: string): boolean => {
-  if (!containsPath(skillRoot, path)) return false;
-  const parts = relative(skillRoot, path).replaceAll("\\", "/").split("/");
-  const assetsIndex = parts.lastIndexOf("assets");
-  if (assetsIndex <= 0 || assetsIndex >= parts.length - 1) return false;
-  const assetRoot = resolve(skillRoot, ...parts.slice(0, assetsIndex + 1));
-  return containsCanonicalPath(assetRoot, path);
-};
-
-const assertWritable = (root: string, path: string): void => {
-  const rel = relative(root, path);
-  const parts = rel.split(/[\\/]+/u);
-  if (parts.length === 1 && PROTECTED_ROOT_FILES.has(parts[0]!.toLowerCase())) {
-    throw new Error(`write denied for protected workspace file: ${rel}`);
-  }
-  const normalized = rel.replaceAll("\\", "/").toLowerCase();
-  const protectedPrefix = PROTECTED_PATH_PREFIXES.find(
-    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
-  );
-  if (protectedPrefix) {
-    throw new Error(`write denied for protected workspace directory: ${protectedPrefix}/`);
-  }
 };
 
 export class CodingPathPolicy {
@@ -128,48 +82,30 @@ export class CodingPathPolicy {
   resolveReadable(
     workspace: WorkspaceContext,
     value: unknown,
-    exactAttachmentPaths: readonly string[] = [],
   ): ReadableTarget {
     const requested = String(value ?? "").trim();
     if (!requested) throw new Error("path is required");
     const path = requestedPath(workspace.directory, this.home, requested);
     const scope = this.readableScopes(workspace).find((candidate) => containsCanonicalPath(candidate.root, path));
     if (scope) return { path, scope };
-    const key = exactPathKey(path);
-    const attachmentPath = exactAttachmentPaths.find((candidate) => exactPathKey(candidate) === key);
-    if (attachmentPath) {
-      const info = lstatSync(path);
-      if (info.isSymbolicLink() || !info.isFile()) throw new Error(`attachment is not a regular file: ${requested}`);
-      return { path, scope: { root: path, kind: "attachment" } };
-    }
-    throw new Error(`path escapes workspace and approved read-only roots: ${requested}`);
+    return {
+      path,
+      scope: {
+        root: parse(canonicalCandidate(path)).root || parse(path).root,
+        kind: "host",
+      },
+    };
   }
 
   resolveWritable(workspace: WorkspaceContext, value: unknown): string {
-    const path = safePath(workspace.worktree, value, workspace.directory);
-    assertWritable(workspace.worktree, path);
-    return path;
+    const requested = String(value ?? "").trim();
+    if (!requested) throw new Error("path is required");
+    return requestedPath(workspace.directory, this.home, requested);
   }
 
   resolveExecutableCwd(workspace: WorkspaceContext, value: unknown): string {
-    return safePath(workspace.worktree, value, workspace.directory);
-  }
-
-  assertSendable(workspace: WorkspaceContext, target: ReadableTarget): void {
-    const artifactRoots = [
-      join(workspace.worktree, "artifacts"),
-      ...(this.options.artifactRoot ? [resolve(this.options.artifactRoot)] : []),
-    ];
-    const skillRoots = [
-      join(workspace.worktree, "skills"),
-      ...(this.options.repositorySkillsRoot ? [resolve(this.options.repositorySkillsRoot)] : []),
-      this.userSkillsRoot,
-    ];
-    const artifact = artifactRoots.some((artifactRoot) => containsCanonicalPath(artifactRoot, target.path));
-    const skillAsset = skillRoots.some((skillRoot) => isSkillAsset(skillRoot, target.path));
-    if (!artifact && !skillAsset) {
-      throw new Error("send_files only allows workspace/runtime artifacts or skill assets/**");
-    }
+    const requested = String(value ?? ".").trim() || ".";
+    return requestedPath(workspace.directory, this.home, requested);
   }
 
   displayReadablePath(workspace: WorkspaceContext, target: ReadableTarget): string {

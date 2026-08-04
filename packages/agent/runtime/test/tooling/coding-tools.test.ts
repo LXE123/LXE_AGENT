@@ -118,9 +118,12 @@ describe("native coding tools", () => {
     }
   }, 30_000);
 
-  test("exposes compatible coding schemas and keeps file operations inside the workspace", async () => {
+  test("exposes compatible coding schemas and uses the workspace only as the default path base", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
-    roots.push(root);
+    const outsideRoot = mkdtempSync(join(tmpdir(), "lxe-coding-outside-"));
+    const outsidePath = join(outsideRoot, "outside.txt");
+    roots.push(root, outsideRoot);
+    writeFileSync(outsidePath, "outside\n", "utf8");
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
       businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
@@ -168,8 +171,16 @@ describe("native coding tools", () => {
     expect(find.content[0]?.text).toContain("a.txt");
     const ls = await registry.execute("ls", { path: "src" }, context(root));
     expect(ls.content[0]?.text).toContain("a.txt");
-    await expect(registry.execute("read", { path: "../outside.txt" }, context(root))).rejects.toThrow("workspace");
-    expect(existsSync(join(root, "outside.txt"))).toBe(false);
+    expect(String((await registry.execute("read", { path: outsidePath }, context(root))).content[0]?.text))
+      .toContain("outside");
+    await registry.execute("write", { file_path: join(outsideRoot, "created.txt"), content: "created" }, context(root));
+    expect(readFileSync(join(outsideRoot, "created.txt"), "utf8")).toBe("created");
+    const outsideCwd = await registry.execute("exec", {
+      command: evalCommand("console.log(process.cwd())"),
+      cwd: outsideRoot,
+    }, context(root));
+    expect(String(outsideCwd.content[0]?.text).replaceAll("\\", "/"))
+      .toContain(realpathSync.native(outsideRoot).replaceAll("\\", "/"));
     await processes.stop();
   });
 
@@ -208,7 +219,7 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
-  test("reads split-root skills and artifacts without making external roots writable", async () => {
+  test("classifies split roots while allowing host reads, writes, searches, exec cwd, and file delivery", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-workspace-"));
     const root = workspaceRoot;
     const resourceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-resource-"));
@@ -279,15 +290,14 @@ describe("native coding tools", () => {
     expect(String(grepped.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
 
     const sent = await registry.execute("send_files", {
-      paths: [assetPath, artifactPath, `${artifactRoot}/nested/../report.txt`],
+      paths: [assetPath, artifactPath, `${artifactRoot}/nested/../report.txt`, skillPath, outsidePath],
     }, context(root));
-    expect(sent.files).toEqual([assetPath, artifactPath]);
+    expect(sent.files).toEqual([assetPath, artifactPath, skillPath, outsidePath]);
     const sentText = String(sent.content[0]?.text).replaceAll("\\", "/");
-    expect(sentText).toContain("Sent 2 files:");
+    expect(sentText).toContain("Sent 4 files:");
     expect(sentText).toContain(assetPath.replaceAll("\\", "/"));
     expect(sentText).toContain(artifactPath.replaceAll("\\", "/"));
-    await expect(registry.execute("send_files", { paths: [artifactPath, skillPath] }, context(root)))
-      .rejects.toThrow("skill assets");
+    expect(sentText).toContain(outsidePath.replaceAll("\\", "/"));
     await expect(registry.execute("send_files", {
       paths: [artifactPath, join(artifactRoot, "missing.txt")],
     }, context(root))).rejects.toThrow("file not found");
@@ -297,22 +307,26 @@ describe("native coding tools", () => {
       .rejects.toThrow("paths[1]");
     await expect(registry.execute("send_files", { path: artifactPath }, context(root)))
       .rejects.toThrow("non-empty array");
-    await expect(registry.execute("read", { path: outsidePath }, context(root))).rejects.toThrow("approved read-only roots");
-    await expect(registry.execute("read", {
+    expect(String((await registry.execute("read", { path: outsidePath }, context(root))).content[0]?.text))
+      .toContain("secret");
+    expect(String((await registry.execute("read", {
       path: join(skillRoot, "escaped", "secret.txt"),
-    }, context(root))).rejects.toThrow("approved read-only roots");
-    await expect(registry.execute("write", {
+    }, context(root))).content[0]?.text)).toContain("secret");
+    await registry.execute("write", {
       file_path: join(skillRoot, "new.txt"),
-      content: "denied",
-    }, context(root))).rejects.toThrow("escapes workspace");
-    await expect(registry.execute("exec", {
-      command: "echo denied",
+      content: "allowed",
+    }, context(root));
+    expect(readFileSync(join(skillRoot, "new.txt"), "utf8")).toBe("allowed");
+    const externalExec = await registry.execute("exec", {
+      command: evalCommand("console.log(process.cwd())"),
       cwd: skillRoot,
-    }, context(root))).rejects.toThrow("escapes workspace");
+    }, context(root));
+    expect(String(externalExec.content[0]?.text).replaceAll("\\", "/"))
+      .toContain(realpathSync.native(skillRoot).replaceAll("\\", "/"));
     await processes.stop();
   });
 
-  test("reads only the exact regular files attached to the current session", async () => {
+  test("treats attachments and adjacent host files as ordinary readable and sendable files", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-attachment-workspace-"));
     const externalRoot = mkdtempSync(join(tmpdir(), "lxe-attachment-external-"));
     roots.push(workspaceRoot, externalRoot);
@@ -321,29 +335,26 @@ describe("native coding tools", () => {
     writeFileSync(attached, "selected content", "utf8");
     writeFileSync(adjacent, "private content", "utf8");
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {
-      attachmentPaths: async (sessionId) => sessionId === "s1" ? [attached] : [],
-    });
+    const processes = registerCodingTools(registry, {});
     try {
       const read = await registry.execute("read", { path: attached }, context(workspaceRoot));
       expect(read.content[0]?.text).toContain("selected content");
       await expect(registry.execute("read", { path: externalRoot }, context(workspaceRoot)))
-        .rejects.toThrow("escapes workspace");
-      await expect(registry.execute("read", { path: adjacent }, context(workspaceRoot)))
-        .rejects.toThrow("escapes workspace");
-      await expect(registry.execute("read", { path: attached }, { ...context(workspaceRoot), session_id: "s2" }))
-        .rejects.toThrow("escapes workspace");
-      await expect(registry.execute("write", { file_path: attached, content: "changed" }, context(workspaceRoot)))
-        .rejects.toThrow("escapes workspace");
-      await expect(registry.execute("send_files", { paths: [attached] }, context(workspaceRoot)))
-        .rejects.toThrow("escapes workspace");
+        .rejects.toThrow("file not found");
+      expect(String((await registry.execute("read", { path: adjacent }, context(workspaceRoot))).content[0]?.text))
+        .toContain("private content");
+      expect(String((await registry.execute("read", {
+        path: attached,
+      }, { ...context(workspaceRoot), session_id: "s2" })).content[0]?.text)).toContain("selected content");
+      await registry.execute("write", { file_path: attached, content: "changed" }, context(workspaceRoot));
+      expect(readFileSync(attached, "utf8")).toBe("changed");
+      expect((await registry.execute("send_files", { paths: [attached, adjacent] }, context(workspaceRoot))).files)
+        .toEqual([attached, adjacent]);
 
       rmSync(attached);
       symlinkSync(adjacent, attached);
-      await expect(registry.execute("read", { path: attached }, context(workspaceRoot)))
-        .rejects.toThrow("not a regular file");
-      await expect(registry.execute("read", { path: adjacent }, context(workspaceRoot)))
-        .rejects.toThrow("escapes workspace");
+      expect(String((await registry.execute("read", { path: attached }, context(workspaceRoot))).content[0]?.text))
+        .toContain("private content");
     } finally {
       await processes.stop();
     }
@@ -867,7 +878,7 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
-  test("requires a current read before modifying existing files and protects runtime state", async () => {
+  test("requires a current read before modifying existing files while allowing process-writable state paths", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-safety-"));
     roots.push(root);
     writeFileSync(join(root, "existing.txt"), "v1\n", "utf8");
@@ -881,14 +892,16 @@ describe("native coding tools", () => {
     await expect(registry.execute("write", {
       file_path: "existing.txt", content: "blind overwrite\n",
     }, context(root))).rejects.toThrow("重新 read");
-    await expect(registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context(root)))
-      .rejects.toThrow("protected");
-    await expect(registry.execute("write", {
+    await registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context(root));
+    await registry.execute("write", {
       file_path: "var/db/sessions.json", content: "{}",
-    }, context(root))).rejects.toThrow("protected");
-    await expect(registry.execute("write", {
+    }, context(root));
+    await registry.execute("write", {
       file_path: "var/logs/runtime/x.log", content: "{}",
-    }, context(root))).rejects.toThrow("protected");
+    }, context(root));
+    expect(readFileSync(join(root, ".env"), "utf8")).toBe("SECRET=x");
+    expect(readFileSync(join(root, "var", "db", "sessions.json"), "utf8")).toBe("{}");
+    expect(readFileSync(join(root, "var", "logs", "runtime", "x.log"), "utf8")).toBe("{}");
     await processes.stop();
   });
 
@@ -996,7 +1009,7 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
-  test("restores grep modes, find ordering, send boundaries, and business CLI guard", async () => {
+  test("restores grep modes, find ordering, unrestricted delivery, and direct business CLI guards", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
     roots.push(root);
     const registry = new ToolRegistry();
@@ -1025,7 +1038,8 @@ describe("native coding tools", () => {
       pattern: "beta", path: "src", output_mode: "count", type: "py",
     }, context(root));
     expect(String(count.content[0]?.text).replaceAll("\\", "/")).toContain("src/a.py:2");
-    await expect(registry.execute("send_files", { paths: ["src/a.py"] }, context(root))).rejects.toThrow("artifacts");
+    expect((await registry.execute("send_files", { paths: ["src/a.py"] }, context(root))).files)
+      .toEqual([join(root, "src", "a.py")]);
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
     expect((await registry.execute("send_files", { paths: ["artifacts/a.txt"] }, context(root))).files).toHaveLength(1);
     const rejected = async (
@@ -1059,28 +1073,26 @@ describe("native coding tools", () => {
     const pythonWrapper = await rejected("python -m lxeskill replenish store resolve");
     expect(pythonWrapper.code).toBe("permission_denied");
     expect(pythonWrapper.details).toMatchObject({ violations: ["python_module_wrapper", "not_standalone"] });
-    const embedded = await rejected("echo lxeskill replenish store resolve");
-    expect(embedded.code).toBe("unsupported_invocation");
-    expect(embedded.details).toMatchObject({ violations: ["not_standalone"] });
+    const embedded = await registry.execute("exec", {
+      command: "echo lxeskill replenish store resolve",
+    }, context(root));
+    expect(String(embedded.content[0]?.text)).toContain("lxeskill replenish store resolve");
+    const powershellDiscovery = await registry.execute("exec", {
+      command: "(Get-Command lxeskill).Source",
+    }, context(root));
+    expect(String(powershellDiscovery.content[0]?.text)).toContain("status:");
+    const moduleSearchText = await registry.execute("exec", {
+      command: "echo services.agent_cli.mabang.resolve_fba_store",
+    }, context(root));
+    expect(String(moduleSearchText.content[0]?.text)).toContain("services.agent_cli.mabang.resolve_fba_store");
+    expect((await rejected("cd . && python -m services.agent_cli.mabang.resolve_fba_store")).details)
+      .toMatchObject({ violations: ["direct_business_module", "shell_composition"] });
     expect((await rejected("lxeskill replenish store resolve && echo done")).details)
       .toMatchObject({ violations: ["shell_composition"] });
     expect((await rejected("lxeskill replenish store resolve > result.txt")).details)
       .toMatchObject({ violations: ["shell_composition"] });
     expect((await rejected("lxeskill replenish store resolve\necho done")).details)
       .toMatchObject({ violations: ["shell_composition"] });
-    const polluted = await rejected(
-      "cd /work && uv run --frozen lxeskill replenish store resolve --store-name Demo --token raw-secret 2>/dev/null | head || python -m services.agent_cli.mabang.resolve_fba_store",
-    );
-    expect(polluted.code).toBe("permission_denied");
-    expect(polluted.details).toMatchObject({
-      violations: ["direct_business_module", "not_standalone", "shell_composition"],
-      canonical_command_path: "lxeskill replenish store resolve",
-      owner_skills: ["replenishment-store-resolve"],
-    });
-    const recovery = polluted.modelContent(1);
-    expect(recovery).toContain('"retryable": true');
-    expect(recovery).not.toContain("raw-secret");
-    expect(recovery).not.toContain("/work");
     const unknownLegacy = await rejected("python -m services.agent_cli.mabang.removed_old_module");
     expect(unknownLegacy.details).toMatchObject({ discovery_command: "lxeskill list" });
     const hiddenSkills = registry.createExposureState({ allowedSkills: new Set(["another-skill"]) });

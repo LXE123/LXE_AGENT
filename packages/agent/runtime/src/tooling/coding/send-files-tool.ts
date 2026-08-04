@@ -1,9 +1,13 @@
-import { existsSync, statSync } from "node:fs";
-import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
+import { statSync } from "node:fs";
+import type { JsonObject } from "@lxe/protocol";
 import type { ToolDefinition } from "../registry";
-import type { CodingPathPolicy, ReadableTarget } from "./path-policy";
+import type { CodingPathPolicy } from "./path-policy";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
+const isMissingPathError = (cause: unknown): boolean =>
+  cause instanceof Error
+  && "code" in cause
+  && (cause.code === "ENOENT" || cause.code === "ENOTDIR");
 
 export interface SendFilesToolDependencies {
   paths: CodingPathPolicy;
@@ -18,7 +22,7 @@ export function createSendFilesTool(dependencies: SendFilesToolDependencies): To
   const { paths } = dependencies;
   return {
     name: "send_files",
-    description: "Send one or more existing workspace/runtime artifacts or bundled skill assets to the current user.",
+    description: "Send one or more existing regular files readable by the local LXE Agent process to the current user.",
     input_schema: {
       type: "object",
       properties: {
@@ -45,7 +49,14 @@ export function createSendFilesTool(dependencies: SendFilesToolDependencies): To
       });
       const sendableFiles = requestedPaths.map((requestedPath) => {
         const target = paths.resolveReadable(context.workspace, requestedPath);
-        assertSendableFile(paths, context.workspace, target, requestedPath);
+        let info: ReturnType<typeof statSync>;
+        try {
+          info = statSync(target.path);
+        } catch (cause) {
+          if (!isMissingPathError(cause)) throw cause;
+          throw new Error(`file not found: ${requestedPath}`);
+        }
+        if (!info.isFile()) throw new Error(`file not found: ${requestedPath}`);
         return {
           path: target.path,
           displayPath: paths.displayReadablePath(context.workspace, target),
@@ -61,18 +72,6 @@ export function createSendFilesTool(dependencies: SendFilesToolDependencies): To
       };
     },
   };
-}
-
-function assertSendableFile(
-  paths: CodingPathPolicy,
-  workspace: WorkspaceContext,
-  target: ReadableTarget,
-  requestedPath: string,
-): void {
-  if (!existsSync(target.path) || !statSync(target.path).isFile()) {
-    throw new Error(`file not found: ${requestedPath}`);
-  }
-  paths.assertSendable(workspace, target);
 }
 
 function uniqueByPath(files: readonly SendableFile[]): SendableFile[] {

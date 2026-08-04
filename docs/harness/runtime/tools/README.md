@@ -50,15 +50,17 @@ Definition 注册与模型可见是两个不同阶段。Registry 保存所有可
 
 Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的工具从下一 provider request 生效。
 
-## 安全边界
+## 本机信任模型
 
 - 重复工具名直接失败，不能静默覆盖 handler。
 - 模型只能调用本 step schema 中已暴露的名称。
 - tool input 必须是 object，并按 schema/handler 边界验证。
-- 文件操作限制在 workspace 与允许的 artifact/skill asset 路径。
+- 文件、搜索、文件交付、Shell、Python 和 `lxeskill` 直接使用 LXE Agent 进程的本机用户权限；workspace 只是相对路径和默认 cwd 的基准，不是安全边界。
+- `send_files` 可以交付当前进程可读取的任意普通文件；文件不存在或不是普通文件时失败。
 - 现有文件 write/edit 必须先 read，并拒绝 read 后外部变化的 stale edit。
-- root private env、用户数据库和本地 runtime state 受到写保护。
 - Active business skill 不允许指导模型 shell-out 到业务模块。
+
+Runtime 没有 filesystem/network sandbox，也没有 sandbox 初始化或失败回退流程。Windows 生产环境继承启动 Desktop/agent-cli 的 Windows 用户权限；源码开发环境同样继承宿主进程权限。它只适用于可信本地自动化。
 
 ## Cancel 与 exec 生命周期
 
