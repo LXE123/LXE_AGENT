@@ -1087,43 +1087,189 @@ def _formal_row_values(
     return [values.get(column, "") for column in columns]
 
 
-def _purchase_contract_source_values(
+def _set_purchase_source_fields(
+    values: dict[str, Any],
+    *,
+    details: list[Mapping[str, Any]],
+    product_names: Mapping[tuple[str, str], str],
+) -> None:
+    if not details:
+        raise _incomplete("采购汇总来源行为空", field="purchase_line.allocation_details")
+    source_sps: list[str] = []
+    seen_sps: set[str] = set()
+    sku_quantities: OrderedDict[str, Decimal] = OrderedDict()
+    sku_product_names: OrderedDict[str, str] = OrderedDict()
+    for index, detail in enumerate(details):
+        field = f"purchase_line.allocation_details[{index}]"
+        sp_no = _required_result_text(detail.get("sp_no"), field=f"{field}.sp_no").upper()
+        stock_sku = _required_result_text(
+            detail.get("stock_sku"), field=f"{field}.stock_sku"
+        ).upper()
+        quantity = _required_result_decimal(
+            detail.get("quantity"), field=f"{field}.quantity", positive=True
+        )
+        product_name = product_names.get((sp_no, stock_sku))
+        if not product_name:
+            raise _incomplete(
+                f"SP={sp_no}, SKU={stock_sku} 缺少冻结产品名称",
+                field="request.sps[].planned_lines[].product_name",
+            )
+        if sp_no not in seen_sps:
+            seen_sps.add(sp_no)
+            source_sps.append(sp_no)
+        existing_product_name = sku_product_names.get(stock_sku)
+        if existing_product_name is not None and existing_product_name != product_name:
+            raise _incomplete(
+                f"SKU={stock_sku} 的冻结产品名称不一致",
+                field="request.sps[].planned_lines[].product_name",
+            )
+        sku_quantities[stock_sku] = sku_quantities.get(stock_sku, Decimal("0")) + quantity
+        sku_product_names.setdefault(stock_sku, product_name)
+
+    values["库存sku"] = "\n".join(
+        f"{stock_sku} × {_decimal_text(quantity)}"
+        for stock_sku, quantity in sku_quantities.items()
+    )
+    values["产品名称"] = "\n".join(sku_product_names.values())
+    values["来源SP单号"] = "\n".join(source_sps)
+    values["库存sku（第一行）"] = next(iter(sku_quantities))
+    values["产品名称（第一行）"] = next(iter(sku_product_names.values()))
+
+
+def _purchase_source_rows(
+    original: Mapping[str, Any],
     line: Mapping[str, Any],
     *,
-    purchased: Decimal,
-) -> tuple[str, str]:
-    current_contract = ""
-    if purchased > 0:
-        contract_no = _required_result_text(
-            line.get("contract_no"), field="purchase_line.contract_no"
+    columns: list[str],
+    product_names: Mapping[tuple[str, str], str],
+) -> tuple[list[list[Any]], list[list[Any]]]:
+    current_details: list[Mapping[str, Any]] = []
+    current_quantity = Decimal("0")
+    inventory_quantity = Decimal("0")
+    inventory_groups: OrderedDict[tuple[str, Decimal], dict[str, Any]] = OrderedDict()
+    for index, raw_detail in enumerate(
+        _required_result_list(
+            line.get("allocation_details"), field="purchase_line.allocation_details"
         )
-        current_contract = contract_no
-
-    historical_quantities: OrderedDict[str, Decimal] = OrderedDict()
-    applications = _required_result_list(
-        line.get("applications"), field="purchase_line.applications"
-    )
-    for index, raw_application in enumerate(applications):
-        field = f"purchase_line.applications[{index}]"
-        if not isinstance(raw_application, Mapping):
+    ):
+        field = f"purchase_line.allocation_details[{index}]"
+        if not isinstance(raw_detail, Mapping):
             raise _incomplete(f"{field} 必须是对象", field=field)
-        contract_no = _required_result_text(
-            raw_application.get("source_contract_no"),
-            field=f"{field}.source_contract_no",
+        source_kind = _required_result_text(
+            raw_detail.get("source_kind"), field=f"{field}.source_kind"
         )
         quantity = _required_result_decimal(
-            raw_application.get("applied_quantity"),
-            field=f"{field}.applied_quantity",
-            positive=True,
+            raw_detail.get("quantity"), field=f"{field}.quantity", positive=True
         )
-        historical_quantities[contract_no] = (
-            historical_quantities.get(contract_no, Decimal("0")) + quantity
+        if source_kind == "current_purchase":
+            current_details.append(raw_detail)
+            current_quantity += quantity
+            continue
+        if source_kind != "carryover":
+            raise _incomplete(
+                f"{field}.source_kind 未知: {source_kind}",
+                field=f"{field}.source_kind",
+            )
+        contract_no = _required_result_text(
+            raw_detail.get("source_contract_no"),
+            field=f"{field}.source_contract_no",
         )
-    historical_contracts = "\n".join(
-        f"{contract_no} × {_decimal_text(quantity)}"
-        for contract_no, quantity in historical_quantities.items()
+        price = _required_result_decimal(
+            raw_detail.get("historical_tax_unit_price"),
+            field=f"{field}.historical_tax_unit_price",
+        )
+        bucket = inventory_groups.setdefault(
+            (contract_no, price),
+            {"quantity": Decimal("0"), "details": []},
+        )
+        bucket["quantity"] += quantity
+        bucket["details"].append(raw_detail)
+        inventory_quantity += quantity
+
+    planned = _required_result_decimal(
+        line.get("planned_shipment_quantity"),
+        field="purchase_line.planned_shipment_quantity",
+        positive=True,
     )
-    return current_contract, historical_contracts
+    purchased = _required_result_decimal(
+        line.get("purchase_quantity"), field="purchase_line.purchase_quantity"
+    )
+    carryover = _required_result_decimal(
+        line.get("carryover_applied_quantity"),
+        field="purchase_line.carryover_applied_quantity",
+    )
+    if (
+        planned != purchased + carryover
+        or current_quantity != purchased
+        or inventory_quantity != carryover
+    ):
+        raise _incomplete(
+            "采购汇总来源分配与计划量、采购量或库存抵扣量不一致",
+            field="purchase_line.allocation_details",
+        )
+
+    current_rows: list[list[Any]] = []
+    inventory_rows: list[list[Any]] = []
+    if current_quantity > 0:
+        values = dict(original)
+        _set_purchase_source_fields(
+            values,
+            details=current_details,
+            product_names=product_names,
+        )
+        values[purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER] = _required_result_text(
+            line.get("contract_no"), field="purchase_line.contract_no"
+        )
+        values[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = ""
+        original_price = _decimal(values.get("原价"))
+        values["总价"] = purchase_summary._decimal_to_cell_value(
+            original_price * current_quantity
+        )
+        tax_unit_price = line.get("tax_unit_price")
+        if tax_unit_price is not None and purchase_summary._is_zhengfei_manufacturer(
+            values.get("厂家")
+        ):
+            average = _decimal(tax_unit_price)
+            values["均价"] = purchase_summary._decimal_to_cell_value(average)
+            values["总价（均价）"] = purchase_summary._decimal_to_cell_value(
+                average * current_quantity
+            )
+        current_rows.append(
+            _formal_row_values(
+                values,
+                planned=current_quantity,
+                purchased=current_quantity,
+                carryover=Decimal("0"),
+                columns=columns,
+            )
+        )
+
+    for (contract_no, price), bucket in inventory_groups.items():
+        quantity = bucket["quantity"]
+        values = dict(original)
+        _set_purchase_source_fields(
+            values,
+            details=bucket["details"],
+            product_names=product_names,
+        )
+        values["原价"] = purchase_summary._decimal_to_cell_value(price)
+        values["均价"] = ""
+        values["总价"] = purchase_summary._decimal_to_cell_value(price * quantity)
+        values["总价（均价）"] = ""
+        values[purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER] = ""
+        values[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = (
+            f"{contract_no} × {_decimal_text(quantity)}"
+        )
+        inventory_rows.append(
+            _formal_row_values(
+                values,
+                planned=quantity,
+                purchased=Decimal("0"),
+                carryover=quantity,
+                columns=columns,
+            )
+        )
+    return current_rows, inventory_rows
 
 
 def _sp_product_names(
@@ -1188,14 +1334,22 @@ def _set_stock_sku_fields(
     values["产品名称（第一行）"] = name_lines[0]
 
 
-def _rebuild_purchase_sheet(worksheet: Any, lines: Mapping[tuple[str, str], dict[str, Any]]) -> None:
+def _rebuild_purchase_sheet(
+    worksheet: Any,
+    lines: Mapping[tuple[str, str], dict[str, Any]],
+    *,
+    product_names: Mapping[tuple[str, str], str],
+) -> None:
+    from openpyxl.styles import PatternFill
+
     old_columns = [purchase_summary._clean_cell(cell.value) for cell in worksheet[1]]
     if "数量" not in old_columns:
         return
     old_rows = [list(row) for row in worksheet.iter_rows(min_row=2, values_only=True)]
     data_rows = [row for row in old_rows if purchase_summary._clean_cell(row[0] if row else "") != "合计"]
     new_columns = _replace_quantity_header(old_columns)
-    rebuilt: list[list[Any]] = []
+    normal_rows: list[list[Any]] = []
+    inventory_rows: list[list[Any]] = []
     for row in data_rows:
         original = _row_dict(old_columns, row)
         key = (
@@ -1208,41 +1362,27 @@ def _rebuild_purchase_sheet(worksheet: Any, lines: Mapping[tuple[str, str], dict
                 "erp_purchase_result_incomplete",
                 f"ERP 结果缺少采购行: 厂家={key[0]}, 型号={original.get('型号')}",
             )
-        planned = _decimal(line.get("planned_shipment_quantity"))
-        purchased = _decimal(line.get("purchase_quantity"))
-        carryover = _decimal(line.get("carryover_applied_quantity"))
-        current_contract, historical_contracts = _purchase_contract_source_values(
+        current, inventory = _purchase_source_rows(
+            original,
             line,
-            purchased=purchased,
+            columns=new_columns,
+            product_names=product_names,
         )
-        original[purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER] = current_contract
-        original[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = historical_contracts
-        original_price = _decimal(original.get("原价"))
-        original["总价"] = purchase_summary._decimal_to_cell_value(original_price * purchased)
-        tax_unit_price = line.get("tax_unit_price")
-        if tax_unit_price is not None and purchase_summary._is_zhengfei_manufacturer(key[0]):
-            average = _decimal(tax_unit_price)
-            original["均价"] = purchase_summary._decimal_to_cell_value(average)
-            original["总价（均价）"] = purchase_summary._decimal_to_cell_value(average * purchased)
-        elif purchased == 0:
-            original["均价"] = ""
-            original["总价（均价）"] = ""
-        rebuilt.append(
-            _formal_row_values(
-                original,
-                planned=planned,
-                purchased=purchased,
-                carryover=carryover,
-                columns=new_columns,
-            )
-        )
+        normal_rows.extend(current)
+        inventory_rows.extend(inventory)
 
     title = worksheet.title
     workbook = worksheet.parent
     index = workbook.index(worksheet)
     workbook.remove(worksheet)
     target = workbook.create_sheet(title, index)
-    purchase_summary._write_rows(target, tuple(new_columns), rebuilt, append_total=True)
+    all_rows = [*normal_rows, *inventory_rows]
+    purchase_summary._write_rows(target, tuple(new_columns), all_rows, append_total=True)
+    yellow = PatternFill(fill_type="solid", fgColor=INVENTORY_ROW_FILL_COLOR)
+    first_inventory_row = 2 + len(normal_rows)
+    for row_index in range(first_inventory_row, first_inventory_row + len(inventory_rows)):
+        for cell in target[row_index]:
+            cell.fill = copy(yellow)
 
 
 def _restock_source_rows(
@@ -1464,7 +1604,11 @@ def apply_formal_erp_result(
     for sheet_name in list(workbook.sheetnames):
         if sheet_name == purchase_summary.UNMATCHED_SHEET_NAME:
             continue
-        _rebuild_purchase_sheet(workbook[sheet_name], lines)
+        _rebuild_purchase_sheet(
+            workbook[sheet_name],
+            lines,
+            product_names=product_names,
+        )
     workbook.save(purchase_path)
 
     for output in result["restock_outputs"]:
