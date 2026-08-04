@@ -10,12 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
-from services.agent_cli.mabang.restock_workbook import (
-    SUMMARY_HEADERS,
-    SUMMARY_WORKSHEET_NAME,
-    find_summary_sheet,
-    summary_column_indexes,
-)
 from services.agent_cli.mabang import shipment_quantity_validation as quantity_validation
 from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
@@ -26,8 +20,23 @@ from shared.workspace import resolve_workspace_input
 
 SOURCE = "customs_declaration_fill"
 DEFAULT_OUTPUT_DIR = dataset_dir("fba_customs_declaration")
-SOURCE_WORKSHEET_NAME = SUMMARY_WORKSHEET_NAME
-INPUT_HEADERS = SUMMARY_HEADERS
+SOURCE_WORKSHEET_NAME = "汇总表"
+RESTOCK_WORKSHEET_NAME = "备货单"
+INVENTORY_SOURCE_MARKER = "走库存"
+INPUT_HEADERS = (
+    "日期",
+    "库存sku（第一行）",
+    "产品名称（第一行）",
+    "型号",
+    "数量",
+    "原价",
+    "总价（原价）",
+    "合同产品名称",
+    "售价",
+    "总价（售价）",
+    "单位",
+)
+RESTOCK_INPUT_HEADERS = INPUT_HEADERS + ("库存sku", "产品名称")
 TARGET_HEADERS = (
     "序号",
     "品名",
@@ -88,6 +97,14 @@ class SourceDeclarationRow:
     unit: str
     sku: str = ""
     purchase_price: Any = None
+    source_kind: str = "current_purchase"
+
+
+@dataclass(frozen=True)
+class StockSkuModelInfo:
+    row_number: int
+    sku: str
+    model: str
 
 
 @dataclass(frozen=True)
@@ -390,6 +407,42 @@ def _load_workbook(path: Path, *, data_only: bool = False):
         raise RuntimeError(f"读取 xlsx 文件失败: {path}, error={exc}") from exc
 
 
+def _required_header_indexes(
+    worksheet: Any,
+    *,
+    required_headers: tuple[str, ...],
+    input_path: Path,
+) -> dict[str, int]:
+    indexes: dict[str, int] = {}
+    duplicate_headers: list[str] = []
+    for column_index in range(1, worksheet.max_column + 1):
+        header = _clean_cell(worksheet.cell(row=1, column=column_index).value)
+        if header not in required_headers:
+            continue
+        if header in indexes:
+            duplicate_headers.append(header)
+            continue
+        indexes[header] = column_index
+    if duplicate_headers:
+        duplicate_text = ", ".join(dict.fromkeys(duplicate_headers))
+        raise ValueError(
+            f"文件 {input_path.name} 的 sheet {worksheet.title} 第 1 行表头重复: {duplicate_text}"
+        )
+    missing = [header for header in required_headers if header not in indexes]
+    if missing:
+        raise ValueError(
+            f"文件 {input_path.name} 的 sheet {worksheet.title} 缺少新版备货单必需表头: "
+            f"{', '.join(missing)}"
+        )
+    return indexes
+
+
+def _required_worksheet(workbook: Any, *, name: str, input_path: Path):
+    if name not in workbook.sheetnames:
+        raise ValueError(f"文件 {input_path.name} 缺少新版备货单 sheet: {name}")
+    return workbook[name]
+
+
 def read_source_rows(input_xlsx: str | Path) -> list[SourceDeclarationRow]:
     path = Path(input_xlsx)
     if not path.is_file():
@@ -397,31 +450,109 @@ def read_source_rows(input_xlsx: str | Path) -> list[SourceDeclarationRow]:
 
     workbook = _load_workbook(path, data_only=True)
     try:
-        worksheet = find_summary_sheet(workbook, path)
-        column_indexes = summary_column_indexes(worksheet, input_path=path, sheet_name=worksheet.title)
+        worksheet = _required_worksheet(workbook, name=SOURCE_WORKSHEET_NAME, input_path=path)
+        column_indexes = _required_header_indexes(
+            worksheet,
+            required_headers=INPUT_HEADERS,
+            input_path=path,
+        )
 
         rows: list[SourceDeclarationRow] = []
         for row_number in range(2, worksheet.max_row + 1):
-            if not _clean_cell(worksheet.cell(row=row_number, column=column_indexes["日期"]).value):
+            source_marker = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["日期"]).value)
+            if not source_marker:
                 break
             rows.append(
                 SourceDeclarationRow(
                     row_number=row_number,
-                    source_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["品名"]).value),
-                    model=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["规格型号"]).value),
-                    quantity=worksheet.cell(row=row_number, column=column_indexes["发货量"]).value,
-                    commodity_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["商品名称"]).value),
+                    source_name=_clean_cell(
+                        worksheet.cell(row=row_number, column=column_indexes["产品名称（第一行）"]).value
+                    ),
+                    model=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["型号"]).value),
+                    quantity=worksheet.cell(row=row_number, column=column_indexes["数量"]).value,
+                    commodity_name=_clean_cell(
+                        worksheet.cell(row=row_number, column=column_indexes["合同产品名称"]).value
+                    ),
                     sale_price=worksheet.cell(row=row_number, column=column_indexes["售价"]).value,
-                    total_price=worksheet.cell(row=row_number, column=column_indexes["总价"]).value,
+                    total_price=worksheet.cell(row=row_number, column=column_indexes["总价（售价）"]).value,
                     unit=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["单位"]).value),
-                    sku=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["SKU"]).value),
-                    purchase_price=worksheet.cell(row=row_number, column=column_indexes["单价"]).value,
+                    sku=_clean_cell(
+                        worksheet.cell(row=row_number, column=column_indexes["库存sku（第一行）"]).value
+                    ),
+                    purchase_price=worksheet.cell(row=row_number, column=column_indexes["原价"]).value,
+                    source_kind=(
+                        "carryover" if source_marker == INVENTORY_SOURCE_MARKER else "current_purchase"
+                    ),
                 )
             )
 
         if not rows:
             raise ValueError(f"输入 xlsx 的 sheet {worksheet.title} 未解析到有效数据: {path.name}")
         return rows
+    finally:
+        workbook.close()
+
+
+def _split_stock_skus(value: Any) -> list[str]:
+    return [
+        sku
+        for raw_item in re.split(r"[，,\r\n;；]+", _clean_cell(value))
+        if (sku := _clean_cell(raw_item))
+    ]
+
+
+def read_stock_sku_model_infos(input_xlsx: str | Path) -> OrderedDict[str, StockSkuModelInfo]:
+    path = Path(input_xlsx)
+    if not path.is_file():
+        raise FileNotFoundError(f"输入 xlsx 不存在: {path}")
+
+    workbook = _load_workbook(path, data_only=True)
+    try:
+        worksheet = _required_worksheet(workbook, name=RESTOCK_WORKSHEET_NAME, input_path=path)
+        column_indexes = _required_header_indexes(
+            worksheet,
+            required_headers=RESTOCK_INPUT_HEADERS,
+            input_path=path,
+        )
+        infos: OrderedDict[str, StockSkuModelInfo] = OrderedDict()
+        conflicts: list[str] = []
+        for row_number in range(2, worksheet.max_row + 1):
+            source_marker = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["日期"]).value)
+            if not source_marker:
+                break
+            model = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["型号"]).value)
+            representative_sku = _clean_cell(
+                worksheet.cell(row=row_number, column=column_indexes["库存sku（第一行）"]).value
+            )
+            stock_skus = _split_stock_skus(
+                worksheet.cell(row=row_number, column=column_indexes["库存sku"]).value
+            )
+            if representative_sku and _normalize_sku_key(representative_sku) not in {
+                _normalize_sku_key(sku) for sku in stock_skus
+            }:
+                stock_skus.insert(0, representative_sku)
+            if not stock_skus:
+                raise ValueError(f"备货单第{row_number}行 库存sku 不能为空")
+            if not model:
+                raise ValueError(f"备货单第{row_number}行 型号不能为空")
+            for sku in stock_skus:
+                sku_key = _normalize_sku_key(sku)
+                existing = infos.get(sku_key)
+                if existing is not None:
+                    if existing.model != model:
+                        conflicts.append(
+                            f"SKU={sku}: 第{existing.row_number}行型号={existing.model}, "
+                            f"第{row_number}行型号={model}"
+                        )
+                    continue
+                infos[sku_key] = StockSkuModelInfo(row_number=row_number, sku=sku, model=model)
+        if conflicts:
+            preview = "; ".join(conflicts[:10])
+            suffix = " ..." if len(conflicts) > 10 else ""
+            raise ValueError(f"备货单同一库存 SKU 存在不同型号，无法建立映射: {preview}{suffix}")
+        if not infos:
+            raise ValueError(f"备货单 {worksheet.title} 未解析到有效库存 SKU 型号映射")
+        return infos
     finally:
         workbook.close()
 
@@ -1400,41 +1531,48 @@ def _normalize_sku_key(value: Any) -> str:
     return _clean_cell(value).upper()
 
 
-def _model_from_merge_info(merge_info: quantity_validation.StockSkuMergeInfo) -> str:
-    model = _clean_cell(merge_info.merge_key[0])
+def _model_from_stock_sku_info(info: StockSkuModelInfo) -> str:
+    model = _clean_cell(info.model)
     if not model:
-        raise ValueError(f"财务合并明细表第{merge_info.row_number}行 SKU={merge_info.sku} 缺少规则型号")
+        raise ValueError(f"备货单第{info.row_number}行 库存sku={info.sku} 缺少型号")
     return model
 
 
 def _source_rows_by_model(
     rows: list[SourceDeclarationRow],
-    stock_sku_merge_infos: OrderedDict[str, quantity_validation.StockSkuMergeInfo],
-) -> tuple[OrderedDict[str, SourceDeclarationRow], dict[int, str]]:
-    by_model: OrderedDict[str, SourceDeclarationRow] = OrderedDict()
+    stock_sku_model_infos: OrderedDict[str, StockSkuModelInfo],
+) -> tuple[OrderedDict[str, list[SourceDeclarationRow]], dict[int, str]]:
+    by_model: OrderedDict[str, list[SourceDeclarationRow]] = OrderedDict()
     model_by_summary_row: dict[int, str] = {}
-    duplicates: list[str] = []
     for row in rows:
         sku_key = _normalize_sku_key(row.sku)
         if not sku_key:
-            raise ValueError(f"汇总表第{row.row_number}行 SKU 不能为空")
-        merge_info = stock_sku_merge_infos.get(sku_key)
-        if merge_info is None:
-            raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 不在备货单第一个表格中，无法确定规则型号")
-        model = _model_from_merge_info(merge_info)
-        if model in by_model:
-            existing_row = by_model[model]
-            duplicates.append(
-                f"规则型号={model}: 第{existing_row.row_number}行 SKU={existing_row.sku}, "
-                f"第{row.row_number}行 SKU={row.sku}"
+            raise ValueError(f"汇总表第{row.row_number}行 库存sku（第一行）不能为空")
+        stock_sku_info = stock_sku_model_infos.get(sku_key)
+        if stock_sku_info is None:
+            raise ValueError(
+                f"汇总表第{row.row_number}行 库存sku（第一行）={row.sku} "
+                "不在备货单的库存sku中，无法确定型号"
             )
-            continue
-        by_model[model] = row
+        model = _model_from_stock_sku_info(stock_sku_info)
+        by_model.setdefault(model, []).append(row)
         model_by_summary_row[row.row_number] = model
-    if duplicates:
-        preview = "; ".join(duplicates[:10])
-        suffix = " ..." if len(duplicates) > 10 else ""
-        raise ValueError(f"汇总表同一个规则型号存在多个代表 SKU，无法归并: {preview}{suffix}")
+
+    for model, model_rows in by_model.items():
+        if len(model_rows) <= 1:
+            continue
+        carryover_rows = [row for row in model_rows if row.source_kind == "carryover"]
+        current_rows = [row for row in model_rows if row.source_kind == "current_purchase"]
+        if not carryover_rows:
+            row_numbers = ", ".join(str(row.row_number) for row in model_rows)
+            raise ValueError(
+                f"汇总表同一型号存在多个价格行但没有走库存标识: 型号={model}, 行={row_numbers}"
+            )
+        if len(current_rows) > 1:
+            row_numbers = ", ".join(str(row.row_number) for row in current_rows)
+            raise ValueError(
+                f"汇总表同一型号存在多个当前采购行: 型号={model}, 行={row_numbers}"
+            )
     return by_model, model_by_summary_row
 
 
@@ -1449,6 +1587,44 @@ def _actual_total(quantity: Decimal, sale_price: Decimal) -> Decimal:
     return (quantity * sale_price).quantize(THREE_DECIMALS, rounding=ROUND_HALF_UP)
 
 
+def _allocate_actual_quantities_by_source_row(
+    *,
+    source_rows_by_model: OrderedDict[str, list[SourceDeclarationRow]],
+    expected_quantity_by_row: dict[int, Decimal],
+    actual_quantity_by_model: OrderedDict[str, Decimal],
+) -> dict[int, Decimal]:
+    allocation_by_row: dict[int, Decimal] = {}
+    for model, model_rows in source_rows_by_model.items():
+        actual_quantity = actual_quantity_by_model.get(model, Decimal("0"))
+        if len(model_rows) == 1:
+            allocation_by_row[model_rows[0].row_number] = actual_quantity
+            continue
+
+        carryover_rows = [row for row in model_rows if row.source_kind == "carryover"]
+        current_rows = [row for row in model_rows if row.source_kind == "current_purchase"]
+        remaining = actual_quantity
+        for row in carryover_rows:
+            expected_quantity = expected_quantity_by_row[row.row_number]
+            allocated = min(remaining, expected_quantity)
+            allocation_by_row[row.row_number] = allocated
+            remaining -= allocated
+        if current_rows:
+            allocation_by_row[current_rows[0].row_number] = remaining
+            remaining = Decimal("0")
+        if remaining > 0:
+            bucket_text = ", ".join(
+                f"第{row.row_number}行={expected_quantity_by_row[row.row_number]}"
+                for row in carryover_rows
+            )
+            raise ValueError(
+                "同型号实际发货量超过全部走库存批次，且没有当前采购价格可承接: "
+                f"型号={model}, 实际发货量={actual_quantity}, 走库存批次=[{bucket_text}]"
+            )
+        for row in model_rows:
+            allocation_by_row.setdefault(row.row_number, Decimal("0"))
+    return allocation_by_row
+
+
 def _build_actual_declaration_rows(
     *,
     input_path: Path,
@@ -1456,8 +1632,18 @@ def _build_actual_declaration_rows(
     summary_rows: list[SourceDeclarationRow],
     consignment_excel_path: Path,
 ) -> tuple[list[SourceDeclarationRow], list[dict[str, Any]]]:
-    stock_sku_merge_infos = quantity_validation.read_stock_sku_merge_infos(input_path)
-    source_by_model, model_by_summary_row = _source_rows_by_model(summary_rows, stock_sku_merge_infos)
+    stock_sku_model_infos = read_stock_sku_model_infos(input_path)
+    source_rows_by_model, model_by_summary_row = _source_rows_by_model(
+        summary_rows,
+        stock_sku_model_infos,
+    )
+    expected_quantity_by_row = {
+        row.row_number: _parse_positive_decimal(
+            row.quantity,
+            field_name=f"汇总表第{row.row_number}行数量",
+        )
+        for row in summary_rows
+    }
     delivery_csv_path = quantity_validation.resolve_delivery_csv_path(sp_no)
     delivery_infos = quantity_validation.read_delivery_msku_infos(delivery_csv_path)
     delivery_components = OrderedDict((msku, info.components) for msku, info in delivery_infos.items())
@@ -1482,29 +1668,31 @@ def _build_actual_declaration_rows(
         if actual_quantity == 0:
             continue
         sku_key = _normalize_sku_key(sku)
-        merge_info = stock_sku_merge_infos.get(sku_key)
-        if merge_info is None:
-            raise ValueError(f"实际装箱库存 SKU 不在备货单第一个表格中: SKU={sku}")
-        model = _model_from_merge_info(merge_info)
-        if model not in source_by_model:
+        stock_sku_info = stock_sku_model_infos.get(sku_key)
+        if stock_sku_info is None:
+            raise ValueError(f"实际装箱库存 SKU 不在备货单的库存sku中: SKU={sku}")
+        model = _model_from_stock_sku_info(stock_sku_info)
+        if model not in source_rows_by_model:
             raise ValueError(
                 "实际装箱库存 SKU 型号组在汇总表中没有代表 SKU: "
-                f"SKU={sku}, 规则型号={model}"
+                f"SKU={sku}, 型号={model}"
             )
         actual_by_model[model] = actual_by_model.get(model, Decimal("0")) + actual_quantity
 
+    allocation_by_row = _allocate_actual_quantities_by_source_row(
+        source_rows_by_model=source_rows_by_model,
+        expected_quantity_by_row=expected_quantity_by_row,
+        actual_quantity_by_model=actual_by_model,
+    )
     actual_rows: list[SourceDeclarationRow] = []
     comparison_rows: list[dict[str, Any]] = []
     for summary_row in summary_rows:
         model = model_by_summary_row[summary_row.row_number]
-        expected_quantity = _parse_positive_decimal(
-            summary_row.quantity,
-            field_name=f"汇总表第{summary_row.row_number}行发货量",
-        )
-        actual_quantity = actual_by_model.get(model, Decimal("0"))
+        expected_quantity = expected_quantity_by_row[summary_row.row_number]
+        actual_quantity = allocation_by_row[summary_row.row_number]
         purchase_price = _parse_decimal(
             summary_row.purchase_price,
-            field_name=f"汇总表第{summary_row.row_number}行 SKU={summary_row.sku} 单价",
+            field_name=f"汇总表第{summary_row.row_number}行 库存sku（第一行）={summary_row.sku} 原价",
         ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP)
         sale_price = _parse_decimal(
             summary_row.sale_price,
@@ -1525,7 +1713,9 @@ def _build_actual_declaration_rows(
             status = "一致"
         else:
             status = "数量变化"
-        issue = "映射来源：汇总表 SKU 命中第一个表格型号组"
+        issue = "映射来源：汇总表 库存sku（第一行）命中备货单库存sku型号组"
+        if len(source_rows_by_model[model]) > 1:
+            issue += "；同型号多价格按走库存 FIFO 优先分配 WMS 实际发货量"
         if status == "未发货不写入":
             issue += "；实际发货量为 0，正式报关资料不写入该行"
         comparison_rows.append(
@@ -1685,10 +1875,10 @@ def _build_quantity_validation_report(
         }
         expected_quantities: OrderedDict[str, Decimal] | None = None
         try:
-            expected_quantities = quantity_validation.read_expected_stock_sku_quantities(bundle.input_path)
             delivery_csv_path = quantity_validation.resolve_delivery_csv_path(bundle.sp_no)
             source_info["发货单CSV"] = str(delivery_csv_path)
             delivery_infos = quantity_validation.read_delivery_msku_infos(delivery_csv_path)
+            expected_quantities = quantity_validation.build_expected_stock_sku_quantities(delivery_infos)
             delivery_components = OrderedDict((msku, info.components) for msku, info in delivery_infos.items())
             delivery_msku_ship_quantities = {
                 msku: info.msku_ship_quantity

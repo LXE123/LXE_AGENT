@@ -228,6 +228,23 @@ def read_delivery_msku_infos(csv_path: str | Path) -> OrderedDict[str, DeliveryM
     )
 
 
+def build_expected_stock_sku_quantities(
+    delivery_infos: OrderedDict[str, DeliveryMskuInfo],
+) -> OrderedDict[str, Decimal]:
+    quantities: OrderedDict[str, Decimal] = OrderedDict()
+    display_skus: dict[str, str] = {}
+    for info in delivery_infos.values():
+        for sku, quantity in info.components.items():
+            if quantity <= 0:
+                continue
+            sku_key = _normalize_sku_key(sku)
+            display_skus.setdefault(sku_key, sku)
+            quantities[sku_key] = quantities.get(sku_key, Decimal("0")) + quantity
+    if not quantities:
+        raise ValueError(f"发货单 CSV 未解析到有效 {SKU_SHIP_QTY_COLUMN} 预期库存 SKU 数量")
+    return OrderedDict((display_skus[key], value) for key, value in quantities.items())
+
+
 def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, StockSkuMergeInfo]:
     try:
         from openpyxl import load_workbook
