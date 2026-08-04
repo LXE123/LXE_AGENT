@@ -548,7 +548,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         assert sheet.cell(2, headers.index("本次采购量") + 1).value == 6
         assert sheet.cell(2, headers.index("留存库存抵扣量") + 1).value == 4
         assert "合同编号前缀" not in headers
-        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF202607230001 × 6"
+        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF202607230001"
         assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value == "ZF20260601001 × 4"
     finally:
         summary.close()
@@ -573,7 +573,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
 @pytest.mark.parametrize(
     ("purchased", "contract_no", "applications", "expected"),
     [
-        (Decimal("6"), "NEW-001", [], ("NEW-001 × 6", "")),
+        (Decimal("6"), "NEW-001", [], ("NEW-001", "")),
         (
             Decimal("4"),
             "NEW-001",
@@ -582,7 +582,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
                 {"source_contract_no": "OLD-002", "applied_quantity": "1.5"},
                 {"source_contract_no": "OLD-001", "applied_quantity": 1},
             ],
-            ("NEW-001 × 4", "OLD-001 × 3\nOLD-002 × 1.5"),
+            ("NEW-001", "OLD-001 × 3\nOLD-002 × 1.5"),
         ),
         (
             Decimal("0"),
@@ -592,7 +592,7 @@ def test_formal_workbooks_split_three_quantities_and_yellow_inventory_row(tmp_pa
         ),
     ],
 )
-def test_purchase_contract_source_values_show_actual_quantities(
+def test_purchase_contract_source_values_format_current_and_historical_contracts(
     purchased: Decimal,
     contract_no: str,
     applications: list[dict[str, object]],

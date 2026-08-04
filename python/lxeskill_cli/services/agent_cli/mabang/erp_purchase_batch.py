@@ -1097,7 +1097,7 @@ def _purchase_contract_source_values(
         contract_no = _required_result_text(
             line.get("contract_no"), field="purchase_line.contract_no"
         )
-        current_contract = f"{contract_no} × {_decimal_text(purchased)}"
+        current_contract = contract_no
 
     historical_quantities: OrderedDict[str, Decimal] = OrderedDict()
     applications = _required_result_list(
