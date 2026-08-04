@@ -44,6 +44,9 @@ describe("exec tool description", () => {
       const description = execToolDescription(profile, LIMITS);
       expect(description).toContain("50000 bytes");
       expect(description).toContain("output_path");
+      expect(description).toContain("max-output-tokens");
+      expect(description).toContain("output_file_covers_captured");
+      expect(description).not.toContain("complete transcript");
       expect(description).toMatch(/Do NOT pipe through/u);
     }
     // The self-truncation the model would reach for differs per shell.

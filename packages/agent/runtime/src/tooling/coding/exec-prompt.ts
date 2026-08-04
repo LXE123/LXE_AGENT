@@ -47,7 +47,7 @@ const truncationLine = (profile: ExecShellProfile, limits: ExecPromptLimits): st
   const selfTruncation = isWindows(profile)
     ? "`Select-Object -First`, `Select-Object -Last`"
     : "`head`, `tail`";
-  return `Output over ${limits.maxOutputBytes} bytes keeps its END inline and the complete transcript is written to a file, whose path is returned as output_path. Do NOT pipe through ${selfTruncation} or similar to shrink output: that discards the data before it can be captured. Read the transcript with grep, or read with offset/limit.`;
+  return `Output over ${limits.maxOutputBytes} bytes keeps its END inline and writes captured output to a bounded file returned as output_path. max-output-tokens can request a smaller model-visible observation; when that omits output, a recovery file is created even below the byte threshold. For a running command the file only covers output captured so far. Check status, output_file_covers_captured, output_file_truncated, and output_incomplete before treating a terminal file as complete. Do NOT pipe through ${selfTruncation} or similar to shrink output: that discards the data before it can be captured. Read the transcript with grep, or read with offset/limit.`;
 };
 
 const fileToolLines = (profile: ExecShellProfile): string[] => {

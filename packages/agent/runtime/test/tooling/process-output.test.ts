@@ -6,6 +6,7 @@ import {
   ProcessOutputStore,
   decodeProcessOutput,
   formatCommandPayload,
+  formatCommandPayloadWithBudget,
   renderProcessChunks,
   trimPartialUtf8,
 } from "../../src/tooling/process-output";
@@ -127,6 +128,51 @@ describe("process output store", () => {
     const store = new ProcessOutputStore({ retainBytes: 32, spillPath, spillLimitBytes: 64 });
     for (let index = 0; index < 50; index += 1) store.append("stdout", utf8("0123456789\n"));
     expect(readFileSync(spillPath).byteLength).toBe(64);
+    expect(store.outputFileBytes).toBe(64);
+    expect(store.outputFileCoversCaptured).toBe(false);
+    expect(store.outputFileTruncated).toBe(true);
+  });
+
+  test("materializes short output on demand and keeps appending while live", async () => {
+    const spillPath = join(scratch(), "exec_on_demand.log");
+    const store = new ProcessOutputStore({ retainBytes: 10_000, spillPath });
+    store.append("stdout", utf8("first\n"));
+    await store.ensureSpill();
+    expect(readFileSync(spillPath, "utf8")).toBe("first\n");
+    expect(store.outputFileCoversCaptured).toBe(true);
+
+    store.append("stderr", utf8("second\n"));
+    await store.ensureSpill();
+    expect(readFileSync(spillPath, "utf8")).toBe("first\nsecond\n");
+    expect(store.outputFileBytes).toBe(store.totalBytes);
+    expect(store.outputFileCoversCaptured).toBe(true);
+    await store.close();
+  });
+
+  test("materializes and closes output after the process store already closed", async () => {
+    const spillPath = join(scratch(), "exec_terminal_on_demand.log");
+    const store = new ProcessOutputStore({ retainBytes: 10_000, spillPath });
+    store.append("stdout", utf8("terminal\n"));
+    await store.close();
+    await store.ensureSpill();
+    await store.ensureSpill();
+    expect(readFileSync(spillPath, "utf8")).toBe("terminal\n");
+    expect(store.outputFileCoversCaptured).toBe(true);
+  });
+
+  test("reports the real output-file creation error", async () => {
+    const root = scratch();
+    const parentFile = join(root, "not-a-directory");
+    await Bun.write(parentFile, "file");
+    const store = new ProcessOutputStore({
+      retainBytes: 10_000,
+      spillPath: join(parentFile, "exec.log"),
+    });
+    store.append("stdout", utf8("captured\n"));
+    await store.ensureSpill();
+    expect(store.spillPath).toBe("");
+    expect(store.outputFileCoversCaptured).toBe(false);
+    expect(store.outputFileError).toMatch(/EEXIST|ENOTDIR|not a directory/iu);
   });
 
   test("renders a bounded tail across chunk boundaries", () => {
@@ -170,5 +216,34 @@ describe("model-visible payload formatting", () => {
     expect(text.indexOf("truncated: true")).toBeLessThan(text.indexOf("output:"));
     expect(text).toContain("omitted_bytes: 812340");
     expect(text).toContain("output_path: /w/var/tmp/exec/exec_2.log");
+  });
+
+  test("budgets the formatted output while preserving control metadata", () => {
+    const formatted = formatCommandPayloadWithBudget({
+      exec_id: "exec_budget",
+      status: "running",
+      pid: 123,
+      output: `${"A".repeat(5_000)}TAIL`,
+    }, 100);
+    expect(formatted.observationTruncated).toBe(true);
+    expect(formatted.originalTokens).toBeGreaterThan(1_000);
+    expect(formatted.omittedTokens).toBeGreaterThan(0);
+    expect(formatted.text).toContain("exec_id: exec_budget");
+    expect(formatted.text).toContain("status: running");
+    expect(formatted.text).toContain("observation_truncated: true");
+    expect(formatted.text).toContain("TAIL");
+    expect(Buffer.byteLength(formatted.text, "utf8")).toBeLessThanOrEqual(40_000);
+  });
+
+  test("keeps metadata visible at the minimum output budget", () => {
+    const formatted = formatCommandPayloadWithBudget({
+      exec_id: "exec_tiny",
+      status: "running",
+      output: "large output".repeat(1_000),
+    }, 1);
+    expect(formatted.observationTruncated).toBe(true);
+    expect(formatted.text).toContain("exec_id: exec_tiny");
+    expect(formatted.text).toContain("observation_omitted_tokens:");
+    expect(formatted.text).toContain("output:\n…");
   });
 });

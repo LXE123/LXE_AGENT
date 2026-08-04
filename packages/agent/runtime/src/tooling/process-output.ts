@@ -12,7 +12,15 @@ const CONTROL_KEYS = [
   "duration_sec",
   "truncated",
   "omitted_bytes",
+  "observation_truncated",
+  "observation_original_tokens",
+  "observation_omitted_tokens",
+  "captured_output_bytes",
   "output_path",
+  "output_file_bytes",
+  "output_file_covers_captured",
+  "output_file_truncated",
+  "output_file_error",
   "output_incomplete",
   "output_incomplete_reason",
   "output_warning",
@@ -117,7 +125,7 @@ export function renderProcessChunks(chunks: readonly OutputChunk[]): string {
 export interface ProcessOutputStoreOptions {
   /** Bytes kept in memory, and therefore the most the model can be shown at once. */
   retainBytes: number;
-  /** Where the full transcript is written once retainBytes is exceeded. */
+  /** Where captured output is written once retainBytes is exceeded or on demand. */
   spillPath?: string;
   /** Upper bound on the spill file so a runaway process cannot fill the disk. */
   spillLimitBytes?: number;
@@ -131,11 +139,18 @@ export interface ProcessOutputSlice {
 
 const DEFAULT_SPILL_LIMIT_BYTES = 20 * 1024 * 1024;
 const SPILL_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+export const DEFAULT_COMMAND_OUTPUT_TOKENS = 10_000;
+const APPROX_BYTES_PER_TOKEN = 4;
+
+const outputErrorText = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? `${error.name}: ${error.message}`
+    : String(error);
 
 /**
- * Holds a bounded tail of process output in memory and streams everything past that
- * bound to a file. The model always gets the end of the output, where failures and
- * summaries live, plus a path it can grep or read with offset/limit.
+ * Holds a bounded tail of process output in memory and streams captured bytes to a
+ * bounded file when needed. The model gets the end of the output, where failures and
+ * summaries live, plus truthful coverage metadata for any returned file path.
  */
 export class ProcessOutputStore {
   private readonly chunks: OutputChunk[] = [];
@@ -150,6 +165,8 @@ export class ProcessOutputStore {
   private spillWritten = 0;
   private spillExhausted = false;
   private spillUnavailable = false;
+  private spillErrorText = "";
+  private closed = false;
 
   constructor(private readonly options: ProcessOutputStoreOptions) {
     this.retainBytes = Math.max(1, Math.trunc(options.retainBytes));
@@ -163,6 +180,18 @@ export class ProcessOutputStore {
   get droppedBytes(): number { return this.dropped; }
   get truncated(): boolean { return this.dropped > 0; }
   get spillPath(): string { return this.resolvedSpillPath; }
+  get outputFileBytes(): number { return this.spillWritten; }
+  get outputFileCoversCaptured(): boolean {
+    return Boolean(this.resolvedSpillPath)
+      && !this.spillExhausted
+      && !this.spillErrorText
+      && this.spillWritten === this.total;
+  }
+  get outputFileTruncated(): boolean {
+    return Boolean(this.resolvedSpillPath)
+      && (this.spillExhausted || this.spillWritten < this.total);
+  }
+  get outputFileError(): string { return this.spillErrorText; }
   get cursor(): number { return this.nextSeq; }
 
   append(stream: OutputStream, bytes: Uint8Array): void {
@@ -209,18 +238,44 @@ export class ProcessOutputStore {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    await this.closeSink();
+  }
+
+  /**
+   * Materializes the transcript on demand without changing memory retention. While
+   * the process is live the writer stays attached for future chunks; after process
+   * completion the newly created writer is closed before this method returns.
+   */
+  async ensureSpill(): Promise<void> {
+    if (!this.sink && !this.resolvedSpillPath && !this.spillUnavailable) this.openSpill();
+    const sink = this.sink;
+    if (!sink) return;
+    try {
+      const flushed: unknown = sink.flush();
+      if (flushed instanceof Promise) await flushed;
+    } catch (error) {
+      this.recordSpillError(error);
+    }
+    if (this.closed) await this.closeSink();
+  }
+
+  private async closeSink(): Promise<void> {
     const sink = this.sink;
     this.sink = undefined;
     if (!sink) return;
     try {
       await sink.end();
-    } catch { /* The transcript is best-effort; a failed flush must not fail the command. */ }
+    } catch (error) {
+      this.recordSpillError(error);
+    }
   }
 
   private openSpill(): void {
     const path = String(this.options.spillPath ?? "").trim();
     if (!path) {
       this.spillUnavailable = true;
+      this.recordSpillError(new Error("output transcript path is not configured"));
       return;
     }
     try {
@@ -228,15 +283,16 @@ export class ProcessOutputStore {
       this.sink = Bun.file(path).writer();
       this.resolvedSpillPath = path;
       for (const chunk of this.chunks) this.writeSpill(chunk.bytes);
-    } catch {
+    } catch (error) {
       this.spillUnavailable = true;
       this.sink = undefined;
       this.resolvedSpillPath = "";
+      this.recordSpillError(error);
     }
   }
 
   private writeSpill(bytes: Uint8Array): void {
-    if (!this.sink || this.spillExhausted) return;
+    if (!this.sink || this.spillExhausted || this.spillErrorText) return;
     const remaining = this.spillLimitBytes - this.spillWritten;
     if (remaining <= 0) {
       this.spillExhausted = true;
@@ -248,13 +304,19 @@ export class ProcessOutputStore {
       // The path is handed to the model while the command is still running, so the
       // transcript has to be readable now rather than only after the sink is closed.
       const flushed: unknown = this.sink.flush();
-      if (flushed instanceof Promise) void flushed.catch(() => undefined);
-    } catch {
-      this.spillExhausted = true;
+      if (flushed instanceof Promise) {
+        void flushed.catch((error: unknown) => this.recordSpillError(error));
+      }
+    } catch (error) {
+      this.recordSpillError(error);
       return;
     }
     this.spillWritten += slice.byteLength;
     if (slice.byteLength < bytes.byteLength) this.spillExhausted = true;
+  }
+
+  private recordSpillError(error: unknown): void {
+    if (!this.spillErrorText) this.spillErrorText = outputErrorText(error);
   }
 
   private evict(): void {
@@ -358,6 +420,14 @@ const parsedJsonText = (value: unknown): JsonObject | unknown[] | undefined => {
   return undefined;
 };
 
+const formatOutputBody = (value: unknown): string => {
+  const lines: string[] = [];
+  const parsed = parsedJsonText(value);
+  if (parsed !== undefined) appendValue(lines, parsed, 2);
+  else lines.push(String(value ?? "") || "(no output)");
+  return lines.join("\n");
+};
+
 export function formatCommandPayload(payload: JsonObject): string {
   const lines: string[] = [];
   for (const key of CONTROL_KEYS) {
@@ -366,10 +436,8 @@ export function formatCommandPayload(payload: JsonObject): string {
   const outputKey = "new_output" in payload ? "new_output" : "output" in payload ? "output" : "";
   if (outputKey) {
     const value = payload[outputKey];
-    const parsed = parsedJsonText(value);
     lines.push(`${outputKey}:`);
-    if (parsed !== undefined) appendValue(lines, parsed, 2);
-    else lines.push(String(value ?? "") || "(no output)");
+    lines.push(formatOutputBody(value));
   }
   for (const [key, value] of Object.entries(payload)) {
     if ((CONTROL_KEYS as readonly string[]).includes(key) || OUTPUT_KEYS.has(key)) continue;
@@ -379,4 +447,115 @@ export function formatCommandPayload(payload: JsonObject): string {
     } else appendScalar(lines, key, value);
   }
   return lines.join("\n").trim();
+}
+
+export interface CommandPayloadBudgetResult {
+  text: string;
+  observationTruncated: boolean;
+  originalTokens: number;
+  omittedTokens: number;
+}
+
+const estimatedTokens = (value: string): number =>
+  Math.ceil(Buffer.byteLength(value, "utf8") / APPROX_BYTES_PER_TOKEN);
+
+const decodeUtf8Boundary = (bytes: Uint8Array, fromEnd: boolean): string => {
+  for (let trim = 0; trim <= 3 && trim <= bytes.byteLength; trim += 1) {
+    const candidate = fromEnd ? bytes.subarray(trim) : bytes.subarray(0, bytes.byteLength - trim);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(candidate);
+    } catch { /* Try the next possible UTF-8 boundary. */ }
+  }
+  return "";
+};
+
+const trimFormattedBody = (
+  value: string,
+  maxBytes: number,
+): { text: string; omittedTokens: number } => {
+  const source = Buffer.from(value, "utf8");
+  const safeMax = Math.max(0, Math.trunc(maxBytes));
+  if (source.byteLength <= safeMax) return { text: value, omittedTokens: 0 };
+  if (safeMax === 0) return { text: "", omittedTokens: estimatedTokens(value) };
+
+  const marker = safeMax >= 5 ? "\n…\n" : safeMax >= 3 ? "…" : ".".repeat(safeMax);
+  const markerBytes = Buffer.byteLength(marker, "utf8");
+  const retainedBudget = Math.max(0, safeMax - markerBytes);
+  const prefixBudget = Math.floor(retainedBudget / 2);
+  const suffixBudget = retainedBudget - prefixBudget;
+  const prefix = decodeUtf8Boundary(source.subarray(0, prefixBudget), false);
+  const suffix = decodeUtf8Boundary(
+    source.subarray(source.byteLength - suffixBudget),
+    true,
+  );
+  const retainedSourceBytes = Buffer.byteLength(prefix, "utf8") + Buffer.byteLength(suffix, "utf8");
+  return {
+    text: `${prefix}${marker}${suffix}`,
+    omittedTokens: Math.max(
+      1,
+      Math.ceil((source.byteLength - retainedSourceBytes) / APPROX_BYTES_PER_TOKEN),
+    ),
+  };
+};
+
+/**
+ * Applies the command observation budget to the formatted output body while
+ * reserving room for control metadata under the runtime's per-result backstop.
+ */
+export function formatCommandPayloadWithBudget(
+  payload: JsonObject,
+  maxOutputTokens: number,
+  maxResultTokens = DEFAULT_COMMAND_OUTPUT_TOKENS,
+): CommandPayloadBudgetResult {
+  const outputKey = "new_output" in payload ? "new_output" : "output" in payload ? "output" : "";
+  if (!outputKey) {
+    return {
+      text: formatCommandPayload(payload),
+      observationTruncated: false,
+      originalTokens: 0,
+      omittedTokens: 0,
+    };
+  }
+
+  const outputBody = formatOutputBody(payload[outputKey]);
+  const originalTokens = estimatedTokens(outputBody);
+  const fullText = formatCommandPayload(payload);
+  const requestedBytes = Math.max(1, Math.trunc(maxOutputTokens)) * APPROX_BYTES_PER_TOKEN;
+  const resultBytes = Math.max(1, Math.trunc(maxResultTokens)) * APPROX_BYTES_PER_TOKEN;
+  if (
+    Buffer.byteLength(outputBody, "utf8") <= requestedBytes
+    && Buffer.byteLength(fullText, "utf8") <= resultBytes
+  ) {
+    return {
+      text: fullText,
+      observationTruncated: false,
+      originalTokens,
+      omittedTokens: 0,
+    };
+  }
+
+  const metadataPayload = structuredClone(payload);
+  delete metadataPayload[outputKey];
+  metadataPayload.observation_truncated = true;
+  metadataPayload.observation_original_tokens = originalTokens;
+  metadataPayload.observation_omitted_tokens = originalTokens;
+  // Reserving the original token count uses at least as many digits as the final
+  // omitted count, so replacing it after trimming cannot grow the metadata prefix.
+  const reservedMetadata = formatCommandPayload(metadataPayload);
+  const reservedPrefix = `${reservedMetadata ? `${reservedMetadata}\n` : ""}${outputKey}:\n`;
+  const availableResultBytes = Math.max(
+    0,
+    resultBytes - Buffer.byteLength(reservedPrefix, "utf8"),
+  );
+  const body = trimFormattedBody(outputBody, Math.min(requestedBytes, availableResultBytes));
+  metadataPayload.observation_omitted_tokens = body.omittedTokens;
+  const metadata = formatCommandPayload(metadataPayload);
+  const prefix = `${metadata ? `${metadata}\n` : ""}${outputKey}:\n`;
+
+  return {
+    text: `${prefix}${body.text}`.trim(),
+    observationTruncated: true,
+    originalTokens,
+    omittedTokens: body.omittedTokens,
+  };
 }

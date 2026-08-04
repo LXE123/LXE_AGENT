@@ -130,6 +130,16 @@ describe("native coding tools", () => {
     ]);
     expect(registry.definition("exec")?.supportsParallelCalls).toBe(true);
     expect(registry.definition("wait")?.supportsParallelCalls).toBe(true);
+    for (const name of ["exec", "wait"]) {
+      const properties = registry.definition(name)?.input_schema.properties as JsonObject | undefined;
+      expect(properties?.["max-output-tokens"]).toEqual({
+        type: "integer",
+        minimum: 1,
+        maximum: 10_000,
+        default: 10_000,
+        description: expect.stringContaining("model-visible"),
+      });
+    }
     for (const name of ["read", "write", "edit", "grep", "find", "ls", "send_files"]) {
       expect(registry.definition(name)?.supportsParallelCalls).not.toBe(true);
     }
@@ -160,6 +170,22 @@ describe("native coding tools", () => {
     expect(ls.content[0]?.text).toContain("a.txt");
     await expect(registry.execute("read", { path: "../outside.txt" }, context(root))).rejects.toThrow("workspace");
     expect(existsSync(join(root, "outside.txt"))).toBe(false);
+    await processes.stop();
+  });
+
+  test("validates the exec and wait observation token budget", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    for (const value of [0, 10_001, 1.5, Number.NaN]) {
+      await expect(registry.execute("exec", {
+        command: "echo never",
+        "max-output-tokens": value,
+      }, context())).rejects.toThrow("max-output-tokens must be an integer between 1 and 10000");
+      await expect(registry.execute("wait", {
+        exec_id: "exec_missing",
+        "max-output-tokens": value,
+      }, context())).rejects.toThrow("max-output-tokens must be an integer between 1 and 10000");
+    }
     await processes.stop();
   });
 
@@ -399,6 +425,23 @@ describe("native coding tools", () => {
     expect(completedText).toContain("status: completed");
     expect(completedText).toContain("output:");
     expect(completedText.length).toBeGreaterThan(2_000);
+    expect(completedText).not.toContain("output_path:");
+
+    const budgeted = String((await registry.execute("exec", {
+      command: "python -c \"print('BEGIN-' + 'x' * 6000 + '-END')\"",
+      "max-output-tokens": 100,
+    }, context(root))).content[0]?.text);
+    expect(budgeted).toContain("status: completed");
+    expect(budgeted).toContain("observation_truncated: true");
+    expect(budgeted).toContain("observation_original_tokens:");
+    expect(budgeted).toContain("observation_omitted_tokens:");
+    expect(budgeted).toContain("output_file_covers_captured: true");
+    expect(budgeted).toContain("output_file_truncated: false");
+    expect(budgeted).toContain("BEGIN-");
+    expect(budgeted).toContain("-END");
+    const budgetedPath = budgeted.match(/^output_path: (.+)$/mu)?.[1];
+    if (!budgetedPath) throw new Error(`missing budgeted output_path in: ${budgeted}`);
+    expect(readFileSync(budgetedPath, "utf8")).toContain(`BEGIN-${"x".repeat(6000)}-END`);
 
     const failedResult = await registry.execute("exec", {
       command: "python -c \"import sys; print('expected failure', file=sys.stderr); raise SystemExit(3)\"",
@@ -415,9 +458,13 @@ describe("native coding tools", () => {
     }, context(root))).content[0]?.text);
     expect(oversized).toContain("status: completed");
     expect(oversized).toContain("truncated: true");
+    expect(oversized).toContain("observation_truncated: true");
+    expect(oversized).toContain("output_file_covers_captured: true");
+    expect(oversized).toContain("output_file_truncated: false");
     expect(oversized).toContain("最终失败：缺少依赖");
     expect(oversized).not.toContain("第 0 行");
     expect(oversized).not.toContain("�");
+    expect(Buffer.byteLength(oversized, "utf8")).toBeLessThanOrEqual(40_000);
     const spillPath = oversized.match(/^output_path: (.+)$/mu)?.[1];
     if (!spillPath) throw new Error(`missing output_path in: ${oversized.slice(0, 400)}`);
     const transcript = readFileSync(spillPath, "utf8");
@@ -438,6 +485,35 @@ describe("native coding tools", () => {
       command: "lxeskill list",
     }, context(root))).content[0]?.text);
     expect(lxeskillList).toContain("status: completed");
+    await processes.stop();
+  }, 30_000);
+
+  test("token-budget omission is recovered on disk without replaying the wait cursor", async () => {
+    const root = projectRoot;
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    const started = String((await registry.execute("exec", {
+      command: "python -c \"import time; print('FIRST-' + 'x' * 6000, flush=True); time.sleep(0.5); print('SECOND', flush=True)\"",
+      "yield-time-ms": 250,
+      "max-output-tokens": 80,
+    }, context(root))).content[0]?.text);
+    expect(started).toContain("status: running");
+    expect(started).toContain("observation_truncated: true");
+    expect(started).toContain("FIRST-");
+    const execId = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+    const outputPath = started.match(/^output_path: (.+)$/mu)?.[1];
+    if (!execId || !outputPath) throw new Error(`missing budgeted running metadata in: ${started}`);
+
+    const completed = String((await registry.execute("wait", {
+      exec_id: execId,
+      "max-output-tokens": 80,
+    }, context(root))).content[0]?.text);
+    expect(completed).toContain("status: completed");
+    expect(completed).toContain("SECOND");
+    expect(completed).not.toContain("FIRST-");
+    const transcript = readFileSync(outputPath, "utf8");
+    expect(transcript).toContain("FIRST-");
+    expect(transcript.trimEnd().endsWith("SECOND")).toBe(true);
     await processes.stop();
   }, 30_000);
 

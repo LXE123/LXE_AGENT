@@ -86,6 +86,18 @@ export class CodingProcessManager {
       .map((entry) => this.snapshot(entry));
   }
 
+  /** Materializes a model-recoverable transcript for an observation budget cut. */
+  async ensureOutputFile(execId: string, sessionId: string): Promise<JsonObject> {
+    const entry = this.entries.get(execId);
+    if (!entry || entry.sessionId !== sessionId) {
+      return { output_file_error: `exec ${execId} 不存在或不属于当前会话。` };
+    }
+    await entry.output.ensureSpill();
+    const payload: JsonObject = {};
+    this.describeOutputFile(entry, payload);
+    return payload;
+  }
+
   async execute(request: {
     command: string;
     cwd: string;
@@ -299,6 +311,7 @@ export class CodingProcessManager {
       }
       this.describeOutputCompleteness(entry, payload);
       this.describeTruncation(entry, payload, slice.missed);
+      this.describeOutputFile(entry, payload);
       entry.outputCursor = slice.cursor;
       return payload;
     }, request.terminate);
@@ -368,7 +381,6 @@ export class CodingProcessManager {
     if (!entry.output.truncated) return;
     payload.truncated = true;
     payload.omitted_bytes = entry.output.droppedBytes;
-    if (entry.output.spillPath) payload.output_path = entry.output.spillPath;
     if (!applies) return;
     const outputKey = "new_output" in payload ? "new_output" : "output";
     payload[outputKey] = `${this.truncationMarker(entry)}\n${String(payload[outputKey] ?? "")}`;
@@ -379,14 +391,25 @@ export class CodingProcessManager {
     if (!entry.output.spillPath) {
       return `[... 已省略开头 ${omitted} 字节；只保留了输出末尾 ...]`;
     }
-    const transcriptDescription = entry.outputIncomplete
-      ? "排空截止前捕获的输出"
-      : "完整输出";
     return [
       `[... 已省略开头 ${omitted} 字节，只保留了输出末尾。`,
-      `${transcriptDescription}在 ${entry.output.spillPath}`,
+      `已捕获的输出记录在 ${entry.output.spillPath}；是否覆盖全部捕获内容见 output_file_covers_captured。`,
       "——用 grep 检索或 read 带 offset/limit 查看需要的片段，不要整个读回。 ...]",
     ].join("\n");
+  }
+
+  private describeOutputFile(entry: ProcessEntry, payload: JsonObject): void {
+    const path = entry.output.spillPath;
+    const error = entry.output.outputFileError;
+    if (!path && !error) return;
+    payload.captured_output_bytes = entry.output.totalBytes;
+    if (path) {
+      payload.output_path = path;
+      payload.output_file_bytes = entry.output.outputFileBytes;
+      payload.output_file_covers_captured = entry.output.outputFileCoversCaptured;
+      payload.output_file_truncated = entry.output.outputFileTruncated;
+    }
+    if (error) payload.output_file_error = error;
   }
 
   private describeOutputCompleteness(entry: ProcessEntry, payload: JsonObject): void {
@@ -408,6 +431,7 @@ export class CodingProcessManager {
     };
     this.describeOutputCompleteness(entry, payload);
     this.describeTruncation(entry, payload, true);
+    this.describeOutputFile(entry, payload);
     return payload;
   }
 
@@ -422,6 +446,7 @@ export class CodingProcessManager {
       output: slice.text || "(暂无输出)",
     };
     this.describeTruncation(entry, payload, slice.missed);
+    this.describeOutputFile(entry, payload);
     if (advanceCursor) entry.outputCursor = slice.cursor;
     return payload;
   }
@@ -445,6 +470,11 @@ export class CodingProcessManager {
       output_incomplete: entry.outputIncomplete,
       output_incomplete_reason: entry.outputIncompleteReason ?? "",
       output_path: entry.output.spillPath,
+      captured_output_bytes: entry.output.totalBytes,
+      output_file_bytes: entry.output.outputFileBytes,
+      output_file_covers_captured: entry.output.outputFileCoversCaptured,
+      output_file_truncated: entry.output.outputFileTruncated,
+      output_file_error: entry.output.outputFileError,
       output_tail: entry.output.renderTail(this.options.tailBytes),
     };
   }
