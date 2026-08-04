@@ -13,7 +13,7 @@ commands:
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块。
 - 发货单只从 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
 - 默认是正式联网模式：本地上传计划需求和映射，ERP 计算库存抵扣、本次采购量、新合同号和新采购价。
-- ERP 返回确认要求时不生成任何正式文件；先展示真实库存来源后询问用户。
+- 未匹配 SKU 或 ERP 返回确认要求时不生成任何正式文件；先展示真实清单后询问用户。
 - 正式模式连接 ERP 失败时停止；不得自动改走草稿。
 - `--draft` 不访问 ERP、不占用库存、不创建批次或正式合同号；不得与确认/替换参数同时使用。
 - 不要手工解析 CSV 或编辑输出 Excel。
@@ -60,6 +60,16 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 ## ERP Confirmation
 
+当 `data.error.code=purchase_unmatched_sku_confirmation_required` 时：
+
+1. 展示 `data.confirmation.items` 中每个 SP、库存 SKU、计划量和受影响 MSKU；明确这些组件确认后只保留 MSKU 结构，不参与采购、合同、FIFO 库存、装箱对账或结转。
+2. 未取得用户明确确认前不要继续。
+3. 确认后重试原命令，追加 `--confirm-unmatched-sku-token <data.confirmation.token>`。
+4. 若后续还需库存确认或批次替换，后续每次重试都必须继续携带同一个 `--confirm-unmatched-sku-token`。
+
+- `purchase_unmatched_sku_confirmation_stale`：发货 CSV、出口退税总表或未匹配集合已经变化；展示最新 `data.confirmation.items` 并重新确认，不能沿用旧 token。
+- `purchase_intent_no_tracked_stock_sku`：整批没有可跟踪 SKU，CLI 不会创建 ERP 批次；报告真实未匹配摘要并停止。
+
 当 `data.error.code=purchase_inventory_confirmation_required` 时：
 
 1. 展示 `data.erp.confirmation.affected_lines` 中每个受库存抵扣影响型号的供应商、完整型号、合同产品名称、计划量、抵扣量和本次采购量；从 `inventory_sources` 逐条展示实际使用的旧合同号、历史单价和本次使用量。
@@ -74,6 +84,7 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 - 正式成功结果使用 `result_schema=lxe.fba.purchase-summary-result.v1`。完整 ERP 分配已在 CLI 内部完成校验和制表，不会作为调试数据重复输出。
 - `success=true`：将 terminal `files` 一次传给 `send_files(paths=<terminal.files>)`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同。报告 `batch_no`、`version_no`、`quantity_summary` 和 `contracts`；`contracts` 只含供应商、合同号、合同 ID 和对应文件路径。
+- 正式成功含 `unmatched_summary` 时，明确报告未匹配 SKU、MSKU 组件数和排除的计划量；完整清单仍查看采购汇总 Excel 的“未匹配”页。
 - `artifact_summary.contract_count` 小于 `manufacturer_count` 可能是正常结果：某供应商全部由历史库存满足时不会生成新合同。不要据此声称合同缺失。
 - `purchase_line_count` 只表示 ERP 已处理的型号行数；逐型号明细以采购汇总附件为准，不要因成功结果不含 `purchase_lines` 而重新执行命令。
 - 正式采购汇总和备货单将 `数量` 拆为 `计划发货量`、`本次采购量`、`留存库存抵扣量`。

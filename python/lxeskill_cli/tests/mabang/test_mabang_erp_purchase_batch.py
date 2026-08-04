@@ -57,6 +57,23 @@ def _fixture_inputs(tmp_path: Path, *, msku_quantity: str = "5", sku_quantity: s
     return csv_dir, master
 
 
+def _fixture_mixed_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    (csv_dir / "SP260710001_1.csv").write_text(
+        "\n".join(
+            [
+                '"发货单号","MSKU","MSKU发货量","SKU发货量","国家","备注"',
+                '"SP260710001","MSKU-X","5","SKU-A × 10\nSKU-B × 5","德国",""',
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+    master = tmp_path / "master.xlsx"
+    _write_master(master)
+    return csv_dir, master
+
+
 def _erp_result() -> dict[str, Any]:
     return {
         "status": "created",
@@ -65,6 +82,8 @@ def _erp_result() -> dict[str, Any]:
         "revision_id": "00000000-0000-0000-0000-000000000006",
         "version_no": 1,
         "sp_nos": ["SP260710001"],
+        "unmatched_stock_sku_count": 0,
+        "unmatched_component_count": 0,
         "contracts": [
             {
                 "contract_id": "00000000-0000-0000-0000-000000000002",
@@ -244,7 +263,13 @@ def test_build_intent_uploads_exact_unit_components_without_declared_quantity(tm
     assert payload["sps"][0]["mskus"] == [
         {
             "msku": "MSKU-X",
-            "components": [{"stock_sku": "SKU-A", "quantity_per_msku": "2"}],
+            "components": [
+                {
+                    "stock_sku": "SKU-A",
+                    "tracking_mode": "tracked",
+                    "quantity_per_msku": "2",
+                }
+            ],
         }
     ]
     assert "declared_ship_quantity" not in payload["sps"][0]["mskus"][0]
@@ -254,6 +279,116 @@ def test_build_intent_uploads_exact_unit_components_without_declared_quantity(tm
     assert "purchase_quantity" not in line
     assert "carryover_applied_quantity" not in line
     assert payload["request_id"].startswith("purchase-")
+
+
+def test_build_intent_preserves_unmatched_components_without_planning_them(
+    tmp_path: Path,
+) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+
+    assert [line["stock_sku"] for line in payload["sps"][0]["planned_lines"]] == [
+        "SKU-A"
+    ]
+    assert payload["contracts"][0]["lines"][0]["planned_shipment_quantity"] == "10"
+    assert payload["sps"][0]["mskus"] == [
+        {
+            "msku": "MSKU-X",
+            "components": [
+                {
+                    "stock_sku": "SKU-A",
+                    "tracking_mode": "tracked",
+                    "quantity_per_msku": "2",
+                },
+                {
+                    "stock_sku": "SKU-B",
+                    "tracking_mode": "unmatched",
+                    "quantity_per_msku": "1",
+                },
+            ],
+        }
+    ]
+    assert context["unmatched_summary"] == {
+        "stock_sku_count": 1,
+        "sp_sku_count": 1,
+        "component_count": 1,
+        "planned_shipment_quantity": "5",
+        "items": [
+            {
+                "sp_no": "SP260710001",
+                "stock_sku": "SKU-B",
+                "planned_shipment_quantity": "5",
+                "affected_mskus": [
+                    {"msku": "MSKU-X", "quantity_per_msku": "1"}
+                ],
+            }
+        ],
+    }
+    assert context["confirm_unmatched_sku_token"].startswith("unmatched-")
+
+
+def test_build_intent_rejects_batch_with_only_unmatched_skus(tmp_path: Path) -> None:
+    csv_dir, master = _fixture_inputs(tmp_path)
+    csv_path = csv_dir / "SP260710001_1.csv"
+    csv_path.write_text(
+        csv_path.read_text(encoding="utf-8-sig").replace("SKU-A", "SKU-B"),
+        encoding="utf-8-sig",
+    )
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.build_purchase_intent(
+            ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+        )
+
+    assert captured.value.code == "purchase_intent_no_tracked_stock_sku"
+    assert captured.value.detail["unmatched_summary"]["stock_sku_count"] == 1
+
+
+def test_formal_workbooks_keep_existing_unmatched_sheets(tmp_path: Path) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    request_payload, _context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    response = _erp_result()
+    response["unmatched_stock_sku_count"] = 1
+    response["unmatched_component_count"] = 1
+    erp.validate_purchase_response(
+        status_code=201,
+        response=response,
+        request_payload=request_payload,
+    )
+    generated = cli.generate_purchase_batch_workbooks(
+        ["SP260710001"],
+        master_xlsx=master,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        purchase_output_dir=tmp_path / "purchase",
+        restock_output_dir=tmp_path / "restock",
+    )
+
+    formal = erp.apply_formal_erp_result(
+        generated,
+        response,
+        request_payload=request_payload,
+    )
+
+    for path in [
+        formal["purchase_summary_xlsx"],
+        *formal["restock_xlsx_paths"],
+    ]:
+        workbook = load_workbook(path, data_only=True)
+        try:
+            assert "未匹配" in workbook.sheetnames
+            sheet = workbook["未匹配"]
+            assert sheet["A2"].value == "SKU-B"
+            headers = [cell.value for cell in sheet[1]]
+            quantity_column = headers.index("数量") + 1
+            assert sheet.cell(2, quantity_column).value == 5
+        finally:
+            workbook.close()
 
 
 def test_build_intent_rejects_non_integer_unit_component(tmp_path: Path) -> None:
@@ -320,6 +455,135 @@ def test_confirmation_response_does_not_generate_files(monkeypatch) -> None:
     assert result["erp"] == response
     assert result["erp"]["server_optional"] == {"trace": "preserved"}
     assert result["erp"]["confirmation"]["optional_note"] == "preserved"
+
+
+def test_unmatched_sku_requires_local_confirmation_before_template_or_http(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (payload, context),
+    )
+    monkeypatch.setattr(
+        contract_cli,
+        "validate_contract_template",
+        lambda *args, **kwargs: pytest.fail("template validation must wait for confirmation"),
+    )
+    monkeypatch.setattr(
+        erp,
+        "import_purchase_intent",
+        lambda _payload: pytest.fail("ERP must not be called before confirmation"),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": str(master),
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+        }
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert result["error"]["code"] == "purchase_unmatched_sku_confirmation_required"
+    assert result["confirmation"]["token"] == context["confirm_unmatched_sku_token"]
+    assert result["confirmation"]["items"][0]["stock_sku"] == "SKU-B"
+
+
+def test_confirmed_unmatched_sku_continues_to_erp_and_preserves_token(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    response = _quote_response()
+    response["request_id"] = payload["request_id"]
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (payload, context),
+    )
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        erp,
+        "import_purchase_intent",
+        lambda request: (calls.append(request) or (409, response)),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": str(master),
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+            "confirm_unmatched_sku_token": context["confirm_unmatched_sku_token"],
+        }
+    )
+
+    assert calls == [payload]
+    assert result["error"]["code"] == "purchase_inventory_confirmation_required"
+    assert result["confirm_unmatched_sku_token"] == context[
+        "confirm_unmatched_sku_token"
+    ]
+    assert result["unmatched_summary"]["planned_shipment_quantity"] == "5"
+
+
+def test_unmatched_confirmation_token_becomes_stale_when_inputs_change(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    _payload, original_context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    csv_path = csv_dir / "SP260710001_1.csv"
+    csv_path.write_text(
+        csv_path.read_text(encoding="utf-8-sig").replace("SKU-B × 5", "SKU-B × 10"),
+        encoding="utf-8-sig",
+    )
+    changed_payload, changed_context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    assert changed_context["confirm_unmatched_sku_token"] != original_context[
+        "confirm_unmatched_sku_token"
+    ]
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (changed_payload, changed_context),
+    )
+    monkeypatch.setattr(
+        erp,
+        "import_purchase_intent",
+        lambda _payload: pytest.fail("stale confirmation must not call ERP"),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": str(master),
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+            "confirm_unmatched_sku_token": original_context[
+                "confirm_unmatched_sku_token"
+            ],
+        }
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert result["error"]["code"] == "purchase_unmatched_sku_confirmation_stale"
+    assert result["confirmation"]["token"] == changed_context[
+        "confirm_unmatched_sku_token"
+    ]
 
 
 def test_stale_quote_passes_through_latest_confirmation(monkeypatch) -> None:
@@ -941,7 +1205,20 @@ def test_formal_success_result_is_compact_and_keeps_every_deliverable_path() -> 
     }
     contract_result = {"output_files": contract_outputs, "warnings": []}
 
-    compact = cli._formal_success_result(formal, response, contract_result)
+    compact = cli._formal_success_result(
+        formal,
+        response,
+        contract_result,
+        {
+            "unmatched_summary": {
+                "stock_sku_count": 1,
+                "sp_sku_count": 1,
+                "component_count": 2,
+                "planned_shipment_quantity": "5",
+                "items": [],
+            }
+        },
+    )
 
     old_size = len(json.dumps(formal, ensure_ascii=False, separators=(",", ":")))
     compact_size = len(json.dumps(compact, ensure_ascii=False, separators=(",", ":")))
@@ -954,6 +1231,8 @@ def test_formal_success_result_is_compact_and_keeps_every_deliverable_path() -> 
         "deliverable_file_count": 25,
     }
     assert compact["manufacturer_count"] == 15
+    assert compact["unmatched_summary"]["planned_shipment_quantity"] == "5"
+    assert any("未匹配库存 SKU" in warning for warning in compact["warnings"])
     assert compact["contract_xlsx_paths"] == [
         item["output_xlsx"] for item in contract_outputs
     ]
@@ -1207,14 +1486,23 @@ def test_formal_restock_rebuilds_current_and_inventory_skus_and_product_names(
         workbook.close()
 
 
-def test_draft_rejects_confirmation_flags_without_http() -> None:
+@pytest.mark.parametrize(
+    "confirmation_argument",
+    [
+        {"confirm_inventory_quote_id": "quote-1"},
+        {"confirm_unmatched_sku_token": "unmatched-token"},
+    ],
+)
+def test_draft_rejects_confirmation_flags_without_http(
+    confirmation_argument: dict[str, str],
+) -> None:
     result = cli.run(
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
             "gross_margin": "0.3",
             "draft": True,
-            "confirm_inventory_quote_id": "quote-1",
+            **confirmation_argument,
         }
     )
     assert result["success"] is False

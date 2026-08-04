@@ -27,6 +27,9 @@ PURCHASE_CONFIRMATION_CODES = frozenset(
     }
 )
 PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v1"
+UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA = (
+    "lxe.fba.purchase-unmatched-confirmation.v1"
+)
 FORMAL_QUANTITY_COLUMNS = ("计划发货量", "本次采购量", "留存库存抵扣量")
 INVENTORY_ROW_FILL_COLOR = "FFFFFF00"
 CONTRACT_OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
@@ -88,17 +91,11 @@ def _require_text(value: Any, *, label: str) -> str:
     return text
 
 
-def _product_for_sku(products: Any, stock_sku: str) -> dict[str, Any]:
-    product = products.get(purchase_summary._sku_match_key(stock_sku))
-    if product is None:
-        raise PurchaseBatchClientError(
-            "purchase_intent_unmatched_stock_sku",
-            f"出口退税总表未找到库存 SKU: {stock_sku}",
-        )
-    return dict(product)
-
-
-def _unit_components(csv_path: str | Path) -> list[dict[str, Any]]:
+def _unit_components(
+    csv_path: str | Path,
+    *,
+    tracked_skus: set[str],
+) -> list[dict[str, Any]]:
     infos = read_delivery_msku_infos(csv_path)
     mskus: list[dict[str, Any]] = []
     for raw_msku, info in infos.items():
@@ -123,9 +120,13 @@ def _unit_components(csv_path: str | Path) -> list[dict[str, Any]]:
                     f"发货单 {Path(csv_path).name} 的 MSKU={msku}, SKU={stock_sku} "
                     f"无法推导整数 quantity_per_msku: {source_quantity}/{denominator}",
                 )
+            normalized_sku = purchase_summary._clean_cell(stock_sku).upper()
             components.append(
                 {
-                    "stock_sku": purchase_summary._clean_cell(stock_sku).upper(),
+                    "stock_sku": normalized_sku,
+                    "tracking_mode": (
+                        "tracked" if normalized_sku in tracked_skus else "unmatched"
+                    ),
                     "quantity_per_msku": _decimal_text(quantity_per_msku),
                 }
             )
@@ -157,6 +158,9 @@ def build_purchase_intent(
     contract_lines: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
     sps: list[dict[str, Any]] = []
     csv_hashes: list[dict[str, str]] = []
+    unmatched_items: list[dict[str, Any]] = []
+    unmatched_component_count = 0
+    tracked_line_count = 0
     for sp_no, csv_path_text in zip(normalized_delivery_nos, csv_paths, strict=True):
         csv_path = Path(csv_path_text)
         delivery_summary = OrderedDict(
@@ -166,8 +170,14 @@ def build_purchase_intent(
         )
         country, _country_warnings = restock_workbook._delivery_country_metadata(csv_path)
         planned_lines: list[dict[str, Any]] = []
+        unmatched_quantities: OrderedDict[str, Decimal] = OrderedDict()
         for stock_sku, quantity in delivery_summary.items():
-            product = _product_for_sku(products, stock_sku)
+            normalized_sku = purchase_summary._clean_cell(stock_sku).upper()
+            raw_product = products.get(purchase_summary._sku_match_key(stock_sku))
+            if raw_product is None:
+                unmatched_quantities[normalized_sku] = quantity
+                continue
+            product = dict(raw_product)
             manufacturer = _require_text(product.get("manufacturer"), label=f"厂家: SKU={stock_sku}")
             model = _require_text(product.get("model"), label=f"型号: SKU={stock_sku}")
             product_name = _require_text(
@@ -212,7 +222,6 @@ def build_purchase_intent(
                     "purchase_intent_invalid", f"厂家={manufacturer} 的合同配置不一致"
                 )
             supplier_configs[manufacturer] = supplier_config
-            normalized_sku = purchase_summary._clean_cell(stock_sku).upper()
             planned_lines.append(
                 {
                     "stock_sku": normalized_sku,
@@ -267,7 +276,30 @@ def build_purchase_intent(
                 }
             )
 
-        mskus = _unit_components(csv_path)
+        tracked_skus = {line["stock_sku"] for line in planned_lines}
+        mskus = _unit_components(csv_path, tracked_skus=tracked_skus)
+        affected_mskus: defaultdict[str, list[dict[str, str]]] = defaultdict(list)
+        for msku in mskus:
+            for component in msku["components"]:
+                if component["tracking_mode"] != "unmatched":
+                    continue
+                unmatched_component_count += 1
+                affected_mskus[component["stock_sku"]].append(
+                    {
+                        "msku": msku["msku"],
+                        "quantity_per_msku": component["quantity_per_msku"],
+                    }
+                )
+        for stock_sku, quantity in unmatched_quantities.items():
+            unmatched_items.append(
+                {
+                    "sp_no": sp_no,
+                    "stock_sku": stock_sku,
+                    "planned_shipment_quantity": _decimal_text(quantity),
+                    "affected_mskus": affected_mskus.get(stock_sku, []),
+                }
+            )
+        tracked_line_count += len(planned_lines)
         planned_by_sku = {
             line["stock_sku"]: Decimal(line["planned_shipment_quantity"])
             for line in planned_lines
@@ -276,7 +308,9 @@ def build_purchase_intent(
         infos = read_delivery_msku_infos(csv_path)
         for info in infos.values():
             for stock_sku, quantity in info.components.items():
-                mapped_by_sku[purchase_summary._clean_cell(stock_sku).upper()] += quantity
+                normalized_sku = purchase_summary._clean_cell(stock_sku).upper()
+                if normalized_sku in tracked_skus:
+                    mapped_by_sku[normalized_sku] += quantity
         if dict(mapped_by_sku) != planned_by_sku:
             raise PurchaseBatchClientError(
                 "purchase_msku_mapping_mismatch",
@@ -294,6 +328,28 @@ def build_purchase_intent(
                 "planned_lines": planned_lines,
                 "mskus": mskus,
             }
+        )
+
+    unmatched_summary = {
+        "stock_sku_count": len({item["stock_sku"] for item in unmatched_items}),
+        "sp_sku_count": len(unmatched_items),
+        "component_count": unmatched_component_count,
+        "planned_shipment_quantity": _decimal_text(
+            sum(
+                (
+                    Decimal(item["planned_shipment_quantity"])
+                    for item in unmatched_items
+                ),
+                Decimal("0"),
+            )
+        ),
+        "items": unmatched_items,
+    }
+    if tracked_line_count == 0:
+        raise PurchaseBatchClientError(
+            "purchase_intent_no_tracked_stock_sku",
+            "整批发货单没有任何可由出口退税总表跟踪的库存 SKU，未创建 ERP 采购批次",
+            detail={"unmatched_summary": unmatched_summary},
         )
 
     contracts_by_supplier: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
@@ -348,13 +404,53 @@ def build_purchase_intent(
         key: value for key, value in intent.items() if key != "confirm_inventory_quote_id"
     }
     intent["request_id"] = f"purchase-{_canonical_sha256(request_basis)[:32]}"
+    confirmation_token = ""
+    if unmatched_items:
+        token_basis = {
+            "schema": UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA,
+            "source_sha256": intent["source_sha256"],
+            "items": unmatched_items,
+        }
+        confirmation_token = f"unmatched-{_canonical_sha256(token_basis)}"
     context = {
         "delivery_nos": normalized_delivery_nos,
         "csv_paths": csv_paths,
         "master_xlsx": str(Path(master_xlsx).expanduser()),
         "product_warnings": list(products.warnings),
+        "unmatched_summary": unmatched_summary,
+        "confirm_unmatched_sku_token": confirmation_token,
     }
     return intent, context
+
+
+def unmatched_confirmation_result(
+    context: Mapping[str, Any],
+    *,
+    stale: bool,
+) -> dict[str, Any]:
+    summary = dict(context.get("unmatched_summary") or {})
+    token = str(context.get("confirm_unmatched_sku_token") or "")
+    code = (
+        "purchase_unmatched_sku_confirmation_stale"
+        if stale
+        else "purchase_unmatched_sku_confirmation_required"
+    )
+    message = (
+        "发货单或出口退税总表已变化，请按最新未匹配 SKU 清单重新确认"
+        if stale
+        else "正式采购包含出口退税总表未匹配的库存 SKU，确认后这些组件将不参与采购、库存和装箱对账"
+    )
+    return {
+        "success": False,
+        "status": "confirmation_required",
+        "response_schema": UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA,
+        "error": {"code": code, "message": message},
+        "confirmation": {
+            "kind": "unmatched_sku_exclusion",
+            "token": token,
+            **summary,
+        },
+    }
 
 
 def import_purchase_intent(payload: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -560,6 +656,40 @@ def _validate_success_response(
     response_sp_nos = [_required_result_text(value, field="sp_nos[]") for value in raw_sp_nos]
     if response_sp_nos != expected_sp_nos:
         raise _incomplete("sp_nos 与请求顺序或内容不一致", field="sp_nos")
+
+    unmatched_components = [
+        component
+        for sp in _required_result_list(request_payload.get("sps"), field="request.sps")
+        if isinstance(sp, Mapping)
+        for msku in list(sp.get("mskus") or [])
+        if isinstance(msku, Mapping)
+        for component in list(msku.get("components") or [])
+        if isinstance(component, Mapping)
+        and component.get("tracking_mode") == "unmatched"
+    ]
+    expected_unmatched_skus = {
+        _required_result_text(
+            component.get("stock_sku"),
+            field="request.sps[].mskus[].components[].stock_sku",
+        ).upper()
+        for component in unmatched_components
+    }
+    unmatched_stock_sku_count = _required_nonnegative_int(
+        response.get("unmatched_stock_sku_count"),
+        field="unmatched_stock_sku_count",
+    )
+    unmatched_component_count = _required_nonnegative_int(
+        response.get("unmatched_component_count"),
+        field="unmatched_component_count",
+    )
+    if (
+        unmatched_stock_sku_count != len(expected_unmatched_skus)
+        or unmatched_component_count != len(unmatched_components)
+    ):
+        raise _incomplete(
+            "未匹配 SKU/组件计数与请求不一致",
+            field="unmatched_component_count",
+        )
 
     expected_lines = _expected_purchase_lines(request_payload)
     raw_lines = _required_result_list(response.get("purchase_lines"), field="purchase_lines")
@@ -1758,5 +1888,6 @@ __all__ = [
     "download_contract_workbooks",
     "import_purchase_intent",
     "mark_draft_workbooks",
+    "unmatched_confirmation_result",
     "validate_purchase_response",
 ]

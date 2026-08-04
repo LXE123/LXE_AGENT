@@ -46,6 +46,7 @@ def _formal_success_result(
     formal: Mapping[str, Any],
     erp_result: Mapping[str, Any],
     contract_result: Mapping[str, Any],
+    intent_context: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Expose only the decision and delivery summary after all formal artifacts exist."""
     purchase_lines = list(erp_result.get("purchase_lines") or [])
@@ -99,6 +100,15 @@ def _formal_success_result(
         *list(formal.get("warnings") or []),
         *list(contract_result.get("warnings") or []),
     ]
+    unmatched_summary = dict(intent_context.get("unmatched_summary") or {})
+    if unmatched_summary.get("sp_sku_count"):
+        warnings.append(
+            "本批次有 "
+            f"{unmatched_summary.get('stock_sku_count', 0)} 个未匹配库存 SKU（"
+            f"{unmatched_summary.get('component_count', 0)} 个 MSKU 组件，计划量 "
+            f"{unmatched_summary.get('planned_shipment_quantity', '0')}），"
+            "已保留组成关系但未纳入采购、库存和装箱对账。"
+        )
     result: dict[str, Any] = {
         "success": True,
         "status": "completed",
@@ -119,6 +129,7 @@ def _formal_success_result(
             "deliverable_file_count": 1 + len(restock_xlsx_paths) + len(contract_xlsx_paths),
         },
         "purchase_line_count": len(purchase_lines),
+        "unmatched_summary": unmatched_summary,
         "contracts": contracts,
         "purchase_summary_xlsx": formal.get("purchase_summary_xlsx"),
         "restock_xlsx_paths": restock_xlsx_paths,
@@ -278,6 +289,9 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         restock_workbook._parse_gross_margin(gross_margin)
         draft = bool(arguments.get("draft", False))
         confirm_quote_id = str(arguments.get("confirm_inventory_quote_id") or "").strip()
+        confirm_unmatched_sku_token = str(
+            arguments.get("confirm_unmatched_sku_token") or ""
+        ).strip()
         replace_batch_id = str(arguments.get("replace_batch_id") or "").strip()
         expected_version_raw = arguments.get("expected_version_no")
         expected_version_no = int(expected_version_raw) if expected_version_raw not in (None, "") else None
@@ -285,6 +299,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         confirmation_arguments_present = any(
             (
                 confirm_quote_id,
+                confirm_unmatched_sku_token,
                 replace_batch_id,
                 expected_version_no is not None,
                 change_reason,
@@ -321,6 +336,24 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             expected_version_no=expected_version_no,
             change_reason=change_reason,
         )
+        expected_unmatched_token = str(
+            intent_context.get("confirm_unmatched_sku_token") or ""
+        )
+        if (
+            confirm_unmatched_sku_token != expected_unmatched_token
+            and (confirm_unmatched_sku_token or expected_unmatched_token)
+        ):
+            return {
+                **erp_purchase_batch.unmatched_confirmation_result(
+                    intent_context,
+                    stale=bool(confirm_unmatched_sku_token),
+                ),
+                "delivery_nos": intent_context["delivery_nos"],
+                "master_xlsx": master_xlsx,
+                "contract_template_xlsx": contract_template_xlsx,
+                "gross_margin": gross_margin,
+                "source": SOURCE,
+            }
         contract_workbook.validate_contract_template(
             contract_template_xlsx,
             [str(item.get("supplier_name") or "") for item in request_payload["contracts"]],
@@ -343,6 +376,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "contract_template_xlsx": contract_template_xlsx,
                 "gross_margin": gross_margin,
                 "source": SOURCE,
+                "confirm_unmatched_sku_token": expected_unmatched_token,
+                "unmatched_summary": dict(
+                    intent_context.get("unmatched_summary") or {}
+                ),
             }
         formal: dict[str, Any] | None = None
         try:
@@ -367,7 +404,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 contracts=formal["contracts"],
                 purchase_lines=formal["purchase_lines"],
             )
-            return _formal_success_result(formal, erp_result, contract_result)
+            return _formal_success_result(
+                formal,
+                erp_result,
+                contract_result,
+                intent_context,
+            )
         except Exception as exc:
             if isinstance(
                 exc,
