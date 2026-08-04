@@ -447,6 +447,7 @@ describe("native coding tools", () => {
     const consumed: ProcessCompletionConsumeRequest[] = [];
     const processes = registerCodingTools(registry, {
       onProcessConsume: async (request) => { consumed.push(request); },
+      processPollWindowMs: 200,
     });
     const start = async (command: string): Promise<string> => {
       const result = String((await registry.execute("exec", { command, background: true }, context())).content[0]?.text);
@@ -481,6 +482,29 @@ describe("native coding tools", () => {
     expect(consumed.filter((item) => item.task_id === killed)).toEqual([
       expect.objectContaining({ reason: "process.kill", status: "killed" }),
     ]);
+
+    // A running command holds the poll for the whole window even while it is printing:
+    // returning on the first byte produced one-line polls instead of batched progress.
+    const chatty = await start(
+      "python -c \"import time\nfor i in range(20):\n    print('tick', i, flush=True)\n    time.sleep(0.02)\ntime.sleep(60)\"",
+    );
+    await waitFor(chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
+    const chattyStart = performance.now();
+    const chattyPoll = await processes.process({ action: "poll", session: chatty }, "s1");
+    const chattyElapsed = performance.now() - chattyStart;
+    expect(chattyPoll.status).toBe("running");
+    expect(chattyElapsed).toBeGreaterThanOrEqual(150);
+    // The batched answer carries every tick produced during the window, not just one.
+    expect(String(chattyPoll.new_output)).toContain("tick 0");
+    expect(String(chattyPoll.new_output)).toContain("tick 5");
+    await processes.process({ action: "kill", session: chatty }, "s1");
+
+    // Finishing still cuts the wait short, because nothing more can arrive.
+    const brief = await start("python -c \"print('brief')\"");
+    const briefStart = performance.now();
+    const briefPoll = await processes.process({ action: "poll", session: brief }, "s1");
+    expect(performance.now() - briefStart).toBeLessThan(150);
+    expect(briefPoll.status).toBe("completed");
 
     const concurrent = await start("python -c \"print('concurrent')\"");
     await waitFor(concurrent, (snapshot) => snapshot.status !== "running");

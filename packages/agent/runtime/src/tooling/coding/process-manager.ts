@@ -48,6 +48,8 @@ export class CodingProcessManager {
     maxOutputBytes: number;
     tailBytes: number;
     ttlSeconds: number;
+    /** How long a poll on a still-running command waits before answering. */
+    pollWindowMs: number;
     shell: ExecShellAdapter;
   }) {}
 
@@ -260,16 +262,13 @@ export class CodingProcessManager {
     if (!id) return { error: "需要指定 session 参数。" };
     if (!entry || entry.sessionId !== sessionId) return { error: `会话 ${id} 不存在。` };
     if (action === "poll") {
-      // Wake as soon as the command produces something rather than sleeping out the
-      // whole window: a process that prints immediately and then keeps running used
-      // to cost a full 5 seconds per poll.
-      const deadline = Date.now() + 5_000;
-      while (
-        entry.status === "running"
-        && entry.output.cursor === entry.pollCursor
-        && Date.now() < deadline
-      ) {
-        await Promise.race([entry.completion, Bun.sleep(50)]);
+      // Hold the whole window even after output starts arriving. Returning on the first
+      // byte produced thin, frequent polls that each carried one line; waiting batches
+      // the progress into a single answer, and it keeps an empty poll expensive enough
+      // to discourage the next one. Only the command finishing cuts the wait short,
+      // because nothing more can arrive after that.
+      if (entry.status === "running") {
+        await Promise.race([entry.completion, Bun.sleep(this.options.pollWindowMs)]);
       }
       const slice = entry.output.renderSince(entry.pollCursor);
       const payload: JsonObject = {
