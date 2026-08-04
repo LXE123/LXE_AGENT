@@ -7,6 +7,7 @@ import {
   parseAgentRunTurnResult,
   parseAgentWireMessage,
   parseDashboardRpcCall,
+  type ExecTaskSnapshotPayload,
 } from "../src";
 
 describe("desktop agent protocol", () => {
@@ -60,6 +61,47 @@ describe("desktop agent protocol", () => {
         payload,
       }))).toThrow("session.changed");
     }
+  });
+
+  test("strictly parses terminal exec UI events", () => {
+    const task = {
+      exec_id: "exec_1234abcd",
+      session_id: "session-1",
+      origin_turn_id: "turn-1",
+      status: "completed",
+      pid: 123,
+      command: "echo ok",
+      cwd: "/work",
+      started_at: 1,
+      ended_at: 2,
+      duration_sec: 1,
+      exit_code: 0,
+      truncated: false,
+      output_tail: "ok",
+    } satisfies ExecTaskSnapshotPayload;
+    const event = {
+      version: AGENT_PROTOCOL_VERSION,
+      type: "background_task.changed",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: { tool_call_id: "tool-1", task },
+    } as const;
+    expect(parseAgentWireMessage(JSON.stringify(event))).toEqual(event);
+    expect(() => parseAgentWireMessage(JSON.stringify({ ...event, thread_id: "session-2" })))
+      .toThrow("payload is invalid");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...event,
+      payload: { ...event.payload, task: { ...task, status: "running" } },
+    }))).toThrow("payload is invalid");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...event,
+      payload: { ...event.payload, task: { ...task, task_id: task.exec_id } },
+    }))).toThrow("payload is invalid");
+    const { output_tail: _outputTail, ...incompleteTask } = task;
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...event,
+      payload: { ...event.payload, task: incompleteTask },
+    }))).toThrow("payload is invalid");
   });
 
   test("strictly parses desktop stream batches and matching envelopes", () => {
@@ -340,6 +382,8 @@ describe("desktop agent protocol", () => {
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {
+    expect(() => parseDashboardRpcCall({ operation: "backgroundTasks.list", input: {} }))
+      .toThrow("unsupported Dashboard RPC operation");
     expect(() => parseDashboardRpcCall({
       operation: "sessions.detail",
       input: { session_id: "session-1", message_page: 2 },

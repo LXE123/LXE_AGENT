@@ -50,7 +50,8 @@ interface DashboardServiceOptions {
   tools: ToolRegistry;
   mcpConfig: McpConfig;
   connectorStatePath?: string;
-  backgroundTasks?: () => JsonObject[];
+  execSnapshots?: (sessionId: string) => JsonObject[];
+  terminateSession?: (sessionId: string) => Promise<void> | void;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
   mcpStatus?: (serverName: string) => {
     connected: boolean;
@@ -174,7 +175,10 @@ const truncateToolResult = (
   return { content, originalBytes, previewBytes: utf8Bytes(content) };
 };
 
-export const dashboardSessionDetailPreview = (detail: JsonObject): JsonObject => {
+export const dashboardSessionDetailPreview = (
+  detail: JsonObject,
+  execSnapshots: readonly JsonObject[] = [],
+): JsonObject => {
   const preview = structuredClone(detail);
   const messages = Array.isArray(preview.messages) ? preview.messages : [];
   const results: Array<Record<string, unknown>> = [];
@@ -203,6 +207,28 @@ export const dashboardSessionDetailPreview = (detail: JsonObject): JsonObject =>
       original_bytes: result.originalBytes,
       preview_bytes: result.previewBytes,
     };
+  }
+  const taskByToolCall = new Map(execSnapshots.map((task) => [text(task.tool_call_id), task] as const)
+    .filter(([toolCallId]) => Boolean(toolCallId)));
+  for (const block of results) {
+    const task = taskByToolCall.get(text(block.tool_call_id));
+    if (!task) continue;
+    const status = text(task.status);
+    if (status === "running") {
+      block.display_status = "running";
+      continue;
+    }
+    if (status !== "completed" && status !== "failed" && status !== "killed") continue;
+    block.display_status = status === "completed" ? "success" : "error";
+    block.content = [
+      `status: ${status}`,
+      `exec_id: ${text(task.exec_id)}`,
+      task.exit_code === null || task.exit_code === undefined ? "" : `exit_code: ${String(task.exit_code)}`,
+      `duration_sec: ${String(task.duration_sec ?? 0)}`,
+      text(task.output_tail) ? `output:\n${String(task.output_tail)}` : "output: (no output)",
+    ].filter(Boolean).join("\n");
+    if (status === "completed") delete block.is_error;
+    else block.is_error = true;
   }
   return preview;
 };
@@ -251,7 +277,6 @@ export class DashboardService {
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
-    "backgroundTasks.list": () => this.listPayload(this.options.backgroundTasks?.() ?? []) as DashboardRpcResult<"backgroundTasks.list">,
     "stats.overview": (input) => this.overview(input.days) as DashboardRpcResult<"stats.overview">,
     "stats.skills.list": (input) => {
       const days = this.days(input.days);
@@ -308,6 +333,10 @@ export class DashboardService {
   }
 
   private async deleteSession(input: DashboardRpcSpec["sessions.delete"]["input"]): Promise<JsonObject> {
+    if (!await this.options.store.getSession(input.session_id)) {
+      return rpcError("not_found", "session not found");
+    }
+    await this.options.terminateSession?.(input.session_id);
     if (!await this.options.store.deleteSession(input.session_id)) {
       return rpcError("not_found", "session not found");
     }
@@ -326,7 +355,7 @@ export class DashboardService {
       throw error;
     }
     if (!detail) return rpcError("not_found", "session not found");
-    const preview = dashboardSessionDetailPreview(detail);
+    const preview = dashboardSessionDetailPreview(detail, this.options.execSnapshots?.(input.session_id) ?? []);
     // Stamped per window so the desktop can retire optimistic turn content only
     // after the latest transcript window has caught up. Older cursor reads do
     // not replace that latest-window watermark in the Renderer.

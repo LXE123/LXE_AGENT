@@ -77,7 +77,7 @@ Tool execute context 包含 handle、session、route、turn 和 exposure state�
 
 ## Cancel 与失败
 
-RunHandle 的 signal 同时中断 provider、summary、MCP 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。Agent 必须把诊断中的实际错误与解释分开；只有 `cause_known=true`、`verified_reason` 和经过测试的 `mapping_id` 同时存在时，固定替代文本才可代替错误原文。
+RunHandle 的 signal 同时中断 provider、summary、MCP 和当前 exec/wait 观察；已经启动的 exec 由 Session manager 持有，不随 turn 取消。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。Agent 必须把诊断中的实际错误与解释分开；只有 `cause_known=true`、`verified_reason` 和经过测试的 `mapping_id` 同时存在时，固定替代文本才可代替错误原文。
 
 Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slot。平台发送是独立 delivery 边界：发送失败不回滚已持久化 outcome，也不重放工具。
 
@@ -87,4 +87,4 @@ turn_start/end、provider attempt、stream event、tool start/end、context chec
 
 ## 一次性业务命令边界
 
-业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 据此构造可见 skill scope，并由 Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责最终授权与 dispatch；Runtime process manager 负责 timeout、最大输出、abort 和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。
+业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 据此构造可见 skill scope，并由 Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责最终授权与 dispatch；Runtime process manager 负责 yield observation、最大输出、Session 生命周期和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。

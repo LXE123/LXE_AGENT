@@ -64,6 +64,51 @@ const fakeHost: CreateHost = (() => ({
 })) as unknown as CreateHost;
 
 describe("AgentProtocolServer", () => {
+  test("emits async exec completion as UI state without an agent wake", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    let notify: NonNullable<Parameters<CreateHost>[0]["onBackgroundTaskChanged"]> | undefined;
+    const createHost = ((options: Parameters<CreateHost>[0]) => {
+      notify = options.onBackgroundTaskChanged;
+      return { start: async () => undefined, stop: async () => undefined, health: () => ({ ready: true }) };
+    }) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-background-event",
+      command: "initialize",
+      payload: initializePayload(root),
+    }));
+    await notify?.({
+      exec_id: "exec_1234abcd",
+      tool_call_id: "tool-1",
+      session_id: "session-1",
+      origin_turn_id: "turn-1",
+      status: "completed",
+      pid: 123,
+      command: "echo ok",
+      cwd: root,
+      started_at: 1,
+      ended_at: 2,
+      duration_sec: 1,
+      exit_code: 0,
+      truncated: false,
+      output_tail: "ok",
+    });
+    expect(output).toContainEqual(expect.objectContaining({
+      type: "background_task.changed",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: expect.objectContaining({ tool_call_id: "tool-1" }),
+    }));
+    expect(output.some((message) => "type" in message && message.type === "agent.wake")).toBe(false);
+    await server.shutdown();
+  });
+
   test("writes Desktop stream batches as dedicated agent events", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     let emitDesktop: ((batch: DesktopStreamBatchRequest) => Promise<void>) | undefined;

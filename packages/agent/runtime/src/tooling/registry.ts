@@ -19,6 +19,7 @@ export interface ToolDefinition extends ToolSchema {
     session_id: string;
     response_route_id?: string;
     turn_id?: string;
+    tool_call_id?: string;
     exposureState?: ToolExposureState;
     skill_names?: readonly string[];
     workspace: WorkspaceContext;
@@ -259,6 +260,7 @@ export class ToolRegistry {
       session_id: string;
       response_route_id?: string;
       turn_id?: string;
+      tool_call_id?: string;
       exposureState?: ToolExposureState;
       skill_names?: readonly string[];
       workspace: WorkspaceContext;

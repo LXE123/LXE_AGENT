@@ -352,25 +352,6 @@ export type McpServerListPayload = ApiList<McpServerPayload> & {
   tool_total: number;
 };
 
-export type BackgroundTaskPayload = {
-  task_id: string;
-  session_id: string;
-  session_title: string;
-  origin_turn_id: string;
-  card_id: string;
-  status: string;
-  pid: number | null;
-  command: string;
-  cwd: string;
-  started_at: number;
-  ended_at: number | null;
-  duration_sec: number;
-  background: boolean;
-  exit_code: number | null;
-  truncated: boolean;
-  output_tail: string;
-};
-
 export type ChannelHealthPayload = {
   ready?: boolean;
   running?: boolean;
@@ -517,7 +498,6 @@ export interface DashboardRpcSpec {
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
-  "backgroundTasks.list": { input: DashboardRpcEmptyInput; result: ApiList<BackgroundTaskPayload> };
   "channels.health": { input: DashboardRpcEmptyInput; result: ChannelHealthList };
   "stats.overview": { input: { days?: number }; result: StatsOverviewPayload };
   "stats.skills.list": { input: { days?: number }; result: ApiList<SkillStatPayload> & { days: number } };
@@ -732,7 +712,6 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "connectors.list":
     case "toolsets.list":
     case "mcp.servers.list":
-    case "backgroundTasks.list":
     case "channels.health":
     case "models.list":
     case "models.current":

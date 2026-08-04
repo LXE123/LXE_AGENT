@@ -54,7 +54,7 @@ Each Runtime turn has exactly one `turn_started` and exactly one terminal `turn_
 | CardKit delivery | `card_created`, `card_frame_coalesced`, `card_reference_retry_scheduled`, `card_reference_retry_succeeded`, `card_reference_retry_exhausted`, `card_send_completed`, `card_dead`, `card_finalized` |
 | Stream fallback | `stream_fallback_started`, `stream_fallback_completed`, `stream_fallback_failed` |
 | Idle restart | `feishu_restart_scheduled`, `feishu_restart_deferred`, `feishu_restart_started`, `feishu_restart_completed`, `feishu_restart_failed`, `feishu_restart_stop_timed_out` |
-| Background process | `process_started`, `process_yielded_to_background`, `process_completed`, `process_timeout`, `process_killed`, `process_force_killed`, `process_notification_enqueued`, `process_wake_requested`, `process_wake_unavailable` |
+| Session exec | `process_started`, `process_yielded`, `process_completed`, `process_killed`, `process_force_killed`, `process_evicted`, `process_notification_failed` |
 | Maintenance | `maintenance_configured`, `maintenance_task_started`, `maintenance_task_completed`, `maintenance_single_flight_coalesced`, `maintenance_single_flight_rerun`, `auth_refresh_succeeded`, `auth_refresh_failed`, `data_sync_uploaded`, `data_sync_skipped`, `data_sync_failed` |
 | MCP and skills | `mcp_enabled`, `mcp_connected`, `mcp_startup_failed`, `mcp_disabled`, `mcp_disconnected`, `skill_catalog_loaded`, `skill_external_skipped` |
 | Gateway lifecycle | `gateway_starting`, `gateway_ready`, `gateway_start_failed`, `gateway_stopping`, `gateway_stopped`, `startup_component_ready`, `shutdown_component_stopping`, `shutdown_component_stopped`, `shutdown_component_failed` |

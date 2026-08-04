@@ -17,7 +17,6 @@ import {
 import { dashboardQueryKeys } from "../src/api/query-keys";
 import {
   ACTIVE_DATA_STALE_TIME_MS,
-  BACKGROUND_TASKS_REFRESH_INTERVAL_MS,
   flattenSessionPages,
 } from "../src/api/queries";
 import type { SessionListPayload, SessionPayload } from "../src/api/payloads";
@@ -65,7 +64,6 @@ describe("Dashboard Query state", () => {
     expect(options.queries?.refetchOnWindowFocus).toBe(true);
     expect(options.queries?.refetchOnReconnect).toBe(false);
     expect(ACTIVE_DATA_STALE_TIME_MS).toBe(5_000);
-    expect(BACKGROUND_TASKS_REFRESH_INTERVAL_MS).toBe(15_000);
   });
 
   test("keeps session list and detail push-driven without polling", () => {
@@ -139,7 +137,6 @@ describe("Dashboard Query state", () => {
       domains: [
         "sessions",
         "stats",
-        "background_tasks",
         "channels",
         "models",
         "connectors",

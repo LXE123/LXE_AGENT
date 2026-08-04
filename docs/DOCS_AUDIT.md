@@ -130,7 +130,7 @@ Draft or archive：
 
 后续批次优先补这些：
 
-- Dashboard 使用说明：本地 URL、功能 tab、API endpoints、模型切换、thinking 设置和后台任务视图。
+- Dashboard 使用说明：本地 URL、功能区、API endpoints、模型切换、thinking 设置和使用统计。
 - Feishu 平台说明：消息进入、CardKit 回复、typing indicator、媒体处理和必要 app scopes。
 
 ## Notes

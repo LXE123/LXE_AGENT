@@ -37,7 +37,8 @@ Schema 应描述：
 - 必填参数和允许类型。
 - enum/范围/格式约束。
 - 路径是 workspace-relative 还是绝对 artifact path。
-- command timeout、background 和 output 选项；exec timeout 使用秒，范围 1-3600，yield_ms 使用毫秒。
+- `exec` 的 command、cwd 与 `yield-time-ms`（250–30000ms）；没有 background 或默认硬超时。
+- `wait` 的 `exec_id`、`yield-time-ms`（5000–300000ms）与 `terminate`。
 - 互斥参数或调用前提。
 
 不要把 secret 默认值、真实 token、cookie 或本机私有路径写入 schema/description。

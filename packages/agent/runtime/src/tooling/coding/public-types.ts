@@ -9,18 +9,7 @@ export interface LxeSkillRecoveryCommand {
   attributionSkill?: string;
 }
 
-export type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
-
-export type ProcessCompletionConsumeReason =
-  | "process.poll"
-  | "process.kill";
-
-export interface ProcessCompletionConsumeRequest {
-  session_id: string;
-  task_id: string;
-  status: Exclude<ProcessStatus, "running">;
-  reason: ProcessCompletionConsumeReason;
-}
+export type ProcessStatus = "running" | "completed" | "failed" | "killed";
 
 export interface CodingToolOptions {
   repositorySkillsRoot?: string;
@@ -30,10 +19,8 @@ export interface CodingToolOptions {
   homeDirectory?: string;
   /** Bytes of process output kept in memory and shown to the model at once. */
   maxOutputBytes?: number;
-  /** Poll wait window in milliseconds; defaults to the exec yield window. */
-  processPollWindowMs?: number;
-  onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
-  onProcessConsume?: (request: ProcessCompletionConsumeRequest) => Promise<void> | void;
+  /** Called once when an exec that already yielded reaches a terminal state. */
+  onExecComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
   businessCommands?: ReadonlyMap<string, readonly string[]>;
   businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];

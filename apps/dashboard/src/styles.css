@@ -2955,10 +2955,6 @@ h1 {
   border-spacing: 0;
 }
 
-.task-table {
-  min-width: 980px;
-}
-
 .session-table th,
 .session-table td {
   padding: 12px 14px;
@@ -3072,15 +3068,6 @@ h1 {
 
 .row-action-cell svg {
   color: var(--muted-light);
-}
-
-.task-command {
-  max-width: 420px;
-  overflow: hidden;
-  color: var(--text);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .muted {

@@ -8,7 +8,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 
 ## 工具来源
 
-- Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
+- Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/wait 等能力。
 - 飞书远程渠道：Gateway 保留入站、回复、typing、附件与重连；Agent 主动读写飞书统一通过 `lark-cli` Skill，不再注册 Bot 专用原生读取工具。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
@@ -23,15 +23,16 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 常用行为
 
 - `read` 可以读取文本和受支持的图片；已知二进制文件会明确拒绝。文本输出有统一上限，大文件通过 `offset` 和 `limit` 分段继续，不把整文件一次塞给模型。
-- `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。Desktop 的 Python、pip 和 `lxeskill` 使用应用私有 Python；源码开发才回退到项目 `.venv`。
-- `process` 只管理由 `exec` 启动的 session，当前 action 为 `list`、`poll`、`log`、`write`、`kill` 和 `remove`。
+- `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。它先观察最多 `yield-time-ms`；命令仍运行时返回 `exec_id`，不设默认硬超时。
+- `wait` 只接受所属 Session 的 `exec_id`，返回上次成功观察后的新增输出；`terminate=true` 会终止完整进程树。v1 不提供 PTY、stdin、list 或重连。
+- Desktop 的 Python、pip 和 `lxeskill` 使用应用私有 Python；源码开发才回退到项目 `.venv`。
 
 这里描述稳定边界，不冻结容易变化的字符数、图片尺寸或缓存数字。需要核对参数时，以当前 tool schema 和测试为准。
 
 ## 事实来源
 
 - [`registry.ts`](/packages/agent/runtime/src/tooling/registry.ts)：registry 与 exposure state。
-- [`coding-tools.ts`](/packages/agent/runtime/src/tooling/coding-tools.ts)：文件和 process 工具。
+- [`coding-tools.ts`](/packages/agent/runtime/src/tooling/coding-tools.ts)：文件、exec 和 wait 工具。
 - [`lxeskill-command.ts`](/packages/agent/runtime/src/tooling/lxeskill-command.ts)：catalog 命令、owner 与 artifact 声明解析。
 - [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
 - [`skills.ts`](/packages/agent/runtime/src/tooling/skills.ts)：skill catalog 与 prompt。
@@ -59,9 +60,11 @@ Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的�
 - root private env、用户数据库和本地 runtime state 受到写保护。
 - Active business skill 不允许指导模型 shell-out 到业务模块。
 
-## Cancel 与 process
+## Cancel 与 exec 生命周期
 
-所有 handler 接收当前 `RunHandle`。长运行 native/MCP/process 必须监听 abort。后台 process 登记 session、turn、route 和 task id，允许查询、输入、终止或移除；完成事件先持久化 pending event，再由 heartbeat 回到正常 turn。
+所有 handler 接收当前 `RunHandle`。Provider、MCP 和本次 `exec`/`wait` 的观察会监听 turn abort；但进程一旦创建成功，所有权就立即转交 Session 级 manager。最终回复、turn 失败或取消只结束当前观察，不 kill 命令。命令可以在同一应用运行期、同一 Session 的后续 turn 继续用 `wait` 观察。
+
+Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整进程树。异步 exec 完成只发送 `background_task.changed` UI 事件，用于刷新原工具卡；它不写 pending event，也不触发 heartbeat、`agent.wake` 或外部渠道消息。
 
 ## Model-visible result
 
@@ -70,6 +73,7 @@ Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的�
 - `content`：进入 canonical tool result。
 - `files`：由 Runtime 通过 emitter 发送 artifact。
 - `state_patch`：合并到受控 session state。
+- `display_status`：只控制当前工具卡展示，例如 yielded exec 保持 `running`；不进入 canonical tool result。
 
 Tool result 在 append 前执行 token-aware 裁剪。日志和 CardKit 使用独立 display sanitizer；完整 result 不自动显示给用户，也不能泄露 secret、绝对敏感路径或 encrypted data。
 

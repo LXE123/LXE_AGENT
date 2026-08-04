@@ -2,17 +2,13 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
-import type { RuntimeHandle } from "../../engine/types";
 import type { ExecShellAdapter } from "../exec-shell";
 import { ProcessOutputStore, sweepSpillDirectory } from "../process-output";
-import type {
-  ProcessCompletionConsumeReason,
-  ProcessCompletionConsumeRequest,
-  ProcessStatus,
-} from "./public-types";
+import type { ProcessStatus } from "./public-types";
 
 interface ProcessEntry {
   id: string;
+  toolCallId: string;
   command: string;
   cwd: string;
   sessionId: string;
@@ -20,36 +16,35 @@ interface ProcessEntry {
   responseRouteId: string;
   workspace: WorkspaceContext;
   startedAt: number;
+  recency: number;
   endedAt?: number;
   process: ReturnType<typeof Bun.spawn>;
-  explicitBackground: boolean;
   status: ProcessStatus;
   exitCode: number | null;
   output: ProcessOutputStore;
-  pollCursor: number;
+  outputCursor: number;
   completion: Promise<void>;
-  consumption?: Promise<void>;
-  completionConsumed: boolean;
-  timeout?: ReturnType<typeof setTimeout>;
+  finalObserved: boolean;
   notifyOnExit: boolean;
+  notificationSent: boolean;
+  notification?: Promise<void>;
+  observationTail: Promise<void>;
   terminationEvents: Set<"process_killed" | "process_force_killed">;
 }
 
-const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
-
 const SPILL_DIRECTORY_SEGMENTS = ["var", "tmp", "exec"] as const;
+const MAX_EXEC_RECORDS_PER_SESSION = 64;
+const PROTECTED_RECENT_EXEC_RECORDS = 8;
 
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
   private readonly sweptSpillRoots = new Set<string>();
   private readonly logger = createLogger("runtime.coding_process");
+  private nextRecency = 0;
 
   constructor(private readonly options: {
     maxOutputBytes: number;
     tailBytes: number;
-    ttlSeconds: number;
-    /** How long a poll on a still-running command waits before answering. */
-    pollWindowMs: number;
     shell: ExecShellAdapter;
   }) {}
 
@@ -57,17 +52,29 @@ export class CodingProcessManager {
 
   async stop(): Promise<void> {
     const incomplete = [...this.entries.values()].filter((entry) => entry.endedAt === undefined);
-    await Promise.allSettled(incomplete.map((entry) => {
+    await Promise.allSettled(incomplete.map(async (entry) => {
       if (entry.status === "running") entry.status = "killed";
-      return this.terminateObserved(entry, "process_force_killed");
+      await this.terminateObserved(entry, "process_force_killed");
     }));
     await Promise.allSettled(incomplete.map((entry) => entry.completion));
     await Promise.allSettled([...this.entries.values()].map((entry) => entry.output.close()));
   }
 
-  snapshots(): JsonObject[] {
-    this.sweep();
-    return [...this.entries.values()].sort((left, right) => right.startedAt - left.startedAt).map((entry) => this.snapshot(entry));
+  async terminateSession(sessionId: string): Promise<void> {
+    const entries = [...this.entries.values()]
+      .filter((entry) => entry.sessionId === sessionId && entry.endedAt === undefined);
+    await Promise.allSettled(entries.map(async (entry) => {
+      if (entry.status === "running") entry.status = "killed";
+      await this.terminateObserved(entry, "process_force_killed");
+      await entry.completion;
+    }));
+  }
+
+  snapshots(sessionId?: string): JsonObject[] {
+    return [...this.entries.values()]
+      .filter((entry) => sessionId === undefined || entry.sessionId === sessionId)
+      .sort((left, right) => right.startedAt - left.startedAt)
+      .map((entry) => this.snapshot(entry));
   }
 
   async execute(request: {
@@ -76,15 +83,16 @@ export class CodingProcessManager {
     sessionId: string;
     responseRouteId: string;
     workspace: WorkspaceContext;
-    background: boolean;
     yieldMs: number;
-    timeoutMs?: number;
-    handle: RuntimeHandle;
+    signal: AbortSignal;
+    toolCallId: string;
     turnId?: string;
     env?: Record<string, string>;
   }): Promise<JsonObject> {
-    this.sweep();
-    const id = `exec_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
+    this.throwIfAborted(request.signal);
+    await this.enforceCapacity(request.sessionId);
+    this.throwIfAborted(request.signal);
+    const id = `exec_${randomUUID().replaceAll("-", "")}`;
     let child: ReturnType<typeof Bun.spawn>;
     try {
       const spawn = this.options.shell.spawnSpec(request.command);
@@ -118,7 +126,7 @@ export class CodingProcessManager {
       }));
       return {
         status: "failed",
-        session: id,
+        exec_id: id,
         error: error instanceof Error && error.message ? `${error.name}: ${error.message}` : String(error),
       };
     }
@@ -136,7 +144,7 @@ export class CodingProcessManager {
         cwd: request.cwd,
         error: new Error("spawned process did not expose stdout/stderr pipes"),
       }));
-      return { status: "failed", session: id, error: "spawned process did not expose stdout/stderr pipes" };
+      return { status: "failed", exec_id: id, error: "spawned process did not expose stdout/stderr pipes" };
     }
     const spillDirectory = join(request.workspace.worktree, ...SPILL_DIRECTORY_SEGMENTS);
     if (!this.sweptSpillRoots.has(spillDirectory)) {
@@ -145,6 +153,7 @@ export class CodingProcessManager {
     }
     const entry: ProcessEntry = {
       id,
+      toolCallId: request.toolCallId,
       command: request.command,
       cwd: request.cwd,
       sessionId: request.sessionId,
@@ -152,18 +161,20 @@ export class CodingProcessManager {
       responseRouteId: request.responseRouteId,
       workspace: request.workspace,
       startedAt: Date.now() / 1_000,
+      recency: this.touch(),
       process: child,
-      explicitBackground: request.background,
-      status: "running" as ProcessStatus,
+      status: "running",
       exitCode: null,
       output: new ProcessOutputStore({
         retainBytes: this.options.maxOutputBytes,
         spillPath: join(spillDirectory, `${id}.log`),
       }),
-      pollCursor: 0,
+      outputCursor: 0,
       completion: Promise.resolve(),
-      completionConsumed: false,
-      notifyOnExit: request.background,
+      finalObserved: false,
+      notifyOnExit: false,
+      notificationSent: false,
+      observationTail: Promise.resolve(),
       terminationEvents: new Set(),
     };
     this.entries.set(id, entry);
@@ -190,114 +201,88 @@ export class CodingProcessManager {
       entry.exitCode = exitCode;
       entry.endedAt = Date.now() / 1_000;
       if (entry.status === "running") entry.status = exitCode === 0 ? "completed" : "failed";
-      if (entry.timeout) clearTimeout(entry.timeout);
       this.logger.info("process_completed", this.processFields(entry));
-      if (entry.notifyOnExit && this.onComplete) {
-        try {
-          await this.onComplete(this.snapshot(entry));
-        } catch (error) {
-          this.logger.warn("process_notification_failed", { ...this.processFields(entry), error });
-        }
-      }
+      await this.notifyCompletion(entry);
     });
-    if (!request.background && request.timeoutMs) {
-      entry.timeout = setTimeout(() => {
-        if (entry.status !== "running") return;
-        entry.status = "timeout";
-        void runWithLogContext(this.logContext(entry), async () => {
-          this.logger.warn("process_timeout", this.processFields(entry));
-          await this.options.shell.terminate(entry.process, false);
-        });
-      }, request.timeoutMs);
-    }
-    if (request.background) {
-      runWithLogContext(this.logContext(entry), () => {
-        this.logger.info("process_yielded_to_background", this.processFields(entry));
-      });
-      return this.runningPayload(entry);
-    }
 
-    const unregister = request.handle.registerProcess({
-      kill: () => this.terminateObserved(entry, "process_killed"),
-      forceKill: () => this.terminateObserved(entry, "process_force_killed"),
-    });
-    const abort = (): void => {
-      entry.status = "killed";
-      void this.terminateObserved(entry, "process_killed");
-    };
-    request.handle.signal.addEventListener("abort", abort, { once: true });
-    try {
-      await Promise.race([entry.completion, Bun.sleep(request.yieldMs)]);
-      if (entry.status === "running") {
-        entry.notifyOnExit = true;
-        runWithLogContext(this.logContext(entry), () => {
-          this.logger.info("process_yielded_to_background", this.processFields(entry));
-        });
-      }
-      return entry.status === "running" ? this.runningPayload(entry) : this.completedPayload(entry);
-    } finally {
-      request.handle.signal.removeEventListener("abort", abort);
-      unregister();
+    await this.observe(entry, request.yieldMs, request.signal);
+    if (entry.endedAt !== undefined) {
+      entry.finalObserved = true;
+      return this.completedPayload(entry);
     }
+    entry.notifyOnExit = true;
+    runWithLogContext(this.logContext(entry), () => {
+      this.logger.info("process_yielded", this.processFields(entry));
+    });
+    return this.runningPayload(entry, true);
   }
 
-  async process(input: JsonObject, sessionId: string): Promise<JsonObject> {
-    const action = inputText(input, "action").trim();
-    if (action === "list") {
-      this.sweep();
-      const sessions = [...this.entries.values()]
-        .filter((entry) => entry.sessionId === sessionId)
-        .sort((left, right) => right.startedAt - left.startedAt)
-        .map((entry) => ({
-          session: entry.id,
-          command: entry.command.slice(0, 100),
-          status: entry.status,
-          pid: entry.process.pid,
-          duration_sec: this.duration(entry),
-        }));
-      return { sessions, message: sessions.length === 0 ? "没有活跃或最近的会话。" : "" };
+  async wait(request: {
+    execId: string;
+    sessionId: string;
+    yieldMs: number;
+    terminate: boolean;
+    signal: AbortSignal;
+  }): Promise<JsonObject> {
+    const entry = this.entries.get(request.execId);
+    if (!entry || entry.sessionId !== request.sessionId || entry.finalObserved) {
+      return { error: `exec ${request.execId} 不存在或已经关闭。` };
     }
-    const id = inputText(input, "session").trim();
-    const entry = this.entries.get(id);
-    if (!id) return { error: "需要指定 session 参数。" };
-    if (!entry || entry.sessionId !== sessionId) return { error: `会话 ${id} 不存在。` };
-    if (action === "poll") {
-      // Hold the whole window even after output starts arriving. Returning on the first
-      // byte produced thin, frequent polls that each carried one line; waiting batches
-      // the progress into a single answer, and it keeps an empty poll expensive enough
-      // to discourage the next one. Only the command finishing cuts the wait short,
-      // because nothing more can arrive after that.
-      if (entry.status === "running") {
-        await Promise.race([entry.completion, Bun.sleep(this.options.pollWindowMs)]);
-      }
-      const slice = entry.output.renderSince(entry.pollCursor);
-      const payload: JsonObject = {
-        session: entry.id,
-        status: entry.status,
-        new_output: slice.text || "(no new output)",
-      };
-      if (entry.status !== "running") {
-        payload.exit_code = entry.exitCode;
-        payload.duration_sec = this.duration(entry);
-      }
-      this.describeTruncation(entry, payload, slice.missed);
-      // Only mark the slice delivered once consumption succeeded, so a failing
-      // completion notification leaves the output readable on the next poll.
-      if (entry.status !== "running") await this.consumeCompletion(entry, "process.poll");
-      entry.pollCursor = slice.cursor;
-      return payload;
-    }
-    if (action === "kill") {
-      if (entry.status === "running") {
+    return this.withObservation(entry, async () => {
+      if (entry.finalObserved) return { error: `exec ${request.execId} 不存在或已经关闭。` };
+      entry.recency = this.touch();
+      if (request.terminate && entry.endedAt === undefined) {
         entry.status = "killed";
         await this.terminateObserved(entry, "process_killed");
         await entry.completion;
+      } else if (entry.endedAt === undefined) {
+        await this.observe(entry, request.yieldMs, request.signal);
       }
-      await this.consumeCompletion(entry, "process.kill");
-      if (entry.status !== "killed") return { message: `会话 ${id} 已经结束（${entry.status}）。` };
-      return { status: "killed", session: id };
+      const terminal = entry.endedAt !== undefined;
+      const slice = entry.output.renderSince(entry.outputCursor);
+      const payload: JsonObject = {
+        exec_id: entry.id,
+        status: terminal ? entry.status : "running",
+        new_output: slice.text || "(no new output)",
+      };
+      if (terminal) {
+        payload.exit_code = entry.exitCode;
+        payload.duration_sec = this.duration(entry);
+        entry.finalObserved = true;
+      }
+      this.describeTruncation(entry, payload, slice.missed);
+      entry.outputCursor = slice.cursor;
+      return payload;
+    });
+  }
+
+  private async observe(entry: ProcessEntry, yieldMs: number, signal: AbortSignal): Promise<void> {
+    if (entry.endedAt !== undefined || signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const timer = setTimeout(done, yieldMs);
+      function done(): void {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener("abort", done);
+        resolve();
+      }
+      signal.addEventListener("abort", done, { once: true });
+      void entry.completion.finally(done);
+    });
+  }
+
+  private async withObservation<T>(entry: ProcessEntry, observe: () => Promise<T>): Promise<T> {
+    const previous = entry.observationTail;
+    let release!: () => void;
+    entry.observationTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await observe();
+    } finally {
+      release();
     }
-    return { error: `未知 action: ${action}` };
   }
 
   private duration(entry: ProcessEntry): number {
@@ -333,7 +318,7 @@ export class CodingProcessManager {
   private completedPayload(entry: ProcessEntry): JsonObject {
     const payload: JsonObject = {
       status: entry.status,
-      session: entry.id,
+      exec_id: entry.id,
       exit_code: entry.exitCode,
       output: entry.output.renderRetained().trim() || "(no output)",
       duration_sec: this.duration(entry),
@@ -342,40 +327,35 @@ export class CodingProcessManager {
     return payload;
   }
 
-  private runningPayload(entry: ProcessEntry): JsonObject {
-    const message = entry.explicitBackground
-      ? `命令仍在运行。除非用户明确要求，否则不要用 process(action='poll', session='${entry.id}') 查看进度。`
-      : `命令仍在运行，完成后会自动通知你，请继续处理其他工作，不要轮询等待。只有需要查看中间进度时才用 process(action='poll', session='${entry.id}')。`;
+  private runningPayload(entry: ProcessEntry, advanceCursor: boolean): JsonObject {
+    const slice = entry.output.renderSince(entry.outputCursor);
     const payload: JsonObject = {
       status: entry.status,
-      session: entry.id,
+      exec_id: entry.id,
       pid: entry.process.pid,
-      message,
-      tail: entry.output.renderTail(this.options.tailBytes) || "(暂无输出)",
+      duration_sec: this.duration(entry),
+      message: `命令仍在运行。使用 wait(exec_id='${entry.id}') 查看新输出或终止命令。`,
+      output: slice.text || "(暂无输出)",
     };
-    this.describeTruncation(entry, payload, false);
+    this.describeTruncation(entry, payload, slice.missed);
+    if (advanceCursor) entry.outputCursor = slice.cursor;
     return payload;
   }
 
   private snapshot(entry: ProcessEntry): JsonObject {
     const endedAt = entry.endedAt ?? null;
     return {
-      task_id: entry.id,
-      session: entry.id,
+      exec_id: entry.id,
+      tool_call_id: entry.toolCallId,
       session_id: entry.sessionId,
-      response_route_id: entry.responseRouteId,
-      session_title: "",
       origin_turn_id: entry.turnId,
-      card_id: "",
       status: entry.status,
       pid: entry.process.pid,
       command: entry.command,
       cwd: entry.cwd,
-      workspace: entry.workspace,
       started_at: entry.startedAt,
       ended_at: endedAt,
       duration_sec: this.duration(entry),
-      background: entry.status === "running",
       exit_code: entry.exitCode,
       truncated: entry.output.truncated,
       output_path: entry.output.spillPath,
@@ -383,41 +363,52 @@ export class CodingProcessManager {
     };
   }
 
-  private async consumeCompletion(
-    entry: ProcessEntry,
-    reason: ProcessCompletionConsumeReason,
-  ): Promise<void> {
-    if (entry.status === "running" || entry.completionConsumed) return;
-    await entry.completion;
-    if (entry.completionConsumed) return;
-    let consumption = entry.consumption;
-    if (!consumption) {
-      consumption = runWithLogContext(this.logContext(entry), async () => {
-        if (entry.completionConsumed || entry.status === "running") return;
-        if (entry.notifyOnExit && this.onConsume) {
-          await this.onConsume({
-            session_id: entry.sessionId,
-            task_id: entry.id,
-            status: entry.status,
-            reason,
-          });
+  private notifyCompletion(entry: ProcessEntry): Promise<void> {
+    if (!entry.notifyOnExit || entry.notificationSent || !this.onComplete) return Promise.resolve();
+    if (!entry.notification) {
+      entry.notification = runWithLogContext(this.logContext(entry), async () => {
+        if (!entry.notifyOnExit || entry.notificationSent || !this.onComplete) return;
+        entry.notificationSent = true;
+        try {
+          await this.onComplete(this.snapshot(entry));
+        } catch (error) {
+          this.logger.warn("process_notification_failed", { ...this.processFields(entry), error });
         }
-        entry.completionConsumed = true;
-        entry.notifyOnExit = false;
       });
-      entry.consumption = consumption;
-      void consumption.finally(() => {
-        if (entry.consumption === consumption) delete entry.consumption;
-      }).catch(() => undefined);
     }
-    await consumption;
+    return entry.notification;
   }
 
-  private sweep(): void {
-    const cutoff = Date.now() / 1_000 - this.options.ttlSeconds;
-    for (const [id, entry] of this.entries) {
-      if (entry.status !== "running" && (entry.endedAt ?? Number.POSITIVE_INFINITY) < cutoff) this.entries.delete(id);
+  private async enforceCapacity(sessionId: string): Promise<void> {
+    while (true) {
+      const ordered = [...this.entries.values()]
+        .filter((entry) => entry.sessionId === sessionId)
+        .sort((left, right) => right.recency - left.recency);
+      if (ordered.length < MAX_EXEC_RECORDS_PER_SESSION) return;
+      const candidates = ordered.slice(PROTECTED_RECENT_EXEC_RECORDS);
+      const victim = [...candidates].reverse().find((entry) => entry.endedAt !== undefined)
+        ?? candidates.at(-1);
+      if (!victim) throw new Error(`exec capacity reached for session ${sessionId}`);
+      if (victim.endedAt === undefined) {
+        if (victim.status === "running") victim.status = "killed";
+        await this.terminateObserved(victim, "process_force_killed");
+        await victim.completion;
+      }
+      this.entries.delete(victim.id);
+      await victim.output.close();
+      this.logger.warn("process_evicted", this.processFields(victim));
     }
+  }
+
+  private touch(): number {
+    this.nextRecency += 1;
+    return this.nextRecency;
+  }
+
+  private throwIfAborted(signal: AbortSignal): void {
+    if (!signal.aborted) return;
+    if (signal.reason instanceof Error) throw signal.reason;
+    throw new DOMException("exec observation cancelled", "AbortError");
   }
 
   private logContext(entry: Pick<ProcessEntry, "sessionId" | "turnId" | "responseRouteId" | "id">) {
@@ -456,5 +447,4 @@ export class CodingProcessManager {
   }
 
   onComplete: ((snapshot: JsonObject) => Promise<void> | void) | undefined;
-  onConsume: ((request: ProcessCompletionConsumeRequest) => Promise<void> | void) | undefined;
 }

@@ -1370,6 +1370,54 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
+  test("keeps a yielded tool visually running and passes its tool call id to the handler", async () => {
+    const responses: RuntimeTurnResponse[] = [
+      {
+        content: [{ type: "tool_call", id: "tool-exec-1", name: "exec", arguments: { command: "sleep" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+      {
+        content: [{ type: "text", text: "detached" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    ];
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    let observedToolCallId = "";
+    tools.register({
+      name: "exec",
+      description: "exec",
+      input_schema: { type: "object" },
+      execute: async (_input, executionContext) => {
+        observedToolCallId = executionContext.tool_call_id ?? "";
+        return {
+          content: [{ type: "text", text: "status: running" }],
+          display_status: "running",
+        };
+      },
+    });
+    const emitted: EmitRequest[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async () => responses.shift()! },
+      emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(observedToolCallId).toBe("tool-exec-1");
+    expect(JSON.stringify(store.messages)).not.toContain("display_status");
+    const terminal = emitted.slice().reverse().find((request) => request.emit_kind === "stream");
+    expect(terminal?.tool_steps).toContainEqual(expect.objectContaining({
+      id: "tool-exec-1",
+      status: "running",
+    }));
+    await runtime.stop();
+  });
+
   test("records exactly one error result when tool file delivery fails", async () => {
     let secondRequestMessages: RuntimeMessage[] = [];
     let providerCalls = 0;

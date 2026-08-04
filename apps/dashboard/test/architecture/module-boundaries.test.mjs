@@ -17,7 +17,6 @@ const expectedModules = [
   "features/runtime-status/model.ts",
   "features/sessions/conversation.ts",
   "features/sessions/model.ts",
-  "features/tasks/model.ts",
   "shared/content.ts",
   "shared/navigation.ts",
   "shared/ui/markdown.tsx",
@@ -30,8 +29,7 @@ const expectedModules = [
   "features/tools/view.tsx",
   "features/integrations/view.tsx",
   "features/skills/view.tsx",
-  "features/details/view.tsx",
-  "features/tasks/view.tsx"
+  "features/details/view.tsx"
 ];
 const expectedEntryImports = [
   "./features/details/view",
@@ -40,7 +38,6 @@ const expectedEntryImports = [
   "./features/runtime-status/view",
   "./features/sessions/view",
   "./features/skills/view",
-  "./features/tasks/view",
   "./features/tools/view"
 ];
 
@@ -66,7 +63,7 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
   });
   assert.doesNotMatch(
     main,
-    /^function (SessionDetailView|ModelsView|ToolsView|ConnectionsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
+    /^function (SessionDetailView|ModelsView|ToolsView|ConnectionsView|SkillsView|DetailModal)\(/m
   );
   assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson|patchJson/);
   sourceFiles(sourceDir)

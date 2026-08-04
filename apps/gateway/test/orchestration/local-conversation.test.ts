@@ -476,6 +476,133 @@ describe("LocalConversationController", () => {
     h.controller.dispose();
   });
 
+  test("updates the original live exec card from a UI-only completion event", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "run it" });
+    h.controller.handleOutbound({
+      action: "stream_message",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      event_id: "event-1",
+      payload: {
+        state: "final",
+        seq: 1,
+        content: "done",
+        thinking: "",
+        redacted_thinking_count: 0,
+        thinking_elapsed_ms: 0,
+        tool_pending: false,
+        tool_elapsed_ms: 250,
+        tool_steps: [{
+          id: "tool-exec-1", name: "exec", title: "Run command", detail: "sleep",
+          icon_token: "setting_outlined", status: "running", duration_ms: 250,
+        }],
+        process_parts: [{
+          type: "tool", part_id: "part-1", sequence: 1,
+          tool_step: {
+            id: "tool-exec-1", name: "exec", title: "Run command", detail: "sleep",
+            icon_token: "setting_outlined", status: "running", duration_ms: 250,
+          },
+        }],
+        display_metrics: {
+          status: "completed", phase: "generating_answer", elapsed_ms: 300, model: "model",
+          input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
+          context_tokens: 1, context_window_tokens: 100,
+        },
+      },
+    });
+    h.controller.handleAgentEvent({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "background_task.changed",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: {
+        tool_call_id: "tool-exec-1",
+        task: {
+          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          status: "completed", pid: 1, command: "sleep", cwd: "/work", started_at: 1,
+          ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "finished",
+        },
+      },
+    });
+    const stream = h.controller.activity("session-1").active?.stream;
+    expect(stream?.tool_steps[0]).toMatchObject({
+      status: "success",
+      duration_ms: 1_000,
+      result_block: { language: "text", content: expect.stringContaining("finished") },
+    });
+    expect(stream?.process_parts[0]).toMatchObject({
+      type: "tool",
+      tool_step: { status: "success" },
+    });
+    expect(stream?.seq).toBe(1);
+    h.controller.dispose();
+  });
+
+  test("retains an exec completion that arrives before its live card", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "run it" });
+    h.controller.handleAgentEvent({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "background_task.changed",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: {
+        tool_call_id: "tool-exec-1",
+        task: {
+          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          status: "completed", pid: 1, command: "true", cwd: "/work", started_at: 1,
+          ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "early",
+        },
+      },
+    });
+    h.controller.handleOutbound({
+      action: "stream_message",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      event_id: "event-1",
+      payload: {
+        state: "final", seq: 1, content: "done", thinking: "", redacted_thinking_count: 0,
+        thinking_elapsed_ms: 0, tool_pending: false, tool_elapsed_ms: 250,
+        tool_steps: [{
+          id: "tool-exec-1", name: "exec", title: "Run command", detail: "true",
+          icon_token: "setting_outlined", status: "running", duration_ms: 250,
+        }],
+        process_parts: [{
+          type: "tool", part_id: "part-1", sequence: 1,
+          tool_step: {
+            id: "tool-exec-1", name: "exec", title: "Run command", detail: "true",
+            icon_token: "setting_outlined", status: "running", duration_ms: 250,
+          },
+        }],
+        display_metrics: {
+          status: "completed", phase: "generating_answer", elapsed_ms: 300, model: "model",
+          input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
+          context_tokens: 1, context_window_tokens: 100,
+        },
+      },
+    });
+    expect(h.controller.activity("session-1").active?.stream?.tool_steps[0]).toMatchObject({
+      status: "success",
+      result_block: { content: expect.stringContaining("early") },
+    });
+    h.controller.dispose();
+  });
+
   test("watermarks the turn as the transcript receives it, regardless of stored text", async () => {
     const h = harness(["turn-1", "message-1", "route-1"]);
     h.storage.sessions.set("session-1", {

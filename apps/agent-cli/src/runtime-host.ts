@@ -14,7 +14,7 @@ import {
   type DashboardRpcResult,
   type ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
-import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
+import { assertWorkspaceAvailable, createLogger, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
@@ -57,7 +57,7 @@ export interface AgentRuntimeHostOptions {
   environment: Environment;
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
-  onWake?: (payload: JsonObject) => void;
+  onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
   onManagedLlmAuthenticationFailure?: (
     provider: string,
@@ -182,43 +182,7 @@ export function createAgentRuntimeHost(
     execShell,
     lxeSkillStatus: () => lxeSkillRuntime.snapshot(),
     execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
-    onProcessComplete: async (snapshot) => {
-      const sessionId = String(snapshot.session_id ?? "").trim();
-      if (!sessionId) return;
-      const responseRouteId = String(snapshot.response_route_id ?? "").trim();
-      const taskId = String(snapshot.task_id ?? "").trim();
-      const turnId = String(snapshot.origin_turn_id ?? "").trim();
-      await runWithLogContext({
-        session_id: sessionId,
-        turn_id: turnId,
-        response_route_id: responseRouteId,
-        task_id: taskId,
-      }, async () => {
-        const eventId = crypto.randomUUID().replaceAll("-", "");
-        await store.appendPendingEvent(sessionId, {
-          event_id: eventId,
-          job_id: taskId,
-          created_at: Math.trunc(Date.now() / 1_000),
-          text: `后台命令已结束：status=${String(snapshot.status ?? "")}\n${String(snapshot.output_tail ?? "")}`.trim(),
-          ...(responseRouteId ? { response_route_id: responseRouteId } : {}),
-        });
-        options.onWake?.({
-          session_id: sessionId,
-          response_route_id: responseRouteId,
-          reason: "exec-event",
-        });
-      });
-    },
-    onProcessConsume: (request) => {
-      const deletedEvents = store.discardPendingEvent(request.session_id, request.task_id);
-      logger.info("process_completion_consumed", {
-        session_id: request.session_id,
-        task_id: request.task_id,
-        status: request.status,
-        consume_reason: request.reason,
-        deleted_events: deletedEvents,
-      });
-    },
+    ...(options.onBackgroundTaskChanged ? { onExecComplete: options.onBackgroundTaskChanged } : {}),
   });
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
@@ -241,7 +205,8 @@ export function createAgentRuntimeHost(
     tools,
     mcpConfig,
     connectorStatePath,
-    backgroundTasks: () => processes.snapshots(),
+    execSnapshots: (sessionId) => processes.snapshots(sessionId),
+    terminateSession: (sessionId) => processes.terminateSession(sessionId),
     setMcpEnabled: async (serverName, enabled) => {
       setMcpServerEnabled(mcpConfigPath, serverName, enabled);
       await mcpManager.setEnabled(serverName, enabled);

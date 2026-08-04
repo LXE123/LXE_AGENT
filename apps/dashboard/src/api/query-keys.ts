@@ -14,9 +14,6 @@ export const dashboardQueryKeys = {
     byType: (type: "overview" | "skills" | "tools", days: number) =>
       ["stats", type, days] as const,
   },
-  backgroundTasks: {
-    all: ["background-tasks"] as const,
-  },
   channelHealth: {
     all: ["channel-health"] as const,
   },

@@ -75,15 +75,29 @@ describe("Dashboard invalidation bridge", () => {
       sessionIds: ["session-1"],
     });
     expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.completed"))).toEqual({
-      domains: ["stats", "background_tasks"],
+      domains: ["stats"],
       sessionIds: [],
     });
     expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.failed"))).toEqual({
-      domains: ["stats", "background_tasks"],
+      domains: ["stats"],
       sessionIds: [],
     });
     expect(dashboardInvalidationForAgentEvent(lifecycleEvent("thread.started"))).toBeUndefined();
     expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.started"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "background_task.changed",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: {
+        tool_call_id: "tool-1",
+        task: {
+          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          status: "completed", pid: 1, command: "echo ok", cwd: "/work", started_at: 1,
+          ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "ok",
+        },
+      },
+    })).toEqual({ domains: ["sessions"], sessionIds: ["session-1"] });
   });
 
   test("never derives session invalidation from outbound item events", () => {

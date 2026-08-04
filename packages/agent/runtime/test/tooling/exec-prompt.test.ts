@@ -8,8 +8,6 @@ import type { ExecShellProfile } from "../../src/tooling/exec-shell";
 
 const LIMITS: ExecPromptLimits = {
   maxOutputBytes: 50_000,
-  defaultTimeoutSeconds: 120,
-  maxTimeoutSeconds: 3_600,
 };
 
 const posix: ExecShellProfile = { kind: "posix" };
@@ -72,6 +70,12 @@ describe("exec tool description", () => {
       expect(execToolDescription(profile, LIMITS)).toContain("must be the only command");
       expect(execCommandParameterDescription(profile)).toContain("exactly one standalone");
     }
+  });
+
+  test("documents session-owned wait without model wakeups", () => {
+    const description = execToolDescription(posix, LIMITS);
+    expect(description).toContain("exec_id for wait");
+    expect(description).toContain("does not automatically wake the model");
   });
 
   test("drops && from the lxeskill operator list where it cannot be typed anyway", () => {

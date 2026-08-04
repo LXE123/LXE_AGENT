@@ -441,7 +441,7 @@ export interface HeartbeatOptions {
   id?: () => string;
 }
 
-const wakePriority = (reason: string): number => (reason === "exec-event" ? 1 : 0);
+const wakePriority = (reason: string): number => (reason === "retry" ? 0 : 1);
 
 export class HeartbeatWakeQueue {
   private readonly logger = createLogger("gateway.heartbeat");
@@ -466,7 +466,7 @@ export class HeartbeatWakeQueue {
     if (!sessionId) throw new Error("session_id required");
     const next: Required<HeartbeatWakeRequest> = {
       session_id: sessionId,
-      reason: clean(request.reason) || "exec-event",
+      reason: clean(request.reason) || "pending-event",
       response_route_id: clean(request.response_route_id),
     };
     const previous = this.pending.get(sessionId);

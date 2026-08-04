@@ -642,6 +642,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
+          let toolDisplayStatus: import("@lxe/protocol").ToolStepStatus = "success";
           let toolDisplayOutput: { result?: unknown; error?: unknown } | undefined;
           try {
             const result = await this.options.tools.execute(call.name, call.arguments, {
@@ -649,6 +650,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               turn_id: job.job_id,
+              tool_call_id: call.id,
               exposureState: toolExposure,
               skill_names: skillNames,
               workspace,
@@ -697,10 +699,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               tool_call_id: call.id,
               content: result.content,
             });
+            toolDisplayStatus = result.display_status ?? toolStatus;
             toolDisplayOutput = { result: result.content };
           } catch (cause) {
             usage.errors += 1;
             toolStatus = "error";
+            toolDisplayStatus = "error";
             const unknownFailure = unknownToolFailureDetails(call.name, cause);
             let displayMessage = unknownFailure.observed_message;
             let modelMessage = JSON.stringify(unknownFailure, null, 2);
@@ -734,7 +738,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               });
             }
             observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, commandId || undefined);
-            await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
+            await finalAnswerStreamer?.pushToolFinish(call, toolDisplayStatus, durationMs, toolDisplayOutput);
           }
         }
         if (interruptedBySteering) continue;

@@ -4,6 +4,7 @@ import iconv from "iconv-lite";
 import type { JsonObject } from "@lxe/protocol";
 
 const CONTROL_KEYS = [
+  "exec_id",
   "session",
   "status",
   "pid",

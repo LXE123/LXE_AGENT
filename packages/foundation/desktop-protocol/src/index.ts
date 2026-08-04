@@ -22,7 +22,25 @@ import type {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 15 as const;
+export const AGENT_PROTOCOL_VERSION = 16 as const;
+
+/** Session-owned exec snapshot used only for completion events and card refresh. */
+export type ExecTaskSnapshotPayload = {
+  exec_id: string;
+  session_id: string;
+  origin_turn_id: string;
+  status: "completed" | "failed" | "killed";
+  pid: number | null;
+  command: string;
+  cwd: string;
+  started_at: number;
+  ended_at: number | null;
+  duration_sec: number;
+  exit_code: number | null;
+  truncated: boolean;
+  output_path?: string;
+  output_tail: string;
+};
 
 export type CredentialSource = "local" | "cloud";
 
@@ -193,6 +211,11 @@ export type AgentSessionChangedPayload = {
   changes: AgentSessionChange[];
 };
 
+export type BackgroundTaskChangedPayload = {
+  tool_call_id: string;
+  task: ExecTaskSnapshotPayload;
+};
+
 export type AgentEvent =
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -225,6 +248,13 @@ export type AgentEvent =
       version: typeof AGENT_PROTOCOL_VERSION;
       type: "agent.wake";
       payload: JsonObject;
+    }
+  | {
+      version: typeof AGENT_PROTOCOL_VERSION;
+      type: "background_task.changed";
+      thread_id: string;
+      turn_id: string;
+      payload: BackgroundTaskChangedPayload;
     }
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -378,7 +408,6 @@ export interface DesktopConfigImportApplyResult {
 export type DesktopDashboardDataDomain =
   | "sessions"
   | "stats"
-  | "background_tasks"
   | "channels"
   | "models"
   | "connectors"
@@ -629,6 +658,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "conversation.stream.delta",
   "typing.changed",
   "agent.wake",
+  "background_task.changed",
   "managed_llm.authentication_failed",
   "session.changed",
   "system.ready",
@@ -808,6 +838,38 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
         || typeof payload.credential_revision !== "string"
         || !/^[a-f0-9]{64}$/u.test(payload.credential_revision)) {
         throw new Error("agent protocol managed LLM authentication event is invalid");
+      }
+    }
+    if (object.type === "background_task.changed") {
+      if (typeof object.thread_id !== "string" || !object.thread_id.trim()
+        || typeof object.turn_id !== "string" || !object.turn_id.trim()) {
+        throw new Error("agent protocol background_task.changed identifiers must be non-empty strings");
+      }
+      const payload = objectValue(object.payload)!;
+      const task = objectValue(payload.task);
+      const status = task?.status;
+      const payloadFields = Object.keys(payload).filter((name) => name !== "tool_call_id" && name !== "task");
+      const taskFields = task ? Object.keys(task).filter((name) => ![
+        "exec_id", "session_id", "origin_turn_id", "status", "pid", "command", "cwd", "started_at",
+        "ended_at", "duration_sec", "exit_code", "truncated", "output_path", "output_tail",
+      ].includes(name)) : [];
+      if (payloadFields.length > 0 || taskFields.length > 0
+        || typeof payload.tool_call_id !== "string" || !payload.tool_call_id.trim()
+        || !task
+        || typeof task.exec_id !== "string" || !task.exec_id.trim()
+        || task.session_id !== object.thread_id
+        || task.origin_turn_id !== object.turn_id
+        || (status !== "completed" && status !== "failed" && status !== "killed")
+        || (task.pid !== null && (typeof task.pid !== "number" || !Number.isSafeInteger(task.pid) || task.pid <= 0))
+        || typeof task.command !== "string" || typeof task.cwd !== "string"
+        || typeof task.started_at !== "number" || !Number.isFinite(task.started_at)
+        || (task.ended_at !== null && (typeof task.ended_at !== "number" || !Number.isFinite(task.ended_at)))
+        || typeof task.duration_sec !== "number" || !Number.isFinite(task.duration_sec) || task.duration_sec < 0
+        || (task.exit_code !== null && (typeof task.exit_code !== "number" || !Number.isSafeInteger(task.exit_code)))
+        || typeof task.truncated !== "boolean"
+        || (task.output_path !== undefined && typeof task.output_path !== "string")
+        || typeof task.output_tail !== "string") {
+        throw new Error("agent protocol background_task.changed payload is invalid");
       }
     }
     if (object.type === "conversation.stream.delta") {

@@ -4,7 +4,7 @@
 
 ## 目的
 
-`SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行、跨 session 有界并发，并把 cancel、steering、active process 和 Runtime completion 聚合到一个 `RunHandle`。
+`SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行、跨 session 有界并发，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。
 
 事实来源是 [`apps/gateway/src/orchestration/scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) 及其测试。
 
@@ -34,10 +34,9 @@ Runtime unhealthy 时 scheduler 保留 queued job，不继续 dispatch。start �
 - `runId`、`sessionId`、`jobId` 与原始 `AgentJob`。
 - 一个共享 `AbortController`。
 - steering queue 与已接受 cancel 状态。
-- 当前登记的 child process/process tree。
 - start failure 和 closing/terminal 状态。
 
-Provider、summary、MCP 和 coding process 都接收同一个 abort signal。工具启动的进程必须登记到 handle，取消时由 Runtime/process manager 有界终止；Windows 使用进程树语义。
+Provider、summary、MCP 和 exec/wait 的当前观察都接收同一个 abort signal。exec 进程创建成功后立即归 Session manager，不登记到 RunHandle；取消 turn 只停止观察，进程继续运行。显式 terminate、Session 删除或 Runtime 关闭仍使用完整进程树语义。
 
 ## Completion 校验
 
@@ -77,7 +76,7 @@ Scheduler 只接受 run id、session id 和 job id 与 active handle 完全一�
 
 ## Heartbeat job
 
-`HeartbeatWakeQueue` 按 session 合并 wake request；`exec-event` 优先级高于 retry。处理时依次检查：
+`HeartbeatWakeQueue` 按 session 合并 wake request。exec 完成不再进入该队列；其它 wake 处理时依次检查：
 
 1. session autonomy 未 suspended。
 2. SQLite 中仍有 pending event。

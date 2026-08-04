@@ -40,6 +40,6 @@ Instance 默认最多保留 32 个，空闲 30 分钟后可回收。正在被 Tu
 | global | Desktop 配置、Secrets、Provider、MCP、连接器设置 |
 | window | Dashboard 语言与窗口内导航偏好 |
 | workspace | 只有进程内 Instance，不落盘 |
-| session | WorkspaceContext、消息、Turn、pending event、后台任务归属 |
+| session | WorkspaceContext、消息、Turn、pending event、exec 进程归属 |
 
 内部强制刷新入口是 Dashboard RPC `sessions.workspace.reload`，输入只包含 `session_id`。它只能通过 Session 找到已绑定 Workspace，不接受调用者提交目录。

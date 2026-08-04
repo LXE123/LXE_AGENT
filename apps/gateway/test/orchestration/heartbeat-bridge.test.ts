@@ -92,7 +92,7 @@ describe("HeartbeatBridge", () => {
       },
     });
     await bridge.start();
-    bridge.handle({ session_id: "session-1", reason: "exec-event", response_route_id: "route" });
+    bridge.handle({ session_id: "session-1", reason: "pending-event", response_route_id: "route" });
     bridge.handle({ session_id: "session-1", reason: "retry" });
     expect(timers).toHaveLength(1);
     expect(requested).toHaveLength(2);
@@ -129,7 +129,7 @@ describe("HeartbeatBridge", () => {
     });
     await bridge.start();
     bridge.handle({ session_id: "retry", reason: "retry" });
-    bridge.handle({ session_id: "normal", reason: "exec-event" });
+    bridge.handle({ session_id: "normal", reason: "pending-event" });
     expect(delays).toEqual([1_000]);
     timers.shift()!();
     await Bun.sleep(0);

@@ -9,7 +9,6 @@ import type {
 
 export type {
   ApiList,
-  BackgroundTaskPayload,
   CapabilityPayload,
   ChannelHealthList,
   ChannelHealthPayload,

@@ -1,5 +1,5 @@
 import { ModelImageProcessor } from "../../providers/model-image";
-import { DEFAULT_EXEC_YIELD_MS, ExecShellAdapter } from "../exec-shell";
+import { ExecShellAdapter } from "../exec-shell";
 import type { ToolRegistry } from "../registry";
 import { createExecTools } from "./exec-tools";
 import { createFileTools } from "./file-tools";
@@ -30,14 +30,9 @@ export function registerCodingTools(
   const processes = new CodingProcessManager({
     maxOutputBytes: processOutputLimit,
     tailBytes: 2_000,
-    ttlSeconds: 1_800,
-    // Matches the exec yield window on purpose: both are "how long is it worth
-    // blocking before handing the turn back", so they should not drift apart.
-    pollWindowMs: Math.max(1, Math.trunc(options.processPollWindowMs ?? DEFAULT_EXEC_YIELD_MS)),
     shell: execShell,
   });
-  processes.onComplete = options.onProcessComplete;
-  processes.onConsume = options.onProcessConsume;
+  processes.onComplete = options.onExecComplete;
 
   for (const tool of createFileTools({
     paths,

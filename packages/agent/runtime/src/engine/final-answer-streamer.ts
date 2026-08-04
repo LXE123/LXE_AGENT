@@ -66,6 +66,7 @@ export class FinalAnswerStreamer {
   private activeToolStartedAt = 0;
   private toolElapsedMs = 0;
   private toolSteps: ToolStep[] = [];
+  private readonly detachedToolIds = new Set<string>();
   private processParts: TurnProcessPart[] = [];
   private readonly processPartIndexes = new Map<string, number>();
   private readonly toolPartIds = new Map<string, string>();
@@ -243,7 +244,7 @@ export class FinalAnswerStreamer {
 
   async pushToolFinish(
     call: ToolCallBlock,
-    status: "success" | "error",
+    status: ToolStep["status"],
     durationMs: number,
     output?: { result?: unknown; error?: unknown },
   ): Promise<void> {
@@ -251,6 +252,8 @@ export class FinalAnswerStreamer {
     this.toolPending = false;
     this.toolElapsedMs += Math.max(0, Math.trunc(durationMs));
     this.activeToolStartedAt = 0;
+    if (status === "running") this.detachedToolIds.add(call.id);
+    else this.detachedToolIds.delete(call.id);
     const step = buildToolDisplayStep(call.id, call.name, call.arguments, status, durationMs, {
       ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
       showResultDetails: this.options.toolUseMode === "full",
@@ -537,11 +540,12 @@ export class FinalAnswerStreamer {
   }
 
   private finalizeRunningTools(): void {
-    this.toolSteps = this.toolSteps.map((step) => step.status === "running"
+    this.toolSteps = this.toolSteps.map((step) => step.status === "running" && !this.detachedToolIds.has(step.id)
       ? { ...step, status: "error", duration_ms: Math.max(step.duration_ms, this.toolElapsedMs) }
       : step);
     for (const part of this.processParts) {
-      if (part.type === "tool" && part.tool_step.status === "running") {
+      if (part.type === "tool" && part.tool_step.status === "running"
+        && !this.detachedToolIds.has(part.tool_step.id)) {
         part.tool_step = {
           ...part.tool_step,
           status: "error",

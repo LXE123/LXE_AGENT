@@ -61,7 +61,34 @@ describe("DashboardService", () => {
     expect(previewBytes).toBeLessThanOrEqual(DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES);
   });
 
-  test("serves the production session, skill, connector, tool, stats, and task contracts", async () => {
+  test("overlays yielded exec state on the display copy only", () => {
+    const detail = {
+      session: { session_id: "session-1" },
+      messages: [{
+        role: "tool",
+        content: [{
+          type: "tool_result", tool_call_id: "tool-exec-1", content: "status: running",
+          display_status: "running",
+        }],
+      }],
+      messages_page: {},
+    };
+    const preview = dashboardSessionDetailPreview(detail, [{
+      exec_id: "exec_1234abcd", tool_call_id: "tool-exec-1",
+      status: "failed", exit_code: 3, duration_sec: 2, output_tail: "real failure",
+    }]) as { messages: Array<{ content: Array<Record<string, unknown>> }> };
+    expect(preview.messages[0]?.content[0]).toMatchObject({
+      display_status: "error",
+      is_error: true,
+      content: expect.stringContaining("real failure"),
+    });
+    expect(detail.messages[0]!.content[0]).toMatchObject({
+      display_status: "running",
+      content: "status: running",
+    });
+  });
+
+  test("serves the production session, skill, connector, tool, and stats contracts", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-api-"));
     roots.push(root);
     mkdirSync(join(root, "skills", "demo", "references"), { recursive: true });
@@ -203,6 +230,7 @@ describe("DashboardService", () => {
         };
       },
     };
+    const terminatedSessions: string[] = [];
     const service = new DashboardService({
       stateRoot: root,
       llmConfigRoot: join(root, "config", "llm"),
@@ -221,7 +249,7 @@ describe("DashboardService", () => {
       }] },
       mcpStatus: () => ({ connected: true, error: "", toolCount: 7, tools: [{ rawName: "read", modelName: "mcp__inventory__read" }] }),
       connectorStatePath: join(root, "config", "connectors.json"),
-      backgroundTasks: () => [{ task_id: "task-1", status: "running" }],
+      terminateSession: async (sessionId) => { terminatedSessions.push(sessionId); },
       cliCommands: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       providerManager,
       reloadWorkspace: async (sessionId) => {
@@ -316,8 +344,6 @@ describe("DashboardService", () => {
     expect(JSON.stringify(mcp)).not.toContain("MCP_BEARER");
     expect(await call({ operation: "mcp.servers.update", input: { name: "inventory", enabled: false } }))
       .toMatchObject({ name: "inventory", enabled: false, status: "disabled" });
-    expect(await call({ operation: "backgroundTasks.list", input: {} }))
-      .toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
     expect(await call({ operation: "stats.overview", input: { days: 7 } })).toMatchObject({
       days: 7,
       totals: { turns: 1, input_tokens: 3, skill_executions: 1, skill_failures: 1 },
@@ -538,8 +564,10 @@ describe("DashboardService", () => {
       .rejects.toMatchObject({ code: "not_found", message: "session not found" });
     await expect(call({ operation: "sessions.delete", input: { session_id: "missing" } }))
       .rejects.toMatchObject({ code: "not_found", message: "session not found" });
+    expect(terminatedSessions).toEqual([]);
     expect(await call({ operation: "sessions.delete", input: { session_id: "session-one" } }))
       .toEqual({ session_id: "session-one", deleted: true });
+    expect(terminatedSessions).toEqual(["session-one"]);
     expect(await call({ operation: "sessions.list", input: { query: "session-one" } }))
       .toMatchObject({ total: 0, items: [] });
     await store.stop();

@@ -6,8 +6,8 @@ TOOL 由纯代码构成
 并未确定使用的 TOOL，在 prompt 的格式如下（）：
 - image: Analyze an image with the configured image model
 - web_search: Search the web (Brave API)
-- exec: Run shell commands with optional background sessions
-- process: Manage running or finished exec sessions
+- exec: Run a shell command and yield with an exec id when it remains active
+- wait: Observe or terminate an exec owned by the current session
 - 写入 system prompt 有两种方式
 1. 直接硬编码在 system propmt 中
 2. 直接读取 TOOL 本身参数
@@ -52,7 +52,7 @@ TOOL 由纯代码构成
       }
     },
     { "name": "exec", ... },
-    { "name": "process", ... },
+    { "name": "wait", ... },
     { "name": "web_search", ... }
   ]
 }

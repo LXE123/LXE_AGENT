@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
-export const DEFAULT_EXEC_TIMEOUT_SECONDS = 120;
-export const MAX_EXEC_TIMEOUT_SECONDS = 3_600;
 export const DEFAULT_EXEC_YIELD_MS = 10_000;
+export const MIN_EXEC_YIELD_MS = 250;
+export const MAX_EXEC_YIELD_MS = 30_000;
+export const DEFAULT_WAIT_YIELD_MS = 10_000;
+export const MIN_WAIT_YIELD_MS = 5_000;
+export const MAX_WAIT_YIELD_MS = 300_000;
 
 type Environment = Record<string, string | undefined>;
 type SpawnedProcess = ReturnType<typeof Bun.spawn>;

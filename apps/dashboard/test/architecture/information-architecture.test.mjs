@@ -35,9 +35,11 @@ test("media workbench keeps filesystem paths behind the desktop bridge", () => {
   assert.match(workbench, /desktop\?\.platform === "win32" \|\| desktop\?\.platform === "darwin"/);
 });
 
-test("capabilities and activity use compact child navigation", () => {
+test("capabilities use compact child navigation while activity opens statistics directly", () => {
   assert.match(main, /const capabilityItems:[\s\S]*"models"[\s\S]*"skills"[\s\S]*"tools"[\s\S]*"connections"/);
-  assert.match(main, /const activityItems:[\s\S]*"stats"[\s\S]*"background-tasks"/);
+  assert.doesNotMatch(main, /const activityItems/);
+  assert.doesNotMatch(main, /BackgroundTasksView|useBackgroundTasksQuery/);
+  assert.match(main, /activeSection === "activity"[\s\S]*<StatsView/);
   assert.match(main, /aria-current=\{activeView === item\.id \? "page" : undefined\}/);
   assert.match(styles, /\.workspace-subnav-item\.active/);
   assert.match(main, /const nextActivityView = section === "activity" \? "stats" : activityView/);
@@ -50,7 +52,7 @@ test("pages enable only the server queries required by their active views", () =
   );
   assert.match(main, /useConnectorsQuery\(capabilitiesOpen && capabilityView === "connections"\)/);
   assert.match(main, /capabilityView === "tools" \|\| capabilityView === "connections"/);
-  assert.match(main, /useBackgroundTasksQuery\(activityOpen && activityView === "background-tasks"\)/);
+  assert.doesNotMatch(main, /backgroundTasksQuery/);
 });
 
 test("MCP tools and servers have one semantic home each", () => {

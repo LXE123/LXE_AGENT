@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { win32 } from "node:path";
 import {
-  DEFAULT_EXEC_TIMEOUT_SECONDS,
   DEFAULT_EXEC_YIELD_MS,
+  DEFAULT_WAIT_YIELD_MS,
   ExecShellAdapter,
-  MAX_EXEC_TIMEOUT_SECONDS,
+  MAX_EXEC_YIELD_MS,
+  MAX_WAIT_YIELD_MS,
+  MIN_EXEC_YIELD_MS,
+  MIN_WAIT_YIELD_MS,
   resolveWindowsPowerShell,
 } from "../../src/tooling/exec-shell";
 
@@ -277,8 +280,11 @@ describe("ExecShellAdapter", () => {
   });
 
   test("freezes exec timing defaults", () => {
-    expect(DEFAULT_EXEC_TIMEOUT_SECONDS).toBe(120);
-    expect(MAX_EXEC_TIMEOUT_SECONDS).toBe(3_600);
     expect(DEFAULT_EXEC_YIELD_MS).toBe(10_000);
+    expect(MIN_EXEC_YIELD_MS).toBe(250);
+    expect(MAX_EXEC_YIELD_MS).toBe(30_000);
+    expect(DEFAULT_WAIT_YIELD_MS).toBe(10_000);
+    expect(MIN_WAIT_YIELD_MS).toBe(5_000);
+    expect(MAX_WAIT_YIELD_MS).toBe(300_000);
   });
 });

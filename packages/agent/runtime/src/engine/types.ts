@@ -4,6 +4,7 @@ import type {
   EmitRequest,
   JsonObject,
   JsonValue,
+  ToolStepStatus,
   WorkspaceContext,
 } from "@lxe/protocol";
 import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
@@ -229,6 +230,8 @@ export interface ToolExecutionResult {
   content: JsonObject[];
   state_patch?: JsonObject;
   files?: string[];
+  /** Allows a yielded tool call to remain visually running after its handler returns. */
+  display_status?: ToolStepStatus;
 }
 
 export interface RuntimeEmitter {

@@ -375,7 +375,7 @@ describe("HeartbeatWakeQueue", () => {
       id: () => "heartbeat-id",
     });
     wakes.request({ session_id: "s1", reason: "retry", response_route_id: "route-old" });
-    wakes.request({ session_id: "s1", reason: "exec-event", response_route_id: "" });
+    wakes.request({ session_id: "s1", reason: "pending-event", response_route_id: "" });
     expect(wakes.pendingCount).toBe(1);
     await wakes.flush();
     await tick();
@@ -402,7 +402,7 @@ describe("HeartbeatWakeQueue", () => {
           user_name: "Tester",
         },
         raw_data: {
-          heartbeat_reason: "exec-event",
+          heartbeat_reason: "pending-event",
           session_key: "agent:main:feishu:group:chat:union",
           source: {
             platform: "feishu",
@@ -437,9 +437,9 @@ describe("HeartbeatWakeQueue", () => {
       isSuspended: (sessionId) => sessionId === "suspended",
       id: () => "heartbeat",
     });
-    wakes.request({ session_id: "suspended", reason: "exec-event" });
-    wakes.request({ session_id: "empty", reason: "exec-event" });
-    wakes.request({ session_id: "busy", reason: "exec-event" });
+    wakes.request({ session_id: "suspended", reason: "pending-event" });
+    wakes.request({ session_id: "empty", reason: "pending-event" });
+    wakes.request({ session_id: "busy", reason: "pending-event" });
     await wakes.flush();
     expect(wakes.pendingCount).toBe(1);
     expect(wakes.peek("busy")?.reason).toBe("retry");
@@ -463,7 +463,7 @@ describe("HeartbeatWakeQueue", () => {
       isSuspended: () => false,
       id: () => "unexpected-heartbeat",
     });
-    wakes.request({ session_id: "busy", reason: "exec-event" });
+    wakes.request({ session_id: "busy", reason: "pending-event" });
     await wakes.flush();
     expect(wakes.peek("busy")?.reason).toBe("retry");
 

@@ -23,7 +23,7 @@ commands:
 - 任一阶段失败时停止，只转述 terminal 的 `error.message` 和 `data.context`。
 - 失败后不要刷新、截图诊断、重跑阶段、重启店铺或跨阶段补救，除非用户明确要求。
 - 唯一自动回退例外：第三阶段 `notice == "亚马逊店铺页面店铺出现bug，已返回第二步开头，请执行第二阶段CLI"` 时，直接执行第二阶段。
-- 后台命令仍在运行时只等待或读取该 session 结果，不重复启动同一阶段。
+- 命令返回 `status=running` 时保留其 `exec_id`，只用 `wait` 等待或读取新增输出，不重复启动同一阶段。
 
 ## Required Input
 

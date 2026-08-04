@@ -8,10 +8,9 @@ import {
   useSkillContentQuery,
   useSkillReferenceQuery,
 } from "../../api/queries";
-import { formatDate, formatDuration, skillTypeLabel } from "../../shared/format";
+import { skillTypeLabel } from "../../shared/format";
 import { copyTextToClipboard } from "../../shared/content";
 import { markdownWithoutFrontMatter } from "../../shared/markdown";
-import { statusPillClass } from "../tasks/model";
 import { useUiText } from "../../shared/i18n";
 import type {
   SkillContentMode,
@@ -216,8 +215,7 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
   }
   const modalType =
     target.type === "tool" ? t.detailModal.tool
-    : target.type === "skill" ? skillTypeLabel(target.item.type, t)
-    : t.detailModal.task;
+    : skillTypeLabel(target.item.type, t);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
@@ -234,7 +232,7 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
           <div>
             <div className="modal-kicker">{modalType}</div>
             <h2>{target.title}</h2>
-            {target.type !== "task" && target.item.description ? (
+            {target.item.description ? (
               <div className="modal-subtitle">
                 <p>{target.item.description}</p>
                 {target.item.description.length > 48 ? (
@@ -254,67 +252,8 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
               <ToolParameters parameters={target.item.parameters} />
             </div>
           </div>
-        ) : target.type === "skill" ? (
-          <SkillDetailContent skill={target.item} />
         ) : (
-          <div className="modal-content">
-            <dl className="detail-list">
-              <div>
-                <dt>{t.detailModal.status}</dt>
-                <dd>
-                  <span className={statusPillClass(target.item.status)}>{target.item.status || t.common.unknown}</span>
-                </dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.sessionTitle}</dt>
-                <dd>{target.item.session_title || t.common.unnamedSession}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.session}</dt>
-                <dd className="mono">{target.item.session_id || "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.turn}</dt>
-                <dd className="mono">{target.item.origin_turn_id || "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.card}</dt>
-                <dd className="mono">{target.item.card_id || "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.pid}</dt>
-                <dd>{target.item.pid ?? "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.started}</dt>
-                <dd>{formatDate(target.item.started_at)}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.ended}</dt>
-                <dd>{target.item.ended_at ? formatDate(target.item.ended_at) : "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.duration}</dt>
-                <dd>{formatDuration(target.item.duration_sec)}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.exitCode}</dt>
-                <dd>{target.item.exit_code ?? "-"}</dd>
-              </div>
-              <div>
-                <dt>{t.detailModal.cwd}</dt>
-                <dd className="mono">{target.item.cwd || "-"}</dd>
-              </div>
-            </dl>
-            <div className="schema-block">
-              <div className="schema-title">{t.detailModal.command}</div>
-              <pre>{target.item.command || "-"}</pre>
-            </div>
-            <div className="schema-block">
-              <div className="schema-title">{t.detailModal.outputTail}</div>
-              <pre>{target.item.output_tail || `(${t.detailModal.noOutput})`}</pre>
-            </div>
-          </div>
+          <SkillDetailContent skill={target.item} />
         )}
       </section>
     </div>

@@ -1,9 +1,12 @@
 import type { JsonObject } from "@lxe/protocol";
 import {
-  DEFAULT_EXEC_TIMEOUT_SECONDS,
   DEFAULT_EXEC_YIELD_MS,
+  DEFAULT_WAIT_YIELD_MS,
   type ExecShellAdapter,
-  MAX_EXEC_TIMEOUT_SECONDS,
+  MAX_EXEC_YIELD_MS,
+  MAX_WAIT_YIELD_MS,
+  MIN_EXEC_YIELD_MS,
+  MIN_WAIT_YIELD_MS,
 } from "../exec-shell";
 import { classifyLxeSkillInput, matchLxeSkillInvocation } from "../lxeskill-command";
 import { formatCommandPayload } from "../process-output";
@@ -23,7 +26,10 @@ import type { CodingProcessManager } from "./process-manager";
 import type { CodingToolOptions, LxeSkillRecoveryCommand } from "./public-types";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
-const commandResult = (payload: JsonObject) => ({ content: textBlock(formatCommandPayload(payload)) });
+const commandResult = (payload: JsonObject, displayStatus?: "running" | "error") => ({
+  content: textBlock(formatCommandPayload(payload)),
+  ...(displayStatus ? { display_status: displayStatus } : {}),
+});
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 
 const BUSINESS_MODULE_PATTERN = /\b(?:services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b/giu;
@@ -105,8 +111,6 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
   const shellProfile = execShell.shellProfile();
   const promptLimits: ExecPromptLimits = {
     maxOutputBytes: dependencies.maxOutputBytes,
-    defaultTimeoutSeconds: DEFAULT_EXEC_TIMEOUT_SECONDS,
-    maxTimeoutSeconds: MAX_EXEC_TIMEOUT_SECONDS,
   };
   const commandCatalog = options.businessCommandCatalog ?? [];
   const businessCommands = options.businessCommands ?? new Map(
@@ -130,14 +134,9 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
             description: execCommandParameterDescription(shellProfile),
           },
           cwd: { type: "string", description: "Working directory inside the Git worktree; defaults to the session working directory." },
-          timeout: {
-            type: "number", minimum: 1, maximum: MAX_EXEC_TIMEOUT_SECONDS, default: DEFAULT_EXEC_TIMEOUT_SECONDS,
-            description: "Foreground timeout in seconds (default 120, maximum 3600). Ignored when background=true.",
-          },
-          background: { type: "boolean", default: false, description: "Start in the background immediately." },
-          yield_ms: {
-            type: "number", minimum: 1, default: DEFAULT_EXEC_YIELD_MS,
-            description: "Milliseconds to wait before a still-running foreground command moves to the background.",
+          "yield-time-ms": {
+            type: "number", minimum: MIN_EXEC_YIELD_MS, maximum: MAX_EXEC_YIELD_MS, default: DEFAULT_EXEC_YIELD_MS,
+            description: "Milliseconds to observe before returning a still-running command with an exec_id.",
           },
         },
         required: ["command"],
@@ -185,13 +184,10 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
             );
           }
         }
-        const background = input.background === true;
-        const timeoutSeconds = Number(input.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
-        if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_EXEC_TIMEOUT_SECONDS) {
-          throw new Error(`timeout must be between 1 and ${MAX_EXEC_TIMEOUT_SECONDS} seconds`);
+        const yieldMs = Number(input["yield-time-ms"] ?? DEFAULT_EXEC_YIELD_MS);
+        if (!Number.isFinite(yieldMs) || yieldMs < MIN_EXEC_YIELD_MS || yieldMs > MAX_EXEC_YIELD_MS) {
+          throw new Error(`yield-time-ms must be between ${MIN_EXEC_YIELD_MS} and ${MAX_EXEC_YIELD_MS} milliseconds`);
         }
-        const yieldMs = Number(input.yield_ms ?? DEFAULT_EXEC_YIELD_MS);
-        if (!Number.isFinite(yieldMs) || yieldMs < 1) throw new Error("yield_ms must be a positive number of milliseconds");
         const command = execShell.normalizeCommand(context.workspace.worktree, rawCommand);
         const payload = await processes.execute({
           command,
@@ -199,33 +195,49 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           sessionId: context.session_id,
           responseRouteId: context.response_route_id ?? "",
           workspace: context.workspace,
-          background,
           yieldMs,
-          ...(!background ? { timeoutMs: timeoutSeconds * 1_000 } : {}),
-          handle: context.handle,
+          signal: context.handle.signal,
+          toolCallId: context.tool_call_id ?? "",
           ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
           ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [] }) } : {}),
         });
-        return commandResult(payload);
+        return commandResult(
+          payload,
+          payload.status === "running" ? "running" : payload.status === "completed" ? undefined : "error",
+        );
       },
     },
     {
-      name: "process",
-      description: "Inspect or stop background exec sessions: list them, poll one for new output, or kill one. Completed sessions notify you on their own, so poll only when you need progress before then. Output past the size limit is not in these results; read the output_path file with grep or read instead.",
+      name: "wait",
+      description: "Wait for a running exec, returning only output produced since the previous observation. Set terminate=true to stop its complete process tree. Different exec ids can be waited concurrently; a completed result closes that exec id for the model.",
       input_schema: {
         type: "object",
         properties: {
-          action: {
-            type: "string",
-            enum: ["list", "poll", "kill"],
-            description: "list: sessions in this chat. poll: new output since your last poll. kill: terminate a running session.",
+          exec_id: { type: "string", description: "Exec id returned by exec." },
+          "yield-time-ms": {
+            type: "number", minimum: MIN_WAIT_YIELD_MS, maximum: MAX_WAIT_YIELD_MS, default: DEFAULT_WAIT_YIELD_MS,
+            description: "Milliseconds to wait for completion before returning currently available new output.",
           },
-          session: { type: "string", description: "Session id from exec, required by poll and kill." },
+          terminate: { type: "boolean", default: false, description: "Terminate the complete process tree before returning." },
         },
-        required: ["action"],
+        required: ["exec_id"],
         additionalProperties: false,
       },
-      execute: async (input, context) => commandResult(await processes.process(input, context.session_id)),
+      execute: async (input, context) => {
+        const execId = inputText(input, "exec_id").trim();
+        if (!execId) throw new Error("exec_id 不能为空");
+        const yieldMs = Number(input["yield-time-ms"] ?? DEFAULT_WAIT_YIELD_MS);
+        if (!Number.isFinite(yieldMs) || yieldMs < MIN_WAIT_YIELD_MS || yieldMs > MAX_WAIT_YIELD_MS) {
+          throw new Error(`yield-time-ms must be between ${MIN_WAIT_YIELD_MS} and ${MAX_WAIT_YIELD_MS} milliseconds`);
+        }
+        return commandResult(await processes.wait({
+          execId,
+          sessionId: context.session_id,
+          yieldMs,
+          terminate: input.terminate === true,
+          signal: context.handle.signal,
+        }));
+      },
     },
   ];
 }

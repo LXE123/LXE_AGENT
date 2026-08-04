@@ -20,7 +20,7 @@ describe("Dashboard information architecture", () => {
     expect(dashboardRouteFromHistory({ tab: "background-tasks" }, "tools")).toEqual({
       section: "activity",
       capabilityView: "tools",
-      activityView: "background-tasks",
+      activityView: "stats",
       workbenchView: "index",
     });
     expect(dashboardRouteFromHistory({ tab: "stats" }, "tools").activityView).toBe("stats");
@@ -36,7 +36,7 @@ describe("Dashboard information architecture", () => {
     expect(dashboardRouteFromHistory({
       section: "capabilities",
       capabilityView: "connections",
-      activityView: "background-tasks",
+      activityView: "removed-view",
     }, "skills")).toEqual({
       section: "capabilities",
       capabilityView: "connections",

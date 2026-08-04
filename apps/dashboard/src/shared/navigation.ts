@@ -2,7 +2,7 @@ export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities
 
 export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
-export type ActivityView = "stats" | "background-tasks";
+export type ActivityView = "stats";
 
 /** Workbench starts on the tool index and drills into one tool at a time. */
 export type WorkbenchView = "index" | "synthetic-performer" | "input-assets";
@@ -32,7 +32,7 @@ const CAPABILITY_VIEWS = new Set<CapabilityView>([
   "connections",
 ]);
 
-const ACTIVITY_VIEWS = new Set<ActivityView>(["stats", "background-tasks"]);
+const ACTIVITY_VIEWS = new Set<ActivityView>(["stats"]);
 
 const WORKBENCH_VIEWS = new Set<WorkbenchView>(["index", "synthetic-performer", "input-assets"]);
 
@@ -115,14 +115,13 @@ export function dashboardRouteFromHistory(
     case "connectors":
       return { section: "capabilities", capabilityView: "connections", activityView: "stats", workbenchView: "index" };
     case "background-tasks":
+    case "stats":
       return {
         section: "activity",
         capabilityView: storedCapabilityView,
-        activityView: "background-tasks",
+        activityView: "stats",
         workbenchView: "index",
       };
-    case "stats":
-      return { section: "activity", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
     default:
       return { section: "home", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
   }

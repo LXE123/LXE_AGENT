@@ -10,8 +10,6 @@ import type { ExecShellProfile } from "../exec-shell";
 export interface ExecPromptLimits {
   /** Bytes of output returned inline before the rest moves to the transcript file. */
   maxOutputBytes: number;
-  defaultTimeoutSeconds: number;
-  maxTimeoutSeconds: number;
 }
 
 const isWindows = (profile: ExecShellProfile): boolean => profile.kind !== "posix";
@@ -73,7 +71,7 @@ const fileToolLines = (profile: ExecShellProfile): string[] => {
 
 export function execToolDescription(profile: ExecShellProfile, limits: ExecPromptLimits): string {
   return [
-    "Execute a shell command, continuing in the background when it outlives the foreground window.",
+    "Execute a non-interactive shell command. If it outlives yield-time-ms, it keeps running under this chat and exec returns an exec_id for wait.",
     shellLine(profile),
     "",
     "Environment: python and pip resolve to this project's .venv; lxeskill prefers the precompiled project runtime and falls back to .venv in development.",
@@ -83,6 +81,7 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
     ...quotingLines(profile),
     ...fileToolLines(profile),
     truncationLine(profile, limits),
+    "Use wait with the returned exec_id to observe new output or terminate a running command. Finishing does not automatically wake the model.",
     "",
     "A lxeskill invocation must be the only command in command: do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
   ].join("\n");

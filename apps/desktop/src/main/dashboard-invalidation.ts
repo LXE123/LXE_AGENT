@@ -8,7 +8,6 @@ import type {
 export const ALL_DASHBOARD_DATA_DOMAINS: readonly DesktopDashboardDataDomain[] = [
   "sessions",
   "stats",
-  "background_tasks",
   "channels",
   "models",
   "connectors",
@@ -32,8 +31,14 @@ export function dashboardInvalidationForAgentEvent(
   }
   if (event.type === "turn.completed" || event.type === "turn.failed") {
     return {
-      domains: ["stats", "background_tasks"],
+      domains: ["stats"],
       sessionIds: [],
+    };
+  }
+  if (event.type === "background_task.changed") {
+    return {
+      domains: ["sessions"],
+      sessionIds: [event.thread_id],
     };
   }
   return undefined;

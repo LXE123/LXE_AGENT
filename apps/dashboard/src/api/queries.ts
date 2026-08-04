@@ -15,7 +15,6 @@ import {
 } from "../features/sessions/model";
 import type {
   ApiList,
-  BackgroundTaskPayload,
   ChannelHealthList,
   CliCommandPayload,
   ConnectorPayload,
@@ -35,7 +34,6 @@ import type {
 export const SESSION_LIST_PAGE_SIZE = 10;
 export const SESSION_MESSAGE_PAGE_LIMIT = 10;
 export const ACTIVE_DATA_STALE_TIME_MS = 5_000;
-export const BACKGROUND_TASKS_REFRESH_INTERVAL_MS = 15_000;
 export const STATS_REFRESH_INTERVAL_MS = 30_000;
 export const CATALOG_STALE_TIME_MS = 5 * 60_000;
 export const GATEWAY_LIFETIME_STALE_TIME_MS = Number.POSITIVE_INFINITY;
@@ -225,17 +223,6 @@ export function useToolStatsQuery(days: number, enabled = true) {
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
-  });
-}
-
-export function useBackgroundTasksQuery(enabled = true) {
-  return useQuery({
-    queryKey: dashboardQueryKeys.backgroundTasks.all,
-    queryFn: () => callDashboard({ operation: "backgroundTasks.list", input: {} }),
-    enabled,
-    staleTime: ACTIVE_DATA_STALE_TIME_MS,
-    refetchInterval: enabled ? BACKGROUND_TASKS_REFRESH_INTERVAL_MS : false,
-    refetchIntervalInBackground: false,
   });
 }
 

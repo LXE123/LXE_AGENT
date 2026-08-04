@@ -5,10 +5,7 @@ import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { JsonObject } from "@lxe/protocol";
 import { repositoryRoot } from "@lxe/core";
-import {
-  registerCodingTools,
-  type ProcessCompletionConsumeRequest,
-} from "../../src/tooling/coding-tools";
+import { registerCodingTools } from "../../src/tooling/coding-tools";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
 import type { WorkspaceSearchService } from "../../src/tooling/workspace-search";
@@ -29,6 +26,7 @@ const context = (workspaceRoot: string = projectRoot, controller = new AbortCont
   session_id: "s1",
   turn_id: "turn-1",
   response_route_id: "route-1",
+  tool_call_id: "tool-exec-1",
   workspace: workspaceFor(workspaceRoot),
   handle: {
     signal: controller.signal,
@@ -75,7 +73,7 @@ const onePixelPng = (): Uint8Array => {
 };
 
 describe("native coding tools", () => {
-  test("isolates two session workspaces and background processes from the process cwd", async () => {
+  test("isolates two session workspaces and yielded execs from the process cwd", async () => {
     const rootA = mkdtempSync(join(tmpdir(), "lxe-workspace-a-"));
     const rootB = mkdtempSync(join(tmpdir(), "lxe-workspace-b-"));
     const unrelated = mkdtempSync(join(tmpdir(), "lxe-process-cwd-"));
@@ -106,16 +104,14 @@ describe("native coding tools", () => {
 
       const started = await registry.execute("exec", {
         command: evalCommand("setTimeout(() => {}, 60000)"),
-        background: true,
+        "yield-time-ms": 250,
       }, contextA);
-      const processId = String(started.content[0]?.text).match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+      const processId = String(started.content[0]?.text).match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
       expect(processId).toMatch(/^exec_/);
       if (!processId) throw new Error("missing background process id");
-      expect(String((await registry.execute("process", { action: "list" }, contextB)).content[0]?.text))
-        .not.toContain(String(processId));
-      expect(String((await registry.execute("process", { action: "kill", session: processId }, contextB)).content[0]?.text))
+      expect(String((await registry.execute("wait", { exec_id: processId, terminate: true }, contextB)).content[0]?.text))
         .toContain("不存在");
-      await registry.execute("process", { action: "kill", session: processId }, contextA);
+      await registry.execute("wait", { exec_id: processId, terminate: true }, contextA);
     } finally {
       process.chdir(previousCwd);
       await processes.stop();
@@ -130,7 +126,7 @@ describe("native coding tools", () => {
       businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
     });
     expect(registry.schemas().map((item) => item.name)).toEqual([
-      "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "process",
+      "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "wait",
     ]);
     expect(registry.definition("send_file")).toBeUndefined();
     expect(registry.definition("send_files")?.input_schema).toEqual({
@@ -355,46 +351,42 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
-  test("exec sessions run cross-platform shell commands and lxeskill without PowerShell on Unix", async () => {
+  test("exec yields to a session-owned wait and emits one UI-only completion snapshot", async () => {
     const root = projectRoot;
     mkdirSync(join(projectRoot, "var", "tmp"), { recursive: true });
     const cwd = mkdtempSync(join(projectRoot, "var", "tmp", "exec 中文 (space)-"));
     roots.push(cwd);
     const registry = new ToolRegistry();
     const completed: JsonObject[] = [];
-    const consumed: ProcessCompletionConsumeRequest[] = [];
     const processes = registerCodingTools(registry, {
-      onProcessComplete: async (snapshot) => { completed.push(snapshot); },
-      onProcessConsume: async (request) => { consumed.push(request); },
+      onExecComplete: async (snapshot) => { completed.push(snapshot); },
     });
     const started = await registry.execute("exec", {
-      command: "python -c \"import time; time.sleep(0.08); print('done')\"",
+      command: "python -c \"import time; print('started', flush=True); time.sleep(0.35); print('done')\"",
       cwd,
-      background: true,
+      "yield-time-ms": 250,
     }, context(root));
     const startedText = String(started.content[0]?.text);
     expect(startedText).toContain("status: running");
-    const session = startedText.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-    expect(session).toMatch(/^exec_/);
-    if (!session) throw new Error(`missing process session in: ${startedText}`);
-    const listed = String((await registry.execute("process", { action: "list" }, context(root))).content[0]?.text);
-    expect(listed).toContain(String(session));
-    await Bun.sleep(180);
-    const polled = String((await registry.execute("process", { action: "poll", session }, context(root))).content[0]?.text);
+    expect(started.display_status).toBe("running");
+    const execId = startedText.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+    expect(execId).toMatch(/^exec_/);
+    if (!execId) throw new Error(`missing exec id in: ${startedText}`);
+    const polled = String((await registry.execute("wait", { exec_id: execId }, {
+      ...context(root),
+      turn_id: "turn-2",
+      tool_call_id: "tool-wait-1",
+    })).content[0]?.text);
     expect(polled).toContain("status: completed");
     expect(polled).toContain("done");
     expect(completed).toEqual([expect.objectContaining({
-      session,
+      exec_id: execId,
       status: "completed",
       origin_turn_id: "turn-1",
+      tool_call_id: "tool-exec-1",
     })]);
-    expect(consumed).toEqual([expect.objectContaining({
-      task_id: session,
-      status: "completed",
-      reason: "process.poll",
-    })]);
-    await registry.execute("process", { action: "poll", session }, context(root));
-    expect(consumed).toHaveLength(1);
+    expect(String((await registry.execute("wait", { exec_id: execId }, context(root))).content[0]?.text))
+      .toContain("已经关闭");
 
     const completedText = String((await registry.execute("exec", {
       command: "python -c \"print('x' * 3000)\"",
@@ -403,11 +395,13 @@ describe("native coding tools", () => {
     expect(completedText).toContain("output:");
     expect(completedText.length).toBeGreaterThan(2_000);
 
-    const failed = String((await registry.execute("exec", {
+    const failedResult = await registry.execute("exec", {
       command: "python -c \"import sys; print('expected failure', file=sys.stderr); raise SystemExit(3)\"",
-    }, context(root))).content[0]?.text);
+    }, context(root));
+    const failed = String(failedResult.content[0]?.text);
     expect(failed).toContain("status: failed");
     expect(failed).toContain("expected failure");
+    expect(failedResult.display_status).toBe("error");
 
     // Output past the in-context limit keeps its END (where failures land) and the
     // full transcript stays reachable on disk.
@@ -442,46 +436,50 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
-  test("consumes terminal background sessions once across log, kill, remove, and concurrent reads", async () => {
+  test("wait batches output, serializes one exec, and closes it after the final observation", async () => {
     const registry = new ToolRegistry();
-    const consumed: ProcessCompletionConsumeRequest[] = [];
-    const processes = registerCodingTools(registry, {
-      onProcessConsume: async (request) => { consumed.push(request); },
-      processPollWindowMs: 200,
-    });
+    const processes = registerCodingTools(registry, {});
     const start = async (command: string): Promise<string> => {
-      const result = String((await registry.execute("exec", { command, background: true }, context())).content[0]?.text);
-      const session = result.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+      const result = String((await registry.execute("exec", {
+        command,
+        "yield-time-ms": 250,
+      }, context())).content[0]?.text);
+      const session = result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
       if (!session) throw new Error(`missing process session in: ${result}`);
       return session;
     };
     const waitFor = async (session: string, predicate: (snapshot: JsonObject) => boolean): Promise<void> => {
       const deadline = performance.now() + 5_000;
       while (performance.now() < deadline) {
-        const snapshot = processes.snapshots().find((item) => item.task_id === session);
+        const snapshot = processes.snapshots().find((item) => item.exec_id === session);
         if (snapshot && predicate(snapshot)) return;
         await Bun.sleep(20);
       }
       throw new Error(`timed out waiting for process ${session}`);
     };
 
-    const polled = await start("python -c \"print('polled')\"");
+    const polled = await start("python -c \"import time; time.sleep(0.3); print('polled')\"");
     await waitFor(polled, (snapshot) => snapshot.status !== "running");
-    await processes.process({ action: "poll", session: polled }, "s1");
-    await processes.process({ action: "poll", session: polled }, "s1");
-    expect(consumed.filter((item) => item.task_id === polled)).toEqual([
-      expect.objectContaining({ reason: "process.poll" }),
-    ]);
+    const polledFinal = await processes.wait({
+      execId: polled, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    });
+    expect(polledFinal.status).toBe("completed");
+    expect((await processes.wait({
+      execId: polled, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    })).error).toContain("已经关闭");
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
     await waitFor(killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
-    await processes.process({ action: "list" }, "s1");
-    expect((await processes.process({ action: "poll", session: killed }, "s1")).status).toBe("running");
-    expect(consumed.some((item) => item.task_id === killed)).toBe(false);
-    await processes.process({ action: "kill", session: killed }, "s1");
-    expect(consumed.filter((item) => item.task_id === killed)).toEqual([
-      expect.objectContaining({ reason: "process.kill", status: "killed" }),
-    ]);
+    expect((await processes.wait({
+      execId: killed, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    })).status).toBe("running");
+    expect((await processes.wait({
+      execId: killed, sessionId: "s1", yieldMs: 200, terminate: true,
+      signal: new AbortController().signal,
+    })).status).toBe("killed");
 
     // A running command holds the poll for the whole window even while it is printing:
     // returning on the first byte produced one-line polls instead of batched progress.
@@ -490,114 +488,113 @@ describe("native coding tools", () => {
     );
     await waitFor(chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
     const chattyStart = performance.now();
-    const chattyPoll = await processes.process({ action: "poll", session: chatty }, "s1");
+    const chattyPoll = await processes.wait({
+      execId: chatty, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    });
     const chattyElapsed = performance.now() - chattyStart;
     expect(chattyPoll.status).toBe("running");
     expect(chattyElapsed).toBeGreaterThanOrEqual(150);
-    // The batched answer carries every tick produced during the window, not just one.
-    expect(String(chattyPoll.new_output)).toContain("tick 0");
-    expect(String(chattyPoll.new_output)).toContain("tick 5");
-    await processes.process({ action: "kill", session: chatty }, "s1");
+    // The batched answer carries several ticks produced during the window, not just one.
+    const observedTicks = [...String(chattyPoll.new_output).matchAll(/tick (\d+)/gu)]
+      .map((match) => Number(match[1]));
+    expect(observedTicks.length).toBeGreaterThanOrEqual(4);
+    expect(observedTicks.at(-1)! - observedTicks[0]!).toBeGreaterThanOrEqual(3);
+    await processes.wait({
+      execId: chatty, sessionId: "s1", yieldMs: 200, terminate: true,
+      signal: new AbortController().signal,
+    });
 
     // Finishing still cuts the wait short, because nothing more can arrive.
-    const brief = await start("python -c \"print('brief')\"");
+    const brief = await start("python -c \"import time; time.sleep(0.3); print('brief')\"");
     const briefStart = performance.now();
-    const briefPoll = await processes.process({ action: "poll", session: brief }, "s1");
+    const briefPoll = await processes.wait({
+      execId: brief, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    });
     expect(performance.now() - briefStart).toBeLessThan(150);
     expect(briefPoll.status).toBe("completed");
 
-    const concurrent = await start("python -c \"print('concurrent')\"");
+    const concurrent = await start("python -c \"import time; time.sleep(0.3); print('concurrent')\"");
     await waitFor(concurrent, (snapshot) => snapshot.status !== "running");
-    await Promise.all([
-      processes.process({ action: "poll", session: concurrent }, "s1"),
-      processes.process({ action: "poll", session: concurrent }, "s1"),
+    const concurrentResults = await Promise.all([
+      processes.wait({ execId: concurrent, sessionId: "s1", yieldMs: 200, terminate: false, signal: new AbortController().signal }),
+      processes.wait({ execId: concurrent, sessionId: "s1", yieldMs: 200, terminate: false, signal: new AbortController().signal }),
     ]);
-    expect(consumed.filter((item) => item.task_id === concurrent)).toHaveLength(1);
+    expect(concurrentResults.filter((item) => item.status === "completed")).toHaveLength(1);
+    expect(concurrentResults.filter((item) => typeof item.error === "string")).toHaveLength(1);
+    expect(processes.snapshots().find((item) => item.exec_id === concurrent)?.status).toBe("completed");
+
+    const parallelA = await start("python -c \"import time; time.sleep(60)\"");
+    const parallelB = await start("python -c \"import time; time.sleep(60)\"");
+    const parallelStarted = performance.now();
+    const parallelResults = await Promise.all([parallelA, parallelB].map((execId) => processes.wait({
+      execId, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    })));
+    expect(performance.now() - parallelStarted).toBeLessThan(350);
+    expect(parallelResults.map((item) => item.status)).toEqual(["running", "running"]);
+    await Promise.all([parallelA, parallelB].map((execId) => processes.wait({
+      execId, sessionId: "s1", yieldMs: 200, terminate: true,
+      signal: new AbortController().signal,
+    })));
 
     await processes.stop();
   }, 30_000);
 
-  test("preserves terminal output and retries when completion consumption fails", async () => {
+  test("preserves terminal output when the UI completion callback fails", async () => {
     const registry = new ToolRegistry();
     let attempts = 0;
-    let failNext = true;
     const processes = registerCodingTools(registry, {
-      onProcessConsume: async () => {
+      onExecComplete: async () => {
         attempts += 1;
-        if (failNext) {
-          failNext = false;
-          throw new Error("consume failed");
-        }
+        throw new Error("notification failed");
       },
     });
     const started = String((await registry.execute("exec", {
-      command: "python -c \"print('retry-output')\"",
-      background: true,
+      command: "python -c \"import time; time.sleep(0.3); print('retry-output')\"",
+      "yield-time-ms": 250,
     }, context())).content[0]?.text);
-    const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+    const session = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
     if (!session) throw new Error(`missing process session in: ${started}`);
     const deadline = performance.now() + 5_000;
-    while (processes.snapshots().find((item) => item.task_id === session)?.status === "running") {
+    while (processes.snapshots().find((item) => item.exec_id === session)?.status === "running") {
       if (performance.now() >= deadline) throw new Error(`timed out waiting for process ${session}`);
       await Bun.sleep(20);
     }
 
-    await expect(processes.process({ action: "poll", session }, "s1")).rejects.toThrow("consume failed");
+    const observed = await processes.wait({
+      execId: session, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    });
     expect(attempts).toBe(1);
-    expect((await processes.process({ action: "poll", session }, "s1")).new_output).toContain("retry-output");
-    expect(attempts).toBe(2);
-
-    const killable = String((await registry.execute("exec", {
-      command: "python -c \"print('kill-retry')\"",
-      background: true,
-    }, context())).content[0]?.text).match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-    if (!killable) throw new Error("missing killable process session");
-    const killDeadline = performance.now() + 5_000;
-    while (processes.snapshots().find((item) => item.task_id === killable)?.status === "running") {
-      if (performance.now() >= killDeadline) throw new Error(`timed out waiting for process ${killable}`);
-      await Bun.sleep(20);
-    }
-    failNext = true;
-    await expect(processes.process({ action: "kill", session: killable }, "s1")).rejects.toThrow("consume failed");
-    expect(processes.snapshots().some((item) => item.task_id === killable)).toBe(true);
-    await processes.process({ action: "kill", session: killable }, "s1");
-    expect(processes.snapshots().some((item) => item.task_id === killable)).toBe(true);
+    expect(String(observed.new_output)).toContain("retry-output");
     await processes.stop();
   }, 30_000);
 
-  test("waits for completion notification persistence before consuming the event", async () => {
+  test("emits completion only after exec has yielded", async () => {
     const registry = new ToolRegistry();
     const order: string[] = [];
-    let releaseNotification!: () => void;
-    const notificationBlocked = new Promise<void>((resolve) => {
-      releaseNotification = resolve;
-    });
     const processes = registerCodingTools(registry, {
-      onProcessComplete: async () => {
-        order.push("notification-started");
-        await notificationBlocked;
-        order.push("notification-persisted");
-      },
-      onProcessConsume: async () => { order.push("consumed"); },
+      onExecComplete: async () => { order.push("completed"); },
     });
     const started = String((await registry.execute("exec", {
-      command: "python -c \"print('race')\"",
-      background: true,
+      command: "python -c \"import time; time.sleep(0.3); print('race')\"",
+      "yield-time-ms": 250,
     }, context())).content[0]?.text);
-    const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+    const session = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
     if (!session) throw new Error(`missing process session in: ${started}`);
     const deadline = performance.now() + 5_000;
-    while (!order.includes("notification-started")) {
+    while (!order.includes("completed")) {
       if (performance.now() >= deadline) throw new Error("completion notification did not start");
       await Bun.sleep(20);
     }
-
-    const poll = processes.process({ action: "poll", session }, "s1");
-    await Bun.sleep(20);
-    expect(order).toEqual(["notification-started"]);
-    releaseNotification();
-    await poll;
-    expect(order).toEqual(["notification-started", "notification-persisted", "consumed"]);
+    expect(order).toEqual(["completed"]);
+    expect((await processes.wait({
+      execId: session, sessionId: "s1", yieldMs: 200, terminate: false,
+      signal: new AbortController().signal,
+    })).status).toBe("completed");
+    expect(order).toEqual(["completed"]);
     await processes.stop();
   }, 30_000);
 
@@ -625,28 +622,27 @@ describe("native coding tools", () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
-    const startTree = async (): Promise<{ session: string; childPid: number }> => {
+    const startTree = async (): Promise<{ execId: string; childPid: number }> => {
       const started = String((await registry.execute("exec", {
         command: "python -c \"import subprocess,sys,time; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); print(child.pid, flush=True); time.sleep(60)\"",
-        background: true,
+        "yield-time-ms": 250,
       }, context(root))).content[0]?.text);
-      const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-      expect(session).toMatch(/^exec_/);
+      const execId = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+      expect(execId).toMatch(/^exec_/);
       let observed = started;
       const deadline = performance.now() + 3_000;
-      while (session && !/(?:tail|output):\s*\d+/u.test(observed) && performance.now() < deadline) {
+      while (execId && !/(?:tail|output):\s*\d+/u.test(observed) && performance.now() < deadline) {
         await Bun.sleep(25);
-        const logged = String((await registry.execute(
-          "process",
-          { action: "poll", session },
-          context(root),
-        )).content[0]?.text);
+        const logged = String((await processes.wait({
+          execId, sessionId: "s1", yieldMs: 25, terminate: false,
+          signal: new AbortController().signal,
+        })).new_output ?? "");
         observed = `${started}\n${logged}`;
       }
       const childPid = Number(observed.match(/(?:tail|output):\s*(\d+)/u)?.[1]);
       expect(childPid).toBeGreaterThan(0);
-      if (!session || !childPid) throw new Error(`missing process identifiers in: ${observed}`);
-      return { session, childPid };
+      if (!execId || !childPid) throw new Error(`missing process identifiers in: ${observed}`);
+      return { execId, childPid };
     };
     const expectDead = async (pid: number): Promise<void> => {
       let alive = true;
@@ -658,7 +654,7 @@ describe("native coding tools", () => {
     };
 
     const killed = await startTree();
-    await registry.execute("process", { action: "kill", session: killed.session }, context(root));
+    await registry.execute("wait", { exec_id: killed.execId, terminate: true }, context(root));
     await expectDead(killed.childPid);
 
     const forceKilled = await startTree();
@@ -666,41 +662,15 @@ describe("native coding tools", () => {
     await expectDead(forceKilled.childPid);
   }, 30_000);
 
-  test("uses timeout seconds and ignores the timer for explicit background work", async () => {
+  test("turn cancellation detaches observation without killing the exec", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
-    const timedOut = String((await registry.execute("exec", {
-      command: "python -c \"import time; time.sleep(60)\"",
-      timeout: 1,
-      yield_ms: 2_000,
-    }, context(root))).content[0]?.text);
-    expect(timedOut).toContain("status: timeout");
-
-    const background = String((await registry.execute("exec", {
-      command: "python -c \"import time; time.sleep(0.05); print('background done')\"",
-      timeout: 1,
-      background: true,
-    }, context(root))).content[0]?.text);
-    const session = background.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-    expect(session).toMatch(/^exec_/);
-    const completionDeadline = performance.now() + 5_000;
-    while (session && processes.snapshots().find((item) => item.task_id === session)?.status === "running") {
-      if (performance.now() >= completionDeadline) throw new Error(`timed out waiting for process ${session}`);
-      await Bun.sleep(20);
-    }
-    const polled = session
-      ? String((await registry.execute("process", { action: "poll", session }, context(root))).content[0]?.text)
-      : "";
-    expect(polled).toContain("status: completed");
-    expect(polled).toContain("background done");
-
     const controller = new AbortController();
     let processRegistered = false;
     const cancellation = registry.execute("exec", {
       command: "python -c \"import time; time.sleep(60)\"",
-      timeout: 10,
-      yield_ms: 2_000,
+      "yield-time-ms": 2_000,
     }, {
       ...context(root),
       handle: {
@@ -713,13 +683,33 @@ describe("native coding tools", () => {
         },
       },
     });
-    const registrationDeadline = performance.now() + 5_000;
-    while (!processRegistered) {
-      if (performance.now() >= registrationDeadline) throw new Error("timed out waiting for process registration");
-      await Bun.sleep(20);
-    }
+    await Bun.sleep(100);
     controller.abort();
-    expect(String((await cancellation).content[0]?.text)).toContain("status: killed");
+    const detached = String((await cancellation).content[0]?.text);
+    expect(detached).toContain("status: running");
+    expect(processRegistered).toBe(false);
+    const execId = detached.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+    if (!execId) throw new Error(`missing exec id in: ${detached}`);
+    expect(processes.snapshots().find((item) => item.exec_id === execId)?.status).toBe("running");
+    await processes.terminateSession("s1");
+    expect(processes.snapshots().find((item) => item.exec_id === execId)?.status).toBe("killed");
+    await processes.stop();
+  }, 30_000);
+
+  test("keeps at most 64 recent exec records per session", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    let firstExecId = "";
+    for (let index = 0; index < 65; index += 1) {
+      const result = String((await registry.execute("exec", {
+        command: evalCommand(`console.log(${index})`),
+      }, context())).content[0]?.text);
+      const execId = result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1] ?? "";
+      if (index === 0) firstExecId = execId;
+    }
+    const snapshots = processes.snapshots().filter((item) => item.session_id === "s1");
+    expect(snapshots).toHaveLength(64);
+    expect(snapshots.some((item) => item.exec_id === firstExecId)).toBe(false);
     await processes.stop();
   }, 30_000);
 
@@ -966,12 +956,16 @@ describe("native coding tools", () => {
     });
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",
-      timeout: 120_000,
-    }, context(root))).rejects.toThrow("between 1 and 3600 seconds");
+      "yield-time-ms": 120_000,
+    }, context(root))).rejects.toThrow("between 250 and 30000 milliseconds");
     expect(registry.definition("exec")?.input_schema.properties).toMatchObject({
       command: { description: expect.stringContaining("exactly one standalone") },
-      timeout: { type: "number", minimum: 1, maximum: 3_600, default: 120 },
-      yield_ms: { type: "number", minimum: 1, default: 10_000 },
+      "yield-time-ms": { type: "number", minimum: 250, maximum: 30_000, default: 10_000 },
+    });
+    expect(registry.definition("wait")?.input_schema.properties).toMatchObject({
+      exec_id: { type: "string" },
+      "yield-time-ms": { type: "number", minimum: 5_000, maximum: 300_000, default: 10_000 },
+      terminate: { type: "boolean", default: false },
     });
     await processes.stop();
   });

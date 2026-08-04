@@ -73,6 +73,8 @@ interface InternalActivity {
   latestTurnId: string | undefined;
 }
 
+type BackgroundTaskChangedEvent = Extract<AgentEvent, { type: "background_task.changed" }>;
+
 export interface LocalConversationControllerOptions {
   storage: LocalConversationStorage;
   scheduler: SessionScheduler;
@@ -100,6 +102,7 @@ export class LocalConversationController {
   private readonly now: () => number;
   private readonly turns = new Map<string, InternalTurn>();
   private readonly sessions = new Map<string, InternalActivity>();
+  private readonly backgroundCompletions = new Map<string, BackgroundTaskChangedEvent>();
 
   constructor(private readonly options: LocalConversationControllerOptions) {
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
@@ -307,7 +310,9 @@ export class LocalConversationController {
       turn.payload.state = event.state === "cleared" ? "cancelled" : event.state;
       turn.payload.settled_at = this.now();
       if (activity.latestTurnId && activity.latestTurnId !== turnId) {
+        const previous = this.turns.get(activity.latestTurnId);
         this.turns.delete(activity.latestTurnId);
+        if (previous) this.forgetTurnCompletions(previous.sessionId, activity.latestTurnId);
       }
       activity.latestTurnId = turnId;
     }
@@ -315,6 +320,15 @@ export class LocalConversationController {
   }
 
   handleAgentEvent(event: AgentEvent): void {
+    if (event.type === "background_task.changed") {
+      const turn = this.turns.get(clean(event.turn_id));
+      if (!turn || turn.sessionId !== clean(event.thread_id)) return;
+      this.backgroundCompletions.set(backgroundCompletionKey(event), event);
+      if (this.applyBackgroundCompletions(turn)) {
+        this.publish(event.thread_id);
+      }
+      return;
+    }
     if (event.type !== "session.changed" || !event.payload.changes.includes("messages")) return;
     const activity = this.sessions.get(clean(event.thread_id));
     const turn = activity?.activeTurnId ? this.turns.get(activity.activeTurnId) : undefined;
@@ -343,6 +357,7 @@ export class LocalConversationController {
     } else {
       return;
     }
+    this.applyBackgroundCompletions(turn);
     this.publish(request.session_id);
   }
 
@@ -407,6 +422,7 @@ export class LocalConversationController {
       display_metrics: metrics,
     };
     turn.streamEmitId = emitId;
+    const completionChanged = this.applyBackgroundCompletions(turn);
     this.options.onStreamBatch?.({
       session_id: sessionId,
       turn_id: request.turn_id,
@@ -414,12 +430,14 @@ export class LocalConversationController {
       seq: request.seq,
       mutations: request.mutations.map(cloneStreamMutation),
     });
+    if (completionChanged) this.publish(sessionId);
     return true;
   }
 
   dispose(): void {
     this.sessions.clear();
     this.turns.clear();
+    this.backgroundCompletions.clear();
   }
 
   forgetSession(sessionId: string): void {
@@ -431,6 +449,7 @@ export class LocalConversationController {
       ...(activity?.latestTurnId ? [activity.latestTurnId] : []),
     ]) {
       this.turns.delete(turnId);
+      this.forgetTurnCompletions(safe, turnId);
     }
     this.sessions.delete(safe);
   }
@@ -486,6 +505,7 @@ export class LocalConversationController {
 
   private removeTurn(sessionId: string, turnId: string): void {
     this.turns.delete(turnId);
+    this.forgetTurnCompletions(sessionId, turnId);
     const activity = this.sessions.get(sessionId);
     if (!activity) return;
     activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
@@ -494,9 +514,62 @@ export class LocalConversationController {
   }
 
   private clearLatest(activity: InternalActivity): void {
-    if (activity.latestTurnId) this.turns.delete(activity.latestTurnId);
+    if (activity.latestTurnId) {
+      const turn = this.turns.get(activity.latestTurnId);
+      this.turns.delete(activity.latestTurnId);
+      if (turn) this.forgetTurnCompletions(turn.sessionId, activity.latestTurnId);
+    }
     activity.latestTurnId = undefined;
   }
+
+  private applyBackgroundCompletions(turn: InternalTurn): boolean {
+    const stream = turn.payload.stream;
+    if (!stream) return false;
+    let changed = false;
+    for (const event of this.backgroundCompletions.values()) {
+      if (clean(event.thread_id) !== turn.sessionId || clean(event.turn_id) !== turn.payload.turn_id) continue;
+      const displayStatus: ToolStep["status"] = event.payload.task.status === "completed" ? "success" : "error";
+      const content = [
+        `status: ${event.payload.task.status}`,
+        `exec_id: ${event.payload.task.exec_id}`,
+        event.payload.task.exit_code === null ? "" : `exit_code: ${event.payload.task.exit_code}`,
+        `duration_sec: ${event.payload.task.duration_sec}`,
+        event.payload.task.output_tail ? `output:\n${event.payload.task.output_tail}` : "output: (no output)",
+      ].filter(Boolean).join("\n").slice(0, 4_000);
+      const update = (step: ToolStep): boolean => {
+        if (step.id !== event.payload.tool_call_id) return false;
+        const durationMs = Math.max(step.duration_ms, Math.trunc(event.payload.task.duration_sec * 1_000));
+        const currentBlock = displayStatus === "success" ? step.result_block : step.error_block;
+        if (step.status === displayStatus && step.duration_ms === durationMs && currentBlock?.content === content) {
+          return false;
+        }
+        step.status = displayStatus;
+        step.duration_ms = durationMs;
+        delete step.result_block;
+        delete step.error_block;
+        const block: ToolDisplayBlock = { language: "text", content };
+        if (displayStatus === "success") step.result_block = block;
+        else step.error_block = block;
+        return true;
+      };
+      for (const step of stream.tool_steps) changed = update(step) || changed;
+      for (const part of stream.process_parts) {
+        if (part.type === "tool") changed = update(part.tool_step) || changed;
+      }
+    }
+    return changed;
+  }
+
+  private forgetTurnCompletions(sessionId: string, turnId: string): void {
+    const prefix = `${sessionId}\u0000${turnId}\u0000`;
+    for (const key of this.backgroundCompletions.keys()) {
+      if (key.startsWith(prefix)) this.backgroundCompletions.delete(key);
+    }
+  }
+}
+
+function backgroundCompletionKey(event: BackgroundTaskChangedEvent): string {
+  return `${clean(event.thread_id)}\u0000${clean(event.turn_id)}\u0000${event.payload.tool_call_id}`;
 }
 
 function publicAttachment(attachment: LocalConversationAttachment): DesktopInputAttachmentPayload {

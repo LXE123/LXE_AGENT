@@ -29,7 +29,6 @@ export const ZH_TEXT = {
     tools: "工具",
     skills: "技能",
     connections: "连接",
-    tasks: "任务",
     usage: "统计",
     aria: "Dashboard 区域"
   },
@@ -393,16 +392,6 @@ export const ZH_TEXT = {
     saving: "保存中",
     noServers: "暂无 MCP server。"
   },
-  tasks: {
-    empty: "暂无后台任务。",
-    itemUnit: "个任务",
-    task: "任务",
-    status: "状态",
-    session: "Session",
-    command: "命令",
-    duration: "耗时",
-    startedAt: "开始时间"
-  },
   skills: {
     subtitle: "浏览 Agent 可加载的技能、命令与参考资料。",
     itemUnit: "个技能",
@@ -496,26 +485,11 @@ export const ZH_TEXT = {
   detailModal: {
     tool: "工具",
     skill: "技能",
-    task: "后台任务",
     close: "关闭",
     inputSchema: "输入结构",
     noParameters: "此工具没有参数。",
     paramOptional: "可选",
-    paramRequired: "必填",
-    status: "状态",
-    sessionTitle: "会话标题",
-    session: "Session",
-    turn: "Turn",
-    card: "Card",
-    pid: "PID",
-    started: "开始时间",
-    ended: "结束时间",
-    duration: "耗时",
-    exitCode: "退出码",
-    cwd: "CWD",
-    command: "命令",
-    outputTail: "输出尾部",
-    noOutput: "无输出"
+    paramRequired: "必填"
   },
   skillTypes: {
     default: "默认",
@@ -789,7 +763,6 @@ export const UI_TEXT: Record<Language, UiText> = {
       tools: "Tools",
       skills: "Skills",
       connections: "Connections",
-      tasks: "Tasks",
       usage: "Stats",
       aria: "Dashboard sections"
     },
@@ -1153,16 +1126,6 @@ export const UI_TEXT: Record<Language, UiText> = {
       saving: "Saving",
       noServers: "No MCP servers."
     },
-    tasks: {
-      empty: "No background tasks.",
-      itemUnit: "tasks",
-      task: "Task",
-      status: "Status",
-      session: "Session",
-      command: "Command",
-      duration: "Duration",
-      startedAt: "Started"
-    },
     skills: {
       subtitle: "Browse the skills, commands, and references available to the agent.",
       itemUnit: "skills",
@@ -1256,26 +1219,11 @@ export const UI_TEXT: Record<Language, UiText> = {
     detailModal: {
       tool: "Tool",
       skill: "Skill",
-      task: "Background Task",
       close: "Close",
       inputSchema: "Input schema",
       noParameters: "This tool has no parameters.",
       paramOptional: "Optional",
-      paramRequired: "Required",
-      status: "Status",
-      sessionTitle: "Session title",
-      session: "Session",
-      turn: "Turn",
-      card: "Card",
-      pid: "PID",
-      started: "Started",
-      ended: "Ended",
-      duration: "Duration",
-      exitCode: "Exit code",
-      cwd: "CWD",
-      command: "Command",
-      outputTail: "Output tail",
-      noOutput: "no output"
+      paramRequired: "Required"
     },
     skillTypes: {
       default: "Default",

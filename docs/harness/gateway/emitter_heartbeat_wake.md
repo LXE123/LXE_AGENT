@@ -4,7 +4,7 @@
 
 ## 目的
 
-本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及后台命令完成事件如何重新进入正常 session 调度。
+本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及 heartbeat/wake 与 exec 完成通知为什么是两条独立链路。
 
 事实来源：[`emitter.ts`](/apps/gateway/src/channels/emitter.ts)、[`heartbeat-bridge.ts`](/apps/gateway/src/orchestration/heartbeat-bridge.ts) 和 [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts)。
 
@@ -64,17 +64,15 @@ typing 只对飞书执行，operation 必须是 `start` 或 `stop`。adapter 使
 
 一个飞书 turn 只创建一个 streamer 和一个 emit id。streamer 负责节流 delta、保持 sequence、发送 final/error 和有界关闭 sender task。只有从未成功投递任何 stream frame 时，才允许一次普通 final/error fallback；cancel 不额外制造错误卡。
 
-## 后台事件持久化
+## Exec 完成通知
 
-coding/process 工具结束时不直接调用平台 API，而是：
+已经 yielded 的 exec 到达终态时，Agent 只发送一次 `background_task.changed`：
 
-1. 把完成摘要写入 `agent_session_pending_events`。
-2. 发送包含 session、route 和 reason 的 heartbeat wake。
-3. `HeartbeatBridge` 合并计时器并触发 queue flush。
-4. `HeartbeatWakeQueue` 验证 session 状态并创建 heartbeat `AgentJob`。
-5. Runtime 在下一 turn pop pending events，再通过正常 emitter 回复。
+1. 事件携带 Session、来源 Turn、原 `tool_call_id` 和有界任务快照。
+2. Desktop 使对应 Session 查询失效；本地会话控制器把原 exec 工具卡从 `running` 更新为 `success` 或 `error`。
+3. 若完成事件早于工具卡，控制器暂存事件，并在卡片出现后补上终态。
 
-因此后台结果遵守权限、session 串行、cancel、context 和统一展示规则。
+该事件不进入 transcript 或模型消息，不写 `agent_session_pending_events`，不触发 heartbeat/`agent.wake`，也不向飞书等外部渠道主动发消息。通用 heartbeat/wake 基础设施仍服务于其它自主调度来源。
 
 ## HeartbeatBridge 调度
 

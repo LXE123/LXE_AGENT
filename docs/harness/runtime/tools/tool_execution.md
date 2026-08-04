@@ -20,16 +20,17 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 ## Native 工具
 
-Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、process 和 send_files：
+Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、wait 和 send_files：
 
 - 路径先规范化并限制在 workspace/允许边界。
 - read 输出稳定行号，并记录 session read version。
 - 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
 - root private env、用户 session DB 和 runtime state 不可写。
 - binary 不通过文本 read；一个或多个 artifact 使用 `send_files(paths=[...])` 一次交付。
-- background exec 返回 task id，由 process tools poll/log/remove。
+- `exec` 观察到 `yield-time-ms` 后仍未结束会返回 `status=running` 和 `exec_id`；Session manager 继续持有命令。
+- `wait` 对同一 `exec_id` 串行观察，对不同 id 可并发；终态只返回一次，之后模型侧句柄关闭。
 
-Process stdout/stderr 有大小限制，cancel 会终止登记的进程树。
+Process stdout/stderr 使用有界内存尾部和落盘截断机制。Turn cancel 只中止本次观察，不终止已经创建的 exec；Session 删除、Runtime 停止或 `wait(terminate=true)` 才终止完整进程树。
 
 ## MCP 工具
 
@@ -44,7 +45,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 - `catalog.json` 决定稳定 command path、owner skill、业务 module 和 artifact 声明。
 - `exec.command` 只允许一条独立的 `lxeskill` 调用；拒绝 `python -m`、内部业务 module、管道、重定向和 shell 拼接。
 - Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 生成实际 skill scope，Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责命令授权、参数校验和业务 dispatch。
-- Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、timeout、background、output limit、abort 和 Windows process tree 由 native process manager 处理。
+- Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、yield observation、output limit、Session ownership 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
 
 Skill 只能调用自己声明且由 catalog 归属的命令；生成文件仍需经过 workspace/artifact boundary 才能发送。
@@ -88,11 +89,11 @@ Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner s
 - 原因未知必须明确写成未知；不能为了“可读”而补写未经验证的归因。
 - 已分类错误保留确定的 `verified_reason` 和 retryability，模型可以据此采取下一步。
 - Abort 不继续 dispatch 剩余调用。
-- Background completion 通过 pending event/heartbeat 汇报。
+- 异步 exec 完成只发 UI 事件更新原工具卡，不进入模型消息，不创建 pending event，也不唤醒模型。
 - MCP/server failure 隔离到对应 connector。
 - `lxeskill` 非零退出或非法调用不接受为成功结果。
 - Artifact send failure 不改变 canonical tool result 已执行事实。
 
 ## 验证
 
-Tests 覆盖 file safety、read-before-edit、process lifecycle、tool search、MCP timeout/disable、独立 `lxeskill` 命令约束、skill ownership、result trimming、cancel closure 和 artifact ordering。
+Tests 覆盖 file safety、read-before-edit、exec/wait 生命周期、跨 Session 隔离、进程树终止、tool search、MCP timeout/disable、独立 `lxeskill` 命令约束、skill ownership、result trimming、cancel closure 和 artifact ordering。

@@ -27,7 +27,6 @@ import { DashboardQueryProvider } from "./api/query-client";
 import {
   flattenSessionPages,
   queryError,
-  useBackgroundTasksQuery,
   useCommandsQuery,
   useConnectorsQuery,
   useCurrentModelQuery,
@@ -82,7 +81,6 @@ import {
 } from "./features/sessions/view";
 import { SkillsView } from "./features/skills/view";
 import { StatsView } from "./features/stats/view";
-import { BackgroundTasksView } from "./features/tasks/view";
 import { ToolsView } from "./features/tools/view";
 import { SyntheticPerformerWorkbench } from "./features/workbench/view";
 import { WorkbenchIndex } from "./features/workbench/index-view";
@@ -218,7 +216,6 @@ function App({
     activeSection === "sessions" && !newConversation,
   );
   const capabilitiesOpen = activeSection === "capabilities";
-  const activityOpen = activeSection === "activity";
   const modelsQuery = useModelsQuery(
     activeSection === "sessions" || (capabilitiesOpen && capabilityView === "models"),
   );
@@ -229,7 +226,6 @@ function App({
   const toolsetsQuery = useToolsetsQuery(
     capabilitiesOpen && (capabilityView === "tools" || capabilityView === "connections"),
   );
-  const backgroundTasksQuery = useBackgroundTasksQuery(activityOpen && activityView === "background-tasks");
   const sessions = flattenSessionPages(sessionsQuery.data?.pages);
 
   useEffect(() => {
@@ -745,9 +741,7 @@ function App({
           ? [skillsQuery, commandsQuery]
           : activeSection === "capabilities" && capabilityView === "connections"
             ? [connectorsQuery, toolsetsQuery]
-            : activeSection === "activity" && activityView === "background-tasks"
-              ? [backgroundTasksQuery]
-              : [];
+            : [];
   const activeRefreshing = activeQueries.some((current) => current.isFetching && !current.isPending);
   const backgroundError = activeQueries.find((current) => current.isRefetchError)?.error;
   const visibleError = error || queryError(backgroundError);
@@ -764,10 +758,6 @@ function App({
     { id: "skills", label: t.nav.skills },
     { id: "tools", label: t.nav.tools },
     { id: "connections", label: t.nav.connections },
-  ];
-  const activityItems: Array<{ id: ActivityView; label: string }> = [
-    { id: "stats", label: t.nav.usage },
-    { id: "background-tasks", label: t.nav.tasks },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
@@ -1050,20 +1040,14 @@ function App({
               </WorkspaceView>
             ) : null}
             {activeSection === "activity" ? (
-              <WorkspaceView
-                activeView={activityView}
-                items={activityItems}
-                label={t.nav.activity}
-                onSelect={openActivityView}
-              >
-                {activityView === "stats" ? <StatsView /> : null}
-                {activityView === "background-tasks" ? (
-                  backgroundTasksQuery.isPending ? <EmptyState label={t.common.loading} />
-                    : backgroundTasksQuery.data
-                      ? <BackgroundTasksView tasks={backgroundTasksQuery.data.items} onOpen={setDetailTarget} />
-                      : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(backgroundTasksQuery.error))} />
-                ) : null}
-              </WorkspaceView>
+              <section className="workspace-view">
+                <header className="workspace-view-header">
+                  <h2>{t.nav.activity}</h2>
+                </header>
+                <div className="workspace-view-content">
+                  <StatsView />
+                </div>
+              </section>
             ) : null}
           </section>
         </section>

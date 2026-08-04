@@ -326,6 +326,15 @@ const blockId = (block: unknown, keys: string[]): string => {
   return "";
 };
 
+const toolResultStatus = (result: unknown): ToolOperation["status"] => {
+  if (!isRecord(result)) return "success";
+  const displayStatus = scalarText(result.display_status);
+  if (displayStatus === "running" || displayStatus === "success" || displayStatus === "error") {
+    return displayStatus;
+  }
+  return result.is_error ? "error" : "success";
+};
+
 /**
  * Pairs each call in a group with the result it produced so the expanded group
  * can list one line per operation instead of dumping every message in full.
@@ -362,7 +371,7 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
       name,
       argument,
       ...toolOperationPresentation(name, argument),
-      status: isRecord(result) && result.is_error ? "error" : "success",
+      status: toolResultStatus(result),
       call,
       result,
     };
@@ -374,7 +383,7 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
       name,
       argument: "",
       ...toolOperationPresentation(name, ""),
-      status: isRecord(result) && result.is_error ? "error" : "success",
+      status: toolResultStatus(result),
       call: undefined,
       result,
     });
