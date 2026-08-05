@@ -30,6 +30,7 @@ PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v1"
 UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA = (
     "lxe.fba.purchase-unmatched-confirmation.v1"
 )
+UNMATCHED_ISSUE_CODE = "export_tax_master_stock_sku_not_found"
 FORMAL_QUANTITY_COLUMNS = ("计划发货量", "本次采购量", "留存库存抵扣量")
 INVENTORY_ROW_FILL_COLOR = "FFFFFF00"
 CONTRACT_OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
@@ -163,6 +164,9 @@ def build_purchase_intent(
     tracked_line_count = 0
     for sp_no, csv_path_text in zip(normalized_delivery_nos, csv_paths, strict=True):
         csv_path = Path(csv_path_text)
+        delivery_product_names = purchase_summary.summarize_delivery_product_names(
+            [csv_path]
+        )
         delivery_summary = OrderedDict(
             (sku, quantity)
             for sku, quantity in purchase_summary.summarize_tax_sku_quantities_in_delivery_order(csv_path).items()
@@ -290,12 +294,28 @@ def build_purchase_intent(
                         "quantity_per_msku": component["quantity_per_msku"],
                     }
                 )
+        unmatched_lines: list[dict[str, str]] = []
         for stock_sku, quantity in unmatched_quantities.items():
+            product_name = "\n".join(
+                delivery_product_names.get(
+                    purchase_summary._sku_match_key(stock_sku), []
+                )
+            )
+            quantity_text = _decimal_text(quantity)
+            unmatched_lines.append(
+                {
+                    "stock_sku": stock_sku,
+                    "product_name": product_name,
+                    "planned_shipment_quantity": quantity_text,
+                    "issue_code": UNMATCHED_ISSUE_CODE,
+                }
+            )
             unmatched_items.append(
                 {
                     "sp_no": sp_no,
                     "stock_sku": stock_sku,
-                    "planned_shipment_quantity": _decimal_text(quantity),
+                    "product_name": product_name,
+                    "planned_shipment_quantity": quantity_text,
                     "affected_mskus": affected_mskus.get(stock_sku, []),
                 }
             )
@@ -326,6 +346,7 @@ def build_purchase_intent(
                 "delivery_file_name": csv_path.name,
                 "delivery_sha256": delivery_sha256,
                 "planned_lines": planned_lines,
+                "unmatched_lines": unmatched_lines,
                 "mskus": mskus,
             }
         )

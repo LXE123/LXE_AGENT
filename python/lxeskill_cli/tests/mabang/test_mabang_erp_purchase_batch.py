@@ -273,6 +273,7 @@ def test_build_intent_uploads_exact_unit_components_without_declared_quantity(tm
         }
     ]
     assert "declared_ship_quantity" not in payload["sps"][0]["mskus"][0]
+    assert payload["sps"][0]["unmatched_lines"] == []
     assert payload["sps"][0]["planned_lines"][0]["planned_shipment_quantity"] == "10"
     line = payload["contracts"][0]["lines"][0]
     assert line["source_tax_unit_price"] == "3.5"
@@ -311,6 +312,14 @@ def test_build_intent_preserves_unmatched_components_without_planning_them(
             ],
         }
     ]
+    assert payload["sps"][0]["unmatched_lines"] == [
+        {
+            "stock_sku": "SKU-B",
+            "product_name": "未匹配组合品名",
+            "planned_shipment_quantity": "5",
+            "issue_code": "export_tax_master_stock_sku_not_found",
+        }
+    ]
     assert context["unmatched_summary"] == {
         "stock_sku_count": 1,
         "sp_sku_count": 1,
@@ -320,6 +329,7 @@ def test_build_intent_preserves_unmatched_components_without_planning_them(
             {
                 "sp_no": "SP260710001",
                 "stock_sku": "SKU-B",
+                "product_name": "未匹配组合品名",
                 "planned_shipment_quantity": "5",
                 "affected_mskus": [
                     {"msku": "MSKU-X", "quantity_per_msku": "1"}
@@ -328,6 +338,96 @@ def test_build_intent_preserves_unmatched_components_without_planning_them(
         ],
     }
     assert context["confirm_unmatched_sku_token"].startswith("unmatched-")
+
+
+def test_build_intent_deduplicates_delivery_names_for_unmatched_sp_sku(
+    tmp_path: Path,
+) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    (csv_dir / "SP260710001_1.csv").write_text(
+        "\n".join(
+            [
+                '"发货单号","MSKU","MSKU发货量","SKU发货量","品名","国家","备注"',
+                '"SP260710001","MSKU-X","3","SKU-A × 6\nSKU-B × 3","组合品名A","德国",""',
+                '"SP260710001","MSKU-Y","2","SKU-A × 4\nSKU-B × 2","组合品名B","德国",""',
+                '"SP260710001","MSKU-Z","1","SKU-A × 2\nSKU-B × 1","组合品名A","德国",""',
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+
+    line = payload["sps"][0]["unmatched_lines"][0]
+    assert line["product_name"] == "组合品名A\n组合品名B"
+    assert line["planned_shipment_quantity"] == "6"
+    assert context["unmatched_summary"]["items"][0]["product_name"] == (
+        "组合品名A\n组合品名B"
+    )
+
+
+def test_build_intent_allows_blank_unmatched_product_name(tmp_path: Path) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    (csv_dir / "SP260710001_1.csv").write_text(
+        "\n".join(
+            [
+                '"发货单号","MSKU","MSKU发货量","SKU发货量","国家","备注"',
+                '"SP260710001","MSKU-X","5","SKU-A × 10\nSKU-B × 5","德国",""',
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+
+    assert payload["sps"][0]["unmatched_lines"][0]["product_name"] == ""
+    assert context["unmatched_summary"]["items"][0]["product_name"] == ""
+
+
+def test_build_intent_keeps_unmatched_lines_separate_by_sp(tmp_path: Path) -> None:
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    (csv_dir / "SP260710002_1.csv").write_text(
+        "\n".join(
+            [
+                '"发货单号","MSKU","MSKU发货量","SKU发货量","品名","国家","备注"',
+                '"SP260710002","MSKU-Y","2","SKU-A × 4\nSKU-B × 2","第二个SP品名","法国",""',
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+
+    payload, context = erp.build_purchase_intent(
+        ["SP260710001", "SP260710002"],
+        master_xlsx=master,
+        csv_dir=csv_dir,
+    )
+
+    assert [sp["unmatched_lines"] for sp in payload["sps"]] == [
+        [
+            {
+                "stock_sku": "SKU-B",
+                "product_name": "未匹配组合品名",
+                "planned_shipment_quantity": "5",
+                "issue_code": "export_tax_master_stock_sku_not_found",
+            }
+        ],
+        [
+            {
+                "stock_sku": "SKU-B",
+                "product_name": "第二个SP品名",
+                "planned_shipment_quantity": "2",
+                "issue_code": "export_tax_master_stock_sku_not_found",
+            }
+        ],
+    ]
+    assert [item["sp_no"] for item in context["unmatched_summary"]["items"]] == [
+        "SP260710001",
+        "SP260710002",
+    ]
 
 
 def test_build_intent_rejects_batch_with_only_unmatched_skus(tmp_path: Path) -> None:
