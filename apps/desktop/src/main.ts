@@ -401,6 +401,7 @@ async function bootstrap(): Promise<void> {
         connection: state.connection,
         dataServerUrl,
         destination,
+        permissionProfile: state.permission_profile,
       }));
     },
     logsDirectory: join(paths.dataRoot, "logs"),

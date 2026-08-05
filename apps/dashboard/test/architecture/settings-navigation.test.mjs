@@ -34,13 +34,13 @@ test("ready status stays quiet while failures retain the health message", () => 
   assert.match(shell, /desktop-maintenance-panel/);
 });
 
-test("company cloud exposes fixed browser shortcuts and gates admin access by role", () => {
+test("company cloud exposes fixed browser shortcuts and gates them by device access", () => {
   for (const destination of ["agent_dashboard", "erp_dashboard", "admin_dashboard"]) {
     assert.match(shell, new RegExp(`destination: "${destination}"`));
   }
   assert.match(shell, /cloud\.configured \? \(/);
   assert.match(shell, /disabled=\{!connected\}/);
-  assert.match(shell, /shortcuts\.filter\(\(shortcut\) => !shortcut\.admin \|\| cloud\.is_admin\)/);
+  assert.match(shell, /desktopCloudShortcutAvailable\(shortcut\.destination, cloud\)/);
   assert.match(shell, /desktop\.openCloudDestination\(destination\)/);
   assert.match(shell, /desktop-cloud-admin-badge/);
 });

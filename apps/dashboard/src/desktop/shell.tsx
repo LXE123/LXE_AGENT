@@ -49,6 +49,7 @@ import {
 import {
   desktopSettingsForm,
   desktopCloudBindingSwitchAvailable,
+  desktopCloudShortcutAvailable,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
@@ -368,7 +369,9 @@ function DesktopCloudPanel({
             ) : null}
           </div>
           <div className="desktop-cloud-shortcuts-grid">
-            {shortcuts.filter((shortcut) => !shortcut.admin || cloud.is_admin).map((shortcut) => {
+            {shortcuts.filter((shortcut) =>
+              desktopCloudShortcutAvailable(shortcut.destination, cloud)
+            ).map((shortcut) => {
               const Icon = shortcut.icon;
               return (
                 <button

@@ -1,4 +1,5 @@
 import type {
+  DesktopCloudDestination,
   DesktopCloudState,
   DesktopLogProfile,
   DesktopLogRetentionDays,
@@ -18,6 +19,17 @@ export const desktopCloudBindingSwitchAvailable = (cloud: DesktopCloudState): bo
   cloud.configured
   && cloud.connection !== "unsupported"
   && cloud.device_id.trim().length > 0;
+
+export const desktopCloudShortcutAvailable = (
+  destination: DesktopCloudDestination,
+  cloud: Pick<DesktopCloudState, "is_admin" | "permission_profile">,
+): boolean => {
+  if (destination === "admin_dashboard") return cloud.is_admin;
+  if (destination === "erp_dashboard") {
+    return cloud.permission_profile === "fba" || cloud.permission_profile === "full_access";
+  }
+  return true;
+};
 
 export const desktopLoggingSinkView = (
   text: UiText["desktop"],

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DesktopCloudState, DesktopSetupState } from "@lxe/desktop-protocol";
 import {
   desktopCloudBindingSwitchAvailable,
+  desktopCloudShortcutAvailable,
   desktopSettingsForm,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
@@ -70,6 +71,35 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
 });
 
 describe("desktop settings navigation model", () => {
+  test("shows the FBA ERP shortcut only to FBA-capable permission profiles", () => {
+    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
+      permission_profile: "fba",
+    }))).toBe(true);
+    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
+      permission_profile: "full_access",
+    }))).toBe(true);
+    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
+      permission_profile: "replenishment",
+    }))).toBe(false);
+    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
+      permission_profile: null,
+    }))).toBe(false);
+  });
+
+  test("keeps Agent access general and Admin access tied to the admin role", () => {
+    expect(desktopCloudShortcutAvailable("agent_dashboard", cloudState({
+      permission_profile: null,
+    }))).toBe(true);
+    expect(desktopCloudShortcutAvailable("admin_dashboard", cloudState({
+      is_admin: true,
+      permission_profile: "replenishment",
+    }))).toBe(true);
+    expect(desktopCloudShortcutAvailable("admin_dashboard", cloudState({
+      is_admin: false,
+      permission_profile: "full_access",
+    }))).toBe(false);
+  });
+
   test("offers binding switches only for configured managed devices", () => {
     expect(desktopCloudBindingSwitchAvailable(cloudState())).toBe(true);
     expect(desktopCloudBindingSwitchAvailable(cloudState({ connection: "offline" }))).toBe(true);
