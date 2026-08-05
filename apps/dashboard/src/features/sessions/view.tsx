@@ -48,7 +48,7 @@ import {
   toolOperations,
 } from "./conversation";
 import type { ToolOperation } from "./conversation";
-import { formatDate, formatDurationMs, formatMessageTime, formatNumber } from "../../shared/format";
+import { formatCompactNumber, formatDate, formatDurationMs, formatMessageTime, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
@@ -1329,9 +1329,7 @@ function ConversationModelPicker({
       >
         <ProviderBrandMark provider={current?.provider} size={15} />
         <span>{triggerLabel}</span>
-        {saving
-          ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} />
-          : <ChevronDown aria-hidden size={13} />}
+        {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
         <div aria-label={t.models.model} className="conversation-model-menu" role="menu">
@@ -1440,9 +1438,7 @@ function ConversationThinkingPicker({
       >
         <Sparkles aria-hidden size={14} />
         <span>{selectedLabel}</span>
-        {saving
-          ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} />
-          : editable ? <ChevronDown aria-hidden size={13} /> : null}
+        {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
         <div aria-label={t.models.thinkingEffort} className="conversation-thinking-menu" role="menu">
@@ -1477,6 +1473,141 @@ function ConversationThinkingPicker({
             })}
           </div>
           <small>{t.models.thinkingEffectiveNextTurn}</small>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const CONTEXT_RING_RADIUS = 8;
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
+
+/**
+ * Reads the newest turn that actually reported usage. `context_tokens` only
+ * lands once a request has come back, so before the first turn the meter falls
+ * back to the model's declared window and reports a true zero.
+ */
+function latestDisplayMetrics(
+  activity: DesktopConversationActivityPayload | null,
+): DesktopConversationStreamPayload["display_metrics"] | null {
+  for (const turn of [activity?.active, activity?.latest]) {
+    const metrics = turn?.stream?.display_metrics;
+    if (metrics && metrics.context_window_tokens > 0 && metrics.context_tokens > 0) return metrics;
+  }
+  return null;
+}
+
+function ConversationContextMeter({
+  activity,
+  currentModel,
+}: {
+  activity: DesktopConversationActivityPayload | null;
+  currentModel: ModelPayload | null;
+}) {
+  const t = useUiText();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const metrics = latestDisplayMetrics(activity);
+  const total = metrics?.context_window_tokens
+    || Math.max(0, Math.trunc(currentModel?.capabilities?.context_window_tokens ?? 0));
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (total <= 0) setOpen(false);
+  }, [total]);
+
+  if (total <= 0) return null;
+
+  const used = metrics ? Math.min(total, metrics.context_tokens) : 0;
+  const free = total - used;
+  const ratio = used / total;
+  const percent = `${(ratio * 100).toFixed(ratio > 0 && ratio < 0.1 ? 1 : 0)}%`;
+  const label = t.conversation.contextMeter.trigger(percent);
+  const rows: { key: string; label: string; value: number }[] = [
+    { key: "fresh", label: t.conversation.contextMeter.freshInput, value: metrics?.input_tokens ?? 0 },
+    { key: "cache-read", label: t.conversation.contextMeter.cacheRead, value: metrics?.cache_read_input_tokens ?? 0 },
+    { key: "cache-write", label: t.conversation.contextMeter.cacheWrite, value: metrics?.cache_creation_input_tokens ?? 0 },
+    { key: "output", label: t.conversation.contextMeter.output, value: metrics?.output_tokens ?? 0 },
+  ];
+
+  return (
+    <div className="conversation-context-meter" ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={label}
+        className="conversation-context-trigger"
+        data-level={ratio >= 0.9 ? "critical" : ratio >= 0.7 ? "warn" : "normal"}
+        onClick={() => setOpen((value) => !value)}
+        ref={triggerRef}
+        title={label}
+        type="button"
+      >
+        <svg aria-hidden className="conversation-context-ring" viewBox="0 0 22 22">
+          <circle className="conversation-context-ring-track" cx="11" cy="11" r={CONTEXT_RING_RADIUS} />
+          <circle
+            className="conversation-context-ring-value"
+            cx="11"
+            cy="11"
+            r={CONTEXT_RING_RADIUS}
+            strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
+            strokeDashoffset={CONTEXT_RING_CIRCUMFERENCE * (1 - ratio)}
+          />
+        </svg>
+      </button>
+      {open ? (
+        <div aria-label={t.conversation.contextMeter.title} className="conversation-context-panel" role="dialog">
+          <div className="conversation-context-panel-head">
+            <span>{t.conversation.contextMeter.title}</span>
+            <strong>
+              {t.conversation.contextMeter.ratio(formatCompactNumber(used), formatCompactNumber(total))}
+              <em>{percent}</em>
+            </strong>
+          </div>
+          <div aria-hidden className="conversation-context-bar">
+            <span style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+          </div>
+          <dl className="conversation-context-rows">
+            <div>
+              <dt><i aria-hidden className="conversation-context-swatch used" />{t.conversation.contextMeter.used}</dt>
+              <dd>{formatNumber(used)}</dd>
+            </div>
+            <div>
+              <dt><i aria-hidden className="conversation-context-swatch free" />{t.conversation.contextMeter.free}</dt>
+              <dd>{formatNumber(free)}</dd>
+            </div>
+          </dl>
+          <div className="conversation-context-section">{t.conversation.contextMeter.turnUsage}</div>
+          <dl className="conversation-context-rows">
+            {rows.map((row) => (
+              <div key={row.key}>
+                <dt>{row.label}</dt>
+                <dd>{formatNumber(row.value)}</dd>
+              </div>
+            ))}
+          </dl>
+          <small>{t.conversation.contextMeter.turnUsageHint}</small>
+          <small>
+            {metrics ? t.conversation.contextMeter.snapshotHint : t.conversation.contextMeter.notStartedHint}
+          </small>
         </div>
       ) : null}
     </div>
@@ -1670,6 +1801,7 @@ function ConversationComposer({
             </span>
           </div>
           <div className="conversation-compose-trailing">
+            <ConversationContextMeter activity={activity} currentModel={currentModel} />
             <ConversationModelPicker
               current={currentModel}
               disabled={!runtimeReady || sending || modelSaving || thinkingSaving}
@@ -1690,9 +1822,15 @@ function ConversationComposer({
               </span>
             ) : null}
             {hasWork ? (
-              <button className="conversation-stop-button" disabled={stopping} onClick={() => void stop()} type="button">
+              <button
+                aria-label={stopping ? t.conversation.stopping : t.conversation.stop}
+                className="conversation-stop-button"
+                disabled={stopping}
+                onClick={() => void stop()}
+                title={stopping ? t.conversation.stopping : t.conversation.stop}
+                type="button"
+              >
                 {stopping ? <LoaderCircle className="conversation-spinner" size={15} /> : <Square size={14} />}
-                <span>{stopping ? t.conversation.stopping : t.conversation.stop}</span>
               </button>
             ) : null}
             <button
