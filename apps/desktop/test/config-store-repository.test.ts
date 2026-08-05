@@ -41,14 +41,14 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       migration_version: 0,
       llm: {
         provider: "deepseek",
         profiles: { deepseek: { model: "deepseek-v4-flash", thinking_level: "low" } },
       },
       logging: { profile: "standard", retention_days: 7 },
-      cloud: { tunnel_name: "lxe-agent" },
+      cloud: { tunnel_name: "lxe-agent", switch_in_progress: false },
     });
     expect(repository.readSecrets()).toEqual(cloneSecrets());
 
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -70,7 +70,7 @@ describe("DesktopConfigRepository", () => {
       },
       integrations: { feishu: { managed: true, app_id: "legacy-app-id" } },
       logging: { profile: "standard", retention_days: 7 },
-      cloud: { tunnel_name: "lxe-agent" },
+      cloud: { tunnel_name: "lxe-agent", switch_in_progress: false },
     });
     expect(existsSync(join(root, "config", "settings.json"))).toBeTrue();
     expect(existsSync(join(root, "config", "desktop.json.migrated-v3.bak"))).toBeTrue();
@@ -88,12 +88,27 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       llm: {
         provider: "deepseek",
         credential_source: "local",
         last_local_provider: "deepseek",
       },
+    });
+  });
+
+  test("migrates schema 5 cloud settings to an idle switch state", () => {
+    const root = createRoot();
+    const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    legacy.schema_version = 5;
+    delete (legacy.cloud as Record<string, unknown>).switch_in_progress;
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config", "settings.json"), JSON.stringify(legacy));
+
+    const repository = new DesktopConfigRepository(root, safeStorage, "win32");
+    expect(repository.readConfig()).toMatchObject({
+      schema_version: 6,
+      cloud: { switch_in_progress: false },
     });
   });
 
@@ -199,6 +214,13 @@ describe("DesktopConfigRepository", () => {
     const invalidOutput = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(() => invalidOutput.readConfig())
       .toThrow("settings.output_directories.MABANG_STOCK_SKU_EXPORT_DIR must be a string");
+
+    const missingSwitchMarker = cloneConfig() as unknown as Record<string, unknown>;
+    delete (missingSwitchMarker.cloud as Record<string, unknown>).switch_in_progress;
+    writeFileSync(settingsPath, JSON.stringify(missingSwitchMarker), "utf8");
+    const invalidSwitchMarker = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(() => invalidSwitchMarker.readConfig())
+      .toThrow("settings.cloud.switch_in_progress must be a boolean");
 
     const unknownSetting = { ...cloneConfig(), workspace_rooot: "/typo" };
     writeFileSync(settingsPath, JSON.stringify(unknownSetting), "utf8");

@@ -14,7 +14,7 @@ describe("packaged WireGuard resources", () => {
     expect(staging).toContain("wireguard-amd64-1.1.msi");
   });
 
-  test("uses the official DPAPI secure store and a persistent tunnel service", () => {
+  test("uses the DPAPI store with a bounded destructive tunnel replacement", () => {
     const provision = readFileSync(
       resolve(repositoryRoot, "apps/desktop/resources/wireguard/provision-wireguard.ps1"),
       "utf8",
@@ -30,31 +30,36 @@ describe("packaged WireGuard resources", () => {
     expect(provision).toContain("$requiresInstall = -not (Test-WireGuardVersionSupported $currentVersion)");
     expect(provision).toContain("if (-not (Test-WireGuardVersionSupported $installedVersion))");
     expect(provision).not.toContain('[version]"1.1.0"');
-    expect(provision).toContain("$BackupConfiguration");
+    expect(provision).not.toContain("$BackupConfiguration");
+    expect(provision).not.toContain("Move-Item");
+    expect(provision).not.toMatch(/Copy-Item[^\r\n]*SecureConfiguration/u);
+    expect(provision).not.toMatch(/Get-Content[^\r\n]*SecureConfiguration/u);
     expect(provision).toContain("$managerInstalledHere");
     expect(provision).toContain("/api/v1/agent-data/devices/activate");
     expect(provision).toContain("This device file is already bound to another computer");
-    const backup = provision.indexOf("Move-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration");
+    const uninstallPrevious = provision.indexOf('$Stage = "uninstall_previous_tunnel"');
     const removeExistingTunnel = provision.indexOf("& $WireGuardExe /uninstalltunnelservice $TunnelName");
+    const removePrevious = provision.indexOf('$Stage = "remove_previous_configuration"');
     const stageReplacement = provision.indexOf("Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration");
-    expect(backup).toBeGreaterThan(-1);
-    expect(removeExistingTunnel).toBeGreaterThan(backup);
-    expect(stageReplacement).toBeGreaterThan(removeExistingTunnel);
-    expect(provision).not.toContain(
-      "Copy-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration",
-    );
-    expect(provision).toContain(
-      "Move-Item -LiteralPath $BackupConfiguration -Destination $SecureConfiguration -Force",
-    );
-    expect(provision).toContain("$originalConfigurationPresent = Test-Path -LiteralPath $SecureConfiguration");
-    expect(provision).toContain("elseif (-not $originalConfigurationPresent)");
-    expect(provision).toContain("if ($replacementCommitted)");
+    expect(uninstallPrevious).toBeGreaterThan(-1);
+    expect(removeExistingTunnel).toBeGreaterThan(uninstallPrevious);
+    expect(removePrevious).toBeGreaterThan(removeExistingTunnel);
+    expect(stageReplacement).toBeGreaterThan(removePrevious);
+    expect(provision).toContain("Assert-ManagedConfigurationPath $Path $AllowLegacyBackup");
+    expect(provision).toContain("& takeown.exe /F $Path /A");
+    expect(provision).toContain("& icacls.exe $Path /reset");
+    expect(provision).toContain("'*S-1-5-18:(F)'");
+    expect(provision).toContain("'*S-1-5-32-544:(F)'");
+    expect(provision).toContain("previous_removed = $PreviousRemoved");
+    expect(provision).toContain("if ($previousRemoved)");
     for (const stage of [
       "validate_host",
       "inspect_installation",
       "install_wireguard",
       "ensure_manager",
-      "prepare_replacement",
+      "uninstall_previous_tunnel",
+      "remove_previous_configuration",
+      "remove_legacy_backups",
       "stage_configuration",
       "secure_configuration",
       "install_tunnel",

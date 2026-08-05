@@ -608,9 +608,9 @@ export const ZH_TEXT = {
         title: "切换 Enrollment 绑定",
         description: "选择新的设备文件并输入管理员单独发送的一次性密码。",
         currentDevice: "当前本机绑定",
-        warning: "切换会替换本机 WireGuard 隧道和设备凭证，但不会解绑云端的旧设备记录。失败时将恢复当前绑定。",
+        warning: "确认后会永久删除本机旧 WireGuard 隧道和设备凭证。删除后如果新配置失败，需要重试新 Enrollment；云端旧设备记录不会自动解绑。",
         cancelAria: "关闭切换绑定窗口",
-        confirm: "确认切换",
+        confirm: "删除旧绑定并切换",
         switching: "正在切换…",
         switchedConnected: (device: string) => `已切换到 ${device || "新设备"}`,
         switchedRetry: (device: string) => `已切换到 ${device || "新设备"}，等待联网验证`
@@ -1346,9 +1346,9 @@ export const UI_TEXT: Record<Language, UiText> = {
           title: "Switch enrollment binding",
           description: "Choose a new device file and enter the one-time password sent separately by your admin.",
           currentDevice: "Current local binding",
-          warning: "Switching replaces this computer's WireGuard tunnel and device credential. It does not unbind the old cloud device. The current binding is restored if switching fails.",
+          warning: "Continuing permanently deletes this computer's old WireGuard tunnel and device credential. If the new configuration then fails, retry the new enrollment. The old cloud device is not unbound automatically.",
           cancelAria: "Close switch binding dialog",
-          confirm: "Switch binding",
+          confirm: "Delete old binding and switch",
           switching: "Switching…",
           switchedConnected: (device: string) => `Switched to ${device || "the new device"}`,
           switchedRetry: (device: string) => `Switched to ${device || "the new device"}; waiting for network verification`

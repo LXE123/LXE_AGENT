@@ -7,6 +7,7 @@ export interface DesktopCloudConfiguration {
   vpn_ip: string;
   data_server_url: string;
   tunnel_name: string;
+  switch_in_progress: boolean;
   api_key_configured: boolean;
 }
 

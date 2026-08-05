@@ -39,6 +39,7 @@ export class DesktopCloudConfigService {
       local_fallback_enabled: config.cloud.local_fallback_enabled,
       local_fallback_url: config.cloud.local_fallback_url,
       tunnel_name: text(input.tunnelName) || "lxe-agent",
+      switch_in_progress: false,
     };
     if (!config.cloud.device_id || !config.cloud.device_name || !config.cloud.vpn_ip
       || !config.cloud.data_server_url) {
@@ -47,8 +48,57 @@ export class DesktopCloudConfigService {
     secrets.data_server_api_key = apiKey;
     secrets.erp_api_key = text(input.erpApiKey);
     secrets.cloud_permission_snapshot = null;
+    this.clearManagedLlm(config, secrets);
     this.repository.commit(config, secrets);
     return this.configuration();
+  }
+
+  beginSwitch(): DesktopCloudConfiguration {
+    this.repository.requireSafeStorage();
+    const config = this.repository.readConfig();
+    if (!config.cloud.managed) throw new Error("Cloud enrollment is not configured");
+    if (!config.cloud.switch_in_progress) {
+      config.cloud.switch_in_progress = true;
+      this.repository.commit(config, this.repository.readSecrets());
+    }
+    return this.configuration();
+  }
+
+  abortSwitch(): DesktopCloudConfiguration {
+    const config = this.repository.readConfig();
+    if (config.cloud.switch_in_progress) {
+      config.cloud.switch_in_progress = false;
+      this.repository.commit(config, this.repository.readSecrets());
+    }
+    return this.configuration();
+  }
+
+  clearEnrollment(): DesktopCloudConfiguration {
+    this.repository.requireSafeStorage();
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    config.cloud = {
+      ...config.cloud,
+      managed: false,
+      device_id: "",
+      device_name: "",
+      vpn_ip: "",
+      data_server_url: "",
+      tunnel_name: "lxe-agent",
+      switch_in_progress: false,
+    };
+    secrets.data_server_api_key = "";
+    secrets.erp_api_key = "";
+    secrets.cloud_permission_snapshot = null;
+    this.clearManagedLlm(config, secrets);
+    this.repository.commit(config, secrets);
+    return this.configuration();
+  }
+
+  recoverInterruptedSwitch(): boolean {
+    if (!this.repository.readConfig().cloud.switch_in_progress) return false;
+    this.clearEnrollment();
+    return true;
   }
 
   permissionSnapshot(): DesktopCloudPermissionSnapshot | null {
@@ -69,5 +119,16 @@ export class DesktopCloudConfigService {
     secrets.cloud_permission_snapshot = structuredClone(snapshot);
     this.repository.commit(config, secrets);
     return structuredClone(snapshot);
+  }
+
+  private clearManagedLlm(
+    config: ReturnType<DesktopConfigRepository["readConfig"]>,
+    secrets: ReturnType<DesktopConfigRepository["readSecrets"]>,
+  ): void {
+    secrets.managed_llm_credential = null;
+    if (config.llm.credential_source === "cloud") {
+      config.llm.provider = config.llm.last_local_provider;
+      config.llm.credential_source = "local";
+    }
   }
 }

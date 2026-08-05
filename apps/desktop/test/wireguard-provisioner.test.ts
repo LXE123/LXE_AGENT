@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
 import type { CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
-import { WindowsWireGuardProvisioner, windowsCommandLineQuote } from "../src/main/wireguard-provisioner";
+import {
+  WindowsWireGuardProvisioner,
+  WireGuardProvisioningError,
+  windowsCommandLineQuote,
+} from "../src/main/wireguard-provisioner";
 
 const roots: string[] = [];
 type LogEvent = { level: string; message: string; fields: Record<string, unknown> };
@@ -44,6 +48,29 @@ const payload: CloudEnrollmentPayload = {
 };
 
 describe("WindowsWireGuardProvisioner", () => {
+  test("uses a bounded destructive replacement script without DPAPI backup or content reads", () => {
+    const script = readFileSync(
+      join(import.meta.dir, "..", "resources", "wireguard", "provision-wireguard.ps1"),
+      "utf8",
+    );
+    expect(script).not.toContain("Move-Item");
+    expect(script).not.toMatch(/Copy-Item[^\r\n]*SecureConfiguration/u);
+    expect(script).not.toMatch(/Get-Content[^\r\n]*SecureConfiguration/u);
+    expect(script).toContain('$LegacyBackupPrefix = "$TunnelName.conf.dpapi.lxe-backup-"');
+    expect(script.indexOf('$Stage = "uninstall_previous_tunnel"'))
+      .toBeLessThan(script.indexOf('$Stage = "remove_previous_configuration"'));
+    expect(script).toContain("Assert-ManagedConfigurationPath $Path $AllowLegacyBackup");
+    expect(script).toContain("& takeown.exe /F $Path /A");
+    expect(script).toContain("$takeownExitCode -ne 0");
+    expect(script).toContain("& icacls.exe $Path /reset");
+    expect(script).toContain("$aclResetExitCode -ne 0");
+    expect(script).toContain("& icacls.exe $Path /inheritance:r /grant:r");
+    expect(script).toContain("'*S-1-5-18:(F)'");
+    expect(script).toContain("'*S-1-5-32-544:(F)'");
+    expect(script).toContain("$icaclsExitCode -ne 0");
+    expect(script).toContain("previous_removed = $PreviousRemoved");
+  });
+
   test("quotes elevated Windows arguments without losing paths containing spaces", () => {
     expect(windowsCommandLineQuote("C:\\Program Files\\LXE Agent\\wireguard.msi"))
       .toBe('"C:\\Program Files\\LXE Agent\\wireguard.msi"');
@@ -144,18 +171,29 @@ describe("WindowsWireGuardProvisioner", () => {
           ok: false,
           message: "This device file is already bound to another computer: secret detail",
           failed_stage: "activate_device",
+          previous_removed: true,
         }));
       },
     });
 
-    await expect(provisioner.provision(payload, "activation-conflict"))
-      .rejects.toThrow("该设备文件已绑定到另一台电脑");
+    let failure: unknown;
+    try {
+      await provisioner.provision(payload, "activation-conflict");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(WireGuardProvisioningError);
+    expect(failure).toMatchObject({
+      message: "该设备文件已绑定到另一台电脑",
+      previousRemoved: true,
+    });
     expect(readdirSync(join(root, "data", "config", ".cloud-provisioning"))).toEqual([]);
     expect(events.at(-1)).toMatchObject({
       message: "wireguard_provision_failed",
       fields: {
         activation_id: "activation-conflict",
         failed_stage: "activate_device",
+        previous_removed: true,
         observed_error: "This device file is already bound to another computer: secret detail",
       },
     });
@@ -179,8 +217,13 @@ describe("WindowsWireGuardProvisioner", () => {
       runElevated: async () => { throw new Error("管理员授权已取消"); },
     });
 
-    await expect(provisioner.provision(payload, "activation-uac-cancel"))
-      .rejects.toThrow("管理员授权已取消");
+    let failure: unknown;
+    try {
+      await provisioner.provision(payload, "activation-uac-cancel");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ message: "管理员授权已取消", previousRemoved: false });
     expect(events.at(-1)).toMatchObject({
       message: "wireguard_provision_failed",
       fields: { failed_stage: "read_result", observed_error: "管理员授权已取消" },
@@ -208,6 +251,7 @@ describe("WindowsWireGuardProvisioner", () => {
           ok: false,
           message: `WireGuard did not secure the tunnel configuration for ${payload.data_server.api_token}`,
           failed_stage: "secure_configuration",
+          previous_removed: true,
         }));
         throw new Error("WireGuard 配置未完成");
       },
@@ -224,6 +268,7 @@ describe("WindowsWireGuardProvisioner", () => {
       fields: {
         activation_id: "activation-elevated-failure",
         failed_stage: "secure_configuration",
+        previous_removed: true,
         observed_error: "WireGuard did not secure the tunnel configuration for [redacted]",
       },
     });

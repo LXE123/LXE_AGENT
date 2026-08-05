@@ -291,7 +291,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -358,6 +358,128 @@ describe("DesktopConfigStore", () => {
       apiKey: "replacement-token",
     });
     expect(store.cloudPermissionSnapshot()).toBeNull();
+  });
+
+  test("persists, aborts, clears, and atomically commits a destructive enrollment switch", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    store.save({
+      provider: "kimi_coding",
+      api_key: "local-model-secret",
+      workspace_root: join(root, "workspace"),
+    });
+    store.saveCloudEnrollment({
+      deviceId: "0123456789abcdef0123456789abcdef",
+      deviceName: "Old device",
+      vpnIp: "10.88.0.8",
+      dataServerUrl: "http://10.88.0.1:8000",
+      tunnelName: "lxe-agent",
+      apiKey: "old-data-token",
+      erpApiKey: "old-erp-token",
+    });
+    store.saveCloudPermissionSnapshot({
+      device_id: "0123456789abcdef0123456789abcdef",
+      permission_profile: "fba",
+      permission_version: 1,
+      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      verified_at: 123,
+    });
+    store.saveManagedLlmCredential({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      api_key: "old-managed-model-token",
+      credential_revision: "a".repeat(64),
+      fetched_at: 123,
+      invalid_revision: "",
+    });
+    store.saveRuntimePreference("deepseek", "deepseek-v4-flash", "low", "cloud");
+
+    expect(store.beginCloudEnrollmentSwitch()).toMatchObject({
+      managed: true,
+      switch_in_progress: true,
+    });
+    expect(store.environment()).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
+      LXE_MANAGED_LLM_API_KEY: "",
+    });
+    expect(store.state()).toMatchObject({ complete: false, managed_model_configured: false });
+
+    expect(store.abortCloudEnrollmentSwitch()).toMatchObject({
+      managed: true,
+      switch_in_progress: false,
+    });
+    expect(store.environment()).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_API_KEY: "old-data-token",
+      LXE_ERP_API_KEY: "old-erp-token",
+      LXE_MANAGED_LLM_API_KEY: "old-managed-model-token",
+    });
+    expect(store.cloudPermissionSnapshot()).toMatchObject({ permission_profile: "fba" });
+
+    store.beginCloudEnrollmentSwitch();
+    expect(store.saveCloudEnrollment({
+      deviceId: "fedcba9876543210fedcba9876543210",
+      deviceName: "New device",
+      vpnIp: "10.88.0.9",
+      dataServerUrl: "http://10.88.0.2:8000",
+      tunnelName: "lxe-agent",
+      apiKey: "new-data-token",
+      erpApiKey: "new-erp-token",
+    })).toMatchObject({
+      device_name: "New device",
+      switch_in_progress: false,
+    });
+    expect(store.cloudPermissionSnapshot()).toBeNull();
+    expect(store.managedLlmCredential()).toBeNull();
+    expect(store.state()).toMatchObject({
+      provider: "kimi_coding",
+      credential_source: "local",
+    });
+    let encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
+    expect(encryptedSecrets).not.toContain("old-data-token");
+    expect(encryptedSecrets).not.toContain("old-erp-token");
+    expect(encryptedSecrets).not.toContain("old-managed-model-token");
+
+    store.saveCloudPermissionSnapshot({
+      device_id: "fedcba9876543210fedcba9876543210",
+      permission_profile: "replenishment",
+      permission_version: 2,
+      allowed_skill_types: ["amazon_replenish"],
+      verified_at: 456,
+    });
+    store.saveManagedLlmCredential({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      api_key: "new-managed-model-token",
+      credential_revision: "b".repeat(64),
+      fetched_at: 456,
+      invalid_revision: "",
+    });
+    store.saveRuntimePreference("deepseek", "deepseek-v4-flash", "low", "cloud");
+    store.beginCloudEnrollmentSwitch();
+    expect(store.clearCloudEnrollment()).toMatchObject({
+      managed: false,
+      device_id: "",
+      switch_in_progress: false,
+    });
+    expect(store.cloudPermissionSnapshot()).toBeNull();
+    expect(store.managedLlmCredential()).toBeNull();
+    expect(store.state()).toMatchObject({
+      provider: "kimi_coding",
+      credential_source: "local",
+    });
+    expect(store.environment()).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
+      LXE_MANAGED_LLM_API_KEY: "",
+    });
+    encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
+    expect(encryptedSecrets).not.toContain("new-data-token");
+    expect(encryptedSecrets).not.toContain("new-erp-token");
+    expect(encryptedSecrets).not.toContain("new-managed-model-token");
   });
 
   test("uses an encrypted managed credential as a standalone cloud model configuration", () => {

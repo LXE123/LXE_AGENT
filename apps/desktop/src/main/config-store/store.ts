@@ -92,6 +92,22 @@ export class DesktopConfigStore {
     return this.cloud.saveEnrollment(input);
   }
 
+  beginCloudEnrollmentSwitch(): DesktopCloudConfiguration {
+    return this.cloud.beginSwitch();
+  }
+
+  abortCloudEnrollmentSwitch(): DesktopCloudConfiguration {
+    return this.cloud.abortSwitch();
+  }
+
+  clearCloudEnrollment(): DesktopCloudConfiguration {
+    return this.cloud.clearEnrollment();
+  }
+
+  recoverInterruptedCloudEnrollmentSwitch(): boolean {
+    return this.cloud.recoverInterruptedSwitch();
+  }
+
   cloudPermissionSnapshot(): DesktopCloudPermissionSnapshot | null {
     return this.cloud.permissionSnapshot();
   }

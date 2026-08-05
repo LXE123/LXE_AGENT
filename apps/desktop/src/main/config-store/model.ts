@@ -25,7 +25,7 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 5;
+  schema_version: 6;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
@@ -63,6 +63,7 @@ export interface DesktopConfig {
     local_fallback_enabled: boolean;
     local_fallback_url: string;
     tunnel_name: string;
+    switch_in_progress: boolean;
   };
 }
 
@@ -81,7 +82,7 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 4;
 
-export const SETTINGS_SCHEMA_VERSION = 5 as const;
+export const SETTINGS_SCHEMA_VERSION = 6 as const;
 
 const DEFAULT_CONFIG: DesktopConfig = {
   schema_version: SETTINGS_SCHEMA_VERSION,
@@ -120,6 +121,7 @@ const DEFAULT_CONFIG: DesktopConfig = {
     local_fallback_enabled: false,
     local_fallback_url: "",
     tunnel_name: "lxe-agent",
+    switch_in_progress: false,
   },
 };
 
@@ -201,7 +203,8 @@ const assertOnlyFields = (
 
 export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
   const value = objectValue(raw);
-  if (value.schema_version !== 4 && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+  if (value.schema_version !== 4 && value.schema_version !== 5
+    && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
   assertNoSecretFields(value);
@@ -219,7 +222,7 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
   const llm = objectValue(value.llm);
   assertOnlyFields(llm, ["provider", "credential_source", "last_local_provider", "profiles"], "settings.llm");
   assertFieldTypes(llm, { provider: "string" }, "settings.llm");
-  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+  if (value.schema_version !== 4) {
     assertFieldTypes(llm, { credential_source: "string", last_local_provider: "string" }, "settings.llm");
   }
   if (!llm.profiles || typeof llm.profiles !== "object" || Array.isArray(llm.profiles)) {
@@ -261,7 +264,7 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
   assertOnlyFields(logging, ["profile", "retention_days"], "settings.logging");
   assertOnlyFields(cloud, [
     "managed", "device_id", "device_name", "vpn_ip", "data_server_url",
-    "local_fallback_enabled", "local_fallback_url", "tunnel_name",
+    "local_fallback_enabled", "local_fallback_url", "tunnel_name", "switch_in_progress",
   ], "settings.cloud");
   assertFieldTypes(logging, { profile: "string", retention_days: "number" }, "settings.logging");
   assertFieldTypes(cloud, {
@@ -269,6 +272,9 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
     data_server_url: "string", local_fallback_enabled: "boolean", local_fallback_url: "string",
     tunnel_name: "string",
   }, "settings.cloud");
+  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+    assertFieldTypes(cloud, { switch_in_progress: "boolean" }, "settings.cloud");
+  }
   return parseConfig(value, platform);
 };
 
@@ -356,6 +362,7 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       local_fallback_enabled: Boolean(rawCloud.local_fallback_enabled),
       local_fallback_url: text(rawCloud.local_fallback_url),
       tunnel_name: text(rawCloud.tunnel_name) || "lxe-agent",
+      switch_in_progress: Boolean(rawCloud.switch_in_progress),
     },
   };
 };

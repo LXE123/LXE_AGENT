@@ -42,7 +42,9 @@ export class DesktopSetupService {
     const secrets = this.effectiveSecrets();
     const localAuth = this.auth.snapshot();
     const providerKeyConfigured = localAuth.configured[config.llm.provider];
-    const managedCredential = secrets.managed_llm_credential;
+    const managedCredential = config.cloud.switch_in_progress
+      ? null
+      : secrets.managed_llm_credential;
     const managedModelConfigured = Boolean(
       managedCredential
       && managedCredential.invalid_revision !== managedCredential.credential_revision,
@@ -316,7 +318,9 @@ export class DesktopSetupService {
     const secrets = this.effectiveSecrets();
     const localAuth = this.auth.snapshot();
     const provider = config.llm.provider;
-    const managedCredential = secrets.managed_llm_credential;
+    const managedCredential = config.cloud.switch_in_progress
+      ? null
+      : secrets.managed_llm_credential;
     const providerEnvironment = {
       KIMI_CODE_API_KEY: text(localAuth.keys.kimi_coding),
       DEEPSEEK_API: text(localAuth.keys.deepseek),
@@ -340,7 +344,9 @@ export class DesktopSetupService {
     const feishuConfigured = feishu.managed && this.validation.feishuIssues(feishu, secrets).length === 0;
     const diagnostic = config.logging.profile === "diagnostic";
     const logsEnabled = config.logging.profile !== "off";
-    const cloudEnabled = config.cloud.managed && Boolean(text(secrets.data_server_api_key));
+    const cloudEnabled = config.cloud.managed
+      && !config.cloud.switch_in_progress
+      && Boolean(text(secrets.data_server_api_key));
     return {
       AGENT_LLM_PROVIDER: provider,
       AGENT_LLM_CREDENTIAL_SOURCE: config.llm.credential_source,

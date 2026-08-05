@@ -13,23 +13,30 @@ $WireGuardExe = Join-Path $WireGuardRoot "wireguard.exe"
 $ConfigurationRoot = Join-Path $WireGuardRoot "Data\Configurations"
 $PlainConfiguration = Join-Path $ConfigurationRoot "$TunnelName.conf"
 $SecureConfiguration = "$PlainConfiguration.dpapi"
-$BackupConfiguration = "$SecureConfiguration.lxe-backup-$PID"
+$LegacyBackupPrefix = "$TunnelName.conf.dpapi.lxe-backup-"
 $managerWasInstalled = $false
 $managerInstalledHere = $false
 $existingTunnelWasInstalled = $false
 $existingTunnelRemoved = $false
 $tunnelInstalledHere = $false
-$originalConfigurationPresent = $false
-$replacementCommitted = $false
+$previousRemoved = $false
+$previousRemovalStarted = $false
 $Stage = "validate_host"
 
 function Write-Result(
   [bool]$Ok,
   [string]$Message,
   [string]$Connection = "error",
-  [string]$FailedStage = ""
+  [string]$FailedStage = "",
+  [bool]$PreviousRemoved = $false
 ) {
-  $result = @{ ok = $Ok; message = $Message; tunnel = $TunnelName; connection = $Connection }
+  $result = @{
+    ok = $Ok
+    message = $Message
+    tunnel = $TunnelName
+    connection = $Connection
+    previous_removed = $PreviousRemoved
+  }
   if (-not [string]::IsNullOrWhiteSpace($FailedStage)) {
     $result.failed_stage = $FailedStage
   }
@@ -43,6 +50,101 @@ function Test-WireGuardVersionSupported([string]$VersionText) {
   $major = [int]$Matches[1]
   $minor = [int]$Matches[2]
   return $major -gt 1 -or ($major -eq 1 -and $minor -ge 1)
+}
+
+function Assert-ManagedConfigurationPath([string]$Path, [bool]$AllowLegacyBackup) {
+  $resolvedRoot = [IO.Path]::GetFullPath($ConfigurationRoot).TrimEnd('\')
+  $resolvedPath = [IO.Path]::GetFullPath($Path)
+  $parent = [IO.Path]::GetDirectoryName($resolvedPath).TrimEnd('\')
+  $name = [IO.Path]::GetFileName($resolvedPath)
+  if (-not $parent.Equals($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to modify a configuration outside the WireGuard configuration directory"
+  }
+  $fixedName = $name.Equals("$TunnelName.conf", [StringComparison]::OrdinalIgnoreCase) -or
+    $name.Equals("$TunnelName.conf.dpapi", [StringComparison]::OrdinalIgnoreCase)
+  $legacyName = $AllowLegacyBackup -and
+    $name.StartsWith($LegacyBackupPrefix, [StringComparison]::OrdinalIgnoreCase)
+  if (-not $fixedName -and -not $legacyName) {
+    throw "Refusing to modify an unmanaged WireGuard configuration"
+  }
+}
+
+function Test-ManagedConfigurationPresent([string]$Path, [bool]$AllowLegacyBackup = $false) {
+  Assert-ManagedConfigurationPath $Path $AllowLegacyBackup
+  if (-not (Test-Path -LiteralPath $ConfigurationRoot -PathType Container)) {
+    return $false
+  }
+  $name = [IO.Path]::GetFileName($Path)
+  return @(
+    Get-ChildItem -LiteralPath $ConfigurationRoot -Force -File -Name |
+      Where-Object { $_.Equals($name, [StringComparison]::OrdinalIgnoreCase) }
+  ).Count -gt 0
+}
+
+function Format-NativeDiagnostic([object[]]$Output) {
+  $detail = (($Output | ForEach-Object { "$_" }) -join " ").Trim()
+  if ($detail.Length -gt 300) {
+    return $detail.Substring(0, 300)
+  }
+  return $detail
+}
+
+function Remove-ManagedConfiguration(
+  [string]$Path,
+  [bool]$AllowAclRepair,
+  [bool]$AllowLegacyBackup = $false
+) {
+  Assert-ManagedConfigurationPath $Path $AllowLegacyBackup
+  if (-not (Test-ManagedConfigurationPresent $Path $AllowLegacyBackup)) {
+    return
+  }
+  try {
+    Remove-Item -LiteralPath $Path -Force
+  } catch {
+    $nativeErrorCode = $_.Exception.HResult -band 0xFFFF
+    $isAccessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or
+      $nativeErrorCode -eq 5
+    if (-not $AllowAclRepair -or -not $isAccessDenied) {
+      throw
+    }
+    $removeDiagnostic = $_.Exception.Message
+    $takeownOutput = @(& takeown.exe /F $Path /A 2>&1)
+    $takeownExitCode = $LASTEXITCODE
+    if ($takeownExitCode -ne 0) {
+      $detail = Format-NativeDiagnostic $takeownOutput
+      throw "takeown failed with exit code $takeownExitCode after delete was denied: $removeDiagnostic $detail"
+    }
+    $aclResetOutput = @(& icacls.exe $Path /reset 2>&1)
+    $aclResetExitCode = $LASTEXITCODE
+    if ($aclResetExitCode -ne 0) {
+      $detail = Format-NativeDiagnostic $aclResetOutput
+      throw "icacls reset failed with exit code $aclResetExitCode after delete was denied: $removeDiagnostic $detail"
+    }
+    $icaclsOutput = @(
+      & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' 2>&1
+    )
+    $icaclsExitCode = $LASTEXITCODE
+    if ($icaclsExitCode -ne 0) {
+      $detail = Format-NativeDiagnostic $icaclsOutput
+      throw "icacls failed with exit code $icaclsExitCode after delete was denied: $removeDiagnostic $detail"
+    }
+    Remove-Item -LiteralPath $Path -Force
+  }
+  if (Test-ManagedConfigurationPresent $Path $AllowLegacyBackup) {
+    throw "The managed WireGuard configuration still exists after deletion"
+  }
+}
+
+function Wait-TunnelServiceRemoved {
+  $deadline = [DateTime]::UtcNow.AddSeconds(20)
+  do {
+    $service = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+      return $true
+    }
+    Start-Sleep -Milliseconds 200
+  } while ([DateTime]::UtcNow -lt $deadline)
+  return $false
 }
 
 try {
@@ -83,36 +185,49 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Unable to start the WireGuard secure configuration service" }
     $managerInstalledHere = $true
   }
-  $Stage = "prepare_replacement"
+
+  $Stage = "uninstall_previous_tunnel"
   New-Item -ItemType Directory -Path $ConfigurationRoot -Force | Out-Null
-  $originalConfigurationPresent = Test-Path -LiteralPath $SecureConfiguration
-  if ($originalConfigurationPresent) {
-    # WireGuard deliberately denies administrators read access to .conf.dpapi files,
-    # while granting the delete permission required to rename them in this directory.
-    Move-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration -Force
-  }
   $existingTunnel = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
   $existingTunnelWasInstalled = $null -ne $existingTunnel
   if ($existingTunnelWasInstalled) {
     & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
     $uninstallExitCode = $LASTEXITCODE
-    $existingTunnelRemoved = $null -eq (Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue)
+    $existingTunnelRemoved = Wait-TunnelServiceRemoved
     if ($uninstallExitCode -ne 0 -or -not $existingTunnelRemoved) {
-      throw "Unable to replace the existing WireGuard tunnel"
+      throw "Unable to uninstall the previous WireGuard tunnel service"
+    }
+  }
+
+  $Stage = "remove_previous_configuration"
+  $previousRemovalStarted = $true
+  Remove-ManagedConfiguration $PlainConfiguration $false
+  Remove-ManagedConfiguration $SecureConfiguration $true
+  if ($null -ne (Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue) -or
+    (Test-ManagedConfigurationPresent $PlainConfiguration) -or
+    (Test-ManagedConfigurationPresent $SecureConfiguration)) {
+    throw "The previous WireGuard tunnel was not completely removed"
+  }
+  $previousRemoved = $true
+
+  $Stage = "remove_legacy_backups"
+  foreach ($entryName in @(Get-ChildItem -LiteralPath $ConfigurationRoot -Force -File -Name)) {
+    if ($entryName.StartsWith($LegacyBackupPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+      Remove-ManagedConfiguration (Join-Path $ConfigurationRoot $entryName) $true $true
     }
   }
 
   $Stage = "stage_configuration"
-  Remove-Item -LiteralPath $PlainConfiguration -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
   Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration -Force
 
   $Stage = "secure_configuration"
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
-  while (((-not (Test-Path -LiteralPath $SecureConfiguration)) -or (Test-Path -LiteralPath $PlainConfiguration)) -and ([DateTime]::UtcNow -lt $deadline)) {
+  while (((-not (Test-ManagedConfigurationPresent $SecureConfiguration)) -or
+    (Test-ManagedConfigurationPresent $PlainConfiguration)) -and ([DateTime]::UtcNow -lt $deadline)) {
     Start-Sleep -Milliseconds 250
   }
-  if (-not (Test-Path -LiteralPath $SecureConfiguration) -or (Test-Path -LiteralPath $PlainConfiguration)) {
+  if (-not (Test-ManagedConfigurationPresent $SecureConfiguration) -or
+    (Test-ManagedConfigurationPresent $PlainConfiguration)) {
     throw "WireGuard did not secure the tunnel configuration"
   }
 
@@ -163,31 +278,58 @@ try {
   )) {
     throw "The cloud returned a different device identity"
   }
-  Write-Result $true "ok" $activationState
-  $replacementCommitted = $true
+  Write-Result $true "ok" $activationState "" $previousRemoved
   exit 0
 } catch {
   $failedStage = $Stage
   $failureMessage = $_.Exception.Message
+  $recoveryDiagnostics = @()
+  if (-not $previousRemoved -and $previousRemovalStarted) {
+    try {
+      $previousRemoved = $null -eq (
+        Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
+      ) -and -not (Test-ManagedConfigurationPresent $PlainConfiguration) -and
+        -not (Test-ManagedConfigurationPresent $SecureConfiguration)
+    } catch {
+      $recoveryDiagnostics += "previous tunnel removal could not be verified: $($_.Exception.Message)"
+    }
+  }
+  if ($tunnelInstalledHere) {
+    & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Wait-TunnelServiceRemoved)) {
+      $recoveryDiagnostics += "new tunnel service cleanup failed"
+    }
+  }
+  if ($previousRemoved) {
+    try {
+      Remove-ManagedConfiguration $PlainConfiguration $false
+      Remove-ManagedConfiguration $SecureConfiguration $true
+    } catch {
+      $recoveryDiagnostics += "new configuration cleanup failed: $($_.Exception.Message)"
+    }
+  } elseif ($existingTunnelWasInstalled -and $existingTunnelRemoved) {
+    try {
+      if (-not (Test-ManagedConfigurationPresent $SecureConfiguration)) {
+        throw "the previous secure configuration is no longer present"
+      }
+      & $WireGuardExe /installtunnelservice $SecureConfiguration | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        throw "WireGuard returned exit code $LASTEXITCODE"
+      }
+      $restoredService = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction Stop
+      Start-Service -Name $restoredService.Name
+      $restoredService.WaitForStatus("Running", [TimeSpan]::FromSeconds(20))
+    } catch {
+      $recoveryDiagnostics += "previous tunnel recovery failed: $($_.Exception.Message)"
+    }
+  }
+  if ($recoveryDiagnostics.Count -gt 0) {
+    $failureMessage = "$failureMessage; $($recoveryDiagnostics -join '; ')"
+  }
   if ($failureMessage.Length -gt 500) {
     $failureMessage = $failureMessage.Substring(0, 500)
   }
-  Write-Result $false $failureMessage "error" $failedStage
-  if ($tunnelInstalledHere) {
-    & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
-  }
-  if (Test-Path -LiteralPath $BackupConfiguration) {
-    Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
-    Move-Item -LiteralPath $BackupConfiguration -Destination $SecureConfiguration -Force
-    if ($existingTunnelWasInstalled -and $existingTunnelRemoved) {
-      & $WireGuardExe /installtunnelservice $SecureConfiguration | Out-Null
-      if ($LASTEXITCODE -eq 0) {
-        Start-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
-      }
-    }
-  } elseif (-not $originalConfigurationPresent) {
-    Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
-  }
+  Write-Result $false $failureMessage "error" $failedStage $previousRemoved
   exit 1
 } finally {
   if ($managerInstalledHere) {
@@ -195,8 +337,7 @@ try {
   }
   Remove-Item -LiteralPath $ConfigPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $ActivationPath -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $PlainConfiguration -Force -ErrorAction SilentlyContinue
-  if ($replacementCommitted) {
-    Remove-Item -LiteralPath $BackupConfiguration -Force -ErrorAction SilentlyContinue
+  if ($previousRemoved) {
+    Remove-Item -LiteralPath $PlainConfiguration -Force -ErrorAction SilentlyContinue
   }
 }

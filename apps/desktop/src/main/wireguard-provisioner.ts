@@ -22,11 +22,26 @@ export interface WireGuardProvisionerPort {
   provision(payload: CloudEnrollmentPayload, activationId: string): Promise<void>;
 }
 
+export class WireGuardProvisioningError extends Error {
+  override readonly name = "WireGuardProvisioningError";
+
+  constructor(
+    message: string,
+    readonly previousRemoved: boolean,
+  ) {
+    super(message);
+  }
+}
+
+export const previousEnrollmentRemoved = (error: unknown): boolean =>
+  error instanceof WireGuardProvisioningError && error.previousRemoved;
+
 interface WireGuardProvisionResult {
   ok?: unknown;
   message?: unknown;
   connection?: unknown;
   failed_stage?: unknown;
+  previous_removed?: unknown;
 }
 
 interface ElevatedPowerShellError extends Error {
@@ -107,25 +122,40 @@ const publicProvisionFailure = (
   failedStage: string,
   elevatedError: ElevatedPowerShellError | undefined,
   fallbackDiagnostic: string,
-): Error => {
+  previousRemoved: boolean,
+): WireGuardProvisioningError => {
   if (message.includes("already bound to another computer")) {
-    return new Error("该设备文件已绑定到另一台电脑");
+    return new WireGuardProvisioningError("该设备文件已绑定到另一台电脑", previousRemoved);
   }
   if (message.includes("rejected this device credential")) {
-    return new Error("设备凭证已失效，请联系管理员");
+    return new WireGuardProvisioningError("设备凭证已失效，请联系管理员", previousRemoved);
   }
   if (message) {
-    return new Error(`WireGuard 配置失败（${failedStage}）：${message}`.slice(0, 700));
+    return new WireGuardProvisioningError(
+      `WireGuard 配置失败（${failedStage}）：${message}`.slice(0, 700),
+      previousRemoved,
+    );
   }
-  if (elevatedError?.message === "管理员授权已取消") return elevatedError;
+  if (elevatedError?.message === "管理员授权已取消") {
+    return new WireGuardProvisioningError(elevatedError.message, previousRemoved);
+  }
   if (fallbackDiagnostic && fallbackDiagnostic !== elevatedError?.message) {
-    return new Error(`WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700));
+    return new WireGuardProvisioningError(
+      `WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700),
+      previousRemoved,
+    );
   }
-  if (elevatedError) return elevatedError;
+  if (elevatedError) return new WireGuardProvisioningError(elevatedError.message, previousRemoved);
   if (fallbackDiagnostic) {
-    return new Error(`WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700));
+    return new WireGuardProvisioningError(
+      `WireGuard 配置失败（${failedStage}）：${fallbackDiagnostic}`.slice(0, 700),
+      previousRemoved,
+    );
   }
-  return new Error("WireGuard 配置未完成，请重试或联系管理员");
+  return new WireGuardProvisioningError(
+    "WireGuard 配置未完成，请重试或联系管理员",
+    previousRemoved,
+  );
 };
 
 const readProvisionResult = (path: string): { result?: WireGuardProvisionResult; error?: string } => {
@@ -178,9 +208,13 @@ export class WindowsWireGuardProvisioner {
       packaged: this.options.packaged,
     });
     if (!this.supported()) {
-      const error = new Error("公司云端仅支持 Windows 10/11 x64 安装包");
+      const error = new WireGuardProvisioningError(
+        "公司云端仅支持 Windows 10/11 x64 安装包",
+        false,
+      );
       logger.error("wireguard_provision_failed", {
         failed_stage: "validate_host",
+        previous_removed: false,
         duration_ms: Math.max(0, this.now() - startedAt),
         observed_error: error.message,
       });
@@ -190,9 +224,10 @@ export class WindowsWireGuardProvisioner {
     const msiPath = join(wireGuardRoot, "wireguard-amd64-1.1.msi");
     const scriptPath = join(wireGuardRoot, "provision-wireguard.ps1");
     if (!existsSync(msiPath) || !existsSync(scriptPath)) {
-      const error = new Error("安装包缺少 WireGuard 资源，请联系管理员");
+      const error = new WireGuardProvisioningError("安装包缺少 WireGuard 资源，请联系管理员", false);
       logger.error("wireguard_provision_failed", {
         failed_stage: "validate_resources",
+        previous_removed: false,
         duration_ms: Math.max(0, this.now() - startedAt),
         observed_error: error.message,
       });
@@ -247,9 +282,11 @@ export class WindowsWireGuardProvisioner {
               payload,
             );
         const failedStage = String(result?.failed_stage ?? "").trim() || stage;
+        const previousRemoved = result?.previous_removed === true;
         failureLogged = true;
         logger.error("wireguard_provision_failed", {
           failed_stage: failedStage,
+          previous_removed: previousRemoved,
           duration_ms: Math.max(0, this.now() - startedAt),
           ...(elevatedError?.exitCode === undefined ? {} : { process_exit_code: elevatedError.exitCode }),
           observed_error: observedError || "WireGuard provisioning failed without a diagnostic result",
@@ -259,21 +296,27 @@ export class WindowsWireGuardProvisioner {
           failedStage,
           elevatedError,
           observedError,
+          previousRemoved,
         );
       }
       logger.info("wireguard_provision_completed", {
         duration_ms: Math.max(0, this.now() - startedAt),
         connection: String(result.connection ?? "unknown").slice(0, 32),
+        previous_removed: result.previous_removed === true,
       });
     } catch (error) {
+      const failure = error instanceof WireGuardProvisioningError
+        ? error
+        : new WireGuardProvisioningError(boundedDiagnostic(error), false);
       if (!failureLogged) {
         logger.error("wireguard_provision_failed", {
           failed_stage: stage,
+          previous_removed: failure.previousRemoved,
           duration_ms: Math.max(0, this.now() - startedAt),
-          observed_error: boundedDiagnostic(error),
+          observed_error: boundedDiagnostic(failure),
         });
       }
-      throw error;
+      throw failure;
     } finally {
       rmSync(configPath, { force: true });
       rmSync(activationPath, { force: true });

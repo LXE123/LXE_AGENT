@@ -13,7 +13,10 @@ import type {
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
 import type { PreviewDataServerTarget } from "./data-server-policy";
-import type { WireGuardProvisionerPort } from "./wireguard-provisioner";
+import {
+  previousEnrollmentRemoved,
+  type WireGuardProvisionerPort,
+} from "./wireguard-provisioner";
 import {
   parseServerDevicePermission,
   permissionSnapshotsEqual,
@@ -109,13 +112,24 @@ export class DesktopCloudService {
   private probeTimer: unknown | undefined;
   private lastPublished = "";
   private stopped = false;
+  private recoveredInterruptedSwitch: boolean;
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
     this.clock = options.clock ?? systemClock;
+    this.recoveredInterruptedSwitch = !options.previewTarget
+      && options.config.recoverInterruptedCloudEnrollmentSwitch();
     const configured = Boolean(options.previewTarget) || options.config.cloudConfiguration().managed;
-    this.connection = configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
+    this.connection = this.recoveredInterruptedSwitch
+      ? "error"
+      : configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
+    if (this.recoveredInterruptedSwitch) {
+      this.lastError = "上次 Enrollment 切换中断，旧绑定已清除，请重新导入或重试新 Enrollment";
+      options.logger.warn("cloud_enrollment_interrupted_switch_cleared", {
+        previous_removed: true,
+      });
+    }
     this.permissionSnapshot = options.previewTarget
       ? null
       : options.config.cloudPermissionSnapshot();
@@ -142,12 +156,13 @@ export class DesktopCloudService {
       };
     }
     const cloud = this.options.config.cloudConfiguration();
+    const switching = cloud.switch_in_progress;
     return {
-      configured: cloud.managed && cloud.api_key_configured,
+      configured: cloud.managed && cloud.api_key_configured && !switching,
       is_admin: this.isAdmin,
-      device_name: cloud.device_name,
-      device_id: cloud.device_id,
-      vpn_ip: cloud.vpn_ip,
+      device_name: switching ? "" : cloud.device_name,
+      device_id: switching ? "" : cloud.device_id,
+      vpn_ip: switching ? "" : cloud.vpn_ip,
       connection: this.connection,
       last_error: this.lastError,
       last_checked_at: this.lastCheckedAt,
@@ -165,6 +180,10 @@ export class DesktopCloudService {
       this.probeTimer = this.clock.setInterval(() => {
         void this.check();
       }, Math.max(1, Math.trunc(this.options.probeIntervalMs ?? 60_000)));
+    }
+    if (this.recoveredInterruptedSwitch) {
+      this.recoveredInterruptedSwitch = false;
+      return Promise.resolve(this.setConnection("error", this.lastError));
     }
     return this.check();
   }
@@ -235,6 +254,10 @@ export class DesktopCloudService {
     logger.info("cloud_enrollment_activation_started");
     this.setConnection("provisioning", "");
     let configured = false;
+    let switchStarted = false;
+    let previousRemoved = false;
+    const previousPermission = this.permissionSnapshot;
+    const previousManagedLlmCredential = this.options.config.managedLlmCredential();
     try {
       const payload = this.options.enrollments.decrypt(input.enrollment_id, input.password);
       const vpnIp = payload.wireguard.address.replace(/\/32$/u, "");
@@ -242,8 +265,20 @@ export class DesktopCloudService {
       logger.info("cloud_enrollment_decrypted", {
         duration_ms: Math.max(0, this.now() - startedAt),
       });
+      if (this.options.config.cloudConfiguration().managed) {
+        stage = "begin_destructive_switch";
+        this.options.config.beginCloudEnrollmentSwitch();
+        switchStarted = true;
+        this.permissionSnapshot = null;
+        this.permissionFresh = false;
+        this.setConnection("provisioning", "");
+        await this.options.onPermissionChanged?.([]);
+        await this.options.onManagedLlmCredentialChanged?.(null);
+        await this.options.onConfigured();
+      }
       stage = "wireguard_provision";
       await this.options.provisioner.provision(payload, activationId);
+      if (switchStarted) previousRemoved = true;
       stage = "persist_configuration";
       this.options.config.saveCloudEnrollment({
         deviceId: payload.device.id,
@@ -254,10 +289,12 @@ export class DesktopCloudService {
         apiKey: payload.data_server.api_token,
         ...(payload.erp ? { erpApiKey: payload.erp.api_token } : {}),
       });
+      const wasDestructiveSwitch = switchStarted;
+      switchStarted = false;
+      configured = true;
       this.permissionSnapshot = null;
       this.permissionFresh = false;
-      await this.options.onPermissionChanged?.([]);
-      configured = true;
+      if (!wasDestructiveSwitch) await this.options.onPermissionChanged?.([]);
       this.options.enrollments.complete(input.enrollment_id);
       this.setConnection("connecting", "");
       stage = "activate_device";
@@ -274,12 +311,41 @@ export class DesktopCloudService {
         { deviceId: payload.device.id, deviceName: payload.device.name, vpnIp },
       );
     } catch (error) {
+      previousRemoved ||= switchStarted && previousEnrollmentRemoved(error);
+      if (switchStarted) {
+        try {
+          if (previousRemoved) {
+            this.options.config.clearCloudEnrollment();
+            this.permissionSnapshot = null;
+            this.permissionFresh = false;
+          } else {
+            this.options.config.abortCloudEnrollmentSwitch();
+            this.permissionSnapshot = previousPermission;
+            this.permissionFresh = false;
+            await this.options.onPermissionChanged?.(
+              previousPermission?.allowed_skill_types ?? [],
+            );
+            await this.options.onManagedLlmCredentialChanged?.(previousManagedLlmCredential);
+          }
+          await this.options.onConfigured();
+        } catch (recoveryError) {
+          logger.error("cloud_enrollment_switch_recovery_failed", {
+            previous_removed: previousRemoved,
+            observed_error: this.diagnosticError(recoveryError),
+          });
+        }
+      }
       logger.error("cloud_device_activation_failed", {
         failed_stage: stage,
+        previous_removed: previousRemoved,
         duration_ms: Math.max(0, this.now() - startedAt),
         observed_error: this.diagnosticError(error),
       });
-      this.setConnection("error", this.publicError(error));
+      const publicError = this.publicError(error);
+      this.setConnection(
+        "error",
+        previousRemoved ? `旧绑定已移除；${publicError}`.slice(0, 300) : publicError,
+      );
       throw new Error(this.lastError);
     } finally {
       if (configured && !this.stopped) await this.options.onConfigured();
@@ -455,7 +521,7 @@ export class DesktopCloudService {
       };
     }
     const cloud = this.options.config.cloudConfiguration();
-    if (!cloud.managed || !cloud.api_key_configured) return undefined;
+    if (!cloud.managed || cloud.switch_in_progress || !cloud.api_key_configured) return undefined;
     const apiToken = this.options.config.environment().LXE_DATA_SERVER_API_KEY ?? "";
     if (!apiToken) return undefined;
     return {
