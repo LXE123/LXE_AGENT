@@ -565,7 +565,7 @@ export const ZH_TEXT = {
       status: "运行状态",
       appearance: "外观",
       cloud: "公司云端",
-      base: "基础设置",
+      base: "模型设置",
       ziniao: "紫鸟自动化",
       mabang: "马帮",
       feishu: "飞书",
@@ -715,10 +715,10 @@ export const ZH_TEXT = {
     onboarding: {
       eyebrow: "首次启动",
       title: "配置你的 LXE Agent",
-      copy: "基础设置完成即可启动，业务集成也可以稍后在设置中补充。",
+      copy: "模型设置完成即可启动，业务集成也可以稍后在设置中补充。",
       footerAppearance: "外观选择会自动保存在当前设备",
       footerCloud: "连接公司云端后会自动启用公司模型",
-      footerBase: "基础设置完成后即可启动",
+      footerBase: "模型设置完成后即可启动",
       applying: "正在应用配置…",
       starting: "正在启动…",
       submit: "保存并启动"
@@ -1303,7 +1303,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         status: "Runtime status",
         appearance: "Appearance",
         cloud: "Company cloud",
-        base: "Basic settings",
+        base: "Model settings",
         ziniao: "ZiNiao automation",
         mabang: "Mabang",
         feishu: "Feishu",
@@ -1453,10 +1453,10 @@ export const UI_TEXT: Record<Language, UiText> = {
       onboarding: {
         eyebrow: "First launch",
         title: "Set up your LXE Agent",
-        copy: "Finish the basic settings to start; business integrations can be added later in Settings.",
+        copy: "Finish the model settings to start; business integrations can be added later in Settings.",
         footerAppearance: "Appearance choices are saved automatically on this device",
         footerCloud: "Connecting company cloud automatically enables the company model",
-        footerBase: "Finish the basic settings to start",
+        footerBase: "Finish the model settings to start",
         applying: "Applying configuration…",
         starting: "Starting…",
         submit: "Save and start"
