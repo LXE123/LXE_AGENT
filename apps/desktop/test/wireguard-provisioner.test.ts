@@ -60,6 +60,15 @@ describe("WindowsWireGuardProvisioner", () => {
     expect(script.indexOf('$Stage = "uninstall_previous_tunnel"'))
       .toBeLessThan(script.indexOf('$Stage = "remove_previous_configuration"'));
     expect(script).toContain("Assert-ManagedConfigurationPath $Path $AllowLegacyBackup");
+    const removeFunction = script.slice(
+      script.indexOf("function Remove-ManagedConfiguration"),
+      script.indexOf("function Wait-TunnelServiceRemoved"),
+    );
+    expect(removeFunction.indexOf("try {")).toBeLessThan(
+      removeFunction.indexOf("Test-ManagedConfigurationPresent"),
+    );
+    expect(removeFunction).not.toContain("$isAccessDenied");
+    expect(removeFunction).not.toContain("$nativeErrorCode");
     expect(script).toContain("& takeown.exe /F $Path /A");
     expect(script).toContain("$takeownExitCode -ne 0");
     expect(script).toContain("& icacls.exe $Path /reset");

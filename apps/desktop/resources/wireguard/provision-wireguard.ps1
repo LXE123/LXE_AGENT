@@ -95,43 +95,43 @@ function Remove-ManagedConfiguration(
   [bool]$AllowLegacyBackup = $false
 ) {
   Assert-ManagedConfigurationPath $Path $AllowLegacyBackup
-  if (-not (Test-ManagedConfigurationPresent $Path $AllowLegacyBackup)) {
+  $removeDiagnostic = ""
+  try {
+    if (-not (Test-ManagedConfigurationPresent $Path $AllowLegacyBackup)) {
+      return
+    }
+    Remove-Item -LiteralPath $Path -Force
     return
+  } catch {
+    if (-not $AllowAclRepair) {
+      throw
+    }
+    $removeDiagnostic = $_.Exception.Message
+  }
+  $takeownOutput = @(& takeown.exe /F $Path /A 2>&1)
+  $takeownExitCode = $LASTEXITCODE
+  if ($takeownExitCode -ne 0) {
+    $detail = Format-NativeDiagnostic $takeownOutput
+    throw "takeown failed with exit code $takeownExitCode after delete was denied: $removeDiagnostic $detail"
+  }
+  $aclResetOutput = @(& icacls.exe $Path /reset 2>&1)
+  $aclResetExitCode = $LASTEXITCODE
+  if ($aclResetExitCode -ne 0) {
+    $detail = Format-NativeDiagnostic $aclResetOutput
+    throw "icacls reset failed with exit code $aclResetExitCode after delete was denied: $removeDiagnostic $detail"
+  }
+  $icaclsOutput = @(
+    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' 2>&1
+  )
+  $icaclsExitCode = $LASTEXITCODE
+  if ($icaclsExitCode -ne 0) {
+    $detail = Format-NativeDiagnostic $icaclsOutput
+    throw "icacls failed with exit code $icaclsExitCode after delete was denied: $removeDiagnostic $detail"
   }
   try {
     Remove-Item -LiteralPath $Path -Force
   } catch {
-    $nativeErrorCode = $_.Exception.HResult -band 0xFFFF
-    $isAccessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or
-      $nativeErrorCode -eq 5
-    if (-not $AllowAclRepair -or -not $isAccessDenied) {
-      throw
-    }
-    $removeDiagnostic = $_.Exception.Message
-    $takeownOutput = @(& takeown.exe /F $Path /A 2>&1)
-    $takeownExitCode = $LASTEXITCODE
-    if ($takeownExitCode -ne 0) {
-      $detail = Format-NativeDiagnostic $takeownOutput
-      throw "takeown failed with exit code $takeownExitCode after delete was denied: $removeDiagnostic $detail"
-    }
-    $aclResetOutput = @(& icacls.exe $Path /reset 2>&1)
-    $aclResetExitCode = $LASTEXITCODE
-    if ($aclResetExitCode -ne 0) {
-      $detail = Format-NativeDiagnostic $aclResetOutput
-      throw "icacls reset failed with exit code $aclResetExitCode after delete was denied: $removeDiagnostic $detail"
-    }
-    $icaclsOutput = @(
-      & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' 2>&1
-    )
-    $icaclsExitCode = $LASTEXITCODE
-    if ($icaclsExitCode -ne 0) {
-      $detail = Format-NativeDiagnostic $icaclsOutput
-      throw "icacls failed with exit code $icaclsExitCode after delete was denied: $removeDiagnostic $detail"
-    }
-    Remove-Item -LiteralPath $Path -Force
-  }
-  if (Test-ManagedConfigurationPresent $Path $AllowLegacyBackup) {
-    throw "The managed WireGuard configuration still exists after deletion"
+    throw "delete failed after ACL repair: $($_.Exception.Message)"
   }
 }
 
@@ -203,9 +203,7 @@ try {
   $previousRemovalStarted = $true
   Remove-ManagedConfiguration $PlainConfiguration $false
   Remove-ManagedConfiguration $SecureConfiguration $true
-  if ($null -ne (Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue) -or
-    (Test-ManagedConfigurationPresent $PlainConfiguration) -or
-    (Test-ManagedConfigurationPresent $SecureConfiguration)) {
+  if ($null -ne (Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue)) {
     throw "The previous WireGuard tunnel was not completely removed"
   }
   $previousRemoved = $true

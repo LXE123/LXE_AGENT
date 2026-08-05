@@ -46,6 +46,8 @@ describe("packaged WireGuard resources", () => {
     expect(removePrevious).toBeGreaterThan(removeExistingTunnel);
     expect(stageReplacement).toBeGreaterThan(removePrevious);
     expect(provision).toContain("Assert-ManagedConfigurationPath $Path $AllowLegacyBackup");
+    expect(provision).not.toContain("$isAccessDenied");
+    expect(provision).not.toContain("$nativeErrorCode");
     expect(provision).toContain("& takeown.exe /F $Path /A");
     expect(provision).toContain("& icacls.exe $Path /reset");
     expect(provision).toContain("'*S-1-5-18:(F)'");
