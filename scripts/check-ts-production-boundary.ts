@@ -5,6 +5,24 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const read = (path: string): string => readFileSync(join(root, path), "utf8");
 const failures: string[] = [];
+const repositoryFiles = (pathspec: string): string[] => {
+  const result = Bun.spawnSync([
+    "git",
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--",
+    pathspec,
+  ], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+  return new TextDecoder().decode(result.stdout).split("\0").filter(Boolean);
+};
 const requireText = (path: string, pattern: RegExp, message: string): void => {
   if (!pattern.test(read(path))) failures.push(`${path}: ${message}`);
 };
@@ -178,8 +196,7 @@ forbidPath("python/lxeskill_cli/lxeskill/bridge.py", "the retired Python bridge 
 forbidText("packages/foundation/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
 
 const pythonImports = /(?:^|\n)\s*(?:from|import)\s+(?:gateway|agent_runtime)(?:\.|\s|$)/m;
-for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: true })) {
-  if (path.includes(".venv/") || path.includes(".venv\\")) continue;
+for (const path of repositoryFiles("*.py")) {
   if (pythonImports.test(read(path))) failures.push(`${path}: retained Python must not import gateway or agent_runtime`);
 }
 
