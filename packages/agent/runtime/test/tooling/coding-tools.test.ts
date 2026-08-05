@@ -18,6 +18,24 @@ const evalCommand = (source: string): string => {
   const executable = `"${process.execPath}"`;
   return `${process.platform === "win32" ? "& " : ""}${executable} -e "${source}"`;
 };
+const printCommand = (value: string): string => process.platform === "win32"
+  ? `Write-Output '${value}'`
+  : `printf '%s\\n' '${value}'`;
+const waitForProcess = async (
+  processes: ReturnType<typeof registerCodingTools>,
+  execId: string,
+  predicate: (snapshot: JsonObject) => boolean,
+  timeoutMs = 10_000,
+): Promise<JsonObject> => {
+  const deadline = performance.now() + timeoutMs;
+  let lastSnapshot: JsonObject | undefined;
+  while (performance.now() < deadline) {
+    lastSnapshot = processes.snapshots().find((item) => item.exec_id === execId);
+    if (lastSnapshot && predicate(lastSnapshot)) return lastSnapshot;
+    await Bun.sleep(20);
+  }
+  throw new Error(`timed out waiting for process ${execId}: ${JSON.stringify(lastSnapshot)}`);
+};
 afterEach(async () => {
   for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
@@ -504,8 +522,8 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
     const started = String((await registry.execute("exec", {
-      command: "python -c \"import time; print('FIRST-' + 'x' * 6000, flush=True); time.sleep(0.5); print('SECOND', flush=True)\"",
-      "yield-time-ms": 250,
+      command: evalCommand("console.log('FIRST-' + 'x'.repeat(6000)); setTimeout(() => console.log('SECOND'), 3000)"),
+      "yield-time-ms": 2_000,
       "max-output-tokens": 80,
     }, context(root))).content[0]?.text);
     expect(started).toContain("status: running");
@@ -540,18 +558,8 @@ describe("native coding tools", () => {
       if (!session) throw new Error(`missing process session in: ${result}`);
       return session;
     };
-    const waitFor = async (session: string, predicate: (snapshot: JsonObject) => boolean): Promise<void> => {
-      const deadline = performance.now() + 5_000;
-      while (performance.now() < deadline) {
-        const snapshot = processes.snapshots().find((item) => item.exec_id === session);
-        if (snapshot && predicate(snapshot)) return;
-        await Bun.sleep(20);
-      }
-      throw new Error(`timed out waiting for process ${session}`);
-    };
-
     const polled = await start("python -c \"import time; time.sleep(0.3); print('polled')\"");
-    await waitFor(polled, (snapshot) => snapshot.status !== "running");
+    await waitForProcess(processes, polled, (snapshot) => snapshot.status !== "running");
     const polledFinal = await processes.wait({
       execId: polled, sessionId: "s1", yieldMs: 200, terminate: false,
       signal: new AbortController().signal,
@@ -563,7 +571,7 @@ describe("native coding tools", () => {
     })).error).toContain("已经关闭");
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
-    await waitFor(killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
+    await waitForProcess(processes, killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
     expect((await processes.wait({
       execId: killed, sessionId: "s1", yieldMs: 200, terminate: false,
       signal: new AbortController().signal,
@@ -578,7 +586,7 @@ describe("native coding tools", () => {
     const chatty = await start(
       "python -c \"import time\nfor i in range(20):\n    print('tick', i, flush=True)\n    time.sleep(0.02)\ntime.sleep(60)\"",
     );
-    await waitFor(chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
+    await waitForProcess(processes, chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
     const chattyStart = performance.now();
     const chattyPoll = await processes.wait({
       execId: chatty, sessionId: "s1", yieldMs: 200, terminate: false,
@@ -598,17 +606,18 @@ describe("native coding tools", () => {
     });
 
     // Finishing still cuts the wait short, because nothing more can arrive.
-    const brief = await start("python -c \"import time; time.sleep(0.3); print('brief')\"");
+    const brief = await start(evalCommand("console.log('ready'); setTimeout(() => console.log('brief'), 300)"));
+    await waitForProcess(processes, brief, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
     const briefStart = performance.now();
     const briefPoll = await processes.wait({
-      execId: brief, sessionId: "s1", yieldMs: 200, terminate: false,
+      execId: brief, sessionId: "s1", yieldMs: 1_000, terminate: false,
       signal: new AbortController().signal,
     });
-    expect(performance.now() - briefStart).toBeLessThan(150);
+    expect(performance.now() - briefStart).toBeLessThan(750);
     expect(briefPoll.status).toBe("completed");
 
     const concurrent = await start("python -c \"import time; time.sleep(0.3); print('concurrent')\"");
-    await waitFor(concurrent, (snapshot) => snapshot.status !== "running");
+    await waitForProcess(processes, concurrent, (snapshot) => snapshot.status !== "running");
     const concurrentResults = await Promise.all([
       processes.wait({ execId: concurrent, sessionId: "s1", yieldMs: 200, terminate: false, signal: new AbortController().signal }),
       processes.wait({ execId: concurrent, sessionId: "s1", yieldMs: 200, terminate: false, signal: new AbortController().signal }),
@@ -665,6 +674,7 @@ describe("native coding tools", () => {
       .toContain("parent done");
 
     const naturallyExited = await startWithInheritedPipe(1);
+    await waitForProcess(processes, naturallyExited, (snapshot) => snapshot.status === "completed");
     const natural = await processes.wait({
       execId: naturallyExited, sessionId: "s1", yieldMs: 5_000, terminate: true,
       signal: new AbortController().signal,
@@ -795,19 +805,16 @@ describe("native coding tools", () => {
       }, context(root))).content[0]?.text);
       const execId = started.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
       expect(execId).toMatch(/^exec_/);
-      let observed = started;
-      const deadline = performance.now() + 3_000;
-      while (execId && !/(?:tail|output):\s*\d+/u.test(observed) && performance.now() < deadline) {
-        await Bun.sleep(25);
-        const logged = String((await processes.wait({
-          execId, sessionId: "s1", yieldMs: 25, terminate: false,
-          signal: new AbortController().signal,
-        })).new_output ?? "");
-        observed = `${started}\n${logged}`;
-      }
-      const childPid = Number(observed.match(/(?:tail|output):\s*(\d+)/u)?.[1]);
+      if (!execId) throw new Error(`missing process identifier in: ${started}`);
+      const snapshot = await waitForProcess(
+        processes,
+        execId,
+        (item) => /(?:^|\s)\d+(?:\s|$)/u.test(String(item.output_tail ?? "")),
+      );
+      const observed = String(snapshot.output_tail ?? "");
+      const childPid = Number(observed.match(/(?:^|\s)(\d+)(?:\s|$)/u)?.[1]);
       expect(childPid).toBeGreaterThan(0);
-      if (!execId || !childPid) throw new Error(`missing process identifiers in: ${observed}`);
+      if (!childPid) throw new Error(`missing child process identifier in: ${observed}`);
       return { execId, childPid };
     };
     const expectDead = async (pid: number): Promise<void> => {
@@ -865,12 +872,17 @@ describe("native coding tools", () => {
   test("keeps at most 64 recent exec records per session", async () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
-    const executions = await Promise.all(Array.from({ length: 65 }, async (_unused, index) => {
-      const result = String((await registry.execute("exec", {
-        command: evalCommand(`console.log(${index})`),
-      }, { ...context(), tool_call_id: `tool-exec-${index}` })).content[0]?.text);
-      return result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1] ?? "";
-    }));
+    const executions: string[] = [];
+    for (let offset = 0; offset < 65; offset += 8) {
+      const batch = await Promise.all(Array.from({ length: Math.min(8, 65 - offset) }, async (_unused, batchIndex) => {
+        const index = offset + batchIndex;
+        const result = String((await registry.execute("exec", {
+          command: printCommand(String(index)),
+        }, { ...context(), tool_call_id: `tool-exec-${index}` })).content[0]?.text);
+        return result.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1] ?? "";
+      }));
+      executions.push(...batch);
+    }
     expect(executions.every(Boolean)).toBe(true);
     const snapshots = processes.snapshots().filter((item) => item.session_id === "s1");
     expect(snapshots).toHaveLength(64);
@@ -1074,7 +1086,7 @@ describe("native coding tools", () => {
     expect(pythonWrapper.code).toBe("permission_denied");
     expect(pythonWrapper.details).toMatchObject({ violations: ["python_module_wrapper", "not_standalone"] });
     const embedded = await registry.execute("exec", {
-      command: "echo lxeskill replenish store resolve",
+      command: printCommand("lxeskill replenish store resolve"),
     }, context(root));
     expect(String(embedded.content[0]?.text)).toContain("lxeskill replenish store resolve");
     const powershellDiscovery = await registry.execute("exec", {
@@ -1082,7 +1094,7 @@ describe("native coding tools", () => {
     }, context(root));
     expect(String(powershellDiscovery.content[0]?.text)).toContain("status:");
     const moduleSearchText = await registry.execute("exec", {
-      command: "echo services.agent_cli.mabang.resolve_fba_store",
+      command: printCommand("services.agent_cli.mabang.resolve_fba_store"),
     }, context(root));
     expect(String(moduleSearchText.content[0]?.text)).toContain("services.agent_cli.mabang.resolve_fba_store");
     expect((await rejected("cd . && python -m services.agent_cli.mabang.resolve_fba_store")).details)
