@@ -151,6 +151,10 @@ describe("DashboardService", () => {
         deepseek: { env_names: ["DEEPSEEK_API"] },
       },
     }), "utf8");
+    writeFileSync(join(root, "config", "auth.json"), JSON.stringify({
+      kimi_coding: { type: "api_key", key: "test-key" },
+      deepseek: { type: "api_key", key: "deepseek-key" },
+    }), "utf8");
 
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
@@ -510,10 +514,15 @@ describe("DashboardService", () => {
     })).rejects.toMatchObject({ code: "invalid_argument", message: "Unsupported model provider" });
     await expect(call({ operation: "models.thinking.update", input: { level: "impossible" } }))
       .rejects.toMatchObject({ code: "invalid_argument" });
-    delete environment.DEEPSEEK_API;
+    writeFileSync(join(root, "config", "auth.json"), JSON.stringify({
+      kimi_coding: { type: "api_key", key: "test-key" },
+    }), "utf8");
     await expect(call({ operation: "models.update", input: { provider: "deepseek" } }))
       .rejects.toMatchObject({ code: "failed_precondition", message: "missing API key" });
-    environment.DEEPSEEK_API = "deepseek-key";
+    writeFileSync(join(root, "config", "auth.json"), JSON.stringify({
+      kimi_coding: { type: "api_key", key: "test-key" },
+      deepseek: { type: "api_key", key: "deepseek-key" },
+    }), "utf8");
     expect(reconfigured).toEqual([
       expect.objectContaining({ provider: "deepseek", model: "deepseek-v4-pro" }),
       expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "high" }),

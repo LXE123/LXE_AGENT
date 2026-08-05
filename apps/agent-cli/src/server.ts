@@ -124,8 +124,11 @@ export class AgentProtocolServer {
         if (!this.readyHost().updateManagedLlmCredential) {
           throw new Error("managed LLM credential updates are unavailable");
         }
-        await this.readyHost().updateManagedLlmCredential!(request.payload.credential);
-        return { updated: true };
+        const update = await this.readyHost().updateManagedLlmCredential!(request.payload.credential);
+        if (update.cancelActiveTurns) {
+          await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort()));
+        }
+        return { updated: true, cancelled_active_turns: update.cancelActiveTurns };
       case "run_turn":
         return this.runTurn(request.payload.job);
       case "cancel_turn": {

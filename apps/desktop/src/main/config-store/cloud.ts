@@ -122,13 +122,9 @@ export class DesktopCloudConfigService {
   }
 
   private clearManagedLlm(
-    config: ReturnType<DesktopConfigRepository["readConfig"]>,
+    _config: ReturnType<DesktopConfigRepository["readConfig"]>,
     secrets: ReturnType<DesktopConfigRepository["readSecrets"]>,
   ): void {
     secrets.managed_llm_credential = null;
-    if (config.llm.credential_source === "cloud") {
-      config.llm.provider = config.llm.last_local_provider;
-      config.llm.credential_source = "local";
-    }
   }
 }

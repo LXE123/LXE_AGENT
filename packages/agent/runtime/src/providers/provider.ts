@@ -76,6 +76,14 @@ export interface RuntimeProviderManager {
   ): Promise<RuntimeProviderSnapshot>;
 }
 
+interface ProviderLoadOptions {
+  llmConfigRoot?: string;
+  /** Load model metadata without retaining or validating an API key. */
+  deferCredential?: boolean;
+  /** Pi-compatible local auth.json. When set, it is authoritative for local credentials. */
+  localAuthPath?: string;
+}
+
 interface AnthropicMessageLike {
   content: Array<Record<string, unknown>>;
   stop_reason: string | null;
@@ -155,7 +163,7 @@ export const normalizeThinkingEffort = (
 export function loadProviderDescriptor(
   projectRoot: string,
   env: Environment,
-  options: { llmConfigRoot?: string } = {},
+  options: ProviderLoadOptions = {},
 ): ProviderDescriptor {
   const paths = options.llmConfigRoot
     ? runtimeConfigPathsFromRoot(options.llmConfigRoot)
@@ -239,10 +247,25 @@ export function loadProviderDescriptor(
   const managedProvider = normalizeProviderKey(envText(env, "LXE_MANAGED_LLM_PROVIDER", ""));
   const managedModel = envText(env, "LXE_MANAGED_LLM_MODEL", "");
   const invalidRevision = envText(env, "LXE_MANAGED_LLM_INVALID_REVISION", "").toLowerCase();
+  let localApiKey = "";
+  if (credentialSource === "local" && options.localAuthPath) {
+    try {
+      const auth = readObject(options.localAuthPath);
+      const credential = auth[name];
+      if (credential !== null && typeof credential === "object" && !Array.isArray(credential)) {
+        const record = credential as Record<string, unknown>;
+        if (record.type === "api_key") localApiKey = String(record.key ?? "").trim();
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
   const apiKey = credentialSource === "cloud"
     ? envText(env, "LXE_MANAGED_LLM_API_KEY", "")
-    : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
-  if (credentialSource === "cloud" && (
+    : options.localAuthPath
+      ? localApiKey
+      : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
+  if (!options.deferCredential && credentialSource === "cloud" && (
     name !== "deepseek"
     || model !== "deepseek-v4-flash"
     || managedProvider !== name
@@ -252,7 +275,9 @@ export function loadProviderDescriptor(
   )) {
     throw new Error(`managed LLM credential is unavailable for provider: ${name}/${model}`);
   }
-  if (!apiKey && profile?.required !== false) throw new Error(`missing API key for provider: ${name}`);
+  if (!options.deferCredential && !apiKey && profile?.required !== false) {
+    throw new Error(`missing API key for provider: ${name}`);
+  }
   const defaultHeaders = stringRecord(spec.default_headers);
   if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
     defaultHeaders["User-Agent"] = KIMI_CODING_USER_AGENT;
@@ -263,7 +288,7 @@ export function loadProviderDescriptor(
     credentialSource,
     credentialRevision,
     baseURL: String(spec.base_url ?? "").trim(),
-    apiKey,
+    apiKey: options.deferCredential ? "" : apiKey,
     maxTokens: Math.max(1, Number(selectedModel.max_tokens ?? DEFAULT_MODEL_MAX_TOKENS)),
     defaultHeaders,
     thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
@@ -759,6 +784,43 @@ export class ProviderIdleWatchdog {
 
 type RuntimeProviderFactory = (descriptor: ProviderDescriptor) => RuntimeProvider;
 
+class CredentialResolvingRuntimeProvider implements RuntimeProvider {
+  constructor(
+    private readonly definition: () => ProviderDescriptor,
+    private readonly resolve: () => ProviderDescriptor,
+    private readonly factory: RuntimeProviderFactory,
+  ) {}
+
+  private prepared(): RuntimeProvider {
+    try {
+      return this.factory(this.resolve());
+    } catch (cause) {
+      const descriptor = this.definition();
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message.includes("missing API key") || message.includes("managed LLM credential is unavailable")) {
+        throw new RuntimeProviderError(
+          message,
+          descriptor.name,
+          "模型未配置",
+          descriptor.credentialSource === "cloud"
+            ? "公司云端模型凭证暂不可用，正在等待同步。"
+            : `模型服务 ${descriptor.name} 尚未配置 API Key，请在模型设置中填写。`,
+          false,
+        );
+      }
+      throw cause;
+    }
+  }
+
+  async turn(request: RuntimeProviderRequest): Promise<RuntimeTurnResponse> {
+    return await this.prepared().turn(request);
+  }
+
+  async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
+    return await this.prepared().summarize(request);
+  }
+}
+
 export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
   private snapshot: RuntimeProviderSnapshot;
 
@@ -767,9 +829,9 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     private readonly environment: Environment,
     private readonly factory: RuntimeProviderFactory = (descriptor) => new AnthropicRuntimeProvider(descriptor),
     private readonly llmConfigRoot?: string,
+    private readonly localAuthPath?: string,
   ) {
-    const descriptor = loadProviderDescriptor(projectRoot, environment, llmConfigRoot ? { llmConfigRoot } : {});
-    this.snapshot = { generation: 1, descriptor, provider: factory(descriptor) };
+    this.snapshot = this.createSnapshot(1);
   }
 
   acquire(): RuntimeProviderSnapshot {
@@ -789,20 +851,51 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     if (patch.thinkingEnabled !== undefined) environmentPatch.AGENT_LLM_THINKING_ENABLED = patch.thinkingEnabled ? "1" : "0";
     if (patch.thinkingEffort !== undefined) environmentPatch.AGENT_LLM_THINKING_EFFORT = patch.thinkingEffort;
     const candidateEnvironment = { ...this.environment, ...environmentPatch };
-    const descriptor = loadProviderDescriptor(
-      this.projectRoot,
-      candidateEnvironment,
-      this.llmConfigRoot ? { llmConfigRoot: this.llmConfigRoot } : {},
-    );
-    const provider = this.factory(descriptor);
+    const descriptor = this.load(candidateEnvironment, true);
     await persist?.(environmentPatch);
     Object.assign(this.environment, environmentPatch);
     this.snapshot = {
       generation: this.snapshot.generation + 1,
       descriptor,
-      provider,
+      provider: this.resolvingProvider(descriptor, { ...this.environment }),
     };
     return this.snapshot;
+  }
+
+  private load(environment: Environment, deferCredential: boolean): ProviderDescriptor {
+    return loadProviderDescriptor(this.projectRoot, environment, {
+      ...(this.llmConfigRoot ? { llmConfigRoot: this.llmConfigRoot } : {}),
+      ...(this.localAuthPath ? { localAuthPath: this.localAuthPath } : {}),
+      deferCredential,
+    });
+  }
+
+  private resolvingProvider(
+    descriptor: ProviderDescriptor,
+    configuredEnvironment: Environment,
+  ): RuntimeProvider {
+    return new CredentialResolvingRuntimeProvider(
+      () => descriptor,
+      () => this.load({
+        ...configuredEnvironment,
+        LXE_MANAGED_LLM_PROVIDER: this.environment.LXE_MANAGED_LLM_PROVIDER,
+        LXE_MANAGED_LLM_MODEL: this.environment.LXE_MANAGED_LLM_MODEL,
+        LXE_MANAGED_LLM_API_KEY: this.environment.LXE_MANAGED_LLM_API_KEY,
+        LXE_MANAGED_LLM_CREDENTIAL_REVISION: this.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION,
+        LXE_MANAGED_LLM_INVALID_REVISION: this.environment.LXE_MANAGED_LLM_INVALID_REVISION,
+      }, false),
+      this.factory,
+    );
+  }
+
+  private createSnapshot(generation: number): RuntimeProviderSnapshot {
+    const configuredEnvironment = { ...this.environment };
+    const descriptor = this.load(configuredEnvironment, true);
+    return {
+      generation,
+      descriptor,
+      provider: this.resolvingProvider(descriptor, configuredEnvironment),
+    };
   }
 }
 

@@ -64,7 +64,6 @@ describe("DesktopConfigStore", () => {
     }
     const environment = store.environment();
     expect(environment).toMatchObject({
-      KIMI_CODE_API_KEY: "model-secret",
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
@@ -75,6 +74,7 @@ describe("DesktopConfigStore", () => {
       AGENT_SSE_WIRE_TRACE_ENABLED: "1",
       FEISHU_RAW_EVENT_DUMP_ENABLED: "1",
     });
+    expect(environment).not.toHaveProperty("KIMI_CODE_API_KEY");
     expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_ENABLED");
     expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_DIR");
   });
@@ -93,8 +93,8 @@ describe("DesktopConfigStore", () => {
     });
 
     expect(store.state()).toMatchObject({ complete: false, managed_model_configured: false });
-    expect(store.environment().KIMI_CODE_API_KEY).toBe("");
-    expect(store.environment().DEEPSEEK_API).toBe("");
+    expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
+    expect(store.environment()).not.toHaveProperty("DEEPSEEK_API");
     store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "local-model-secret" });
     expect(store.environment()).toMatchObject({
       AGENT_LLM_PROVIDER: "kimi_coding",
@@ -111,11 +111,11 @@ describe("DesktopConfigStore", () => {
       feishu: { configured: true, app_secret_configured: true },
     });
     expect(store.environment()).toMatchObject({
-      KIMI_CODE_API_KEY: "local-model-secret",
       MABANG_PASSWORD: "source-mabang-secret",
       FEISHU_APP_SECRET: "source-feishu-secret",
       LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
     });
+    expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
     store.saveRuntimePreference("kimi_coding", "k3", "high");
     const persistedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(readFileSync(join(root, "config", "auth.json"), "utf8")).toContain("local-model-secret");
@@ -433,8 +433,9 @@ describe("DesktopConfigStore", () => {
     expect(store.cloudPermissionSnapshot()).toBeNull();
     expect(store.managedLlmCredential()).toBeNull();
     expect(store.state()).toMatchObject({
-      provider: "kimi_coding",
-      credential_source: "local",
+      complete: false,
+      provider: "deepseek",
+      credential_source: "cloud",
     });
     let encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(encryptedSecrets).not.toContain("old-data-token");
@@ -466,8 +467,9 @@ describe("DesktopConfigStore", () => {
     expect(store.cloudPermissionSnapshot()).toBeNull();
     expect(store.managedLlmCredential()).toBeNull();
     expect(store.state()).toMatchObject({
-      provider: "kimi_coding",
-      credential_source: "local",
+      complete: false,
+      provider: "deepseek",
+      credential_source: "cloud",
     });
     expect(store.environment()).toMatchObject({
       LXE_DATA_SERVER_ENABLED: "0",
@@ -572,7 +574,7 @@ describe("DesktopConfigStore", () => {
     });
   });
 
-  test("falls back to a saved local key when the server revokes the company credential", () => {
+  test("keeps cloud selected and pending when the server revokes the company credential", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
     store.saveManagedLlmCredential({
@@ -589,9 +591,9 @@ describe("DesktopConfigStore", () => {
     store.clearManagedLlmCredential();
 
     expect(store.state()).toMatchObject({
-      complete: true,
-      provider: "glm",
-      credential_source: "local",
+      complete: false,
+      provider: "deepseek",
+      credential_source: "cloud",
       managed_model_configured: false,
       local_model_credentials: { glm: true },
     });

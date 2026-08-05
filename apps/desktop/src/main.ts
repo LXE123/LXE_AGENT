@@ -304,11 +304,9 @@ async function bootstrap(): Promise<void> {
     onPermissionChanged: (allowedSkillTypes) =>
       gateway.updateSkillPermissions(allowedSkillTypes),
     onManagedLlmCredentialChanged: async (credential) => {
-      const state = config.state();
-      if (!state.complete) await gateway.stop();
-      else if (gateway.health().gateway === "stopped") await gateway.start();
-      else if (!credential && state.credential_source === "local") await gateway.restart();
-      else await gateway.updateManagedLlmCredential(credential);
+      if (gateway.health().gateway === "stopped") await gateway.start();
+      await gateway.updateManagedLlmCredential(credential);
+      if (config.state().complete) await gateway.syncModelConfiguration();
       invalidations.push(["models"]);
       broadcastHealth(gateway.health());
     },
@@ -370,8 +368,8 @@ async function bootstrap(): Promise<void> {
       const wasComplete = config.state().complete;
       const state = config.saveLocalModelCredential(input);
       const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(config.environment());
-      if (!state.complete) await gateway.stop();
-      else if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
+      if (!wasComplete) await gateway.start();
+      if (state.complete && runtimeConfigurationChanged) await gateway.syncModelConfiguration();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
       return state;
@@ -382,8 +380,7 @@ async function bootstrap(): Promise<void> {
       const previousEnvironment = config.environment();
       const state = config.deleteLocalModelCredential(provider);
       const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(config.environment());
-      if (!state.complete) await gateway.stop();
-      else if (runtimeConfigurationChanged) await gateway.restart();
+      if (state.complete && runtimeConfigurationChanged) await gateway.syncModelConfiguration();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
       return state;
@@ -439,12 +436,10 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  if (config.state().complete) {
-    try {
-      await gateway.start();
-    } catch (error) {
-      logger.error("desktop_gateway_start_failed", { error });
-    }
+  try {
+    await gateway.start();
+  } catch (error) {
+    logger.error("desktop_gateway_start_failed", { error });
   }
   void cloud.start();
 

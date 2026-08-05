@@ -82,13 +82,14 @@ export function RuntimeStatusPopover({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const channelsQuery = useChannelHealthQuery(enabled);
   const agentState = aggregateAgentState(desktopHealth);
+  const modelTone: RuntimeTone = currentModel?.configured ? "healthy" : currentModel ? "warning" : "neutral";
   const channelUnavailable = channelsQuery.isError && !channelsQuery.data;
   const channelState = summarizeChannelState(channelsQuery.data, channelUnavailable);
   const componentStates = t.home.componentStates;
   const channelStates = t.home.channelStates;
   const cloudRuntimeTone = cloudAggregateTone(desktopCloud.connection);
   const runtimeTone = aggregateRuntimeTone([
-    currentModel ? "healthy" : "neutral",
+    modelTone,
     componentTone(desktopHealth.gateway),
     componentTone(agentState),
     channelTone(channelState),
@@ -154,7 +155,7 @@ export function RuntimeStatusPopover({
               meta={currentModel?.model || t.home.channelStates.unavailable}
               onClick={() => closeAndRun(onOpenModels)}
               provider={currentModel?.provider}
-              tone={currentModel ? "healthy" : "neutral"}
+              tone={modelTone}
               value={currentModel?.label || t.home.channelStates.unavailable}
             />
             <RuntimeStatusItem

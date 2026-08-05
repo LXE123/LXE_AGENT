@@ -627,7 +627,6 @@ export class DashboardService {
       ? savedPreference
       : runtimePreference;
     const selected = object(models[model]);
-    const envNames = this.authEnvNames(name);
     const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
     const configured = credentialSource === "cloud"
       ? name === "deepseek"
@@ -637,7 +636,7 @@ export class DashboardService {
         && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
         && /^[a-f0-9]{64}$/u.test(managedRevision)
         && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision
-      : envNames.some((envName) => Boolean(text(this.options.environment[envName])));
+      : this.localModelConfigured(name);
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
     const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
     const configuredEffort = preference.thinkingEffort.toLowerCase() || defaultEffort;
@@ -697,13 +696,18 @@ export class DashboardService {
     };
   }
 
-  private authEnvNames(provider: string): string[] {
+  private localModelConfigured(provider: string): boolean {
     try {
-      const profiles = object(loadJson(runtimeConfigPathsFromRoot(this.options.llmConfigRoot).authProfiles).profiles);
-      const names = object(profiles[provider]).env_names;
-      return Array.isArray(names) ? names.map(text) : [];
+      const value: unknown = JSON.parse(
+        readFileSync(join(this.options.stateRoot, "config", "auth.json"), "utf8"),
+      );
+      if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+      const credential = (value as Record<string, unknown>)[provider];
+      if (credential === null || typeof credential !== "object" || Array.isArray(credential)) return false;
+      const record = credential as Record<string, unknown>;
+      return record.type === "api_key" && Boolean(text(record.key));
     } catch {
-      return [];
+      return false;
     }
   }
 
@@ -736,7 +740,7 @@ export class DashboardService {
       && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision;
     if (credentialSource === "cloud"
       ? !cloudConfigured
-      : !this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) {
+      : !this.localModelConfigured(provider)) {
       rpcError("failed_precondition", "missing API key");
     }
     const modelSpec = object(models[model]);

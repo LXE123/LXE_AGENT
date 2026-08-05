@@ -80,7 +80,9 @@ export interface AgentRuntimeHost {
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
-  updateManagedLlmCredential?(credential: ManagedLlmCredential | null): Promise<void>;
+  updateManagedLlmCredential?(
+    credential: ManagedLlmCredential | null,
+  ): Promise<{ cancelActiveTurns: boolean }>;
   health(): JsonObject;
 }
 
@@ -108,6 +110,7 @@ export function createAgentRuntimeHost(
     environment,
     undefined,
     options.llmConfigRoot,
+    join(options.dataRoot, "config", "auth.json"),
   );
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
@@ -307,6 +310,9 @@ export function createAgentRuntimeHost(
       workspaceInstances.invalidate("device_permission_update");
     },
     updateManagedLlmCredential: async (credential) => {
+      const cancelActiveTurns = !credential
+        && environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
+        && Boolean(environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION);
       environment.LXE_MANAGED_LLM_PROVIDER = credential?.provider ?? "";
       environment.LXE_MANAGED_LLM_MODEL = credential?.model ?? "";
       environment.LXE_MANAGED_LLM_API_KEY = credential?.api_key ?? "";
@@ -321,6 +327,7 @@ export function createAgentRuntimeHost(
           credentialSource: "cloud",
         });
       }
+      return { cancelActiveTurns };
     },
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();

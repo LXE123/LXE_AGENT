@@ -286,6 +286,7 @@ describe("AgentProtocolServer", () => {
       updateSkillPermissions: (allowed: readonly string[]) => { updates.push([...allowed]); },
       updateManagedLlmCredential: async (credential: { credential_revision: string } | null) => {
         if (credential) credentialRevisions.push(credential.credential_revision);
+        return { cancelActiveTurns: false };
       },
     })) as unknown as CreateHost;
     const root = process.cwd();
@@ -328,6 +329,61 @@ describe("AgentProtocolServer", () => {
     expect(output.find((message) => !("type" in message) && message.id === "managed-credential-update"))
       .toMatchObject({ ok: true, result: { updated: true } });
     expect(JSON.stringify(output)).not.toContain("managed-secret");
+    await server.shutdown();
+  });
+
+  test("cancels active turns when the current cloud credential is revoked", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    let started!: () => void;
+    const turnStarted = new Promise<void>((resolve) => { started = resolve; });
+    const createHost = (() => ({
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => ({ ready: true }),
+      runTurn: async (_job: unknown, handle: { signal: AbortSignal }) => {
+        started();
+        await new Promise<void>((resolve) => handle.signal.addEventListener("abort", () => resolve(), { once: true }));
+        return {
+          status: "cancelled",
+          reply: "",
+          inputTokens: 0,
+          outputTokens: 0,
+          toolCalls: 0,
+        };
+      },
+      updateManagedLlmCredential: async () => ({ cancelActiveTurns: true }),
+    })) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-revocation",
+      command: "initialize",
+      payload: initializePayload(root),
+    }));
+    const run = server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "run-before-revocation",
+      command: "run_turn",
+      payload: { job: turnJob(root) },
+    }));
+    await turnStarted;
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "revoke-managed-credential",
+      command: "update_managed_llm_credential",
+      payload: { credential: null },
+    }));
+    await run;
+
+    expect(output.find((message) => !("type" in message) && message.id === "revoke-managed-credential"))
+      .toMatchObject({ ok: true, result: { updated: true, cancelled_active_turns: true } });
+    expect(output.find((message) => !("type" in message) && message.id === "run-before-revocation"))
+      .toMatchObject({ ok: true, result: { status: "cancelled" } });
     await server.shutdown();
   });
 

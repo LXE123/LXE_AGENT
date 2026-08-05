@@ -128,11 +128,6 @@ export class DesktopGateway {
     this.gatewayState = "starting";
     this.publishHealth();
     const setup = this.options.config.state();
-    if (!setup.complete) {
-      this.gatewayState = "stopped";
-      this.publishHealth();
-      return;
-    }
     const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
     const configuredEnvironment = withoutRetiredAgentTraceEnvironment(
       this.options.config.environment(),
@@ -352,6 +347,20 @@ export class DesktopGateway {
   ): Promise<void> {
     if (!this.runtime) return;
     await this.runtime.updateManagedLlmCredential(credential);
+  }
+
+  async syncModelConfiguration(): Promise<void> {
+    if (!this.composition || !this.runtime?.isReady) return;
+    const setup = this.options.config.state();
+    const environment = this.options.config.environment();
+    await this.dashboardCall({
+      operation: "models.update",
+      input: {
+        provider: setup.provider,
+        model: environment.AGENT_LLM_MODEL ?? "",
+        credential_source: setup.credential_source,
+      },
+    });
   }
 
   async dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> {

@@ -300,32 +300,16 @@ export class DesktopSetupService {
     const secrets = this.repository.readSecrets();
     if (!secrets.managed_llm_credential) return;
     secrets.managed_llm_credential = null;
-    if (config.llm.credential_source === "cloud") {
-      const configured = this.auth.snapshot().configured;
-      const fallback = [config.llm.last_local_provider, "kimi_coding", "deepseek", "glm"]
-        .find((candidate): candidate is DesktopModelProvider => configured[candidate as DesktopModelProvider]);
-      if (fallback) {
-        config.llm.provider = fallback;
-        config.llm.credential_source = "local";
-        config.llm.last_local_provider = fallback;
-      }
-    }
     this.repository.commit(config, secrets);
   }
 
   environment(): Record<string, string> {
     const config = this.repository.readConfig();
     const secrets = this.effectiveSecrets();
-    const localAuth = this.auth.snapshot();
     const provider = config.llm.provider;
     const managedCredential = config.cloud.switch_in_progress
       ? null
       : secrets.managed_llm_credential;
-    const providerEnvironment = {
-      KIMI_CODE_API_KEY: text(localAuth.keys.kimi_coding),
-      DEEPSEEK_API: text(localAuth.keys.deepseek),
-      GLM_API_KEY: text(localAuth.keys.glm),
-    };
     const preferenceEnvironment: Record<string, string> = {};
     for (const [name, preference] of Object.entries(config.llm.profiles)) {
       if (!preference) continue;
@@ -354,7 +338,6 @@ export class DesktopSetupService {
       AGENT_LLM_THINKING_ENABLED: activeThinkingLevel === "off" ? "0" : "1",
       AGENT_LLM_THINKING_EFFORT: activeThinkingLevel,
       ...preferenceEnvironment,
-      ...providerEnvironment,
       LXE_MANAGED_LLM_PROVIDER: managedCredential?.provider ?? "",
       LXE_MANAGED_LLM_MODEL: managedCredential?.model ?? "",
       LXE_MANAGED_LLM_API_KEY: managedCredential?.api_key ?? "",

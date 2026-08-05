@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { repositoryRoot } from "@lxe/core";
 import providerCases from "./provider-cases.json";
 import {
@@ -1017,8 +1020,22 @@ describe("Anthropic-compatible provider", () => {
       };
     });
     const first = manager.acquire();
+    await first.provider.turn({
+      system: "",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+    });
     const next = await manager.reconfigure({ provider: "deepseek", model: "deepseek-v4-flash" }, (patch) => {
       persisted.push(patch);
+    });
+    await next.provider.turn({
+      system: "",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+      signal: new AbortController().signal,
     });
     expect(first.descriptor.name).toBe("kimi_coding");
     expect(next).toEqual(expect.objectContaining({ generation: 2 }));
@@ -1026,5 +1043,45 @@ describe("Anthropic-compatible provider", () => {
     expect(environment.AGENT_LLM_PROVIDER).toBe("deepseek");
     expect(persisted).toEqual([expect.objectContaining({ AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" })]);
     expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-v4-flash"]);
+  });
+
+  test("loads without a key and resolves auth.json for each provider call", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-provider-auth-"));
+    const authPath = join(root, "config", "auth.json");
+    mkdirSync(join(root, "config"), { recursive: true });
+    const observedKeys: string[] = [];
+    const manager = new AtomicRuntimeProviderManager(
+      repositoryRoot(import.meta.dir),
+      { AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" },
+      (descriptor) => {
+        observedKeys.push(descriptor.apiKey);
+        return {
+          summarize: async () => ({ text: "summary", usage: { input_tokens: 0, output_tokens: 0 } }),
+          turn: async () => ({ content: [], stop_reason: "end_turn", usage: { input_tokens: 0, output_tokens: 0 } }),
+        };
+      },
+      undefined,
+      authPath,
+    );
+    const provider = manager.acquire().provider;
+    const request = {
+      system: "",
+      messages: [],
+      tools: [],
+      toolChoice: "none" as const,
+      signal: new AbortController().signal,
+    };
+
+    expect(manager.acquire().descriptor.apiKey).toBe("");
+    await expect(provider.turn(request)).rejects.toMatchObject({
+      category: "模型未配置",
+      userMessage: expect.stringContaining("API Key"),
+    });
+    writeFileSync(authPath, JSON.stringify({ deepseek: { type: "api_key", key: "local-one" } }));
+    await provider.turn(request);
+    writeFileSync(authPath, JSON.stringify({}));
+    await expect(provider.turn(request)).rejects.toMatchObject({ category: "模型未配置" });
+    expect(observedKeys).toEqual(["local-one"]);
+    rmSync(root, { recursive: true, force: true });
   });
 });

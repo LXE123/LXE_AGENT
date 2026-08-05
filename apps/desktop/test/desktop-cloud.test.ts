@@ -485,6 +485,7 @@ describe("DesktopCloudService", () => {
   test("atomically switches an existing managed enrollment and refreshes its permission", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-switch-"));
     roots.push(root);
+    mkdirSync(join(root, "workspace"));
     const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
     config.saveCloudEnrollment({
       deviceId: enrollmentPayload.device.id,
@@ -505,6 +506,7 @@ describe("DesktopCloudService", () => {
     const password = "ABCD-EFGH-JKLM-NPQR-2345";
     writeFileSync(enrollmentPath, encryptedEnrollment(password, replacementEnrollmentPayload));
     const permissionChanges: string[][] = [];
+    const managedCredentialChanges: string[] = [];
     let provisionedDevice = "";
     let restarted = 0;
     const service = new DesktopCloudService({
@@ -518,7 +520,18 @@ describe("DesktopCloudService", () => {
       },
       onConfigured: async () => { restarted += 1; },
       onPermissionChanged: (allowed) => { permissionChanges.push([...allowed]); },
-      fetch: async (_input, init) => {
+      onManagedLlmCredentialChanged: (credential) => {
+        managedCredentialChanges.push(credential?.credential_revision ?? "revoked");
+      },
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/devices/llm-credential")) {
+          return Response.json({
+            provider: "deepseek",
+            model: "deepseek-v4-flash",
+            credential_revision: "e".repeat(64),
+            api_key: "replacement-managed-key",
+          });
+        }
         const request = JSON.parse(String(init?.body)) as { machine_id: string };
         return Response.json({
           status: "ok",
@@ -527,6 +540,12 @@ describe("DesktopCloudService", () => {
           wireguard_ip: "10.88.0.9",
           machine_id: request.machine_id,
           permission: devicePermission("replenishment", 1),
+          managed_llm: {
+            available: true,
+            provider: "deepseek",
+            model: "deepseek-v4-flash",
+            credential_revision: "e".repeat(64),
+          },
         });
       },
     });
@@ -554,6 +573,16 @@ describe("DesktopCloudService", () => {
       permission_profile: "replenishment",
     });
     expect(permissionChanges).toEqual([[], ["amazon_replenish", "default"]]);
+    expect(managedCredentialChanges).toEqual(["revoked", "e".repeat(64)]);
+    expect(config.managedLlmCredential()).toMatchObject({
+      api_key: "replacement-managed-key",
+      credential_revision: "e".repeat(64),
+    });
+    expect(config.state()).toMatchObject({
+      complete: true,
+      credential_source: "cloud",
+      managed_model_configured: true,
+    });
   });
 
   test("restores the previous enrollment when replacement fails before removal", async () => {

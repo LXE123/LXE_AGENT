@@ -504,6 +504,13 @@ export class DesktopCloudService {
         error instanceof Error ? error.message : String(error),
       );
     }
+    try {
+      await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+    } catch (error) {
+      logger.warn("managed_llm_credential_refresh_failed", {
+        observed_error: this.diagnosticError(error, target),
+      });
+    }
     logger.info("cloud_device_activation_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
       http_status: response.status,
