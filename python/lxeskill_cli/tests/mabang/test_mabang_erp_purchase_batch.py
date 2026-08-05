@@ -63,8 +63,8 @@ def _fixture_mixed_inputs(tmp_path: Path) -> tuple[Path, Path]:
     (csv_dir / "SP260710001_1.csv").write_text(
         "\n".join(
             [
-                '"发货单号","MSKU","MSKU发货量","SKU发货量","国家","备注"',
-                '"SP260710001","MSKU-X","5","SKU-A × 10\nSKU-B × 5","德国",""',
+                '"发货单号","MSKU","MSKU发货量","SKU发货量","品名","国家","备注"',
+                '"SP260710001","MSKU-X","5","SKU-A × 10\nSKU-B × 5","未匹配组合品名","德国",""',
             ]
         ),
         encoding="utf-8-sig",
@@ -385,7 +385,9 @@ def test_formal_workbooks_keep_existing_unmatched_sheets(tmp_path: Path) -> None
             sheet = workbook["未匹配"]
             assert sheet["A2"].value == "SKU-B"
             headers = [cell.value for cell in sheet[1]]
+            product_name_column = headers.index("品名") + 1
             quantity_column = headers.index("数量") + 1
+            assert sheet.cell(2, product_name_column).value == "未匹配组合品名"
             assert sheet.cell(2, quantity_column).value == 5
         finally:
             workbook.close()

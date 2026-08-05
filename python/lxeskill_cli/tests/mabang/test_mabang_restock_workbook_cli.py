@@ -30,7 +30,7 @@ PURCHASE_COLUMNS = (
     "总价",
     "总价（均价）",
 )
-PURCHASE_UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
+PURCHASE_UNMATCHED_COLUMNS = ("库存sku", "品名", "来源SP单号", "数量", "问题说明")
 RESTOCK_COLUMNS = (
     "日期",
     "库存sku（第一行）",
@@ -53,7 +53,7 @@ RESTOCK_COLUMNS = (
     "售价(均价)",
     "总价（售价(均价)）",
 )
-RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
+RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "品名", "数量", "问题说明")
 MISSING_CONTRACT_SHEET_WARNING = "出口退税总表缺少 sheet: 供应商合同信息，单位和合同产品名称将留空"
 
 
@@ -173,8 +173,11 @@ def _write_delivery_csv(
     *,
     countries: list[str] | None = None,
     include_country: bool = False,
+    product_names: list[str] | None = None,
 ) -> None:
     headers = ["发货单号", "SKU发货量"]
+    if product_names is not None:
+        headers.append("品名")
     if include_country or countries is not None:
         headers.append("国家")
     headers.append("备注")
@@ -182,6 +185,8 @@ def _write_delivery_csv(
     country_values = list(countries or [])
     for index, value in enumerate(rows):
         fields = ["SP260508022", value]
+        if product_names is not None:
+            fields.append(product_names[index] if index < len(product_names) else "")
         if include_country or countries is not None:
             fields.append(country_values[index] if index < len(country_values) else "")
         fields.append("")
@@ -971,7 +976,11 @@ def test_generate_restock_workbook_keeps_empty_model_rows_unmerged_with_warning(
 def test_generate_restock_workbook_writes_unmatched_sheet(tmp_path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1，SKU-X × 4"])
+    _write_delivery_csv(
+        csv_dir / "SP260508022_1.csv",
+        ["SKU-A × 1，SKU-X × 4"],
+        product_names=["发货单品名"],
+    )
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1002,18 +1011,26 @@ def test_generate_restock_workbook_writes_unmatched_sheet(tmp_path):
     ]
     assert _sheet_values(output_path, "未匹配") == [
         PURCHASE_UNMATCHED_COLUMNS,
-        ("SKU-X", "SP260508022", 4, "出口退税总表未找到库存sku"),
+        ("SKU-X", "发货单品名", "SP260508022", 4, "出口退税总表未找到库存sku"),
     ]
     widths, heights = _sheet_dimensions(output_path, "未匹配")
-    assert widths == [15] * 4
+    assert widths == [15] * 5
     assert heights == [15] * 2
 
 
 def test_generate_restock_workbook_unmatched_sources_use_line_breaks(tmp_path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-X × 1"])
-    _write_delivery_csv(csv_dir / "SP260508023_1.csv", ["SKU-X × 2"])
+    _write_delivery_csv(
+        csv_dir / "SP260508022_1.csv",
+        ["SKU-X × 1"],
+        product_names=["品名一"],
+    )
+    _write_delivery_csv(
+        csv_dir / "SP260508023_1.csv",
+        ["SKU-X × 2"],
+        product_names=["品名二"],
+    )
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1029,7 +1046,13 @@ def test_generate_restock_workbook_unmatched_sources_use_line_breaks(tmp_path):
 
     assert _sheet_values(Path(payload["output_xlsx"]), "未匹配") == [
         PURCHASE_UNMATCHED_COLUMNS,
-        ("SKU-X", "SP260508022\nSP260508023", 3, "出口退税总表未找到库存sku"),
+        (
+            "SKU-X",
+            "品名一\n品名二",
+            "SP260508022\nSP260508023",
+            3,
+            "出口退税总表未找到库存sku",
+        ),
     ]
 
 
@@ -1404,7 +1427,12 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     csv_path = csv_dir / "SP260605003_1.csv"
-    _write_delivery_csv(csv_path, ["SKU-B × 3，SKU-A × 2，SKU-X × 4"], countries=["德国"])
+    _write_delivery_csv(
+        csv_path,
+        ["SKU-B × 3，SKU-A × 2，SKU-X × 4"],
+        countries=["德国"],
+        product_names=["组合发货品名"],
+    )
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1476,7 +1504,7 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     assert _cell_fill_rgb(output_path, "备货单", "T3") == cli.TOTAL_ROW_FILL_COLOR
     assert _sheet_values(output_path, "未匹配") == [
         RESTOCK_UNMATCHED_COLUMNS,
-        ("SKU-X", 4, "出口退税总表未找到库存sku"),
+        ("SKU-X", "组合发货品名", 4, "出口退税总表未找到库存sku"),
     ]
     widths, heights = _sheet_dimensions(output_path, "备货单")
     assert widths == [15] * 20

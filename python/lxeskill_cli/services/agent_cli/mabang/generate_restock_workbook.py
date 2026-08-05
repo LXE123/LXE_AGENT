@@ -5,7 +5,7 @@ from collections import OrderedDict
 from copy import copy
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
@@ -55,7 +55,8 @@ MANUFACTURER_COLUMNS = (
     "总价",
     "总价（均价）",
 )
-UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
+UNMATCHED_COLUMNS = ("库存sku", "品名", "来源SP单号", "数量", "问题说明")
+DELIVERY_PRODUCT_NAME_COLUMN = "品名"
 SUMMARY_SHEET_NAME = "采购汇总"
 UNMATCHED_SHEET_NAME = "未匹配"
 EMPTY_MANUFACTURER_SHEET_NAME = "未填写厂家"
@@ -512,6 +513,32 @@ def summarize_delivery_quantities(
     return positive_summary, positive_sources, normalized_delivery_nos, csv_paths
 
 
+def summarize_delivery_product_names(
+    csv_paths: list[str | Path],
+) -> OrderedDict[str, list[str]]:
+    names_by_sku: OrderedDict[str, list[str]] = OrderedDict()
+    for csv_path in csv_paths:
+        headers, rows = _read_delivery_rows(csv_path)
+        if DELIVERY_PRODUCT_NAME_COLUMN not in headers:
+            continue
+        for row_number, row in enumerate(rows, start=2):
+            product_name = _clean_cell(row.get(DELIVERY_PRODUCT_NAME_COLUMN))
+            cell_value = _clean_cell(row.get(SKU_SHIP_QTY_COLUMN))
+            if not product_name or not cell_value:
+                continue
+            for raw_item in ITEM_SPLIT_PATTERN.split(cell_value):
+                item = _clean_cell(raw_item)
+                if not item:
+                    continue
+                sku, quantity = _parse_sku_quantity_item(item, row_number=row_number)
+                if quantity <= 0:
+                    continue
+                names = names_by_sku.setdefault(_sku_match_key(sku), [])
+                if product_name not in names:
+                    names.append(product_name)
+    return names_by_sku
+
+
 def _safe_sheet_title(raw_title: str, used_titles: set[str]) -> str:
     cleaned = _clean_cell(raw_title) or EMPTY_MANUFACTURER_SHEET_NAME
     base = INVALID_SHEET_TITLE_CHARS.sub("_", cleaned).strip("'").strip() or EMPTY_MANUFACTURER_SHEET_NAME
@@ -557,6 +584,7 @@ def _build_restock_entries(
     products: MasterProducts,
     *,
     collect_warnings: bool,
+    sku_product_names: Mapping[str, list[str]] | None = None,
 ) -> tuple[
     list[dict[str, Any]],
     OrderedDict[str, list[dict[str, Any]]],
@@ -578,7 +606,18 @@ def _build_restock_entries(
         source_text = "\n".join(source_values)
         if product is None:
             unmatched_sku_count += 1
-            unmatched_rows.append([sku, source_text, quantity_value, "出口退税总表未找到库存sku"])
+            product_name = "\n".join(
+                (sku_product_names or {}).get(_sku_match_key(sku), [])
+            )
+            unmatched_rows.append(
+                [
+                    sku,
+                    product_name,
+                    source_text,
+                    quantity_value,
+                    "出口退税总表未找到库存sku",
+                ]
+            )
             continue
 
         matched_sku_count += 1
@@ -686,6 +725,7 @@ def build_restock_rows(
     *,
     zhengfei_average_prices: dict[str, Decimal] | None = None,
     collect_warnings: bool = True,
+    sku_product_names: Mapping[str, list[str]] | None = None,
 ) -> tuple[list[list[Any]], OrderedDict[str, list[list[Any]]], list[list[Any]], int, int]:
     summary_entries, manufacturer_entries, unmatched_rows, matched_sku_count, unmatched_sku_count = (
         _build_restock_entries(
@@ -693,6 +733,7 @@ def build_restock_rows(
             sku_sources,
             products,
             collect_warnings=collect_warnings,
+            sku_product_names=sku_product_names,
         )
     )
     if zhengfei_average_prices is None:
@@ -961,6 +1002,7 @@ def generate_restock_workbook(
         summary,
         sku_sources,
         products,
+        sku_product_names=summarize_delivery_product_names(csv_paths),
     )
     output_xlsx = write_restock_workbook(
         summary_rows,

@@ -41,7 +41,7 @@ RESTOCK_COLUMNS = (
     "售价(均价)",
     "总价（售价(均价)）",
 )
-RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
+RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "品名", "数量", "问题说明")
 MIN_GROSS_MARGIN = Decimal("0.2")
 MAX_GROSS_MARGIN = Decimal("0.5")
 PRICING_BASIS = "tax_exclusive_cost"
@@ -309,7 +309,7 @@ def _project_restock_rows(
 
 def _drop_unmatched_source_column(rows: list[list[Any]]) -> list[list[Any]]:
     return [
-        [value for index, value in enumerate(row) if index != 1]
+        [value for index, value in enumerate(row) if index != 2]
         for row in rows
     ]
 
@@ -378,7 +378,12 @@ def generate_fba_restock_workbook(
     products = _purchase.load_master_products(master_xlsx)
     products.warnings.extend(country_warnings)
     restock_rows, _manufacturer_rows, unmatched_rows, matched_sku_count, unmatched_sku_count = (
-        _purchase.build_restock_rows(summary, sku_sources, products)
+        _purchase.build_restock_rows(
+            summary,
+            sku_sources,
+            products,
+            sku_product_names=_purchase.summarize_delivery_product_names([csv_path]),
+        )
     )
     cross_manufacturer_model_count = _append_cross_manufacturer_model_warning(
         products.warnings,

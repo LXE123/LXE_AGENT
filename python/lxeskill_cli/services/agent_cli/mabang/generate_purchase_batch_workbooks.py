@@ -188,6 +188,9 @@ def generate_purchase_batch_workbooks(
             batch_sources,
             products,
             zhengfei_average_prices=zhengfei_average_prices,
+            sku_product_names=purchase_summary.summarize_delivery_product_names(
+                csv_paths
+            ),
         )
     )
     purchase_summary_xlsx = purchase_summary.write_restock_workbook(
@@ -219,6 +222,9 @@ def generate_purchase_batch_workbooks(
                 products,
                 zhengfei_average_prices=zhengfei_average_prices,
                 collect_warnings=False,
+                sku_product_names=purchase_summary.summarize_delivery_product_names(
+                    [csv_path]
+                ),
             )
         )
         restock_xlsx = restock_workbook.write_fba_restock_workbook(
