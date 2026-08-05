@@ -42,18 +42,22 @@ describe("DesktopLocalAuthStore", () => {
       keys: { deepseek: "deepseek-secret", glm: "glm-secret" },
       error: "",
     });
-    expect(statSync(join(root, "config")).mode & 0o777).toBe(0o700);
-    expect(statSync(store.path).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(statSync(join(root, "config")).mode & 0o777).toBe(0o700);
+      expect(statSync(store.path).mode & 0o777).toBe(0o600);
+    }
     expect(existsSync(join(root, "config", "auth.lock"))).toBeFalse();
 
     store.delete("deepseek");
     expect(store.snapshot().configured).toEqual({ kimi_coding: false, deepseek: false, glm: true });
 
-    chmodSync(join(root, "config"), 0o755);
-    chmodSync(store.path, 0o644);
-    store.snapshot();
-    expect(statSync(join(root, "config")).mode & 0o777).toBe(0o700);
-    expect(statSync(store.path).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      chmodSync(join(root, "config"), 0o755);
+      chmodSync(store.path, 0o644);
+      store.snapshot();
+      expect(statSync(join(root, "config")).mode & 0o777).toBe(0o700);
+      expect(statSync(store.path).mode & 0o777).toBe(0o600);
+    }
   });
 
   test("reports malformed files and refuses to overwrite them", () => {

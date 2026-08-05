@@ -363,9 +363,8 @@ describe("DesktopConfigStore", () => {
   test("persists, aborts, clears, and atomically commits a destructive enrollment switch", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "local-model-secret" });
     store.save({
-      provider: "kimi_coding",
-      api_key: "local-model-secret",
       workspace_root: join(root, "workspace"),
     });
     store.saveCloudEnrollment({
