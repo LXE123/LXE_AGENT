@@ -63,6 +63,7 @@ export function RuntimeStatusPopover({
   currentModel,
   desktopCloud,
   desktopHealth,
+  enabled,
   navigationKey,
   onOpenModels,
   onOpenSettings,
@@ -70,6 +71,7 @@ export function RuntimeStatusPopover({
   currentModel: ModelPayload | null;
   desktopCloud: DesktopCloudState;
   desktopHealth: DesktopHealth;
+  enabled: boolean;
   navigationKey: string;
   onOpenModels: () => void;
   onOpenSettings: (section: DesktopSettingsSection) => void;
@@ -78,7 +80,7 @@ export function RuntimeStatusPopover({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const channelsQuery = useChannelHealthQuery();
+  const channelsQuery = useChannelHealthQuery(enabled);
   const agentState = aggregateAgentState(desktopHealth);
   const channelUnavailable = channelsQuery.isError && !channelsQuery.data;
   const channelState = summarizeChannelState(channelsQuery.data, channelUnavailable);

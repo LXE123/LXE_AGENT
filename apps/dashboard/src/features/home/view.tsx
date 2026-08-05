@@ -12,25 +12,28 @@ import { useUiText } from "../../shared/i18n";
 import type { SessionPayload } from "../../api/payloads";
 
 export function DashboardHome({
+  enabled,
   onOpenSession,
   onOpenSessions,
   onOpenStats,
 }: {
+  enabled: boolean;
   onOpenSession: (session: SessionPayload) => void;
   onOpenSessions: () => void;
   onOpenStats: () => void;
 }) {
   const t = useUiText();
-  const overviewQuery = useStatsOverviewQuery(1);
-  const skillsQuery = useSkillStatsQuery(7);
-  const sessionsQuery = useSessionsInfiniteQuery("");
+  const overviewQuery = useStatsOverviewQuery(1, enabled);
+  const skillsQuery = useSkillStatsQuery(7, enabled);
+  const sessionsQuery = useSessionsInfiniteQuery("", enabled);
   const overview = overviewQuery.data;
   const skills = skillsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages).items.slice(0, 6);
-  const failed = overviewQuery.isError && skillsQuery.isError && sessionsQuery.isError;
-  const backgroundError = [overviewQuery, skillsQuery, sessionsQuery]
-    .find((current) => current.isRefetchError)?.error;
-  const refreshing = [overviewQuery, skillsQuery, sessionsQuery]
+  const failed = enabled && overviewQuery.isError && skillsQuery.isError && sessionsQuery.isError;
+  const backgroundError = enabled
+    ? [overviewQuery, skillsQuery, sessionsQuery].find((current) => current.isRefetchError)?.error
+    : undefined;
+  const refreshing = enabled && [overviewQuery, skillsQuery, sessionsQuery]
     .some((current) => current.isFetching && !current.isPending);
 
   const hour = new Date().getHours();

@@ -174,12 +174,14 @@ function App({
   language,
   onLanguageChange,
   onOpenDesktopSettings,
+  setupComplete,
 }: {
   desktopCloud: DesktopCloudState;
   desktopHealth: DesktopHealth;
   language: Language;
   onLanguageChange: (language: Language) => void;
   onOpenDesktopSettings?: (section?: DesktopSettingsSection) => void;
+  setupComplete: boolean;
 }) {
   const queryClient = useQueryClient();
   const [initialRoute] = useState(() => routeStateFromLocation());
@@ -205,26 +207,37 @@ function App({
   const sidebar = useThreeStateSidebar(browserStorage());
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
+  const dashboardRuntimeReady = desktopHealth.gateway === "ready"
+    && desktopHealth.agent_cli === "ready";
 
-  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery);
+  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, dashboardRuntimeReady);
   const sessionDetailQuery = useSessionConversationQuery(
     selectedSessionId,
-    activeSection === "sessions" && !newConversation,
+    dashboardRuntimeReady && activeSection === "sessions" && !newConversation,
   );
   const conversationActivityQuery = useConversationActivityQuery(
     selectedSessionId,
-    activeSection === "sessions" && !newConversation,
+    dashboardRuntimeReady && activeSection === "sessions" && !newConversation,
   );
   const capabilitiesOpen = activeSection === "capabilities";
   const modelsQuery = useModelsQuery(
-    activeSection === "sessions" || (capabilitiesOpen && capabilityView === "models"),
+    dashboardRuntimeReady
+      && (activeSection === "sessions" || (capabilitiesOpen && capabilityView === "models")),
   );
-  const currentModelQuery = useCurrentModelQuery();
-  const connectorsQuery = useConnectorsQuery(capabilitiesOpen && capabilityView === "connections");
-  const skillsQuery = useSkillsQuery(capabilitiesOpen && capabilityView === "skills");
-  const commandsQuery = useCommandsQuery(capabilitiesOpen && capabilityView === "skills");
+  const currentModelQuery = useCurrentModelQuery(dashboardRuntimeReady);
+  const connectorsQuery = useConnectorsQuery(
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "connections",
+  );
+  const skillsQuery = useSkillsQuery(
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "skills",
+  );
+  const commandsQuery = useCommandsQuery(
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "skills",
+  );
   const toolsetsQuery = useToolsetsQuery(
-    capabilitiesOpen && (capabilityView === "tools" || capabilityView === "connections"),
+    dashboardRuntimeReady
+      && capabilitiesOpen
+      && (capabilityView === "tools" || capabilityView === "connections"),
   );
   const sessions = flattenSessionPages(sessionsQuery.data?.pages);
 
@@ -306,12 +319,16 @@ function App({
     storeCapabilityView(capabilityView, browserStorage());
   }, [capabilityView]);
 
+  useEffect(() => {
+    if (!dashboardRuntimeReady) setDetailTarget(null);
+  }, [dashboardRuntimeReady]);
+
   function handleSessionQueryChange(value: string) {
     setQuery(value);
   }
 
   function loadMoreSessions() {
-    if (!sessionsQuery.isFetchingNextPage && sessionsQuery.hasNextPage) {
+    if (dashboardRuntimeReady && !sessionsQuery.isFetchingNextPage && sessionsQuery.hasNextPage) {
       void sessionsQuery.fetchNextPage();
     }
   }
@@ -724,7 +741,6 @@ function App({
   const visiblePendingConversationMessages = pendingConversationMessages.filter((message) =>
     message.sessionId === selectedSessionId || (newConversation && !message.sessionId)
   );
-  const conversationRuntimeReady = desktopHealth.gateway === "ready" && desktopHealth.agent_cli === "ready";
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
@@ -742,9 +758,12 @@ function App({
           : activeSection === "capabilities" && capabilityView === "connections"
             ? [connectorsQuery, toolsetsQuery]
             : [];
-  const activeRefreshing = activeQueries.some((current) => current.isFetching && !current.isPending);
-  const backgroundError = activeQueries.find((current) => current.isRefetchError)?.error;
-  const visibleError = error || queryError(backgroundError);
+  const activeRefreshing = dashboardRuntimeReady
+    && activeQueries.some((current) => current.isFetching && !current.isPending);
+  const backgroundError = dashboardRuntimeReady
+    ? activeQueries.find((current) => current.isRefetchError)?.error
+    : undefined;
+  const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
 
   const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
     { id: "home", label: t.nav.home, icon: <House size={16} /> },
@@ -777,6 +796,7 @@ function App({
       currentModel={currentModelQuery.data ?? null}
       desktopCloud={desktopCloud}
       desktopHealth={desktopHealth}
+      enabled={dashboardRuntimeReady}
       navigationKey={runtimeStatusNavigationKey}
       onOpenModels={() => openCapabilityView("models")}
       onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
@@ -863,11 +883,13 @@ function App({
               query={query}
               searchOpen={sessionSearchOpen}
               searchFocusKey={sessionSearchFocusKey}
-              initialLoading={sessionsQuery.isPending && !sessions.items.length}
-              loadingMore={sessionsQuery.isFetchingNextPage}
-              error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
-              hasMore={Boolean(sessionsQuery.hasNextPage)}
-              loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
+              initialLoading={dashboardRuntimeReady
+                && sessionsQuery.isPending
+                && !sessions.items.length}
+              loadingMore={dashboardRuntimeReady && sessionsQuery.isFetchingNextPage}
+              error={dashboardRuntimeReady && !sessions.items.length ? queryError(sessionsQuery.error) : ""}
+              hasMore={dashboardRuntimeReady && Boolean(sessionsQuery.hasNextPage)}
+              loadMoreError={dashboardRuntimeReady && sessions.items.length && sessionsQuery.isFetchNextPageError
                 ? queryError(sessionsQuery.error)
                 : ""}
               selectedSessionId={activeSection === "sessions" ? selectedSessionId : ""}
@@ -935,14 +957,24 @@ function App({
                     activity={conversationActivity}
                     currentModel={currentModelQuery.data ?? null}
                     models={modelsQuery.data?.items ?? []}
-                    modelLoading={modelsQuery.isPending || currentModelQuery.isPending}
+                    modelLoading={dashboardRuntimeReady
+                      && (modelsQuery.isPending || currentModelQuery.isPending)}
                     modelSaving={modelMutation.isPending}
                     thinkingSaving={thinkingMutation.isPending}
                     newConversation={newConversation}
-                    runtimeReady={conversationRuntimeReady}
+                    runtimeReady={dashboardRuntimeReady}
+                    runtimeUnavailableMessage={setupComplete
+                      ? t.conversation.unavailable
+                      : t.conversation.modelUnavailable}
                     transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
-                    loading={!newConversation && sessionDetailQuery.isPending && !conversationActivity}
-                    error={!newConversation && !sessionDetail && !conversationActivity
+                    loading={dashboardRuntimeReady
+                      && !newConversation
+                      && sessionDetailQuery.isPending
+                      && !conversationActivity}
+                    error={dashboardRuntimeReady
+                      && !newConversation
+                      && !sessionDetail
+                      && !conversationActivity
                       ? queryError(sessionDetailQuery.error)
                       : ""}
                     hasOlder={Boolean(sessionDetailQuery.hasPreviousPage)}
@@ -967,6 +999,7 @@ function App({
             ) : null}
             {activeSection === "home" ? (
               <DashboardHome
+                enabled={dashboardRuntimeReady}
                 onOpenSession={openSession}
                 onOpenSessions={() => openDashboardSection("sessions")}
                 onOpenStats={() => openActivityView("stats")}
@@ -999,7 +1032,8 @@ function App({
                 onSelect={openCapabilityView}
               >
                 {capabilityView === "models" ? (
-                  modelsQuery.isPending || currentModelQuery.isPending ? <EmptyState label={t.common.loading} />
+                  !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
+                    : modelsQuery.isPending || currentModelQuery.isPending ? <EmptyState label={t.common.loading} />
                     : !modelsQuery.data || !currentModelQuery.data
                       ? <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(modelsQuery.error || currentModelQuery.error))} />
                       : <ModelsView
@@ -1008,7 +1042,8 @@ function App({
                         />
                 ) : null}
                 {capabilityView === "skills" ? (
-                  skillsQuery.isPending || commandsQuery.isPending ? <EmptyState label={t.common.loading} />
+                  !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
+                    : skillsQuery.isPending || commandsQuery.isPending ? <EmptyState label={t.common.loading} />
                     : skillsQuery.data && commandsQuery.data
                       ? <SkillsView
                           skills={skillsQuery.data.items}
@@ -1018,13 +1053,15 @@ function App({
                       : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(skillsQuery.error || commandsQuery.error))} />
                 ) : null}
                 {capabilityView === "tools" ? (
-                  toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
+                  !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
+                    : toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
                     : toolsetsQuery.data
                       ? <ToolsView toolsets={toolsetsQuery.data.items} onOpen={setDetailTarget} />
                       : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(toolsetsQuery.error))} />
                 ) : null}
                 {capabilityView === "connections" ? (
-                  connectorsQuery.isPending && toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
+                  !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
+                    : connectorsQuery.isPending && toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
                     : <ConnectionsView
                         connectorError={!connectorsQuery.data ? queryError(connectorsQuery.error) : ""}
                         connectors={connectorsQuery.data?.items ?? []}
@@ -1045,14 +1082,18 @@ function App({
                   <h2>{t.nav.activity}</h2>
                 </header>
                 <div className="workspace-view-content">
-                  <StatsView />
+                  <StatsView enabled={dashboardRuntimeReady} />
                 </div>
               </section>
             ) : null}
           </section>
         </section>
 
-        <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
+        <DetailModal
+          enabled={dashboardRuntimeReady}
+          target={detailTarget}
+          onClose={() => setDetailTarget(null)}
+        />
       </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
         {runtimeStatusPopover}
@@ -1121,13 +1162,14 @@ function DashboardApplication() {
         onThemeChange={setTheme}
         theme={theme}
       >
-        {({ cloud, health, openSettings }) => (
+        {({ cloud, health, openSettings, setupComplete }) => (
           <App
             desktopCloud={cloud}
             desktopHealth={health}
             language={language}
             onLanguageChange={setLanguage}
             onOpenDesktopSettings={window.lxe ? openSettings : undefined}
+            setupComplete={setupComplete}
           />
         )}
       </DesktopShell>

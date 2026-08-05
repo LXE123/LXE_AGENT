@@ -1295,6 +1295,7 @@ button {
 }
 
 .desktop-primary-button,
+.desktop-onboarding-skip,
 .desktop-inline-settings,
 .desktop-restart-button,
 .desktop-settings-modal footer button {
@@ -1318,7 +1319,23 @@ button {
   color: white;
 }
 
+.desktop-onboarding-skip {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-soft);
+}
+
+.desktop-onboarding-skip:hover:not(:disabled),
+.desktop-onboarding-skip:focus-visible {
+  border-color: var(--accent-muted);
+  color: var(--accent-strong);
+}
+
 .desktop-primary-button:disabled,
+.desktop-onboarding-skip:disabled,
 .desktop-restart-button:disabled,
 .desktop-settings-modal button:disabled {
   cursor: wait;

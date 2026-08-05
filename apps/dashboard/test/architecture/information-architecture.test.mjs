@@ -48,10 +48,11 @@ test("capabilities use compact child navigation while activity opens statistics 
 test("pages enable only the server queries required by their active views", () => {
   assert.match(
     main,
-    /useModelsQuery\(\s*activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\),?\s*\)/,
+    /useModelsQuery\(\s*dashboardRuntimeReady\s*&& \(activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\)\),?\s*\)/,
   );
-  assert.match(main, /useConnectorsQuery\(capabilitiesOpen && capabilityView === "connections"\)/);
+  assert.match(main, /useConnectorsQuery\(\s*dashboardRuntimeReady && capabilitiesOpen && capabilityView === "connections"/);
   assert.match(main, /capabilityView === "tools" \|\| capabilityView === "connections"/);
+  assert.match(main, /useCurrentModelQuery\(dashboardRuntimeReady\)/);
   assert.doesNotMatch(main, /backgroundTasksQuery/);
 });
 

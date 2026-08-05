@@ -280,6 +280,7 @@ export const ZH_TEXT = {
     cancelled: "已停止",
     error: "执行失败",
     unavailable: "Gateway 或 Agent 尚未就绪",
+    modelUnavailable: "模型未配置，对话暂不可用",
     inputHint: "Enter 发送，Shift + Enter 换行",
     characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
     preparingContext: "正在准备上下文",
@@ -721,6 +722,7 @@ export const ZH_TEXT = {
       footerBase: "模型设置完成后即可启动",
       applying: "正在应用配置…",
       starting: "正在启动…",
+      defer: "稍后设置",
       submit: "保存并启动"
     },
     settings: {
@@ -1018,6 +1020,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       cancelled: "Stopped",
       error: "Run failed",
       unavailable: "Gateway or Agent is not ready",
+      modelUnavailable: "No model configured. Chat is unavailable.",
       inputHint: "Enter to send, Shift + Enter for a new line",
       characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
       preparingContext: "Preparing context",
@@ -1459,6 +1462,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         footerBase: "Finish the model settings to start",
         applying: "Applying configuration…",
         starting: "Starting…",
+        defer: "Set up later",
         submit: "Save and start"
       },
       settings: {

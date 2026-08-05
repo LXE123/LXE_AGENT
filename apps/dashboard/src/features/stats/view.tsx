@@ -374,13 +374,13 @@ function StatsSkeleton() {
   );
 }
 
-export function StatsView() {
+export function StatsView({ enabled = true }: { enabled?: boolean }) {
   const t = useUiText();
   const [days, setDays] = useState(30);
   const [chartMode, setChartMode] = useState<"bars" | "line">("bars");
-  const overviewQuery = useStatsOverviewQuery(days);
-  const skillStatsQuery = useSkillStatsQuery(days);
-  const toolStatsQuery = useToolStatsQuery(days);
+  const overviewQuery = useStatsOverviewQuery(days, enabled);
+  const skillStatsQuery = useSkillStatsQuery(days, enabled);
+  const toolStatsQuery = useToolStatsQuery(days, enabled);
   const overview = overviewQuery.data;
   const skillStats = skillStatsQuery.data?.items ?? [];
   const toolStats = toolStatsQuery.data?.items ?? [];
@@ -393,6 +393,9 @@ export function StatsView() {
   const refreshing = [overviewQuery, skillStatsQuery, toolStatsQuery]
     .some((current) => current.isFetching && !current.isPending);
 
+  if (!enabled) {
+    return <EmptyState label={t.conversation.unavailable} />;
+  }
   if (loading) {
     return <StatsSkeleton />;
   }

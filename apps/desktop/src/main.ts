@@ -51,6 +51,7 @@ import {
   dashboardDomainsForMutation,
 } from "./main/dashboard-invalidation";
 import { DesktopGateway } from "./main/desktop-gateway";
+import { editableContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
@@ -465,6 +466,12 @@ async function bootstrap(): Promise<void> {
     },
   });
   if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
+  window.webContents.on("context-menu", (_event, params) => {
+    const template = editableContextMenuTemplate(params);
+    const ownerWindow = window;
+    if (!ownerWindow || !template.length) return;
+    Menu.buildFromTemplate(template).popup({ window: ownerWindow });
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     const developmentUrl = String(process.env.LXE_DASHBOARD_DEV_URL ?? "http://127.0.0.1:5173");

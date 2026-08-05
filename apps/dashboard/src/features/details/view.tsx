@@ -21,16 +21,16 @@ import { markdownComponents } from "../../shared/ui/markdown";
 import type { DetailTarget } from "../../shared/ui/detail-target";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 
-function SkillDetailContent({ skill }: { skill: SkillPayload }) {
+function SkillDetailContent({ enabled, skill }: { enabled: boolean; skill: SkillPayload }) {
   const t = useUiText();
   const [selectedReferencePath, setSelectedReferencePath] = useState("");
   const [copied, setCopied] = useState(false);
   const [contentMode, setContentMode] = useState<SkillContentMode>("preview");
-  const contentQuery = useSkillContentQuery(skill.name);
+  const contentQuery = useSkillContentQuery(skill.name, enabled);
   const referenceQuery = useSkillReferenceQuery(
     skill.name,
     selectedReferencePath,
-    Boolean(selectedReferencePath),
+    enabled && Boolean(selectedReferencePath),
   );
   const payload = contentQuery.data;
   const contentView: SkillContentView | null = selectedReferencePath
@@ -207,7 +207,15 @@ function ToolParameters({ parameters }: { parameters: Record<string, unknown> })
   );
 }
 
-export function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () => void }) {
+export function DetailModal({
+  enabled,
+  target,
+  onClose,
+}: {
+  enabled: boolean;
+  target: DetailTarget;
+  onClose: () => void;
+}) {
   const t = useUiText();
   const dialogRef = useDialogFocus<HTMLElement>(Boolean(target), onClose);
   if (!target) {
@@ -253,7 +261,7 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
             </div>
           </div>
         ) : (
-          <SkillDetailContent skill={target.item} />
+          <SkillDetailContent enabled={enabled} skill={target.item} />
         )}
       </section>
     </div>

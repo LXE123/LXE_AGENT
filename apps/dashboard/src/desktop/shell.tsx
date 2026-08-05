@@ -43,6 +43,10 @@ import {
   type DesktopNoticeState,
 } from "./notice-model";
 import {
+  initialOnboardingDismissed,
+  storeOnboardingDismissed,
+} from "./onboarding-preference";
+import {
   desktopSettingsForm,
   desktopCloudBindingSwitchAvailable,
   desktopLoggingSinkView,
@@ -1053,6 +1057,7 @@ export function DesktopShell({
     cloud: DesktopCloudState;
     health: DesktopHealth;
     openSettings: (section?: DesktopSettingsSection) => void;
+    setupComplete: boolean;
   }) => ReactNode;
   fontSize: DashboardFontSize;
   language: Language;
@@ -1065,6 +1070,9 @@ export function DesktopShell({
   const t = useUiText();
   const desktop = window.lxe?.desktop;
   const [setup, setSetup] = useState<DesktopSetupState | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => initialOnboardingDismissed(),
+  );
   const [health, setHealth] = useState<DesktopHealth | null>(null);
   const [cloud, setCloud] = useState<DesktopCloudState | null>(null);
   const [form, setForm] = useState<SetupForm | null>(null);
@@ -1147,6 +1155,12 @@ export function DesktopShell({
     }, notice.autoDismissMs);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!setup?.complete) return;
+    storeOnboardingDismissed();
+    setOnboardingDismissed(true);
+  }, [setup?.complete]);
 
   if (!desktop) {
     return <main className="desktop-loading" data-lxe-root-state="fatal">{t.desktop.preloadUnavailable}</main>;
@@ -1513,7 +1527,7 @@ export function DesktopShell({
     />
   ) : null;
 
-  if (!setup.complete) {
+  if (!setup.complete && !onboardingDismissed) {
     return (
       <main className={`desktop-onboarding ${frameClassName}`} data-lxe-root-state="setup">
         {dragRegion}
@@ -1546,6 +1560,17 @@ export function DesktopShell({
               : activeSettingsSection === "cloud"
                 ? t.desktop.onboarding.footerCloud
                 : t.desktop.onboarding.footerBase}</span>
+            <button
+              className="desktop-onboarding-skip"
+              disabled={saving || credentialBusy}
+              onClick={() => {
+                storeOnboardingDismissed();
+                setOnboardingDismissed(true);
+              }}
+              type="button"
+            >
+              {t.desktop.onboarding.defer}
+            </button>
             {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" ? (
               <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
                 {saving ? t.desktop.onboarding.starting : t.desktop.onboarding.submit}
@@ -1569,7 +1594,7 @@ export function DesktopShell({
   return (
     <div className={frameClassName} data-lxe-root-state="ready">
       {dragRegion}
-      <div key={appGeneration}>{children({ cloud, health, openSettings })}</div>
+      <div key={appGeneration}>{children({ cloud, health, openSettings, setupComplete: setup.complete })}</div>
       {notice && !settingsOpen ? (
         <DesktopNoticeMessage
           className="desktop-notice-toast"

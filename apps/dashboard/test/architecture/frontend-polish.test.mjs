@@ -38,7 +38,7 @@ test("status and settings have one sidebar entry and no floating duplicate", () 
 test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /container-name:\s*dashboard-main/);
   assert.equal((main.match(/<SessionsIndex/g) || []).length, 1);
-  assert.match(main, /const sessionsQuery = useSessionsInfiniteQuery\(debouncedQuery\);/);
+  assert.match(main, /const sessionsQuery = useSessionsInfiniteQuery\(debouncedQuery, dashboardRuntimeReady\);/);
   assert.match(main, /const sidebarMode = sidebar\.mode;/);
   assert.doesNotMatch(main, /activeSection === "sessions" && sessionSidebarExpanded/);
   assert.match(main, /className="sidebar-session-section"/);
@@ -59,8 +59,8 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(sessions, /title=\{sessionTitle\}/);
   assert.doesNotMatch(sessions, /pill sessions-loading-pill/);
   assert.match(sessions, /loadingMore \? \([\s\S]*?sessions-load-more-indicator[\s\S]*?LoaderCircle/);
-  assert.match(main, /initialLoading=\{sessionsQuery\.isPending && !sessions\.items\.length\}/);
-  assert.match(main, /loadingMore=\{sessionsQuery\.isFetchingNextPage\}/);
+  assert.match(main, /initialLoading=\{dashboardRuntimeReady\s*&& sessionsQuery\.isPending\s*&& !sessions\.items\.length\}/);
+  assert.match(main, /loadingMore=\{dashboardRuntimeReady && sessionsQuery\.isFetchingNextPage\}/);
   assert.doesNotMatch(main, /loading=\{sessionsQuery\.isFetching\}/);
 
   const searchToggle = main.slice(

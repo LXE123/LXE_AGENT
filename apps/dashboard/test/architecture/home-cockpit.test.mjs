@@ -20,7 +20,7 @@ const shell = readSource("desktop/shell.tsx");
 const styles = readSource("styles.css");
 
 test("global runtime status owns the channel query independently from home", () => {
-  assert.match(runtimeStatus, /useChannelHealthQuery\(\)/);
+  assert.match(runtimeStatus, /useChannelHealthQuery\(enabled\)/);
   assert.doesNotMatch(home, /useChannelHealthQuery/);
   assert.doesNotMatch(home, /useBackgroundTasksQuery/);
   assert.doesNotMatch(main, /useChannelHealthQuery/);

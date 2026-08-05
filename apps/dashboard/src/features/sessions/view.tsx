@@ -1492,6 +1492,7 @@ function ConversationComposer({
   modelSaving,
   thinkingSaving,
   runtimeReady,
+  runtimeUnavailableMessage,
   onModelChange,
   onThinkingLevelChange,
   onSend,
@@ -1505,6 +1506,7 @@ function ConversationComposer({
   modelSaving: boolean;
   thinkingSaving: boolean;
   runtimeReady: boolean;
+  runtimeUnavailableMessage: string;
   onModelChange: (provider: string, model: string, credentialSource: "local" | "cloud") => void;
   onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
@@ -1544,6 +1546,7 @@ function ConversationComposer({
     }
   };
   const stageDroppedFiles = useCallback(async (files: File[]) => {
+    if (!runtimeReady) return;
     setError("");
     try {
       if (!window.lxe) throw new Error(t.conversation.unavailable);
@@ -1551,7 +1554,7 @@ function ConversationComposer({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [addAttachments, t]);
+  }, [addAttachments, runtimeReady, t]);
   const removeAttachment = (attachmentId: string) => {
     setAttachments((current) => current.filter((item) => item.attachment_id !== attachmentId));
     void window.lxe?.desktop.discardConversationFiles([attachmentId]);
@@ -1569,6 +1572,10 @@ function ConversationComposer({
     const dragOver = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
       event.preventDefault();
+      if (!runtimeReady) {
+        event.dataTransfer.dropEffect = "none";
+        return;
+      }
       event.dataTransfer.dropEffect = "copy";
       setDragActive(true);
     };
@@ -1579,6 +1586,7 @@ function ConversationComposer({
       if (!event.dataTransfer?.files.length) return;
       event.preventDefault();
       setDragActive(false);
+      if (!runtimeReady) return;
       void stageDroppedFiles(Array.from(event.dataTransfer.files));
     };
     window.addEventListener("dragover", dragOver);
@@ -1589,7 +1597,7 @@ function ConversationComposer({
       window.removeEventListener("dragleave", dragLeave);
       window.removeEventListener("drop", drop);
     };
-  }, [stageDroppedFiles]);
+  }, [runtimeReady, stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
     if (!runtimeReady || modelSaving || thinkingSaving || sending || (!message && attachments.length === 0)) return;
@@ -1640,7 +1648,7 @@ function ConversationComposer({
             event.preventDefault();
             void submit();
           }}
-          placeholder={runtimeReady ? t.conversation.placeholder : t.conversation.unavailable}
+          placeholder={runtimeReady ? t.conversation.placeholder : runtimeUnavailableMessage}
           ref={textareaRef}
           rows={1}
           value={text}
@@ -1658,7 +1666,7 @@ function ConversationComposer({
               <Paperclip size={17} />
             </button>
             <span className="conversation-input-hint">
-              {runtimeReady ? t.conversation.inputHint : t.conversation.unavailable}
+              {runtimeReady ? t.conversation.inputHint : runtimeUnavailableMessage}
             </span>
           </div>
           <div className="conversation-compose-trailing">
@@ -1721,6 +1729,7 @@ export function SessionDetailView({
   thinkingSaving,
   newConversation,
   runtimeReady,
+  runtimeUnavailableMessage,
   transcriptFetchedAt,
   loading,
   error,
@@ -1747,6 +1756,7 @@ export function SessionDetailView({
   thinkingSaving: boolean;
   newConversation: boolean;
   runtimeReady: boolean;
+  runtimeUnavailableMessage: string;
   transcriptFetchedAt: number;
   loading: boolean;
   error: string;
@@ -2118,6 +2128,7 @@ export function SessionDetailView({
           onModelChange={onModelChange}
           onThinkingLevelChange={onThinkingLevelChange}
           runtimeReady={runtimeReady}
+          runtimeUnavailableMessage={runtimeUnavailableMessage}
           onSend={onSend}
           onStop={onStop}
         />
