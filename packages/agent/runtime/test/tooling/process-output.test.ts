@@ -72,7 +72,7 @@ describe("process output rendering", () => {
 });
 
 describe("process output store", () => {
-  test("keeps the tail in memory and the full transcript on disk", () => {
+  test("keeps the tail in memory and the full transcript on disk", async () => {
     const spillPath = join(scratch(), "exec_test.log");
     const store = new ProcessOutputStore({ retainBytes: 400, spillPath });
     const lines = Array.from({ length: 200 }, (_, index) => `第 ${index} 行 构建输出\n`);
@@ -93,6 +93,7 @@ describe("process output store", () => {
 
     // The transcript is byte-exact and readable before close(), because the model is
     // handed output_path while the command may still be running.
+    await store.ensureSpill();
     expect(readFileSync(spillPath, "utf8")).toBe(complete);
   });
 
@@ -123,10 +124,11 @@ describe("process output store", () => {
     expect(store.renderSince(second.cursor).missed).toBe(true);
   });
 
-  test("caps the transcript so a runaway command cannot fill the disk", () => {
+  test("caps the transcript so a runaway command cannot fill the disk", async () => {
     const spillPath = join(scratch(), "exec_runaway.log");
     const store = new ProcessOutputStore({ retainBytes: 32, spillPath, spillLimitBytes: 64 });
     for (let index = 0; index < 50; index += 1) store.append("stdout", utf8("0123456789\n"));
+    await store.ensureSpill();
     expect(readFileSync(spillPath).byteLength).toBe(64);
     expect(store.outputFileBytes).toBe(64);
     expect(store.outputFileCoversCaptured).toBe(false);
