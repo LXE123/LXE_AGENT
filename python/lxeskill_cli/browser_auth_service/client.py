@@ -51,27 +51,23 @@ def _extract_protocol_payload(stdout_text: str) -> dict[str, Any]:
     return payload
 
 
-def _refresh_failure_message(payload: dict[str, Any]) -> str:
+def _failure_message(payload: dict[str, Any], *, operation: str) -> str:
     stage = str(payload.get("stage") or "browser").strip()
     current_url = str(payload.get("current_url") or "").strip() or "-"
     exception_type = str(payload.get("exception_type") or "Error").strip()
-    message = str(payload.get("message") or "browser_auth_service 刷新失败").strip()
+    message = str(payload.get("message") or f"browser_auth_service {operation}失败").strip()
     return (
-        f"browser_auth_service 刷新失败: stage={stage} current_url={current_url} "
+        f"browser_auth_service {operation}失败: stage={stage} current_url={current_url} "
         f"exception_type={exception_type} error={message}"
     )
 
 
-def refresh_auth_sync(account: str = "") -> dict[str, Any]:
-    masked_account = _mask_account(account)
-    logger.info(
-        f"[BrowserAuthClient] 调用 browser_auth_service 完整刷新: account={masked_account}"
-    )
+def _run_auth_command(command_name: str, account: str, *, failure_operation: str) -> dict[str, Any]:
     command = [
         sys.executable,
         "-m",
         "browser_auth_service.main",
-        "refresh",
+        command_name,
     ]
     if str(account or "").strip():
         command.extend(["--account", str(account).strip()])
@@ -93,12 +89,35 @@ def refresh_auth_sync(account: str = "") -> dict[str, Any]:
     payload = _extract_protocol_payload(stdout)
 
     if completed.returncode != 0 or not payload.get("success"):
-        message = _refresh_failure_message(payload)
+        message = _failure_message(payload, operation=failure_operation)
         logger.error(f"[BrowserAuthClient] {message}")
         raise BrowserAuthClientError(message)
+    return payload
+
+
+def refresh_auth_sync(account: str = "") -> dict[str, Any]:
+    masked_account = _mask_account(account)
+    logger.info(
+        f"[BrowserAuthClient] 调用 browser_auth_service 完整刷新: account={masked_account}"
+    )
+    payload = _run_auth_command("refresh", account, failure_operation="刷新")
     logger.info(
         f"[BrowserAuthClient] browser_auth_service 完整刷新成功: "
         f"account={masked_account} final_url={payload.get('final_url')} "
+        f"state_written={bool(payload.get('state_written'))}"
+    )
+    return payload
+
+
+def ensure_auth_sync(account: str = "") -> dict[str, Any]:
+    masked_account = _mask_account(account)
+    logger.info(
+        f"[BrowserAuthClient] 调用 browser_auth_service 自动认证: account={masked_account}"
+    )
+    payload = _run_auth_command("ensure", account, failure_operation="自动认证")
+    logger.info(
+        f"[BrowserAuthClient] browser_auth_service 自动认证成功: "
+        f"account={masked_account} source={payload.get('source')} "
         f"state_written={bool(payload.get('state_written'))}"
     )
     return payload
@@ -127,6 +146,13 @@ def read_auth_sync(
 async def refresh_auth(account: str = "") -> dict[str, Any]:
     return await asyncio.to_thread(
         refresh_auth_sync,
+        account,
+    )
+
+
+async def ensure_auth(account: str = "") -> dict[str, Any]:
+    return await asyncio.to_thread(
+        ensure_auth_sync,
         account,
     )
 

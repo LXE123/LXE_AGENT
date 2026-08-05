@@ -22,21 +22,25 @@ def main() -> int:
     _configure_utf8_stdio()
     setup_logging()
     bootstrap_network_policy(label="browser_auth_service", emit=logger.info)
-    from .service import BrowserAuthRefreshError, refresh_auth
+    from .service import BrowserAuthRefreshError, ensure_auth, refresh_auth
 
     parser = argparse.ArgumentParser(prog="browser_auth_service")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     refresh_parser = subparsers.add_parser("refresh")
     refresh_parser.add_argument("--account", default="")
+    ensure_parser = subparsers.add_parser("ensure")
+    ensure_parser.add_argument("--account", default="")
 
     args = parser.parse_args()
 
     try:
-        if args.command != "refresh":
+        if args.command == "refresh":
+            result = refresh_auth(account=args.account)
+        elif args.command == "ensure":
+            result = ensure_auth(account=args.account)
+        else:
             raise ValueError(f"未知命令: {args.command}")
-
-        result = refresh_auth(account=args.account)
         json.dump(result, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 0

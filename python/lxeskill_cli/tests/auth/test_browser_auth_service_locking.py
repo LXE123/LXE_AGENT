@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -106,6 +108,152 @@ def test_consecutive_refreshes_are_never_coalesced(tmp_path, monkeypatch) -> Non
     service.refresh_auth()
 
     assert calls == 2
+
+
+def test_consecutive_ensure_calls_refresh_once_then_coalesce(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    refresh_calls = 0
+    password_calls = 0
+
+    def fake_password() -> str:
+        nonlocal password_calls
+        password_calls += 1
+        return "password"
+
+    def fake_refresh(**kwargs):
+        nonlocal refresh_calls
+        refresh_calls += 1
+        state_file.write_text(json.dumps(_complete_payload("fresh")), encoding="utf-8")
+        return {
+            "success": True,
+            "account": "account-a",
+            "source": "refresh",
+            "final_url": "https://wms.private.mabangerp.com/",
+            "state_written": True,
+        }
+
+    monkeypatch.setattr(service, "_resolve_account", lambda account: "account-a")
+    monkeypatch.setattr(service, "_resolve_password", fake_password)
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service, "_refresh_auth", fake_refresh)
+
+    results = [service.ensure_auth() for _ in range(3)]
+
+    assert [result["source"] for result in results] == ["refresh", "coalesced", "coalesced"]
+    assert [result["state_written"] for result in results] == [True, False, False]
+    assert refresh_calls == 1
+    assert password_calls == 1
+
+
+def test_three_concurrent_ensure_calls_start_one_refresh(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    callers_ready = threading.Barrier(3)
+    refresh_call_lock = threading.Lock()
+    refresh_calls = 0
+
+    def fake_refresh(**kwargs):
+        nonlocal refresh_calls
+        with refresh_call_lock:
+            refresh_calls += 1
+        time.sleep(0.05)
+        state_file.write_text(json.dumps(_complete_payload("concurrent")), encoding="utf-8")
+        return {
+            "success": True,
+            "account": "account-a",
+            "source": "refresh",
+            "final_url": "https://wms.private.mabangerp.com/",
+            "state_written": True,
+        }
+
+    def call_ensure() -> dict:
+        callers_ready.wait()
+        return service.ensure_auth()
+
+    monkeypatch.setattr(service, "_resolve_account", lambda account: "account-a")
+    monkeypatch.setattr(service, "_resolve_password", lambda: "password")
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service, "_refresh_auth", fake_refresh)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(lambda _: call_ensure(), range(3)))
+
+    assert sorted(result["source"] for result in results) == ["coalesced", "coalesced", "refresh"]
+    assert refresh_calls == 1
+
+
+def test_ensure_auth_reloads_complete_state_after_lock(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    lock_paths: list[Path] = []
+
+    @contextmanager
+    def fake_lock(path, *, timeout_seconds):
+        lock_paths.append(Path(path))
+        state_file.write_text(json.dumps(_complete_payload("written-by-other")), encoding="utf-8")
+        yield
+
+    monkeypatch.setattr(service, "_resolve_account", lambda account: "account-a")
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service, "interprocess_lock", fake_lock)
+    monkeypatch.setattr(
+        service,
+        "_resolve_password",
+        lambda: (_ for _ in ()).throw(AssertionError("coalesced ensure must not resolve password")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_refresh_auth",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("coalesced ensure must not refresh")),
+    )
+
+    result = service.ensure_auth()
+
+    assert result == {
+        "success": True,
+        "account": "account-a",
+        "source": "coalesced",
+        "final_url": "",
+        "state_written": False,
+    }
+    assert lock_paths == [state_file.with_name(service.AUTH_REFRESH_LOCK_NAME)]
+
+
+def test_ensure_auth_next_waiter_retries_after_refresh_failure(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    refresh_calls = 0
+
+    def fake_refresh(**kwargs):
+        nonlocal refresh_calls
+        refresh_calls += 1
+        if refresh_calls == 1:
+            raise service.BrowserAuthRefreshError(
+                stage="login",
+                current_url=service.LOGIN_URL,
+                cause=RuntimeError("temporary login failure"),
+            )
+        state_file.write_text(json.dumps(_complete_payload("recovered")), encoding="utf-8")
+        return {
+            "success": True,
+            "account": "account-a",
+            "source": "refresh",
+            "final_url": "https://wms.private.mabangerp.com/",
+            "state_written": True,
+        }
+
+    monkeypatch.setattr(service, "_resolve_account", lambda account: "account-a")
+    monkeypatch.setattr(service, "_resolve_password", lambda: "password")
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service, "_refresh_auth", fake_refresh)
+
+    with pytest.raises(service.BrowserAuthRefreshError, match="temporary login failure"):
+        service.ensure_auth()
+    result = service.ensure_auth()
+
+    assert result["source"] == "refresh"
+    assert refresh_calls == 2
 
 
 def test_read_auth_reloads_state_after_account_lock(tmp_path, monkeypatch) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from browser_auth_service.client import BrowserAuthClientError, read_auth, refresh_auth
+from browser_auth_service.client import BrowserAuthClientError, ensure_auth, read_auth, refresh_auth
 from services.mabang import config as mabang_settings
 
 from . import auth_audit
@@ -51,6 +51,20 @@ async def refresh_mabang_auth(
         ) from exc
 
 
+async def _ensure_mabang_auth(
+    *,
+    account: str,
+    purpose: str,
+) -> dict[str, Any]:
+    try:
+        return await ensure_auth(account=account)
+    except Exception as exc:
+        purpose_label = str(purpose or "").strip() or "-"
+        raise MabangAuthError(
+            f"自动恢复 Mabang 登录态失败(purpose={purpose_label}): {exc}"
+        ) from exc
+
+
 async def _read_auth_context(
     *,
     account: str,
@@ -89,7 +103,7 @@ async def get_auth_context(
         try:
             return await _read_auth_context(account=resolved_account, purpose=purpose)
         except BrowserAuthClientError:
-            await refresh_mabang_auth(
+            await _ensure_mabang_auth(
                 account=resolved_account,
                 purpose=str(purpose or "").strip() or "missing_or_incomplete_state",
             )

@@ -26,8 +26,13 @@ var/db/lxeskill/browser_auth_service/mabang_erp/<account>/state.json
 BROWSER_AUTH_HEADLESS=0 uv run --frozen python -m browser_auth_service.main refresh
 ```
 
-刷新路线固定为：登录 → 库存 SKU → FBA 发货单 → 点击进入 WMS → 原子写入完整状态。
+刷新路线固定为：登录 → 库存 SKU → FBA 发货单 → 跳转进入 WMS → 原子写入完整状态。
 每次 `refresh` 都会清除旧状态并真实执行整条路线，不存在 Scope、缓存命中或强刷开关。
+
+业务请求发现本地状态缺失、过期或不完整时，通过内部 `ensure` 命令自动恢复。`ensure` 会在账户锁内
+重新读取状态：第一个调用者执行完整刷新，并发等待者复用它写入的新状态，不再重复启动浏览器。
+如果第一个刷新失败，下一位等待者会重新检查状态并接替刷新。服务端明确返回 401/403 后的重试和手工
+`lxeskill auth refresh` 仍使用无条件 `refresh`，不会复用服务器已经拒绝的状态。
 
 Windows PowerShell 不支持上面的 Unix 环境变量写法，用这个：
 

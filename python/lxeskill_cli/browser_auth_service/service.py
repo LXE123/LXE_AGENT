@@ -90,6 +90,67 @@ def refresh_auth(account: str = "") -> dict[str, Any]:
         raise _refresh_error(stage="browser", current_url="", cause=exc) from exc
 
 
+def ensure_auth(account: str = "") -> dict[str, Any]:
+    """Refresh incomplete auth once while coalescing concurrent callers."""
+    try:
+        resolved_account = _resolve_account(account)
+    except Exception as exc:
+        raise _refresh_error(stage="credentials", current_url="", cause=exc) from exc
+
+    state_file = _state_file(resolved_account)
+    lock_file = state_file.with_name(AUTH_REFRESH_LOCK_NAME)
+    wait_started_at = time.monotonic()
+    logger.info(
+        f"[BrowserAuth] ensure status=start account={_mask_account(resolved_account)} "
+        f"state_exists={state_file.exists()}"
+    )
+    try:
+        with interprocess_lock(
+            lock_file,
+            timeout_seconds=auth_settings.BROWSER_AUTH_LOCK_TIMEOUT_SECONDS,
+        ):
+            waited_ms = int(max(0.0, time.monotonic() - wait_started_at) * 1000)
+            try:
+                payload = _load_storage_state_payload(state_file)
+                if not payload:
+                    raise RuntimeError("本地认证状态不存在")
+                _require_complete_auth_material(payload)
+            except Exception as state_error:
+                logger.info(
+                    f"[BrowserAuth] ensure status=refresh account={_mask_account(resolved_account)} "
+                    f"waited_ms={waited_ms} exception_type={type(state_error).__name__} "
+                    f"error={str(state_error or '').strip()}"
+                )
+            else:
+                logger.info(
+                    f"[BrowserAuth] ensure status=coalesced account={_mask_account(resolved_account)} "
+                    f"waited_ms={waited_ms}"
+                )
+                return {
+                    "success": True,
+                    "account": resolved_account,
+                    "source": "coalesced",
+                    "final_url": "",
+                    "state_written": False,
+                }
+
+            _log_refresh_stage(stage="credentials", status="start")
+            try:
+                password = _resolve_password()
+            except Exception as exc:
+                raise _refresh_error(stage="credentials", current_url="", cause=exc) from exc
+            _log_refresh_stage(stage="credentials", status="success")
+            return _refresh_auth(
+                account=resolved_account,
+                password=password,
+                state_file=state_file,
+            )
+    except BrowserAuthRefreshError:
+        raise
+    except Exception as exc:
+        raise _refresh_error(stage="browser", current_url="", cause=exc) from exc
+
+
 def read_auth(account: str = "") -> dict[str, Any]:
     """Read the latest persisted auth material without launching a browser."""
     resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
@@ -154,15 +215,22 @@ def _refresh_error(*, stage: str, current_url: str, cause: Exception) -> Browser
     return BrowserAuthRefreshError(stage=stage, current_url=current_url, cause=cause)
 
 
-def _resolve_credentials(account: str) -> tuple[str, str]:
+def _resolve_account(account: str) -> str:
     resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
-    password = str(mabang_settings.MABANG_PASSWORD or "").strip()
-
     if not resolved_account:
         raise ValueError("Mabang 账号为空")
+    return resolved_account
+
+
+def _resolve_password() -> str:
+    password = str(mabang_settings.MABANG_PASSWORD or "").strip()
     if not password:
         raise ValueError("Mabang 密码为空")
-    return resolved_account, password
+    return password
+
+
+def _resolve_credentials(account: str) -> tuple[str, str]:
+    return _resolve_account(account), _resolve_password()
 
 
 def _storage_root() -> Path:
