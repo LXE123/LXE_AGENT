@@ -5109,8 +5109,8 @@ h1 {
   align-items: center;
   justify-content: center;
   min-height: 34px;
-  /* Beside a flex:1 textarea these would otherwise be squeezed until the label
-     broke onto its own line, one character per row. */
+  /* Beside a flex:1 textarea these would otherwise be squeezed out of their
+     own footprint. */
   flex: 0 0 auto;
   gap: 6px;
   border-radius: 9px;
@@ -5124,8 +5124,11 @@ h1 {
 /* One control with two modes. The stop mode inverts against the surface so it
    reads as "interrupt" without stealing the accent from send. */
 .conversation-send-button {
-  width: 34px;
-  height: 34px;
+  width: 30.6px;
+  /* Overrides the shared min-height, which would otherwise stretch the circle
+     back into an oval. */
+  min-height: 30.6px;
+  height: 30.6px;
   border: 1px solid var(--accent);
   border-radius: 50%;
   background: var(--accent);
