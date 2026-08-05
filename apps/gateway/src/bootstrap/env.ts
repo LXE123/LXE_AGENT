@@ -3,9 +3,6 @@ import { readFileSync } from "node:fs";
 export type Environment = Record<string, string>;
 
 export const DEVELOPMENT_SECRET_ENV_NAMES = new Set([
-  "DEEPSEEK_API",
-  "KIMI_CODE_API_KEY",
-  "GLM_API_KEY",
   "FEISHU_APP_SECRET",
   "MABANG_PASSWORD",
   "ZINIAO_PASSWORD",
@@ -70,7 +67,7 @@ const defaultReadFile = (path: string): string | undefined => {
   }
 };
 
-/** Legacy/import-only dotenv reader. Runtime composition must consume the resolved environment. */
+/** Source-development dotenv reader. Runtime composition must consume the resolved environment. */
 export function loadEnvironmentFiles(options: EnvironmentFilesOptions): Environment {
   const result: Environment = {};
   for (const [name, value] of Object.entries(options.initial ?? process.env)) {

@@ -4,8 +4,6 @@ import type {
   DashboardRpcCall,
   DashboardRpcOperation,
   DashboardRpcResult,
-  DesktopConfigImportApplyResult,
-  DesktopConfigImportPreview,
   DesktopCloudActivationInput,
   DesktopCloudDestination,
   DesktopCloudEnrollmentSelection,
@@ -13,6 +11,8 @@ import type {
   DesktopHealth,
   DesktopInputAssetSlot,
   DesktopInputAttachmentPayload,
+  DesktopLocalModelCredentialInput,
+  DesktopModelProvider,
   DesktopSetupInput,
   DesktopSetupState,
   DesktopSyntheticPerformerOutputSelection,
@@ -25,8 +25,9 @@ import { IPC_CHANNELS } from "../ipc-channels";
 import {
   validateCloudActivationInput,
   validateCloudDestination,
-  validateConfigImportId,
   validateDashboardRpcCall,
+  validateLocalModelCredentialInput,
+  validateModelProvider,
   validateSetupInput,
   validateSyntheticPerformerId,
   validateSyntheticPerformerSourceKind,
@@ -39,9 +40,8 @@ export interface DesktopIpcApplication {
   restartAgent(): Promise<DesktopHealth>;
   getSetupState(): DesktopSetupState;
   saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
-  previewConfigImport(filePath: string): DesktopConfigImportPreview;
-  applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
-  discardConfigImport(importId: string): void;
+  saveLocalModelCredential(input: DesktopLocalModelCredentialInput): Promise<DesktopSetupState>;
+  deleteLocalModelCredential(provider: DesktopModelProvider): Promise<DesktopSetupState>;
   previewCloudEnrollment(filePath: string): DesktopCloudEnrollmentSelection;
   activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
   getCloudState(): DesktopCloudState;
@@ -102,15 +102,6 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     });
     return selection.canceled ? null : selection.filePaths[0] ?? null;
   });
-  ipcMain.handle(IPC_CHANNELS.selectConfigImport, async () => {
-    const selection = await dialog.showOpenDialog({
-      title: "选择 LXE Agent .env 配置文件",
-      buttonLabel: "预览导入",
-      properties: ["openFile", "showHiddenFiles"],
-    });
-    const filePath = selection.canceled ? undefined : selection.filePaths[0];
-    return filePath ? application.previewConfigImport(filePath) : null;
-  });
   ipcMain.handle(IPC_CHANNELS.selectCloudEnrollment, async () => {
     const selection = await dialog.showOpenDialog({
       title: "选择公司云端设备文件",
@@ -127,10 +118,6 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.retryCloudConnection, () => application.retryCloudConnection());
   ipcMain.handle(IPC_CHANNELS.openCloudDestination, (_event, destination: unknown) =>
     application.openCloudDestination(validateCloudDestination(destination)));
-  ipcMain.handle(IPC_CHANNELS.applyConfigImport, (_event, importId: unknown) =>
-    application.applyConfigImport(validateConfigImportId(importId)));
-  ipcMain.handle(IPC_CHANNELS.discardConfigImport, (_event, importId: unknown) =>
-    application.discardConfigImport(validateConfigImportId(importId)));
   ipcMain.handle(IPC_CHANNELS.openLogsDirectory, async () => {
     mkdirSync(application.logsDirectory, { recursive: true });
     const error = await shell.openPath(application.logsDirectory);
@@ -140,6 +127,10 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.restartAgent, () => application.restartAgent());
   ipcMain.handle(IPC_CHANNELS.getSetupState, () => application.getSetupState());
   ipcMain.handle(IPC_CHANNELS.saveSetup, (_event, input: unknown) => application.saveSetup(validateSetupInput(input)));
+  ipcMain.handle(IPC_CHANNELS.saveLocalModelCredential, (_event, input: unknown) =>
+    application.saveLocalModelCredential(validateLocalModelCredentialInput(input)));
+  ipcMain.handle(IPC_CHANNELS.deleteLocalModelCredential, (_event, provider: unknown) =>
+    application.deleteLocalModelCredential(validateModelProvider(provider)));
   ipcMain.handle(IPC_CHANNELS.selectSyntheticPerformerSources, async (_event, rawKind: unknown) => {
     const kind = validateSyntheticPerformerSourceKind(rawKind);
     const selection = await dialog.showOpenDialog({

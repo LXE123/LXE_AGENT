@@ -6,10 +6,7 @@ from shared.repository import repository_root
 
 
 SECRET_ENV_KEYS = {
-    "DEEPSEEK_API",
     "FEISHU_APP_SECRET",
-    "GLM_API_KEY",
-    "KIMI_CODE_API_KEY",
     "LXE_DATA_SERVER_API_KEY",
     "LXE_DATA_SERVER_FALLBACK_API_KEY",
     "LXE_ERP_API_KEY",

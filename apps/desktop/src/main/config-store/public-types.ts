@@ -1,9 +1,4 @@
-import type {
-  DesktopConfigImportApplyResult,
-  DesktopConfigImportGroupPreview,
-  DesktopCloudPermissionSnapshot,
-  DesktopPlatform,
-} from "@lxe/desktop-protocol";
+import type { DesktopCloudPermissionSnapshot, DesktopPlatform } from "@lxe/desktop-protocol";
 
 export interface DesktopCloudConfiguration {
   managed: boolean;
@@ -33,19 +28,4 @@ export interface DesktopConfigStoreOptions {
   pathIsDirectory?: (path: string) => boolean;
   pathIsExecutable?: (path: string) => boolean;
   secretEnvironment?: Readonly<Record<string, string | undefined>>;
-}
-
-export interface LegacyEnvironmentMigrationOptions {
-  environment: Readonly<Record<string, string | undefined>>;
-  managedFiles?: readonly string[];
-  retiredFiles?: readonly string[];
-}
-
-export interface PreparedDesktopConfigImport {
-  summary: {
-    groups: DesktopConfigImportGroupPreview[];
-    warnings: string[];
-    diagnostic_logging: boolean;
-  };
-  apply(): DesktopConfigImportApplyResult;
 }

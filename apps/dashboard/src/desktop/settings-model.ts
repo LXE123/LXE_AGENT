@@ -3,7 +3,7 @@ import type {
   DesktopLogProfile,
   DesktopLogRetentionDays,
   DesktopLoggingSinkStatus,
-  DesktopSetupInput,
+  DesktopModelProvider,
   DesktopSetupState,
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
@@ -43,8 +43,8 @@ export type DesktopSettingsSection =
 export type EditableDesktopSettingsSection = Exclude<DesktopSettingsSection, "status" | "appearance" | "cloud">;
 
 export interface DesktopSettingsFormValue {
-  provider: DesktopSetupInput["provider"];
-  apiKey: string;
+  localProvider: DesktopModelProvider;
+  localApiKey: string;
   workspaceRoot: string;
   ziniaoCompany: string;
   ziniaoUsername: string;
@@ -61,8 +61,8 @@ export interface DesktopSettingsFormValue {
 }
 
 export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFormValue => ({
-  provider: state.provider as DesktopSetupInput["provider"],
-  apiKey: "",
+  localProvider: state.provider,
+  localApiKey: "",
   workspaceRoot: state.workspace_root,
   ziniaoCompany: state.ziniao.company,
   ziniaoUsername: state.ziniao.username,
@@ -79,7 +79,7 @@ export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFo
 });
 
 const SECTION_FIELDS: Record<EditableDesktopSettingsSection, readonly (keyof DesktopSettingsFormValue)[]> = {
-  base: ["provider", "apiKey", "workspaceRoot"],
+  base: ["workspaceRoot"],
   ziniao: [
     "ziniaoCompany",
     "ziniaoUsername",

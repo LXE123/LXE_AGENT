@@ -25,12 +25,13 @@ import type {
   DesktopConversationStreamEvent,
   DesktopDashboardInvalidation,
   DesktopHealth,
+  DesktopLocalModelCredentialInput,
+  DesktopModelProvider,
   DesktopSetupInput,
   DesktopSetupState,
   DesktopSyntheticPerformerTask,
 } from "@lxe/desktop-protocol";
 import {
-  DEVELOPMENT_SECRET_ENV_NAMES,
   developmentSecretEnvironment,
   loadEnvironmentFiles,
 } from "@lxe/gateway/desktop";
@@ -38,9 +39,7 @@ import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
 import { resolveDesktopBrandAssets } from "./main/brand-assets";
-import { DesktopConfigImportManager } from "./main/config-import";
 import { DesktopConversationAttachmentService } from "./main/conversation-attachments";
-import { applyDesktopConfigImport } from "./main/config-import-application";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
@@ -195,28 +194,12 @@ async function bootstrap(): Promise<void> {
     safeStorage,
     { platform: desktopPlatform, secretEnvironment: sourceSecretEnvironment },
   );
-  const sourceLegacyEnvironment = Object.fromEntries(
-    Object.entries(sourceEnvironment).filter(([name]) => !DEVELOPMENT_SECRET_ENV_NAMES.has(name)),
-  );
-  const legacyEnvironmentPaths = [
-    ...(!packagedRuntime ? [join(paths.sourceRoot, ".env.local")] : []),
-    join(paths.dataRoot, ".env"),
-    join(paths.dataRoot, ".env.local"),
-  ];
-  config.migrateLegacyEnvironment({
-    environment: loadEnvironmentFiles({
-      paths: legacyEnvironmentPaths,
-      initial: sourceLegacyEnvironment,
-    }),
-    retiredFiles: legacyEnvironmentPaths,
-  });
   const previewCloudTarget = launchMode === "preview"
     ? resolvePreviewDataServerTarget({
         ...config.environment(),
         ...desktopEnvironment,
       })
     : undefined;
-  const configImports = new DesktopConfigImportManager(config);
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.statusChanged, health);
@@ -320,11 +303,11 @@ async function bootstrap(): Promise<void> {
     onPermissionChanged: (allowedSkillTypes) =>
       gateway.updateSkillPermissions(allowedSkillTypes),
     onManagedLlmCredentialChanged: async (credential) => {
-      if (config.state().complete && gateway.health().gateway === "stopped") {
-        await gateway.start();
-      } else {
-        await gateway.updateManagedLlmCredential(credential);
-      }
+      const state = config.state();
+      if (!state.complete) await gateway.stop();
+      else if (gateway.health().gateway === "stopped") await gateway.start();
+      else if (!credential && state.credential_source === "local") await gateway.restart();
+      else await gateway.updateManagedLlmCredential(credential);
       invalidations.push(["models"]);
       broadcastHealth(gateway.health());
     },
@@ -379,20 +362,31 @@ async function bootstrap(): Promise<void> {
       broadcastHealth(gateway.health());
       return state;
     },
-    previewConfigImport: (filePath) => configImports.select(filePath),
-    applyConfigImport: (importId) => applyDesktopConfigImport({
-      importId,
-      apply: (selectedImportId) => configImports.apply(selectedImportId),
-      currentEnvironment: () => config.environment(),
-      currentState: () => config.state(),
-      configureLogging: () => logging.configure(),
-      restartGateway: () => gateway.restart(),
-      stopGateway: () => gateway.stop(),
-      invalidateDashboard: () => invalidations.push(ALL_DASHBOARD_DATA_DOMAINS),
-      broadcastHealth: () => broadcastHealth(gateway.health()),
-      logger,
-    }),
-    discardConfigImport: (importId) => configImports.discard(importId),
+    saveLocalModelCredential: async (
+      input: DesktopLocalModelCredentialInput,
+    ): Promise<DesktopSetupState> => {
+      const previousEnvironment = config.environment();
+      const wasComplete = config.state().complete;
+      const state = config.saveLocalModelCredential(input);
+      const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(config.environment());
+      if (!state.complete) await gateway.stop();
+      else if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
+      broadcastHealth(gateway.health());
+      return state;
+    },
+    deleteLocalModelCredential: async (
+      provider: DesktopModelProvider,
+    ): Promise<DesktopSetupState> => {
+      const previousEnvironment = config.environment();
+      const state = config.deleteLocalModelCredential(provider);
+      const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(config.environment());
+      if (!state.complete) await gateway.stop();
+      else if (runtimeConfigurationChanged) await gateway.restart();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
+      broadcastHealth(gateway.health());
+      return state;
+    },
     previewCloudEnrollment: (filePath) => cloud.select(filePath),
     activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),
     getCloudState: () => cloud.state(),

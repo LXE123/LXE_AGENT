@@ -1,19 +1,18 @@
 import type {
   DesktopCloudPermissionSnapshot,
   CredentialSource,
+  DesktopLocalModelCredentialInput,
+  DesktopModelProvider,
   DesktopSetupInput,
   DesktopSetupState,
   ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudConfigService } from "./cloud";
-import { DesktopEnvironmentImport } from "./environment-import";
-import { LegacyEnvironmentMigration } from "./legacy-environment";
+import { DesktopLocalAuthStore } from "./auth-store";
 import type {
   DesktopCloudConfiguration,
   DesktopCloudEnrollmentConfig,
   DesktopConfigStoreOptions,
-  LegacyEnvironmentMigrationOptions,
-  PreparedDesktopConfigImport,
 } from "./public-types";
 import { DesktopConfigRepository, type SafeStoragePort } from "./repository";
 import { DesktopSetupService } from "./setup";
@@ -22,8 +21,6 @@ import { DesktopConfigValidation } from "./validation";
 export class DesktopConfigStore {
   private readonly setup: DesktopSetupService;
   private readonly cloud: DesktopCloudConfigService;
-  private readonly environmentImport: DesktopEnvironmentImport;
-  private readonly legacyEnvironment: LegacyEnvironmentMigration;
 
   constructor(
     dataRoot: string,
@@ -33,16 +30,17 @@ export class DesktopConfigStore {
   ) {
     const validation = new DesktopConfigValidation(options);
     const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform);
+    const auth = new DesktopLocalAuthStore(dataRoot, validation.platform);
     this.setup = new DesktopSetupService(
       dataRoot,
       defaultWorkspaceRoot,
       repository,
+      auth,
       validation,
       options.secretEnvironment,
     );
     this.cloud = new DesktopCloudConfigService(repository, options.secretEnvironment);
-    this.environmentImport = new DesktopEnvironmentImport(repository, this.setup, validation);
-    this.legacyEnvironment = new LegacyEnvironmentMigration(repository, this.setup, validation);
+    this.setup.migrateModelCredentialStorage();
   }
 
   state(): DesktopSetupState {
@@ -51,6 +49,14 @@ export class DesktopConfigStore {
 
   save(input: DesktopSetupInput): DesktopSetupState {
     return this.setup.save(input);
+  }
+
+  saveLocalModelCredential(input: DesktopLocalModelCredentialInput): DesktopSetupState {
+    return this.setup.saveLocalModelCredential(input);
+  }
+
+  deleteLocalModelCredential(provider: DesktopModelProvider): DesktopSetupState {
+    return this.setup.deleteLocalModelCredential(provider);
   }
 
   saveRuntimePreference(
@@ -74,6 +80,10 @@ export class DesktopConfigStore {
     this.setup.invalidateManagedLlmCredential(revision);
   }
 
+  clearManagedLlmCredential(): void {
+    this.setup.clearManagedLlmCredential();
+  }
+
   cloudConfiguration(): DesktopCloudConfiguration {
     return this.cloud.configuration();
   }
@@ -90,16 +100,6 @@ export class DesktopConfigStore {
     snapshot: DesktopCloudPermissionSnapshot,
   ): DesktopCloudPermissionSnapshot {
     return this.cloud.savePermissionSnapshot(snapshot);
-  }
-
-  migrateLegacyEnvironment(options: LegacyEnvironmentMigrationOptions): DesktopSetupState {
-    return this.legacyEnvironment.migrate(options);
-  }
-
-  prepareEnvironmentImport(
-    environment: Readonly<Record<string, string | undefined>>,
-  ): PreparedDesktopConfigImport {
-    return this.environmentImport.prepare(environment);
   }
 
   environment(): Record<string, string> {

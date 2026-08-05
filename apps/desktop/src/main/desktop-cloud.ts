@@ -59,7 +59,7 @@ interface DesktopCloudServiceOptions {
   requestTimeoutMs?: number;
   onConfigured(): Promise<void>;
   onPermissionChanged?(allowedSkillTypes: readonly string[]): Promise<void> | void;
-  onManagedLlmCredentialChanged?(credential: ManagedLlmCredential): Promise<void> | void;
+  onManagedLlmCredentialChanged?(credential: ManagedLlmCredential | null): Promise<void> | void;
   onStateChanged?(state: DesktopCloudState): void;
   fetch?: typeof globalThis.fetch;
 }
@@ -593,7 +593,19 @@ export class DesktopCloudService {
     const status = parseManagedLlmStatus(value);
     if (!status) return;
     const cached = this.options.config.managedLlmCredential();
-    if (cached?.credential_revision === status.credential_revision) return;
+    if (!status.available) {
+      if (!cached) return;
+      this.options.config.clearManagedLlmCredential();
+      await this.options.onManagedLlmCredentialChanged?.(null);
+      logger.info("managed_llm_credential_revoked", {
+        provider: cached.provider,
+        model: cached.model,
+        credential_revision: cached.credential_revision,
+      });
+      return;
+    }
+    if (cached?.credential_revision === status.credential_revision
+      && cached.invalid_revision !== cached.credential_revision) return;
     const path = target.source === "preview"
       ? "admin/llm-credential"
       : "devices/llm-credential";

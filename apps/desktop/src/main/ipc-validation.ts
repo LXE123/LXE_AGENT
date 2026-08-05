@@ -2,6 +2,8 @@ import type {
   DashboardRpcCall,
   DesktopCloudActivationInput,
   DesktopCloudDestination,
+  DesktopLocalModelCredentialInput,
+  DesktopModelProvider,
   DesktopSetupInput,
   DesktopSyntheticPerformerSourceKind,
   DesktopSyntheticPerformerTaskInput,
@@ -22,10 +24,10 @@ const boundedText = (value: unknown, label: string, maximum: number): string => 
   return value.trim();
 };
 
-export function validateConfigImportId(value: unknown): string {
-  const importId = boundedText(value, "Configuration import ID", 128);
-  if (!/^[A-Za-z0-9-]+$/u.test(importId)) throw new Error("Configuration import ID is invalid");
-  return importId;
+export function validateEnrollmentId(value: unknown): string {
+  const enrollmentId = boundedText(value, "Enrollment ID", 128);
+  if (!/^[A-Za-z0-9-]+$/u.test(enrollmentId)) throw new Error("Enrollment ID is invalid");
+  return enrollmentId;
 }
 
 export function validateSyntheticPerformerId(value: unknown): string {
@@ -69,7 +71,7 @@ export function validateSyntheticPerformerTaskInput(
 
 export function validateCloudActivationInput(value: unknown): DesktopCloudActivationInput {
   const input = objectValue(value, "Cloud activation input");
-  const enrollmentId = validateConfigImportId(input.enrollment_id);
+  const enrollmentId = validateEnrollmentId(input.enrollment_id);
   const password = boundedText(input.password, "Enrollment password", 256);
   if (password.length < 12) throw new Error("Enrollment password is invalid");
   return { enrollment_id: enrollmentId, password };
@@ -88,13 +90,8 @@ export function validateDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function validateSetupInput(value: unknown): DesktopSetupInput {
   const input = objectValue(value, "Desktop setup input");
-  const provider = boundedText(input.provider, "Model provider", 64);
-  if (provider !== "kimi_coding" && provider !== "deepseek" && provider !== "glm") {
-    throw new Error("Unsupported model provider");
-  }
   const workspaceRoot = boundedText(input.workspace_root, "Workspace", 32_768);
   if (!workspaceRoot) throw new Error("Workspace is required");
-  const apiKey = boundedText(input.api_key, "Model API key", 16_384);
   const integrationAction = (value: unknown, label: string): Record<string, unknown> => {
     const integration = objectValue(value, label);
     if (integration.action !== "save" && integration.action !== "clear") {
@@ -153,12 +150,25 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     };
   }
   return {
-    provider,
     workspace_root: workspaceRoot,
-    ...(apiKey ? { api_key: apiKey } : {}),
     ...(ziniaoInput ? { ziniao: ziniaoInput } : {}),
     ...(mabangInput ? { mabang: mabangInput } : {}),
     ...(feishuInput ? { feishu: feishuInput } : {}),
     ...(loggingInput ? { logging: loggingInput } : {}),
   };
+}
+
+export function validateModelProvider(value: unknown): DesktopModelProvider {
+  const provider = boundedText(value, "Model provider", 64);
+  if (provider !== "kimi_coding" && provider !== "deepseek" && provider !== "glm") {
+    throw new Error("Unsupported model provider");
+  }
+  return provider;
+}
+
+export function validateLocalModelCredentialInput(value: unknown): DesktopLocalModelCredentialInput {
+  const input = objectValue(value, "Local model credential input");
+  const apiKey = boundedText(input.api_key, "Model API key", 16_384);
+  if (!apiKey) throw new Error("Model API key is required");
+  return { provider: validateModelProvider(input.provider), api_key: apiKey };
 }

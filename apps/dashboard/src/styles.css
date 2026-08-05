@@ -861,8 +861,7 @@ button {
   width: fit-content;
 }
 
-.desktop-settings-nav-item,
-.desktop-settings-import-button {
+.desktop-settings-nav-item {
   display: flex;
   width: 100%;
   min-width: 0;
@@ -903,16 +902,14 @@ button {
   color: var(--accent-strong);
 }
 
-.desktop-settings-nav-item > span,
-.desktop-settings-import-button > span {
+.desktop-settings-nav-item > span {
   display: grid;
   flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
 }
 
-.desktop-settings-nav-item strong,
-.desktop-settings-import-button strong {
+.desktop-settings-nav-item strong {
   overflow: hidden;
   font-size: 0.75rem;
   font-weight: 700;
@@ -920,8 +917,7 @@ button {
   white-space: nowrap;
 }
 
-.desktop-settings-nav-item small,
-.desktop-settings-import-button small {
+.desktop-settings-nav-item small {
   overflow: hidden;
   color: var(--muted);
   font-size: 0.625rem;
@@ -951,26 +947,6 @@ button {
   background: var(--accent);
 }
 
-.desktop-settings-import-button {
-  min-height: 44px;
-  flex: 0 0 auto;
-  gap: 9px;
-  padding: 6px 9px;
-  border: 1px solid var(--accent-muted);
-  background: var(--surface);
-  color: var(--accent-strong);
-}
-
-.desktop-settings-import-button:hover,
-.desktop-settings-import-button:focus-visible {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.desktop-settings-import-button svg {
-  flex: 0 0 auto;
-}
-
 .desktop-settings-content {
   min-width: 0;
   min-height: 0;
@@ -992,6 +968,110 @@ button {
 
 .desktop-field-wide {
   grid-column: 1 / -1;
+}
+
+.desktop-local-model-card {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+
+.desktop-local-model-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.desktop-local-model-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.desktop-local-model-heading strong {
+  color: var(--text-strong);
+  font-size: 0.8125rem;
+}
+
+.desktop-local-model-heading > div > span {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.desktop-local-model-heading > span {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.desktop-local-model-heading > span.configured {
+  background: var(--success-soft);
+  color: var(--rate-good);
+}
+
+.desktop-local-model-heading > span.optional {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.desktop-local-model-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.desktop-local-model-actions button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.desktop-local-model-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.desktop-local-model-delete {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.desktop-local-model-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+}
+
+.desktop-local-model-warning svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.desktop-local-auth-path {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.desktop-local-auth-path code {
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
 }
 
 .desktop-settings-content label {
@@ -1394,10 +1474,6 @@ button {
   z-index: 100;
 }
 
-.desktop-config-import-backdrop {
-  z-index: 120;
-}
-
 .desktop-cloud-binding-backdrop {
   z-index: 130;
 }
@@ -1607,184 +1683,7 @@ button {
   background: var(--danger);
 }
 
-.desktop-config-import-dialog {
-  display: grid;
-  width: min(660px, 100%);
-  max-height: calc(100vh - 48px);
-  gap: 16px;
-  padding: 24px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: 0 30px 80px var(--shadow-strong);
-}
-
-.desktop-config-import-dialog > header,
-.desktop-config-import-dialog > footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.desktop-config-import-dialog > header {
-  align-items: flex-start;
-}
-
-.desktop-config-import-dialog h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 1.25rem;
-}
-
-.desktop-config-import-dialog > header p:last-child {
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 0.6875rem;
-  line-height: 1.5;
-}
-
-.desktop-config-import-dialog > header button {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface-muted);
-  cursor: pointer;
-}
-
-.desktop-config-import-groups {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.desktop-config-import-group {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-
-.desktop-config-import-group.status-pending {
-  border-color: var(--warning-border);
-  background: var(--warning-soft);
-}
-
-.desktop-config-import-group > div:first-child {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.desktop-config-import-group strong {
-  color: var(--text-strong);
-  font-size: 0.75rem;
-}
-
-.desktop-config-import-group > div:first-child span {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--success-soft);
-  color: var(--rate-good);
-  font-size: 0.625rem;
-  font-weight: 700;
-}
-
-.desktop-config-import-group.status-pending > div:first-child span {
-  background: var(--warning-strong-soft);
-  color: var(--warning);
-}
-
-.desktop-config-import-group p {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 0.6875rem;
-  line-height: 1.45;
-}
-
-.desktop-config-import-group .desktop-config-import-overwrite {
-  color: var(--accent-strong);
-}
-
-.desktop-config-import-group .desktop-integration-issues {
-  padding: 7px 8px 7px 24px;
-}
-
-.desktop-config-import-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.6875rem;
-}
-
-.desktop-config-import-warnings {
-  margin: 0;
-  padding: 10px 12px 10px 30px;
-  border: 1px solid var(--warning-border);
-  border-radius: 9px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 0.6875rem;
-  line-height: 1.55;
-}
-
-.desktop-config-import-diagnostic {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 11px 12px;
-  border: 1px solid var(--warning-border-strong);
-  border-radius: 9px;
-  background: var(--warning-strong-soft);
-  color: var(--warning);
-  font-size: 0.6875rem;
-  font-weight: 650;
-  line-height: 1.5;
-}
-
-.desktop-config-import-diagnostic input {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  margin: 0;
-}
-
-.desktop-config-import-dialog > footer {
-  justify-content: flex-end;
-  padding-top: 2px;
-}
-
-.desktop-config-import-dialog > footer button {
-  min-height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: var(--surface);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
-.desktop-config-import-dialog > footer .desktop-primary-button {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
-}
-
-.desktop-config-import-dialog button:disabled {
-  cursor: wait;
-  opacity: 0.62;
-}
-
-.desktop-import-toast {
+.desktop-notice-toast {
   position: fixed;
   z-index: 80;
   right: 18px;
@@ -6814,8 +6713,7 @@ pre {
   }
 
   .desktop-onboarding-card,
-  .desktop-settings-modal,
-  .desktop-config-import-dialog {
+  .desktop-settings-modal {
     border-radius: 14px;
   }
 
@@ -6884,10 +6782,6 @@ pre {
     padding-inline: 12px;
   }
 
-  .desktop-config-import-dialog {
-    padding: 18px;
-  }
-
   .desktop-log-directory {
     align-items: stretch;
     flex-direction: column;
@@ -6895,8 +6789,7 @@ pre {
 
   .desktop-field-grid,
   .desktop-health-grid,
-  .desktop-logging-sinks,
-  .desktop-config-import-groups {
+  .desktop-logging-sinks {
     grid-template-columns: 1fr;
   }
 

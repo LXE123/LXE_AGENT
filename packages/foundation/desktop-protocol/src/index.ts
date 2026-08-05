@@ -44,6 +44,8 @@ export type ExecTaskSnapshotPayload = {
 
 export type CredentialSource = "local" | "cloud";
 
+export type DesktopModelProvider = "kimi_coding" | "deepseek" | "glm";
+
 export interface ManagedLlmCredential {
   provider: "deepseek";
   model: "deepseek-v4-flash";
@@ -369,42 +371,6 @@ export interface DesktopCloudActivationInput {
   password: string;
 }
 
-export type DesktopConfigImportGroupName =
-  | "base"
-  | "outputs"
-  | "ziniao"
-  | "mabang"
-  | "feishu"
-  | "logging"
-  | "saihu"
-  | "cloud";
-
-export interface DesktopConfigImportGroupPreview {
-  group: DesktopConfigImportGroupName;
-  label: string;
-  status: "ready" | "pending";
-  detected_fields: string[];
-  overwritten_fields: string[];
-  issues: string[];
-}
-
-export interface DesktopConfigImportPreview {
-  import_id: string;
-  file_name: string;
-  expires_at: number;
-  groups: DesktopConfigImportGroupPreview[];
-  warnings: string[];
-  unknown_variable_count: number;
-  diagnostic_logging: boolean;
-}
-
-export interface DesktopConfigImportApplyResult {
-  state: DesktopSetupState;
-  applied_groups: string[];
-  pending_groups: string[];
-  warnings: string[];
-}
-
 export type DesktopDashboardDataDomain =
   | "sessions"
   | "stats"
@@ -437,10 +403,12 @@ export interface DesktopHealth {
 
 export interface DesktopSetupState {
   complete: boolean;
-  provider: string;
+  provider: DesktopModelProvider;
   credential_source: CredentialSource;
-  provider_key_configured: boolean;
   managed_model_configured: boolean;
+  local_model_credentials: Record<DesktopModelProvider, boolean>;
+  local_auth_path: string;
+  local_auth_error: string;
   workspace_root: string;
   ziniao: {
     managed: boolean;
@@ -472,7 +440,6 @@ export interface DesktopSetupState {
     retention_days: DesktopLogRetentionDays;
     directory: string;
   };
-  legacy_environment_imported: boolean;
 }
 
 export type DesktopZiniaoSetupInput =
@@ -496,8 +463,6 @@ export type DesktopFeishuSetupInput =
   | { action: "save"; app_id: string; app_secret?: string };
 
 export interface DesktopSetupInput {
-  provider: "kimi_coding" | "deepseek" | "glm";
-  api_key?: string;
   workspace_root: string;
   ziniao?: DesktopZiniaoSetupInput;
   mabang?: DesktopMabangSetupInput;
@@ -506,6 +471,11 @@ export interface DesktopSetupInput {
     profile: DesktopLogProfile;
     retention_days: DesktopLogRetentionDays;
   };
+}
+
+export interface DesktopLocalModelCredentialInput {
+  provider: DesktopModelProvider;
+  api_key: string;
 }
 
 export type DesktopSyntheticPerformerSourceKind = "files" | "folder";
@@ -594,19 +564,18 @@ export interface LxeDesktopBridge {
     selectWorkspace(): Promise<string | null>;
     selectZiniaoApp(): Promise<string | null>;
     selectZiniaoWebDriverDirectory(): Promise<string | null>;
-    selectConfigImport(): Promise<DesktopConfigImportPreview | null>;
     selectCloudEnrollment(): Promise<DesktopCloudEnrollmentSelection | null>;
     activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
     getCloudState(): Promise<DesktopCloudState>;
     retryCloudConnection(): Promise<DesktopCloudState>;
     openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
-    applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
-    discardConfigImport(importId: string): Promise<void>;
     openLogsDirectory(): Promise<void>;
     getHealth(): Promise<DesktopHealth>;
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;
     saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
+    saveLocalModelCredential(input: DesktopLocalModelCredentialInput): Promise<DesktopSetupState>;
+    deleteLocalModelCredential(provider: DesktopModelProvider): Promise<DesktopSetupState>;
     selectSyntheticPerformerSources(
       kind: DesktopSyntheticPerformerSourceKind,
     ): Promise<DesktopSyntheticPerformerSourceSelection | null>;

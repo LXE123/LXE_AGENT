@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   validateCloudActivationInput,
   validateCloudDestination,
-  validateConfigImportId,
   validateDashboardRpcCall,
+  validateEnrollmentId,
+  validateLocalModelCredentialInput,
+  validateModelProvider,
   validateSetupInput,
   validateSyntheticPerformerId,
   validateSyntheticPerformerSourceKind,
@@ -58,12 +60,12 @@ describe("desktop IPC validation", () => {
     expect(() => validateCloudActivationInput({ enrollment_id: "valid", password: "short" }))
       .toThrow("invalid");
   });
-  test("accepts only opaque bounded configuration import ids", () => {
-    expect(validateConfigImportId(" 39b01a67-1835-48d4-b83f-74e9400c203b "))
+  test("accepts only opaque bounded enrollment ids", () => {
+    expect(validateEnrollmentId(" 39b01a67-1835-48d4-b83f-74e9400c203b "))
       .toBe("39b01a67-1835-48d4-b83f-74e9400c203b");
-    expect(() => validateConfigImportId("../desktop.json")).toThrow("invalid");
-    expect(() => validateConfigImportId(42)).toThrow("must be a string");
-    expect(() => validateConfigImportId("a".repeat(129))).toThrow("too long");
+    expect(() => validateEnrollmentId("../desktop.json")).toThrow("invalid");
+    expect(() => validateEnrollmentId(42)).toThrow("must be a string");
+    expect(() => validateEnrollmentId("a".repeat(129))).toThrow("too long");
   });
 
   test("allows and normalizes the typed Dashboard RPC surface", () => {
@@ -95,10 +97,8 @@ describe("desktop IPC validation", () => {
       .toThrow("enabled must be a boolean");
   });
 
-  test("accepts only bounded setup fields and supported providers", () => {
+  test("accepts only bounded setup fields", () => {
     expect(validateSetupInput({
-      provider: "deepseek",
-      api_key: " key ",
       workspace_root: " C:\\workspace ",
       ziniao: {
         action: "save",
@@ -111,8 +111,6 @@ describe("desktop IPC validation", () => {
       },
       logging: { profile: "standard", retention_days: 7 },
     })).toEqual({
-      provider: "deepseek",
-      api_key: "key",
       workspace_root: "C:\\workspace",
       ziniao: {
         action: "save",
@@ -125,19 +123,24 @@ describe("desktop IPC validation", () => {
       },
       logging: { profile: "standard", retention_days: 7 },
     });
-    expect(() => validateSetupInput({ provider: "other", workspace_root: "C:\\workspace" }))
-      .toThrow("Unsupported model provider");
-    expect(() => validateSetupInput({ provider: "glm", workspace_root: "" }))
+    expect(() => validateSetupInput({ workspace_root: "" }))
       .toThrow("Workspace is required");
     expect(() => validateSetupInput({
-      provider: "glm",
       workspace_root: "C:\\workspace",
       ziniao: { action: "save", app_version: "v7" },
     })).toThrow("Ziniao app version is unsupported");
     expect(() => validateSetupInput({
-      provider: "glm",
       workspace_root: "C:\\workspace",
       logging: { profile: "verbose", retention_days: 7 },
     })).toThrow("Log profile is unsupported");
+  });
+
+  test("validates local model credentials independently from setup", () => {
+    expect(validateModelProvider("glm")).toBe("glm");
+    expect(() => validateModelProvider("other")).toThrow("Unsupported model provider");
+    expect(validateLocalModelCredentialInput({ provider: "deepseek", api_key: " key " }))
+      .toEqual({ provider: "deepseek", api_key: "key" });
+    expect(() => validateLocalModelCredentialInput({ provider: "deepseek", api_key: "" }))
+      .toThrow("required");
   });
 });

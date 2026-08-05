@@ -24,9 +24,8 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
       "activateCloudEnrollment",
-      "applyConfigImport",
       "cancelSyntheticPerformerTask",
-      "discardConfigImport",
+      "deleteLocalModelCredential",
       "discardConversationFiles",
       "getCloudState",
       "getHealth",
@@ -46,9 +45,9 @@ describe("preload bridge", () => {
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
+      "saveLocalModelCredential",
       "saveSetup",
       "selectCloudEnrollment",
-      "selectConfigImport",
       "selectConversationFiles",
       "selectSyntheticPerformerOutput",
       "selectSyntheticPerformerSources",
@@ -60,14 +59,13 @@ describe("preload bridge", () => {
     ]);
     expect(bridge.desktop.platform).toBe("win32");
     await bridge.dashboard.call({ operation: "models.list", input: {} });
-    await bridge.desktop.selectConfigImport();
+    await bridge.desktop.saveLocalModelCredential({ provider: "deepseek", api_key: "local-key" });
+    await bridge.desktop.deleteLocalModelCredential("deepseek");
     await bridge.desktop.selectCloudEnrollment();
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
     await bridge.desktop.getCloudState();
     await bridge.desktop.retryCloudConnection();
     await bridge.desktop.openCloudDestination("erp_dashboard");
-    await bridge.desktop.applyConfigImport("import-123");
-    await bridge.desktop.discardConfigImport("import-123");
     await bridge.desktop.selectZiniaoApp();
     await bridge.desktop.selectZiniaoWebDriverDirectory();
     await bridge.desktop.openLogsDirectory();
@@ -161,14 +159,13 @@ describe("preload bridge", () => {
     expect(listeners.has(IPC_CHANNELS.syntheticPerformerTaskChanged)).toBe(false);
     expect(invocations.map((item) => item.channel)).toEqual([
       IPC_CHANNELS.dashboardCall,
-      IPC_CHANNELS.selectConfigImport,
+      IPC_CHANNELS.saveLocalModelCredential,
+      IPC_CHANNELS.deleteLocalModelCredential,
       IPC_CHANNELS.selectCloudEnrollment,
       IPC_CHANNELS.activateCloudEnrollment,
       IPC_CHANNELS.getCloudState,
       IPC_CHANNELS.retryCloudConnection,
       IPC_CHANNELS.openCloudDestination,
-      IPC_CHANNELS.applyConfigImport,
-      IPC_CHANNELS.discardConfigImport,
       IPC_CHANNELS.selectZiniaoApp,
       IPC_CHANNELS.selectZiniaoWebDriverDirectory,
       IPC_CHANNELS.openLogsDirectory,
@@ -183,13 +180,13 @@ describe("preload bridge", () => {
       IPC_CHANNELS.stageDroppedConversationFiles,
       IPC_CHANNELS.discardConversationFiles,
     ]);
-    expect(invocations[20]?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[21]?.arguments).toEqual([["attachment-1"]]);
-    expect(invocations[3]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[6]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[7]?.arguments).toEqual(["import-123"]);
-    expect(invocations[8]?.arguments).toEqual(["import-123"]);
-    expect(invocations[15]?.arguments).toEqual([{
+    expect(invocations[19]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[20]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
+    expect(invocations[2]?.arguments).toEqual(["deepseek"]);
+    expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
+    expect(invocations[7]?.arguments).toEqual(["erp_dashboard"]);
+    expect(invocations[14]?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,

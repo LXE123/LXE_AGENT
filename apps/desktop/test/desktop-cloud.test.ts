@@ -135,7 +135,7 @@ const encryptedEnrollment = (
 };
 
 describe("DesktopCloudService", () => {
-  test("fetches and persists a managed model credential only when its revision changes", async () => {
+  test("refreshes changed or invalid managed credentials, retains them offline, and applies revocation", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-managed-llm-"));
     roots.push(root);
     mkdirSync(join(root, "workspace"));
@@ -145,6 +145,7 @@ describe("DesktopCloudService", () => {
     let revision = "a".repeat(64);
     let apiKey = "managed-key-one";
     let offline = false;
+    let available = true;
     const requests: string[] = [];
     const changed: string[] = [];
     const service = new DesktopCloudService({
@@ -156,7 +157,9 @@ describe("DesktopCloudService", () => {
       logger: testLogger([]),
       provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
       onConfigured: async () => undefined,
-      onManagedLlmCredentialChanged: (credential) => { changed.push(credential.credential_revision); },
+      onManagedLlmCredentialChanged: (credential) => {
+        changed.push(credential?.credential_revision ?? "revoked");
+      },
       fetch: async (input) => {
         if (offline) throw new Error("data server offline");
         const url = String(input);
@@ -165,12 +168,12 @@ describe("DesktopCloudService", () => {
           return Response.json({
             status: "ok",
             role: "admin",
-            managed_llm: {
+            managed_llm: available ? {
               available: true,
               provider: "deepseek",
               model: "deepseek-v4-flash",
               credential_revision: revision,
-            },
+            } : { available: false },
           });
         }
         return Response.json({
@@ -211,6 +214,19 @@ describe("DesktopCloudService", () => {
       LXE_MANAGED_LLM_API_KEY: "managed-key-two",
       LXE_MANAGED_LLM_CREDENTIAL_REVISION: "b".repeat(64),
     });
+
+    offline = false;
+    config.invalidateManagedLlmCredential("b".repeat(64));
+    apiKey = "managed-key-three";
+    await service.check();
+    expect(requests.filter((url) => url.endsWith("/llm-credential"))).toHaveLength(3);
+    expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("managed-key-three");
+
+    available = false;
+    await service.check();
+    expect(changed.at(-1)).toBe("revoked");
+    expect(config.state()).toMatchObject({ complete: false, managed_model_configured: false });
+    expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("");
   });
 
   test("uses an in-memory Preview target on unsupported platforms and prefers it over managed config", async () => {

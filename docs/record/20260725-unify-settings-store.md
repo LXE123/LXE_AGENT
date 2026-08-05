@@ -2,6 +2,9 @@
 
 Status: `Accepted`
 
+Model credential storage and dotenv import in this record were superseded by
+[`20260805-cloud-default-local-auth.md`](20260805-cloud-default-local-auth.md).
+
 ## Decision
 
 LXE Agent now owns one non-sensitive runtime settings file at `var/config/settings.json`. Desktop credentials remain encrypted in `var/config/secrets.bin`; source development may use a Git-ignored `.env` containing only secrets. Product defaults live in code rather than a tracked `runtime.env` file.

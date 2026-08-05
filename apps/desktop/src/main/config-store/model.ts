@@ -2,7 +2,7 @@ import type {
   DesktopLogProfile,
   DesktopLogRetentionDays,
   DesktopPlatform,
-  DesktopSetupInput,
+  DesktopModelProvider,
   DesktopZiniaoVersion,
   DesktopCloudPermissionSnapshot,
   CredentialSource,
@@ -28,10 +28,10 @@ export interface DesktopConfig {
   schema_version: 5;
   migration_version: number;
   llm: {
-    provider: DesktopSetupInput["provider"];
+    provider: DesktopModelProvider;
     credential_source: CredentialSource;
-    last_local_provider: DesktopSetupInput["provider"];
-    profiles: Partial<Record<DesktopSetupInput["provider"], {
+    last_local_provider: DesktopModelProvider;
+    profiles: Partial<Record<DesktopModelProvider, {
       model: string;
       thinking_level: string;
     }>>;
@@ -67,7 +67,6 @@ export interface DesktopConfig {
 }
 
 export interface DesktopSecrets {
-  provider_keys: Partial<Record<DesktopSetupInput["provider"], string>>;
   ziniao_password: string;
   mabang_password: string;
   feishu_app_secret: string;
@@ -80,7 +79,7 @@ export interface DesktopSecrets {
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
-export const MIGRATION_VERSION = 3;
+export const MODEL_AUTH_MIGRATION_VERSION = 4;
 
 export const SETTINGS_SCHEMA_VERSION = 5 as const;
 
@@ -89,7 +88,7 @@ const DEFAULT_CONFIG: DesktopConfig = {
   migration_version: 0,
   llm: {
     provider: "deepseek",
-    credential_source: "local",
+    credential_source: "cloud",
     last_local_provider: "deepseek",
     profiles: {
       deepseek: { model: "deepseek-v4-flash", thinking_level: "low" },
@@ -125,7 +124,6 @@ const DEFAULT_CONFIG: DesktopConfig = {
 };
 
 const DEFAULT_SECRETS: DesktopSecrets = {
-  provider_keys: {},
   ziniao_password: "",
   mabang_password: "",
   feishu_app_secret: "",
@@ -364,7 +362,6 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
 
 export const parseSecrets = (raw: unknown): DesktopSecrets => {
   const value = objectValue(raw);
-  const keys = objectValue(value.provider_keys);
   const managedCredential = objectValue(value.managed_llm_credential);
   const revision = text(managedCredential.credential_revision).toLowerCase();
   const invalidRevision = text(managedCredential.invalid_revision).toLowerCase();
@@ -387,11 +384,6 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
         }
       : null;
   return {
-    provider_keys: {
-      kimi_coding: text(keys.kimi_coding),
-      deepseek: text(keys.deepseek),
-      glm: text(keys.glm),
-    },
     ziniao_password: text(value.ziniao_password),
     mabang_password: text(value.mabang_password),
     feishu_app_secret: text(value.feishu_app_secret),

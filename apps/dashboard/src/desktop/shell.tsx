@@ -7,7 +7,6 @@ import {
   ExternalLink,
   Feather,
   FileKey2,
-  FileUp,
   FolderOpen,
   Globe,
   Languages,
@@ -22,11 +21,11 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
-  DesktopConfigImportPreview,
   DesktopCloudDestination,
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
+  DesktopModelProvider,
   DesktopLogProfile,
   DesktopLogRetentionDays,
   DesktopSetupInput,
@@ -40,8 +39,6 @@ import type { DashboardFontSize, DashboardTheme } from "../shared/appearance";
 import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
 import {
-  configImportSuccessMessage,
-  desktopProgressNotice,
   desktopSuccessNotice,
   type DesktopNoticeState,
 } from "./notice-model";
@@ -56,13 +53,20 @@ import {
   type EditableDesktopSettingsSection,
 } from "./settings-model";
 
-type Provider = DesktopSetupInput["provider"];
+type Provider = DesktopModelProvider;
 type IntegrationName = "ziniao" | "mabang" | "feishu";
 type SetupForm = DesktopSettingsFormValue;
 type DesktopConfirmation =
   | { kind: "diagnostic" }
-  | { kind: "clear-integration"; integration: IntegrationName; label: string };
+  | { kind: "clear-integration"; integration: IntegrationName; label: string }
+  | { kind: "delete-local-model"; provider: Provider; label: string };
 const setupForm = desktopSettingsForm;
+
+const PROVIDER_LABELS: Record<Provider, string> = {
+  kimi_coding: "Kimi Coding",
+  deepseek: "DeepSeek",
+  glm: "GLM",
+};
 
 const FONT_SIZE_VALUES: ReadonlyArray<DashboardFontSize> = ["small", "standard", "large"];
 const THEME_VALUES: ReadonlyArray<DashboardTheme> = ["system", "light", "dark"];
@@ -117,8 +121,6 @@ function DesktopSettingsNavigation({
   showStatus,
   onLanguageChange,
   onSelect,
-  onSelectConfigImport,
-  configurationBusy,
 }: {
   activeSection: DesktopSettingsSection;
   baseline: SetupForm;
@@ -131,8 +133,6 @@ function DesktopSettingsNavigation({
   showStatus: boolean;
   onLanguageChange: (language: Language) => void;
   onSelect: (section: DesktopSettingsSection) => void;
-  onSelectConfigImport: () => void;
-  configurationBusy: boolean;
 }) {
   const t = useUiText();
   const item = (section: DesktopSettingsSection, label: string, status: string, Icon: LucideIcon) => {
@@ -176,15 +176,6 @@ function DesktopSettingsNavigation({
           <span><Languages aria-hidden size={15} />{t.desktop.interfaceLanguage}</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
-        <button
-          className="desktop-settings-import-button"
-          disabled={configurationBusy}
-          onClick={onSelectConfigImport}
-          type="button"
-        >
-          <FileUp size={15} />
-          <span><strong>{t.desktop.importEnv}</strong><small>{t.desktop.importEnvHint}</small></span>
-        </button>
       </div>
     </nav>
   );
@@ -554,13 +545,15 @@ function DesktopAppearancePanel({
 
 function DesktopSettingsForm({
   activeSection,
+  credentialBusy,
   form,
   health,
   headingRef,
   setup,
   platform,
-  requireKey,
   onChange,
+  onDeleteLocalCredential,
+  onSaveLocalCredential,
   onSelectWorkspace,
   onSelectZiniaoApp,
   onSelectZiniaoWebDriverDirectory,
@@ -568,13 +561,15 @@ function DesktopSettingsForm({
   onClearIntegration,
 }: {
   activeSection: EditableDesktopSettingsSection;
+  credentialBusy: boolean;
   form: SetupForm;
   health: DesktopHealth;
   headingRef: RefObject<HTMLHeadingElement | null>;
   setup: DesktopSetupState;
   platform: "win32" | "darwin" | "linux";
-  requireKey: boolean;
   onChange: (patch: Partial<SetupForm>) => void;
+  onDeleteLocalCredential: (provider: Provider) => void;
+  onSaveLocalCredential: () => void;
   onSelectWorkspace: () => void;
   onSelectZiniaoApp: () => void;
   onSelectZiniaoWebDriverDirectory: () => void;
@@ -583,34 +578,81 @@ function DesktopSettingsForm({
 }) {
   const t = useUiText();
   if (activeSection === "base") {
+    const selectedProviderConfigured = setup.local_model_credentials[form.localProvider];
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
-          badge={t.desktop.sectionStatus.required}
-          badgeClassName="desktop-required-badge"
+          badge={t.desktop.base.badge}
+          badgeClassName="desktop-appearance-badge"
           description={t.desktop.base.description}
           headingRef={headingRef}
           title={t.desktop.sectionTitles.base}
         />
+        <div className="desktop-local-model-card">
+          <div className="desktop-local-model-heading">
+            <div>
+              <strong>{t.desktop.base.localCredentials}</strong>
+              <span>{t.desktop.base.localCredentialsDescription}</span>
+            </div>
+            <span className={selectedProviderConfigured ? "configured" : "optional"}>
+              {selectedProviderConfigured ? t.desktop.base.configured : t.desktop.base.notConfigured}
+            </span>
+          </div>
+          <div className="desktop-field-grid">
+            <label>
+              <span>{t.desktop.base.provider}</span>
+              <select
+                disabled={credentialBusy}
+                value={form.localProvider}
+                onChange={(event) => onChange({ localProvider: event.target.value as Provider, localApiKey: "" })}
+              >
+                {Object.entries(PROVIDER_LABELS).map(([provider, label]) => (
+                  <option key={provider} value={provider}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t.desktop.base.apiKey}</span>
+              <input
+                autoComplete="new-password"
+                disabled={credentialBusy}
+                onChange={(event) => onChange({ localApiKey: event.target.value })}
+                placeholder={t.desktop.base.apiKeyPlaceholder}
+                type="password"
+                value={form.localApiKey}
+              />
+            </label>
+          </div>
+          <div className="desktop-local-model-actions">
+            <button
+              className="desktop-primary-button"
+              disabled={credentialBusy || form.localApiKey.trim().length === 0}
+              onClick={onSaveLocalCredential}
+              type="button"
+            >
+              <FileKey2 size={15} />
+              {credentialBusy ? t.desktop.base.savingLocalKey : t.desktop.base.saveLocalKey}
+            </button>
+            {selectedProviderConfigured ? (
+              <button
+                className="desktop-local-model-delete"
+                disabled={credentialBusy}
+                onClick={() => onDeleteLocalCredential(form.localProvider)}
+                type="button"
+              >
+                <Trash2 size={15} />
+                {t.desktop.base.deleteLocalKey}
+              </button>
+            ) : null}
+          </div>
+          <p className="desktop-form-hint desktop-local-model-warning"><AlertTriangle size={14} />{t.desktop.base.plaintextWarning}</p>
+          <div className="desktop-local-auth-path">
+            <span>{t.desktop.base.localAuthPath}</span>
+            <code title={setup.local_auth_path}>{setup.local_auth_path}</code>
+          </div>
+          {setup.local_auth_error ? <p className="desktop-form-error" role="alert">{setup.local_auth_error}</p> : null}
+        </div>
         <div className="desktop-field-grid">
-          <label>
-            <span>{t.desktop.base.provider}</span>
-            <select value={form.provider} onChange={(event) => onChange({ provider: event.target.value as Provider, apiKey: "" })}>
-              <option value="kimi_coding">Kimi Coding</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="glm">GLM</option>
-            </select>
-          </label>
-          <label>
-            <span>API Key{requireKey ? t.desktop.base.apiKeySuffixRequired : t.desktop.keepBlankSuffix}</span>
-            <input
-              autoComplete="new-password"
-              onChange={(event) => onChange({ apiKey: event.target.value })}
-              placeholder={requireKey ? t.desktop.base.apiKeyPlaceholder : t.desktop.base.apiKeyStoredPlaceholder}
-              type="password"
-              value={form.apiKey}
-            />
-          </label>
           <label className="desktop-field-wide">
             <span>{t.desktop.base.workspace}</span>
             <span className="desktop-path-input">
@@ -843,97 +885,6 @@ function DesktopSettingsForm({
   );
 }
 
-function ConfigImportDialog({
-  preview,
-  applying,
-  diagnosticConfirmed,
-  onDiagnosticConfirmed,
-  onCancel,
-  onApply,
-}: {
-  preview: DesktopConfigImportPreview;
-  applying: boolean;
-  diagnosticConfirmed: boolean;
-  onDiagnosticConfirmed: (confirmed: boolean) => void;
-  onCancel: () => void;
-  onApply: () => void;
-}) {
-  const t = useUiText();
-  const closeDialog = () => {
-    if (!applying) onCancel();
-  };
-  const dialogRef = useDialogFocus<HTMLElement>(true, closeDialog);
-  return (
-    <div className="modal-backdrop desktop-config-import-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) closeDialog();
-    }}>
-      <section
-        aria-labelledby="desktop-config-import-title"
-        aria-modal="true"
-        className="desktop-config-import-dialog"
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <header>
-          <div>
-            <p className="desktop-eyebrow">{t.desktop.configImport.eyebrow}</p>
-            <h2 id="desktop-config-import-title">{t.desktop.configImport.title(preview.file_name)}</h2>
-            <p>{t.desktop.configImport.hint}</p>
-          </div>
-          <button aria-label={t.desktop.configImport.cancelAria} disabled={applying} onClick={onCancel} type="button">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="desktop-config-import-groups">
-          {preview.groups.map((group) => (
-            <article className={`desktop-config-import-group status-${group.status}`} key={group.group}>
-              <div>
-                <strong>{group.label}</strong>
-                <span>{group.status === "ready" ? t.desktop.configImport.ready : t.desktop.configImport.pending}</span>
-              </div>
-              <p>{t.desktop.configImport.detected(group.detected_fields.join(t.desktop.listSeparator))}</p>
-              {group.overwritten_fields.length > 0 ? (
-                <p className="desktop-config-import-overwrite">{t.desktop.configImport.overwrite(group.overwritten_fields.join(t.desktop.listSeparator))}</p>
-              ) : null}
-              <IntegrationIssues issues={group.issues} />
-            </article>
-          ))}
-        </div>
-        {preview.unknown_variable_count > 0 ? (
-          <p className="desktop-config-import-note">{t.desktop.configImport.unknownVariables(String(preview.unknown_variable_count))}</p>
-        ) : null}
-        {preview.warnings.length > 0 ? (
-          <ul className="desktop-config-import-warnings">
-            {preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-          </ul>
-        ) : null}
-        {preview.diagnostic_logging ? (
-          <label className="desktop-config-import-diagnostic">
-            <input
-              checked={diagnosticConfirmed}
-              onChange={(event) => onDiagnosticConfirmed(event.target.checked)}
-              type="checkbox"
-            />
-            <span>{t.desktop.configImport.diagnosticConfirm}</span>
-          </label>
-        ) : null}
-        <footer>
-          <button disabled={applying} onClick={onCancel} type="button">{t.desktop.cancel}</button>
-          <button
-            className="desktop-primary-button"
-            disabled={applying || (preview.diagnostic_logging && !diagnosticConfirmed)}
-            onClick={onApply}
-            type="button"
-          >
-            {applying ? t.desktop.configImport.applying : t.desktop.configImport.apply}
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
 function CloudBindingDialog({
   activating,
   cloud,
@@ -1040,10 +991,17 @@ function DesktopConfirmationDialog({
   const t = useUiText();
   const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const diagnostic = confirmation.kind === "diagnostic";
-  const title = diagnostic ? t.desktop.confirm.diagnosticTitle : t.desktop.confirm.clearTitle(confirmation.label);
+  const deletingKey = confirmation.kind === "delete-local-model";
+  const title = diagnostic
+    ? t.desktop.confirm.diagnosticTitle
+    : deletingKey
+      ? t.desktop.confirm.deleteKeyTitle(confirmation.label)
+      : t.desktop.confirm.clearTitle(confirmation.label);
   const description = diagnostic
     ? t.desktop.confirm.diagnosticDescription
-    : t.desktop.confirm.clearDescription(confirmation.label);
+    : deletingKey
+      ? t.desktop.confirm.deleteKeyDescription
+      : t.desktop.confirm.clearDescription(confirmation.label);
   return (
     <div className="modal-backdrop desktop-confirm-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onCancel();
@@ -1070,7 +1028,11 @@ function DesktopConfirmationDialog({
             onClick={onConfirm}
             type="button"
           >
-            {diagnostic ? t.desktop.confirm.diagnosticConfirm : t.desktop.confirm.clearConfirm}
+            {diagnostic
+              ? t.desktop.confirm.diagnosticConfirm
+              : deletingKey
+                ? t.desktop.confirm.deleteKeyConfirm
+                : t.desktop.confirm.clearConfirm}
           </button>
         </footer>
       </section>
@@ -1109,25 +1071,20 @@ export function DesktopShell({
   const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("cloud");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [credentialBusy, setCredentialBusy] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [cloudActivating, setCloudActivating] = useState(false);
   const [cloudEnrollment, setCloudEnrollment] = useState<DesktopCloudEnrollmentSelection | null>(null);
   const [cloudPassword, setCloudPassword] = useState("");
   const [cloudBindingDialogOpen, setCloudBindingDialogOpen] = useState(false);
   const [cloudEnrollmentError, setCloudEnrollmentError] = useState("");
-  const [importPreview, setImportPreview] = useState<DesktopConfigImportPreview | null>(null);
-  const [importApplying, setImportApplying] = useState(false);
-  const [importDiagnosticConfirmed, setImportDiagnosticConfirmed] = useState(false);
   const [confirmation, setConfirmation] = useState<DesktopConfirmation | null>(null);
   const [notice, setNotice] = useState<DesktopNoticeState | null>(null);
   const [error, setError] = useState("");
   const [appGeneration, setAppGeneration] = useState(0);
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
   const noticeSequence = useRef(0);
-  const showProgressNotice = (message: string): void => {
-    noticeSequence.current += 1;
-    setNotice(desktopProgressNotice(noticeSequence.current, message));
-  };
+  const setupComplete = useRef<boolean | null>(null);
   const showSuccessNotice = (message: string): void => {
     noticeSequence.current += 1;
     setNotice(desktopSuccessNotice(noticeSequence.current, message));
@@ -1152,6 +1109,7 @@ export function DesktopShell({
     ]) => {
       if (cancelled) return;
       setSetup(nextSetup);
+      setupComplete.current = nextSetup.complete;
       setHealth(nextHealth);
       setCloud(nextCloud);
       setForm(setupForm(nextSetup));
@@ -1159,7 +1117,17 @@ export function DesktopShell({
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
     const unsubscribeHealth = desktop.onStatusChanged((nextHealth) => {
-      if (!cancelled) setHealth(nextHealth);
+      if (cancelled) return;
+      setHealth(nextHealth);
+      void desktop.getSetupState().then((nextSetup) => {
+        if (cancelled) return;
+        const completeChanged = setupComplete.current !== nextSetup.complete;
+        setupComplete.current = nextSetup.complete;
+        setSetup(nextSetup);
+        if (completeChanged) setForm(setupForm(nextSetup));
+      }).catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
     });
     const unsubscribeCloud = desktop.onCloudStateChanged((nextCloud) => {
       if (!cancelled) setCloud(nextCloud);
@@ -1197,8 +1165,17 @@ export function DesktopShell({
   const updateForm = (patch: Partial<SetupForm>): void => setForm((current) => current ? { ...current, ...patch } : current);
   const refreshSetup = async (next: DesktopSetupState): Promise<void> => {
     queryClient.clear();
+    setupComplete.current = next.complete;
     setSetup(next);
     setForm(setupForm(next));
+    setHealth(await desktop.getHealth());
+    setAppGeneration((value) => value + 1);
+  };
+  const refreshCredentialSetup = async (next: DesktopSetupState): Promise<void> => {
+    queryClient.clear();
+    setupComplete.current = next.complete;
+    setSetup(next);
+    setForm((current) => current ? { ...current, localApiKey: "" } : setupForm(next));
     setHealth(await desktop.getHealth());
     setAppGeneration((value) => value + 1);
   };
@@ -1214,21 +1191,7 @@ export function DesktopShell({
     const selected = await desktop.selectZiniaoWebDriverDirectory();
     if (selected) updateForm({ ziniaoWebDriverPath: selected });
   };
-  const selectConfigImport = async (): Promise<void> => {
-    if (importApplying) return;
-    setError("");
-    setNotice(null);
-    try {
-      const preview = await desktop.selectConfigImport();
-      if (!preview) return;
-      setImportPreview(preview);
-      setImportDiagnosticConfirmed(false);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  };
   const selectCloudEnrollment = async (): Promise<void> => {
-    if (importApplying) return;
     setCloudEnrollmentError("");
     try {
       const selection = await desktop.selectCloudEnrollment();
@@ -1238,7 +1201,7 @@ export function DesktopShell({
     }
   };
   const activateCloudEnrollment = async (): Promise<void> => {
-    if (!cloudEnrollment || importApplying) return;
+    if (!cloudEnrollment) return;
     const switchingBinding = cloudBindingDialogOpen;
     setCloudActivating(true);
     setCloudEnrollmentError("");
@@ -1282,7 +1245,6 @@ export function DesktopShell({
     setCloudEnrollmentError("");
   };
   const retryCloudConnection = async (): Promise<void> => {
-    if (importApplying) return;
     setCloudActivating(true);
     setError("");
     try {
@@ -1294,7 +1256,7 @@ export function DesktopShell({
     }
   };
   const openCloudDestination = async (destination: DesktopCloudDestination): Promise<void> => {
-    if (importApplying || cloud.connection !== "connected") return;
+    if (cloud.connection !== "connected") return;
     setError("");
     try {
       await desktop.openCloudDestination(destination);
@@ -1302,45 +1264,7 @@ export function DesktopShell({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const cancelConfigImport = async (): Promise<void> => {
-    const preview = importPreview;
-    setImportPreview(null);
-    setImportDiagnosticConfirmed(false);
-    if (!preview) return;
-    try {
-      await desktop.discardConfigImport(preview.import_id);
-    } catch {
-      // Expired and replaced drafts are already unusable.
-    }
-  };
-  const applyConfigImport = async (): Promise<void> => {
-    const preview = importPreview;
-    if (!preview) return;
-    setImportApplying(true);
-    setImportPreview(null);
-    setImportDiagnosticConfirmed(false);
-    setConfirmation(null);
-    setError("");
-    showProgressNotice(t.desktop.configImport.progress);
-    try {
-      const result = await desktop.applyConfigImport(preview.import_id);
-      await refreshSetup(result.state);
-      showSuccessNotice(configImportSuccessMessage(t.desktop, result, preview.unknown_variable_count));
-    } catch (cause) {
-      setNotice(null);
-      try {
-        await refreshSetup(await desktop.getSetupState());
-      } catch {
-        // Preserve the actual import or restart error below.
-      }
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setImportApplying(false);
-    }
-  };
   const baseInput = (): DesktopSetupInput => ({
-    provider: form.provider,
-    ...(form.apiKey ? { api_key: form.apiKey } : {}),
     workspace_root: form.workspaceRoot,
     logging: { profile: form.logProfile, retention_days: form.logRetentionDays },
   });
@@ -1383,8 +1307,35 @@ export function DesktopShell({
       } : {}),
     };
   };
+  const saveLocalCredential = async (): Promise<void> => {
+    const apiKey = form.localApiKey.trim();
+    if (!apiKey || credentialBusy) return;
+    const provider = form.localProvider;
+    setCredentialBusy(true);
+    setError("");
+    try {
+      await refreshCredentialSetup(await desktop.saveLocalModelCredential({ provider, api_key: apiKey }));
+      showSuccessNotice(t.desktop.base.savedLocalKey(PROVIDER_LABELS[provider]));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCredentialBusy(false);
+    }
+  };
+  const performDeleteLocalCredential = async (provider: Provider): Promise<void> => {
+    if (credentialBusy) return;
+    setCredentialBusy(true);
+    setError("");
+    try {
+      await refreshCredentialSetup(await desktop.deleteLocalModelCredential(provider));
+      showSuccessNotice(t.desktop.base.deletedLocalKey(PROVIDER_LABELS[provider]));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCredentialBusy(false);
+    }
+  };
   const persistSetup = async (): Promise<void> => {
-    if (importApplying) return;
     setSaving(true);
     setError("");
     try {
@@ -1398,7 +1349,6 @@ export function DesktopShell({
   };
   const save = (event: FormEvent): void => {
     event.preventDefault();
-    if (importApplying) return;
     if (activeSettingsSection === "appearance"
       || activeSettingsSection === "cloud"
       || activeSettingsSection === "status") return;
@@ -1409,13 +1359,11 @@ export function DesktopShell({
     void persistSetup();
   };
   const performClearIntegration = async (name: IntegrationName): Promise<void> => {
-    if (importApplying) return;
     setSaving(true);
     setError("");
     try {
       const input: DesktopSetupInput = {
         ...(setup.complete ? {
-          provider: setup.provider as Provider,
           workspace_root: setup.workspace_root,
           logging: {
             profile: setup.logging.profile,
@@ -1438,22 +1386,25 @@ export function DesktopShell({
     }
   };
   const clearIntegration = (name: IntegrationName): void => {
-    if (importApplying) return;
     setConfirmation({ kind: "clear-integration", integration: name, label: t.desktop.integrationNames[name] });
   };
+  const deleteLocalCredential = (provider: Provider): void => {
+    if (credentialBusy) return;
+    setConfirmation({ kind: "delete-local-model", provider, label: PROVIDER_LABELS[provider] });
+  };
   const confirmPendingAction = (): void => {
-    if (importApplying) return;
     const pending = confirmation;
     if (!pending) return;
     setConfirmation(null);
     if (pending.kind === "diagnostic") {
       void persistSetup();
-    } else {
+    } else if (pending.kind === "clear-integration") {
       void performClearIntegration(pending.integration);
+    } else {
+      void performDeleteLocalCredential(pending.provider);
     }
   };
   const restart = async (): Promise<void> => {
-    if (importApplying) return;
     setRestarting(true);
     setError("");
     try {
@@ -1479,25 +1430,27 @@ export function DesktopShell({
   const settingsFields = (
     <DesktopSettingsForm
       activeSection={editableSection}
+      credentialBusy={credentialBusy}
       form={form}
       health={health}
       headingRef={sectionHeadingRef}
       onChange={updateForm}
       onClearIntegration={clearIntegration}
+      onDeleteLocalCredential={deleteLocalCredential}
       onOpenLogsDirectory={() => { void desktop.openLogsDirectory().catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause));
       }); }}
       onSelectWorkspace={() => { void selectWorkspace(); }}
       onSelectZiniaoApp={() => { void selectZiniaoApp(); }}
       onSelectZiniaoWebDriverDirectory={() => { void selectZiniaoWebDriverDirectory(); }}
+      onSaveLocalCredential={() => { void saveLocalCredential(); }}
       platform={desktop.platform}
-      requireKey={!setup.provider_key_configured}
       setup={setup}
     />
   );
   const settingsBodyContent = activeSettingsSection === "cloud" ? (
     <DesktopCloudPanel
-      activating={cloudActivating || importApplying}
+      activating={cloudActivating}
       cloud={cloud}
       enrollment={cloudEnrollment}
       headingRef={sectionHeadingRef}
@@ -1520,7 +1473,7 @@ export function DesktopShell({
     />
   ) : settingsFields;
   const settingsBody = (
-    <fieldset className="desktop-settings-fieldset" disabled={importApplying}>
+    <fieldset className="desktop-settings-fieldset" disabled={saving}>
       {settingsBodyContent}
     </fieldset>
   );
@@ -1532,25 +1485,13 @@ export function DesktopShell({
       fontSize={fontSize}
       health={health}
       cloud={cloud}
-      configurationBusy={importApplying}
       language={language}
       onLanguageChange={onLanguageChange}
       onSelect={selectSettingsSection}
-      onSelectConfigImport={() => { void selectConfigImport(); }}
       setup={setup}
       showStatus={showStatus}
     />
   );
-  const importDialog = importPreview ? (
-    <ConfigImportDialog
-      applying={importApplying}
-      diagnosticConfirmed={importDiagnosticConfirmed}
-      onApply={() => { void applyConfigImport(); }}
-      onCancel={() => { void cancelConfigImport(); }}
-      onDiagnosticConfirmed={setImportDiagnosticConfirmed}
-      preview={importPreview}
-    />
-  ) : null;
   const confirmationDialog = confirmation ? (
     <DesktopConfirmationDialog
       confirmation={confirmation}
@@ -1560,7 +1501,7 @@ export function DesktopShell({
   ) : null;
   const cloudBindingDialog = cloudBindingDialogOpen ? (
     <CloudBindingDialog
-      activating={cloudActivating || importApplying}
+      activating={cloudActivating}
       cloud={cloud}
       enrollment={cloudEnrollment}
       error={cloudEnrollmentError}
@@ -1606,13 +1547,12 @@ export function DesktopShell({
                 ? t.desktop.onboarding.footerCloud
                 : t.desktop.onboarding.footerBase}</span>
             {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" ? (
-              <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
-                {importApplying ? t.desktop.onboarding.applying : saving ? t.desktop.onboarding.starting : t.desktop.onboarding.submit}
+              <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
+                {saving ? t.desktop.onboarding.starting : t.desktop.onboarding.submit}
               </button>
             ) : null}
           </footer>
         </form>
-        {importDialog}
         {confirmationDialog}
         {cloudBindingDialog}
       </main>
@@ -1632,7 +1572,7 @@ export function DesktopShell({
       <div key={appGeneration}>{children({ cloud, health, openSettings })}</div>
       {notice && !settingsOpen ? (
         <DesktopNoticeMessage
-          className="desktop-import-toast"
+          className="desktop-notice-toast"
           notice={notice}
           onDismiss={() => setNotice(null)}
         />
@@ -1667,7 +1607,7 @@ export function DesktopShell({
                     headingRef={sectionHeadingRef}
                     health={health}
                     onRestart={() => { void restart(); }}
-                    restarting={restarting || importApplying}
+                    restarting={restarting}
                   />
                 ) : settingsBody}
                 {notice ? (
@@ -1685,15 +1625,14 @@ export function DesktopShell({
               {activeSettingsSection !== "status"
                 && activeSettingsSection !== "appearance"
                 && activeSettingsSection !== "cloud" ? (
-                <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
-                  {importApplying ? t.desktop.settings.applying : saving ? t.desktop.settings.saving : t.desktop.settings.submit}
+                <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
+                  {saving ? t.desktop.settings.saving : t.desktop.settings.submit}
                 </button>
               ) : null}
             </footer>
           </form>
         </div>
       ) : null}
-      {importDialog}
       {confirmationDialog}
       {cloudBindingDialog}
     </div>

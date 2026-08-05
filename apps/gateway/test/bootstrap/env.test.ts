@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { developmentSecretEnvironment, loadEnvironmentFiles, parseEnvFile } from "../../src/bootstrap/env";
 
 describe("project environment", () => {
-  test("keeps the first value across explicitly selected import files", () => {
+  test("keeps the first value across explicitly selected source dotenv files", () => {
     const files: Record<string, string> = {
       [join("/repo", ".env")]: "A=env\nB=env\nexport C='single value'\n",
       [join("/repo", ".env.local")]: "A=local\nB=local\nD=local\n",
@@ -55,7 +55,6 @@ describe("project environment", () => {
       LXE_DATA_SERVER_URL: "must-come-from-settings",
       LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
     })).toEqual({
-      KIMI_CODE_API_KEY: "secret",
       FEISHU_APP_SECRET: "feishu-secret",
       LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
     });

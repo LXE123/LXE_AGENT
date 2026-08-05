@@ -30,7 +30,11 @@ const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState =
 const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState => ({
   complete: true,
   provider: "kimi_coding",
-  provider_key_configured: true,
+  credential_source: "local",
+  managed_model_configured: false,
+  local_model_credentials: { kimi_coding: true, deepseek: false, glm: false },
+  local_auth_path: "/data/var/config/auth.json",
+  local_auth_error: "",
   workspace_root: "/workspace",
   ziniao: {
     managed: false,
@@ -62,7 +66,6 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
     retention_days: 7,
     directory: "/data/var/logs",
   },
-  legacy_environment_imported: true,
   ...patch,
 });
 
@@ -79,9 +82,9 @@ describe("desktop settings navigation model", () => {
   test("projects saved state without returning secrets", () => {
     const form = desktopSettingsForm(setupState());
 
-    expect(form.provider).toBe("kimi_coding");
+    expect(form.localProvider).toBe("kimi_coding");
     expect(form.workspaceRoot).toBe("/workspace");
-    expect(form.apiKey).toBe("");
+    expect(form.localApiKey).toBe("");
     expect(form.mabangPassword).toBe("");
     expect(form.feishuAppSecret).toBe("");
   });

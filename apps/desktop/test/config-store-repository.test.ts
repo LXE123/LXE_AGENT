@@ -26,6 +26,15 @@ const safeStorage = {
   decryptString: (value: Buffer) => value.toString("utf8").slice("encrypted:".length),
 };
 
+const managedCredential = (apiKey: string) => ({
+  provider: "deepseek" as const,
+  model: "deepseek-v4-flash" as const,
+  api_key: apiKey,
+  credential_revision: "a".repeat(64),
+  fetched_at: 1,
+  invalid_revision: "",
+});
+
 describe("DesktopConfigRepository", () => {
   test("returns defaults and normalizes the legacy persisted schema", () => {
     const root = createRoot();
@@ -98,7 +107,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, opaqueStorage, "win32");
     const config = cloneConfig();
     const secrets = cloneSecrets();
-    secrets.provider_keys.glm = "provider-secret";
+    secrets.managed_llm_credential = managedCredential("provider-secret");
     secrets.ziniao_password = "ziniao-secret";
     secrets.mabang_password = "mabang-secret";
     secrets.feishu_app_secret = "feishu-secret";
@@ -143,7 +152,7 @@ describe("DesktopConfigRepository", () => {
     }, "win32");
     const originalConfig = cloneConfig();
     const originalSecrets = cloneSecrets();
-    originalSecrets.provider_keys.glm = "original-secret";
+    originalSecrets.managed_llm_credential = managedCredential("original-secret");
     repository.commit(originalConfig, originalSecrets);
     const configPath = join(root, "config", "settings.json");
     const secretsPath = join(root, "config", "secrets.bin");
@@ -153,7 +162,7 @@ describe("DesktopConfigRepository", () => {
     const changedConfig = cloneConfig();
     changedConfig.llm.provider = "glm";
     const changedSecrets = cloneSecrets();
-    changedSecrets.provider_keys.glm = "changed-secret";
+    changedSecrets.managed_llm_credential = managedCredential("changed-secret");
     encryptionFails = true;
     expect(() => repository.commit(changedConfig, changedSecrets)).toThrow("encryption failed");
     expect(readFileSync(configPath)).toEqual(beforeConfig);

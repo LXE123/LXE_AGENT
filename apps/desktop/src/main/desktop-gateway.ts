@@ -348,7 +348,7 @@ export class DesktopGateway {
   }
 
   async updateManagedLlmCredential(
-    credential: import("@lxe/desktop-protocol").ManagedLlmCredential,
+    credential: import("@lxe/desktop-protocol").ManagedLlmCredential | null,
   ): Promise<void> {
     if (!this.runtime) return;
     await this.runtime.updateManagedLlmCredential(credential);

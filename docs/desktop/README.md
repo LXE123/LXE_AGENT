@@ -67,17 +67,21 @@ bun run desktop:tools:mac
 
 ## 桌面配置与安全
 
-首次启动向导负责模型凭证和默认工作区，可按需增加紫鸟、马帮、飞书和日志配置。未显式选择工作区时，Desktop 使用并自动创建安装目录下的 `var/workspace`；用户仍可选择其他已经存在且可访问的项目目录。首次启动与后续设置共用同一表单，并可从本机 `.env` 一次性导入；旧 `.env.local` 仅在迁移窗口内作为兼容导入格式。选择文件后 Main 只向界面返回检测分组、覆盖范围、待补全字段和警告；用户确认后才提交配置。模型 API Key、紫鸟密码、马帮密码、飞书 App Secret 和 Data Server API Key 通过 Electron `safeStorage` 加密写入 `var/config/secrets.bin`，非敏感设置写入 `var/config/settings.json`；配置读取接口只返回“是否已配置”，不会回显明文。
+首次启动默认连接公司云端并使用公司下发的 DeepSeek 模型，同时设置默认工作区；紫鸟、马帮、飞书和日志配置可按需补充。未显式选择工作区时，Desktop 使用并自动创建安装目录下的 `var/workspace`；用户仍可选择其他已经存在且可访问的项目目录。
+
+公司模型凭证、紫鸟密码、马帮密码、飞书 App Secret 和 Data Server API Key 通过 Electron `safeStorage` 加密写入 `var/config/secrets.bin`。用户自带的 Kimi Coding、DeepSeek 或 GLM Key 则从设置页单独填写，以明文 JSON 写入 `var/config/auth.json`，不做应用层加密。POSIX 平台创建配置目录时使用 `0700`，`auth.json` 和锁文件使用 `0600`；Windows 依赖当前用户应用数据目录继承的 NTFS ACL，不能把 POSIX mode 当作 Windows 的同等保证。配置读取接口只返回各提供商“是否已配置”、文件路径和读取错误，不向 Renderer 回显 Key。
 
 `settings.json` 使用版本化 schema，Desktop Main 是唯一写入者。写入使用锁文件、临时文件和原子替换；文件被外部修改或处于非法 JSON 状态时，应用拒绝覆盖并要求重新加载。旧 `desktop.json` 首次读取后迁移为 schema v4，并保留一份带迁移标记的短期备份。
 
-导入使用一次性、十分钟有效的内存草稿，不修改或删除源文件。只导入非空值，空值和未出现的字段保留当前设置；重复变量以第一次出现为准。部分集成会保存为“待补全”，但不会注入运行环境。紫鸟 APP 路径不符合当前平台要求时同样保持停用，用户可在设置中重新选择路径。导入排障日志配置前必须确认其可能包含消息正文、账号标识和页面上下文。
+`auth.json` 与 `settings.json` 都使用锁文件、临时文件和原子替换。`auth.json` 非法时应用显示实际读取错误并拒绝覆盖。保存本地 Key 不会抢占可用的公司云端模型；公司凭证不可用时才激活本地提供商。删除正在使用的本地 Key 时，Desktop 依次尝试公司云端和其他已配置本地提供商，没有可用凭证则停止 Agent 并回到待配置状态。
+
+升级迁移在 Gateway 启动前执行：旧版本保存或通过 dotenv 导入的模型 Key 立即废弃，不复制到 `auth.json`；模型选择重置为公司云端 `deepseek-v4-flash`，应用数据目录中的 `.env` 与 `.env.local` 被删除。旧 `.env` 导入入口、预览和应用 IPC 已全部移除。
 
 桌面 preload 只暴露以下受控能力：
 
 - Dashboard request transport。
 - 工作区选择。
-- `.env` 配置文件选择、脱敏预览和一次性应用/取消。
+- 本地模型 Key 的保存与删除。
 - 公司云端设备文件选择、激活、状态读取和连接重试。
 - 紫鸟 APP 与驱动目录选择。
 - 工作台媒体来源和输出目录选择，以及媒体任务的启动、恢复、取消和结果目录打开。
@@ -92,15 +96,16 @@ bun run desktop:tools:mac
 | 文件 | 用途 | 是否提交 Git |
 | --- | --- | --- |
 | `var/config/settings.json` | 模型偏好、集成身份、路径、日志和 Data Server 等非敏感本机设置 | 否 |
-| `.env` | 源码开发使用的密钥和密码；每次源码启动读取，安装版不读取 | 否 |
-| `var/config/secrets.bin` | 安装版由 `safeStorage` 加密保存的密钥和密码 | 否 |
+| `var/config/auth.json` | 用户自带的本地模型 Key；明文，仅依靠当前用户文件权限保护 | 否 |
+| `.env` | 源码开发使用的非模型集成密钥和密码；每次源码启动读取，安装版不读取 | 否 |
+| `var/config/secrets.bin` | 公司下发的模型凭证及其他由 `safeStorage` 加密保存的密钥和密码 | 否 |
 | `.env.example` | 源码开发 secret 模板 | 是 |
 
 产品默认值由代码负责。`permission_policy.yaml`、LLM catalog 和 MCP defaults 等 Git 文件是产品策略或契约，不是用户运行配置。
 
 Data Server 同步是可选能力。地址、启用状态和开发回退配置保存在 `settings.json`，API Key 保存在 `secrets.bin`；Desktop Preview、Gateway、Agent 和 Python 子进程都使用 Main 解析后注入的同一份内存环境。安装包不会读取仓库 dotenv 文件。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
 
-源码开发中的根目录 `.env` 不是迁移文件：Main 每次启动都读取其中允许的 secret，并仅在内存中覆盖 `secrets.bin` 的同名值。因此修改 `.env` 后重启源码 Desktop 即会生效，也不会把明文自动复制到应用数据目录。一次性迁移只处理旧 `desktop.json`、`.env.local` 和应用数据目录中的历史 dotenv 文件。
+源码开发中的根目录 `.env` 不是模型配置：Main 每次启动只读取允许的非模型集成 secret，并仅在内存中覆盖 `secrets.bin` 的同名值。因此修改 `.env` 后重启源码 Desktop 即会生效，也不会把明文自动复制到应用数据目录。安装版不读取仓库 dotenv 文件；应用数据目录中的历史 `.env` 和 `.env.local` 会在模型凭证迁移时删除。
 
 ### 公司云端设备接入
 
