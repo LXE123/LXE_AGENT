@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ArrowUp,
   Brain,
   Cloud,
   Check,
@@ -21,7 +22,6 @@ import {
   Paperclip,
   Plus,
   Search,
-  SendHorizontal,
   Settings2,
   Sparkles,
   Square,
@@ -1653,6 +1653,9 @@ function ConversationComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousConversationKey = useRef(conversationKey);
   const hasWork = Boolean(activity?.active || activity?.queued.length);
+  const actionLabel = hasWork
+    ? stopping ? t.conversation.stopping : t.conversation.stop
+    : sending ? t.conversation.sending : t.conversation.send;
   const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const addAttachments = useCallback((selected: DesktopInputAttachmentPayload[]) => {
     setAttachments((current) => {
@@ -1821,27 +1824,24 @@ function ConversationComposer({
                 {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
               </span>
             ) : null}
-            {hasWork ? (
-              <button
-                aria-label={stopping ? t.conversation.stopping : t.conversation.stop}
-                className="conversation-stop-button"
-                disabled={stopping}
-                onClick={() => void stop()}
-                title={stopping ? t.conversation.stopping : t.conversation.stop}
-                type="button"
-              >
-                {stopping ? <LoaderCircle className="conversation-spinner" size={15} /> : <Square size={14} />}
-              </button>
-            ) : null}
+            {/* One button, two modes: it stops the running turn while there is
+                work, and sends otherwise. Enter still queues a message mid-turn. */}
             <button
-              aria-label={sending ? t.conversation.sending : t.conversation.send}
+              aria-label={actionLabel}
               className="conversation-send-button"
-              disabled={!runtimeReady || modelSaving || thinkingSaving || sending || (!text.trim() && attachments.length === 0)}
-              onClick={() => void submit()}
-              title={sending ? t.conversation.sending : t.conversation.send}
+              data-mode={hasWork ? "stop" : "send"}
+              disabled={hasWork
+                ? stopping
+                : !runtimeReady || modelSaving || thinkingSaving || sending || (!text.trim() && attachments.length === 0)}
+              onClick={() => void (hasWork ? stop() : submit())}
+              title={actionLabel}
               type="button"
             >
-              {sending ? <LoaderCircle className="conversation-spinner" size={17} /> : <SendHorizontal size={17} />}
+              {(hasWork ? stopping : sending)
+                ? <LoaderCircle className="conversation-spinner" size={17} />
+                : hasWork
+                  ? <Square aria-hidden fill="currentColor" size={13} strokeWidth={0} />
+                  : <ArrowUp aria-hidden size={18} strokeWidth={2.4} />}
             </button>
           </div>
         </div>

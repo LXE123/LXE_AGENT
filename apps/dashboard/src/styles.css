@@ -5104,7 +5104,6 @@ h1 {
 }
 
 .conversation-send-button,
-.conversation-stop-button,
 .conversation-attach-button {
   display: inline-flex;
   align-items: center;
@@ -5122,11 +5121,22 @@ h1 {
   white-space: nowrap;
 }
 
+/* One control with two modes. The stop mode inverts against the surface so it
+   reads as "interrupt" without stealing the accent from send. */
 .conversation-send-button {
-  width: 36px;
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--accent);
+  border-radius: 50%;
   background: var(--accent);
   color: white;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.conversation-send-button[data-mode="stop"] {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--surface);
 }
 
 .conversation-attach-button {
@@ -5141,15 +5151,7 @@ h1 {
   color: var(--text);
 }
 
-.conversation-stop-button {
-  width: 34px;
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 .conversation-send-button:disabled,
-.conversation-stop-button:disabled,
 .conversation-attach-button:disabled {
   cursor: default;
   opacity: 0.5;

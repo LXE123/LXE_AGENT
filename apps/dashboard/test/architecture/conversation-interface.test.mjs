@@ -15,7 +15,11 @@ test("sessions view exposes text conversation controls and IME-safe keyboard beh
   assert.match(view, /maxLength=\{8192\}/);
   assert.match(view, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.nativeEvent\.isComposing/);
   assert.match(view, /aria-live="polite"/);
-  assert.match(view, /conversation-stop-button/);
+  // Send and stop are one control in two modes, so the running turn can always
+  // be interrupted from the same place the message was sent.
+  assert.match(view, /data-mode=\{hasWork \? "stop" : "send"\}/);
+  assert.match(view, /onClick=\{\(\) => void \(hasWork \? stop\(\) : submit\(\)\)\}/);
+  assert.doesNotMatch(view, /conversation-stop-button/);
   assert.match(view, /conversation-load-earlier/);
   assert.match(view, /session-new-button/);
   assert.match(view, /selectConversationFiles/);
@@ -301,10 +305,10 @@ test("a tool reads the same live as it does in history", () => {
   assert.match(view, /className="tool-op-argument"/);
   assert.match(styles, /\.conversation-transcript \{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
   assert.match(styles, /\.tool-op-argument \{[^}]*overflow:\s*hidden[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
-  // Beside a growing textarea the composer buttons must not be squeezed until
-  // their label breaks one character per line.
-  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);
-  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*white-space: nowrap/);
+  // Beside a growing textarea the composer buttons must not be squeezed out of
+  // their own footprint.
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-attach-button \{[^}]*white-space: nowrap/);
 });
 
 test("expanded tool details use dividers instead of stacked tinted surfaces", () => {
