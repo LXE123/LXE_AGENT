@@ -6,19 +6,19 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 28 top-level workflow and default runtime skills:
+The repository currently contains 29 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
 | `amazon_replenish` | 9 | inventory snapshots, sales analysis, parameters, and replenishment calculation |
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
-| `default` | 2 | general connector and workbook capabilities |
+| `default` | 3 | general connector, workbook, and Shopee keyword capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
 bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
-discovery sees 55 repository manifests in total.
+discovery sees 56 repository manifests in total.
 
 ## Amazon FBA
 
@@ -64,6 +64,7 @@ LXE formally maintains these modules' command and failure contracts. Their resul
 
 - `dws`: DingTalk Workspace operations, subject to local connector visibility.
 - `minimax-xlsx`: general workbook creation and transformation utilities.
+- `shopee-keyword-search`: Haiying-data Shopee keyword search-volume export and report queries.
 
 ## Ziniao Browser
 
