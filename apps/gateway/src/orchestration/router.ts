@@ -8,13 +8,6 @@ import type {
 } from "@lxe/protocol";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { ChannelRegistry } from "../channels/registry";
-import {
-  canUserAccessBot,
-  isKnownBotId,
-  resolveBotId,
-  resolvePermissionUserId,
-  type PermissionPolicy,
-} from "../security/permission-policy";
 import { responseRoutePayload, type RouteDecision, type SessionContext } from "../state/models";
 import { SessionBindingStore, SessionSource, type SessionBindingEntry } from "../state/session-bindings";
 import type { RunHandle, SteeringMessage } from "./scheduler";
@@ -54,7 +47,6 @@ export interface RouterSchedulerPort {
 }
 
 interface RouterOptions {
-  policy: PermissionPolicy;
   bindings: SessionBindingStore;
   storage: StoragePort;
   defaultWorkspace: () => WorkspaceContext;
@@ -63,7 +55,6 @@ interface RouterOptions {
   state?: SessionRuntimeState;
   id?: () => string;
   nowSeconds?: () => number;
-  feishuAppId?: string;
 }
 
 const CONTROL_COMMANDS: Readonly<Record<string, "stop" | "clear" | "steer">> = {
@@ -145,9 +136,6 @@ export class SessionRouter {
       user_input_chars: context.user_input.length,
       attachment_count: context.user_content_blocks.length,
     });
-    const denied = await this.checkPermission(event, context);
-    if (denied) return denied;
-
     const command = normalizeControlCommand(context.user_input);
     if (command) {
       const binding = this.options.bindings.get(context.session_key);
@@ -211,25 +199,6 @@ export class SessionRouter {
       });
     });
     return { route_kind: "agent_message", platform: context.platform };
-  }
-
-  private async checkPermission(
-    event: InboundEvent,
-    context: SessionContext,
-  ): Promise<RouteDecision | undefined> {
-    const botId = resolveBotId(event, this.options.feishuAppId);
-    if (!isKnownBotId(this.options.policy, botId)) {
-      this.logger.warn("permission_denied", { reason: "unknown_bot", platform: context.platform, bot_id: botId });
-      await this.sendFeedback(context, "", "当前 Bot 未授权接入 Agent。");
-      return { route_kind: "permission_denied", platform: context.platform };
-    }
-    const userId = resolvePermissionUserId(event);
-    if (!canUserAccessBot(this.options.policy, userId, botId)) {
-      this.logger.warn("permission_denied", { reason: "user_not_allowed", platform: context.platform, bot_id: botId, user_id: userId });
-      await this.sendFeedback(context, "", "你没有权限使用当前 Agent。");
-      return { route_kind: "permission_denied", platform: context.platform };
-    }
-    return undefined;
   }
 
   private async loadOrCreateSession(context: SessionContext): Promise<SessionBindingEntry> {

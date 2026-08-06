@@ -27,7 +27,6 @@ describe("desktop private runtime paths", () => {
     expect(paths.userSkillsRoot).toBe("/Users/tester/.agents/skills");
     expect(paths.lxeskillCatalogPath).toBe(posix.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"));
     expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
-    expect(paths.permissionPolicyPath).toBe(posix.join(sourceRoot, "config", "permission_policy.yaml"));
     expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.yaml"));
     expect(paths.projectRoot).toBe(sourceRoot);
     expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
@@ -63,7 +62,6 @@ describe("desktop private runtime paths", () => {
     expect(paths.userSkillsRoot).toBe("C:\\Users\\tester\\.agents\\skills");
     expect(paths.lxeskillCatalogPath).toBe(win32.join(root, "lxeskill", "catalog.json"));
     expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));
-    expect(paths.permissionPolicyPath).toBe(win32.join(root, "config", "permission_policy.yaml"));
     expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.yaml"));
     expect(paths.dataRoot).toBe("D:\\Apps\\LXE Agent\\var");
     expect(paths.defaultWorkspaceRoot).toBe("D:\\Apps\\LXE Agent\\var\\workspace");

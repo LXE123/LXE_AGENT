@@ -510,7 +510,7 @@ export class FeishuAdapter implements ChannelAdapter {
       const decision = await normalizer.normalize(snapshot);
       if (!decision.accepted) {
         const fields = { reason: decision.reason, ...decision.metadata };
-        if (["missing_sender_open_id", "empty_content", "group_bot_identity_missing"].includes(decision.reason)) {
+        if (["missing_sender_open_id", "empty_content", "group_bot_identity_missing", "bot_app_id_mismatch"].includes(decision.reason)) {
           this.logger.warn("feishu_inbound_discarded", fields);
         } else {
           this.logger.debug("feishu_inbound_discarded", fields);

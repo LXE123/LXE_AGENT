@@ -72,12 +72,12 @@ LXE formally maintains these modules' command and failure contracts. Their resul
 
 The visible catalog for one turn can be smaller than this page because runtime applies:
 
-- permission-policy skill-type filtering;
+- server-verified device skill-type filtering;
 - local connector enable/disable state;
 - explicit disabled-skill configuration;
 - catalog validation and duplicate rejection.
 
-Dashboard skill APIs and the runtime prompt must use the same filtered catalog. A skill appearing in this repository inventory does not imply that every bot can activate it.
+Dashboard skill APIs and the runtime prompt must use the same filtered catalog. A skill appearing in this repository inventory does not imply that every device can activate it.
 
 ## Keeping This Page Current
 

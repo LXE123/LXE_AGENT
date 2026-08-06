@@ -7,7 +7,6 @@ import { FakeChannelAdapter } from "../fake-channel";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
 import { IngressClosedError } from "../../src/orchestration/lifecycle";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
-import { buildPermissionPolicy } from "../../src/security/permission-policy";
 import { testWorkspace, workspaceFor } from "../workspace";
 
 const roots: string[] = [];
@@ -53,11 +52,6 @@ const storage = () => ({
   patchResponseRoute: async () => undefined,
 });
 
-const policy = () => buildPermissionPolicy({
-  bots: { TEST: { key: "test", app_id: "app-test", skill_types: ["default"] } },
-  users: { Tester: { union_id: "union-test", allow: ["TEST"] } },
-}, "direct-test.yaml");
-
 const waitFor = async (condition: () => boolean): Promise<void> => {
   const deadline = Date.now() + 1_000;
   while (!condition() && Date.now() < deadline) await Bun.sleep(0);
@@ -69,7 +63,6 @@ const resourcePaths = (root: string) => ({
   userSkillsRoot: join(root, "user-skills"),
   lxeskillCatalogPath: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
   llmConfigRoot: join(root, "config", "llm"),
-  permissionPolicyPath: join(root, "config", "permission_policy.yaml"),
 });
 
 describe("direct Gateway composition", () => {
@@ -109,7 +102,6 @@ describe("direct Gateway composition", () => {
       projectRoot: root,
       defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
       storage: storage(),
       runtime,
       channels: [channel],
@@ -152,7 +144,6 @@ describe("direct Gateway composition", () => {
       projectRoot: root,
       defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
       storage: storage(),
       runtime,
     });
@@ -195,7 +186,6 @@ describe("direct Gateway composition", () => {
       projectRoot: root,
       defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
       storage: storage(),
       runtime,
       channels: [channel],
@@ -243,7 +233,6 @@ describe("direct Gateway composition", () => {
       projectRoot: root,
       defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
       storage: storage(),
       runtime,
     });
@@ -279,7 +268,6 @@ describe("direct Gateway composition", () => {
       projectRoot: root,
       defaultWorkspace: () => workspaceFor(root),
       bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
       storage: storage(),
       runtime,
       channels: [channel],

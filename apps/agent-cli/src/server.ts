@@ -202,7 +202,6 @@ export class AgentProtocolServer {
         userSkillsRoot: payload.user_skills_root,
         lxeskillCatalogPath: payload.lxeskill_catalog_path,
         llmConfigRoot: payload.llm_config_root,
-        permissionPolicyPath: payload.permission_policy_path,
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
         environment,

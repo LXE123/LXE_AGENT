@@ -101,7 +101,7 @@ bun run desktop:tools:mac
 | `var/config/secrets.bin` | 公司下发的模型凭证及其他由 `safeStorage` 加密保存的密钥和密码 | 否 |
 | `.env.example` | 源码开发 secret 模板 | 是 |
 
-产品默认值由代码负责。`permission_policy.yaml`、LLM catalog 和 MCP defaults 等 Git 文件是产品策略或契约，不是用户运行配置。
+产品默认值由代码负责。LLM catalog 和 MCP defaults 等 Git 文件是产品策略或契约，不是用户运行配置。Skill 可见范围来自服务器验证的设备权限快照，不再由本地 Bot 或用户名单决定。
 
 Data Server 同步是可选能力。地址、启用状态和开发回退配置保存在 `settings.json`，API Key 保存在 `secrets.bin`；Desktop Preview、Gateway、Agent 和 Python 子进程都使用 Main 解析后注入的同一份内存环境。安装包不会读取仓库 dotenv 文件。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
 

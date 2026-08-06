@@ -127,7 +127,6 @@ describe("desktop resource scope", () => {
       "config/llm/providers/deepseek.json",
       "config/llm/providers/glm.json",
       "config/llm/providers/kimi-coding.json",
-      "config/permission_policy.yaml",
       "config/mcp_servers.default.yaml",
     ]);
     expect(readFileSync(resolve(repositoryRoot, "config/mcp_servers.default.yaml"), "utf8"))

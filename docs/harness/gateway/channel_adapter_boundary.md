@@ -87,7 +87,7 @@ raw event dump 只在 local logs 开启时写入。health 只能暴露 ready、c
 
 Adapter 不负责：
 
-- permission policy 或 session binding。
+- 设备 Skill 权限或 session binding。
 - job 排队、并发、cancel 或 steering。
 - provider、context、tool 或 skill 调用。
 - 根据平台事件直接写 assistant transcript。

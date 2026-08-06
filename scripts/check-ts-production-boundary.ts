@@ -62,7 +62,7 @@ forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
-requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*16\s+as const/, "agent protocol must use the exec-completion v16 contract");
+requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*17\s+as const/, "agent protocol must use the no-local-permission-policy v17 contract");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /runtime_env_path/, "agent protocol must not expose a dotenv path");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
@@ -101,9 +101,25 @@ requireText("apps/desktop/src/main/desktop-gateway.ts", /managedEnvironment:\s*c
 requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnvironment\(configuredEnvironment\)/, "Gateway must remove inherited Data Server values before applying its mode policy");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical var root");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /allowedSkillTypes:\s*\(\)\s*=>\s*readonly string\[\]/, "Desktop Runtime Skill visibility must come from the device permission snapshot");
-forbidText("apps/desktop/src/main/desktop-gateway.ts", /botSkillPolicy/, "new Desktop runtimes must not derive Skill visibility from the Feishu admission policy");
+forbidText("apps/desktop/src/main/desktop-gateway.ts", /botSkillPolicy|permissionPolicy|LXE_PERMISSION_POLICY_PATH/, "Desktop Runtime must not retain the retired Feishu permission policy");
 requirePath("apps/gateway/src/channels/feishu/adapter.ts", "Feishu remote ingress must remain available");
-requirePath("config/permission_policy.yaml", "Feishu app_id and union_id admission policy must remain available");
+forbidPath("config/permission_policy.yaml", "the retired Feishu Bot and union-id policy must stay deleted");
+forbidPath("apps/gateway/src/security/permission-policy.ts", "the retired Gateway permission-policy loader must stay deleted");
+forbidPath("python/lxeskill_cli/shared/permission_policy_loader.py", "the retired Python permission-policy loader must stay deleted");
+forbidPath("scripts/permission_policy_admin.py", "the retired permission-policy admin tool must stay deleted");
+forbidText("packages/foundation/desktop-protocol/src/index.ts", /permission_policy_path/, "Agent protocol must not carry the retired permission-policy path");
+const retiredFeishuAuthorizationPatterns = [
+  /botSkillPolicy|PermissionPolicy|permission[_-]?policy[_-]?path|LXE_PERMISSION_POLICY_PATH/i,
+  /(?:bot[_-]?(?:id|app[_-]?id)|botId|botAppId|union[_-]?id|unionId).{0,80}(?:allowlist|whitelist|allowed[_-]?users|skill[_-]?types|skillTypes)/is,
+  /(?:allowlist|whitelist|allowed[_-]?users|skill[_-]?types|skillTypes).{0,80}(?:bot[_-]?(?:id|app[_-]?id)|botId|botAppId|union[_-]?id|unionId)/is,
+] as const;
+for (const pattern of ["apps/**/src/**/*.ts", "packages/**/src/**/*.ts", "python/lxeskill_cli/**/*.py", "config/**/*.{json,yaml,yml}"]) {
+  for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
+    for (const retired of retiredFeishuAuthorizationPatterns) {
+      if (retired.test(read(path))) failures.push(`${path}: Feishu Bot and union-id identities must not authorize local Skills or users`);
+    }
+  }
+}
 requireText("scripts/install.sh", /REF="lxe-agent-TUI"/, "legacy shell installer must forward to the TUI product line");
 requireText("scripts/install.ps1", /\$Ref\s*=\s*"lxe-agent-TUI"/, "legacy PowerShell installer must forward to the TUI product line");
 forbidText("apps/agent-cli/src/dashboard-service.ts", /\.env\.local|persistEnvironment/, "Agent Dashboard must not persist dotenv files");

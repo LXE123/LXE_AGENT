@@ -49,7 +49,7 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 
 - [Gateway Lifecycle](gateway_lifecycle.md)：启动、停止、健康状态和失败回滚。
 - [Channel Adapter Boundary](channel_adapter_boundary.md)：平台 adapter 的输入输出边界。
-- [Session Routing and Permission](session_routing_permission.md)：权限、会话和控制命令。
+- [Session Routing](session_routing.md)：平台身份、会话和控制命令。
 - [Session Scheduler and Cancellation](session_scheduler_cancellation.md)：排队、并发、取消和 steering。
 - [Emitter and Heartbeat Wake](emitter_heartbeat_wake.md)：统一出站与后台事件唤醒。
 - [Desktop Event Loop](../../eventloop.md)：整个桌面产品的进程与关闭顺序。

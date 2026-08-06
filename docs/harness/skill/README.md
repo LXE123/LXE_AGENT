@@ -24,7 +24,7 @@ The catalog signature includes file size and modification metadata so runtime ca
 Discovery is not the same as model activation.
 
 1. Runtime discovers and validates the catalog.
-2. Permission policy filters skills by the current agent's allowed skill types.
+2. The server-verified device permission snapshot filters skills by allowed type.
 3. Connector state can hide optional connector-owned skills.
 4. The prompt receives compact metadata for only the available skills.
 5. The model reads a skill's `SKILL.md` when it chooses that workflow.
@@ -61,5 +61,5 @@ When adding or renaming a skill:
 3. register each business command in the catalog with explicit ownership and schema;
 4. update workflow-map routing when the user intent changes;
 5. update catalog/count tests and this inventory if categories change;
-6. test permission and connector filtering where applicable;
+6. test device-permission and connector filtering where applicable;
 7. avoid copying the full prompt into `docs/`.

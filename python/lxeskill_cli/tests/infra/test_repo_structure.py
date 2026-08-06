@@ -41,14 +41,12 @@ ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
     "bootstrap",
     "channels",
     "orchestration",
-    "security",
     "state",
 }
 ALLOWED_GATEWAY_TEST_DIRECTORIES = {
     "bootstrap",
     "channels",
     "orchestration",
-    "security",
     "state",
 }
 ALLOWED_RUNTIME_SOURCE_DIRECTORIES = {

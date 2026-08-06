@@ -16,7 +16,6 @@ import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
 import { GatewayLifecycle } from "./lifecycle";
 import { HeartbeatBridge, type HeartbeatClock } from "./heartbeat-bridge";
-import type { PermissionPolicy } from "../security/permission-policy";
 import { SessionRouter } from "./router";
 import { DesktopConversationChannel, LocalConversationController } from "./local-conversation";
 import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
@@ -54,12 +53,10 @@ export interface DirectGatewayCompositionOptions {
   defaultWorkspace: () => WorkspaceContext;
   bindingsPath?: string;
   environment?: Record<string, string | undefined>;
-  policy: PermissionPolicy;
   storage: DirectGatewayStorage;
   runtime: DirectAgentRuntime;
   maxConcurrency?: number;
   bootId?: string;
-  feishuAppId?: string;
   channels?: readonly ChannelAdapter[];
   feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
   heartbeatClock?: HeartbeatClock;
@@ -186,14 +183,12 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   channels.register(new DesktopConversationChannel((request) => conversations.handleOutbound(request)));
   const emitter = channels.keys().length > 0 ? new GatewayEmitter({ registry: channels, routes: options.storage }) : undefined;
   const router = new SessionRouter({
-    policy: options.policy,
     bindings,
     storage: options.storage,
     defaultWorkspace: options.defaultWorkspace,
     scheduler,
     channels,
     state: runtimeState,
-    ...(options.feishuAppId ? { feishuAppId: options.feishuAppId } : {}),
   });
   const runtimeLifecycle = {
     get isReady(): boolean { return options.runtime.isReady; },

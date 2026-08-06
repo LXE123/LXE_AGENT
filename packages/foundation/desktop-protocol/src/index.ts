@@ -22,7 +22,7 @@ import type {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 16 as const;
+export const AGENT_PROTOCOL_VERSION = 17 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
 export type ExecTaskSnapshotPayload = {
@@ -70,7 +70,6 @@ export type AgentInitializePayload = {
   user_skills_root: string;
   lxeskill_catalog_path: string;
   llm_config_root: string;
-  permission_policy_path: string;
   data_root: string;
   legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
@@ -677,7 +676,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("user_skills_root");
       requireText("lxeskill_catalog_path");
       requireText("llm_config_root");
-      requireText("permission_policy_path");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
       if (payload.allowed_skill_types !== undefined

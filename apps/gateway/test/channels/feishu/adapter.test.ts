@@ -195,6 +195,19 @@ describe("FeishuAdapter lifecycle and delivery", () => {
       },
     });
     expect(inbound).toHaveLength(1);
+    await state.callbacks.onMessage({
+      app_id: "cli_other",
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: "must be rejected" }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        create_time: String(Date.now()),
+        message_id: "om_wrong_app",
+      },
+    });
+    expect(inbound).toHaveLength(1);
     state.callbacks.onReconnecting();
     expect(await state.adapter.health()).toEqual(expect.objectContaining({ connection_state: "reconnecting", ready: false }));
     state.callbacks.onReconnected();

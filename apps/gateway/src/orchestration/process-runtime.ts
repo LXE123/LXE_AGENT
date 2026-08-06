@@ -55,7 +55,6 @@ export interface ProcessAgentRuntimeOptions {
   userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
-  permissionPolicyPath: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
@@ -208,7 +207,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         user_skills_root: this.options.userSkillsRoot,
         lxeskill_catalog_path: this.options.lxeskillCatalogPath,
         llm_config_root: this.options.llmConfigRoot,
-        permission_policy_path: this.options.permissionPolicyPath,
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
         allowed_skill_types: [...this.allowedSkillTypes],

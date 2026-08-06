@@ -23,7 +23,6 @@ import { resolveWorkspaceContext } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
-  loadPermissionPolicy,
   ProcessAgentRuntime,
   LocalConversationSessionNotFoundError,
   type LocalConversationAttachment,
@@ -147,7 +146,6 @@ export class DesktopGateway {
       LXE_USER_SKILLS_ROOT: this.options.paths.userSkillsRoot,
       LXE_LXESKILL_CATALOG_PATH: this.options.paths.lxeskillCatalogPath,
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
-      LXE_PERMISSION_POLICY_PATH: this.options.paths.permissionPolicyPath,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
@@ -178,7 +176,6 @@ export class DesktopGateway {
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
     };
-    const policy = loadPermissionPolicy(this.options.paths.permissionPolicyPath);
     const feishu = loadFeishuConfig(environment);
     const allowedSkillTypes = this.options.allowedSkillTypes();
     let composition: DirectGatewayComposition | undefined;
@@ -192,7 +189,6 @@ export class DesktopGateway {
       userSkillsRoot: this.options.paths.userSkillsRoot,
       lxeskillCatalogPath: this.options.paths.lxeskillCatalogPath,
       llmConfigRoot: this.options.paths.llmConfigRoot,
-      permissionPolicyPath: this.options.paths.permissionPolicyPath,
       dataRoot: this.options.paths.dataRoot,
       legacyWorkspace,
       allowedSkillTypes,
@@ -250,10 +246,8 @@ export class DesktopGateway {
       projectRoot: this.options.paths.dataRoot,
       defaultWorkspace: () => resolveWorkspaceContext(this.options.config.state().workspace_root),
       environment,
-      policy,
       storage: splitStorage,
       runtime,
-      feishuAppId: feishu.appId,
       maxConcurrency: 2,
       ...(feishu.gatewayEnabled && feishu.missingRequired().length === 0
         ? { feishu: { config: feishu, imageProcessor: new ElectronInboundImageProcessor() } }

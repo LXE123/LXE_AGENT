@@ -51,7 +51,6 @@ export interface AgentRuntimeHostOptions {
   userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
-  permissionPolicyPath: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
   environment: Environment;
@@ -98,7 +97,6 @@ export function createAgentRuntimeHost(
     LXE_USER_SKILLS_ROOT: options.userSkillsRoot,
     LXE_LXESKILL_CATALOG_PATH: options.lxeskillCatalogPath,
     LXE_LLM_CONFIG_ROOT: options.llmConfigRoot,
-    LXE_PERMISSION_POLICY_PATH: options.permissionPolicyPath,
     LXE_DATA_ROOT: options.dataRoot,
     PYTHONDONTWRITEBYTECODE: "1",
   };

@@ -25,7 +25,6 @@ const initializePayload = (root: string) => ({
   user_skills_root: join(root, "user-skills"),
   lxeskill_catalog_path: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
   llm_config_root: join(root, "config", "llm"),
-  permission_policy_path: join(root, "config", "permission_policy.yaml"),
   data_root: root,
   legacy_workspace: workspace(root),
 });

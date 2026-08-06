@@ -156,6 +156,28 @@ describe("Feishu inbound normalization", () => {
     });
   });
 
+  test("rejects a mismatched declared app id and falls back to the authenticated app id when absent", async () => {
+    const mismatch = snapshotMessageEvent({
+      ...baseEvent({ message_id: "om_wrong_app" }),
+      header: { app_id: "cli_other" },
+    })!;
+    expect(await normalizer().normalize(mismatch)).toMatchObject({
+      accepted: false,
+      reason: "bot_app_id_mismatch",
+    });
+
+    const fixture = baseEvent({ message_id: "om_missing_app" });
+    const missing = snapshotMessageEvent({ ...fixture, header: {} })!;
+    const accepted = await normalizer().normalize(missing);
+    expect(accepted).toMatchObject({
+      accepted: true,
+      event: {
+        source: { extra: { bot_app_id: "cli_test" } },
+        raw_data: { app_id: "cli_test" },
+      },
+    });
+  });
+
   test("requires and strips the bot mention in groups", async () => {
     const withoutMention = snapshotMessageEvent(baseEvent({ chat_type: "group", message_id: "om_2" }))!;
     expect(await normalizeEvent(normalizer(), withoutMention)).toBeNull();
@@ -536,6 +558,11 @@ describe("Feishu inbound normalization", () => {
     expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({
       message_id: "om_reason_stale", create_time: "699999",
     }))!)).toMatchObject({ accepted: false, reason: "stale" });
+
+    expect(await normalizer().normalize(snapshotMessageEvent({
+      ...baseEvent({ message_id: "om_reason_app" }),
+      header: { app_id: "cli_other" },
+    })!)).toMatchObject({ accepted: false, reason: "bot_app_id_mismatch" });
 
     const noIdentity = new FeishuInboundNormalizer({ nowMs: () => 1_000_000, monotonicMs: () => 100 });
     expect(await noIdentity.normalize(snapshotMessageEvent(baseEvent({

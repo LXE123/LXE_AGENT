@@ -198,7 +198,6 @@ describe("ExecShellAdapter", () => {
         LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
         LXE_LXESKILL_CATALOG_PATH: "/resources/lxeskill/catalog.json",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
-        LXE_PERMISSION_POLICY_PATH: "/resources/config/permission_policy.yaml",
         LXE_DATA_ROOT: "/state",
         LXE_ROOT: "/legacy",
         LXE_RESOURCE_ROOT: "/legacy/resources",
@@ -215,7 +214,6 @@ describe("ExecShellAdapter", () => {
     expect(environment.LXE_ROOT).toBeUndefined();
     expect(environment.LXE_RESOURCE_ROOT).toBeUndefined();
     expect(environment.LXE_SKILLS_ROOT).toBe("/resources/skills");
-    expect(environment.LXE_PERMISSION_POLICY_PATH).toBe("/resources/config/permission_policy.yaml");
     expect(environment.LXE_DATA_ROOT).toBe("/state");
     expect(environment.LXE_WORKSPACE_ROOT).toBe("/workspace");
   });

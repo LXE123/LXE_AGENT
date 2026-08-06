@@ -14,7 +14,6 @@ export interface ExecRuntimePaths {
   userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
-  permissionPolicyPath: string;
   managedPythonPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
@@ -95,7 +94,6 @@ export function resolveExecRuntimePaths(
       ? join(resourceRoot, "lxeskill", "catalog.json")
       : join(layoutRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
     llmConfigRoot: join(resourceRoot, "config", "llm"),
-    permissionPolicyPath: join(resourceRoot, "config", "permission_policy.yaml"),
     managedPythonPath,
     managedPath: existingDirectories(managedDirectories).join(delimiter),
     playwrightBrowsersPath: packaged
@@ -117,7 +115,6 @@ export function execRuntimeEnvironment(
     LXE_USER_SKILLS_ROOT: paths.userSkillsRoot,
     LXE_LXESKILL_CATALOG_PATH: paths.lxeskillCatalogPath,
     LXE_LLM_CONFIG_ROOT: paths.llmConfigRoot,
-    LXE_PERMISSION_POLICY_PATH: paths.permissionPolicyPath,
     LXE_DATA_ROOT: paths.dataRoot,
     LXE_AGENT_SQLITE_DB_PATH: databasePath,
     LXE_SQLITE_DB_PATH: join(paths.dataRoot, "db", "lxeskill.sqlite3"),

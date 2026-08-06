@@ -59,7 +59,7 @@ Each Runtime turn has exactly one `turn_started` and exactly one terminal `turn_
 | MCP and skills | `mcp_enabled`, `mcp_connected`, `mcp_startup_failed`, `mcp_disabled`, `mcp_disconnected`, `skill_catalog_loaded`, `skill_external_skipped` |
 | Gateway lifecycle | `gateway_starting`, `gateway_ready`, `gateway_start_failed`, `gateway_stopping`, `gateway_stopped`, `startup_component_ready`, `shutdown_component_stopping`, `shutdown_component_stopped`, `shutdown_component_failed` |
 
-Heartbeat drop/defer reasons are restricted to `autonomy_suspended`, `no_pending_events`, `session_busy`, `session_missing`, and `invalid_source`. Feishu normalize rejection reasons are restricted to `duplicate`, `stale`, `group_bot_identity_missing`, `group_without_bot_mention`, `missing_sender_open_id`, and `empty_content`.
+Heartbeat drop/defer reasons are restricted to `autonomy_suspended`, `no_pending_events`, `session_busy`, `session_missing`, and `invalid_source`. Feishu normalize rejection reasons are restricted to `duplicate`, `stale`, `bot_app_id_mismatch`, `group_bot_identity_missing`, `group_without_bot_mention`, `missing_sender_open_id`, and `empty_content`.
 
 ## Privacy and failure isolation
 

@@ -1,29 +1,28 @@
-# Session Routing and Permission
+# Session Routing
 
 状态：Current
 
 ## 目的
 
-Session Router 是平台事件进入调度器前的控制面。它验证 bot/user 权限，解析稳定 session source，维护 binding 与 response route，处理 `/stop`、`/clear` 和 steering，最后创建字段完整的 `AgentJob`。
+Session Router 是平台事件进入调度器前的控制面。它解析稳定 session source，维护 binding 与 response route，处理 `/stop`、`/clear` 和 steering，最后创建字段完整的 `AgentJob`。
 
 ## 事实来源
 
 - [`router.ts`](/apps/gateway/src/orchestration/router.ts)：消息路由和控制命令。
-- [`permission-policy.ts`](/apps/gateway/src/security/permission-policy.ts)：bot alias、permission key 与用户授权。
 - [`session-bindings.ts`](/apps/gateway/src/state/session-bindings.ts)：稳定 source-to-session 映射。
 - [`session-state.ts`](/apps/gateway/src/state/session-state.ts)：进程内 autonomy/steering 状态。
 
-## 权限模型
+## 飞书入口边界
 
-Permission policy 把多个 bot app id 映射到 permission key，再由 key 决定允许的 user 与 skill types。共享 key 的 bot 必须拥有完全一致的 skill policy，避免同一权限名在不同机器产生不同能力。
+飞书用户准入由飞书后台的应用可用范围负责。本地不再维护 Bot 或 union ID 白名单；所有由当前已认证应用连接投递的用户消息都可以进入 Router。
 
-Router 在访问 session store 或 scheduler 之前先验证：
+Feishu adapter 在进入 Router 前继续验证消息身份和会话语义：
 
-1. bot app id 能解析为已知 permission key。
-2. user union/open id 在该 key 的允许集合中，或 policy 明确允许 wildcard。
+1. 事件声明的 App ID 与当前 `FEISHU_APP_ID` 一致；缺失时使用当前配置。
+2. 群聊消息明确 @ 当前 Bot；私聊无需 @。
 3. source 中用于构造 session key 的字段完整。
 
-拒绝结果只返回用户可读反馈，不创建 session、response route 或 pending job。
+App ID 不一致或群聊未 @Bot 的事件不会创建 session、response route 或 pending job。Bot、用户与会话标识仍保留用于路由、统计和审计，不用于授权。
 
 ## Session source 与 binding
 
@@ -46,7 +45,7 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 
 ## 普通消息路由
 
-通过权限和 source 校验后，Router：
+完成平台身份和 source 校验后，Router：
 
 1. ensure session。
 2. 恢复 autonomy suspension。
@@ -73,16 +72,16 @@ steering 是 session 级开关。启用时，纯文本消息优先注入 active 
 
 ## Skill 与 connector 权限
 
-Bot 的 allowed skill types 和本地 connector enabled state 共同影响：
+云端设备权限下发的 allowed skill types 和本地 connector enabled state 共同影响：
 
 - Runtime system prompt 中可见 skill。
-- 当前 bot skill scope 内允许执行的 catalog business commands。
+- 当前设备 skill scope 内允许执行的 catalog business commands。
 - Dashboard skill catalog 与 connector 控件。
 
 这些变化从下一 turn 生效；正在运行的 turn 使用启动时固定的 exposure snapshot。
 
-Gateway 只计算并传递授权结果，不实例化 `SkillCatalog` 或 `ToolRegistry`。`agent-cli` 中的 `AgentRuntimeHost` 负责把 allowed types 与 connector state 转成 Workspace skill scope、工具 exposure 和 `LXESKILL_SKILL_SCOPE`。
+Desktop Cloud 读取并验证设备权限，Gateway 只传递允许的 Skill 类型，不实例化 `SkillCatalog` 或 `ToolRegistry`。`agent-cli` 中的 `AgentRuntimeHost` 负责把 allowed types 与 connector state 转成 Workspace skill scope、工具 exposure 和 `LXESKILL_SKILL_SCOPE`。
 
 ## 失败语义
 
-Router 对单条坏消息返回明确 feedback，不终止 adapter ingress。保存 pending event 或 feedback 失败时仍继续执行 stop/cancel 主动作。任何异常都必须保留 session 串行不变量，不能绕过 scheduler 直接重试 turn。
+Adapter 对单条坏消息记录稳定拒绝原因，不终止 ingress。保存 pending event 或 feedback 失败时仍继续执行 stop/cancel 主动作。任何异常都必须保留 session 串行不变量，不能绕过 scheduler 直接重试 turn。

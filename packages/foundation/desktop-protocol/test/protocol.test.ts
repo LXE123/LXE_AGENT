@@ -23,6 +23,12 @@ describe("desktop agent protocol", () => {
 
   test("rejects unsupported versions", () => {
     expect(() => parseAgentWireMessage(JSON.stringify({
+      version: 16,
+      id: "request-v16",
+      ok: true,
+      result: null,
+    }))).toThrow("unsupported agent protocol version: 16");
+    expect(() => parseAgentWireMessage(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION + 1,
       id: "request-1",
       ok: true,
@@ -264,7 +270,6 @@ describe("desktop agent protocol", () => {
         user_skills_root: "/home/tester/.agents/skills",
         lxeskill_catalog_path: "/runtime/resources/lxeskill/catalog.json",
         llm_config_root: "/runtime/resources/config/llm",
-        permission_policy_path: "/runtime/resources/config/permission_policy.yaml",
         data_root: "/runtime/data",
         legacy_workspace: { directory: "/workspace/project", worktree: "/workspace" },
       },

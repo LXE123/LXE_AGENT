@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
 import { ChannelRegistry } from "../../src/channels/registry";
 import { FakeChannelAdapter } from "../fake-channel";
-import { buildPermissionPolicy } from "../../src/security/permission-policy";
 import {
   SessionRouter,
   type RouterSchedulerPort,
@@ -20,17 +19,6 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-
-const policy = buildPermissionPolicy(
-  {
-    bots: {
-      ALLOWED: { key: "allowed", app_id: "app-allowed", skill_types: ["default"] },
-      DENIED: { key: "denied", app_id: "app-denied", skill_types: ["default"] },
-    },
-    users: { Alice: { union_id: "union-alice", allow: ["ALLOWED"] } },
-  },
-  "test-policy.yaml",
-);
 
 const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
   platform: "feishu",
@@ -143,7 +131,6 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
   channels.register(channel);
   const state = new SessionRuntimeState();
   const router = new SessionRouter({
-    policy,
     bindings,
     storage,
     scheduler,
@@ -156,7 +143,7 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
   return { router, bindings, storage, scheduler, channel, state };
 };
 
-describe("SessionRouter permission and normal routes", () => {
+describe("SessionRouter normal routes", () => {
   test("does not recreate a binding while its previous session is being deleted", async () => {
     const { router, storage, scheduler } = setup();
     scheduler.deletingSessionKeys.add("agent:main:feishu:dm:chat-1");
@@ -165,19 +152,16 @@ describe("SessionRouter permission and normal routes", () => {
     expect(scheduler.jobs).toEqual([]);
   });
 
-  test("denies unknown bots and unauthorized users before touching sessions", async () => {
-    const unknown = setup();
-    const decision = await unknown.router.routeMessage(
-      event({ raw_data: { app_id: "unknown", union_id: "union-alice" } }),
-    );
-    expect(decision.route_kind).toBe("permission_denied");
-    expect(unknown.channel.outbound[0]?.payload).toEqual({ markdown: "当前 Bot 未授权接入 Agent。" });
-    expect(unknown.storage.ensured).toEqual([]);
-
-    const denied = setup();
-    await denied.router.routeMessage(event({ raw_data: { app_id: "app-denied" } }));
-    expect(denied.channel.outbound[0]?.payload).toEqual({ markdown: "你没有权限使用当前 Agent。" });
-    expect(denied.scheduler.jobs).toEqual([]);
+  test("accepts users without a local bot or union-id allowlist", async () => {
+    const open = setup();
+    const decision = await open.router.routeMessage(event({
+      user_id: "open-new-user",
+      union_id: "union-new-user",
+      raw_data: { app_id: "previously-unknown", union_id: "union-new-user" },
+    }));
+    expect(decision.route_kind).toBe("agent_message");
+    expect(open.storage.ensured).toHaveLength(1);
+    expect(open.scheduler.jobs).toHaveLength(1);
   });
 
   test("creates source/context, ensures a binding, and constructs the exact AgentJob", async () => {

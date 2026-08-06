@@ -74,6 +74,7 @@ export interface FeishuInboundOptions {
 export type FeishuInboundRejectReason =
   | "duplicate"
   | "stale"
+  | "bot_app_id_mismatch"
   | "group_bot_identity_missing"
   | "group_without_bot_mention"
   | "missing_sender_open_id"
@@ -760,6 +761,11 @@ export class FeishuInboundNormalizer {
   }
 
   async normalize(snapshot: FeishuMessageSnapshot): Promise<FeishuNormalizeDecision> {
+    const configuredAppId = text(this.options.appId);
+    const observedAppId = text(snapshot.app_id);
+    if (configuredAppId && observedAppId && observedAppId !== configuredAppId) {
+      return this.rejected(snapshot, "bot_app_id_mismatch");
+    }
     const rejected = this.rejectionReason(snapshot);
     if (rejected) return this.rejected(snapshot, rejected);
     const botOpenId = text(this.options.botOpenId);
