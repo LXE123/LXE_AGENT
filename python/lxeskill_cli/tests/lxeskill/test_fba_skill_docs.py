@@ -13,8 +13,8 @@ def _skill_text(name: str) -> str:
 
 def test_repository_skill_inventory_distinguishes_top_level_and_nested_manifests() -> None:
     skill_root = PROJECT_ROOT / "skills"
-    assert len(list(skill_root.glob("*/SKILL.md"))) == 27
-    assert len(list(skill_root.rglob("SKILL.md"))) == 54
+    assert len(list(skill_root.glob("*/SKILL.md"))) == 28
+    assert len(list(skill_root.rglob("SKILL.md"))) == 55
     assert not (skill_root / "feishu-im-read" / "SKILL.md").exists()
     assert (skill_root / "larksuite-cli" / "lark-im" / "SKILL.md").exists()
 

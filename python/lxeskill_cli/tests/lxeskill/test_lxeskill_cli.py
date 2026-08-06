@@ -23,8 +23,8 @@ def _records(capsys) -> list[dict]:
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 32
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 29
+    assert len(catalog) == 33
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 30
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 1
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -109,7 +109,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 30
+    assert len(records[0]["data"]["commands"]) == 31
 
     assert lxeskill.main(["fba", "customs", "fill", "--help"]) == 0
     records = _records(capsys)
@@ -162,11 +162,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 32,
-                "business_commands": 29,
-                "skill_files": 54,
-                "owner_skills": 23,
-                "command_declarations": 29,
+                "catalog_commands": 33,
+                "business_commands": 30,
+                "skill_files": 55,
+                "owner_skills": 24,
+                "command_declarations": 30,
             },
             "files": [],
         }
@@ -289,6 +289,13 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
             ],
             "contract_template_xlsx",
         ),
+        (
+            [
+                "fba", "purchase", "contracts-regenerate",
+                "--batch-no", "PB20260723-0001",
+            ],
+            "contract_template_xlsx",
+        ),
     ],
 )
 def test_missing_user_workbook_returns_structured_input_required(
@@ -383,6 +390,37 @@ def test_draft_purchase_summary_does_not_use_stored_contract_template(
     ) == 0
     assert seen[0]["draft"] is True
     assert "contract_template_xlsx" not in seen[0]
+
+
+def test_contract_regeneration_uses_stored_contract_template(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from shared import input_assets
+
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
+    stored = tmp_path / "upload" / "合同模板当前版.xlsx"
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    stored.write_text("template", encoding="utf-8")
+    input_assets.promote_asset("contract_template", stored)
+    seen: list[dict] = []
+
+    def fake_execute(entry, arguments, session, *, on_event, on_text):
+        seen.append(dict(arguments))
+        return True, [{"type": "text", "text": '{"success":true}'}], [], None
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main([
+        "fba", "purchase", "contracts-regenerate",
+        "--batch-no", "PB20260723-0001",
+    ]) == 0
+    injected = Path(seen[0]["contract_template_xlsx"])
+    assert injected.name == "合同模板当前版.xlsx"
+    source = _records(capsys)[-1]["data"]["asset_sources"]["contract_template_xlsx"]
+    assert source["from"] == "stored"
+    assert source["file_name"] == "合同模板当前版.xlsx"
 
 
 def test_supplied_asset_is_promoted_only_after_the_command_succeeds(

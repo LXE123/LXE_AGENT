@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections import OrderedDict
 from copy import copy
@@ -809,7 +810,15 @@ def _save_single_company_contract(
             else f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
         )
         output_path = output_dir / output_name
-        workbook.save(output_path)
+        temporary_path = output_path.with_name(
+            f".{output_path.name}.{os.getpid()}.part"
+        )
+        try:
+            workbook.save(temporary_path)
+            os.replace(temporary_path, output_path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
         return str(output_path)
     finally:
         workbook.close()

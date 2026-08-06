@@ -10,10 +10,10 @@ The repository currently contains 28 top-level workflow and default runtime skil
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
-| `amazon_fba` | 13 | shipment, customs, purchase, contract, and export-tax workflows |
+| `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
 | `amazon_replenish` | 9 | inventory snapshots, sales analysis, parameters, and replenishment calculation |
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
-| `default` | 3 | general connector and workbook capabilities |
+| `default` | 2 | general connector and workbook capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
@@ -32,6 +32,7 @@ discovery sees 55 repository manifests in total.
 - `fba-customs-declaration-fill`
 - `fba-invoice-template-fill`
 - `fba-purchase-summary-create`
+- `fba-purchase-contract-regenerate`
 - `fba-restock-workbook-create`
 - `fba-export-tax-products-manage`
 - `fba-export-tax-delivery-summary`

@@ -64,6 +64,7 @@ flowchart TD
 | 填写报关资料、生成报关单/发票/箱单/合同 | `fba-customs-declaration-fill` |
 | 按一批发货单、出口退税总表和合同模板生成采购汇总表、批量备货单、正式合同 | `fba-purchase-summary-create` |
 | 生成正式采购合同 | `fba-purchase-summary-create`；合同由正式采购流程在本地一并生成，不再单独执行合同 Skill |
+| 按 ERP 采购批次号重新生成或重新取得正式合同 | `fba-purchase-contract-regenerate`；只读取当前有效版本并用本机当前模板覆盖生成 |
 | 明确只按单个发货单独立生成备货单，且不需要整批正飞均价 | `fba-restock-workbook-create` |
 | 维护可退税 SKU 白名单 | `fba-export-tax-products-manage` |
 | 统计某个发货单的退税 SKU | `fba-export-tax-delivery-summary` |
@@ -79,6 +80,7 @@ flowchart TD
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
 | 正式采购文件生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP FIFO 确认 -> `fba-purchase-summary-create` 一次生成采购汇总表、批量备货单和正式合同 |
+| 正式合同重新生成 | ERP 采购批次号 + 本机当前合同模板 -> `fba-purchase-contract-regenerate` 只读取得当前合同数据并覆盖生成 |
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
