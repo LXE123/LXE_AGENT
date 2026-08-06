@@ -26,7 +26,7 @@ PURCHASE_CONFIRMATION_CODES = frozenset(
         "purchase_batch_replace_confirmation_required",
     }
 )
-PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v1"
+PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v2"
 UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA = (
     "lxe.fba.purchase-unmatched-confirmation.v1"
 )
@@ -882,21 +882,26 @@ def _validate_inventory_confirmation(
     request_payload: Mapping[str, Any],
 ) -> None:
     _required_result_text(confirmation.get("quote_id"), field="confirmation.quote_id")
+    if confirmation.get("inventory_changes_committed") is not False:
+        raise _incomplete(
+            "库存报价必须明确声明尚未修改库存",
+            field="confirmation.inventory_changes_committed",
+        )
     planned_total = _required_result_decimal(
         confirmation.get("planned_shipment_quantity"),
         field="confirmation.planned_shipment_quantity",
     )
-    carryover_total = _required_result_decimal(
-        confirmation.get("carryover_applied_quantity"),
-        field="confirmation.carryover_applied_quantity",
+    proposed_deduction_total = _required_result_decimal(
+        confirmation.get("proposed_inventory_deduction_quantity"),
+        field="confirmation.proposed_inventory_deduction_quantity",
     )
-    purchase_total = _required_result_decimal(
-        confirmation.get("purchase_quantity"),
-        field="confirmation.purchase_quantity",
+    proposed_purchase_total = _required_result_decimal(
+        confirmation.get("proposed_purchase_quantity"),
+        field="confirmation.proposed_purchase_quantity",
     )
-    if planned_total != carryover_total + purchase_total:
+    if planned_total != proposed_deduction_total + proposed_purchase_total:
         raise _incomplete(
-            "确认总量不满足 计划量=抵扣量+采购量",
+            "确认总量不满足 计划量=拟抵扣量+拟采购量",
             field="confirmation",
         )
 
@@ -938,7 +943,8 @@ def _validate_inventory_confirmation(
         )
 
     seen_keys: set[tuple[str, str]] = set()
-    affected_carryover_total = Decimal("0")
+    affected_deduction_total = Decimal("0")
+    seen_inventory_entry_ids: set[str] = set()
     for line_index, raw_line in enumerate(raw_lines):
         line_field = f"confirmation.affected_lines[{line_index}]"
         if not isinstance(raw_line, Mapping):
@@ -966,16 +972,19 @@ def _validate_inventory_confirmation(
             field=f"{line_field}.planned_shipment_quantity",
             positive=True,
         )
-        carryover = _required_result_decimal(
-            raw_line.get("carryover_applied_quantity"),
-            field=f"{line_field}.carryover_applied_quantity",
+        proposed_deduction = _required_result_decimal(
+            raw_line.get("proposed_inventory_deduction_quantity"),
+            field=f"{line_field}.proposed_inventory_deduction_quantity",
             positive=True,
         )
-        purchased = _required_result_decimal(
-            raw_line.get("purchase_quantity"),
-            field=f"{line_field}.purchase_quantity",
+        proposed_purchase = _required_result_decimal(
+            raw_line.get("proposed_purchase_quantity"),
+            field=f"{line_field}.proposed_purchase_quantity",
         )
-        if planned != expected["planned"] or planned != carryover + purchased:
+        if (
+            planned != expected["planned"]
+            or planned != proposed_deduction + proposed_purchase
+        ):
             raise _incomplete(
                 f"受影响型号数量不守恒: {supplier_name}/{model}",
                 field=line_field,
@@ -989,29 +998,89 @@ def _validate_inventory_confirmation(
             source_field = f"{line_field}.inventory_sources[{source_index}]"
             if not isinstance(raw_source, Mapping):
                 raise _incomplete(f"{source_field} 必须是对象", field=source_field)
+            carryover_entry_id = _required_result_text(
+                raw_source.get("carryover_entry_id"),
+                field=f"{source_field}.carryover_entry_id",
+            )
+            if carryover_entry_id in seen_inventory_entry_ids:
+                raise _incomplete(
+                    f"库存批次身份重复: {carryover_entry_id}",
+                    field=f"{source_field}.carryover_entry_id",
+                )
+            seen_inventory_entry_ids.add(carryover_entry_id)
+            source_kind = _required_result_text(
+                raw_source.get("source_kind"),
+                field=f"{source_field}.source_kind",
+            )
+            if source_kind not in {"opening_inventory", "reconciliation"}:
+                raise _incomplete(
+                    f"{source_field}.source_kind 未知: {source_kind}",
+                    field=f"{source_field}.source_kind",
+                )
             _required_result_text(
                 raw_source.get("source_contract_no"),
                 field=f"{source_field}.source_contract_no",
+            )
+            _required_result_text(
+                raw_source.get("source_sp_no"),
+                field=f"{source_field}.source_sp_no",
+            )
+            _required_result_text(
+                raw_source.get("source_reference"),
+                field=f"{source_field}.source_reference",
             )
             _required_result_decimal(
                 raw_source.get("historical_tax_unit_price"),
                 field=f"{source_field}.historical_tax_unit_price",
             )
-            source_total += _required_result_decimal(
-                raw_source.get("suggested_applied_quantity"),
-                field=f"{source_field}.suggested_applied_quantity",
+            original = _required_result_decimal(
+                raw_source.get("original_quantity"),
+                field=f"{source_field}.original_quantity",
                 positive=True,
             )
-        if source_total != carryover:
+            current_remaining = _required_result_decimal(
+                raw_source.get("current_remaining_quantity"),
+                field=f"{source_field}.current_remaining_quantity",
+            )
+            replacement_released = _required_result_decimal(
+                raw_source.get("replacement_released_quantity"),
+                field=f"{source_field}.replacement_released_quantity",
+            )
+            available_after_release = _required_result_decimal(
+                raw_source.get("available_after_release"),
+                field=f"{source_field}.available_after_release",
+            )
+            proposed_applied = _required_result_decimal(
+                raw_source.get("proposed_applied_quantity"),
+                field=f"{source_field}.proposed_applied_quantity",
+                positive=True,
+            )
+            if current_remaining + replacement_released != available_after_release:
+                raise _incomplete(
+                    f"{source_field} 不满足 当前剩余+替代返还=替代后可用",
+                    field=source_field,
+                )
+            if current_remaining > original or available_after_release > original:
+                raise _incomplete(
+                    f"{source_field} 的当前或替代后可用量超过原始数量",
+                    field=source_field,
+                )
+            if proposed_applied > available_after_release:
+                raise _incomplete(
+                    f"{source_field} 拟抵扣量超过替代后可用量",
+                    field=source_field,
+                )
+            source_total += proposed_applied
+        if source_total != proposed_deduction:
             raise _incomplete(
                 f"受影响型号的库存来源合计不守恒: {supplier_name}/{model}",
                 field=line_field,
             )
-        affected_carryover_total += carryover
-    if affected_carryover_total != carryover_total:
+        affected_deduction_total += proposed_deduction
+    if affected_deduction_total != proposed_deduction_total:
         raise _incomplete(
-            "受影响型号抵扣合计与确认总量不一致",
-            field="confirmation.carryover_applied_quantity",
+            "受影响型号拟抵扣合计与确认总量不一致",
+            field="confirmation.proposed_inventory_deduction_quantity",
         )
 
 

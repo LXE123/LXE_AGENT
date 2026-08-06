@@ -210,17 +210,22 @@ def _quote_response(*, status: str = "confirmation_required") -> dict[str, Any]:
             else "purchase_inventory_confirmation_required"
         ),
         "message": (
-            "inventory changed after confirmation; review the latest quote"
+            "the previous inventory quote is stale; review the latest inventory "
+            "deduction proposal. No inventory changes have been committed."
             if status == "quote_stale"
-            else "ERP inventory is available; confirmation is required"
+            else (
+                "ERP prepared an inventory deduction proposal. No inventory changes "
+                "have been committed; confirmation is required."
+            )
         ),
     }
     confirmation = {
         "kind": "inventory_quote",
         "quote_id": "00000000-0000-0000-0000-000000000004",
+        "inventory_changes_committed": False,
         "planned_shipment_quantity": 10,
-        "carryover_applied_quantity": 4,
-        "purchase_quantity": 6,
+        "proposed_inventory_deduction_quantity": 4,
+        "proposed_purchase_quantity": 6,
         "all_line_count": 1,
         "affected_line_count": 1,
         "omitted_unaffected_line_count": 0,
@@ -231,20 +236,28 @@ def _quote_response(*, status: str = "confirmation_required") -> dict[str, Any]:
                 "model": "A-1",
                 "contract_product_name": "合同产品A",
                 "planned_shipment_quantity": 10,
-                "carryover_applied_quantity": 4,
-                "purchase_quantity": 6,
+                "proposed_inventory_deduction_quantity": 4,
+                "proposed_purchase_quantity": 6,
                 "inventory_sources": [
                     {
+                        "carryover_entry_id": "00000000-0000-0000-0000-000000000003",
+                        "source_kind": "opening_inventory",
                         "source_contract_no": "ZF20260601001",
+                        "source_sp_no": "SP260601001",
+                        "source_reference": "SP260601001-row-1",
                         "historical_tax_unit_price": 3,
-                        "suggested_applied_quantity": 4,
+                        "original_quantity": 4,
+                        "current_remaining_quantity": 4,
+                        "replacement_released_quantity": 0,
+                        "available_after_release": 4,
+                        "proposed_applied_quantity": 4,
                     }
                 ],
             }
         ],
     }
     return {
-        "response_schema": "lxe.erp.purchase-confirmation.v1",
+        "response_schema": "lxe.erp.purchase-confirmation.v2",
         "status": status,
         "request_id": "purchase-1",
         "error": error,
@@ -722,7 +735,7 @@ def test_stale_quote_passes_through_latest_confirmation(monkeypatch) -> None:
 
 def test_replace_confirmation_passes_through_server_response() -> None:
     response = {
-        "response_schema": "lxe.erp.purchase-confirmation.v1",
+        "response_schema": "lxe.erp.purchase-confirmation.v2",
         "status": "confirmation_required",
         "request_id": "purchase-1",
         "error": {
@@ -762,7 +775,7 @@ def test_replace_confirmation_passes_through_server_response() -> None:
     [
         (
             lambda response: response.__setitem__(
-                "response_schema", "lxe.erp.purchase-confirmation.v2"
+                "response_schema", "lxe.erp.purchase-confirmation.v3"
             ),
             "erp_purchase_confirmation_schema_unsupported",
         ),
@@ -772,14 +785,14 @@ def test_replace_confirmation_passes_through_server_response() -> None:
         ),
         (
             lambda response: response["confirmation"].__setitem__(
-                "purchase_quantity", 7
+                "proposed_purchase_quantity", 7
             ),
             "erp_purchase_result_incomplete",
         ),
         (
             lambda response: response["confirmation"]["affected_lines"][0][
                 "inventory_sources"
-            ][0].__setitem__("suggested_applied_quantity", 3),
+            ][0].__setitem__("proposed_applied_quantity", 3),
             "erp_purchase_result_incomplete",
         ),
         (
@@ -1088,6 +1101,135 @@ def test_quote_response_must_preserve_inventory_source_lineage() -> None:
 
     assert captured.value.code == "erp_purchase_result_incomplete"
     assert "source_contract_no" in str(captured.value)
+
+
+def test_quote_response_preserves_complete_v2_inventory_batch_semantics() -> None:
+    response = _quote_response()
+
+    erp.validate_purchase_response(
+        status_code=409,
+        response=response,
+        request_payload=_request_payload(),
+    )
+
+    confirmation = response["confirmation"]
+    assert confirmation["inventory_changes_committed"] is False
+    line = confirmation["affected_lines"][0]
+    source = line["inventory_sources"][0]
+    assert line["proposed_inventory_deduction_quantity"] == 4
+    assert line["proposed_purchase_quantity"] == 6
+    assert source == {
+        "carryover_entry_id": "00000000-0000-0000-0000-000000000003",
+        "source_kind": "opening_inventory",
+        "source_contract_no": "ZF20260601001",
+        "source_sp_no": "SP260601001",
+        "source_reference": "SP260601001-row-1",
+        "historical_tax_unit_price": 3,
+        "original_quantity": 4,
+        "current_remaining_quantity": 4,
+        "replacement_released_quantity": 0,
+        "available_after_release": 4,
+        "proposed_applied_quantity": 4,
+    }
+    assert "suggested_applied_quantity" not in source
+    assert "carryover_applied_quantity" not in line
+    assert "purchase_quantity" not in line
+
+
+def test_quote_response_keeps_same_contract_in_distinct_sp_inventory_batches() -> None:
+    response = _quote_response()
+    line = response["confirmation"]["affected_lines"][0]
+    first = line["inventory_sources"][0]
+    first["proposed_applied_quantity"] = 2
+    second = deepcopy(first)
+    second.update(
+        {
+            "carryover_entry_id": "00000000-0000-0000-0000-000000000005",
+            "source_sp_no": "SP260601002",
+            "source_reference": "SP260601002-row-2",
+            "original_quantity": 2,
+            "current_remaining_quantity": 2,
+            "available_after_release": 2,
+            "proposed_applied_quantity": 2,
+        }
+    )
+    line["inventory_sources"].append(second)
+
+    erp.validate_purchase_response(
+        status_code=409,
+        response=response,
+        request_payload=_request_payload(),
+    )
+
+    assert [source["source_sp_no"] for source in line["inventory_sources"]] == [
+        "SP260601001",
+        "SP260601002",
+    ]
+
+
+def test_quote_response_rejects_duplicate_inventory_batch_identity() -> None:
+    response = _quote_response()
+    line = response["confirmation"]["affected_lines"][0]
+    first = line["inventory_sources"][0]
+    first["proposed_applied_quantity"] = 2
+    duplicate = deepcopy(first)
+    duplicate["source_sp_no"] = "SP260601002"
+    duplicate["source_reference"] = "SP260601002-row-2"
+    line["inventory_sources"].append(duplicate)
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.validate_purchase_response(
+            status_code=409,
+            response=response,
+            request_payload=_request_payload(),
+        )
+
+    assert captured.value.code == "erp_purchase_result_incomplete"
+    assert "库存批次身份重复" in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda source: source.pop("current_remaining_quantity"),
+        lambda source: source.__setitem__("replacement_released_quantity", 1),
+        lambda source: source.__setitem__("proposed_applied_quantity", 5),
+        lambda source: source.__setitem__("source_kind", "unknown"),
+    ],
+    ids=[
+        "missing-current-balance",
+        "release-equation",
+        "proposed-exceeds-available",
+        "unknown-source-kind",
+    ],
+)
+def test_quote_response_rejects_incomplete_or_invalid_v2_inventory_source(mutate) -> None:
+    response = _quote_response()
+    source = response["confirmation"]["affected_lines"][0]["inventory_sources"][0]
+    mutate(source)
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.validate_purchase_response(
+            status_code=409,
+            response=response,
+            request_payload=_request_payload(),
+        )
+
+    assert captured.value.code == "erp_purchase_result_incomplete"
+
+
+def test_quote_response_rejects_v1_confirmation_schema() -> None:
+    response = _quote_response()
+    response["response_schema"] = "lxe.erp.purchase-confirmation.v1"
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.validate_purchase_response(
+            status_code=409,
+            response=response,
+            request_payload=_request_payload(),
+        )
+
+    assert captured.value.code == "erp_purchase_confirmation_schema_unsupported"
 
 
 def test_cli_marks_success_validation_failure_as_committed(monkeypatch) -> None:

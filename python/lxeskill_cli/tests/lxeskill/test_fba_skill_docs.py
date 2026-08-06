@@ -51,3 +51,22 @@ def test_fba_docs_send_only_declared_deliverables() -> None:
         assert "send_files(paths=<terminal.files>)" in text, owner
 
     assert "不主动调用 `send_files`" in _skill_text("fba-export-tax-products-manage")
+
+
+def test_purchase_confirmation_skill_distinguishes_proposed_and_current_inventory() -> None:
+    text = _skill_text("fba-purchase-summary-create")
+
+    for field in (
+        "proposed_inventory_deduction_quantity",
+        "proposed_purchase_quantity",
+        "carryover_entry_id",
+        "source_sp_no",
+        "current_remaining_quantity",
+        "replacement_released_quantity",
+        "available_after_release",
+        "proposed_applied_quantity",
+    ):
+        assert field in text
+    assert "以上为待确认方案，当前库存尚未发生变化。" in text
+    assert "禁止仅按合同号合并" in text
+    assert "禁止用“ERP 原始数据”" in text
