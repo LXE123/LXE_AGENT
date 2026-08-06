@@ -24,6 +24,9 @@ const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState =
   permission_status: "verified",
   permission_profile: "fba",
   permission_version: 1,
+  profile_revision: 1,
+  profile_labels: { "zh-CN": "FBA", "en-US": "FBA" },
+  desktop_features: ["erp_dashboard"],
   permission_verified_at: 0,
   ...patch,
 });
@@ -71,19 +74,17 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
 });
 
 describe("desktop settings navigation model", () => {
-  test("shows the FBA ERP shortcut only to FBA-capable permission profiles", () => {
+  test("shows the FBA ERP shortcut only when granted by the server", () => {
     expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
-      permission_profile: "fba",
+      desktop_features: ["erp_dashboard"],
     }))).toBe(true);
     expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
-      permission_profile: "full_access",
+      permission_profile: "shopee",
+      desktop_features: [],
+    }))).toBe(false);
+    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
+      desktop_features: ["*"],
     }))).toBe(true);
-    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
-      permission_profile: "replenishment",
-    }))).toBe(false);
-    expect(desktopCloudShortcutAvailable("erp_dashboard", cloudState({
-      permission_profile: null,
-    }))).toBe(false);
   });
 
   test("keeps Agent access general and Admin access tied to the admin role", () => {
@@ -93,10 +94,12 @@ describe("desktop settings navigation model", () => {
     expect(desktopCloudShortcutAvailable("admin_dashboard", cloudState({
       is_admin: true,
       permission_profile: "replenishment",
+      desktop_features: [],
     }))).toBe(true);
     expect(desktopCloudShortcutAvailable("admin_dashboard", cloudState({
       is_admin: false,
       permission_profile: "full_access",
+      desktop_features: ["erp_dashboard"],
     }))).toBe(false);
   });
 

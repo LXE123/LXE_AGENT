@@ -23,6 +23,23 @@ const createRoot = (): string => {
   return root;
 };
 
+const legacyPermission = (
+  profile: "fba" | "replenishment" = "fba",
+  version = 1,
+) => ({
+  permission_schema: 1 as const,
+  permission_profile: profile,
+  permission_version: version,
+  profile_revision: 1,
+  profile_labels: profile === "fba"
+    ? { "zh-CN": "FBA", "en-US": "FBA" }
+    : { "zh-CN": "备货", "en-US": "Replenishment" },
+  allowed_skill_types: profile === "fba"
+    ? ["amazon_fba", "ziniao_browser", "default"]
+    : ["amazon_replenish", "default"],
+  desktop_features: profile === "fba" ? ["erp_dashboard"] : [],
+});
+
 describe("DesktopConfigStore", () => {
   test("keeps every secret encrypted and maps complete integrations and diagnostic logs", () => {
     const root = createRoot();
@@ -335,9 +352,7 @@ describe("DesktopConfigStore", () => {
 
     store.saveCloudPermissionSnapshot({
       device_id: "0123456789abcdef0123456789abcdef",
-      permission_profile: "fba",
-      permission_version: 2,
-      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      ...legacyPermission("fba", 2),
       verified_at: 123,
     });
     expect(store.cloudPermissionSnapshot()).toMatchObject({
@@ -378,9 +393,7 @@ describe("DesktopConfigStore", () => {
     });
     store.saveCloudPermissionSnapshot({
       device_id: "0123456789abcdef0123456789abcdef",
-      permission_profile: "fba",
-      permission_version: 1,
-      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      ...legacyPermission(),
       verified_at: 123,
     });
     store.saveManagedLlmCredential({
@@ -444,9 +457,7 @@ describe("DesktopConfigStore", () => {
 
     store.saveCloudPermissionSnapshot({
       device_id: "fedcba9876543210fedcba9876543210",
-      permission_profile: "replenishment",
-      permission_version: 2,
-      allowed_skill_types: ["amazon_replenish"],
+      ...legacyPermission("replenishment", 2),
       verified_at: 456,
     });
     store.saveManagedLlmCredential({

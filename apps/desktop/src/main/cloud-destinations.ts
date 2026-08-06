@@ -1,7 +1,6 @@
 import type {
   DesktopCloudConnectionState,
   DesktopCloudDestination,
-  DesktopPermissionProfile,
 } from "@lxe/desktop-protocol";
 
 const CLOUD_DESTINATION_PATHS: Record<DesktopCloudDestination, string> = {
@@ -15,15 +14,15 @@ export interface CloudDestinationUrlInput {
   connection: DesktopCloudConnectionState;
   dataServerUrl: string;
   destination: DesktopCloudDestination;
-  permissionProfile: DesktopPermissionProfile | null;
+  desktopFeatures: readonly string[];
 }
 
 export function resolveCloudDestinationUrl(input: CloudDestinationUrlInput): string {
   if (!input.configured) throw new Error("公司云端尚未配置");
   if (input.connection !== "connected") throw new Error("公司云端当前未连接");
   if (input.destination === "erp_dashboard"
-    && input.permissionProfile !== "fba"
-    && input.permissionProfile !== "full_access") {
+    && !input.desktopFeatures.includes("*")
+    && !input.desktopFeatures.includes("erp_dashboard")) {
     throw new Error("当前设备没有 FBA ERP 访问权限");
   }
 

@@ -97,6 +97,24 @@ describe("cloud enrollment", () => {
     });
   });
 
+  test("accepts enrollment v3 compatibility metadata without embedded authorization", () => {
+    const versionThree = structuredClone(payload);
+    versionThree.version = 3;
+    versionThree.enrollment_version = 3;
+    versionThree.device.minimum_permission_contract_version = 2;
+
+    const result = decryptCloudEnrollment(
+      encrypt("ABCD-EFGH-JKLM-NPQR-2345", versionThree),
+      "ABCD-EFGH-JKLM-NPQR-2345",
+    );
+
+    expect(result).toMatchObject({
+      enrollment_version: 3,
+      device: { minimum_permission_contract_version: 2 },
+    });
+    expect(result.device.permission_profile).toBeUndefined();
+  });
+
   test("rejects a wrong password, tampering, and routes wider than the server address", () => {
     expect(() => decryptCloudEnrollment(encrypt("ABCD-EFGH-JKLM-NPQR-2345"), "WRONG-PASSWORD-234567"))
       .toThrow("设备文件或密码不正确");

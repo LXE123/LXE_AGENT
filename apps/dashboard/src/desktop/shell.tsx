@@ -312,7 +312,8 @@ function DesktopCloudPanel({
             <div>
               <dt>{t.desktop.cloud.permission.profile}</dt>
               <dd>{cloud.permission_profile
-                ? t.desktop.cloud.permission.profiles[cloud.permission_profile]
+                ? cloud.profile_labels[t.desktop.cloud.permission.labelLocale]
+                  ?? cloud.permission_profile
                 : t.desktop.cloud.permission.unassigned}</dd>
             </div>
             <div>

@@ -18,7 +18,9 @@ import {
   type WireGuardProvisionerPort,
 } from "./wireguard-provisioner";
 import {
+  legacySnapshotCanUpgrade,
   parseServerDevicePermission,
+  parseServerDevicePermissionV2,
   permissionSnapshotsEqual,
 } from "./cloud-permissions";
 import {
@@ -364,7 +366,10 @@ export class DesktopCloudService {
         `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${statusPath}`,
         {
           method: "GET",
-          headers: { authorization: `Bearer ${target.apiToken}` },
+          headers: {
+            authorization: `Bearer ${target.apiToken}`,
+            "x-lxe-permission-contract": "2",
+          },
           cache: "no-store",
         },
       );
@@ -429,7 +434,7 @@ export class DesktopCloudService {
       return this.invalidCloudResponse(logger, startedAt, "machine identity mismatch");
     }
     try {
-      await this.acceptPermission(payload.permission, target.deviceId);
+      await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
     } catch (error) {
       return this.invalidCloudResponse(
         logger,
@@ -468,6 +473,7 @@ export class DesktopCloudService {
           headers: {
             authorization: `Bearer ${target.apiToken}`,
             "content-type": "application/json",
+            "x-lxe-permission-contract": "2",
           },
           body: JSON.stringify({ machine_id: identity.machine_id, hostname: hostname() }),
         },
@@ -496,7 +502,7 @@ export class DesktopCloudService {
       return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
     }
     try {
-      await this.acceptPermission(payload.permission, target.deviceId);
+      await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
     } catch (error) {
       return this.invalidCloudResponse(
         logger,
@@ -610,12 +616,15 @@ export class DesktopCloudService {
     );
   }
 
-  private async acceptPermission(value: unknown, deviceId: string): Promise<void> {
-    const next = parseServerDevicePermission(
-      value,
-      deviceId,
-      Math.floor(this.now() / 1_000),
-    );
+  private async acceptPermission(
+    v2Value: unknown,
+    legacyValue: unknown,
+    deviceId: string,
+  ): Promise<void> {
+    const verifiedAt = Math.floor(this.now() / 1_000);
+    const next = v2Value === undefined
+      ? parseServerDevicePermission(legacyValue, deviceId, verifiedAt)
+      : parseServerDevicePermissionV2(v2Value, deviceId, verifiedAt);
     const previous = this.permissionSnapshot;
     if (previous?.device_id === deviceId) {
       if (next.permission_version < previous.permission_version) {
@@ -624,11 +633,26 @@ export class DesktopCloudService {
           + `to ${next.permission_version}`,
         );
       }
-      if (next.permission_version === previous.permission_version
-        && !permissionSnapshotsEqual(previous, next)) {
-        throw new Error("device permission content changed without a version increase");
-      }
       if (next.permission_version === previous.permission_version) {
+        if (previous.permission_schema === 2 && next.permission_schema === 1) {
+          throw new Error("device permission contract regressed from v2 to v1");
+        }
+        if (legacySnapshotCanUpgrade(previous, next)) {
+          // A verified v2 response replaces the frozen v1 compatibility snapshot.
+        } else if (next.permission_profile !== previous.permission_profile) {
+          throw new Error("device permission profile changed without an assignment version increase");
+        } else if (next.profile_revision < previous.profile_revision) {
+          throw new Error(
+            `device permission profile revision regressed from ${previous.profile_revision} `
+            + `to ${next.profile_revision}`,
+          );
+        } else if (next.profile_revision === previous.profile_revision
+          && !permissionSnapshotsEqual(previous, next)) {
+          throw new Error("device permission content changed without a profile revision increase");
+        }
+      }
+      if (next.permission_version === previous.permission_version
+        && permissionSnapshotsEqual(previous, next)) {
         this.permissionFresh = true;
         return;
       }
@@ -647,9 +671,13 @@ export class DesktopCloudService {
     const previous = this.permissionSnapshot;
     this.permissionSnapshot = {
       device_id: "preview-admin",
+      permission_schema: 2,
       permission_profile: "full_access",
       permission_version: 0,
+      profile_revision: 1,
+      profile_labels: { "zh-CN": "全部业务", "en-US": "Full access" },
       allowed_skill_types: ["*"],
+      desktop_features: ["erp_dashboard"],
       verified_at: Math.floor(this.now() / 1_000),
     };
     this.permissionFresh = true;
@@ -712,6 +740,9 @@ export class DesktopCloudService {
     | "permission_status"
     | "permission_profile"
     | "permission_version"
+    | "profile_revision"
+    | "profile_labels"
+    | "desktop_features"
     | "permission_verified_at"
   > {
     const snapshot = this.permissionSnapshot;
@@ -723,6 +754,9 @@ export class DesktopCloudService {
           : "cached",
       permission_profile: snapshot?.permission_profile ?? null,
       permission_version: snapshot?.permission_version ?? 0,
+      profile_revision: snapshot?.profile_revision ?? 0,
+      profile_labels: { ...(snapshot?.profile_labels ?? {}) },
+      desktop_features: [...(snapshot?.desktop_features ?? [])],
       permission_verified_at: snapshot?.verified_at ?? 0,
     };
   }

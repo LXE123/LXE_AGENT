@@ -636,11 +636,7 @@ export const ZH_TEXT = {
         profile: "权限档案",
         version: "版本",
         unassigned: "未分配",
-        profiles: {
-          fba: "FBA",
-          replenishment: "备货",
-          full_access: "完整权限"
-        },
+        labelLocale: "zh-CN",
         status: {
           pending_verification: "待服务器验证，当前不开放仓库 Skill",
           verified: "已由服务器验证",
@@ -1391,11 +1387,7 @@ export const UI_TEXT: Record<Language, UiText> = {
           profile: "Permission profile",
           version: "Version",
           unassigned: "Unassigned",
-          profiles: {
-            fba: "FBA",
-            replenishment: "Replenishment",
-            full_access: "Full access"
-          },
+          labelLocale: "en-US",
           status: {
             pending_verification: "Awaiting server verification; repository Skills are unavailable",
             verified: "Verified by the server",

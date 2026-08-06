@@ -329,7 +329,7 @@ export type DesktopCloudDestination =
   | "erp_dashboard"
   | "admin_dashboard";
 
-export type DesktopPermissionProfile = "fba" | "replenishment" | "full_access";
+export type DesktopPermissionProfile = string;
 
 export type DesktopCloudPermissionStatus =
   | "pending_verification"
@@ -339,9 +339,13 @@ export type DesktopCloudPermissionStatus =
 
 export interface DesktopCloudPermissionSnapshot {
   device_id: string;
+  permission_schema: 1 | 2;
   permission_profile: DesktopPermissionProfile | null;
   permission_version: number;
+  profile_revision: number;
+  profile_labels: Record<string, string>;
   allowed_skill_types: string[];
+  desktop_features: string[];
   verified_at: number;
 }
 
@@ -357,6 +361,9 @@ export interface DesktopCloudState {
   permission_status: DesktopCloudPermissionStatus;
   permission_profile: DesktopPermissionProfile | null;
   permission_version: number;
+  profile_revision: number;
+  profile_labels: Record<string, string>;
+  desktop_features: string[];
   permission_verified_at: number;
 }
 

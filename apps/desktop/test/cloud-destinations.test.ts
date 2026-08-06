@@ -5,7 +5,7 @@ const connectedInput = {
   configured: true,
   connection: "connected" as const,
   dataServerUrl: "http://10.88.0.1:8000",
-  permissionProfile: "fba" as const,
+  desktopFeatures: ["erp_dashboard"],
 };
 
 describe("cloud destination URLs", () => {
@@ -39,30 +39,32 @@ describe("cloud destination URLs", () => {
     })).toThrow("当前未连接");
   });
 
-  test("allows FBA-capable profiles to open ERP and rejects all other profiles", () => {
+  test("uses the server-granted desktop feature for ERP access", () => {
     expect(resolveCloudDestinationUrl({
       ...connectedInput,
-      permissionProfile: "full_access",
       destination: "erp_dashboard",
     })).toBe("http://10.88.0.1:8000/erp");
-    for (const permissionProfile of ["replenishment", null] as const) {
-      expect(() => resolveCloudDestinationUrl({
-        ...connectedInput,
-        permissionProfile,
-        destination: "erp_dashboard",
-      })).toThrow("没有 FBA ERP 访问权限");
-    }
+    expect(() => resolveCloudDestinationUrl({
+      ...connectedInput,
+      desktopFeatures: [],
+      destination: "erp_dashboard",
+    })).toThrow("没有 FBA ERP 访问权限");
+    expect(resolveCloudDestinationUrl({
+      ...connectedInput,
+      desktopFeatures: ["*"],
+      destination: "erp_dashboard",
+    })).toBe("http://10.88.0.1:8000/erp");
   });
 
   test("does not apply the ERP permission profile to other cloud destinations", () => {
     expect(resolveCloudDestinationUrl({
       ...connectedInput,
-      permissionProfile: null,
+      desktopFeatures: [],
       destination: "agent_dashboard",
     })).toBe("http://10.88.0.1:8000/dashboard");
     expect(resolveCloudDestinationUrl({
       ...connectedInput,
-      permissionProfile: "replenishment",
+      desktopFeatures: [],
       destination: "admin_dashboard",
     })).toBe("http://10.88.0.1:8000/admin");
   });

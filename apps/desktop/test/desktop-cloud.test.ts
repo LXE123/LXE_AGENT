@@ -102,13 +102,45 @@ const devicePermission = (
   permissionProfile: "fba" | "replenishment" | "full_access" | null = "fba",
   permissionVersion = permissionProfile === null ? 0 : 1,
 ) => ({
+  permission_schema: 1 as const,
   permission_profile: permissionProfile,
   permission_version: permissionVersion,
+  profile_revision: permissionProfile === null ? 0 : 1,
+  profile_labels: permissionProfile === "fba"
+    ? { "zh-CN": "FBA", "en-US": "FBA" }
+    : permissionProfile === "replenishment"
+      ? { "zh-CN": "备货", "en-US": "Replenishment" }
+      : permissionProfile === "full_access"
+        ? { "zh-CN": "全部业务", "en-US": "Full access" }
+        : {},
   allowed_skill_types: permissionProfile === "fba"
     ? ["amazon_fba", "ziniao_browser", "default"]
     : permissionProfile === "replenishment"
       ? ["amazon_replenish", "default"]
       : permissionProfile === "full_access" ? ["*"] : [],
+  desktop_features: permissionProfile === "fba" || permissionProfile === "full_access"
+    ? ["erp_dashboard"]
+    : [],
+});
+
+const devicePermissionV2 = (
+  profile = "shopee",
+  assignmentVersion = 1,
+  profileRevision = 1,
+  skillTypes: string[] = ["shopee_operations", "default"],
+  desktopFeatures: string[] = [],
+) => ({
+  response_schema: "lxe.device-permission.v2",
+  assignment_version: assignmentVersion,
+  profile: {
+    id: profile,
+    revision: profileRevision,
+    labels: { "zh-CN": profile === "shopee" ? "Shopee" : profile, "en-US": profile },
+  },
+  grants: {
+    skill_types: skillTypes,
+    desktop_features: desktopFeatures,
+  },
 });
 
 const encryptedEnrollment = (
@@ -1117,9 +1149,7 @@ describe("DesktopCloudService", () => {
     });
     config.saveCloudPermissionSnapshot({
       device_id: enrollmentPayload.device.id,
-      permission_profile: "fba",
-      permission_version: 7,
-      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      ...devicePermission("fba", 7),
       verified_at: 1,
     });
     const service = new DesktopCloudService({
@@ -1160,9 +1190,7 @@ describe("DesktopCloudService", () => {
     });
     config.saveCloudPermissionSnapshot({
       device_id: enrollmentPayload.device.id,
-      permission_profile: "fba",
-      permission_version: 2,
-      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      ...devicePermission("fba", 2),
       verified_at: 1,
     });
     const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
@@ -1260,5 +1288,75 @@ describe("DesktopCloudService", () => {
       permission_version: 0,
     });
     expect(service.allowedSkillTypes()).toEqual([]);
+  });
+
+  test("prefers generic v2 permissions and accepts only versioned profile changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-permission-v2-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const permissions = [
+      devicePermissionV2("shopee", 1, 1),
+      devicePermissionV2("shopee", 1, 2, ["shopee_operations", "default"], ["orders_dashboard"]),
+      devicePermissionV2("shopee", 1, 2, ["*"], ["orders_dashboard"]),
+      devicePermissionV2("shopee", 1, 1),
+    ];
+    const observedContracts: string[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async (_input, init) => {
+        observedContracts.push(String(new Headers(init?.headers).get("x-lxe-permission-contract")));
+        return Response.json({
+          status: "ok",
+          activation_required: false,
+          device_id: enrollmentPayload.device.id,
+          display_name: enrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.8",
+          machine_id: machineId,
+          permission: devicePermission("fba", 99),
+          permission_v2: permissions.shift(),
+        });
+      },
+    });
+
+    expect(await service.check()).toMatchObject({
+      connection: "connected",
+      permission_profile: "shopee",
+      permission_version: 1,
+      profile_revision: 1,
+      profile_labels: { "zh-CN": "Shopee", "en-US": "shopee" },
+    });
+    expect(service.allowedSkillTypes()).toEqual(["shopee_operations", "default"]);
+
+    expect(await service.check()).toMatchObject({
+      connection: "connected",
+      profile_revision: 2,
+      desktop_features: ["orders_dashboard"],
+    });
+    expect(await service.check()).toMatchObject({
+      connection: "error",
+      profile_revision: 2,
+      last_error: expect.stringContaining("without a profile revision increase"),
+    });
+    expect(await service.check()).toMatchObject({
+      connection: "error",
+      profile_revision: 2,
+      last_error: expect.stringContaining("revision regressed"),
+    });
+    expect(observedContracts).toEqual(["2", "2", "2", "2"]);
   });
 });
