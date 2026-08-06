@@ -1821,26 +1821,32 @@ def apply_formal_erp_result(
     product_names = _sp_product_names(request_payload)
     purchase_path = Path(result["purchase_summary_xlsx"])
     workbook = load_workbook(purchase_path)
-    for sheet_name in list(workbook.sheetnames):
-        if sheet_name == purchase_summary.UNMATCHED_SHEET_NAME:
-            continue
-        _rebuild_purchase_sheet(
-            workbook[sheet_name],
-            lines,
-            product_names=product_names,
-        )
-    workbook.save(purchase_path)
+    try:
+        for sheet_name in list(workbook.sheetnames):
+            if sheet_name == purchase_summary.UNMATCHED_SHEET_NAME:
+                continue
+            _rebuild_purchase_sheet(
+                workbook[sheet_name],
+                lines,
+                product_names=product_names,
+            )
+        purchase_summary._save_workbook_atomically(workbook, purchase_path)
+    finally:
+        workbook.close()
 
     for output in result["restock_outputs"]:
         path = Path(output["output_xlsx"])
         workbook = load_workbook(path)
-        _rebuild_restock_sheet(
-            workbook[restock_workbook.RESTOCK_SHEET_NAME],
-            lines,
-            sp_no=output["delivery_no"],
-            product_names=product_names,
-        )
-        workbook.save(path)
+        try:
+            _rebuild_restock_sheet(
+                workbook[restock_workbook.RESTOCK_SHEET_NAME],
+                lines,
+                sp_no=output["delivery_no"],
+                product_names=product_names,
+            )
+            purchase_summary._save_workbook_atomically(workbook, path)
+        finally:
+            workbook.close()
     result["mode"] = "formal"
     result["erp_synced"] = True
     result["erp"] = dict(erp_result)

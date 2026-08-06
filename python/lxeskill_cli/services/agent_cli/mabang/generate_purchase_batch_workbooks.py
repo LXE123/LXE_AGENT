@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +14,7 @@ from services.agent_cli.mabang import erp_purchase_batch
 
 SOURCE = "fba_purchase_batch_workbooks"
 FORMAL_SUCCESS_RESULT_SCHEMA = "lxe.fba.purchase-summary-result.v1"
+ARTIFACT_SNAPSHOT_SCHEMA = "lxe.erp.purchase-artifact-snapshot.v1"
 
 _FORMAL_DIAGNOSTIC_COUNT_FIELDS = (
     "sku_count",
@@ -159,6 +160,503 @@ def _single_delivery_summary_from_csv(
         raise RuntimeError(f"发货单 CSV 汇总后没有正数 SKU 发货量: {delivery_no}")
     sku_sources = OrderedDict((sku, [delivery_no]) for sku in summary)
     return summary, sku_sources
+
+
+def _snapshot_mapping(value: Any, *, field: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照字段 `{field}` 必须是对象",
+            detail={"field": field},
+        )
+    return value
+
+
+def _snapshot_list(value: Any, *, field: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照字段 `{field}` 必须是数组",
+            detail={"field": field},
+        )
+    return value
+
+
+def _snapshot_text(value: Any, *, field: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照缺少字段 `{field}`",
+            detail={"field": field},
+        )
+    return text
+
+
+def _snapshot_decimal(value: Any, *, field: str) -> Decimal:
+    if isinstance(value, bool) or value in (None, ""):
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照缺少数值字段 `{field}`",
+            detail={"field": field},
+        )
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照字段 `{field}` 不是有效数字: {value}",
+            detail={"field": field},
+        ) from exc
+    if not result.is_finite() or result < 0:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照字段 `{field}` 必须是非负有限数字: {value}",
+            detail={"field": field},
+        )
+    return result
+
+
+def _snapshot_row(
+    line: Mapping[str, Any],
+    details: list[Mapping[str, Any]],
+    *,
+    product_names: Mapping[tuple[str, str], str],
+    field: str,
+) -> list[Any]:
+    manufacturer = _snapshot_text(line.get("supplier_name"), field=f"{field}.supplier_name")
+    model = _snapshot_text(line.get("model"), field=f"{field}.model")
+    original_price = _snapshot_decimal(
+        line.get("source_tax_unit_price"),
+        field=f"{field}.source_tax_unit_price",
+    )
+    stock_sku_quantities: OrderedDict[str, Decimal] = OrderedDict()
+    stock_sku_product_names: OrderedDict[str, str] = OrderedDict()
+    source_sps: list[str] = []
+    for detail_index, detail in enumerate(details):
+        detail_field = f"{field}.allocation_details[{detail_index}]"
+        sp_no = _snapshot_text(detail.get("sp_no"), field=f"{detail_field}.sp_no").upper()
+        stock_sku = _snapshot_text(
+            detail.get("stock_sku"),
+            field=f"{detail_field}.stock_sku",
+        ).upper()
+        quantity = _snapshot_decimal(
+            detail.get("quantity"),
+            field=f"{detail_field}.quantity",
+        )
+        if quantity <= 0:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                f"ERP 采购文件快照分配数量必须为正数: {sp_no}/{stock_sku}",
+                detail={"field": f"{detail_field}.quantity"},
+            )
+        product_name = product_names.get((sp_no, stock_sku))
+        if not product_name:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                f"ERP 采购文件快照缺少冻结产品名称: {sp_no}/{stock_sku}",
+                detail={"field": f"{detail_field}.stock_sku"},
+            )
+        if sp_no not in source_sps:
+            source_sps.append(sp_no)
+        previous_name = stock_sku_product_names.setdefault(stock_sku, product_name)
+        if previous_name != product_name:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                f"ERP 采购文件快照同一 SKU 的产品名称不一致: {stock_sku}",
+                detail={"field": f"{detail_field}.stock_sku"},
+            )
+        stock_sku_quantities[stock_sku] = (
+            stock_sku_quantities.get(stock_sku, Decimal("0")) + quantity
+        )
+    if not stock_sku_quantities:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            f"ERP 采购文件快照采购行没有来源分配: {manufacturer}/{model}",
+            detail={"field": f"{field}.allocation_details"},
+        )
+
+    quantity = sum(stock_sku_quantities.values(), Decimal("0"))
+    average_price: Decimal | str = ""
+    average_total: Decimal | str = ""
+    tax_unit_price = line.get("tax_unit_price")
+    if purchase_summary._is_zhengfei_manufacturer(manufacturer) and tax_unit_price not in (
+        None,
+        "",
+    ):
+        average_price = _snapshot_decimal(
+            tax_unit_price,
+            field=f"{field}.tax_unit_price",
+        )
+        average_total = average_price * quantity
+    values = {
+        "库存sku": "\n".join(
+            f"{stock_sku} × {purchase_summary._decimal_to_cell_value(item_quantity)}"
+            for stock_sku, item_quantity in stock_sku_quantities.items()
+        ),
+        "产品名称": "\n".join(stock_sku_product_names.values()),
+        "来源SP单号": "\n".join(source_sps),
+        "库存sku（第一行）": next(iter(stock_sku_quantities)),
+        "产品名称（第一行）": next(iter(stock_sku_product_names.values())),
+        "型号": model,
+        "原价": purchase_summary._decimal_to_cell_value(original_price),
+        "均价": (
+            purchase_summary._decimal_to_cell_value(average_price)
+            if isinstance(average_price, Decimal)
+            else ""
+        ),
+        "厂家": manufacturer,
+        "单位": _snapshot_text(line.get("unit"), field=f"{field}.unit"),
+        "合同产品名称": _snapshot_text(
+            line.get("contract_product_name"),
+            field=f"{field}.contract_product_name",
+        ),
+        purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER: "",
+        purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER: "",
+        "税率": _snapshot_text(line.get("tax_rate"), field=f"{field}.tax_rate"),
+        "数量": purchase_summary._decimal_to_cell_value(quantity),
+        "总价": purchase_summary._decimal_to_cell_value(original_price * quantity),
+        "总价（均价）": (
+            purchase_summary._decimal_to_cell_value(average_total)
+            if isinstance(average_total, Decimal)
+            else ""
+        ),
+    }
+    return [values.get(column, "") for column in purchase_summary.MANUFACTURER_COLUMNS]
+
+
+def generate_purchase_batch_workbooks_from_snapshot(
+    snapshot: Mapping[str, Any],
+    *,
+    gross_margin: Any,
+    purchase_output_dir: str | Path | None = None,
+    restock_output_dir: str | Path | None = None,
+    today: date,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if snapshot.get("snapshot_schema") != ARTIFACT_SNAPSHOT_SCHEMA:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            "ERP 采购文件快照版本不受支持",
+            detail={"snapshot_schema": snapshot.get("snapshot_schema")},
+        )
+    if str(snapshot.get("status") or "") != "current":
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_not_current",
+            "采购批次没有当前有效版本，不能重新生成采购文件",
+        )
+    parsed_gross_margin = restock_workbook._parse_gross_margin(gross_margin)
+    raw_sps = _snapshot_list(snapshot.get("sps"), field="sps")
+    raw_purchase_lines = _snapshot_list(
+        snapshot.get("purchase_lines"),
+        field="purchase_lines",
+    )
+    raw_contracts = _snapshot_list(snapshot.get("contracts"), field="contracts")
+    if not raw_sps or not raw_purchase_lines:
+        raise erp_purchase_batch.PurchaseBatchClientError(
+            "purchase_batch_artifact_snapshot_invalid",
+            "ERP 采购文件快照没有 SP 或采购行",
+        )
+
+    product_names: dict[tuple[str, str], str] = {}
+    request_sps: list[dict[str, Any]] = []
+    delivery_nos: list[str] = []
+    countries: dict[str, str] = {}
+    unmatched_by_sp: dict[str, list[list[Any]]] = {}
+    matched_sku_keys: set[str] = set()
+    unmatched_sku_keys: set[str] = set()
+    restock_matched_sku_count = 0
+    restock_unmatched_sku_count = 0
+    summary_unmatched_rows: list[list[Any]] = []
+    for sp_index, raw_sp in enumerate(raw_sps):
+        sp = _snapshot_mapping(raw_sp, field=f"sps[{sp_index}]")
+        sp_no = _snapshot_text(sp.get("sp_no"), field=f"sps[{sp_index}].sp_no").upper()
+        if sp_no in countries:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                f"ERP 采购文件快照 SP 重复: {sp_no}",
+            )
+        delivery_nos.append(sp_no)
+        countries[sp_no] = str(sp.get("country") or "").strip()
+        planned_lines: list[dict[str, Any]] = []
+        for line_index, raw_line in enumerate(
+            _snapshot_list(
+                sp.get("planned_lines"),
+                field=f"sps[{sp_index}].planned_lines",
+            )
+        ):
+            line = _snapshot_mapping(
+                raw_line,
+                field=f"sps[{sp_index}].planned_lines[{line_index}]",
+            )
+            stock_sku = _snapshot_text(
+                line.get("stock_sku"),
+                field=f"sps[{sp_index}].planned_lines[{line_index}].stock_sku",
+            ).upper()
+            product_name = _snapshot_text(
+                line.get("product_name"),
+                field=f"sps[{sp_index}].planned_lines[{line_index}].product_name",
+            )
+            key = (sp_no, stock_sku)
+            if key in product_names:
+                raise erp_purchase_batch.PurchaseBatchClientError(
+                    "purchase_batch_artifact_snapshot_invalid",
+                    f"ERP 采购文件快照 SP/SKU 重复: {sp_no}/{stock_sku}",
+                )
+            product_names[key] = product_name
+            matched_sku_keys.add(stock_sku)
+            planned_lines.append(dict(line))
+        restock_matched_sku_count += len(planned_lines)
+
+        unmatched_rows: list[list[Any]] = []
+        for line_index, raw_line in enumerate(
+            _snapshot_list(
+                sp.get("unmatched_lines"),
+                field=f"sps[{sp_index}].unmatched_lines",
+            )
+        ):
+            line = _snapshot_mapping(
+                raw_line,
+                field=f"sps[{sp_index}].unmatched_lines[{line_index}]",
+            )
+            stock_sku = _snapshot_text(
+                line.get("stock_sku"),
+                field=f"sps[{sp_index}].unmatched_lines[{line_index}].stock_sku",
+            ).upper()
+            product_name = str(line.get("product_name") or "").strip()
+            quantity = _snapshot_decimal(
+                line.get("planned_shipment_quantity"),
+                field=(
+                    f"sps[{sp_index}].unmatched_lines[{line_index}]"
+                    ".planned_shipment_quantity"
+                ),
+            )
+            issue_message = _snapshot_text(
+                line.get("issue_message"),
+                field=f"sps[{sp_index}].unmatched_lines[{line_index}].issue_message",
+            )
+            row = [
+                stock_sku,
+                product_name,
+                sp_no,
+                purchase_summary._decimal_to_cell_value(quantity),
+                issue_message,
+            ]
+            unmatched_rows.append(row)
+            summary_unmatched_rows.append(row)
+            unmatched_sku_keys.add(stock_sku)
+        restock_unmatched_sku_count += len(unmatched_rows)
+        unmatched_by_sp[sp_no] = unmatched_rows
+        request_sps.append({"sp_no": sp_no, "planned_lines": planned_lines})
+
+    purchase_lines: list[dict[str, Any]] = []
+    summary_rows: list[list[Any]] = []
+    manufacturer_rows: OrderedDict[str, list[list[Any]]] = OrderedDict()
+    line_keys: set[tuple[str, str]] = set()
+    for line_index, raw_line in enumerate(raw_purchase_lines):
+        line = _snapshot_mapping(raw_line, field=f"purchase_lines[{line_index}]")
+        manufacturer = _snapshot_text(
+            line.get("supplier_name"),
+            field=f"purchase_lines[{line_index}].supplier_name",
+        )
+        model = _snapshot_text(
+            line.get("model"),
+            field=f"purchase_lines[{line_index}].model",
+        )
+        line_key = (manufacturer, model.casefold())
+        if line_key in line_keys:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                f"ERP 采购文件快照采购行重复: {manufacturer}/{model}",
+            )
+        line_keys.add(line_key)
+        raw_details = _snapshot_list(
+            line.get("allocation_details"),
+            field=f"purchase_lines[{line_index}].allocation_details",
+        )
+        details = [
+            _snapshot_mapping(
+                detail,
+                field=f"purchase_lines[{line_index}].allocation_details[{detail_index}]",
+            )
+            for detail_index, detail in enumerate(raw_details)
+        ]
+        row = _snapshot_row(
+            line,
+            details,
+            product_names=product_names,
+            field=f"purchase_lines[{line_index}]",
+        )
+        expected_planned = _snapshot_decimal(
+            line.get("planned_shipment_quantity"),
+            field=f"purchase_lines[{line_index}].planned_shipment_quantity",
+        )
+        actual_planned = sum(
+            (
+                _snapshot_decimal(
+                    detail.get("quantity"),
+                    field=(
+                        f"purchase_lines[{line_index}].allocation_details"
+                        f"[{detail_index}].quantity"
+                    ),
+                )
+                for detail_index, detail in enumerate(details)
+            ),
+            Decimal("0"),
+        )
+        if actual_planned != expected_planned:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                "ERP 采购文件快照采购行计划量与来源分配不一致: "
+                f"{manufacturer}/{model}",
+                detail={
+                    "field": f"purchase_lines[{line_index}].allocation_details",
+                    "expected": str(expected_planned),
+                    "actual": str(actual_planned),
+                },
+            )
+        summary_rows.append(row)
+        manufacturer_rows.setdefault(manufacturer, []).append(row)
+        purchase_lines.append(dict(line))
+
+    purchase_summary_xlsx = purchase_summary.write_restock_workbook(
+        summary_rows,
+        manufacturer_rows,
+        summary_unmatched_rows,
+        delivery_nos=delivery_nos,
+        output_dir=purchase_output_dir,
+    )
+    restock_xlsx_paths: list[str] = []
+    restock_outputs: list[dict[str, str]] = []
+    for sp_no in delivery_nos:
+        restock_rows: list[list[Any]] = []
+        for line_index, line in enumerate(purchase_lines):
+            details: list[Mapping[str, Any]] = []
+            for detail_index, raw_detail in enumerate(
+                _snapshot_list(
+                    line.get("allocation_details"),
+                    field=f"purchase_lines[{line_index}].allocation_details",
+                )
+            ):
+                detail = _snapshot_mapping(
+                    raw_detail,
+                    field=(
+                        f"purchase_lines[{line_index}].allocation_details"
+                        f"[{detail_index}]"
+                    ),
+                )
+                if str(detail.get("sp_no") or "").strip().upper() == sp_no:
+                    details.append(detail)
+            if not details:
+                continue
+            restock_rows.append(
+                _snapshot_row(
+                    line,
+                    details,
+                    product_names=product_names,
+                    field=f"purchase_lines[{line_index}]",
+                )
+            )
+        try:
+            output_xlsx = restock_workbook.write_fba_restock_workbook(
+                restock_rows,
+                unmatched_by_sp[sp_no],
+                delivery_no=sp_no,
+                country=countries[sp_no],
+                gross_margin=parsed_gross_margin,
+                today=today,
+                output_dir=restock_output_dir,
+            )
+        except Exception as exc:
+            setattr(
+                exc,
+                "generated_artifacts",
+                {
+                    "purchase_summary_xlsx": str(purchase_summary_xlsx),
+                    "restock_xlsx_paths": list(restock_xlsx_paths),
+                    "restock_outputs": list(restock_outputs),
+                    "delivery_nos": delivery_nos,
+                    "gross_margin": str(parsed_gross_margin),
+                },
+            )
+            raise
+        restock_xlsx_paths.append(str(output_xlsx))
+        restock_outputs.append(
+            {"delivery_no": sp_no, "output_xlsx": str(output_xlsx)}
+        )
+
+    erp_result = {
+        "status": "snapshot",
+        "batch_id": snapshot.get("batch_id"),
+        "batch_no": snapshot.get("batch_no"),
+        "revision_id": snapshot.get("revision_id"),
+        "version_no": snapshot.get("version_no"),
+        "sp_nos": delivery_nos,
+        "contracts": [dict(_snapshot_mapping(item, field="contracts[]")) for item in raw_contracts],
+        "purchase_lines": purchase_lines,
+    }
+    generated = {
+        "success": True,
+        "delivery_nos": delivery_nos,
+        "gross_margin": str(parsed_gross_margin),
+        "pricing_basis": restock_workbook.PRICING_BASIS,
+        "purchase_summary_xlsx": str(purchase_summary_xlsx),
+        "restock_xlsx_paths": restock_xlsx_paths,
+        "restock_outputs": restock_outputs,
+        "sku_count": len(matched_sku_keys | unmatched_sku_keys),
+        "sku_source_count": len(matched_sku_keys),
+        "matched_sku_count": len(matched_sku_keys),
+        "unmatched_sku_count": len(unmatched_sku_keys),
+        "restock_matched_sku_count": restock_matched_sku_count,
+        "restock_unmatched_sku_count": restock_unmatched_sku_count,
+        "manufacturer_count": len(manufacturer_rows),
+        "cross_manufacturer_model_count": restock_workbook._append_cross_manufacturer_model_warning(
+            [],
+            summary_rows,
+        ),
+        "warnings": [],
+        "source": SOURCE,
+    }
+    return generated, {"sps": request_sps}, erp_result
+
+
+def render_formal_purchase_artifacts(
+    generated: dict[str, Any],
+    erp_result: Mapping[str, Any],
+    *,
+    request_payload: Mapping[str, Any],
+    contract_template_xlsx: str | Path,
+    business_date: date,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    formal = erp_purchase_batch.apply_formal_erp_result(
+        generated,
+        erp_result,
+        request_payload=request_payload,
+    )
+    contracts = [
+        dict(item)
+        for item in list(erp_result.get("contracts") or [])
+        if isinstance(item, Mapping)
+    ]
+    if contracts:
+        try:
+            contract_result = contract_workbook.fill_formal_purchase_contracts(
+                purchase_summary_xlsx=formal["purchase_summary_xlsx"],
+                contract_template_xlsx=contract_template_xlsx,
+                contracts=contracts,
+                purchase_lines=list(erp_result.get("purchase_lines") or []),
+                today=business_date,
+            )
+        except Exception as exc:
+            setattr(exc, "formal_artifacts", formal)
+            raise
+    else:
+        contract_result = {
+            "success": True,
+            "output_files": [],
+            "generated_count": 0,
+            "warnings": [],
+        }
+    return formal, contract_result
 
 
 def generate_purchase_batch_workbooks(
@@ -399,16 +897,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 master_xlsx=master_xlsx,
                 gross_margin=gross_margin,
             )
-            formal = erp_purchase_batch.apply_formal_erp_result(
+            formal, contract_result = render_formal_purchase_artifacts(
                 generated,
                 erp_result,
                 request_payload=request_payload,
-            )
-            contract_result = contract_workbook.fill_formal_purchase_contracts(
-                purchase_summary_xlsx=formal["purchase_summary_xlsx"],
                 contract_template_xlsx=contract_template_xlsx,
-                contracts=formal["contracts"],
-                purchase_lines=formal["purchase_lines"],
+                business_date=date.today(),
             )
             return _formal_success_result(
                 formal,
@@ -417,6 +911,9 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 intent_context,
             )
         except Exception as exc:
+            attached_formal = getattr(exc, "formal_artifacts", None)
+            if formal is None and isinstance(attached_formal, dict):
+                formal = attached_formal
             if isinstance(
                 exc,
                 (

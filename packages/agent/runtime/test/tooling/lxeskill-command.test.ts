@@ -72,13 +72,17 @@ describe("lxeskill command recognition", () => {
         ownerSkills: ["fba-shipment-delivery-csv-download"],
         attributionSkill: "fba-shipment-delivery-csv-download",
       });
-    expect(entries.find((entry) => entry.name === "mabang_regenerate_purchase_contracts"))
+    expect(entries.find((entry) => entry.name === "mabang_regenerate_purchase_files"))
       .toMatchObject({
-        command: "lxeskill fba purchase contracts-regenerate",
-        module: "services.agent_cli.mabang.regenerate_purchase_contracts",
-        ownerSkills: ["fba-purchase-contract-regenerate"],
-        attributionSkill: "fba-purchase-contract-regenerate",
-        artifactPaths: [{ field: "contract_xlsx_paths[]", role: "deliverable" }],
+        command: "lxeskill fba purchase files-regenerate",
+        module: "services.agent_cli.mabang.regenerate_purchase_files",
+        ownerSkills: ["fba-purchase-files-regenerate"],
+        attributionSkill: "fba-purchase-files-regenerate",
+        artifactPaths: [
+          { field: "purchase_summary_xlsx", role: "deliverable" },
+          { field: "restock_xlsx_paths[]", role: "deliverable" },
+          { field: "contract_xlsx_paths[]", role: "deliverable" },
+        ],
       });
     expect(entries.find((entry) => entry.name === "ziniao_page")).toMatchObject({
       ownerSkills: ["ziniao-browser"],

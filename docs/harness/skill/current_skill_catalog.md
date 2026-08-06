@@ -32,7 +32,7 @@ discovery sees 55 repository manifests in total.
 - `fba-customs-declaration-fill`
 - `fba-invoice-template-fill`
 - `fba-purchase-summary-create`
-- `fba-purchase-contract-regenerate`
+- `fba-purchase-files-regenerate`
 - `fba-restock-workbook-create`
 - `fba-export-tax-products-manage`
 - `fba-export-tax-delivery-summary`

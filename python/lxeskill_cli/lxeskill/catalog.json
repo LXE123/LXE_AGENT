@@ -183,12 +183,12 @@
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template", "x-lxe-optional-when": {"field": "draft", "equals": true}}, "gross_margin": {"type": ["number", "string"]}, "draft": {"type": "boolean"}, "confirm_unmatched_sku_token": {"type": "string"}, "confirm_inventory_quote_id": {"type": "string"}, "replace_batch_id": {"type": "string"}, "expected_version_no": {"type": "integer"}, "change_reason": {"type": "string"}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
     },
     {
-      "name": "mabang_regenerate_purchase_contracts", "module": "services.agent_cli.mabang.regenerate_purchase_contracts",
-      "command_path": ["fba", "purchase", "contracts-regenerate"],
-      "legacy_aliases": ["mabang_regenerate_purchase_contracts"],
+      "name": "mabang_regenerate_purchase_files", "module": "services.agent_cli.mabang.regenerate_purchase_files",
+      "command_path": ["fba", "purchase", "files-regenerate"],
+      "legacy_aliases": ["mabang_regenerate_purchase_files"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-purchase-contract-regenerate"], "artifact_paths": [{"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"batch_no": {"type": "string"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["batch_no"], "additionalProperties": false}
+      "owner_skills": ["fba-purchase-files-regenerate"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"batch_no": {"type": "string"}, "gross_margin": {"type": ["number", "string"], "default": "0.3"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["batch_no"], "additionalProperties": false}
     },
     {
       "name": "mabang_generate_fba_restock_workbook", "module": "services.agent_cli.mabang.generate_fba_restock_workbook",

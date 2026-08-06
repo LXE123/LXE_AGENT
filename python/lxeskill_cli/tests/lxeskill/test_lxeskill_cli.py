@@ -291,7 +291,7 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
         ),
         (
             [
-                "fba", "purchase", "contracts-regenerate",
+                "fba", "purchase", "files-regenerate",
                 "--batch-no", "PB20260723-0001",
             ],
             "contract_template_xlsx",
@@ -392,7 +392,7 @@ def test_draft_purchase_summary_does_not_use_stored_contract_template(
     assert "contract_template_xlsx" not in seen[0]
 
 
-def test_contract_regeneration_uses_stored_contract_template(
+def test_purchase_file_regeneration_uses_stored_contract_template(
     tmp_path,
     monkeypatch,
     capsys,
@@ -413,7 +413,7 @@ def test_contract_regeneration_uses_stored_contract_template(
     monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
 
     assert lxeskill.main([
-        "fba", "purchase", "contracts-regenerate",
+        "fba", "purchase", "files-regenerate",
         "--batch-no", "PB20260723-0001",
     ]) == 0
     injected = Path(seen[0]["contract_template_xlsx"])

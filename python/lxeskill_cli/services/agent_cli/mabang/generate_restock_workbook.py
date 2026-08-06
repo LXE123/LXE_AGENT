@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections import OrderedDict
 from copy import copy
@@ -950,6 +951,18 @@ def _output_file_name(delivery_nos: list[str]) -> str:
     return f"{joined}_purchase_summary.xlsx"
 
 
+def _save_workbook_atomically(workbook: Any, output_path: Path) -> None:
+    temporary_path = output_path.with_name(
+        f".{output_path.name}.{os.getpid()}.part"
+    )
+    try:
+        workbook.save(temporary_path)
+        os.replace(temporary_path, output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
 def write_restock_workbook(
     summary_rows: list[list[Any]],
     manufacturer_rows: OrderedDict[str, list[list[Any]]],
@@ -968,21 +981,24 @@ def write_restock_workbook(
         raise RuntimeError("缺少 openpyxl 依赖，无法写入 xlsx") from exc
 
     workbook = Workbook()
-    workbook.remove(workbook.active)
+    try:
+        workbook.remove(workbook.active)
 
-    used_titles = {SUMMARY_SHEET_NAME, UNMATCHED_SHEET_NAME}
-    summary_sheet = workbook.create_sheet(SUMMARY_SHEET_NAME)
-    _write_rows(summary_sheet, MANUFACTURER_COLUMNS, summary_rows, append_total=True)
+        used_titles = {SUMMARY_SHEET_NAME, UNMATCHED_SHEET_NAME}
+        summary_sheet = workbook.create_sheet(SUMMARY_SHEET_NAME)
+        _write_rows(summary_sheet, MANUFACTURER_COLUMNS, summary_rows, append_total=True)
 
-    unmatched_sheet = workbook.create_sheet(UNMATCHED_SHEET_NAME)
-    _write_rows(unmatched_sheet, UNMATCHED_COLUMNS, unmatched_rows)
+        unmatched_sheet = workbook.create_sheet(UNMATCHED_SHEET_NAME)
+        _write_rows(unmatched_sheet, UNMATCHED_COLUMNS, unmatched_rows)
 
-    for manufacturer, rows in manufacturer_rows.items():
-        sheet_title = _safe_sheet_title(manufacturer, used_titles)
-        worksheet = workbook.create_sheet(sheet_title)
-        _write_rows(worksheet, MANUFACTURER_COLUMNS, rows, append_total=True)
+        for manufacturer, rows in manufacturer_rows.items():
+            sheet_title = _safe_sheet_title(manufacturer, used_titles)
+            worksheet = workbook.create_sheet(sheet_title)
+            _write_rows(worksheet, MANUFACTURER_COLUMNS, rows, append_total=True)
 
-    workbook.save(output_path)
+        _save_workbook_atomically(workbook, output_path)
+    finally:
+        workbook.close()
     return output_path
 
 

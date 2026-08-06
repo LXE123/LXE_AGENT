@@ -334,20 +334,31 @@ def write_fba_restock_workbook(
         raise RuntimeError("缺少 openpyxl 依赖，无法写入 xlsx") from exc
 
     workbook = Workbook()
-    workbook.remove(workbook.active)
+    try:
+        workbook.remove(workbook.active)
 
-    restock_sheet = workbook.create_sheet(RESTOCK_SHEET_NAME)
-    _purchase._write_rows(
-        restock_sheet,
-        RESTOCK_COLUMNS,
-        _project_restock_rows(restock_rows, gross_margin=gross_margin, generated_date=today),
-        append_total=True,
-    )
+        restock_sheet = workbook.create_sheet(RESTOCK_SHEET_NAME)
+        _purchase._write_rows(
+            restock_sheet,
+            RESTOCK_COLUMNS,
+            _project_restock_rows(
+                restock_rows,
+                gross_margin=gross_margin,
+                generated_date=today,
+            ),
+            append_total=True,
+        )
 
-    unmatched_sheet = workbook.create_sheet(_purchase.UNMATCHED_SHEET_NAME)
-    _purchase._write_rows(unmatched_sheet, RESTOCK_UNMATCHED_COLUMNS, _drop_unmatched_source_column(unmatched_rows))
+        unmatched_sheet = workbook.create_sheet(_purchase.UNMATCHED_SHEET_NAME)
+        _purchase._write_rows(
+            unmatched_sheet,
+            RESTOCK_UNMATCHED_COLUMNS,
+            _drop_unmatched_source_column(unmatched_rows),
+        )
 
-    workbook.save(output_path)
+        _purchase._save_workbook_atomically(workbook, output_path)
+    finally:
+        workbook.close()
     return output_path
 
 
