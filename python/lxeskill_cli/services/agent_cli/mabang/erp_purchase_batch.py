@@ -1012,7 +1012,11 @@ def _validate_inventory_confirmation(
                 raw_source.get("source_kind"),
                 field=f"{source_field}.source_kind",
             )
-            if source_kind not in {"opening_inventory", "reconciliation"}:
+            if source_kind not in {
+                "opening_inventory",
+                "manual_import",
+                "reconciliation",
+            }:
                 raise _incomplete(
                     f"{source_field}.source_kind 未知: {source_kind}",
                     field=f"{source_field}.source_kind",

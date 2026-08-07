@@ -1136,6 +1136,20 @@ def test_quote_response_preserves_complete_v2_inventory_batch_semantics() -> Non
     assert "purchase_quantity" not in line
 
 
+def test_quote_response_accepts_manual_inventory_import_source() -> None:
+    response = _quote_response()
+    source = response["confirmation"]["affected_lines"][0]["inventory_sources"][0]
+    source["source_kind"] = "manual_import"
+
+    erp.validate_purchase_response(
+        status_code=409,
+        response=response,
+        request_payload=_request_payload(),
+    )
+
+    assert source["source_kind"] == "manual_import"
+
+
 def test_quote_response_keeps_same_contract_in_distinct_sp_inventory_batches() -> None:
     response = _quote_response()
     line = response["confirmation"]["affected_lines"][0]
