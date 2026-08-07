@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Sparkles } from "lucide-react";
+import { Check, ChevronDown, Cloud, HardDrive, Sparkles } from "lucide-react";
 
 import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
+  distinctProviderCount,
   modelsInDisplayOrder,
   modelThinkingLevelLabel,
   modelWithOption,
@@ -50,6 +51,21 @@ function ModelArtwork({ provider }: { provider: string }) {
     <div className="model-brand-watermark" aria-hidden="true">
       <ProviderBrandMark provider={provider} size={142} />
     </div>
+  );
+}
+
+function CredentialSourceChip({ source }: { source: ModelPayload["credential_source"] }) {
+  const t = useUiText();
+  const cloud = source === "cloud";
+  return (
+    <span
+      className="model-source-chip"
+      data-source={source}
+      title={cloud ? t.models.credentialCloudHint : t.models.credentialLocalHint}
+    >
+      {cloud ? <Cloud aria-hidden size={11} /> : <HardDrive aria-hidden size={11} />}
+      {cloud ? t.models.credentialCloud : t.models.credentialLocal}
+    </span>
   );
 }
 
@@ -118,7 +134,7 @@ export function ModelsView({
         <dl className="models-showcase-counts">
           <div>
             <dt>{t.models.providers}</dt>
-            <dd>{formatNumber(models.length)}</dd>
+            <dd>{formatNumber(distinctProviderCount(models))}</dd>
           </div>
           <div>
             <dt>{t.models.variants}</dt>
@@ -167,6 +183,7 @@ export function ModelsView({
               </div>
 
               <div className="model-showcase-provider-state">
+                <CredentialSourceChip source={model.credential_source} />
                 <span className={model.configured ? "configured" : "unconfigured"}>
                   {model.configured ? t.models.configured : t.models.unconfigured}
                 </span>

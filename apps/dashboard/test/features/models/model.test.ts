@@ -2,10 +2,26 @@ import { describe, expect, test } from "bun:test";
 
 import {
   conversationModelChoices,
+  distinctProviderCount,
   modelsInDisplayOrder,
   reconcileShowcaseSelections,
   thinkingStateForModelOption,
 } from "../../../src/features/models/model";
+
+describe("provider count", () => {
+  test("counts a provider once even when it ships a card per credential source", () => {
+    expect(distinctProviderCount([
+      { provider: "kimi_coding" },
+      { provider: "deepseek" },
+      { provider: "glm" },
+      { provider: "deepseek" },
+    ])).toBe(3);
+  });
+
+  test("counts nothing for an empty catalog", () => {
+    expect(distinctProviderCount([])).toBe(0);
+  });
+});
 
 describe("model display order", () => {
   test("shows Kimi, DeepSeek, and GLM in the product-defined order", () => {

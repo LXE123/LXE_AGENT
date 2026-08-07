@@ -18,6 +18,12 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(m
     .map(({ model }) => model);
 }
 
+// The same provider can appear more than once — once per credential source —
+// so the gallery's brand count has to collapse those back into one entry.
+export function distinctProviderCount(models: readonly Pick<ModelPayload, "provider">[]): number {
+  return new Set(models.map((model) => model.provider)).size;
+}
+
 type ShowcaseModelSource = Pick<ModelPayload, "provider" | "model" | "credential_source"> & {
   model_options: readonly Pick<ModelOptionPayload, "model">[];
 };

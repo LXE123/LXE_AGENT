@@ -3709,13 +3709,27 @@ h1 {
   background: var(--model-panel-bg);
 }
 
-.model-showcase-provider-state > span::before {
+.model-showcase-provider-state > span:not(.model-source-chip)::before {
   width: 5px;
   height: 5px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: currentColor;
   content: "";
+}
+
+/* The same provider ships one card per credential source, so this chip is the
+   only thing telling two otherwise identical brand cards apart. */
+.model-source-chip {
+  padding-left: 6px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.model-source-chip[data-source="cloud"] {
+  border-color: var(--model-badge-border);
+  background: var(--model-badge-bg);
+  color: var(--model-badge-color);
 }
 
 .model-showcase-provider-state .configured {
