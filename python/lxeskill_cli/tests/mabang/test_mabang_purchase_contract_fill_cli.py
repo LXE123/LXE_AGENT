@@ -84,7 +84,11 @@ def _fill_formal_contracts(
 ) -> dict[str, object]:
     grouped = cli.load_purchase_summary_lines(purchase_summary_xlsx)
     contracts = [
-        {"supplier_name": manufacturer, "contract_no": f"HT{index:04d}"}
+        {
+            "supplier_name": manufacturer,
+            "contract_no": f"HT{index:04d}",
+            "supplier_contract_sequence": 200 + index,
+        }
         for index, manufacturer in enumerate(grouped, start=1)
     ]
     purchase_lines = [
@@ -393,7 +397,13 @@ def test_fill_formal_purchase_contracts_writes_erp_number_to_both_sheets(tmp_pat
     payload = cli.fill_formal_purchase_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
-        contracts=[{"supplier_name": "厂家A", "contract_no": "HT20260728001"}],
+        contracts=[
+            {
+                "supplier_name": "厂家A",
+                "contract_no": "HT20260728001",
+                "supplier_contract_sequence": 208,
+            }
+        ],
         purchase_lines=[
             {
                 "supplier_name": "厂家A",
@@ -415,7 +425,8 @@ def test_fill_formal_purchase_contracts_writes_erp_number_to_both_sheets(tmp_pat
     assert payload["mode"] == "formal"
     assert payload["generated_count"] == 1
     output_path = Path(payload["output_files"][0]["output_xlsx"])
-    assert output_path.name == "HT20260728001-厂家A.xlsx"
+    assert output_path.name == "厂家A-HT20260728001-208.xlsx"
+    assert payload["output_files"][0]["supplier_contract_sequence"] == 208
     assert _cell_value(output_path, "厂家A", "E2") == (
         "合同编号：HT20260728001\nDate：2026年7月28日"
     )

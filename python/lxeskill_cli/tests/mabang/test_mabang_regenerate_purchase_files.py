@@ -267,6 +267,8 @@ def test_regenerates_summary_restock_and_contract_from_frozen_snapshot(
     assert restock_rows[0]["日期"] == "2026-07-23"
 
     contract_path = Path(result["contract_xlsx_paths"][0])
+    assert contract_path.name == "厂家A-HT20260723001-1.xlsx"
+    assert result["contracts"][0]["supplier_contract_sequence"] == 1
     assert _cell(contract_path, "厂家A", "A1") == "最新模板"
     assert _cell(contract_path, "厂家A", "E2") == (
         "合同编号：HT20260723001\nDate：2026年7月23日"

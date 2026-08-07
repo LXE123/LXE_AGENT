@@ -181,6 +181,9 @@ def _contract_outputs(
                 "contract_id": contract.get("contract_id"),
                 "supplier_name": supplier_name,
                 "contract_no": raw_output.get("contract_no"),
+                "supplier_contract_sequence": contract.get(
+                    "supplier_contract_sequence"
+                ),
                 "output_xlsx": output_xlsx,
             }
         )

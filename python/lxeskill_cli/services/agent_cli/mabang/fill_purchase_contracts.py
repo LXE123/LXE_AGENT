@@ -767,6 +767,7 @@ def _save_single_company_contract(
     contract_date: date,
     warnings: list[str],
     contract_number: str | None = None,
+    supplier_contract_sequence: int | None = None,
     strict_layout: bool = False,
 ) -> str:
     try:
@@ -803,11 +804,16 @@ def _save_single_company_contract(
         if strict_layout and len(warnings) > warning_count:
             raise RuntimeError("; ".join(warnings[warning_count:]))
 
-        output_name = (
-            f"{_safe_file_stem(contract_number)}-{_safe_file_stem(manufacturer)}.xlsx"
-            if contract_number
-            else f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
-        )
+        if contract_number:
+            if supplier_contract_sequence is None:
+                raise RuntimeError(f"厂家 `{manufacturer}` 缺少供应商合同序号")
+            output_name = (
+                f"{_safe_file_stem(manufacturer)}-"
+                f"{_safe_file_stem(contract_number)}-"
+                f"{supplier_contract_sequence}.xlsx"
+            )
+        else:
+            output_name = f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
         output_path = output_dir / output_name
         purchase_summary._save_workbook_atomically(workbook, output_path)
         return str(output_path)
@@ -882,18 +888,28 @@ def fill_formal_purchase_contracts(
     template_path = Path(contract_template_xlsx).expanduser()
     grouped_lines = load_purchase_summary_lines(purchase_summary_path)
 
-    contract_numbers: dict[str, str] = {}
+    contract_metadata: dict[str, tuple[str, int]] = {}
     for index, raw_contract in enumerate(contracts):
         supplier = _clean_cell(raw_contract.get("supplier_name"))
         contract_number = _clean_cell(raw_contract.get("contract_no"))
+        raw_supplier_sequence = raw_contract.get("supplier_contract_sequence")
+        if (
+            isinstance(raw_supplier_sequence, bool)
+            or not isinstance(raw_supplier_sequence, int)
+            or raw_supplier_sequence <= 0
+        ):
+            raise RuntimeError(
+                "ERP 正式合同供应商合同序号无效: "
+                f"contracts[{index}].supplier_contract_sequence={raw_supplier_sequence}"
+            )
         if not supplier or not contract_number:
             raise RuntimeError(f"ERP 正式合同数据不完整: contracts[{index}]")
-        if supplier in contract_numbers:
+        if supplier in contract_metadata:
             raise RuntimeError(f"ERP 同一供应商返回多个正式合同: {supplier}")
-        contract_numbers[supplier] = contract_number
+        contract_metadata[supplier] = (contract_number, raw_supplier_sequence)
 
     expected_suppliers = set(grouped_lines)
-    actual_suppliers = set(contract_numbers)
+    actual_suppliers = set(contract_metadata)
     if actual_suppliers != expected_suppliers:
         raise RuntimeError(
             "ERP 正式合同与采购汇总厂家不一致: "
@@ -963,9 +979,9 @@ def fill_formal_purchase_contracts(
     directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
     contract_date = today or date.today()
     warnings: list[str] = []
-    output_files: list[dict[str, str]] = []
+    output_files: list[dict[str, Any]] = []
     for manufacturer, lines in grouped_lines.items():
-        contract_number = contract_numbers[manufacturer]
+        contract_number, supplier_contract_sequence = contract_metadata[manufacturer]
         try:
             output_xlsx = _save_single_company_contract(
                 template_xlsx=template_path,
@@ -976,6 +992,7 @@ def fill_formal_purchase_contracts(
                 contract_date=contract_date,
                 warnings=warnings,
                 contract_number=contract_number,
+                supplier_contract_sequence=supplier_contract_sequence,
                 strict_layout=True,
             )
         except Exception as exc:
@@ -988,6 +1005,7 @@ def fill_formal_purchase_contracts(
                 "manufacturer": manufacturer,
                 "sheet_name": sheet_names[manufacturer],
                 "contract_no": contract_number,
+                "supplier_contract_sequence": supplier_contract_sequence,
                 "output_xlsx": output_xlsx,
             }
         )
