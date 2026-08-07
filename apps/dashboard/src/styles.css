@@ -5764,23 +5764,39 @@ h1 {
   margin-bottom: 0;
 }
 
+/* Every level is spaced the same way, and the space above is the larger one, so
+   a heading always sits nearer the text it introduces than the text it follows.
+   Left to the browser, h4 and below do the reverse: their default margins are
+   set in em and keep growing as the type shrinks. */
 .message-markdown h1,
 .message-markdown h2,
-.message-markdown h3 {
-  margin: 10px 0 5px;
+.message-markdown h3,
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6 {
+  margin: 12px 0 5px;
   color: var(--text-strong);
   line-height: 1.28;
 }
 
 .message-markdown h1 {
-  font-size: 1.0625rem;
+  font-size: 1.125rem;
 }
 
 .message-markdown h2 {
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
 
 .message-markdown h3 {
+  font-size: 0.9375rem;
+}
+
+/* The ladder stops at body size. A heading set smaller than the text under it
+   stops reading as a heading at all, so the last levels are told apart by
+   weight and colour rather than by shrinking further. */
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6 {
   font-size: 0.875rem;
 }
 
@@ -6641,7 +6657,10 @@ pre {
 
 .skill-markdown h1,
 .skill-markdown h2,
-.skill-markdown h3 {
+.skill-markdown h3,
+.skill-markdown h4,
+.skill-markdown h5,
+.skill-markdown h6 {
   margin: 18px 0 8px;
   color: var(--text-strong);
   line-height: 1.25;
@@ -6659,6 +6678,12 @@ pre {
 
 .skill-markdown h3 {
   font-size: 0.9375rem;
+}
+
+.skill-markdown h4,
+.skill-markdown h5,
+.skill-markdown h6 {
+  font-size: 0.8125rem;
 }
 
 .skill-markdown p,
