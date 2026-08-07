@@ -1477,9 +1477,7 @@ def _purchase_source_rows(
         values["总价"] = purchase_summary._decimal_to_cell_value(price * quantity)
         values["总价（均价）"] = ""
         values[purchase_summary.CURRENT_PURCHASE_CONTRACT_HEADER] = ""
-        values[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = (
-            f"{contract_no} × {_decimal_text(quantity)}"
-        )
+        values[purchase_summary.HISTORICAL_INVENTORY_CONTRACT_HEADER] = contract_no
         inventory_rows.append(
             _formal_row_values(
                 values,

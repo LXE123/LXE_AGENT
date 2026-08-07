@@ -254,7 +254,7 @@ def test_regenerates_summary_restock_and_contract_from_frozen_snapshot(
     assert [row["留存库存抵扣量"] for row in summary_rows] == [0, 4]
     assert summary_rows[0]["本次采购合同编号"] == "HT20260723001"
     assert summary_rows[0]["产品名称"] == "冻结产品A"
-    assert summary_rows[1]["历史库存合同编号"] == "OLD20260101001 × 4"
+    assert summary_rows[1]["历史库存合同编号"] == "OLD20260101001"
     unmatched_rows = _rows(summary_path, purchase_summary.UNMATCHED_SHEET_NAME)
     assert unmatched_rows[0]["库存sku"] == "SKU-UNMATCHED"
     assert unmatched_rows[0]["数量"] == 2

@@ -944,7 +944,7 @@ def test_formal_workbooks_split_and_move_yellow_inventory_rows_to_end(tmp_path: 
         assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value == "ZF202607230001"
         assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value is None
         assert sheet.cell(3, headers.index("本次采购合同编号") + 1).value is None
-        assert sheet.cell(3, headers.index("历史库存合同编号") + 1).value == "ZF20260601001 × 4"
+        assert sheet.cell(3, headers.index("历史库存合同编号") + 1).value == "ZF20260601001"
         assert sheet.cell(2, headers.index("库存sku") + 1).value == "SKU-A × 6"
         assert sheet.cell(3, headers.index("库存sku") + 1).value == "SKU-A × 4"
         assert sheet.cell(2, headers.index("原价") + 1).value == 3.5
@@ -1042,10 +1042,10 @@ def test_purchase_source_rows_group_inventory_by_contract_and_price() -> None:
         first_inventory["本次采购量"],
         first_inventory["留存库存抵扣量"],
     ) == (3, 0, 3)
-    assert first_inventory["历史库存合同编号"] == "OLD-001 × 3"
+    assert first_inventory["历史库存合同编号"] == "OLD-001"
     assert first_inventory["原价"] == 3
     assert first_inventory["总价"] == 9
-    assert second_inventory["历史库存合同编号"] == "OLD-002 × 2"
+    assert second_inventory["历史库存合同编号"] == "OLD-002"
     assert second_inventory["原价"] == 2.5
     assert second_inventory["总价"] == 5
 
