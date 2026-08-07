@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isAllowedDesktopNavigation,
+  isExternallyOpenableUrl,
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
   usesProductionRenderer,
@@ -38,5 +39,24 @@ describe("desktop launch mode", () => {
     expect(isAllowedDesktopNavigation("app://other/", "preview", developmentUrl)).toBeFalse();
     expect(isAllowedDesktopNavigation("https://example.com/", "packaged", developmentUrl)).toBeFalse();
     expect(isAllowedDesktopNavigation("not a url", "preview", developmentUrl)).toBeFalse();
+  });
+
+  // openExternal asks the operating system to run the handler registered for
+  // the scheme, so anything past http(s) turns a link in a conversation into a
+  // way to start something on the user's machine.
+  test("hands only plain web traffic to the system browser", () => {
+    expect(isExternallyOpenableUrl("https://www.baidu.com/s?wd=1")).toBeTrue();
+    expect(isExternallyOpenableUrl("http://example.com")).toBeTrue();
+
+    expect(isExternallyOpenableUrl("file:///etc/passwd")).toBeFalse();
+    expect(isExternallyOpenableUrl("javascript:alert(1)")).toBeFalse();
+    expect(isExternallyOpenableUrl("mailto:someone@example.com")).toBeFalse();
+    expect(isExternallyOpenableUrl("app://lxe/")).toBeFalse();
+    expect(isExternallyOpenableUrl("ms-msdt:/id")).toBeFalse();
+    expect(isExternallyOpenableUrl("HTTPS://example.com")).toBeTrue();
+    expect(isExternallyOpenableUrl("https://user:pass@example.com")).toBeFalse();
+    expect(isExternallyOpenableUrl("https://")).toBeFalse();
+    expect(isExternallyOpenableUrl("not a url")).toBeFalse();
+    expect(isExternallyOpenableUrl("")).toBeFalse();
   });
 });

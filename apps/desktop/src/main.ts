@@ -56,6 +56,7 @@ import { DesktopLoggingManager } from "./main/logging";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
   isAllowedDesktopNavigation,
+  isExternallyOpenableUrl,
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
   usesProductionRenderer,
@@ -468,7 +469,13 @@ async function bootstrap(): Promise<void> {
     if (!ownerWindow || !template.length) return;
     Menu.buildFromTemplate(template).popup({ window: ownerWindow });
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // The Renderer never gets to open a window of its own. A plain web link still
+  // has to reach the user, so it goes to the system browser instead — where it
+  // lands outside the application, with none of its privileges.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternallyOpenableUrl(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   window.webContents.on("will-navigate", (event, url) => {
     const developmentUrl = String(process.env.LXE_DASHBOARD_DEV_URL ?? "http://127.0.0.1:5173");
     const allowed = isAllowedDesktopNavigation(url, launchMode, developmentUrl);

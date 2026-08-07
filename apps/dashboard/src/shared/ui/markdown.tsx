@@ -26,16 +26,26 @@ export function loadMermaid(): Promise<MermaidApi> {
   return mermaidLoader;
 }
 
+const EXTERNAL_LINK_PATTERN = /^https?:\/\//i;
+
 export const markdownComponents: Components = {
+  // Only a plain web link is a link. It opens in the system browser, which the
+  // Main process arranges when it denies the window this target asks for.
+  //
+  // Everything else renders as text. An in-page anchor — a footnote marker, its
+  // back-reference — would otherwise navigate the single-page shell to a route
+  // it has no entry for, which drops the reader back on the home screen; and a
+  // link on any other scheme has nowhere to go that is worth going.
   a({ href, children, ...props }) {
-    const isExternal = Boolean(href && /^(https?:)?\/\//i.test(href));
+    const target = String(href ?? "");
+    if (!EXTERNAL_LINK_PATTERN.test(target)) {
+      // The back-reference arrow is a navigation control and nothing else, so
+      // without the navigation there is nothing left of it to show.
+      if ("data-footnote-backref" in props) return null;
+      return <span className="markdown-inert-link">{children}</span>;
+    }
     return (
-      <a
-        {...props}
-        href={href}
-        rel={isExternal ? "noreferrer noopener" : undefined}
-        target={isExternal ? "_blank" : undefined}
-      >
+      <a {...props} href={target} rel="noreferrer noopener" target="_blank">
         {children}
       </a>
     );

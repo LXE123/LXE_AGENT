@@ -5809,6 +5809,14 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* A link the shell will not follow reads as the text it wraps, so nothing in
+   the transcript looks clickable unless it actually is. */
+.message-markdown .markdown-inert-link {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+}
+
 .message-markdown hr {
   height: 1px;
   border: 0;
