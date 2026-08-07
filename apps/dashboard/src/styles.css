@@ -3709,27 +3709,31 @@ h1 {
   background: var(--model-panel-bg);
 }
 
-.model-showcase-provider-state > span:not(.model-source-chip)::before {
+/* A provider can hold one credential per source, so the card carries a chip per
+   source instead of a bare configured/unconfigured state. */
+.model-source-chip {
+  padding-right: 3px;
+  padding-left: 6px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.model-source-chip-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 5px;
+  margin-left: 2px;
+  border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.model-source-chip-state::before {
   width: 5px;
   height: 5px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: currentColor;
   content: "";
-}
-
-/* The same provider ships one card per credential source, so this chip is the
-   only thing telling two otherwise identical brand cards apart. */
-.model-source-chip {
-  padding-left: 6px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.model-source-chip[data-source="cloud"] {
-  border-color: var(--model-badge-border);
-  background: var(--model-badge-bg);
-  color: var(--model-badge-color);
 }
 
 .model-showcase-provider-state .configured {
@@ -3822,7 +3826,18 @@ h1 {
   transform: translateY(-50%);
 }
 
-.model-showcase-variant-header > span {
+.model-variant-flags {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.model-variant-flags:empty {
+  display: none;
+}
+
+.model-variant-flags > span {
   display: inline-flex;
   min-height: 22px;
   align-items: center;
@@ -3830,10 +3845,21 @@ h1 {
   gap: 4px;
   padding: 3px 7px;
   border-radius: 999px;
+  font-size: 0.625rem;
+}
+
+.model-variant-current {
   background: var(--model-soft);
   color: var(--model-hue-strong);
-  font-size: 0.625rem;
   font-weight: 700;
+}
+
+/* The accent belongs to "current"; coverage is reference information, so it
+   stays an outline next to it rather than competing for the same emphasis. */
+.model-variant-source {
+  border: 1px solid var(--model-panel-border);
+  color: var(--model-card-muted);
+  font-weight: 600;
 }
 
 .model-showcase-metrics {

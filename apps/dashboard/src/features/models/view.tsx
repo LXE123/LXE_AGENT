@@ -5,13 +5,14 @@ import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
-  distinctProviderCount,
-  modelsInDisplayOrder,
+  groupModelsByProvider,
   modelThinkingLevelLabel,
   modelWithOption,
   reconcileShowcaseSelections,
 } from "./model";
 import { useUiText } from "../../shared/i18n";
+import type { CredentialSource, ShowcaseCredential } from "./model";
+import type { UiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
 
 function CompactTokenMetric({ value }: { value: number }) {
@@ -54,17 +55,40 @@ function ModelArtwork({ provider }: { provider: string }) {
   );
 }
 
-function CredentialSourceChip({ source }: { source: ModelPayload["credential_source"] }) {
+function CredentialSourceIcon({ source }: { source: CredentialSource }) {
+  return source === "cloud" ? <Cloud aria-hidden size={11} /> : <HardDrive aria-hidden size={11} />;
+}
+
+function credentialSourceName(t: UiText, source: CredentialSource): string {
+  return source === "cloud" ? t.models.credentialCloud : t.models.credentialLocal;
+}
+
+function CredentialChip({ credential }: { credential: ShowcaseCredential }) {
   const t = useUiText();
-  const cloud = source === "cloud";
+  const { credentialSource, configured } = credential;
   return (
     <span
       className="model-source-chip"
-      data-source={source}
-      title={cloud ? t.models.credentialCloudHint : t.models.credentialLocalHint}
+      data-source={credentialSource}
+      title={credentialSource === "cloud" ? t.models.credentialCloudHint : t.models.credentialLocalHint}
     >
-      {cloud ? <Cloud aria-hidden size={11} /> : <HardDrive aria-hidden size={11} />}
-      {cloud ? t.models.credentialCloud : t.models.credentialLocal}
+      <CredentialSourceIcon source={credentialSource} />
+      {credentialSourceName(t, credentialSource)}
+      <span className={`model-source-chip-state ${configured ? "configured" : "unconfigured"}`}>
+        {configured ? t.models.configured : t.models.unconfigured}
+      </span>
+    </span>
+  );
+}
+
+// Every variant runs through the local agent, so the only thing worth marking
+// on one is that the company's managed credential reaches it.
+function CloudCoverageChip() {
+  const t = useUiText();
+  return (
+    <span className="model-variant-source" title={t.models.credentialCloudVariantHint}>
+      <CredentialSourceIcon source="cloud" />
+      {t.models.credentialCloud}
     </span>
   );
 }
@@ -113,15 +137,15 @@ export function ModelsView({
   current: ModelPayload | null;
 }) {
   const t = useUiText();
-  const displayedModels = useMemo(() => modelsInDisplayOrder(models), [models]);
-  const variantCount = models.reduce((count, model) => count + model.model_options.length, 0);
+  const providerGroups = useMemo(() => groupModelsByProvider(models), [models]);
+  const variantCount = providerGroups.reduce((count, group) => count + group.variants.length, 0);
   const [showcaseSelections, setShowcaseSelections] = useState<Record<string, string>>(() => (
-    reconcileShowcaseSelections(models, current)
+    reconcileShowcaseSelections(providerGroups, current)
   ));
 
   useEffect(() => {
-    setShowcaseSelections((existing) => reconcileShowcaseSelections(models, current, existing));
-  }, [current, models]);
+    setShowcaseSelections((existing) => reconcileShowcaseSelections(providerGroups, current, existing));
+  }, [current, providerGroups]);
 
   return (
     <div className="models-page models-showcase-page">
@@ -134,7 +158,7 @@ export function ModelsView({
         <dl className="models-showcase-counts">
           <div>
             <dt>{t.models.providers}</dt>
-            <dd>{formatNumber(distinctProviderCount(models))}</dd>
+            <dd>{formatNumber(providerGroups.length)}</dd>
           </div>
           <div>
             <dt>{t.models.variants}</dt>
@@ -144,34 +168,34 @@ export function ModelsView({
       </section>
 
       <div className="grid-list models-grid models-showcase-grid">
-        {displayedModels.map((model, index) => {
-          const sourceKey = `${model.provider}:${model.credential_source}`;
-          const providerActive = current?.provider === model.provider
-            && current.credential_source === model.credential_source;
-          const displayedOption = model.model_options.find(
-            (option) => option.model === showcaseSelections[sourceKey],
-          ) ?? model.model_options[0];
+        {providerGroups.map((group, index) => {
+          const { base, provider } = group;
+          const providerActive = current?.provider === provider;
+          const displayedVariant = group.variants.find(
+            (variant) => variant.option.model === showcaseSelections[provider],
+          ) ?? group.variants[0];
+          const displayedOption = displayedVariant?.option;
           const isCurrent = providerActive && current?.model === displayedOption?.model;
           const displayedModel = displayedOption
-            ? modelWithOption(model, displayedOption, isCurrent ? current?.thinking_state : undefined)
+            ? modelWithOption(base, displayedOption, isCurrent ? current?.thinking_state : undefined)
             : null;
           const selectId = `model-showcase-select-${index}`;
           return (
             <article
               aria-current={providerActive ? "true" : undefined}
               className={`item-card model-card model-showcase-card ${providerActive ? "item-active" : ""}`}
-              data-provider={model.provider}
-              key={sourceKey}
+              data-provider={provider}
+              key={provider}
             >
-              <ModelArtwork provider={model.provider} />
+              <ModelArtwork provider={provider} />
               <div className="model-card-header">
                 <div className="item-heading">
                   <div className="item-icon">
-                    <ProviderBrandMark provider={model.provider} size={23} />
+                    <ProviderBrandMark provider={provider} size={23} />
                   </div>
                   <div className="model-heading-copy">
-                    <h3>{model.label}</h3>
-                    <span>{model.api_style}</span>
+                    <h3>{base.label}</h3>
+                    <span>{base.api_style}</span>
                   </div>
                 </div>
                 {providerActive ? (
@@ -183,14 +207,13 @@ export function ModelsView({
               </div>
 
               <div className="model-showcase-provider-state">
-                <CredentialSourceChip source={model.credential_source} />
-                <span className={model.configured ? "configured" : "unconfigured"}>
-                  {model.configured ? t.models.configured : t.models.unconfigured}
-                </span>
+                {group.credentials.map((credential) => (
+                  <CredentialChip credential={credential} key={credential.credentialSource} />
+                ))}
               </div>
 
               <div className="model-showcase-variants">
-                {displayedModel && displayedOption ? (
+                {displayedModel && displayedOption && displayedVariant ? (
                   <section
                     aria-current={isCurrent ? "true" : undefined}
                     className={`model-showcase-variant ${isCurrent ? "current" : ""}`}
@@ -199,23 +222,23 @@ export function ModelsView({
                       <label htmlFor={selectId}>{t.models.displayVariant}</label>
                       <div className="model-showcase-select-wrap">
                         <select
-                          aria-label={`${model.label} ${t.models.displayVariant}`}
+                          aria-label={`${base.label} ${t.models.displayVariant}`}
                           className="model-showcase-select"
-                          disabled={model.model_options.length < 2}
+                          disabled={group.variants.length < 2}
                           id={selectId}
                           onChange={(event) => {
                             const selectedModel = event.currentTarget.value;
                             setShowcaseSelections((existing) => ({
                               ...existing,
-                              [sourceKey]: selectedModel,
+                              [provider]: selectedModel,
                             }));
                           }}
                           value={displayedOption.model}
                         >
-                          {model.model_options.map((option) => (
-                            <option key={option.model} value={option.model}>
-                              {option.model}
-                              {providerActive && current?.model === option.model
+                          {group.variants.map((variant) => (
+                            <option key={variant.option.model} value={variant.option.model}>
+                              {variant.option.model}
+                              {providerActive && current?.model === variant.option.model
                                 ? ` · ${t.models.current}`
                                 : ""}
                             </option>
@@ -223,9 +246,14 @@ export function ModelsView({
                         </select>
                         <ChevronDown aria-hidden size={15} />
                       </div>
-                      {isCurrent ? (
-                        <span><Check aria-hidden size={12} />{t.models.current}</span>
-                      ) : null}
+                      <div className="model-variant-flags">
+                        {displayedVariant.sources.includes("cloud") ? <CloudCoverageChip /> : null}
+                        {isCurrent ? (
+                          <span className="model-variant-current">
+                            <Check aria-hidden size={12} />{t.models.current}
+                          </span>
+                        ) : null}
+                      </div>
                     </header>
                     <dl className="model-showcase-metrics">
                       <div>
