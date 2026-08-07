@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { CheckCircle2, Copy, X } from "lucide-react";
 
 import {
@@ -17,7 +16,11 @@ import type {
   SkillContentView,
   SkillPayload
 } from "../../api/payloads";
-import { markdownComponents } from "../../shared/ui/markdown";
+import {
+  markdownComponents,
+  markdownRehypePlugins,
+  markdownRemarkPlugins,
+} from "../../shared/ui/markdown";
 import type { DetailTarget } from "../../shared/ui/detail-target";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 
@@ -155,7 +158,11 @@ function SkillDetailContent({ enabled, skill }: { enabled: boolean; skill: Skill
         {!loading && contentView ? (
           contentMode === "preview" ? (
             <div className="skill-markdown">
-              <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                components={markdownComponents}
+                rehypePlugins={markdownRehypePlugins}
+                remarkPlugins={markdownRemarkPlugins}
+              >
                 {previewContent}
               </ReactMarkdown>
             </div>

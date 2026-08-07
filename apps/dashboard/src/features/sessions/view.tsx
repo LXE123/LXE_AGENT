@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   ArrowUp,
   Brain,
@@ -68,7 +67,11 @@ import type {
   TurnProcessPart
 } from "../../api/payloads";
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
-import { markdownComponents } from "../../shared/ui/markdown";
+import {
+  markdownComponents,
+  markdownRehypePlugins,
+  markdownRemarkPlugins,
+} from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import { conversationModelChoices, modelThinkingLevelLabel } from "../models/model";
@@ -227,7 +230,11 @@ const MessageMarkdown = React.memo(function MessageMarkdown({
   const visibleText = usePacedText(text, streaming);
   return (
     <div className="message-markdown">
-      <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown
+        components={markdownComponents}
+        rehypePlugins={markdownRehypePlugins}
+        remarkPlugins={markdownRemarkPlugins}
+      >
         {visibleText}
       </ReactMarkdown>
     </div>
