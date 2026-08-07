@@ -136,7 +136,7 @@ describe("WorkspaceInstanceManager", () => {
   });
 
   test("keeps the active turn frozen and applies permission invalidation to the next turn", async () => {
-    const allowedTypes = new Set(["default"]);
+    const allowedTypes = new Set(["amazon_fba", "ziniao_browser", "default"]);
     const { manager, resourceRoot, workspace } = setup({ allowedTypes });
     mkdirSync(join(resourceRoot, "skills", "fba"));
     writeFileSync(
@@ -144,16 +144,35 @@ describe("WorkspaceInstanceManager", () => {
       "---\nname: fba\ntype: amazon_fba\ndescription: FBA workflow\n---\n# FBA\n",
       "utf8",
     );
+    mkdirSync(join(resourceRoot, "skills", "replenishment"));
+    writeFileSync(
+      join(resourceRoot, "skills", "replenishment", "SKILL.md"),
+      "---\nname: replenishment\ntype: amazon_replenish\ndescription: Replenishment workflow\n---\n# Replenishment\n",
+      "utf8",
+    );
+    mkdirSync(join(resourceRoot, "skills", "shopee"));
+    writeFileSync(
+      join(resourceRoot, "skills", "shopee", "SKILL.md"),
+      "---\nname: shopee\ntype: shopee_operations\ndescription: Shopee workflow\n---\n# Shopee\n",
+      "utf8",
+    );
+    mkdirSync(join(resourceRoot, "skills", "ziniao"));
+    writeFileSync(
+      join(resourceRoot, "skills", "ziniao", "SKILL.md"),
+      "---\nname: ziniao\ntype: ziniao_browser\ndescription: Ziniao workflow\n---\n# Ziniao\n",
+      "utf8",
+    );
     const currentTurn = await manager.acquire(workspace());
-    expect(currentTurn.snapshot.skills.names).toEqual(["demo"]);
+    expect(currentTurn.snapshot.skills.names).toEqual(["demo", "fba", "ziniao"]);
 
     allowedTypes.clear();
-    allowedTypes.add("amazon_fba");
+    allowedTypes.add("shopee_operations");
+    allowedTypes.add("default");
     manager.invalidate("device_permission_update");
     const nextTurn = await manager.acquire(workspace());
 
-    expect(currentTurn.snapshot.skills.names).toEqual(["demo"]);
-    expect(nextTurn.snapshot.skills.names).toEqual(["fba"]);
+    expect(currentTurn.snapshot.skills.names).toEqual(["demo", "fba", "ziniao"]);
+    expect(nextTurn.snapshot.skills.names).toEqual(["demo", "shopee"]);
     expect(nextTurn.snapshot.generation).toBeGreaterThan(currentTurn.snapshot.generation);
     currentTurn.release();
     nextTurn.release();

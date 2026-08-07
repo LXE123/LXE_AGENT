@@ -304,7 +304,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "permission-update",
       command: "update_skill_permissions",
-      payload: { allowed_skill_types: ["amazon_replenish", "default"] },
+      payload: { allowed_skill_types: ["shopee_operations", "default"] },
     }));
     const revision = "a".repeat(64);
     await server.accept(JSON.stringify({
@@ -321,7 +321,7 @@ describe("AgentProtocolServer", () => {
       } },
     }));
 
-    expect(updates).toEqual([["amazon_replenish", "default"]]);
+    expect(updates).toEqual([["shopee_operations", "default"]]);
     expect(output.find((message) => !("type" in message) && message.id === "permission-update"))
       .toMatchObject({ ok: true, result: { updated: true } });
     expect(credentialRevisions).toEqual([revision]);
