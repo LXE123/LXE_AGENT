@@ -391,19 +391,63 @@ def test_regenerates_every_sp_with_explicit_new_margin(monkeypatch, tmp_path: Pa
         assert _rows(Path(path), restock_workbook.RESTOCK_SHEET_NAME)[0]["毛利率"] == 0.35
 
 
-def test_current_batch_without_contracts_still_regenerates_summary_and_restock(
+def test_full_carryover_zhengfei_line_regenerates_every_sp_without_average(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    second_sp = "SP260710002"
     carryover_only = _purchase_line(
         purchase_quantity="0",
         carryover_quantity="10",
-        allocations=[_allocation(quantity="10", source_kind="carryover")],
+        allocations=[
+            _allocation(quantity="4", source_kind="carryover"),
+            _allocation(
+                quantity="6",
+                source_kind="carryover",
+                sp_no=second_sp,
+            ),
+        ],
     )
+    carryover_only.update(
+        {
+            "supplier_name": "深圳市正飞硅橡胶模具有限公司",
+            "model": "ZG-11",
+            "contract_product_name": "硅胶表带",
+            "source_tax_unit_price": "5.42",
+        }
+    )
+    first_planned = _planned_line(quantity="4")
+    first_planned.update(
+        {
+            "supplier_name": "深圳市正飞硅橡胶模具有限公司",
+            "model": "ZG-11",
+        }
+    )
+    second_planned = _planned_line(quantity="6")
+    second_planned.update(
+        {
+            "supplier_name": "深圳市正飞硅橡胶模具有限公司",
+            "model": "ZG-11",
+        }
+    )
+    sps = [
+        {
+            "sp_no": SP_NO,
+            "country": "英国",
+            "planned_lines": [first_planned],
+            "unmatched_lines": [],
+        },
+        {
+            "sp_no": second_sp,
+            "country": "德国",
+            "planned_lines": [second_planned],
+            "unmatched_lines": [],
+        },
+    ]
     _output_dirs(monkeypatch, tmp_path)
     _fake_snapshot(
         monkeypatch,
-        _snapshot(purchase_line=carryover_only, contracts=[]),
+        _snapshot(purchase_line=carryover_only, contracts=[], sps=sps),
     )
 
     result = cli.run(
@@ -416,8 +460,75 @@ def test_current_batch_without_contracts_still_regenerates_summary_and_restock(
     assert result["success"] is True
     assert result["artifact_summary"]["contract_count"] == 0
     assert result["contract_xlsx_paths"] == []
-    assert Path(result["purchase_summary_xlsx"]).is_file()
-    assert len(result["restock_xlsx_paths"]) == 1
+    summary_rows = _rows(
+        Path(result["purchase_summary_xlsx"]),
+        purchase_summary.SUMMARY_SHEET_NAME,
+    )
+    assert len(summary_rows) == 1
+    assert summary_rows[0]["计划发货量"] == 10
+    assert summary_rows[0]["本次采购量"] == 0
+    assert summary_rows[0]["留存库存抵扣量"] == 10
+    assert summary_rows[0]["历史库存合同编号"] == "OLD20260101001"
+    assert summary_rows[0]["原价"] == 3.75
+    assert summary_rows[0]["均价"] is None
+    assert len(result["restock_xlsx_paths"]) == 2
+    for expected_quantity, output_path in zip(
+        (4, 6),
+        result["restock_xlsx_paths"],
+        strict=True,
+    ):
+        rows = _rows(Path(output_path), restock_workbook.RESTOCK_SHEET_NAME)
+        assert len(rows) == 1
+        assert rows[0]["采购订单号"] == "OLD20260101001"
+        assert rows[0]["计划发货量"] == expected_quantity
+        assert rows[0]["本次采购量"] == 0
+        assert rows[0]["留存库存抵扣量"] == expected_quantity
+        assert rows[0]["原价"] == 3.75
+        assert rows[0]["售价"] == 4.74
+        assert rows[0]["均价"] is None
+        assert rows[0]["售价(均价)"] is None
+        assert rows[0]["总价（售价(均价)）"] is None
+
+
+def test_rejects_positive_zhengfei_purchase_without_contract_average(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    purchase_line = _purchase_line(
+        purchase_quantity="10",
+        carryover_quantity="0",
+        allocations=[_allocation(quantity="10", source_kind="current_purchase")],
+    )
+    purchase_line.update(
+        {
+            "supplier_name": "深圳市正飞硅橡胶模具有限公司",
+            "model": "ZG-11",
+            "tax_unit_price": None,
+        }
+    )
+    snapshot = _snapshot(purchase_line=purchase_line)
+    snapshot["sps"][0]["planned_lines"][0].update(
+        {
+            "supplier_name": "深圳市正飞硅橡胶模具有限公司",
+            "model": "ZG-11",
+        }
+    )
+    snapshot["contracts"][0]["supplier_name"] = (
+        "深圳市正飞硅橡胶模具有限公司"
+    )
+    template = tmp_path / "contract-template.xlsx"
+    _write_template(template, ["深圳市正飞硅橡胶模具有限公司"])
+    summary_dir, _restock_dir, _contract_dir = _output_dirs(monkeypatch, tmp_path)
+    _fake_snapshot(monkeypatch, snapshot)
+
+    result = cli.run(
+        {"batch_no": BATCH_NO, "contract_template_xlsx": str(template)}
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "purchase_batch_artifact_snapshot_invalid"
+    assert "正飞本次采购行缺少合同均价" in result["error"]["message"]
+    assert not summary_dir.exists()
 
 
 def test_rejects_snapshot_contract_from_another_revision_before_writing(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from mabang_test_helpers import _sheet_names
@@ -1689,6 +1690,43 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
     assert _cell_number_format(output_path, "备货单", "O2") == "General"
     assert _cell_number_format(output_path, "备货单", "S2") == "0.00"
     assert _cell_number_format(output_path, "备货单", "T2") == "0.00"
+
+
+def test_snapshot_seed_can_opt_in_to_missing_zhengfei_average() -> None:
+    row = list(
+        _purchase_row(
+            "SKU-A",
+            "产品A",
+            "SP260508022",
+            "ZG-11",
+            3.75,
+            "深圳市正飞硅橡胶模具有限公司",
+            10,
+            37.5,
+            "条",
+            "硅胶表带",
+            tax_rate="13%",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="备货单售价计算缺少均价"):
+        restock_cli._project_restock_rows(
+            [row],
+            gross_margin=Decimal("0.3"),
+            generated_date=date(2026, 8, 6),
+        )
+
+    projected = restock_cli._project_restock_rows(
+        [row],
+        gross_margin=Decimal("0.3"),
+        generated_date=date(2026, 8, 6),
+        allow_missing_zhengfei_average=True,
+    )
+    values = dict(zip(RESTOCK_COLUMNS, projected[0], strict=True))
+    assert values["售价"] == 4.74
+    assert values["均价"] is None
+    assert values["售价(均价)"] == ""
+    assert values["总价（售价(均价)）"] == ""
 
 
 def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_restock(tmp_path):

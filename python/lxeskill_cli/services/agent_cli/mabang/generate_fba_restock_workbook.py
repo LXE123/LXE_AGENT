@@ -231,13 +231,21 @@ def _sale_price_for_row(row: list[Any], *, gross_margin: Decimal) -> Decimal:
     return sale_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _sale_price_for_average_row(row: list[Any], *, gross_margin: Decimal) -> Decimal | str:
+def _sale_price_for_average_row(
+    row: list[Any],
+    *,
+    gross_margin: Decimal,
+    allow_missing_zhengfei_average: bool = False,
+) -> Decimal | str:
     manufacturer = _purchase._clean_cell(_purchase_row_value(row, "厂家"))
     if not _purchase._is_zhengfei_manufacturer(manufacturer):
         return ""
     model = _purchase._clean_cell(_purchase_row_value(row, "型号"))
+    average_value = _purchase_row_value(row, "均价")
+    if allow_missing_zhengfei_average and not _purchase._clean_cell(average_value):
+        return ""
     average_price = _decimal_from_restock_row(
-        _purchase_row_value(row, "均价"),
+        average_value,
         field_name="均价",
         manufacturer=manufacturer,
         model=model,
@@ -256,11 +264,16 @@ def _project_restock_rows(
     *,
     gross_margin: Decimal,
     generated_date: date,
+    allow_missing_zhengfei_average: bool = False,
 ) -> list[list[Any]]:
     projected_rows: list[list[Any]] = []
     for row in rows:
         sale_price = _sale_price_for_row(row, gross_margin=gross_margin)
-        average_sale_price = _sale_price_for_average_row(row, gross_margin=gross_margin)
+        average_sale_price = _sale_price_for_average_row(
+            row,
+            gross_margin=gross_margin,
+            allow_missing_zhengfei_average=allow_missing_zhengfei_average,
+        )
         quantity = _decimal_from_restock_row(
             _purchase_row_value(row, "数量"),
             field_name="数量",
@@ -323,6 +336,7 @@ def write_fba_restock_workbook(
     gross_margin: Decimal,
     today: date,
     output_dir: str | Path | None = None,
+    allow_missing_zhengfei_average: bool = False,
 ) -> Path:
     directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -345,6 +359,7 @@ def write_fba_restock_workbook(
                 restock_rows,
                 gross_margin=gross_margin,
                 generated_date=today,
+                allow_missing_zhengfei_average=allow_missing_zhengfei_average,
             ),
             append_total=True,
         )

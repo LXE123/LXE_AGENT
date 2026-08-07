@@ -280,15 +280,24 @@ def _snapshot_row(
     average_price: Decimal | str = ""
     average_total: Decimal | str = ""
     tax_unit_price = line.get("tax_unit_price")
-    if purchase_summary._is_zhengfei_manufacturer(manufacturer) and tax_unit_price not in (
-        None,
-        "",
-    ):
-        average_price = _snapshot_decimal(
-            tax_unit_price,
-            field=f"{field}.tax_unit_price",
+    if purchase_summary._is_zhengfei_manufacturer(manufacturer):
+        purchase_quantity = _snapshot_decimal(
+            line.get("purchase_quantity"),
+            field=f"{field}.purchase_quantity",
         )
-        average_total = average_price * quantity
+        if purchase_quantity > 0 and tax_unit_price in (None, ""):
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_batch_artifact_snapshot_invalid",
+                "ERP 采购文件快照中的正飞本次采购行缺少合同均价: "
+                f"{manufacturer}/{model}",
+                detail={"field": f"{field}.tax_unit_price"},
+            )
+        if tax_unit_price not in (None, ""):
+            average_price = _snapshot_decimal(
+                tax_unit_price,
+                field=f"{field}.tax_unit_price",
+            )
+            average_total = average_price * quantity
     values = {
         "库存sku": "\n".join(
             f"{stock_sku} × {purchase_summary._decimal_to_cell_value(item_quantity)}"
@@ -565,6 +574,7 @@ def generate_purchase_batch_workbooks_from_snapshot(
                 gross_margin=parsed_gross_margin,
                 today=today,
                 output_dir=restock_output_dir,
+                allow_missing_zhengfei_average=True,
             )
         except Exception as exc:
             setattr(
