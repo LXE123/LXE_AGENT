@@ -14,6 +14,7 @@ from services.agent_cli.mabang import erp_purchase_batch
 
 SOURCE = "fba_purchase_batch_workbooks"
 FORMAL_SUCCESS_RESULT_SCHEMA = "lxe.fba.purchase-summary-result.v1"
+PREVIEW_SUCCESS_RESULT_SCHEMA = "lxe.fba.purchase-preview-result.v1"
 ARTIFACT_SNAPSHOT_SCHEMA = "lxe.erp.purchase-artifact-snapshot.v1"
 
 _FORMAL_DIAGNOSTIC_COUNT_FIELDS = (
@@ -143,6 +144,97 @@ def _formal_success_result(
     for field in _FORMAL_DIAGNOSTIC_COUNT_FIELDS:
         if field in formal:
             result[field] = formal[field]
+    return result
+
+
+def _preview_success_result(
+    preview_files: Mapping[str, Any],
+    erp_result: Mapping[str, Any],
+    contract_result: Mapping[str, Any],
+    intent_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    purchase_lines = list(erp_result.get("purchase_lines") or [])
+    quantity_fields = (
+        "planned_shipment_quantity",
+        "carryover_applied_quantity",
+        "purchase_quantity",
+    )
+    quantity_summary = {
+        field: _quantity_text(
+            sum((Decimal(str(line[field])) for line in purchase_lines), Decimal("0"))
+        )
+        for field in quantity_fields
+    }
+    output_by_supplier = {
+        str(item.get("manufacturer") or ""): item
+        for item in list(contract_result.get("output_files") or [])
+        if isinstance(item, Mapping)
+    }
+    contracts = [
+        {
+            "supplier_name": str(contract.get("supplier_name") or ""),
+            "contract_no": str(contract.get("contract_no") or ""),
+            "is_placeholder": True,
+            "output_xlsx": output_by_supplier.get(
+                str(contract.get("supplier_name") or ""), {}
+            ).get("output_xlsx"),
+        }
+        for contract in list(erp_result.get("contracts") or [])
+        if isinstance(contract, Mapping)
+    ]
+    delivery_nos = list(
+        preview_files.get("delivery_nos") or erp_result.get("sp_nos") or []
+    )
+    restock_paths = list(preview_files.get("restock_xlsx_paths") or [])
+    contract_paths = [
+        str(item.get("output_xlsx") or "")
+        for item in contracts
+        if item.get("output_xlsx")
+    ]
+    warnings = [
+        "这是 ERP 只读预览：未创建采购批次、未占用库存、未预留正式合同编号。",
+        "正式生成必须重新执行不带 --preview 的命令；库存、价格和合同编号可能因期间数据变化而不同。",
+        *list(preview_files.get("warnings") or []),
+        *list(contract_result.get("warnings") or []),
+    ]
+    result: dict[str, Any] = {
+        "success": True,
+        "status": "preview_completed",
+        "result_schema": PREVIEW_SUCCESS_RESULT_SCHEMA,
+        "mode": "preview",
+        "erp_read_only": True,
+        "erp_synced": False,
+        "batch_committed": False,
+        "database_changes_committed": False,
+        "inventory_changes_committed": False,
+        "contract_numbers_reserved": False,
+        "official_contract_numbers_created": False,
+        "request_id": erp_result.get("request_id"),
+        "preview_id": erp_result.get("preview_id"),
+        "calculated_at": erp_result.get("calculated_at"),
+        "business_date": erp_result.get("business_date"),
+        "delivery_nos": delivery_nos,
+        "quantity_summary": quantity_summary,
+        "artifact_summary": {
+            "delivery_count": len(delivery_nos),
+            "restock_count": len(restock_paths),
+            "contract_count": len(contract_paths),
+            "deliverable_file_count": 1 + len(restock_paths) + len(contract_paths),
+        },
+        "purchase_line_count": len(purchase_lines),
+        "unmatched_summary": dict(intent_context.get("unmatched_summary") or {}),
+        "contracts": contracts,
+        "purchase_summary_xlsx": preview_files.get("purchase_summary_xlsx"),
+        "restock_xlsx_paths": restock_paths,
+        "contract_xlsx_paths": contract_paths,
+        "gross_margin": preview_files.get("gross_margin"),
+        "pricing_basis": preview_files.get("pricing_basis"),
+        "warnings": warnings,
+        "source": preview_files.get("source") or SOURCE,
+    }
+    for field in _FORMAL_DIAGNOSTIC_COUNT_FIELDS:
+        if field in preview_files:
+            result[field] = preview_files[field]
     return result
 
 
@@ -669,6 +761,46 @@ def render_formal_purchase_artifacts(
     return formal, contract_result
 
 
+def render_preview_purchase_artifacts(
+    generated: dict[str, Any],
+    erp_result: Mapping[str, Any],
+    *,
+    request_payload: Mapping[str, Any],
+    contract_template_xlsx: str | Path,
+    business_date: date,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    preview_files = erp_purchase_batch.apply_formal_erp_result(
+        generated,
+        erp_result,
+        request_payload=request_payload,
+    )
+    contracts = [
+        dict(item)
+        for item in list(erp_result.get("contracts") or [])
+        if isinstance(item, Mapping)
+    ]
+    if contracts:
+        contract_result = contract_workbook.fill_preview_purchase_contracts(
+            purchase_summary_xlsx=preview_files["purchase_summary_xlsx"],
+            contract_template_xlsx=contract_template_xlsx,
+            contracts=contracts,
+            purchase_lines=list(erp_result.get("purchase_lines") or []),
+            today=business_date,
+        )
+    else:
+        contract_result = {
+            "success": True,
+            "mode": "preview",
+            "output_files": [],
+            "generated_count": 0,
+            "warnings": [],
+        }
+    return erp_purchase_batch.mark_preview_workbooks(
+        preview_files,
+        contract_result,
+    )
+
+
 def generate_purchase_batch_workbooks(
     delivery_nos: list[str],
     *,
@@ -801,7 +933,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         contract_template_xlsx = str(arguments.get("contract_template_xlsx") or "")
         gross_margin = str(arguments.get("gross_margin") or "")
         restock_workbook._parse_gross_margin(gross_margin)
-        draft = bool(arguments.get("draft", False))
+        if "draft" in arguments:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "purchase_draft_mode_removed",
+                "--draft 已删除；如需使用 ERP 当前数据生成不落库文件，请改用 --preview",
+            )
+        preview = bool(arguments.get("preview", False))
         confirm_quote_id = str(arguments.get("confirm_inventory_quote_id") or "").strip()
         confirm_unmatched_sku_token = str(
             arguments.get("confirm_unmatched_sku_token") or ""
@@ -810,19 +947,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         expected_version_raw = arguments.get("expected_version_no")
         expected_version_no = int(expected_version_raw) if expected_version_raw not in (None, "") else None
         change_reason = str(arguments.get("change_reason") or "").strip()
-        confirmation_arguments_present = any(
-            (
-                confirm_quote_id,
-                confirm_unmatched_sku_token,
-                replace_batch_id,
-                expected_version_no is not None,
-                change_reason,
-            )
-        )
-        if draft and confirmation_arguments_present:
+        if preview and confirm_quote_id:
             raise erp_purchase_batch.PurchaseBatchClientError(
-                "draft_arguments_conflict",
-                "--draft 不能与 ERP 确认或批次替换参数同时使用",
+                "preview_inventory_quote_confirmation_not_allowed",
+                "--preview 不能与 --confirm-inventory-quote-id 同时使用",
             )
         if replace_batch_id and (expected_version_no is None or not change_reason):
             raise erp_purchase_batch.PurchaseBatchClientError(
@@ -834,18 +962,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "replacement_arguments_incomplete",
                 "--expected-version-no/--change-reason 必须与 --replace-batch-id 同时使用",
             )
-        if draft:
-            generated = generate_purchase_batch_workbooks(
-                delivery_nos,
-                master_xlsx=master_xlsx,
-                gross_margin=gross_margin,
-            )
-            return erp_purchase_batch.mark_draft_workbooks(generated)
-
         request_payload, intent_context = erp_purchase_batch.build_purchase_intent(
             delivery_nos,
             master_xlsx=master_xlsx,
-            confirm_inventory_quote_id=confirm_quote_id,
+            confirm_inventory_quote_id="" if preview else confirm_quote_id,
             replace_batch_id=replace_batch_id,
             expected_version_no=expected_version_no,
             change_reason=change_reason,
@@ -872,13 +992,27 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             contract_template_xlsx,
             [str(item.get("supplier_name") or "") for item in request_payload["contracts"]],
         )
-        status_code, erp_result = erp_purchase_batch.import_purchase_intent(request_payload)
-        if status_code == 409:
-            erp_purchase_batch.validate_purchase_response(
-                status_code=status_code,
-                response=erp_result,
-                request_payload=request_payload,
+        if preview:
+            status_code, erp_result = erp_purchase_batch.preview_purchase_intent(
+                request_payload
             )
+        else:
+            status_code, erp_result = erp_purchase_batch.import_purchase_intent(
+                request_payload
+            )
+        if status_code == 409:
+            if preview:
+                erp_purchase_batch.validate_purchase_preview_response(
+                    status_code=status_code,
+                    response=erp_result,
+                    request_payload=request_payload,
+                )
+            else:
+                erp_purchase_batch.validate_purchase_response(
+                    status_code=status_code,
+                    response=erp_result,
+                    request_payload=request_payload,
+                )
             return {
                 **erp_purchase_batch.confirmation_result(
                     response=erp_result,
@@ -890,11 +1024,44 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "contract_template_xlsx": contract_template_xlsx,
                 "gross_margin": gross_margin,
                 "source": SOURCE,
+                "mode": "preview" if preview else "formal",
                 "confirm_unmatched_sku_token": expected_unmatched_token,
                 "unmatched_summary": dict(
                     intent_context.get("unmatched_summary") or {}
                 ),
             }
+        if preview:
+            erp_purchase_batch.validate_purchase_preview_response(
+                status_code=status_code,
+                response=erp_result,
+                request_payload=request_payload,
+            )
+            generated = generate_purchase_batch_workbooks(
+                delivery_nos,
+                master_xlsx=master_xlsx,
+                gross_margin=gross_margin,
+            )
+            try:
+                business_date = date.fromisoformat(str(erp_result["business_date"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise erp_purchase_batch.PurchaseBatchClientError(
+                    "erp_purchase_result_incomplete",
+                    "ERP 采购预览 business_date 不是有效日期",
+                    detail={"field": "business_date"},
+                ) from exc
+            preview_files, contract_result = render_preview_purchase_artifacts(
+                generated,
+                erp_result,
+                request_payload=request_payload,
+                contract_template_xlsx=contract_template_xlsx,
+                business_date=business_date,
+            )
+            return _preview_success_result(
+                preview_files,
+                erp_result,
+                contract_result,
+                intent_context,
+            )
         formal: dict[str, Any] | None = None
         try:
             erp_purchase_batch.validate_purchase_response(

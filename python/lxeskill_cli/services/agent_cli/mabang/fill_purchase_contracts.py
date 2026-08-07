@@ -768,6 +768,7 @@ def _save_single_company_contract(
     warnings: list[str],
     contract_number: str | None = None,
     supplier_contract_sequence: int | None = None,
+    preview: bool = False,
     strict_layout: bool = False,
 ) -> str:
     try:
@@ -805,13 +806,19 @@ def _save_single_company_contract(
             raise RuntimeError("; ".join(warnings[warning_count:]))
 
         if contract_number:
-            if supplier_contract_sequence is None:
+            if preview:
+                output_name = (
+                    f"{_safe_file_stem(manufacturer)}-"
+                    f"{_safe_file_stem(contract_number)}-PREVIEW.xlsx"
+                )
+            elif supplier_contract_sequence is None:
                 raise RuntimeError(f"厂家 `{manufacturer}` 缺少供应商合同序号")
-            output_name = (
-                f"{_safe_file_stem(manufacturer)}-"
-                f"{_safe_file_stem(contract_number)}-"
-                f"{supplier_contract_sequence}.xlsx"
-            )
+            else:
+                output_name = (
+                    f"{_safe_file_stem(manufacturer)}-"
+                    f"{_safe_file_stem(contract_number)}-"
+                    f"{supplier_contract_sequence}.xlsx"
+                )
         else:
             output_name = f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
         output_path = output_dir / output_name
@@ -874,7 +881,7 @@ def validate_contract_template(
         workbook.close()
 
 
-def fill_formal_purchase_contracts(
+def _fill_erp_purchase_contracts(
     *,
     purchase_summary_xlsx: str | Path,
     contract_template_xlsx: str | Path,
@@ -882,31 +889,38 @@ def fill_formal_purchase_contracts(
     purchase_lines: list[Mapping[str, Any]],
     output_dir: str | Path | None = None,
     today: date | None = None,
+    preview: bool,
 ) -> dict[str, Any]:
-    """Render official contract files locally using contract numbers assigned by ERP."""
+    """Render formal or read-only-preview contracts from an ERP-calculated plan."""
     purchase_summary_path = Path(purchase_summary_xlsx).expanduser()
     template_path = Path(contract_template_xlsx).expanduser()
     grouped_lines = load_purchase_summary_lines(purchase_summary_path)
 
-    contract_metadata: dict[str, tuple[str, int]] = {}
+    contract_metadata: dict[str, tuple[str, int | None]] = {}
     for index, raw_contract in enumerate(contracts):
         supplier = _clean_cell(raw_contract.get("supplier_name"))
         contract_number = _clean_cell(raw_contract.get("contract_no"))
         raw_supplier_sequence = raw_contract.get("supplier_contract_sequence")
-        if (
-            isinstance(raw_supplier_sequence, bool)
-            or not isinstance(raw_supplier_sequence, int)
-            or raw_supplier_sequence <= 0
-        ):
-            raise RuntimeError(
-                "ERP 正式合同供应商合同序号无效: "
-                f"contracts[{index}].supplier_contract_sequence={raw_supplier_sequence}"
-            )
+        if preview:
+            if raw_contract.get("is_placeholder") is not True:
+                raise RuntimeError(f"ERP 预览合同缺少占位标记: contracts[{index}]")
+            supplier_sequence = None
+        else:
+            if (
+                isinstance(raw_supplier_sequence, bool)
+                or not isinstance(raw_supplier_sequence, int)
+                or raw_supplier_sequence <= 0
+            ):
+                raise RuntimeError(
+                    "ERP 正式合同供应商合同序号无效: "
+                    f"contracts[{index}].supplier_contract_sequence={raw_supplier_sequence}"
+                )
+            supplier_sequence = raw_supplier_sequence
         if not supplier or not contract_number:
             raise RuntimeError(f"ERP 正式合同数据不完整: contracts[{index}]")
         if supplier in contract_metadata:
             raise RuntimeError(f"ERP 同一供应商返回多个正式合同: {supplier}")
-        contract_metadata[supplier] = (contract_number, raw_supplier_sequence)
+        contract_metadata[supplier] = (contract_number, supplier_sequence)
 
     expected_suppliers = set(grouped_lines)
     actual_suppliers = set(contract_metadata)
@@ -927,7 +941,7 @@ def fill_formal_purchase_contracts(
         try:
             purchase_quantity = Decimal(str(raw_line.get("purchase_quantity")))
         except (InvalidOperation, ValueError) as exc:
-            raise RuntimeError(f"ERP 正式采购数量无效: purchase_lines[{index}]") from exc
+            raise RuntimeError(f"ERP 采购数量无效: purchase_lines[{index}]") from exc
         if not purchase_quantity.is_finite() or purchase_quantity < 0:
             raise RuntimeError(f"ERP 正式采购数量无效: purchase_lines[{index}]")
         if purchase_quantity == 0:
@@ -993,11 +1007,12 @@ def fill_formal_purchase_contracts(
                 warnings=warnings,
                 contract_number=contract_number,
                 supplier_contract_sequence=supplier_contract_sequence,
+                preview=preview,
                 strict_layout=True,
             )
         except Exception as exc:
             raise FormalContractGenerationError(
-                f"厂家 `{manufacturer}` 正式合同生成失败: {_exception_text(exc)}",
+                f"厂家 `{manufacturer}` {'预览' if preview else '正式'}合同生成失败: {_exception_text(exc)}",
                 output_files=output_files,
             ) from exc
         output_files.append(
@@ -1012,7 +1027,7 @@ def fill_formal_purchase_contracts(
 
     return {
         "success": True,
-        "mode": "formal",
+        "mode": "preview" if preview else "formal",
         "purchase_summary_xlsx": str(purchase_summary_path),
         "contract_template_xlsx": str(template_path),
         "output_dir": str(directory),
@@ -1021,3 +1036,45 @@ def fill_formal_purchase_contracts(
         "warnings": warnings,
         "source": SOURCE,
     }
+
+
+def fill_formal_purchase_contracts(
+    *,
+    purchase_summary_xlsx: str | Path,
+    contract_template_xlsx: str | Path,
+    contracts: list[Mapping[str, Any]],
+    purchase_lines: list[Mapping[str, Any]],
+    output_dir: str | Path | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Render official contract files locally using contract numbers assigned by ERP."""
+    return _fill_erp_purchase_contracts(
+        purchase_summary_xlsx=purchase_summary_xlsx,
+        contract_template_xlsx=contract_template_xlsx,
+        contracts=contracts,
+        purchase_lines=purchase_lines,
+        output_dir=output_dir,
+        today=today,
+        preview=False,
+    )
+
+
+def fill_preview_purchase_contracts(
+    *,
+    purchase_summary_xlsx: str | Path,
+    contract_template_xlsx: str | Path,
+    contracts: list[Mapping[str, Any]],
+    purchase_lines: list[Mapping[str, Any]],
+    output_dir: str | Path | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Render clearly marked contract previews using ERP placeholder numbers."""
+    return _fill_erp_purchase_contracts(
+        purchase_summary_xlsx=purchase_summary_xlsx,
+        contract_template_xlsx=contract_template_xlsx,
+        contracts=contracts,
+        purchase_lines=purchase_lines,
+        output_dir=output_dir,
+        today=today,
+        preview=True,
+    )

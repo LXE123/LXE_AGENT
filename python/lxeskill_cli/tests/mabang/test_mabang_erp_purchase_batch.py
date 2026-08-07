@@ -157,6 +157,37 @@ def _erp_result() -> dict[str, Any]:
     }
 
 
+def _preview_result() -> dict[str, Any]:
+    result = deepcopy(_erp_result())
+    result.update(
+        {
+            "response_schema": "lxe.erp.purchase-batch-preview.v1",
+            "status": "preview",
+            "request_id": "purchase-1",
+            "preview_id": "00000000-0000-0000-0000-000000000099",
+            "calculated_at": "2026-07-23T10:00:00+08:00",
+            "business_date": "2026-07-23",
+            "database_changes_committed": False,
+            "inventory_changes_committed": False,
+            "contract_numbers_reserved": False,
+        }
+    )
+    for field in ("batch_id", "batch_no", "revision_id", "version_no"):
+        result.pop(field, None)
+    result["contracts"] = [
+        {
+            "supplier_name": "深圳正飞科技",
+            "contract_no": "PREVIEW-ZF-01",
+            "purchase_amount": 21,
+            "is_placeholder": True,
+        }
+    ]
+    line = result["purchase_lines"][0]
+    line["contract_no"] = "PREVIEW-ZF-01"
+    line["contract_id"] = None
+    return result
+
+
 def _request_payload() -> dict[str, Any]:
     return {
         "request_id": "purchase-1",
@@ -826,21 +857,20 @@ def test_confirmation_response_fails_closed_on_invalid_contract(
     assert captured.value.code == expected_code
 
 
-def test_draft_never_calls_erp_and_marks_outputs(monkeypatch, tmp_path: Path) -> None:
+def test_preview_calls_read_only_erp_and_marks_all_outputs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     purchase_path = tmp_path / "purchase.xlsx"
     restock_path = tmp_path / "restock.xlsx"
-    for path, sheet_name in ((purchase_path, "采购汇总"), (restock_path, "备货单")):
+    contract_path = tmp_path / "contract.xlsx"
+    for path, sheet_name in (
+        (purchase_path, "采购汇总"),
+        (restock_path, "备货单"),
+        (contract_path, "合同"),
+    ):
         workbook = Workbook()
         workbook.active.title = sheet_name
-        columns = (
-            erp.purchase_summary.MANUFACTURER_COLUMNS
-            if path == purchase_path
-            else ("数量",)
-        )
-        workbook.active.append(list(columns))
-        row = [""] * len(columns)
-        row[columns.index("数量")] = 10
-        workbook.active.append(row)
         workbook.save(path)
     generated = {
         "success": True,
@@ -849,41 +879,90 @@ def test_draft_never_calls_erp_and_marks_outputs(monkeypatch, tmp_path: Path) ->
         "restock_xlsx_paths": [str(restock_path)],
         "restock_outputs": [{"delivery_no": "SP260710001", "output_xlsx": str(restock_path)}],
     }
-    monkeypatch.setattr(cli, "generate_purchase_batch_workbooks", lambda *args, **kwargs: dict(generated))
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (
+            _request_payload(),
+            {
+                "delivery_nos": ["SP260710001"],
+                "unmatched_summary": {},
+                "confirm_unmatched_sku_token": "",
+            },
+        ),
+    )
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        erp,
+        "preview_purchase_intent",
+        lambda _payload: (200, _preview_result()),
+    )
     monkeypatch.setattr(
         erp,
         "import_purchase_intent",
-        lambda _payload: pytest.fail("draft must not call ERP"),
+        lambda _payload: pytest.fail("preview must not call the formal import endpoint"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "generate_purchase_batch_workbooks",
+        lambda *args, **kwargs: dict(generated),
+    )
+    monkeypatch.setattr(
+        erp,
+        "apply_formal_erp_result",
+        lambda generated, _erp_result, **kwargs: dict(generated),
+    )
+    monkeypatch.setattr(
+        contract_cli,
+        "fill_preview_purchase_contracts",
+        lambda **kwargs: {
+            "success": True,
+            "mode": "preview",
+            "output_files": [
+                {
+                    "manufacturer": "深圳正飞科技",
+                    "contract_no": "PREVIEW-ZF-01",
+                    "output_xlsx": str(contract_path),
+                }
+            ],
+            "warnings": [],
+        },
     )
 
     result = cli.run(
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
             "gross_margin": "0.3",
-            "draft": True,
+            "preview": True,
         }
     )
 
     assert result["success"] is True
-    assert result["mode"] == "draft"
+    assert result["mode"] == "preview"
+    assert result["result_schema"] == "lxe.fba.purchase-preview-result.v1"
+    assert result["erp_read_only"] is True
+    assert result["batch_committed"] is False
     assert result["erp_synced"] is False
-    assert Path(result["purchase_summary_xlsx"]).name == "purchase-DRAFT.xlsx"
-    workbook = load_workbook(result["purchase_summary_xlsx"], read_only=True)
-    try:
-        assert workbook.sheetnames[0] == "草稿-未同步ERP"
-        sheet = workbook["采购汇总"]
-        headers = [cell.value for cell in sheet[1]]
-        assert "合同编号前缀" not in headers
-        assert "本次采购合同编号" in headers
-        assert "历史库存合同编号" in headers
-        assert sheet.cell(2, headers.index("本次采购合同编号") + 1).value is None
-        assert sheet.cell(2, headers.index("历史库存合同编号") + 1).value is None
-        assert sheet.cell(2, headers.index("计划发货量") + 1).value == 10
-        assert sheet.cell(2, headers.index("本次采购量") + 1).value == 10
-        assert sheet.cell(2, headers.index("留存库存抵扣量") + 1).value == 0
-    finally:
-        workbook.close()
+    assert result["quantity_summary"] == {
+        "planned_shipment_quantity": "10",
+        "carryover_applied_quantity": "4",
+        "purchase_quantity": "6",
+    }
+    all_paths = [
+        result["purchase_summary_xlsx"],
+        *result["restock_xlsx_paths"],
+        *result["contract_xlsx_paths"],
+    ]
+    assert all("PREVIEW" in Path(path).stem for path in all_paths)
+    for path in all_paths:
+        workbook = load_workbook(path, read_only=True)
+        try:
+            assert workbook.sheetnames[0] == "预览-未写入ERP"
+            assert "未创建采购批次" in workbook["预览-未写入ERP"]["A1"].value
+        finally:
+            workbook.close()
 
 
 def test_formal_workbooks_split_and_move_yellow_inventory_rows_to_end(tmp_path: Path) -> None:
@@ -1744,27 +1823,34 @@ def test_formal_restock_rebuilds_current_and_inventory_skus_and_product_names(
         workbook.close()
 
 
-@pytest.mark.parametrize(
-    "confirmation_argument",
-    [
-        {"confirm_inventory_quote_id": "quote-1"},
-        {"confirm_unmatched_sku_token": "unmatched-token"},
-    ],
-)
-def test_draft_rejects_confirmation_flags_without_http(
-    confirmation_argument: dict[str, str],
-) -> None:
+def test_draft_is_removed() -> None:
     result = cli.run(
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
             "gross_margin": "0.3",
             "draft": True,
-            **confirmation_argument,
         }
     )
     assert result["success"] is False
-    assert result["error"]["code"] == "draft_arguments_conflict"
+    assert result["error"]["code"] == "purchase_draft_mode_removed"
+
+
+def test_preview_rejects_inventory_quote_confirmation_without_http() -> None:
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+            "preview": True,
+            "confirm_inventory_quote_id": "quote-1",
+        }
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == (
+        "preview_inventory_quote_confirmation_not_allowed"
+    )
 
 
 def test_contract_fill_uses_actual_purchase_quantity_and_skips_zero(tmp_path: Path) -> None:

@@ -439,6 +439,57 @@ def test_fill_formal_purchase_contracts_writes_erp_number_to_both_sheets(tmp_pat
     ]
 
 
+def test_fill_preview_purchase_contracts_uses_placeholder_without_sequence(
+    tmp_path,
+) -> None:
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [
+            _purchase_row(
+                manufacturer="厂家A",
+                model="A-1",
+                quantity=6,
+                unit_price=3.5,
+                total_price=21,
+            )
+        ],
+    )
+    template_path = tmp_path / "contract_template.xlsx"
+    _write_contract_template(template_path, ["厂家A"])
+
+    payload = cli.fill_preview_purchase_contracts(
+        purchase_summary_xlsx=purchase_path,
+        contract_template_xlsx=template_path,
+        contracts=[
+            {
+                "supplier_name": "厂家A",
+                "contract_no": "PREVIEW-JY-01",
+                "is_placeholder": True,
+            }
+        ],
+        purchase_lines=[
+            {
+                "supplier_name": "厂家A",
+                "model": "A-1",
+                "purchase_quantity": 6,
+                "tax_unit_price": 4.25,
+            }
+        ],
+        output_dir=tmp_path / "out",
+        today=date(2026, 7, 28),
+    )
+
+    assert payload["mode"] == "preview"
+    output = payload["output_files"][0]
+    assert output["supplier_contract_sequence"] is None
+    output_path = Path(output["output_xlsx"])
+    assert output_path.name == "厂家A-PREVIEW-JY-01-PREVIEW.xlsx"
+    assert _cell_value(output_path, "厂家A", "E2") == (
+        "合同编号：PREVIEW-JY-01\nDate：2026年7月28日"
+    )
+
+
 def test_validate_contract_template_rejects_missing_supplier_sheet(tmp_path):
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["厂家A"])

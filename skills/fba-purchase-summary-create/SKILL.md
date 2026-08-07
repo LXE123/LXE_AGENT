@@ -1,6 +1,6 @@
 ---
 name: fba-purchase-summary-create
-description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，默认与 FBA ERP 交互，预览并确认 FIFO 历史库存抵扣后，在本地生成正式采购汇总表、每个 SP 备货单和正式合同；用户明确要求离线或草稿时使用 --draft。用户要求按一批 SP 生成采购汇总、批量备货单或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
+description: 根据一批本地 FBA 发货单 CSV、出口退税总表和毛利率，与 FBA ERP 交互并在本地生成采购汇总表、每个 SP 备货单和合同。默认创建正式采购批次；用户明确要求先看文件但不写入 ERP 时使用 --preview 只读预览。用户要求按一批 SP 生成采购汇总、批量备货单、合同或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
 type: amazon_fba
 commands:
   - lxeskill fba purchase summary-create
@@ -13,19 +13,21 @@ commands:
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块。
 - 发货单只从 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
 - 默认是正式联网模式：本地上传计划需求和映射，ERP 计算库存抵扣、本次采购量、新合同号和新采购价。
+- `--preview` 仍须联网，ERP 使用当前库存执行与正式模式相同的 FIFO、采购量、价格和来源分配计算；不创建批次、不占库存、不保存报价、不占合同流水。
 - 未匹配 SKU 或 ERP 返回确认要求时不生成任何正式文件；先展示真实清单后询问用户。
-- 正式模式连接 ERP 失败时停止；不得自动改走草稿。
-- `--draft` 不访问 ERP、不占用库存、不创建批次或正式合同号；不得与确认/替换参数同时使用。
+- ERP 连接失败时停止；不得回退到旧本地草稿算法。
+- `--draft` 已删除，不得调用或建议使用。
+- `--preview` 不得与 `--confirm-inventory-quote-id` 同时使用；未匹配 SKU 确认和完整批次替换参数仍可携带。
 - 不要手工解析 CSV 或编辑输出 Excel。
 
 ## Required Input
 
 - `delivery_no`：一个或多个 `SP` 开头的发货单号，顺序就是 ERP 跨 SP 分配库存的顺序。
 - `master_xlsx`：出口退税总表，由系统记忆，见下方「长期资产」。
-- `contract_template_xlsx`：正式合同模板汇总，由系统记忆；草稿模式不需要。
+- `contract_template_xlsx`：合同模板汇总，由系统记忆；正式和预览都需要。
 - `gross_margin`：`0.2`～`0.5`。
-- 正式模式要求发货单 CSV 包含 `MSKU`、`MSKU发货量`、`SKU发货量`；CLI 只上传每 1 个 MSKU 的准确 `quantity_per_msku`，不上传 MSKU 计划量。
-- 正式模式要求 `供应商合同信息` 中的 `单位`、`合同产品名称`、`合同编号前缀`、`税率` 完整且无冲突。
+- 正式和预览都要求发货单 CSV 包含 `MSKU`、`MSKU发货量`、`SKU发货量`；CLI 只上传每 1 个 MSKU 的准确 `quantity_per_msku`，不上传 MSKU 计划量。
+- 正式和预览都要求 `供应商合同信息` 中的 `单位`、`合同产品名称`、`合同编号前缀`、`税率` 完整且无冲突。
 
 ## 长期资产（自动记忆）
 
@@ -33,8 +35,8 @@ commands:
 - 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
 - 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
 - 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（07-06 上传）」，让用户能发现用错了版本。
-- `contract_template_xlsx`（采购合同模板汇总）也是**长期资产**：正式模式自动使用当前版，平时不要传参数；只有用户上传新版时才传绝对路径。
-- 正式模式缺少合同模板时，CLI 会在提交 ERP 前返回 `input_required`。结果里的 `asset_sources.contract_template_xlsx` 也必须转述给用户。
+- `contract_template_xlsx`（采购合同模板汇总）也是**长期资产**：正式和预览都自动使用当前版，平时不要传参数；只有用户上传新版时才传绝对路径。
+- 缺少合同模板时，CLI 会在请求 ERP 前返回 `input_required`。结果里的 `asset_sources.contract_template_xlsx` 也必须转述给用户。
 
 ## Commands
 
@@ -52,11 +54,13 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 用户上传新版合同模板时追加 `--contract-template-xlsx "<新版采购合同模板汇总.xlsx>"`。
 
-多 SP 重复传 `--delivery-no`。用户明确要求草稿/离线时追加：
+多 SP 重复传 `--delivery-no`。用户明确要求先生成完整文件但不写入 ERP 时追加：
 
 ```text
---draft
+--preview
 ```
+
+预览不是离线模式；不得携带 `--confirm-inventory-quote-id`。正式生成必须重新执行不带 `--preview` 的原命令。
 
 ## ERP Confirmation
 
@@ -95,6 +99,8 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 ## Result Handling
 
 - 正式成功结果使用 `result_schema=lxe.fba.purchase-summary-result.v1`。完整 ERP 分配已在 CLI 内部完成校验和制表，不会作为调试数据重复输出。
+- 预览成功结果使用 `result_schema=lxe.fba.purchase-preview-result.v1`、`mode=preview`、`erp_read_only=true`、`batch_committed=false`。将 terminal `files` 一次发送；明确文件名含 `PREVIEW`、首个工作表为“预览-未写入ERP”、合同号是占位符，且没有批次 ID、正式合同 ID 或合同流水。
+- 预览直接采用 ERP 当前建议库存，不要求库存报价二次确认。提醒用户正式执行会重新计算，库存、价格及合同编号可能变化；预览结果不能转成正式批次。
 - `success=true`：将 terminal `files` 一次传给 `send_files(paths=<terminal.files>)`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同。报告 `batch_no`、`version_no`、`quantity_summary` 和 `contracts`；`contracts` 只含供应商、合同号、合同 ID 和对应文件路径。
 - 正式成功含 `unmatched_summary` 时，明确报告未匹配 SKU、MSKU 组件数和排除的计划量；完整清单仍查看采购汇总 Excel 的“未匹配”页。
 - `artifact_summary.contract_count` 小于 `manufacturer_count` 可能是正常结果：某供应商全部由历史库存满足时不会生成新合同。不要据此声称合同缺失。
@@ -105,5 +111,4 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 - 同一型号使用多个旧合同时，每个“旧合同号＋历史单价”单独一条黄色行。
 - 正飞正式 `均价` 只按 `本次采购量` 加权；黄色行不使用新均价。
 - `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件生成不完整。先报告批次/合同 ID 和真实 `artifact_error`，再发送 terminal `files` 中已经成功生成的附件，并明确哪些文件尚未生成。需要恢复时用完全相同的正式命令重试，让确定性请求 ID 只补齐缺失附件，不得改参数另建批次。
-- `mode=draft`：明确说明文件名含 `DRAFT`、工作表含“草稿-未同步ERP”、没有正式合同号；三个数量列仍存在，且草稿中 `计划发货量=本次采购量`、`留存库存抵扣量=0`。
 - 失败时转述 `error.code`、`error.message` 和可用的 `http_status/detail`，不要用通用提示覆盖。

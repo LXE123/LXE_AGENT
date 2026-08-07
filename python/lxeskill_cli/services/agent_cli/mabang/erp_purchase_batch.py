@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+from datetime import date, datetime
 from io import BytesIO
 from collections import OrderedDict, defaultdict
 from copy import copy
@@ -27,6 +28,7 @@ PURCHASE_CONFIRMATION_CODES = frozenset(
     }
 )
 PURCHASE_CONFIRMATION_RESPONSE_SCHEMA = "lxe.erp.purchase-confirmation.v2"
+PURCHASE_PREVIEW_RESPONSE_SCHEMA = "lxe.erp.purchase-batch-preview.v1"
 UNMATCHED_CONFIRMATION_RESPONSE_SCHEMA = (
     "lxe.fba.purchase-unmatched-confirmation.v1"
 )
@@ -484,6 +486,16 @@ def import_purchase_intent(payload: Mapping[str, Any]) -> tuple[int, dict[str, A
     )
 
 
+def preview_purchase_intent(payload: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+    return request_json(
+        "POST",
+        "/api/v1/erp/purchase-batches/preview",
+        operation="预览 ERP 采购计划",
+        json_payload=payload,
+        accepted_error_codes={"purchase_batch_replace_confirmation_required"},
+    )
+
+
 def _incomplete(message: str, *, field: str = "") -> PurchaseBatchClientError:
     detail = {"field": field} if field else None
     return PurchaseBatchClientError(
@@ -656,18 +668,61 @@ def _validate_success_response(
     response: Mapping[str, Any],
     *,
     request_payload: Mapping[str, Any],
+    preview: bool = False,
 ) -> None:
-    for field in ("status", "batch_id", "batch_no", "revision_id"):
-        _required_result_text(response.get(field), field=field)
-    version_no = response.get("version_no")
-    if isinstance(version_no, bool):
-        raise _incomplete("version_no 必须是正整数", field="version_no")
-    try:
-        parsed_version = int(version_no)
-    except (TypeError, ValueError) as exc:
-        raise _incomplete("version_no 必须是正整数", field="version_no") from exc
-    if parsed_version <= 0:
-        raise _incomplete("version_no 必须是正整数", field="version_no")
+    if preview:
+        schema = _required_result_text(
+            response.get("response_schema"), field="response_schema"
+        )
+        if schema != PURCHASE_PREVIEW_RESPONSE_SCHEMA:
+            raise PurchaseBatchClientError(
+                "erp_purchase_preview_schema_unsupported",
+                f"ERP 采购预览响应版本不受支持: {schema}",
+                detail={"response_schema": schema},
+            )
+        if _required_result_text(response.get("status"), field="status") != "preview":
+            raise _incomplete("预览响应 status 必须是 preview", field="status")
+        if _required_result_text(
+            response.get("request_id"), field="request_id"
+        ) != request_payload.get("request_id"):
+            raise _incomplete("预览响应 request_id 与请求不一致", field="request_id")
+        _required_result_text(response.get("preview_id"), field="preview_id")
+        calculated_at = _required_result_text(
+            response.get("calculated_at"), field="calculated_at"
+        )
+        business_date = _required_result_text(
+            response.get("business_date"), field="business_date"
+        )
+        try:
+            datetime.fromisoformat(calculated_at)
+            date.fromisoformat(business_date)
+        except ValueError as exc:
+            raise _incomplete(
+                "calculated_at 或 business_date 不是 ISO 日期时间",
+                field="business_date",
+            ) from exc
+        for field in (
+            "database_changes_committed",
+            "inventory_changes_committed",
+            "contract_numbers_reserved",
+        ):
+            if response.get(field) is not False:
+                raise _incomplete(f"{field} 必须为 false", field=field)
+        for field in ("batch_id", "batch_no", "revision_id", "version_no"):
+            if response.get(field) not in (None, ""):
+                raise _incomplete(f"预览响应不得包含 {field}", field=field)
+    else:
+        for field in ("status", "batch_id", "batch_no", "revision_id"):
+            _required_result_text(response.get(field), field=field)
+        version_no = response.get("version_no")
+        if isinstance(version_no, bool):
+            raise _incomplete("version_no 必须是正整数", field="version_no")
+        try:
+            parsed_version = int(version_no)
+        except (TypeError, ValueError) as exc:
+            raise _incomplete("version_no 必须是正整数", field="version_no") from exc
+        if parsed_version <= 0:
+            raise _incomplete("version_no 必须是正整数", field="version_no")
     expected_sp_nos = [
         _required_result_text(item.get("sp_no"), field="request.sps[].sp_no")
         for item in _required_result_list(request_payload.get("sps"), field="request.sps")
@@ -823,8 +878,27 @@ def _validate_success_response(
             raise _incomplete(f"成功响应行 {line_ref} 的库存应用合计不守恒", field=line_field)
         if purchased > 0:
             positive_suppliers.add(supplier_name)
-            _required_result_text(raw_line.get("contract_id"), field=f"{line_field}.contract_id")
-            _required_result_text(raw_line.get("contract_no"), field=f"{line_field}.contract_no")
+            if preview:
+                if raw_line.get("contract_id") not in (None, ""):
+                    raise _incomplete(
+                        f"{line_field}.contract_id 预览时必须为空",
+                        field=f"{line_field}.contract_id",
+                    )
+                contract_no = _required_result_text(
+                    raw_line.get("contract_no"), field=f"{line_field}.contract_no"
+                )
+                if not contract_no.startswith("PREVIEW-"):
+                    raise _incomplete(
+                        f"{line_field}.contract_no 不是预览占位符",
+                        field=f"{line_field}.contract_no",
+                    )
+            else:
+                _required_result_text(
+                    raw_line.get("contract_id"), field=f"{line_field}.contract_id"
+                )
+                _required_result_text(
+                    raw_line.get("contract_no"), field=f"{line_field}.contract_no"
+                )
             _required_result_decimal(raw_line.get("tax_unit_price"), field=f"{line_field}.tax_unit_price")
     if actual_refs != set(expected_lines):
         raise _incomplete(
@@ -838,29 +912,64 @@ def _validate_success_response(
         field = f"contracts[{contract_index}]"
         if not isinstance(raw_contract, Mapping):
             raise _incomplete(f"{field} 必须是对象", field=field)
-        _required_result_text(raw_contract.get("contract_id"), field=f"{field}.contract_id")
         supplier_name = _required_result_text(
             raw_contract.get("supplier_name"), field=f"{field}.supplier_name"
         )
-        _required_result_text(raw_contract.get("contract_no"), field=f"{field}.contract_no")
-        daily_sequence = _required_nonnegative_int(
-            raw_contract.get("daily_sequence"), field=f"{field}.daily_sequence"
+        contract_no = _required_result_text(
+            raw_contract.get("contract_no"), field=f"{field}.contract_no"
         )
-        supplier_sequence = _required_nonnegative_int(
-            raw_contract.get("supplier_contract_sequence"),
-            field=f"{field}.supplier_contract_sequence",
-        )
-        supplier_count = _required_nonnegative_int(
-            raw_contract.get("supplier_contract_count"),
-            field=f"{field}.supplier_contract_count",
-        )
-        if daily_sequence == 0 or supplier_sequence == 0 or supplier_count == 0:
-            raise _incomplete(f"{field} 的合同序号必须是正整数", field=field)
-        if supplier_sequence > supplier_count:
-            raise _incomplete(
-                f"{field}.supplier_contract_sequence 不得大于供应商累计合同数",
-                field=field,
+        if preview:
+            if raw_contract.get("contract_id") not in (None, ""):
+                raise _incomplete(
+                    f"{field}.contract_id 预览时必须为空",
+                    field=f"{field}.contract_id",
+                )
+            if not contract_no.startswith("PREVIEW-"):
+                raise _incomplete(
+                    f"{field}.contract_no 不是预览占位符",
+                    field=f"{field}.contract_no",
+                )
+            if raw_contract.get("is_placeholder") is not True:
+                raise _incomplete(
+                    f"{field}.is_placeholder 必须为 true",
+                    field=f"{field}.is_placeholder",
+                )
+            _required_result_decimal(
+                raw_contract.get("purchase_amount"),
+                field=f"{field}.purchase_amount",
             )
+            for sequence_field in (
+                "daily_sequence",
+                "supplier_contract_sequence",
+                "supplier_contract_count",
+            ):
+                if raw_contract.get(sequence_field) not in (None, ""):
+                    raise _incomplete(
+                        f"{field}.{sequence_field} 预览时必须为空",
+                        field=f"{field}.{sequence_field}",
+                    )
+        else:
+            _required_result_text(
+                raw_contract.get("contract_id"), field=f"{field}.contract_id"
+            )
+            daily_sequence = _required_nonnegative_int(
+                raw_contract.get("daily_sequence"), field=f"{field}.daily_sequence"
+            )
+            supplier_sequence = _required_nonnegative_int(
+                raw_contract.get("supplier_contract_sequence"),
+                field=f"{field}.supplier_contract_sequence",
+            )
+            supplier_count = _required_nonnegative_int(
+                raw_contract.get("supplier_contract_count"),
+                field=f"{field}.supplier_contract_count",
+            )
+            if daily_sequence == 0 or supplier_sequence == 0 or supplier_count == 0:
+                raise _incomplete(f"{field} 的合同序号必须是正整数", field=field)
+            if supplier_sequence > supplier_count:
+                raise _incomplete(
+                    f"{field}.supplier_contract_sequence 不得大于供应商累计合同数",
+                    field=field,
+                )
         if supplier_name in contract_suppliers:
             raise _incomplete(f"供应商合同重复: {supplier_name}", field=field)
         contract_suppliers.add(supplier_name)
@@ -1174,6 +1283,26 @@ def validate_purchase_response(
         raise _incomplete(f"未识别的确认响应错误码: {code}", field="error.code")
 
 
+def validate_purchase_preview_response(
+    *,
+    status_code: int,
+    response: Mapping[str, Any],
+    request_payload: Mapping[str, Any],
+) -> None:
+    if status_code < 400:
+        _validate_success_response(
+            response,
+            request_payload=request_payload,
+            preview=True,
+        )
+        return
+    validate_purchase_response(
+        status_code=status_code,
+        response=response,
+        request_payload=request_payload,
+    )
+
+
 def confirmation_result(
     *,
     response: Mapping[str, Any],
@@ -1199,76 +1328,65 @@ def confirmation_result(
 
 
 def _renamed_path(path: Path, suffix: str) -> Path:
+    if path.stem.upper().endswith(suffix.upper()):
+        return path
     target = path.with_name(f"{path.stem}{suffix}{path.suffix}")
     if target != path:
         path.replace(target)
     return target
 
 
-def _rebuild_draft_quantity_sheet(worksheet: Any) -> None:
-    old_columns = [purchase_summary._clean_cell(cell.value) for cell in worksheet[1]]
-    if "数量" not in old_columns:
-        return
-    new_columns = _replace_quantity_header(old_columns)
-    rebuilt: list[list[Any]] = []
-    for row in worksheet.iter_rows(min_row=2, values_only=True):
-        if purchase_summary._clean_cell(row[0] if row else "") == "合计":
-            continue
-        original = _row_dict(old_columns, row)
-        try:
-            planned = _decimal(original.get("数量"))
-        except (InvalidOperation, ValueError) as exc:
-            raise PurchaseBatchClientError(
-                "draft_artifact_quantity_invalid",
-                f"草稿工作簿数量无法解析: sheet={worksheet.title}, value={original.get('数量')}",
-            ) from exc
-        rebuilt.append(
-            _formal_row_values(
-                original,
-                planned=planned,
-                purchased=planned,
-                carryover=Decimal("0"),
-                columns=new_columns,
-            )
-        )
-    title = worksheet.title
-    workbook = worksheet.parent
-    index = workbook.index(worksheet)
-    workbook.remove(worksheet)
-    target = workbook.create_sheet(title, index)
-    purchase_summary._write_rows(target, tuple(new_columns), rebuilt, append_total=True)
-
-
-def mark_draft_workbooks(result: dict[str, Any]) -> dict[str, Any]:
+def mark_preview_workbooks(
+    result: dict[str, Any],
+    contract_result: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill
 
-    paths = [Path(result["purchase_summary_xlsx"]), *(Path(item) for item in result["restock_xlsx_paths"])]
+    contract_outputs = [
+        item
+        for item in list(contract_result.get("output_files") or [])
+        if isinstance(item, dict) and item.get("output_xlsx")
+    ]
+    paths = [
+        Path(result["purchase_summary_xlsx"]),
+        *(Path(item) for item in result["restock_xlsx_paths"]),
+        *(Path(str(item["output_xlsx"])) for item in contract_outputs),
+    ]
     updated: list[Path] = []
     for path in paths:
         workbook = load_workbook(path)
-        for sheet_name in list(workbook.sheetnames):
-            if sheet_name == purchase_summary.UNMATCHED_SHEET_NAME:
-                continue
-            _rebuild_draft_quantity_sheet(workbook[sheet_name])
-        note = workbook.create_sheet("草稿-未同步ERP", 0)
-        note["A1"] = "草稿：未同步 ERP，未占用库存，不含正式合同编号"
-        note["A1"].font = Font(bold=True)
-        note["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFFC000")
-        note.column_dimensions["A"].width = 72
-        workbook.save(path)
-        updated.append(_renamed_path(path, "-DRAFT"))
+        try:
+            if "预览-未写入ERP" in workbook.sheetnames:
+                workbook.remove(workbook["预览-未写入ERP"])
+            note = workbook.create_sheet("预览-未写入ERP", 0)
+            note["A1"] = "预览文件：ERP 只读计算，未创建采购批次，未占用库存"
+            note["A2"] = "合同编号为 PREVIEW 占位符，未占用正式合同流水"
+            note["A3"] = "正式生成时必须重新执行不带 --preview 的命令；结果可能因期间数据变化而不同"
+            note["A1"].font = Font(bold=True)
+            note["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFFC000")
+            note.column_dimensions["A"].width = 96
+            purchase_summary._save_workbook_atomically(workbook, path)
+        finally:
+            workbook.close()
+        updated.append(_renamed_path(path, "-PREVIEW"))
 
     result["purchase_summary_xlsx"] = str(updated[0])
-    result["restock_xlsx_paths"] = [str(path) for path in updated[1:]]
+    restock_count = len(result["restock_xlsx_paths"])
+    restock_paths = updated[1 : 1 + restock_count]
+    contract_paths = updated[1 + restock_count :]
+    result["restock_xlsx_paths"] = [str(path) for path in restock_paths]
     result["restock_outputs"] = [
         {"delivery_no": delivery_no, "output_xlsx": str(path)}
-        for delivery_no, path in zip(result["delivery_nos"], updated[1:], strict=True)
+        for delivery_no, path in zip(result["delivery_nos"], restock_paths, strict=True)
     ]
-    result["mode"] = "draft"
+    for output, path in zip(contract_outputs, contract_paths, strict=True):
+        output["output_xlsx"] = str(path)
+    contract_result["output_files"] = contract_outputs
+    result["mode"] = "preview"
     result["erp_synced"] = False
     result["official_contract_numbers_created"] = False
-    return result
+    return result, contract_result
 
 
 def _line_map(erp_result: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -1985,7 +2103,9 @@ __all__ = [
     "confirmation_result",
     "download_contract_workbooks",
     "import_purchase_intent",
-    "mark_draft_workbooks",
+    "mark_preview_workbooks",
+    "preview_purchase_intent",
     "unmatched_confirmation_result",
+    "validate_purchase_preview_response",
     "validate_purchase_response",
 ]

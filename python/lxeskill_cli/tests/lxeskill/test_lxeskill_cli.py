@@ -359,7 +359,7 @@ def test_stored_asset_fills_an_omitted_slot_field_and_is_reported(
     assert source["updated_at"]
 
 
-def test_draft_purchase_summary_does_not_use_stored_contract_template(
+def test_preview_purchase_summary_uses_stored_contract_template(
     tmp_path,
     monkeypatch,
     capsys,
@@ -375,7 +375,7 @@ def test_draft_purchase_summary_does_not_use_stored_contract_template(
 
     def fake_execute(entry, arguments, session, *, on_event, on_text):
         seen.append(dict(arguments))
-        return True, [{"type": "text", "text": '{"success":true,"mode":"draft"}'}], [], None
+        return True, [{"type": "text", "text": '{"success":true,"mode":"preview"}'}], [], None
 
     monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
 
@@ -385,11 +385,24 @@ def test_draft_purchase_summary_does_not_use_stored_contract_template(
             "--delivery-no", "SP260710001",
             "--gross-margin", "0.3",
             "--master-xlsx", "C:/uploads/master.xlsx",
-            "--draft",
+            "--preview",
         ]
     ) == 0
-    assert seen[0]["draft"] is True
-    assert "contract_template_xlsx" not in seen[0]
+    assert seen[0]["preview"] is True
+    assert Path(seen[0]["contract_template_xlsx"]).name == "合同模板.xlsx"
+
+
+def test_removed_draft_flag_is_rejected(capsys) -> None:
+    assert lxeskill.main(
+        [
+            "fba", "purchase", "summary-create",
+            "--delivery-no", "SP260710001",
+            "--gross-margin", "0.3",
+            "--draft",
+        ]
+    ) == lxeskill.EXIT_USAGE
+    record = _records(capsys)[0]
+    assert record["error"]["code"] == "invalid_arguments"
 
 
 def test_purchase_file_regeneration_uses_stored_contract_template(
