@@ -5815,12 +5815,24 @@ h1 {
   background: var(--border);
 }
 
+/* A quote carries no vertical padding of its own: the rail hugs the text and
+   the block keeps the same rhythm as a paragraph, so quoting a line never
+   pushes the text around it. The margin reset has to be repeated here because
+   the document-level one is scoped to direct children and cannot reach the
+   paragraph the markdown renderer nests inside the quote. */
 .message-markdown blockquote {
-  padding: 6px 10px;
+  padding: 0 0 0 10px;
   border-left: 2px solid var(--accent-muted);
-  border-radius: 0 6px 6px 0;
   background: transparent;
   color: var(--text-soft);
+}
+
+.message-markdown blockquote > :first-child {
+  margin-top: 0;
+}
+
+.message-markdown blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .message-markdown code {
@@ -6665,11 +6677,21 @@ pre {
   overflow-wrap: anywhere;
 }
 
+/* This quote keeps its filled panel, so it keeps vertical padding too — but the
+   inner margins still have to be reset or the fill sits lopsided on the text. */
 .skill-markdown blockquote {
   padding: 8px 12px;
   border-left: 3px solid var(--accent-muted);
   background: var(--surface-subtle);
   color: var(--text-soft);
+}
+
+.skill-markdown blockquote > :first-child {
+  margin-top: 0;
+}
+
+.skill-markdown blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .skill-markdown code {
