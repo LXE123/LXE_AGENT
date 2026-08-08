@@ -950,6 +950,7 @@ describe("TypeScriptAgentRuntime", () => {
       descriptor: {
         name: "kimi_coding",
         model: "kimi-for-coding",
+        apiStyle: "anthropic_messages",
         baseURL: "https://secret.invalid",
         apiKey: "must-not-be-persisted",
         maxTokens: 4096,
@@ -2027,6 +2028,7 @@ describe("TypeScriptAgentRuntime", () => {
       descriptor: {
         name: "deepseek",
         model: "deepseek-v4-flash",
+        apiStyle: "anthropic_messages",
         credentialSource: "cloud",
         credentialRevision: revision,
         baseURL: "https://api.deepseek.test",
@@ -2089,6 +2091,7 @@ describe("TypeScriptAgentRuntime", () => {
       descriptor: {
         name: "deepseek",
         model: "deepseek-v4-flash",
+        apiStyle: "anthropic_messages",
         credentialSource: "cloud",
         credentialRevision: revision,
         baseURL: "https://api.deepseek.test",

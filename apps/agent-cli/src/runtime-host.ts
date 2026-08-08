@@ -19,6 +19,7 @@ import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
   configureRuntimeWireTracing,
+  createRuntimeProvider,
   ExecShellAdapter,
   loadLxeSkillCommandCatalog,
   loadLxeSkillDatasets,
@@ -106,7 +107,7 @@ export function createAgentRuntimeHost(
   const providerManager = new AtomicRuntimeProviderManager(
     options.dataRoot,
     environment,
-    undefined,
+    createRuntimeProvider,
     options.llmConfigRoot,
     join(options.dataRoot, "config", "auth.json"),
   );

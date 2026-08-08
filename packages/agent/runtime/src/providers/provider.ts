@@ -28,7 +28,7 @@ const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
 const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
-const SUMMARY_SYSTEM_PROMPT = [
+export const SUMMARY_SYSTEM_PROMPT = [
   "You are a context summarization assistant.",
   "Read the supplied conversation transcript and return only the requested structured checkpoint summary.",
   "Do not continue the conversation or answer questions from it.",
@@ -37,6 +37,8 @@ const SUMMARY_SYSTEM_PROMPT = [
 export interface ProviderDescriptor {
   name: string;
   model: string;
+  /** Wire protocol the provider speaks; selects which adapter serves it. */
+  apiStyle: string;
   credentialSource?: "local" | "cloud";
   credentialRevision?: string;
   baseURL: string;
@@ -119,6 +121,17 @@ const readObject = (path: string): Record<string, unknown> => {
 
 const normalizeProviderKey = (value: unknown): string =>
   String(value ?? "").trim().toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
+
+export const PROVIDER_API_STYLE_ANTHROPIC_MESSAGES = "anthropic_messages";
+export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses";
+
+/**
+ * Specs have always carried `api_style` for display only, in either spelling.
+ * An absent style keeps the Anthropic Messages wire, which is what every spec
+ * spoke before a second one existed.
+ */
+const normalizeApiStyle = (value: unknown): string =>
+  normalizeProviderKey(value) || PROVIDER_API_STYLE_ANTHROPIC_MESSAGES;
 
 const stringRecord = (value: unknown): Record<string, string> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
@@ -285,6 +298,7 @@ export function loadProviderDescriptor(
   return {
     name,
     model,
+    apiStyle: normalizeApiStyle(spec.api_style),
     credentialSource,
     credentialRevision,
     baseURL: String(spec.base_url ?? "").trim(),
@@ -782,7 +796,7 @@ export class ProviderIdleWatchdog {
   }
 }
 
-type RuntimeProviderFactory = (descriptor: ProviderDescriptor) => RuntimeProvider;
+export type RuntimeProviderFactory = (descriptor: ProviderDescriptor) => RuntimeProvider;
 
 class CredentialResolvingRuntimeProvider implements RuntimeProvider {
   constructor(

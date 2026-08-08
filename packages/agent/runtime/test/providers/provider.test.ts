@@ -445,6 +445,7 @@ describe("Anthropic-compatible provider", () => {
       {
         name: "test",
         model: "model-1",
+        apiStyle: "anthropic_messages",
         baseURL: "https://example.invalid",
         apiKey: "key",
         maxTokens: 1024,
@@ -817,6 +818,7 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "kimi_coding", model: "fixture", baseURL: "https://example.invalid", apiKey: "secret",
+        apiStyle: "anthropic_messages",
         maxTokens: 4_096, defaultHeaders: {}, thinkingStyle: "anthropic-adaptive",
         thinkingLevels: ["off", "low", "medium", "high"], thinkingDefault: "medium", thinkingEnabled: true,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 256_000, requestIdleTimeoutMs: 120_000,
@@ -889,6 +891,7 @@ describe("Anthropic-compatible provider", () => {
       {
         name: "test",
         model: "model-1",
+        apiStyle: "anthropic_messages",
         baseURL: "https://example.invalid",
         apiKey: "key",
         maxTokens: 1024,
@@ -925,6 +928,7 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
+        apiStyle: "anthropic_messages",
         maxTokens: 1024, defaultHeaders: {}, thinkingStyle: "none",
         thinkingLevels: ["off"], thinkingDefault: "off", thinkingEnabled: false,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
@@ -964,6 +968,7 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
+        apiStyle: "anthropic_messages",
         maxTokens: 1_024, defaultHeaders: {}, thinkingStyle: "none",
         thinkingLevels: ["off"], thinkingDefault: "off", thinkingEnabled: false,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,

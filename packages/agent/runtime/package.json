@@ -16,6 +16,7 @@
     "@lxe/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",
     "iconv-lite": "0.7.3",
+    "openai": "7.4.0",
     "yaml": "2.8.1"
   },
   "devDependencies": {

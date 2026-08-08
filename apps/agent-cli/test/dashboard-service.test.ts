@@ -222,6 +222,7 @@ describe("DashboardService", () => {
           generation: ++providerGeneration,
           descriptor: {
             name: patch.provider ?? "kimi_coding", model: patch.model ?? "kimi-for-coding",
+            apiStyle: "anthropic_messages",
             baseURL: "", apiKey: "", maxTokens: 4096, defaultHeaders: {}, thinkingStyle: "none",
             thinkingLevels: ["off"], thinkingDefault: "off",
             thinkingEnabled: patch.thinkingEnabled ?? false, thinkingEffort: patch.thinkingEffort ?? "off",
