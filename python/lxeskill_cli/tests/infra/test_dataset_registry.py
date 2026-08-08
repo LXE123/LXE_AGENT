@@ -21,7 +21,7 @@ SERVICES_ROOT = REPO_ROOT / "python" / "lxeskill_cli" / "services"
 DATASETS = load_datasets()
 ACTIVE_DIRS = {entry.dir for entry in DATASETS.values()}
 # Modules that own an artifact partition; anything else is an unregistered world.
-ALLOWED_MODULES = {"fba", "replenish", "amazon", "browser"}
+ALLOWED_MODULES = {"fba", "replenish", "amazon", "browser", "shopee"}
 
 _ARTIFACT_PATH_CALL = re.compile(r"\bartifact_path\s*\(")
 _DATASET_DIR_CALL = re.compile(r'\bdataset_dir\(\s*"([a-z0-9_]+)"')
