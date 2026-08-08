@@ -133,6 +133,19 @@ export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses";
 const normalizeApiStyle = (value: unknown): string =>
   normalizeProviderKey(value) || PROVIDER_API_STYLE_ANTHROPIC_MESSAGES;
 
+/**
+ * The address a turn's request actually goes to. Diagnostics print this, so it
+ * has to follow the descriptor's wire rather than assume one: naming the wrong
+ * endpoint sends whoever reads a trace looking at the wrong protocol.
+ */
+export const providerEndpointUrl = (descriptor: ProviderDescriptor): string => {
+  const base = descriptor.baseURL.replace(/\/+$/u, "");
+  if (!base) return "";
+  return descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_RESPONSES
+    ? `${base}/responses`
+    : `${base}/v1/messages`;
+};
+
 const stringRecord = (value: unknown): Record<string, string> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)

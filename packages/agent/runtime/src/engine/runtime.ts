@@ -27,7 +27,11 @@ import {
   type ContextCompactionResult,
 } from "./context";
 import { FinalAnswerStreamer } from "./final-answer-streamer";
-import { RuntimeProviderError, type RuntimeProviderManager } from "../providers/provider";
+import {
+  providerEndpointUrl,
+  RuntimeProviderError,
+  type RuntimeProviderManager,
+} from "../providers/provider";
 import { RuntimeTurnObserver } from "./turn-observer";
 import {
   heartbeatPrompt,
@@ -489,7 +493,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               attempt: providerAttemptOrdinal,
               provider: descriptor?.name ?? "custom",
               model: descriptor?.model ?? this.options.display?.model ?? "",
-              endpoint: descriptor ? `${descriptor.baseURL.replace(/\/+$/u, "")}/v1/messages` : "",
+              endpoint: descriptor ? providerEndpointUrl(descriptor) : "",
               timeoutMs: descriptor?.requestIdleTimeoutMs ?? 0,
             });
             try {

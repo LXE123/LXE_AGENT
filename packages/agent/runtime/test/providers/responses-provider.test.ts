@@ -3,6 +3,7 @@ import { repositoryRoot } from "@lxe/core";
 import {
   AnthropicRuntimeProvider,
   loadProviderDescriptor,
+  providerEndpointUrl,
   type ProviderDescriptor,
 } from "../../src/providers/provider";
 import { createRuntimeProvider } from "../../src/providers/provider-factory";
@@ -279,5 +280,17 @@ describe("DeepSeek Responses provider", () => {
     });
     expect(glm.apiStyle).toBe("anthropic_messages");
     expect(createRuntimeProvider(glm)).toBeInstanceOf(AnthropicRuntimeProvider);
+  });
+
+  test("names the address the request actually goes to, per wire", () => {
+    // Traces were reporting the Anthropic path for every provider, which reads
+    // as "this spoke Messages" to anyone debugging a Responses turn.
+    expect(providerEndpointUrl(descriptor({ baseURL: "https://api.deepseek.com" })))
+      .toBe("https://api.deepseek.com/responses");
+    expect(providerEndpointUrl(descriptor({
+      apiStyle: "anthropic_messages",
+      baseURL: "https://api.deepseek.com/anthropic/",
+    }))).toBe("https://api.deepseek.com/anthropic/v1/messages");
+    expect(providerEndpointUrl(descriptor({ baseURL: "" }))).toBe("");
   });
 });
