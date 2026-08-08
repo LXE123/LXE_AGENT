@@ -120,7 +120,7 @@ describe("DeepSeek Responses provider", () => {
     ]);
   });
 
-  test("sends thinking levels verbatim as output_config.effort and switches them off cleanly", () => {
+  test("spells thinking the way this wire does, with none as the off switch", () => {
     const enabled = buildResponsesRequest(descriptor(), {
       system: " you are helpful ",
       messages: [{ role: "user", content: "hi" }],
@@ -133,9 +133,12 @@ describe("DeepSeek Responses provider", () => {
       stream: true,
       max_output_tokens: 1024,
       tool_choice: "auto",
-      thinking: { type: "enabled" },
-      output_config: { effort: "high" },
+      reasoning: { effort: "high" },
     }));
+    // The Anthropic-compatible pair means nothing on this wire, and DeepSeek
+    // drops unknown parameters silently - sending them looks like it worked.
+    expect(enabled.thinking).toBeUndefined();
+    expect(enabled.output_config).toBeUndefined();
     expect(enabled.tools).toEqual([
       { type: "function", name: "read", description: "reads", parameters: { type: "object" } },
     ]);
@@ -146,9 +149,19 @@ describe("DeepSeek Responses provider", () => {
       tools: [],
       toolChoice: "auto",
     });
-    expect(off.thinking).toEqual({ type: "disabled" });
+    expect(off.reasoning).toEqual({ effort: "none" });
+    expect(off.thinking).toBeUndefined();
     expect(off.output_config).toBeUndefined();
     expect(off.tools).toBeUndefined();
+
+    // "max" is a level this wire accepts, so it must not be folded into "high".
+    const max = buildResponsesRequest(descriptor({ thinkingEffort: "max" }), {
+      system: "",
+      messages: [],
+      tools: [],
+      toolChoice: "auto",
+    });
+    expect(max.reasoning).toEqual({ effort: "max" });
   });
 
   test("keeps tool arguments the model actually sent when they are not valid JSON", () => {

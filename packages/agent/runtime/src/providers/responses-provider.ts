@@ -13,9 +13,8 @@ import type {
   ToolSchema,
 } from "../engine/types";
 import {
-  buildSummaryThinkingPayload,
-  buildThinkingPayload,
   normalizeProviderError,
+  normalizeThinkingEffort,
   ProviderIdleWatchdog,
   RuntimeProviderError,
   SUMMARY_SYSTEM_PROMPT,
@@ -126,6 +125,45 @@ export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => too
   parameters: tool.input_schema,
 }));
 
+/**
+ * Responses spells thinking differently from the Anthropic-compatible wire:
+ * `reasoning.effort` over none/low/high/max, where "none" is what switches it
+ * off. The other wire's `thinking` + `output_config` pair means nothing here,
+ * and DeepSeek ignores parameters it does not recognise instead of rejecting
+ * them - so the wrong shape leaves reasoning running at its default rather than
+ * failing where anyone would notice.
+ */
+export const buildResponsesThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
+  if (descriptor.thinkingStyle === "provider-managed") return {};
+  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") {
+    return { reasoning: { effort: "none" } };
+  }
+  return {
+    reasoning: {
+      effort: normalizeThinkingEffort(
+        descriptor.thinkingEffort,
+        descriptor.thinkingLevels.filter((level) => level !== "off"),
+        descriptor.thinkingDefault,
+      ),
+    },
+  };
+};
+
+/** Summaries take the cheapest setting the model allows. */
+export const buildResponsesSummaryThinkingPayload = (
+  descriptor: ProviderDescriptor,
+): Record<string, unknown> => {
+  if (descriptor.thinkingStyle === "provider-managed") return {};
+  if (descriptor.thinkingLevels.length > 0 && !descriptor.thinkingLevels.includes("off")) {
+    return buildResponsesThinkingPayload({
+      ...descriptor,
+      thinkingEnabled: true,
+      thinkingEffort: descriptor.thinkingDefault,
+    });
+  }
+  return { reasoning: { effort: "none" } };
+};
+
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
   request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice">,
@@ -139,10 +177,7 @@ export function buildResponsesRequest(
     ...(request.tools.length > 0
       ? { tools: adaptToolsForResponses(request.tools), tool_choice: request.toolChoice }
       : {}),
-    // DeepSeek spells thinking the same way on both wires: `output_config.effort`
-    // over low/high/max, with `thinking.type` switching it off. That is exactly
-    // what the shared builder already emits, so the levels pass through verbatim.
-    ...buildThinkingPayload(descriptor),
+    ...buildResponsesThinkingPayload(descriptor),
   };
 }
 
@@ -367,7 +402,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         input: adaptMessagesForResponses(request.messages),
         max_output_tokens: Math.min(32_768, this.descriptor.maxTokens),
         stream: true,
-        ...buildSummaryThinkingPayload(this.descriptor),
+        ...buildResponsesSummaryThinkingPayload(this.descriptor),
       }, { signal: watchdog.signal });
       try {
         stream.on?.("response.output_text.delta", () => watchdog.activity());
