@@ -187,6 +187,22 @@ async function bootstrap(): Promise<void> {
   const sourceEnvironment = packagedRuntime
     ? {}
     : loadEnvironmentFiles({ paths: [join(paths.sourceRoot, ".env")], initial: {} });
+  // Development-only escape hatch: LXE_DESKTOP_CLOUD_DEV=1 (process env or .env)
+  // enables 公司云端 enrollment outside the packaged Windows installer. WireGuard
+  // resources are then resolved from the source tree
+  // (apps/desktop/resources/wireguard). The value is matched loosely because
+  // `set VAR=1 && ...` in cmd leaves a trailing space in the value.
+  const devCloudEnrollmentOverride = !packagedRuntime
+    && ["1", "true", "yes", "on"].includes(
+      String(
+        process.env.LXE_DESKTOP_CLOUD_DEV ?? sourceEnvironment.LXE_DESKTOP_CLOUD_DEV ?? "",
+      ).trim().toLowerCase(),
+    )
+    && desktopPlatform === "win32"
+    && process.arch === "x64";
+  const cloudSupported = (packagedRuntime || devCloudEnrollmentOverride)
+    && desktopPlatform === "win32"
+    && process.arch === "x64";
   const sourceSecretEnvironment = packagedRuntime
     ? {}
     : developmentSecretEnvironment({ ...sourceEnvironment, ...desktopEnvironment });
@@ -284,7 +300,7 @@ async function bootstrap(): Promise<void> {
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
   cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
-    supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
+    supported: cloudSupported,
     ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
     config,
     enrollments: new DesktopCloudEnrollmentManager(),
@@ -292,9 +308,12 @@ async function bootstrap(): Promise<void> {
     provisioner: new WindowsWireGuardProvisioner({
       platform: process.platform,
       arch: process.arch,
-      packaged: packagedRuntime,
+      packaged: packagedRuntime || devCloudEnrollmentOverride,
       dataRoot: paths.dataRoot,
       resourcesPath: process.resourcesPath,
+      ...(devCloudEnrollmentOverride
+        ? { wireguardRoot: join(paths.sourceRoot, "apps", "desktop", "resources", "wireguard") }
+        : {}),
       logger: cloudLogger,
     }),
     onConfigured: async () => {
