@@ -4,6 +4,7 @@ import {
   AnthropicRuntimeProvider,
   loadProviderDescriptor,
   providerEndpointUrl,
+  providerUserIdentifier,
   type ProviderDescriptor,
 } from "../../src/providers/provider";
 import { createRuntimeProvider } from "../../src/providers/provider-factory";
@@ -280,6 +281,27 @@ describe("DeepSeek Responses provider", () => {
     });
     expect(glm.apiStyle).toBe("anthropic_messages");
     expect(createRuntimeProvider(glm)).toBeInstanceOf(AnthropicRuntimeProvider);
+  });
+
+  test("carries the same person id both wires rate-limit against", () => {
+    const identity = { platform: "feishu", userId: "ou_alice" };
+    const withUser = buildResponsesRequest(descriptor(), {
+      system: "", messages: [], tools: [], toolChoice: "auto", userIdentity: identity,
+    });
+    // `metadata` is dropped by this wire; `user` is the field it isolates on.
+    expect(withUser.user).toBe(providerUserIdentifier(identity));
+    expect(String(withUser.user)).toMatch(/^lxe_[a-f0-9]{64}$/u);
+    expect(withUser.metadata).toBeUndefined();
+
+    // Two people must not collapse into one bucket, and a turn with no identity
+    // must not invent one.
+    expect(withUser.user).not.toBe(
+      providerUserIdentifier({ platform: "feishu", userId: "ou_bob" }),
+    );
+    const anonymous = buildResponsesRequest(descriptor(), {
+      system: "", messages: [], tools: [], toolChoice: "auto",
+    });
+    expect(anonymous.user).toBeUndefined();
   });
 
   test("names the address the request actually goes to, per wire", () => {

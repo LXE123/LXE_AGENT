@@ -550,16 +550,27 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
   return {};
 };
 
+/**
+ * The pseudonymous per-person id the provider rate-limits against. Both wires
+ * must derive it the same way, or one person shows up as two and their limits
+ * split. Empty when the turn carries no identity to speak of.
+ */
+export const providerUserIdentifier = (
+  identity: RuntimeProviderUserIdentity | undefined,
+): string => {
+  const platform = identity?.platform.trim() ?? "";
+  const userId = identity?.userId ?? "";
+  if (!platform || !userId.trim()) return "";
+  return `lxe_${createHash("sha256").update(platform).update("\0").update(userId).digest("hex")}`;
+};
+
 const providerMetadata = (
   descriptor: ProviderDescriptor,
   identity: RuntimeProviderUserIdentity | undefined,
 ): Record<string, unknown> => {
-  if (descriptor.name !== "deepseek" || !identity) return {};
-  const platform = identity.platform.trim();
-  const userId = identity.userId;
-  if (!platform || !userId.trim()) return {};
-  const digest = createHash("sha256").update(platform).update("\0").update(userId).digest("hex");
-  return { metadata: { user_id: `lxe_${digest}` } };
+  if (descriptor.name !== "deepseek") return {};
+  const user = providerUserIdentifier(identity);
+  return user ? { metadata: { user_id: user } } : {};
 };
 
 export const buildSummaryThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {

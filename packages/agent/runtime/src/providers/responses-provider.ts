@@ -16,6 +16,7 @@ import {
   normalizeProviderError,
   normalizeThinkingEffort,
   ProviderIdleWatchdog,
+  providerUserIdentifier,
   RuntimeProviderError,
   SUMMARY_SYSTEM_PROMPT,
   type ProviderDescriptor,
@@ -166,9 +167,14 @@ export const buildResponsesSummaryThinkingPayload = (
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity">,
 ): Record<string, unknown> {
+  // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
+  // rate-limits and isolates against. A shared Feishu bot would otherwise put
+  // everyone in one bucket.
+  const user = providerUserIdentifier(request.userIdentity);
   return {
+    ...(user ? { user } : {}),
     model: descriptor.model,
     instructions: request.system.trim(),
     input: adaptMessagesForResponses(request.messages),
@@ -402,6 +408,9 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         input: adaptMessagesForResponses(request.messages),
         max_output_tokens: Math.min(32_768, this.descriptor.maxTokens),
         stream: true,
+        ...(providerUserIdentifier(request.userIdentity)
+          ? { user: providerUserIdentifier(request.userIdentity) }
+          : {}),
         ...buildResponsesSummaryThinkingPayload(this.descriptor),
       }, { signal: watchdog.signal });
       try {
