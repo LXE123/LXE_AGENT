@@ -1071,7 +1071,7 @@ describe("TypeScriptAgentRuntime", () => {
       tools,
       provider: { summarize, turn: async (request) => {
         if (responses.length === 2) await Bun.sleep(160);
-        if (responses.length === 1) await request.onEvent?.({ type: "text_delta", text: "done" });
+        if (responses.length === 1) await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "done" });
         return responses.shift()!;
       } },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
@@ -1220,7 +1220,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: {
         summarize,
         turn: async (request) => {
-          await request.onEvent?.({ type: "text_delta", text: "desktop answer" });
+          await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "desktop answer" });
           return {
             content: [{ type: "text", text: "desktop answer" }],
             stop_reason: "end_turn",
@@ -1369,7 +1369,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: {
         summarize,
         turn: async (request) => {
-          await request.onEvent?.({ type: "text_delta", text: "cli answer" });
+          await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "cli answer" });
           return {
             content: [{ type: "text", text: "cli answer" }],
             stop_reason: "end_turn",
@@ -1617,8 +1617,8 @@ describe("TypeScriptAgentRuntime", () => {
       tools,
       provider: { summarize, turn: async (request) => {
         providerCalls += 1;
-        await request.onEvent?.({ type: "text_delta", text: "d" });
-        await request.onEvent?.({ type: "text_delta", text: "o" });
+        await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "d" });
+        await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "o" });
         if (providerCalls === 1) {
           return {
             content: [{ type: "tool_call", id: "tool-1", name: "noop", arguments: {} }],
@@ -1626,7 +1626,7 @@ describe("TypeScriptAgentRuntime", () => {
             usage: { input_tokens: 2, output_tokens: 1 },
           };
         }
-        await request.onEvent?.({ type: "text_delta", text: "ne" });
+        await request.onEvent?.({ type: "text_delta", part_id: "text-1", text: "ne" });
         return {
           content: [{ type: "text", text: "done" }],
           stop_reason: "end_turn",

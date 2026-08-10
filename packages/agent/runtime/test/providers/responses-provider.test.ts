@@ -71,6 +71,7 @@ describe("DeepSeek Responses provider", () => {
     normalizer.delta("thinking", "item_a", 0, "plan");
     normalizer.delta("thinking", "item_a", 0, " more");
     normalizer.done("thinking", "item_a", 0, "plan more");
+    normalizer.done("thinking", "item_a", 0, "plan more");
     normalizer.delta("text", "item_b", 0, "answer");
     normalizer.finish();
 
@@ -94,6 +95,51 @@ describe("DeepSeek Responses provider", () => {
       { type: "text_start", part_id: "item_c#1" },
       { type: "text_delta", part_id: "item_c#1", text: "whole answer" },
       { type: "text_end", part_id: "item_c#1" },
+    ]);
+  });
+
+  test("normalizes interleaved function arguments and deduplicates completion", () => {
+    const events: RuntimeStreamEvent[] = [];
+    const normalizer = new ResponsesStreamNormalizer((event) => events.push(event));
+    normalizer.streamEvent({
+      type: "response.output_item.added",
+      item: { type: "function_call", id: "item_1", call_id: "call_1", name: "read" },
+    });
+    normalizer.streamEvent({
+      type: "response.output_item.added",
+      item: { type: "function_call", id: "item_2", call_id: "call_2", name: "write" },
+    });
+    normalizer.streamEvent({ type: "response.function_call_arguments.delta", item_id: "item_1", delta: "{\"path\":" });
+    normalizer.streamEvent({ type: "response.function_call_arguments.delta", item_id: "item_2", delta: "{\"text\":\"x\"}" });
+    normalizer.streamEvent({ type: "response.function_call_arguments.delta", item_id: "item_1", delta: "\"a.txt\"}" });
+    normalizer.streamEvent({ type: "response.function_call_arguments.done", item_id: "item_1" });
+    normalizer.streamEvent({
+      type: "response.output_item.done",
+      item: { type: "function_call", id: "item_1", call_id: "call_1", name: "read" },
+    });
+    normalizer.finish();
+
+    expect(events).toEqual([
+      { type: "tool_input_start", part_id: "item_1", tool_call_id: "call_1", name: "read" },
+      { type: "tool_input_start", part_id: "item_2", tool_call_id: "call_2", name: "write" },
+      { type: "tool_input_delta", part_id: "item_1", delta: "{\"path\":" },
+      { type: "tool_input_delta", part_id: "item_2", delta: "{\"text\":\"x\"}" },
+      { type: "tool_input_delta", part_id: "item_1", delta: "\"a.txt\"}" },
+      { type: "tool_input_end", part_id: "item_1" },
+      { type: "tool_input_end", part_id: "item_2" },
+    ]);
+  });
+
+  test("emits a complete tool input lifecycle when no argument delta arrives", () => {
+    const events: RuntimeStreamEvent[] = [];
+    const normalizer = new ResponsesStreamNormalizer((event) => events.push(event));
+    const item = { type: "function_call", id: "item_3", call_id: "call_3", name: "list" };
+    normalizer.streamEvent({ type: "response.output_item.added", item });
+    normalizer.streamEvent({ type: "response.output_item.done", item });
+
+    expect(events).toEqual([
+      { type: "tool_input_start", part_id: "item_3", tool_call_id: "call_3", name: "list" },
+      { type: "tool_input_end", part_id: "item_3" },
     ]);
   });
 
@@ -186,6 +232,15 @@ describe("DeepSeek Responses provider", () => {
       ["response.reasoning_text.done", { item_id: "rs_1", content_index: 0, text: "thinking" }],
       ["response.output_text.delta", { item_id: "msg_1", content_index: 0, delta: "hello" }],
       ["response.output_text.done", { item_id: "msg_1", content_index: 0, text: "hello" }],
+      ["response.output_item.added", {
+        item: { type: "function_call", id: "fc_2", call_id: "call_2", name: "read", arguments: "" },
+      }],
+      ["response.function_call_arguments.delta", { item_id: "fc_2", delta: "{\"path\":" }],
+      ["response.function_call_arguments.delta", { item_id: "fc_2", delta: "\"a\"}" }],
+      ["response.function_call_arguments.done", { item_id: "fc_2", arguments: "{\"path\":\"a\"}" }],
+      ["response.output_item.done", {
+        item: { type: "function_call", id: "fc_2", call_id: "call_2", name: "read", arguments: "{\"path\":\"a\"}" },
+      }],
       ["response.completed", {}],
     ], {
       status: "completed",
@@ -197,6 +252,7 @@ describe("DeepSeek Responses provider", () => {
     }, captured);
 
     const seen: RuntimeStreamEvent[] = [];
+    const deliveryOrder: string[] = [];
     const traced: string[] = [];
     const provider = new ResponsesRuntimeProvider(descriptor(), client);
     const result = await provider.turn({
@@ -205,7 +261,11 @@ describe("DeepSeek Responses provider", () => {
       tools: [],
       toolChoice: "auto",
       signal: new AbortController().signal,
-      onEvent: (event) => { seen.push(event); },
+      onEvent: async (event) => {
+        await Promise.resolve();
+        seen.push(event);
+        deliveryOrder.push(event.type);
+      },
       wireTrace: {
         requestStart: () => {},
         responseStart: () => {},
@@ -223,7 +283,17 @@ describe("DeepSeek Responses provider", () => {
     expect(seen.map((event) => event.type)).toEqual([
       "thinking_start", "thinking_delta", "thinking_end",
       "text_start", "text_delta", "text_end",
+      "tool_input_start", "tool_input_delta", "tool_input_delta", "tool_input_end",
     ]);
+    expect(seen.slice(6)).toEqual([
+      { type: "tool_input_start", part_id: "fc_2", tool_call_id: "call_2", name: "read" },
+      { type: "tool_input_delta", part_id: "fc_2", delta: "{\"path\":" },
+      { type: "tool_input_delta", part_id: "fc_2", delta: "\"a\"}" },
+      { type: "tool_input_end", part_id: "fc_2" },
+    ]);
+    deliveryOrder.push("turn_resolved");
+    expect(deliveryOrder.at(-2)).toBe("tool_input_end");
+    expect(deliveryOrder.at(-1)).toBe("turn_resolved");
     expect(result.content).toEqual([
       { type: "text", text: "hello" },
       { type: "tool_call", id: "call_2", name: "read", arguments: { path: "a" } },

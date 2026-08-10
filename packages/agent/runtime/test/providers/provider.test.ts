@@ -23,7 +23,7 @@ import { providerErrorStatusCode } from "../../src/providers/provider-errors";
 import type { RuntimeContentBlock, RuntimeMessage, RuntimeStreamEvent } from "../../src/engine/types";
 
 describe("Anthropic-compatible provider", () => {
-  test("normalizes raw block boundaries and synthesizes missing starts without duplicate deltas", () => {
+  test("normalizes Anthropic text, thinking, tool input, and redacted blocks", () => {
     const events: RuntimeStreamEvent[] = [];
     let nextId = 0;
     const normalizer = new ProviderStreamNormalizer(
@@ -35,10 +35,36 @@ describe("Anthropic-compatible provider", () => {
       index: 0,
       content_block: { type: "thinking", thinking: "plan" },
     });
-    normalizer.thinking(" more");
+    normalizer.streamEvent({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", thinking: " more" },
+    });
     normalizer.streamEvent({ type: "content_block_stop", index: 0 });
-    normalizer.text("answer");
-    normalizer.thinking("after answer");
+    normalizer.streamEvent({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } });
+    normalizer.streamEvent({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "answer" } });
+    normalizer.streamEvent({ type: "content_block_stop", index: 1 });
+    normalizer.streamEvent({
+      type: "content_block_start",
+      index: 2,
+      content_block: { type: "tool_use", id: "call-1", name: "read", input: {} },
+    });
+    normalizer.streamEvent({
+      type: "content_block_delta",
+      index: 2,
+      delta: { type: "input_json_delta", partial_json: "{\"path\":" },
+    });
+    normalizer.streamEvent({
+      type: "content_block_delta",
+      index: 2,
+      delta: { type: "input_json_delta", partial_json: "\"a.txt\"}" },
+    });
+    normalizer.streamEvent({ type: "content_block_stop", index: 2 });
+    normalizer.streamEvent({
+      type: "content_block_start",
+      index: 3,
+      content_block: { type: "redacted_thinking", data: "encrypted-secret" },
+    });
     normalizer.finish();
 
     expect(events).toEqual([
@@ -49,9 +75,28 @@ describe("Anthropic-compatible provider", () => {
       { type: "text_start", part_id: "part-2" },
       { type: "text_delta", part_id: "part-2", text: "answer" },
       { type: "text_end", part_id: "part-2" },
-      { type: "thinking_start", part_id: "part-3" },
-      { type: "thinking_delta", part_id: "part-3", thinking: "after answer" },
-      { type: "thinking_end", part_id: "part-3" },
+      { type: "tool_input_start", part_id: "call-1", tool_call_id: "call-1", name: "read" },
+      { type: "tool_input_delta", part_id: "call-1", delta: "{\"path\":" },
+      { type: "tool_input_delta", part_id: "call-1", delta: "\"a.txt\"}" },
+      { type: "tool_input_end", part_id: "call-1" },
+      { type: "redacted_thinking", part_id: "part-3" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("encrypted-secret");
+  });
+
+  test("closes an Anthropic tool input with no deltas when the stream finishes", () => {
+    const events: RuntimeStreamEvent[] = [];
+    const normalizer = new ProviderStreamNormalizer((event) => events.push(event));
+    normalizer.streamEvent({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: "call-empty", name: "list", input: {} },
+    });
+    normalizer.finish();
+
+    expect(events).toEqual([
+      { type: "tool_input_start", part_id: "call-empty", tool_call_id: "call-empty", name: "list" },
+      { type: "tool_input_end", part_id: "call-empty" },
     ]);
   });
 
@@ -485,11 +530,22 @@ describe("Anthropic-compatible provider", () => {
                 headers: { "content-type": "text/event-stream", "request-id": "req-1" },
               });
               listeners.get("connect")?.();
-              listeners.get("streamEvent")?.({ type: "message_start", message: { id: "msg-1" } }, {});
-              listeners.get("streamEvent")?.({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } }, {});
-              listeners.get("thinking")?.("reason", "reason");
-              listeners.get("contentBlock")?.({ type: "redacted_thinking", data: "encrypted-secret" });
-              listeners.get("text")?.("done", "done");
+              const events = [
+                { type: "message_start", message: { id: "msg-1" } },
+                { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+                { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "reason" } },
+                { type: "content_block_stop", index: 0 },
+                { type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "encrypted-secret" } },
+                { type: "content_block_stop", index: 1 },
+                { type: "content_block_start", index: 2, content_block: { type: "text", text: "" } },
+                { type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "done" } },
+                { type: "content_block_stop", index: 2 },
+                { type: "content_block_start", index: 3, content_block: { type: "tool_use", id: "t1", name: "echo", input: {} } },
+                { type: "content_block_delta", index: 3, delta: { type: "input_json_delta", partial_json: "{\"text\":" } },
+                { type: "content_block_delta", index: 3, delta: { type: "input_json_delta", partial_json: "\"hi\"}" } },
+                { type: "content_block_stop", index: 3 },
+              ];
+              for (const event of events) listeners.get("streamEvent")?.(event, {});
             });
             return stream;
           },
@@ -530,7 +586,7 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(deltas.map((event) => (event as { type: string }).type)).toEqual([
       "thinking_start", "thinking_delta", "thinking_end", "redacted_thinking", "text_start", "text_delta",
-      "text_end",
+      "text_end", "tool_input_start", "tool_input_delta", "tool_input_delta", "tool_input_end",
     ]);
     const thinkingId = (deltas[0] as { part_id: string }).part_id;
     const textId = (deltas[4] as { part_id: string }).part_id;
@@ -538,13 +594,16 @@ describe("Anthropic-compatible provider", () => {
     expect(deltas[2]).toEqual({ type: "thinking_end", part_id: thinkingId });
     expect(deltas[5]).toEqual({ type: "text_delta", part_id: textId, text: "done" });
     expect(deltas[6]).toEqual({ type: "text_end", part_id: textId });
+    expect(deltas.slice(7)).toEqual([
+      { type: "tool_input_start", part_id: "t1", tool_call_id: "t1", name: "echo" },
+      { type: "tool_input_delta", part_id: "t1", delta: "{\"text\":" },
+      { type: "tool_input_delta", part_id: "t1", delta: "\"hi\"}" },
+      { type: "tool_input_end", part_id: "t1" },
+    ]);
     expect(JSON.stringify(deltas)).not.toContain("encrypted-secret");
-    expect(wireCalls.map((call) => call.kind)).toEqual([
-      "request_start",
-      "response_start",
-      "wire_event",
-      "wire_event",
-      "request_end",
+    expect(wireCalls.filter((call) => call.kind === "wire_event")).toHaveLength(13);
+    expect(wireCalls.map((call) => call.kind).filter((kind) => kind !== "wire_event")).toEqual([
+      "request_start", "response_start", "request_end",
     ]);
     expect(wireCalls[0]?.payload).toEqual(expect.objectContaining({
       headers: expect.objectContaining({ "content-type": "application/json", "x-api-key": "key" }),
@@ -984,6 +1043,7 @@ describe("Anthropic-compatible provider", () => {
         };
         queueMicrotask(() => listeners.get("streamEvent")?.({
           type: "content_block_start",
+          index: 0,
           get content_block() { throw new Error("malformed block"); },
         }));
         return stream;

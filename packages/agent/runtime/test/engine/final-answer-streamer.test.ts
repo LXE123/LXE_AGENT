@@ -113,10 +113,10 @@ describe("FinalAnswerStreamer display contract", () => {
       emit: async (request) => { emitted.push(request); return true; },
     });
 
-    await streamer.pushEvent({ type: "thinking_delta", thinking: "checking" });
-    await streamer.pushEvent({ type: "redacted_thinking" });
+    await streamer.pushEvent({ type: "thinking_delta", part_id: "thinking-1", thinking: "checking" });
+    await streamer.pushEvent({ type: "redacted_thinking", part_id: "redacted-1" });
     clock += 3_200;
-    await streamer.pushEvent({ type: "text_delta", text: "done" });
+    await streamer.pushEvent({ type: "text_delta", part_id: "text-1", text: "done" });
     streamer.updateUsage({
       input_tokens: 100,
       output_tokens: 20,
@@ -205,10 +205,10 @@ describe("FinalAnswerStreamer display contract", () => {
     await streamer.startWaitingModel();
     await flush();
     expect(emitted.at(-1)?.display_metrics?.phase).toBe("waiting_model");
-    await streamer.pushEvent({ type: "thinking_delta", thinking: "checking" });
+    await streamer.pushEvent({ type: "thinking_delta", part_id: "thinking-1", thinking: "checking" });
     await flush();
     expect(emitted.at(-1)?.display_metrics?.phase).toBe("thinking");
-    await streamer.pushEvent({ type: "text_delta", text: "answer" });
+    await streamer.pushEvent({ type: "text_delta", part_id: "text-1", text: "answer" });
     await flush();
     expect(emitted.at(-1)?.display_metrics?.phase).toBe("generating_answer");
     await streamer.pushToolStart({ type: "tool_call", id: "tool-1", name: "read", arguments: {} });
@@ -300,9 +300,33 @@ describe("FinalAnswerStreamer display contract", () => {
         return request.state !== "final";
       },
     });
-    await streamer.pushEvent({ type: "text_delta", text: "partial" });
+    await streamer.pushEvent({ type: "text_delta", part_id: "text-1", text: "partial" });
     expect(await streamer.finish("complete")).toBe(false);
     expect(emitted.some((frame) => frame.state === "delta")).toBe(true);
     expect(emitted.at(-1)?.state).toBe("final");
+  });
+
+  test("does not project internal tool input events into the display stream", async () => {
+    const emitted: EmitRequest[] = [];
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-1",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+
+    await streamer.pushEvent({
+      type: "tool_input_start",
+      part_id: "item-1",
+      tool_call_id: "call-1",
+      name: "read",
+    });
+    await streamer.pushEvent({ type: "tool_input_delta", part_id: "item-1", delta: "{\"path\":\"a\"}" });
+    await streamer.pushEvent({ type: "tool_input_end", part_id: "item-1" });
+    await streamer.finish("");
+
+    expect(emitted.at(-1)?.process_parts).toEqual([]);
+    expect(emitted.at(-1)?.redacted_thinking_count).toBe(0);
   });
 });

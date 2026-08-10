@@ -103,44 +103,50 @@ export class FinalAnswerStreamer {
 
   async pushEvent(event: RuntimeStreamEvent): Promise<void> {
     if (this.terminal) return;
-    if (event.type === "text_start") {
-      this.startPart("text", event.part_id);
-      return;
+    switch (event.type) {
+      case "text_start":
+        this.startPart("text", event.part_id);
+        return;
+      case "thinking_start":
+        this.startPart("thinking", event.part_id);
+        return;
+      case "text_end":
+        this.endPart("text", event.part_id);
+        return;
+      case "thinking_end":
+        this.endPart("thinking", event.part_id);
+        return;
+      case "text_delta":
+        this.appendPartText("text", event.part_id, event.text);
+        return this.pushDelta({ text: event.text });
+      case "thinking_delta":
+        this.appendPartText("thinking", event.part_id, event.thinking);
+        return this.pushDelta({ thinking: event.thinking });
+      case "redacted_thinking":
+        this.addPart({
+          type: "thinking",
+          part_id: event.part_id,
+          sequence: this.processParts.length + 1,
+          status: "completed",
+          text: "",
+          redacted_count: 1,
+        });
+        this.redactedThinkingCount += 1;
+        this.displayPhase = "thinking";
+        if (!this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
+        this.scheduleDelta();
+        return;
+      case "tool_input_start":
+      case "tool_input_delta":
+      case "tool_input_end":
+        // Tool input streaming is an internal model event in v1. The terminal
+        // ToolCallBlock remains authoritative for display and execution.
+        return;
+      default: {
+        const exhaustive: never = event;
+        return exhaustive;
+      }
     }
-    if (event.type === "thinking_start") {
-      this.startPart("thinking", event.part_id);
-      return;
-    }
-    if (event.type === "text_end") {
-      this.endPart("text", event.part_id);
-      return;
-    }
-    if (event.type === "thinking_end") {
-      this.endPart("thinking", event.part_id);
-      return;
-    }
-    if (event.type === "text_delta") {
-      const partId = event.part_id || this.activeTextPartId || randomUUID();
-      this.appendPartText("text", partId, event.text);
-      return this.pushDelta({ text: event.text });
-    }
-    if (event.type === "thinking_delta") {
-      const partId = event.part_id || this.activeThinkingPartId || randomUUID();
-      this.appendPartText("thinking", partId, event.thinking);
-      return this.pushDelta({ thinking: event.thinking });
-    }
-    this.addPart({
-      type: "thinking",
-      part_id: event.part_id || randomUUID(),
-      sequence: this.processParts.length + 1,
-      status: "completed",
-      text: "",
-      redacted_count: 1,
-    });
-    this.redactedThinkingCount += 1;
-    this.displayPhase = "thinking";
-    if (!this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
-    this.scheduleDelta();
   }
 
   updateUsage(usage: {

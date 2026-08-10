@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger, envFlag, envText, type Environment } from "@lxe/core";
@@ -18,7 +18,9 @@ import type {
 import { runtimeConfigPaths, runtimeConfigPathsFromRoot } from "./config-paths";
 import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
 import { readProviderPreference } from "./provider-preferences";
+import { AnthropicMessagesStreamAdapter } from "./protocols/anthropic-messages";
 export { RuntimeProviderError } from "./provider-errors";
+export { AnthropicMessagesStreamAdapter as ProviderStreamNormalizer } from "./protocols/anthropic-messages";
 
 const logger = createLogger("runtime.provider");
 const warnedThinkingNormalizations = new Set<string>();
@@ -606,133 +608,6 @@ export function buildProviderRequest(
   };
 }
 
-export class ProviderStreamNormalizer {
-  private pendingRedactedCompletions = 0;
-  private readonly blocks = new Map<number, { partId: string; type: "text" | "thinking" }>();
-  private readonly completedPartIds = new Set<string>();
-  private activeTextPartId = "";
-  private activeThinkingPartId = "";
-
-  constructor(
-    private readonly emit: (event: RuntimeStreamEvent) => void,
-    private readonly createPartId: () => string = () => randomUUID(),
-  ) {}
-
-  streamEvent(value: unknown): void {
-    const event = errorObject(value);
-    if (event.type === "content_block_stop") {
-      this.stopBlock(Math.trunc(Number(event.index)));
-      return;
-    }
-    if (event.type !== "content_block_start") return;
-    const block = errorObject(event.content_block);
-    const index = Math.trunc(Number(event.index));
-    if (block.type === "text") {
-      const partId = this.startBlock(index, "text");
-      const text = String(block.text ?? "");
-      if (text) this.emit({ type: "text_delta", part_id: partId, text });
-      return;
-    }
-    if (block.type === "thinking") {
-      const partId = this.startBlock(index, "thinking");
-      const thinking = String(block.thinking ?? "");
-      if (thinking) this.emit({ type: "thinking_delta", part_id: partId, thinking });
-      return;
-    }
-    if (block.type === "redacted_thinking") {
-      this.endActiveParts();
-      this.pendingRedactedCompletions += 1;
-      this.emit({ type: "redacted_thinking", part_id: this.createPartId() });
-      return;
-    }
-    this.endActiveParts();
-  }
-
-  text(value: unknown): void {
-    const text = String(value ?? "");
-    if (!text) return;
-    const partId = this.activeTextPartId || this.startSynthetic("text");
-    this.emit({ type: "text_delta", part_id: partId, text });
-  }
-
-  thinking(value: unknown): void {
-    const thinking = String(value ?? "");
-    if (!thinking) return;
-    const partId = this.activeThinkingPartId || this.startSynthetic("thinking");
-    this.emit({ type: "thinking_delta", part_id: partId, thinking });
-  }
-
-  contentBlock(value: unknown): void {
-    const block = errorObject(value);
-    if (block.type !== "redacted_thinking") return;
-    this.endActiveParts();
-    if (this.pendingRedactedCompletions > 0) {
-      this.pendingRedactedCompletions -= 1;
-      return;
-    }
-    this.emit({ type: "redacted_thinking", part_id: this.createPartId() });
-  }
-
-  finish(): void {
-    for (const { partId, type } of this.blocks.values()) this.endPart(type, partId);
-    this.blocks.clear();
-    if (this.activeThinkingPartId) this.endPart("thinking", this.activeThinkingPartId);
-    if (this.activeTextPartId) this.endPart("text", this.activeTextPartId);
-    this.activeThinkingPartId = "";
-    this.activeTextPartId = "";
-  }
-
-  private startBlock(index: number, type: "text" | "thinking"): string {
-    const existing = Number.isSafeInteger(index) ? this.blocks.get(index) : undefined;
-    if (existing) this.endPart(existing.type, existing.partId);
-    this.endActiveParts();
-    const partId = this.createPartId();
-    if (Number.isSafeInteger(index)) this.blocks.set(index, { partId, type });
-    this.setActive(type, partId);
-    this.emit({ type: type === "text" ? "text_start" : "thinking_start", part_id: partId });
-    return partId;
-  }
-
-  private startSynthetic(type: "text" | "thinking"): string {
-    this.endActivePart(type);
-    const partId = this.createPartId();
-    this.setActive(type, partId);
-    this.emit({ type: type === "text" ? "text_start" : "thinking_start", part_id: partId });
-    return partId;
-  }
-
-  private stopBlock(index: number): void {
-    if (!Number.isSafeInteger(index)) return;
-    const block = this.blocks.get(index);
-    if (!block) return;
-    this.blocks.delete(index);
-    this.endPart(block.type, block.partId);
-  }
-
-  private endPart(type: "text" | "thinking", partId: string): void {
-    if (this.completedPartIds.has(partId)) return;
-    this.completedPartIds.add(partId);
-    this.emit({ type: type === "text" ? "text_end" : "thinking_end", part_id: partId });
-    if (type === "text" && this.activeTextPartId === partId) this.activeTextPartId = "";
-    if (type === "thinking" && this.activeThinkingPartId === partId) this.activeThinkingPartId = "";
-  }
-
-  private setActive(type: "text" | "thinking", partId: string): void {
-    if (type === "text") this.activeTextPartId = partId;
-    else this.activeThinkingPartId = partId;
-  }
-
-  private endActivePart(nextType: "text" | "thinking"): void {
-    const activePartId = nextType === "text" ? this.activeThinkingPartId : this.activeTextPartId;
-    if (activePartId) this.endPart(nextType === "text" ? "thinking" : "text", activePartId);
-  }
-
-  private endActiveParts(): void {
-    if (this.activeThinkingPartId) this.endPart("thinking", this.activeThinkingPartId);
-    if (this.activeTextPartId) this.endPart("text", this.activeTextPartId);
-  }
-}
-
 const rawEventText = (value: unknown): string => {
   try {
     return JSON.stringify(value) ?? "";
@@ -970,7 +845,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         if (!request.onEvent) return;
         delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
       };
-      const normalizer = new ProviderStreamNormalizer(deliver);
+      const normalizer = new AnthropicMessagesStreamAdapter(deliver);
       const stream = this.client.messages.stream(parameters, { signal: watchdog.signal });
       const responseStart = (): void => {
         watchdog.activity();
@@ -1001,23 +876,6 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
           }
         });
       });
-      const normalizeHighLevel = (eventName: string, value: unknown, operation: () => void): void => {
-        watchdog.activity();
-        try {
-          operation();
-        } catch (error) {
-          wire(() => request.wireTrace?.parseError(eventName, rawEventText(value), error));
-        }
-      };
-      wire(() => stream.on?.("thinking", (thinking) => normalizeHighLevel("thinking_delta", thinking, () => {
-        normalizer.thinking(thinking);
-      })));
-      wire(() => stream.on?.("text", (text) => normalizeHighLevel("text_delta", text, () => {
-        normalizer.text(text);
-      })));
-      wire(() => stream.on?.("contentBlock", (block) => {
-        normalizeHighLevel("content_block_stop", block, () => normalizer.contentBlock(block));
-      }));
       const message = await stream.finalMessage();
       normalizer.finish();
       await delivery;

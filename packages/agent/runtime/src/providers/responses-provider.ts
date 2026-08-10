@@ -21,6 +21,8 @@ import {
   SUMMARY_SYSTEM_PROMPT,
   type ProviderDescriptor,
 } from "./provider";
+import { OpenAIResponsesStreamAdapter } from "./protocols/openai-responses";
+export { OpenAIResponsesStreamAdapter as ResponsesStreamNormalizer } from "./protocols/openai-responses";
 
 const IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Responses API does not support image content]";
 
@@ -187,59 +189,6 @@ export function buildResponsesRequest(
   };
 }
 
-/**
- * Turns Responses stream events into the runtime's own event vocabulary. Part
- * identity comes from the provider's own `item_id` plus `content_index`, so it
- * stays stable across the deltas that belong to one block.
- */
-export class ResponsesStreamNormalizer {
-  private readonly started = new Set<string>();
-  private readonly kinds = new Map<string, "text" | "thinking">();
-
-  constructor(private readonly emit: (event: RuntimeStreamEvent) => void) {}
-
-  private partId(itemId: unknown, contentIndex: unknown): string {
-    return `${text(itemId) || "item"}#${Math.trunc(Number(contentIndex) || 0)}`;
-  }
-
-  private open(partId: string, kind: "text" | "thinking"): void {
-    if (this.started.has(partId)) return;
-    this.started.add(partId);
-    this.kinds.set(partId, kind);
-    this.emit(kind === "text" ? { type: "text_start", part_id: partId } : { type: "thinking_start", part_id: partId });
-  }
-
-  delta(kind: "text" | "thinking", itemId: unknown, contentIndex: unknown, value: string): void {
-    if (!value) return;
-    const partId = this.partId(itemId, contentIndex);
-    this.open(partId, kind);
-    this.emit(kind === "text"
-      ? { type: "text_delta", part_id: partId, text: value }
-      : { type: "thinking_delta", part_id: partId, thinking: value });
-  }
-
-  done(kind: "text" | "thinking", itemId: unknown, contentIndex: unknown, full?: string): void {
-    const partId = this.partId(itemId, contentIndex);
-    // A block whose entire body arrived in the terminal event still has to be
-    // opened and filled, or the reader would see the part appear empty.
-    if (!this.started.has(partId)) {
-      this.open(partId, kind);
-      if (full) this.delta(kind, itemId, contentIndex, full);
-    }
-    this.emit(kind === "text" ? { type: "text_end", part_id: partId } : { type: "thinking_end", part_id: partId });
-    this.started.delete(partId);
-    this.kinds.delete(partId);
-  }
-
-  finish(): void {
-    for (const [partId, kind] of [...this.kinds]) {
-      this.emit(kind === "text" ? { type: "text_end", part_id: partId } : { type: "thinking_end", part_id: partId });
-      this.started.delete(partId);
-      this.kinds.delete(partId);
-    }
-  }
-}
-
 const responsesUsage = (usage: unknown): RuntimeUsage => {
   const value = record(usage);
   const inputDetails = record(value.input_tokens_details);
@@ -340,7 +289,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         if (!request.onEvent) return;
         delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
       };
-      const normalizer = new ResponsesStreamNormalizer(deliver);
+      const normalizer = new OpenAIResponsesStreamAdapter(deliver);
       const stream = this.client.responses.stream(parameters, { signal: watchdog.signal });
       // Every frame is traced from one catch-all listener, so the diagnostics
       // keep the events this adapter does not map - lifecycle and failure
@@ -348,29 +297,15 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       wire(() => {
         stream.on?.("event", (payload) => {
           watchdog.activity();
-          wire(() => request.wireTrace?.event(text(record(payload).type) || "event", payload));
+          const name = text(record(payload).type) || "event";
+          wire(() => request.wireTrace?.event(name, payload));
+          try {
+            normalizer.streamEvent(payload);
+          } catch (error) {
+            wire(() => request.wireTrace?.parseError(name, JSON.stringify(payload ?? null), error));
+          }
         });
       });
-      const observe = (name: string, handler: (payload: Record<string, unknown>) => void): void => {
-        wire(() => {
-          stream.on?.(name, (payload) => {
-            watchdog.activity();
-            try {
-              handler(record(payload));
-            } catch (error) {
-              wire(() => request.wireTrace?.parseError(name, JSON.stringify(payload ?? null), error));
-            }
-          });
-        });
-      };
-      observe("response.output_text.delta", (event) =>
-        normalizer.delta("text", event.item_id, event.content_index, text(event.delta)));
-      observe("response.output_text.done", (event) =>
-        normalizer.done("text", event.item_id, event.content_index, text(event.text)));
-      observe("response.reasoning_text.delta", (event) =>
-        normalizer.delta("thinking", event.item_id, event.content_index, text(event.delta)));
-      observe("response.reasoning_text.done", (event) =>
-        normalizer.done("thinking", event.item_id, event.content_index, text(event.text)));
       const response = record(await stream.finalResponse());
       normalizer.finish();
       await delivery;

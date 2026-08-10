@@ -33,12 +33,15 @@ export type RuntimeContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | 
 
 export type RuntimeStreamEvent =
   | { type: "text_start"; part_id: string }
-  | { type: "text_delta"; part_id?: string; text: string }
+  | { type: "text_delta"; part_id: string; text: string }
   | { type: "text_end"; part_id: string }
   | { type: "thinking_start"; part_id: string }
-  | { type: "thinking_delta"; part_id?: string; thinking: string }
+  | { type: "thinking_delta"; part_id: string; thinking: string }
   | { type: "thinking_end"; part_id: string }
-  | { type: "redacted_thinking"; part_id?: string };
+  | { type: "redacted_thinking"; part_id: string }
+  | { type: "tool_input_start"; part_id: string; tool_call_id: string; name: string }
+  | { type: "tool_input_delta"; part_id: string; delta: string }
+  | { type: "tool_input_end"; part_id: string };
 
 export interface RuntimeMessage {
   role: "user" | "assistant" | "tool" | "system";

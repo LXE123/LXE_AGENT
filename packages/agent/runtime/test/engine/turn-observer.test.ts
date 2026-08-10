@@ -19,7 +19,7 @@ describe("RuntimeTurnObserver", () => {
     observer.context({ beforeTokens: 30, afterTokens: 25, compacted: true, compactedCount: 2 });
     const attempt = observer.providerAttempt(1, 1, "anthropic", "model");
     now += 1_000;
-    attempt.stream({ type: "text_delta", text: "secret reply" });
+    attempt.stream({ type: "text_delta", part_id: "text-1", text: "secret reply" });
     attempt.succeed({
       content: [{ type: "tool_call", id: "tool-1", name: "read", arguments: {} }],
       stop_reason: "tool_use",

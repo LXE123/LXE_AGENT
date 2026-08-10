@@ -251,7 +251,10 @@
       "text_delta",
       "text_delta",
       "text_end",
-      "redacted_thinking"
+      "redacted_thinking",
+    "tool_input_start",
+    "tool_input_delta",
+    "tool_input_end"
     ],
     "final_message": {
       "content": [
