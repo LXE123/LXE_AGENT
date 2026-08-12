@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections import OrderedDict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -24,6 +25,8 @@ from shared.infra.net import local_service_requests_session
 
 MAX_RECONCILIATION_LINES = 200
 MAX_REMOTE_BODY_CHARS = 4_000
+PACKING_PREVIEW_SCHEMA = "lxe.erp.packing-preview.v1"
+PACKING_EXTENSIONS = {".xls", ".xlsx"}
 
 
 class PackingUploadError(RuntimeError):
@@ -86,6 +89,48 @@ def _find_original_packing_file(ship_no: str) -> Path:
             },
         )
     return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+
+
+def _direct_packing_file(value: Any, ship_no: str) -> tuple[Path, str]:
+    path = Path(str(value or "").strip()).expanduser()
+    if not str(path):
+        raise PackingUploadError("packing_file_missing", "packing_excel 不能为空")
+    if not path.is_file():
+        raise PackingUploadError(
+            "packing_file_missing",
+            f"装箱附件不存在或不是文件: {path}",
+        )
+    if path.suffix.lower() not in PACKING_EXTENSIONS:
+        raise PackingUploadError(
+            "packing_file_extension_unsupported",
+            f"装箱附件仅支持 .xls 或 .xlsx: {path.name}",
+        )
+    file_ship_no = path.stem.strip().upper()
+    if not re.fullmatch(r"SP[0-9]+", file_ship_no):
+        raise PackingUploadError(
+            "packing_file_not_original",
+            f"只允许上传以完整 SP 号命名的原始装箱文件: {path.name}",
+        )
+    if ship_no and ship_no != file_ship_no:
+        raise PackingUploadError(
+            "packing_file_ship_no_mismatch",
+            f"ship_no 与装箱附件文件名不一致: {ship_no} != {file_ship_no}",
+        )
+    return path.resolve(), file_ship_no
+
+
+def _resolve_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
+    raw_ship_no = str(arguments.get("ship_no") or "").strip()
+    ship_no = _normalize_ship_no(raw_ship_no) if raw_ship_no else ""
+    packing_excel = str(arguments.get("packing_excel") or "").strip()
+    if packing_excel:
+        return _direct_packing_file(packing_excel, ship_no)
+    if not ship_no:
+        raise PackingUploadError(
+            "packing_input_required",
+            "必须提供 packing_excel 附件路径或 ship_no",
+        )
+    return _find_original_packing_file(ship_no), ship_no
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -199,6 +244,7 @@ def _request_json(
     api_key: str,
     timeout: float,
     json_payload: Mapping[str, Any] | None = None,
+    accepted_statuses: set[int] | None = None,
 ) -> dict[str, Any]:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -219,7 +265,13 @@ def _request_json(
             f"连接 ERP 失败: {exception_text(exc)}",
         ) from exc
     payload = _response_json(response)
-    if not 200 <= int(response.status_code) < 300:
+    status_code = int(response.status_code)
+    accepted = (
+        status_code in accepted_statuses
+        if accepted_statuses is not None
+        else 200 <= status_code < 300
+    )
+    if not accepted or (status_code >= 400 and "detail" in payload):
         _raise_remote_error(response, payload)
     return payload
 
@@ -244,14 +296,129 @@ def _error_payload(ship_no: str, exc: PackingUploadError) -> dict[str, Any]:
     return result
 
 
+def _validate_server_response(payload: Mapping[str, Any]) -> str:
+    status = str(payload.get("status") or "").strip()
+    if payload.get("response_schema") != PACKING_PREVIEW_SCHEMA:
+        raise PackingUploadError(
+            "erp_response_invalid",
+            "ERP 装箱响应缺少受支持的 response_schema",
+        )
+    if status not in {
+        "confirmation_required",
+        "quote_stale",
+        "created",
+        "unchanged",
+        "idempotent",
+    }:
+        raise PackingUploadError(
+            "erp_response_invalid",
+            f"ERP 装箱响应状态无效: {status or '<empty>'}",
+        )
+    return status
+
+
+def _confirmation_request_id(quote_id: str) -> str:
+    digest = hashlib.sha256(quote_id.encode("utf-8")).hexdigest()[:32]
+    return f"packing-confirm-{digest}"
+
+
+def _result_with_lines(
+    *,
+    response: Mapping[str, Any],
+    ship_no: str,
+    request_id: str,
+    base_url: str,
+    api_key: str,
+    timeout: float,
+    source: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    status = _validate_server_response(response)
+    raw_lines = response.get("reconciliation_lines")
+    reconciliation_lines = (
+        [dict(item) for item in raw_lines if isinstance(item, dict)]
+        if isinstance(raw_lines, list)
+        else []
+    )
+    detail_error: dict[str, Any] | None = None
+    reconciliation_id = str(response.get("reconciliation_id") or "").strip()
+    if not reconciliation_lines and reconciliation_id and status in {
+        "created",
+        "idempotent",
+        "unchanged",
+    }:
+        try:
+            detail = _request_json(
+                "GET",
+                f"{base_url}/api/v1/erp/reconciliations/{reconciliation_id}",
+                api_key=api_key,
+                timeout=timeout,
+            )
+            detail_lines = detail.get("lines")
+            if isinstance(detail_lines, list):
+                reconciliation_lines = [
+                    dict(item) for item in detail_lines if isinstance(item, dict)
+                ]
+        except PackingUploadError as exc:
+            detail_error = {
+                "code": exc.code,
+                "message": str(exc),
+                **(
+                    {"http_status": exc.http_status}
+                    if exc.http_status is not None
+                    else {}
+                ),
+            }
+    returned_lines = reconciliation_lines[:MAX_RECONCILIATION_LINES]
+    truncated_count = max(0, len(reconciliation_lines) - len(returned_lines))
+    reconciliation_status = str(response.get("reconciliation_status") or "")
+    return {
+        "success": True,
+        "ship_no": str(response.get("sp_no") or ship_no),
+        "request_id": request_id,
+        **dict(source or {}),
+        **dict(response),
+        "reconciliation_lines": returned_lines,
+        "reconciliation_line_count": len(reconciliation_lines),
+        "reconciliation_lines_truncated": truncated_count,
+        "reconciliation_detail_error": detail_error,
+        "confirmation_required": status in {"confirmation_required", "quote_stale"},
+        "needs_attention": (
+            reconciliation_status in {"mismatch", "incomplete"}
+            or detail_error is not None
+        ),
+    }
+
+
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     ship_no = ""
     try:
-        ship_no = _normalize_ship_no(arguments.get("ship_no"))
-        confirm_snapshot_id = str(
-            arguments.get("confirm_replace_snapshot_id") or ""
+        base_url, api_key, timeout = _connection_settings()
+        confirm_quote_id = str(
+            arguments.get("confirm_packing_quote_id") or ""
         ).strip()
-        source_path = _find_original_packing_file(ship_no)
+        if confirm_quote_id:
+            request_id = _confirmation_request_id(confirm_quote_id)
+            response = _request_json(
+                "POST",
+                f"{base_url}/api/v1/erp/packing-snapshots/confirm",
+                api_key=api_key,
+                timeout=timeout,
+                json_payload={
+                    "request_id": request_id,
+                    "quote_id": confirm_quote_id,
+                },
+                accepted_statuses={200, 201, 409},
+            )
+            return _result_with_lines(
+                response=response,
+                ship_no="",
+                request_id=request_id,
+                base_url=base_url,
+                api_key=api_key,
+                timeout=timeout,
+            )
+
+        source_path, ship_no = _resolve_source(arguments)
         quantities = _normalized_msku_quantities(source_path)
         source_sha256 = _file_sha256(source_path)
         captured_at = _captured_at(source_path)
@@ -265,69 +432,33 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 for msku, quantity in quantities.items()
             ],
         }
-        if confirm_snapshot_id:
-            request_body["confirm_replace_snapshot_id"] = confirm_snapshot_id
         request_body["request_id"] = _request_id(request_body)
-
-        base_url, api_key, timeout = _connection_settings()
-        upload = _request_json(
+        response = _request_json(
             "POST",
-            f"{base_url}/api/v1/erp/packing-snapshots/import",
+            f"{base_url}/api/v1/erp/packing-snapshots/preview",
             api_key=api_key,
             timeout=timeout,
             json_payload=request_body,
+            accepted_statuses={200, 409},
         )
-
-        reconciliation_lines: list[dict[str, Any]] = []
-        detail_error: dict[str, Any] | None = None
-        reconciliation_id = str(upload.get("reconciliation_id") or "").strip()
-        if reconciliation_id:
-            try:
-                detail = _request_json(
-                    "GET",
-                    f"{base_url}/api/v1/erp/reconciliations/{reconciliation_id}",
-                    api_key=api_key,
-                    timeout=timeout,
-                )
-                raw_lines = detail.get("lines")
-                if isinstance(raw_lines, list):
-                    reconciliation_lines = [
-                        dict(item) for item in raw_lines if isinstance(item, dict)
-                    ]
-            except PackingUploadError as exc:
-                detail_error = {
-                    "code": exc.code,
-                    "message": str(exc),
-                    **(
-                        {"http_status": exc.http_status}
-                        if exc.http_status is not None
-                        else {}
-                    ),
-                }
-
-        returned_lines = reconciliation_lines[:MAX_RECONCILIATION_LINES]
-        truncated_count = max(0, len(reconciliation_lines) - len(returned_lines))
-        reconciliation_status = str(upload.get("reconciliation_status") or "")
-        return {
-            "success": True,
-            "ship_no": ship_no,
-            "source_file_path": str(source_path.resolve()),
-            "source_file_name": source_path.name,
-            "source_sha256": source_sha256,
-            "captured_at": captured_at,
-            "request_id": request_body["request_id"],
-            "msku_count": len(quantities),
-            "actual_msku_quantity": _decimal_text(sum(quantities.values(), Decimal("0"))),
-            **upload,
-            "reconciliation_lines": returned_lines,
-            "reconciliation_line_count": len(reconciliation_lines),
-            "reconciliation_lines_truncated": truncated_count,
-            "reconciliation_detail_error": detail_error,
-            "needs_attention": (
-                reconciliation_status in {"mismatch", "incomplete"}
-                or detail_error is not None
-            ),
-        }
+        return _result_with_lines(
+            response=response,
+            ship_no=ship_no,
+            request_id=request_body["request_id"],
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            source={
+                "source_file_path": str(source_path),
+                "source_file_name": source_path.name,
+                "source_sha256": source_sha256,
+                "captured_at": captured_at,
+                "msku_count": len(quantities),
+                "actual_msku_quantity": _decimal_text(
+                    sum(quantities.values(), Decimal("0"))
+                ),
+            },
+        )
     except PackingUploadError as exc:
         return _error_payload(ship_no, exc)
     except Exception as exc:  # noqa: BLE001 - preserve the real parsing/file error
@@ -342,6 +473,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "PackingUploadError",
+    "_direct_packing_file",
     "_find_original_packing_file",
     "_request_id",
     "run",
