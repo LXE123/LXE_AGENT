@@ -13,6 +13,8 @@ export interface WindowsWireGuardProvisionerOptions {
   packaged: boolean;
   dataRoot: string;
   resourcesPath: string;
+  /** Defaults to `join(resourcesPath, "wireguard")`; used by the development override. */
+  wireguardRoot?: string;
   logger: Logger;
   now?: () => number;
   runElevated?: (scriptPath: string, arguments_: readonly string[]) => Promise<void>;
@@ -220,7 +222,7 @@ export class WindowsWireGuardProvisioner {
       });
       throw error;
     }
-    const wireGuardRoot = join(this.options.resourcesPath, "wireguard");
+    const wireGuardRoot = this.options.wireguardRoot ?? join(this.options.resourcesPath, "wireguard");
     const msiPath = join(wireGuardRoot, "wireguard-amd64-1.1.msi");
     const scriptPath = join(wireGuardRoot, "provision-wireguard.ps1");
     if (!existsSync(msiPath) || !existsSync(scriptPath)) {

@@ -1,4 +1,7 @@
-const root = new URL("../../..", import.meta.url).pathname;
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const desktopEnvironment: Record<string, string | undefined> = { ...process.env };
 delete desktopEnvironment.LXE_DATA_ROOT;
 desktopEnvironment.LXE_SOURCE_ROOT = root;
@@ -22,7 +25,7 @@ while (Date.now() < deadline) {
 }
 
 const electron = Bun.spawn(["bunx", "electron", "."], {
-  cwd: new URL("..", import.meta.url).pathname,
+  cwd: resolve(dirname(fileURLToPath(import.meta.url)), ".."),
   stdout: "inherit",
   stderr: "inherit",
   env: desktopEnvironment,
