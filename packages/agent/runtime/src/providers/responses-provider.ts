@@ -13,6 +13,7 @@ import type {
   ToolSchema,
 } from "../engine/types";
 import {
+  localFileReferenceText,
   normalizeProviderError,
   normalizeThinkingEffort,
   ProviderIdleWatchdog,
@@ -37,6 +38,7 @@ const inputText = (content: RuntimeMessage["content"]): string => {
   for (const raw of content) {
     const block = record(raw);
     if (block.type === "text") parts.push(text(block.text));
+    else if (block.type === "local_file") parts.push(localFileReferenceText(block));
     else if (block.type === "image") parts.push(IMAGE_PLACEHOLDER);
   }
   return parts.join("\n").trim();

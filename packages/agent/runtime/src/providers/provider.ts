@@ -380,6 +380,19 @@ export interface ProviderMessage {
   content: string | JsonObject[];
 }
 
+export const localFileReferenceText = (block: Record<string, unknown>): string => {
+  const name = String(block.name ?? "file").trim() || "file";
+  const path = String(block.path ?? "").trim();
+  return [
+    "# Files mentioned by the user:",
+    "",
+    `Local file name: ${JSON.stringify(name)}`,
+    `Absolute path: ${JSON.stringify(path)}`,
+    "",
+    "This is a user-selected local file reference. Read the current file at this exact path with the appropriate tool.",
+  ].join("\n");
+};
+
 const providerUserContent = (content: RuntimeMessage["content"], deepseek: boolean): string | JsonObject[] => {
   if (!Array.isArray(content)) return String(content ?? "");
   const textParts: string[] = [];
@@ -394,16 +407,7 @@ const providerUserContent = (content: RuntimeMessage["content"], deepseek: boole
       continue;
     }
     if (block.type === "local_file") {
-      const name = String(block.name ?? "file").trim() || "file";
-      const path = String(block.path ?? "").trim();
-      const text = [
-        "# Files mentioned by the user:",
-        "",
-        `Local file name: ${JSON.stringify(name)}`,
-        `Absolute path: ${JSON.stringify(path)}`,
-        "",
-        "This is a user-selected local file reference. Read the current file at this exact path with the appropriate tool.",
-      ].join("\n");
+      const text = localFileReferenceText(block);
       textParts.push(text);
       blocks.push({ type: "text", text });
       continue;

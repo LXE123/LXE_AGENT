@@ -168,6 +168,42 @@ describe("DeepSeek Responses provider", () => {
     ]);
   });
 
+  test("sends local attachment names and absolute paths with the user's text", () => {
+    const messages: RuntimeMessage[] = [{
+      role: "user",
+      content: [
+        {
+          type: "local_file",
+          attachment_id: "attachment-1",
+          turn_id: "turn-1",
+          path: "/Users/llxx/Downloads/SP260805023.xls",
+          name: "SP260805023.xls",
+          size_bytes: 14_955_520,
+          media_type: "application/vnd.ms-excel",
+          ts: 1,
+        },
+        { type: "text", text: "预览并上传这份装箱数据到 ERP" },
+      ],
+    }];
+
+    expect(adaptMessagesForResponses(messages)).toEqual([{
+      type: "message",
+      role: "user",
+      content: [{
+        type: "input_text",
+        text: [
+          "# Files mentioned by the user:",
+          "",
+          'Local file name: "SP260805023.xls"',
+          'Absolute path: "/Users/llxx/Downloads/SP260805023.xls"',
+          "",
+          "This is a user-selected local file reference. Read the current file at this exact path with the appropriate tool.",
+          "预览并上传这份装箱数据到 ERP",
+        ].join("\n"),
+      }],
+    }]);
+  });
+
   test("spells thinking the way this wire does, with none as the off switch", () => {
     const enabled = buildResponsesRequest(descriptor(), {
       system: " you are helpful ",
