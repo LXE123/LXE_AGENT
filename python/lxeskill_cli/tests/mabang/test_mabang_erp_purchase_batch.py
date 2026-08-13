@@ -1229,6 +1229,50 @@ def test_quote_response_accepts_manual_inventory_import_source() -> None:
     assert source["source_kind"] == "manual_import"
 
 
+def test_quote_response_accepts_reconciliation_source_without_source_reference() -> None:
+    """装箱对账产生的留存没有表格来源，ERP 一律把 source_reference 写成空串。
+
+    要求它非空会卡死正常的采购批次创建：FIFO 只要挑到一笔装箱留存就失败，
+    而每次短装都会新增这类留存，撞上的概率只增不减。
+    """
+    response = _quote_response()
+    source = response["confirmation"]["affected_lines"][0]["inventory_sources"][0]
+    source["source_kind"] = "reconciliation"
+    source["source_reference"] = ""
+
+    erp.validate_purchase_response(
+        status_code=409,
+        response=response,
+        request_payload=_request_payload(),
+    )
+
+    assert source["source_reference"] == ""
+
+
+@pytest.mark.parametrize("source_kind", ["opening_inventory", "manual_import"])
+def test_quote_response_still_requires_source_reference_for_imported_inventory(
+    source_kind: str,
+) -> None:
+    """导入来源的库存必定来自表格，两个导入入口都强制「订单号」非空。
+
+    放宽只针对装箱留存，不能顺手把导入数据的校验也一起松掉。
+    """
+    response = _quote_response()
+    source = response["confirmation"]["affected_lines"][0]["inventory_sources"][0]
+    source["source_kind"] = source_kind
+    source["source_reference"] = ""
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.validate_purchase_response(
+            status_code=409,
+            response=response,
+            request_payload=_request_payload(),
+        )
+
+    assert captured.value.code == "erp_purchase_result_incomplete"
+    assert "source_reference" in str(captured.value)
+
+
 def test_quote_response_keeps_same_contract_in_distinct_sp_inventory_batches() -> None:
     response = _quote_response()
     line = response["confirmation"]["affected_lines"][0]

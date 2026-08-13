@@ -1138,10 +1138,14 @@ def _validate_inventory_confirmation(
                 raw_source.get("source_sp_no"),
                 field=f"{source_field}.source_sp_no",
             )
-            _required_result_text(
-                raw_source.get("source_reference"),
-                field=f"{source_field}.source_reference",
-            )
+            if source_kind != "reconciliation":
+                # source_reference 是导入表格「订单号」那一列的原文备份，只有期初库存
+                # 和历史补录才有表格行可抄。装箱对账产生的留存是短装算出来的，没有任何
+                # 单元格来源，ERP 一律写空串；要求它非空会把正常的采购批次创建卡死。
+                _required_result_text(
+                    raw_source.get("source_reference"),
+                    field=f"{source_field}.source_reference",
+                )
             _required_result_decimal(
                 raw_source.get("historical_tax_unit_price"),
                 field=f"{source_field}.historical_tax_unit_price",
