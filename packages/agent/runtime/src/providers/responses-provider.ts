@@ -191,13 +191,23 @@ export function buildResponsesRequest(
   };
 }
 
+/**
+ * Responses reports `input_tokens` inclusive of the cached reads, while the
+ * Anthropic wire reports the non-cached part with the caches beside it.
+ * Downstream adds the three together to size the context, so this has to hand
+ * over the Anthropic shape or every cached token lands in the total twice.
+ * Clamped because a provider reporting more cache than input must not turn the
+ * fresh count negative.
+ */
 const responsesUsage = (usage: unknown): RuntimeUsage => {
   const value = record(usage);
   const inputDetails = record(value.input_tokens_details);
+  const inclusiveInput = Math.max(0, Math.trunc(Number(value.input_tokens) || 0));
+  const cacheRead = Math.max(0, Math.trunc(Number(inputDetails.cached_tokens) || 0));
   return {
-    input_tokens: Math.max(0, Math.trunc(Number(value.input_tokens) || 0)),
+    input_tokens: Math.max(0, inclusiveInput - cacheRead),
     output_tokens: Math.max(0, Math.trunc(Number(value.output_tokens) || 0)),
-    cache_read_input_tokens: Math.max(0, Math.trunc(Number(inputDetails.cached_tokens) || 0)),
+    cache_read_input_tokens: cacheRead,
     cache_creation_input_tokens: 0,
   };
 };

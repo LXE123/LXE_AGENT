@@ -337,8 +337,11 @@ describe("DeepSeek Responses provider", () => {
     // A response carrying a call is not the end of the turn, and the runtime
     // decides whether to keep stepping from exactly this.
     expect(result.stop_reason).toBe("tool_use");
+    // This wire's `input_tokens` already contains the cached reads, and the
+    // runtime sizes context by adding the fields together - so the fresh count
+    // handed over must exclude them: 12 total - 4 cached = 8 fresh.
     expect(result.usage).toEqual({
-      input_tokens: 12,
+      input_tokens: 8,
       output_tokens: 5,
       cache_read_input_tokens: 4,
       cache_creation_input_tokens: 0,
@@ -408,6 +411,22 @@ describe("DeepSeek Responses provider", () => {
       system: "", messages: [], tools: [], toolChoice: "auto",
     });
     expect(anonymous.user).toBeUndefined();
+  });
+
+  test("never lets a cache-heavy report drive the fresh count negative", async () => {
+    const provider = new ResponsesRuntimeProvider(descriptor(), fakeClient([], {
+      status: "completed",
+      output: [],
+      // A provider reporting more cache than input is a bug on their side; it
+      // must not become a negative token count on ours.
+      usage: { input_tokens: 100, output_tokens: 1, input_tokens_details: { cached_tokens: 140 } },
+    }));
+    const result = await provider.turn({
+      system: "", messages: [], tools: [], toolChoice: "auto",
+      signal: new AbortController().signal,
+    });
+    expect(result.usage.input_tokens).toBe(0);
+    expect(result.usage.cache_read_input_tokens).toBe(140);
   });
 
   test("names the address the request actually goes to, per wire", () => {
