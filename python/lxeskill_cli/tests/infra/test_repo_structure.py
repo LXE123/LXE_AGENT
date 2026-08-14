@@ -28,7 +28,6 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
     # Assets and supporting material
     "skills",
     "config",
-    "data",
     "docs",
     "scripts",
 }

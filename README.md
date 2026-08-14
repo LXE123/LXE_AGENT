@@ -49,7 +49,6 @@ LXE Agent 是面向跨境电商运营团队的本地 AI 自动化助手。它把
 - [Desktop 技术手册](docs/desktop/README.md)：进程架构、私有运行时、配置、开发和打包。
 - [文档入口](docs/README.md)：当前可信文档、状态标签和归档说明。
 - [当前 Skill 清单](docs/harness/skill/current_skill_catalog.md)：正在运行的业务能力目录。
-- [本机业务数据目录](data/README.md)：私有 Excel 和模板的本地放置规则。
 
 ## License
 

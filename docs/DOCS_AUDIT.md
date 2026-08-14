@@ -86,7 +86,6 @@ Current candidates：
 - `docs/harness/skill/current_skill_catalog.md`
 - `docs/harness/skill/archive/README.md`
 - `docs/harness/skill/reference/README.md`
-- `data/README.md`
 - `python/lxeskill_cli/browser_auth_service/README.md`
 - `skills/*/SKILL.md`
 

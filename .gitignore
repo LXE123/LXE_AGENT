@@ -76,11 +76,3 @@ config/desktop-version.local.json
 # OS
 .DS_Store
 Thumbs.db
-
-# Local business data and templates
-data/**/*.xlsx
-data/**/*.xlsm
-data/**/*.xls
-data/**/~$*.xlsx
-data/**/~$*.xlsm
-data/**/~$*.xls

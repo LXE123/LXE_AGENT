@@ -32,7 +32,6 @@
 - `Current` [Incident records](incidents/README.md)：运行故障、影响范围、已确认事实和后续排查状态。
 - `Current` [Gateway](harness/gateway/README.md)：gateway 生命周期、平台边界、路由权限、调度取消和出站唤醒。
 - `Current` [Skill docs and catalog](harness/skill/README.md)：当前运行中 skill catalog 和旧 skill 文档分类入口。
-- `Current` [本机业务数据目录](../data/README.md)：私有 Excel/template 文件路径。
 - `Current` [Browser auth service](../python/lxeskill_cli/browser_auth_service/README.md)：马帮登录态刷新 CLI 和诊断方式。
 - `Current` [Runtime skills](../skills)：agent 实际加载的 skill 提示词来源。
 
