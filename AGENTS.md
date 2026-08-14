@@ -18,6 +18,7 @@
 ## 工具链
 
 - Python 一律用 `uv`（禁 pip），JS 一律用 `bun`（禁 npm/yarn）；安装带 `--frozen`，不要动 lockfile 之外的版本。
+- **Obsidian 协作**：Vault 位于 `/Users/llxx/Documents/Obsidian Vault`，CLI 为 `/usr/local/bin/obsidian`。默认沙箱可能因看不到 macOS 应用的 IPC 而误报 Obsidian 未运行；遇到这种情况，直接申请在沙箱外执行，并将允许的命令前缀限制为 `/usr/local/bin/obsidian`。默认只读；只有用户明确要求维护笔记时才执行写操作，不执行 `eval` 或插件管理命令。
 - 测试必须从仓库根运行：`uv run pytest python/lxeskill_cli/tests`。从子目录运行会因相对路径假失败。
 - **验证必须拿真实结果，警惕假通过**：管道会吞掉退出码（`cmd | tail` 的退出码是 tail 的，不是 cmd 的——用 `set -o pipefail` 或先落盘再查 `$?`）；扫描类校验匹配到空集也会"通过"（cwd 漂移、glob 写错时扫了 0 个文件照样报绿）。报告通过之前，先确认命令真的执行了、扫描真的扫到了东西。
 - `catalog.json` 是 Python 和 Bun 双端消费的契约，改它的定向测试必须两边都跑：`uv run pytest python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra` 加 `bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts`。
