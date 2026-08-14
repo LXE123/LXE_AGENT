@@ -1,6 +1,6 @@
 ---
 name: fba-erp-packing-upload
-description: 预览并确认某个 SP 的原始完整 WMS 装箱数据，确认后上传到 FBA ERP 并生成库存 SKU 对账与结转库存。用户发送装箱 Excel、要求上传真实发货量、同步装箱数据、更正装箱量或查看结转预览时使用；不要用于下载装箱文件、上传拆分文件、生成采购单或采购合同。
+description: 预览并确认某个 SP 的原始完整 WMS 装箱数据，确认后上传到 FBA ERP 并生成库存 SKU 对账与留存库存。用户发送装箱 Excel、要求上传真实发货量、同步装箱数据、更正装箱量或查看留存预览时使用；不要用于下载装箱文件、上传拆分文件、生成采购单或采购合同。
 type: amazon_fba
 commands:
   - lxeskill fba erp packing-upload
@@ -40,19 +40,19 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 当 `data.status=confirmation_required` 或 `quote_stale`：
 
 1. 说明文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”。
-2. 展示 `summary` 中的计划量、实际量、差异量和预计结转量。
+2. 展示 `summary` 中的计划量、实际量、差异量和预计留存量。
 3. 将 `proposed_carryovers` 展示为以下 8 列；服务端已按全部字段聚合，禁止再次按合同号或型号合并：
 
 ```text
-结转类型｜库存 SKU｜供应商｜采购订单号｜订单号｜型号｜含税单价｜数量
+留存类型｜库存 SKU｜供应商｜采购订单号｜订单号｜型号｜含税单价｜数量
 ```
 
-- `packing_restore` 显示为“历史库存返还”。
-- `packing_new` 显示为“本次采购结转”。
+- `packing_restore` 显示为“归还库存”。
+- `packing_new` 显示为“新增留存”。
 - `source_contract_no` 显示在“采购订单号”。
 - `source_sp_no` 显示在“订单号”。
 - 空字段保持为空，禁止猜测合同号、SP 或单价。
-- `proposed_carryovers` 为空时明确说明“预计无结转库存”。
+- `proposed_carryovers` 为空时明确说明“预计无留存库存”。
 
 4. 若 `reconciliation_status=mismatch` 或 `incomplete`，同时展示真实对账问题。
 5. 明确说明当前尚未写入装箱快照或库存，并询问用户是否确认。
@@ -67,11 +67,11 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 lxeskill fba erp packing-upload --confirm-packing-quote-id <quote_id>
 ```
 
-- `created`：报告批次号、装箱版本、对账状态、实际结转明细和注意项。
+- `created`：报告批次号、装箱版本、对账状态、实际留存明细和注意项。
 - `unchanged`：说明 ERP 当前数据与文件业务数量一致，没有创建新版本，也不需要确认。
 - `idempotent`：说明相同确认已成功处理，没有重复写入。
 - `packing_snapshot_quote_not_pending`：quote 已使用、过期或不属于当前流程，重新执行 Initial Preview。
-- `carryover_already_applied`：旧快照结转已被下游采购使用，不能替换；逐项转述服务器返回的依赖业务。
+- `carryover_already_applied`：旧快照留存已被下游采购使用，不能替换；逐项转述服务器返回的依赖业务。
 
 ## Missing Original File
 

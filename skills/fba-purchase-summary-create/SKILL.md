@@ -66,7 +66,7 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 当 `data.error.code=purchase_unmatched_sku_confirmation_required` 时：
 
-1. 展示 `data.confirmation.items` 中每个 SP、库存 SKU、计划量和受影响 MSKU；明确这些组件确认后只保留 MSKU 结构，不参与采购、合同、FIFO 库存、装箱对账或结转。
+1. 展示 `data.confirmation.items` 中每个 SP、库存 SKU、计划量和受影响 MSKU；明确这些组件确认后只保留 MSKU 结构，不参与采购、合同、FIFO 库存、装箱对账或留存。
 2. 未取得用户明确确认前不要继续。
 3. 确认后重试原命令，追加 `--confirm-unmatched-sku-token <data.confirmation.token>`。
 4. 若后续还需库存确认或批次替换，后续每次重试都必须继续携带同一个 `--confirm-unmatched-sku-token`。
