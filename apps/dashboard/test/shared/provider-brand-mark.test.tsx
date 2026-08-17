@@ -12,14 +12,14 @@ describe("ProviderBrandMark", () => {
     expect(providerBrandKind("kimi-coding")).toBe("kimi");
     expect(providerBrandKind("deep_seek")).toBe("deepseek");
     expect(providerBrandKind("deep-seek")).toBe("deepseek");
-    expect(providerBrandKind("glm")).toBe("generic");
+    expect(providerBrandKind("unknown_provider")).toBe("generic");
     expect(providerBrandKind("unknown-provider")).toBe("generic");
   });
 
   test("renders the bundled Kimi icon with local vectors and a generic fallback", () => {
     const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi_coding" />);
     const deepseek = renderToStaticMarkup(<ProviderBrandMark provider="deepseek" />);
-    const fallback = renderToStaticMarkup(<ProviderBrandMark provider="glm" />);
+    const fallback = renderToStaticMarkup(<ProviderBrandMark provider="unknown_provider" />);
 
     expect(kimi).toContain('data-provider-mark="kimi"');
     expect(kimi).toContain('aria-hidden="true"');

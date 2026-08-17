@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,7 +107,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       cloud: { switch_in_progress: false },
     });
   });
@@ -175,7 +175,7 @@ describe("DesktopConfigRepository", () => {
     const beforeSecrets = readFileSync(secretsPath);
 
     const changedConfig = cloneConfig();
-    changedConfig.llm.provider = "glm";
+    changedConfig.llm.provider = "kimi_coding";
     const changedSecrets = cloneSecrets();
     changedSecrets.managed_llm_credential = managedCredential("changed-secret");
     encryptionFails = true;

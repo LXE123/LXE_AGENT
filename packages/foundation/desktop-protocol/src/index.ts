@@ -44,11 +44,14 @@ export type ExecTaskSnapshotPayload = {
 
 export type CredentialSource = "local" | "cloud";
 
-export type DesktopModelProvider = "kimi_coding" | "deepseek" | "glm";
+export type DesktopModelProvider = "kimi_coding" | "deepseek";
 
-export interface ManagedLlmCredential {
-  provider: "deepseek";
-  model: "deepseek-v4-flash";
+export interface ManagedLlmTarget {
+  provider: string;
+  model: string;
+}
+
+export interface ManagedLlmCredential extends ManagedLlmTarget {
   api_key: string;
   credential_revision: string;
   fetched_at: number;
@@ -78,7 +81,10 @@ export type AgentInitializePayload = {
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
   update_skill_permissions: { allowed_skill_types: string[] };
-  update_managed_llm_credential: { credential: ManagedLlmCredential | null };
+  update_managed_llm_credential: {
+    credential: ManagedLlmCredential | null;
+    target?: ManagedLlmTarget;
+  };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string };
   steer_turn: {
@@ -261,8 +267,8 @@ export type AgentEvent =
       version: typeof AGENT_PROTOCOL_VERSION;
       type: "managed_llm.authentication_failed";
       payload: {
-        provider: "deepseek";
-        model: "deepseek-v4-flash";
+        provider: string;
+        model: string;
         credential_revision: string;
       };
     }
@@ -693,11 +699,23 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       }
       break;
     case "update_managed_llm_credential": {
+      if (payload.target !== undefined) {
+        const target = objectValue(payload.target);
+        if (!target
+          || typeof target.provider !== "string"
+          || !/^[a-z][a-z0-9_-]{0,63}$/u.test(target.provider)
+          || typeof target.model !== "string"
+          || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(target.model)) {
+          throw new Error("agent protocol update_managed_llm_credential.target is invalid");
+        }
+      }
       if (payload.credential === null) break;
       const credential = objectValue(payload.credential);
       if (!credential
-        || credential.provider !== "deepseek"
-        || credential.model !== "deepseek-v4-flash"
+        || typeof credential.provider !== "string"
+        || !/^[a-z][a-z0-9_-]{0,63}$/u.test(credential.provider)
+        || typeof credential.model !== "string"
+        || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(credential.model)
         || typeof credential.api_key !== "string"
         || !credential.api_key.trim()
         || credential.api_key.length > 4_096
@@ -807,8 +825,10 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
       const unsupported = Object.keys(payload).filter((name) =>
         name !== "provider" && name !== "model" && name !== "credential_revision");
       if (unsupported.length > 0
-        || payload.provider !== "deepseek"
-        || payload.model !== "deepseek-v4-flash"
+        || typeof payload.provider !== "string"
+        || !/^[a-z][a-z0-9_-]{0,63}$/u.test(payload.provider)
+        || typeof payload.model !== "string"
+        || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(payload.model)
         || typeof payload.credential_revision !== "string"
         || !/^[a-f0-9]{64}$/u.test(payload.credential_revision)) {
         throw new Error("agent protocol managed LLM authentication event is invalid");

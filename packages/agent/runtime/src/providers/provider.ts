@@ -294,9 +294,7 @@ export function loadProviderDescriptor(
       ? localApiKey
       : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
   if (!options.deferCredential && credentialSource === "cloud" && (
-    name !== "deepseek"
-    || model !== "deepseek-v4-flash"
-    || managedProvider !== name
+    managedProvider !== name
     || managedModel !== model
     || !/^[a-f0-9]{64}$/u.test(credentialRevision)
     || invalidRevision === credentialRevision
@@ -793,14 +791,7 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
   ): RuntimeProvider {
     return new CredentialResolvingRuntimeProvider(
       () => descriptor,
-      () => this.load({
-        ...configuredEnvironment,
-        LXE_MANAGED_LLM_PROVIDER: this.environment.LXE_MANAGED_LLM_PROVIDER,
-        LXE_MANAGED_LLM_MODEL: this.environment.LXE_MANAGED_LLM_MODEL,
-        LXE_MANAGED_LLM_API_KEY: this.environment.LXE_MANAGED_LLM_API_KEY,
-        LXE_MANAGED_LLM_CREDENTIAL_REVISION: this.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION,
-        LXE_MANAGED_LLM_INVALID_REVISION: this.environment.LXE_MANAGED_LLM_INVALID_REVISION,
-      }, false),
+      () => this.load(configuredEnvironment, false),
       this.factory,
     );
   }

@@ -194,7 +194,11 @@ async function bootstrap(): Promise<void> {
     paths.dataRoot,
     paths.defaultWorkspaceRoot,
     safeStorage,
-    { platform: desktopPlatform, secretEnvironment: sourceSecretEnvironment },
+    {
+      platform: desktopPlatform,
+      secretEnvironment: sourceSecretEnvironment,
+      llmConfigRoot: paths.llmConfigRoot,
+    },
   );
   const previewCloudTarget = launchMode === "preview"
     ? resolvePreviewDataServerTarget({
@@ -284,6 +288,7 @@ async function bootstrap(): Promise<void> {
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
   cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
+    llmConfigRoot: paths.llmConfigRoot,
     supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
     ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
     config,

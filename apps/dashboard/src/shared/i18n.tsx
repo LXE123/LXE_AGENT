@@ -394,7 +394,8 @@ export const ZH_TEXT = {
     providerManaged: "由模型自动管理",
     modelOptionUnavailable: "模型选项不可用",
     providerNotSelectable: "WebUI 暂不支持切换",
-    missingApiKey: "缺少 API Key"
+    missingApiKey: "缺少 API Key",
+    unsupportedManagedModel: "客户端版本不支持该模型"
   },
   tools: {
     subtitle: "查看并管理可供 Agent 调用的工具集。",
@@ -1150,7 +1151,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       providerManaged: "Managed automatically by the model",
       modelOptionUnavailable: "Model option is not available",
       providerNotSelectable: "Not selectable in WebUI",
-      missingApiKey: "Missing API key"
+      missingApiKey: "Missing API key",
+      unsupportedManagedModel: "This client version does not support the model"
     },
     tools: {
       subtitle: "View and manage the toolsets available to the agent.",

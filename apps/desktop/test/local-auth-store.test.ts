@@ -31,15 +31,15 @@ describe("DesktopLocalAuthStore", () => {
     const store = new DesktopLocalAuthStore(root, "darwin");
 
     store.save("deepseek", " deepseek-secret ");
-    store.save("glm", "glm-secret");
+    store.save("kimi_coding", "kimi-secret");
 
     expect(JSON.parse(readFileSync(store.path, "utf8"))).toEqual({
       deepseek: { type: "api_key", key: "deepseek-secret" },
-      glm: { type: "api_key", key: "glm-secret" },
+      kimi_coding: { type: "api_key", key: "kimi-secret" },
     });
     expect(store.snapshot()).toEqual({
-      configured: { kimi_coding: false, deepseek: true, glm: true },
-      keys: { deepseek: "deepseek-secret", glm: "glm-secret" },
+      configured: { kimi_coding: true, deepseek: true },
+      keys: { deepseek: "deepseek-secret", kimi_coding: "kimi-secret" },
       error: "",
     });
     if (process.platform !== "win32") {
@@ -49,7 +49,7 @@ describe("DesktopLocalAuthStore", () => {
     expect(existsSync(join(root, "config", "auth.lock"))).toBeFalse();
 
     store.delete("deepseek");
-    expect(store.snapshot().configured).toEqual({ kimi_coding: false, deepseek: false, glm: true });
+    expect(store.snapshot().configured).toEqual({ kimi_coding: true, deepseek: false });
 
     if (process.platform !== "win32") {
       chmodSync(join(root, "config"), 0o755);
@@ -69,7 +69,7 @@ describe("DesktopLocalAuthStore", () => {
     const store = new DesktopLocalAuthStore(root, "darwin");
 
     expect(store.snapshot()).toMatchObject({
-      configured: { kimi_coding: false, deepseek: false, glm: false },
+      configured: { kimi_coding: false, deepseek: false },
       error: expect.stringContaining("无法读取本地模型凭证"),
     });
     expect(() => store.save("deepseek", "new-secret")).toThrow();

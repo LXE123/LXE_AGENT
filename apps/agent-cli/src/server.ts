@@ -124,7 +124,10 @@ export class AgentProtocolServer {
         if (!this.readyHost().updateManagedLlmCredential) {
           throw new Error("managed LLM credential updates are unavailable");
         }
-        const update = await this.readyHost().updateManagedLlmCredential!(request.payload.credential);
+        const update = await this.readyHost().updateManagedLlmCredential!(
+          request.payload.credential,
+          request.payload.target,
+        );
         if (update.cancelActiveTurns) {
           await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort()));
         }
@@ -256,7 +259,6 @@ export class AgentProtocolServer {
           payload: { changes: [change] },
         }),
         onManagedLlmAuthenticationFailure: (provider, model, credentialRevision) => {
-          if (provider !== "deepseek" || model !== "deepseek-v4-flash") return;
           return this.options.write({
             version: AGENT_PROTOCOL_VERSION,
             type: "managed_llm.authentication_failed",

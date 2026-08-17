@@ -116,7 +116,7 @@ describe("DesktopConfigStore", () => {
     expect(store.environment()).toMatchObject({
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_THINKING_ENABLED: "1",
-      AGENT_LLM_THINKING_EFFORT: "low",
+      AGENT_LLM_THINKING_EFFORT: "high",
     });
     expect(store.save({
       workspace_root: join(root, "workspace"),
@@ -146,7 +146,7 @@ describe("DesktopConfigStore", () => {
     const appPath = join(root, "ziniao.exe");
     writeFileSync(appPath, "binary");
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
-    store.saveLocalModelCredential({ provider: "glm", api_key: "model-secret" });
+    store.saveLocalModelCredential({ provider: "deepseek", api_key: "model-secret" });
     store.save({
       workspace_root: join(root, "workspace"),
       mabang: { action: "save", account: "first", password: "mabang-secret" },
@@ -179,11 +179,19 @@ describe("DesktopConfigStore", () => {
     const configRoot = join(root, "config");
     mkdirSync(configRoot, { recursive: true });
     const legacyConfig = cloneConfig();
+    (legacyConfig as unknown as Record<string, unknown>).schema_version = 6;
     legacyConfig.migration_version = 3;
-    legacyConfig.llm.provider = "glm";
-    legacyConfig.llm.credential_source = "local";
-    legacyConfig.llm.last_local_provider = "glm";
+    (legacyConfig.llm as unknown as Record<string, unknown>).provider = "glm";
+    (legacyConfig.llm as unknown as Record<string, unknown>).credential_source = "local";
+    (legacyConfig.llm as unknown as Record<string, unknown>).last_local_provider = "glm";
+    (legacyConfig.llm.profiles as Record<string, unknown>).glm = {
+      model: "glm-5v-turbo",
+      thinking_level: "high",
+    };
     writeFileSync(join(configRoot, "settings.json"), JSON.stringify(legacyConfig));
+    writeFileSync(join(configRoot, "auth.json"), JSON.stringify({
+      glm: { type: "api_key", key: "retired-auth-secret" },
+    }));
     writeFileSync(join(configRoot, "secrets.bin"), safeStorage.encryptString(JSON.stringify({
       provider_keys: { glm: "retired-secret" },
       managed_llm_credential: null,
@@ -196,14 +204,53 @@ describe("DesktopConfigStore", () => {
     expect(store.state()).toMatchObject({
       complete: false,
       provider: "deepseek",
-      credential_source: "cloud",
+      credential_source: "local",
       managed_model_configured: false,
-      local_model_credentials: { kimi_coding: false, deepseek: false, glm: false },
+      local_model_credentials: { kimi_coding: false, deepseek: false },
     });
     expect(existsSync(join(root, ".env"))).toBeFalse();
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(readFileSync(join(configRoot, "settings.json"), "utf8")).not.toContain("glm");
+    expect(readFileSync(join(configRoot, "auth.json"), "utf8")).not.toContain("glm");
     expect(readFileSync(join(configRoot, "secrets.bin"), "utf8")).not.toContain("retired-secret");
+  });
+
+  test("drops an unsupported cached managed key while preserving its non-secret target", () => {
+    const root = createRoot();
+    const configRoot = join(root, "config");
+    mkdirSync(configRoot, { recursive: true });
+    const legacyConfig = cloneConfig();
+    (legacyConfig as unknown as Record<string, unknown>).schema_version = 6;
+    legacyConfig.migration_version = 4;
+    legacyConfig.llm.credential_source = "cloud";
+    writeFileSync(join(configRoot, "settings.json"), JSON.stringify(legacyConfig));
+    writeFileSync(join(configRoot, "secrets.bin"), safeStorage.encryptString(JSON.stringify({
+      managed_llm_credential: {
+        provider: "future_vendor",
+        model: "future-model",
+        api_key: "unsupported-secret",
+        credential_revision: "e".repeat(64),
+        fetched_at: 123,
+        invalid_revision: "",
+      },
+    })));
+
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+
+    expect(store.managedLlmTarget()).toEqual({ provider: "future_vendor", model: "future-model" });
+    expect(store.managedLlmCredential()).toBeNull();
+    expect(store.state()).toMatchObject({
+      complete: false,
+      provider: "deepseek",
+      credential_source: "local",
+    });
+    expect(store.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "future_vendor",
+      LXE_MANAGED_LLM_MODEL: "future-model",
+      LXE_MANAGED_LLM_API_KEY: "",
+    });
+    expect(readFileSync(join(configRoot, "secrets.bin"), "utf8"))
+      .not.toContain("unsupported-secret");
   });
 
   test("uses standard logging for a new install and validates platform app paths", () => {
@@ -241,7 +288,7 @@ describe("DesktopConfigStore", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
     const missing = join(root, "missing-workspace");
-    store.saveLocalModelCredential({ provider: "glm", api_key: "secret" });
+    store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "secret" });
     expect(() => store.save({
       workspace_root: missing,
     })).toThrow();
@@ -256,7 +303,7 @@ describe("DesktopConfigStore", () => {
     const workspace = join(root, "workspace");
     const canonicalWorkspace = realpathSync.native(workspace);
     const store = new DesktopConfigStore(root, workspace, safeStorage);
-    store.saveLocalModelCredential({ provider: "glm", api_key: "secret" });
+    store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "secret" });
     expect(store.save({
       workspace_root: workspace,
     }).complete).toBeTrue();
@@ -265,7 +312,7 @@ describe("DesktopConfigStore", () => {
 
     expect(store.state()).toMatchObject({
       complete: false,
-      local_model_credentials: { glm: true },
+      local_model_credentials: { kimi_coding: true },
       workspace_root: canonicalWorkspace,
     });
   });
@@ -275,7 +322,7 @@ describe("DesktopConfigStore", () => {
     const nextWorkspace = join(root, "next-workspace");
     mkdirSync(nextWorkspace);
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
-    store.saveLocalModelCredential({ provider: "glm", api_key: "secret" });
+    store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "secret" });
     store.save({
       workspace_root: join(root, "workspace"),
     });
@@ -308,7 +355,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -541,9 +588,9 @@ describe("DesktopConfigStore", () => {
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
     store.saveLocalModelCredential({ provider: "deepseek", api_key: "local-deepseek-secret" });
     store.saveManagedLlmCredential({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      api_key: "managed-deepseek-secret",
+      provider: "kimi_coding",
+      model: "kimi-for-coding",
+      api_key: "managed-kimi-secret",
       credential_revision: "c".repeat(64),
       fetched_at: 123,
       invalid_revision: "",
@@ -558,7 +605,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(store.deleteLocalModelCredential("deepseek")).toMatchObject({
       complete: true,
-      provider: "deepseek",
+      provider: "kimi_coding",
       credential_source: "cloud",
       local_model_credentials: { deepseek: false },
       managed_model_configured: true,
@@ -568,20 +615,20 @@ describe("DesktopConfigStore", () => {
   test("falls back from a deleted active local key without selecting an unavailable model", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
-    store.saveLocalModelCredential({ provider: "glm", api_key: "glm-secret" });
+    store.saveLocalModelCredential({ provider: "deepseek", api_key: "deepseek-secret" });
     store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "kimi-secret" });
 
     expect(store.deleteLocalModelCredential("kimi_coding")).toMatchObject({
       complete: true,
-      provider: "glm",
+      provider: "deepseek",
       credential_source: "local",
-      local_model_credentials: { kimi_coding: false, glm: true },
+      local_model_credentials: { kimi_coding: false, deepseek: true },
     });
 
-    expect(store.deleteLocalModelCredential("glm")).toMatchObject({
+    expect(store.deleteLocalModelCredential("deepseek")).toMatchObject({
       complete: false,
       credential_source: "local",
-      local_model_credentials: { kimi_coding: false, deepseek: false, glm: false },
+      local_model_credentials: { kimi_coding: false, deepseek: false },
     });
   });
 
@@ -596,7 +643,7 @@ describe("DesktopConfigStore", () => {
       fetched_at: 123,
       invalid_revision: "",
     });
-    store.saveLocalModelCredential({ provider: "glm", api_key: "glm-secret" });
+    store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "kimi-secret" });
     expect(store.state()).toMatchObject({ credential_source: "cloud", provider: "deepseek" });
 
     store.clearManagedLlmCredential();
@@ -606,7 +653,7 @@ describe("DesktopConfigStore", () => {
       provider: "deepseek",
       credential_source: "cloud",
       managed_model_configured: false,
-      local_model_credentials: { glm: true },
+      local_model_credentials: { kimi_coding: true },
     });
   });
 });

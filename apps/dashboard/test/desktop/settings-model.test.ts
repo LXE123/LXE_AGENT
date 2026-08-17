@@ -36,7 +36,7 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
   provider: "kimi_coding",
   credential_source: "local",
   managed_model_configured: false,
-  local_model_credentials: { kimi_coding: true, deepseek: false, glm: false },
+  local_model_credentials: { kimi_coding: true, deepseek: false },
   local_auth_path: "/data/var/config/auth.json",
   local_auth_error: "",
   workspace_root: "/workspace",

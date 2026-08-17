@@ -24,6 +24,7 @@ import {
   permissionSnapshotsEqual,
 } from "./cloud-permissions";
 import {
+  managedLlmTargetSupported,
   parseManagedLlmCredential,
   parseManagedLlmStatus,
 } from "./managed-llm";
@@ -52,6 +53,7 @@ const systemClock: DesktopCloudClock = {
 
 interface DesktopCloudServiceOptions {
   dataRoot: string;
+  llmConfigRoot?: string;
   supported: boolean;
   previewTarget?: PreviewDataServerTarget;
   config: DesktopConfigStore;
@@ -694,6 +696,12 @@ export class DesktopCloudService {
     const status = parseManagedLlmStatus(value);
     if (!status) return;
     const cached = this.options.config.managedLlmCredential();
+    if (status.provider && status.model) {
+      this.options.config.saveManagedLlmTarget({
+        provider: status.provider,
+        model: status.model,
+      });
+    }
     if (!status.available) {
       if (!cached) return;
       this.options.config.clearManagedLlmCredential();
@@ -705,8 +713,35 @@ export class DesktopCloudService {
       });
       return;
     }
-    if (cached?.credential_revision === status.credential_revision
-      && cached.invalid_revision !== cached.credential_revision) return;
+    if (!managedLlmTargetSupported(
+      this.options.llmConfigRoot ?? join(process.cwd(), "config", "llm"),
+      status,
+    )) {
+      if (cached) {
+        this.options.config.clearManagedLlmCredential();
+        await this.options.onManagedLlmCredentialChanged?.(null);
+      }
+      logger.warn("managed_llm_target_unsupported", {
+        provider: status.provider,
+        model: status.model,
+      });
+      return;
+    }
+    if (cached && (cached.provider !== status.provider || cached.model !== status.model)) {
+      this.options.config.clearManagedLlmCredential();
+      await this.options.onManagedLlmCredentialChanged?.(null);
+      logger.info("managed_llm_target_changed", {
+        previous_provider: cached.provider,
+        previous_model: cached.model,
+        provider: status.provider,
+        model: status.model,
+      });
+    }
+    if (cached?.provider === status.provider
+      && cached.model === status.model
+      && cached.credential_revision === status.credential_revision) {
+      return;
+    }
     const path = target.source === "preview"
       ? "admin/llm-credential"
       : "devices/llm-credential";

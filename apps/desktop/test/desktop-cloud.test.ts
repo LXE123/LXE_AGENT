@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
@@ -252,6 +252,11 @@ describe("DesktopCloudService", () => {
     config.invalidateManagedLlmCredential("b".repeat(64));
     apiKey = "managed-key-three";
     await service.check();
+    expect(requests.filter((url) => url.endsWith("/llm-credential"))).toHaveLength(2);
+    expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("managed-key-two");
+
+    revision = "c".repeat(64);
+    await service.check();
     expect(requests.filter((url) => url.endsWith("/llm-credential"))).toHaveLength(3);
     expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("managed-key-three");
 
@@ -260,6 +265,86 @@ describe("DesktopCloudService", () => {
     expect(changed.at(-1)).toBe("revoked");
     expect(config.state()).toMatchObject({ complete: false, managed_model_configured: false });
     expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("");
+  });
+
+  test("accepts supported server targets and refuses to fetch credentials for unknown models", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-managed-target-"));
+    roots.push(root);
+    mkdirSync(join(root, "workspace"));
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    let provider = "kimi_coding";
+    let model = "kimi-for-coding";
+    let revision = "d".repeat(64);
+    const credentialRequests: string[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: false,
+      previewTarget: { dataServerUrl: "http://10.88.0.1:8000", apiToken: "preview-admin-secret" },
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
+      onConfigured: async () => undefined,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/admin/status")) {
+          return Response.json({
+            status: "ok",
+            role: "admin",
+            managed_llm: { available: true, provider, model, credential_revision: revision },
+          });
+        }
+        credentialRequests.push(url);
+        return Response.json({
+          provider,
+          model,
+          credential_revision: revision,
+          api_key: `key-for-${provider}`,
+        });
+      },
+    });
+
+    await service.start();
+    expect(config.state()).toMatchObject({
+      complete: true,
+      provider: "kimi_coding",
+      credential_source: "cloud",
+    });
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "kimi_coding",
+      LXE_MANAGED_LLM_MODEL: "kimi-for-coding",
+      LXE_MANAGED_LLM_API_KEY: "key-for-kimi_coding",
+    });
+
+    provider = "deepseek";
+    model = "deepseek-v4-flash";
+    revision = "f".repeat(64);
+    await service.check();
+    expect(config.state()).toMatchObject({ provider: "deepseek", credential_source: "cloud" });
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "deepseek",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "key-for-deepseek",
+    });
+
+    provider = "future_vendor";
+    model = "future-model";
+    revision = "e".repeat(64);
+    await service.check();
+    expect(credentialRequests).toHaveLength(2);
+    expect(config.managedLlmCredential()).toBeNull();
+    expect(config.managedLlmTarget()).toEqual({ provider: "future_vendor", model: "future-model" });
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "future_vendor",
+      LXE_MANAGED_LLM_MODEL: "future-model",
+      LXE_MANAGED_LLM_API_KEY: "",
+    });
+    expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
+      schema_version: 7,
+      llm: { managed_target: { provider: "future_vendor", model: "future-model" } },
+    });
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8"))
+      .not.toContain("key-for-kimi_coding");
   });
 
   test("uses an in-memory Preview target on unsupported platforms and prefers it over managed config", async () => {

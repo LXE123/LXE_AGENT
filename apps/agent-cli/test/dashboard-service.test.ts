@@ -372,6 +372,17 @@ describe("DashboardService", () => {
       items: [{ name: "demo_tool", calls: 1 }],
     });
     const modelList = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
+    expect(modelList.items
+      .filter((model) => model.credential_source === "local")
+      .map((provider) => ({
+        provider: provider.provider,
+        models: (provider.model_options as Array<Record<string, unknown>>)
+          .map((option) => option.model),
+      })))
+      .toEqual([
+        { provider: "deepseek", models: ["deepseek-v4-pro", "deepseek-v4-flash"] },
+        { provider: "kimi_coding", models: ["kimi-for-coding", "k3"] },
+      ]);
     const kimiModel = modelList.items.find((model) => model.provider === "kimi_coding")!;
     expect(kimiModel).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", configured: true });
     const kimiOptions = kimiModel.model_options as Array<Record<string, unknown>>;
@@ -403,6 +414,46 @@ describe("DashboardService", () => {
       selectable: true,
       capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
       thinking_levels: ["off", "low", "high", "max"],
+    });
+    Object.assign(environment, {
+      LXE_MANAGED_LLM_PROVIDER: "kimi_coding",
+      LXE_MANAGED_LLM_MODEL: "kimi-for-coding",
+      LXE_MANAGED_LLM_API_KEY: "managed-kimi-key",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "d".repeat(64),
+    });
+    const kimiManagedModels = await call({ operation: "models.list", input: {} }) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(kimiManagedModels.items.find((model) =>
+      model.provider === "kimi_coding" && model.credential_source === "cloud"
+    )).toMatchObject({
+      model: "kimi-for-coding",
+      configured: true,
+      selectable: true,
+      capabilities: { context_window_tokens: 262_144, max_output_tokens: 32_768 },
+    });
+    Object.assign(environment, {
+      LXE_MANAGED_LLM_PROVIDER: "future_vendor",
+      LXE_MANAGED_LLM_MODEL: "future-model",
+      LXE_MANAGED_LLM_API_KEY: "",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "",
+    });
+    const unsupportedManagedModels = await call({ operation: "models.list", input: {} }) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(unsupportedManagedModels.items.find((model) =>
+      model.provider === "future_vendor" && model.credential_source === "cloud"
+    )).toMatchObject({
+      model: "future-model",
+      configured: false,
+      selectable: false,
+      disabled_reason: "unsupported managed model",
+    });
+    Object.assign(environment, {
+      LXE_MANAGED_LLM_PROVIDER: "deepseek",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "managed-deepseek-key",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "c".repeat(64),
     });
     const activeEnvironment = {
       AGENT_LLM_PROVIDER: environment.AGENT_LLM_PROVIDER,

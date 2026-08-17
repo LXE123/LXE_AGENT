@@ -26,7 +26,7 @@ export interface DesktopLocalAuthSnapshot {
   error: string;
 }
 
-const PROVIDERS: readonly DesktopModelProvider[] = ["kimi_coding", "deepseek", "glm"];
+const PROVIDERS: readonly DesktopModelProvider[] = ["kimi_coding", "deepseek"];
 const MAX_API_KEY_LENGTH = 16_384;
 const AUTH_FILE_WRITE_OPTIONS = { encoding: "utf8", mode: 0o600 } as const;
 
@@ -61,7 +61,7 @@ export class DesktopLocalAuthStore {
       };
     } catch (error) {
       return {
-        configured: { kimi_coding: false, deepseek: false, glm: false },
+        configured: { kimi_coding: false, deepseek: false },
         keys: {},
         error: `无法读取本地模型凭证：${errorMessage(error)}`,
       };
@@ -80,6 +80,14 @@ export class DesktopLocalAuthStore {
   }
 
   delete(provider: DesktopModelProvider): void {
+    this.deleteProvider(provider);
+  }
+
+  deleteRetiredProvider(provider: string): void {
+    this.deleteProvider(provider);
+  }
+
+  private deleteProvider(provider: string): void {
     this.withLock(() => {
       const current = this.read();
       delete current[provider];

@@ -30,7 +30,6 @@
         "paths": [
           "config/llm/auth-profiles.json",
           "config/llm/providers/deepseek.json",
-          "config/llm/providers/glm.json",
           "config/llm/providers/kimi-coding.json",
           "config/mcp_servers.default.yaml"
         ]

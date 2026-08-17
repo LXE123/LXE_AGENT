@@ -233,13 +233,6 @@ button {
   border-color: #2f3a63;
 }
 
-:root[data-theme="dark"] .model-card[data-provider="glm"] {
-  --model-hue: #a892c4;
-  --model-hue-strong: #c3b0da;
-  --model-soft: #2a2333;
-  --model-ring: #453a54;
-}
-
 :root[data-theme="dark"] .skills-catalog {
   --catalog-hue: #a892c4;
   --catalog-hue-strong: #c3b0da;
@@ -3508,13 +3501,6 @@ h1 {
   mix-blend-mode: screen;
   pointer-events: none;
   user-select: none;
-}
-
-.model-card[data-provider="glm"] {
-  --model-hue: #7d6798;
-  --model-hue-strong: #654f80;
-  --model-soft: #f4f0f8;
-  --model-ring: #ded4e8;
 }
 
 .model-card-header {

@@ -227,9 +227,10 @@ describe("desktop agent protocol", () => {
       id: "managed-credential-1",
       command: "update_managed_llm_credential",
       payload: {
+        target: { provider: "kimi_coding", model: "kimi-for-coding" },
         credential: {
-          provider: "deepseek",
-          model: "deepseek-v4-flash",
+          provider: "kimi_coding",
+          model: "kimi-for-coding",
           api_key: "secret",
           credential_revision: revision,
           fetched_at: 123,
@@ -242,13 +243,17 @@ describe("desktop agent protocol", () => {
       ...request,
       payload: { credential: { ...request.payload.credential, api_key: "" } },
     }))).toThrow("credential is invalid");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...request,
+      payload: { ...request.payload, target: { provider: "https://attacker.example", model: "x" } },
+    }))).toThrow("target is invalid");
 
     const event = {
       version: AGENT_PROTOCOL_VERSION,
       type: "managed_llm.authentication_failed",
       payload: {
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
+        provider: "kimi_coding",
+        model: "kimi-for-coding",
         credential_revision: revision,
       },
     } as const;
@@ -256,6 +261,10 @@ describe("desktop agent protocol", () => {
     expect(() => parseAgentWireMessage(JSON.stringify({
       ...event,
       payload: { ...event.payload, api_key: "must-not-appear" },
+    }))).toThrow("authentication event is invalid");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...event,
+      payload: { ...event.payload, provider: "https://attacker.example" },
     }))).toThrow("authentication event is invalid");
   });
 

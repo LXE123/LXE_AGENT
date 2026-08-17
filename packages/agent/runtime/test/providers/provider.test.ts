@@ -142,7 +142,7 @@ describe("Anthropic-compatible provider", () => {
     }));
   });
 
-  test("selects a managed DeepSeek credential only for its published model and revision", () => {
+  test("selects generic managed credentials only for the published local provider model and revision", () => {
     const revision = "b".repeat(64);
     const environment = {
       AGENT_LLM_PROVIDER: "deepseek",
@@ -170,6 +170,23 @@ describe("Anthropic-compatible provider", () => {
       ...environment,
       AGENT_LLM_MODEL: "deepseek-v4-pro",
     })).toThrow("managed LLM credential is unavailable");
+
+    const kimi = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      AGENT_LLM_CREDENTIAL_SOURCE: "cloud",
+      LXE_MANAGED_LLM_PROVIDER: "kimi_coding",
+      LXE_MANAGED_LLM_MODEL: "kimi-for-coding",
+      LXE_MANAGED_LLM_API_KEY: "managed-kimi-secret",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: revision,
+      LXE_MANAGED_LLM_INVALID_REVISION: "",
+    });
+    expect(kimi).toEqual(expect.objectContaining({
+      name: "kimi_coding",
+      model: "kimi-for-coding",
+      apiKey: "managed-kimi-secret",
+      credentialSource: "cloud",
+    }));
   });
 
   test("builds fixed-budget K2.7 and output-effort-only K3 request controls", () => {
@@ -1108,6 +1125,56 @@ describe("Anthropic-compatible provider", () => {
     expect(environment.AGENT_LLM_PROVIDER).toBe("deepseek");
     expect(persisted).toEqual([expect.objectContaining({ AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" })]);
     expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-v4-flash"]);
+  });
+
+  test("keeps the managed target and key frozen in an acquired turn snapshot", async () => {
+    const environment: Record<string, string> = {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      AGENT_LLM_CREDENTIAL_SOURCE: "cloud",
+      LXE_MANAGED_LLM_PROVIDER: "kimi_coding",
+      LXE_MANAGED_LLM_MODEL: "kimi-for-coding",
+      LXE_MANAGED_LLM_API_KEY: "old-kimi-key",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "a".repeat(64),
+      LXE_MANAGED_LLM_INVALID_REVISION: "",
+    };
+    const used: string[] = [];
+    const manager = new AtomicRuntimeProviderManager(
+      repositoryRoot(import.meta.dir),
+      environment,
+      (descriptor) => ({
+        summarize: async () => ({ text: "", usage: { input_tokens: 0, output_tokens: 0 } }),
+        turn: async () => {
+          used.push(`${descriptor.name}/${descriptor.model}/${descriptor.apiKey}`);
+          return { content: [], stop_reason: "end_turn", usage: { input_tokens: 0, output_tokens: 0 } };
+        },
+      }),
+    );
+    const activeTurnSnapshot = manager.acquire();
+    Object.assign(environment, {
+      LXE_MANAGED_LLM_PROVIDER: "deepseek",
+      LXE_MANAGED_LLM_MODEL: "deepseek-v4-flash",
+      LXE_MANAGED_LLM_API_KEY: "new-deepseek-key",
+      LXE_MANAGED_LLM_CREDENTIAL_REVISION: "b".repeat(64),
+    });
+    const nextTurnSnapshot = await manager.reconfigure({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      credentialSource: "cloud",
+    });
+    const request = {
+      system: "",
+      messages: [],
+      tools: [],
+      toolChoice: "none" as const,
+      signal: new AbortController().signal,
+    };
+    await activeTurnSnapshot.provider.turn(request);
+    await nextTurnSnapshot.provider.turn(request);
+    expect(used).toEqual([
+      "kimi_coding/kimi-for-coding/old-kimi-key",
+      "deepseek/deepseek-v4-flash/new-deepseek-key",
+    ]);
   });
 
   test("loads without a key and resolves auth.json for each provider call", async () => {

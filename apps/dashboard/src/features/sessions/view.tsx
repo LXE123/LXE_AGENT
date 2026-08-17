@@ -74,7 +74,11 @@ import {
 } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
-import { conversationModelChoices, modelThinkingLevelLabel } from "../models/model";
+import {
+  conversationModelChoices,
+  modelDisabledReasonLabel,
+  modelThinkingLevelLabel,
+} from "../models/model";
 import { groupSidebarSessions } from "./model";
 
 /** How close to the bottom still counts as "following the reply". */
@@ -1354,6 +1358,9 @@ function ConversationModelPicker({
                   key={`${choice.provider}:${choice.model}:${choice.credentialSource}`}
                   onClick={() => selectModel(choice.provider, choice.model, choice.credentialSource)}
                   role="menuitemradio"
+                  title={!choice.selectable && choice.disabledReason
+                    ? modelDisabledReasonLabel(t, choice.disabledReason)
+                    : undefined}
                   type="button"
                 >
                   <ProviderBrandMark provider={choice.provider} size={17} />

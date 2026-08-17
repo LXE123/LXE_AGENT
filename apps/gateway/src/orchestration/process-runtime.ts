@@ -25,6 +25,7 @@ import {
   type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
   type ManagedLlmCredential,
+  type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
 import type {
@@ -300,16 +301,20 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     }
   }
 
-  async updateManagedLlmCredential(credential: ManagedLlmCredential | null): Promise<void> {
-    this.options.environment.LXE_MANAGED_LLM_PROVIDER = credential?.provider ?? "";
-    this.options.environment.LXE_MANAGED_LLM_MODEL = credential?.model ?? "";
+  async updateManagedLlmCredential(
+    credential: ManagedLlmCredential | null,
+    target?: ManagedLlmTarget,
+  ): Promise<void> {
+    const managedTarget = target ?? credential;
+    this.options.environment.LXE_MANAGED_LLM_PROVIDER = managedTarget?.provider ?? "";
+    this.options.environment.LXE_MANAGED_LLM_MODEL = managedTarget?.model ?? "";
     this.options.environment.LXE_MANAGED_LLM_API_KEY = credential?.api_key ?? "";
     this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = credential?.credential_revision ?? "";
     this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION = credential?.invalid_revision ?? "";
     if (!this.isReady) return;
     const result = objectValue(await this.request(
       "update_managed_llm_credential",
-      { credential },
+      { credential, ...(managedTarget ? { target: managedTarget } : {}) },
     ));
     if (result.updated !== true) {
       throw new AgentProcessError(

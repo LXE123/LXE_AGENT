@@ -25,13 +25,13 @@ describe("Dashboard transport", () => {
     setDashboardTransportForTests(transport);
 
     await callDashboard({ operation: "sessions.list", input: { limit: 6 } });
-    await callDashboard({ operation: "models.update", input: { provider: "glm", model: "glm-4.7" } });
+    await callDashboard({ operation: "models.update", input: { provider: "kimi_coding", model: "k3" } });
 
     expect(calls).toEqual([
       { operation: "sessions.list", input: { limit: 6 } },
       {
         operation: "models.update",
-        input: { provider: "glm", model: "glm-4.7" },
+        input: { provider: "kimi_coding", model: "k3" },
       },
     ]);
   });

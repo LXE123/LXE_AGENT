@@ -1,13 +1,13 @@
-import type { ManagedLlmCredential } from "@lxe/desktop-protocol";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ManagedLlmCredential, ManagedLlmTarget } from "@lxe/desktop-protocol";
 
 export type ManagedLlmStatus =
-  | { available: false }
-  | {
-      available: true;
-      provider: "deepseek";
-      model: "deepseek-v4-flash";
-      credential_revision: string;
-    };
+  | ({ available: false } & Partial<ManagedLlmTarget>)
+  | ({ available: true; credential_revision: string } & ManagedLlmTarget);
+
+const PROVIDER_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/u;
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -19,25 +19,46 @@ const revisionValue = (value: unknown): string => {
   return /^[a-f0-9]{64}$/u.test(revision) ? revision : "";
 };
 
+const targetValue = (value: unknown): ManagedLlmTarget | undefined => {
+  const object = objectValue(value);
+  const provider = typeof object?.provider === "string" ? object.provider.trim() : "";
+  const model = typeof object?.model === "string" ? object.model.trim() : "";
+  return PROVIDER_PATTERN.test(provider) && MODEL_PATTERN.test(model)
+    ? { provider, model }
+    : undefined;
+};
+
+export const managedLlmTargetSupported = (
+  llmConfigRoot: string,
+  target: ManagedLlmTarget,
+): boolean => {
+  const providerRoot = join(llmConfigRoot, "providers");
+  if (!existsSync(providerRoot)) return false;
+  try {
+    return readdirSync(providerRoot)
+      .filter((name) => name.endsWith(".json"))
+      .some((name) => {
+        const spec = objectValue(JSON.parse(readFileSync(join(providerRoot, name), "utf8")));
+        if (spec?.name !== target.provider) return false;
+        const models = objectValue(spec.models);
+        return Boolean(models && Object.hasOwn(models, target.model));
+      });
+  } catch {
+    return false;
+  }
+};
+
 export const parseManagedLlmStatus = (value: unknown): ManagedLlmStatus | undefined => {
   if (value === undefined || value === null) return undefined;
   const object = objectValue(value);
   if (!object || typeof object.available !== "boolean") {
     throw new Error("invalid managed LLM status response");
   }
-  if (!object.available) return { available: false };
+  const target = targetValue(object);
+  if (!object.available) return { available: false, ...(target ?? {}) };
   const revision = revisionValue(object.credential_revision);
-  if (object.provider !== "deepseek"
-    || object.model !== "deepseek-v4-flash"
-    || !revision) {
-    throw new Error("unsupported managed LLM configuration");
-  }
-  return {
-    available: true,
-    provider: "deepseek",
-    model: "deepseek-v4-flash",
-    credential_revision: revision,
-  };
+  if (!target || !revision) throw new Error("invalid managed LLM configuration");
+  return { available: true, ...target, credential_revision: revision };
 };
 
 export const parseManagedLlmCredential = (
@@ -46,19 +67,19 @@ export const parseManagedLlmCredential = (
   fetchedAt: number,
 ): ManagedLlmCredential => {
   const object = objectValue(value);
+  const target = targetValue(object);
   const revision = revisionValue(object?.credential_revision);
   const apiKey = typeof object?.api_key === "string" ? object.api_key.trim() : "";
-  if (!object
-    || object.provider !== expected.provider
-    || object.model !== expected.model
+  if (!target
+    || target.provider !== expected.provider
+    || target.model !== expected.model
     || revision !== expected.credential_revision
     || !apiKey
     || apiKey.length > 4_096) {
     throw new Error("invalid managed LLM credential response");
   }
   return {
-    provider: expected.provider,
-    model: expected.model,
+    ...target,
     api_key: apiKey,
     credential_revision: revision,
     fetched_at: Math.max(1, Math.trunc(fetchedAt)),

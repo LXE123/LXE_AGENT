@@ -97,35 +97,33 @@ describe("provider grouping", () => {
 });
 
 describe("model display order", () => {
-  test("shows Kimi, DeepSeek, and GLM in the product-defined order", () => {
+  test("shows Kimi and DeepSeek in the product-defined order", () => {
     const models = [
       { provider: "deepseek" },
-      { provider: "glm" },
       { provider: "kimi_coding" }
     ];
 
     expect(modelsInDisplayOrder(models).map((model) => model.provider)).toEqual([
       "kimi_coding",
-      "deepseek",
-      "glm"
+      "deepseek"
     ]);
   });
 
   test("preserves the source order of providers without an explicit rank", () => {
     const models = [
       { provider: "provider_b" },
-      { provider: "glm" },
+      { provider: "provider_c" },
       { provider: "provider_a" }
     ];
 
     expect(modelsInDisplayOrder(models).map((model) => model.provider)).toEqual([
-      "glm",
       "provider_b",
+      "provider_c",
       "provider_a"
     ]);
     expect(models.map((model) => model.provider)).toEqual([
       "provider_b",
-      "glm",
+      "provider_c",
       "provider_a"
     ]);
   });
@@ -139,6 +137,7 @@ describe("conversation model choices", () => {
         credential_source: "local" as const,
         label: "DeepSeek",
         selectable: true,
+        disabled_reason: "",
         model_options: [{ model: "deepseek-chat" }, { model: "deepseek-reasoner" }],
       },
       {
@@ -146,6 +145,7 @@ describe("conversation model choices", () => {
         credential_source: "local" as const,
         label: "Unavailable",
         selectable: false,
+        disabled_reason: "missing API key",
         model_options: [{ model: "hidden-model" }],
       },
       {
@@ -153,6 +153,7 @@ describe("conversation model choices", () => {
         credential_source: "cloud" as const,
         label: "DeepSeek",
         selectable: false,
+        disabled_reason: "unsupported managed model",
         model_options: [{ model: "deepseek-v4-flash" }],
       },
       {
@@ -160,24 +161,26 @@ describe("conversation model choices", () => {
         credential_source: "local" as const,
         label: "Kimi Coding",
         selectable: true,
+        disabled_reason: "",
         model_options: [{ model: "kimi-k2.5" }],
       },
     ])).toEqual([
       {
         provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5",
-        credentialSource: "local", selectable: true, title: "kimi-k2.5", subtitle: "Kimi Coding",
+        credentialSource: "local", selectable: true, disabledReason: "", title: "kimi-k2.5", subtitle: "Kimi Coding",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat",
-        credentialSource: "local", selectable: true, title: "deepseek-chat", subtitle: "DeepSeek",
+        credentialSource: "local", selectable: true, disabledReason: "", title: "deepseek-chat", subtitle: "DeepSeek",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner",
-        credentialSource: "local", selectable: true, title: "deepseek-reasoner", subtitle: "DeepSeek",
+        credentialSource: "local", selectable: true, disabledReason: "", title: "deepseek-reasoner", subtitle: "DeepSeek",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-v4-flash",
-        credentialSource: "cloud", selectable: false, title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
+        credentialSource: "cloud", selectable: false, disabledReason: "unsupported managed model",
+        title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
       },
     ]);
   });

@@ -13,6 +13,7 @@ import {
   type AgentDashboardRpcOperation,
   type DashboardRpcResult,
   type ManagedLlmCredential,
+  type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
 import { assertWorkspaceAvailable, createLogger, type Logger } from "@lxe/core";
 import {
@@ -82,6 +83,7 @@ export interface AgentRuntimeHost {
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
   updateManagedLlmCredential?(
     credential: ManagedLlmCredential | null,
+    target?: ManagedLlmTarget,
   ): Promise<{ cancelActiveTurns: boolean }>;
   health(): JsonObject;
 }
@@ -308,15 +310,15 @@ export function createAgentRuntimeHost(
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
     },
-    updateManagedLlmCredential: async (credential) => {
-      const cancelActiveTurns = !credential
-        && environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
-        && Boolean(environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION);
-      environment.LXE_MANAGED_LLM_PROVIDER = credential?.provider ?? "";
-      environment.LXE_MANAGED_LLM_MODEL = credential?.model ?? "";
+    updateManagedLlmCredential: async (credential, target) => {
+      const previousRevision = environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION ?? "";
+      const managedTarget = target ?? credential;
+      environment.LXE_MANAGED_LLM_PROVIDER = managedTarget?.provider ?? "";
+      environment.LXE_MANAGED_LLM_MODEL = managedTarget?.model ?? "";
       environment.LXE_MANAGED_LLM_API_KEY = credential?.api_key ?? "";
       environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = credential?.credential_revision ?? "";
-      environment.LXE_MANAGED_LLM_INVALID_REVISION = credential?.invalid_revision ?? "";
+      environment.LXE_MANAGED_LLM_INVALID_REVISION = credential?.invalid_revision
+        ?? previousRevision;
       if (environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
         && credential
         && credential.invalid_revision !== credential.credential_revision) {
@@ -326,7 +328,7 @@ export function createAgentRuntimeHost(
           credentialSource: "cloud",
         });
       }
-      return { cancelActiveTurns };
+      return { cancelActiveTurns: false };
     },
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();

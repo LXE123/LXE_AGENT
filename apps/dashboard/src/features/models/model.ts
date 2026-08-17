@@ -3,8 +3,7 @@ import type { ModelOptionPayload, ModelPayload, ThinkingStatePayload } from "../
 
 const MODEL_PROVIDER_DISPLAY_ORDER = new Map([
   ["kimi_coding", 0],
-  ["deepseek", 1],
-  ["glm", 2]
+  ["deepseek", 1]
 ]);
 
 export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(models: readonly T[]): T[] {
@@ -112,12 +111,13 @@ export type ConversationModelChoice = {
   model: string;
   credentialSource: "local" | "cloud";
   selectable: boolean;
+  disabledReason: string;
   title: string;
   subtitle: string;
 };
 
 export function conversationModelChoices(
-  models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "model_options" | "credential_source">[],
+  models: readonly Pick<ModelPayload, "provider" | "label" | "selectable" | "disabled_reason" | "model_options" | "credential_source">[],
 ): ConversationModelChoice[] {
   return modelsInDisplayOrder(models).flatMap((provider) =>
     provider.selectable || provider.credential_source === "cloud"
@@ -127,6 +127,7 @@ export function conversationModelChoices(
         model: option.model,
         credentialSource: provider.credential_source,
         selectable: provider.selectable,
+        disabledReason: provider.disabled_reason,
         title: provider.credential_source === "cloud" ? "云端" : option.model,
         subtitle: provider.credential_source === "cloud"
           ? `${provider.label} · ${option.model}`
@@ -224,6 +225,9 @@ export function modelDisabledReasonLabel(t: UiText, reason: string): string {
   }
   if (reason === "missing API key") {
     return t.models.missingApiKey;
+  }
+  if (reason === "unsupported managed model") {
+    return t.models.unsupportedManagedModel;
   }
   return reason;
 }

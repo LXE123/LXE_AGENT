@@ -6,6 +6,7 @@ import type {
   DesktopSetupInput,
   DesktopSetupState,
   ManagedLlmCredential,
+  ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudConfigService } from "./cloud";
 import { DesktopLocalAuthStore } from "./auth-store";
@@ -38,6 +39,7 @@ export class DesktopConfigStore {
       auth,
       validation,
       options.secretEnvironment,
+      options.llmConfigRoot,
     );
     this.cloud = new DesktopCloudConfigService(repository, options.secretEnvironment);
     this.setup.migrateModelCredentialStorage();
@@ -70,6 +72,14 @@ export class DesktopConfigStore {
 
   managedLlmCredential(): ManagedLlmCredential | null {
     return this.setup.managedLlmCredential();
+  }
+
+  managedLlmTarget(): ManagedLlmTarget {
+    return this.setup.managedLlmTarget();
+  }
+
+  saveManagedLlmTarget(target: ManagedLlmTarget): void {
+    this.setup.saveManagedLlmTarget(target);
   }
 
   saveManagedLlmCredential(credential: ManagedLlmCredential): void {

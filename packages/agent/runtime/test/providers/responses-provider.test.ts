@@ -383,13 +383,13 @@ describe("DeepSeek Responses provider", () => {
     expect(deepseek.baseURL).toBe("https://api.deepseek.com");
     expect(createRuntimeProvider(deepseek)).toBeInstanceOf(ResponsesRuntimeProvider);
 
-    const glm = loadProviderDescriptor(projectRoot, {
-      AGENT_LLM_PROVIDER: "glm",
-      AGENT_LLM_MODEL: "glm-5v-turbo",
-      GLM_API_KEY: "secret-key",
+    const kimi = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_CODE_API_KEY: "secret-key",
     });
-    expect(glm.apiStyle).toBe("anthropic_messages");
-    expect(createRuntimeProvider(glm)).toBeInstanceOf(AnthropicRuntimeProvider);
+    expect(kimi.apiStyle).toBe("anthropic_messages");
+    expect(createRuntimeProvider(kimi)).toBeInstanceOf(AnthropicRuntimeProvider);
   });
 
   test("carries the same person id both wires rate-limit against", () => {

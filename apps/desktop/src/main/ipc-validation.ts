@@ -160,7 +160,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
 
 export function validateModelProvider(value: unknown): DesktopModelProvider {
   const provider = boundedText(value, "Model provider", 64);
-  if (provider !== "kimi_coding" && provider !== "deepseek" && provider !== "glm") {
+  if (provider !== "kimi_coding" && provider !== "deepseek") {
     throw new Error("Unsupported model provider");
   }
   return provider;

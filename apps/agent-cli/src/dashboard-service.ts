@@ -578,19 +578,93 @@ export class DashboardService {
     const items = this.providerSpecs()
       .map((spec) => this.modelPayload(spec))
       .sort((left, right) => text(left.provider).localeCompare(text(right.provider)));
-    const deepseek = this.providerSpec("deepseek");
-    if (deepseek) items.push(this.modelPayload(deepseek, "deepseek-v4-flash", "cloud"));
+    const target = this.managedTarget();
+    const managedSpec = this.managedProviderSpec(target.provider);
+    const managedModels = object(managedSpec?.models);
+    items.push(managedSpec && target.model in managedModels
+      ? this.modelPayload(managedSpec, target.model, "cloud")
+      : this.unsupportedManagedModelPayload(target, managedSpec));
     return items;
   }
 
   private currentModel(): JsonObject {
     const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "deepseek";
     const source = this.options.environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud" ? "cloud" : "local";
+    if (source === "cloud") {
+      const target = this.managedTarget();
+      const managedSpec = this.managedProviderSpec(target.provider);
+      if (managedSpec && target.model in object(managedSpec.models)) {
+        return this.modelPayload(managedSpec, target.model, "cloud");
+      }
+      return this.unsupportedManagedModelPayload(target, managedSpec);
+    }
     const spec = this.providerSpec(requested);
     if (spec) {
       return this.modelPayload(spec, undefined, source);
     }
     return this.models()[0] ?? {};
+  }
+
+  private managedTarget(): { provider: string; model: string } {
+    return {
+      provider: text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) || "deepseek",
+      model: text(this.options.environment.LXE_MANAGED_LLM_MODEL) || "deepseek-v4-flash",
+    };
+  }
+
+  private managedProviderSpec(provider: string): Record<string, unknown> | undefined {
+    return this.providerSpecs().find((spec) => text(spec.name) === provider);
+  }
+
+  private managedConfigured(target: { provider: string; model: string }): boolean {
+    const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
+    return text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === target.provider
+      && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === target.model
+      && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
+      && /^[a-f0-9]{64}$/u.test(managedRevision)
+      && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision;
+  }
+
+  private unsupportedManagedModelPayload(
+    target: { provider: string; model: string },
+    spec?: Record<string, unknown>,
+  ): JsonObject {
+    const label = text(spec?.label) || target.provider;
+    const capabilities = {
+      provider: target.provider,
+      model: target.model,
+      context_window_tokens: 0,
+      max_tokens: 0,
+      max_output_tokens: 0,
+      supports_vision: false,
+      supports_thinking: false,
+      supports_temperature: false,
+    };
+    const option = {
+      model: target.model,
+      thinking_request_style: "none",
+      thinking_levels: [],
+      thinking_level_labels: {},
+      thinking_default: "",
+      capabilities,
+    };
+    return {
+      provider: target.provider,
+      credential_source: "cloud",
+      label,
+      api_style: "",
+      model: target.model,
+      configured: false,
+      selectable: false,
+      disabled_reason: "unsupported managed model",
+      model_options: [option],
+      thinking_request_style: "none",
+      thinking_levels: [],
+      thinking_level_labels: {},
+      thinking_default: "",
+      thinking_state: { enabled: false, level: "", editable: false },
+      capabilities,
+    };
   }
 
   private providerRuntimePreference(provider: string): {
@@ -617,7 +691,7 @@ export class DashboardService {
     const runtimePreference = this.providerRuntimePreference(name);
     const savedPreference = readProviderPreference(this.options.environment, name);
     const requestedModel = credentialSource === "cloud"
-      ? "deepseek-v4-flash"
+      ? text(modelOverride) || this.managedTarget().model
       : text(modelOverride) || runtimePreference.model || text(spec.default_model);
     const restoredSavedModel = savedPreference.model in models ? savedPreference.model : "";
     const model = requestedModel in models
@@ -627,15 +701,8 @@ export class DashboardService {
       ? savedPreference
       : runtimePreference;
     const selected = object(models[model]);
-    const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
     const configured = credentialSource === "cloud"
-      ? name === "deepseek"
-        && model === "deepseek-v4-flash"
-        && text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === "deepseek"
-        && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === model
-        && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
-        && /^[a-f0-9]{64}$/u.test(managedRevision)
-        && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision
+      ? this.managedConfigured({ provider: name, model })
       : this.localModelConfigured(name);
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
     const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
@@ -723,21 +790,18 @@ export class DashboardService {
     const activeModel = activeProvider ? this.currentModel() : undefined;
     const activeThinkingState = object(activeModel?.thinking_state);
     const savedPreference = readProviderPreference(this.options.environment, provider);
+    const managedTarget = this.managedTarget();
+    if (credentialSource === "cloud" && provider !== managedTarget.provider) {
+      rpcError("invalid_argument", "Unsupported managed model provider");
+    }
     const preferredModel = credentialSource === "cloud"
-      ? "deepseek-v4-flash"
+      ? managedTarget.model
       : requestedModel || savedPreference.model || text(spec.default_model);
     const model = preferredModel in models
       ? preferredModel
       : requestedModel ? preferredModel : text(spec.default_model);
     if (!(model in models)) rpcError("invalid_argument", "Unsupported model for provider");
-    const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
-    const cloudConfigured = provider === "deepseek"
-      && model === "deepseek-v4-flash"
-      && text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === provider
-      && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === model
-      && Boolean(text(this.options.environment.LXE_MANAGED_LLM_API_KEY))
-      && /^[a-f0-9]{64}$/u.test(managedRevision)
-      && text(this.options.environment.LXE_MANAGED_LLM_INVALID_REVISION).toLowerCase() !== managedRevision;
+    const cloudConfigured = this.managedConfigured({ provider, model });
     if (credentialSource === "cloud"
       ? !cloudConfigured
       : !this.localModelConfigured(provider)) {

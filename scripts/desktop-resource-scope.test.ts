@@ -125,7 +125,6 @@ describe("desktop resource scope", () => {
     expect(config?.source.paths).toEqual([
       "config/llm/auth-profiles.json",
       "config/llm/providers/deepseek.json",
-      "config/llm/providers/glm.json",
       "config/llm/providers/kimi-coding.json",
       "config/mcp_servers.default.yaml",
     ]);

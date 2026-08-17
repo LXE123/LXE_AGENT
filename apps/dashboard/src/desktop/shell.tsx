@@ -70,7 +70,6 @@ const setupForm = desktopSettingsForm;
 const PROVIDER_LABELS: Record<Provider, string> = {
   kimi_coding: "Kimi Coding",
   deepseek: "DeepSeek",
-  glm: "GLM",
 };
 
 const FONT_SIZE_VALUES: ReadonlyArray<DashboardFontSize> = ["small", "standard", "large"];

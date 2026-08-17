@@ -340,7 +340,10 @@ export class DesktopGateway {
     credential: import("@lxe/desktop-protocol").ManagedLlmCredential | null,
   ): Promise<void> {
     if (!this.runtime) return;
-    await this.runtime.updateManagedLlmCredential(credential);
+    await this.runtime.updateManagedLlmCredential(
+      credential,
+      this.options.config.managedLlmTarget(),
+    );
   }
 
   async syncModelConfiguration(): Promise<void> {

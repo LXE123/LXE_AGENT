@@ -25,6 +25,7 @@ export type { DesktopCloudPermissionSnapshot };
 
 export interface DesktopConfigStoreOptions {
   platform?: DesktopPlatform;
+  llmConfigRoot?: string;
   pathExists?: (path: string) => boolean;
   pathIsDirectory?: (path: string) => boolean;
   pathIsExecutable?: (path: string) => boolean;
