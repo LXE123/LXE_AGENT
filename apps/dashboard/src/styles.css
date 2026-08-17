@@ -8571,25 +8571,37 @@ pre {
   backdrop-filter: none;
 }
 
-.desktop-platform-darwin .sessions-focus .conversation-header {
+/* This row stands in for the window's title bar, but only its title text may
+   drag the window. Once the sidebar is collapsed the row starts at x=0 and runs
+   under the floating sidebar toggle, and a drag region there swallows the
+   button: draggable regions are handed to the window manager as caption area,
+   so the click never reaches the DOM. Stacking cannot rescue it either — the
+   regions are unioned and subtracted in document order, not by z-index, and the
+   header comes after the toggle, so its rectangle would be added back last. */
+.desktop-platform-darwin .sessions-focus .conversation-header,
+.desktop-platform-win32 .sessions-focus .conversation-header {
   z-index: 21;
   background: var(--bg);
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
-.desktop-platform-darwin .sessions-focus .conversation-header-copy {
+.desktop-platform-darwin .sessions-focus .conversation-header-copy,
+.desktop-platform-win32 .sessions-focus .conversation-header-copy {
   app-region: drag;
   -webkit-app-region: drag;
 }
 
-.desktop-platform-darwin .sessions-focus .conversation-header button {
+/* Declared after the title text so the subtraction lands on top of it. */
+.desktop-platform-darwin .sessions-focus .conversation-header button,
+.desktop-platform-win32 .sessions-focus .conversation-header button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
+/* Windows draws its native controls inside the title-bar overlay, so the row
+   keeps clear of them on the right. */
 .desktop-platform-win32 .sessions-focus .conversation-header {
-  z-index: 21;
   min-height: 40px;
   padding-top: 5px;
   padding-right: calc(
@@ -8603,14 +8615,6 @@ pre {
     )
   );
   padding-bottom: 5px;
-  background: var(--bg);
-  app-region: drag;
-  -webkit-app-region: drag;
-}
-
-.desktop-platform-win32 .sessions-focus .conversation-header button {
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
 }
 
 .desktop-window-frame .app-shell.sidebar-collapsed.sessions-focus .conversation-header {

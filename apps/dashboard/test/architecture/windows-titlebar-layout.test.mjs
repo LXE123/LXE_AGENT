@@ -15,13 +15,16 @@ test("Windows conversations merge the page header into the native title-bar row"
     styles,
     /\.desktop-platform-win32:has\(\.app-shell\.sessions-focus\) > \.desktop-window-drag-region\s*\{[^}]*pointer-events:\s*none;[^}]*-webkit-app-region:\s*no-drag;/s,
   );
+  // The row takes the title-bar's own height and keeps clear of the native
+  // caption controls on the right. Which parts of it drag the window is a
+  // cross-platform rule now — see window-drag-regions.test.mjs.
   assert.match(
     styles,
-    /\.desktop-platform-win32 \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*min-height:\s*40px;[^}]*env\(titlebar-area-width,[^}]*background:\s*var\(--bg\);[^}]*-webkit-app-region:\s*drag;/s,
+    /\.desktop-platform-win32 \.sessions-focus \.conversation-header\s*\{[^}]*min-height:\s*40px;[^}]*env\(titlebar-area-width,/s,
   );
   assert.match(
     styles,
-    /\.desktop-platform-win32 \.sessions-focus \.conversation-header button\s*\{[^}]*-webkit-app-region:\s*no-drag;/s,
+    /\.desktop-platform-win32 \.sessions-focus \.conversation-header,?\n?[^{]*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--bg\);/s,
   );
 });
 

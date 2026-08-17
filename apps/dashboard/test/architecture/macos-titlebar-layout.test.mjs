@@ -57,18 +57,11 @@ test("macOS conversations merge the page header into the native title-bar row", 
   );
   // Opaque is the requirement - the drag region sits behind it - and it takes
   // the plane's colour so merging into the title bar does not lay a slab across
-  // the top of the transcript.
+  // the top of the transcript. Which parts of the row drag the window is a
+  // cross-platform rule now - see window-drag-regions.test.mjs.
   assert.match(
     styles,
-    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--bg\);[^}]*-webkit-app-region:\s*no-drag;/s
-  );
-  assert.match(
-    styles,
-    /\.desktop-platform-darwin \.sessions-focus \.conversation-header-copy\s*\{[^}]*-webkit-app-region:\s*drag;/s
-  );
-  assert.match(
-    styles,
-    /\.desktop-platform-darwin \.sessions-focus \.conversation-header button\s*\{[^}]*-webkit-app-region:\s*no-drag;/s
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header,?\n?[^{]*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--bg\);/s
   );
   assert.match(
     styles,
