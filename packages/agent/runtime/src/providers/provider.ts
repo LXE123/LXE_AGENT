@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { arch, platform, release } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
@@ -24,7 +25,7 @@ export { AnthropicMessagesStreamAdapter as ProviderStreamNormalizer } from "./pr
 
 const logger = createLogger("runtime.provider");
 const warnedThinkingNormalizations = new Set<string>();
-const KIMI_CODING_USER_AGENT = "KimiCLI/1.5";
+const kimiCodingUserAgent = (): string => `pi (${platform()} ${release()}; ${arch()})`;
 const DEFAULT_MODEL_MAX_TOKENS = 4_096;
 const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
 const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
@@ -306,7 +307,7 @@ export function loadProviderDescriptor(
   }
   const defaultHeaders = stringRecord(spec.default_headers);
   if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
-    defaultHeaders["User-Agent"] = KIMI_CODING_USER_AGENT;
+    defaultHeaders["User-Agent"] = kimiCodingUserAgent();
   }
   return {
     name,

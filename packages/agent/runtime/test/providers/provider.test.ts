@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { arch, platform, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryRoot } from "@lxe/core";
 import providerCases from "./provider-cases.json";
@@ -116,7 +116,7 @@ describe("Anthropic-compatible provider", () => {
       baseURL: "https://api.kimi.com/coding/",
       apiKey: "secret-key",
       maxTokens: 32768,
-      defaultHeaders: expect.objectContaining({ "User-Agent": "KimiCLI/1.5" }),
+      defaultHeaders: expect.objectContaining({ "User-Agent": `pi (${platform()} ${release()}; ${arch()})` }),
       thinkingStyle: "anthropic-budget",
       thinkingBudgetTokens: 16_000,
       thinkingLevels: ["low", "high", "max"],

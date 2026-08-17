@@ -5,7 +5,6 @@
   "base_url": "https://api.kimi.com/coding/",
   "default_model": "kimi-for-coding",
   "default_headers": {
-    "User-Agent": "KimiCLI/1.5",
     "anthropic-version": "2023-06-01"
   },
   "aliases": ["kimi-coding", "kimi_code", "kimi-code"],
