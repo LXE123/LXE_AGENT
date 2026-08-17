@@ -263,6 +263,103 @@ def test_offsetting_differences_are_not_treated_as_identical(
     assert result["success"] is True
 
 
+DELIVERY_HEADER = (
+    '"发货单号","MSKU","MSKU发货量","SKU发货量"\n'
+)
+
+
+def _write_delivery(directory: Path, ship_no: str, rows: list[tuple[str, str, str]]) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{ship_no}_100001.csv"
+    body = "".join(
+        f'"{ship_no}","{msku}","{msku_qty}","{sku_detail}"\n'
+        for msku, msku_qty, sku_detail in rows
+    )
+    path.write_text(DELIVERY_HEADER + body, encoding="utf-8")
+    return path
+
+
+def test_delivery_source_sends_the_same_shape_as_the_wms_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """换源只换数字的来源，请求体形状必须一模一样。
+
+    ERP 用存的配比展开 MSKU发货量，结果和发货单的 SKU发货量逐 SKU 相等，
+    所以接口、请求体和下游都不需要跟着改。
+    """
+    _configure(monkeypatch, tmp_path)
+    delivery_dir = tmp_path / "delivery_csv"
+    _write_delivery(
+        delivery_dir,
+        "SP260710001",
+        [("MSKU-A", "8", "SKU-A × 8"), ("MSKU-B", "2", "SKU-B × 4")],
+    )
+    monkeypatch.setattr(
+        cli, "resolve_delivery_csv_path", lambda sp_no: _write_delivery(
+            delivery_dir,
+            "SP260710001",
+            [("MSKU-A", "8", "SKU-A × 8"), ("MSKU-B", "2", "SKU-B × 4")],
+        )
+    )
+    session = FakeSession([_preview_response()])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"ship_no": "SP260710001", "source": "delivery"})
+
+    assert result["success"] is True
+    body = session.calls[0]["json"]
+    assert body["sp_no"] == "SP260710001"
+    assert body["lines"] == [
+        {"msku": "MSKU-A", "actual_quantity": "8"},
+        {"msku": "MSKU-B", "actual_quantity": "2"},
+    ]
+
+
+def test_delivery_source_skips_mskus_that_were_not_shipped(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """发货量为 0 表示这个 MSKU 最终没发，不能当成装箱条目传给 ERP。"""
+    _configure(monkeypatch, tmp_path)
+    delivery_dir = tmp_path / "delivery_csv"
+    path = _write_delivery(
+        delivery_dir,
+        "SP260710001",
+        [("MSKU-A", "8", "SKU-A × 8"), ("MSKU-ZERO", "0", "SKU-Z × 0")],
+    )
+    monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda sp_no: path)
+    session = FakeSession([_preview_response()])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"ship_no": "SP260710001", "source": "delivery"})
+
+    assert result["success"] is True
+    assert [line["msku"] for line in session.calls[0]["json"]["lines"]] == ["MSKU-A"]
+
+
+def test_default_source_still_reads_the_wms_file(monkeypatch, tmp_path: Path) -> None:
+    """默认不变：这一步只是把发货单这条路修好备用，切换是下一步的决定。"""
+    _configure(monkeypatch, tmp_path)
+    attached = tmp_path / "SP260710001.xlsx"
+    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 8}])
+    session = FakeSession([_preview_response()])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"packing_excel": str(attached)})
+
+    assert result["success"] is True
+    assert result["packing_source"] == "wms"
+
+
+def test_unknown_source_is_rejected(monkeypatch, tmp_path: Path) -> None:
+    _configure(monkeypatch, tmp_path)
+    result = cli.run({"ship_no": "SP260710001", "source": "excel"})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "packing_source_invalid"
+
+
 def test_direct_attachment_rejects_split_and_ship_mismatch(
     monkeypatch,
     tmp_path: Path,

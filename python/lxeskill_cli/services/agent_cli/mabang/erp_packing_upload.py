@@ -16,6 +16,8 @@ from services.agent_cli._shared.json_cli import exception_text
 from services.agent_cli.mabang.erp_http import ERP_REQUEST_TIMEOUT_SECONDS
 from services.agent_cli.mabang.shipment_quantity_validation import (
     read_consignment_msku_quantities,
+    read_delivery_msku_infos,
+    resolve_delivery_csv_path,
 )
 from services.mabang.amazon.fba.consignment_excel import (
     resolve_consignment_excel_dir,
@@ -27,6 +29,9 @@ MAX_RECONCILIATION_LINES = 200
 MAX_REMOTE_BODY_CHARS = 4_000
 PACKING_PREVIEW_SCHEMA = "lxe.erp.packing-preview.v1"
 PACKING_EXTENSIONS = {".xls", ".xlsx"}
+SOURCE_WMS = "wms"
+SOURCE_DELIVERY = "delivery"
+PACKING_SOURCES = {SOURCE_WMS, SOURCE_DELIVERY}
 
 
 class PackingUploadError(RuntimeError):
@@ -151,6 +156,78 @@ def _normalized_msku_quantities(path: Path) -> OrderedDict[str, Decimal]:
             )
         normalized[msku] = normalized.get(msku, Decimal("0")) + quantity
     return OrderedDict((msku, normalized[msku]) for msku in sorted(normalized))
+
+
+
+def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
+    """从发货单 CSV 读出每个 MSKU 的实发量。
+
+    形状和 _normalized_msku_quantities 完全一致，所以 ERP 请求体、接口和下游
+    都不用改——换的只是这批数字的来源：马帮 WMS 导出会把总量分配到错误的
+    MSKU 上（SP260808001 上出现过 +176/-176 的完美抵消），发货单不会。
+
+    数量为 0 的行代表这个 MSKU 最终没发，不能当成装箱条目传给 ERP。
+    """
+    infos = read_delivery_msku_infos(path)
+    quantities: dict[str, Decimal] = {}
+    for raw_msku, info in infos.items():
+        msku = str(raw_msku or "").strip().upper()
+        if not msku:
+            raise PackingUploadError(
+                "delivery_csv_invalid",
+                f"发货单包含空 MSKU: {path.name}",
+            )
+        quantity = info.msku_ship_quantity
+        if quantity is None:
+            raise PackingUploadError(
+                "delivery_csv_invalid",
+                f"发货单缺少 MSKU发货量: msku={msku}, file={path.name}",
+            )
+        if quantity <= 0:
+            continue
+        quantities[msku] = quantities.get(msku, Decimal("0")) + quantity
+    if not quantities:
+        raise PackingUploadError(
+            "delivery_csv_invalid",
+            f"发货单没有任何大于 0 的 MSKU发货量: {path.name}",
+        )
+    return OrderedDict((msku, quantities[msku]) for msku in sorted(quantities))
+
+
+def _resolve_packing_source(arguments: Mapping[str, Any]) -> str:
+    source = str(arguments.get("source") or SOURCE_WMS).strip().lower()
+    if source not in PACKING_SOURCES:
+        raise PackingUploadError(
+            "packing_source_invalid",
+            f"source 只支持 {sorted(PACKING_SOURCES)}: {source}",
+        )
+    return source
+
+
+def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
+    raw_ship_no = str(arguments.get("ship_no") or "").strip()
+    if not raw_ship_no:
+        raise PackingUploadError(
+            "packing_input_required",
+            "source=delivery 时必须提供 ship_no",
+        )
+    ship_no = _normalize_ship_no(raw_ship_no)
+    try:
+        path = resolve_delivery_csv_path(ship_no)
+    except FileNotFoundError as exc:
+        raise PackingUploadError(
+            "delivery_csv_missing",
+            str(exc),
+            recovery={
+                "next_action": "ask_user_to_download_delivery_csv",
+                "skill": "fba-shipment-delivery-csv-download",
+                "command": (
+                    "lxeskill fba shipment delivery-csv-download "
+                    f"--delivery-no {ship_no}"
+                ),
+            },
+        ) from exc
+    return path, ship_no
 
 
 def _file_sha256(path: Path) -> str:
@@ -464,8 +541,13 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             )
 
         confirm_identical = bool(arguments.get("confirm_identical"))
-        source_path, ship_no = _resolve_source(arguments)
-        quantities = _normalized_msku_quantities(source_path)
+        packing_source = _resolve_packing_source(arguments)
+        if packing_source == SOURCE_DELIVERY:
+            source_path, ship_no = _resolve_delivery_source(arguments)
+            quantities = _normalized_delivery_quantities(source_path)
+        else:
+            source_path, ship_no = _resolve_source(arguments)
+            quantities = _normalized_msku_quantities(source_path)
         source_sha256 = _file_sha256(source_path)
         captured_at = _captured_at(source_path)
         request_body: dict[str, Any] = {
@@ -500,6 +582,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "source_file_name": source_path.name,
                 "source_sha256": source_sha256,
                 "captured_at": captured_at,
+                "packing_source": packing_source,
                 "msku_count": len(quantities),
                 "actual_msku_quantity": _decimal_text(
                     sum(quantities.values(), Decimal("0"))

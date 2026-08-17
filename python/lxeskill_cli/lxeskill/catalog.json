@@ -256,7 +256,7 @@
       "legacy_aliases": ["mabang_erp_packing_upload"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"packing_excel": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xls", ".xlsx"], "instruction": "请上传原始完整 WMS 装箱 Excel，并使用附件保存后的真实绝对路径。"}}, "ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["packing_excel"]}, {"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"packing_excel": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xls", ".xlsx"], "instruction": "请上传原始完整 WMS 装箱 Excel，并使用附件保存后的真实绝对路径。"}}, "ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}, "source": {"type": "string", "enum": ["wms", "delivery"]}}, "anyOf": [{"required": ["packing_excel"]}, {"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
     },
     {
       "name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel",
