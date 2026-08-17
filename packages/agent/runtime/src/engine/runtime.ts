@@ -46,6 +46,7 @@ import type {
   RuntimeEmitter,
   RuntimeHandle,
   RuntimeMessage,
+  RuntimeMessageContent,
   RuntimeProvider,
   RuntimeSkillSnapshot,
   RuntimeWorkspaceInstanceProvider,
@@ -397,7 +398,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       };
       await this.options.store.appendTurnContext(job.session_id, turnContext);
       let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
-      const userContent: RuntimeMessage["content"] = heartbeat
+      const userContent: RuntimeMessageContent = heartbeat
         ? heartbeatPrompt(pendingEvents)
         : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
       const userMessage: RuntimeMessage = { role: "user", content: userContent };

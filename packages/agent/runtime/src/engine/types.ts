@@ -43,10 +43,25 @@ export type RuntimeStreamEvent =
   | { type: "tool_input_delta"; part_id: string; delta: string }
   | { type: "tool_input_end"; part_id: string };
 
-export interface RuntimeMessage {
+export type RuntimeMessageContent = string | RuntimeContentBlock[];
+
+export interface RuntimeConversationMessage {
   role: "user" | "assistant" | "tool" | "system";
-  content: string | RuntimeContentBlock[];
+  content: RuntimeMessageContent;
 }
+
+export interface RuntimeCompactionSummaryMessage {
+  role: "compactionSummary";
+  content?: never;
+  summary: string;
+  tokensBefore: number;
+  details: {
+    readFiles: string[];
+    modifiedFiles: string[];
+  };
+}
+
+export type RuntimeMessage = RuntimeConversationMessage | RuntimeCompactionSummaryMessage;
 
 export interface RuntimeUsage {
   input_tokens: number;

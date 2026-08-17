@@ -73,6 +73,16 @@ const closedTurn = (label: string, size = 0): RuntimeMessage[] => [
   { role: "assistant", content: [{ type: "text", text: `${label} answer ${"a".repeat(size)}` }] },
 ];
 
+const checkpoint = (
+  summary: string,
+  details: { readFiles: string[]; modifiedFiles: string[] } = { readFiles: [], modifiedFiles: [] },
+): RuntimeMessage => ({ role: "compactionSummary", summary, tokensBefore: 1_000, details });
+
+const summaryPrompt = (provider: SummaryProvider, index = 0): string => {
+  const message = provider.requests[index]?.messages[0];
+  return message?.role === "user" ? String(message.content) : "";
+};
+
 describe("token-aware runtime context", () => {
   test("pins pi's history, update, and turn-prefix prompts byte-for-byte", () => {
     const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
@@ -206,22 +216,27 @@ describe("token-aware runtime context", () => {
     expect(provider.requests).toHaveLength(0);
   });
 
-  test("summarizes an old prefix and retains recent complete turns", async () => {
+  test("stores one structured checkpoint and retains recent complete turns", async () => {
     const store = new MemoryStore();
     const provider = new SummaryProvider();
     const pipeline = new ContextPipeline({
       provider, store, contextWindowTokens: 1_000, reserveTokens: 100, recentRawTokens: 100,
     });
-    const messages = [...closedTurn("old", 2_000), ...closedTurn("recent", 400)];
+    const messages = [...closedTurn("old", 2_000), ...closedTurn("recent", 50)];
     const result = await pipeline.prepare({
       sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
     });
     expect(result.compacted).toBe(true);
-    expect(result.messages[0]?.content).toContain("compact summary");
+    expect(result.messages[0]).toEqual(expect.objectContaining({
+      role: "compactionSummary",
+      summary: "compact summary",
+      tokensBefore: result.beforeTokens,
+      details: { readFiles: [], modifiedFiles: [] },
+    }));
     expect(JSON.stringify(result.messages)).toContain("recent request");
     expect(JSON.stringify(result.messages)).not.toContain("old request");
     expect(result.afterTokens).toBeLessThan(result.beforeTokens);
-    const prompt = String(provider.requests[0]?.messages[0]?.content);
+    const prompt = summaryPrompt(provider);
     expect(prompt.startsWith("<conversation>\n")).toBe(true);
     expect(prompt.endsWith(HISTORY_SUMMARY_PROMPT)).toBe(true);
     expect(prompt).not.toContain("<previous-summary>");
@@ -237,9 +252,9 @@ describe("token-aware runtime context", () => {
     const provider = new SummaryProvider();
     provider.summaries = ["updated checkpoint\n\n<read-files>\nbogus.ts\n</read-files>"];
     const pipeline = new ContextPipeline({
-      provider, store, contextWindowTokens: 1_000, reserveTokens: 100, recentRawTokens: 100,
+      provider, store, contextWindowTokens: 1_000, reserveTokens: 100, recentRawTokens: 100, preCallThreshold: 0.5,
     });
-    const previous = `The conversation history before this point was compacted into the following summary: previous checkpoint
+    const previous = checkpoint(`previous checkpoint
 
 <read-files>
 src/a.ts
@@ -247,9 +262,9 @@ src/a.ts
 
 <modified-files>
 src/b.ts
-</modified-files>`;
+</modified-files>`, { readFiles: ["src/a.ts"], modifiedFiles: ["src/b.ts"] });
     const messages: RuntimeMessage[] = [
-      { role: "user", content: previous },
+      previous,
       { role: "user", content: `continue work ${"x".repeat(2_000)}` },
       { role: "assistant", content: [
         { type: "tool_call", id: "read-b", name: "read", arguments: { path: "src/b.ts" } },
@@ -264,26 +279,57 @@ src/b.ts
         { type: "tool_result", tool_call_id: "edit-a", content: "ok" },
         { type: "tool_result", tool_call_id: "write-d", content: "failed", is_error: true },
       ] },
-      ...closedTurn("recent", 400),
+      ...closedTurn("recent", 50),
     ];
     const result = await pipeline.prepare({
       sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
     });
     expect(result.compacted).toBe(true);
-    const prompt = String(provider.requests[0]?.messages[0]?.content);
+    const prompt = summaryPrompt(provider);
     expect(prompt).toContain("<previous-summary>\nprevious checkpoint\n</previous-summary>");
     expect(prompt).not.toContain("The conversation history before this point was compacted");
     expect(prompt).not.toContain("bogus.ts");
     expect(prompt).not.toContain("<read-files>");
     expect(prompt.indexOf("</conversation>")).toBeLessThan(prompt.indexOf("<previous-summary>"));
     expect(prompt.endsWith(UPDATE_HISTORY_SUMMARY_PROMPT)).toBe(true);
-    expect(String(result.messages[0]?.content)).toContain("<read-files>\nsrc/c.ts\n</read-files>");
-    expect(String(result.messages[0]?.content)).toContain("<modified-files>\nsrc/a.ts\nsrc/b.ts\nsrc/d.ts\n</modified-files>");
-    expect(String(result.messages[0]?.content)).not.toContain("bogus.ts");
+    expect(result.messages[0]?.role).toBe("compactionSummary");
+    if (result.messages[0]?.role !== "compactionSummary") throw new Error("missing compaction checkpoint");
+    expect(result.messages[0].summary).toContain("<read-files>\nsrc/c.ts\n</read-files>");
+    expect(result.messages[0].summary).toContain("<modified-files>\nsrc/a.ts\nsrc/b.ts\nsrc/d.ts\n</modified-files>");
+    expect(result.messages[0].summary).not.toContain("bogus.ts");
+    expect(result.messages[0].details).toEqual({
+      readFiles: ["src/c.ts"],
+      modifiedFiles: ["src/a.ts", "src/b.ts", "src/d.ts"],
+    });
     expect(store.replacements.at(-1)?.metadata).toEqual(expect.objectContaining({
       read_files: ["src/c.ts"],
       modified_files: ["src/a.ts", "src/b.ts", "src/d.ts"],
     }));
+  });
+
+  test("treats legacy summary prefixes as ordinary user text", async () => {
+    const store = new MemoryStore();
+    const provider = new SummaryProvider();
+    const pipeline = new ContextPipeline({
+      provider, store, contextWindowTokens: 1_000, reserveTokens: 100, recentRawTokens: 100, preCallThreshold: 0.5,
+    });
+    const historyPrefix = "The conversation history before this point was compacted into the following summary: old history";
+    const midturnPrefix = "The intermediate steps of the current task were compacted into the following checkpoint summary: old turn";
+    const messages: RuntimeMessage[] = [
+      { role: "user", content: `${historyPrefix} ${"x".repeat(1_000)}` },
+      { role: "assistant", content: "old answer" },
+      { role: "user", content: `${midturnPrefix} ${"y".repeat(1_000)}` },
+      { role: "assistant", content: "old answer" },
+      ...closedTurn("recent", 50),
+    ];
+    const result = await pipeline.prepare({
+      sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
+    });
+    expect(result.compacted).toBe(true);
+    const prompt = summaryPrompt(provider);
+    expect(prompt).toContain(historyPrefix);
+    expect(prompt).toContain(midturnPrefix);
+    expect(prompt).not.toContain("<previous-summary>");
   });
 
   test("uses a mid-turn checkpoint when one tool-heavy turn exceeds the budget", async () => {
@@ -303,11 +349,21 @@ src/b.ts
       sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
     });
     expect(result.compacted).toBe(true);
-    expect(result.messages[0]).toEqual({ role: "user", content: "original request" });
-    expect(String(result.messages[1]?.content)).toContain("intermediate steps");
+    expect(result.messages[0]?.role).toBe("compactionSummary");
+    if (result.messages[0]?.role !== "compactionSummary") throw new Error("missing compaction checkpoint");
+    expect(result.messages[0].summary).toBe([
+      "No prior history.",
+      "---",
+      "**Turn Context (split turn):**",
+      "compact summary",
+    ].join("\n\n"));
+    expect(JSON.stringify(result.messages)).not.toContain("original request");
+    expect(result.messages[1]?.role).toBe("assistant");
+    expect(JSON.stringify(result.messages.slice(1))).toContain('"id":"t3"');
+    expect(JSON.stringify(result.messages.slice(1))).not.toContain('"id":"t2"');
     expect(provider.requests[0]?.kind).toBe("midturn");
     expect(provider.requests[0]?.maxOutputTokens).toBe(50);
-    const prompt = String(provider.requests[0]?.messages[0]?.content);
+    const prompt = summaryPrompt(provider);
     expect(prompt.startsWith("<conversation>\n")).toBe(true);
     expect(prompt).toContain("User: original request");
     expect(prompt.endsWith(MIDTURN_SUMMARY_PROMPT)).toBe(true);
@@ -315,7 +371,7 @@ src/b.ts
     expect(() => validateToolCallClosure(result.messages)).not.toThrow();
   });
 
-  test("keeps the original request when updating a legacy mid-turn checkpoint", async () => {
+  test("reuses a previous checkpoint when the next compaction splits a turn", async () => {
     const store = new MemoryStore();
     const provider = new SummaryProvider();
     provider.summaries = ["updated turn prefix"];
@@ -323,11 +379,8 @@ src/b.ts
       provider, store, contextWindowTokens: 1_200, reserveTokens: 100, recentRawTokens: 120,
     });
     const messages: RuntimeMessage[] = [
+      checkpoint("earlier checkpoint"),
       { role: "user", content: "original request" },
-      {
-        role: "user",
-        content: "The intermediate steps of the current task were compacted into the following checkpoint summary: earlier prefix",
-      },
     ];
     for (let index = 0; index < 4; index += 1) {
       messages.push(
@@ -339,11 +392,19 @@ src/b.ts
       sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
     });
     expect(result.compacted).toBe(true);
-    expect(result.messages[0]).toEqual({ role: "user", content: "original request" });
-    const prompt = String(provider.requests[0]?.messages[0]?.content);
+    expect(result.messages[0]?.role).toBe("compactionSummary");
+    if (result.messages[0]?.role !== "compactionSummary") throw new Error("missing compaction checkpoint");
+    expect(result.messages[0].summary).toBe([
+      "earlier checkpoint",
+      "---",
+      "**Turn Context (split turn):**",
+      "updated turn prefix",
+    ].join("\n\n"));
+    expect(result.messages.filter((message) => message.role === "compactionSummary")).toHaveLength(1);
+    expect(JSON.stringify(result.messages)).not.toContain("original request");
+    const prompt = summaryPrompt(provider);
     expect(prompt).toContain("User: original request");
-    expect(prompt).toContain("<previous-summary>\nearlier prefix\n</previous-summary>");
-    expect(prompt).not.toContain("The intermediate steps of the current task were compacted");
+    expect(prompt).not.toContain("<previous-summary>");
     expect(prompt.endsWith(MIDTURN_SUMMARY_PROMPT)).toBe(true);
   });
 
@@ -377,14 +438,16 @@ src/b.ts
     });
     expect(result.compacted).toBe(true);
     expect(result.apiCalls).toBe(2);
-    const summaries = result.messages
-      .filter((message) => message.role === "user" && typeof message.content === "string" && message.content.includes("compacted into"))
-      .map((message) => String(message.content));
-    expect(summaries).toHaveLength(2);
-    expect(summaries[0]).not.toContain("<read-files>");
-    expect(summaries[0]).not.toContain("<modified-files>");
-    expect(summaries[1]).toContain("<read-files>\nsrc/c.ts\n</read-files>");
-    expect(summaries[1]).toContain("<modified-files>\nsrc/a.ts\n</modified-files>");
+    const summaries = result.messages.filter((message) => message.role === "compactionSummary");
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.role).toBe("compactionSummary");
+    if (summaries[0]?.role !== "compactionSummary") throw new Error("missing compaction checkpoint");
+    expect(summaries[0].summary).toContain(
+      "history checkpoint\n\n---\n\n**Turn Context (split turn):**\n\nturn checkpoint",
+    );
+    expect(summaries[0].summary).toContain("<read-files>\nsrc/c.ts\n</read-files>");
+    expect(summaries[0].summary).toContain("<modified-files>\nsrc/a.ts\n</modified-files>");
+    expect(summaries[0].details).toEqual({ readFiles: ["src/c.ts"], modifiedFiles: ["src/a.ts"] });
     expect(store.replacements.at(-1)?.metadata).toEqual(expect.objectContaining({
       read_files: ["src/c.ts"],
       modified_files: ["src/a.ts"],
@@ -420,7 +483,7 @@ src/b.ts
       recentRawTokens: 100,
       summaryRetryWait: async (delayMs) => { delays.push(delayMs); },
     });
-    const messages = [...closedTurn("old", 2_000), ...closedTurn("recent", 400)];
+    const messages = [...closedTurn("old", 2_000), ...closedTurn("recent", 50)];
     const result = await pipeline.prepare({
       sessionId: "s1", messages, systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal,
     });

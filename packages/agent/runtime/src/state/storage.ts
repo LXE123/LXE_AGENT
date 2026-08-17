@@ -156,6 +156,9 @@ const sanitizePersistedValue = (value: JsonValue): JsonValue => {
 };
 
 const persistedMessage = (message: RuntimeMessage): RuntimeMessage => {
+  if (message.role === "compactionSummary") {
+    return sanitizePersistedValue(message as unknown as JsonObject) as unknown as RuntimeMessage;
+  }
   if (Array.isArray(message.content) && message.content.some((block) => transcriptAttachment(block))) {
     return sanitizePersistedValue({
       ...message,

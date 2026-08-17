@@ -8,6 +8,7 @@ import { createLogger, envFlag, envText, type Environment } from "@lxe/core";
 import type {
   RuntimeContentBlock,
   RuntimeMessage,
+  RuntimeMessageContent,
   RuntimeProvider,
   RuntimeProviderRequest,
   RuntimeProviderUserIdentity,
@@ -16,6 +17,7 @@ import type {
   RuntimeStreamEvent,
   RuntimeTurnResponse,
 } from "../engine/types";
+import { compactionSummaryProviderText } from "../engine/compaction-summary";
 import { runtimeConfigPaths, runtimeConfigPathsFromRoot } from "./config-paths";
 import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
 import { readProviderPreference } from "./provider-preferences";
@@ -390,7 +392,7 @@ export const localFileReferenceText = (block: Record<string, unknown>): string =
   ].join("\n");
 };
 
-const providerUserContent = (content: RuntimeMessage["content"], deepseek: boolean): string | JsonObject[] => {
+const providerUserContent = (content: RuntimeMessageContent, deepseek: boolean): string | JsonObject[] => {
   if (!Array.isArray(content)) return String(content ?? "");
   const textParts: string[] = [];
   const blocks: JsonObject[] = [];
@@ -426,6 +428,13 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
   const adapted: ProviderMessage[] = [];
   const deepseek = descriptor.name === "deepseek";
   for (const message of messages) {
+    if (message.role === "compactionSummary") {
+      adapted.push({
+        role: "user",
+        content: [{ type: "text", text: compactionSummaryProviderText(message.summary) }],
+      });
+      continue;
+    }
     if (message.role === "user") {
       adapted.push({ role: "user", content: providerUserContent(message.content, deepseek) });
       continue;
@@ -467,6 +476,7 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
       adapted.push({ role: "assistant", content });
       continue;
     }
+    if (message.role !== "tool") continue;
     const source = Array.isArray(message.content) ? message.content : [];
     const content = source.map((raw): JsonObject | undefined => {
       const block = errorObject(raw);

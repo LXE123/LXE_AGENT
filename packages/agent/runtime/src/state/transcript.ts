@@ -1,5 +1,5 @@
 import type { JsonObject } from "@lxe/protocol";
-import type { RuntimeMessage } from "../engine/types";
+import type { RuntimeConversationMessage, RuntimeMessage } from "../engine/types";
 
 export const TRANSCRIPT_VERSION = 2;
 
@@ -44,10 +44,23 @@ const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
 
 export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const candidate = value as { role?: unknown; content?: unknown };
+  const candidate = value as { role?: unknown; content?: unknown; summary?: unknown; tokensBefore?: unknown; details?: unknown };
   const legacyRole = text(candidate.role);
+  if (legacyRole === "compactionSummary") {
+    const summary = String(candidate.summary ?? "").trim();
+    const tokensBefore = Number(candidate.tokensBefore);
+    const details = object(candidate.details);
+    if (!summary || !Number.isSafeInteger(tokensBefore) || tokensBefore < 0 ||
+      !Array.isArray(details.readFiles) || !Array.isArray(details.modifiedFiles) ||
+      !details.readFiles.every((path) => typeof path === "string") ||
+      !details.modifiedFiles.every((path) => typeof path === "string")) return undefined;
+    const modifiedFiles = [...new Set(details.modifiedFiles.map((path) => path.trim()).filter(Boolean))].sort();
+    const modified = new Set(modifiedFiles);
+    const readFiles = [...new Set(details.readFiles.map((path) => path.trim()).filter((path) => path && !modified.has(path)))].sort();
+    return { role: "compactionSummary", summary, tokensBefore, details: { readFiles, modifiedFiles } };
+  }
   if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
-  let role = legacyRole as RuntimeMessage["role"];
+  let role = legacyRole as RuntimeConversationMessage["role"];
   if (!Array.isArray(candidate.content)) return { role, content: String(candidate.content ?? "") };
   const content = candidate.content.map(normalizeLegacyBlock)
     .filter((block): block is JsonObject => Boolean(block));

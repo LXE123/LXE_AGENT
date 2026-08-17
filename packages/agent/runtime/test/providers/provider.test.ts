@@ -734,6 +734,28 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
       .toEqual(expect.objectContaining({ retryable: true, category: "服务器繁忙" }));
   });
 
+  test("projects structured compaction checkpoints as pi-style user messages", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-pro",
+      DEEPSEEK_API: "secret-key",
+    });
+    const adapted = adaptMessagesForProvider([{
+      role: "compactionSummary",
+      summary: "checkpoint body",
+      tokensBefore: 12_345,
+      details: { readFiles: ["src/read.ts"], modifiedFiles: [] },
+    }], descriptor);
+    expect(adapted).toEqual([{
+      role: "user",
+      content: [{
+        type: "text",
+        text: "The conversation history before this point was compacted into the following summary:\n\n<summary>\ncheckpoint body\n</summary>",
+      }],
+    }]);
+    expect(JSON.stringify(adapted)).not.toContain("compactionSummary");
+  });
+
   test("adapts local-file blocks into exact-path model instructions while retaining image input", () => {
     const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
       AGENT_LLM_PROVIDER: "kimi_coding",

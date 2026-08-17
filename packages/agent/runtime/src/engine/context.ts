@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { createLogger } from "@lxe/core";
 import type {
   RuntimeMessage,
+  RuntimeMessageContent,
   RuntimeProvider,
   RuntimeProviderUserIdentity,
   RuntimeStore,
@@ -11,6 +12,7 @@ import type {
   ToolSchema,
   ToolCallBlock,
 } from "./types";
+import { compactionSummaryProviderText } from "./compaction-summary";
 import { RuntimeProviderError } from "../providers/provider-errors";
 
 export const IMAGE_TOKEN_ESTIMATE = 1_600;
@@ -26,8 +28,7 @@ const MISSING_TOOL_RESULT_STUB = "[Result unavailable — see context summary ab
 const THINKING_SUMMARY_PLACEHOLDER = "[assistant thinking omitted]";
 const REDACTED_THINKING_SUMMARY_PLACEHOLDER = "[assistant redacted thinking omitted]";
 const PROCESSED_IMAGE_PLACEHOLDER = "[image data removed - already processed by model]";
-const HISTORY_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary: ";
-const MIDTURN_SUMMARY_PREFIX = "The intermediate steps of the current task were compacted into the following checkpoint summary: ";
+const SPLIT_TURN_SUMMARY_SEPARATOR = "\n\n---\n\n**Turn Context (split turn):**\n\n";
 
 export const HISTORY_SUMMARY_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
@@ -140,7 +141,7 @@ const object = (value: unknown): Record<string, unknown> =>
 const jsonObject = (value: unknown): JsonObject => structuredClone(object(value)) as JsonObject;
 const text = (value: unknown): string => String(value ?? "");
 const blocks = (message: RuntimeMessage): Array<Record<string, unknown>> =>
-  Array.isArray(message.content) ? message.content.map(object) : [];
+  message.role !== "compactionSummary" && Array.isArray(message.content) ? message.content.map(object) : [];
 
 const isToolCall = (value: Record<string, unknown>): value is ToolCallBlock =>
   value.type === "tool_call" && typeof value.id === "string";
@@ -196,7 +197,11 @@ export function requestContextTokenEstimate(
   toolSchemas: readonly ToolSchema[] = [],
 ): number {
   return estimateTokens(systemPrompt) +
-    messages.reduce((total, message) => total + estimateTokens(message), 0) +
+    messages.reduce((total, message) => total + estimateTokens(
+      message.role === "compactionSummary"
+        ? { role: "user", content: compactionSummaryProviderText(message.summary) }
+        : message,
+    ), 0) +
     estimateTokens(toolSchemas);
 }
 
@@ -253,6 +258,20 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
   const cleaned: RuntimeMessage[] = [];
   for (const raw of messages) {
     const role = raw?.role;
+    if (role === "compactionSummary") {
+      const summary = text(raw.summary).trim();
+      if (!summary) continue;
+      const modifiedFiles = [...new Set(raw.details.modifiedFiles.map((path) => path.trim()).filter(Boolean))].sort();
+      const modified = new Set(modifiedFiles);
+      const readFiles = [...new Set(raw.details.readFiles.map((path) => path.trim()).filter((path) => path && !modified.has(path)))].sort();
+      cleaned.push({
+        role,
+        summary,
+        tokensBefore: Math.max(0, Math.trunc(raw.tokensBefore)),
+        details: { readFiles, modifiedFiles },
+      });
+      continue;
+    }
     if (role !== "user" && role !== "assistant" && role !== "tool" && role !== "system") continue;
     if (role === "system") {
       const content = Array.isArray(raw.content)
@@ -411,7 +430,7 @@ export function trimToolResultBlocks(
   return { results: next, changed };
 }
 
-const replaceImages = (content: RuntimeMessage["content"]): { content: RuntimeMessage["content"]; changed: boolean } => {
+const replaceImages = (content: RuntimeMessageContent): { content: RuntimeMessageContent; changed: boolean } => {
   if (!Array.isArray(content)) return { content, changed: false };
   let changed = false;
   const next = content.map((rawBlock): JsonObject => {
@@ -442,6 +461,7 @@ export function pruneProcessedHistoryImages(messages: readonly RuntimeMessage[])
 } {
   let changed = false;
   const next = messages.map((message): RuntimeMessage => {
+    if (message.role === "compactionSummary") return structuredClone(message) as RuntimeMessage;
     const replaced = replaceImages(message.content);
     changed ||= replaced.changed;
     return { role: message.role, content: replaced.content };
@@ -449,37 +469,13 @@ export function pruneProcessedHistoryImages(messages: readonly RuntimeMessage[])
   return { messages: next, changed };
 }
 
-interface SyntheticSummary {
-  kind: "history" | "midturn";
-  text: string;
-}
-
 interface FileInventory {
   readFiles: string[];
   modifiedFiles: string[];
 }
 
-const syntheticSummary = (message: RuntimeMessage): SyntheticSummary | undefined => {
-  if (message.role !== "user" || typeof message.content !== "string") return undefined;
-  if (message.content.startsWith(HISTORY_SUMMARY_PREFIX)) {
-    return { kind: "history", text: message.content.slice(HISTORY_SUMMARY_PREFIX.length).trim() };
-  }
-  if (message.content.startsWith(MIDTURN_SUMMARY_PREFIX)) {
-    return { kind: "midturn", text: message.content.slice(MIDTURN_SUMMARY_PREFIX.length).trim() };
-  }
-  return undefined;
-};
-
 const fileSectionPattern = (tag: "read-files" | "modified-files"): RegExp =>
   new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`, "g");
-
-const taggedPaths = (value: string, tag: "read-files" | "modified-files"): string[] => {
-  const paths: string[] = [];
-  for (const match of value.matchAll(fileSectionPattern(tag))) {
-    paths.push(...String(match[1] ?? "").split(/\r?\n/).map((path) => path.trim()).filter(Boolean));
-  }
-  return paths;
-};
 
 const stripFileSections = (value: string): string => value
   .replace(fileSectionPattern("read-files"), "")
@@ -507,10 +503,10 @@ const extractFileInventory = (messages: readonly RuntimeMessage[]): FileInventor
   const read = new Set<string>();
   const modified = new Set<string>();
   for (const message of messages) {
-    const summary = syntheticSummary(message);
-    if (summary) {
-      taggedPaths(summary.text, "read-files").forEach((path) => read.add(path));
-      taggedPaths(summary.text, "modified-files").forEach((path) => modified.add(path));
+    if (message.role === "compactionSummary") {
+      message.details.readFiles.forEach((path) => read.add(path));
+      message.details.modifiedFiles.forEach((path) => modified.add(path));
+      continue;
     }
     if (message.role !== "assistant") continue;
     for (const block of blocks(message)) {
@@ -545,43 +541,19 @@ const appendFileInventory = (summary: string, inventory: FileInventory): string 
 
 const prepareSummaryMessages = (
   messages: readonly RuntimeMessage[],
-  kind: "history" | "midturn",
-): { messages: RuntimeMessage[]; previousSummary: string; fileInventory: FileInventory } => {
-  const previous: string[] = [];
-  const prepared: RuntimeMessage[] = [];
-  for (const message of messages) {
-    const summary = syntheticSummary(message);
-    if (!summary) {
-      prepared.push(structuredClone(message) as RuntimeMessage);
-      continue;
-    }
-    const summaryText = stripFileSections(summary.text);
-    if (summary.kind === kind) {
-      if (summaryText) previous.push(summaryText);
-      continue;
-    }
-    prepared.push({
-      role: "user",
-      content: `${summary.kind === "history" ? HISTORY_SUMMARY_PREFIX : MIDTURN_SUMMARY_PREFIX}${summaryText}`,
-    });
-  }
+  inheritedInventory: FileInventory,
+): { messages: RuntimeMessage[]; fileInventory: FileInventory } => {
+  const prepared = messages
+    .filter((message) => message.role !== "compactionSummary")
+    .map((message) => structuredClone(message) as RuntimeMessage);
   return {
     messages: prepared,
-    previousSummary: previous.join("\n\n"),
-    fileInventory: extractFileInventory(messages),
+    fileInventory: mergeFileInventories(inheritedInventory, extractFileInventory(messages)),
   };
 };
 
-const stripFileInventoryFromSummaryMessages = (messages: readonly RuntimeMessage[]): RuntimeMessage[] =>
-  messages.map((message) => {
-    const summary = syntheticSummary(message);
-    return summary
-      ? summaryMessage(stripFileSections(summary.text), summary.kind)
-      : structuredClone(message) as RuntimeMessage;
-  });
-
 const isConversationUser = (message: RuntimeMessage): boolean =>
-  message.role === "user" && syntheticSummary(message) === undefined;
+  message.role === "user";
 
 const turnSpans = (messages: readonly RuntimeMessage[]): Array<[number, number]> => {
   if (messages.length === 0) return [];
@@ -656,24 +628,70 @@ const selectMidturnPlan = (messages: readonly RuntimeMessage[], recentRawTokens:
     consumed += size;
     if (consumed >= recentRawTokens) break;
   }
-  let compactedSpans = spans.slice(0, keepIndex);
-  if (compactedSpans.length === 0 && spans.length === 1 && estimateTokens(messages.slice(spans[0]![0], spans[0]![1])) > recentRawTokens) {
-    compactedSpans = spans;
-    keepIndex = spans.length;
-  }
-  if (compactedSpans.length === 0) return undefined;
-  const compactStart = compactedSpans[0]![0];
-  const compactEnd = compactedSpans.at(-1)![1];
-  const retainedStart = keepIndex < spans.length ? spans[keepIndex]![0] : messages.length;
+  const compactStart = spans[0]![0];
+  const retainedStart = spans[keepIndex]![0];
   return {
     prefix: structuredClone(messages.slice(0, userStart)) as RuntimeMessage[],
     originalUserMessage: structuredClone(original) as RuntimeMessage,
-    compacted: structuredClone(messages.slice(compactStart, compactEnd)) as RuntimeMessage[],
+    compacted: structuredClone(messages.slice(compactStart, retainedStart)) as RuntimeMessage[],
     retained: structuredClone(messages.slice(retainedStart)) as RuntimeMessage[],
   };
 };
 
-const userText = (content: RuntimeMessage["content"]): string => {
+interface CompactionPreparation {
+  previousSummary: string;
+  inheritedInventory: FileInventory;
+  historyMessages: RuntimeMessage[];
+  turnPrefixMessages: RuntimeMessage[];
+  retained: RuntimeMessage[];
+  splitTurn: boolean;
+}
+
+const prepareCompaction = (
+  messages: readonly RuntimeMessage[],
+  recentRawTokens: number,
+): CompactionPreparation | undefined => {
+  const checkpoints = messages.filter((message) => message.role === "compactionSummary");
+  const latestCheckpoint = checkpoints.at(-1);
+  const inheritedInventory = mergeFileInventories(
+    ...checkpoints.map((message): FileInventory => message.role === "compactionSummary"
+      ? message.details
+      : { readFiles: [], modifiedFiles: [] }),
+  );
+  const conversation = messages
+    .filter((message) => message.role !== "compactionSummary")
+    .map((message) => structuredClone(message) as RuntimeMessage);
+  const recent = selectRecentTurns(conversation, recentRawTokens);
+  const userStart = latestUserStart(conversation);
+  const latestTurnTokens = estimateTokens(conversation.slice(userStart));
+  const shouldSplitTurn = latestTurnTokens > recentRawTokens || recent.compacted.length === 0;
+  const midturn = shouldSplitTurn ? selectMidturnPlan(conversation, recentRawTokens) : undefined;
+  if (midturn) {
+    return {
+      previousSummary: latestCheckpoint?.role === "compactionSummary"
+        ? stripFileSections(latestCheckpoint.summary)
+        : "",
+      inheritedInventory,
+      historyMessages: midturn.prefix,
+      turnPrefixMessages: [midturn.originalUserMessage, ...midturn.compacted],
+      retained: midturn.retained,
+      splitTurn: true,
+    };
+  }
+  if (recent.compacted.length === 0) return undefined;
+  return {
+    previousSummary: latestCheckpoint?.role === "compactionSummary"
+      ? stripFileSections(latestCheckpoint.summary)
+      : "",
+    inheritedInventory,
+    historyMessages: recent.compacted,
+    turnPrefixMessages: [],
+    retained: recent.retained,
+    splitTurn: false,
+  };
+};
+
+const userText = (content: RuntimeMessageContent): string => {
   if (typeof content === "string") return content.trim();
   return content.map((raw) => {
     const block = object(raw);
@@ -691,13 +709,12 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
   turnSpans(messages).forEach(([start, end], turnIndex) => {
     lines.push(`### Turn ${turnIndex + 1}`);
     for (const message of messages.slice(start, end)) {
+      if (message.role === "compactionSummary") {
+        const value = stripFileSections(message.summary);
+        if (value) lines.push(`History Summary: ${value}`);
+        continue;
+      }
       if (message.role === "user") {
-        const summary = syntheticSummary(message);
-        if (summary) {
-          const value = stripFileSections(summary.text);
-          if (value) lines.push(`${summary.kind === "history" ? "History Summary" : "Turn Prefix Summary"}: ${value}`);
-          continue;
-        }
         const value = userText(message.content);
         if (value) lines.push(`User: ${value}`);
         continue;
@@ -727,9 +744,18 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
   return lines.join("\n");
 };
 
-const summaryMessage = (summary: string, kind: "history" | "midturn"): RuntimeMessage => ({
-  role: "user",
-  content: `${kind === "history" ? HISTORY_SUMMARY_PREFIX : MIDTURN_SUMMARY_PREFIX}${summary.trim()}`,
+const summaryMessage = (
+  summary: string,
+  tokensBefore: number,
+  inventory: FileInventory,
+): RuntimeMessage => ({
+  role: "compactionSummary",
+  summary: summary.trim(),
+  tokensBefore: Math.max(0, Math.trunc(tokensBefore)),
+  details: {
+    readFiles: [...inventory.readFiles],
+    modifiedFiles: [...inventory.modifiedFiles],
+  },
 });
 
 export function isContextOverflowError(error: unknown): boolean {
@@ -867,7 +893,7 @@ export class ContextPipeline {
       };
     }
 
-    const compacted = await this.compact({ ...params, messages, trigger, beforeTokens, triggerLimit });
+    const compacted = await this.compact({ ...params, messages, trigger, beforeTokens });
     messages = compacted.messages;
     const afterTokens = requestContextTokenEstimate(params.systemPrompt, messages, params.toolSchemas);
     return { ...compacted, afterTokens, hardLimitExceeded: afterTokens > hardLimit };
@@ -904,82 +930,98 @@ export class ContextPipeline {
     userIdentity?: RuntimeProviderUserIdentity;
     trigger: "pre_call" | "overflow" | "post_turn";
     beforeTokens: number;
-    triggerLimit: number;
   }): Promise<ContextCompactionResult> {
     const usage = emptyUsage();
     let apiCalls = 0;
-    const recent = selectRecentTurns(params.messages, this.recentRawTokens);
-    let kind: "history" | "midturn" = "history";
-    let target = recent.compacted;
-    let nextMessages: RuntimeMessage[] | undefined;
-    let originalUserMessage: RuntimeMessage | undefined;
+    const preparation = prepareCompaction(params.messages, this.recentRawTokens);
+    if (!preparation) {
+      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "no_safe_prefix");
+    }
 
-    if (target.length === 0) {
-      const plan = selectMidturnPlan(params.messages, this.recentRawTokens);
-      if (!plan) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "no_safe_prefix");
-      kind = "midturn";
-      target = plan.compacted;
-      originalUserMessage = plan.originalUserMessage;
-      const summary = await this.summarize(target, kind, params.signal, usage, params.userIdentity, originalUserMessage);
-      apiCalls += summary.attempts;
-      if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
-      nextMessages = [...plan.prefix, plan.originalUserMessage, summaryMessage(summary.text, kind), ...plan.retained];
+    if (preparation.splitTurn) {
+      let historyText = preparation.previousSummary || "No prior history.";
+      let historyInventory = preparation.inheritedInventory;
+      if (preparation.historyMessages.length > 0) {
+        const history = await this.summarize(
+          preparation.historyMessages,
+          "history",
+          params.signal,
+          usage,
+          {
+            ...(params.userIdentity ? { userIdentity: params.userIdentity } : {}),
+            previousSummary: preparation.previousSummary,
+            inheritedInventory: preparation.inheritedInventory,
+          },
+        );
+        apiCalls += history.attempts;
+        if (!history.text) {
+          return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+        }
+        historyText = history.text;
+        historyInventory = history.fileInventory;
+      }
+
+      const turnPrefix = await this.summarize(
+        preparation.turnPrefixMessages,
+        "midturn",
+        params.signal,
+        usage,
+        params.userIdentity ? { userIdentity: params.userIdentity } : {},
+      );
+      apiCalls += turnPrefix.attempts;
+      if (!turnPrefix.text) {
+        return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+      }
+      const inventory = mergeFileInventories(historyInventory, turnPrefix.fileInventory);
+      const summaryText = appendFileInventory(
+        `${stripFileSections(historyText)}${SPLIT_TURN_SUMMARY_SEPARATOR}${stripFileSections(turnPrefix.text)}`,
+        inventory,
+      );
+      const nextMessages = [
+        summaryMessage(summaryText, params.beforeTokens, inventory),
+        ...preparation.retained,
+      ];
       return this.persistCompaction(
         params,
         nextMessages,
-        summary.text,
-        target.length,
+        summaryText,
+        preparation.historyMessages.length + preparation.turnPrefixMessages.length,
         usage,
         apiCalls,
-        kind,
-        summary.fileInventory,
+        "midturn",
+        inventory,
       );
     }
 
-    const summary = await this.summarize(target, kind, params.signal, usage, params.userIdentity);
-    apiCalls += summary.attempts;
-    if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
-    nextMessages = [summaryMessage(summary.text, kind), ...recent.retained];
-    let combinedSummaryText = summary.text;
-    let combinedFileInventory = summary.fileInventory;
-    let totalCompactedCount = target.length;
-    let afterTokens = requestContextTokenEstimate(params.systemPrompt, nextMessages, params.toolSchemas);
-    if (afterTokens > params.triggerLimit) {
-      const midturn = selectMidturnPlan(nextMessages, this.recentRawTokens);
-      if (midturn) {
-        const midSummary = await this.summarize(
-          midturn.compacted,
-          "midturn",
-          params.signal,
-          usage,
-          params.userIdentity,
-          midturn.originalUserMessage,
-        );
-        apiCalls += midSummary.attempts;
-        if (midSummary.text) {
-          combinedFileInventory = mergeFileInventories(summary.fileInventory, midSummary.fileInventory);
-          const combinedMidSummaryText = appendFileInventory(midSummary.text, combinedFileInventory);
-          nextMessages = [
-            ...stripFileInventoryFromSummaryMessages(midturn.prefix),
-            midturn.originalUserMessage,
-            summaryMessage(combinedMidSummaryText, "midturn"),
-            ...midturn.retained,
-          ];
-          combinedSummaryText = `${stripFileSections(summary.text)}\n\n${combinedMidSummaryText}`;
-          totalCompactedCount += midturn.compacted.length;
-          afterTokens = requestContextTokenEstimate(params.systemPrompt, nextMessages, params.toolSchemas);
-        }
-      }
+    const history = await this.summarize(
+      preparation.historyMessages,
+      "history",
+      params.signal,
+      usage,
+      {
+        ...(params.userIdentity ? { userIdentity: params.userIdentity } : {}),
+        previousSummary: preparation.previousSummary,
+        inheritedInventory: preparation.inheritedInventory,
+      },
+    );
+    apiCalls += history.attempts;
+    if (!history.text) {
+      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
     }
+    const summaryText = appendFileInventory(history.text, history.fileInventory);
+    const nextMessages = [
+      summaryMessage(summaryText, params.beforeTokens, history.fileInventory),
+      ...preparation.retained,
+    ];
     return this.persistCompaction(
       params,
       nextMessages,
-      combinedSummaryText,
-      totalCompactedCount,
+      summaryText,
+      preparation.historyMessages.length,
       usage,
       apiCalls,
-      kind,
-      combinedFileInventory,
+      "history",
+      history.fileInventory,
     );
   }
 
@@ -988,21 +1030,25 @@ export class ContextPipeline {
     kind: "history" | "midturn",
     signal: AbortSignal,
     usage: RuntimeUsage,
-    userIdentity?: RuntimeProviderUserIdentity,
-    originalUserMessage?: RuntimeMessage,
+    options: {
+      userIdentity?: RuntimeProviderUserIdentity;
+      previousSummary?: string;
+      inheritedInventory?: FileInventory;
+    } = {},
   ): Promise<{ text: string; attempts: number; fileInventory: FileInventory }> {
-    const prepared = prepareSummaryMessages(messages, kind);
-    const conversation = kind === "midturn" && originalUserMessage
-      ? [structuredClone(originalUserMessage) as RuntimeMessage, ...prepared.messages]
-      : prepared.messages;
-    const transcript = renderSummaryTranscript(conversation);
+    const prepared = prepareSummaryMessages(
+      messages,
+      options.inheritedInventory ?? { readFiles: [], modifiedFiles: [] },
+    );
+    const transcript = renderSummaryTranscript(prepared.messages);
     if (!transcript.trim()) return { text: "", attempts: 0, fileInventory: prepared.fileInventory };
     const promptParts = [`<conversation>\n${transcript}\n</conversation>`];
-    if (prepared.previousSummary) {
-      promptParts.push(`<previous-summary>\n${prepared.previousSummary}\n</previous-summary>`);
+    const previousSummary = stripFileSections(options.previousSummary ?? "");
+    if (previousSummary) {
+      promptParts.push(`<previous-summary>\n${previousSummary}\n</previous-summary>`);
     }
     promptParts.push(kind === "history"
-      ? prepared.previousSummary ? UPDATE_HISTORY_SUMMARY_PROMPT : HISTORY_SUMMARY_PROMPT
+      ? previousSummary ? UPDATE_HISTORY_SUMMARY_PROMPT : HISTORY_SUMMARY_PROMPT
       : MIDTURN_SUMMARY_PROMPT);
     const prompt = promptParts.join("\n\n");
     const maxOutputTokens = Math.max(1, Math.floor(this.reserveTokens * (kind === "history" ? 0.8 : 0.5)));
@@ -1016,12 +1062,12 @@ export class ContextPipeline {
           signal,
           kind,
           maxOutputTokens,
-          ...(userIdentity ? { userIdentity } : {}),
+          ...(options.userIdentity ? { userIdentity: options.userIdentity } : {}),
         });
         addUsage(usage, result.usage);
         if (result.text.trim()) {
           return {
-            text: appendFileInventory(result.text, prepared.fileInventory),
+            text: stripFileSections(result.text),
             attempts: attempt,
             fileInventory: prepared.fileInventory,
           };

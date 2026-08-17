@@ -3,6 +3,7 @@ import type { JsonObject } from "@lxe/protocol";
 import type {
   RuntimeContentBlock,
   RuntimeMessage,
+  RuntimeMessageContent,
   RuntimeProvider,
   RuntimeProviderRequest,
   RuntimeStreamEvent,
@@ -12,6 +13,7 @@ import type {
   RuntimeUsage,
   ToolSchema,
 } from "../engine/types";
+import { compactionSummaryProviderText } from "../engine/compaction-summary";
 import {
   localFileReferenceText,
   normalizeProviderError,
@@ -32,7 +34,7 @@ const record = (value: unknown): Record<string, unknown> =>
 
 const text = (value: unknown): string => String(value ?? "");
 
-const inputText = (content: RuntimeMessage["content"]): string => {
+const inputText = (content: RuntimeMessageContent): string => {
   if (!Array.isArray(content)) return text(content);
   const parts: string[] = [];
   for (const raw of content) {
@@ -63,6 +65,14 @@ const toolResultText = (content: unknown): string => {
 export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObject[] {
   const input: JsonObject[] = [];
   for (const message of messages) {
+    if (message.role === "compactionSummary") {
+      input.push({
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: compactionSummaryProviderText(message.summary) }],
+      });
+      continue;
+    }
     if (message.role === "user") {
       input.push({
         type: "message",
@@ -110,6 +120,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObjec
       input.push(...calls);
       continue;
     }
+    if (message.role !== "tool") continue;
     for (const raw of Array.isArray(message.content) ? message.content : []) {
       const block = record(raw);
       if (block.type !== "tool_result") continue;

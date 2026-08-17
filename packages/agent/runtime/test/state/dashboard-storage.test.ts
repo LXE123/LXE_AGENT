@@ -399,13 +399,23 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.ensureSession({ workspace: testWorkspace, session_id: "compacted", source: { platform: "feishu" } });
     await store.appendMessage("compacted", { role: "user", content: "old question" });
     await store.appendMessage("compacted", { role: "assistant", content: "old answer" });
-    await store.replaceMessages("compacted", [{ role: "user", content: "model summary" }], "compaction", {
+    await store.replaceMessages("compacted", [{
+      role: "compactionSummary",
+      summary: "model summary",
+      tokensBefore: 1_000,
+      details: { readFiles: [], modifiedFiles: [] },
+    }], "compaction", {
       compacted_count: 2,
     });
     await store.appendMessage("compacted", { role: "user", content: "after compaction" });
 
     expect(await store.loadMessages("compacted")).toEqual([
-      { role: "user", content: "model summary" },
+      {
+        role: "compactionSummary",
+        summary: "model summary",
+        tokensBefore: 1_000,
+        details: { readFiles: [], modifiedFiles: [] },
+      },
       { role: "user", content: "after compaction" },
     ]);
     const detail = await store.sessionDetail("compacted", { limit: 10 });

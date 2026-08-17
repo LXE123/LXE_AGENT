@@ -1201,7 +1201,7 @@ describe("TypeScriptAgentRuntime", () => {
     expect(events.indexOf("start:d")).toBeGreaterThan(events.indexOf("end:read"));
     expect(events.indexOf("start:d")).toBeLessThan(events.indexOf("end:c"));
     const toolMessage = store.messages.find((message) => message.role === "tool");
-    if (!toolMessage || typeof toolMessage.content === "string") throw new Error("tool results expected");
+    if (!toolMessage || toolMessage.role !== "tool" || !Array.isArray(toolMessage.content)) throw new Error("tool results expected");
     expect(toolMessage.content.map((block) => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
     expect(toolMessage.content[1]).toEqual(expect.objectContaining({ tool_call_id: "t2", is_error: true }));
     expect(JSON.stringify(toolMessage.content[0]?.content)).toContain("result a");

@@ -169,6 +169,24 @@ describe("DeepSeek Responses provider", () => {
     ]);
   });
 
+  test("projects structured compaction checkpoints as pi-style user input", () => {
+    const input = adaptMessagesForResponses([{
+      role: "compactionSummary",
+      summary: "checkpoint body",
+      tokensBefore: 12_345,
+      details: { readFiles: [], modifiedFiles: ["src/changed.ts"] },
+    }]);
+    expect(input).toEqual([{
+      type: "message",
+      role: "user",
+      content: [{
+        type: "input_text",
+        text: "The conversation history before this point was compacted into the following summary:\n\n<summary>\ncheckpoint body\n</summary>",
+      }],
+    }]);
+    expect(JSON.stringify(input)).not.toContain("compactionSummary");
+  });
+
   test("sends local attachment names and absolute paths with the user's text", () => {
     const messages: RuntimeMessage[] = [{
       role: "user",

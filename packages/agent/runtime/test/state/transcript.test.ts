@@ -38,6 +38,26 @@ describe("Transcript v2", () => {
       role: "tool",
       content: [{ type: "tool_result", tool_use_id: "old-1", content: "done" }],
     })).toThrow("scripts/migrate-transcripts-v2.ts");
+    expect(normalizeTranscriptMessage({
+      role: "compactionSummary",
+      summary: " checkpoint ",
+      tokensBefore: 100,
+      details: {
+        readFiles: ["src/z.ts", "src/a.ts", "src/a.ts"],
+        modifiedFiles: ["src/z.ts"],
+      },
+    })).toEqual({
+      role: "compactionSummary",
+      summary: "checkpoint",
+      tokensBefore: 100,
+      details: { readFiles: ["src/a.ts"], modifiedFiles: ["src/z.ts"] },
+    });
+    expect(normalizeTranscriptMessage({
+      role: "compactionSummary",
+      summary: "checkpoint",
+      tokensBefore: -1,
+      details: { readFiles: [], modifiedFiles: [] },
+    })).toBeUndefined();
   });
 
   test("retains common context around a patch and rejects invalid ranges", () => {
@@ -161,7 +181,13 @@ describe("Transcript v2", () => {
     await store.appendMessage("s1", { role: "user", content: "question" }, "turn_input", "turn-1");
     await store.appendMessage("s1", { role: "assistant", content: "answer" }, "assistant_response", "turn-1");
     await store.appendTurnError("s1", "turn-1", "执行失败: provider offline");
-    await store.replaceMessages("s1", [{ role: "user", content: "summary" }], "compaction", {
+    const checkpoint: RuntimeMessage = {
+      role: "compactionSummary",
+      summary: "summary",
+      tokensBefore: 1_000,
+      details: { readFiles: ["src/a.ts"], modifiedFiles: ["src/b.ts"] },
+    };
+    await store.replaceMessages("s1", [checkpoint], "compaction", {
       compacted_count: 2,
     });
 
@@ -177,7 +203,7 @@ describe("Transcript v2", () => {
       message: "执行失败: provider offline",
     });
     expect(readFileSync(path, "utf8")).not.toContain("replacement_history");
-    expect(await store.loadMessages("s1")).toEqual([{ role: "user", content: "summary" }]);
+    expect(await store.loadMessages("s1")).toEqual([checkpoint]);
     expect((await store.sessionDetail("s1", { limit: 10 }))?.session).toEqual(expect.objectContaining({
       model: "kimi-for-coding",
       reasoning_effort: "high",
@@ -207,6 +233,10 @@ describe("Transcript v2", () => {
       reasoning_effort: "low",
     }));
     await store.stop();
+    const reopened = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await reopened.start();
+    expect(await reopened.loadMessages("s1")).toEqual([checkpoint]);
+    await reopened.stop();
   });
 
   test("bounds the replay cache by LRU entry and byte limits", async () => {

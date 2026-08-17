@@ -14,7 +14,7 @@ import {
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import type { JsonObject } from "../packages/foundation/protocol/src/types";
-import type { RuntimeMessage } from "../packages/agent/runtime/src/engine/types";
+import type { RuntimeConversationMessage, RuntimeMessage } from "../packages/agent/runtime/src/engine/types";
 import { SqliteRuntimeStore } from "../packages/agent/runtime/src/state/storage";
 import {
   createContextPatchEvent,
@@ -66,7 +66,7 @@ const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | undefined 
   const candidate = value as { role?: unknown; content?: unknown };
   const legacyRole = text(candidate.role);
   if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
-  let role = legacyRole as RuntimeMessage["role"];
+  let role = legacyRole as RuntimeConversationMessage["role"];
   if (!Array.isArray(candidate.content)) return { role, content: String(candidate.content ?? "") };
   const content = candidate.content.map(normalizeLegacyBlock)
     .filter((block): block is JsonObject => Boolean(block));
