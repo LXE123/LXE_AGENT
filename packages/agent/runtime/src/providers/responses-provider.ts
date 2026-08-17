@@ -154,20 +154,10 @@ export const buildResponsesThinkingPayload = (descriptor: ProviderDescriptor): R
   };
 };
 
-/** Summaries take the cheapest setting the model allows. */
+/** Summaries follow the active session's thinking setting. */
 export const buildResponsesSummaryThinkingPayload = (
   descriptor: ProviderDescriptor,
-): Record<string, unknown> => {
-  if (descriptor.thinkingStyle === "provider-managed") return {};
-  if (descriptor.thinkingLevels.length > 0 && !descriptor.thinkingLevels.includes("off")) {
-    return buildResponsesThinkingPayload({
-      ...descriptor,
-      thinkingEnabled: true,
-      thinkingEffort: descriptor.thinkingDefault,
-    });
-  }
-  return { reasoning: { effort: "none" } };
-};
+): Record<string, unknown> => buildResponsesThinkingPayload(descriptor);
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
@@ -349,11 +339,15 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
   async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
     const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
     try {
+      const maxOutputTokens = Math.max(
+        1,
+        Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
+      );
       const stream = this.client.responses.stream({
         model: this.descriptor.model,
         instructions: SUMMARY_SYSTEM_PROMPT,
         input: adaptMessagesForResponses(request.messages),
-        max_output_tokens: Math.min(32_768, this.descriptor.maxTokens),
+        max_output_tokens: maxOutputTokens,
         stream: true,
         ...(providerUserIdentifier(request.userIdentity)
           ? { user: providerUserIdentifier(request.userIdentity) }

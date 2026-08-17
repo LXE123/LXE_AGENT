@@ -17,6 +17,7 @@ import {
   normalizeProviderError,
   ProviderStreamNormalizer,
   ProviderIdleWatchdog,
+  SUMMARY_SYSTEM_PROMPT,
   type ProviderMessage,
 } from "../../src/providers/provider";
 import { providerErrorStatusCode } from "../../src/providers/provider-errors";
@@ -287,6 +288,11 @@ describe("Anthropic-compatible provider", () => {
       });
     }
     expect(buildThinkingPayload({ ...deepseek, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
+    expect(buildSummaryThinkingPayload({
+      ...deepseek,
+      thinkingEnabled: false,
+      thinkingEffort: "off",
+    }, 16_000)).toEqual({ thinking: { type: "disabled" } });
     expect(buildThinkingPayload({ ...deepseekFlash, thinkingEffort: "low" })).toEqual({
       thinking: { type: "enabled" },
       output_config: { effort: "low" },
@@ -371,6 +377,7 @@ describe("Anthropic-compatible provider", () => {
       messages: [{ role: "user", content: "summarize" }],
       signal: new AbortController().signal,
       kind: "history",
+      maxOutputTokens: 16_000,
       userIdentity: identity,
     });
     expect(captured.metadata).toEqual(expectedMetadata);
@@ -389,14 +396,14 @@ describe("Anthropic-compatible provider", () => {
     })).not.toHaveProperty("metadata");
   });
 
-  test("uses K3 default high output effort during summaries", async () => {
-    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+  test("uses the active K3 output effort and requested budget during summaries", async () => {
+    const configured = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "k3",
-      AGENT_LLM_THINKING_ENABLED: "0",
-      AGENT_LLM_THINKING_EFFORT: "off",
+      AGENT_LLM_THINKING_EFFORT: "low",
       KIMI_CODE_API_KEY: "secret-key",
     });
+    const descriptor = { ...configured, thinkingEffort: "low" };
     let captured: Record<string, unknown> = {};
     const provider = new AnthropicRuntimeProvider(descriptor, {
       messages: {
@@ -417,18 +424,23 @@ describe("Anthropic-compatible provider", () => {
       messages: [{ role: "user", content: "summarize" }],
       signal: new AbortController().signal,
       kind: "history",
+      maxOutputTokens: 16_000,
     });
 
     expect(captured).toEqual(expect.objectContaining({
       model: "k3",
-      max_tokens: 32_768,
-      output_config: { effort: "high" },
+      max_tokens: 16_000,
+      output_config: { effort: "low" },
+      system: SUMMARY_SYSTEM_PROMPT,
     }));
+    expect(SUMMARY_SYSTEM_PROMPT).toBe(`You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
+
+Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`);
     expect(captured).not.toHaveProperty("thinking");
     expect(captured).not.toHaveProperty("temperature");
   });
 
-  test("uses the fixed K2.7 thinking budget during summaries", async () => {
+  test("clamps the fixed K2.7 thinking budget below the summary output budget", async () => {
     const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "kimi-for-coding",
@@ -454,13 +466,14 @@ describe("Anthropic-compatible provider", () => {
     await provider.summarize({
       messages: [{ role: "user", content: "summarize" }],
       signal: new AbortController().signal,
-      kind: "history",
+      kind: "midturn",
+      maxOutputTokens: 10_000,
     });
 
     expect(captured).toEqual(expect.objectContaining({
       model: "kimi-for-coding",
-      max_tokens: 32_768,
-      thinking: { type: "enabled", budget_tokens: 16_000 },
+      max_tokens: 10_000,
+      thinking: { type: "enabled", budget_tokens: 8_976 },
     }));
     expect(captured).not.toHaveProperty("output_config");
     expect(captured).not.toHaveProperty("temperature");
@@ -636,11 +649,13 @@ describe("Anthropic-compatible provider", () => {
       messages: [{ role: "user", content: "summarize this" }],
       signal: new AbortController().signal,
       kind: "history",
+      maxOutputTokens: 16_000,
     });
     expect(captured).toEqual(expect.objectContaining({
       model: "model-1",
       max_tokens: 1024,
-      thinking: { type: "disabled" },
+      thinking: { type: "enabled" },
+      output_config: { effort: "max" },
       messages: [{ role: "user", content: "summarize this" }],
     }));
     expect(captured).not.toHaveProperty("tools");

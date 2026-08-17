@@ -5,6 +5,7 @@ import {
   loadProviderDescriptor,
   providerEndpointUrl,
   providerUserIdentifier,
+  SUMMARY_SYSTEM_PROMPT,
   type ProviderDescriptor,
 } from "../../src/providers/provider";
 import { createRuntimeProvider } from "../../src/providers/provider-factory";
@@ -427,6 +428,47 @@ describe("DeepSeek Responses provider", () => {
     });
     expect(result.usage.input_tokens).toBe(0);
     expect(result.usage.cache_read_input_tokens).toBe(140);
+  });
+
+  test("uses the requested summary budget and active Responses reasoning effort", async () => {
+    const captured: { body?: Record<string, unknown> } = {};
+    const provider = new ResponsesRuntimeProvider(descriptor({ thinkingEffort: "low" }), fakeClient([], {
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "summary" }] }],
+      usage: { input_tokens: 3, output_tokens: 2 },
+    }, captured));
+    const result = await provider.summarize({
+      messages: [{ role: "user", content: "summarize" }],
+      signal: new AbortController().signal,
+      kind: "history",
+      maxOutputTokens: 800,
+    });
+    expect(captured.body).toEqual(expect.objectContaining({
+      instructions: SUMMARY_SYSTEM_PROMPT,
+      max_output_tokens: 800,
+      reasoning: { effort: "low" },
+    }));
+    expect(result.text).toBe("summary");
+
+    const offCaptured: { body?: Record<string, unknown> } = {};
+    const offProvider = new ResponsesRuntimeProvider(descriptor({
+      thinkingEnabled: false,
+      thinkingEffort: "off",
+    }), fakeClient([], {
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "summary" }] }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }, offCaptured));
+    await offProvider.summarize({
+      messages: [{ role: "user", content: "summarize" }],
+      signal: new AbortController().signal,
+      kind: "midturn",
+      maxOutputTokens: 500,
+    });
+    expect(offCaptured.body).toEqual(expect.objectContaining({
+      max_output_tokens: 500,
+      reasoning: { effort: "none" },
+    }));
   });
 
   test("names the address the request actually goes to, per wire", () => {

@@ -11,69 +11,110 @@ import type {
   ToolSchema,
   ToolCallBlock,
 } from "./types";
+import { RuntimeProviderError } from "../providers/provider-errors";
 
 export const IMAGE_TOKEN_ESTIMATE = 1_600;
 export const RECENT_RAW_TURN_TOKEN_LIMIT = 20_000;
 export const DEFAULT_CONTEXT_WINDOW_TOKENS = 256_000;
 export const DEFAULT_RESERVE_TOKENS = 20_000;
 export const STEP_TOOL_RESULT_MAX_TOKENS = 10_000;
-export const SUMMARY_COMPACTION_MAX_ATTEMPTS = 2;
+export const SUMMARY_COMPACTION_MAX_RETRIES = 3;
+export const SUMMARY_RETRY_BASE_DELAY_MS = 2_000;
 export const PRECALL_COMPACTION_USAGE_THRESHOLD = 0.9;
 
 const MISSING_TOOL_RESULT_STUB = "[Result unavailable — see context summary above]";
 const THINKING_SUMMARY_PLACEHOLDER = "[assistant thinking omitted]";
 const REDACTED_THINKING_SUMMARY_PLACEHOLDER = "[assistant redacted thinking omitted]";
 const PROCESSED_IMAGE_PLACEHOLDER = "[image data removed - already processed by model]";
+const HISTORY_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary: ";
+const MIDTURN_SUMMARY_PREFIX = "The intermediate steps of the current task were compacted into the following checkpoint summary: ";
 
-const HISTORY_SUMMARY_PROMPT = `The messages below are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+export const HISTORY_SUMMARY_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
 Use this EXACT format:
 
 ## Goal
-[What is the user trying to accomplish?]
+[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
 
 ## Constraints & Preferences
-- [Important user constraints and preferences, or "(none)"]
+- [Any constraints, preferences, or requirements mentioned by user]
+- [Or "(none)" if none were mentioned]
 
 ## Progress
 ### Done
-- [x] [Completed work]
+- [x] [Completed tasks/changes]
 
 ### In Progress
 - [ ] [Current work]
 
 ### Blocked
-- [Blocking issues, or "(none)"]
+- [Issues preventing progress, if any]
 
 ## Key Decisions
-- **[Decision]**: [Rationale]
+- **[Decision]**: [Brief rationale]
 
 ## Next Steps
-1. [Ordered next action]
+1. [Ordered list of what should happen next]
 
 ## Critical Context
-- [Exact paths, identifiers, errors, and facts needed to continue]
+- [Any data, examples, or references needed to continue]
+- [Or "(none)" if not applicable]
 
-Keep every section concise. Preserve exact file paths, function names, identifiers, and error messages.`;
+Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
-const MIDTURN_SUMMARY_PROMPT = `The messages below are intermediate steps from the current user task. Create a checkpoint summary that another LLM will use to continue the same task.
+export const UPDATE_HISTORY_SUMMARY_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+
+Update the existing structured summary with new information. RULES:
+- PRESERVE all existing information from the previous summary
+- ADD new progress, decisions, and context from the new messages
+- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+- UPDATE "Next Steps" based on what was accomplished
+- PRESERVE exact file paths, function names, and error messages
+- If something is no longer relevant, you may remove it
 
 Use this EXACT format:
 
+## Goal
+[Preserve existing goals, add new ones if the task expanded]
+
+## Constraints & Preferences
+- [Preserve existing, add new ones discovered]
+
+## Progress
+### Done
+- [x] [Include previously done items AND newly completed items]
+
+### In Progress
+- [ ] [Current work - update based on progress]
+
+### Blocked
+- [Current blockers - remove if resolved]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale] (preserve all previous, add new)
+
+## Next Steps
+1. [Update based on current state]
+
+## Critical Context
+- [Preserve important context, add new if needed]
+
+Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+
+export const MIDTURN_SUMMARY_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+
+Summarize the prefix to provide context for the retained suffix:
+
 ## Original Request
-- Quote the original request verbatim.
+[What did the user ask for in this turn?]
 
-## Completed Steps
-- Preserve completed actions, exact paths, identifiers, tool names, and errors.
+## Early Progress
+- [Key decisions and work done in the prefix]
 
-## Omitted Raw Tool Results
-- State what raw content was omitted and how to re-fetch it.
-- State that omitted content must be re-read before being relied on.
+## Context for Suffix
+- [Information needed to understand the retained recent work]
 
-## Current State
-- Describe what remains to do next.
-
-Keep it concise but operationally precise.`;
+Be concise. Focus on what's needed to understand the kept suffix.`;
 
 const emptyUsage = (): RuntimeUsage => ({
   input_tokens: 0,
@@ -408,7 +449,139 @@ export function pruneProcessedHistoryImages(messages: readonly RuntimeMessage[])
   return { messages: next, changed };
 }
 
-const isConversationUser = (message: RuntimeMessage): boolean => message.role === "user";
+interface SyntheticSummary {
+  kind: "history" | "midturn";
+  text: string;
+}
+
+interface FileInventory {
+  readFiles: string[];
+  modifiedFiles: string[];
+}
+
+const syntheticSummary = (message: RuntimeMessage): SyntheticSummary | undefined => {
+  if (message.role !== "user" || typeof message.content !== "string") return undefined;
+  if (message.content.startsWith(HISTORY_SUMMARY_PREFIX)) {
+    return { kind: "history", text: message.content.slice(HISTORY_SUMMARY_PREFIX.length).trim() };
+  }
+  if (message.content.startsWith(MIDTURN_SUMMARY_PREFIX)) {
+    return { kind: "midturn", text: message.content.slice(MIDTURN_SUMMARY_PREFIX.length).trim() };
+  }
+  return undefined;
+};
+
+const fileSectionPattern = (tag: "read-files" | "modified-files"): RegExp =>
+  new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`, "g");
+
+const taggedPaths = (value: string, tag: "read-files" | "modified-files"): string[] => {
+  const paths: string[] = [];
+  for (const match of value.matchAll(fileSectionPattern(tag))) {
+    paths.push(...String(match[1] ?? "").split(/\r?\n/).map((path) => path.trim()).filter(Boolean));
+  }
+  return paths;
+};
+
+const stripFileSections = (value: string): string => value
+  .replace(fileSectionPattern("read-files"), "")
+  .replace(fileSectionPattern("modified-files"), "")
+  .trim();
+
+const normalizedFileInventory = (
+  readFiles: Iterable<string>,
+  modifiedFiles: Iterable<string>,
+): FileInventory => {
+  const modified = new Set([...modifiedFiles].map((path) => path.trim()).filter(Boolean));
+  const read = new Set([...readFiles].map((path) => path.trim()).filter((path) => path && !modified.has(path)));
+  return {
+    readFiles: [...read].sort(),
+    modifiedFiles: [...modified].sort(),
+  };
+};
+
+const mergeFileInventories = (...inventories: FileInventory[]): FileInventory => normalizedFileInventory(
+  inventories.flatMap((inventory) => inventory.readFiles),
+  inventories.flatMap((inventory) => inventory.modifiedFiles),
+);
+
+const extractFileInventory = (messages: readonly RuntimeMessage[]): FileInventory => {
+  const read = new Set<string>();
+  const modified = new Set<string>();
+  for (const message of messages) {
+    const summary = syntheticSummary(message);
+    if (summary) {
+      taggedPaths(summary.text, "read-files").forEach((path) => read.add(path));
+      taggedPaths(summary.text, "modified-files").forEach((path) => modified.add(path));
+    }
+    if (message.role !== "assistant") continue;
+    for (const block of blocks(message)) {
+      if (!isToolCall(block)) continue;
+      const argumentsValue = object(block.arguments);
+      const path = block.name === "read"
+        ? text(argumentsValue.path).trim()
+        : block.name === "write" || block.name === "edit"
+          ? text(argumentsValue.file_path).trim()
+          : "";
+      if (!path) continue;
+      if (block.name === "read") read.add(path);
+      else modified.add(path);
+    }
+  }
+  return normalizedFileInventory(read, modified);
+};
+
+const formatFileInventory = (inventory: FileInventory): string => {
+  const sections: string[] = [];
+  if (inventory.readFiles.length > 0) {
+    sections.push(`<read-files>\n${inventory.readFiles.join("\n")}\n</read-files>`);
+  }
+  if (inventory.modifiedFiles.length > 0) {
+    sections.push(`<modified-files>\n${inventory.modifiedFiles.join("\n")}\n</modified-files>`);
+  }
+  return sections.length > 0 ? `\n\n${sections.join("\n\n")}` : "";
+};
+
+const appendFileInventory = (summary: string, inventory: FileInventory): string =>
+  `${stripFileSections(summary)}${formatFileInventory(inventory)}`.trim();
+
+const prepareSummaryMessages = (
+  messages: readonly RuntimeMessage[],
+  kind: "history" | "midturn",
+): { messages: RuntimeMessage[]; previousSummary: string; fileInventory: FileInventory } => {
+  const previous: string[] = [];
+  const prepared: RuntimeMessage[] = [];
+  for (const message of messages) {
+    const summary = syntheticSummary(message);
+    if (!summary) {
+      prepared.push(structuredClone(message) as RuntimeMessage);
+      continue;
+    }
+    const summaryText = stripFileSections(summary.text);
+    if (summary.kind === kind) {
+      if (summaryText) previous.push(summaryText);
+      continue;
+    }
+    prepared.push({
+      role: "user",
+      content: `${summary.kind === "history" ? HISTORY_SUMMARY_PREFIX : MIDTURN_SUMMARY_PREFIX}${summaryText}`,
+    });
+  }
+  return {
+    messages: prepared,
+    previousSummary: previous.join("\n\n"),
+    fileInventory: extractFileInventory(messages),
+  };
+};
+
+const stripFileInventoryFromSummaryMessages = (messages: readonly RuntimeMessage[]): RuntimeMessage[] =>
+  messages.map((message) => {
+    const summary = syntheticSummary(message);
+    return summary
+      ? summaryMessage(stripFileSections(summary.text), summary.kind)
+      : structuredClone(message) as RuntimeMessage;
+  });
+
+const isConversationUser = (message: RuntimeMessage): boolean =>
+  message.role === "user" && syntheticSummary(message) === undefined;
 
 const turnSpans = (messages: readonly RuntimeMessage[]): Array<[number, number]> => {
   if (messages.length === 0) return [];
@@ -519,6 +692,12 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
     lines.push(`### Turn ${turnIndex + 1}`);
     for (const message of messages.slice(start, end)) {
       if (message.role === "user") {
+        const summary = syntheticSummary(message);
+        if (summary) {
+          const value = stripFileSections(summary.text);
+          if (value) lines.push(`${summary.kind === "history" ? "History Summary" : "Turn Prefix Summary"}: ${value}`);
+          continue;
+        }
         const value = userText(message.content);
         if (value) lines.push(`User: ${value}`);
         continue;
@@ -550,9 +729,7 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
 
 const summaryMessage = (summary: string, kind: "history" | "midturn"): RuntimeMessage => ({
   role: "user",
-  content: kind === "history"
-    ? `The conversation history before this point was compacted into the following summary: ${summary.trim()}`
-    : `The intermediate steps of the current task were compacted into the following checkpoint summary: ${summary.trim()}`,
+  content: `${kind === "history" ? HISTORY_SUMMARY_PREFIX : MIDTURN_SUMMARY_PREFIX}${summary.trim()}`,
 });
 
 export function isContextOverflowError(error: unknown): boolean {
@@ -564,6 +741,23 @@ export function isContextOverflowError(error: unknown): boolean {
     "exceeded model token limit", "total message size", "exceeds limit",
   ].some((indicator) => value.includes(indicator));
 }
+
+const waitForSummaryRetry = async (delayMs: number, signal: AbortSignal): Promise<void> => {
+  if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  if (delayMs <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+};
 
 export class ContextOverflowError extends Error {
   readonly contextOverflow = true;
@@ -583,7 +777,7 @@ export class ContextCompactionError extends Error {
       ? "没有找到可安全压缩且保持工具调用闭合的历史前缀"
       : reason === "summary_not_smaller"
         ? "摘要没有降低上下文 token 数"
-        : "上下文摘要在两次尝试后仍失败或为空";
+        : "上下文摘要在多次尝试后仍失败或为空";
     super(`上下文已达到压缩阈值，但无法安全完成压缩：${detail}（estimated=${estimatedTokens}）。原始历史未被删除，请稍后重试。`);
     this.name = "ContextCompactionError";
   }
@@ -610,7 +804,9 @@ export interface ContextPipelineOptions {
   recentRawTokens?: number;
   toolResultMaxTokens?: number;
   preCallThreshold?: number;
-  summaryMaxAttempts?: number;
+  summaryMaxRetries?: number;
+  summaryRetryBaseDelayMs?: number;
+  summaryRetryWait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
 }
 
 export class ContextPipeline {
@@ -621,7 +817,9 @@ export class ContextPipeline {
   readonly toolResultMaxTokens: number;
   readonly hardLimitTokens: number;
   private readonly preCallThreshold: number;
-  private readonly summaryMaxAttempts: number;
+  private readonly summaryMaxRetries: number;
+  private readonly summaryRetryBaseDelayMs: number;
+  private readonly summaryRetryWait: (delayMs: number, signal: AbortSignal) => Promise<void>;
 
   constructor(private readonly options: ContextPipelineOptions) {
     this.contextWindowTokens = Math.max(1, Math.trunc(options.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS));
@@ -630,7 +828,9 @@ export class ContextPipeline {
     this.recentRawTokens = Math.max(1, Math.trunc(options.recentRawTokens ?? RECENT_RAW_TURN_TOKEN_LIMIT));
     this.toolResultMaxTokens = Math.max(1, Math.trunc(options.toolResultMaxTokens ?? STEP_TOOL_RESULT_MAX_TOKENS));
     this.preCallThreshold = Math.min(1, Math.max(0.1, options.preCallThreshold ?? PRECALL_COMPACTION_USAGE_THRESHOLD));
-    this.summaryMaxAttempts = Math.max(1, Math.trunc(options.summaryMaxAttempts ?? SUMMARY_COMPACTION_MAX_ATTEMPTS));
+    this.summaryMaxRetries = Math.max(0, Math.trunc(options.summaryMaxRetries ?? SUMMARY_COMPACTION_MAX_RETRIES));
+    this.summaryRetryBaseDelayMs = Math.max(0, Math.trunc(options.summaryRetryBaseDelayMs ?? SUMMARY_RETRY_BASE_DELAY_MS));
+    this.summaryRetryWait = options.summaryRetryWait ?? waitForSummaryRetry;
   }
 
   async prepare(params: {
@@ -724,7 +924,16 @@ export class ContextPipeline {
       apiCalls += summary.attempts;
       if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
       nextMessages = [...plan.prefix, plan.originalUserMessage, summaryMessage(summary.text, kind), ...plan.retained];
-      return this.persistCompaction(params, nextMessages, summary.text, target.length, usage, apiCalls, kind);
+      return this.persistCompaction(
+        params,
+        nextMessages,
+        summary.text,
+        target.length,
+        usage,
+        apiCalls,
+        kind,
+        summary.fileInventory,
+      );
     }
 
     const summary = await this.summarize(target, kind, params.signal, usage, params.userIdentity);
@@ -732,6 +941,7 @@ export class ContextPipeline {
     if (!summary.text) return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
     nextMessages = [summaryMessage(summary.text, kind), ...recent.retained];
     let combinedSummaryText = summary.text;
+    let combinedFileInventory = summary.fileInventory;
     let totalCompactedCount = target.length;
     let afterTokens = requestContextTokenEstimate(params.systemPrompt, nextMessages, params.toolSchemas);
     if (afterTokens > params.triggerLimit) {
@@ -747,13 +957,15 @@ export class ContextPipeline {
         );
         apiCalls += midSummary.attempts;
         if (midSummary.text) {
+          combinedFileInventory = mergeFileInventories(summary.fileInventory, midSummary.fileInventory);
+          const combinedMidSummaryText = appendFileInventory(midSummary.text, combinedFileInventory);
           nextMessages = [
-            ...midturn.prefix,
+            ...stripFileInventoryFromSummaryMessages(midturn.prefix),
             midturn.originalUserMessage,
-            summaryMessage(midSummary.text, "midturn"),
+            summaryMessage(combinedMidSummaryText, "midturn"),
             ...midturn.retained,
           ];
-          combinedSummaryText = `${summary.text}\n\n${midSummary.text}`;
+          combinedSummaryText = `${stripFileSections(summary.text)}\n\n${combinedMidSummaryText}`;
           totalCompactedCount += midturn.compacted.length;
           afterTokens = requestContextTokenEstimate(params.systemPrompt, nextMessages, params.toolSchemas);
         }
@@ -767,6 +979,7 @@ export class ContextPipeline {
       usage,
       apiCalls,
       kind,
+      combinedFileInventory,
     );
   }
 
@@ -777,32 +990,66 @@ export class ContextPipeline {
     usage: RuntimeUsage,
     userIdentity?: RuntimeProviderUserIdentity,
     originalUserMessage?: RuntimeMessage,
-  ): Promise<{ text: string; attempts: number }> {
-    const transcript = renderSummaryTranscript(messages);
-    if (!transcript.trim()) return { text: "", attempts: 0 };
-    const original = originalUserMessage ? userText(originalUserMessage.content) : "";
-    const prompt = kind === "history"
-      ? `${HISTORY_SUMMARY_PROMPT}\n\nConversation to summarize:\n${transcript}`
-      : `${MIDTURN_SUMMARY_PROMPT}\n\nOriginal user request:\n${original}\n\nIntermediate steps to summarize:\n${transcript}`;
-    for (let attempt = 1; attempt <= this.summaryMaxAttempts; attempt += 1) {
+  ): Promise<{ text: string; attempts: number; fileInventory: FileInventory }> {
+    const prepared = prepareSummaryMessages(messages, kind);
+    const conversation = kind === "midturn" && originalUserMessage
+      ? [structuredClone(originalUserMessage) as RuntimeMessage, ...prepared.messages]
+      : prepared.messages;
+    const transcript = renderSummaryTranscript(conversation);
+    if (!transcript.trim()) return { text: "", attempts: 0, fileInventory: prepared.fileInventory };
+    const promptParts = [`<conversation>\n${transcript}\n</conversation>`];
+    if (prepared.previousSummary) {
+      promptParts.push(`<previous-summary>\n${prepared.previousSummary}\n</previous-summary>`);
+    }
+    promptParts.push(kind === "history"
+      ? prepared.previousSummary ? UPDATE_HISTORY_SUMMARY_PROMPT : HISTORY_SUMMARY_PROMPT
+      : MIDTURN_SUMMARY_PROMPT);
+    const prompt = promptParts.join("\n\n");
+    const maxOutputTokens = Math.max(1, Math.floor(this.reserveTokens * (kind === "history" ? 0.8 : 0.5)));
+    const maxAttempts = this.summaryMaxRetries + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+      let retryable = false;
       try {
         const result = await this.options.provider.summarize({
           messages: [{ role: "user", content: prompt }],
           signal,
           kind,
+          maxOutputTokens,
           ...(userIdentity ? { userIdentity } : {}),
         });
         addUsage(usage, result.usage);
-        if (result.text.trim()) return { text: result.text.trim(), attempts: attempt };
-        this.logger.warn("context summary returned empty", { kind, attempt, max_attempts: this.summaryMaxAttempts });
+        if (result.text.trim()) {
+          return {
+            text: appendFileInventory(result.text, prepared.fileInventory),
+            attempts: attempt,
+            fileInventory: prepared.fileInventory,
+          };
+        }
+        retryable = true;
+        this.logger.warn("context summary returned empty", { kind, attempt, max_attempts: maxAttempts });
       } catch (error) {
         if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
-        this.logger.warn("context summary failed", { kind, attempt, max_attempts: this.summaryMaxAttempts, error });
-        if (isContextOverflowError(error)) return { text: "", attempts: attempt };
+        this.logger.warn("context summary failed", { kind, attempt, max_attempts: maxAttempts, error });
+        if (isContextOverflowError(error)) {
+          return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+        }
+        retryable = error instanceof RuntimeProviderError && error.retryable;
       }
+      if (!retryable || attempt >= maxAttempts) {
+        return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+      }
+      const retryNumber = attempt;
+      const delayMs = this.summaryRetryBaseDelayMs * 2 ** (retryNumber - 1);
+      this.logger.warn("context summary retry scheduled", {
+        kind,
+        retry: retryNumber,
+        max_retries: this.summaryMaxRetries,
+        delay_ms: delayMs,
+      });
+      await this.summaryRetryWait(delayMs, signal);
     }
-    return { text: "", attempts: this.summaryMaxAttempts };
+    return { text: "", attempts: maxAttempts, fileInventory: prepared.fileInventory };
   }
 
   private async persistCompaction(
@@ -822,6 +1069,7 @@ export class ContextPipeline {
     usage: RuntimeUsage,
     apiCalls: number,
     kind: "history" | "midturn",
+    fileInventory: FileInventory,
   ): Promise<ContextCompactionResult> {
     const sanitized = sanitizeMessagesForProvider(messages).messages;
     const afterTokens = requestContextTokenEstimate(params.systemPrompt, sanitized, params.toolSchemas);
@@ -842,6 +1090,8 @@ export class ContextPipeline {
       compacted_count: compactedCount,
       before_tokens: params.beforeTokens,
       after_tokens: afterTokens,
+      read_files: fileInventory.readFiles,
+      modified_files: fileInventory.modifiedFiles,
     });
     this.logger.info("context compacted", {
       session_id: params.sessionId,

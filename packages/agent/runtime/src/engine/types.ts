@@ -70,6 +70,7 @@ export interface RuntimeSummaryRequest {
   messages: RuntimeMessage[];
   signal: AbortSignal;
   kind: "history" | "midturn";
+  maxOutputTokens: number;
   userIdentity?: RuntimeProviderUserIdentity;
 }
 

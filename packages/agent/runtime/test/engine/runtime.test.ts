@@ -1788,12 +1788,12 @@ describe("TypeScriptAgentRuntime", () => {
     const outcome = await runtime.runTurn(job(), handle());
     expect(outcome.status).toBe("error");
     expect(outcome.reply).toContain("无法安全完成压缩");
-    expect(summaryCalls).toBe(2);
+    expect(summaryCalls).toBe(4);
     expect(providerCalls).toBe(0);
     expect(store.replacements).toHaveLength(0);
     expect(store.messages.slice(0, original.length)).toEqual(original);
     await runtime.stop();
-  });
+  }, 20_000);
 
   test("stops explicitly at the soft threshold when summarization fails", async () => {
     const store = new MemoryStore();
@@ -1826,10 +1826,10 @@ describe("TypeScriptAgentRuntime", () => {
     const outcome = await runtime.runTurn(job(), handle());
     expect(outcome.status).toBe("error");
     expect(outcome.reply).toContain("无法安全完成压缩");
-    expect(summaryCalls).toBe(2);
+    expect(summaryCalls).toBe(1);
     expect(providerCalls).toBe(0);
     expect(store.replacements).toHaveLength(0);
-    expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ api_calls: 2 }));
+    expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ api_calls: 1 }));
     await runtime.stop();
   });
 

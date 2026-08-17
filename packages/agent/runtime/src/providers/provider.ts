@@ -31,11 +31,9 @@ const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
 const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
-export const SUMMARY_SYSTEM_PROMPT = [
-  "You are a context summarization assistant.",
-  "Read the supplied conversation transcript and return only the requested structured checkpoint summary.",
-  "Do not continue the conversation or answer questions from it.",
-].join("\n");
+export const SUMMARY_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
+
+Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`;
 
 export interface ProviderDescriptor {
   name: string;
@@ -578,17 +576,13 @@ const providerMetadata = (
   return user ? { metadata: { user_id: user } } : {};
 };
 
-export const buildSummaryThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
-  if (descriptor.thinkingStyle === "provider-managed") return {};
-  if (descriptor.thinkingLevels.length > 0 && !descriptor.thinkingLevels.includes("off")) {
-    return buildThinkingPayload({
-      ...descriptor,
-      thinkingEnabled: true,
-      thinkingEffort: descriptor.thinkingDefault,
-    });
-  }
-  return { thinking: { type: "disabled" } };
-};
+export const buildSummaryThinkingPayload = (
+  descriptor: ProviderDescriptor,
+  maxOutputTokens = descriptor.maxTokens,
+): Record<string, unknown> => buildThinkingPayload({
+  ...descriptor,
+  maxTokens: Math.min(descriptor.maxTokens, Math.max(1, Math.trunc(maxOutputTokens))),
+});
 
 export function buildProviderRequest(
   descriptor: ProviderDescriptor,
@@ -903,14 +897,18 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
   async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
     const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
     try {
+      const maxOutputTokens = Math.max(
+        1,
+        Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
+      );
       const stream = this.client.messages.stream({
         model: this.descriptor.model,
-        max_tokens: Math.min(32_768, this.descriptor.maxTokens),
+        max_tokens: maxOutputTokens,
         system: SUMMARY_SYSTEM_PROMPT,
         messages: adaptMessagesForProvider(request.messages, this.descriptor),
         stream: true,
         ...providerMetadata(this.descriptor, request.userIdentity),
-        ...buildSummaryThinkingPayload(this.descriptor),
+        ...buildSummaryThinkingPayload(this.descriptor, maxOutputTokens),
       }, { signal: watchdog.signal });
       try {
         stream.on?.("connect", () => watchdog.activity());
