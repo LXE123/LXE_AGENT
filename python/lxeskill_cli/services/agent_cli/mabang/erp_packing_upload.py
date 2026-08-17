@@ -6,7 +6,7 @@ import os
 import re
 from collections import OrderedDict
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -296,6 +296,51 @@ def _error_payload(ship_no: str, exc: PackingUploadError) -> dict[str, Any]:
     return result
 
 
+def _summary_decimal(summary: Mapping[str, Any], field: str) -> Decimal | None:
+    raw = summary.get(field)
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _reject_identical_to_plan(
+    payload: Mapping[str, Any],
+    *,
+    confirm_identical: bool,
+) -> None:
+    """实际量和计划量逐个 SKU 完全一致时拒绝上传。
+
+    马帮尚未回填装箱数据时，发货单上的数量还是计划值，这时上传只会写进一份
+    没有信息量的快照。差异为 0 也可能是仓库如实发货，所以给 confirm_identical
+    留一条明确的出路，而不是把门焊死。
+
+    判据必须同时看差异和留存：差异是净值，+176 和 -176 会互相抵消（这在
+    SP260808001 上真实发生过），只有留存也为 0 才说明没有任何一个 SKU 短发。
+    """
+    if confirm_identical:
+        return
+    summary = payload.get("summary")
+    if not isinstance(summary, Mapping):
+        return
+    difference = _summary_decimal(summary, "difference_quantity")
+    carryover = _summary_decimal(summary, "carryover_quantity")
+    planned = _summary_decimal(summary, "planned_quantity")
+    if difference is None or carryover is None or planned is None:
+        return
+    if difference != 0 or carryover != 0 or planned <= 0:
+        return
+    raise PackingUploadError(
+        "packing_identical_to_plan",
+        "实际发货量与计划完全一致（计划 "
+        f"{_decimal_text(planned)}，差异 0，留存 0）。"
+        "这通常表示马帮尚未回填真实装箱数据，此时上传不会产生任何对账信息。"
+        "若确认仓库确实按计划如数发货，请追加 --confirm-identical 重跑。",
+    )
+
+
 def _validate_server_response(payload: Mapping[str, Any]) -> str:
     status = str(payload.get("status") or "").strip()
     if payload.get("response_schema") != PACKING_PREVIEW_SCHEMA:
@@ -418,6 +463,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 timeout=timeout,
             )
 
+        confirm_identical = bool(arguments.get("confirm_identical"))
         source_path, ship_no = _resolve_source(arguments)
         quantities = _normalized_msku_quantities(source_path)
         source_sha256 = _file_sha256(source_path)
@@ -441,6 +487,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             json_payload=request_body,
             accepted_statuses={200, 409},
         )
+        _reject_identical_to_plan(response, confirm_identical=confirm_identical)
         return _result_with_lines(
             response=response,
             ship_no=ship_no,

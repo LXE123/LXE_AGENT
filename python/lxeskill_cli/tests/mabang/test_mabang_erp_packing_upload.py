@@ -193,6 +193,76 @@ def test_direct_attachment_takes_precedence_and_infers_ship_no(
     assert session.calls[0]["json"]["sp_no"] == "SP260710001"
 
 
+def _identical_preview(**summary: Any) -> FakeResponse:
+    payload = dict(_preview_response().json())
+    payload["reconciliation_status"] = "passed"
+    payload["summary"] = {
+        "planned_quantity": 30,
+        "actual_quantity": 30,
+        "difference_quantity": 0,
+        "carryover_quantity": 0,
+        "incomplete_issue_count": 0,
+        **summary,
+    }
+    return FakeResponse(409, payload)
+
+
+def test_upload_is_refused_when_actual_matches_plan_exactly(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """马帮未回填装箱数据时，发货单上还是计划值，传上去只会写一份没有信息的快照。"""
+    _configure(monkeypatch, tmp_path)
+    attached = tmp_path / "SP260710001.xlsx"
+    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    session = FakeSession([_identical_preview()])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"packing_excel": str(attached)})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "packing_identical_to_plan"
+    assert "--confirm-identical" in result["error"]["message"]
+    # 预览是只读的，被拒时不能已经提交
+    assert len(session.calls) == 1
+
+
+def test_confirm_identical_lets_a_genuinely_exact_shipment_through(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """仓库确实如实发货是正当情况，必须留一条明确的出路，而不是把门焊死。"""
+    _configure(monkeypatch, tmp_path)
+    attached = tmp_path / "SP260710001.xlsx"
+    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    session = FakeSession([_identical_preview()])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"packing_excel": str(attached), "confirm_identical": True})
+
+    assert result["success"] is True
+
+
+def test_offsetting_differences_are_not_treated_as_identical(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """净差异为 0 不等于逐 SKU 一致。
+
+    SP260808001 上真实发生过 +176/-176 完美抵消，只看 difference_quantity
+    会把一批分配错乱的数据当成「与计划一致」而拒收，恰好放过真正该看的问题。
+    """
+    _configure(monkeypatch, tmp_path)
+    attached = tmp_path / "SP260710001.xlsx"
+    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    session = FakeSession([_identical_preview(carryover_quantity=176)])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"packing_excel": str(attached)})
+
+    assert result["success"] is True
+
+
 def test_direct_attachment_rejects_split_and_ship_mismatch(
     monkeypatch,
     tmp_path: Path,

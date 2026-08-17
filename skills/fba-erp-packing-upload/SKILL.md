@@ -57,6 +57,12 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 4. 若 `reconciliation_status=mismatch` 或 `incomplete`，同时展示真实对账问题。
 5. 明确说明当前尚未写入装箱快照或库存，并询问用户是否确认。
 
+当 CLI 返回 `error.code=packing_identical_to_plan` 时：
+
+1. 说明实际发货量与计划完全一致，这通常表示马帮尚未回填真实装箱数据，此时上传不会产生任何对账信息。
+2. 询问用户仓库是否确实按计划如数发货。
+3. 用户明确确认后，才追加 `--confirm-identical` 重跑同一条命令；未确认前不要自行添加该参数。
+
 `quote_stale` 表示确认期间 ERP 状态变化；必须展示这次返回的新预览并重新询问，不能沿用旧 quote。
 
 ## Confirmation
