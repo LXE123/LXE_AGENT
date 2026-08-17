@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import requests
 
 from services.agent_cli.mabang import erp_packing_upload as cli
@@ -34,9 +33,6 @@ class FakeSession:
         return self.responses.pop(0)
 
 
-def _write_packing(path: Path, rows: list[dict[str, object]]) -> None:
-    pd.DataFrame(rows).to_excel(path, sheet_name="FBA装箱任务", index=False)
-
 
 def _configure(
     monkeypatch,
@@ -44,12 +40,18 @@ def _configure(
     *,
     api_key: str = "erp-secret",
 ) -> None:
-    monkeypatch.setattr(cli, "resolve_consignment_excel_dir", lambda: tmp_path)
     monkeypatch.setenv("LXE_DATA_SERVER_URL", "http://10.88.0.1:8000/")
     if api_key:
         monkeypatch.setenv("LXE_ERP_API_KEY", api_key)
     else:
         monkeypatch.delenv("LXE_ERP_API_KEY", raising=False)
+
+
+
+def _use_delivery(monkeypatch, tmp_path: Path, rows: list[tuple[str, str, str]]) -> Path:
+    path = _write_delivery(tmp_path / "delivery_csv", "SP260710001", rows)
+    monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda sp_no: path)
+    return path
 
 
 def _preview_response(
@@ -127,70 +129,6 @@ def _created_response() -> FakeResponse:
     )
 
 
-def test_preview_uses_latest_exact_original_file_and_aggregates_msku(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    _configure(monkeypatch, tmp_path)
-    old = tmp_path / "SP260710001.xls"
-    old.write_bytes(b"stale")
-    os.utime(old, (1, 1))
-    source = tmp_path / "SP260710001.xlsx"
-    _write_packing(
-        source,
-        [
-            {"MSKU": "msku-a", "装箱数量": 3},
-            {"MSKU": "MSKU-A", "装箱数量": 5},
-            {"MSKU": "MSKU-B", "装箱数量": 12},
-        ],
-    )
-    _write_packing(
-        tmp_path / "SP260710001-1.xlsx",
-        [{"MSKU": "WRONG", "装箱数量": 999}],
-    )
-    detail_lines = [
-        {"stock_sku": f"SKU-{index}", "status": "shortage"}
-        for index in range(205)
-    ]
-    session = FakeSession([_preview_response(lines=detail_lines)])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
-
-    result = cli.run({"ship_no": "sp260710001"})
-
-    assert result["success"] is True
-    assert result["confirmation_required"] is True
-    assert result["source_file_path"] == str(source)
-    assert result["msku_count"] == 2
-    assert result["actual_msku_quantity"] == "20"
-    assert result["reconciliation_line_count"] == 205
-    assert len(result["reconciliation_lines"]) == 200
-    assert result["reconciliation_lines_truncated"] == 5
-    posted = session.calls[0]
-    assert posted["url"].endswith("/api/v1/erp/packing-snapshots/preview")
-    assert posted["json"]["lines"] == [
-        {"msku": "MSKU-A", "actual_quantity": "8"},
-        {"msku": "MSKU-B", "actual_quantity": "12"},
-    ]
-    assert "erp-secret" not in json.dumps(result, ensure_ascii=False)
-
-
-def test_direct_attachment_takes_precedence_and_infers_ship_no(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    _configure(monkeypatch, tmp_path)
-    fallback = tmp_path / "SP260710999.xlsx"
-    _write_packing(fallback, [{"MSKU": "WRONG", "装箱数量": 99}])
-    attached = tmp_path / "SP260710001.xlsx"
-    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 8}])
-    session = FakeSession([_preview_response()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
-
-    result = cli.run({"packing_excel": str(attached)})
-
-    assert result["success"] is True
-    assert result["ship_no"] == "SP260710001"
-    assert session.calls[0]["json"]["sp_no"] == "SP260710001"
 
 
 def _identical_preview(**summary: Any) -> FakeResponse:
@@ -213,12 +151,11 @@ def test_upload_is_refused_when_actual_matches_plan_exactly(
 ) -> None:
     """马帮未回填装箱数据时，发货单上还是计划值，传上去只会写一份没有信息的快照。"""
     _configure(monkeypatch, tmp_path)
-    attached = tmp_path / "SP260710001.xlsx"
-    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview()])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
-    result = cli.run({"packing_excel": str(attached)})
+    result = cli.run({"ship_no": "SP260710001"})
 
     assert result["success"] is False
     assert result["error"]["code"] == "packing_identical_to_plan"
@@ -233,12 +170,11 @@ def test_confirm_identical_lets_a_genuinely_exact_shipment_through(
 ) -> None:
     """仓库确实如实发货是正当情况，必须留一条明确的出路，而不是把门焊死。"""
     _configure(monkeypatch, tmp_path)
-    attached = tmp_path / "SP260710001.xlsx"
-    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview()])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
-    result = cli.run({"packing_excel": str(attached), "confirm_identical": True})
+    result = cli.run({"ship_no": "SP260710001", "confirm_identical": True})
 
     assert result["success"] is True
 
@@ -253,12 +189,11 @@ def test_offsetting_differences_are_not_treated_as_identical(
     会把一批分配错乱的数据当成「与计划一致」而拒收，恰好放过真正该看的问题。
     """
     _configure(monkeypatch, tmp_path)
-    attached = tmp_path / "SP260710001.xlsx"
-    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 30}])
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview(carryover_quantity=176)])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
-    result = cli.run({"packing_excel": str(attached)})
+    result = cli.run({"ship_no": "SP260710001"})
 
     assert result["success"] is True
 
@@ -305,7 +240,7 @@ def test_delivery_source_sends_the_same_shape_as_the_wms_source(
     session = FakeSession([_preview_response()])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
-    result = cli.run({"ship_no": "SP260710001", "source": "delivery"})
+    result = cli.run({"ship_no": "SP260710001"})
 
     assert result["success"] is True
     body = session.calls[0]["json"]
@@ -332,67 +267,19 @@ def test_delivery_source_skips_mskus_that_were_not_shipped(
     session = FakeSession([_preview_response()])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
-    result = cli.run({"ship_no": "SP260710001", "source": "delivery"})
+    result = cli.run({"ship_no": "SP260710001"})
 
     assert result["success"] is True
     assert [line["msku"] for line in session.calls[0]["json"]["lines"]] == ["MSKU-A"]
 
 
-def test_default_source_still_reads_the_wms_file(monkeypatch, tmp_path: Path) -> None:
-    """默认不变：这一步只是把发货单这条路修好备用，切换是下一步的决定。"""
-    _configure(monkeypatch, tmp_path)
-    attached = tmp_path / "SP260710001.xlsx"
-    _write_packing(attached, [{"MSKU": "MSKU-A", "装箱数量": 8}])
-    session = FakeSession([_preview_response()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
-
-    result = cli.run({"packing_excel": str(attached)})
-
-    assert result["success"] is True
-    assert result["packing_source"] == "wms"
 
 
-def test_unknown_source_is_rejected(monkeypatch, tmp_path: Path) -> None:
-    _configure(monkeypatch, tmp_path)
-    result = cli.run({"ship_no": "SP260710001", "source": "excel"})
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "packing_source_invalid"
-
-
-def test_direct_attachment_rejects_split_and_ship_mismatch(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    _configure(monkeypatch, tmp_path)
-    split = tmp_path / "SP260710001-1.xlsx"
-    _write_packing(split, [{"MSKU": "MSKU-A", "装箱数量": 8}])
-    original = tmp_path / "SP260710001.xlsx"
-    _write_packing(original, [{"MSKU": "MSKU-A", "装箱数量": 8}])
-
-    rejected_split = cli.run({"packing_excel": str(split)})
-    mismatch = cli.run(
-        {"packing_excel": str(original), "ship_no": "SP260710002"}
-    )
-
-    assert rejected_split["error"]["code"] == "packing_file_not_original"
-    assert mismatch["error"]["code"] == "packing_file_ship_no_mismatch"
-
-
-def test_xls_extension_is_allowed_for_original_attachment(tmp_path: Path) -> None:
-    source = tmp_path / "SP260710001.xls"
-    source.write_bytes(b"xls fixture")
-
-    resolved, ship_no = cli._direct_packing_file(source, "")
-
-    assert resolved == source.resolve()
-    assert ship_no == "SP260710001"
 
 
 def test_request_id_is_deterministic_for_same_source(monkeypatch, tmp_path: Path) -> None:
     _configure(monkeypatch, tmp_path)
-    source = tmp_path / "SP260710001.xlsx"
-    _write_packing(source, [{"MSKU": "MSKU-A", "装箱数量": 8}])
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession([_preview_response(), _preview_response()])
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
@@ -435,25 +322,10 @@ def test_stale_confirmation_returns_latest_preview(monkeypatch, tmp_path: Path) 
     assert result["quote_id"] == "00000000-0000-0000-0000-000000000010"
 
 
-def test_missing_file_returns_original_download_recovery(monkeypatch, tmp_path: Path) -> None:
-    _configure(monkeypatch, tmp_path)
-    session = FakeSession()
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
-
-    result = cli.run({"ship_no": "SP260710001"})
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "packing_file_missing"
-    assert result["recovery"]["skill"] == "fba-shipment-wms-box-download"
-    assert session.calls == []
-
 
 def test_missing_erp_credentials_is_explicit(monkeypatch, tmp_path: Path) -> None:
     _configure(monkeypatch, tmp_path, api_key="")
-    _write_packing(
-        tmp_path / "SP260710001.xlsx",
-        [{"MSKU": "MSKU-A", "装箱数量": 8}],
-    )
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession()
     monkeypatch.setattr(cli, "local_service_requests_session", session)
 
@@ -465,10 +337,7 @@ def test_missing_erp_credentials_is_explicit(monkeypatch, tmp_path: Path) -> Non
 
 def test_transport_error_keeps_real_exception(monkeypatch, tmp_path: Path) -> None:
     _configure(monkeypatch, tmp_path)
-    _write_packing(
-        tmp_path / "SP260710001.xlsx",
-        [{"MSKU": "MSKU-A", "装箱数量": 8}],
-    )
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession()
     session.error = requests.Timeout("private ERP timed out after 12 seconds")
     monkeypatch.setattr(cli, "local_service_requests_session", session)
@@ -479,14 +348,3 @@ def test_transport_error_keeps_real_exception(monkeypatch, tmp_path: Path) -> No
     assert "private ERP timed out after 12 seconds" in result["error"]["message"]
 
 
-def test_invalid_packing_columns_preserve_parser_error(monkeypatch, tmp_path: Path) -> None:
-    _configure(monkeypatch, tmp_path)
-    _write_packing(
-        tmp_path / "SP260710001.xlsx",
-        [{"MSKU": "MSKU-A", "错误数量列": 8}],
-    )
-
-    result = cli.run({"ship_no": "SP260710001"})
-
-    assert result["error"]["code"] == "packing_upload_failed"
-    assert "装箱数量" in result["error"]["message"]

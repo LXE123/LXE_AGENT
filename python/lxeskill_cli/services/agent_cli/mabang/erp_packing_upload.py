@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 from collections import OrderedDict
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -15,12 +14,8 @@ import requests
 from services.agent_cli._shared.json_cli import exception_text
 from services.agent_cli.mabang.erp_http import ERP_REQUEST_TIMEOUT_SECONDS
 from services.agent_cli.mabang.shipment_quantity_validation import (
-    read_consignment_msku_quantities,
     read_delivery_msku_infos,
     resolve_delivery_csv_path,
-)
-from services.mabang.amazon.fba.consignment_excel import (
-    resolve_consignment_excel_dir,
 )
 from shared.infra.net import local_service_requests_session
 
@@ -28,10 +23,6 @@ from shared.infra.net import local_service_requests_session
 MAX_RECONCILIATION_LINES = 200
 MAX_REMOTE_BODY_CHARS = 4_000
 PACKING_PREVIEW_SCHEMA = "lxe.erp.packing-preview.v1"
-PACKING_EXTENSIONS = {".xls", ".xlsx"}
-SOURCE_WMS = "wms"
-SOURCE_DELIVERY = "delivery"
-PACKING_SOURCES = {SOURCE_WMS, SOURCE_DELIVERY}
 
 
 class PackingUploadError(RuntimeError):
@@ -60,111 +51,18 @@ def _normalize_ship_no(value: Any) -> str:
     return ship_no
 
 
-def _find_original_packing_file(ship_no: str) -> Path:
-    directory = resolve_consignment_excel_dir()
-    candidates = [
-        path
-        for path in (
-            directory / f"{ship_no}.xls",
-            directory / f"{ship_no}.xlsx",
-        )
-        if path.is_file()
-    ]
-    if not candidates:
-        candidates = [
-            path
-            for path in (
-                directory / f"{ship_no.lower()}.xls",
-                directory / f"{ship_no.lower()}.xlsx",
-            )
-            if path.is_file()
-        ]
-    if not candidates:
-        command = (
-            "lxeskill fba shipment wms-box-download "
-            f"--ship-no {ship_no} --split-mode original"
-        )
-        raise PackingUploadError(
-            "packing_file_missing",
-            f"未找到原始 WMS 装箱文件: {ship_no} (目录: {directory})",
-            recovery={
-                "next_action": "ask_user_to_download_original_wms",
-                "skill": "fba-shipment-wms-box-download",
-                "command": command,
-            },
-        )
-    return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
-
-
-def _direct_packing_file(value: Any, ship_no: str) -> tuple[Path, str]:
-    path = Path(str(value or "").strip()).expanduser()
-    if not str(path):
-        raise PackingUploadError("packing_file_missing", "packing_excel 不能为空")
-    if not path.is_file():
-        raise PackingUploadError(
-            "packing_file_missing",
-            f"装箱附件不存在或不是文件: {path}",
-        )
-    if path.suffix.lower() not in PACKING_EXTENSIONS:
-        raise PackingUploadError(
-            "packing_file_extension_unsupported",
-            f"装箱附件仅支持 .xls 或 .xlsx: {path.name}",
-        )
-    file_ship_no = path.stem.strip().upper()
-    if not re.fullmatch(r"SP[0-9]+", file_ship_no):
-        raise PackingUploadError(
-            "packing_file_not_original",
-            f"只允许上传以完整 SP 号命名的原始装箱文件: {path.name}",
-        )
-    if ship_no and ship_no != file_ship_no:
-        raise PackingUploadError(
-            "packing_file_ship_no_mismatch",
-            f"ship_no 与装箱附件文件名不一致: {ship_no} != {file_ship_no}",
-        )
-    return path.resolve(), file_ship_no
-
-
-def _resolve_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
-    raw_ship_no = str(arguments.get("ship_no") or "").strip()
-    ship_no = _normalize_ship_no(raw_ship_no) if raw_ship_no else ""
-    packing_excel = str(arguments.get("packing_excel") or "").strip()
-    if packing_excel:
-        return _direct_packing_file(packing_excel, ship_no)
-    if not ship_no:
-        raise PackingUploadError(
-            "packing_input_required",
-            "必须提供 packing_excel 附件路径或 ship_no",
-        )
-    return _find_original_packing_file(ship_no), ship_no
-
-
 def _decimal_text(value: Decimal) -> str:
     if value == value.to_integral_value():
         return str(int(value))
     return format(value.normalize(), "f").rstrip("0").rstrip(".")
 
 
-def _normalized_msku_quantities(path: Path) -> OrderedDict[str, Decimal]:
-    parsed = read_consignment_msku_quantities(path)
-    normalized: dict[str, Decimal] = {}
-    for raw_msku, quantity in parsed.items():
-        msku = str(raw_msku or "").strip().upper()
-        if not msku:
-            raise PackingUploadError(
-                "packing_file_invalid",
-                f"装箱数据包含空 MSKU: {path.name}",
-            )
-        normalized[msku] = normalized.get(msku, Decimal("0")) + quantity
-    return OrderedDict((msku, normalized[msku]) for msku in sorted(normalized))
-
-
-
 def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
     """从发货单 CSV 读出每个 MSKU 的实发量。
 
-    形状和 _normalized_msku_quantities 完全一致，所以 ERP 请求体、接口和下游
-    都不用改——换的只是这批数字的来源：马帮 WMS 导出会把总量分配到错误的
-    MSKU 上（SP260808001 上出现过 +176/-176 的完美抵消），发货单不会。
+    ERP 收到的仍是 {msku: 实发量}，接口和下游都不用改——换掉的只是来源。
+    马帮 WMS 导出会把总量分配到错误的 MSKU 上（SP260808001 上出现过
+    +176/-176 的完美抵消），发货单不会，所以 WMS 那条路已经整段移除。
 
     数量为 0 的行代表这个 MSKU 最终没发，不能当成装箱条目传给 ERP。
     """
@@ -192,16 +90,6 @@ def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
             f"发货单没有任何大于 0 的 MSKU发货量: {path.name}",
         )
     return OrderedDict((msku, quantities[msku]) for msku in sorted(quantities))
-
-
-def _resolve_packing_source(arguments: Mapping[str, Any]) -> str:
-    source = str(arguments.get("source") or SOURCE_WMS).strip().lower()
-    if source not in PACKING_SOURCES:
-        raise PackingUploadError(
-            "packing_source_invalid",
-            f"source 只支持 {sorted(PACKING_SOURCES)}: {source}",
-        )
-    return source
 
 
 def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
@@ -541,13 +429,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             )
 
         confirm_identical = bool(arguments.get("confirm_identical"))
-        packing_source = _resolve_packing_source(arguments)
-        if packing_source == SOURCE_DELIVERY:
-            source_path, ship_no = _resolve_delivery_source(arguments)
-            quantities = _normalized_delivery_quantities(source_path)
-        else:
-            source_path, ship_no = _resolve_source(arguments)
-            quantities = _normalized_msku_quantities(source_path)
+        source_path, ship_no = _resolve_delivery_source(arguments)
+        quantities = _normalized_delivery_quantities(source_path)
         source_sha256 = _file_sha256(source_path)
         captured_at = _captured_at(source_path)
         request_body: dict[str, Any] = {
@@ -582,7 +465,6 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "source_file_name": source_path.name,
                 "source_sha256": source_sha256,
                 "captured_at": captured_at,
-                "packing_source": packing_source,
                 "msku_count": len(quantities),
                 "actual_msku_quantity": _decimal_text(
                     sum(quantities.values(), Decimal("0"))
@@ -603,8 +485,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "PackingUploadError",
-    "_direct_packing_file",
-    "_find_original_packing_file",
+    "_normalized_delivery_quantities",
     "_request_id",
     "run",
 ]

@@ -1,6 +1,6 @@
 ---
 name: fba-erp-packing-upload
-description: 预览并确认某个 SP 的原始完整 WMS 装箱数据，确认后上传到 FBA ERP 并生成库存 SKU 对账与留存库存。用户发送装箱 Excel、要求上传真实发货量、同步装箱数据、更正装箱量或查看留存预览时使用；不要用于下载装箱文件、上传拆分文件、生成采购单或采购合同。
+description: 按 SP 号读取本地 FBA 发货单 CSV 的实发量，确认后上传到 FBA ERP 并生成库存 SKU 对账与留存库存。用户要求上传真实发货量、同步发货数据、更正发货量或查看留存预览时使用；不要用于下载发货单、生成采购单或采购合同。
 type: amazon_fba
 commands:
   - lxeskill fba erp packing-upload
@@ -11,9 +11,8 @@ commands:
 ## Hard Rules
 
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块或调用 ERP API。
-- 用户上传附件时，把桌面提供的真实附件绝对路径传给 `packing_excel`；不要要求用户复制路径，也不要猜测路径。
-- 没有附件时可仅传 `ship_no`，CLI 会从 WMS 下载目录查找原始文件。
-- 只允许原始完整的 `SP号.xls` 或 `SP号.xlsx`；禁止 `SP号-1.xlsx` 等拆分文件。
+- 实发量只来自本地 FBA 发货单 CSV 的 `MSKU发货量` 列；不接受用户上传的装箱附件。
+- 马帮 WMS 装箱导出会把总量分配到错误的 MSKU 上，已不作为对账来源；它仍用于创建货件、报关和发票。
 - 不在本地推导库存 SKU、留存量或合同来源；只展示 ERP 返回的正式预览。
 - 首次上传和数据变更都必须等待用户明确确认。禁止在同一轮首次调用后自动携带 quote 提交。
 - ERP 不可用时停止，不排队、不写本地影子数据，也不改走本地对账。
@@ -21,19 +20,11 @@ commands:
 
 ## Initial Preview
 
-用户发送附件时：
-
-```text
-lxeskill fba erp packing-upload --packing-excel <附件真实绝对路径> [--ship-no <ship_no>]
-```
-
-没有附件、但原始文件已下载时：
-
 ```text
 lxeskill fba erp packing-upload --ship-no <ship_no>
 ```
 
-`ship_no` 与附件文件名不一致时停止并报告错误。不得忽略校验或改名后重试。
+同一个 SP 有多份发货单导出时，CLI 取最新的一份——装箱后重新导出的那份才带回填的实发量。
 
 ## Preview Presentation
 
@@ -79,13 +70,13 @@ lxeskill fba erp packing-upload --confirm-packing-quote-id <quote_id>
 - `packing_snapshot_quote_not_pending`：quote 已使用、过期或不属于当前流程，重新执行 Initial Preview。
 - `carryover_already_applied`：旧快照留存已被下游采购使用，不能替换；逐项转述服务器返回的依赖业务。
 
-## Missing Original File
+## Missing Delivery CSV
 
-当 `data.error.code=packing_file_missing` 且本次没有附件时：
+当 `data.error.code=delivery_csv_missing` 时：
 
-1. 告诉用户本地缺少该 SP 的原始 WMS 文件。
+1. 告诉用户本地缺少该 SP 的发货单 CSV。
 2. 询问是否下载；未取得同意前不要下载。
-3. 用户同意后切换到 `fba-shipment-wms-box-download`，使用 `--split-mode original` 下载，再重新预览。
+3. 用户同意后切换到 `fba-shipment-delivery-csv-download` 下载，再重新预览。
 
 ## Result Handling
 
