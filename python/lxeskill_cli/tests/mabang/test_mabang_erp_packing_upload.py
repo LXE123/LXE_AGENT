@@ -346,5 +346,3 @@ def test_transport_error_keeps_real_exception(monkeypatch, tmp_path: Path) -> No
 
     assert result["error"]["code"] == "erp_transport_error"
     assert "private ERP timed out after 12 seconds" in result["error"]["message"]
-
-
