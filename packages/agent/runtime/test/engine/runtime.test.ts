@@ -262,6 +262,88 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
+  test("sums cached input tokens across steps into the recorded turn usage", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "probe",
+      description: "probe",
+      input_schema: { type: "object" },
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
+    let providerCalls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: {
+        summarize,
+        turn: async () => {
+          providerCalls += 1;
+          // A cache hit bills only the remainder as input_tokens, so a turn that
+          // reports 207 has really sent 207 + 16128 + 64 tokens.
+          return providerCalls === 1
+            ? {
+                content: [{ type: "tool_call", id: "probe-1", name: "probe", arguments: {} }],
+                stop_reason: "tool_use",
+                usage: {
+                  input_tokens: 207,
+                  output_tokens: 310,
+                  cache_read_input_tokens: 16_128,
+                  cache_creation_input_tokens: 64,
+                },
+              }
+            : {
+                content: [{ type: "text", text: "done" }],
+                stop_reason: "end_turn",
+                usage: {
+                  input_tokens: 12,
+                  output_tokens: 8,
+                  cache_read_input_tokens: 16_400,
+                  cache_creation_input_tokens: 0,
+                },
+              };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(store.metrics[0]).toMatchObject({
+      input_tokens: 219,
+      output_tokens: 318,
+      cache_read_input_tokens: 32_528,
+      cache_creation_input_tokens: 64,
+    });
+    await runtime.stop();
+  });
+
+  test("records zero cache tokens when the provider reports none", async () => {
+    const store = new MemoryStore();
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => ({
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 5, output_tokens: 6 },
+        }),
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(store.metrics[0]).toMatchObject({
+      input_tokens: 5,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    });
+    await runtime.stop();
+  });
+
   test("holds one workspace snapshot lease across prompt and tool execution", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();

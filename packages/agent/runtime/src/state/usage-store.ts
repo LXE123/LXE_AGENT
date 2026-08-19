@@ -35,7 +35,9 @@ export class UsageStore {
         llm_calls INTEGER NOT NULL DEFAULT 0,
         tool_calls INTEGER NOT NULL DEFAULT 0,
         input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS turn_usage_items (
         item_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +74,8 @@ export class UsageStore {
       ["bot_name", "TEXT NOT NULL DEFAULT ''"],
       ["provider", "TEXT NOT NULL DEFAULT ''"],
       ["model", "TEXT NOT NULL DEFAULT ''"],
+      ["cache_read_input_tokens", "INTEGER NOT NULL DEFAULT 0"],
+      ["cache_creation_input_tokens", "INTEGER NOT NULL DEFAULT 0"],
     ] as const) {
       if (!usageColumns.some((column) => column.name === name)) {
         database.exec(`ALTER TABLE turn_usage ADD COLUMN ${name} ${declaration}`);
@@ -137,8 +141,9 @@ export class UsageStore {
       this.database.query(`
         INSERT INTO turn_usage
           (sequence, turn_id, session_id, started_at, platform, bot_app_id, bot_id, bot_name,
-           provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens)
-        VALUES ((SELECT next_sequence FROM turn_usage_sequence_state WHERE singleton = 1), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens,
+           cache_read_input_tokens, cache_creation_input_tokens)
+        VALUES ((SELECT next_sequence FROM turn_usage_sequence_state WHERE singleton = 1), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(turn_id) DO UPDATE SET
           session_id = excluded.session_id,
           started_at = excluded.started_at,
@@ -153,7 +158,9 @@ export class UsageStore {
           llm_calls = excluded.llm_calls,
           tool_calls = excluded.tool_calls,
           input_tokens = excluded.input_tokens,
-          output_tokens = excluded.output_tokens
+          output_tokens = excluded.output_tokens,
+          cache_read_input_tokens = excluded.cache_read_input_tokens,
+          cache_creation_input_tokens = excluded.cache_creation_input_tokens
       `).run(
         turnId, safeSessionId, startedAt,
         clippedText(metrics.platform, 64), clippedText(metrics.bot_app_id, 256),
@@ -162,6 +169,8 @@ export class UsageStore {
         text(metrics.status), Number(metrics.elapsed_ms ?? 0),
         Number(metrics.api_calls ?? metrics.llm_calls ?? 0), Number(metrics.tool_calls ?? 0),
         Number(metrics.input_tokens ?? 0), Number(metrics.output_tokens ?? 0),
+        Number(metrics.cache_read_input_tokens ?? 0),
+        Number(metrics.cache_creation_input_tokens ?? 0),
       );
       this.database.query(`
         UPDATE turn_usage_sequence_state SET next_sequence = MAX(
@@ -215,6 +224,8 @@ export class UsageStore {
       SELECT COUNT(*) AS turns, COALESCE(SUM(tool_calls), 0) AS tool_calls,
              COALESCE(SUM(llm_calls), 0) AS llm_calls, COALESCE(SUM(input_tokens), 0) AS input_tokens,
              COALESCE(SUM(output_tokens), 0) AS output_tokens,
+             COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+             COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
              COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_turns
       FROM turn_usage WHERE started_at >= ?
     `, cutoff) ?? {};
@@ -247,6 +258,8 @@ export class UsageStore {
         turns: Number(totals.turns ?? 0), error_turns: Number(totals.error_turns ?? 0),
         tool_calls: Number(totals.tool_calls ?? 0), llm_calls: Number(totals.llm_calls ?? 0),
         input_tokens: Number(totals.input_tokens ?? 0), output_tokens: Number(totals.output_tokens ?? 0),
+        cache_read_input_tokens: Number(totals.cache_read_input_tokens ?? 0),
+        cache_creation_input_tokens: Number(totals.cache_creation_input_tokens ?? 0),
         skill_executions: Number(skillTotals?.executions ?? 0), skill_failures: Number(skillTotals?.failures ?? 0),
       },
       modules: modules.map((row) => ({
@@ -337,13 +350,16 @@ export class UsageStore {
   exportTurnUsage(days: number, limit = 5_000): JsonObject[] {
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
     const rows = this.all<Record<string, unknown>>(`
-      SELECT turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens
+      SELECT turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens,
+             cache_read_input_tokens, cache_creation_input_tokens
       FROM turn_usage WHERE started_at >= ? ORDER BY started_at ASC LIMIT ?
     `, cutoff, Math.max(1, Math.min(Math.trunc(limit), 50_000)));
     const turns = rows.map((row) => ({
       turn_id: text(row.turn_id), session_id: text(row.session_id), started_at: Number(row.started_at ?? 0),
       status: text(row.status), elapsed_ms: Number(row.elapsed_ms ?? 0), llm_calls: Number(row.llm_calls ?? 0),
       tool_calls: Number(row.tool_calls ?? 0), input_tokens: Number(row.input_tokens ?? 0), output_tokens: Number(row.output_tokens ?? 0),
+      cache_read_input_tokens: Number(row.cache_read_input_tokens ?? 0),
+      cache_creation_input_tokens: Number(row.cache_creation_input_tokens ?? 0),
       items: [] as JsonObject[],
     }));
     const byId = new Map(turns.map((turn) => [turn.turn_id, turn]));
@@ -396,7 +412,8 @@ export class UsageStore {
     const acknowledgedSequence = Number(state?.acknowledged_sequence ?? 0);
     const rows = this.all<Record<string, unknown>>(`
       SELECT sequence, turn_id, started_at, platform, bot_app_id, bot_id, bot_name,
-             provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens
+             provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens,
+             cache_read_input_tokens, cache_creation_input_tokens
       FROM turn_usage
       WHERE sequence > ? AND started_at >= ?
       ORDER BY sequence ASC LIMIT ?
@@ -417,6 +434,8 @@ export class UsageStore {
       tool_calls: Number(row.tool_calls ?? 0),
       input_tokens: Number(row.input_tokens ?? 0),
       output_tokens: Number(row.output_tokens ?? 0),
+      cache_read_input_tokens: Number(row.cache_read_input_tokens ?? 0),
+      cache_creation_input_tokens: Number(row.cache_creation_input_tokens ?? 0),
       items: [] as JsonObject[],
     }));
     const byId = new Map(turns.map((turn) => [String(turn.turn_id), turn]));

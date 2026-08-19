@@ -156,6 +156,8 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
   elapsed_ms: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
   tool_calls: number;
   api_calls: number;
   tools: ToolTurnUsage[];

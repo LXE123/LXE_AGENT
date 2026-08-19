@@ -117,9 +117,18 @@ const textContent = (content: RuntimeContentBlock[]): string =>
 
 const isCancelled = (handle: RuntimeHandle): boolean => handle.cancelled || handle.signal.aborted;
 
-const addUsage = (target: { input: number; output: number }, usage: RuntimeUsage): void => {
+interface TurnUsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
+const addUsage = (target: TurnUsageTotals, usage: RuntimeUsage): void => {
   target.input += Math.max(0, Math.trunc(usage.input_tokens ?? 0));
   target.output += Math.max(0, Math.trunc(usage.output_tokens ?? 0));
+  target.cacheRead += Math.max(0, Math.trunc(usage.cache_read_input_tokens ?? 0));
+  target.cacheCreation += Math.max(0, Math.trunc(usage.cache_creation_input_tokens ?? 0));
 };
 
 export const DEFAULT_MAX_STEPS = 50;
@@ -260,6 +269,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     this.active.add(handle);
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
     let apiCalls = 0;
     let toolCalls = 0;
     let typingStarted = false;
@@ -270,10 +281,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const toolRecoveryAttempts = new Map<string, number>();
     let usageRecorded = false;
     const accountContext = (result: ContextCompactionResult): void => {
-      const usage = { input: inputTokens, output: outputTokens };
+      const usage: TurnUsageTotals = {
+        input: inputTokens,
+        output: outputTokens,
+        cacheRead: cacheReadTokens,
+        cacheCreation: cacheCreationTokens,
+      };
       addUsage(usage, result.usage);
       inputTokens = usage.input;
       outputTokens = usage.output;
+      cacheReadTokens = usage.cacheRead;
+      cacheCreationTokens = usage.cacheCreation;
       apiCalls += result.apiCalls;
       if (result.apiCalls > 0) finalAnswerStreamer?.updateUsage(result.usage);
     };
@@ -295,6 +313,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           elapsed_ms: elapsedMs,
           input_tokens: inputTokens,
           output_tokens: outputTokens,
+          cache_read_input_tokens: cacheReadTokens,
+          cache_creation_input_tokens: cacheCreationTokens,
           tool_calls: toolCalls,
           api_calls: apiCalls,
           tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
@@ -545,6 +565,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
+        cacheReadTokens += Math.max(0, Math.trunc(response.usage.cache_read_input_tokens ?? 0));
+        cacheCreationTokens += Math.max(0, Math.trunc(response.usage.cache_creation_input_tokens ?? 0));
         finalAnswerStreamer?.updateUsage(response.usage);
         const calls = toolCallBlocks(response.content);
         const forcedLastStepReply = isLastStep && calls.length > 0

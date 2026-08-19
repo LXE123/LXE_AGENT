@@ -30,6 +30,121 @@ describe("UsageStore", () => {
     }
   });
 
+  test("keeps the cached halves of a request instead of only the billed input", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      store.recordTurn("s1", {
+        turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
+        input_tokens: 207, output_tokens: 310,
+        cache_read_input_tokens: 16_128, cache_creation_input_tokens: 64,
+        tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      });
+
+      expect(store.usageOverview(30).totals).toMatchObject({
+        input_tokens: 207,
+        output_tokens: 310,
+        cache_read_input_tokens: 16_128,
+        cache_creation_input_tokens: 64,
+      });
+      expect(store.exportTurnUsage(30)[0]).toMatchObject({
+        cache_read_input_tokens: 16_128,
+        cache_creation_input_tokens: 64,
+      });
+      expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10).turns[0])
+        .toMatchObject({ cache_read_input_tokens: 16_128, cache_creation_input_tokens: 64 });
+    } finally {
+      database.close(true);
+    }
+  });
+
+  test("re-recording a turn overwrites its cache counters", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      const base = {
+        turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
+        input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      };
+      store.recordTurn("s1", { ...base, cache_read_input_tokens: 10, cache_creation_input_tokens: 2 });
+      store.recordTurn("s1", { ...base, cache_read_input_tokens: 99, cache_creation_input_tokens: 7 });
+
+      expect(store.usageOverview(30).totals).toMatchObject({
+        cache_read_input_tokens: 99,
+        cache_creation_input_tokens: 7,
+      });
+    } finally {
+      database.close(true);
+    }
+  });
+
+  test("a turn recorded without cache counters reads back as zero", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      store.recordTurn("s1", {
+        turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
+        input_tokens: 3, output_tokens: 4, tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      });
+
+      expect(store.usageOverview(30).totals).toMatchObject({
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      });
+    } finally {
+      database.close(true);
+    }
+  });
+
+  test("adds the cache columns to a database written before they existed", () => {
+    const database = new Database(":memory:", { create: true, strict: true });
+    try {
+      // The pre-cache schema, as an installed agent would already have it on disk.
+      database.exec(`
+        CREATE TABLE turn_usage (
+          turn_id TEXT PRIMARY KEY,
+          sequence INTEGER,
+          session_id TEXT NOT NULL,
+          started_at REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT '',
+          elapsed_ms INTEGER NOT NULL DEFAULT 0,
+          llm_calls INTEGER NOT NULL DEFAULT 0,
+          tool_calls INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      database.query(`
+        INSERT INTO turn_usage (turn_id, sequence, session_id, started_at, status, input_tokens)
+        VALUES ('legacy-1', 1, 's1', ?, 'completed', 42)
+      `).run(startedAt);
+
+      UsageStore.migrate(database);
+      const store = new UsageStore(database);
+
+      // The legacy row survives and reports 0 because the value was never
+      // recorded, not because nothing was ever read from cache.
+      expect(store.usageOverview(30).totals).toMatchObject({
+        turns: 1,
+        input_tokens: 42,
+        cache_read_input_tokens: 0,
+      });
+      store.recordTurn("s1", {
+        turn_id: "turn-2", started_at: startedAt, status: "completed", elapsed_ms: 1,
+        input_tokens: 1, output_tokens: 1,
+        cache_read_input_tokens: 500, cache_creation_input_tokens: 0,
+        tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      });
+      expect(store.usageOverview(30).totals).toMatchObject({ cache_read_input_tokens: 500 });
+    } finally {
+      database.close(true);
+    }
+  });
+
   test("assigns gapless sequences and replaces items when a turn is re-recorded", () => {
     const database = usageDatabase();
     try {
