@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import { createLogger } from "@lxe/core";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
@@ -66,10 +66,15 @@ const manifestPaths = (root: string): string[] => {
   if (!existsSync(root)) return [];
   const output: string[] = [];
   const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    const manifest = entries.find((entry) => entry.isFile() && entry.name === "SKILL.md");
+    if (manifest) {
+      output.push(join(directory, manifest.name));
+      return;
+    }
+    for (const entry of entries) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.isFile() && basename(path).toLowerCase() === "skill.md") output.push(path);
     }
   };
   walk(root);

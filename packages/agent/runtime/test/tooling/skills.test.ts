@@ -37,6 +37,28 @@ describe("skill context", () => {
     expect(prompt).not.toContain("lxeskill hidden run");
   });
 
+  test("treats SKILL.md as a package boundary while discovering nested skill groups", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-skill-boundary-"));
+    roots.push(root);
+    mkdirSync(join(root, "skills", "demo", "references", "nested"), { recursive: true });
+    mkdirSync(join(root, "skills", "group", "nested"), { recursive: true });
+    writeFileSync(
+      join(root, "skills", "demo", "SKILL.md"),
+      "---\nname: demo\ndescription: Demo workflow\n---\n",
+      "utf8",
+    );
+    writeFileSync(join(root, "skills", "demo", "references", "skill.md"), "# Reference only\n", "utf8");
+    writeFileSync(join(root, "skills", "demo", "references", "nested", "SKILL.md"), "# Not a skill\n", "utf8");
+    writeFileSync(
+      join(root, "skills", "group", "nested", "SKILL.md"),
+      "---\nname: nested\ndescription: Nested workflow\n---\n",
+      "utf8",
+    );
+
+    const catalog = new SkillCatalog(root, join(root, "missing-user"));
+    expect(catalog.list().map((skill) => skill.name)).toEqual(["demo", "nested"]);
+  });
+
   test("uses absolute repository instructions when skills live outside the workspace", () => {
     const resourceRoot = mkdtempSync(join(tmpdir(), "lxe-skill-resource-"));
     const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-skill-workspace-"));
