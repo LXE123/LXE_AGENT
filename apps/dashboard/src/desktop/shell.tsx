@@ -67,11 +67,6 @@ type DesktopConfirmation =
   | { kind: "delete-local-model"; provider: Provider; label: string };
 const setupForm = desktopSettingsForm;
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  kimi_coding: "Kimi Coding",
-  deepseek: "DeepSeek",
-};
-
 const FONT_SIZE_VALUES: ReadonlyArray<DashboardFontSize> = ["small", "standard", "large"];
 const THEME_VALUES: ReadonlyArray<DashboardTheme> = ["system", "light", "dark"];
 
@@ -585,7 +580,10 @@ function DesktopSettingsForm({
 }) {
   const t = useUiText();
   if (activeSection === "base") {
-    const selectedProviderConfigured = setup.local_model_credentials[form.localProvider];
+    const selectedProvider = setup.local_model_providers.find(
+      (provider) => provider.provider === form.localProvider,
+    );
+    const selectedProviderConfigured = selectedProvider?.configured === true;
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
@@ -613,7 +611,7 @@ function DesktopSettingsForm({
                 value={form.localProvider}
                 onChange={(event) => onChange({ localProvider: event.target.value as Provider, localApiKey: "" })}
               >
-                {Object.entries(PROVIDER_LABELS).map(([provider, label]) => (
+                {setup.local_model_providers.map(({ provider, label }) => (
                   <option key={provider} value={provider}>{label}</option>
                 ))}
               </select>
@@ -1332,7 +1330,9 @@ export function DesktopShell({
     setError("");
     try {
       await refreshCredentialSetup(await desktop.saveLocalModelCredential({ provider, api_key: apiKey }));
-      showSuccessNotice(t.desktop.base.savedLocalKey(PROVIDER_LABELS[provider]));
+      showSuccessNotice(t.desktop.base.savedLocalKey(
+        setup.local_model_providers.find((item) => item.provider === provider)?.label ?? provider,
+      ));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1345,7 +1345,9 @@ export function DesktopShell({
     setError("");
     try {
       await refreshCredentialSetup(await desktop.deleteLocalModelCredential(provider));
-      showSuccessNotice(t.desktop.base.deletedLocalKey(PROVIDER_LABELS[provider]));
+      showSuccessNotice(t.desktop.base.deletedLocalKey(
+        setup.local_model_providers.find((item) => item.provider === provider)?.label ?? provider,
+      ));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1407,7 +1409,8 @@ export function DesktopShell({
   };
   const deleteLocalCredential = (provider: Provider): void => {
     if (credentialBusy) return;
-    setConfirmation({ kind: "delete-local-model", provider, label: PROVIDER_LABELS[provider] });
+    const label = setup.local_model_providers.find((item) => item.provider === provider)?.label ?? provider;
+    setConfirmation({ kind: "delete-local-model", provider, label });
   };
   const confirmPendingAction = (): void => {
     const pending = confirmation;

@@ -74,7 +74,7 @@ export interface DesktopSettingsFormValue {
 }
 
 export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFormValue => ({
-  localProvider: state.provider,
+  localProvider: state.local_provider,
   localApiKey: "",
   workspaceRoot: state.workspace_root,
   ziniaoCompany: state.ziniao.company,

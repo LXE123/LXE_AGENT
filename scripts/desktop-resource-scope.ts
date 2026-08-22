@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { loadLlmProviderCatalog } from "../packages/foundation/core/src/llm-provider-catalog";
 
 export interface ResourceScopeEntry {
   id: string;
@@ -130,6 +131,9 @@ export const validateResourceScope = (
       case "production-build":
         if (!entry.source.path) throw new Error(`Desktop resource scope source path is missing: ${entry.id}`);
         break;
+      case "llm-catalog":
+        if (!entry.source.path) throw new Error(`Desktop LLM catalog source path is missing: ${entry.id}`);
+        break;
       case "file-list":
         if (sourcePaths.length === 0) throw new Error(`Desktop resource scope source list is empty: ${entry.id}`);
         break;
@@ -155,6 +159,25 @@ export const validateResourceScope = (
     }
   }
   return scope;
+};
+
+export const selectedLlmCatalogFiles = (repositoryRoot: string, sourcePath: string): string[] => {
+  const relativeRoot = normalized(sourcePath);
+  if (relativeRoot !== "config/llm") {
+    throw new Error(`Desktop LLM catalog source must be config/llm: ${sourcePath}`);
+  }
+  const root = join(repositoryRoot, ...relativeRoot.split("/"));
+  loadLlmProviderCatalog(root);
+  const authProfile = join(root, "auth-profiles.json");
+  requireResourceSourceFile(authProfile);
+  const providersRoot = join(root, "providers");
+  requireResourceSourceDirectory(providersRoot);
+  const providerFiles = readdirSync(providersRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => `${relativeRoot}/providers/${entry.name}`)
+    .sort((left, right) => left.localeCompare(right));
+  if (providerFiles.length === 0) throw new Error(`Desktop LLM catalog has no Provider JSON: ${providersRoot}`);
+  return [`${relativeRoot}/auth-profiles.json`, ...providerFiles];
 };
 
 const prohibitedSkillNames = /^(?:readme(?:\..*)?|upstream\.md|test_[^/]*\.py|[^/]*_test\.py|[^/]*\.test\.[^/]+|.*\.py[co])$/iu;

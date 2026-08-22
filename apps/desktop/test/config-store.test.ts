@@ -67,7 +67,9 @@ describe("DesktopConfigStore", () => {
       complete: true,
       provider: "kimi_coding",
       credential_source: "local",
-      local_model_credentials: { kimi_coding: true },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: true }),
+      ]),
       ziniao: { configured: true, password_configured: true },
       mabang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
@@ -206,11 +208,19 @@ describe("DesktopConfigStore", () => {
       provider: "deepseek",
       credential_source: "local",
       managed_model_configured: false,
-      local_model_credentials: { kimi_coding: false, deepseek: false },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: false }),
+        expect.objectContaining({ provider: "deepseek", configured: false }),
+      ]),
     });
     expect(existsSync(join(root, ".env"))).toBeFalse();
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
-    expect(readFileSync(join(configRoot, "settings.json"), "utf8")).not.toContain("glm");
+    expect(JSON.parse(readFileSync(join(configRoot, "settings.json"), "utf8"))).toMatchObject({
+      llm: {
+        provider: "deepseek",
+        profiles: { glm: { model: "glm-5v-turbo", thinking_level: "high" } },
+      },
+    });
     expect(readFileSync(join(configRoot, "auth.json"), "utf8")).not.toContain("glm");
     expect(readFileSync(join(configRoot, "secrets.bin"), "utf8")).not.toContain("retired-secret");
   });
@@ -312,7 +322,9 @@ describe("DesktopConfigStore", () => {
 
     expect(store.state()).toMatchObject({
       complete: false,
-      local_model_credentials: { kimi_coding: true },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: true }),
+      ]),
       workspace_root: canonicalWorkspace,
     });
   });
@@ -355,7 +367,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 7,
+      schema_version: 8,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -583,6 +595,54 @@ describe("DesktopConfigStore", () => {
     expect(restarted.state()).toMatchObject({ complete: false, managed_model_configured: false });
   });
 
+  test("selects OpenRouter from the shipped catalog for local and managed credentials", () => {
+    const localRoot = createRoot();
+    const local = new DesktopConfigStore(localRoot, join(localRoot, "workspace"), safeStorage);
+    const localState = local.saveLocalModelCredential({
+      provider: "open-router",
+      api_key: "openrouter-local-secret",
+    });
+    expect(localState).toMatchObject({
+      complete: true,
+      provider: "openrouter",
+      local_provider: "openrouter",
+      credential_source: "local",
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "openrouter", label: "OpenRouter", configured: true }),
+      ]),
+    });
+    local.saveRuntimePreference("openrouter", "stealth/ox-alpha", "medium");
+    expect(local.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "openrouter",
+      AGENT_LLM_MODEL: "stealth/ox-alpha",
+      AGENT_LLM_THINKING_EFFORT: "medium",
+    });
+    expect(() => local.saveLocalModelCredential({ provider: "unknown", api_key: "secret" }))
+      .toThrow("unsupported LLM provider: unknown");
+
+    const cloudRoot = createRoot();
+    const cloud = new DesktopConfigStore(cloudRoot, join(cloudRoot, "workspace"), safeStorage);
+    cloud.saveManagedLlmCredential({
+      provider: "openrouter",
+      model: "stealth/ox-alpha",
+      api_key: "openrouter-managed-secret",
+      credential_revision: "e".repeat(64),
+      fetched_at: 123,
+      invalid_revision: "",
+    });
+    expect(cloud.state()).toMatchObject({
+      complete: true,
+      provider: "openrouter",
+      credential_source: "cloud",
+      managed_model_configured: true,
+    });
+    expect(cloud.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "openrouter",
+      LXE_MANAGED_LLM_MODEL: "stealth/ox-alpha",
+      LXE_MANAGED_LLM_API_KEY: "openrouter-managed-secret",
+    });
+  });
+
   test("keeps an existing local model selected when a managed credential arrives", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
@@ -600,14 +660,18 @@ describe("DesktopConfigStore", () => {
       complete: true,
       provider: "deepseek",
       credential_source: "local",
-      local_model_credentials: { deepseek: true },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "deepseek", configured: true }),
+      ]),
       managed_model_configured: true,
     });
     expect(store.deleteLocalModelCredential("deepseek")).toMatchObject({
       complete: true,
       provider: "kimi_coding",
       credential_source: "cloud",
-      local_model_credentials: { deepseek: false },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "deepseek", configured: false }),
+      ]),
       managed_model_configured: true,
     });
   });
@@ -622,13 +686,19 @@ describe("DesktopConfigStore", () => {
       complete: true,
       provider: "deepseek",
       credential_source: "local",
-      local_model_credentials: { kimi_coding: false, deepseek: true },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: false }),
+        expect.objectContaining({ provider: "deepseek", configured: true }),
+      ]),
     });
 
     expect(store.deleteLocalModelCredential("deepseek")).toMatchObject({
       complete: false,
       credential_source: "local",
-      local_model_credentials: { kimi_coding: false, deepseek: false },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: false }),
+        expect.objectContaining({ provider: "deepseek", configured: false }),
+      ]),
     });
   });
 
@@ -653,7 +723,9 @@ describe("DesktopConfigStore", () => {
       provider: "deepseek",
       credential_source: "cloud",
       managed_model_configured: false,
-      local_model_credentials: { kimi_coding: true },
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "kimi_coding", configured: true }),
+      ]),
     });
   });
 });

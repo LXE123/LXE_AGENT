@@ -1,0 +1,30 @@
+{
+  "name": "openrouter",
+  "label": "OpenRouter",
+  "api_style": "openai-responses",
+  "base_url": "https://openrouter.ai/api/v1",
+  "default_model": "stealth/ox-alpha",
+  "request_idle_timeout_ms": 660000,
+  "default_headers": {},
+  "aliases": [
+    "open_router",
+    "open-router"
+  ],
+  "models": {
+    "stealth/ox-alpha": {
+      "context_window_tokens": 1048576,
+      "max_tokens": 131072,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": true,
+      "thinking_request_style": "openai-effort",
+      "thinking_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "thinking_default": "high"
+    }
+  }
+}

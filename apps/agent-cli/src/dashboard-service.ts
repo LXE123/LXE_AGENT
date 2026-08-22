@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -17,13 +16,13 @@ import {
   type DashboardRpcSpec,
 } from "@lxe/desktop-protocol";
 import type { JsonObject } from "@lxe/protocol";
+import { loadLlmProviderCatalog, normalizeProviderKey, type LlmProviderSpec } from "@lxe/core";
 import {
   InvalidTranscriptCursorError,
   mcpServerPrefix,
   normalizeThinkingEffort,
   providerPreferencePatch,
   readProviderPreference,
-  runtimeConfigPathsFromRoot,
   SkillCatalog,
   type McpConfig,
   type LxeSkillCommandDefinition,
@@ -90,8 +89,6 @@ const connectorDefinitions = [
 ] as const;
 
 const text = (value: unknown): string => String(value ?? "").trim();
-const normalizeProviderKey = (value: unknown): string =>
-  text(value).toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
 const optionalFlag = (value: unknown): boolean | undefined => {
   const normalized = text(value).toLowerCase();
   if (!normalized) return undefined;
@@ -557,12 +554,30 @@ export class DashboardService {
   }
 
   private providerSpecs(): Record<string, unknown>[] {
-    const providerRoot = runtimeConfigPathsFromRoot(this.options.llmConfigRoot).providers;
-    if (!existsSync(providerRoot)) return [];
-    return readdirSync(providerRoot)
-      .filter((name) => name.endsWith(".json"))
-      .sort((left, right) => left.localeCompare(right))
-      .map((name) => loadJson(join(providerRoot, name)));
+    return loadLlmProviderCatalog(this.options.llmConfigRoot).providers.map((provider) =>
+      this.providerSpecPayload(provider));
+  }
+
+  private providerSpecPayload(provider: LlmProviderSpec): Record<string, unknown> {
+    return {
+      name: provider.name,
+      label: provider.label,
+      aliases: provider.aliases,
+      api_style: provider.apiStyle.replaceAll("_", "-"),
+      default_model: provider.defaultModel,
+      model_aliases: provider.modelAliases,
+      models: Object.fromEntries(Object.values(provider.models).map((model) => [model.id, {
+        context_window_tokens: model.contextWindowTokens,
+        max_tokens: model.maxTokens,
+        supports_vision: model.supportsVision,
+        supports_thinking: model.supportsThinking,
+        supports_temperature: model.supportsTemperature,
+        thinking_request_style: model.thinkingRequestStyle,
+        thinking_budget_tokens: model.thinkingBudgetTokens,
+        thinking_levels: model.thinkingLevels,
+        thinking_default: model.thinkingDefault,
+      }])),
+    };
   }
 
   private providerSpec(requestedProvider: string): Record<string, unknown> | undefined {
@@ -577,7 +592,8 @@ export class DashboardService {
   private models(): JsonObject[] {
     const items = this.providerSpecs()
       .map((spec) => this.modelPayload(spec))
-      .sort((left, right) => text(left.provider).localeCompare(text(right.provider)));
+      .sort((left, right) => text(left.label).localeCompare(text(right.label))
+        || text(left.provider).localeCompare(text(right.provider)));
     const target = this.managedTarget();
     const managedSpec = this.managedProviderSpec(target.provider);
     const managedModels = object(managedSpec?.models);
@@ -588,7 +604,8 @@ export class DashboardService {
   }
 
   private currentModel(): JsonObject {
-    const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "deepseek";
+    const requested = text(this.options.environment.AGENT_LLM_PROVIDER)
+      || loadLlmProviderCatalog(this.options.llmConfigRoot).defaultProvider;
     const source = this.options.environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud" ? "cloud" : "local";
     if (source === "cloud") {
       const target = this.managedTarget();
@@ -606,9 +623,11 @@ export class DashboardService {
   }
 
   private managedTarget(): { provider: string; model: string } {
+    const catalog = loadLlmProviderCatalog(this.options.llmConfigRoot);
+    const defaultProvider = catalog.requireProvider(catalog.defaultProvider);
     return {
-      provider: text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) || "deepseek",
-      model: text(this.options.environment.LXE_MANAGED_LLM_MODEL) || "deepseek-v4-flash",
+      provider: text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) || defaultProvider.name,
+      model: text(this.options.environment.LXE_MANAGED_LLM_MODEL) || defaultProvider.defaultModel,
     };
   }
 
@@ -747,8 +766,8 @@ export class DashboardService {
       api_style: text(spec.api_style),
       model,
       configured,
-      selectable: configured && ["kimi_coding", "deepseek"].includes(name),
-      disabled_reason: configured ? (["kimi_coding", "deepseek"].includes(name) ? "" : "not selectable in WebUI") : "missing API key",
+      selectable: configured,
+      disabled_reason: configured ? "" : "missing API key",
       model_options: (credentialSource === "cloud" ? [model] : Object.keys(models)).map(option),
       thinking_request_style: text(selected.thinking_request_style),
       thinking_levels: levels,

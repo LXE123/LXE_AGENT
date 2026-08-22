@@ -137,8 +137,9 @@ describe("desktop IPC validation", () => {
 
   test("validates local model credentials independently from setup", () => {
     expect(validateModelProvider("kimi_coding")).toBe("kimi_coding");
-    expect(() => validateModelProvider("glm")).toThrow("Unsupported model provider");
-    expect(() => validateModelProvider("other")).toThrow("Unsupported model provider");
+    expect(validateModelProvider("glm")).toBe("glm");
+    expect(validateModelProvider("other")).toBe("other");
+    expect(() => validateModelProvider("not a provider")).toThrow("Model provider is invalid");
     expect(validateLocalModelCredentialInput({ provider: "deepseek", api_key: " key " }))
       .toEqual({ provider: "deepseek", api_key: "key" });
     expect(() => validateLocalModelCredentialInput({ provider: "deepseek", api_key: "" }))

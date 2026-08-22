@@ -9,7 +9,17 @@ import type {
   ManagedLlmCredential,
   ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
+import {
+  createLogger,
+  loadLlmProviderCatalog,
+  repositoryRoot,
+  type LlmProviderCatalog,
+} from "@lxe/core";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseStoredDevicePermission } from "../cloud-permissions";
+
+const logger = createLogger("desktop.config.model");
 
 export const OUTPUT_DIRECTORY_ENV_NAMES = [
   "MABANG_STOCK_SKU_EXPORT_DIR",
@@ -26,17 +36,17 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 7;
+  schema_version: 8;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
     credential_source: CredentialSource;
     last_local_provider: DesktopModelProvider;
     managed_target: ManagedLlmTarget;
-    profiles: Partial<Record<DesktopModelProvider, {
+    profiles: Record<DesktopModelProvider, {
       model: string;
       thinking_level: string;
-    }>>;
+    }>;
   };
   workspace_root: string;
   output_directories: Record<OutputDirectoryEnvironmentName, string>;
@@ -84,48 +94,56 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 5;
 
-export const SETTINGS_SCHEMA_VERSION = 7 as const;
+export const SETTINGS_SCHEMA_VERSION = 8 as const;
 
-const DEFAULT_CONFIG: DesktopConfig = {
-  schema_version: SETTINGS_SCHEMA_VERSION,
-  migration_version: 0,
-  llm: {
-    provider: "deepseek",
-    credential_source: "cloud",
-    last_local_provider: "deepseek",
-    managed_target: { provider: "deepseek", model: "deepseek-v4-flash" },
-    profiles: {
-      deepseek: { model: "deepseek-v4-flash", thinking_level: "low" },
+const developmentCatalog = (): LlmProviderCatalog => loadLlmProviderCatalog(
+  join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
+);
+
+const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
+  const provider = catalog.requireProvider(catalog.defaultProvider);
+  const model = provider.models[provider.defaultModel]!;
+  return {
+    schema_version: SETTINGS_SCHEMA_VERSION,
+    migration_version: 0,
+    llm: {
+      provider: provider.name,
+      credential_source: "cloud",
+      last_local_provider: provider.name,
+      managed_target: { provider: provider.name, model: provider.defaultModel },
+      profiles: {
+        [provider.name]: { model: provider.defaultModel, thinking_level: model.thinkingDefault },
+      },
     },
-  },
-  workspace_root: "",
-  output_directories: Object.fromEntries(
-    OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, ""]),
-  ) as DesktopConfig["output_directories"],
-  integrations: {
-    ziniao: {
+    workspace_root: "",
+    output_directories: Object.fromEntries(
+      OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, ""]),
+    ) as DesktopConfig["output_directories"],
+    integrations: {
+      ziniao: {
+        managed: false,
+        company: "",
+        username: "",
+        app_version: "v6",
+        app_path: "",
+        webdriver_path: "",
+      },
+      mabang: { managed: false, account: "" },
+      feishu: { managed: false, app_id: "" },
+    },
+    logging: { profile: "standard", retention_days: 7 },
+    cloud: {
       managed: false,
-      company: "",
-      username: "",
-      app_version: "v6",
-      app_path: "",
-      webdriver_path: "",
+      device_id: "",
+      device_name: "",
+      vpn_ip: "",
+      data_server_url: "",
+      local_fallback_enabled: false,
+      local_fallback_url: "",
+      tunnel_name: "lxe-agent",
+      switch_in_progress: false,
     },
-    mabang: { managed: false, account: "" },
-    feishu: { managed: false, app_id: "" },
-  },
-  logging: { profile: "standard", retention_days: 7 },
-  cloud: {
-    managed: false,
-    device_id: "",
-    device_name: "",
-    vpn_ip: "",
-    data_server_url: "",
-    local_fallback_enabled: false,
-    local_fallback_url: "",
-    tunnel_name: "lxe-agent",
-    switch_in_progress: false,
-  },
+  };
 };
 
 const DEFAULT_SECRETS: DesktopSecrets = {
@@ -165,7 +183,8 @@ export const logProfile = (value: unknown): DesktopLogProfile => {
   return normalized === "off" || normalized === "diagnostic" ? normalized : "standard";
 };
 
-export const cloneConfig = (): DesktopConfig => structuredClone(DEFAULT_CONFIG);
+export const cloneConfig = (catalog: LlmProviderCatalog = developmentCatalog()): DesktopConfig =>
+  structuredClone(defaultConfig(catalog));
 export const cloneSecrets = (): DesktopSecrets => structuredClone(DEFAULT_SECRETS);
 
 const secretFieldPattern = /(?:secret|password|api[_-]?key|token)/iu;
@@ -204,10 +223,15 @@ const assertOnlyFields = (
   if (unknown) throw new Error(`${path}.${unknown} is not a supported setting`);
 };
 
-export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
+export const parseSettings = (
+  raw: unknown,
+  platform: DesktopPlatform,
+  catalog: LlmProviderCatalog = developmentCatalog(),
+): DesktopConfig => {
   const value = objectValue(raw);
   if (value.schema_version !== 4 && value.schema_version !== 5
-    && value.schema_version !== 6 && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+    && value.schema_version !== 6 && value.schema_version !== 7
+    && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
   assertNoSecretFields(value);
@@ -232,7 +256,7 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
   if (value.schema_version !== 4) {
     assertFieldTypes(llm, { credential_source: "string", last_local_provider: "string" }, "settings.llm");
   }
-  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+  if (value.schema_version === 7 || value.schema_version === SETTINGS_SCHEMA_VERSION) {
     const managedTarget = objectValue(llm.managed_target);
     assertOnlyFields(managedTarget, ["provider", "model"], "settings.llm.managed_target");
     assertFieldTypes(managedTarget, { provider: "string", model: "string" }, "settings.llm.managed_target");
@@ -241,10 +265,12 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
     throw new Error("settings.llm.profiles must be an object");
   }
   for (const [name, profile] of Object.entries(objectValue(llm.profiles))) {
-    const acceptedProviders = value.schema_version === SETTINGS_SCHEMA_VERSION
+    const acceptedLegacyProviders = value.schema_version === 7
       ? ["kimi_coding", "deepseek"]
       : ["kimi_coding", "deepseek", "glm"];
-    if (!acceptedProviders.includes(name)) {
+    const validProviderName = /^[A-Za-z0-9_-]{1,128}$/u.test(name);
+    if ((value.schema_version === SETTINGS_SCHEMA_VERSION && !validProviderName)
+      || (value.schema_version !== SETTINGS_SCHEMA_VERSION && !acceptedLegacyProviders.includes(name))) {
       throw new Error(`settings.llm.profiles.${name} is not a supported setting`);
     }
     const profileValue = objectValue(profile);
@@ -287,13 +313,18 @@ export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopC
     data_server_url: "string", local_fallback_enabled: "boolean", local_fallback_url: "string",
     tunnel_name: "string",
   }, "settings.cloud");
-  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+  if (Number(value.schema_version) >= 7) {
     assertFieldTypes(cloud, { switch_in_progress: "boolean" }, "settings.cloud");
   }
-  return parseConfig(value, platform);
+  return parseConfig(value, platform, catalog);
 };
 
-export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
+export const parseConfig = (
+  raw: unknown,
+  platform: DesktopPlatform,
+  catalog: LlmProviderCatalog = developmentCatalog(),
+): DesktopConfig => {
+  const defaults = defaultConfig(catalog);
   const value = objectValue(raw);
   const rawLlm = objectValue(value.llm);
   const provider = text(rawLlm.provider || value.provider);
@@ -306,19 +337,24 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
   const rawCloud = objectValue(value.cloud);
   const rawOutputDirectories = objectValue(value.output_directories);
   const legacyFeishuAppId = text(value.feishu_app_id);
-  const normalizedProvider = ["kimi_coding", "deepseek"].includes(provider)
-    ? provider as DesktopConfig["llm"]["provider"]
-    : DEFAULT_CONFIG.llm.provider;
+  const selectedProvider = catalog.provider(provider);
+  const normalizedProvider = selectedProvider?.name ?? defaults.llm.provider;
+  if (provider && !selectedProvider) {
+    logger.warn("unsupported_active_provider_fell_back", {
+      configured_provider: provider,
+      fallback_provider: normalizedProvider,
+    });
+  }
   const credentialSource: CredentialSource = text(rawLlm.credential_source) === "cloud"
     ? "cloud"
     : "local";
   const rawLastLocalProvider = text(rawLlm.last_local_provider);
-  const lastLocalProvider = ["kimi_coding", "deepseek"].includes(rawLastLocalProvider)
-    ? rawLastLocalProvider as DesktopConfig["llm"]["last_local_provider"]
-    : normalizedProvider;
+  const lastLocalProvider = catalog.provider(rawLastLocalProvider)?.name ?? normalizedProvider;
   const profiles: DesktopConfig["llm"]["profiles"] = {};
-  for (const name of ["kimi_coding", "deepseek"] as const) {
-    const profile = objectValue(rawProfiles[name]);
+  for (const [rawName, rawProfile] of Object.entries(rawProfiles)) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/u.test(rawName)) continue;
+    const name = catalog.provider(rawName)?.name ?? rawName;
+    const profile = objectValue(rawProfile);
     const model = text(profile.model);
     const thinkingLevel = text(profile.thinking_level);
     if (model || thinkingLevel) {
@@ -328,8 +364,13 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       };
     }
   }
-  if (Object.keys(profiles).length === 0 && normalizedProvider === DEFAULT_CONFIG.llm.provider) {
-    profiles[normalizedProvider] = structuredClone(DEFAULT_CONFIG.llm.profiles[normalizedProvider]!);
+  if (!profiles[normalizedProvider]) {
+    const spec = catalog.requireProvider(normalizedProvider);
+    const model = spec.models[spec.defaultModel]!;
+    profiles[normalizedProvider] = {
+      model: spec.defaultModel,
+      thinking_level: model.thinkingDefault,
+    };
   }
   return {
     schema_version: SETTINGS_SCHEMA_VERSION,
@@ -347,7 +388,7 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
         return /^[a-z][a-z0-9_-]{0,63}$/u.test(managedProvider)
           && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(managedModel)
           ? { provider: managedProvider, model: managedModel }
-          : structuredClone(DEFAULT_CONFIG.llm.managed_target);
+          : structuredClone(defaults.llm.managed_target);
       })(),
       profiles,
     },

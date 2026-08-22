@@ -44,7 +44,13 @@ export type ExecTaskSnapshotPayload = {
 
 export type CredentialSource = "local" | "cloud";
 
-export type DesktopModelProvider = "kimi_coding" | "deepseek";
+export type DesktopModelProvider = string;
+
+export interface DesktopLocalModelProvider {
+  provider: DesktopModelProvider;
+  label: string;
+  configured: boolean;
+}
 
 export interface ManagedLlmTarget {
   provider: string;
@@ -416,9 +422,10 @@ export interface DesktopHealth {
 export interface DesktopSetupState {
   complete: boolean;
   provider: DesktopModelProvider;
+  local_provider: DesktopModelProvider;
   credential_source: CredentialSource;
   managed_model_configured: boolean;
-  local_model_credentials: Record<DesktopModelProvider, boolean>;
+  local_model_providers: DesktopLocalModelProvider[];
   local_auth_path: string;
   local_auth_error: string;
   workspace_root: string;

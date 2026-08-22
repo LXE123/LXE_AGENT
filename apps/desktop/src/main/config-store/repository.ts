@@ -12,7 +12,9 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DesktopPlatform } from "@lxe/desktop-protocol";
+import { loadLlmProviderCatalog, repositoryRoot, type LlmProviderCatalog } from "@lxe/core";
 import {
   cloneConfig,
   cloneSecrets,
@@ -42,6 +44,9 @@ export class DesktopConfigRepository {
     dataRoot: string,
     private readonly safeStorage: SafeStoragePort,
     private readonly platform: DesktopPlatform,
+    private readonly catalog: LlmProviderCatalog = loadLlmProviderCatalog(
+      join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
+    ),
   ) {
     this.configPath = join(dataRoot, "config", "settings.json");
     this.legacyConfigPath = join(dataRoot, "config", "desktop.json");
@@ -54,13 +59,13 @@ export class DesktopConfigRepository {
     this.migrateLegacyConfigFile();
     try {
       const raw = readFileSync(this.configPath);
-      const config = parseSettings(JSON.parse(raw.toString("utf8")), this.platform);
+      const config = parseSettings(JSON.parse(raw.toString("utf8")), this.platform, this.catalog);
       this.observeConfig(raw);
       return config;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       this.observeConfig(undefined);
-      return cloneConfig();
+      return cloneConfig(this.catalog);
     }
   }
 
@@ -105,7 +110,7 @@ export class DesktopConfigRepository {
     this.withFileLock(() => {
       if (existsSync(this.configPath) || !existsSync(this.legacyConfigPath)) return;
       const raw = readFileSync(this.legacyConfigPath, "utf8");
-      const config = parseConfig(JSON.parse(raw), this.platform);
+      const config = parseConfig(JSON.parse(raw), this.platform, this.catalog);
       this.writeJson(this.configPath, config);
       const preferredBackup = `${this.legacyConfigPath}.migrated-v3.bak`;
       const backup = existsSync(preferredBackup)

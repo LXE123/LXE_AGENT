@@ -1,6 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ManagedLlmCredential, ManagedLlmTarget } from "@lxe/desktop-protocol";
+import { loadLlmProviderCatalog } from "@lxe/core";
 
 export type ManagedLlmStatus =
   | ({ available: false } & Partial<ManagedLlmTarget>)
@@ -32,20 +31,9 @@ export const managedLlmTargetSupported = (
   llmConfigRoot: string,
   target: ManagedLlmTarget,
 ): boolean => {
-  const providerRoot = join(llmConfigRoot, "providers");
-  if (!existsSync(providerRoot)) return false;
-  try {
-    return readdirSync(providerRoot)
-      .filter((name) => name.endsWith(".json"))
-      .some((name) => {
-        const spec = objectValue(JSON.parse(readFileSync(join(providerRoot, name), "utf8")));
-        if (spec?.name !== target.provider) return false;
-        const models = objectValue(spec.models);
-        return Boolean(models && Object.hasOwn(models, target.model));
-      });
-  } catch {
-    return false;
-  }
+  const catalog = loadLlmProviderCatalog(llmConfigRoot);
+  const provider = catalog.provider(target.provider);
+  return Boolean(provider && catalog.resolveModel(provider, target.model));
 };
 
 export const parseManagedLlmStatus = (value: unknown): ManagedLlmStatus | undefined => {

@@ -1,6 +1,7 @@
 {
   "name": "deepseek",
   "label": "DeepSeek",
+  "desktop_default": true,
   "api_style": "openai-responses",
   "base_url": "https://api.deepseek.com",
   "default_model": "deepseek-v4-flash",

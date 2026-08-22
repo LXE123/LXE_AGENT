@@ -43,6 +43,17 @@ export class OpenAIResponsesStreamAdapter {
       this.done("thinking", event.item_id, event.content_index, text(event.text));
       return;
     }
+    // OpenRouter's Responses stream currently uses the shorter reasoning
+    // event names and omits content_index because each reasoning item is one
+    // logical part. Keep accepting OpenAI's reasoning_text variant above.
+    if (type === "response.reasoning.delta") {
+      this.delta("thinking", event.item_id, event.content_index ?? 0, text(event.delta));
+      return;
+    }
+    if (type === "response.reasoning.done") {
+      this.done("thinking", event.item_id, event.content_index ?? 0, text(event.text ?? event.reasoning));
+      return;
+    }
     if (type === "response.output_item.added") {
       const item = record(event.item);
       if (item.type === "function_call") this.openTool(item);

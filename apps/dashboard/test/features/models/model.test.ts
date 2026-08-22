@@ -70,8 +70,8 @@ describe("provider grouping", () => {
   test("folds a provider's credential sources into one card", () => {
     const groups = groupModelsByProvider([deepseekLocal, deepseekCloud, kimi]);
 
-    expect(groups.map((group) => group.provider)).toEqual(["kimi_coding", "deepseek"]);
-    expect(groups[1]!.credentials).toEqual([
+    expect(groups.map((group) => group.provider)).toEqual(["deepseek", "kimi_coding"]);
+    expect(groups[0]!.credentials).toEqual([
       { credentialSource: "local", configured: false },
       { credentialSource: "cloud", configured: true },
     ]);
@@ -97,19 +97,19 @@ describe("provider grouping", () => {
 });
 
 describe("model display order", () => {
-  test("shows Kimi and DeepSeek in the product-defined order", () => {
+  test("sorts shipped providers by their labels", () => {
     const models = [
-      { provider: "deepseek" },
-      { provider: "kimi_coding" }
+      { provider: "kimi_coding", label: "Kimi Coding" },
+      { provider: "deepseek", label: "DeepSeek" }
     ];
 
     expect(modelsInDisplayOrder(models).map((model) => model.provider)).toEqual([
-      "kimi_coding",
-      "deepseek"
+      "deepseek",
+      "kimi_coding"
     ]);
   });
 
-  test("preserves the source order of providers without an explicit rank", () => {
+  test("falls back to provider ids when a label is unavailable", () => {
     const models = [
       { provider: "provider_b" },
       { provider: "provider_c" },
@@ -117,9 +117,9 @@ describe("model display order", () => {
     ];
 
     expect(modelsInDisplayOrder(models).map((model) => model.provider)).toEqual([
+      "provider_a",
       "provider_b",
-      "provider_c",
-      "provider_a"
+      "provider_c"
     ]);
     expect(models.map((model) => model.provider)).toEqual([
       "provider_b",
@@ -166,10 +166,6 @@ describe("conversation model choices", () => {
       },
     ])).toEqual([
       {
-        provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5",
-        credentialSource: "local", selectable: true, disabledReason: "", title: "kimi-k2.5", subtitle: "Kimi Coding",
-      },
-      {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat",
         credentialSource: "local", selectable: true, disabledReason: "", title: "deepseek-chat", subtitle: "DeepSeek",
       },
@@ -181,6 +177,10 @@ describe("conversation model choices", () => {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-v4-flash",
         credentialSource: "cloud", selectable: false, disabledReason: "unsupported managed model",
         title: "云端", subtitle: "DeepSeek · deepseek-v4-flash",
+      },
+      {
+        provider: "kimi_coding", providerLabel: "Kimi Coding", model: "kimi-k2.5",
+        credentialSource: "local", selectable: true, disabledReason: "", title: "kimi-k2.5", subtitle: "Kimi Coding",
       },
     ]);
   });

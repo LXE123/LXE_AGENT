@@ -17,6 +17,7 @@ import {
   readResourceScope,
   requireResourceSourceDirectory,
   requireResourceSourceFile,
+  selectedLlmCatalogFiles,
 } from "./desktop-resource-scope";
 
 interface BuilderFileSet {
@@ -165,11 +166,15 @@ if (packagedSkillFiles.length === 0 || !packagedSkillFiles.some((path) => path.e
 }
 
 const configScope = scopeEntry("config");
-if (!configScope.source.paths?.length) {
-  throw new Error("Desktop configuration scope must declare a non-empty file list");
+if (configScope.source.kind !== "llm-catalog" || !configScope.source.path) {
+  throw new Error("Desktop configuration scope must declare an LLM catalog");
 }
 const configRoot = join(repositoryRoot, "config");
-const configFiles = configScope.source.paths.map((path) => {
+const configSources = [
+  ...selectedLlmCatalogFiles(repositoryRoot, configScope.source.path),
+  ...(configScope.source.paths ?? []),
+];
+const configFiles = configSources.map((path) => {
   if (!path.startsWith("config/")) throw new Error(`Desktop config source is outside config/: ${path}`);
   const source = join(repositoryRoot, path);
   requireResourceSourceFile(source);

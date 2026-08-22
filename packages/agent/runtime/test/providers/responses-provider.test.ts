@@ -99,6 +99,19 @@ describe("DeepSeek Responses provider", () => {
     ]);
   });
 
+  test("normalizes OpenRouter reasoning events that omit content_index", () => {
+    const events: RuntimeStreamEvent[] = [];
+    const normalizer = new ResponsesStreamNormalizer((event) => events.push(event));
+    normalizer.streamEvent({ type: "response.reasoning.delta", item_id: "rs_or_1", delta: "plan" });
+    normalizer.streamEvent({ type: "response.reasoning.done", item_id: "rs_or_1", reasoning: "plan" });
+
+    expect(events).toEqual([
+      { type: "thinking_start", part_id: "rs_or_1#0" },
+      { type: "thinking_delta", part_id: "rs_or_1#0", thinking: "plan" },
+      { type: "thinking_end", part_id: "rs_or_1#0" },
+    ]);
+  });
+
   test("normalizes interleaved function arguments and deduplicates completion", () => {
     const events: RuntimeStreamEvent[] = [];
     const normalizer = new ResponsesStreamNormalizer((event) => events.push(event));
@@ -163,8 +176,20 @@ describe("DeepSeek Responses provider", () => {
 
     expect(adaptMessagesForResponses(messages)).toEqual([
       { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
-      { type: "message", role: "assistant", content: [{ type: "output_text", text: "reading it" }] },
-      { type: "function_call", call_id: "call_1", name: "read", arguments: JSON.stringify({ path: "a.txt" }) },
+      {
+        type: "message",
+        role: "assistant",
+        id: "msg_replay_1",
+        status: "completed",
+        content: [{ type: "output_text", text: "reading it", annotations: [] }],
+      },
+      {
+        type: "function_call",
+        id: "fc_replay_1_0",
+        call_id: "call_1",
+        name: "read",
+        arguments: JSON.stringify({ path: "a.txt" }),
+      },
       { type: "function_call_output", call_id: "call_1", output: "file body" },
     ]);
   });
@@ -223,6 +248,62 @@ describe("DeepSeek Responses provider", () => {
     }]);
   });
 
+  test("forwards user and tool-result images only when the selected model supports vision", () => {
+    const image = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+    };
+    const messages: RuntimeMessage[] = [
+      { role: "user", content: [{ type: "text", text: "inspect" }, image] as never },
+      {
+        role: "tool",
+        content: [{
+          type: "tool_result",
+          tool_call_id: "call_image",
+          content: [{ type: "text", text: "preview" }, image],
+        }] as never,
+      },
+    ];
+
+    expect(adaptMessagesForResponses(messages, true)).toEqual([
+      {
+        type: "message",
+        role: "user",
+        content: [
+          { type: "input_text", text: "inspect" },
+          { type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" },
+        ],
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_image",
+        output: [
+          { type: "input_text", text: "preview" },
+          { type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(adaptMessagesForResponses(messages, false)))
+      .toContain("the selected model does not support image content");
+  });
+
+  test("rejects malformed image MIME types and base64 before making a Responses request", () => {
+    expect(() => adaptMessagesForResponses([{
+      role: "user",
+      content: [{
+        type: "image",
+        source: { type: "base64", media_type: "text/plain", data: "aGVsbG8=" },
+      }] as never,
+    }], true)).toThrow("invalid Responses image media type");
+    expect(() => adaptMessagesForResponses([{
+      role: "user",
+      content: [{
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "not base64!" },
+      }] as never,
+    }], true)).toThrow("invalid Responses image base64 data");
+  });
+
   test("spells thinking the way this wire does, with none as the off switch", () => {
     const enabled = buildResponsesRequest(descriptor(), {
       system: " you are helpful ",
@@ -270,10 +351,12 @@ describe("DeepSeek Responses provider", () => {
   test("keeps tool arguments the model actually sent when they are not valid JSON", () => {
     expect(responsesContent([
       { type: "reasoning", content: [{ type: "reasoning_text", text: "why" }] },
+      { type: "reasoning", summary: ["first", { type: "summary_text", text: "second" }] },
       { type: "message", content: [{ type: "output_text", text: "done" }] },
       { type: "function_call", call_id: "call_9", name: "write", arguments: "{not json" },
     ])).toEqual([
       { type: "thinking", thinking: "why" },
+      { type: "thinking", thinking: "first\nsecond" },
       { type: "text", text: "done" },
       { type: "tool_call", id: "call_9", name: "write", arguments: { __unparsed_arguments: "{not json" } },
     ]);

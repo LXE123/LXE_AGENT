@@ -34,9 +34,14 @@ const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState =
 const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState => ({
   complete: true,
   provider: "kimi_coding",
+  local_provider: "kimi_coding",
   credential_source: "local",
   managed_model_configured: false,
-  local_model_credentials: { kimi_coding: true, deepseek: false },
+  local_model_providers: [
+    { provider: "deepseek", label: "DeepSeek", configured: false },
+    { provider: "kimi_coding", label: "Kimi Coding", configured: true },
+    { provider: "openrouter", label: "OpenRouter", configured: false },
+  ],
   local_auth_path: "/data/var/config/auth.json",
   local_auth_error: "",
   workspace_root: "/workspace",

@@ -11,7 +11,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DesktopModelProvider, DesktopPlatform } from "@lxe/desktop-protocol";
+import { loadLlmProviderCatalog, repositoryRoot } from "@lxe/core";
 
 interface StoredApiKeyCredential {
   type: "api_key";
@@ -26,7 +28,6 @@ export interface DesktopLocalAuthSnapshot {
   error: string;
 }
 
-const PROVIDERS: readonly DesktopModelProvider[] = ["kimi_coding", "deepseek"];
 const MAX_API_KEY_LENGTH = 16_384;
 const AUTH_FILE_WRITE_OPTIONS = { encoding: "utf8", mode: 0o600 } as const;
 
@@ -39,6 +40,9 @@ export class DesktopLocalAuthStore {
   constructor(
     dataRoot: string,
     private readonly platform: DesktopPlatform,
+    private readonly providers: readonly DesktopModelProvider[] = loadLlmProviderCatalog(
+      join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
+    ).providers.map((provider) => provider.name),
   ) {
     this.path = join(dataRoot, "config", "auth.json");
     this.lockPath = join(dataRoot, "config", "auth.lock");
@@ -48,20 +52,20 @@ export class DesktopLocalAuthStore {
     try {
       const data = this.read();
       const keys: Partial<Record<DesktopModelProvider, string>> = {};
-      for (const provider of PROVIDERS) {
+      for (const provider of this.providers) {
         const credential = data[provider];
         if (credential) keys[provider] = credential.key;
       }
       return {
         configured: Object.fromEntries(
-          PROVIDERS.map((provider) => [provider, Boolean(keys[provider])]),
+          this.providers.map((provider) => [provider, Boolean(keys[provider])]),
         ) as Record<DesktopModelProvider, boolean>,
         keys,
         error: "",
       };
     } catch (error) {
       return {
-        configured: { kimi_coding: false, deepseek: false },
+        configured: Object.fromEntries(this.providers.map((provider) => [provider, false])),
         keys: {},
         error: `无法读取本地模型凭证：${errorMessage(error)}`,
       };

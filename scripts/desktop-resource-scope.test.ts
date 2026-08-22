@@ -7,6 +7,7 @@ import {
   approvedSkillFile,
   readResourceScope,
   requireResourceSourceFile,
+  selectedLlmCatalogFiles,
   scopeEntryForPath,
   validateSelectedSkills,
   validateResourceScope,
@@ -119,17 +120,56 @@ describe("desktop resource scope", () => {
     expect(approvedSkillFile(root, "skills/one/scripts/tool_test.py")).toBe(false);
   });
 
-  test("declares the exact production configuration whitelist", () => {
+  test("discovers only the validated LLM catalog and exact supplemental configuration", () => {
     const scope = validateResourceScope(repositoryRoot);
     const config = scope.resources.find((entry) => entry.id === "config");
-    expect(config?.source.paths).toEqual([
+    expect(config?.source).toMatchObject({ kind: "llm-catalog", path: "config/llm" });
+    expect(selectedLlmCatalogFiles(repositoryRoot, String(config?.source.path))).toEqual([
       "config/llm/auth-profiles.json",
       "config/llm/providers/deepseek.json",
       "config/llm/providers/kimi-coding.json",
-      "config/mcp_servers.default.yaml",
+      "config/llm/providers/openrouter.json",
     ]);
+    expect(config?.source.paths).toEqual(["config/mcp_servers.default.yaml"]);
     expect(readFileSync(resolve(repositoryRoot, "config/mcp_servers.default.yaml"), "utf8"))
       .toContain("mcpServers:");
+  });
+
+  test("packages new top-level provider specs without admitting unrelated or nested files", () => {
+    const root = temporaryRepository();
+    writeTemporaryFile(root, "config/llm/providers/third.json", JSON.stringify({
+      name: "third",
+      label: "Third Provider",
+      desktop_default: true,
+      api_style: "openai-responses",
+      base_url: "https://third.example.test/v1",
+      default_headers: {},
+      aliases: [],
+      default_model: "third/model",
+      models: {
+        "third/model": {
+          context_window_tokens: 100_000,
+          max_tokens: 8_000,
+          supports_vision: false,
+          supports_thinking: true,
+          supports_temperature: true,
+          thinking_request_style: "openai-effort",
+          thinking_levels: ["minimal", "low", "medium", "high"],
+          thinking_default: "medium",
+        },
+      },
+    }));
+    writeTemporaryFile(root, "config/llm/auth-profiles.json", JSON.stringify({
+      profiles: { third: { type: "api_key", env_names: ["THIRD_API_KEY"], required: true } },
+    }));
+    writeTemporaryFile(root, "config/llm/notes.json", JSON.stringify({ private: true }));
+    writeTemporaryFile(root, "config/llm/providers/nested/secret.json", JSON.stringify({ key: "do-not-package" }));
+    writeTemporaryFile(root, "config/llm/providers/private.key", "do-not-package");
+
+    expect(selectedLlmCatalogFiles(root, "config/llm")).toEqual([
+      "config/llm/auth-profiles.json",
+      "config/llm/providers/third.json",
+    ]);
   });
 
   test("keeps managed dependencies intact while filtering project resources", () => {

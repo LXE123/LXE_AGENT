@@ -38,7 +38,7 @@ describe("DesktopLocalAuthStore", () => {
       kimi_coding: { type: "api_key", key: "kimi-secret" },
     });
     expect(store.snapshot()).toEqual({
-      configured: { kimi_coding: true, deepseek: true },
+      configured: { deepseek: true, kimi_coding: true, openrouter: false },
       keys: { deepseek: "deepseek-secret", kimi_coding: "kimi-secret" },
       error: "",
     });
@@ -49,7 +49,7 @@ describe("DesktopLocalAuthStore", () => {
     expect(existsSync(join(root, "config", "auth.lock"))).toBeFalse();
 
     store.delete("deepseek");
-    expect(store.snapshot().configured).toEqual({ kimi_coding: true, deepseek: false });
+    expect(store.snapshot().configured).toEqual({ deepseek: false, kimi_coding: true, openrouter: false });
 
     if (process.platform !== "win32") {
       chmodSync(join(root, "config"), 0o755);
@@ -69,7 +69,7 @@ describe("DesktopLocalAuthStore", () => {
     const store = new DesktopLocalAuthStore(root, "darwin");
 
     expect(store.snapshot()).toMatchObject({
-      configured: { kimi_coding: false, deepseek: false },
+      configured: { deepseek: false, kimi_coding: false, openrouter: false },
       error: expect.stringContaining("无法读取本地模型凭证"),
     });
     expect(() => store.save("deepseek", "new-secret")).toThrow();

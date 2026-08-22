@@ -1,10 +1,17 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { arch, platform, release } from "node:os";
-import { join } from "node:path";
 import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger, envFlag, envText, type Environment } from "@lxe/core";
+import {
+  createLogger,
+  envFlag,
+  envText,
+  loadLlmProviderCatalog,
+  normalizeProviderKey,
+  PROVIDER_API_STYLE_OPENAI_RESPONSES,
+  type Environment,
+} from "@lxe/core";
 import type {
   RuntimeContentBlock,
   RuntimeMessage,
@@ -24,13 +31,16 @@ import { readProviderPreference } from "./provider-preferences";
 import { AnthropicMessagesStreamAdapter } from "./protocols/anthropic-messages";
 export { RuntimeProviderError } from "./provider-errors";
 export { AnthropicMessagesStreamAdapter as ProviderStreamNormalizer } from "./protocols/anthropic-messages";
+export {
+  PROVIDER_API_STYLE_ANTHROPIC_MESSAGES,
+  PROVIDER_API_STYLE_OPENAI_RESPONSES,
+} from "@lxe/core";
 
 const logger = createLogger("runtime.provider");
 const warnedThinkingNormalizations = new Set<string>();
 const kimiCodingUserAgent = (): string => `pi (${platform()} ${release()}; ${arch()})`;
-const DEFAULT_MODEL_MAX_TOKENS = 4_096;
 const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
-const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
+const IMAGE_PLACEHOLDER = "[image omitted: the selected model does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
 export const SUMMARY_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
@@ -56,6 +66,7 @@ export interface ProviderDescriptor {
   thinkingEffort: string;
   thinkingDisplay: string;
   contextWindowTokens: number;
+  supportsVision?: boolean;
   requestIdleTimeoutMs: number;
 }
 
@@ -122,20 +133,6 @@ const readObject = (path: string): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
-const normalizeProviderKey = (value: unknown): string =>
-  String(value ?? "").trim().toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
-
-export const PROVIDER_API_STYLE_ANTHROPIC_MESSAGES = "anthropic_messages";
-export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses";
-
-/**
- * Specs have always carried `api_style` for display only, in either spelling.
- * An absent style keeps the Anthropic Messages wire, which is what every spec
- * spoke before a second one existed.
- */
-const normalizeApiStyle = (value: unknown): string =>
-  normalizeProviderKey(value) || PROVIDER_API_STYLE_ANTHROPIC_MESSAGES;
-
 /**
  * The address a turn's request actually goes to. Diagnostics print this, so it
  * has to follow the descriptor's wire rather than assume one: naming the wrong
@@ -147,13 +144,6 @@ export const providerEndpointUrl = (descriptor: ProviderDescriptor): string => {
   return descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_RESPONSES
     ? `${base}/responses`
     : `${base}/v1/messages`;
-};
-
-const stringRecord = (value: unknown): Record<string, string> => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .map(([key, item]) => [key.trim(), String(item ?? "").trim()] as const)
-    .filter(([key, item]) => Boolean(key && item)));
 };
 
 const configuredRequestIdleTimeout = (value: unknown): number => {
@@ -185,6 +175,7 @@ export const normalizeThinkingEffort = (
     : normalizedLevels[0] ?? (normalizedDefault || "low");
   const requested = String(value ?? "").trim().toLowerCase();
   if (normalizedLevels.length === 0) return requested || fallback;
+  if (normalizedLevels.includes(requested)) return requested;
   const candidate = THINKING_EFFORT_ALIASES[requested] ?? requested;
   return normalizedLevels.includes(candidate) ? candidate : fallback;
 };
@@ -197,56 +188,19 @@ export function loadProviderDescriptor(
   const paths = options.llmConfigRoot
     ? runtimeConfigPathsFromRoot(options.llmConfigRoot)
     : runtimeConfigPaths(projectRoot);
-  const providerDir = paths.providers;
-  const specs = readdirSync(providerDir)
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => readObject(join(providerDir, name)));
-  const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", "deepseek"));
-  const spec = specs.find((candidate) => {
-    const names = [candidate.name, ...(Array.isArray(candidate.aliases) ? candidate.aliases : [])]
-      .map(normalizeProviderKey);
-    return names.includes(requested);
-  });
-  if (!spec) throw new Error(`unsupported LLM provider: ${requested}`);
-  const name = normalizeProviderKey(spec.name);
-  const models = spec.models;
-  if (models === null || typeof models !== "object" || Array.isArray(models)) {
-    throw new Error(`provider models must be an object: ${name}`);
-  }
-  const aliases = stringRecord(spec.model_aliases);
+  const catalog = loadLlmProviderCatalog(paths.root);
+  const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", catalog.defaultProvider));
+  const spec = catalog.requireProvider(requested);
+  const name = spec.name;
   const preference = readProviderPreference(env, name);
   const configuredModel = envText(env, "AGENT_LLM_MODEL", "");
-  const defaultModel = String(spec.default_model ?? "").trim();
-  const resolveModel = (requestedModel: string): string => aliases[requestedModel.toLowerCase()] ?? requestedModel;
-  let model = resolveModel(configuredModel || preference.model || defaultModel);
-  let modelSpec = (models as Record<string, unknown>)[model];
-  const validModelSpec = (value: unknown): value is Record<string, unknown> =>
-    value !== null && typeof value === "object" && !Array.isArray(value);
-  if (!validModelSpec(modelSpec) && preference.model) {
-    const preferredModel = resolveModel(preference.model);
-    const preferredModelSpec = (models as Record<string, unknown>)[preferredModel];
-    if (validModelSpec(preferredModelSpec)) {
-      model = preferredModel;
-      modelSpec = preferredModelSpec;
-    } else {
-      model = resolveModel(defaultModel);
-      modelSpec = (models as Record<string, unknown>)[model];
-    }
-  } else if (!validModelSpec(modelSpec) && !configuredModel) {
-    model = resolveModel(defaultModel);
-    modelSpec = (models as Record<string, unknown>)[model];
-  }
-  if (!validModelSpec(modelSpec)) {
-    throw new Error(`unsupported LLM model: ${name}/${model}`);
-  }
-  const selectedModel = modelSpec;
-  const thinkingLevels = Array.isArray(selectedModel.thinking_levels)
-    ? selectedModel.thinking_levels.map((level) => String(level ?? "").trim().toLowerCase()).filter(Boolean)
-    : [];
-  const declaredThinkingDefault = String(selectedModel.thinking_default ?? "").trim().toLowerCase();
-  const thinkingDefault = thinkingLevels.includes(declaredThinkingDefault)
-    ? declaredThinkingDefault
-    : thinkingLevels[0] ?? (declaredThinkingDefault || "low");
+  const requestedModel = configuredModel || preference.model || spec.defaultModel;
+  let model = catalog.resolveModel(spec, requestedModel);
+  if (!model && preference.model) model = spec.defaultModel;
+  if (!model) throw new Error(`unsupported LLM model: ${name}/${requestedModel}`);
+  const selectedModel = spec.models[model]!;
+  const thinkingLevels = selectedModel.thinkingLevels;
+  const thinkingDefault = selectedModel.thinkingDefault;
   const requestedThinkingEffort = envText(
     env,
     "AGENT_LLM_THINKING_EFFORT",
@@ -263,10 +217,8 @@ export function loadProviderDescriptor(
   const thinkingEffort = !thinkingEnabled && thinkingLevels.includes("off")
     ? "off"
     : normalizedThinkingEffort;
-  const authRoot = readObject(paths.authProfiles);
-  const profiles = authRoot.profiles as Record<string, unknown> | undefined;
-  const profile = profiles?.[name] as Record<string, unknown> | undefined;
-  const envNames = Array.isArray(profile?.env_names) ? profile.env_names : [];
+  const profile = catalog.authProfiles[name];
+  const envNames = profile?.envNames ?? [];
   const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud"
     ? "cloud"
     : "local";
@@ -305,29 +257,32 @@ export function loadProviderDescriptor(
   if (!options.deferCredential && !apiKey && profile?.required !== false) {
     throw new Error(`missing API key for provider: ${name}`);
   }
-  const defaultHeaders = stringRecord(spec.default_headers);
+  const defaultHeaders = { ...spec.defaultHeaders };
   if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
     defaultHeaders["User-Agent"] = kimiCodingUserAgent();
   }
   return {
     name,
     model,
-    apiStyle: normalizeApiStyle(spec.api_style),
+    apiStyle: spec.apiStyle,
     credentialSource,
     credentialRevision,
-    baseURL: String(spec.base_url ?? "").trim(),
+    baseURL: spec.baseURL,
     apiKey: options.deferCredential ? "" : apiKey,
-    maxTokens: Math.max(1, Number(selectedModel.max_tokens ?? DEFAULT_MODEL_MAX_TOKENS)),
+    maxTokens: selectedModel.maxTokens,
     defaultHeaders,
-    thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
-    thinkingBudgetTokens: Math.max(0, Math.trunc(Number(selectedModel.thinking_budget_tokens ?? 0))),
+    thinkingStyle: selectedModel.thinkingRequestStyle,
+    ...(selectedModel.thinkingBudgetTokens === undefined ? {} : {
+      thinkingBudgetTokens: selectedModel.thinkingBudgetTokens,
+    }),
     thinkingLevels,
     thinkingDefault,
     thinkingEnabled,
     thinkingEffort,
     thinkingDisplay: "omitted",
-    contextWindowTokens: Math.max(0, Math.trunc(Number(selectedModel.context_window_tokens ?? 0))),
-    requestIdleTimeoutMs: configuredRequestIdleTimeout(spec.request_idle_timeout_ms),
+    contextWindowTokens: selectedModel.contextWindowTokens,
+    supportsVision: selectedModel.supportsVision,
+    requestIdleTimeoutMs: configuredRequestIdleTimeout(spec.requestIdleTimeoutMs),
   };
 }
 
@@ -338,13 +293,13 @@ export function normalizeProviderError(error: unknown, descriptor: ProviderDescr
 const errorObject = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-const deepseekText = (value: unknown): string => {
+const omittedVisionText = (value: unknown): string => {
   if (typeof value === "string") return value.trim();
   if (!Array.isArray(value)) return String(value ?? "");
   return value.map((raw) => {
     const block = errorObject(raw);
     if (block.type === "text") return String(block.text ?? "");
-    if (block.type === "image") return DEEPSEEK_IMAGE_PLACEHOLDER;
+    if (block.type === "image") return IMAGE_PLACEHOLDER;
     return "";
   }).filter(Boolean).join("\n").trim();
 };
@@ -361,8 +316,8 @@ const providerImageBlock = (block: Record<string, unknown>): JsonObject => {
   };
 };
 
-const providerToolResultContent = (value: unknown, deepseek: boolean): string | JsonObject[] => {
-  if (deepseek) return deepseekText(value);
+const providerToolResultContent = (value: unknown, omitImages: boolean): string | JsonObject[] => {
+  if (omitImages) return omittedVisionText(value);
   if (!Array.isArray(value)) return String(value ?? "").trim();
   const blocks = value.map((raw): JsonObject | undefined => {
     const block = errorObject(raw);
@@ -392,7 +347,7 @@ export const localFileReferenceText = (block: Record<string, unknown>): string =
   ].join("\n");
 };
 
-const providerUserContent = (content: RuntimeMessageContent, deepseek: boolean): string | JsonObject[] => {
+const providerUserContent = (content: RuntimeMessageContent, omitImages: boolean): string | JsonObject[] => {
   if (!Array.isArray(content)) return String(content ?? "");
   const textParts: string[] = [];
   const blocks: JsonObject[] = [];
@@ -413,9 +368,9 @@ const providerUserContent = (content: RuntimeMessageContent, deepseek: boolean):
     }
     if (block.type !== "image") continue;
     hasImage = true;
-    if (deepseek) {
-      textParts.push(DEEPSEEK_IMAGE_PLACEHOLDER);
-      blocks.push({ type: "text", text: DEEPSEEK_IMAGE_PLACEHOLDER });
+    if (omitImages) {
+      textParts.push(IMAGE_PLACEHOLDER);
+      blocks.push({ type: "text", text: IMAGE_PLACEHOLDER });
     } else {
       blocks.push(providerImageBlock(block));
     }
@@ -427,6 +382,7 @@ const providerUserContent = (content: RuntimeMessageContent, deepseek: boolean):
 export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor: ProviderDescriptor): ProviderMessage[] {
   const adapted: ProviderMessage[] = [];
   const deepseek = descriptor.name === "deepseek";
+  const omitImages = descriptor.supportsVision !== true;
   for (const message of messages) {
     if (message.role === "compactionSummary") {
       adapted.push({
@@ -436,7 +392,7 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
       continue;
     }
     if (message.role === "user") {
-      adapted.push({ role: "user", content: providerUserContent(message.content, deepseek) });
+      adapted.push({ role: "user", content: providerUserContent(message.content, omitImages) });
       continue;
     }
     if (message.role === "system") {
@@ -484,7 +440,7 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
       return {
         type: "tool_result",
         tool_use_id: String(block.tool_call_id ?? ""),
-        content: providerToolResultContent(block.content, deepseek),
+        content: providerToolResultContent(block.content, omitImages),
         ...(block.is_error === true ? { is_error: true } : {}),
       };
     }).filter((block): block is JsonObject => Boolean(block));

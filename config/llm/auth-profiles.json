@@ -9,6 +9,13 @@
       "type": "api_key",
       "env_names": ["KIMI_CODE_API_KEY"],
       "required": true
+    },
+    "openrouter": {
+      "type": "api_key",
+      "env_names": [
+        "OPENROUTER_API_KEY"
+      ],
+      "required": true
     }
   }
 }

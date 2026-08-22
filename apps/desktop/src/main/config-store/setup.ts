@@ -9,6 +9,7 @@ import type {
   ManagedLlmCredential,
   ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
+import type { LlmProviderCatalog } from "@lxe/core";
 import {
   cloneConfig,
   logProfile,
@@ -23,19 +24,6 @@ import { effectiveDesktopSecrets } from "./secrets";
 import type { DesktopConfigValidation } from "./validation";
 import { managedLlmTargetSupported } from "../managed-llm";
 
-const LOCAL_PROVIDER_DEFAULT_MODELS: Record<DesktopModelProvider, string> = {
-  kimi_coding: "kimi-for-coding",
-  deepseek: "deepseek-v4-flash",
-};
-
-const LOCAL_PROVIDER_DEFAULT_THINKING: Record<DesktopModelProvider, string> = {
-  kimi_coding: "high",
-  deepseek: "low",
-};
-
-const isDesktopModelProvider = (provider: string): provider is DesktopModelProvider =>
-  provider === "kimi_coding" || provider === "deepseek";
-
 const sameManagedTarget = (
   left: ManagedLlmTarget,
   right: ManagedLlmTarget,
@@ -48,15 +36,27 @@ export class DesktopSetupService {
     private readonly repository: DesktopConfigRepository,
     private readonly auth: DesktopLocalAuthStore,
     private readonly validation: DesktopConfigValidation,
+    private readonly catalog: LlmProviderCatalog,
     private readonly secretEnvironment: Readonly<Record<string, string | undefined>> = {},
     private readonly llmConfigRoot = join(process.cwd(), "config", "llm"),
   ) {}
+
+  private defaultProfile(providerName: string, modelName?: string): { model: string; thinking_level: string } {
+    const provider = this.catalog.requireProvider(providerName);
+    const model = this.catalog.resolveModel(provider, modelName) ?? provider.defaultModel;
+    return { model, thinking_level: provider.models[model]!.thinkingDefault };
+  }
+
+  private localCandidates(preferred: string): DesktopModelProvider[] {
+    return [...new Set([preferred, ...this.catalog.providers.map((provider) => provider.name)])];
+  }
 
   state(): DesktopSetupState {
     const config = this.repository.readConfig();
     const secrets = this.effectiveSecrets();
     const localAuth = this.auth.snapshot();
-    const providerKeyConfigured = localAuth.configured[config.llm.provider];
+    const providerKeyConfigured = Boolean(localAuth.configured[config.llm.provider]);
+    const localProvider = this.catalog.provider(config.llm.last_local_provider)?.name ?? this.catalog.defaultProvider;
     const managedCredential = config.cloud.switch_in_progress
       ? null
       : secrets.managed_llm_credential;
@@ -83,9 +83,14 @@ export class DesktopSetupService {
         && (config.llm.credential_source === "cloud" ? managedModelConfigured : providerKeyConfigured),
       ),
       provider: config.llm.provider,
+      local_provider: localProvider,
       credential_source: config.llm.credential_source,
       managed_model_configured: managedModelConfigured,
-      local_model_credentials: localAuth.configured,
+      local_model_providers: this.catalog.providers.map((provider) => ({
+        provider: provider.name,
+        label: provider.label,
+        configured: Boolean(localAuth.configured[provider.name]),
+      })),
       local_auth_path: this.auth.path,
       local_auth_error: localAuth.error,
       workspace_root: workspaceRoot,
@@ -130,7 +135,7 @@ export class DesktopSetupService {
     config.workspace_root = workspaceRoot;
 
     if (input.ziniao?.action === "clear") {
-      config.integrations.ziniao = { ...cloneConfig().integrations.ziniao, managed: true };
+      config.integrations.ziniao = { ...cloneConfig(this.catalog).integrations.ziniao, managed: true };
       secrets.ziniao_password = "";
     } else if (input.ziniao?.action === "save") {
       const company = text(input.ziniao.company);
@@ -198,12 +203,15 @@ export class DesktopSetupService {
     if (config.migration_version >= MODEL_AUTH_MIGRATION_VERSION) return;
     const secrets = this.repository.readSecrets();
     if (config.migration_version < 4) {
-      config.llm.provider = "deepseek";
+      const defaultProvider = this.catalog.requireProvider(this.catalog.defaultProvider);
+      const defaultProfile = this.defaultProfile(defaultProvider.name);
+      config.llm.provider = defaultProvider.name;
       config.llm.credential_source = "cloud";
-      config.llm.last_local_provider = "deepseek";
-      config.llm.profiles.deepseek = {
-        model: "deepseek-v4-flash",
-        thinking_level: config.llm.profiles.deepseek?.thinking_level || "low",
+      config.llm.last_local_provider = defaultProvider.name;
+      config.llm.profiles[defaultProvider.name] = {
+        model: defaultProfile.model,
+        thinking_level: config.llm.profiles[defaultProvider.name]?.thinking_level
+          || defaultProfile.thinking_level,
       };
       this.repository.commit(config, secrets);
       rmSync(join(this.dataRoot, ".env"), { force: true });
@@ -229,15 +237,10 @@ export class DesktopSetupService {
       secrets.managed_llm_credential = null;
     }
     const validManagedCredential = managedCredential
-      && isDesktopModelProvider(managedCredential.provider)
       && managedCredential.invalid_revision !== managedCredential.credential_revision
       ? { ...managedCredential, provider: managedCredential.provider }
       : null;
-    const localCandidates: DesktopModelProvider[] = [
-      config.llm.last_local_provider,
-      "kimi_coding",
-      "deepseek",
-    ];
+    const localCandidates = this.localCandidates(config.llm.last_local_provider);
     const localFallback = localCandidates.find((provider) => configured[provider]);
     if (config.llm.credential_source === "cloud" && validManagedCredential) {
       config.llm.provider = validManagedCredential.provider;
@@ -248,7 +251,7 @@ export class DesktopSetupService {
       config.llm.profiles[validManagedCredential.provider] = {
         model: validManagedCredential.model,
         thinking_level: config.llm.profiles[validManagedCredential.provider]?.thinking_level
-          || LOCAL_PROVIDER_DEFAULT_THINKING[validManagedCredential.provider],
+          || this.defaultProfile(validManagedCredential.provider, validManagedCredential.model).thinking_level,
       };
     } else if (!configured[config.llm.provider]) {
       if (localFallback) {
@@ -263,26 +266,25 @@ export class DesktopSetupService {
           model: validManagedCredential.model,
         };
       } else {
-        config.llm.provider = "deepseek";
+        config.llm.provider = this.catalog.defaultProvider;
         config.llm.credential_source = "local";
-        config.llm.last_local_provider = "deepseek";
+        config.llm.last_local_provider = this.catalog.defaultProvider;
       }
     }
     if (!configured[config.llm.last_local_provider]) {
-      config.llm.last_local_provider = localFallback ?? "deepseek";
+      config.llm.last_local_provider = localFallback ?? this.catalog.defaultProvider;
     }
     config.migration_version = MODEL_AUTH_MIGRATION_VERSION;
     this.repository.commit(config, secrets);
   }
 
   saveLocalModelCredential(input: DesktopLocalModelCredentialInput): DesktopSetupState {
-    this.auth.save(input.provider, input.api_key);
+    const provider = this.catalog.requireProvider(input.provider);
+    this.auth.save(provider.name, input.api_key);
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    config.llm.profiles[input.provider] ??= {
-      model: LOCAL_PROVIDER_DEFAULT_MODELS[input.provider],
-      thinking_level: LOCAL_PROVIDER_DEFAULT_THINKING[input.provider],
-    };
+    config.llm.profiles[provider.name] ??= this.defaultProfile(provider.name);
+    config.llm.last_local_provider = provider.name;
     const managedCredential = secrets.managed_llm_credential;
     const managedConfigured = Boolean(
       managedCredential
@@ -291,23 +293,22 @@ export class DesktopSetupService {
       && managedCredential.invalid_revision !== managedCredential.credential_revision,
     );
     if (!managedConfigured) {
-      config.llm.provider = input.provider;
+      config.llm.provider = provider.name;
       config.llm.credential_source = "local";
-      config.llm.last_local_provider = input.provider;
     }
     this.repository.commit(config, secrets);
     return this.state();
   }
 
   deleteLocalModelCredential(provider: DesktopModelProvider): DesktopSetupState {
-    this.auth.delete(provider);
+    const selectedProvider = this.catalog.requireProvider(provider).name;
+    this.auth.delete(selectedProvider);
     const config = this.repository.readConfig();
-    if (config.llm.credential_source !== "local" || config.llm.provider !== provider) return this.state();
+    if (config.llm.credential_source !== "local" || config.llm.provider !== selectedProvider) return this.state();
     const secrets = this.repository.readSecrets();
     const managedCredential = secrets.managed_llm_credential;
     if (managedCredential
       && sameManagedTarget(managedCredential, config.llm.managed_target)
-      && isDesktopModelProvider(managedCredential.provider)
       && managedLlmTargetSupported(this.llmConfigRoot, managedCredential)
       && managedCredential.invalid_revision !== managedCredential.credential_revision) {
       config.llm.provider = managedCredential.provider;
@@ -315,20 +316,20 @@ export class DesktopSetupService {
       config.llm.profiles[managedCredential.provider] = {
         model: managedCredential.model,
         thinking_level: config.llm.profiles[managedCredential.provider]?.thinking_level
-          || LOCAL_PROVIDER_DEFAULT_THINKING[managedCredential.provider],
+          || this.defaultProfile(managedCredential.provider, managedCredential.model).thinking_level,
       };
     } else {
       const configured = this.auth.snapshot().configured;
-      const candidates: DesktopModelProvider[] = [config.llm.last_local_provider, "kimi_coding", "deepseek"];
+      const candidates = this.localCandidates(config.llm.last_local_provider);
       const fallback = candidates.find((candidate) => configured[candidate]);
       if (fallback) {
         config.llm.provider = fallback;
         config.llm.credential_source = "local";
         config.llm.last_local_provider = fallback;
       } else {
-        config.llm.provider = "deepseek";
+        config.llm.provider = this.catalog.defaultProvider;
         config.llm.credential_source = "local";
-        config.llm.last_local_provider = "deepseek";
+        config.llm.last_local_provider = this.catalog.defaultProvider;
       }
     }
     this.repository.commit(config, secrets);
@@ -341,17 +342,21 @@ export class DesktopSetupService {
     thinkingLevel: string,
     credentialSource: CredentialSource = "local",
   ): void {
-    if (!isDesktopModelProvider(provider)) {
-      throw new Error(`Unsupported model provider: ${provider}`);
+    const selectedProvider = this.catalog.requireProvider(provider);
+    const selectedModel = this.catalog.requireModel(selectedProvider, model);
+    const level = text(thinkingLevel) || "off";
+    const allowedLevels = selectedModel.thinkingLevels.length > 0 ? selectedModel.thinkingLevels : ["off"];
+    if (!allowedLevels.includes(level)) {
+      throw new Error(`Unsupported thinking level: ${selectedProvider.name}/${selectedModel.id}/${level}`);
     }
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    config.llm.provider = provider;
+    config.llm.provider = selectedProvider.name;
     config.llm.credential_source = credentialSource;
-    if (credentialSource === "local") config.llm.last_local_provider = provider;
-    config.llm.profiles[provider] = {
-      model: text(model),
-      thinking_level: text(thinkingLevel) || "off",
+    if (credentialSource === "local") config.llm.last_local_provider = selectedProvider.name;
+    config.llm.profiles[selectedProvider.name] = {
+      model: selectedModel.id,
+      thinking_level: level,
     };
     this.repository.commit(config, secrets);
   }
@@ -381,14 +386,13 @@ export class DesktopSetupService {
     secrets.managed_llm_credential = { ...credential, invalid_revision: "" };
     config.llm.managed_target = { provider: credential.provider, model: credential.model };
     const hasLocalProvider = Object.values(this.auth.snapshot().configured).some(Boolean);
-    if (isDesktopModelProvider(credential.provider)
-      && (config.llm.credential_source === "cloud" || !hasLocalProvider)) {
+    if (config.llm.credential_source === "cloud" || !hasLocalProvider) {
       config.llm.provider = credential.provider;
       config.llm.credential_source = "cloud";
       config.llm.profiles[credential.provider] = {
         model: credential.model,
         thinking_level: config.llm.profiles[credential.provider]?.thinking_level
-          || LOCAL_PROVIDER_DEFAULT_THINKING[credential.provider],
+          || this.defaultProfile(credential.provider, credential.model).thinking_level,
       };
     }
     this.repository.commit(config, secrets);

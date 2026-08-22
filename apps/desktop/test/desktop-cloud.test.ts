@@ -267,7 +267,7 @@ describe("DesktopCloudService", () => {
     expect(config.environment().LXE_MANAGED_LLM_API_KEY).toBe("");
   });
 
-  test("accepts supported server targets and refuses to fetch credentials for unknown models", async () => {
+  test("accepts shipped server targets and refuses unknown providers and models before credential fetch", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-managed-target-"));
     roots.push(root);
     mkdirSync(join(root, "workspace"));
@@ -327,11 +327,32 @@ describe("DesktopCloudService", () => {
       LXE_MANAGED_LLM_API_KEY: "key-for-deepseek",
     });
 
+    provider = "openrouter";
+    model = "stealth/ox-alpha";
+    revision = "a".repeat(64);
+    await service.check();
+    expect(config.state()).toMatchObject({ provider: "openrouter", credential_source: "cloud" });
+    expect(config.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "openrouter",
+      LXE_MANAGED_LLM_MODEL: "stealth/ox-alpha",
+      LXE_MANAGED_LLM_API_KEY: "key-for-openrouter",
+    });
+
+    model = "retired-openrouter-model";
+    revision = "b".repeat(64);
+    await service.check();
+    expect(credentialRequests).toHaveLength(3);
+    expect(config.managedLlmCredential()).toBeNull();
+    expect(config.managedLlmTarget()).toEqual({
+      provider: "openrouter",
+      model: "retired-openrouter-model",
+    });
+
     provider = "future_vendor";
     model = "future-model";
     revision = "e".repeat(64);
     await service.check();
-    expect(credentialRequests).toHaveLength(2);
+    expect(credentialRequests).toHaveLength(3);
     expect(config.managedLlmCredential()).toBeNull();
     expect(config.managedLlmTarget()).toEqual({ provider: "future_vendor", model: "future-model" });
     expect(config.environment()).toMatchObject({
@@ -340,7 +361,7 @@ describe("DesktopCloudService", () => {
       LXE_MANAGED_LLM_API_KEY: "",
     });
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 7,
+      schema_version: 8,
       llm: { managed_target: { provider: "future_vendor", model: "future-model" } },
     });
     expect(readFileSync(join(root, "config", "settings.json"), "utf8"))

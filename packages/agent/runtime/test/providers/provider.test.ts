@@ -143,6 +143,28 @@ describe("Anthropic-compatible provider", () => {
     }));
   });
 
+  test("loads OpenRouter ox-alpha through the shared Responses adapter", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "open-router",
+      AGENT_LLM_THINKING_EFFORT: "medium",
+      OPENROUTER_API_KEY: "openrouter-secret",
+    });
+    expect(descriptor).toEqual(expect.objectContaining({
+      name: "openrouter",
+      model: "stealth/ox-alpha",
+      apiStyle: "openai_responses",
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: "openrouter-secret",
+      maxTokens: 131_072,
+      contextWindowTokens: 1_048_576,
+      supportsVision: true,
+      thinkingLevels: ["minimal", "low", "medium", "high"],
+      thinkingEffort: "medium",
+    }));
+    expect(normalizeThinkingEffort("minimal", descriptor.thinkingLevels, descriptor.thinkingDefault))
+      .toBe("minimal");
+  });
+
   test("selects generic managed credentials only for the published local provider model and revision", () => {
     const revision = "b".repeat(64);
     const environment = {
@@ -712,7 +734,7 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
         role: "user",
         content: [
           { type: "text", text: "see attached" },
-          { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" },
+          { type: "text", text: "[image omitted: the selected model does not support image content]" },
         ],
       },
       {
@@ -720,7 +742,7 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
         content: [{
           type: "tool_result",
           tool_use_id: "tool-1",
-          content: "ok\n[image omitted: DeepSeek Anthropic API does not support image content]",
+          content: "ok\n[image omitted: the selected model does not support image content]",
         }],
       },
     ]);

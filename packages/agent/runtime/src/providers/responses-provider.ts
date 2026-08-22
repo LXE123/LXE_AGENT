@@ -27,34 +27,67 @@ import {
 import { OpenAIResponsesStreamAdapter } from "./protocols/openai-responses";
 export { OpenAIResponsesStreamAdapter as ResponsesStreamNormalizer } from "./protocols/openai-responses";
 
-const IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Responses API does not support image content]";
+const IMAGE_PLACEHOLDER = "[image omitted: the selected model does not support image content]";
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 const text = (value: unknown): string => String(value ?? "");
 
-const inputText = (content: RuntimeMessageContent): string => {
-  if (!Array.isArray(content)) return text(content);
-  const parts: string[] = [];
-  for (const raw of content) {
-    const block = record(raw);
-    if (block.type === "text") parts.push(text(block.text));
-    else if (block.type === "local_file") parts.push(localFileReferenceText(block));
-    else if (block.type === "image") parts.push(IMAGE_PLACEHOLDER);
+const imageInputPart = (block: Record<string, unknown>, supportsVision: boolean): JsonObject => {
+  if (!supportsVision) return { type: "input_text", text: IMAGE_PLACEHOLDER };
+  const source = record(block.source);
+  const mediaType = text(source.media_type ?? source.mimeType ?? block.mimeType).toLowerCase();
+  const data = text(source.data ?? block.data);
+  if (!/^image\/[a-z0-9.+-]+$/u.test(mediaType)) {
+    throw new Error(`invalid Responses image media type: ${mediaType || "missing"}`);
   }
-  return parts.join("\n").trim();
+  if (!data || !/^[A-Za-z0-9+/]+={0,2}$/u.test(data) || data.length % 4 === 1) {
+    throw new Error("invalid Responses image base64 data");
+  }
+  return { type: "input_image", image_url: `data:${mediaType};base64,${data}` };
 };
 
-const toolResultText = (content: unknown): string => {
+const inputContent = (content: RuntimeMessageContent, supportsVision: boolean): JsonObject[] => {
+  if (!Array.isArray(content)) return [{ type: "input_text", text: text(content) }];
+  const parts: JsonObject[] = [];
+  const textParts: string[] = [];
+  let hasImage = false;
+  for (const raw of content) {
+    const block = record(raw);
+    if (block.type === "text") {
+      const value = text(block.text);
+      textParts.push(value);
+      parts.push({ type: "input_text", text: value });
+    }
+    else if (block.type === "local_file") {
+      const value = localFileReferenceText(block);
+      textParts.push(value);
+      parts.push({ type: "input_text", text: value });
+    } else if (block.type === "image") {
+      hasImage = true;
+      parts.push(imageInputPart(block, supportsVision));
+    }
+  }
+  return hasImage ? parts : [{ type: "input_text", text: textParts.join("\n").trim() }];
+};
+
+const toolResultOutput = (content: unknown, supportsVision: boolean): string | JsonObject[] => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content === undefined ? "" : JSON.stringify(content);
-  return content
-    .map((raw) => {
+  const hasImage = content.some((raw) => record(raw).type === "image");
+  if (!hasImage) {
+    return content.map((raw) => {
       const block = record(raw);
       return block.type === "text" ? text(block.text) : JSON.stringify(raw);
-    })
-    .join("\n");
+    }).join("\n");
+  }
+  return content.map((raw): JsonObject => {
+    const block = record(raw);
+    if (block.type === "text") return { type: "input_text", text: text(block.text) };
+    if (block.type === "image") return imageInputPart(block, supportsVision);
+    return { type: "input_text", text: JSON.stringify(raw) };
+  });
 };
 
 /**
@@ -62,9 +95,9 @@ const toolResultText = (content: unknown): string => {
  * items rather than as content blocks inside a message, so one RuntimeMessage
  * can expand into several input items.
  */
-export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObject[] {
+export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false): JsonObject[] {
   const input: JsonObject[] = [];
-  for (const message of messages) {
+  for (const [messageIndex, message] of messages.entries()) {
     if (message.role === "compactionSummary") {
       input.push({
         type: "message",
@@ -77,7 +110,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObjec
       input.push({
         type: "message",
         role: "user",
-        content: [{ type: "input_text", text: inputText(message.content) }],
+        content: inputContent(message.content, supportsVision),
       });
       continue;
     }
@@ -114,10 +147,15 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObjec
         input.push({
           type: "message",
           role: "assistant",
-          content: [{ type: "output_text", text: joined }],
+          id: `msg_replay_${messageIndex}`,
+          status: "completed",
+          content: [{ type: "output_text", text: joined, annotations: [] }],
         });
       }
-      input.push(...calls);
+      input.push(...calls.map((call, callIndex) => ({
+        id: `fc_replay_${messageIndex}_${callIndex}`,
+        ...call,
+      })));
       continue;
     }
     if (message.role !== "tool") continue;
@@ -127,7 +165,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[]): JsonObjec
       input.push({
         type: "function_call_output",
         call_id: text(block.tool_call_id),
-        output: toolResultText(block.content),
+        output: toolResultOutput(block.content, supportsVision),
       });
     }
   }
@@ -182,7 +220,7 @@ export function buildResponsesRequest(
     ...(user ? { user } : {}),
     model: descriptor.model,
     instructions: request.system.trim(),
-    input: adaptMessagesForResponses(request.messages),
+    input: adaptMessagesForResponses(request.messages, descriptor.supportsVision === true),
     max_output_tokens: descriptor.maxTokens,
     stream: true,
     ...(request.tools.length > 0
@@ -234,11 +272,16 @@ export function responsesContent(output: unknown): RuntimeContentBlock[] {
       continue;
     }
     if (item.type === "reasoning") {
-      const thinking = (Array.isArray(item.content) ? item.content : [])
+      const contentThinking = (Array.isArray(item.content) ? item.content : [])
         .map((entry) => record(entry))
         .filter((entry) => entry.type === "reasoning_text")
         .map((entry) => text(entry.text))
         .join("");
+      const summaryThinking = (Array.isArray(item.summary) ? item.summary : [])
+        .map((entry) => typeof entry === "string" ? entry : text(record(entry).text))
+        .filter(Boolean)
+        .join("\n");
+      const thinking = contentThinking || summaryThinking;
       if (thinking) blocks.push({ type: "thinking", thinking });
       continue;
     }
@@ -357,7 +400,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       const stream = this.client.responses.stream({
         model: this.descriptor.model,
         instructions: SUMMARY_SYSTEM_PROMPT,
-        input: adaptMessagesForResponses(request.messages),
+        input: adaptMessagesForResponses(request.messages, this.descriptor.supportsVision === true),
         max_output_tokens: maxOutputTokens,
         stream: true,
         ...(providerUserIdentifier(request.userIdentity)
@@ -368,6 +411,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       try {
         stream.on?.("response.output_text.delta", () => watchdog.activity());
         stream.on?.("response.reasoning_text.delta", () => watchdog.activity());
+        stream.on?.("response.reasoning.delta", () => watchdog.activity());
         stream.on?.("response.output_item.done", () => watchdog.activity());
       } catch { /* Diagnostics/activity hooks must not replace Provider behavior. */ }
       const response = record(await stream.finalResponse());

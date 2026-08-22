@@ -1,18 +1,15 @@
 import type { UiText } from "../../shared/i18n";
 import type { ModelOptionPayload, ModelPayload, ThinkingStatePayload } from "../../api/payloads";
 
-const MODEL_PROVIDER_DISPLAY_ORDER = new Map([
-  ["kimi_coding", 0],
-  ["deepseek", 1]
-]);
-
-export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(models: readonly T[]): T[] {
+export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider"> & Partial<Pick<ModelPayload, "label">>>(
+  models: readonly T[]
+): T[] {
   return models
     .map((model, index) => ({ model, index }))
     .sort((left, right) => {
-      const leftRank = MODEL_PROVIDER_DISPLAY_ORDER.get(left.model.provider) ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = MODEL_PROVIDER_DISPLAY_ORDER.get(right.model.provider) ?? Number.MAX_SAFE_INTEGER;
-      return leftRank - rightRank || left.index - right.index;
+      return (left.model.label || left.model.provider).localeCompare(right.model.label || right.model.provider)
+        || left.model.provider.localeCompare(right.model.provider)
+        || left.index - right.index;
     })
     .map(({ model }) => model);
 }
@@ -178,6 +175,7 @@ function normalizedThinkingLevel(
     ultra: "max"
   };
   const requested = String(value || "").trim().toLowerCase();
+  if (model.thinking_levels.includes(requested)) return requested;
   const candidate = aliases[requested] || requested;
   return model.thinking_levels.includes(candidate)
     ? candidate
@@ -220,9 +218,6 @@ export function modelWithOption(
 }
 
 export function modelDisabledReasonLabel(t: UiText, reason: string): string {
-  if (reason === "not selectable in WebUI") {
-    return t.models.providerNotSelectable;
-  }
   if (reason === "missing API key") {
     return t.models.missingApiKey;
   }

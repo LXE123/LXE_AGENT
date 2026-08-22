@@ -108,16 +108,20 @@ describe("DashboardService", () => {
       name: "kimi_coding",
       label: "Kimi Coding",
       api_style: "anthropic_messages",
+      base_url: "https://example.invalid/kimi/",
+      default_headers: {},
       aliases: ["kimi-coding", "kimi_code", "kimi-code"],
       default_model: "kimi-for-coding",
       models: {
         "kimi-for-coding": {
           context_window_tokens: 262_144, max_tokens: 32_768, supports_vision: true, supports_thinking: true,
+          supports_temperature: false,
           thinking_request_style: "anthropic-budget", thinking_budget_tokens: 16_000,
           thinking_levels: ["low", "high", "max"], thinking_default: "high",
         },
         k3: {
           context_window_tokens: 262_144, max_tokens: 131_072, supports_vision: true, supports_thinking: true,
+          supports_temperature: false,
           thinking_request_style: "anthropic-output-effort",
           thinking_levels: ["low", "high", "max"], thinking_default: "high",
         },
@@ -126,7 +130,10 @@ describe("DashboardService", () => {
     writeFileSync(join(root, "config", "llm", "providers", "deepseek.json"), JSON.stringify({
       name: "deepseek",
       label: "DeepSeek",
+      desktop_default: true,
       api_style: "anthropic_messages",
+      base_url: "https://example.invalid/deepseek/",
+      default_headers: {},
       aliases: ["deep-seek"],
       default_model: "deepseek-v4-flash",
       request_idle_timeout_ms: 660_000,
@@ -134,26 +141,57 @@ describe("DashboardService", () => {
         "deepseek-v4-pro": {
           context_window_tokens: 1_000_000,
           max_tokens: 384_000,
+          supports_vision: false,
+          supports_thinking: true,
+          supports_temperature: true,
+          thinking_request_style: "anthropic-effort",
           thinking_levels: ["off", "high", "max"],
           thinking_default: "high",
         },
         "deepseek-v4-flash": {
           context_window_tokens: 1_000_000,
           max_tokens: 384_000,
+          supports_vision: false,
+          supports_thinking: true,
+          supports_temperature: true,
+          thinking_request_style: "anthropic-effort",
           thinking_levels: ["off", "low", "high", "max"],
           thinking_default: "low",
         },
       },
     }), "utf8");
+    writeFileSync(join(root, "config", "llm", "providers", "openrouter.json"), JSON.stringify({
+      name: "openrouter",
+      label: "OpenRouter",
+      api_style: "openai-responses",
+      base_url: "https://openrouter.ai/api/v1",
+      default_headers: {},
+      aliases: ["open-router"],
+      default_model: "stealth/ox-alpha",
+      models: {
+        "stealth/ox-alpha": {
+          context_window_tokens: 1_048_576,
+          max_tokens: 131_072,
+          supports_vision: true,
+          supports_thinking: true,
+          supports_temperature: true,
+          thinking_request_style: "openai-effort",
+          thinking_levels: ["minimal", "low", "medium", "high"],
+          thinking_default: "high",
+        },
+      },
+    }), "utf8");
     writeFileSync(join(root, "config", "llm", "auth-profiles.json"), JSON.stringify({
       profiles: {
-        kimi_coding: { env_names: ["KIMI_API_KEY"] },
-        deepseek: { env_names: ["DEEPSEEK_API"] },
+        kimi_coding: { type: "api_key", env_names: ["KIMI_API_KEY"], required: true },
+        deepseek: { type: "api_key", env_names: ["DEEPSEEK_API"], required: true },
+        openrouter: { type: "api_key", env_names: ["OPENROUTER_API_KEY"], required: true },
       },
     }), "utf8");
     writeFileSync(join(root, "config", "auth.json"), JSON.stringify({
       kimi_coding: { type: "api_key", key: "test-key" },
       deepseek: { type: "api_key", key: "deepseek-key" },
+      openrouter: { type: "api_key", key: "openrouter-key" },
     }), "utf8");
 
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
@@ -382,6 +420,7 @@ describe("DashboardService", () => {
       .toEqual([
         { provider: "deepseek", models: ["deepseek-v4-pro", "deepseek-v4-flash"] },
         { provider: "kimi_coding", models: ["kimi-for-coding", "k3"] },
+        { provider: "openrouter", models: ["stealth/ox-alpha"] },
       ]);
     const kimiModel = modelList.items.find((model) => model.provider === "kimi_coding")!;
     expect(kimiModel).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", configured: true });
@@ -403,6 +442,19 @@ describe("DashboardService", () => {
       thinking_levels: ["off", "low", "high", "max"],
       thinking_default: "low",
       capabilities: { context_window_tokens: 1_000_000, max_output_tokens: 384_000 },
+    });
+    expect(modelList.items.find((model) => model.provider === "openrouter")).toMatchObject({
+      provider: "openrouter",
+      model: "stealth/ox-alpha",
+      configured: true,
+      selectable: true,
+      thinking_levels: ["minimal", "low", "medium", "high"],
+      thinking_state: { enabled: true, level: "high", editable: true },
+      capabilities: {
+        context_window_tokens: 1_048_576,
+        max_output_tokens: 131_072,
+        supports_vision: true,
+      },
     });
     expect(modelList.items.find((model) =>
       model.provider === "deepseek" && model.credential_source === "cloud"

@@ -8,6 +8,8 @@ import type {
   ManagedLlmCredential,
   ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
+import { loadLlmProviderCatalog } from "@lxe/core";
+import { join } from "node:path";
 import { DesktopCloudConfigService } from "./cloud";
 import { DesktopLocalAuthStore } from "./auth-store";
 import type {
@@ -30,16 +32,23 @@ export class DesktopConfigStore {
     options: DesktopConfigStoreOptions = {},
   ) {
     const validation = new DesktopConfigValidation(options);
-    const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform);
-    const auth = new DesktopLocalAuthStore(dataRoot, validation.platform);
+    const llmConfigRoot = options.llmConfigRoot ?? join(process.cwd(), "config", "llm");
+    const catalog = loadLlmProviderCatalog(llmConfigRoot);
+    const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform, catalog);
+    const auth = new DesktopLocalAuthStore(
+      dataRoot,
+      validation.platform,
+      catalog.providers.map((provider) => provider.name),
+    );
     this.setup = new DesktopSetupService(
       dataRoot,
       defaultWorkspaceRoot,
       repository,
       auth,
       validation,
+      catalog,
       options.secretEnvironment,
-      options.llmConfigRoot,
+      llmConfigRoot,
     );
     this.cloud = new DesktopCloudConfigService(repository, options.secretEnvironment);
     this.setup.migrateModelCredentialStorage();
