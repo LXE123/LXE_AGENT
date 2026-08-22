@@ -4,9 +4,7 @@
   "api_style": "anthropic-messages",
   "base_url": "https://api.kimi.com/coding/",
   "default_model": "kimi-for-coding",
-  "default_headers": {
-    "anthropic-version": "2023-06-01"
-  },
+  "default_headers": {},
   "aliases": ["kimi-coding", "kimi_code", "kimi-code"],
   "model_aliases": {
     "kimi-code": "kimi-for-coding"
