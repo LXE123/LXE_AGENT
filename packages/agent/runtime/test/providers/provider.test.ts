@@ -534,6 +534,88 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
     })).toThrow("unsupported LLM model: kimi_coding/retired-model");
   });
 
+  test("records the headers the SDK actually sends", async () => {
+    const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const body = [
+      frame("message_start", {
+        type: "message_start",
+        message: {
+          id: "msg_1", type: "message", role: "assistant", model: "model-1",
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: 7, output_tokens: 0 },
+        },
+      }),
+      frame("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      frame("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }),
+      frame("content_block_stop", { type: "content_block_stop", index: 0 }),
+      frame("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 2 } }),
+      frame("message_stop", { type: "message_stop" }),
+    ].join("");
+
+    let received: Headers | undefined;
+    const server = Bun.serve({
+      port: 0,
+      fetch: (incoming) => {
+        received = incoming.headers;
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const wireCalls: Array<{ kind: string; payload?: unknown }> = [];
+    try {
+      const provider = new AnthropicRuntimeProvider({
+        name: "test",
+        model: "model-1",
+        apiStyle: "anthropic_messages",
+        baseURL: server.url.origin,
+        apiKey: "key",
+        maxTokens: 1024,
+        defaultHeaders: {},
+        thinkingStyle: "anthropic-effort",
+        thinkingLevels: ["off", "high", "max"],
+        thinkingDefault: "high",
+        thinkingEnabled: false,
+        thinkingEffort: "off",
+        thinkingDisplay: "omitted",
+        contextWindowTokens: 200_000,
+        requestIdleTimeoutMs: 30_000,
+      });
+      const result = await provider.turn({
+        system: "system",
+        messages: [{ role: "user", content: "hello" }],
+        tools: [],
+        toolChoice: "auto",
+        signal: new AbortController().signal,
+        wireTrace: {
+          requestStart: (headers, payload) => wireCalls.push({ kind: "request_start", payload: { headers, payload } }),
+          responseStart: (status, headers) => wireCalls.push({ kind: "response_start", payload: { status, headers } }),
+          event: (event, payload) => wireCalls.push({ kind: "wire_event", payload: { event, payload } }),
+          parseError: (event, data, error) => wireCalls.push({ kind: "parse_error", payload: { event, data, error } }),
+          end: (ok, error) => wireCalls.push({ kind: "request_end", payload: { ok, error } }),
+        },
+      });
+      expect(result.stop_reason).toBe("end_turn");
+
+      const start = wireCalls.find((call) => call.kind === "request_start")?.payload as
+        { headers: Record<string, string> } | undefined;
+      const headers = start?.headers ?? {};
+
+      // Headers the SDK adds on its own. A reconstruction assembled before the
+      // SDK merges its defaults cannot see any of these.
+      expect(headers["anthropic-version"]).toBe("2023-06-01");
+      expect(headers["user-agent"]).toBeTruthy();
+      expect(headers["x-api-key"]).toBe("key");
+
+      // What was recorded is what the server received, field for field. An absent
+      // header normalizes to "", which no assertion above accepts.
+      const sent = (name: string): string => received?.get(name) ?? "";
+      expect(headers["anthropic-version"]).toBe(sent("anthropic-version"));
+      expect(headers["user-agent"]).toBe(sent("user-agent"));
+      expect(headers["x-api-key"]).toBe(sent("x-api-key"));
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("uses SDK streaming and maps text and tool blocks into runtime types", async () => {
     let captured: Record<string, unknown> = {};
     const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -654,14 +736,14 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
     ]);
     expect(JSON.stringify(deltas)).not.toContain("encrypted-secret");
     expect(wireCalls.filter((call) => call.kind === "wire_event")).toHaveLength(13);
+    // An injected client never reaches the fetch boundary, so this turn sends no
+    // HTTP request and there are no request headers to record. Recording a
+    // reconstructed request_start here would put a guess in the trace; the real
+    // headers are covered by "records the headers the SDK actually sends" below.
     expect(wireCalls.map((call) => call.kind).filter((kind) => kind !== "wire_event")).toEqual([
-      "request_start", "response_start", "request_end",
+      "response_start", "request_end",
     ]);
-    expect(wireCalls[0]?.payload).toEqual(expect.objectContaining({
-      headers: expect.objectContaining({ "content-type": "application/json", "x-api-key": "key" }),
-      payload: expect.objectContaining({ model: "model-1", stream: true }),
-    }));
-    expect(wireCalls[1]?.payload).toEqual({
+    expect(wireCalls[0]?.payload).toEqual({
       status: 200,
       headers: { "content-type": "text/event-stream", "request-id": "req-1" },
     });

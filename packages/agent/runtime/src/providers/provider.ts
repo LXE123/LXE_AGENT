@@ -449,6 +449,23 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
   return adapted;
 }
 
+/**
+ * The headers the request actually carries, read at the fetch boundary where the
+ * SDK has finished merging its own defaults (anthropic-version, User-Agent,
+ * X-Stainless-*), the auth header, and the caller's. Reading `init.headers`
+ * rather than constructing a Request keeps a streaming body untouched.
+ */
+export const requestHeaders = (input: unknown, init: unknown): JsonObject => {
+  type HeaderSource = ConstructorParameters<typeof Headers>[0];
+  const source = (init as { headers?: HeaderSource } | undefined)?.headers
+    ?? (input instanceof Request ? input.headers : undefined);
+  try {
+    return Object.fromEntries(new Headers(source ?? {}).entries()) as JsonObject;
+  } catch {
+    return {};
+  }
+};
+
 export const buildSystemPayload = (system: string): string | JsonObject[] => {
   const marker = "\n\n<<system-prompt-cache-breakpoint>>\n\n";
   if (!system.includes(marker)) return system.trim();
@@ -769,16 +786,33 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
 }
 
 export class AnthropicRuntimeProvider implements RuntimeProvider {
-  private readonly client: AnthropicClientPort;
-
   constructor(
     private readonly descriptor: ProviderDescriptor,
-    client?: AnthropicClientPort,
-  ) {
-    this.client = client ?? new Anthropic({
-      apiKey: descriptor.apiKey,
-      baseURL: descriptor.baseURL,
-      defaultHeaders: descriptor.defaultHeaders,
+    private readonly injectedClient?: AnthropicClientPort,
+  ) {}
+
+  /**
+   * One client per call so the fetch hook can close over this call's trace.
+   * A shared client would have to correlate concurrent turns back to their own
+   * trace, and the SDK only accepts a fetch override per client, not per
+   * request. Construction is a few field assignments; the connection pool lives
+   * in fetch, not here.
+   *
+   * The SDK does keep one piece of cross-request state - `_authState.tokenCache`
+   * - which stays empty for API-key auth. A provider that authenticates by
+   * OAuth would re-resolve its token on every call and needs the cache lifted
+   * somewhere longer-lived first.
+   */
+  private clientFor(onRequest?: (headers: JsonObject) => void): AnthropicClientPort {
+    if (this.injectedClient) return this.injectedClient;
+    return new Anthropic({
+      apiKey: this.descriptor.apiKey,
+      baseURL: this.descriptor.baseURL,
+      defaultHeaders: this.descriptor.defaultHeaders,
+      fetch: (input, init) => {
+        onRequest?.(requestHeaders(input, init));
+        return fetch(input, init);
+      },
     }) as unknown as AnthropicClientPort;
   }
 
@@ -791,18 +825,16 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
     };
     try {
       const parameters = buildProviderRequest(this.descriptor, request);
-      wire(() => request.wireTrace?.requestStart({
-        ...this.descriptor.defaultHeaders,
-        "content-type": "application/json",
-        "x-api-key": this.descriptor.apiKey,
-      }, parameters as unknown as JsonObject));
+      const client = this.clientFor((headers) => {
+        wire(() => request.wireTrace?.requestStart(headers, parameters as unknown as JsonObject));
+      });
       let delivery = Promise.resolve();
       const deliver = (event: RuntimeStreamEvent): void => {
         if (!request.onEvent) return;
         delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
       };
       const normalizer = new AnthropicMessagesStreamAdapter(deliver);
-      const stream = this.client.messages.stream(parameters, { signal: watchdog.signal });
+      const stream = client.messages.stream(parameters, { signal: watchdog.signal });
       const responseStart = (): void => {
         watchdog.activity();
         wire(() => {
@@ -867,7 +899,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const stream = this.client.messages.stream({
+      const stream = this.clientFor().messages.stream({
         model: this.descriptor.model,
         max_tokens: maxOutputTokens,
         system: SUMMARY_SYSTEM_PROMPT,

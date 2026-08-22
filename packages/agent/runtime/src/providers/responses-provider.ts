@@ -20,6 +20,7 @@ import {
   normalizeThinkingEffort,
   ProviderIdleWatchdog,
   providerUserIdentifier,
+  requestHeaders,
   RuntimeProviderError,
   SUMMARY_SYSTEM_PROMPT,
   type ProviderDescriptor,
@@ -313,16 +314,22 @@ export interface ResponsesClientPort {
 }
 
 export class ResponsesRuntimeProvider implements RuntimeProvider {
-  private readonly client: ResponsesClientPort;
-
   constructor(
     private readonly descriptor: ProviderDescriptor,
-    client?: ResponsesClientPort,
-  ) {
-    this.client = client ?? new OpenAI({
-      apiKey: descriptor.apiKey,
-      baseURL: descriptor.baseURL,
-      defaultHeaders: descriptor.defaultHeaders,
+    private readonly injectedClient?: ResponsesClientPort,
+  ) {}
+
+  /** Per call for the same reason as the Anthropic provider; see clientFor there. */
+  private clientFor(onRequest?: (headers: JsonObject) => void): ResponsesClientPort {
+    if (this.injectedClient) return this.injectedClient;
+    return new OpenAI({
+      apiKey: this.descriptor.apiKey,
+      baseURL: this.descriptor.baseURL,
+      defaultHeaders: this.descriptor.defaultHeaders,
+      fetch: (input, init) => {
+        onRequest?.(requestHeaders(input, init));
+        return fetch(input, init);
+      },
     }) as unknown as ResponsesClientPort;
   }
 
@@ -335,18 +342,16 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
     };
     try {
       const parameters = buildResponsesRequest(this.descriptor, request);
-      wire(() => request.wireTrace?.requestStart({
-        ...this.descriptor.defaultHeaders,
-        "content-type": "application/json",
-        authorization: `Bearer ${this.descriptor.apiKey}`,
-      }, parameters as unknown as JsonObject));
+      const client = this.clientFor((headers) => {
+        wire(() => request.wireTrace?.requestStart(headers, parameters as unknown as JsonObject));
+      });
       let delivery = Promise.resolve();
       const deliver = (event: RuntimeStreamEvent): void => {
         if (!request.onEvent) return;
         delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
       };
       const normalizer = new OpenAIResponsesStreamAdapter(deliver);
-      const stream = this.client.responses.stream(parameters, { signal: watchdog.signal });
+      const stream = client.responses.stream(parameters, { signal: watchdog.signal });
       // Every frame is traced from one catch-all listener, so the diagnostics
       // keep the events this adapter does not map - lifecycle and failure
       // frames included - instead of only the four it reads.
@@ -397,7 +402,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const stream = this.client.responses.stream({
+      const stream = this.clientFor().responses.stream({
         model: this.descriptor.model,
         instructions: SUMMARY_SYSTEM_PROMPT,
         input: adaptMessagesForResponses(request.messages, this.descriptor.supportsVision === true),
