@@ -2041,10 +2041,16 @@ export function SessionDetailView({
   return (
     <div className="session-detail conversation-view">
       <header className="conversation-header">
+        {/* An unstarted conversation has no title worth printing, but the row
+            still has to exist: it is the window's drag area on both desktops. */}
         <div className="conversation-header-copy">
-          <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
-          <h2>{title}</h2>
-          {session ? <span>{sourceLabel(session.source_summary || session.source)}</span> : null}
+          {newConversation ? null : (
+            <>
+              <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
+              <h2>{title}</h2>
+              {session ? <span>{sourceLabel(session.source_summary || session.source)}</span> : null}
+            </>
+          )}
         </div>
         {session ? (
           <button

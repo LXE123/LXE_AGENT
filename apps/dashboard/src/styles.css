@@ -8885,6 +8885,10 @@ pre {
   margin-block: auto;
 }
 
+.conversation-feed.is-empty:has(.conversation-welcome) {
+  margin-block: 0;
+}
+
 /* The empty conversation shows what this agent has actually been doing, in the
    operator's own units: skill runs and their success, not model tokens. */
 .conversation-welcome {
@@ -8969,24 +8973,27 @@ pre {
 
 .welcome-metrics {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* A neutral fill, the same one the heatmap's idle days use, so the two halves
+   of the panel read as one surface instead of two. The fill alone draws the
+   tile - a border around a block this small only makes it look heavier. */
 .welcome-metrics > div {
   display: grid;
   min-width: 0;
-  gap: 4px;
-  padding: 10px 11px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
+  gap: 1px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--conversation-muted-fill);
 }
 
 .welcome-metrics dt {
   overflow: hidden;
   color: var(--muted);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9001,24 +9008,20 @@ pre {
   white-space: nowrap;
 }
 
-/* Columns stretch so the graph ends level with the metric row above it, but
-   only up to a square cell: five weeks pulled across the full width stop
-   reading as a calendar and start reading as a bar chart. The cap is per
-   column, so a long range fills the row exactly and a short one stays square
-   and narrow. */
+/* A fixed cell anchored to the left. The graph always covers the same stretch
+   of history, so its size is constant and it no longer has to stretch to match
+   anything: a day is a day, whichever range the numbers above are counting. */
 .welcome-heatmap {
   display: grid;
-  width: 100%;
-  max-width: calc(var(--heatmap-columns) * 30px);
-  aspect-ratio: var(--heatmap-columns) / 7;
   gap: 3px;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-columns: 12px;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(7, 12px);
+  justify-content: start;
 }
 
 .welcome-heatmap-cell {
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--conversation-muted-fill);
 }
 

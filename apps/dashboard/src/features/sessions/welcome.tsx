@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { Sparkles } from "lucide-react";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
@@ -9,26 +8,21 @@ import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type { HeatmapCell, UsageSummary } from "../stats/summary";
 
-const RANGES = [30, 90, 180] as const;
+const RANGES = [7, 30, 90] as const;
 type Range = typeof RANGES[number];
 
-const rangeLabel = (t: UiText, range: Range): string =>
-  range === 30 ? t.welcome.range30 : range === 90 ? t.welcome.range90 : t.welcome.range180;
+// The graph is not a view of the selected range: it always shows the same
+// stretch of history, so switching the range moves the numbers without the
+// picture underneath them jumping to a different shape.
+const HEATMAP_DAYS = 90;
 
-// Seven rows means a column is a week, so the column count is what the cell cap
-// has to be measured against.
-const HEATMAP_ROWS = 7;
+const rangeLabel = (t: UiText, range: Range): string =>
+  range === 7 ? t.welcome.range7 : range === 30 ? t.welcome.range30 : t.welcome.range90;
 
 function Heatmap({ cells }: { cells: HeatmapCell[] }) {
   const t = useUiText();
-  const columns = Math.max(1, Math.ceil(cells.length / HEATMAP_ROWS));
   return (
-    <div
-      aria-label={t.welcome.heatmapAria}
-      className="welcome-heatmap"
-      role="img"
-      style={{ "--heatmap-columns": columns } as CSSProperties}
-    >
+    <div aria-label={t.welcome.heatmapAria} className="welcome-heatmap" role="img">
       {cells.map((cell) => (
         <span
           className="welcome-heatmap-cell"
@@ -64,10 +58,12 @@ function metricCards(t: UiText, summary: UsageSummary): { label: string; value: 
 
 export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
   const t = useUiText();
-  const [range, setRange] = useState<Range>(180);
+  const [range, setRange] = useState<Range>(30);
   const overviewQuery = useStatsOverviewQuery(range, enabled);
+  const historyQuery = useStatsOverviewQuery(HEATMAP_DAYS, enabled);
   const summary = useMemo(() => usageSummary(overviewQuery.data), [overviewQuery.data]);
-  const error = queryError(overviewQuery.error);
+  const history = useMemo(() => usageSummary(historyQuery.data), [historyQuery.data]);
+  const error = queryError(overviewQuery.error || historyQuery.error);
 
   return (
     <section className="conversation-welcome">
@@ -111,12 +107,16 @@ export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
                 </div>
               ))}
             </dl>
-            <Heatmap cells={summary.heatmap} />
-            <p className="welcome-status">
-              {summary.executions > 0
-                ? t.welcome.longestStreak(formatNumber(summary.longestStreak))
-                : t.welcome.empty}
-            </p>
+            {history ? (
+              <>
+                <Heatmap cells={history.heatmap} />
+                <p className="welcome-status">
+                  {history.executions > 0
+                    ? t.welcome.longestStreak(formatNumber(history.longestStreak))
+                    : t.welcome.empty}
+                </p>
+              </>
+            ) : null}
           </>
         )}
       </div>
