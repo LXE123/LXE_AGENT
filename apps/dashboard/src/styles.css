@@ -8994,42 +8994,38 @@ pre {
 .welcome-metrics dd {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 1rem;
+  font-size: 0.8125rem;
   font-weight: 650;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* A fixed cell, not a fractional one: the grid has to stay legible whether it
-   is showing one week or thirteen, and a stretched square stops reading as a
-   calendar day. */
+/* Columns stretch so the graph ends level with the metric row above it, but
+   only up to a square cell: five weeks pulled across the full width stop
+   reading as a calendar and start reading as a bar chart. The cap is per
+   column, so a long range fills the row exactly and a short one stays square
+   and narrow. */
 .welcome-heatmap {
   display: grid;
-  overflow-x: auto;
+  width: 100%;
+  max-width: calc(var(--heatmap-columns) * 30px);
+  aspect-ratio: var(--heatmap-columns) / 7;
   gap: 3px;
-  grid-auto-columns: 11px;
+  grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 11px);
-  justify-content: start;
-  padding-bottom: 2px;
+  grid-template-rows: repeat(7, minmax(0, 1fr));
 }
 
 .welcome-heatmap-cell {
-  border-radius: 2px;
-  background: var(--surface-muted);
+  border-radius: 3px;
+  background: var(--conversation-muted-fill);
 }
 
-.welcome-heatmap-cell[data-level="1"] { background: color-mix(in srgb, var(--accent) 28%, var(--surface-muted)); }
-.welcome-heatmap-cell[data-level="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--surface-muted)); }
-.welcome-heatmap-cell[data-level="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--surface-muted)); }
+.welcome-heatmap-cell[data-level="1"] { background: color-mix(in srgb, var(--accent) 28%, var(--conversation-muted-fill)); }
+.welcome-heatmap-cell[data-level="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--conversation-muted-fill)); }
+.welcome-heatmap-cell[data-level="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--conversation-muted-fill)); }
 .welcome-heatmap-cell[data-level="4"] { background: var(--accent); }
-
-.welcome-activity {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-}
 
 .welcome-status {
   color: var(--muted);

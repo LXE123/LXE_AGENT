@@ -194,7 +194,7 @@ export const ZH_TEXT = {
   welcome: {
     greeting: (name: string) => `${name}，接下来做点什么？`,
     greetingAnonymous: "接下来做点什么？",
-    subtitle: "FBA 备货与采购助手",
+    subtitle: "LXE AGENT",
     rangeAria: "统计范围",
     range30: "30 天",
     range90: "90 天",
@@ -975,7 +975,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     welcome: {
       greeting: (name: string) => `What's next, ${name}?`,
       greetingAnonymous: "What's next?",
-      subtitle: "FBA restocking and purchasing assistant",
+      subtitle: "LXE AGENT",
       rangeAria: "Statistics range",
       range30: "30d",
       range90: "90d",

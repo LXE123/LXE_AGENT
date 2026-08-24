@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { Sparkles } from "lucide-react";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
@@ -14,10 +15,20 @@ type Range = typeof RANGES[number];
 const rangeLabel = (t: UiText, range: Range): string =>
   range === 30 ? t.welcome.range30 : range === 90 ? t.welcome.range90 : t.welcome.range180;
 
+// Seven rows means a column is a week, so the column count is what the cell cap
+// has to be measured against.
+const HEATMAP_ROWS = 7;
+
 function Heatmap({ cells }: { cells: HeatmapCell[] }) {
   const t = useUiText();
+  const columns = Math.max(1, Math.ceil(cells.length / HEATMAP_ROWS));
   return (
-    <div aria-label={t.welcome.heatmapAria} className="welcome-heatmap" role="img">
+    <div
+      aria-label={t.welcome.heatmapAria}
+      className="welcome-heatmap"
+      role="img"
+      style={{ "--heatmap-columns": columns } as CSSProperties}
+    >
       {cells.map((cell) => (
         <span
           className="welcome-heatmap-cell"
@@ -53,7 +64,7 @@ function metricCards(t: UiText, summary: UsageSummary): { label: string; value: 
 
 export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
   const t = useUiText();
-  const [range, setRange] = useState<Range>(90);
+  const [range, setRange] = useState<Range>(180);
   const overviewQuery = useStatsOverviewQuery(range, enabled);
   const summary = useMemo(() => usageSummary(overviewQuery.data), [overviewQuery.data]);
   const error = queryError(overviewQuery.error);
@@ -100,14 +111,12 @@ export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
                 </div>
               ))}
             </dl>
-            <div className="welcome-activity">
-              <Heatmap cells={summary.heatmap} />
-              <p className="welcome-status">
-                {summary.executions > 0
-                  ? t.welcome.longestStreak(formatNumber(summary.longestStreak))
-                  : t.welcome.empty}
-              </p>
-            </div>
+            <Heatmap cells={summary.heatmap} />
+            <p className="welcome-status">
+              {summary.executions > 0
+                ? t.welcome.longestStreak(formatNumber(summary.longestStreak))
+                : t.welcome.empty}
+            </p>
           </>
         )}
       </div>
