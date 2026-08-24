@@ -8891,9 +8891,13 @@ pre {
 
 /* The empty conversation shows what this agent has actually been doing, in the
    operator's own units: skill runs and their success, not model tokens. */
+/* Sized to its content rather than to the column it sits in: a panel wider
+   than the tiles and the graph leaves a dead half on the right and strands the
+   range picker in the corner, aligned to an edge nothing else reaches. */
 .conversation-welcome {
   display: flex;
   width: 100%;
+  max-width: 480px;
   flex-direction: column;
   gap: 18px;
 }
@@ -9015,14 +9019,12 @@ pre {
   white-space: nowrap;
 }
 
-/* The tiles and the graph share one column, half the panel wide, so the two
-   end on the same edge. The graph carries the aspect ratio rather than a cell
-   size, which is what lets it fill that column exactly and still hold square
-   days at whatever width the window gives it. */
+/* The tiles and the graph fill the panel, so the two end on the same edge. The
+   graph carries the aspect ratio rather than a cell size, which is what lets it
+   fill the width exactly and still hold square days. */
 .welcome-body {
   display: grid;
-  width: 50%;
-  min-width: 320px;
+  width: 100%;
   gap: 14px;
 }
 
@@ -9053,12 +9055,6 @@ pre {
 
 .welcome-status.error {
   color: var(--danger);
-}
-
-@container dashboard-main (max-width: 720px) {
-  .welcome-body {
-    width: 100%;
-  }
 }
 
 .conversation-history-sentinel {
