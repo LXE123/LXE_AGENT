@@ -15,7 +15,11 @@ type Range = typeof RANGES[number];
 // The graph is not a view of the selected range: it always shows the same
 // stretch of history, so switching the range moves the numbers without the
 // picture underneath them jumping to a different shape.
-const HEATMAP_DAYS = 90;
+//
+// Twenty-six whole weeks. The width is fixed by the tile row above, so the day
+// count is what sets the cell size: more days means smaller cells and a shorter
+// panel, and a multiple of seven keeps the last column from ending ragged.
+const HEATMAP_DAYS = 26 * 7;
 
 const rangeLabel = (t: UiText, range: Range): string =>
   range === 7 ? t.welcome.range7 : range === 30 ? t.welcome.range30 : t.welcome.range90;
