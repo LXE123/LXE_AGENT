@@ -30,6 +30,67 @@ describe("UsageStore", () => {
     }
   });
 
+  // The busiest local hour, so the panel can say when the operator actually
+  // works. The expected hour is read back from SQLite rather than computed in
+  // JS: `bun test` runs the JavaScript clock at UTC while SQLite's `localtime`
+  // still follows the system zone, so the two disagree here but not in the app.
+  test("reports the busiest local hour, and nothing when no turn ran", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      expect(store.usageOverview(30).peak_hour).toBeNull();
+
+      const localHour = (at: number): number => Number(
+        (database.query("SELECT CAST(strftime('%H', ?, 'unixepoch', 'localtime') AS INTEGER) AS hour")
+          .get(at) as { hour: number }).hour,
+      );
+      const turn = (id: string, at: number) => store.recordTurn("s1", {
+        turn_id: id, started_at: at, status: "completed", elapsed_ms: 5,
+        input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      });
+
+      const onTheHour = startedAt - (startedAt % 3_600);
+      const later = onTheHour + 2 * 3_600;
+      // The fixtures are only meaningful if they land in different hours.
+      expect(localHour(onTheHour)).not.toBe(localHour(later));
+
+      turn("turn-1", onTheHour);
+      turn("turn-2", onTheHour + 60);
+      turn("turn-3", later);
+
+      expect(store.usageOverview(30).peak_hour).toBe(localHour(onTheHour));
+    } finally {
+      database.close(true);
+    }
+  });
+
+  test("breaks a tie on the busiest hour by taking the earlier one", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      const localHour = (at: number): number => Number(
+        (database.query("SELECT CAST(strftime('%H', ?, 'unixepoch', 'localtime') AS INTEGER) AS hour")
+          .get(at) as { hour: number }).hour,
+      );
+      const turn = (id: string, at: number) => store.recordTurn("s1", {
+        turn_id: id, started_at: at, status: "completed", elapsed_ms: 5,
+        input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
+        tools: [], activations: [], executions: [],
+      });
+
+      const onTheHour = startedAt - (startedAt % 3_600);
+      const later = onTheHour + 2 * 3_600;
+      turn("turn-1", onTheHour);
+      turn("turn-2", later);
+
+      expect(store.usageOverview(30).peak_hour)
+        .toBe(Math.min(localHour(onTheHour), localHour(later)));
+    } finally {
+      database.close(true);
+    }
+  });
+
   test("keeps the cached halves of a request instead of only the billed input", () => {
     const database = usageDatabase();
     try {

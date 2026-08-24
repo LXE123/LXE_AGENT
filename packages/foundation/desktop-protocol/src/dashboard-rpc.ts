@@ -412,6 +412,8 @@ export type ToolStatPayload = {
 
 export type StatsOverviewPayload = {
   days: number;
+  /** Local hour of day the operator is busiest in, or null when nothing ran. */
+  peak_hour: number | null;
   totals: {
     turns: number;
     error_turns: number;

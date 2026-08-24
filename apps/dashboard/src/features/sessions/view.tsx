@@ -80,6 +80,7 @@ import {
   modelThinkingLevelLabel,
 } from "../models/model";
 import { groupSidebarSessions } from "./model";
+import { ConversationWelcome } from "./welcome";
 
 /** How close to the bottom still counts as "following the reply". */
 const BOTTOM_PIN_THRESHOLD_PX = 80;
@@ -2258,6 +2259,7 @@ export function SessionDetailView({
               {showEmpty && !newConversation ? (
                 <EmptyState label={t.sessionDetail.empty} />
               ) : null}
+              {newConversation && showEmpty ? <ConversationWelcome /> : null}
             </div>
           </div>
           {showJumpToLatest ? (

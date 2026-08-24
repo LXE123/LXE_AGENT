@@ -251,9 +251,18 @@ export class UsageStore {
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
       GROUP BY module ORDER BY executions DESC, module ASC
     `, cutoff);
+    // The hour the operator actually works in, in their own timezone: the busiest
+    // one wins, and the earliest breaks a tie so the answer is stable.
+    const peak = this.get<Record<string, number>>(`
+      SELECT CAST(strftime('%H', started_at, 'unixepoch', 'localtime') AS INTEGER) AS hour,
+             COUNT(*) AS turns
+      FROM turn_usage WHERE started_at >= ?
+      GROUP BY hour ORDER BY turns DESC, hour ASC LIMIT 1
+    `, cutoff);
     const executionsByDay = new Map(dailyExecutions.map((row) => [text(row.day), row]));
     return {
       days: safeDays,
+      peak_hour: peak ? Number(peak.hour ?? 0) : null,
       totals: {
         turns: Number(totals.turns ?? 0), error_turns: Number(totals.error_turns ?? 0),
         tool_calls: Number(totals.tool_calls ?? 0), llm_calls: Number(totals.llm_calls ?? 0),
