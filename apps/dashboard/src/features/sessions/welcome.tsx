@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { Sparkles } from "lucide-react";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
@@ -19,10 +20,20 @@ const HEATMAP_DAYS = 90;
 const rangeLabel = (t: UiText, range: Range): string =>
   range === 7 ? t.welcome.range7 : range === 30 ? t.welcome.range30 : t.welcome.range90;
 
+// Seven rows means a column is a week, and the count drives the aspect ratio
+// that keeps a day square as the column resizes.
+const HEATMAP_ROWS = 7;
+
 function Heatmap({ cells }: { cells: HeatmapCell[] }) {
   const t = useUiText();
+  const columns = Math.max(1, Math.ceil(cells.length / HEATMAP_ROWS));
   return (
-    <div aria-label={t.welcome.heatmapAria} className="welcome-heatmap" role="img">
+    <div
+      aria-label={t.welcome.heatmapAria}
+      className="welcome-heatmap"
+      role="img"
+      style={{ "--heatmap-columns": columns } as CSSProperties}
+    >
       {cells.map((cell) => (
         <span
           className="welcome-heatmap-cell"
@@ -99,24 +110,26 @@ export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
           <p className="welcome-status">{t.welcome.loading}</p>
         ) : (
           <>
-            <dl className="welcome-metrics">
-              {metricCards(t, summary).map((card) => (
-                <div key={card.label}>
-                  <dt>{card.label}</dt>
-                  <dd title={card.value}>{card.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {history ? (
-              <>
-                <Heatmap cells={history.heatmap} />
-                <p className="welcome-status">
-                  {history.executions > 0
-                    ? t.welcome.longestStreak(formatNumber(history.longestStreak))
-                    : t.welcome.empty}
-                </p>
-              </>
-            ) : null}
+            <div className="welcome-body">
+              <dl className="welcome-metrics">
+                {metricCards(t, summary).map((card) => (
+                  <div key={card.label}>
+                    <dt>{card.label}</dt>
+                    <dd title={card.value}>{card.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {history ? (
+                <>
+                  <Heatmap cells={history.heatmap} />
+                  <p className="welcome-status">
+                    {history.executions > 0
+                      ? t.welcome.longestStreak(formatNumber(history.longestStreak))
+                      : t.welcome.empty}
+                  </p>
+                </>
+              ) : null}
+            </div>
           </>
         )}
       </div>
