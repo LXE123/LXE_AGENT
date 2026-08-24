@@ -233,6 +233,22 @@ button {
   border-color: #2f3a63;
 }
 
+:root[data-theme="dark"] .model-card[data-provider="openrouter"] {
+  --model-soft: #2a1d45;
+  --model-ring: #4b3677;
+  --model-card-bg: #1f1830;
+  --model-card-active-bg: #251c3a;
+  --model-card-text: #e4d9fb;
+  --model-card-muted: #a193c9;
+  --model-card-soft-text: #c4b4e8;
+  --model-panel-bg: rgba(255, 255, 255, 0.04);
+  --model-panel-border: #43335f;
+  --model-input-bg: rgba(0, 0, 0, 0.32);
+  --model-input-disabled-bg: #2c2344;
+  --model-input-text: #e4d9fb;
+  border-color: #43335f;
+}
+
 :root[data-theme="dark"] .skills-catalog {
   --catalog-hue: #a892c4;
   --catalog-hue-strong: #c3b0da;
@@ -3361,6 +3377,29 @@ h1 {
   box-shadow: 0 18px 40px rgba(45, 76, 138, 0.12);
 }
 
+.model-card[data-provider="openrouter"] {
+  --model-hue: #7624f4;
+  --model-hue-strong: #5a14cf;
+  --model-soft: #f0e8fe;
+  --model-ring: #d6c4fa;
+  --model-card-bg: #f8f5ff;
+  --model-card-active-bg: #f4efff;
+  --model-card-text: #2e1a5e;
+  --model-card-muted: #6d6390;
+  --model-card-soft-text: #50406f;
+  --model-panel-bg: rgba(255, 255, 255, 0.62);
+  --model-panel-border: #e2d8f5;
+  --model-input-bg: rgba(255, 255, 255, 0.82);
+  --model-input-disabled-bg: #efe9fb;
+  --model-input-text: #2e1a5e;
+  --model-focus-ring: rgba(118, 36, 244, 0.2);
+  --model-badge-bg: #7624f4;
+  --model-badge-color: #ffffff;
+  --model-badge-border: #7624f4;
+  border-color: #ddd2f2;
+  box-shadow: 0 18px 40px rgba(88, 45, 150, 0.12);
+}
+
 .model-card[data-provider="kimi_coding"]::after {
   background:
     radial-gradient(
@@ -3408,6 +3447,10 @@ h1 {
 
 .model-card[data-provider="deepseek"]::after {
   background: radial-gradient(circle at 88% 4%, rgba(77, 107, 254, 0.18), transparent 33%);
+}
+
+.model-card[data-provider="openrouter"]::after {
+  background: radial-gradient(circle at 88% 4%, rgba(118, 36, 244, 0.16), transparent 33%);
 }
 
 .model-card > :not(.model-brand-watermark, .model-kimi-dust, .model-deepseek-waves) {
@@ -3596,6 +3639,16 @@ h1 {
 
 :root[data-theme="dark"] .provider-brand-mark[data-provider-mark="deepseek"] {
   color: #9db4f5;
+}
+
+/* The OpenRouter mark is a currentColor SVG. Give it the official brand
+   colors directly: purple #7624F4 on light surfaces, lime #C8FF00 on dark. */
+.provider-brand-mark[data-provider-mark="openrouter"] {
+  color: #7624f4;
+}
+
+:root[data-theme="dark"] .provider-brand-mark[data-provider-mark="openrouter"] {
+  color: #c8ff00;
 }
 
 .model-card[data-provider="kimi_coding"] .item-icon {

@@ -12,6 +12,8 @@ describe("ProviderBrandMark", () => {
     expect(providerBrandKind("kimi-coding")).toBe("kimi");
     expect(providerBrandKind("deep_seek")).toBe("deepseek");
     expect(providerBrandKind("deep-seek")).toBe("deepseek");
+    expect(providerBrandKind("openrouter")).toBe("openrouter");
+    expect(providerBrandKind("open-router")).toBe("openrouter");
     expect(providerBrandKind("unknown_provider")).toBe("generic");
     expect(providerBrandKind("unknown-provider")).toBe("generic");
   });
@@ -19,6 +21,7 @@ describe("ProviderBrandMark", () => {
   test("renders the bundled Kimi icon with local vectors and a generic fallback", () => {
     const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi_coding" />);
     const deepseek = renderToStaticMarkup(<ProviderBrandMark provider="deepseek" />);
+    const openrouter = renderToStaticMarkup(<ProviderBrandMark provider="openrouter" />);
     const fallback = renderToStaticMarkup(<ProviderBrandMark provider="unknown_provider" />);
 
     expect(kimi).toContain('data-provider-mark="kimi"');
@@ -28,9 +31,11 @@ describe("ProviderBrandMark", () => {
     expect(kimi).not.toContain("provider-brand-orbit");
     expect(kimi).not.toContain("provider-brand-scan");
     expect(deepseek).toContain('data-provider-mark="deepseek"');
+    expect(openrouter).toContain('data-provider-mark="openrouter"');
+    expect(openrouter).toContain('viewBox="0 0 401.4 293.7"');
     expect(fallback).toContain('data-provider-mark="generic"');
     expect(fallback).toContain("lucide-brain");
-    expect(`${kimi}${deepseek}`).not.toMatch(/https?:\/\//u);
+    expect(`${kimi}${deepseek}${openrouter}`).not.toMatch(/https?:\/\//u);
   });
 
   test("keeps the Kimi icon scalable at compact status sizes", () => {
