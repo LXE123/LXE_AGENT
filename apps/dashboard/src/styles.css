@@ -4963,6 +4963,14 @@ h1 {
   animation: conversation-spin 0.9s linear infinite;
 }
 
+/* A reader who asked the system to stop animating still needs to know the row
+   is working, so the mark stays and only its spin does. */
+@media (prefers-reduced-motion: reduce) {
+  .conversation-spinner {
+    animation: none;
+  }
+}
+
 @keyframes conversation-spin {
   to { transform: rotate(360deg); }
 }
@@ -5640,7 +5648,10 @@ h1 {
   color: var(--muted-light);
 }
 
-.tool-op-mark + .tool-op-chevron,
+/* Not after the mark: the mark already carries the auto margin, and two of them
+   on one line split the free space between them, which parks the mark in the
+   middle of the row at a spot that moves with the length of the text beside it.
+   Letting the mark take all of it instead lines the marks up in a column. */
 .tool-op-argument + .tool-op-chevron,
 .tool-op-name + .tool-op-chevron {
   margin-left: auto;
