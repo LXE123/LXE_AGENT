@@ -9310,13 +9310,14 @@ pre {
 /* One rule for the whole step list. Thinking text used to carry its own left
    border plus indent while tool cards started at x=0, so the expanded trace had
    a zig-zag left edge. */
+/* No rail down the side: the steps sit directly under the summary that opens
+   them, which is enough to say they belong to it. The indent went with it —
+   it only existed to clear the line. */
 .response-process-body {
   display: grid;
   min-width: 0;
   gap: 6px;
-  margin-left: 1px;
-  padding: 2px 0 4px 12px;
-  border-left: 2px solid var(--border);
+  padding: 2px 0 4px;
 }
 
 .process-message-content {
