@@ -643,6 +643,65 @@ describe("DesktopConfigStore", () => {
     });
   });
 
+  test("keeps Zhipu metered and Coding Plan credentials and preferences independent", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+
+    store.saveLocalModelCredential({
+      provider: "zhipuai-coding-plan",
+      api_key: "coding-plan-secret",
+    });
+    store.saveRuntimePreference("zhipuai_coding_plan", "glm-5.3", "low");
+    store.saveLocalModelCredential({ provider: "zhipuai", api_key: "metered-secret" });
+    store.saveRuntimePreference("zhipuai", "glm-5.3-flash", "max");
+
+    expect(store.state()).toMatchObject({
+      provider: "zhipuai",
+      local_provider: "zhipuai",
+      credential_source: "local",
+      local_model_providers: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "zhipuai_coding_plan",
+          label: "Zhipu AI Coding Plan",
+          configured: true,
+        }),
+        expect.objectContaining({ provider: "zhipuai", label: "Zhipu AI", configured: true }),
+      ]),
+    });
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "zhipuai",
+      AGENT_LLM_MODEL: "glm-5.3-flash",
+      AGENT_LLM_THINKING_ENABLED: "1",
+      AGENT_LLM_THINKING_EFFORT: "max",
+      AGENT_LLM_MODEL_ZHIPUAI_CODING_PLAN: "glm-5.3",
+      AGENT_LLM_THINKING_EFFORT_ZHIPUAI_CODING_PLAN: "low",
+      AGENT_LLM_MODEL_ZHIPUAI: "glm-5.3-flash",
+      AGENT_LLM_THINKING_EFFORT_ZHIPUAI: "max",
+    });
+
+    const cloudRoot = createRoot();
+    const cloud = new DesktopConfigStore(cloudRoot, join(cloudRoot, "workspace"), safeStorage);
+    cloud.saveManagedLlmCredential({
+      provider: "zhipuai_coding_plan",
+      model: "glm-5.3-flash",
+      api_key: "managed-zhipu-secret",
+      credential_revision: "9".repeat(64),
+      fetched_at: 123,
+      invalid_revision: "",
+    });
+    expect(cloud.state()).toMatchObject({
+      complete: true,
+      provider: "zhipuai_coding_plan",
+      credential_source: "cloud",
+      managed_model_configured: true,
+    });
+    expect(cloud.environment()).toMatchObject({
+      LXE_MANAGED_LLM_PROVIDER: "zhipuai_coding_plan",
+      LXE_MANAGED_LLM_MODEL: "glm-5.3-flash",
+      LXE_MANAGED_LLM_API_KEY: "managed-zhipu-secret",
+    });
+  });
+
   test("keeps an existing local model selected when a managed credential arrives", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });

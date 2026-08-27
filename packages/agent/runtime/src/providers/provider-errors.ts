@@ -48,6 +48,27 @@ export const providerErrorStatusCode = (error: unknown): number | undefined => {
   return undefined;
 };
 
+export const providerErrorBusinessCode = (error: unknown): number | undefined => {
+  const queue: Array<{ value: unknown; depth: number }> = [{ value: error, depth: 0 }];
+  const seen = new Set<object>();
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const source = objectValue(current.value);
+    if (seen.has(source)) continue;
+    seen.add(source);
+    const code = String(source.code ?? source.error_code ?? source.errorCode ?? "").trim();
+    if (/^\d{4}$/u.test(code)) return Number(code);
+    if (current.depth >= 3) continue;
+    for (const key of STATUS_CONTAINERS) {
+      const child = source[key];
+      if (child !== null && typeof child === "object" && !Array.isArray(child)) {
+        queue.push({ value: child, depth: current.depth + 1 });
+      }
+    }
+  }
+  return undefined;
+};
+
 const bodyText = (value: unknown): string => {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value.trim();
@@ -169,6 +190,91 @@ const deepseekClassification = (status: number, text: string): Classification =>
   return { category: "请求失败", userMessage: `${label} 请求失败，请稍后重试。`, retryable: true };
 };
 
+const zhipuClassification = (
+  status: number,
+  businessCode: number,
+  text: string,
+  label: string,
+): Classification => {
+  if (businessCode === 1261 || contextOverflow(text)) return {
+    category: "上下文超限",
+    userMessage: `${label} 上下文超过模型限制，已尝试压缩历史后仍无法发送，请缩短输入后重试。`,
+    retryable: false,
+    contextOverflow: true,
+  };
+  if ([1000, 1001, 1003].includes(businessCode) || (status === 401 && businessCode === 0)) return {
+    category: "认证失败",
+    userMessage: `${label} 认证失败，请检查 API Key 是否正确或已过期。`,
+    retryable: false,
+  };
+  if (businessCode === 1005) return {
+    category: "账号安全限制",
+    userMessage: `${label} 账号已开启二次认证保护，请先处理账号安全验证。`,
+    retryable: false,
+  };
+  if (businessCode === 1113) return {
+    category: "余额不足",
+    userMessage: `${label} 账号余额不足，请充值或确认当前 API Key 对应的计费方式。`,
+    retryable: false,
+  };
+  if ([1210, 1212, 1213, 1214, 1215, 1221, 1222].includes(businessCode)) return {
+    category: "请求参数错误",
+    userMessage: `${label} 请求参数或调用方式不受支持，请检查模型与请求配置。`,
+    retryable: false,
+  };
+  if (businessCode === 1211) return {
+    category: "模型不存在",
+    userMessage: `${label} 模型不存在，请检查模型名称或客户端模型目录。`,
+    retryable: false,
+  };
+  if (businessCode === 1220 || [1309, 1311, 1314, 1315].includes(businessCode)) return {
+    category: "权限错误",
+    userMessage: `${label} 当前账号、套餐或 API Key 无权使用该接口或模型。`,
+    retryable: false,
+  };
+  if (businessCode === 1301) return {
+    category: "内容安全限制",
+    userMessage: `${label} 拒绝了可能包含不安全或敏感内容的请求。`,
+    retryable: false,
+  };
+  if ([1304, 1308, 1310, 1313, 1316, 1317, 1318, 1319, 1320, 1321].includes(businessCode)) return {
+    category: "套餐额度限制",
+    userMessage: `${label} 当前套餐额度或使用上限已达到，请等待额度刷新或调整套餐。`,
+    retryable: false,
+  };
+  if (businessCode === 1302) return {
+    category: "请求限流",
+    userMessage: `${label} 请求频率达到上限，请稍后重试。`,
+    retryable: true,
+  };
+  if (businessCode === 1305) return {
+    category: "服务繁忙",
+    userMessage: `${label} 当前模型访问量过大，请稍后重试。`,
+    retryable: true,
+  };
+  if ([1200, 1230, 1234].includes(businessCode) || status >= 500) return {
+    category: "服务端错误",
+    userMessage: `${label} 服务暂时异常，请稍后重试。`,
+    retryable: true,
+  };
+  if (status === 403) return {
+    category: "权限错误",
+    userMessage: `${label} 权限不足，请检查账号、套餐和接口权限。`,
+    retryable: false,
+  };
+  if (status === 429) return {
+    category: "请求限流",
+    userMessage: `${label} 当前限流，请稍后重试。`,
+    retryable: true,
+  };
+  if (status === 400 || status === 422) return {
+    category: "请求参数错误",
+    userMessage: `${label} 请求格式错误，请检查模型、消息和工具参数。`,
+    retryable: false,
+  };
+  return genericClassification(status, text, label);
+};
+
 const genericClassification = (status: number, text: string, label: string): Classification => {
   const overflow = contextOverflow(text);
   const auth = status === 401 || status === 403 || /auth|api key|unauthor/iu.test(text);
@@ -187,12 +293,22 @@ const genericClassification = (status: number, text: string, label: string): Cla
 export function classifyProviderError(error: unknown, descriptor: ProviderDescriptor): RuntimeProviderError {
   if (error instanceof RuntimeProviderError) return error;
   const status = providerErrorStatusCode(error) ?? 0;
+  const parsedBusinessCode = providerErrorBusinessCode(error);
   const rawMessage = errorText(error);
   const text = rawMessage.toLowerCase();
+  const businessCode = parsedBusinessCode
+    ?? Number(text.match(/(?:"code"|code)\s*[:=]\s*"?(\d{4})/u)?.[1] ?? 0);
   const classification = descriptor.name === "kimi_coding"
     ? kimiClassification(status, text)
     : descriptor.name === "deepseek"
       ? deepseekClassification(status, text)
+      : descriptor.name === "zhipuai" || descriptor.name === "zhipuai_coding_plan"
+        ? zhipuClassification(
+          status,
+          businessCode,
+          text,
+          descriptor.name === "zhipuai_coding_plan" ? "Zhipu AI Coding Plan" : "Zhipu AI",
+        )
       : genericClassification(status, text, descriptor.name);
   return new RuntimeProviderError(
     rawMessage,

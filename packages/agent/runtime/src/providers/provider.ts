@@ -9,6 +9,7 @@ import {
   envText,
   loadLlmProviderCatalog,
   normalizeProviderKey,
+  PROVIDER_API_STYLE_OPENAI_COMPLETIONS,
   PROVIDER_API_STYLE_OPENAI_RESPONSES,
   type Environment,
 } from "@lxe/core";
@@ -33,6 +34,7 @@ export { RuntimeProviderError } from "./provider-errors";
 export { AnthropicMessagesStreamAdapter as ProviderStreamNormalizer } from "./protocols/anthropic-messages";
 export {
   PROVIDER_API_STYLE_ANTHROPIC_MESSAGES,
+  PROVIDER_API_STYLE_OPENAI_COMPLETIONS,
   PROVIDER_API_STYLE_OPENAI_RESPONSES,
 } from "@lxe/core";
 
@@ -42,6 +44,7 @@ const kimiCodingUserAgent = (): string => `pi (${platform()} ${release()}; ${arc
 const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
 const IMAGE_PLACEHOLDER = "[image omitted: the selected model does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
+const OPENAI_REASONING_SIGNATURES = new Set(["reasoning_content", "reasoning", "reasoning_text"]);
 
 export const SUMMARY_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
 
@@ -60,6 +63,7 @@ export interface ProviderDescriptor {
   defaultHeaders: Record<string, string>;
   thinkingStyle: string;
   thinkingBudgetTokens?: number;
+  toolStream?: boolean;
   thinkingLevels: string[];
   thinkingDefault: string;
   thinkingEnabled: boolean;
@@ -141,9 +145,9 @@ const readObject = (path: string): Record<string, unknown> => {
 export const providerEndpointUrl = (descriptor: ProviderDescriptor): string => {
   const base = descriptor.baseURL.replace(/\/+$/u, "");
   if (!base) return "";
-  return descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_RESPONSES
-    ? `${base}/responses`
-    : `${base}/v1/messages`;
+  if (descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_RESPONSES) return `${base}/responses`;
+  if (descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_COMPLETIONS) return `${base}/chat/completions`;
+  return `${base}/v1/messages`;
 };
 
 const configuredRequestIdleTimeout = (value: unknown): number => {
@@ -275,6 +279,7 @@ export function loadProviderDescriptor(
     ...(selectedModel.thinkingBudgetTokens === undefined ? {} : {
       thinkingBudgetTokens: selectedModel.thinkingBudgetTokens,
     }),
+    toolStream: selectedModel.toolStream,
     thinkingLevels,
     thinkingDefault,
     thinkingEnabled,
@@ -414,6 +419,7 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
           };
         }
         if (block.type === "thinking") {
+          if (OPENAI_REASONING_SIGNATURES.has(String(block.signature ?? ""))) return undefined;
           return {
             type: "thinking",
             thinking: String(block.thinking ?? ""),

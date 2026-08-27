@@ -1,0 +1,34 @@
+{
+  "name": "zhipuai",
+  "label": "Zhipu AI",
+  "api_style": "openai-completions",
+  "base_url": "https://open.bigmodel.cn/api/paas/v4",
+  "default_model": "glm-5.3-flash",
+  "request_idle_timeout_ms": 660000,
+  "default_headers": {},
+  "aliases": ["zhipu", "bigmodel", "big-model"],
+  "models": {
+    "glm-5.3": {
+      "context_window_tokens": 1000000,
+      "max_tokens": 131072,
+      "supports_vision": false,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "zai",
+      "tool_stream": true,
+      "thinking_levels": ["low", "high", "max"],
+      "thinking_default": "max"
+    },
+    "glm-5.3-flash": {
+      "context_window_tokens": 1000000,
+      "max_tokens": 131072,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "zai",
+      "tool_stream": true,
+      "thinking_levels": ["low", "high", "max"],
+      "thinking_default": "max"
+    }
+  }
+}

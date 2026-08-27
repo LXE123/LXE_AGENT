@@ -65,21 +65,23 @@ describe("LLM Provider Catalog", () => {
     expect(catalog.requireModel(catalog.requireProvider("three"), "three/model").supportsVision).toBeTrue();
   });
 
-  test("rejects conflicting names, model ids, defaults, API styles, and model defaults", () => {
+  test("allows the same model id under different providers", () => {
+    const shared = provider("one").models;
+    const root = catalogRoot(
+      provider("one", { desktop_default: true }),
+      provider("two", { default_model: "one/model", models: shared }),
+    );
+    const catalog = loadLlmProviderCatalog(root);
+    expect(catalog.requireModel(catalog.requireProvider("one"), "one/model").id).toBe("one/model");
+    expect(catalog.requireModel(catalog.requireProvider("two"), "one/model").id).toBe("one/model");
+  });
+
+  test("rejects conflicting names, defaults, API styles, and model defaults", () => {
     const aliases = catalogRoot(
       provider("one", { desktop_default: true, aliases: ["shared"] }),
       provider("two", { aliases: ["shared"] }),
     );
     expect(() => loadLlmProviderCatalog(aliases)).toThrow("duplicate LLM provider name or alias shared");
-
-    const duplicateModel = catalogRoot(
-      provider("one", { desktop_default: true }),
-      provider("two", {
-        default_model: "one/model",
-        models: provider("one").models,
-      }),
-    );
-    expect(() => loadLlmProviderCatalog(duplicateModel)).toThrow("duplicate LLM model id one/model");
 
     const defaults = catalogRoot(
       provider("one", { desktop_default: true }),
@@ -89,6 +91,12 @@ describe("LLM Provider Catalog", () => {
 
     const style = catalogRoot(provider("one", { desktop_default: true, api_style: "unknown-wire" }));
     expect(() => loadLlmProviderCatalog(style)).toThrow("api_style is unsupported");
+
+    const completions = loadLlmProviderCatalog(catalogRoot(provider("one", {
+      desktop_default: true,
+      api_style: "openai-completions",
+    })));
+    expect(completions.requireProvider("one").apiStyle).toBe("openai_completions");
 
     const model = catalogRoot(provider("one", { desktop_default: true, default_model: "retired/model" }));
     expect(() => loadLlmProviderCatalog(model)).toThrow("default_model is not present in models");

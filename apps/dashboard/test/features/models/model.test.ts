@@ -184,6 +184,25 @@ describe("conversation model choices", () => {
       },
     ]);
   });
+
+  test("keeps identical GLM model ids distinct by provider", () => {
+    const providers = ["zhipuai", "zhipuai_coding_plan"];
+    const choices = conversationModelChoices(providers.map((provider) => ({
+      provider,
+      credential_source: "local" as const,
+      label: provider === "zhipuai" ? "Zhipu AI" : "Zhipu AI Coding Plan",
+      selectable: true,
+      disabled_reason: "",
+      model_options: [{ model: "glm-5.3" }, { model: "glm-5.3-flash" }],
+    })));
+
+    expect(choices.map(({ provider, model }) => `${provider}/${model}`)).toEqual([
+      "zhipuai/glm-5.3",
+      "zhipuai/glm-5.3-flash",
+      "zhipuai_coding_plan/glm-5.3",
+      "zhipuai_coding_plan/glm-5.3-flash",
+    ]);
+  });
 });
 
 describe("showcase model browsing", () => {

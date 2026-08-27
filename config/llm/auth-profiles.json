@@ -16,6 +16,16 @@
         "OPENROUTER_API_KEY"
       ],
       "required": true
+    },
+    "zhipuai_coding_plan": {
+      "type": "api_key",
+      "env_names": ["ZHIPUAI_CODING_PLAN_API_KEY", "ZAI_CODING_CN_API_KEY"],
+      "required": true
+    },
+    "zhipuai": {
+      "type": "api_key",
+      "env_names": ["ZHIPUAI_API_KEY", "ZHIPU_API_KEY"],
+      "required": true
     }
   }
 }

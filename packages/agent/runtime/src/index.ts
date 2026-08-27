@@ -16,6 +16,7 @@ export * from "./engine/system-prompt";
 export * from "./providers/provider";
 export * from "./providers/provider-factory";
 export * from "./providers/provider-preferences";
+export * from "./providers/completions-provider";
 export * from "./providers/responses-provider";
 export * from "./tooling/process-output";
 export * from "./state/storage";

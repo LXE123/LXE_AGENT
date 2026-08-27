@@ -129,6 +129,8 @@ describe("desktop resource scope", () => {
       "config/llm/providers/deepseek.json",
       "config/llm/providers/kimi-coding.json",
       "config/llm/providers/openrouter.json",
+      "config/llm/providers/zhipuai-coding-plan.json",
+      "config/llm/providers/zhipuai.json",
     ]);
     expect(config?.source.paths).toEqual(["config/mcp_servers.default.yaml"]);
     expect(readFileSync(resolve(repositoryRoot, "config/mcp_servers.default.yaml"), "utf8"))

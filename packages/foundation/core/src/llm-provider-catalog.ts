@@ -2,10 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const PROVIDER_API_STYLE_ANTHROPIC_MESSAGES = "anthropic_messages" as const;
+export const PROVIDER_API_STYLE_OPENAI_COMPLETIONS = "openai_completions" as const;
 export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses" as const;
 
 export type LlmProviderApiStyle =
   | typeof PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
+  | typeof PROVIDER_API_STYLE_OPENAI_COMPLETIONS
   | typeof PROVIDER_API_STYLE_OPENAI_RESPONSES;
 
 export interface LlmProviderModelSpec {
@@ -17,6 +19,7 @@ export interface LlmProviderModelSpec {
   supportsTemperature: boolean;
   thinkingRequestStyle: string;
   thinkingBudgetTokens?: number;
+  toolStream: boolean;
   thinkingLevels: string[];
   thinkingDefault: string;
 }
@@ -107,7 +110,9 @@ export const normalizeProviderKey = (value: unknown): string =>
 
 const normalizeApiStyle = (value: unknown, path: string): LlmProviderApiStyle => {
   const style = normalizeProviderKey(requiredString(value, path));
-  if (style !== PROVIDER_API_STYLE_ANTHROPIC_MESSAGES && style !== PROVIDER_API_STYLE_OPENAI_RESPONSES) {
+  if (style !== PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
+    && style !== PROVIDER_API_STYLE_OPENAI_COMPLETIONS
+    && style !== PROVIDER_API_STYLE_OPENAI_RESPONSES) {
     throw new Error(`${path} is unsupported: ${String(value)}`);
   }
   return style;
@@ -140,6 +145,9 @@ const parseModel = (id: string, value: unknown, path: string): LlmProviderModelS
     ...(model.thinking_budget_tokens === undefined ? {} : {
       thinkingBudgetTokens: positiveInteger(model.thinking_budget_tokens, `${path}.${id}.thinking_budget_tokens`),
     }),
+    toolStream: model.tool_stream === undefined
+      ? false
+      : requiredBoolean(model.tool_stream, `${path}.${id}.tool_stream`),
     thinkingLevels,
     thinkingDefault,
   };
@@ -238,7 +246,6 @@ export function loadLlmProviderCatalog(root: string): LlmProviderCatalog {
   const providers = providerFiles.map(parseProvider)
     .sort((left, right) => left.label.localeCompare(right.label) || left.name.localeCompare(right.name));
   const names = new Map<string, LlmProviderSpec>();
-  const modelOwners = new Map<string, LlmProviderSpec>();
   for (const provider of providers) {
     for (const candidate of [provider.name, ...provider.aliases]) {
       const existing = names.get(candidate);
@@ -246,13 +253,6 @@ export function loadLlmProviderCatalog(root: string): LlmProviderCatalog {
         throw new Error(`duplicate LLM provider name or alias ${candidate}: ${existing.sourcePath}, ${provider.sourcePath}`);
       }
       if (!existing) names.set(candidate, provider);
-    }
-    for (const model of Object.keys(provider.models)) {
-      const existing = modelOwners.get(model);
-      if (existing) {
-        throw new Error(`duplicate LLM model id ${model}: ${existing.sourcePath}, ${provider.sourcePath}`);
-      }
-      modelOwners.set(model, provider);
     }
   }
   const defaults = providers.filter((provider) => provider.desktopDefault);
