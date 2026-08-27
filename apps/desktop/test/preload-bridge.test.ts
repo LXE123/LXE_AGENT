@@ -24,6 +24,7 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
       "activateCloudEnrollment",
+      "applyAppearance",
       "cancelSyntheticPerformerTask",
       "deleteLocalModelCredential",
       "discardConversationFiles",
@@ -69,6 +70,7 @@ describe("preload bridge", () => {
     await bridge.desktop.selectZiniaoApp();
     await bridge.desktop.selectZiniaoWebDriverDirectory();
     await bridge.desktop.openLogsDirectory();
+    await bridge.desktop.applyAppearance("dark");
     await bridge.desktop.getHealth();
     await bridge.desktop.selectSyntheticPerformerSources("files");
     await bridge.desktop.selectSyntheticPerformerOutput();
@@ -169,6 +171,7 @@ describe("preload bridge", () => {
       IPC_CHANNELS.selectZiniaoApp,
       IPC_CHANNELS.selectZiniaoWebDriverDirectory,
       IPC_CHANNELS.openLogsDirectory,
+      IPC_CHANNELS.applyAppearance,
       IPC_CHANNELS.getHealth,
       IPC_CHANNELS.selectSyntheticPerformerSources,
       IPC_CHANNELS.selectSyntheticPerformerOutput,
@@ -180,16 +183,17 @@ describe("preload bridge", () => {
       IPC_CHANNELS.stageDroppedConversationFiles,
       IPC_CHANNELS.discardConversationFiles,
     ]);
-    expect(invocations[19]?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[20]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[20]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[21]?.arguments).toEqual([["attachment-1"]]);
     expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
     expect(invocations[2]?.arguments).toEqual(["deepseek"]);
     expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
     expect(invocations[7]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[14]?.arguments).toEqual([{
+    expect(invocations[15]?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,
     }]);
+    expect(invocations[11]?.arguments).toEqual(["dark"]);
   });
 });

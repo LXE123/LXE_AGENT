@@ -84,6 +84,13 @@ export function validateCloudDestination(value: unknown): DesktopCloudDestinatio
   return value;
 }
 
+export function validateDesktopAppearance(value: unknown): "light" | "dark" {
+  if (value !== "light" && value !== "dark") {
+    throw new Error("Desktop appearance is unsupported");
+  }
+  return value;
+}
+
 export function validateDashboardRpcCall(value: unknown): DashboardRpcCall {
   return parseDashboardRpcCall(value);
 }

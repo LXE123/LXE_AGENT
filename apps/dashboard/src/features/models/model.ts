@@ -135,7 +135,10 @@ export function conversationModelChoices(
 
 export function modelThinkingLevelLabel(model: ModelPayload, level: string): string {
   const normalized = String(level || "").trim().toLowerCase();
-  return model.thinking_level_labels[normalized] || normalized || "-";
+  const label = model.thinking_level_labels[normalized] || normalized || "-";
+  // Thinking effort labels are proper display text: always lead with a capital
+  // (no-op for CJK labels), so "medium" renders as "Medium" everywhere.
+  return label === "-" ? label : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 export function modelWithThinkingLevel(model: ModelPayload, level: string): ModelPayload {

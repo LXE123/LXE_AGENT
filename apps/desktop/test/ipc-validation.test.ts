@@ -3,6 +3,7 @@ import {
   validateCloudActivationInput,
   validateCloudDestination,
   validateDashboardRpcCall,
+  validateDesktopAppearance,
   validateEnrollmentId,
   validateLocalModelCredentialInput,
   validateModelProvider,
@@ -13,6 +14,13 @@ import {
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("accepts only resolved desktop appearances", () => {
+    expect(validateDesktopAppearance("light")).toBe("light");
+    expect(validateDesktopAppearance("dark")).toBe("dark");
+    expect(() => validateDesktopAppearance("system")).toThrow("unsupported");
+    expect(() => validateDesktopAppearance({ theme: "dark" })).toThrow("unsupported");
+  });
+
   test("accepts only the fixed cloud destinations", () => {
     expect(validateCloudDestination("agent_dashboard")).toBe("agent_dashboard");
     expect(validateCloudDestination("erp_dashboard")).toBe("erp_dashboard");

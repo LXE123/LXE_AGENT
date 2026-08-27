@@ -79,6 +79,15 @@
   --rate-good-soft: #edf5ed;
   --rate-warn: #b07f1f;
   --rate-bad: #b3422f;
+  --scrollbar-thumb: rgba(122, 112, 101, 0.26);
+
+  /* Windows keeps a scrollbar on screen whether or not it is in use and gives it
+     real width; macOS overlays one only while scrolling. Left at the platform
+     default that means a permanent grey bar down the side of every panel on
+     Windows and nothing at all on macOS. Both properties inherit, so declaring
+     them on the root reaches every scroller in the app. */
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: thin;
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
@@ -199,6 +208,7 @@ button {
   --rate-good-soft: #29332b;
   --rate-warn: #dfb268;
   --rate-bad: #ed9a83;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
 }
 
 /* Decision A: the sidebar sits below the content plane rather than above it, so
@@ -5208,25 +5218,28 @@ h1 {
   white-space: nowrap;
 }
 
-/* One control with two modes. The stop mode inverts against the surface so it
-   reads as "interrupt" without stealing the accent from send. */
+/* One control with two modes. Send is solid ink once the composer has content
+   and muted grey while it is empty; stop inverts against the surface so it
+   reads as "interrupt". The glyph always keeps the surface color. */
 .conversation-send-button {
   width: 30.6px;
   /* Overrides the shared min-height, which would otherwise stretch the circle
      back into an oval. */
   min-height: 30.6px;
   height: 30.6px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--text);
   border-radius: 50%;
-  background: var(--accent);
-  color: white;
+  background: var(--text);
+  color: var(--surface);
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.conversation-send-button[data-mode="stop"] {
-  border-color: var(--text);
-  background: var(--text);
+.conversation-send-button[data-mode="send"]:disabled {
+  /* 10% lighter than --muted-light: the empty state should whisper, not shout. */
+  border-color: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
+  background: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
   color: var(--surface);
+  opacity: 1;
 }
 
 .conversation-attach-button {
@@ -9151,22 +9164,35 @@ pre {
 
 .message-meta.role-assistant {
   width: min(100%, var(--assistant-content-width));
-  min-height: 25px;
+  min-height: 19px;
   justify-content: flex-start;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: 0;
   font-size: 0.6875rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-1px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+/* Assistant meta mirrors the user bubble: only revealed while the pointer is
+   over this message's own content box. */
+.message-with-meta.role-assistant:hover .message-meta,
+.message-with-meta.role-assistant:focus-within .message-meta {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .message-meta.role-assistant .message-meta-copy {
-  width: 25px;
-  height: 25px;
+  width: 19px;
+  height: 19px;
   border-radius: 6px;
 }
 
 .message-meta.role-assistant .message-meta-copy svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .message-meta.role-user {
@@ -9238,7 +9264,8 @@ pre {
 }
 
 @media (hover: none) {
-  .message-meta.role-user {
+  .message-meta.role-user,
+  .message-meta.role-assistant {
     opacity: 1;
     pointer-events: auto;
     transform: none;
@@ -9246,7 +9273,8 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message-meta.role-user {
+  .message-meta.role-user,
+  .message-meta.role-assistant {
     transition: none;
   }
 }
@@ -9795,13 +9823,19 @@ pre {
   min-width: 0;
 }
 
+/* Tighten the model ↔ thinking pair: pull the pair closer while keeping each
+   trigger's padding symmetric, so the hovered pill stays centered. */
+.conversation-model-picker + .conversation-thinking-picker {
+  margin-left: -4.5px;
+}
+
 .conversation-model-trigger,
 .conversation-thinking-trigger {
   display: inline-flex;
   min-height: 30px;
   align-items: center;
   gap: 6px;
-  padding: 4px 7px;
+  padding: 4px 6px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -9838,8 +9872,15 @@ pre {
 .conversation-model-trigger:focus-visible,
 .conversation-thinking-trigger:hover:not(:disabled),
 .conversation-thinking-trigger:focus-visible {
-  border-color: var(--border);
-  background: var(--surface-muted);
+  border-color: transparent;
+  background: #ececea;
+}
+
+:root[data-theme="dark"] .conversation-model-trigger:hover:not(:disabled),
+:root[data-theme="dark"] .conversation-model-trigger:focus-visible,
+:root[data-theme="dark"] .conversation-thinking-trigger:hover:not(:disabled),
+:root[data-theme="dark"] .conversation-thinking-trigger:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .conversation-model-trigger:focus-visible,
@@ -10150,11 +10191,11 @@ pre {
   right: 0;
   bottom: calc(100% + 9px);
   display: grid;
-  width: min(290px, calc(100vw - 52px));
-  gap: 11px;
-  padding: 13px 14px 11px;
+  width: min(226px, calc(100vw - 52px));
+  gap: 9px;
+  padding: 10px 12px 9px;
   border: 1px solid var(--border-strong);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--surface);
   box-shadow: 0 18px 50px var(--shadow-strong);
 }
@@ -10168,7 +10209,7 @@ pre {
 
 .conversation-thinking-heading {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
 }
 
 .conversation-thinking-heading strong {
@@ -10176,74 +10217,158 @@ pre {
   font-weight: 650;
 }
 
+.conversation-thinking-help {
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  place-items: center;
+  background: transparent;
+  color: var(--muted-light);
+  cursor: help;
+}
+
+.conversation-thinking-help:hover,
+.conversation-thinking-help:focus-visible {
+  color: var(--muted);
+}
+
+/* The help bubble mimics a slider-popover hint: it floats above the menu and
+   only appears while the help button is hovered or focused. */
+.conversation-thinking-tooltip {
+  position: absolute;
+  z-index: 5;
+  right: -6px;
+  bottom: calc(100% + 9px);
+  display: grid;
+  width: 196px;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: 0 14px 38px var(--shadow-medium);
+  color: var(--muted);
+  font-size: 0.625rem;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(3px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.conversation-thinking-tooltip strong {
+  color: var(--text);
+  font-size: 0.6875rem;
+}
+
+.conversation-thinking-tooltip small {
+  color: var(--muted-light);
+  font-size: 0.5625rem;
+}
+
+.conversation-thinking-help:hover .conversation-thinking-tooltip,
+.conversation-thinking-help:focus-visible .conversation-thinking-tooltip,
+.conversation-thinking-help:focus-within .conversation-thinking-tooltip {
+  opacity: 1;
+  transform: none;
+}
+
 .conversation-thinking-scale-labels {
   color: var(--muted-light);
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
 }
 
+/* The levels row is the slider track itself: a solid pill bar with a notch
+   dot per level and a knob that glides to the selected one. Notches are
+   absolutely positioned (first at 0%, last at 100%) so the extreme levels sit
+   close to the track ends. */
 .conversation-thinking-levels {
-  position: relative;
   display: flex;
-  align-items: start;
-  padding-top: 1px;
+  align-items: center;
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  touch-action: none;
+  user-select: none;
 }
 
-.conversation-thinking-levels::before {
-  position: absolute;
-  top: 10px;
-  right: 16px;
-  left: 16px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--border);
-  content: "";
+/* The resize arrows only appear while a drag is actually in progress; at rest
+   the track and notches keep the default cursor. Pointer capture keeps the
+   drag cursor on the track for the whole gesture. */
+.conversation-thinking-levels.dragging,
+.conversation-thinking-levels.dragging .conversation-thinking-level {
+  cursor: ew-resize;
+}
+
+.conversation-thinking-cells {
+  position: relative;
+  height: 18px;
+  flex: 1;
 }
 
 .conversation-thinking-level {
-  position: relative;
+  position: absolute;
   z-index: 1;
+  top: 50%;
   display: grid;
-  min-width: 0;
-  flex: 1 1 0;
+  width: 26px;
+  height: 18px;
   place-items: center;
-  gap: 6px;
-  padding: 0 2px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
-  font-size: 0.625rem;
+  transform: translate(-50%, -50%);
 }
 
 .conversation-thinking-dot {
   display: block;
-  width: 18px;
-  height: 18px;
-  border: 5px solid var(--surface);
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: var(--muted-light);
-  box-shadow: 0 0 0 1px var(--border);
+  transition: background 0.15s ease;
 }
 
-.conversation-thinking-level:hover:not(:disabled),
-.conversation-thinking-level.selected {
-  color: var(--text);
+.conversation-thinking-level:hover:not(:disabled) .conversation-thinking-dot {
+  background: var(--muted);
 }
 
-.conversation-thinking-level.selected .conversation-thinking-dot {
-  border-color: var(--accent-soft);
-  background: var(--accent-strong);
-  box-shadow: 0 0 0 1px var(--accent-muted);
+/* The knob is positioned by the selected index and glides between notches via
+   the left transition, instead of the selected dot morphing in place. */
+.conversation-thinking-knob {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 13px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px var(--shadow-soft), 0 3px 9px var(--shadow-soft);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: left 0.18s ease;
+}
+
+/* While dragging, the knob follows the pointer exactly — the snap-back glide
+   only plays when the pointer is released. */
+.conversation-thinking-knob.dragging {
+  transition: none;
 }
 
 .conversation-thinking-level:disabled {
   cursor: default;
 }
 
-.conversation-thinking-menu > small {
-  color: var(--muted-light);
-  font-size: 0.625rem;
-  line-height: 1.4;
+@media (prefers-reduced-motion: reduce) {
+  .conversation-thinking-knob {
+    transition: none;
+  }
 }
 
 .conversation-input-hint,

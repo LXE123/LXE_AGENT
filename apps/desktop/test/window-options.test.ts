@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { desktopWindowAppearance, DESKTOP_TITLEBAR_HEIGHT } from "../src/main/window-options";
+import {
+  desktopWindowAppearance,
+  DESKTOP_TITLEBAR_COLOURS,
+  DESKTOP_TITLEBAR_HEIGHT,
+} from "../src/main/window-options";
 import { normalizeDesktopPlatform } from "../src/platform";
 
 describe("desktop window appearance", () => {
@@ -8,11 +12,14 @@ describe("desktop window appearance", () => {
       autoHideMenuBar: true,
       titleBarStyle: "hidden",
       titleBarOverlay: {
-        color: "#faf8f5",
-        symbolColor: "#5d544a",
+        ...DESKTOP_TITLEBAR_COLOURS.light,
         height: DESKTOP_TITLEBAR_HEIGHT,
       },
     });
+  });
+
+  test("uses the same overlay contract on Linux", () => {
+    expect(desktopWindowAppearance("linux")).toEqual(desktopWindowAppearance("win32"));
   });
 
   test("uses inset native traffic lights on macOS", () => {

@@ -589,6 +589,8 @@ export interface LxeDesktopBridge {
     retryCloudConnection(): Promise<DesktopCloudState>;
     openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
     openLogsDirectory(): Promise<void>;
+    /** Hand the resolved theme to the window chrome the renderer cannot paint. */
+    applyAppearance(appearance: "light" | "dark"): Promise<void>;
     getHealth(): Promise<DesktopHealth>;
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;

@@ -67,7 +67,11 @@ import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./mai
 import { reportDesktopStartupFailure } from "./main/startup-failure";
 import { DesktopInputAssetsService } from "./main/input-assets";
 import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
-import { desktopWindowAppearance } from "./main/window-options";
+import {
+  DESKTOP_TITLEBAR_COLOURS,
+  DESKTOP_TITLEBAR_HEIGHT,
+  desktopWindowAppearance,
+} from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
 import { normalizeDesktopPlatform } from "./platform";
 
@@ -341,6 +345,17 @@ async function bootstrap(): Promise<void> {
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
   const ipcApplication: DesktopIpcApplication = {
+    // The renderer paints its own surface but not the frame around it. macOS
+    // draws its controls from the system appearance and needs nothing; Windows
+    // holds whatever colour it was handed at construction, so the caption strip
+    // has to be repainted here or it stays light behind a dark page.
+    applyAppearance: (appearance) => {
+      const palette = DESKTOP_TITLEBAR_COLOURS[appearance];
+      if (!window || window.isDestroyed()) return;
+      window.setBackgroundColor(palette.color);
+      if (desktopPlatform === "darwin") return;
+      window.setTitleBarOverlay({ ...palette, height: DESKTOP_TITLEBAR_HEIGHT });
+    },
     dashboardCall: async <O extends DashboardRpcOperation>(
       call: DashboardRpcCall<O>,
     ): Promise<DashboardRpcResult<O>> => {

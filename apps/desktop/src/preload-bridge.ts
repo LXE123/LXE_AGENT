@@ -43,6 +43,7 @@ export function createDesktopBridge(
       retryCloudConnection: () => ipc.invoke(IPC_CHANNELS.retryCloudConnection),
       openCloudDestination: (destination) => ipc.invoke(IPC_CHANNELS.openCloudDestination, destination),
       openLogsDirectory: () => ipc.invoke(IPC_CHANNELS.openLogsDirectory),
+      applyAppearance: (appearance) => ipc.invoke(IPC_CHANNELS.applyAppearance, appearance),
       getHealth: () => ipc.invoke(IPC_CHANNELS.getHealth),
       restartAgent: () => ipc.invoke(IPC_CHANNELS.restartAgent),
       getSetupState: () => ipc.invoke(IPC_CHANNELS.getSetupState),

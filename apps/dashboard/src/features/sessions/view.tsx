@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleHelp,
   Copy,
   FileText,
   FolderOpen,
@@ -22,7 +23,6 @@ import {
   Plus,
   Search,
   Settings2,
-  Sparkles,
   Square,
   Pin,
   PinOff,
@@ -1401,8 +1401,11 @@ function ConversationThinkingPicker({
 }) {
   const t = useUiText();
   const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [dragRatio, setDragRatio] = useState<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const levels = current?.thinking_levels ?? [];
   const selectedLevel = current?.thinking_state?.level || current?.thinking_default || levels[0] || "";
   const selectedLabel = current ? modelThinkingLevelLabel(current, selectedLevel) : "-";
@@ -1430,12 +1433,70 @@ function ConversationThinkingPicker({
     if (!editable) setOpen(false);
   }, [editable]);
 
+  useEffect(() => {
+    if (!open) setDragging(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!dragging) setDragRatio(null);
+  }, [dragging]);
+
   if (!current || levels.length === 0) return null;
 
-  const selectLevel = (level: string) => {
-    setOpen(false);
+  const selectedIndex = Math.max(0, levels.indexOf(selectedLevel));
+
+  // Notches are pinned to the rail's two ends: the first level sits at 0% and
+  // the last at 100%, so the extremes stay close to the track edges.
+  const notchPosition = (index: number): number => (
+    levels.length > 1 ? (index / (levels.length - 1)) * 100 : 50
+  );
+
+  // Clicking or dragging on the track keeps the menu open so the knob can be
+  // slid across notches; the menu still closes on outside pointerdown/Escape.
+  const applyLevel = (level: string) => {
     if (level !== selectedLevel) onChange(level);
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const ratioAtClientX = (clientX: number): number | null => {
+    const rail = trackRef.current;
+    if (!rail || levels.length === 0) return null;
+    const rect = rail.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  };
+
+  // While dragging, the knob tracks the pointer locally. Persisting only on
+  // release avoids starting one request per pointer move and lets the gesture
+  // reach its intended notch before the saving state disables the control.
+  const slideToClientX = (event: React.PointerEvent<HTMLDivElement>): number | null => {
+    if (disabled || saving) return null;
+    const ratio = ratioAtClientX(event.clientX);
+    if (ratio === null) return null;
+    setDragRatio(ratio);
+    return ratio;
+  };
+
+  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || saving) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+    slideToClientX(event);
+  };
+
+  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    slideToClientX(event);
+  };
+
+  const cancelDragging = () => setDragging(false);
+
+  const finishDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const ratio = slideToClientX(event);
+    setDragging(false);
+    if (ratio === null) return;
+    const level = levels[Math.round(ratio * (levels.length - 1))];
+    if (level) applyLevel(level);
   };
 
   return (
@@ -1451,43 +1512,76 @@ function ConversationThinkingPicker({
         title={editable ? t.models.thinkingEffectiveNextTurn : t.models.providerManaged}
         type="button"
       >
-        <Sparkles aria-hidden size={14} />
         <span>{selectedLabel}</span>
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
         <div aria-label={t.models.thinkingEffort} className="conversation-thinking-menu" role="menu">
           <div className="conversation-thinking-heading">
-            <span>{t.models.thinkingEffort}</span>
-            <strong>{selectedLabel}</strong>
+            <span>
+              {t.models.thinkingEffort} <strong>{selectedLabel}</strong>
+            </span>
+            <button
+              aria-label={t.models.thinkingEffortHint}
+              className="conversation-thinking-help"
+              type="button"
+            >
+              <CircleHelp aria-hidden size={13} />
+              <span className="conversation-thinking-tooltip" role="tooltip">
+                <strong>{t.models.thinkingEffort}</strong>
+                <span>{t.models.thinkingEffortHint}</span>
+                <small>{t.models.thinkingEffectiveNextTurn}</small>
+              </span>
+            </button>
           </div>
           <div aria-hidden className="conversation-thinking-scale-labels">
             <span>{t.models.faster}</span>
             <span>{t.models.smarter}</span>
           </div>
-          <div className="conversation-thinking-levels">
-            {levels.map((level) => {
-              const selected = level === selectedLevel;
-              const label = modelThinkingLevelLabel(current, level);
-              return (
-                <button
-                  aria-checked={selected}
-                  aria-label={label}
-                  className={selected ? "conversation-thinking-level selected" : "conversation-thinking-level"}
-                  disabled={saving}
-                  key={level}
-                  onClick={() => selectLevel(level)}
-                  role="menuitemradio"
-                  title={label}
-                  type="button"
-                >
-                  <span aria-hidden className="conversation-thinking-dot" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
+          <div
+            className={dragging ? "conversation-thinking-levels dragging" : "conversation-thinking-levels"}
+            onLostPointerCapture={cancelDragging}
+            onPointerCancel={cancelDragging}
+            onPointerDown={handleTrackPointerDown}
+            onPointerMove={handleTrackPointerMove}
+            onPointerUp={finishDragging}
+          >
+            <div className="conversation-thinking-cells" ref={trackRef}>
+              {levels.map((level, index) => {
+                const selected = level === selectedLevel;
+                const label = modelThinkingLevelLabel(current, level);
+                return (
+                  <button
+                    aria-checked={selected}
+                    aria-label={label}
+                    className={selected ? "conversation-thinking-level selected" : "conversation-thinking-level"}
+                    disabled={saving}
+                    key={level}
+                    onClick={(event) => {
+                      // Pointer activation is committed by finishDragging;
+                      // detail=0 preserves keyboard and assistive activation.
+                      if (event.detail === 0) applyLevel(level);
+                    }}
+                    role="menuitemradio"
+                    style={{ left: `${notchPosition(index)}%` }}
+                    title={label}
+                    type="button"
+                  >
+                    <span aria-hidden className="conversation-thinking-dot" />
+                  </button>
+                );
+              })}
+              <span
+                aria-hidden
+                className={dragging && dragRatio !== null
+                  ? "conversation-thinking-knob dragging"
+                  : "conversation-thinking-knob"}
+                style={{
+                  left: `${dragging && dragRatio !== null ? dragRatio * 100 : notchPosition(selectedIndex)}%`,
+                }}
+              />
+            </div>
           </div>
-          <small>{t.models.thinkingEffectiveNextTurn}</small>
         </div>
       ) : null}
     </div>

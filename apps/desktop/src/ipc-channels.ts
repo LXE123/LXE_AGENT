@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   retryCloudConnection: "lxe:desktop:retry-cloud-connection",
   openCloudDestination: "lxe:desktop:open-cloud-destination",
   openLogsDirectory: "lxe:desktop:open-logs-directory",
+  applyAppearance: "lxe:desktop:apply-appearance",
   getHealth: "lxe:desktop:get-health",
   restartAgent: "lxe:desktop:restart-agent",
   getSetupState: "lxe:desktop:get-setup-state",

@@ -46,7 +46,10 @@ test("the composer edits thinking effort using the shared next-turn preference",
   assert.match(view, /function ConversationThinkingPicker/);
   assert.match(view, /current\?\.thinking_state\?\.editable && levels\.length > 1/);
   assert.match(view, /modelThinkingLevelLabel\(current, level\)/);
-  assert.match(view, /className="conversation-thinking-levels"/);
+  assert.match(view, /className=\{dragging \? "conversation-thinking-levels dragging" : "conversation-thinking-levels"\}/);
+  assert.match(view, /onPointerUp=\{finishDragging\}/);
+  assert.match(view, /event\.detail === 0/);
+  assert.doesNotMatch(view, /const slideToClientX = [\s\S]*?applyLevel\(level\);[\s\S]*?const handleTrackPointerDown/);
   assert.match(view, /onThinkingLevelChange/);
   assert.match(main, /thinkingSaving=\{thinkingMutation\.isPending\}/);
   assert.match(main, /onThinkingLevelChange=\{setCurrentThinkingLevel\}/);
@@ -276,13 +279,14 @@ test("user message metadata is smaller and revealed on hover", () => {
   assert.match(styles, /\.message-meta\.role-user\s*\{[^}]*position:\s*absolute;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*min-height:\s*25px;[^}]*gap:\s*6px;[^}]*margin-top:\s*0;[^}]*font-size:\s*0\.6875rem;[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s);
   assert.match(styles, /\.message-with-meta\.role-user:hover \.message-meta,\s*\.message-with-meta\.role-user:focus-within \.message-meta\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
   assert.match(styles, /\.message-meta\.role-user \.message-meta-copy\s*\{[^}]*width:\s*25px;[^}]*height:\s*25px;/s);
-  assert.match(styles, /@media \(hover:\s*none\)\s*\{\s*\.message-meta\.role-user\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /@media \(hover:\s*none\)\s*\{\s*\.message-meta\.role-user,\s*\.message-meta\.role-assistant\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
 });
 
-test("assistant message metadata is smaller and sits closer to the response", () => {
-  assert.match(styles, /\.message-meta\.role-assistant\s*\{[^}]*min-height:\s*25px;[^}]*gap:\s*6px;[^}]*margin-top:\s*2px;[^}]*font-size:\s*0\.6875rem;/s);
-  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy\s*\{[^}]*width:\s*25px;[^}]*height:\s*25px;/s);
-  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/s);
+test("assistant message metadata is smaller, sits closer to the response, and is revealed on hover", () => {
+  assert.match(styles, /\.message-meta\.role-assistant\s*\{[^}]*min-height:\s*19px;[^}]*gap:\s*6px;[^}]*margin-top:\s*0;[^}]*font-size:\s*0\.6875rem;[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s);
+  assert.match(styles, /\.message-with-meta\.role-assistant:hover \.message-meta,\s*\.message-with-meta\.role-assistant:focus-within \.message-meta\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy\s*\{[^}]*width:\s*19px;[^}]*height:\s*19px;/s);
+  assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy svg\s*\{[^}]*width:\s*13px;[^}]*height:\s*13px;/s);
 });
 
 test("the in-flight final answer leaves the process panel before the turn settles", () => {

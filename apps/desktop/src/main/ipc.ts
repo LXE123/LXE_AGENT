@@ -26,6 +26,7 @@ import {
   validateCloudActivationInput,
   validateCloudDestination,
   validateDashboardRpcCall,
+  validateDesktopAppearance,
   validateLocalModelCredentialInput,
   validateModelProvider,
   validateSetupInput,
@@ -48,6 +49,7 @@ export interface DesktopIpcApplication {
   retryCloudConnection(): Promise<DesktopCloudState>;
   openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
   logsDirectory: string;
+  applyAppearance(appearance: "light" | "dark"): void;
   registerSyntheticPerformerSources(
     kind: DesktopSyntheticPerformerSourceKind,
     paths: string[],
@@ -118,6 +120,8 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.retryCloudConnection, () => application.retryCloudConnection());
   ipcMain.handle(IPC_CHANNELS.openCloudDestination, (_event, destination: unknown) =>
     application.openCloudDestination(validateCloudDestination(destination)));
+  ipcMain.handle(IPC_CHANNELS.applyAppearance, (_event, appearance: unknown) =>
+    application.applyAppearance(validateDesktopAppearance(appearance)));
   ipcMain.handle(IPC_CHANNELS.openLogsDirectory, async () => {
     mkdirSync(application.logsDirectory, { recursive: true });
     const error = await shell.openPath(application.logsDirectory);
