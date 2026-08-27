@@ -1,9 +1,8 @@
 import type {
   ConversationArtifactGroup,
-  ConversationLiveProcessItem,
-  ConversationProcessItem,
   ConversationRenderItem,
   ConversationResponseGroup,
+  ConversationTimelineItem,
   ConversationToolGroup,
   SessionArtifactPayload,
   SessionMessage,
@@ -401,61 +400,82 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
   return operations;
 }
 
-function splitAssistantInlineToolCalls(message: SessionMessage): {
-  message: SessionMessage;
-  toolCallMessage: SessionMessage | null;
-} {
-  if (roleLabel(message.role) !== "assistant") return { message, toolCallMessage: null };
-  const content = message.content;
-  const contentToolCalls = Array.isArray(content) ? content.filter(isToolCallBlock) : [];
-  const nonToolContent = Array.isArray(content) ? content.filter((block) => !isToolCallBlock(block)) : null;
-  const hasFallbackToolCalls = message.tool_calls !== undefined && message.tool_calls !== null;
-  if (!contentToolCalls.length && !hasFallbackToolCalls) return { message, toolCallMessage: null };
-
-  const visibleMessage: SessionMessage = { ...message };
-  if (nonToolContent) {
-    if (nonToolContent.length) visibleMessage.content = nonToolContent;
-    else delete visibleMessage.content;
-  }
-  delete visibleMessage.tool_calls;
-  const toolContent = [...contentToolCalls];
-  if (!contentToolCalls.length && hasFallbackToolCalls) {
-    toolContent.push({ type: "tool_call", name: "__tool_calls__", input: message.tool_calls });
-  }
-  const toolCallMessage: SessionMessage = { ...message, content: toolContent };
-  delete toolCallMessage.tool_calls;
-  return { message: visibleMessage, toolCallMessage };
-}
-
-const isProcessBlock = (block: unknown): boolean =>
-  blockType(block) === "thinking" || blockType(block) === "redacted_thinking";
-
-/** Separate terminal thinking from reader-facing text so the former remains in
- * the process disclosure while the actual answer can sit outside it. */
-function splitAssistantThinking(message: SessionMessage): {
-  thinkingMessage: SessionMessage | null;
-  message: SessionMessage;
-} {
-  if (roleLabel(message.role) !== "assistant" || !Array.isArray(message.content)) {
-    return { thinkingMessage: null, message };
-  }
-  const thinking = message.content.filter(isProcessBlock);
-  const spoken = message.content.filter((block) => !isProcessBlock(block));
-  if (!thinking.length || !spoken.length) return { thinkingMessage: null, message };
-  return {
-    thinkingMessage: { ...message, content: thinking },
-    message: { ...message, content: spoken },
-  };
-}
-
 const hasRenderableContent = (message: SessionMessage): boolean => {
   if (typeof message.content === "string") return Boolean(message.content.trim());
   if (Array.isArray(message.content)) return message.content.length > 0;
-  return message.content !== undefined || message.tool_calls !== undefined;
+  return message.content !== undefined;
 };
 
 const containsToolCall = (message: SessionMessage): boolean =>
-  toolCallBlocks(message).length > 0 || message.tool_calls !== undefined;
+  toolCallBlocks(message).length > 0
+  || (message.tool_calls !== undefined
+    && message.tool_calls !== null
+    && (!Array.isArray(message.tool_calls) || message.tool_calls.length > 0));
+
+function fallbackToolCallBlocks(value: unknown): unknown[] {
+  const calls = Array.isArray(value) ? value : [value];
+  return calls.map((call) => {
+    if (isToolCallBlock(call)) return call;
+    if (!isRecord(call)) return { type: "tool_call", name: "__tool_calls__", input: call };
+    const fn = isRecord(call.function) ? call.function : {};
+    return {
+      type: "tool_call",
+      ...(call.id === undefined ? {} : { id: call.id }),
+      name: call.name ?? fn.name ?? "__tool_calls__",
+      arguments: call.arguments ?? fn.arguments ?? call.input ?? call,
+    };
+  });
+}
+
+type ToolResultCandidate = {
+  block: unknown;
+  claimed: boolean;
+  message: SessionMessage;
+  messageIndex: number;
+  ordinal: number;
+};
+
+function resultCandidates(messages: SessionMessage[]): ToolResultCandidate[] {
+  return messages.flatMap((message, messageIndex) => {
+    const blocks = toolResultBlocks(message);
+    const results = blocks.length
+      ? blocks
+      : roleLabel(message.role) === "tool"
+        ? [{ type: "tool_result", ...message }]
+        : [];
+    return results.map((block, ordinal) => ({
+      block,
+      claimed: false,
+      message,
+      messageIndex,
+      ordinal,
+    }));
+  });
+}
+
+function timelineMessage(
+  source: SessionMessage,
+  content: SessionMessage["content"],
+): SessionMessage {
+  const message = { ...source, content };
+  delete message.tool_calls;
+  return message;
+}
+
+function toolTimelineItem(
+  messages: SessionMessage[],
+  displayGroupId: string,
+  startIndex: number,
+  keySuffix: string,
+): Extract<ConversationTimelineItem, { type: "tool" }> {
+  const key = `tool-${displayGroupId}-${keySuffix}`;
+  return {
+    type: "tool",
+    key,
+    group: { messages, startIndex, key },
+    presentation: "process",
+  };
+}
 
 function buildResponseGroup(
   messages: SessionMessage[],
@@ -470,62 +490,102 @@ function buildResponseGroup(
         ? index
         : candidate, -1)
     : -1;
-  const process: ConversationProcessItem[] = [];
-  let finalMessage: SessionMessage | undefined;
-  let pendingTools: SessionMessage[] = [];
-  let toolOrdinal = 0;
-  const flushTools = (): void => {
-    if (!pendingTools.length) return;
-    const previous = process.at(-1);
-    if (previous?.type === "tool_group") {
-      previous.group.messages.push(...pendingTools);
-    } else {
-      process.push({
-        type: "tool_group",
-        group: {
-          messages: pendingTools,
-          startIndex,
-          key: `tools-${displayGroupId}-${toolOrdinal}`,
-        },
-      });
-      toolOrdinal += 1;
-    }
-    pendingTools = [];
+  const results = resultCandidates(messages);
+  const timeline: ConversationTimelineItem[] = [];
+  const takeResult = (call: unknown): ToolResultCandidate | undefined => {
+    const callId = blockId(call, ["id", "tool_call_id", "tool_use_id"]);
+    const result = callId
+      ? results.find((candidate) => !candidate.claimed
+          && blockId(candidate.block, ["tool_call_id", "tool_use_id"]) === callId)
+      : results.find((candidate) => !candidate.claimed);
+    if (result) result.claimed = true;
+    return result;
+  };
+  const resultMessage = (candidate: ToolResultCandidate): SessionMessage =>
+    timelineMessage(candidate.message, [candidate.block]);
+  const addTool = (call: unknown, source: SessionMessage, messageIndex: number, keySuffix: string): void => {
+    const result = takeResult(call);
+    timeline.push(toolTimelineItem([
+      timelineMessage(source, [call]),
+      ...(result ? [resultMessage(result)] : []),
+    ], displayGroupId, startIndex + messageIndex, keySuffix));
+  };
+  const addOrphanResult = (candidate: ToolResultCandidate): void => {
+    candidate.claimed = true;
+    timeline.push(toolTimelineItem(
+      [resultMessage(candidate)],
+      displayGroupId,
+      startIndex + candidate.messageIndex,
+      `result-${candidate.messageIndex}-${candidate.ordinal}`,
+    ));
   };
 
-  messages.forEach((message, index) => {
+  messages.forEach((message, messageIndex) => {
     if (roleLabel(message.role) === "tool") {
-      pendingTools.push(message);
+      results.filter((candidate) => candidate.messageIndex === messageIndex && !candidate.claimed)
+        .forEach(addOrphanResult);
       return;
     }
-    flushTools();
-    const split = splitAssistantInlineToolCalls(message);
-    const thought = splitAssistantThinking(split.message);
-    if (index === finalIndex) {
-      if (thought.thinkingMessage) {
-        process.push({
+
+    if (!Array.isArray(message.content)) {
+      if (hasRenderableContent(message)) {
+        timeline.push({
           type: "message",
-          message: thought.thinkingMessage,
-          key: `process-${displayGroupId}-${index}-thinking`,
+          message: timelineMessage(message, message.content),
+          presentation: messageIndex === finalIndex ? "final" : "process",
+          key: `message-${displayGroupId}-${messageIndex}`,
         });
       }
-      if (hasReaderFacingText(thought.message)) finalMessage = thought.message;
-    } else if (hasRenderableContent(split.message)) {
-      process.push({
-        type: "message",
-        message: split.message,
-        key: `process-${displayGroupId}-${index}`,
+    } else {
+      let pendingBlocks: unknown[] = [];
+      let pendingPresentation: "process" | "final" = "process";
+      let messageOrdinal = 0;
+      const flushMessage = (): void => {
+        if (!pendingBlocks.length) return;
+        timeline.push({
+          type: "message",
+          message: timelineMessage(message, pendingBlocks),
+          presentation: pendingPresentation,
+          key: `message-${displayGroupId}-${messageIndex}-${messageOrdinal}`,
+        });
+        pendingBlocks = [];
+        messageOrdinal += 1;
+      };
+      message.content.forEach((block, blockIndex) => {
+        if (isToolCallBlock(block)) {
+          flushMessage();
+          addTool(block, message, messageIndex, `call-${messageIndex}-${blockIndex}`);
+          return;
+        }
+        if (isToolResultBlock(block)) {
+          flushMessage();
+          const candidate = results.find((entry) => entry.messageIndex === messageIndex
+            && entry.block === block && !entry.claimed);
+          if (candidate) addOrphanResult(candidate);
+          return;
+        }
+        const presentation = messageIndex === finalIndex && isReaderFacingTextBlock(block)
+          ? "final"
+          : "process";
+        if (pendingBlocks.length && presentation !== pendingPresentation) flushMessage();
+        pendingPresentation = presentation;
+        pendingBlocks.push(block);
+      });
+      flushMessage();
+    }
+
+    if (!toolCallBlocks(message).length && message.tool_calls !== undefined && message.tool_calls !== null) {
+      fallbackToolCallBlocks(message.tool_calls).forEach((call, fallbackIndex) => {
+        addTool(call, message, messageIndex, `fallback-${messageIndex}-${fallbackIndex}`);
       });
     }
-    if (split.toolCallMessage) pendingTools.push(split.toolCallMessage);
   });
-  flushTools();
 
   return {
     displayGroupId,
     messages,
-    process,
-    ...(finalMessage ? { finalMessage } : {}),
+    timeline,
+    ...(finalIndex >= 0 ? { metadataMessage: messages[finalIndex] } : {}),
     ...(turn ? { turn } : {}),
     key: `response-${displayGroupId}`,
   };
@@ -557,85 +617,31 @@ export function buildConversationItems(messages: SessionMessage[]): Conversation
   return appendArtifactGroups(items);
 }
 
-export function buildLiveProcessItems(
-  parts: DesktopConversationStreamPayload["process_parts"],
-): ConversationLiveProcessItem[] {
-  const items: ConversationLiveProcessItem[] = [];
-  const ordered = [...parts].sort((left, right) => left.sequence - right.sequence);
-  for (const part of ordered) {
-    if (part.type === "text" && part.presentation === "final") continue;
-    if (part.type === "tool") {
-      const previous = items.at(-1);
-      if (previous?.type === "tool_group") previous.group.parts.push(part);
-      else items.push({
-        type: "tool_group",
-        group: { parts: [part], key: `live-tools-${part.part_id}` },
-      });
-      continue;
-    }
-    const content = part.type === "thinking"
-      ? [
-          ...(part.text ? [{ type: "thinking", thinking: part.text }] : []),
-          ...Array.from({ length: part.redacted_count }, () => ({ type: "redacted_thinking" })),
-        ]
-      : [{ type: "text", text: part.text }];
-    items.push({
-      type: "message",
-      message: {
-        role: "assistant",
-        content,
-        display_group_id: `live-${part.part_id}`,
-      },
-      key: `live-${part.part_id}`,
-    });
-  }
-  return items;
-}
-
-export function liveFinalText(parts: DesktopConversationStreamPayload["process_parts"]): string {
-  return [...parts]
-    .sort((left, right) => left.sequence - right.sequence)
-    .filter((part): part is Extract<typeof part, { type: "text" }> =>
-      part.type === "text" && part.presentation === "final")
-    .map((part) => part.text)
-    .join("");
-}
-
-export type LiveAnswerProjection = {
-  partIds: string[];
-  streaming: boolean;
-  text: string;
+export type LiveTimelineItem = {
+  type: "text" | "thinking" | "tool";
+  partId: string;
+  key: string;
+  presentation: "process" | "final";
 };
 
-/**
- * The runtime cannot mark a text block as final until the model response ends:
- * the provider may still follow it with a tool call. While the current phase is
- * generating text, treat the text after the latest tool as the provisional
- * answer so it renders outside the process panel immediately. If a tool does
- * follow, the phase changes and the same block naturally returns to process.
- */
-export function liveAnswerProjection(
+/** Preserve the runtime's ordered Part list. The phase may change how the
+ * latest text looks, but never removes or relocates that Part. */
+export function buildLiveTimeline(
   parts: DesktopConversationStreamPayload["process_parts"],
   phase: DesktopConversationStreamPayload["display_metrics"]["phase"] | undefined,
-): LiveAnswerProjection {
+): LiveTimelineItem[] {
   const ordered = [...parts].sort((left, right) => left.sequence - right.sequence);
-  const finalParts = ordered.filter((part): part is Extract<typeof part, { type: "text" }> =>
-    part.type === "text" && part.presentation === "final");
   const latestToolSequence = ordered.reduce(
     (sequence, part) => part.type === "tool" ? Math.max(sequence, part.sequence) : sequence,
     Number.NEGATIVE_INFINITY,
   );
-  const answerParts = finalParts.length > 0
-    ? finalParts
-    : phase === "generating_answer"
-      ? ordered.filter((part): part is Extract<typeof part, { type: "text" }> =>
-          part.type === "text"
-          && part.presentation === "process"
-          && part.sequence > latestToolSequence)
-      : [];
-  return {
-    partIds: answerParts.map((part) => part.part_id),
-    streaming: answerParts.some((part) => part.status === "streaming"),
-    text: answerParts.map((part) => part.text).join(""),
-  };
+  return ordered.map((part) => ({
+    type: part.type,
+    partId: part.part_id,
+    key: `live-${part.part_id}`,
+    presentation: part.type === "text" && (
+      part.presentation === "final"
+      || (phase === "generating_answer" && part.sequence > latestToolSequence)
+    ) ? "final" : "process",
+  }));
 }

@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildConversationItems,
-  buildLiveProcessItems,
+  buildLiveTimeline,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   hasToolError,
-  liveAnswerProjection,
-  liveFinalText,
   readerFacingMessageText,
   summarizeToolOperations,
   toolCallBlocks,
@@ -39,7 +37,7 @@ describe("session conversation projection", () => {
     });
   });
 
-  test("projects live parts in sequence and only merges adjacent tools", () => {
+  test("projects every live Part in sequence and keeps each tool on its own row", () => {
     const tool = (partId: string, sequence: number, id: string) => ({
       type: "tool" as const,
       part_id: partId,
@@ -77,13 +75,16 @@ describe("session conversation projection", () => {
       text: "done",
     }];
 
-    const items = buildLiveProcessItems(parts);
-    expect(items.map((item) => item.type)).toEqual(["message", "tool_group", "message", "tool_group"]);
-    expect(items[1]?.type === "tool_group" ? items[1].group.parts.map((part) => part.part_id) : [])
-      .toEqual(["tool-1", "tool-2"]);
-    expect(items[3]?.type === "tool_group" ? items[3].group.parts.map((part) => part.part_id) : [])
-      .toEqual(["tool-3"]);
-    expect(liveFinalText(parts)).toBe("done");
+    const items = buildLiveTimeline(parts, "waiting_model");
+    expect(items.map((item) => item.type)).toEqual([
+      "thinking", "tool", "tool", "text", "tool", "text",
+    ]);
+    expect(items.map((item) => item.partId)).toEqual([
+      "think-1", "tool-1", "tool-2", "narration-1", "tool-3", "answer-1",
+    ]);
+    expect(items.map((item) => item.presentation)).toEqual([
+      "process", "process", "process", "process", "process", "final",
+    ]);
   });
 
   test("copies only reader-facing message text", () => {
@@ -104,7 +105,7 @@ describe("session conversation projection", () => {
     })).toBe("Original user message");
   });
 
-  test("promotes the text after the latest tool while the answer is streaming", () => {
+  test("keeps a streaming text Part in place when a later tool appears", () => {
     const parts = [{
       type: "text" as const,
       part_id: "narration-1",
@@ -141,19 +142,39 @@ describe("session conversation projection", () => {
       text: "Here is the answer.",
     }];
 
-    expect(liveAnswerProjection(parts, "generating_answer")).toEqual({
-      partIds: ["answer-1"],
-      streaming: true,
-      text: "Here is the answer.",
-    });
-    expect(liveAnswerProjection(parts, "running_tool")).toEqual({
-      partIds: [],
-      streaming: false,
-      text: "",
-    });
+    const beforeTool = buildLiveTimeline(parts, "generating_answer");
+    expect(beforeTool.map((item) => item.partId)).toEqual([
+      "narration-1", "tool-1", "think-2", "answer-1",
+    ]);
+    expect(beforeTool.at(-1)).toEqual(expect.objectContaining({
+      key: "live-answer-1",
+      presentation: "final",
+    }));
+
+    const afterTool = buildLiveTimeline([...parts, {
+      type: "tool" as const,
+      part_id: "tool-2",
+      sequence: 5,
+      tool_step: {
+        id: "call-2",
+        name: "read",
+        title: "Read",
+        detail: "next.txt",
+        icon_token: "file_outlined",
+        status: "running" as const,
+        duration_ms: 0,
+      },
+    }], "running_tool");
+    expect(afterTool.map((item) => item.partId)).toEqual([
+      "narration-1", "tool-1", "think-2", "answer-1", "tool-2",
+    ]);
+    expect(afterTool[3]).toEqual(expect.objectContaining({
+      key: "live-answer-1",
+      presentation: "process",
+    }));
   });
 
-  test("keeps confirmed final text outside the process regardless of phase", () => {
+  test("marks confirmed final text in place regardless of phase", () => {
     const parts = [{
       type: "text" as const,
       part_id: "answer-1",
@@ -163,14 +184,15 @@ describe("session conversation projection", () => {
       text: "Done.",
     }];
 
-    expect(liveAnswerProjection(parts, "waiting_model")).toEqual({
-      partIds: ["answer-1"],
-      streaming: false,
-      text: "Done.",
-    });
+    expect(buildLiveTimeline(parts, "waiting_model")).toEqual([{
+      type: "text",
+      partId: "answer-1",
+      key: "live-answer-1",
+      presentation: "final",
+    }]);
   });
 
-  test("folds thinking and tools into one response while leaving the final answer outside", () => {
+  test("keeps thinking, one tool, and the final answer in one ordered timeline", () => {
     const items = buildConversationItems([
       ...group("user-1", [{ role: "user", content: "run it" }]),
       ...group("response-1", [{
@@ -188,15 +210,108 @@ describe("session conversation projection", () => {
     expect(items.map((item) => item.type)).toEqual(["message", "response_group"]);
     const response = items[1];
     if (response?.type !== "response_group") throw new Error("response group required");
-    expect(response.group.process.map((item) => item.type)).toEqual(["message", "tool_group"]);
-    const tools = response.group.process[1];
-    if (tools?.type !== "tool_group") throw new Error("tool group required");
+    expect(response.group.timeline.map((item) => item.type)).toEqual(["message", "tool", "message"]);
+    expect(response.group.timeline.map((item) => item.presentation)).toEqual(["process", "process", "final"]);
+    const tools = response.group.timeline[1];
+    if (tools?.type !== "tool") throw new Error("tool row required");
     expect(tools.group.messages.flatMap(toolCallBlocks)).toHaveLength(1);
     expect(tools.group.messages.flatMap(toolResultBlocks)).toHaveLength(1);
-    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "done" }]);
+    expect(response.group.metadataMessage?.content).toEqual([{ type: "text", text: "done" }]);
   });
 
-  test("moves thinking from the terminal message into the process and preserves terminal turn metrics", () => {
+  test("preserves text, tool, text, tool, final text order across persisted messages", () => {
+    const items = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      content: [
+        { type: "text", text: "First narration." },
+        { type: "tool_call", id: "c1", name: "read", arguments: { path: "a.txt" } },
+      ],
+    }, {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "c1", content: "A" }],
+    }, {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Second narration." },
+        { type: "tool_call", id: "c2", name: "exec", arguments: { command: "bun test" } },
+      ],
+    }, {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "c2", content: "ok" }],
+    }, {
+      role: "assistant",
+      content: [{ type: "text", text: "Final answer." }],
+    }]));
+
+    const response = items[0];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.timeline.map((item) => [item.type, item.presentation])).toEqual([
+      ["message", "process"],
+      ["tool", "process"],
+      ["message", "process"],
+      ["tool", "process"],
+      ["message", "final"],
+    ]);
+    expect(response.group.timeline.flatMap((item) => item.type === "message"
+      ? [readerFacingMessageText(item.message)]
+      : [])).toEqual(["First narration.", "Second narration.", "Final answer."]);
+  });
+
+  test("projects the same semantic order before and after live persistence", () => {
+    const live = buildLiveTimeline([{
+      type: "thinking",
+      part_id: "think-1",
+      sequence: 1,
+      status: "completed",
+      text: "check",
+      redacted_count: 0,
+    }, {
+      type: "tool",
+      part_id: "tool-1",
+      sequence: 2,
+      tool_step: {
+        id: "c1",
+        name: "read",
+        title: "Read",
+        detail: "a.txt",
+        icon_token: "file_outlined",
+        status: "success",
+        duration_ms: 1,
+      },
+    }, {
+      type: "text",
+      part_id: "answer-1",
+      sequence: 3,
+      status: "completed",
+      presentation: "final",
+      text: "done",
+    }], "generating_answer");
+    const persisted = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "check" },
+        { type: "tool_call", id: "c1", name: "read", arguments: { path: "a.txt" } },
+      ],
+    }, {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "c1", content: "A" }],
+    }, {
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    }]))[0];
+    if (persisted?.type !== "response_group") throw new Error("response group required");
+
+    const persistedKinds = persisted.group.timeline.map((item) => {
+      if (item.type === "tool") return "tool";
+      const first = Array.isArray(item.message.content) ? item.message.content[0] : undefined;
+      return (first as { type?: string } | undefined)?.type === "thinking" ? "thinking" : "text";
+    });
+    expect(persistedKinds).toEqual(live.map((item) => item.type));
+    expect(persisted.group.timeline.map((item) => item.presentation))
+      .toEqual(live.map((item) => item.presentation));
+  });
+
+  test("keeps terminal thinking before final text and preserves turn metrics", () => {
     const turn = { turn_id: "turn-1", status: "completed" as const, elapsed_ms: 80_000 };
     const items = buildConversationItems(group("response-1", [{
       role: "assistant",
@@ -210,11 +325,17 @@ describe("session conversation projection", () => {
     const response = items[0];
     if (response?.type !== "response_group") throw new Error("response group required");
     expect(response.group.turn).toEqual(turn);
-    expect(response.group.process).toHaveLength(1);
-    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "ready" }]);
+    expect(response.group.timeline.map((item) => [item.type, item.presentation])).toEqual([
+      ["message", "process"],
+      ["message", "final"],
+    ]);
+    expect(response.group.metadataMessage?.content).toEqual([
+      { type: "thinking", thinking: "final check" },
+      { type: "text", text: "ready" },
+    ]);
   });
 
-  test("keeps a persisted real failure inside the collapsed process instead of presenting it as an answer", () => {
+  test("keeps a persisted real failure in place instead of presenting it as an answer", () => {
     const items = buildConversationItems(group("response-1", [{
       role: "assistant",
       turn: { turn_id: "turn-1", status: "error", elapsed_ms: 1_200 },
@@ -223,16 +344,17 @@ describe("session conversation projection", () => {
 
     const response = items[0];
     if (response?.type !== "response_group") throw new Error("response group required");
-    expect(response.group.finalMessage).toBeUndefined();
-    expect(response.group.process).toEqual([
+    expect(response.group.metadataMessage).toBeUndefined();
+    expect(response.group.timeline).toEqual([
       expect.objectContaining({
         type: "message",
+        presentation: "process",
         message: expect.objectContaining({ content: [{ type: "text", text: "执行失败: provider unavailable" }] }),
       }),
     ]);
   });
 
-  test("keeps every intermediate step inside one ordered response process", () => {
+  test("keeps text, tools, and final text in one strict persisted order", () => {
     const step = (id: string, name: string) => ([
       {
         role: "assistant",
@@ -256,25 +378,28 @@ describe("session conversation projection", () => {
     expect(items.map((item) => item.type)).toEqual(["message", "response_group"]);
     const response = items[1];
     if (response?.type !== "response_group") throw new Error("response group required");
-    expect(response.group.process.map((item) => item.type)).toEqual([
-      "message", "tool_group", "message", "tool_group", "message", "tool_group",
+    expect(response.group.timeline.map((item) => item.type)).toEqual([
+      "message", "tool", "message", "tool", "message", "tool", "message",
     ]);
-    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "已发送" }]);
+    expect(response.group.timeline.map((item) => item.presentation)).toEqual([
+      "process", "process", "process", "process", "process", "process", "final",
+    ]);
+    expect(response.group.metadataMessage?.content).toEqual([{ type: "text", text: "已发送" }]);
   });
 
-  test("merges adjacent tool groups when no thinking or narration separates them", () => {
+  test("keeps adjacent tools as separate rows and pairs reversed results by id", () => {
     const items = buildConversationItems(group("response-1", [{
       role: "assistant",
-      content: [{ type: "tool_call", id: "c1", name: "read", arguments: { path: "src/a.ts" } }],
+      content: [
+        { type: "tool_call", id: "c1", name: "read", arguments: { path: "src/a.ts" } },
+        { type: "tool_call", id: "c2", name: "exec", arguments: { command: "bun test" } },
+      ],
     }, {
       role: "tool",
-      content: [{ type: "tool_result", tool_call_id: "c1", content: "a" }],
-    }, {
-      role: "assistant",
-      content: [{ type: "tool_call", id: "c2", name: "exec", arguments: { command: "bun test" } }],
-    }, {
-      role: "tool",
-      content: [{ type: "tool_result", tool_call_id: "c2", content: "ok" }],
+      content: [
+        { type: "tool_result", tool_call_id: "c2", content: "exec ok" },
+        { type: "tool_result", tool_call_id: "c1", content: "file a" },
+      ],
     }, {
       role: "assistant",
       content: [{ type: "text", text: "done" }],
@@ -282,10 +407,54 @@ describe("session conversation projection", () => {
 
     const response = items[0];
     if (response?.type !== "response_group") throw new Error("response group required");
-    expect(response.group.process).toHaveLength(1);
-    const tools = response.group.process[0];
-    if (tools?.type !== "tool_group") throw new Error("tool group required");
-    expect(toolOperations(tools.group.messages).map((operation) => operation.name)).toEqual(["read", "exec"]);
+    expect(response.group.timeline.map((item) => item.type)).toEqual(["tool", "tool", "message"]);
+    const tools = response.group.timeline.filter((item) => item.type === "tool");
+    expect(tools.map((item) => toolOperations(item.group.messages)[0]?.name)).toEqual(["read", "exec"]);
+    expect(tools.map((item) => toolOperations(item.group.messages)[0]?.result)).toEqual([
+      expect.objectContaining({ tool_call_id: "c1", content: "file a" }),
+      expect.objectContaining({ tool_call_id: "c2", content: "exec ok" }),
+    ]);
+  });
+
+  test("splits legacy fallback tool_calls into one row per invocation", () => {
+    const items = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      tool_calls: [{
+        id: "c1",
+        function: { name: "read", arguments: { path: "a.txt" } },
+      }, {
+        id: "c2",
+        function: { name: "exec", arguments: { command: "bun test" } },
+      }],
+    }, {
+      role: "tool",
+      content: [
+        { type: "tool_result", tool_call_id: "c1", content: "A" },
+        { type: "tool_result", tool_call_id: "c2", content: "ok" },
+      ],
+    }]));
+
+    const response = items[0];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    const tools = response.group.timeline.filter((item) => item.type === "tool");
+    expect(tools).toHaveLength(2);
+    expect(tools.map((item) => toolOperations(item.group.messages)[0]?.name)).toEqual(["read", "exec"]);
+  });
+
+  test("does not mistake null or empty legacy tool_calls for a real invocation", () => {
+    for (const toolCalls of [null, []]) {
+      const items = buildConversationItems(group("response-1", [{
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        tool_calls: toolCalls,
+      }]));
+      const response = items[0];
+      if (response?.type !== "response_group") throw new Error("response group required");
+      expect(response.group.timeline).toEqual([
+        expect.objectContaining({ type: "message", presentation: "final" }),
+      ]);
+      expect(response.group.metadataMessage).toBeDefined();
+    }
   });
 
   test("keeps narrated intermediate text in the process when it also calls a tool", () => {
@@ -303,15 +472,15 @@ describe("session conversation projection", () => {
 
     const response = items[1];
     if (response?.type !== "response_group") throw new Error("response group required");
-    expect(response.group.finalMessage).toBeUndefined();
-    const narrated = response.group.process[0];
+    expect(response.group.metadataMessage).toBeUndefined();
+    const narrated = response.group.timeline[0];
     if (narrated?.type !== "message") throw new Error("process message required");
     expect(hasReaderFacingText(narrated.message)).toBe(true);
     expect((narrated.message.content as unknown[]).some(
       (block) => (block as { type?: string }).type === "thinking",
     )).toBe(true);
-    const tools = response.group.process[1];
-    if (tools?.type !== "tool_group") throw new Error("tool group required");
+    const tools = response.group.timeline[1];
+    if (tools?.type !== "tool") throw new Error("tool row required");
     expect(tools.group.messages.flatMap(toolCallBlocks)).toHaveLength(1);
   });
 

@@ -66,24 +66,25 @@ export type ConversationArtifactGroup = {
   key: string;
 };
 
-export type ConversationProcessItem =
-  | { type: "message"; message: SessionMessage; key: string }
-  | { type: "tool_group"; group: ConversationToolGroup };
-
-export type ConversationLiveToolGroup = {
-  parts: Array<Extract<import("@lxe/desktop-protocol").TurnProcessPart, { type: "tool" }>>;
-  key: string;
-};
-
-export type ConversationLiveProcessItem =
-  | { type: "message"; message: SessionMessage; key: string }
-  | { type: "tool_group"; group: ConversationLiveToolGroup };
+export type ConversationTimelineItem =
+  | {
+      type: "message";
+      message: SessionMessage;
+      presentation: "process" | "final";
+      key: string;
+    }
+  | {
+      type: "tool";
+      group: ConversationToolGroup;
+      presentation: "process";
+      key: string;
+    };
 
 export type ConversationResponseGroup = {
   displayGroupId: string;
   messages: SessionMessage[];
-  process: ConversationProcessItem[];
-  finalMessage?: SessionMessage;
+  timeline: ConversationTimelineItem[];
+  metadataMessage?: SessionMessage;
   turn?: SessionTurnDisplayPayload;
   key: string;
 };

@@ -35,10 +35,10 @@ import {
 import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText, splitContentBlocks } from "../../shared/content";
 import {
+  buildLiveTimeline,
   buildConversationItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
-  liveAnswerProjection,
   readerFacingMessageText,
   roleLabel,
   summarizeToolOperations,
@@ -46,13 +46,13 @@ import {
   toolOperationPresentation,
   toolOperations,
 } from "./conversation";
-import type { ToolOperation } from "./conversation";
+import type { LiveTimelineItem, ToolOperation } from "./conversation";
 import { formatCompactNumber, formatDate, formatDurationMs, formatMessageTime, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
-  ConversationProcessItem,
   ConversationResponseGroup,
+  ConversationTimelineItem,
   ConversationToolGroup,
   DesktopConversationActivityPayload,
   DesktopConversationStreamPayload,
@@ -702,12 +702,25 @@ function ProcessToolGroup({ group }: { group: ConversationToolGroup }) {
   );
 }
 
-function ProcessBody({ items }: { items: ConversationProcessItem[] }) {
+function PersistedTimelineMessage({ item }: {
+  item: Extract<ConversationTimelineItem, { type: "message" }>;
+}) {
+  if (item.presentation === "final") {
+    return (
+      <div className="message-card role-assistant response-final-answer">
+        <MessageContent content={item.message.content} message={item.message} />
+      </div>
+    );
+  }
+  return <ProcessMessageContent message={item.message} />;
+}
+
+function PersistedTimeline({ items }: { items: ConversationTimelineItem[] }) {
   return (
-    <div className="response-process-body">
-      {items.map((item) => item.type === "tool_group"
-        ? <ProcessToolGroup group={item.group} key={item.group.key} />
-        : <ProcessMessageContent key={item.key} message={item.message} />)}
+    <div className="response-timeline">
+      {items.map((item) => item.type === "tool"
+        ? <ProcessToolGroup group={item.group} key={item.key} />
+        : <PersistedTimelineMessage item={item} key={item.key} />)}
     </div>
   );
 }
@@ -732,43 +745,26 @@ function PersistedResponseGroup({
   group: ConversationResponseGroup;
 }) {
   const t = useUiText();
-  const [expanded, setExpanded] = useState(false);
   const failed = group.turn?.status === "error";
-  const hasProcess = group.process.length > 0;
+  const hasProcess = group.timeline.some((item) => item.type === "tool" || item.presentation === "process");
   return (
     <div className={`response-group${failed ? " has-error" : ""}`} data-turn-id={group.turn?.turn_id}>
       {hasProcess || group.turn ? (
-        <section className="response-process">
-          <button
-            aria-expanded={expanded}
-            className="response-process-summary"
-            disabled={!hasProcess}
-            onClick={() => setExpanded((current) => !current)}
-            type="button"
-          >
-            {failed ? <CircleAlert aria-hidden="true" size={14} /> : null}
-            <span>{responseProcessLabel(group, t)}</span>
-            {hasProcess
-              ? <ChevronRight aria-hidden="true" className={expanded ? "expanded" : ""} size={14} />
-              : null}
-          </button>
-          {expanded ? <ProcessBody items={group.process} /> : null}
-        </section>
-      ) : null}
-      {group.finalMessage ? (
-        <div className="message-with-meta role-assistant">
-          <article className="message-card role-assistant response-final-answer">
-            <MessageContent content={group.finalMessage.content} message={group.finalMessage} />
-          </article>
-          {!deferMeta ? (
-            <MessageMeta
-              createdAt={Number(group.finalMessage.created_at ?? 0)}
-              role="assistant"
-              text={readerFacingMessageText(group.finalMessage)}
-            />
-          ) : null}
+        <div className="response-status">
+          {failed ? <CircleAlert aria-hidden="true" size={14} /> : null}
+          <span>{responseProcessLabel(group, t)}</span>
         </div>
       ) : null}
+      <div className="message-with-meta role-assistant response-timeline-with-meta">
+        <PersistedTimeline items={group.timeline} />
+        {!deferMeta && group.metadataMessage ? (
+          <MessageMeta
+            createdAt={Number(group.metadataMessage.created_at ?? 0)}
+            role="assistant"
+            text={readerFacingMessageText(group.metadataMessage)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -805,26 +801,19 @@ function liveProgressLabel(
 
 function LiveProgressStatus({
   elapsedMs,
-  expanded,
   label,
-  onToggle,
   state,
 }: {
   elapsedMs: number;
-  expanded: boolean;
   label: string;
-  onToggle: () => void;
   state: DesktopConversationTurnPayload["state"];
 }) {
   const active = state === "running" || state === "stopping";
   const failed = state === "error";
   return (
-    <button
+    <div
       aria-live={failed ? "assertive" : "polite"}
-      aria-expanded={expanded}
       className={`live-progress-status state-${state}`}
-      onClick={onToggle}
-      type="button"
     >
       {active ? <LoaderCircle aria-hidden="true" className="conversation-spinner" size={13} /> : null}
       <span className="live-progress-label">{label}</span>
@@ -834,8 +823,7 @@ function LiveProgressStatus({
           <span aria-hidden="true" className="live-progress-elapsed">{formatDurationMs(elapsedMs)}</span>
         </>
       ) : null}
-      <ChevronRight aria-hidden="true" className={expanded ? "expanded" : ""} size={14} />
-    </button>
+    </div>
   );
 }
 
@@ -874,48 +862,17 @@ function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   );
 }
 
-function LiveToolBatch({ steps }: { steps: LiveToolStep[] }) {
-  const operations = useMemo(() => liveToolOperations(steps), [steps]);
-  const [expanded, setExpanded] = useState(false);
-  const appeared = useRef(false);
-  const manuallyToggled = useRef(false);
-  useEffect(() => {
-    if (!appeared.current && operations.length > 0) {
-      appeared.current = true;
-      if (!manuallyToggled.current) setExpanded(true);
-    }
-  }, [operations.length]);
+function LiveToolItem({ step }: { step: LiveToolStep }) {
+  const operations = useMemo(() => liveToolOperations([step]), [step]);
   return (
     <ToolTurnGroup
       embedded
-      expanded={expanded}
+      expanded={false}
       operations={operations}
-      onToggle={() => {
-        manuallyToggled.current = true;
-        setExpanded((current) => !current);
-      }}
+      onToggle={() => undefined}
       renderOperationBody={(operation) => <LiveToolOperationBody operation={operation} />}
     />
   );
-}
-
-type LiveTimelineItem =
-  | { type: "part"; partId: string }
-  | { type: "tool_group"; key: string; partIds: string[] };
-
-function liveTimeline(parts: TurnProcessPart[]): LiveTimelineItem[] {
-  const items: LiveTimelineItem[] = [];
-  for (const part of [...parts].sort((left, right) => left.sequence - right.sequence)) {
-    if (part.type === "text" && part.presentation === "final") continue;
-    if (part.type === "tool") {
-      const previous = items.at(-1);
-      if (previous?.type === "tool_group") previous.partIds.push(part.part_id);
-      else items.push({ type: "tool_group", key: `live-tools-${part.part_id}`, partIds: [part.part_id] });
-    } else {
-      items.push({ type: "part", partId: part.part_id });
-    }
-  }
-  return items;
 }
 
 const LiveThinkingPart = React.memo(function LiveThinkingPart({
@@ -937,37 +894,31 @@ const LiveThinkingPart = React.memo(function LiveThinkingPart({
 
 const LiveTextPart = React.memo(function LiveTextPart({
   part,
+  presentation,
 }: {
-  part: Exclude<TurnProcessPart, { type: "tool" }>;
+  part: Extract<TurnProcessPart, { type: "text" }>;
+  presentation: LiveTimelineItem["presentation"];
 }) {
-  return part.type === "thinking"
-    ? <LiveThinkingPart part={part} />
-    : <MessageMarkdown streaming={part.status === "streaming"} text={part.text} />;
+  const className = presentation === "final"
+    ? "timeline-text message-card role-assistant response-final-answer"
+    : "timeline-text process-message-content";
+  return (
+    <div className={className}>
+      <MessageMarkdown streaming={part.status === "streaming"} text={part.text} />
+    </div>
+  );
 });
 
-function LiveProcessBody({ parts }: { parts: TurnProcessPart[] }) {
-  const timeline = useRef<{ key: string; items: LiveTimelineItem[] } | undefined>(undefined);
-  const structureKey = parts
-    .map((part) => `${part.sequence}:${part.part_id}:${part.type}:${part.type === "text" ? part.presentation : ""}`)
-    .join("|");
-  if (timeline.current?.key !== structureKey) {
-    timeline.current = { key: structureKey, items: liveTimeline(parts) };
-  }
+function LiveTimeline({ items, parts }: { items: LiveTimelineItem[]; parts: TurnProcessPart[] }) {
   const partById = new Map(parts.map((part) => [part.part_id, part]));
   return (
-    <div className="response-process-body">
-      {timeline.current.items.map((item) => {
-        if (item.type === "tool_group") {
-          const steps = item.partIds.flatMap((partId) => {
-            const part = partById.get(partId);
-            return part?.type === "tool" ? [part.tool_step] : [];
-          });
-          return <LiveToolBatch key={item.key} steps={steps} />;
-        }
+    <div className="response-timeline">
+      {items.map((item) => {
         const part = partById.get(item.partId);
-        return part && part.type !== "tool"
-          ? <LiveTextPart key={part.part_id} part={part} />
-          : null;
+        if (!part) return null;
+        if (part.type === "tool") return <LiveToolItem key={item.key} step={part.tool_step} />;
+        if (part.type === "thinking") return <LiveThinkingPart key={item.key} part={part} />;
+        return <LiveTextPart key={item.key} part={part} presentation={item.presentation} />;
       })}
     </div>
   );
@@ -987,14 +938,6 @@ function LiveResponseGroup({
   turnState: DesktopConversationTurnPayload["state"];
 }) {
   const t = useUiText();
-  const active = turnState === "running" || turnState === "stopping";
-  const [expanded, setExpanded] = useState(active);
-  const wasActive = useRef(active);
-  useEffect(() => {
-    if (!wasActive.current && active) setExpanded(true);
-    if (wasActive.current && !active) setExpanded(false);
-    wasActive.current = active;
-  }, [active]);
   const streamStatus = stream?.display_metrics.status;
   const displayState = streamStatus && streamStatus !== "running" ? streamStatus : turnState;
   const duration = hasElapsed ? t.conversation.elapsedDuration(elapsedMs) : "";
@@ -1006,37 +949,26 @@ function LiveResponseGroup({
         ? t.conversation.processFailed(duration)
         : liveProgressLabel(stream, turnState, t);
   const processParts = stream?.process_parts ?? [];
-  const answer = useMemo(
-    () => liveAnswerProjection(processParts, stream?.display_metrics.phase),
+  const timeline = useMemo(
+    () => buildLiveTimeline(processParts, stream?.display_metrics.phase),
     [processParts, stream?.display_metrics.phase],
   );
-  const answerPartIds = useMemo(() => new Set(answer.partIds), [answer.partIds]);
-  const visibleProcessParts = useMemo(
-    () => processParts.filter((part) => !answerPartIds.has(part.part_id)),
-    [answerPartIds, processParts],
-  );
+  const partById = new Map(processParts.map((part) => [part.part_id, part]));
+  const finalParts = timeline.flatMap((item) => {
+    const part = partById.get(item.partId);
+    return item.presentation === "final" && part?.type === "text" ? [part] : [];
+  });
+  const finalText = finalParts.map((part) => part.text).join("");
+  const finalStreaming = finalParts.some((part) => part.status === "streaming");
   return (
     <div className={`response-group live-response-group state-${displayState}`}>
-      <section className="response-process">
-        <LiveProgressStatus
-          elapsedMs={elapsedMs}
-          expanded={expanded}
-          label={label}
-          onToggle={() => setExpanded((current) => !current)}
-          state={displayState}
-        />
-        {expanded && visibleProcessParts.length ? <LiveProcessBody parts={visibleProcessParts} /> : null}
-      </section>
-      {answer.text ? (
-        <div className="message-with-meta role-assistant">
-          <article className="message-card role-assistant response-final-answer">
-            <MessageMarkdown streaming={answer.streaming} text={answer.text} />
-          </article>
-          {displayState === "completed" && !answer.streaming ? (
-            <MessageMeta createdAt={settledAt / 1000} role="assistant" text={answer.text} />
-          ) : null}
-        </div>
-      ) : null}
+      <LiveProgressStatus elapsedMs={elapsedMs} label={label} state={displayState} />
+      <div className="message-with-meta role-assistant response-timeline-with-meta">
+        {timeline.length ? <LiveTimeline items={timeline} parts={processParts} /> : null}
+        {displayState === "completed" && finalText && !finalStreaming ? (
+          <MessageMeta createdAt={settledAt / 1000} role="assistant" text={finalText} />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -2222,19 +2154,19 @@ export function SessionDetailView({
                   {renderItems.map((item, itemIndex) => {
                     if (item.type === "artifact_group") {
                       const previous = renderItems[itemIndex - 1];
-                      const finalMessage = previous?.type === "response_group"
+                      const metadataMessage = previous?.type === "response_group"
                         && previous.group.turn?.turn_id === item.group.turnId
-                        ? previous.group.finalMessage
+                        ? previous.group.metadataMessage
                         : undefined;
                       return (
                         <div className="turn-artifacts-with-meta" key={item.group.key}>
                           <TurnFileList files={item.group.files}
                             onOpenFile={onOpenFile} onRevealFile={onRevealFile} />
-                          {finalMessage ? (
+                          {metadataMessage ? (
                             <MessageMeta
-                              createdAt={Number(finalMessage.created_at ?? 0)}
+                              createdAt={Number(metadataMessage.created_at ?? 0)}
                               role="assistant"
-                              text={readerFacingMessageText(finalMessage)}
+                              text={readerFacingMessageText(metadataMessage)}
                             />
                           ) : null}
                         </div>

@@ -5106,10 +5106,7 @@ h1 {
   align-items: center;
   gap: 6px;
   padding: 5px 0;
-  border: 0;
-  background: transparent;
   color: var(--muted);
-  cursor: pointer;
   font-family: inherit;
   font-size: 0.6875rem;
   font-weight: 600;
@@ -5124,22 +5121,6 @@ h1 {
 .live-progress-elapsed {
   color: var(--muted-light);
   font-weight: 500;
-}
-
-.live-progress-status > svg:last-child {
-  margin-left: 2px;
-  transition: transform 0.16s ease;
-}
-
-.live-progress-status > svg:last-child.expanded {
-  transform: rotate(90deg);
-}
-
-.live-progress-status:focus-visible,
-.response-process-summary:focus-visible {
-  border-radius: 6px;
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .conversation-composer {
@@ -9279,80 +9260,43 @@ pre {
   }
 }
 
-.response-process {
-  display: grid;
-  width: min(100%, var(--assistant-content-width));
-  min-width: 0;
-  gap: 4px;
-}
-
-.response-process-summary {
+.response-status {
   display: flex;
-  width: 100%;
+  width: min(100%, var(--assistant-content-width));
   min-width: 0;
   align-items: center;
   gap: 7px;
   padding: 5px 0;
-  border: 0;
-  background: transparent;
   color: var(--muted);
-  cursor: pointer;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
   text-align: left;
 }
 
-.response-process-summary > span {
+.response-status > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.response-process-summary > svg:last-child {
-  flex: 0 0 auto;
-  transition: transform 0.16s ease;
-}
-
-.response-process-summary > svg:last-child.expanded {
-  transform: rotate(90deg);
-}
-
-.response-process-summary:disabled {
-  cursor: default;
-}
-
-/* Without this the button falls back to the UA focus ring, which on macOS
-   paints in the system accent colour and reads as an error state. */
-.response-process-summary:focus-visible {
-  border-radius: 7px;
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.response-group.has-error .response-process-summary,
+.response-group.has-error .response-status,
 .live-response-group.state-error .live-progress-status {
   color: var(--danger);
 }
 
-/* One rule for the whole step list. Thinking text used to carry its own left
-   border plus indent while tool cards started at x=0, so the expanded trace had
-   a zig-zag left edge. */
-/* No rail down the side: the steps sit directly under the summary that opens
-   them, which is enough to say they belong to it. The indent went with it —
-   it only existed to clear the line. */
-.response-process-body {
+.response-timeline {
   display: grid;
+  width: min(100%, var(--assistant-content-width));
   min-width: 0;
   gap: 6px;
   padding: 2px 0 4px;
 }
 
-/* Flush with the summary above it and the answer below it. The tool rows it
-   alternates with are inset by 2px, but that is a button's own padding, there
-   to keep its hover fill off its text — the row's box still starts on this same
-   edge. Copying the inset onto static text only pushed the prose out of line
-   with every other line of prose in the turn. */
+.response-timeline-with-meta {
+  width: 100%;
+}
+
 .process-message-content {
   display: grid;
   min-width: 0;
@@ -9374,14 +9318,12 @@ pre {
   font-style: italic;
 }
 
-.response-process-body > .message-markdown,
 .process-message-content > .message-markdown {
   margin: 0;
   color: var(--text);
   font-size: 0.8125rem;
 }
 
-.response-process-body > .message-markdown > :last-child,
 .process-message-content > .message-markdown > :last-child {
   margin-bottom: 0;
 }

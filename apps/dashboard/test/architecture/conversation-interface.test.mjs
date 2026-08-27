@@ -235,13 +235,15 @@ test("a sent user message renders locally before the send RPC settles", () => {
   assert.match(view, /<MessageMeta createdAt=\{message\.createdAt \/ 1000\} role="user" text=\{message\.text\}/);
 });
 
-test("thinking and tools fold into one response process while the final answer stays outside", () => {
+test("thinking, tools, and answers render in one strict response timeline", () => {
   assert.match(view, /<span className="tool-turn-title">\{summary\.text/);
   assert.match(view, /summarizeToolOperations\(operations, toolBatchLabels\(t\)\)/);
-  assert.match(conversation, /previous\?\.type === "tool_group"/);
   assert.match(conversation, /type: "response_group"/);
-  assert.match(conversation, /finalMessage/);
-  assert.match(view, /className="response-process-summary"/);
+  assert.match(conversation, /const timeline: ConversationTimelineItem\[\] = \[\]/);
+  assert.match(conversation, /timeline\.push\(toolTimelineItem/);
+  assert.match(conversation, /metadataMessage/);
+  assert.match(view, /className="response-status"/);
+  assert.match(view, /className="response-timeline"/);
   assert.match(view, /response-final-answer/);
   assert.match(view, /className="process-thinking-text"/);
   assert.doesNotMatch(view, /stream\.thinking \? <ThinkingBlock/);
@@ -254,10 +256,11 @@ test("thinking and tools fold into one response process while the final answer s
   assert.match(view, /function ProcessToolGroup[\s\S]*?useState\(false\)/);
   assert.doesNotMatch(view, /openOperations\.get\(operation\.key\) \?\? operation\.status === "error"/);
   assert.match(view, /expandable: hasLiveToolOperationDetails\(step\)/);
-  assert.match(view, /<LiveProcessBody parts=\{visibleProcessParts\}/);
-  assert.match(view, /function liveTimeline\(parts: TurnProcessPart\[\]\)/);
-  assert.match(conversation, /previous\?\.type === "tool_group"/);
+  assert.match(view, /<LiveTimeline items=\{timeline\} parts=\{processParts\}/);
+  assert.match(conversation, /export function buildLiveTimeline/);
   assert.match(conversation, /part\.presentation === "final"/);
+  assert.doesNotMatch(view, /visibleProcessParts|answerPartIds/);
+  assert.doesNotMatch(view, /response-process-summary/);
   assert.doesNotMatch(view, /stream\?\.tool_steps\.length/);
   assert.match(view, /disabled=\{!expandable\}/);
   assert.doesNotMatch(view, /live-tool-operation-detail/);
@@ -267,7 +270,7 @@ test("reader messages expose only copy and timestamp metadata", () => {
   assert.match(view, /function MessageMeta/);
   assert.match(view, /className="message-meta-copy"/);
   assert.match(view, /formatMessageTime\(createdAt\)/);
-  assert.match(view, /readerFacingMessageText\(group\.finalMessage\)/);
+  assert.match(view, /readerFacingMessageText\(group\.metadataMessage\)/);
   assert.match(view, /role === "user" \? time : copyButton/);
   assert.match(styles, /\.message-meta-copy\s*\{[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.message-with-meta\.role-user\s*\{[^}]*align-items:\s*flex-end;/s);
@@ -289,11 +292,11 @@ test("assistant message metadata is smaller, sits closer to the response, and is
   assert.match(styles, /\.message-meta\.role-assistant \.message-meta-copy svg\s*\{[^}]*width:\s*13px;[^}]*height:\s*13px;/s);
 });
 
-test("the in-flight final answer leaves the process panel before the turn settles", () => {
-  assert.match(view, /liveAnswerProjection\(processParts, stream\?\.display_metrics\.phase\)/);
-  assert.match(view, /processParts\.filter\(\(part\) => !answerPartIds\.has\(part\.part_id\)\)/);
-  assert.match(view, /<LiveProcessBody parts=\{visibleProcessParts\}/);
-  assert.match(view, /<MessageMarkdown streaming=\{answer\.streaming\} text=\{answer\.text\}/);
+test("the in-flight answer changes presentation without leaving the live timeline", () => {
+  assert.match(view, /buildLiveTimeline\(processParts, stream\?\.display_metrics\.phase\)/);
+  assert.match(view, /<LiveTimeline items=\{timeline\} parts=\{processParts\}/);
+  assert.match(view, /<LiveTextPart key=\{item\.key\} part=\{part\} presentation=\{item\.presentation\}/);
+  assert.doesNotMatch(view, /processParts\.filter\(|visibleProcessParts|liveAnswerProjection/);
   assert.match(conversation, /phase === "generating_answer"/);
   assert.match(conversation, /part\.sequence > latestToolSequence/);
 });
