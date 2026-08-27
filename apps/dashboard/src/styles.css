@@ -9320,12 +9320,15 @@ pre {
   padding: 2px 0 4px;
 }
 
+/* Flush with the summary above it and the answer below it. The tool rows it
+   alternates with are inset by 2px, but that is a button's own padding, there
+   to keep its hover fill off its text — the row's box still starts on this same
+   edge. Copying the inset onto static text only pushed the prose out of line
+   with every other line of prose in the turn. */
 .process-message-content {
   display: grid;
   min-width: 0;
   gap: 4px;
-  /* Matches the 2px inset of the tool summary rows it alternates with. */
-  padding-inline: 2px;
 }
 
 .process-thinking-text {
