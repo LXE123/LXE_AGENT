@@ -58,6 +58,7 @@ def _preview_response(
     *,
     status: str = "confirmation_required",
     lines: list[dict[str, Any]] | None = None,
+    submitted_sp_no: str | None = None,
 ) -> FakeResponse:
     payload: dict[str, Any] = {
         "response_schema": "lxe.erp.packing-preview.v1",
@@ -93,6 +94,8 @@ def _preview_response(
             }
         ],
     }
+    if submitted_sp_no is not None:
+        payload["submitted_sp_no"] = submitted_sp_no
     if status == "quote_stale":
         payload["error"] = {
             "code": "packing_snapshot_quote_stale",
@@ -249,6 +252,75 @@ def test_delivery_source_sends_the_same_shape_as_the_wms_source(
         {"msku": "MSKU-A", "actual_quantity": "8"},
         {"msku": "MSKU-B", "actual_quantity": "2"},
     ]
+
+
+def test_mapped_packing_sp_is_exposed_without_changing_canonical_ship_identity(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure(monkeypatch, tmp_path)
+    packing_sp_no = "SP260710099"
+    path = _write_delivery(
+        tmp_path / "delivery_csv",
+        packing_sp_no,
+        [("MSKU-A", "8", "SKU-A × 8")],
+    )
+    monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda sp_no: path)
+    session = FakeSession([_preview_response(submitted_sp_no=packing_sp_no)])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"ship_no": packing_sp_no})
+
+    assert result["success"] is True
+    assert session.calls[0]["json"]["sp_no"] == packing_sp_no
+    assert result["ship_no"] == "SP260710001"
+    assert result["purchase_sp_no"] == "SP260710001"
+    assert result["packing_sp_no"] == packing_sp_no
+
+
+def test_unmapped_packing_result_does_not_repeat_purchase_sp_as_alias(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure(monkeypatch, tmp_path)
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
+    session = FakeSession([_preview_response(submitted_sp_no="SP260710001")])
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"ship_no": "SP260710001"})
+
+    assert result["purchase_sp_no"] == "SP260710001"
+    assert result["packing_sp_no"] is None
+
+
+def test_purchase_sp_rejection_preserves_required_packing_sp_detail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure(monkeypatch, tmp_path)
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
+    session = FakeSession(
+        [
+            FakeResponse(
+                409,
+                {
+                    "detail": {
+                        "code": "packing_sp_alias_required",
+                        "message": "this purchase SP has a dedicated packing SP",
+                        "sp_no": "SP260710001",
+                        "required_packing_sp_no": "SP260710099",
+                    }
+                },
+            )
+        ]
+    )
+    monkeypatch.setattr(cli, "local_service_requests_session", session)
+
+    result = cli.run({"ship_no": "SP260710001"})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "packing_sp_alias_required"
+    assert result["error"]["detail"]["required_packing_sp_no"] == "SP260710099"
 
 
 def test_delivery_source_skips_mskus_that_were_not_shipped(

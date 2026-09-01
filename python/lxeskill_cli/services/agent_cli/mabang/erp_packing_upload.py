@@ -381,12 +381,24 @@ def _result_with_lines(
     returned_lines = reconciliation_lines[:MAX_RECONCILIATION_LINES]
     truncated_count = max(0, len(reconciliation_lines) - len(returned_lines))
     reconciliation_status = str(response.get("reconciliation_status") or "")
+    purchase_sp_no = str(response.get("sp_no") or ship_no).strip().upper()
+    submitted_sp_no = str(
+        response.get("submitted_sp_no") or ship_no or purchase_sp_no
+    ).strip().upper()
+    packing_sp_no = (
+        submitted_sp_no
+        if submitted_sp_no and submitted_sp_no != purchase_sp_no
+        else None
+    )
     return {
         "success": True,
-        "ship_no": str(response.get("sp_no") or ship_no),
+        # ship_no remains the canonical purchase SP for existing callers.
+        "ship_no": purchase_sp_no,
         "request_id": request_id,
         **dict(source or {}),
         **dict(response),
+        "purchase_sp_no": purchase_sp_no,
+        "packing_sp_no": packing_sp_no,
         "reconciliation_lines": returned_lines,
         "reconciliation_line_count": len(reconciliation_lines),
         "reconciliation_lines_truncated": truncated_count,

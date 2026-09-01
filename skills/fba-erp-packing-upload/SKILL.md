@@ -31,6 +31,8 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 当 `data.status=confirmation_required` 或 `quote_stale`：
 
 1. 说明文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”。
+   - `packing_sp_no` 非空时，必须明确显示 `采购 SP <purchase_sp_no> → 装箱 SP <packing_sp_no>`。
+   - `packing_sp_no` 为空时只显示采购 SP，不重复两个相同编号。
 2. 展示 `summary` 中的计划量、实际量、差异量和预计留存量。
 3. 将 `proposed_carryovers` 展示为以下 8 列；服务端已按全部字段聚合，禁止再次按合同号或型号合并：
 
@@ -86,4 +88,5 @@ lxeskill fba erp packing-upload --confirm-packing-quote-id <quote_id>
 - `reconciliation_lines_truncated>0`：明确说明省略条数。
 - `reconciliation_detail_error` 非空：说明正式确认已完成，但获取对账明细失败，并转述真实错误。
 - `sp_not_in_current_batch`：说明 SP 尚不属于 ERP 当前采购批次，不读取本地 CSV 兜底。
+- `packing_sp_alias_required`：说明这个采购 SP 已设置专用装箱 SP，从 `error.detail.required_packing_sp_no` 原样展示正确编号，并提示使用该编号重新运行 `--ship-no`；不得继续用采购 SP 上传。
 - 其他失败：报告 `data.error.code`、`data.error.message` 及可用的 `http_status`。
