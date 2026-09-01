@@ -13,7 +13,9 @@ commands:
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块。
 - 发货单只从 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
 - 默认是正式联网模式：本地上传计划需求和映射，ERP 计算库存抵扣、本次采购量、新合同号和新采购价。
-- `--preview` 仍须联网，ERP 使用当前库存执行与正式模式相同的 FIFO、采购量、价格和来源分配计算；不创建批次、不占库存、不保存报价、不占合同流水。
+- 普通采购必须省略 `inventory_deduction_mode`，继续由 ERP 按 FIFO 使用留存库存。只有用户明确要求“不抵扣库存”“不使用留存库存”或“按计划全量采购”时才传 `inventory_deduction_mode=none`；不得根据库存量、金额或上下文自行推断，也不要把库存路线变成每次都询问的固定问题。
+- `none` 路线的预览、正式提交、未匹配 SKU 重试和批次替换必须持续携带同一参数；不得携带 `confirm_inventory_quote_id`。原批次是 FIFO 时不能通过替换改为 `none`，反之亦然。
+- `--preview` 仍须联网，ERP 使用与正式请求相同的库存路线计算采购量、价格和来源分配（默认 FIFO，显式 `none` 时不扣库存）；不创建批次、不占库存、不保存报价、不占合同流水。
 - 未匹配 SKU 或 ERP 返回确认要求时不生成任何正式文件；先展示真实清单后询问用户。
 - ERP 连接失败时停止；不得回退到旧本地草稿算法。
 - `--draft` 已删除，不得调用或建议使用。
@@ -46,6 +48,14 @@ commands:
 lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利率>
 ```
 
+用户明确要求本批次不使用留存库存、按计划量全额采购时追加：
+
+```text
+--inventory-deduction-mode none
+```
+
+这不是默认参数。正式 `none` 请求会先做一次只读兼容性预检，再提交批次；预检失败时不得绕过或退回 FIFO。
+
 用户上传了新版本时（只有这种情况才传该参数）：
 
 ```text
@@ -70,6 +80,7 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 2. 未取得用户明确确认前不要继续。
 3. 确认后重试原命令，追加 `--confirm-unmatched-sku-token <data.confirmation.token>`。
 4. 若后续还需库存确认或批次替换，后续每次重试都必须继续携带同一个 `--confirm-unmatched-sku-token`。
+5. 原命令使用了 `--inventory-deduction-mode none` 时，确认未匹配 SKU 后的重试必须继续携带；不得改走 FIFO。
 
 - `purchase_unmatched_sku_confirmation_stale`：发货 CSV、出口退税总表或未匹配集合已经变化；展示最新 `data.confirmation.items` 并重新确认，不能沿用旧 token。
 - `purchase_intent_no_tracked_stock_sku`：整批没有可跟踪 SKU，CLI 不会创建 ERP 批次；报告真实未匹配摘要并停止。
@@ -95,6 +106,7 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 - `purchase_inventory_quote_stale`：库存已变化，按相同规则展示 `data.erp.confirmation.affected_lines` 并重新询问，不沿用旧 quote ID；重试时使用 `data.erp.confirmation.quote_id`。
 - `purchase_batch_replace_confirmation_required`：展示 `data.erp.confirmation.conflicts` 中的重复 SP 和当前批次；用户确认后使用 `--replace-batch-id`、`--expected-version-no` 和 `--change-reason`。
+- `erp_inventory_deduction_mode_mismatch`：服务器没有按请求确认“不扣库存”路线；停止，不得正式提交或回退 FIFO，先部署支持该路线的 ERP Server。
 
 ## Result Handling
 
@@ -102,6 +114,7 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 - 预览成功结果使用 `result_schema=lxe.fba.purchase-preview-result.v1`、`mode=preview`、`erp_read_only=true`、`batch_committed=false`。将 terminal `files` 一次发送；明确文件名含 `PREVIEW`、首个工作表为“预览-未写入ERP”、合同号是占位符，且没有批次 ID、正式合同 ID 或合同流水。
 - 预览直接采用 ERP 当前建议库存，不要求库存报价二次确认。提醒用户正式执行会重新计算，库存、价格及合同编号可能变化；预览结果不能转成正式批次。
 - `success=true`：将 terminal `files` 一次传给 `send_files(paths=<terminal.files>)`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同。报告 `batch_no`、`version_no`、`quantity_summary` 和 `contracts`；`contracts` 只含供应商、合同号、合同 ID 和对应文件路径。
+- 报告 `inventory_deduction_mode`：`fifo` 表示“FIFO 抵扣”，`none` 表示“不扣库存”。`none` 成功时应明确说明本批次计划量全部进入采购、现有留存未被使用。
 - 正式成功含 `unmatched_summary` 时，明确报告未匹配 SKU、MSKU 组件数和排除的计划量；完整清单仍查看采购汇总 Excel 的“未匹配”页。
 - `artifact_summary.contract_count` 小于 `manufacturer_count` 可能是正常结果：某供应商全部由历史库存满足时不会生成新合同。不要据此声称合同缺失。
 - `purchase_line_count` 只表示 ERP 已处理的型号行数；逐型号明细以采购汇总附件为准，不要因成功结果不含 `purchase_lines` 而重新执行命令。

@@ -84,13 +84,13 @@ flowchart TD
 | ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
-| 采购文件预览 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 只读 FIFO 计算 -> `fba-purchase-summary-create --preview` 生成带占位合同号的完整预览文件；不创建批次或占库存 |
-| 正式采购文件生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP FIFO 确认 -> `fba-purchase-summary-create` 一次生成采购汇总表、批量备货单和正式合同 |
+| 采购文件预览 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 只读计算（默认 FIFO；用户明确要求时可不扣库存）-> `fba-purchase-summary-create --preview` 生成带占位合同号的完整预览文件；不创建批次或占库存 |
+| 正式采购文件生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 默认 FIFO，或按用户明确要求使用 `--inventory-deduction-mode none` 全量采购 -> `fba-purchase-summary-create` 一次生成采购汇总表、批量备货单和正式合同 |
 | 正式采购文件重新生成 | ERP 采购批次号 + 本机当前合同模板 -> `fba-purchase-files-regenerate` 只读取得冻结数据并覆盖生成采购汇总、备货单和合同 |
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
-日常正式采购流程应走 `fba-purchase-summary-create`，先由 ERP 确认 FIFO 库存抵扣，再由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，但正式执行必须重新计算。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 只作为单 SP 备货单兼容入口，旧采购汇总表不再提供单独生成合同的入口。
+日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`，不能自行推断，也不需要每次固定询问。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，但正式执行必须重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 只作为单 SP 备货单兼容入口，旧采购汇总表不再提供单独生成合同的入口。
 
 ## Answering Rules
 

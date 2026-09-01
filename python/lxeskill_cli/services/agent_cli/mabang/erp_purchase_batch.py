@@ -148,10 +148,24 @@ def build_purchase_intent(
     master_xlsx: str | Path,
     csv_dir: str | Path | None = None,
     confirm_inventory_quote_id: str = "",
+    inventory_deduction_mode: str = "",
     replace_batch_id: str = "",
     expected_version_no: int | None = None,
     change_reason: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    normalized_inventory_deduction_mode = str(
+        inventory_deduction_mode or ""
+    ).strip().casefold()
+    if normalized_inventory_deduction_mode not in {"", "none"}:
+        raise PurchaseBatchClientError(
+            "inventory_deduction_mode_invalid",
+            "inventory_deduction_mode 仅允许省略或设置为 none",
+        )
+    if normalized_inventory_deduction_mode == "none" and confirm_inventory_quote_id:
+        raise PurchaseBatchClientError(
+            "inventory_deduction_mode_confirmation_not_allowed",
+            "不扣库存模式不能携带库存抵扣确认报价",
+        )
     _batch_summary, _batch_sources, normalized_delivery_nos, csv_paths = (
         purchase_summary.summarize_delivery_quantities(delivery_nos, csv_dir=csv_dir)
     )
@@ -411,6 +425,8 @@ def build_purchase_intent(
         "sps": sps,
         "contracts": contracts,
     }
+    if normalized_inventory_deduction_mode == "none":
+        intent["inventory_deduction_mode"] = "none"
     source_fingerprint = {
         "master_xlsx_sha256": _file_sha256(Path(master_xlsx).expanduser()),
         "delivery_csvs": csv_hashes,
@@ -670,6 +686,34 @@ def _validate_success_response(
     request_payload: Mapping[str, Any],
     preview: bool = False,
 ) -> None:
+    expected_inventory_deduction_mode = str(
+        request_payload.get("inventory_deduction_mode") or "fifo"
+    )
+    response_mode_raw = response.get("inventory_deduction_mode")
+    actual_inventory_deduction_mode = (
+        "fifo"
+        if response_mode_raw in (None, "")
+        else _required_result_text(
+            response_mode_raw,
+            field="inventory_deduction_mode",
+        )
+    )
+    if actual_inventory_deduction_mode not in {"fifo", "none"}:
+        raise _incomplete(
+            "inventory_deduction_mode 必须是 fifo 或 none",
+            field="inventory_deduction_mode",
+        )
+    if actual_inventory_deduction_mode != expected_inventory_deduction_mode:
+        raise PurchaseBatchClientError(
+            "erp_inventory_deduction_mode_mismatch",
+            "ERP 返回的库存路线与请求不一致，已停止后续处理",
+            detail={
+                "requested_inventory_deduction_mode": (
+                    expected_inventory_deduction_mode
+                ),
+                "actual_inventory_deduction_mode": actual_inventory_deduction_mode,
+            },
+        )
     if preview:
         schema = _required_result_text(
             response.get("response_schema"), field="response_schema"
@@ -806,6 +850,14 @@ def _validate_success_response(
         )
         if planned != expected["planned"] or planned != carryover + purchased:
             raise _incomplete(f"成功响应行 {line_ref} 不满足 计划量=采购量+库存抵扣量", field=line_field)
+        if (
+            expected_inventory_deduction_mode == "none"
+            and (carryover != 0 or purchased != planned)
+        ):
+            raise _incomplete(
+                f"不扣库存响应行 {line_ref} 仍包含库存抵扣",
+                field=line_field,
+            )
         detail_carryover, detail_purchase = _validate_allocation_details(
             raw_line,
             line_ref=line_ref,
@@ -1265,6 +1317,15 @@ def validate_purchase_response(
         "purchase_inventory_confirmation_required",
         "purchase_inventory_quote_stale",
     }:
+        if request_payload.get("inventory_deduction_mode") == "none":
+            raise PurchaseBatchClientError(
+                "erp_inventory_deduction_mode_mismatch",
+                "不扣库存请求收到了 FIFO 库存抵扣确认，已停止后续处理",
+                detail={
+                    "requested_inventory_deduction_mode": "none",
+                    "actual_inventory_deduction_mode": "fifo",
+                },
+            )
         expected_status = (
             "quote_stale"
             if code == "purchase_inventory_quote_stale"
@@ -1322,6 +1383,9 @@ def confirmation_result(
         "status": str(response.get("status") or "confirmation_required"),
         "request_id": request_payload["request_id"],
         "source_sha256": request_payload["source_sha256"],
+        "inventory_deduction_mode": str(
+            request_payload.get("inventory_deduction_mode") or "fifo"
+        ),
         "error": {
             "code": code,
             "message": message,

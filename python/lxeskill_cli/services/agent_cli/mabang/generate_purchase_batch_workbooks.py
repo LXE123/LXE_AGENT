@@ -122,6 +122,9 @@ def _formal_success_result(
         "batch_no": erp_result.get("batch_no"),
         "revision_id": erp_result.get("revision_id"),
         "version_no": erp_result.get("version_no"),
+        "inventory_deduction_mode": str(
+            erp_result.get("inventory_deduction_mode") or "fifo"
+        ),
         "delivery_nos": delivery_nos,
         "quantity_summary": quantity_summary,
         "artifact_summary": {
@@ -213,6 +216,9 @@ def _preview_success_result(
         "preview_id": erp_result.get("preview_id"),
         "calculated_at": erp_result.get("calculated_at"),
         "business_date": erp_result.get("business_date"),
+        "inventory_deduction_mode": str(
+            erp_result.get("inventory_deduction_mode") or "fifo"
+        ),
         "delivery_nos": delivery_nos,
         "quantity_summary": quantity_summary,
         "artifact_summary": {
@@ -940,6 +946,9 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             )
         preview = bool(arguments.get("preview", False))
         confirm_quote_id = str(arguments.get("confirm_inventory_quote_id") or "").strip()
+        inventory_deduction_mode = str(
+            arguments.get("inventory_deduction_mode") or ""
+        ).strip().casefold()
         confirm_unmatched_sku_token = str(
             arguments.get("confirm_unmatched_sku_token") or ""
         ).strip()
@@ -966,6 +975,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             delivery_nos,
             master_xlsx=master_xlsx,
             confirm_inventory_quote_id="" if preview else confirm_quote_id,
+            inventory_deduction_mode=inventory_deduction_mode,
             replace_batch_id=replace_batch_id,
             expected_version_no=expected_version_no,
             change_reason=change_reason,
@@ -996,6 +1006,19 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             status_code, erp_result = erp_purchase_batch.preview_purchase_intent(
                 request_payload
             )
+        elif request_payload.get("inventory_deduction_mode") == "none":
+            status_code, erp_result = erp_purchase_batch.preview_purchase_intent(
+                request_payload
+            )
+            if status_code < 400:
+                erp_purchase_batch.validate_purchase_preview_response(
+                    status_code=status_code,
+                    response=erp_result,
+                    request_payload=request_payload,
+                )
+                status_code, erp_result = erp_purchase_batch.import_purchase_intent(
+                    request_payload
+                )
         else:
             status_code, erp_result = erp_purchase_batch.import_purchase_intent(
                 request_payload
@@ -1025,6 +1048,9 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "gross_margin": gross_margin,
                 "source": SOURCE,
                 "mode": "preview" if preview else "formal",
+                "inventory_deduction_mode": str(
+                    request_payload.get("inventory_deduction_mode") or "fifo"
+                ),
                 "confirm_unmatched_sku_token": expected_unmatched_token,
                 "unmatched_summary": dict(
                     intent_context.get("unmatched_summary") or {}
@@ -1115,6 +1141,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "batch_id": erp_result.get("batch_id"),
                 "batch_no": erp_result.get("batch_no"),
                 "version_no": erp_result.get("version_no"),
+                "inventory_deduction_mode": str(
+                    erp_result.get("inventory_deduction_mode")
+                    or request_payload.get("inventory_deduction_mode")
+                    or "fifo"
+                ),
                 "contracts": erp_result.get("contracts") or [],
                 "exception": _exception_text(exc),
                 "error": {

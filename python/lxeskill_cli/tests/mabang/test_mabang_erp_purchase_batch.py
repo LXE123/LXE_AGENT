@@ -188,6 +188,29 @@ def _preview_result() -> dict[str, Any]:
     return result
 
 
+def _no_deduction_preview_result() -> dict[str, Any]:
+    result = _preview_result()
+    result["inventory_deduction_mode"] = "none"
+    result["contracts"][0]["purchase_amount"] = 35
+    line = result["purchase_lines"][0]
+    line["carryover_applied_quantity"] = 0
+    line["purchase_quantity"] = 10
+    line["inventory_sources"] = []
+    line["applications"] = []
+    line["allocation_details"] = [
+        {
+            "sp_no": "SP260710001",
+            "stock_sku": "SKU-A",
+            "source_kind": "current_purchase",
+            "carryover_entry_id": None,
+            "quantity": 10,
+            "source_contract_no": "",
+            "historical_tax_unit_price": None,
+        }
+    ]
+    return result
+
+
 def _request_payload() -> dict[str, Any]:
     return {
         "request_id": "purchase-1",
@@ -324,6 +347,52 @@ def test_build_intent_uploads_exact_unit_components_without_declared_quantity(tm
     assert "purchase_quantity" not in line
     assert "carryover_applied_quantity" not in line
     assert payload["request_id"].startswith("purchase-")
+
+
+def test_build_intent_adds_no_deduction_only_when_explicit(tmp_path: Path) -> None:
+    csv_dir, master = _fixture_inputs(tmp_path)
+
+    default_payload, _ = erp.build_purchase_intent(
+        ["SP260710001"], master_xlsx=master, csv_dir=csv_dir
+    )
+    no_deduction_payload, _ = erp.build_purchase_intent(
+        ["SP260710001"],
+        master_xlsx=master,
+        csv_dir=csv_dir,
+        inventory_deduction_mode="none",
+    )
+
+    assert "inventory_deduction_mode" not in default_payload
+    assert no_deduction_payload["inventory_deduction_mode"] == "none"
+    assert no_deduction_payload["source_sha256"] != default_payload["source_sha256"]
+    assert no_deduction_payload["request_id"] != default_payload["request_id"]
+
+
+@pytest.mark.parametrize(
+    ("mode", "confirm_quote_id", "expected_code"),
+    [
+        ("fifo", "", "inventory_deduction_mode_invalid"),
+        ("none", "quote-1", "inventory_deduction_mode_confirmation_not_allowed"),
+    ],
+)
+def test_build_intent_rejects_invalid_no_deduction_combinations(
+    tmp_path: Path,
+    mode: str,
+    confirm_quote_id: str,
+    expected_code: str,
+) -> None:
+    csv_dir, master = _fixture_inputs(tmp_path)
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.build_purchase_intent(
+            ["SP260710001"],
+            master_xlsx=master,
+            csv_dir=csv_dir,
+            inventory_deduction_mode=mode,
+            confirm_inventory_quote_id=confirm_quote_id,
+        )
+
+    assert captured.value.code == expected_code
 
 
 def test_build_intent_preserves_unmatched_components_without_planning_them(
@@ -941,6 +1010,7 @@ def test_preview_calls_read_only_erp_and_marks_all_outputs(
 
     assert result["success"] is True
     assert result["mode"] == "preview"
+    assert result["inventory_deduction_mode"] == "fifo"
     assert result["result_schema"] == "lxe.fba.purchase-preview-result.v1"
     assert result["erp_read_only"] is True
     assert result["batch_committed"] is False
@@ -963,6 +1033,93 @@ def test_preview_calls_read_only_erp_and_marks_all_outputs(
             assert "未创建采购批次" in workbook["预览-未写入ERP"]["A1"].value
         finally:
             workbook.close()
+
+
+def test_formal_no_deduction_preflights_server_before_import(monkeypatch) -> None:
+    payload = _request_payload()
+    payload["inventory_deduction_mode"] = "none"
+    calls: list[str] = []
+
+    def fake_build(*_args, **kwargs):
+        assert kwargs["inventory_deduction_mode"] == "none"
+        return payload, {
+            "delivery_nos": ["SP260710001"],
+            "unmatched_summary": {},
+            "confirm_unmatched_sku_token": "",
+        }
+
+    def fake_import(request):
+        assert request is payload
+        calls.append("import")
+        raise erp.PurchaseBatchClientError("import_reached", "test stop")
+
+    monkeypatch.setattr(erp, "build_purchase_intent", fake_build)
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        erp,
+        "preview_purchase_intent",
+        lambda request: (calls.append("preview") or (200, _no_deduction_preview_result())),
+    )
+    monkeypatch.setattr(erp, "import_purchase_intent", fake_import)
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+            "inventory_deduction_mode": "none",
+        }
+    )
+
+    assert calls == ["preview", "import"]
+    assert result["success"] is False
+    assert result["error"]["code"] == "import_reached"
+
+
+def test_formal_no_deduction_stops_before_import_on_legacy_server(monkeypatch) -> None:
+    payload = _request_payload()
+    payload["inventory_deduction_mode"] = "none"
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (
+            payload,
+            {
+                "delivery_nos": ["SP260710001"],
+                "unmatched_summary": {},
+                "confirm_unmatched_sku_token": "",
+            },
+        ),
+    )
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        erp,
+        "preview_purchase_intent",
+        lambda _payload: (200, _preview_result()),
+    )
+    monkeypatch.setattr(
+        erp,
+        "import_purchase_intent",
+        lambda _payload: pytest.fail("legacy server must be rejected before import"),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+            "inventory_deduction_mode": "none",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "erp_inventory_deduction_mode_mismatch"
+    assert result["error"]["detail"] == {
+        "requested_inventory_deduction_mode": "none",
+        "actual_inventory_deduction_mode": "fifo",
+    }
 
 
 def test_formal_workbooks_split_and_move_yellow_inventory_rows_to_end(tmp_path: Path) -> None:
@@ -1180,6 +1337,24 @@ def test_quote_response_must_preserve_inventory_source_lineage() -> None:
 
     assert captured.value.code == "erp_purchase_result_incomplete"
     assert "source_contract_no" in str(captured.value)
+
+
+def test_no_deduction_request_rejects_fifo_confirmation() -> None:
+    request_payload = _request_payload()
+    request_payload["inventory_deduction_mode"] = "none"
+
+    with pytest.raises(erp.PurchaseBatchClientError) as captured:
+        erp.validate_purchase_response(
+            status_code=409,
+            response=_quote_response(),
+            request_payload=request_payload,
+        )
+
+    assert captured.value.code == "erp_inventory_deduction_mode_mismatch"
+    assert captured.value.detail == {
+        "requested_inventory_deduction_mode": "none",
+        "actual_inventory_deduction_mode": "fifo",
+    }
 
 
 def test_quote_response_preserves_complete_v2_inventory_batch_semantics() -> None:

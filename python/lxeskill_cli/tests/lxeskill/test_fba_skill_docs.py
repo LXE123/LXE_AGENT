@@ -70,3 +70,16 @@ def test_purchase_confirmation_skill_distinguishes_proposed_and_current_inventor
     assert "以上为待确认方案，当前库存尚未发生变化。" in text
     assert "禁止仅按合同号合并" in text
     assert "禁止用“ERP 原始数据”" in text
+
+
+def test_purchase_skill_exposes_only_explicit_no_deduction_route() -> None:
+    catalog = load_catalog()
+    schema = catalog["mabang_generate_purchase_batch_workbooks"]["input_schema"]
+    deduction_mode = schema["properties"]["inventory_deduction_mode"]
+
+    assert deduction_mode["enum"] == ["none"]
+    assert "inventory_deduction_mode" not in schema["required"]
+    text = _skill_text("fba-purchase-summary-create")
+    assert "--inventory-deduction-mode none" in text
+    assert "普通采购必须省略" in text
+    assert "不得根据库存量、金额或上下文自行推断" in text
