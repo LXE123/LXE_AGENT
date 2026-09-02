@@ -190,7 +190,7 @@ test("the file list spends its width on what differs between the files", () => {
   assert.doesNotMatch(view, /SPREADSHEET_EXTENSIONS|\bSheet\b/);
   assert.doesNotMatch(styles, /\.turn-file-extension \{[^}]*background:/s);
   assert.match(styles, /\.turn-file-extension \{[^}]*color:\s*var\(--muted-light\)/s);
-  assert.match(styles, /\.turn-file-extension > img \{[^}]*width:\s*16px[^}]*height:\s*16px/s);
+  assert.match(styles, /\.turn-file-extension > img \{[^}]*width:\s*17\.6px[^}]*height:\s*17\.6px/s);
   // Cards are --surface on the --bg plane like the rest of the transcript;
   // --surface-subtle sits too close to the background to read as a card.
   assert.match(styles, /\.turn-file-card \{[^}]*background:\s*var\(--surface\)[^}]*text-align:\s*left/s);
