@@ -23,6 +23,7 @@ import {
   Plus,
   Search,
   Settings2,
+  Sheet,
   Square,
   Pin,
   PinOff,
@@ -1033,7 +1034,9 @@ function TurnFileList({
                 title={t.conversation.openFile(file.name)}
                 type="button"
               >
-                <span aria-hidden="true" className="turn-file-extension">{extension}</span>
+                <span aria-hidden="true" className="turn-file-extension">
+                  {SPREADSHEET_EXTENSIONS.has(extension) ? <Sheet size={16} /> : extension}
+                </span>
                 <span className="turn-file-name" title={file.name}>{fileDisplayName(file.name)}</span>
                 {isOpening
                   ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />
@@ -1064,6 +1067,10 @@ function TurnFileList({
 }
 
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]{1,8})$/i;
+
+/* Only the spreadsheet family has an icon so far; other types keep the text
+   badge so the slot never renders empty. */
+const SPREADSHEET_EXTENSIONS = new Set(["CSV", "TSV", "XLS", "XLSX"]);
 
 function fileExtensionLabel(name: string): string {
   const match = FILE_EXTENSION_PATTERN.exec(name.trim());

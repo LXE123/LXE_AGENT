@@ -9636,6 +9636,12 @@ pre {
   letter-spacing: 0.03em;
 }
 
+/* The icon takes over the anchor role from the text badge, so it carries the
+   stronger --muted tone the card's other icons use. */
+.turn-file-extension > svg {
+  color: var(--muted);
+}
+
 .turn-file-name {
   overflow: hidden;
   min-width: 0;
