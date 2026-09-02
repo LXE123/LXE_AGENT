@@ -9639,8 +9639,8 @@ pre {
 /* Colored file-type marks at the badge's footprint; they are self-colored
    art, so unlike the old line icon they take no tint from the row. */
 .turn-file-extension > img {
-  width: 17.6px;
-  height: 17.6px;
+  width: 20px;
+  height: 20px;
 }
 
 .turn-file-name {
