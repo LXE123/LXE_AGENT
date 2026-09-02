@@ -45,6 +45,7 @@ export interface DesktopIpcApplication {
   deleteLocalModelCredential(provider: DesktopModelProvider): Promise<DesktopSetupState>;
   previewCloudEnrollment(filePath: string): DesktopCloudEnrollmentSelection;
   activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
+  prepareCloudDependencies(): Promise<DesktopCloudState>;
   getCloudState(): DesktopCloudState;
   retryCloudConnection(): Promise<DesktopCloudState>;
   openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
@@ -116,6 +117,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   });
   ipcMain.handle(IPC_CHANNELS.activateCloudEnrollment, (_event, input: unknown) =>
     application.activateCloudEnrollment(validateCloudActivationInput(input)));
+  ipcMain.handle(IPC_CHANNELS.prepareCloudDependencies, () => application.prepareCloudDependencies());
   ipcMain.handle(IPC_CHANNELS.getCloudState, () => application.getCloudState());
   ipcMain.handle(IPC_CHANNELS.retryCloudConnection, () => application.retryCloudConnection());
   ipcMain.handle(IPC_CHANNELS.openCloudDestination, (_event, destination: unknown) =>

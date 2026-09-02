@@ -21,6 +21,8 @@ const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState =
   connection: "connected",
   last_error: "",
   last_checked_at: 0,
+  dependency_state: "not_required",
+  dependency_error: "",
   permission_status: "verified",
   permission_profile: "fba",
   permission_version: 1,

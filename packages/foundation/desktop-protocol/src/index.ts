@@ -348,6 +348,15 @@ export type DesktopCloudPermissionStatus =
   | "cached"
   | "unassigned";
 
+export type DesktopCloudDependencyState =
+  | "not_required"
+  | "ready"
+  | "homebrew_missing"
+  | "installing_homebrew"
+  | "wireguard_tools_missing"
+  | "installing_wireguard_tools"
+  | "error";
+
 export interface DesktopCloudPermissionSnapshot {
   device_id: string;
   permission_schema: 1 | 2;
@@ -369,6 +378,8 @@ export interface DesktopCloudState {
   connection: DesktopCloudConnectionState;
   last_error: string;
   last_checked_at: number;
+  dependency_state: DesktopCloudDependencyState;
+  dependency_error: string;
   permission_status: DesktopCloudPermissionStatus;
   permission_profile: DesktopPermissionProfile | null;
   permission_version: number;
@@ -585,6 +596,7 @@ export interface LxeDesktopBridge {
     selectZiniaoWebDriverDirectory(): Promise<string | null>;
     selectCloudEnrollment(): Promise<DesktopCloudEnrollmentSelection | null>;
     activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
+    prepareCloudDependencies(): Promise<DesktopCloudState>;
     getCloudState(): Promise<DesktopCloudState>;
     retryCloudConnection(): Promise<DesktopCloudState>;
     openCloudDestination(destination: DesktopCloudDestination): Promise<void>;

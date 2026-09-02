@@ -3,9 +3,18 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import type { DesktopCloudDependencyState } from "@lxe/desktop-protocol";
 import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type { CloudEnrollmentPayload } from "./cloud-enrollment";
+import {
+  wireGuardConfiguration,
+  wireGuardTunnelFromEnrollment,
+  type WireGuardTunnelConfiguration,
+} from "./wireguard-types";
+
+export { wireGuardConfiguration } from "./wireguard-types";
+export type { WireGuardTunnelConfiguration } from "./wireguard-types";
 
 export interface WindowsWireGuardProvisionerOptions {
   platform: NodeJS.Platform;
@@ -19,7 +28,19 @@ export interface WindowsWireGuardProvisionerOptions {
 }
 
 export interface WireGuardProvisionerPort {
-  provision(payload: CloudEnrollmentPayload, activationId: string): Promise<void>;
+  dependencyStatus?(): WireGuardDependencyStatus;
+  prepareDependencies?(onChanged: (status: WireGuardDependencyStatus) => void): Promise<WireGuardDependencyStatus>;
+  provision(
+    payload: CloudEnrollmentPayload,
+    activationId: string,
+    previous?: WireGuardTunnelConfiguration | null,
+  ): Promise<void>;
+  reconnect?(configuration: WireGuardTunnelConfiguration, operationId: string): Promise<void>;
+}
+
+export interface WireGuardDependencyStatus {
+  state: DesktopCloudDependencyState;
+  error: string;
 }
 
 export class WireGuardProvisioningError extends Error {
@@ -168,19 +189,6 @@ const readProvisionResult = (path: string): { result?: WireGuardProvisionResult;
   }
 };
 
-export const wireGuardConfiguration = (payload: CloudEnrollmentPayload): string => [
-  "[Interface]",
-  `PrivateKey = ${payload.wireguard.private_key}`,
-  `Address = ${payload.wireguard.address}`,
-  "",
-  "[Peer]",
-  `PublicKey = ${payload.wireguard.server_public_key}`,
-  `AllowedIPs = ${payload.wireguard.allowed_ips.join(", ")}`,
-  `Endpoint = ${payload.wireguard.endpoint}`,
-  `PersistentKeepalive = ${payload.wireguard.persistent_keepalive}`,
-  "",
-].join("\r\n");
-
 export class WindowsWireGuardProvisioner {
   private readonly runElevated: (scriptPath: string, arguments_: readonly string[]) => Promise<void>;
   private readonly now: () => number;
@@ -192,6 +200,10 @@ export class WindowsWireGuardProvisioner {
 
   supported(): boolean {
     return this.options.packaged && this.options.platform === "win32" && this.options.arch === "x64";
+  }
+
+  dependencyStatus(): WireGuardDependencyStatus {
+    return { state: "not_required", error: "" };
   }
 
   async provision(payload: CloudEnrollmentPayload, activationId: string): Promise<void> {
@@ -242,7 +254,11 @@ export class WindowsWireGuardProvisioner {
     let stage = "stage_configuration";
     let failureLogged = false;
     try {
-      writeFileSync(configPath, wireGuardConfiguration(payload), { encoding: "utf8", mode: 0o600 });
+      writeFileSync(
+        configPath,
+        wireGuardConfiguration(wireGuardTunnelFromEnrollment(payload)),
+        { encoding: "utf8", mode: 0o600 },
+      );
       chmodSync(configPath, 0o600);
       const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
       writeFileSync(activationPath, JSON.stringify({

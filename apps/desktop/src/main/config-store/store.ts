@@ -17,6 +17,7 @@ import type {
   DesktopCloudEnrollmentConfig,
   DesktopConfigStoreOptions,
 } from "./public-types";
+import type { WireGuardTunnelConfiguration } from "../wireguard-types";
 import { DesktopConfigRepository, type SafeStoragePort } from "./repository";
 import { DesktopSetupService } from "./setup";
 import { DesktopConfigValidation } from "./validation";
@@ -129,6 +130,10 @@ export class DesktopConfigStore {
 
   cloudPermissionSnapshot(): DesktopCloudPermissionSnapshot | null {
     return this.cloud.permissionSnapshot();
+  }
+
+  cloudWireGuardConfiguration(): WireGuardTunnelConfiguration | null {
+    return this.cloud.wireGuardConfiguration();
   }
 
   saveCloudPermissionSnapshot(

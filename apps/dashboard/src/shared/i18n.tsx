@@ -637,8 +637,8 @@ export const ZH_TEXT = {
     cloud: {
       description: "连接公司内网并启用每小时云端同步。",
       unconfiguredBadge: "未配置",
-      unsupportedBadge: "仅 Windows",
-      unsupportedHint: "请在 Windows 10/11 x64 安装包中导入管理员提供的设备文件。",
+      unsupportedBadge: "平台不支持",
+      unsupportedHint: "请使用 Windows 10/11 x64 安装包，或在 Apple Silicon Mac 开发版中导入设备文件。",
       selectEnrollment: "选择 .lxe-enroll 设备文件",
       oneTimePassword: "一次性密码",
       passwordPlaceholder: "输入管理员单独发送的密码",
@@ -647,6 +647,23 @@ export const ZH_TEXT = {
       connected: "公司云端连接正常",
       checking: "正在检查公司网络",
       retry: "重试连接",
+      reconnect: "重新连接",
+      dependencies: {
+        title: "WireGuard 运行依赖",
+        states: {
+          not_required: "当前平台不需要额外安装",
+          ready: "依赖已就绪",
+          homebrew_missing: "需要先安装 Homebrew",
+          installing_homebrew: "请在 Terminal 中完成 Homebrew 安装",
+          wireguard_tools_missing: "需要安装 wireguard-tools",
+          installing_wireguard_tools: "正在安装 wireguard-tools",
+          error: "依赖安装未完成"
+        },
+        installHomebrew: "安装 Homebrew",
+        installWireGuard: "安装 WireGuard",
+        installing: "安装中…",
+        retry: "重新检测"
+      },
       switchBinding: "切换绑定",
       activatedConnected: "公司云端已连接",
       activatedRetry: "公司云端已配置，将自动重试连接",
@@ -656,8 +673,10 @@ export const ZH_TEXT = {
         description: "选择新的设备文件并输入管理员单独发送的一次性密码。",
         currentDevice: "当前本机绑定",
         warning: "确认后会永久删除本机旧 WireGuard 隧道和设备凭证。删除后如果新配置失败，需要重试新 Enrollment；云端旧设备记录不会自动解绑。",
+        warningMac: "确认后会切换本机 WireGuard 隧道；如果新配置失败，Agent 会尝试恢复旧隧道和旧绑定。云端旧设备记录不会自动解绑。",
         cancelAria: "关闭切换绑定窗口",
         confirm: "删除旧绑定并切换",
+        confirmMac: "切换绑定",
         switching: "正在切换…",
         switchedConnected: (device: string) => `已切换到 ${device || "新设备"}`,
         switchedRetry: (device: string) => `已切换到 ${device || "新设备"}，等待联网验证`
@@ -1419,8 +1438,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       cloud: {
         description: "Connect to the company intranet and enable hourly cloud sync.",
         unconfiguredBadge: "Not configured",
-        unsupportedBadge: "Windows only",
-        unsupportedHint: "Import the device file from your admin with the Windows 10/11 x64 installer.",
+        unsupportedBadge: "Unsupported platform",
+        unsupportedHint: "Use the Windows 10/11 x64 installer or the Apple Silicon Mac development build.",
         selectEnrollment: "Choose a .lxe-enroll device file",
         oneTimePassword: "One-time password",
         passwordPlaceholder: "Enter the password sent separately by your admin",
@@ -1429,6 +1448,23 @@ export const UI_TEXT: Record<Language, UiText> = {
         connected: "Company cloud connection is healthy",
         checking: "Checking the company network",
         retry: "Retry connection",
+        reconnect: "Reconnect",
+        dependencies: {
+          title: "WireGuard dependencies",
+          states: {
+            not_required: "No additional dependency is required",
+            ready: "Dependencies are ready",
+            homebrew_missing: "Homebrew must be installed first",
+            installing_homebrew: "Complete the Homebrew installation in Terminal",
+            wireguard_tools_missing: "wireguard-tools must be installed",
+            installing_wireguard_tools: "Installing wireguard-tools",
+            error: "Dependency setup did not complete"
+          },
+          installHomebrew: "Install Homebrew",
+          installWireGuard: "Install WireGuard",
+          installing: "Installing…",
+          retry: "Check again"
+        },
         switchBinding: "Switch binding",
         activatedConnected: "Company cloud connected",
         activatedRetry: "Company cloud configured; the connection will retry automatically",
@@ -1438,8 +1474,10 @@ export const UI_TEXT: Record<Language, UiText> = {
           description: "Choose a new device file and enter the one-time password sent separately by your admin.",
           currentDevice: "Current local binding",
           warning: "Continuing permanently deletes this computer's old WireGuard tunnel and device credential. If the new configuration then fails, retry the new enrollment. The old cloud device is not unbound automatically.",
+          warningMac: "Continuing switches this Mac's WireGuard tunnel. If the new configuration fails, Agent will try to restore the previous tunnel and binding. The old cloud device is not unbound automatically.",
           cancelAria: "Close switch binding dialog",
           confirm: "Delete old binding and switch",
+          confirmMac: "Switch binding",
           switching: "Switching…",
           switchedConnected: (device: string) => `Switched to ${device || "the new device"}`,
           switchedRetry: (device: string) => `Switched to ${device || "the new device"}; waiting for network verification`

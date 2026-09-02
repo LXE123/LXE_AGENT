@@ -5,6 +5,7 @@ import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type {
   DesktopCloudActivationInput,
+  DesktopCloudDependencyState,
   DesktopCloudEnrollmentSelection,
   DesktopCloudPermissionSnapshot,
   DesktopCloudState,
@@ -15,8 +16,10 @@ import type { DesktopConfigStore } from "./config-store";
 import type { PreviewDataServerTarget } from "./data-server-policy";
 import {
   previousEnrollmentRemoved,
+  type WireGuardDependencyStatus,
   type WireGuardProvisionerPort,
 } from "./wireguard-provisioner";
+import { wireGuardTunnelFromEnrollment } from "./wireguard-types";
 import {
   legacySnapshotCanUpgrade,
   parseServerDevicePermission,
@@ -55,6 +58,7 @@ interface DesktopCloudServiceOptions {
   dataRoot: string;
   llmConfigRoot?: string;
   supported: boolean;
+  unsupportedMessage?: string;
   previewTarget?: PreviewDataServerTarget;
   config: DesktopConfigStore;
   enrollments: DesktopCloudEnrollmentManager;
@@ -112,16 +116,25 @@ export class DesktopCloudService {
   private readonly clock: DesktopCloudClock;
   private readonly controllers = new Set<AbortController>();
   private activation: Promise<DesktopCloudState> | undefined;
+  private dependencyPreparation: Promise<DesktopCloudState> | undefined;
+  private reconnection: Promise<DesktopCloudState> | undefined;
   private probe: Promise<DesktopCloudState> | undefined;
   private probeTimer: unknown | undefined;
   private lastPublished = "";
   private stopped = false;
   private recoveredInterruptedSwitch: boolean;
+  private dependencyState: DesktopCloudDependencyState;
+  private dependencyError = "";
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
     this.clock = options.clock ?? systemClock;
+    const dependency = options.previewTarget
+      ? { state: "not_required" as const, error: "" }
+      : options.provisioner.dependencyStatus?.() ?? { state: "not_required" as const, error: "" };
+    this.dependencyState = dependency.state;
+    this.dependencyError = dependency.error;
     this.recoveredInterruptedSwitch = !options.previewTarget
       && options.config.recoverInterruptedCloudEnrollmentSwitch();
     const configured = Boolean(options.previewTarget) || options.config.cloudConfiguration().managed;
@@ -140,7 +153,7 @@ export class DesktopCloudService {
   }
 
   select(path: string): DesktopCloudEnrollmentSelection {
-    if (!this.options.supported) throw new Error("公司云端仅支持 Windows 10/11 x64 安装包");
+    if (!this.options.supported) throw new Error(this.unsupportedMessage());
     return this.options.enrollments.select(path);
   }
 
@@ -156,6 +169,8 @@ export class DesktopCloudService {
         connection: this.connection,
         last_error: this.lastError,
         last_checked_at: this.lastCheckedAt,
+        dependency_state: this.dependencyState,
+        dependency_error: this.dependencyError,
         ...permission,
       };
     }
@@ -170,6 +185,8 @@ export class DesktopCloudService {
       connection: this.connection,
       last_error: this.lastError,
       last_checked_at: this.lastCheckedAt,
+      dependency_state: this.dependencyState,
+      dependency_error: this.dependencyError,
       ...permission,
     };
   }
@@ -206,7 +223,30 @@ export class DesktopCloudService {
   }
 
   retry(): Promise<DesktopCloudState> {
-    return this.checkConnection(true);
+    if (!this.options.provisioner.reconnect) return this.checkConnection(true);
+    if (this.reconnection) return this.reconnection;
+    let tracked: Promise<DesktopCloudState>;
+    tracked = this.reconnectOnce().finally(() => {
+      if (this.reconnection === tracked) this.reconnection = undefined;
+    });
+    this.reconnection = tracked;
+    return tracked;
+  }
+
+  prepareDependencies(): Promise<DesktopCloudState> {
+    if (!this.options.provisioner.prepareDependencies) return Promise.resolve(this.state());
+    if (this.dependencyPreparation) return this.dependencyPreparation;
+    let tracked: Promise<DesktopCloudState>;
+    tracked = this.options.provisioner.prepareDependencies((status) => {
+      this.setDependencyStatus(status);
+    }).then((status) => {
+      this.setDependencyStatus(status);
+      return this.state();
+    }).finally(() => {
+      if (this.dependencyPreparation === tracked) this.dependencyPreparation = undefined;
+    });
+    this.dependencyPreparation = tracked;
+    return tracked;
   }
 
   activate(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
@@ -250,7 +290,7 @@ export class DesktopCloudService {
   }
 
   private async activateOnce(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
-    if (!this.options.supported) throw new Error("公司云端仅支持 Windows 10/11 x64 安装包");
+    if (!this.options.supported) throw new Error(this.unsupportedMessage());
     const activationId = randomUUID();
     const startedAt = this.now();
     let logger = this.options.logger.child({ activation_id: activationId });
@@ -269,6 +309,12 @@ export class DesktopCloudService {
       logger.info("cloud_enrollment_decrypted", {
         duration_ms: Math.max(0, this.now() - startedAt),
       });
+      const dependency = this.options.provisioner.dependencyStatus?.();
+      if (dependency && dependency.state !== "ready" && dependency.state !== "not_required") {
+        this.setDependencyStatus(dependency);
+        throw new Error("请先安装 Homebrew 和 wireguard-tools");
+      }
+      const previousWireGuard = this.options.config.cloudWireGuardConfiguration();
       if (this.options.config.cloudConfiguration().managed) {
         stage = "begin_destructive_switch";
         this.options.config.beginCloudEnrollmentSwitch();
@@ -281,7 +327,7 @@ export class DesktopCloudService {
         await this.options.onConfigured();
       }
       stage = "wireguard_provision";
-      await this.options.provisioner.provision(payload, activationId);
+      await this.options.provisioner.provision(payload, activationId, previousWireGuard);
       if (switchStarted) previousRemoved = true;
       stage = "persist_configuration";
       this.options.config.saveCloudEnrollment({
@@ -291,6 +337,7 @@ export class DesktopCloudService {
         dataServerUrl: payload.data_server.url,
         tunnelName: "lxe-agent",
         apiKey: payload.data_server.api_token,
+        wireGuard: wireGuardTunnelFromEnrollment(payload),
         ...(payload.erp ? { erpApiKey: payload.erp.api_token } : {}),
       });
       const wasDestructiveSwitch = switchStarted;
@@ -822,6 +869,10 @@ export class DesktopCloudService {
     this.isAdmin = isAdmin;
     this.lastError = lastError;
     if (checked) this.lastCheckedAt = Math.floor(this.now() / 1_000);
+    return this.publishState();
+  }
+
+  private publishState(): DesktopCloudState {
     const state = this.state();
     const serialized = JSON.stringify(state);
     if (serialized !== this.lastPublished) {
@@ -829,6 +880,37 @@ export class DesktopCloudService {
       this.options.onStateChanged?.(state);
     }
     return state;
+  }
+
+  private setDependencyStatus(status: WireGuardDependencyStatus): DesktopCloudState {
+    this.dependencyState = status.state;
+    this.dependencyError = status.error;
+    return this.publishState();
+  }
+
+  private async reconnectOnce(): Promise<DesktopCloudState> {
+    if (this.activation) return this.activation;
+    const cloud = this.options.config.cloudConfiguration();
+    if (!cloud.managed) return this.checkConnection(true);
+    const configuration = this.options.config.cloudWireGuardConfiguration();
+    if (!configuration) {
+      const message = "本机缺少可重新连接的 WireGuard 配置，请重新导入 Enrollment";
+      this.setConnection("error", message);
+      throw new Error(message);
+    }
+    this.setConnection("connecting", "");
+    try {
+      await this.options.provisioner.reconnect!(configuration, randomUUID());
+    } catch (error) {
+      const message = this.publicError(error);
+      this.setConnection("error", message);
+      throw new Error(message);
+    }
+    return this.checkConnection(true);
+  }
+
+  private unsupportedMessage(): string {
+    return this.options.unsupportedMessage ?? "公司云端仅支持 Windows 10/11 x64 安装包";
   }
 
   private diagnosticError(error: unknown, target?: CloudProbeTarget): string {

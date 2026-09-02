@@ -5,6 +5,7 @@ export const IPC_CHANNELS = {
   selectZiniaoWebDriverDirectory: "lxe:desktop:select-ziniao-webdriver-directory",
   selectCloudEnrollment: "lxe:desktop:select-cloud-enrollment",
   activateCloudEnrollment: "lxe:desktop:activate-cloud-enrollment",
+  prepareCloudDependencies: "lxe:desktop:prepare-cloud-dependencies",
   getCloudState: "lxe:desktop:get-cloud-state",
   retryCloudConnection: "lxe:desktop:retry-cloud-connection",
   openCloudDestination: "lxe:desktop:open-cloud-destination",

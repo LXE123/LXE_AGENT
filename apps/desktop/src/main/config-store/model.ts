@@ -18,6 +18,10 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseStoredDevicePermission } from "../cloud-permissions";
+import {
+  parseWireGuardTunnelConfiguration,
+  type WireGuardTunnelConfiguration,
+} from "../wireguard-types";
 
 const logger = createLogger("desktop.config.model");
 
@@ -88,6 +92,7 @@ export interface DesktopSecrets {
   erp_api_key: string;
   saihu_mcp_api_key: string;
   cloud_permission_snapshot: DesktopCloudPermissionSnapshot | null;
+  cloud_wireguard: WireGuardTunnelConfiguration | null;
   managed_llm_credential: ManagedLlmCredential | null;
 }
 
@@ -155,6 +160,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   erp_api_key: "",
   saihu_mcp_api_key: "",
   cloud_permission_snapshot: null,
+  cloud_wireguard: null,
   managed_llm_credential: null,
 };
 
@@ -466,6 +472,7 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     cloud_permission_snapshot: parseStoredDevicePermission(
       value.cloud_permission_snapshot,
     ),
+    cloud_wireguard: parseWireGuardTunnelConfiguration(value.cloud_wireguard),
     managed_llm_credential: parsedManagedCredential,
   };
 };

@@ -43,6 +43,7 @@ describe("preload bridge", () => {
       "openLogsDirectory",
       "openSyntheticPerformerOutput",
       "platform",
+      "prepareCloudDependencies",
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
@@ -64,6 +65,7 @@ describe("preload bridge", () => {
     await bridge.desktop.deleteLocalModelCredential("deepseek");
     await bridge.desktop.selectCloudEnrollment();
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
+    await bridge.desktop.prepareCloudDependencies();
     await bridge.desktop.getCloudState();
     await bridge.desktop.retryCloudConnection();
     await bridge.desktop.openCloudDestination("erp_dashboard");
@@ -98,6 +100,8 @@ describe("preload bridge", () => {
       connection: "connected",
       last_error: "",
       last_checked_at: 123,
+      dependency_state: "not_required",
+      dependency_error: "",
     });
     expect(cloudConnection).toBe("connected");
     unsubscribeCloud();
@@ -165,6 +169,7 @@ describe("preload bridge", () => {
       IPC_CHANNELS.deleteLocalModelCredential,
       IPC_CHANNELS.selectCloudEnrollment,
       IPC_CHANNELS.activateCloudEnrollment,
+      IPC_CHANNELS.prepareCloudDependencies,
       IPC_CHANNELS.getCloudState,
       IPC_CHANNELS.retryCloudConnection,
       IPC_CHANNELS.openCloudDestination,
@@ -183,17 +188,17 @@ describe("preload bridge", () => {
       IPC_CHANNELS.stageDroppedConversationFiles,
       IPC_CHANNELS.discardConversationFiles,
     ]);
-    expect(invocations[20]?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[21]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[21]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[22]?.arguments).toEqual([["attachment-1"]]);
     expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
     expect(invocations[2]?.arguments).toEqual(["deepseek"]);
     expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[7]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[15]?.arguments).toEqual([{
+    expect(invocations[8]?.arguments).toEqual(["erp_dashboard"]);
+    expect(invocations[16]?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,
     }]);
-    expect(invocations[11]?.arguments).toEqual(["dark"]);
+    expect(invocations[12]?.arguments).toEqual(["dark"]);
   });
 });

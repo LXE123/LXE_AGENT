@@ -598,6 +598,44 @@ button {
   gap: 14px;
 }
 
+.desktop-cloud-dependencies {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-soft);
+}
+
+.desktop-cloud-dependencies > div {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-cloud-dependencies strong { font-size: 0.8125rem; }
+.desktop-cloud-dependencies span,
+.desktop-cloud-dependencies small { color: var(--muted); font-size: 0.6875rem; }
+.desktop-cloud-dependencies small { color: var(--danger); overflow-wrap: anywhere; }
+
+.desktop-cloud-dependencies button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--warning);
+  cursor: pointer;
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.desktop-cloud-dependencies button:disabled { cursor: wait; opacity: 0.65; }
+
 .desktop-cloud-overview {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

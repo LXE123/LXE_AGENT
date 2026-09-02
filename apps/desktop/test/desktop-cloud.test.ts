@@ -706,6 +706,11 @@ describe("DesktopCloudService", () => {
       LXE_DATA_SERVER_API_KEY: replacementEnrollmentPayload.data_server.api_token,
       LXE_ERP_API_KEY: replacementEnrollmentPayload.erp?.api_token,
     });
+    expect(config.cloudWireGuardConfiguration()).toMatchObject({
+      tunnel_name: "lxe-agent",
+      private_key: replacementEnrollmentPayload.wireguard.private_key,
+      address: replacementEnrollmentPayload.wireguard.address,
+    });
     expect(config.cloudPermissionSnapshot()).toMatchObject({
       device_id: replacementEnrollmentPayload.device.id,
       permission_profile: "replenishment",
@@ -1464,5 +1469,98 @@ describe("DesktopCloudService", () => {
       last_error: expect.stringContaining("revision regressed"),
     });
     expect(observedContracts).toEqual(["2", "2", "2", "2"]);
+  });
+
+  test("publishes Mac dependency setup progress without probing or activating", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-mac-dependencies-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const published: string[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: {
+        dependencyStatus: () => ({ state: "homebrew_missing", error: "" }),
+        prepareDependencies: async (onChanged) => {
+          onChanged({ state: "installing_homebrew", error: "" });
+          onChanged({ state: "installing_wireguard_tools", error: "" });
+          return { state: "ready", error: "" };
+        },
+        provision: async () => undefined,
+      },
+      onConfigured: async () => undefined,
+      onStateChanged: (state) => published.push(state.dependency_state),
+      fetch: async () => { throw new Error("dependency setup must not probe"); },
+    });
+
+    expect(service.state()).toMatchObject({
+      connection: "not_configured",
+      dependency_state: "homebrew_missing",
+    });
+    expect(await service.prepareDependencies()).toMatchObject({
+      connection: "not_configured",
+      dependency_state: "ready",
+      dependency_error: "",
+    });
+    expect(published).toEqual(["installing_homebrew", "installing_wireguard_tools", "ready"]);
+  });
+
+  test("reconnects a persisted Mac tunnel only for an explicit retry", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-mac-reconnect-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+      wireGuard: {
+        tunnel_name: "lxe-agent",
+        ...enrollmentPayload.wireguard,
+      },
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const sequence: string[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: {
+        dependencyStatus: () => ({ state: "ready", error: "" }),
+        provision: async () => undefined,
+        reconnect: async (configuration) => {
+          expect(configuration.private_key).toBe(enrollmentPayload.wireguard.private_key);
+          sequence.push("reconnect");
+        },
+      },
+      onConfigured: async () => undefined,
+      fetch: async () => {
+        sequence.push("probe");
+        return Response.json({
+          status: "ok",
+          activation_required: false,
+          device_id: enrollmentPayload.device.id,
+          display_name: enrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.8",
+          machine_id: machineId,
+          permission: devicePermission(),
+        });
+      },
+    });
+
+    expect(await service.start()).toMatchObject({ connection: "connected" });
+    expect(sequence).toEqual(["probe"]);
+    sequence.length = 0;
+    expect(await service.retry()).toMatchObject({ connection: "connected" });
+    expect(sequence).toEqual(["reconnect", "probe"]);
+    await service.stop();
+    expect(sequence).toEqual(["reconnect", "probe"]);
   });
 });

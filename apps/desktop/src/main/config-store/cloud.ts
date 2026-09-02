@@ -6,6 +6,7 @@ import type {
 } from "./public-types";
 import type { DesktopConfigRepository } from "./repository";
 import { effectiveDesktopSecrets } from "./secrets";
+import type { WireGuardTunnelConfiguration } from "../wireguard-types";
 
 export class DesktopCloudConfigService {
   constructor(
@@ -48,6 +49,7 @@ export class DesktopCloudConfigService {
     secrets.data_server_api_key = apiKey;
     secrets.erp_api_key = text(input.erpApiKey);
     secrets.cloud_permission_snapshot = null;
+    secrets.cloud_wireguard = input.wireGuard ? structuredClone(input.wireGuard) : null;
     this.clearManagedLlm(config, secrets);
     this.repository.commit(config, secrets);
     return this.configuration();
@@ -90,6 +92,7 @@ export class DesktopCloudConfigService {
     secrets.data_server_api_key = "";
     secrets.erp_api_key = "";
     secrets.cloud_permission_snapshot = null;
+    secrets.cloud_wireguard = null;
     this.clearManagedLlm(config, secrets);
     this.repository.commit(config, secrets);
     return this.configuration();
@@ -105,6 +108,10 @@ export class DesktopCloudConfigService {
     const config = this.repository.readConfig();
     const snapshot = this.repository.readSecrets().cloud_permission_snapshot;
     return snapshot?.device_id === config.cloud.device_id ? structuredClone(snapshot) : null;
+  }
+
+  wireGuardConfiguration(): WireGuardTunnelConfiguration | null {
+    return structuredClone(this.repository.readSecrets().cloud_wireguard);
   }
 
   savePermissionSnapshot(

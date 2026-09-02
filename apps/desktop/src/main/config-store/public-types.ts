@@ -1,4 +1,5 @@
 import type { DesktopCloudPermissionSnapshot, DesktopPlatform } from "@lxe/desktop-protocol";
+import type { WireGuardTunnelConfiguration } from "../wireguard-types";
 
 export interface DesktopCloudConfiguration {
   managed: boolean;
@@ -19,6 +20,7 @@ export interface DesktopCloudEnrollmentConfig {
   tunnelName: string;
   apiKey: string;
   erpApiKey?: string;
+  wireGuard?: WireGuardTunnelConfiguration;
 }
 
 export type { DesktopCloudPermissionSnapshot };

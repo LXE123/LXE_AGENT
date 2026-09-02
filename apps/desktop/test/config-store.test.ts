@@ -383,6 +383,7 @@ describe("DesktopConfigStore", () => {
       decryptString: (value: Buffer) => Buffer.from(String(value), "base64").toString("utf8"),
     };
     const store = new DesktopConfigStore(root, join(root, "workspace"), opaqueStorage, { platform: "win32" });
+    const wireGuardPrivateKey = Buffer.alloc(32, 7).toString("base64");
     const cloud = store.saveCloudEnrollment({
       deviceId: "0123456789abcdef0123456789abcdef",
       deviceName: "Finance-PC-01",
@@ -391,6 +392,15 @@ describe("DesktopConfigStore", () => {
       tunnelName: "lxe-agent",
       apiKey: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
       erpApiKey: "erp-dedicated-secret",
+      wireGuard: {
+        tunnel_name: "lxe-agent",
+        private_key: wireGuardPrivateKey,
+        address: "10.88.0.8/32",
+        server_public_key: Buffer.alloc(32, 8).toString("base64"),
+        endpoint: "43.139.140.124:51820",
+        allowed_ips: ["10.88.0.1/32"],
+        persistent_keepalive: 25,
+      },
     });
 
     expect(cloud).toMatchObject({ managed: true, vpn_ip: "10.88.0.8", api_key_configured: true });
@@ -398,9 +408,15 @@ describe("DesktopConfigStore", () => {
     expect(publicConfig).toContain("Finance-PC-01");
     expect(publicConfig).not.toContain("secret-value");
     expect(publicConfig).not.toContain("erp-dedicated-secret");
+    expect(publicConfig).not.toContain(wireGuardPrivateKey);
     const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(encryptedSecrets).not.toContain("secret-value");
     expect(encryptedSecrets).not.toContain("erp-dedicated-secret");
+    expect(encryptedSecrets).not.toContain(wireGuardPrivateKey);
+    expect(store.cloudWireGuardConfiguration()).toMatchObject({
+      private_key: wireGuardPrivateKey,
+      address: "10.88.0.8/32",
+    });
     expect(store.environment()).toMatchObject({
       LXE_DATA_SERVER_ENABLED: "1",
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
@@ -432,6 +448,7 @@ describe("DesktopConfigStore", () => {
       apiKey: "replacement-token",
     });
     expect(store.cloudPermissionSnapshot()).toBeNull();
+    expect(store.cloudWireGuardConfiguration()).toBeNull();
   });
 
   test("persists, aborts, clears, and atomically commits a destructive enrollment switch", () => {

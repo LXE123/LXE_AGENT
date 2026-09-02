@@ -39,6 +39,7 @@ export function createDesktopBridge(
       selectZiniaoWebDriverDirectory: () => ipc.invoke(IPC_CHANNELS.selectZiniaoWebDriverDirectory),
       selectCloudEnrollment: () => ipc.invoke(IPC_CHANNELS.selectCloudEnrollment),
       activateCloudEnrollment: (input) => ipc.invoke(IPC_CHANNELS.activateCloudEnrollment, input),
+      prepareCloudDependencies: () => ipc.invoke(IPC_CHANNELS.prepareCloudDependencies),
       getCloudState: () => ipc.invoke(IPC_CHANNELS.getCloudState),
       retryCloudConnection: () => ipc.invoke(IPC_CHANNELS.retryCloudConnection),
       openCloudDestination: (destination) => ipc.invoke(IPC_CHANNELS.openCloudDestination, destination),

@@ -211,6 +211,7 @@ function DesktopCloudPanel({
   onActivate,
   onOpenDestination,
   onPasswordChange,
+  onPrepareDependencies,
   onRetry,
   onSelect,
   onSwitchBinding,
@@ -224,6 +225,7 @@ function DesktopCloudPanel({
   onActivate: () => void;
   onOpenDestination: (destination: DesktopCloudDestination) => void;
   onPasswordChange: (value: string) => void;
+  onPrepareDependencies: () => void;
   onRetry: () => void;
   onSelect: () => void;
   onSwitchBinding: () => void;
@@ -232,6 +234,10 @@ function DesktopCloudPanel({
   const t = useUiText();
   const connected = cloud.connection === "connected";
   const supported = cloud.connection !== "unsupported";
+  const dependenciesReady = cloud.dependency_state === "ready"
+    || cloud.dependency_state === "not_required";
+  const dependenciesInstalling = cloud.dependency_state === "installing_homebrew"
+    || cloud.dependency_state === "installing_wireguard_tools";
   const shortcuts: Array<{
     admin?: boolean;
     description: string;
@@ -273,6 +279,25 @@ function DesktopCloudPanel({
         headingRef={headingRef}
         title={t.desktop.sectionTitles.cloud}
       />
+      {supported && !dependenciesReady ? (
+        <div className={`desktop-cloud-dependencies ${cloud.dependency_state}`}>
+          <div>
+            <strong>{t.desktop.cloud.dependencies.title}</strong>
+            <span>{t.desktop.cloud.dependencies.states[cloud.dependency_state]}</span>
+            {cloud.dependency_error ? <small role="alert">{cloud.dependency_error}</small> : null}
+          </div>
+          <button disabled={activating || dependenciesInstalling} onClick={onPrepareDependencies} type="button">
+            <Settings2 size={15} />
+            {dependenciesInstalling
+              ? t.desktop.cloud.dependencies.installing
+              : cloud.dependency_state === "homebrew_missing"
+                ? t.desktop.cloud.dependencies.installHomebrew
+                : cloud.dependency_state === "error"
+                  ? t.desktop.cloud.dependencies.retry
+                  : t.desktop.cloud.dependencies.installWireGuard}
+          </button>
+        </div>
+      ) : null}
       {cloud.configured ? (
         <div className={`desktop-cloud-overview ${cloud.connection}`}>
           <span className="desktop-cloud-overview-icon"><Cloud aria-hidden size={18} /></span>
@@ -284,7 +309,9 @@ function DesktopCloudPanel({
             {!connected ? (
               <button disabled={activating} onClick={onRetry} type="button">
                 <RotateCcw size={15} />
-                {t.desktop.cloud.retry}
+                {window.lxe?.desktop.platform === "darwin"
+                  ? t.desktop.cloud.reconnect
+                  : t.desktop.cloud.retry}
               </button>
             ) : null}
             {desktopCloudBindingSwitchAvailable(cloud) ? (
@@ -319,7 +346,7 @@ function DesktopCloudPanel({
       ) : null}
       {!supported ? (
         <p className="desktop-form-hint">{t.desktop.cloud.unsupportedHint}</p>
-      ) : !cloud.configured ? (
+      ) : !cloud.configured && dependenciesReady ? (
         <div className="desktop-cloud-activation">
           <button className="desktop-path-button" disabled={activating} onClick={onSelect} type="button">
             <FileKey2 size={17} />
@@ -948,7 +975,11 @@ function CloudBindingDialog({
           <span>{t.desktop.cloud.bindingDialog.currentDevice}</span>
           <strong>{currentDevice || cloud.device_id}</strong>
         </div>
-        <p className="desktop-cloud-binding-warning">{t.desktop.cloud.bindingDialog.warning}</p>
+        <p className="desktop-cloud-binding-warning">
+          {window.lxe?.desktop.platform === "darwin"
+            ? t.desktop.cloud.bindingDialog.warningMac
+            : t.desktop.cloud.bindingDialog.warning}
+        </p>
         <div className="desktop-cloud-activation">
           <button className="desktop-path-button" disabled={activating} onClick={onSelect} type="button">
             <FileKey2 size={17} />
@@ -976,7 +1007,11 @@ function CloudBindingDialog({
             type="button"
           >
             <Cloud size={16} />
-            {activating ? t.desktop.cloud.bindingDialog.switching : t.desktop.cloud.bindingDialog.confirm}
+            {activating
+              ? t.desktop.cloud.bindingDialog.switching
+              : window.lxe?.desktop.platform === "darwin"
+                ? t.desktop.cloud.bindingDialog.confirmMac
+                : t.desktop.cloud.bindingDialog.confirm}
           </button>
         </footer>
       </section>
@@ -1270,6 +1305,18 @@ export function DesktopShell({
       setCloudActivating(false);
     }
   };
+  const prepareCloudDependencies = async (): Promise<void> => {
+    setCloudActivating(true);
+    setCloudEnrollmentError("");
+    try {
+      setCloud(await desktop.prepareCloudDependencies());
+    } catch (cause) {
+      setCloudEnrollmentError(cause instanceof Error ? cause.message : String(cause));
+      setCloud(await desktop.getCloudState());
+    } finally {
+      setCloudActivating(false);
+    }
+  };
   const openCloudDestination = async (destination: DesktopCloudDestination): Promise<void> => {
     if (cloud.connection !== "connected") return;
     setError("");
@@ -1477,6 +1524,7 @@ export function DesktopShell({
       onActivate={() => { void activateCloudEnrollment(); }}
       onOpenDestination={(destination) => { void openCloudDestination(destination); }}
       onPasswordChange={setCloudPassword}
+      onPrepareDependencies={() => { void prepareCloudDependencies(); }}
       onRetry={() => { void retryCloudConnection(); }}
       onSelect={() => { void selectCloudEnrollment(); }}
       onSwitchBinding={openCloudBindingDialog}

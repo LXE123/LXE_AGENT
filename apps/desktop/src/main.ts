@@ -53,6 +53,7 @@ import {
 import { DesktopGateway } from "./main/desktop-gateway";
 import { editableContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
+import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
   isAllowedDesktopNavigation,
@@ -285,27 +286,37 @@ async function bootstrap(): Promise<void> {
       const credential = config.managedLlmCredential();
       if (credential) await gateway.updateManagedLlmCredential(credential);
       invalidations.push(["models"]);
-      await cloud?.retry();
+      await cloud?.check();
     },
   });
   activeGateway = gateway;
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
+  const cloudProvisioner = desktopPlatform === "darwin"
+    ? new MacOSWireGuardProvisioner({
+        platform: process.platform,
+        arch: process.arch,
+        packaged: packagedRuntime,
+        dataRoot: paths.dataRoot,
+        logger: cloudLogger,
+      })
+    : new WindowsWireGuardProvisioner({
+        platform: process.platform,
+        arch: process.arch,
+        packaged: packagedRuntime,
+        dataRoot: paths.dataRoot,
+        resourcesPath: process.resourcesPath,
+        logger: cloudLogger,
+      });
   cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
     llmConfigRoot: paths.llmConfigRoot,
-    supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
+    supported: cloudProvisioner.supported(),
+    unsupportedMessage: "公司云端支持 Windows 10/11 x64 安装包和 Apple Silicon Mac 开发版",
     ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
     config,
     enrollments: new DesktopCloudEnrollmentManager(),
     logger: cloudLogger,
-    provisioner: new WindowsWireGuardProvisioner({
-      platform: process.platform,
-      arch: process.arch,
-      packaged: packagedRuntime,
-      dataRoot: paths.dataRoot,
-      resourcesPath: process.resourcesPath,
-      logger: cloudLogger,
-    }),
+    provisioner: cloudProvisioner,
     onConfigured: async () => {
       await gateway.restart();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
@@ -408,6 +419,7 @@ async function bootstrap(): Promise<void> {
     },
     previewCloudEnrollment: (filePath) => cloud.select(filePath),
     activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),
+    prepareCloudDependencies: () => cloud.prepareDependencies(),
     getCloudState: () => cloud.state(),
     retryCloudConnection: () => cloud.retry(),
     openCloudDestination: async (destination: DesktopCloudDestination): Promise<void> => {
