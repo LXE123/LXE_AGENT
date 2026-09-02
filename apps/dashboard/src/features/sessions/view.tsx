@@ -1037,7 +1037,7 @@ function TurnFileList({
                 <span aria-hidden="true" className="turn-file-extension">
                   {SPREADSHEET_EXTENSIONS.has(extension) ? <Sheet size={16} /> : extension}
                 </span>
-                <span className="turn-file-name" title={file.name}>{fileDisplayName(file.name)}</span>
+                <span className="turn-file-name" title={file.name}>{file.name}</span>
                 {isOpening
                   ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />
                   : null}
@@ -1075,17 +1075,6 @@ const SPREADSHEET_EXTENSIONS = new Set(["CSV", "TSV", "XLS", "XLSX"]);
 function fileExtensionLabel(name: string): string {
   const match = FILE_EXTENSION_PATTERN.exec(name.trim());
   return match?.[1] ? match[1].slice(0, 5).toUpperCase() : "FILE";
-}
-
-/**
- * The extension is already stated - by the badge, or once in the heading when
- * every file shares it - so repeating it here only costs the tail of the name,
- * which is where these names differ from each other.
- */
-function fileDisplayName(name: string): string {
-  const trimmed = name.trim();
-  const withoutExtension = trimmed.replace(FILE_EXTENSION_PATTERN, "");
-  return withoutExtension || trimmed;
 }
 
 function InputAttachmentList({

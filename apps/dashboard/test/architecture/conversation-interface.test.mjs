@@ -176,10 +176,10 @@ test("tool files reach the conversation and open through Main", () => {
 });
 
 test("the file list spends its width on what differs between the files", () => {
-  // The extension is stated once per row by the marker, so repeating it in the
-  // name only cost the tail - which is the part that differs between files.
-  assert.match(view, /className="turn-file-name" title=\{file\.name\}>\{fileDisplayName\(file\.name\)\}/);
-  assert.match(view, /function fileDisplayName/);
+  // The name is the real file name: the spreadsheet icon does not say which of
+  // xlsx/xls/csv the file is, so the extension has to survive in the name.
+  assert.match(view, /className="turn-file-name" title=\{file\.name\}>\{file\.name\}/);
+  assert.doesNotMatch(view, /function fileDisplayName/);
   // The marker stays on every row: it is the anchor the eye lands on, so it is
   // made quiet rather than removed. A filled accent pill outshouted the name.
   // Spreadsheets get an icon; every other extension keeps the text badge so
