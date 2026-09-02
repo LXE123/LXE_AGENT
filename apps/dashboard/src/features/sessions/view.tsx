@@ -23,7 +23,6 @@ import {
   Plus,
   Search,
   Settings2,
-  Sheet,
   Square,
   Pin,
   PinOff,
@@ -32,6 +31,11 @@ import {
   Wrench,
   X
 } from "lucide-react";
+
+import csvIcon from "../../assets/file-types/csv.png";
+import htmlIcon from "../../assets/file-types/html.png";
+import xlsIcon from "../../assets/file-types/xls.png";
+import xlsxIcon from "../../assets/file-types/xlsx.png";
 
 import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText, splitContentBlocks } from "../../shared/content";
@@ -1035,7 +1039,9 @@ function TurnFileList({
                 type="button"
               >
                 <span aria-hidden="true" className="turn-file-extension">
-                  {SPREADSHEET_EXTENSIONS.has(extension) ? <Sheet size={16} /> : extension}
+                  {FILE_TYPE_ICONS[extension]
+                    ? <img alt="" draggable={false} src={FILE_TYPE_ICONS[extension]} />
+                    : extension}
                 </span>
                 <span className="turn-file-name" title={file.name}>{file.name}</span>
                 {isOpening
@@ -1068,9 +1074,14 @@ function TurnFileList({
 
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]{1,8})$/i;
 
-/* Only the spreadsheet family has an icon so far; other types keep the text
-   badge so the slot never renders empty. */
-const SPREADSHEET_EXTENSIONS = new Set(["CSV", "TSV", "XLS", "XLSX"]);
+/* The icon names the exact type, so an extension without one keeps the text
+   badge - TSV is not CSV, and a cousin's icon would mislabel the file. */
+const FILE_TYPE_ICONS: Record<string, string> = {
+  CSV: csvIcon,
+  HTML: htmlIcon,
+  XLS: xlsIcon,
+  XLSX: xlsxIcon,
+};
 
 function fileExtensionLabel(name: string): string {
   const match = FILE_EXTENSION_PATTERN.exec(name.trim());

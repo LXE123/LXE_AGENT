@@ -9636,10 +9636,11 @@ pre {
   letter-spacing: 0.03em;
 }
 
-/* The icon takes over the anchor role from the text badge, so it carries the
-   stronger --muted tone the card's other icons use. */
-.turn-file-extension > svg {
-  color: var(--muted);
+/* Colored file-type marks at the badge's footprint; they are self-colored
+   art, so unlike the old line icon they take no tint from the row. */
+.turn-file-extension > img {
+  width: 16px;
+  height: 16px;
 }
 
 .turn-file-name {

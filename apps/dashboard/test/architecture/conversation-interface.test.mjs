@@ -182,13 +182,15 @@ test("the file list spends its width on what differs between the files", () => {
   assert.doesNotMatch(view, /function fileDisplayName/);
   // The marker stays on every row: it is the anchor the eye lands on, so it is
   // made quiet rather than removed. A filled accent pill outshouted the name.
-  // Spreadsheets get an icon; every other extension keeps the text badge so
-  // the slot never renders empty.
-  assert.match(view, /<span aria-hidden="true" className="turn-file-extension">\s*\{SPREADSHEET_EXTENSIONS\.has\(extension\) \? <Sheet size=\{16\} \/> : extension\}\s*<\/span>/);
-  assert.match(view, /const SPREADSHEET_EXTENSIONS = new Set\(\["CSV", "TSV", "XLS", "XLSX"\]\)/);
+  // An extension with a type mark gets that icon; every other extension keeps
+  // the text badge so the slot never renders empty - and never borrows a
+  // cousin's icon (TSV is not CSV).
+  assert.match(view, /<span aria-hidden="true" className="turn-file-extension">\s*\{FILE_TYPE_ICONS\[extension\]\s*\?\s*<img alt="" draggable=\{false\} src=\{FILE_TYPE_ICONS\[extension\]\} \/>\s*:\s*extension\}\s*<\/span>/);
+  assert.match(view, /const FILE_TYPE_ICONS: Record<string, string> = \{\s*CSV: csvIcon,\s*HTML: htmlIcon,\s*XLS: xlsIcon,\s*XLSX: xlsxIcon,\s*\};/);
+  assert.doesNotMatch(view, /SPREADSHEET_EXTENSIONS|\bSheet\b/);
   assert.doesNotMatch(styles, /\.turn-file-extension \{[^}]*background:/s);
   assert.match(styles, /\.turn-file-extension \{[^}]*color:\s*var\(--muted-light\)/s);
-  assert.match(styles, /\.turn-file-extension > svg \{[^}]*color:\s*var\(--muted\)/s);
+  assert.match(styles, /\.turn-file-extension > img \{[^}]*width:\s*16px[^}]*height:\s*16px/s);
   // Cards are --surface on the --bg plane like the rest of the transcript;
   // --surface-subtle sits too close to the background to read as a card.
   assert.match(styles, /\.turn-file-card \{[^}]*background:\s*var\(--surface\)[^}]*text-align:\s*left/s);
