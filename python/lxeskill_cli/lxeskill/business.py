@@ -91,6 +91,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.browser.amazon_fba.")
                 else f"amazon_operations_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.amazon_operations.")
+                else f"shopee_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.agent_cli.shopee.")
                 else f"media_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.media.")
                 else f"assets_{module.rsplit('.', 1)[-1]}"

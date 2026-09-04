@@ -332,6 +332,34 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "shopee_keyword_export", "module": "services.agent_cli.shopee.keyword_export",
+      "command_path": ["shopee", "keywords", "export"],
+      "legacy_aliases": ["shopee_keyword_export"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["shopee-keyword-search"],
+      "artifact_paths": [{"field": "excel_path", "role": "deliverable"}],
+      "timeout_ms": 3600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"keywords": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "本次要抓取的搜索关键词；省略时使用 lxeskill shopee keywords config 保存的默认词表。"}, "countries": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "要抓取的国家/站点（中文名、英文别名或代码均可，如 泰国、Thailand、3）；省略时抓取全部 9 个 Shopee 站点。"}}, "additionalProperties": false}
+    },
+    {
+      "name": "shopee_keyword_query", "module": "services.agent_cli.shopee.keyword_query",
+      "command_path": ["shopee", "keywords", "query"],
+      "legacy_aliases": ["shopee_keyword_query"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["shopee-keyword-search"],
+      "timeout_ms": 60000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"country": {"type": "string", "description": "国家 Sheet 名（如 泰国）；省略时查询全部国家。"}, "keyword": {"type": "string", "description": "查询关键词（大小写不敏感）；省略时返回全部关键词的 top 结果。"}, "top": {"type": "integer", "minimum": 1, "maximum": 100, "description": "每个关键词返回前 N 条（按搜索量降序），默认 10。"}, "list_countries": {"type": "boolean", "description": "只列出报表内全部国家 Sheet 名。"}}, "additionalProperties": false}
+    },
+    {
+      "name": "shopee_keyword_config", "module": "services.agent_cli.shopee.keyword_config",
+      "command_path": ["shopee", "keywords", "config"],
+      "legacy_aliases": ["shopee_keyword_config"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["shopee-keyword-search"],
+      "timeout_ms": 30000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["get", "set"], "description": "get 查看当前默认关键词；set 保存新的默认关键词。"}, "keywords": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "action=set 时要保存的关键词列表，去重去空后原子写入。"}}, "required": ["action"], "additionalProperties": false}
     }
   ],
   "datasets": {
@@ -360,7 +388,8 @@
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
     "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
-    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
+    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []},
+    "shopee_keyword_search": {"dir": "shopee/keyword_search", "holds": "海鹰 Shopee 关键词搜索量全量 Excel 报表。", "legacy_dirs": []}
   },
   "input_assets": {
     "export_tax_master": {"display_name": "出口退税总表", "used_by": ["采购汇总", "备货工作簿"], "dir": "fba/export_tax_master", "holds": "SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},
