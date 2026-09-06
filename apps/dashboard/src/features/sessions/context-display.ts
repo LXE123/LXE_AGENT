@@ -1,5 +1,5 @@
 import type { DesktopConversationActivityPayload, SessionDetailPayload } from "@lxe/desktop-protocol";
-import { validContextDisplaySnapshot } from "@lxe/protocol";
+import { validContextDisplaySnapshot } from "@lxe/protocol/context-display";
 
 /** Keep occupancy, capacity and consumption from the same observation. */
 export function selectContextDisplay(activity: DesktopConversationActivityPayload | null, detail: SessionDetailPayload | null) {
