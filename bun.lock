@@ -113,6 +113,7 @@
       "name": "@lxe/desktop-protocol",
       "version": "0.1.0",
       "dependencies": {
+        "@lxe/core": "workspace:*",
         "@lxe/protocol": "workspace:*",
       },
       "devDependencies": {

@@ -192,6 +192,7 @@ export class DesktopGateway {
       dataRoot: this.options.paths.dataRoot,
       legacyWorkspace,
       allowedSkillTypes,
+      managedLlmState: this.options.config.managedLlmState(),
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -343,6 +344,7 @@ export class DesktopGateway {
     await this.runtime.updateManagedLlmCredential(
       credential,
       this.options.config.managedLlmTarget(),
+      this.options.config.managedLlmState(),
     );
   }
 

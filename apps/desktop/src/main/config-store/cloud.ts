@@ -133,5 +133,6 @@ export class DesktopCloudConfigService {
     secrets: ReturnType<DesktopConfigRepository["readSecrets"]>,
   ): void {
     secrets.managed_llm_credential = null;
+    secrets.managed_llm_state = { revision: 0, default_target: null, models: [], credentials: [] };
   }
 }

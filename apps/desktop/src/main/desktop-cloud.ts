@@ -1,3 +1,4 @@
+import { parseManagedManifest, managedTargetKey, type ManagedLlmState } from "@lxe/core";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -449,7 +450,7 @@ export class DesktopCloudService {
       });
       await this.acceptPreviewPermission();
       try {
-        await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+        await this.syncManagedLlmCredential(payload.managed_llm, target, logger, payload.managed_llm_v2);
       } catch (error) {
         logger.warn("managed_llm_credential_refresh_failed", {
           observed_error: this.diagnosticError(error, target),
@@ -492,7 +493,7 @@ export class DesktopCloudService {
       );
     }
     try {
-      await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+      await this.syncManagedLlmCredential(payload.managed_llm, target, logger, payload.managed_llm_v2);
     } catch (error) {
       logger.warn("managed_llm_credential_refresh_failed", {
         observed_error: this.diagnosticError(error, target),
@@ -560,7 +561,7 @@ export class DesktopCloudService {
       );
     }
     try {
-      await this.syncManagedLlmCredential(payload.managed_llm, target, logger);
+      await this.syncManagedLlmCredential(payload.managed_llm, target, logger, payload.managed_llm_v2);
     } catch (error) {
       logger.warn("managed_llm_credential_refresh_failed", {
         observed_error: this.diagnosticError(error, target),
@@ -735,11 +736,48 @@ export class DesktopCloudService {
     }
   }
 
+  private async syncManagedLlmPublication(value: unknown, target: CloudProbeTarget, logger: Logger): Promise<void> {
+    const manifest = parseManagedManifest(value);
+    const cached = this.options.config.managedLlmState();
+    // Authoritative membership/version changes invalidate old keys before any network fetch.
+    const next: ManagedLlmState = { ...manifest, credentials: cached.credentials.filter((c) => manifest.models.some((m) =>
+      m.available && managedLlmTargetSupported(this.options.llmConfigRoot ?? join(process.cwd(), "config", "llm"), c) && managedTargetKey(m) === managedTargetKey(c) && m.credential_revision === c.credential_revision)) };
+    if (JSON.stringify(next) !== JSON.stringify(cached)) {
+      this.options.config.saveManagedLlmState(next);
+      await this.options.onManagedLlmCredentialChanged?.(this.options.config.managedLlmCredential());
+    }
+    for (const model of manifest.models) {
+      if (!model.available || !model.credential_revision || !managedLlmTargetSupported(this.options.llmConfigRoot ?? join(process.cwd(), "config", "llm"), model)
+        || next.credentials.some((c) => managedTargetKey(c) === managedTargetKey(model))) continue;
+      try {
+        const path = target.source === "preview" ? "admin/llm-credential" : "devices/llm-credential";
+        const query = new URLSearchParams({ provider: model.provider, model: model.model });
+        const response = await this.request(`${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${path}?${query}`, {
+          method: "GET", headers: { authorization: `Bearer ${target.apiToken}` }, cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`managed LLM credential request failed (HTTP ${response.status})`);
+        const credential = parseManagedLlmCredential(await response.json().catch(() => undefined), { ...model, available: true, credential_revision: model.credential_revision }, this.now());
+        next.credentials.push(credential);
+      } catch (error) {
+        logger.warn("managed_llm_credential_refresh_failed", { provider: model.provider, model: model.model, error: this.diagnosticError(error) });
+      }
+    }
+    if (JSON.stringify(next) !== JSON.stringify(this.options.config.managedLlmState())) {
+      this.options.config.saveManagedLlmState(next);
+      await this.options.onManagedLlmCredentialChanged?.(this.options.config.managedLlmCredential());
+    }
+  }
+
   private async syncManagedLlmCredential(
     value: unknown,
     target: CloudProbeTarget,
     logger: Logger,
+    manifestValue?: unknown,
   ): Promise<void> {
+    if (manifestValue !== undefined) {
+      await this.syncManagedLlmPublication(manifestValue, target, logger);
+      return;
+    }
     const status = parseManagedLlmStatus(value);
     if (!status) return;
     const cached = this.options.config.managedLlmCredential();
@@ -750,13 +788,13 @@ export class DesktopCloudService {
       });
     }
     if (!status.available) {
-      if (!cached) return;
+      if (!cached && this.options.config.managedLlmState().models.length === 0) return;
       this.options.config.clearManagedLlmCredential();
       await this.options.onManagedLlmCredentialChanged?.(null);
       logger.info("managed_llm_credential_revoked", {
-        provider: cached.provider,
-        model: cached.model,
-        credential_revision: cached.credential_revision,
+        provider: cached?.provider,
+        model: cached?.model,
+        credential_revision: cached?.credential_revision,
       });
       return;
     }
@@ -787,6 +825,10 @@ export class DesktopCloudService {
     if (cached?.provider === status.provider
       && cached.model === status.model
       && cached.credential_revision === status.credential_revision) {
+      if (this.options.config.managedLlmState().models.length > 1) {
+        this.options.config.saveManagedLlmCredential(cached);
+        await this.options.onManagedLlmCredentialChanged?.(cached);
+      }
       return;
     }
     const path = target.source === "preview"

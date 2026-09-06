@@ -1,3 +1,4 @@
+import { managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
@@ -58,6 +59,7 @@ export interface AgentRuntimeHostOptions {
   environment: Environment;
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
+  managedLlmState?: ManagedLlmState;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
   onManagedLlmAuthenticationFailure?: (
@@ -84,6 +86,7 @@ export interface AgentRuntimeHost {
   updateManagedLlmCredential?(
     credential: ManagedLlmCredential | null,
     target?: ManagedLlmTarget,
+    state?: ManagedLlmState,
   ): Promise<{ cancelActiveTurns: boolean }>;
   health(): JsonObject;
 }
@@ -93,6 +96,7 @@ export function createAgentRuntimeHost(
 ): AgentRuntimeHost {
   const logger = options.logger ?? createLogger("agent.host");
   const allowedSkillTypes = new Set(options.allowedSkillTypes ?? []);
+  let managedLlmState = options.managedLlmState;
   const environment: Environment = {
     ...options.environment,
     LXE_AGENT_SOUL_PATH: options.agentSoulPath,
@@ -112,6 +116,7 @@ export function createAgentRuntimeHost(
     createRuntimeProvider,
     options.llmConfigRoot,
     join(options.dataRoot, "config", "auth.json"),
+    () => managedLlmState,
   );
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
@@ -219,6 +224,7 @@ export function createAgentRuntimeHost(
     cliCommands,
     allowedSkillTypes,
     providerManager,
+    managedLlmState: () => managedLlmState,
     reloadWorkspace: async (sessionId) => {
       const session = await store.getSession(sessionId);
       if (!session) throw new DashboardRpcError("not_found", `session not found: ${sessionId}`);
@@ -311,23 +317,26 @@ export function createAgentRuntimeHost(
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
     },
-    updateManagedLlmCredential: async (credential, target) => {
-      const previousRevision = environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION ?? "";
-      const managedTarget = target ?? credential;
-      environment.LXE_MANAGED_LLM_PROVIDER = managedTarget?.provider ?? "";
-      environment.LXE_MANAGED_LLM_MODEL = managedTarget?.model ?? "";
-      environment.LXE_MANAGED_LLM_API_KEY = credential?.api_key ?? "";
-      environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = credential?.credential_revision ?? "";
-      environment.LXE_MANAGED_LLM_INVALID_REVISION = credential?.invalid_revision
-        ?? previousRevision;
-      if (environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud"
-        && credential
-        && credential.invalid_revision !== credential.credential_revision) {
-        await providerManager.reconfigure({
-          provider: credential.provider,
-          model: credential.model,
-          credentialSource: "cloud",
-        });
+    updateManagedLlmCredential: async (credential, target, state) => {
+      managedLlmState = state ?? singleManagedState(credential, target);
+      const current = { provider: String(environment.AGENT_LLM_PROVIDER ?? ""), model: String(environment.AGENT_LLM_MODEL ?? "") };
+      const candidate = target ?? current;
+      const selected = managedLlmState.models.some((m) => managedTargetKey(m) === managedTargetKey(candidate)) ? candidate : managedLlmState.default_target;
+      const next = selected ? managedCredentialFor(managedLlmState, selected) : undefined;
+      environment.LXE_MANAGED_LLM_PROVIDER = selected?.provider ?? "";
+      environment.LXE_MANAGED_LLM_MODEL = selected?.model ?? "";
+      environment.LXE_MANAGED_LLM_API_KEY = next?.api_key ?? "";
+      environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = next?.credential_revision ?? "";
+      environment.LXE_MANAGED_LLM_INVALID_REVISION = next?.invalid_revision ?? "";
+      if (environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud") {
+        const catalog = loadLlmProviderCatalog(options.llmConfigRoot);
+        const spec = selected ? catalog.provider(selected.provider) : undefined;
+        if (selected && spec && catalog.resolveModel(spec, selected.model)) {
+          await providerManager.reconfigure({ ...selected, credentialSource: "cloud" });
+        } else {
+          // Refresh metadata; credential resolution blocks an unpublished target.
+          await providerManager.reconfigure({});
+        }
       }
       return { cancelActiveTurns: false };
     },

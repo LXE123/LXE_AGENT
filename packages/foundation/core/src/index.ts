@@ -5,3 +5,5 @@ export * from "./llm-provider-catalog";
 export * from "./machine-identity";
 export * from "./repository";
 export * from "./workspace";
+
+export * from "./managed-llm";

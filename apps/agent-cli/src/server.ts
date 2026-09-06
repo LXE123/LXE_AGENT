@@ -169,6 +169,7 @@ export class AgentProtocolServer {
         const update = await this.readyHost().updateManagedLlmCredential!(
           request.params.credential,
           request.params.target,
+          request.params.state,
         );
         if (update.cancelActiveTurns) {
           await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort()));
@@ -257,6 +258,7 @@ export class AgentProtocolServer {
         userSkillsRoot: payload.user_skills_root,
         lxeskillCatalogPath: payload.lxeskill_catalog_path,
         llmConfigRoot: payload.llm_config_root,
+        ...(payload.managed_llm_state ? { managedLlmState: payload.managed_llm_state } : {}),
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
         environment,

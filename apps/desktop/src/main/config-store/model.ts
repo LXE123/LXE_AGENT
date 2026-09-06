@@ -1,3 +1,4 @@
+import { parseManagedState, singleManagedState, type ManagedLlmState } from "@lxe/core";
 import type {
   DesktopLogProfile,
   DesktopLogRetentionDays,
@@ -94,6 +95,7 @@ export interface DesktopSecrets {
   cloud_permission_snapshot: DesktopCloudPermissionSnapshot | null;
   cloud_wireguard: WireGuardTunnelConfiguration | null;
   managed_llm_credential: ManagedLlmCredential | null;
+  managed_llm_state?: ManagedLlmState | null;
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
@@ -474,5 +476,6 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     ),
     cloud_wireguard: parseWireGuardTunnelConfiguration(value.cloud_wireguard),
     managed_llm_credential: parsedManagedCredential,
+    managed_llm_state: value.managed_llm_state == null ? singleManagedState(parsedManagedCredential) : parseManagedState(value.managed_llm_state),
   };
 };

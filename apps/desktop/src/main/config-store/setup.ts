@@ -1,3 +1,4 @@
+import { managedTargetKey, managedCredentialFor, parseManagedState, singleManagedState, type ManagedLlmState } from "@lxe/core";
 import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
@@ -234,6 +235,7 @@ export class DesktopSetupService {
       ? storedManagedCredential
       : null;
     if (storedManagedCredential && !managedCredential) {
+      if (secrets.managed_llm_state) secrets.managed_llm_state.credentials = secrets.managed_llm_state.credentials.filter((c) => managedLlmTargetSupported(this.llmConfigRoot, c));
       secrets.managed_llm_credential = null;
     }
     const validManagedCredential = managedCredential
@@ -353,11 +355,50 @@ export class DesktopSetupService {
     const secrets = this.repository.readSecrets();
     config.llm.provider = selectedProvider.name;
     config.llm.credential_source = credentialSource;
+    if (credentialSource === "cloud" && secrets.managed_llm_state) {
+      const target = { provider: selectedProvider.name, model: selectedModel.id };
+      const credential = managedCredentialFor(secrets.managed_llm_state, target);
+      if (!credential) throw new Error("managed LLM credential is unavailable for selected target");
+      config.llm.managed_target = target;
+      secrets.managed_llm_credential = credential;
+    }
     if (credentialSource === "local") config.llm.last_local_provider = selectedProvider.name;
     config.llm.profiles[selectedProvider.name] = {
       model: selectedModel.id,
       thinking_level: level,
     };
+    this.repository.commit(config, secrets);
+  }
+
+  managedLlmState(): ManagedLlmState {
+    if (this.repository.readConfig().cloud.switch_in_progress) return singleManagedState(null);
+    const secrets = this.repository.readSecrets();
+    return structuredClone(secrets.managed_llm_state ?? singleManagedState(secrets.managed_llm_credential));
+  }
+
+  saveManagedLlmState(value: ManagedLlmState): void {
+    this.repository.requireSafeStorage();
+    const state = parseManagedState(value);
+    state.credentials = state.credentials.filter((c) => managedLlmTargetSupported(this.llmConfigRoot, c));
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    const previous = config.llm.managed_target;
+    const previouslyPublished = secrets.managed_llm_state?.models.some((m) => managedTargetKey(m) === managedTargetKey(previous));
+    const target = previouslyPublished && state.models.some((m) => managedTargetKey(m) === managedTargetKey(previous)) ? previous : state.default_target;
+    secrets.managed_llm_state = state;
+    const cached = target ? state.credentials.find((c) => managedTargetKey(c) === managedTargetKey(target)) : undefined;
+    secrets.managed_llm_credential = cached ?? null;
+    if (target) config.llm.managed_target = { provider: target.provider, model: target.model };
+    // Personal credentials and their model preferences are independent of company publication.
+    if (!Object.values(this.auth.snapshot().configured).some(Boolean)) config.llm.credential_source = "cloud";
+    if (config.llm.credential_source === "cloud" && target && managedLlmTargetSupported(this.llmConfigRoot, target)) {
+      config.llm.provider = target.provider;
+      const profile = config.llm.profiles[target.provider];
+      config.llm.profiles[target.provider] = {
+        model: target.model,
+        thinking_level: profile?.model === target.model ? profile.thinking_level : this.defaultProfile(target.provider, target.model).thinking_level,
+      };
+    }
     this.repository.commit(config, secrets);
   }
 
@@ -384,6 +425,7 @@ export class DesktopSetupService {
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
     secrets.managed_llm_credential = { ...credential, invalid_revision: "" };
+    secrets.managed_llm_state = singleManagedState(secrets.managed_llm_credential);
     config.llm.managed_target = { provider: credential.provider, model: credential.model };
     const hasLocalProvider = Object.values(this.auth.snapshot().configured).some(Boolean);
     if (config.llm.credential_source === "cloud" || !hasLocalProvider) {
@@ -399,18 +441,18 @@ export class DesktopSetupService {
   }
 
   invalidateManagedLlmCredential(revision: string): void {
-    const config = this.repository.readConfig();
-    const secrets = this.repository.readSecrets();
-    if (!secrets.managed_llm_credential
-      || secrets.managed_llm_credential.credential_revision !== text(revision)) return;
-    secrets.managed_llm_credential.invalid_revision = text(revision);
+    const config = this.repository.readConfig(); const secrets = this.repository.readSecrets();
+    const state = secrets.managed_llm_state ?? singleManagedState(secrets.managed_llm_credential);
+    for (const credential of state.credentials) if (credential.credential_revision === revision) credential.invalid_revision = revision;
+    secrets.managed_llm_state = state;
+    if (secrets.managed_llm_credential?.credential_revision === revision) secrets.managed_llm_credential.invalid_revision = revision;
     this.repository.commit(config, secrets);
   }
 
   clearManagedLlmCredential(): void {
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    if (!secrets.managed_llm_credential) return;
+    secrets.managed_llm_state = singleManagedState(null);
     secrets.managed_llm_credential = null;
     this.repository.commit(config, secrets);
   }

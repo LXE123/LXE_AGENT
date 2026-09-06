@@ -1,3 +1,4 @@
+import type { ManagedLlmState } from "@lxe/core";
 import type {
   DesktopCloudPermissionSnapshot,
   CredentialSource,
@@ -79,6 +80,10 @@ export class DesktopConfigStore {
   ): void {
     this.setup.saveRuntimePreference(provider, model, thinkingLevel, credentialSource);
   }
+
+  managedLlmState(): ManagedLlmState { return this.setup.managedLlmState(); }
+
+  saveManagedLlmState(state: ManagedLlmState): void { this.setup.saveManagedLlmState(state); }
 
   managedLlmCredential(): ManagedLlmCredential | null {
     return this.setup.managedLlmCredential();

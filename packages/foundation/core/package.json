@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./env": "./src/env.ts",
-    "./machine-identity": "./src/machine-identity.ts"
+    "./machine-identity": "./src/machine-identity.ts",
+    "./managed-llm": "./src/managed-llm.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

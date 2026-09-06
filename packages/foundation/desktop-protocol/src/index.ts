@@ -1,3 +1,4 @@
+import { parseManagedState, type ManagedLlmState } from "@lxe/core/managed-llm";
 import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
   type JsonRpcId, type JsonRpcSuccess, type JsonRpcFailure, type JsonRpcResponse } from "./json-rpc";
 export * from "./json-rpc";
@@ -64,6 +65,8 @@ export interface DesktopLocalModelProvider {
   configured: boolean;
 }
 
+export type { ManagedLlmState } from "@lxe/core/managed-llm";
+
 export interface ManagedLlmTarget {
   provider: string;
   model: string;
@@ -95,6 +98,7 @@ export type AgentInitializePayload = {
   data_root: string;
   legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
+  managed_llm_state?: ManagedLlmState;
 };
 
 export type AgentCommandPayloads = {
@@ -103,6 +107,7 @@ export type AgentCommandPayloads = {
   update_managed_llm_credential: {
     credential: ManagedLlmCredential | null;
     target?: ManagedLlmTarget;
+    state?: ManagedLlmState;
   };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string };
@@ -696,6 +701,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("llm_config_root");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
+      if (payload.managed_llm_state !== undefined) parseManagedState(payload.managed_llm_state);
       if (payload.allowed_skill_types !== undefined
         && (!Array.isArray(payload.allowed_skill_types)
           || payload.allowed_skill_types.some((value) => typeof value !== "string"))) {
@@ -711,6 +717,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       }
       break;
     case "update_managed_llm_credential": {
+      if (payload.state !== undefined) parseManagedState(payload.state);
       if (payload.target !== undefined) {
         const target = objectValue(payload.target);
         if (!target

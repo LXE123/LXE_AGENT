@@ -1,3 +1,4 @@
+import { managedCredentialFor, type ManagedLlmState } from "@lxe/core";
 import { canReplayMetadata, legacyMessage, completeTool } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import { readFileSync } from "node:fs";
@@ -98,6 +99,7 @@ export interface RuntimeProviderManager {
 }
 
 interface ProviderLoadOptions {
+  managedLlmState?: ManagedLlmState;
   llmConfigRoot?: string;
   /** Load model metadata without retaining or validating an API key. */
   deferCredential?: boolean;
@@ -227,12 +229,15 @@ export function loadProviderDescriptor(
   const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud"
     ? "cloud"
     : "local";
-  const credentialRevision = credentialSource === "cloud"
+  const selectedManagedProvider = envText(env, "LXE_MANAGED_LLM_PROVIDER", "");
+  const matchesManagedSelection = !selectedManagedProvider || (selectedManagedProvider === name && envText(env, "LXE_MANAGED_LLM_MODEL", "") === model);
+  const managedCredential = options.managedLlmState && matchesManagedSelection ? managedCredentialFor(options.managedLlmState, { provider: name, model }) : undefined;
+  const credentialRevision = options.managedLlmState && credentialSource === "cloud" ? managedCredential?.credential_revision ?? "" : credentialSource === "cloud"
     ? envText(env, "LXE_MANAGED_LLM_CREDENTIAL_REVISION", "").toLowerCase()
     : "";
-  const managedProvider = normalizeProviderKey(envText(env, "LXE_MANAGED_LLM_PROVIDER", ""));
-  const managedModel = envText(env, "LXE_MANAGED_LLM_MODEL", "");
-  const invalidRevision = envText(env, "LXE_MANAGED_LLM_INVALID_REVISION", "").toLowerCase();
+  const managedProvider = options.managedLlmState ? managedCredential?.provider ?? "" : normalizeProviderKey(envText(env, "LXE_MANAGED_LLM_PROVIDER", ""));
+  const managedModel = options.managedLlmState ? managedCredential?.model ?? "" : envText(env, "LXE_MANAGED_LLM_MODEL", "");
+  const invalidRevision = options.managedLlmState ? managedCredential?.invalid_revision ?? "" : envText(env, "LXE_MANAGED_LLM_INVALID_REVISION", "").toLowerCase();
   let localApiKey = "";
   if (credentialSource === "local" && options.localAuthPath) {
     try {
@@ -247,7 +252,7 @@ export function loadProviderDescriptor(
     }
   }
   const apiKey = credentialSource === "cloud"
-    ? envText(env, "LXE_MANAGED_LLM_API_KEY", "")
+    ? options.managedLlmState ? managedCredential?.api_key ?? "" : envText(env, "LXE_MANAGED_LLM_API_KEY", "")
     : options.localAuthPath
       ? localApiKey
       : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
@@ -712,6 +717,7 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     private readonly factory: RuntimeProviderFactory = (descriptor) => new AnthropicRuntimeProvider(descriptor),
     private readonly llmConfigRoot?: string,
     private readonly localAuthPath?: string,
+    private readonly managedLlmState?: () => ManagedLlmState | undefined,
   ) {
     this.snapshot = this.createSnapshot(1);
   }
@@ -732,8 +738,13 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     }
     if (patch.thinkingEnabled !== undefined) environmentPatch.AGENT_LLM_THINKING_ENABLED = patch.thinkingEnabled ? "1" : "0";
     if (patch.thinkingEffort !== undefined) environmentPatch.AGENT_LLM_THINKING_EFFORT = patch.thinkingEffort;
+    if (this.managedLlmState?.() && (patch.provider !== undefined || patch.model !== undefined || patch.credentialSource === "cloud")
+      && (patch.credentialSource ?? this.environment.AGENT_LLM_CREDENTIAL_SOURCE) === "cloud") {
+      environmentPatch.LXE_MANAGED_LLM_PROVIDER = patch.provider ?? String(this.environment.AGENT_LLM_PROVIDER ?? "");
+      environmentPatch.LXE_MANAGED_LLM_MODEL = patch.model ?? String(this.environment.AGENT_LLM_MODEL ?? "");
+    }
     const candidateEnvironment = { ...this.environment, ...environmentPatch };
-    const descriptor = this.load(candidateEnvironment, true);
+    const descriptor = this.load(candidateEnvironment, true, this.managedLlmState?.());
     await persist?.(environmentPatch);
     Object.assign(this.environment, environmentPatch);
     this.snapshot = {
@@ -744,11 +755,12 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     return this.snapshot;
   }
 
-  private load(environment: Environment, deferCredential: boolean): ProviderDescriptor {
+  private load(environment: Environment, deferCredential: boolean, managedState?: ManagedLlmState): ProviderDescriptor {
     return loadProviderDescriptor(this.projectRoot, environment, {
       ...(this.llmConfigRoot ? { llmConfigRoot: this.llmConfigRoot } : {}),
       ...(this.localAuthPath ? { localAuthPath: this.localAuthPath } : {}),
       deferCredential,
+      ...(managedState ? { managedLlmState: managedState } : {}),
     });
   }
 
@@ -756,16 +768,18 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     descriptor: ProviderDescriptor,
     configuredEnvironment: Environment,
   ): RuntimeProvider {
+    const managedState = this.managedLlmState?.();
+    const snapshot = managedState ? structuredClone(managedState) : undefined;
     return new CredentialResolvingRuntimeProvider(
       () => descriptor,
-      () => this.load(configuredEnvironment, false),
+      () => this.load(configuredEnvironment, false, snapshot),
       this.factory,
     );
   }
 
   private createSnapshot(generation: number): RuntimeProviderSnapshot {
     const configuredEnvironment = { ...this.environment };
-    const descriptor = this.load(configuredEnvironment, true);
+    const descriptor = this.load(configuredEnvironment, true, this.managedLlmState?.());
     return {
       generation,
       descriptor,

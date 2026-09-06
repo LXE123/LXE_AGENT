@@ -1,3 +1,4 @@
+import { type ManagedLlmState } from "@lxe/core";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
@@ -60,6 +61,7 @@ export interface ProcessAgentRuntimeOptions {
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
+  managedLlmState?: ManagedLlmState;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -221,6 +223,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
         allowed_skill_types: [...this.allowedSkillTypes],
+        ...(this.options.managedLlmState ? { managed_llm_state: this.options.managedLlmState } : {}),
       }, this.options.requestTimeoutMs ?? 30_000));
       if (this.remoteHealthSnapshot.protocol_version !== AGENT_PROTOCOL_VERSION) {
         this.incompatible = true;
@@ -321,7 +324,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   async updateManagedLlmCredential(
     credential: ManagedLlmCredential | null,
     target?: ManagedLlmTarget,
+    state?: ManagedLlmState,
   ): Promise<void> {
+    if (state) this.options.managedLlmState = structuredClone(state);
     const managedTarget = target ?? credential;
     this.options.environment.LXE_MANAGED_LLM_PROVIDER = managedTarget?.provider ?? "";
     this.options.environment.LXE_MANAGED_LLM_MODEL = managedTarget?.model ?? "";
@@ -331,7 +336,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     if (!this.isReady) return;
     const result = objectValue(await this.request(
       "update_managed_llm_credential",
-      { credential, ...(managedTarget ? { target: managedTarget } : {}) },
+      { credential, ...(managedTarget ? { target: managedTarget } : {}), ...(state ? { state } : {}) },
     ));
     if (result.updated !== true) {
       throw new AgentProcessError(

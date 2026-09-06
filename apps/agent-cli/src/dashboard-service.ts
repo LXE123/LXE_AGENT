@@ -1,3 +1,4 @@
+import { managedCredentialFor, type ManagedLlmState, type ManagedTarget } from "@lxe/core";
 import {
   existsSync,
   mkdirSync,
@@ -59,6 +60,7 @@ interface DashboardServiceOptions {
     tools?: Array<{ rawName: string; modelName: string }>;
   };
   providerManager?: RuntimeProviderManager;
+  managedLlmState?: () => ManagedLlmState | undefined;
   skillCatalog?: SkillCatalog;
   allowedSkillTypes?: ReadonlySet<string>;
   cliCommands?: LxeSkillCommandDefinition[];
@@ -595,12 +597,12 @@ export class DashboardService {
       .map((spec) => this.modelPayload(spec))
       .sort((left, right) => text(left.label).localeCompare(text(right.label))
         || text(left.provider).localeCompare(text(right.provider)));
-    const target = this.managedTarget();
-    const managedSpec = this.managedProviderSpec(target.provider);
-    const managedModels = object(managedSpec?.models);
-    items.push(managedSpec && target.model in managedModels
-      ? this.modelPayload(managedSpec, target.model, "cloud")
-      : this.unsupportedManagedModelPayload(target, managedSpec));
+    const state = this.options.managedLlmState?.();
+    for (const target of state ? state.models : [this.managedTarget()]) {
+      const spec = this.managedProviderSpec(target.provider);
+      if (spec && target.model in object(spec.models)) items.push(this.modelPayload(spec, target.model, "cloud"));
+      else if (!state) items.push(this.unsupportedManagedModelPayload(target, spec));
+    }
     return items;
   }
 
@@ -624,6 +626,12 @@ export class DashboardService {
   }
 
   private managedTarget(): { provider: string; model: string } {
+    const state = this.options.managedLlmState?.();
+    if (state) {
+      const selected = { provider: text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) || text(this.options.environment.AGENT_LLM_PROVIDER), model: text(this.options.environment.LXE_MANAGED_LLM_MODEL) || text(this.options.environment.AGENT_LLM_MODEL) };
+      if (this.options.environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud" && state.models.some((m) => m.provider === selected.provider && m.model === selected.model)) return selected;
+      return state.default_target ?? { provider: "", model: "" };
+    }
     const catalog = loadLlmProviderCatalog(this.options.llmConfigRoot);
     const defaultProvider = catalog.requireProvider(catalog.defaultProvider);
     return {
@@ -637,6 +645,8 @@ export class DashboardService {
   }
 
   private managedConfigured(target: { provider: string; model: string }): boolean {
+    const state = this.options.managedLlmState?.();
+    if (state) return Boolean(managedCredentialFor(state, target));
     const managedRevision = text(this.options.environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION).toLowerCase();
     return text(this.options.environment.LXE_MANAGED_LLM_PROVIDER) === target.provider
       && text(this.options.environment.LXE_MANAGED_LLM_MODEL) === target.model
@@ -811,12 +821,13 @@ export class DashboardService {
     const activeThinkingState = object(activeModel?.thinking_state);
     const savedPreference = readProviderPreference(this.options.environment, provider);
     const managedTarget = this.managedTarget();
-    if (credentialSource === "cloud" && provider !== managedTarget.provider) {
-      rpcError("invalid_argument", "Unsupported managed model provider");
-    }
+    const managedState = this.options.managedLlmState?.();
     const preferredModel = credentialSource === "cloud"
-      ? managedTarget.model
+      ? managedState ? requestedModel || managedTarget.model : managedTarget.model
       : requestedModel || savedPreference.model || text(spec.default_model);
+    if (credentialSource === "cloud" && (managedState
+      ? !managedState.models.some((m) => m.provider === provider && m.model === preferredModel)
+      : provider !== managedTarget.provider)) rpcError("invalid_argument", "Unsupported managed model provider/model");
     const model = preferredModel in models
       ? preferredModel
       : requestedModel ? preferredModel : text(spec.default_model);

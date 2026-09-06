@@ -288,7 +288,7 @@ async function bootstrap(): Promise<void> {
     onManagedLlmAuthenticationFailure: async (revision) => {
       config.invalidateManagedLlmCredential(revision);
       const credential = config.managedLlmCredential();
-      if (credential) await gateway.updateManagedLlmCredential(credential);
+      await gateway.updateManagedLlmCredential(credential);
       invalidations.push(["models"]);
       await cloud?.check();
     },
