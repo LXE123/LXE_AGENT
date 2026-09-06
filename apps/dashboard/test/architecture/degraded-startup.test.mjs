@@ -34,5 +34,5 @@ test("unconfigured setup disables the composer with a specific explanation", () 
   assert.match(main, /setupComplete\s*\? t\.conversation\.unavailable\s*: t\.conversation\.modelUnavailable/);
   assert.match(sessionView, /disabled=\{!runtimeReady\}/);
   assert.match(sessionView, /placeholder=\{runtimeReady \? t\.conversation\.placeholder : runtimeUnavailableMessage\}/);
-  assert.match(sessionView, /if \(!runtimeReady\) return;[\s\S]*stageDroppedConversationFiles/);
+  assert.match(sessionView, /if \(!runtimeReady \|\| sending\) return;[\s\S]*stageDroppedConversationFiles/);
 });

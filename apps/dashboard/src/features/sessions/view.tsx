@@ -633,6 +633,11 @@ function fileExtensionLabel(name: string): string {
   return match?.[1] ? match[1].slice(0, 5).toUpperCase() : "FILE";
 }
 
+function attachmentSuffix(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : "";
+}
+
 function InputAttachmentList({
   attachments,
   onOpen,
@@ -666,7 +671,10 @@ function InputAttachmentList({
             type="button"
           >
             {attachment.preview_data_url ? <img className="input-attachment-preview" src={attachment.preview_data_url} alt={attachment.name} /> : <Paperclip size={14} />}
-            <span>{attachment.preview_data_url ? t.conversation.screenshot : attachment.name}</span>
+            <span className="input-attachment-info">
+              <span>{attachment.preview_data_url ? t.conversation.screenshot : attachment.name}</span>
+              {attachmentSuffix(attachment.name) ? <span className="input-attachment-suffix">{attachmentSuffix(attachment.name)}</span> : null}
+            </span>
           </button>
           {onRemove ? (
             <button

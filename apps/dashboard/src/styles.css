@@ -11333,3 +11333,16 @@ pre {
   object-fit: contain;
   border-radius: 4px;
 }
+
+.input-attachment-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.input-attachment-suffix {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+}
