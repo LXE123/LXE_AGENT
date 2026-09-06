@@ -283,6 +283,22 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
     const emittedArtifactPaths = new Set<string>();
     const toolRecoveryAttempts = new Map<string, number>();
+    let displayEpoch: string | undefined;
+    let displayMeasurement: import("./context-meter").ContextMeasurement | undefined;
+    const saveDisplay = async (measurement = displayMeasurement): Promise<void> => {
+      if (job.job_kind === "heartbeat" || !measurement || !displayEpoch) return;
+      displayMeasurement = measurement;
+      try {
+        await this.options.store.saveContextDisplay?.(job.session_id, displayEpoch, {
+          version: 1, turn_id: job.job_id, updated_at: Date.now(),
+          model: descriptor?.model ?? this.options.display?.model ?? "",
+          context_tokens: measurement.tokens, context_window_tokens: measurement.contextWindowTokens,
+          context_source: measurement.source,
+          input_tokens: inputTokens, output_tokens: outputTokens,
+          cache_read_input_tokens: cacheReadTokens, cache_creation_input_tokens: cacheCreationTokens,
+        });
+      } catch (error) { this.logger.warn("context_display_persist_failed", { error }); }
+    };
     let usageRecorded = false;
     const accountedMessages = new Set<string>();
     const accountMessage = (message: AssistantMessage): void => {
@@ -313,6 +329,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const recordUsage = async (status: TurnOutcome["status"], error?: unknown): Promise<void> => {
       if (usageRecorded) return;
       usageRecorded = true;
+      await saveDisplay();
       const elapsedMs = Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000));
       try {
         await this.options.store.recordTurn(job.session_id, {
@@ -343,6 +360,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
+      if (job.job_kind !== "heartbeat") {
+        try { displayEpoch = await this.options.store.beginContextDisplay?.(job.session_id, startedAt * 1_000); }
+        catch (error) { this.logger.warn("context_display_begin_failed", { error }); }
+      }
       if (descriptor?.credentialSource === "cloud"
         && descriptor.credentialRevision
         && String(this.options.environment?.LXE_MANAGED_LLM_INVALID_REVISION ?? "").trim().toLowerCase()
@@ -461,6 +482,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         pendingEventCount: pendingEvents.length,
       });
       await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id);
+      await saveDisplay(initialMeasurement);
       await finalAnswerStreamer?.updateContext(initialMeasurement);
       if (!heartbeat && job.user_content_blocks.some((block) => block.type === "local_file")) {
         await this.notifySessionChanged(job.session_id, "attachments");
@@ -495,6 +517,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const updateContext = async () => {
           const measurement = contextPipeline.measure(systemPrompt, messages, toolSchemas, fingerprint);
           observer.measurement(measurement);
+          await saveDisplay(measurement);
           await finalAnswerStreamer?.updateContext(measurement);
         };
         const prepareRequestContext = async (): Promise<void> => {

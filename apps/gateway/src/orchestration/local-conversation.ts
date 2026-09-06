@@ -389,7 +389,8 @@ export class LocalConversationController {
       }
       if (mutation.kind === "stream_updated") {
         state = mutation.state;
-        metrics = { ...mutation.display_metrics };
+        metrics = sanitizeMetrics(mutation.display_metrics);
+        if (!metrics) return false;
         continue;
       }
       const incoming = cloneProcessPart(mutation.part);
@@ -621,7 +622,9 @@ function cloneStreamMutation(
 ): DesktopConversationStreamBatch["mutations"][number] {
   if (mutation.kind === "part_updated") return { ...mutation, part: cloneProcessPart(mutation.part) };
   if (mutation.kind === "stream_updated") {
-    return { ...mutation, display_metrics: { ...mutation.display_metrics } };
+    const metrics = sanitizeMetrics(mutation.display_metrics);
+    if (!metrics) throw new Error("invalid stream metrics after batch validation");
+    return { ...mutation, display_metrics: metrics };
   }
   return { ...mutation };
 }
@@ -744,6 +747,8 @@ function sanitizeMetrics(value: unknown): DisplayMetrics | undefined {
     output_tokens: integer(metrics.output_tokens),
     cache_read_input_tokens: integer(metrics.cache_read_input_tokens),
     cache_creation_input_tokens: integer(metrics.cache_creation_input_tokens),
+    ...(metrics.context_source === "estimated" || metrics.context_source === "usage_calibrated"
+      ? { context_source: metrics.context_source } : {}),
     context_tokens: integer(metrics.context_tokens),
     context_window_tokens: integer(metrics.context_window_tokens),
   };

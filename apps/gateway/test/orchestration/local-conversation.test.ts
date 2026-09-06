@@ -120,6 +120,7 @@ describe("LocalConversationController", () => {
       output_tokens: 1,
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
+      context_source: "estimated" as const,
       context_tokens: 0,
       context_window_tokens: 100,
     };
@@ -148,6 +149,7 @@ describe("LocalConversationController", () => {
     expect(h.controller.handleStreamBatch(batch)).toBe(true);
     expect(h.activities).toHaveLength(beforeActivities);
     expect(h.controller.activity("session-1").active?.stream?.thinking).toBe("inspect");
+    expect(h.controller.activity("session-1").active?.stream?.display_metrics.context_source).toBe("estimated");
     expect(h.controller.activity("session-1").active?.created_at).toBeGreaterThan(0);
     expect(h.streamBatches).toHaveLength(1);
     expect(JSON.stringify(h.streamBatches)).not.toContain("response_route_id");
@@ -155,6 +157,14 @@ describe("LocalConversationController", () => {
     expect(h.controller.handleStreamBatch({ ...batch, session_id: "session-2", seq: 2 })).toBe(false);
     expect(h.controller.handleStreamBatch({ ...batch, emit_id: "emit-2", seq: 2 })).toBe(false);
     expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
+    const invalidSource = { ...metrics, context_source: "forged" } as unknown as typeof metrics;
+    expect(h.controller.handleStreamBatch({ ...batch, seq: 2, mutations: [
+      { kind: "stream_updated", state: "delta", display_metrics: invalidSource },
+    ] })).toBe(true);
+    expect(h.controller.activity("session-1").active?.stream?.display_metrics.context_source).toBeUndefined();
+    const lastMutation = (h.streamBatches.at(-1) as DesktopStreamBatchRequest | undefined)?.mutations.at(-1);
+    if (lastMutation?.kind !== "stream_updated") throw new Error("missing normalized metrics");
+    expect(lastMutation.display_metrics.context_source).toBeUndefined();
   });
   test("continues an existing transcript without changing its source or workspace", async () => {
     const h = harness(["turn-1", "message-1", "route-1"]);
@@ -390,6 +400,7 @@ describe("LocalConversationController", () => {
           output_tokens: 2,
           cache_read_input_tokens: 0,
           cache_creation_input_tokens: 0,
+          context_source: "usage_calibrated",
           context_tokens: 1,
           context_window_tokens: 100,
         },
@@ -406,6 +417,7 @@ describe("LocalConversationController", () => {
     expect(activity.active?.user_persisted_at).toBeGreaterThan(0);
     expect(activity.active?.stream?.content).toBe("answer");
     expect(activity.active?.stream?.display_metrics.phase).toBe("running_tool");
+    expect(activity.active?.stream?.display_metrics.context_source).toBe("usage_calibrated");
     expect(activity.active?.stream?.process_parts.map((part) => part.part_id)).toEqual(["part-1", "part-2"]);
     expect(activity.active?.stream?.process_parts[1]).toEqual(expect.objectContaining({
       type: "tool",
@@ -437,6 +449,7 @@ describe("LocalConversationController", () => {
       } as unknown as JsonObject,
     });
     expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
+
     h.controller.handleOutbound({
       action: "stream_message",
       platform: "desktop",
@@ -451,6 +464,7 @@ describe("LocalConversationController", () => {
       } as unknown as JsonObject,
     });
     expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
+
     h.controller.dispose();
   });
 

@@ -225,6 +225,8 @@ export interface RuntimeStore {
     replacementKind: "compaction" | "repair" | "history_limit" | "context_replacement",
     metadata?: JsonObject,
   ): Promise<void>;
+  beginContextDisplay?(sessionId: string, startedAt?: number): Promise<string | undefined>;
+  saveContextDisplay?(sessionId: string, epoch: string, snapshot: import("@lxe/protocol").ContextDisplaySnapshot): Promise<void>;
   patchSessionState(sessionId: string, patch: JsonObject): Promise<void>;
   recordTurn(sessionId: string, metrics: RuntimeTurnUsageRecord): Promise<void>;
 }

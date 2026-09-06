@@ -130,6 +130,14 @@ export class UsageStore {
    * runtime store's business and stay there; callers that need both updated
    * atomically wrap this in their own transaction on the same connection.
    */
+  latestSessionUsage(sessionId: string, resetAt = 0): import("@lxe/protocol").ContextDisplayUsage | null {
+    return this.database.query(`
+      SELECT input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens
+      FROM turn_usage WHERE session_id = ? AND started_at * 1000 > ?
+      ORDER BY started_at DESC, sequence DESC LIMIT 1
+    `).get(sessionId, resetAt) as import("@lxe/protocol").ContextDisplayUsage | null;
+  }
+
   recordTurn(sessionId: string, metrics: RuntimeTurnUsageRecord): void {
     const safeSessionId = text(sessionId);
     const turnId = text(metrics.turn_id) || randomUUID().replaceAll("-", "");

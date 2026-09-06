@@ -451,3 +451,66 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.stop();
   });
 });
+
+test("context display survives store restart, preserves capacity and never changes transcript or activity time", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-context-display-"));
+  roots.push(root);
+  const path = join(root, "agent.sqlite3");
+  let store = new SqliteRuntimeStore(path);
+  await store.start();
+  await store.ensureSession({workspace:testWorkspace,session_id:"s",source:{platform:"desktop"}});
+  await store.appendMessage("s",{role:"user",content:"hello"},"turn_input","t");
+  const before=await store.sessionDetail("s",{limit:10});
+  const epoch=await store.beginContextDisplay("s");
+  const snapshot = {
+    version:1 as const,turn_id:"t",updated_at:Date.now(),model:"old-model",context_window_tokens:1000000,
+    context_tokens:12345,context_source:"usage_calibrated" as const,
+    input_tokens:500,output_tokens:50,cache_read_input_tokens:10000,cache_creation_input_tokens:0,
+  };
+  await store.saveContextDisplay("s",epoch!,snapshot);
+  await store.saveContextDisplay("s",epoch!,{...snapshot,updated_at:snapshot.updated_at+1});
+  await store.stop();
+  store=new SqliteRuntimeStore(path);
+  await store.start();
+  const restored=await store.sessionDetail("s",{limit:1});
+  expect(restored?.context_display).toEqual(snapshot);
+  expect((restored?.session as {last_active_at:number}).last_active_at).toBe((before?.session as {last_active_at:number}).last_active_at);
+  expect(await store.loadMessages("s")).toEqual([{role:"user",content:"hello"}]);
+  // Reset fences both queued and late writes from the previous runtime epoch.
+  const resetting=store.resetContext("s");
+  const late=store.saveContextDisplay("s",epoch!,{...snapshot,updated_at:snapshot.updated_at+2});
+  await Promise.all([resetting,late]);
+  expect((await store.sessionDetail("s",{limit:10}))?.context_display).toBeNull();
+  expect(await store.beginContextDisplay("s",snapshot.updated_at-1)).toBeUndefined();
+  const newEpoch=await store.beginContextDisplay("s",Date.now()+1);
+  expect(newEpoch).not.toBe(epoch);
+  await store.saveContextDisplay("s",newEpoch!,{...snapshot,context_tokens:0});
+  expect((await store.sessionDetail("s",{limit:10}))?.context_display).toMatchObject({context_tokens:0});
+  await store.deleteSession("s");
+  await store.saveContextDisplay("s",newEpoch!,snapshot);
+  expect(await store.sessionDetail("s",{limit:10})).toBeUndefined();
+  await store.ensureSession({workspace:testWorkspace,session_id:"s",source:{platform:"desktop"}});
+  await store.beginContextDisplay("s");
+  await store.saveContextDisplay("s",newEpoch!,snapshot);
+  expect((await store.sessionDetail("s",{limit:10}))?.context_display).toBeNull();
+  await store.stop();
+});
+
+test("old sessions recover latest turn consumption separately from unknown occupancy", async () => {
+  const root=mkdtempSync(join(tmpdir(),"lxe-context-usage-")); roots.push(root);
+  const store=new SqliteRuntimeStore(join(root,"agent.sqlite3"));
+  await store.start();
+  await store.ensureSession({workspace:testWorkspace,session_id:"s",source:{}});
+  expect((await store.sessionDetail("s",{limit:10}))?.latest_turn_usage).toBeNull();
+  for (let i=1;i<=2;i++) await store.recordTurn("s",{
+    turn_id:`t${i}`,started_at:i,status:"completed",elapsed_ms:10,input_tokens:i*100,output_tokens:i*10,
+    cache_read_input_tokens:i*20,cache_creation_input_tokens:0,tool_calls:0,api_calls:1,
+    tools:[],activations:[],executions:[],
+  });
+  const detail=await store.sessionDetail("s",{limit:10});
+  expect(detail?.context_display).toBeNull();
+  expect(detail?.latest_turn_usage).toEqual({input_tokens:200,output_tokens:20,cache_read_input_tokens:40,cache_creation_input_tokens:0});
+  await store.resetContext("s","memory_clear");
+  expect((await store.sessionDetail("s",{limit:10}))?.latest_turn_usage).toBeNull();
+  await store.stop();
+});

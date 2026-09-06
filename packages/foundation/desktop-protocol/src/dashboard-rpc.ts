@@ -140,6 +140,9 @@ export type MessagesPagePayload = {
 };
 
 export type SessionDetailPayload = {
+  context_display?: import("@lxe/protocol").ContextDisplaySnapshot | null;
+  context_reset_at?: number;
+  latest_turn_usage?: import("@lxe/protocol").ContextDisplayUsage | null;
   session: SessionPayload;
   messages: SessionMessage[];
   messages_page: MessagesPagePayload;

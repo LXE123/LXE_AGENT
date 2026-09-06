@@ -1,3 +1,5 @@
+import { clearResetStreams } from "../features/sessions/context-display";
+import type { DesktopConversationActivityPayload } from "@lxe/desktop-protocol";
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -128,8 +130,12 @@ export function useSessionConversationQuery(sessionId: string, enabled = true) {
   useEffect(() => {
     const latest = latestQuery.data;
     if (latest?.session.session_id !== sessionId) return;
+    if (latest.context_reset_at) queryClient.setQueryData<DesktopConversationActivityPayload>(
+      dashboardQueryKeys.sessions.activity(sessionId),
+      current => clearResetStreams(current, latest.context_reset_at!),
+    );
     publish(boundConversationWindow(mergeLatestConversationWindow(state.current, latest), visible.current));
-  }, [latestQuery.data, sessionId, publish]);
+  }, [latestQuery.data, sessionId, publish, queryClient]);
   const fetchPage = useCallback((direction: "older" | "newer"): Promise<SessionDetailPayload | undefined> => {
     const existing = requests.current.get(direction);
     if (existing) return existing;

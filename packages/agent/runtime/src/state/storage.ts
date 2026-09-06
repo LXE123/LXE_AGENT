@@ -1,3 +1,4 @@
+import { validContextDisplaySnapshot, type ContextDisplaySnapshot } from "@lxe/protocol";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readFile, rename, stat, truncate, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -518,6 +519,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         database.exec("ALTER TABLE agent_sessions ADD COLUMN pinned_at REAL NOT NULL DEFAULT 0");
       }
       for (const [name, declaration] of [
+        ["context_display", "TEXT"],
         ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
         ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
       ] as const) {
@@ -694,8 +696,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
       this.validCacheBeforeWrite(safeSessionId, path);
       await this.appendTranscriptEvent(safeSessionId, createContextPatchEvent(previous, [], reason));
       this.db().transaction(() => {
-        this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0 WHERE session_id = ?")
-          .run(Date.now() / 1_000, safeSessionId);
+        this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0, context_display = ? WHERE session_id = ?")
+          .run(Date.now() / 1_000, JSON.stringify({ epoch: randomUUID(), reset_at: Date.now(), snapshot: null }), safeSessionId);
         this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
       })();
       await this.updateCacheAfterWrite(safeSessionId, path, []);
@@ -957,6 +959,43 @@ export class SqliteRuntimeStore implements RuntimeStore {
     });
   }
 
+  /** Capture the reset fence before model work; stale tasks may not restore cleared displays. */
+  async beginContextDisplay(sessionId: string, startedAt = Date.now()): Promise<string | undefined> {
+    const id = text(sessionId);
+    let epoch: string | undefined;
+    await this.enqueueSessionWrite(id, async () => {
+      const row = this.getPrepared<{ context_display: string | null }>("SELECT context_display FROM agent_sessions WHERE session_id = ?", id);
+      if (!row) return;
+      const envelope = parseObject(row.context_display);
+      if (Number(envelope.reset_at ?? 0) >= startedAt) return;
+      epoch = text(envelope.epoch) || randomUUID();
+      if (!envelope.epoch) this.db().query("UPDATE agent_sessions SET context_display = ? WHERE session_id = ?")
+        .run(JSON.stringify({ ...envelope, epoch }), id);
+    });
+    return epoch;
+  }
+
+  async saveContextDisplay(sessionId: string, epoch: string, snapshot: ContextDisplaySnapshot): Promise<void> {
+    if (!validContextDisplaySnapshot(snapshot)) throw new Error("invalid context display snapshot");
+    const id = text(sessionId);
+    const incoming = structuredClone(snapshot);
+    await this.enqueueSessionWrite(id, async () => {
+      const row = this.getPrepared<{ context_display: string | null }>("SELECT context_display FROM agent_sessions WHERE session_id = ?", id);
+      if (!row) return;
+      const envelope = parseObject(row.context_display);
+      if (envelope.epoch !== epoch) return;
+      const previous = validContextDisplaySnapshot(envelope.snapshot) ? envelope.snapshot : undefined;
+      if (previous && previous.updated_at > incoming.updated_at) return;
+      const { updated_at: _incomingTime, ...data } = incoming;
+      if (previous) {
+        const { updated_at: _previousTime, ...oldData } = previous;
+        if (JSON.stringify(data) === JSON.stringify(oldData)) return;
+      }
+      this.db().query("UPDATE agent_sessions SET context_display = ? WHERE session_id = ?")
+        .run(JSON.stringify({ ...envelope, snapshot: incoming }), id);
+    });
+  }
+
   async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
     const safeSessionId = text(sessionId);
     const transaction = this.db().transaction(() => {
@@ -1157,12 +1196,19 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const row = this.getPrepared<Record<string, unknown>>(`
       SELECT session_id, source, workspace_directory, workspace_worktree,
              model, reasoning_effort, model_config, created_at, last_active_at,
-             message_count, tool_call_count, input_tokens, output_tokens, title, pinned_at, api_call_count
+             message_count, tool_call_count, input_tokens, output_tokens, title, pinned_at, api_call_count, context_display
       FROM agent_sessions WHERE session_id = ?
     `, safeSessionId);
     if (!row) return undefined;
+    const envelope = parseObject(row.context_display);
+    const snapshot = envelope.snapshot;
+    const displaySnapshot = validContextDisplaySnapshot(snapshot) ? snapshot : null;
+    const resetAt = Math.max(0, Number(envelope.reset_at ?? 0) || 0);
     return {
       session: this.sessionPayload(row),
+      context_display: displaySnapshot,
+      context_reset_at: resetAt,
+      latest_turn_usage: displaySnapshot ? null : this.usage().latestSessionUsage(safeSessionId, resetAt),
       messages: display.messages,
       messages_page: display.page,
     };

@@ -1,3 +1,5 @@
+export { validContextDisplaySnapshot } from "./context-display";
+export type { ContextDisplaySnapshot, ContextDisplayUsage } from "./context-display";
 export type {
   AgentDiagnostic,
   AgentJob,

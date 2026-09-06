@@ -308,6 +308,8 @@ export const ZH_TEXT = {
     inputHint: "Enter 发送，Shift + Enter 换行",
     characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
     contextMeter: {
+      noData: "暂无数据",
+      latestTurnUsage: "最近一轮累计用量",
       estimated: "预计下次请求输入（完整估算）",
       usage_calibrated: "预计下次请求输入（已用实际 usage 校准）",
       title: "上下文窗口",
@@ -1112,6 +1114,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       inputHint: "Enter to send, Shift + Enter for a new line",
       characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
       contextMeter: {
+      noData: "No data",
+      latestTurnUsage: "Latest turn usage",
       estimated: "Estimated next request input (full estimate)",
       usage_calibrated: "Estimated next request input (usage calibrated)",
         title: "Context window",

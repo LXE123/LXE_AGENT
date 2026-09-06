@@ -2480,3 +2480,87 @@ test.each(["partial", "unreported", "zero", "different-model"] as const)("does n
   await runtime.stop();
   expect(store.messages.filter(message=>message.contextTokenAnchor!==undefined)).toHaveLength(0);
 });
+
+test("persists coherent display observations and isolates heartbeat and persistence failures", async () => {
+  const snapshots: import("@lxe/protocol").ContextDisplaySnapshot[]=[];
+  const store = new MemoryStore() as MemoryStore & Pick<RuntimeStore,"beginContextDisplay"|"saveContextDisplay">;
+  let begins=0;
+  store.beginContextDisplay=async()=>{begins++;return "epoch";};
+  store.saveContextDisplay=async(_id,epoch,snapshot)=>{
+    expect(epoch).toBe("epoch");
+    snapshots.push(structuredClone(snapshot));
+  };
+  const runtime = new TypeScriptAgentRuntime({
+    store, tools:new ToolRegistry(), systemPrompt:"stable", contextWindowTokens:1000000,
+    provider:{summarize,turn:async()=>messageFixture({content:[{type:"text",text:"answer"}],
+      usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:200}})},
+    emitter:{emit:async()=>undefined,typing:async()=>undefined},
+  });
+  await runtime.start();
+  expect((await runtime.runTurn(job(),handle())).status).toBe("completed");
+  expect(snapshots[0]?.context_source).toBe("estimated");
+  expect(snapshots.at(-1)).toMatchObject({
+    context_window_tokens:1000000,context_source:"usage_calibrated",
+    input_tokens:100,output_tokens:50,cache_read_input_tokens:200,
+  });
+  expect(snapshots.at(-1)!.context_tokens).toBeGreaterThan(300);
+  const count=snapshots.length;
+  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
+  expect(snapshots).toHaveLength(count);
+  expect(begins).toBe(1);
+  store.pendingEvents.push({event_id:"e",job_id:"background",created_at:1,text:"background completed"});
+  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
+  expect(snapshots).toHaveLength(count);
+  expect(begins).toBe(1);
+  store.saveContextDisplay=async()=>{throw new Error("fixture sqlite write failure");};
+  expect((await runtime.runTurn(job({job_id:"next"}),handle())).status).toBe("completed");
+  await runtime.stop();
+  expect(JSON.stringify(store.messages)).not.toContain("context_display");
+});
+
+test("saves the post-image-cleanup measurement instead of the pre-maintenance display", async () => {
+  const snapshots: import("@lxe/protocol").ContextDisplaySnapshot[]=[];
+  const store=new MemoryStore() as MemoryStore & Pick<RuntimeStore,"beginContextDisplay"|"saveContextDisplay">;
+  store.beginContextDisplay=async()=> "epoch";
+  store.saveContextDisplay=async(_id,_epoch,snapshot)=>{snapshots.push(structuredClone(snapshot));};
+  const runtime=new TypeScriptAgentRuntime({
+    store,tools:new ToolRegistry(),systemPrompt:"s",
+    provider:{summarize,turn:async()=>messageFixture({content:[{type:"text",text:"done"}],usage:{input_tokens:5000,output_tokens:5}})},
+    emitter:{emit:async()=>undefined,typing:async()=>undefined},
+  });
+  await runtime.start();
+  await runtime.runTurn(job({user_content_blocks:[{type:"image",source:{type:"base64",media_type:"image/png",data:"AAAA"}}]}),handle());
+  await runtime.stop();
+  const calibrated=snapshots.filter(snapshot=>snapshot.context_source==="usage_calibrated");
+  expect(calibrated.length).toBeGreaterThan(1);
+  expect(calibrated.at(-1)!.context_tokens).toBeLessThan(calibrated[0]!.context_tokens);
+  expect(calibrated.at(-1)!.input_tokens).toBe(5000);
+});
+
+test.each(["error","cancelled"] as const)("saves final consumption on %s without inventing new occupancy", async status => {
+  const snapshots: import("@lxe/protocol").ContextDisplaySnapshot[]=[];
+  const store=new MemoryStore() as MemoryStore & Pick<RuntimeStore,"beginContextDisplay"|"saveContextDisplay">;
+  store.beginContextDisplay=async()=> "epoch";
+  store.saveContextDisplay=async(_id,_epoch,snapshot)=>{snapshots.push(structuredClone(snapshot));};
+  const cancellation=new AbortController();
+  const turnHandle={...handle(),signal:cancellation.signal};
+  const runtime=new TypeScriptAgentRuntime({
+    store,tools:new ToolRegistry(),systemPrompt:"s",
+    provider:{summarize,turn:async request=>{
+      const failed=messageFixture({stopReason:status==="cancelled"?"aborted":"error",
+        usage:{input_tokens:100,output_tokens:3,status:"partial"}});
+      await request.onEvent?.({type:"error",reason:status==="cancelled"?"aborted":"error",error:failed});
+      if(status==="cancelled") {
+        cancellation.abort();
+        throw new DOMException("fixture cancelled","AbortError");
+      }
+      throw new RuntimeProviderError("fixture failure","test","error","fixture failure",false);
+    }},
+    emitter:{emit:async()=>undefined,typing:async()=>undefined},
+  });
+  await runtime.start();
+  expect((await runtime.runTurn(job(),turnHandle)).status).toBe(status);
+  await runtime.stop();
+  expect(snapshots.at(-1)).toMatchObject({input_tokens:100,output_tokens:3,context_source:"estimated"});
+  expect(snapshots.at(-1)!.context_tokens).toBe(snapshots.at(-2)!.context_tokens);
+});

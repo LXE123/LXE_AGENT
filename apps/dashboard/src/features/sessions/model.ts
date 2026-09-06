@@ -72,7 +72,7 @@ export function mergeLatestConversationWindow(
   if (!latestGroups.length) return latest.messages_page.total === 0 ? latest : current;
   const currentIndexes = new Map(currentGroups.map((group, index) => [group.id, index]));
   const firstOverlap = latestGroups.findIndex((group) => currentIndexes.has(group.id));
-  if (firstOverlap < 0) return { ...current, session: latest.session, messages_page: { ...current.messages_page, total: latest.messages_page.total, has_next: true, next_cursor: current.messages_page.newest_cursor } };
+  if (firstOverlap < 0) return { ...current, context_display: latest.context_display ?? null, context_reset_at: latest.context_reset_at ?? 0, latest_turn_usage: latest.latest_turn_usage ?? null, session: latest.session, messages_page: { ...current.messages_page, total: latest.messages_page.total, has_next: true, next_cursor: current.messages_page.newest_cursor } };
   const currentCut = currentIndexes.get(latestGroups[firstOverlap]!.id)!;
   return {
     ...latest,

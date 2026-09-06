@@ -1,3 +1,4 @@
+import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -1003,24 +1004,12 @@ function ConversationThinkingPicker({
 const CONTEXT_RING_RADIUS = 8;
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
 
-/**
- * Prefer the current turn's estimate, including a valid zero. Legacy turns
- * without a source retain their provider-usage fallback behavior.
- */
-function latestDisplayMetrics(
-  activity: DesktopConversationActivityPayload | null,
-): DesktopConversationStreamPayload["display_metrics"] | null {
-  for (const turn of [activity?.active, activity?.latest]) {
-    const metrics = turn?.stream?.display_metrics;
-    if (metrics && metrics.context_window_tokens > 0 && (metrics.context_source !== undefined || metrics.context_tokens > 0)) return metrics;
-  }
-  return null;
-}
-
 function ConversationContextMeter({
+  detail,
   activity,
   currentModel,
 }: {
+  detail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
   currentModel: ModelPayload | null;
 }) {
@@ -1028,7 +1017,7 @@ function ConversationContextMeter({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const metrics = latestDisplayMetrics(activity);
+  const { metrics, usage, restored } = selectContextDisplay(activity, detail);
   const total = metrics?.context_window_tokens
     || Math.max(0, Math.trunc(currentModel?.capabilities?.context_window_tokens ?? 0));
 
@@ -1054,18 +1043,18 @@ function ConversationContextMeter({
     if (total <= 0) setOpen(false);
   }, [total]);
 
-  if (total <= 0) return null;
+
 
   const used = metrics ? Math.min(total, metrics.context_tokens) : 0;
   const free = total - used;
-  const ratio = used / total;
-  const percent = `${(ratio * 100).toFixed(ratio > 0 && ratio < 0.1 ? 1 : 0)}%`;
+  const ratio = total > 0 ? used / total : 0;
+  const percent = metrics ? `${(ratio * 100).toFixed(ratio > 0 && ratio < 0.1 ? 1 : 0)}%` : t.conversation.contextMeter.noData;
   const label = t.conversation.contextMeter.trigger(percent);
-  const rows: { key: string; label: string; value: number }[] = [
-    { key: "fresh", label: t.conversation.contextMeter.freshInput, value: metrics?.input_tokens ?? 0 },
-    { key: "cache-read", label: t.conversation.contextMeter.cacheRead, value: metrics?.cache_read_input_tokens ?? 0 },
-    { key: "cache-write", label: t.conversation.contextMeter.cacheWrite, value: metrics?.cache_creation_input_tokens ?? 0 },
-    { key: "output", label: t.conversation.contextMeter.output, value: metrics?.output_tokens ?? 0 },
+  const rows: { key: string; label: string; value: number | null }[] = [
+    { key: "fresh", label: t.conversation.contextMeter.freshInput, value: usage?.input_tokens ?? null },
+    { key: "cache-read", label: t.conversation.contextMeter.cacheRead, value: usage?.cache_read_input_tokens ?? null },
+    { key: "cache-write", label: t.conversation.contextMeter.cacheWrite, value: usage?.cache_creation_input_tokens ?? null },
+    { key: "output", label: t.conversation.contextMeter.output, value: usage?.output_tokens ?? null },
   ];
 
   return (
@@ -1098,7 +1087,7 @@ function ConversationContextMeter({
           <div className="conversation-context-panel-head">
             <span>{t.conversation.contextMeter.title}</span>
             <strong>
-              {t.conversation.contextMeter.ratio(formatCompactNumber(used), formatCompactNumber(total))}
+              {t.conversation.contextMeter.ratio(metrics ? formatCompactNumber(used) : "—", total > 0 ? formatCompactNumber(total) : "—")}
               <em>{percent}</em>
             </strong>
           </div>
@@ -1108,25 +1097,25 @@ function ConversationContextMeter({
           <dl className="conversation-context-rows">
             <div>
               <dt><i aria-hidden className="conversation-context-swatch used" />{t.conversation.contextMeter.used}</dt>
-              <dd>{formatNumber(used)}</dd>
+              <dd>{metrics ? formatNumber(used) : "—"}</dd>
             </div>
             <div>
               <dt><i aria-hidden className="conversation-context-swatch free" />{t.conversation.contextMeter.free}</dt>
-              <dd>{formatNumber(free)}</dd>
+              <dd>{metrics ? formatNumber(free) : "—"}</dd>
             </div>
           </dl>
-          <div className="conversation-context-section">{t.conversation.contextMeter.turnUsage}</div>
+          <div className="conversation-context-section">{restored ? t.conversation.contextMeter.latestTurnUsage : t.conversation.contextMeter.turnUsage}</div>
           <dl className="conversation-context-rows">
             {rows.map((row) => (
               <div key={row.key}>
                 <dt>{row.label}</dt>
-                <dd>{formatNumber(row.value)}</dd>
+                <dd>{row.value === null ? "—" : formatNumber(row.value)}</dd>
               </div>
             ))}
           </dl>
           <small>{t.conversation.contextMeter.turnUsageHint}</small>
           <small>
-            {metrics?.context_source ? t.conversation.contextMeter[metrics.context_source] : metrics ? t.conversation.contextMeter.snapshotHint : t.conversation.contextMeter.notStartedHint}
+            {metrics?.context_source ? t.conversation.contextMeter[metrics.context_source] : metrics ? t.conversation.contextMeter.snapshotHint : t.conversation.contextMeter.noData}
           </small>
         </div>
       ) : null}
@@ -1135,6 +1124,7 @@ function ConversationContextMeter({
 }
 
 function ConversationComposer({
+  contextDetail,
   activity,
   conversationKey,
   currentModel,
@@ -1149,6 +1139,7 @@ function ConversationComposer({
   onSend,
   onStop,
 }: {
+  contextDetail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
   conversationKey: string;
   currentModel: ModelPayload | null;
@@ -1324,7 +1315,7 @@ function ConversationComposer({
             </span>
           </div>
           <div className="conversation-compose-trailing">
-            <ConversationContextMeter activity={activity} currentModel={currentModel} />
+            <ConversationContextMeter activity={activity} currentModel={currentModel} detail={contextDetail} />
             <ConversationModelPicker
               current={currentModel}
               disabled={!runtimeReady || sending || modelSaving || thinkingSaving}
@@ -1643,6 +1634,7 @@ export function SessionDetailView({
       ) : null}
       <div className="conversation-composer-dock">
         <ConversationComposer
+          contextDetail={detail}
           activity={activity}
           conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
           currentModel={currentModel}
