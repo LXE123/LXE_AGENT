@@ -8,6 +8,8 @@ export const dashboardQueryKeys = {
       ["sessions", "detail", sessionId, cursor] as const,
     detailSession: (sessionId: string) => ["sessions", "detail", sessionId] as const,
     activity: (sessionId: string) => ["sessions", "activity", sessionId] as const,
+    attachmentPreview: (sessionId: string, id: string, variant: "thumbnail" | "expanded") =>
+      ["sessions", "attachment-preview", sessionId, id, variant] as const,
   },
   stats: {
     all: ["stats"] as const,

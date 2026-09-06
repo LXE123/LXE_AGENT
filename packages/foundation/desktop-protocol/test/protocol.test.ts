@@ -417,10 +417,11 @@ describe("desktop agent protocol", () => {
       "sessions.file.open": { session_id: "session-1", artifact_id: "artifact-1" },
       "sessions.file.reveal": { session_id: "session-1", artifact_id: "artifact-1" },
       "sessions.attachment.open": { session_id: "session-1", attachment_id: "attachment-1" },
+      "sessions.attachment.preview": { session_id: "session-1", attachment_id: "attachment-1" },
     };
     for (const operation of [
       "sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open",
-      "sessions.file.reveal", "sessions.attachment.open",
+      "sessions.file.reveal", "sessions.attachment.open", "sessions.attachment.preview",
     ]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
         jsonrpc: "2.0",
@@ -443,6 +444,15 @@ describe("desktop agent protocol", () => {
     })).toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: " " } }))
       .toThrow("requires text or an attachment");
+    expect(parseDashboardRpcCall({ operation: "sessions.attachment.preview",
+      input: { session_id: "s", attachment_id: "a", variant: "expanded" },
+    })).toEqual({ operation: "sessions.attachment.preview", input: { session_id: "s", attachment_id: "a", variant: "expanded" } });
+    expect(() => parseDashboardRpcCall({ operation: "sessions.attachment.preview",
+      input: { session_id: "s", attachment_id: "a", path: "/arbitrary" },
+    })).toThrow("unsupported fields");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.attachment.preview",
+      input: { session_id: "s", attachment_id: "a", variant: "original" },
+    })).toThrow("variant must be");
     expect(() => parseDashboardRpcCall({
       operation: "sessions.send",
       input: { text: "", attachment_ids: ["same", "same"] },

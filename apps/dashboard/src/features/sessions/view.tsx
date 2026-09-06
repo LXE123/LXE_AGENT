@@ -1,5 +1,6 @@
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { ConversationAttachmentDraft } from "./attachment-draft";
+import { SentAttachmentList } from "./sent-attachments";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -1420,9 +1421,10 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
+  attachmentSessionId?: string;
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
@@ -1460,6 +1462,17 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
   if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} /></article>;
   const role = message.role;
+  if (role === "user" && message.attachments?.length) {
+    const text = readerFacingMessageText(message);
+    return <div className="message-with-meta role-user has-sent-attachments">
+      <SentAttachmentList attachments={message.attachments} sessionId={attachmentSessionId}
+        ready={row.status !== "sending" && !row.error} onOpen={onOpenAttachment} />
+      {text.trim() ? <article className="message-card role-user"><MessageMarkdown text={text} /></article> : null}
+      {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
+      {["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
+      <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={text} />
+    </div>;
+  }
   return <div className={`message-with-meta role-${role}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
       <MessageContent content={message.content} message={message} />
@@ -1470,7 +1483,8 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={readerFacingMessageText(message)} />
   </div>;
 }, (a, b) => a.expanded === b.expanded && a.onToggle === b.onToggle && a.onOpenFile === b.onOpenFile
-  && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment && JSON.stringify(a.row) === JSON.stringify(b.row));
+  && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment
+  && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
   fallbackSession,
@@ -1653,7 +1667,8 @@ export function SessionDetailView({
           loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
           pageError={loadOlderError} empty={newConversation ? <ConversationWelcome /> : <EmptyState label={t.sessionDetail.empty} />}
           renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} />} />
+            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment}
+            attachmentSessionId={session?.session_id} />} />
       ) : null}
       <div className="conversation-composer-dock">
         <ConversationComposer

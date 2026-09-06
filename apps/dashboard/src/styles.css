@@ -11346,3 +11346,89 @@ pre {
   font-size: 0.6875rem;
   line-height: 1.3;
 }
+
+/* Sent attachments sit above the text bubble, within the same message. */
+.conversation-feed .message-with-meta.role-user.has-sent-attachments {
+  width: 100%;
+  max-width: min(780px, 90%);
+  margin-top: 22px;
+  gap: 10px;
+}
+.conversation-feed .message-with-meta.role-user.has-sent-attachments > .message-card.role-user {
+  width: fit-content;
+  align-self: flex-end;
+  margin: 0;
+}
+.sent-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.sent-image-list, .sent-file-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+.sent-image-item { flex: 0 0 144px; width: 144px; min-width: 0; }
+.sent-image-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--conversation-muted-fill);
+  color: var(--muted);
+  cursor: zoom-in;
+}
+.sent-image-tile > img { width: 100%; height: 100%; object-fit: contain; }
+.sent-image-tile > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; }
+.sent-image-tile:disabled { cursor: default; }
+.sent-file-card {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: min(320px, 100%);
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--conversation-muted-fill);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.sent-file-card > svg { flex-shrink: 0; color: var(--muted); }
+.sent-file-info { display: grid; min-width: 0; gap: 2px; }
+.sent-file-info > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sent-attachment-error { display: block; font-size: 0.75rem; overflow-wrap: anywhere; color: var(--muted); }
+.sent-image-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 78%);
+}
+.sent-image-dialog { max-width: 100%; min-width: 0; color: white; }
+.sent-image-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.sent-image-dialog > header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sent-image-dialog > header > button { flex-shrink: 0; display: grid; place-items: center; padding: 8px; border: 0; border-radius: 8px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; }
+.sent-image-dialog > img { display: block; max-width: 100%; max-height: calc(100dvh - 140px); object-fit: contain; margin: auto; }
+.sent-image-dialog > p { max-width: 80vw; overflow-wrap: anywhere; }

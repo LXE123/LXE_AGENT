@@ -64,3 +64,18 @@ export async function openConversationAttachment(
   const error = await dependencies.openPath(path);
   return { opened: !error, error };
 }
+
+/** Preview only an attachment resolved from this conversation, never a renderer-supplied path. */
+export async function previewConversationAttachment(
+  dependencies: {
+    resolveAttachment(sessionId: string, attachmentId: string): Promise<string | undefined>;
+    thumbnail(path: string, edge: number): Promise<string>;
+  },
+  sessionId: string,
+  attachmentId: string,
+  variant: "thumbnail" | "expanded" = "thumbnail",
+): Promise<{ data_url: string }> {
+  const path = await dependencies.resolveAttachment(sessionId, attachmentId);
+  if (!path) throw new DashboardRpcError("not_found", "attachment is not part of this conversation");
+  return { data_url: await dependencies.thumbnail(path, variant === "expanded" ? 1600 : 320) };
+}

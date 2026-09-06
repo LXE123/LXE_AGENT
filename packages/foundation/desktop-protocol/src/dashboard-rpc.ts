@@ -491,6 +491,10 @@ export interface DashboardRpcSpec {
     input: { session_id: string; attachment_id: string };
     result: DesktopConversationFileOpenPayload;
   };
+  "sessions.attachment.preview": {
+    input: { session_id: string; attachment_id: string; variant?: "thumbnail" | "expanded" };
+    result: { data_url: string };
+  };
   "sessions.workspace.reload": {
     input: { session_id: string };
     result: WorkspaceReloadPayload;
@@ -535,7 +539,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
   "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
-    | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open"
+    | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview"
 >;
 
 export type AgentDashboardRpcCall<
@@ -709,6 +713,16 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         session_id: textValue(input.session_id, `${operation}.session_id`)!,
         artifact_id: textValue(input.artifact_id, `${operation}.artifact_id`)!,
       } };
+    case "sessions.attachment.preview":
+      exactKeys(input, ["session_id", "attachment_id", "variant"], `${operation}.input`);
+      if (input.variant !== undefined && input.variant !== "thumbnail" && input.variant !== "expanded") {
+        return rpcError("sessions.attachment.preview.variant must be thumbnail or expanded");
+      }
+      return { operation, input: {
+        session_id: textValue(input.session_id, `${operation}.session_id`)!,
+        attachment_id: textValue(input.attachment_id, `${operation}.attachment_id`)!,
+        ...(input.variant ? { variant: input.variant } : {}),
+      } };
     case "sessions.attachment.open":
       exactKeys(input, ["session_id", "attachment_id"], `${operation}.input`);
       return { operation, input: {
@@ -787,7 +801,8 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
     || call.operation === "sessions.activity"
     || call.operation === "sessions.file.open"
     || call.operation === "sessions.file.reveal"
-    || call.operation === "sessions.attachment.open") {
+    || call.operation === "sessions.attachment.open"
+    || call.operation === "sessions.attachment.preview") {
     return rpcError(`${call.operation} is owned by Electron Main`);
   }
   return call;

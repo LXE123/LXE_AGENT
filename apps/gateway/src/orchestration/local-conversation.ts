@@ -62,6 +62,7 @@ export type LocalConversationAttachment = DesktopInputAttachmentPayload & {
 
 interface InternalTurn {
   payload: DesktopConversationTurnPayload;
+  attachmentPaths: Map<string, string>;
   sessionId: string;
   responseRouteId: string;
   streamEmitId?: string;
@@ -107,6 +108,16 @@ export class LocalConversationController {
   constructor(private readonly options: LocalConversationControllerOptions) {
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
     this.now = options.now ?? Date.now;
+  }
+
+  /** Accepted/queued messages can be previewed before their transcript row is written. */
+  resolveAttachmentPreview(sessionId: string, attachmentId: string): string | undefined {
+    for (const turn of this.turns.values()) {
+      if (turn.sessionId === sessionId && turn.attachmentPaths.has(attachmentId)) {
+        return turn.attachmentPaths.get(attachmentId);
+      }
+    }
+    return undefined;
   }
 
   async send(input: {
@@ -195,6 +206,7 @@ export class LocalConversationController {
     const turn: InternalTurn = {
       sessionId,
       responseRouteId,
+      attachmentPaths: new Map(attachments.map((attachment) => [attachment.attachment_id, attachment.path])),
       payload: {
         turn_id: turnId,
         message_id: messageId,

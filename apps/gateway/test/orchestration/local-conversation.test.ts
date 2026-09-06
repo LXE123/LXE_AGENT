@@ -248,7 +248,10 @@ describe("LocalConversationController", () => {
     }]);
     expect(JSON.stringify(activity)).not.toContain("/private/files");
     expect(JSON.stringify(activity)).not.toContain("encoded");
+    expect(h.controller.resolveAttachmentPreview("new-session", "attachment-1")).toBe("/private/files/photo.png");
+    expect(h.controller.resolveAttachmentPreview("other-session", "attachment-1")).toBeUndefined();
     h.controller.dispose();
+    expect(h.controller.resolveAttachmentPreview("new-session", "attachment-1")).toBeUndefined();
   });
 
   test("rejects a missing existing session", async () => {

@@ -44,8 +44,10 @@ import { desktopLxeSkillState } from "./lxeskill-health";
 import {
   openConversationArtifact,
   openConversationAttachment,
+  previewConversationAttachment,
   revealConversationArtifact,
 } from "./conversation-artifacts";
+import { attachmentThumbnail } from "./attachment-thumbnail";
 import type { DesktopConversationAttachmentService } from "./conversation-attachments";
 import {
   resolveDataServerRuntimeEnvironment,
@@ -452,6 +454,14 @@ export class DesktopGateway {
         assertExists: (path) => access(path),
         revealPath: (path) => shell.showItemInFolder(path),
       }, sessionId, artifactId) as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.attachment.preview") {
+      return await previewConversationAttachment({
+        resolveAttachment: async (sessionId, attachmentId) =>
+          this.composition!.parts.conversations.resolveAttachmentPreview(sessionId, attachmentId)
+          ?? await this.runtime!.resolveAttachment(sessionId, attachmentId),
+        thumbnail: attachmentThumbnail,
+      }, call.input.session_id, call.input.attachment_id, call.input.variant) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.attachment.open") {
       const { session_id: sessionId, attachment_id: attachmentId } = call.input;

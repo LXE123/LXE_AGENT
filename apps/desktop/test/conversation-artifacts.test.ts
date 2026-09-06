@@ -3,10 +3,24 @@ import { DashboardRpcError } from "@lxe/desktop-protocol";
 import {
   openConversationArtifact,
   openConversationAttachment,
+  previewConversationAttachment,
   revealConversationArtifact,
 } from "../src/main/conversation-artifacts";
 
 describe("conversation artifact opening", () => {
+  test("previews only a resolved attachment and bounds thumbnail and expanded requests", async () => {
+    const sizes: number[] = [];
+    const dependencies = {
+      resolveAttachment: async (session: string, id: string) => session === "s" && id === "a" ? "/image.png" : undefined,
+      thumbnail: async (path: string, edge: number) => { expect(path).toBe("/image.png"); sizes.push(edge); return "data:image/png;base64,png"; },
+    };
+    expect(await previewConversationAttachment(dependencies, "s", "a")).toEqual({ data_url: "data:image/png;base64,png" });
+    await previewConversationAttachment(dependencies, "s", "a", "expanded");
+    await expect(previewConversationAttachment(dependencies, "other", "a")).rejects.toMatchObject({ code: "not_found" });
+    expect(sizes).toEqual([320, 1600]);
+    await expect(previewConversationAttachment({ ...dependencies, thumbnail: async () => { throw new Error("ENOENT fixture"); } }, "s", "a"))
+      .rejects.toThrow("ENOENT fixture");
+  });
   test("opens an input attachment only after agent-owned session resolution", async () => {
     const opened: string[] = [];
     const result = await openConversationAttachment({

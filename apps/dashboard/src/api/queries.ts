@@ -46,6 +46,25 @@ export function queryError(error: unknown): string {
   return error instanceof Error ? error.message : error ? String(error) : "";
 }
 
+export function useAttachmentPreviewQuery(
+  sessionId: string | undefined, id: string, variant: "thumbnail" | "expanded", enabled: boolean,
+) {
+  return useQuery({
+    queryKey: dashboardQueryKeys.sessions.attachmentPreview(sessionId ?? "", id, variant),
+    queryFn: async ({ signal }) => {
+      const result = await callDashboard({ operation: "sessions.attachment.preview",
+        input: { session_id: sessionId!, attachment_id: id, variant } });
+      signal.throwIfAborted();
+      return result;
+    },
+    enabled: enabled && !!sessionId,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useSessionsInfiniteQuery(query: string, enabled = true) {
   const normalizedQuery = query.trim();
   return useInfiniteQuery({
