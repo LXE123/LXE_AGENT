@@ -57,6 +57,7 @@ describe("preload bridge", () => {
       "selectZiniaoApp",
       "selectZiniaoWebDriverDirectory",
       "stageDroppedConversationFiles",
+      "stagePastedConversationFiles",
       "startSyntheticPerformerTask",
     ]);
     expect(bridge.desktop.platform).toBe("win32");

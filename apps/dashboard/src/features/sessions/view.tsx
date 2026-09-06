@@ -1,3 +1,5 @@
+import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
+import { ConversationAttachmentDraft } from "./attachment-draft";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -636,7 +638,7 @@ function InputAttachmentList({
   onOpen,
   onRemove,
 }: {
-  attachments: DesktopInputAttachmentPayload[];
+  attachments: DesktopDraftAttachmentPayload[];
   onOpen?: (attachmentId: string) => Promise<void>;
   onRemove?: (attachmentId: string) => void;
 }) {
@@ -663,8 +665,8 @@ function InputAttachmentList({
             title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
             type="button"
           >
-            <Paperclip size={14} />
-            <span>{attachment.name}</span>
+            {attachment.preview_data_url ? <img className="input-attachment-preview" src={attachment.preview_data_url} alt={attachment.name} /> : <Paperclip size={14} />}
+            <span>{attachment.preview_data_url ? t.conversation.screenshot : attachment.name}</span>
           </button>
           {onRemove ? (
             <button
@@ -1123,7 +1125,7 @@ function ConversationContextMeter({
   );
 }
 
-function ConversationComposer({
+export function ConversationComposer({
   contextDetail,
   activity,
   conversationKey,
@@ -1159,60 +1161,50 @@ function ConversationComposer({
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
-  const [attachments, setAttachments] = useState<DesktopInputAttachmentPayload[]>([]);
+  const [, refreshAttachments] = useState(0);
+  const callbacksRef = useRef({ t });
+  callbacksRef.current = { t };
+  const [attachmentDraft] = useState(() => new ConversationAttachmentDraft({
+    changed: () => refreshAttachments((revision) => revision + 1),
+    error: setError,
+    discard: async (ids) => { await window.lxe?.desktop.discardConversationFiles(ids); },
+    tooMany: () => callbacksRef.current.t.conversation.tooManyAttachments,
+  }));
+  const attachments = attachmentDraft.items;
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousConversationKey = useRef(conversationKey);
+  const currentConversationKey = useRef(conversationKey);
+  currentConversationKey.current = conversationKey;
   const hasWork = Boolean(activity?.active || activity?.queued.length);
   const actionLabel = hasWork
     ? stopping ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
   const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
-  const addAttachments = useCallback((selected: DesktopInputAttachmentPayload[]) => {
-    setAttachments((current) => {
-      const known = new Set(current.map((item) => item.attachment_id));
-      const additions = selected.filter((item) => !known.has(item.attachment_id));
-      if (current.length + additions.length > 5) {
-        const rejected = additions.map((item) => item.attachment_id);
-        if (rejected.length) void window.lxe?.desktop.discardConversationFiles(rejected);
-        setError(t.conversation.tooManyAttachments);
-        return current;
-      }
-      return [...current, ...additions];
+  const selectFiles = () => {
+    setError("");
+    return attachmentDraft.stage(async () => {
+      if (!window.lxe) throw new Error(t.conversation.unavailable);
+      return window.lxe.desktop.selectConversationFiles();
     });
-  }, [t]);
-  const selectFiles = async () => {
-    setError("");
-    try {
-      if (!window.lxe) throw new Error(t.conversation.unavailable);
-      addAttachments(await window.lxe.desktop.selectConversationFiles());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
   };
-  const stageDroppedFiles = useCallback(async (files: File[]) => {
-    if (!runtimeReady) return;
+  const stageDroppedFiles = useCallback((files: File[]) => {
+    if (!runtimeReady || sending) return;
     setError("");
-    try {
+    return attachmentDraft.stage(async () => {
       if (!window.lxe) throw new Error(t.conversation.unavailable);
-      addAttachments(await window.lxe.desktop.stageDroppedConversationFiles(files));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [addAttachments, runtimeReady, t]);
-  const removeAttachment = (attachmentId: string) => {
-    setAttachments((current) => current.filter((item) => item.attachment_id !== attachmentId));
-    void window.lxe?.desktop.discardConversationFiles([attachmentId]);
-  };
+      return window.lxe.desktop.stageDroppedConversationFiles(files);
+    });
+  }, [attachmentDraft, runtimeReady, sending, t]);
+  const removeAttachment = (attachmentId: string) => attachmentDraft.remove(attachmentId);
   useEffect(() => {
     if (previousConversationKey.current === conversationKey) return;
     previousConversationKey.current = conversationKey;
-    const attachmentIds = attachments.map((item) => item.attachment_id);
-    if (attachmentIds.length) void window.lxe?.desktop.discardConversationFiles(attachmentIds);
-    setAttachments([]);
+    attachmentDraft.reset();
     setText("");
     setError("");
-  }, [attachments, conversationKey]);
+  }, [attachmentDraft, conversationKey]);
+  useEffect(() => () => attachmentDraft.reset(), [attachmentDraft]);
   useEffect(() => {
     const dragOver = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
@@ -1245,19 +1237,22 @@ function ConversationComposer({
   }, [runtimeReady, stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
-    if (!runtimeReady || modelSaving || thinkingSaving || sending || (!message && attachments.length === 0)) return;
+    if (!runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
+    const target = conversationKey;
     try {
-      await onSend(message, attachments);
-      setText("");
-      setAttachments([]);
+      const submitted = attachments.map(({ attachment_id, name, size_bytes, media_type }) => ({ attachment_id, name, size_bytes, media_type }));
+      await onSend(message, submitted);
+      attachmentDraft.sent(submitted.map((item) => item.attachment_id));
+      if (currentConversationKey.current !== target) return;
+      setText((current) => current === text ? "" : current);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (currentConversationKey.current === target) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSending(false);
-      textareaRef.current?.focus();
+      if (currentConversationKey.current === target) textareaRef.current?.focus();
     }
   };
   const stop = async () => {
@@ -1277,9 +1272,29 @@ function ConversationComposer({
       {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
       <div className="conversation-compose-box">
         {attachments.length ? (
-          <InputAttachmentList attachments={attachments} onRemove={removeAttachment} />
+          <InputAttachmentList attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
+        {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <textarea
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (!files.length && !Array.from(event.clipboardData.types).some((type) => type === "Files" || type === "text/uri-list")) return;
+            if (files.length) event.preventDefault();
+            if (!runtimeReady || sending) return;
+            const pastedText = event.clipboardData.getData("text/plain");
+            if (files.length && pastedText) {
+              const start = event.currentTarget.selectionStart;
+              const end = event.currentTarget.selectionEnd;
+              const next = (text.slice(0, start) + pastedText + text.slice(end)).slice(0, 8192);
+              setText(next);
+              requestAnimationFrame(() => textareaRef.current?.setSelectionRange(Math.min(start + pastedText.length, next.length), Math.min(start + pastedText.length, next.length)));
+            }
+            setError("");
+            void attachmentDraft.stage(async () => {
+              if (!window.lxe) throw new Error(t.conversation.unavailable);
+              return window.lxe.desktop.stagePastedConversationFiles(files);
+            });
+          }}
           aria-label={t.conversation.placeholder}
           disabled={!runtimeReady}
           maxLength={8192}
@@ -1343,7 +1358,7 @@ function ConversationComposer({
               data-mode={hasWork ? "stop" : "send"}
               disabled={hasWork
                 ? stopping
-                : !runtimeReady || modelSaving || thinkingSaving || sending || (!text.trim() && attachments.length === 0)}
+                : !runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!text.trim() && attachments.length === 0)}
               onClick={() => void (hasWork ? stop() : submit())}
               title={actionLabel}
               type="button"

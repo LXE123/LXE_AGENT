@@ -11,6 +11,7 @@ import type {
   DesktopHealth,
   DesktopInputAssetSlot,
   DesktopInputAttachmentPayload,
+  DesktopDraftAttachmentPayload,
   DesktopLocalModelCredentialInput,
   DesktopModelProvider,
   DesktopSetupInput,
@@ -22,6 +23,7 @@ import type {
   DesktopSyntheticPerformerTaskInput,
 } from "@lxe/desktop-protocol";
 import { IPC_CHANNELS } from "../ipc-channels";
+import { readClipboardFilePaths } from "./clipboard-files";
 import {
   validateCloudActivationInput,
   validateCloudDestination,
@@ -63,6 +65,7 @@ export interface DesktopIpcApplication {
   listInputAssets(): Promise<DesktopInputAssetSlot[]>;
   inputAssetSlotDirectory(slot: string): Promise<string>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
+  registerPastedConversationFiles(input: unknown): DesktopDraftAttachmentPayload[];
   discardConversationFiles(attachmentIds: string[]): void;
 }
 
@@ -165,20 +168,15 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
       title: "选择对话文件",
       buttonLabel: "添加",
       properties: ["openFile", "multiSelections"],
-      filters: [{
-        name: "支持的文件",
-        extensions: [
-          "pdf", "doc", "docx", "ppt", "pptx", "txt", "md",
-          "xls", "xlsx", "xlsm", "csv", "tsv",
-          "json", "jsonl", "xml", "yaml", "yml",
-          "png", "jpg", "jpeg", "webp", "gif",
-        ],
-      }],
     });
     return selection.canceled ? [] : application.registerConversationFiles(selection.filePaths);
   });
   ipcMain.handle(IPC_CHANNELS.stageDroppedConversationFiles, (_event, paths: unknown) =>
     application.registerConversationFiles(stringArray(paths, "dropped file paths")));
+  ipcMain.handle(IPC_CHANNELS.stagePastedConversationFiles, (_event, input: unknown) =>
+    application.registerPastedConversationFiles(input));
+  ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, () =>
+    application.registerConversationFiles(readClipboardFilePaths()));
   ipcMain.handle(IPC_CHANNELS.discardConversationFiles, (_event, attachmentIds: unknown) =>
     application.discardConversationFiles(stringArray(attachmentIds, "attachment IDs")));
   ipcMain.handle(IPC_CHANNELS.startSyntheticPerformerTask, (_event, input: unknown) =>

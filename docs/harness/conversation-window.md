@@ -14,7 +14,23 @@ TanStack Virtual 3.14.10 按稳定展示 ID 测量动态高度，视口两侧各
 
 完成请求的成功载荷由历史确认后释放实时副本；失败尝试只在当前会话保留，不增加失败消息历史体系。
 
-## 本地验证
+## 文件引用与截图
+
+回形针、拖放和复制粘贴已有文件都只注册本地路径，不读取全文或复制文件。不限文件大小与扩展名，每条消息最多 5 个附件，目录和符号链接不接受。同一路径在草稿中只显示一次；发送前重新检查可读性，Agent 读取时取得当前内容。已有图片文件也通过 `read` 按需查看。
+
+没有路径的剪贴板图片保存为 `var/attachments/screenshots/<uuid>.png`，草稿显示缩略图。源字节与保存后的 PNG 均最多 20 MiB，图片最多 4000 万像素。发送时附加本地文件引用与当前轮次的模型图片块，历史只保存文件引用。缩略图和路径去重标识仅用于草稿，不进入发送载荷。
+
+截图保存期间可以输入文字，但不能发送。多个接入操作即时捕获内容、按操作顺序显示，切换会话后丢弃旧结果。失败保留当前草稿；移除、会话切换、退出或 30 分钟暂存过期后的清理，只删除未发送截图，不删除用户文件。发送期间的清理延迟至投递完成；已经接受的截图永久保留，本期不做历史附件回收或重启草稿恢复。
+
+Electron 43 的 DOM 文件对象与原生剪贴板文件列表分别处理：选择和拖放通过 `webUtils.getPathForFile`，粘贴先读取原生文件列表，文件引用优先于附带的图片预览。Main 在文件剪贴板格式存在时使用 macOS AppKit 或 Windows Forms 获取路径；普通文字保持原生粘贴，文字路径不会自动变成附件。系统读取与文件操作失败保留实际错误。
+
+### 附件验证
+
+定向测试覆盖数 GB 稀疏文件、整批拒绝、截图回滚、路径去重、发送持有、会话切换和模型输入分流。`apps/desktop/test/fixtures/conversation-paste.electron.ts` 是可选的 macOS 原生验证入口：用 Bun 将它和生产 preload 分别构建成 CJS（external electron），再以 Electron 执行，参数为 preload 的绝对路径。脚本保存并恢复原生剪贴板，检查单文件、多文件、图片文件与截图加文字的实际粘贴事件。
+
+额外传入 HTML 页面路径可验证真实输入框；页面加载 Bun 构建的 `apps/dashboard/test/features/sessions/composer-fixture.tsx` 及其 CSS。该页面不调用真实模型。macOS 原生输入框测试已通过；Windows 文件管理器复制粘贴仍需在 Windows 上验收，不能以 macOS 或模拟测试替代。
+
+## 历史窗口验证
 
 从仓库根执行定向 Bun 测试，浏览器 fixture 位于 apps/dashboard/test/features/sessions/window-fixture.html。在 dashboard 的 Vite 服务中打开此页面，不连接桌面 IPC 或真实模型。
 

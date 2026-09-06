@@ -4,11 +4,13 @@ import type {
   DesktopConversationStreamEvent,
   DesktopDashboardInvalidation,
   DesktopHealth,
+  DesktopDraftAttachmentPayload,
   DesktopPlatform,
   DesktopSyntheticPerformerTask,
   LxeDesktopBridge,
 } from "@lxe/desktop-protocol";
 import { IPC_CHANNELS } from "./ipc-channels";
+import { prepareConversationPaste } from "./conversation-paste";
 
 type IpcListener = (event: unknown, ...arguments_: unknown[]) => void;
 
@@ -66,6 +68,14 @@ export function createDesktopBridge(
       },
       discardConversationFiles: (attachmentIds) =>
         ipc.invoke(IPC_CHANNELS.discardConversationFiles, attachmentIds),
+      stagePastedConversationFiles: async (pastedFiles) => {
+        if (!files) throw new Error("Local file paths are unavailable");
+        const nativeFiles = await ipc.invoke<DesktopDraftAttachmentPayload[]>(IPC_CHANNELS.readClipboardConversationFiles);
+        if (nativeFiles.length) return nativeFiles;
+        if (!pastedFiles.length) return [];
+        const input = await prepareConversationPaste(pastedFiles, (file) => files.getPathForFile(file));
+        return ipc.invoke(IPC_CHANNELS.stagePastedConversationFiles, input);
+      },
       startSyntheticPerformerTask: (input) =>
         ipc.invoke(IPC_CHANNELS.startSyntheticPerformerTask, input),
       getSyntheticPerformerTask: () =>

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { prepareConversationAttachments } from "./conversation-submission";
+import { existsSync, mkdirSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { shell } from "electron";
@@ -25,7 +26,6 @@ import {
   loadFeishuConfig,
   ProcessAgentRuntime,
   LocalConversationSessionNotFoundError,
-  type LocalConversationAttachment,
   type DirectGatewayComposition,
   type DirectGatewayStorage,
   type ResponseRoutePatch,
@@ -400,22 +400,13 @@ export class DesktopGateway {
       }
     }
     if (call.operation === "sessions.send") {
+      const attachmentIds = call.input.attachment_ids ?? [];
+      let held = false;
       try {
-        const attachmentIds = call.input.attachment_ids ?? [];
-        const staged = attachmentIds.length > 0 ? this.options.attachments.resolve(attachmentIds) : [];
-        const attachments: LocalConversationAttachment[] = staged.map((attachment) => ({
-          attachment_id: attachment.attachment_id,
-          name: attachment.name,
-          size_bytes: attachment.size_bytes,
-          media_type: attachment.media_type,
-          path: attachment.path,
-          ...(attachment.media_type.startsWith("image/") ? {
-            image_block: this.imageProcessor.prepareModelBlock(
-              new Uint8Array(readConversationImage(attachment.path)),
-              attachment.media_type,
-            ),
-          } : {}),
-        }));
+        const staged = attachmentIds.length > 0 ? this.options.attachments.beginSend(attachmentIds) : [];
+        held = true;
+        const attachments = prepareConversationAttachments(staged,
+          (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
         const result = await this.composition.parts.conversations.send({
           ...(call.input.session_id ? { session_id: call.input.session_id } : {}),
           text: call.input.text,
@@ -429,6 +420,8 @@ export class DesktopGateway {
           throw new DashboardRpcError("not_found", error.message);
         }
         throw error;
+      } finally {
+        if (held) this.options.attachments.finishSend(attachmentIds);
       }
     }
     if (call.operation === "sessions.stop") {
@@ -509,17 +502,5 @@ export class DesktopGateway {
 
   private publishHealth(): void {
     this.options.onHealthChanged?.(this.health());
-  }
-}
-
-function readConversationImage(path: string): Buffer {
-  try {
-    return readFileSync(path);
-  } catch (cause) {
-    const code = String((cause as NodeJS.ErrnoException)?.code ?? "").trim();
-    throw new DashboardRpcError(
-      "invalid_argument",
-      `Selected image is unavailable or changed${code ? ` (${code})` : ""}`,
-    );
   }
 }

@@ -7,6 +7,20 @@ import {
   type InboundImageProcessorPort,
 } from "@lxe/gateway/desktop";
 import type { JsonObject } from "@lxe/protocol";
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS } from "../conversation-paste";
+
+/** Keep the clipboard original as PNG; model preparation remains a separate step. */
+export function prepareClipboardScreenshot(bytes: Uint8Array): { png: Uint8Array; preview: string } {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SCREENSHOT_BYTES) throw new Error("Screenshot must contain between 1 byte and 20 MiB");
+  const source = nativeImage.createFromBuffer(Buffer.from(bytes));
+  if (source.isEmpty()) throw new InboundImageError("ERR_IMAGE_DECODE_FAILED", "Electron could not decode the screenshot");
+  const { width, height } = source.getSize();
+  if (width * height > MAX_SCREENSHOT_PIXELS) throw new InboundImageError("ERR_IMAGE_TOO_MANY_PIXELS", `Screenshot exceeds ${MAX_SCREENSHOT_PIXELS} pixels`);
+  const png = source.toPNG();
+  const scale = Math.min(128 / width, 128 / height, 1);
+  const thumbnail = source.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) });
+  return { png, preview: thumbnail.toDataURL() };
+}
 
 const MAX_PIXELS = 40_000_000;
 const MAX_EDGE = 1_024;

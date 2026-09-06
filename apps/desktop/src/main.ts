@@ -40,6 +40,7 @@ import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
 import { resolveDesktopBrandAssets } from "./main/brand-assets";
 import { DesktopConversationAttachmentService } from "./main/conversation-attachments";
+import { prepareClipboardScreenshot } from "./main/inbound-image";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
@@ -265,7 +266,10 @@ async function bootstrap(): Promise<void> {
   logging.configure();
   const invalidations = new DashboardInvalidationBatcher(broadcastInvalidation);
   activeInvalidationBatcher = invalidations;
-  const conversationAttachments = new DesktopConversationAttachmentService();
+  const conversationAttachments = new DesktopConversationAttachmentService(undefined, undefined, {
+    directory: join(paths.dataRoot, "attachments", "screenshots"),
+    prepare: prepareClipboardScreenshot,
+  });
   activeConversationAttachments = conversationAttachments;
   gateway = new DesktopGateway({
     paths,
@@ -445,6 +449,7 @@ async function bootstrap(): Promise<void> {
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
+    registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     discardConversationFiles: (attachmentIds) => conversationAttachments.discard(attachmentIds),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);

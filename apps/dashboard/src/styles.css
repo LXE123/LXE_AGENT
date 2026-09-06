@@ -11326,3 +11326,10 @@ pre {
   display: grid;
   gap: 9px;
 }
+
+.input-attachment-preview {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 4px;
+}

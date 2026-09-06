@@ -27,6 +27,13 @@ import type {
 
 export * from "./dashboard-rpc";
 
+/** Browser draft preview only; never include this value in a sent message. */
+export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
+  preview_data_url?: string;
+  /** Path identity for draft deduplication; never hashes or reads file contents. */
+  reference_key?: string;
+};
+
 export const AGENT_PROTOCOL_VERSION = 18 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
@@ -595,6 +602,7 @@ export interface LxeDesktopBridge {
     selectSyntheticPerformerOutput(): Promise<DesktopSyntheticPerformerOutputSelection | null>;
     selectConversationFiles(): Promise<DesktopInputAttachmentPayload[]>;
     stageDroppedConversationFiles(files: File[]): Promise<DesktopInputAttachmentPayload[]>;
+    stagePastedConversationFiles(files: File[]): Promise<DesktopDraftAttachmentPayload[]>;
     discardConversationFiles(attachmentIds: string[]): Promise<void>;
     startSyntheticPerformerTask(
       input: DesktopSyntheticPerformerTaskInput,
