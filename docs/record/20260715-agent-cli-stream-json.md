@@ -56,6 +56,26 @@ Invalid Request。Gateway 正常业务仍逐行发送单条请求，响应可乱
 
 ## 错误与连接生命周期
 
+### 业务契约的维护来源
+
+`@lxe/protocol` 中的 `AgentJob`、`EmitRequest`、`DesktopStreamBatchRequest` 以
+`packages/foundation/protocol/schemas` 下的 JSON Schema 为唯一来源。工具步骤、过程块、
+展示指标与 JSON 值等共享定义集中在 `common.schema.json`，三个入口通过本地 `$ref` 引用。
+其他 RPC 方法和事件的手写校验暂不在此生成范围内。
+
+修改契约时，从仓库根运行 `bun run protocol:generate`，把 Schema 与生成的
+`src/generated/contracts.ts` 一起提交。原有类型名称、包导出路径和 Ajv 校验入口保持不变。
+生成文件禁止手改；`bun run protocol:check` 只检查、不写文件，已接入 `bun run verify`。
+检查同时比较生成内容和 Schema 指纹，因此只修改长度或数值限制也需要重新生成。
+
+生成器是精确锁定的开发依赖，不进入 agent-cli 打包产物。发布版生成器输出的普通
+interface 由生成脚本转换为等价 type 别名，遇到未支持的声明形式直接失败。
+TypeScript 检查字段结构和判别联合；长度、数值范围等约束仍由 Ajv 在运行时检查。
+Ajv 显式注册本地共享 Schema，不下载引用文件。展示流报错按 `kind`、`type` 选择实际
+分支，避免将其他分支缺少的字段误报为当前消息错误。本次整理不改变通信格式或版本 18。
+
+### 错误码
+
 | 数值码 | 含义 |
 | --- | --- |
 | -32700 | JSON 解析失败 |

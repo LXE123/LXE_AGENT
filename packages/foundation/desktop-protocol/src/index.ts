@@ -2,6 +2,7 @@ import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
   type JsonRpcId, type JsonRpcSuccess, type JsonRpcFailure, type JsonRpcResponse } from "./json-rpc";
 export * from "./json-rpc";
 import {
+  desktopStreamBatchValidationError,
   validateAgentJob,
   validateEmitRequest,
   validateDesktopStreamBatchRequest,
@@ -771,22 +772,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
   }
 };
 
-function desktopStreamValidationError(payload: Record<string, unknown>): string {
-  const branches: Record<string, number> = { part_updated: 0, part_delta: 1, stream_updated: 2 };
-  const errors = validateDesktopStreamBatchRequest.errors ?? [];
-  const relevant = errors.filter((error) => {
-    const match = /^\/mutations\/(\d+)/u.exec(error.instancePath);
-    const branch = /\/oneOf\/(\d+)\//u.exec(error.schemaPath);
-    if (!match || !branch) return error.keyword !== "oneOf";
-    const mutation = (payload.mutations as Array<{ kind?: string }> | undefined)?.[Number(match[1])];
-    const selected = branches[mutation?.kind ?? ""];
-    return selected === undefined || selected === Number(branch[1]);
-  });
-  return (relevant.length ? relevant : errors).map((error) =>
-    `${error.instancePath || "/"}${error.params.additionalProperty ? `/${error.params.additionalProperty}` : ""}: ${error.message}`
-  ).join("; ") || "invalid request";
-}
-
 export function parseAgentCall(value: unknown): AgentCall {
   const message = parseJsonRpcEnvelope(value);
   if (!("method" in message)) throw new JsonRpcError(-32600, "agent-cli accepts calls only");
@@ -827,7 +812,7 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
         (validateEmitRequest.errors ?? []).map((error) => `${error.instancePath}: ${error.message}`).join("; "));
     }
     if (object.type === "typing.changed" && (
-      !["start", "stop"].includes(String(payload.operation)) ||
+      !("operation" in payload) || !["start", "stop"].includes(String(payload.operation)) ||
       ["response_route_id", "emit_id"].some((field) => typeof payload[field] !== "string" || !String(payload[field]).trim())
     )) throw new JsonRpcError(-32602, "agent protocol typing.changed payload is invalid");
     if (payload.session_id !== object.thread_id || payload.turn_id !== object.turn_id) {
@@ -907,7 +892,7 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
       const payload = objectValue(object.payload)!;
       if (!validateDesktopStreamBatchRequest(payload)) {
         throw new Error(
-          `agent protocol conversation.stream.delta payload is invalid: ${desktopStreamValidationError(payload)}`,
+          `agent protocol conversation.stream.delta payload is invalid: ${desktopStreamBatchValidationError(payload)}`,
         );
       }
       if (payload.session_id !== object.thread_id || payload.turn_id !== object.turn_id) {

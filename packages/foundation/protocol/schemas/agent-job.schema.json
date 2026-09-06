@@ -23,88 +23,87 @@
     "diagnostics"
   ],
   "properties": {
-    "job_id": { "type": "string", "minLength": 1 },
-    "session_id": { "type": "string", "minLength": 1 },
-    "session_key": { "type": "string", "minLength": 1 },
-    "response_route_id": { "type": "string" },
-    "user_id": { "type": "string", "minLength": 1 },
-    "conversation_id": { "type": "string", "minLength": 1 },
-    "is_group": { "type": "boolean" },
-    "message_id": { "type": "string" },
-    "user_input": { "type": "string" },
-    "job_kind": { "type": "string", "minLength": 1 },
-    "sender_nick": { "type": "string" },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "response_route_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_group": {
+      "type": "boolean"
+    },
+    "message_id": {
+      "type": "string"
+    },
+    "user_input": {
+      "type": "string"
+    },
+    "job_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sender_nick": {
+      "type": "string"
+    },
     "workspace": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["directory", "worktree"],
-      "properties": {
-        "directory": { "type": "string", "minLength": 1 },
-        "worktree": { "type": "string", "minLength": 1 }
-      }
+      "$ref": "common.schema.json#/$defs/WorkspaceContext"
     },
     "source": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "common.schema.json#/$defs/JsonObject"
     },
     "raw_data": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "common.schema.json#/$defs/JsonObject"
     },
     "user_content_blocks": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": true
+        "$ref": "common.schema.json#/$defs/JsonObject"
       }
     },
     "diagnostics": {
       "type": "array",
       "maxItems": 16,
-      "items": { "$ref": "#/$defs/agentDiagnostic" }
-    }
-  },
-  "$defs": {
-    "agentDiagnostic": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type", "provider", "operation", "stage", "error_name", "observed_error",
-        "redacted", "truncated", "cause_known"
-      ],
-      "properties": {
-        "type": { "const": "operation_failure" },
-        "provider": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "operation": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "stage": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "error_name": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "observed_error": { "type": "string", "minLength": 1, "maxLength": 4000 },
-        "redacted": { "type": "boolean" },
-        "truncated": { "type": "boolean" },
-        "cause_known": { "type": "boolean" },
-        "verified_reason": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "mapping_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "provider_code": { "oneOf": [{ "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, { "type": "string", "minLength": 1, "maxLength": 128 }] },
-        "provider_subcode": { "oneOf": [{ "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, { "type": "string", "minLength": 1, "maxLength": 128 }] },
-        "log_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "endpoint": { "type": "string", "minLength": 1, "maxLength": 512 }
-      },
-      "allOf": [{
-        "if": { "properties": { "cause_known": { "const": true } }, "required": ["cause_known"] },
-        "then": { "properties": { "verified_reason": true }, "required": ["verified_reason"] },
-        "else": { "not": { "properties": { "verified_reason": true }, "required": ["verified_reason"] } }
-      }]
+      "items": {
+        "$ref": "common.schema.json#/$defs/AgentDiagnostic"
+      }
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "job_kind": { "const": "heartbeat" } },
-        "required": ["job_kind"]
+        "properties": {
+          "job_kind": {
+            "const": "heartbeat"
+          }
+        },
+        "required": [
+          "job_kind"
+        ]
       },
       "else": {
-        "properties": { "message_id": { "type": "string", "minLength": 1 } }
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     }
   ]

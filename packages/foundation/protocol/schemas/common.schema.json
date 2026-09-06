@@ -1,0 +1,544 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lxe-agent.local/protocol/common.schema.json",
+  "$defs": {
+    "TurnProcessPart": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "part_id",
+            "sequence",
+            "status",
+            "text",
+            "redacted_count"
+          ],
+          "properties": {
+            "type": {
+              "const": "thinking"
+            },
+            "part_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "enum": [
+                "streaming",
+                "completed",
+                "error"
+              ]
+            },
+            "text": {
+              "type": "string"
+            },
+            "redacted_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "part_id",
+            "sequence",
+            "status",
+            "presentation",
+            "text"
+          ],
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "part_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "enum": [
+                "streaming",
+                "completed",
+                "error"
+              ]
+            },
+            "presentation": {
+              "enum": [
+                "process",
+                "final"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "part_id",
+            "sequence",
+            "tool_step"
+          ],
+          "properties": {
+            "type": {
+              "const": "tool"
+            },
+            "part_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "tool_step": {
+              "$ref": "common.schema.json#/$defs/ToolStep"
+            }
+          }
+        }
+      ],
+      "title": "TurnProcessPart"
+    },
+    "ToolStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "title",
+        "detail",
+        "icon_token",
+        "status",
+        "duration_ms"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detail": {
+          "type": "string"
+        },
+        "icon_token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "common.schema.json#/$defs/ToolStepStatus"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "result_block": {
+          "$ref": "common.schema.json#/$defs/ToolDisplayBlock"
+        },
+        "error_block": {
+          "$ref": "common.schema.json#/$defs/ToolDisplayBlock"
+        }
+      },
+      "title": "ToolStep"
+    },
+    "ToolDisplayBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "content"
+      ],
+      "properties": {
+        "language": {
+          "enum": [
+            "json",
+            "text"
+          ]
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "title": "ToolDisplayBlock"
+    },
+    "DisplayMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "phase",
+        "elapsed_ms",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "context_tokens",
+        "context_window_tokens"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "common.schema.json#/$defs/TurnDisplayStatus"
+        },
+        "phase": {
+          "$ref": "common.schema.json#/$defs/TurnDisplayPhase"
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "model": {
+          "type": "string"
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_source": {
+          "enum": [
+            "estimated",
+            "usage_calibrated"
+          ]
+        },
+        "context_window_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "title": "DisplayMetrics"
+    },
+    "AgentDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "provider",
+        "operation",
+        "stage",
+        "error_name",
+        "observed_error",
+        "redacted",
+        "truncated",
+        "cause_known"
+      ],
+      "properties": {
+        "type": {
+          "const": "operation_failure"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "error_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "observed_error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "redacted": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "cause_known": {
+          "type": "boolean"
+        },
+        "verified_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mapping_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "provider_code": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "provider_subcode": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "log_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "cause_known": {
+                "const": true
+              }
+            },
+            "required": [
+              "cause_known"
+            ]
+          },
+          "then": {
+            "properties": {
+              "verified_reason": true
+            },
+            "required": [
+              "verified_reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "properties": {
+                "verified_reason": true
+              },
+              "required": [
+                "verified_reason"
+              ]
+            }
+          }
+        }
+      ],
+      "title": "AgentDiagnostic"
+    },
+    "WorkspaceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "worktree"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "title": "WorkspaceContext"
+    },
+    "JsonPrimitive": {
+      "title": "JsonPrimitive",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/JsonPrimitive"
+        },
+        {
+          "$ref": "common.schema.json#/$defs/JsonObject"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/JsonValue"
+          }
+        }
+      ],
+      "title": "JsonValue"
+    },
+    "JsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "common.schema.json#/$defs/JsonValue"
+      },
+      "title": "JsonObject"
+    },
+    "ToolStepStatus": {
+      "enum": [
+        "running",
+        "success",
+        "error"
+      ],
+      "title": "ToolStepStatus"
+    },
+    "TurnDisplayStatus": {
+      "enum": [
+        "running",
+        "completed",
+        "error",
+        "cancelled"
+      ],
+      "title": "TurnDisplayStatus"
+    },
+    "TurnDisplayPhase": {
+      "enum": [
+        "preparing_context",
+        "waiting_model",
+        "thinking",
+        "running_tool",
+        "generating_answer"
+      ],
+      "title": "TurnDisplayPhase"
+    },
+    "DesktopStreamMutation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "part"
+          ],
+          "properties": {
+            "kind": {
+              "const": "part_updated"
+            },
+            "part": {
+              "$ref": "common.schema.json#/$defs/TurnProcessPart"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "part_id",
+            "field",
+            "delta"
+          ],
+          "properties": {
+            "kind": {
+              "const": "part_delta"
+            },
+            "part_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "field": {
+              "const": "text"
+            },
+            "delta": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "state",
+            "display_metrics"
+          ],
+          "properties": {
+            "kind": {
+              "const": "stream_updated"
+            },
+            "state": {
+              "enum": [
+                "delta",
+                "final",
+                "error"
+              ]
+            },
+            "display_metrics": {
+              "$ref": "common.schema.json#/$defs/DisplayMetrics"
+            }
+          }
+        }
+      ],
+      "title": "DesktopStreamMutation"
+    }
+  }
+}

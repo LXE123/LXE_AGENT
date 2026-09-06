@@ -20,6 +20,7 @@ export type {
   WorkspaceContext,
 } from "./types";
 export {
+  desktopStreamBatchValidationError,
   validateAgentJob,
   validateDesktopStreamBatchRequest,
   validateEmitRequest,
