@@ -12,7 +12,7 @@ import {
 import { basename, extname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DashboardRpcError, type DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
-import { MAX_CONVERSATION_FILES as MAX_FILES, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
+import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
 
 const DEFAULT_TTL_MS = 30 * 60 * 1_000;
 
@@ -73,7 +73,6 @@ export class DesktopConversationAttachmentService {
       const file = this.inspect(path);
       return [file.path, file] as const;
     })).values()];
-    if (files.length > MAX_FILES) invalidAttachment(`You can attach at most ${MAX_FILES} files per turn`);
     const selected: StagedConversationAttachment[] = [];
     for (const file of files) {
       const staged: StagedConversationAttachment = {
@@ -89,7 +88,6 @@ export class DesktopConversationAttachmentService {
       this.staged.set(staged.attachment_id, staged);
       selected.push(staged);
     }
-    if (selected.length > MAX_FILES) invalidAttachment(`You can attach at most ${MAX_FILES} files per turn`);
     return selected.map((item) => this.public(item));
   }
 
@@ -102,7 +100,7 @@ export class DesktopConversationAttachmentService {
     }
     if (paths.length) return this.register(paths);
     this.prune();
-    if (images.length === 0 || images.length > MAX_FILES) return invalidAttachment("Paste must contain between 1 and 5 images");
+    if (images.length === 0 || images.length > MAX_CONVERSATION_SCREENSHOTS) return invalidAttachment("Paste must contain between 1 and 5 screenshots");
     for (const image of images) {
       if (!(image instanceof Uint8Array) || image.byteLength === 0 || image.byteLength > MAX_SCREENSHOT_BYTES) {
         return invalidAttachment("Screenshot must contain between 1 byte and 20 MiB");
@@ -140,11 +138,9 @@ export class DesktopConversationAttachmentService {
 
   resolve(attachmentIds: readonly string[]): StagedConversationAttachment[] {
     this.prune();
-    if (attachmentIds.length === 0 || attachmentIds.length > MAX_FILES) {
-      invalidAttachment(`A turn must contain between 1 and ${MAX_FILES} attachments`);
-    }
+    if (attachmentIds.length === 0) invalidAttachment("At least one attachment is required");
     if (new Set(attachmentIds).size !== attachmentIds.length) invalidAttachment("Duplicate attachment IDs are not allowed");
-    return attachmentIds.map((attachmentId): StagedConversationAttachment => {
+    const items = attachmentIds.map((attachmentId): StagedConversationAttachment => {
       const item = this.staged.get(attachmentId);
       if (!item) return invalidAttachment("An attachment expired or is no longer available");
       const current = this.inspect(item.path);
@@ -157,6 +153,10 @@ export class DesktopConversationAttachmentService {
         path: current.path,
       };
     });
+    if (items.filter((item) => item.origin === "screenshot").length > MAX_CONVERSATION_SCREENSHOTS) {
+      invalidAttachment("You can paste at most 5 screenshots per turn");
+    }
+    return items;
   }
 
   consume(attachmentIds: readonly string[]): void {

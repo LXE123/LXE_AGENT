@@ -46,7 +46,9 @@ export class ConversationAttachmentDraft {
           } else { known.add(identity(item)); additions.push(item); }
         }
         this.discard(duplicates);
-        if (this.items.length + additions.length > 5) {
+        // Only pasted screenshots carry previews and become model image inputs.
+        const screenshotCount = [...this.items, ...additions].filter((item) => item.preview_data_url).length;
+        if (screenshotCount > 5) {
           this.discard(additions);
           throw new Error(this.callbacks.tooMany());
         }

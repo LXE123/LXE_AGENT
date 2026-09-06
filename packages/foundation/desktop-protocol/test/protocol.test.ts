@@ -447,10 +447,14 @@ describe("desktop agent protocol", () => {
       operation: "sessions.send",
       input: { text: "", attachment_ids: ["same", "same"] },
     })).toThrow("duplicate IDs");
-    expect(() => parseDashboardRpcCall({
+    const manyAttachmentIds = Array.from({ length: 25 }, (_, index) => `file-${index}`);
+    expect(parseDashboardRpcCall({
       operation: "sessions.send",
-      input: { text: "", attachment_ids: ["1", "2", "3", "4", "5", "6"] },
-    })).toThrow("at most 5");
+      input: { text: "", attachment_ids: manyAttachmentIds },
+    })).toEqual({
+      operation: "sessions.send",
+      input: { text: "", attachment_ids: manyAttachmentIds },
+    });
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))
       .toThrow("too long");
     expect(() => parseDashboardRpcCall({ operation: "sessions.stop", input: { session_id: "s", all: true } }))

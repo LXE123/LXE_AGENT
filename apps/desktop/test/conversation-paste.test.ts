@@ -4,6 +4,16 @@ import { createDesktopBridge } from "../src/preload-bridge";
 import { IPC_CHANNELS } from "../src/ipc-channels";
 
 describe("clipboard intake", () => {
+  test("accepts more than five disk files without reading bytes but still bounds screenshots", async () => {
+    const files = Array.from({ length: 25 }, (_, index) => {
+      const file = new File(["image"], `${index}.png`, { type: "image/png" });
+      file.arrayBuffer = () => { throw new Error("must not read bytes"); };
+      return file;
+    });
+    expect(await prepareConversationPaste(files, (file) => `/files/${file.name}`))
+      .toEqual({ paths: files.map((file) => `/files/${file.name}`), images: [] });
+    await expect(prepareConversationPaste(files.slice(0, 6), () => "")).rejects.toThrow("5 screenshots");
+  });
   test("prefers real paths without reading file bytes, including incidental previews", async () => {
     const original = new File(["disk"], "original.png", { type: "image/png" });
     const preview = new File(["preview"], "image.png", { type: "image/png" });

@@ -574,7 +574,6 @@ export class DashboardRpcError extends Error {
 
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_TEXT_LENGTH = 8_192;
-const MAX_ATTACHMENTS = 5;
 
 const rpcError = (message: string): never => {
   throw new DashboardRpcError("invalid_request", message);
@@ -630,7 +629,6 @@ const booleanValue = (value: unknown, label: string): boolean => {
 const attachmentIdsValue = (value: unknown, label: string): string[] | undefined => {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) return rpcError(`${label} must be an array`);
-  if (value.length > MAX_ATTACHMENTS) rpcError(`${label} must contain at most ${MAX_ATTACHMENTS} items`);
   const ids = value.map((item, index) => textValue(item, `${label}[${index}]`)!);
   if (new Set(ids).size !== ids.length) rpcError(`${label} must not contain duplicate IDs`);
   return ids.length > 0 ? ids : undefined;

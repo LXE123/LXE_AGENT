@@ -1176,7 +1176,7 @@ export function ConversationComposer({
     changed: () => refreshAttachments((revision) => revision + 1),
     error: setError,
     discard: async (ids) => { await window.lxe?.desktop.discardConversationFiles(ids); },
-    tooMany: () => callbacksRef.current.t.conversation.tooManyAttachments,
+    tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   }));
   const attachments = attachmentDraft.items;
   const [dragActive, setDragActive] = useState(false);
@@ -1326,7 +1326,7 @@ export function ConversationComposer({
             <button
               aria-label={t.conversation.addFiles}
               className="conversation-attach-button"
-              disabled={!runtimeReady || sending || attachments.length >= 5}
+              disabled={!runtimeReady || sending}
               onClick={() => void selectFiles()}
               title={t.conversation.addFiles}
               type="button"

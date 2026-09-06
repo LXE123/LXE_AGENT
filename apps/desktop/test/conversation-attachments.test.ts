@@ -10,6 +10,29 @@ afterEach(() => {
 });
 
 describe("DesktopConversationAttachmentService", () => {
+  test("registers and submits many local references, counting only owned screenshots toward the limit", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-many-attachments-")); roots.push(root);
+    const paths = Array.from({ length: 25 }, (_, index) => {
+      const path = join(root, `${index}.png`); writeFileSync(path, "original"); return path;
+    });
+    const service = new DesktopConversationAttachmentService(undefined, undefined, {
+      directory: join(root, "screenshots"), prepare: (png) => ({ png, preview: "preview" }),
+    });
+    const files = service.register(paths);
+    const pastedFiles = service.registerPaste({ paths, images: [] });
+    expect(files).toHaveLength(25);
+    expect(pastedFiles).toHaveLength(25);
+    const screenshots = service.registerPaste({ paths: [], images: Array.from({ length: 5 }, () => new Uint8Array([1])) });
+    const ids = [...files, ...screenshots].map((item) => item.attachment_id);
+    const extra = service.registerPaste({ paths: [], images: [new Uint8Array([1])] })[0]!;
+    expect(() => service.beginSend([...ids, extra.attachment_id])).toThrow("5 screenshots");
+    const sending = service.beginSend(ids);
+    expect(sending).toHaveLength(30);
+    expect(sending.filter((item) => item.origin === "reference")).toHaveLength(25);
+    service.finishSend(ids);
+    service.clear();
+    expect(paths.every(existsSync)).toBe(true);
+  });
   test("stages supported regular files with opaque metadata and deduplicates real paths", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-desktop-attachments-"));
     roots.push(root);
@@ -99,6 +122,7 @@ describe("DesktopConversationAttachmentService", () => {
     expect(readdirSync(root)).toEqual([]);
     expect(() => service.registerPaste({ paths: [], images: [new Uint8Array(20 * 1024 * 1024 + 1)] })).toThrow("20 MiB");
     expect(() => service.registerPaste({ paths: [], images: ["fake"] })).toThrow("20 MiB");
+    expect(() => service.registerPaste({ paths: [], images: Array.from({ length: 6 }, () => new Uint8Array([1])) })).toThrow("5 screenshots");
     expect(() => service.registerPaste({ paths: ["x"], images: [new Uint8Array([1])] })).toThrow("either");
     expect(decoded).toBe(2);
   });

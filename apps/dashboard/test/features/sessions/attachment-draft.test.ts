@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ConversationAttachmentDraft } from "../../../src/features/sessions/attachment-draft";
 const item = (id: string) => ({ attachment_id: id, name: id, media_type: "image/png", size_bytes: 1 });
+const screenshot = (id: string) => ({ ...item(id), preview_data_url: "data:image/png;base64,cG5n" });
 function bench() {
   const removed: string[][] = []; const errors: string[] = [];
   const draft = new ConversationAttachmentDraft({ changed() {}, error: (s) => errors.push(s), discard: async (ids) => { removed.push(ids); }, tooMany: () => "five maximum" });
@@ -28,11 +29,21 @@ describe("attachment draft", () => {
     expect(draft.items.map((item) => item.attachment_id)).toEqual(["first"]);
     expect(removed).toEqual([["second"]]);
   });
-  test("rejects a whole oversized addition while retaining existing IDs", async () => {
+  test("accepts many file references alongside five screenshots, including subsequent additions", async () => {
+    const { draft, errors } = bench();
+    const files = Array.from({ length: 25 }, (_, index) => item(`file-${index}`));
+    await draft.stage(async () => files);
+    await draft.stage(async () => Array.from({ length: 5 }, (_, index) => screenshot(`screenshot-${index}`)));
+    await draft.stage(async () => [item("another-image-file")]);
+    expect(draft.items).toHaveLength(31);
+    expect(draft.items.slice(0, 25)).toEqual(files);
+    expect(errors).toEqual([]);
+  });
+  test("rejects a whole addition exceeding the screenshot limit while retaining existing IDs", async () => {
     const { draft, removed, errors } = bench();
-    await draft.stage(async () => [item("1"), item("2"), item("3"), item("4")]);
-    await draft.stage(async () => [item("1"), item("5"), item("6")]);
-    expect(removed).toEqual([["5", "6"]]); expect(errors).toEqual(["five maximum"]); expect(draft.items).toHaveLength(4);
+    await draft.stage(async () => [screenshot("1"), screenshot("2"), screenshot("3"), screenshot("4")]);
+    await draft.stage(async () => [screenshot("1"), screenshot("5"), item("file"), screenshot("6")]);
+    expect(removed).toEqual([["5", "file", "6"]]); expect(errors).toEqual(["five maximum"]); expect(draft.items).toHaveLength(4);
     draft.sent(["1"]); draft.remove("2"); expect(removed.at(-1)).toEqual(["2"]);
   });
 });
