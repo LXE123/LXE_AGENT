@@ -5,7 +5,8 @@ import { processId } from "./process";
 import type { ConversationRow } from "./presentation";
 import { useUiText } from "../../shared/i18n";
 
-export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty }: {
+export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, jumpVersion = 0, retryLatest = false }: {
+  connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
   rows: ConversationRow[]; renderRow: (row: ConversationRow) => React.ReactNode;
   hasOlder: boolean; hasNewer: boolean; loadOlder: () => Promise<unknown>; loadNewer: () => Promise<unknown>;
   jumpToLatest: () => void; onVisibleGroups: (groups: string[]) => void; pageError: string; empty?: React.ReactNode;
@@ -17,10 +18,11 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const busy = useRef(false);
   const retryDirection = useRef<"older" | "newer">("older");
   const [following, setFollowing] = useState(true);
+  useEffect(() => { onFollowingChange?.(following); }, [following, onFollowingChange]);
   const [loading, setLoading] = useState(false);
   const getItemKey = useCallback((index: number) => rows[index]!.id, [rows]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => root.current,
-    getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: hasNewer ? false : "auto",
+    getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: following && connection === "attached" ? "auto" : false,
     scrollEndThreshold: 80, useAnimationFrameWithResizeObserver: true,
     // Include edge spacing in virtual measurements and scroll-to-end targets.
     // The bottom fade covers 26px; keep the last row above it.
@@ -36,8 +38,9 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const currentIds = new Set(rows.map(row => row.id));
   const folding = previousRows.current.some(row => row.presentation === "process" && !currentIds.has(row.id) && currentIds.has(processId(row)));
   const unfolding = rows.some(row => row.presentation === "process" && !previousIds.has(row.id) && previousIds.has(processId(row)));
+  const structureChanged = rows.length !== previousRows.current.length || rows.some((row, index) => row.id !== previousRows.current[index]?.id);
   let anchor: {id: string; offset: number; bottom: boolean} | undefined;
-  if ((folding || unfolding) && root.current) {
+  if ((folding || unfolding || structureChanged && !following) && root.current) {
     const el = root.current;
     const top = el.getBoundingClientRect().top;
     const elements = [...el.querySelectorAll<HTMLElement>("[data-conversation-row]")];
@@ -53,7 +56,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
           offset = header ? Math.max(0, header.getBoundingClientRect().top - top) : 0;
         }
       }
-      anchor = {id, offset, bottom: el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && !hasNewer};
+      anchor = {id, offset, bottom: el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && connection === "attached"};
     }
   }
   if (manualAnchor.current && (folding || unfolding)) anchor = manualAnchor.current;
@@ -77,6 +80,9 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     restore();
     return () => cancelAnimationFrame(frame);
   }, [rows, virtual]);
+  useLayoutEffect(() => {
+    if (jumpVersion) { jumping.current = true; setFollowing(true); }
+  }, [jumpVersion]);
   const items = virtual.getVirtualItems();
   const visibleIds = items.filter((item) => item.end >= (virtual.scrollOffset ?? 0)
     && item.start <= (virtual.scrollOffset ?? 0) + (root.current?.clientHeight ?? 0)).map((item) => rows[item.index]!.groupId);
@@ -84,10 +90,10 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   useLayoutEffect(() => { onVisibleGroups(JSON.parse(visibleKey)); }, [visibleKey, onVisibleGroups]);
   useLayoutEffect(() => {
     if (!rows.length) return;
-    if (!initial.current || (jumping.current && !hasNewer)) {
+    if (!initial.current || (jumping.current && connection === "attached")) {
       virtual.scrollToEnd(); initial.current = true; jumping.current = false; setFollowing(true);
     }
-  }, [rows, hasNewer, virtual]);
+  }, [rows, connection, jumpVersion, virtual]);
   const load = useCallback(async (direction: "older" | "newer") => {
     if (busy.current) return;
     busy.current = true; retryDirection.current = direction; setLoading(true);
@@ -111,7 +117,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (row && root.current) manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
     }} onScroll={() => {
       const el = root.current;
-      if (initial.current && el) setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && !hasNewer);
+      if (initial.current && el) {
+        const follow = el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && connection === "attached";
+        setFollowing(follow);
+        // User scroll intent takes effect before a concurrent history promise resolves.
+        onFollowingChange?.(follow);
+      }
     }}>
       <div className="conversation-feed" style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? virtual.getTotalSize() : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
@@ -122,8 +133,8 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       </div>
     </div>
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}
-    {pageError ? <div className="message-page-error" role="alert">{pageError}<button onClick={() => void load(retryDirection.current)}>{t.sessionDetail.retryEarlier}</button></div> : null}
-    {!following || hasNewer ? <button className="conversation-jump-latest" type="button" onClick={() => {
+    {pageError ? <div className="message-page-error" role="alert">{pageError}<button onClick={() => retryLatest ? jumpToLatest() : void load(retryDirection.current)}>{t.sessionDetail.retryEarlier}</button></div> : null}
+    {!following || connection === "detached" ? <button className="conversation-jump-latest" type="button" onClick={() => {
       jumping.current = true; jumpToLatest(); virtual.scrollToEnd(); setFollowing(true);
     }}><ChevronDown size={14} />{t.conversation.jumpToLatest}</button> : null}
   </div>;

@@ -80,6 +80,7 @@ import {
   modelThinkingLevelLabel,
 } from "../models/model";
 import { groupSidebarSessions } from "./model";
+import type { ConversationDisplaySnapshot } from "./display-controller";
 import { ConversationWindow } from "./virtual-window";
 import { thinkingParagraphs, formatConversationDuration } from "./typography";
 import { useProcessRows } from "./process";
@@ -1512,7 +1513,7 @@ export function SessionDetailView({
   onOpenFile,
   onRevealFile,
   onOpenAttachment,
-  pendingMessages,
+  pendingMessages, display, onFollowingChange,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -1543,6 +1544,8 @@ export function SessionDetailView({
   onRevealFile: (artifactId: string) => Promise<void>;
   onOpenAttachment: (attachmentId: string) => Promise<void>;
   pendingMessages: PendingConversationMessage[];
+  display?: ConversationDisplaySnapshot;
+  onFollowingChange?: (following: boolean) => void;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -1550,36 +1553,9 @@ export function SessionDetailView({
   const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
   const closeSessionInfo = () => setSessionInfoOpen(false);
   const sessionInfoRef = useDialogFocus<HTMLElement>(sessionInfoOpen, closeSessionInfo);
-  const memory = useRef<{ session: string; turns: Map<string, DesktopConversationTurnPayload> }>({ session: "", turns: new Map() });
-  const sessionKey = session?.session_id ?? "new";
-  if (memory.current.session !== sessionKey) memory.current = { session: sessionKey, turns: new Map() };
-  for (const turn of [activity?.latest, activity?.active, ...(activity?.queued ?? [])]) {
-    if (turn) memory.current.turns.set(turn.turn_id, turn);
-  }
-  const persistedTurns = new Set(messages.flatMap((message) => message.turn ? [message.turn.turn_id] : []));
-  const durableIds = new Set(messages.flatMap((message) => Array.isArray(message.content) ? message.content.flatMap((block, index) => {
-    if (!isRecord(block)) return [];
-    return [block.type === "tool_call" || block.type === "tool_use" ? `tool:${block.id}` : `${message.id || message.display_id}:${index}`];
-  }) : []));
-  for (const [id, turn] of memory.current.turns) {
-    if (["running", "stopping", "queued"].includes(turn.state)) continue;
-    if (!persistedTurns.has(id)) {
-      if (turn !== activity?.latest && !pendingMessages.some((item) => item.turnId === id)) memory.current.turns.delete(id);
-      continue;
-    }
-    if (turn.stream) {
-      // Keep ordering and failed-attempt text, but release duplicate successful payloads.
-      const parts = turn.stream.process_parts.map((part) => durableIds.has(part.type === "tool" ? `tool:${part.tool_step.id}` : part.part_id)
-        ? part.type === "tool" ? { ...part, tool_step: { ...part.tool_step, result_block: undefined, error_block: undefined } }
-          : { ...part, text: "" }
-        : part);
-      memory.current.turns.set(id, { ...turn, stream: { ...turn.stream, content: "", thinking: "", tool_steps: [], process_parts: parts } });
-    }
-  }
-  const turns = hasNewer ? [] : [...memory.current.turns.values()].filter((turn) =>
-    persistedTurns.has(turn.turn_id) || turn.turn_id === activity?.active?.turn_id || turn.turn_id === activity?.latest?.turn_id || activity?.queued.some((entry) => entry.turn_id === turn.turn_id)
-    || pendingMessages.some((item) => item.turnId === turn.turn_id));
-  const rows = conversationRows(messages, turns, hasNewer ? [] : pendingMessages);
+  const sessionKey = display?.viewKey ?? session?.session_id ?? "new";
+  const rows = display?.rows ?? conversationRows(messages,
+    [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
   const process = useProcessRows(rows, sessionKey);
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); setSessionInfoOpen(false); }, [sessionKey]);
@@ -1660,21 +1636,20 @@ export function SessionDetailView({
           </section>
         </>
       ) : null}
-      {loading ? <EmptyState label={t.sessionDetail.loading} /> : null}
-      {error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, error)} /> : null}
-      {!loading && !error ? (
-        <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
-          loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
-          pageError={loadOlderError} empty={newConversation ? <ConversationWelcome /> : <EmptyState label={t.sessionDetail.empty} />}
-          renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment}
-            attachmentSessionId={session?.session_id} />} />
-      ) : null}
+      <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+        connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+        loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
+        pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
+        empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
+          : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
+          : newConversation ? <ConversationWelcome /> : <EmptyState label={t.sessionDetail.empty} />}
+        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
       <div className="conversation-composer-dock">
         <ConversationComposer
           contextDetail={detail}
           activity={activity}
-          conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
+          conversationKey={sessionKey}
           currentModel={currentModel}
           modelLoading={modelLoading}
           models={models}

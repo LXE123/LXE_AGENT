@@ -6,7 +6,7 @@ import { finalResponseIndex, fallbackToolCallBlocks, toolOperations, type ToolOp
 export interface PendingMessage {
   pendingId: string; sessionId: string; text: string; createdAt: number;
   attachments: NonNullable<SessionMessage["attachments"]>;
-  turnId?: string; messageId?: string; error?: string;
+  turnId?: string; messageId?: string; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
   id: string; groupId: string; turnId: string; kind: "message" | "tool" | "status" | "artifacts" | "process";
@@ -22,7 +22,7 @@ export const isInternalMessage = (message: SessionMessage): boolean =>
   message.source_reason === "environment_context" || (message.role === "user" && isRecord(message.environmentContext));
 
 /** One projection for both streaming and stored data. Source IDs never depend on the loaded page index. */
-export function conversationRows(messages: SessionMessage[], turns: DesktopConversationTurnPayload[], pending: PendingMessage[]): ConversationRow[] {
+export function conversationRows(messages: SessionMessage[], turns: DesktopConversationTurnPayload[], pending: PendingMessage[], preferLive: boolean | ReadonlySet<string> = false): ConversationRow[] {
   messages = messages.map((message) => {
     if (!message.tool_calls) return message;
     const content = Array.isArray(message.content) ? message.content : message.content ? [{type:"text",text:String(message.content)}] : [];
@@ -91,7 +91,13 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
     // Stored data confirms an item; the live order remains authoritative during the handoff,
     // including failed-attempt rows that deliberately have no persisted counterpart.
     const existing = new Map(rows.map((row) => [row.id, row]));
-    const merged = parts.map((part) => existing.has(part.id) ? { ...existing.get(part.id)!, presentation: part.presentation } : part);
+    const merged = parts.map((part) => {
+      const saved = existing.get(part.id);
+      if (!saved) return part;
+      if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.message) return { ...saved, ...part, groupId: saved.groupId, message: { ...saved.message!, content: part.message.content } };
+      if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.liveTool) return { ...saved, ...part, groupId: saved.groupId, operation: undefined };
+      return { ...saved, presentation: part.presentation };
+    });
     const partIds = new Set(parts.map((part) => part.id));
     const insertion = rows.findIndex((row) => row.turnId === turn.turn_id && row.message?.role !== "user");
     for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
@@ -100,7 +106,14 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
   }
   for (const item of pending) {
     const id = `user:${item.pendingId}`;
-    if (rows.some((row) => row.id === id)) continue;
+    const existing = rows.find(row => row.id === id);
+    if (existing?.message) {
+      const attachments = new Map(item.attachments.map(attachment => [attachment.attachment_id, attachment]));
+      for (const attachment of existing.message.attachments ?? []) attachments.set(attachment.attachment_id, attachment);
+      existing.message = { ...existing.message, attachments: [...attachments.values()] };
+      if (item.error) { existing.error = item.error; existing.status = "error"; }
+      continue;
+    }
     rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
   }
   // Keep a turn together, including when its user row is supplied by pending state.

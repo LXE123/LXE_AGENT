@@ -1,0 +1,50 @@
+# 聊天展示控制器验收
+
+从仓库根运行：
+
+```sh
+bun apps/dashboard/test/features/sessions/display-fixture-server.ts
+```
+
+打开 `http://127.0.0.1:5199/test/features/sessions/display-fixture.html`。
+所有数据都来自内存 fixture，不调用模型、Gateway 或生产会话。
+
+这个页面使用生产的 `SessionDetailView`、`useSessionConversationQuery`、
+`useConversationActivityQuery`、`ConversationDisplayController` 和 `sendConversationMessage`。
+仅替换 `DashboardTransport`；发送时的 activity、历史确认和晚到响应均经过实际 Query 缓存。
+没有另造展示 rows。
+
+依次点击：
+
+1. **Run send scenarios**：空历史先完成，随后发送纯文本、图片、仅附件和新会话；检查
+   DOM 气泡身份不变、失败/取消即时显示、附件晚确认、切换会话后晚到响应不抢回页面。
+2. **Run 1000 group history**：完整向前和向后重新加载 1,000 组，检查缓存裁剪、可见项数量、
+   分页锚点、后台最新页不抢滚动位置，以及分页失败后保留窗口。
+3. **Run height and races**（紧接上一项）：图片高度增长、整体过程折叠、工具独立展开、虚拟
+   卸载重挂载、分页过程中切换会话，以及单个超大组保留。
+4. **Run cache budget**：20 MiB 的普通历史页会整组裁剪，Query 也只持有裁剪后的页；
+   17 MiB 的单组按例外保留，切换会话释放旧 Query 页。
+
+结果直接显示在页面顶部。图片测试在已挂载的 Markdown 中加入本地 SVG 图片并改变其高度，
+触发实际 ResizeObserver 测量；锚点在布局稳定后读回，不以累计高度差代替行身份。
+fixture 的全量数据是模拟服务端数据，不计入被测应用的常驻历史载荷。
+
+## 状态职责
+
+- 控制器拥有消息交接、加载状态、窗口连续性及本地更新代次。
+- Query 执行请求、去重分页和缓存最新页；过期请求无法提交给控制器。
+- 虚拟列表负责测量与滚动，向控制器报告跟随状态和可见组。
+- `has_previous` / `has_next` 只描述分页；实时行是否参与当前窗口由连续性决定。
+- 发送和“跳到最新”共用一个入口；手动发送重连尾部，后台更新保留阅读锚点。
+
+## 浏览器实测（2026-09-07）
+
+417 × 750 视口：1,000 组双向读取，合计缓存最多 60 组，最多挂载 15 项。
+分页裁剪、图片增长、过程展开在高度稳定后测得锚点偏差均为 0px。
+工具展开在整体折叠和虚拟重挂载后保持。
+
+普通大页的 Query 消息载荷为 14,683,362 字节（7 组），小于 16 MiB；
+单个超大组保留 17,826,246 字节。预算限定历史消息载荷，并非浏览器进程总内存上限。
+
+1280 × 900 桌面视口再次通过发送交接及 1,000 组双向读取：最多缓存 60 组、
+最多挂载 19 项，稳定后的分页锚点偏差为 0px。

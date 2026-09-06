@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import "./styles.css";
+import { ConversationDisplayController, sendConversationMessage } from "./features/sessions/display-controller";
 import { acknowledgeConversationSend } from "./features/sessions/presentation";
 import { callDashboard } from "./api/client";
 import { dashboardQueryKeys } from "./api/query-keys";
@@ -76,7 +77,6 @@ import { applyDesktopStreamBatch } from "./features/sessions/live-stream";
 import { ModelsView } from "./features/models/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import {
-  type PendingConversationMessage,
   SessionDetailView,
   SessionsIndex
 } from "./features/sessions/view";
@@ -202,9 +202,10 @@ function App({
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [selectedSessionId, updateSelectedSessionId] = useState("");
+  const [conversationDisplay] = useState(() => new ConversationDisplayController());
+  const setSelectedSessionId = (id: string) => { conversationDisplay.select(id); updateSelectedSessionId(id); };
   const [newConversation, setNewConversation] = useState(false);
-  const [pendingConversationMessages, setPendingConversationMessages] = useState<PendingConversationMessage[]>([]);
   const sidebar = useThreeStateSidebar(browserStorage());
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
@@ -215,6 +216,7 @@ function App({
   const sessionDetailQuery = useSessionConversationQuery(
     selectedSessionId,
     dashboardRuntimeReady && activeSection === "sessions" && !newConversation,
+    conversationDisplay,
   );
   const conversationActivityQuery = useConversationActivityQuery(
     selectedSessionId,
@@ -407,39 +409,19 @@ function App({
   function startNewConversation() {
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
-    setSelectedSessionId("");
+    conversationDisplay.select("", true);
+    updateSelectedSessionId("");
     setNewConversation(true);
   }
 
   async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
-    const pendingId = crypto.randomUUID();
-    const pendingMessage: PendingConversationMessage = {
-      pendingId,
-      sessionId: selectedSessionId,
-      text,
-      attachments,
-      createdAt: Date.now(),
-    };
-    setPendingConversationMessages((current) => [...current, pendingMessage]);
-    const result = await callDashboard({
-      operation: "sessions.send",
-      input: {
-        ...(selectedSessionId ? { session_id: selectedSessionId } : {}),
-        text,
-        client_message_id: pendingId,
-        ...(attachments.length ? { attachment_ids: attachments.map((item) => item.attachment_id) } : {}),
-      },
-    }).catch((cause) => {
-      setPendingConversationMessages((current) => current.map((item) => item.pendingId === pendingId ? { ...item, error: cause instanceof Error ? cause.message : String(cause) } : item));
-      throw cause;
-    });
+    const { result, ticket, selected } = await sendConversationMessage(conversationDisplay, text, attachments,
+      input => callDashboard({ operation: "sessions.send", input }));
     queryClient.setQueryData<DesktopConversationActivityPayload>(
       dashboardQueryKeys.sessions.activity(result.session_id),
-      (current) => acknowledgeConversationSend(current, result, pendingMessage),
+      current => acknowledgeConversationSend(current, result, ticket.message),
     );
-    setPendingConversationMessages((current) => current.map((item) => item.pendingId === pendingId ? { ...item, sessionId: result.session_id, turnId: result.turn_id, messageId: result.message_id } : item));
-    setSelectedSessionId(result.session_id);
-    setNewConversation(false);
+    if (selected) { setSelectedSessionId(result.session_id); setNewConversation(false); }
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists }),
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(result.session_id) }),
@@ -704,20 +686,14 @@ function App({
   }
 
   const sessionDetail = sessionDetailQuery.data ?? null;
-  useEffect(() => {
-    const persisted = new Set(sessionDetail?.messages.flatMap((message) => message.client_message_id ? [message.client_message_id] : []) ?? []);
-    if (persisted.size) setPendingConversationMessages((current) => current.filter((message) => !persisted.has(message.pendingId)));
-  }, [sessionDetail?.messages]);
 
   const selectedSession = sessions.items.find((session) => session.session_id === selectedSessionId)
     || sessionDetail?.session
     || null;
   const conversationActivity = selectedSessionId
-    ? conversationActivityQuery.data ?? null
+    ? sessionDetailQuery.display.activity ?? conversationActivityQuery.data ?? null
     : null;
-  const visiblePendingConversationMessages = pendingConversationMessages.filter((message) =>
-    message.sessionId === selectedSessionId || (newConversation && !message.sessionId)
-  );
+
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
@@ -970,7 +946,9 @@ function App({
                     onOpenFile={openConversationFile}
                     onRevealFile={revealConversationFile}
                     onOpenAttachment={openConversationAttachment}
-                    pendingMessages={visiblePendingConversationMessages}
+                    pendingMessages={sessionDetailQuery.display.pending}
+                    display={sessionDetailQuery.display}
+                    onFollowingChange={sessionDetailQuery.setFollowing}
                   />
                 ) : (
                   <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

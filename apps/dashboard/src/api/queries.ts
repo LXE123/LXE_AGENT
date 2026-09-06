@@ -6,16 +6,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+
+import { ConversationDisplayController } from "../features/sessions/display-controller";
 
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
 import {
-  mergeLatestConversationWindow,
-  appendConversationWindow,
-  boundConversationWindow,
   normalizeSessionList,
-  prependConversationWindow,
 } from "../features/sessions/model";
 import type {
   ApiList,
@@ -124,94 +122,113 @@ export function useSessionDetailQuery(sessionId: string, before: string | undefi
   });
 }
 
-export function useSessionConversationQuery(sessionId: string, enabled = true) {
+export function useSessionConversationQuery(sessionId: string, enabled = true, suppliedController?: ConversationDisplayController) {
   const queryClient = useQueryClient();
-  const latestQuery = useSessionDetailQuery(sessionId, undefined, enabled);
-  const [data, setData] = useState<SessionDetailPayload>();
-  const state = useRef<SessionDetailPayload | undefined>(undefined);
-  const visible = useRef<string[]>([]);
-  const generation = useRef(0);
-  const currentSession = useRef(sessionId);
-  currentSession.current = sessionId;
+  const [ownedController] = useState(() => new ConversationDisplayController());
+  const controller = suppliedController ?? ownedController;
+  const display = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const requests = useRef(new Map<string, Promise<SessionDetailPayload | undefined>>());
   const [fetching, setFetching] = useState<string | null>(null);
   const [pageError, setPageError] = useState<unknown>(null);
-  const publish = useCallback((value: SessionDetailPayload) => { state.current = value; setData(value); }, []);
-  useEffect(() => {
-    generation.current += 1;
-    state.current = undefined; setData(undefined); visible.current = []; requests.current.clear();
-    setPageError(null); setFetching(null);
+  useLayoutEffect(() => {
+    controller.select(sessionId);
+    requests.current.clear(); setFetching(null); setPageError(null);
+    const cached = queryClient.getQueryData<SessionDetailPayload>(dashboardQueryKeys.sessions.detail(sessionId, "latest"));
+    if (cached) controller.receiveHistory(cached, "latest", -1);
+    const activityKey = dashboardQueryKeys.sessions.activity(sessionId);
+    const receiveActivity = () => {
+      const activity = queryClient.getQueryData<DesktopConversationActivityPayload>(activityKey);
+      if (activity) controller.receiveActivity(activity);
+    };
+    receiveActivity();
+    // Apply pushed activity before a concurrently resolving history request can confirm it.
+    const unsubscribe = queryClient.getQueryCache().subscribe(event => {
+      if (event.type === "updated" && event.action.type === "success" && JSON.stringify(event.query.queryKey) === JSON.stringify(activityKey)) receiveActivity();
+    });
     return () => {
-      generation.current += 1;
+      unsubscribe();
+      void queryClient.cancelQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(sessionId) });
       queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(sessionId), type: "inactive" });
     };
-  }, [sessionId, queryClient]);
-  useEffect(() => {
-    const latest = latestQuery.data;
-    if (latest?.session.session_id !== sessionId) return;
-    if (latest.context_reset_at) queryClient.setQueryData<DesktopConversationActivityPayload>(
-      dashboardQueryKeys.sessions.activity(sessionId),
-      current => clearResetStreams(current, latest.context_reset_at!),
-    );
-    publish(boundConversationWindow(mergeLatestConversationWindow(state.current, latest), visible.current));
-  }, [latestQuery.data, sessionId, publish, queryClient]);
+  }, [controller, sessionId, queryClient]);
+  const latestQuery = useQuery({
+    queryKey: dashboardQueryKeys.sessions.detail(sessionId, "latest"),
+    queryFn: async ({ signal }) => {
+      const ticket = controller.beginHistory();
+      try {
+        const page = await callDashboard({ operation: "sessions.detail", input: { session_id: sessionId, message_limit: SESSION_MESSAGE_PAGE_LIMIT } });
+        const accepted = !signal.aborted && controller.completeHistory(ticket, page, "latest");
+        if (accepted && page.context_reset_at) {
+          queryClient.setQueryData<DesktopConversationActivityPayload>(dashboardQueryKeys.sessions.activity(sessionId),
+            current => clearResetStreams(current, page.context_reset_at!));
+        }
+        // The Query cache shares the bounded tail instead of retaining evicted payloads.
+        return accepted ? controller.getSnapshot().latest! : page;
+      } catch (error) { if (!signal.aborted && controller.isCurrent(ticket)) controller.failHistory(error); throw error; }
+    },
+    enabled: enabled && Boolean(sessionId), staleTime: ACTIVE_DATA_STALE_TIME_MS, gcTime: 0,
+  });
   const fetchPage = useCallback((direction: "older" | "newer"): Promise<SessionDetailPayload | undefined> => {
     const existing = requests.current.get(direction);
     if (existing) return existing;
-    const page = state.current;
+    const page = controller.getSnapshot().detail;
     const cursor = direction === "older" ? page?.messages_page.previous_cursor : page?.messages_page.next_cursor;
     if (!enabled || !cursor || page?.session.session_id !== sessionId) return Promise.resolve(undefined);
-    const epoch = generation.current;
+    const ticket = controller.beginHistory();
     setFetching(direction); setPageError(null);
     const request = callDashboard({ operation: "sessions.detail", input: {
       session_id: sessionId, message_limit: SESSION_MESSAGE_PAGE_LIMIT,
       ...(direction === "older" ? { message_before: cursor } : { message_after: cursor }),
-    } }).then((incoming) => {
-      if (epoch !== generation.current || currentSession.current !== sessionId || !state.current) return undefined;
-      const merged = direction === "older" ? prependConversationWindow(state.current, incoming) : appendConversationWindow(state.current, incoming);
-      const bounded = boundConversationWindow(merged, visible.current, direction);
-      publish(bounded);
-      return bounded;
-    }).catch((error: unknown) => {
-      if (epoch === generation.current && currentSession.current === sessionId) setPageError(error);
-      throw error;
-    }).finally(() => {
-      if (epoch !== generation.current || currentSession.current !== sessionId) return;
-      requests.current.delete(direction); setFetching(null);
-    });
+    } }).then(incoming => controller.completeHistory(ticket, incoming, direction) ? controller.getSnapshot().detail : undefined)
+      .catch((error: unknown) => { if (controller.isCurrent(ticket)) setPageError(error); throw error; })
+      .finally(() => {
+        if (requests.current.get(direction) !== request) return;
+        requests.current.delete(direction); setFetching(null);
+      });
     requests.current.set(direction, request);
     return request;
-  }, [enabled, sessionId, publish]);
-  const jumpToLatest = useCallback(() => {
-    generation.current += 1; requests.current.clear(); setFetching(null); setPageError(null); visible.current = [];
-    if (latestQuery.data?.session.session_id === sessionId) publish(boundConversationWindow(latestQuery.data));
-    void latestQuery.refetch();
-  }, [latestQuery.data, latestQuery.refetch, sessionId, publish]);
+  }, [enabled, sessionId, controller]);
+  // Sending and the jump button change the same controller epoch. Discard in-flight pages,
+  // cancel obsolete latest reads and request the new tail; local messages remain visible.
+  useEffect(() => {
+    if (!display.jump || display.sessionId !== sessionId) return;
+    requests.current.clear(); setFetching(null); setPageError(null);
+    if (enabled && sessionId) {
+      void queryClient.cancelQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(sessionId) })
+        .then(() => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.detail(sessionId, "latest") }));
+    }
+  }, [display.jump, display.sessionId, sessionId, enabled, queryClient]);
+  const data = display.sessionId === sessionId ? display.detail : undefined;
   return {
-    data: data?.session.session_id === sessionId ? data : undefined,
+    controller, display, data,
     error: pageError ?? latestQuery.error,
-    isPending: latestQuery.isPending && !data,
+    isPending: display.loadState === "loading" && !data,
     isFetching: latestQuery.isFetching || fetching !== null,
     isRefetchError: latestQuery.isRefetchError,
-    hasPreviousPage: Boolean(data?.messages_page.has_previous),
-    hasNextPage: Boolean(data?.messages_page.has_next),
-    isFetchingPreviousPage: fetching === "older",
-    isFetchingNextPage: fetching === "newer",
+    hasPreviousPage: Boolean(data?.messages_page.has_previous && data.messages_page.previous_cursor),
+    hasNextPage: Boolean(data?.messages_page.has_next && data.messages_page.next_cursor),
+    isFetchingPreviousPage: fetching === "older", isFetchingNextPage: fetching === "newer",
     isFetchPreviousPageError: pageError !== null,
     fetchPreviousPage: useCallback(() => fetchPage("older"), [fetchPage]),
     fetchNextPage: useCallback(() => fetchPage("newer"), [fetchPage]),
-    setVisibleGroups: useCallback((ids: string[]) => { visible.current = ids; }, []),
-    jumpToLatest,
+    setVisibleGroups: controller.setVisibleGroups,
+    setFollowing: controller.setFollowing,
+    jumpToLatest: controller.jumpToLatest,
   };
 }
 
 export function useConversationActivityQuery(sessionId: string, enabled = true) {
+  const queryClient = useQueryClient();
+  const key = dashboardQueryKeys.sessions.activity(sessionId);
   return useQuery({
-    queryKey: dashboardQueryKeys.sessions.activity(sessionId),
-    queryFn: () => callDashboard({
-      operation: "sessions.activity",
-      input: { session_id: sessionId },
-    }),
+    queryKey: key,
+    queryFn: async () => {
+      const before = queryClient.getQueryData<DesktopConversationActivityPayload>(key);
+      const response = await callDashboard({ operation: "sessions.activity", input: { session_id: sessionId } });
+      const current = queryClient.getQueryData<DesktopConversationActivityPayload>(key);
+      // A pushed update during this read is newer than its captured server snapshot.
+      return current && current !== before ? current : response;
+    },
     enabled: enabled && Boolean(sessionId),
     staleTime: Number.POSITIVE_INFINITY,
   });

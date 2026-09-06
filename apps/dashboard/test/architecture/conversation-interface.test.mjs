@@ -10,6 +10,7 @@ const queries = readFileSync(path.join(sourceDir, "api/queries.ts"), "utf8");
 const conversation = readFileSync(path.join(sourceDir, "features/sessions/conversation.ts"), "utf8");
 const windowView = readFileSync(path.join(sourceDir, "features/sessions/virtual-window.tsx"), "utf8");
 const presentation = readFileSync(path.join(sourceDir, "features/sessions/presentation.ts"), "utf8");
+const controller = readFileSync(path.join(sourceDir, "features/sessions/display-controller.ts"), "utf8");
 const markdown = readFileSync(path.join(sourceDir, "shared/ui/markdown.tsx"), "utf8");
 const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8").replaceAll("\r\n", "\n");
 
@@ -26,7 +27,7 @@ test("sessions view exposes text conversation controls and IME-safe keyboard beh
   assert.match(view, /session-new-button/);
   assert.match(view, /selectConversationFiles/);
   assert.match(view, /stageDroppedConversationFiles/);
-  assert.match(main, /attachment_ids: attachments\.map/);
+  assert.match(controller, /attachment_ids: attachments\.map/);
 });
 
 test("the composer switches the shared model before the next turn", () => {
@@ -72,7 +73,7 @@ test("the transcript uses a bounded virtual window with bidirectional history", 
   assert.match(windowView, /overscan: 5/);
   assert.match(windowView, /conversation-jump-latest/);
   assert.match(queries, /message_after: cursor/);
-  assert.match(queries, /boundConversationWindow/);
+  assert.match(controller, /boundConversationWindow/);
   assert.doesNotMatch(view, /previousHeight/);
 });
 
@@ -213,22 +214,24 @@ test("dashboard sends through Main, restores activity, and merges cursor history
   assert.doesNotMatch(main, /if \(section === "sessions"\) \{\s*setSelectedSessionId\(""\)/s);
   assert.match(queries, /operation: "sessions\.activity"/);
   assert.match(queries, /message_before: before/);
-  assert.match(queries, /mergeLatestConversationWindow/);
-  assert.match(queries, /prependConversationWindow/);
+  assert.match(controller, /mergeLatestConversationWindow/);
+  assert.match(controller, /prependConversationWindow/);
   assert.doesNotMatch(main, /response_route_id/);
 });
 
 test("a user message is projected before the RPC settles and remains on send failure", () => {
-  const enqueue = main.indexOf("setPendingConversationMessages((current) => [...current, pendingMessage])");
-  assert.ok(enqueue >= 0 && main.indexOf('operation: "sessions.send"', enqueue) > enqueue);
-  assert.match(main, /client_message_id: pendingId/);
+  const enqueue = controller.indexOf("const ticket = controller.beginSend(text, attachments)");
+  assert.ok(enqueue >= 0 && controller.indexOf("await send(", enqueue) > enqueue);
+  assert.match(controller, /client_message_id: ticket.pendingId/);
+  assert.match(main, /sendConversationMessage/);
   assert.match(main, /acknowledgeConversationSend/);
   assert.match(presentation, /item.error/);
   assert.doesNotMatch(view, /pendingMessages\.map/);
 });
 
 test("thinking, tools and text share one ordered row projection", () => {
-  assert.match(view, /conversationRows\(messages, turns/);
+  assert.match(view, /display\?\.rows/);
+  assert.match(controller, /conversationRows\(/);
   assert.match(view, /renderRow=\{/);
   assert.match(windowView, /renderRow\(rows\[item.index\]/);
   assert.match(presentation, /part.part_id/);

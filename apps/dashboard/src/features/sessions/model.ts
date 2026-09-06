@@ -65,13 +65,16 @@ const flattenConversationGroups = (groups: ConversationDisplayGroup[]): SessionM
 export function mergeLatestConversationWindow(
   current: SessionDetailPayload | undefined,
   latest: SessionDetailPayload,
+  following = false,
 ): SessionDetailPayload {
   if (!current || current.session.session_id !== latest.session.session_id) return latest;
   const currentGroups = conversationDisplayGroups(current.messages);
   const latestGroups = conversationDisplayGroups(latest.messages);
+  if (!currentGroups.length) return latest;
   if (!latestGroups.length) return latest.messages_page.total === 0 ? latest : current;
   const currentIndexes = new Map(currentGroups.map((group, index) => [group.id, index]));
   const firstOverlap = latestGroups.findIndex((group) => currentIndexes.has(group.id));
+  if (firstOverlap < 0 && following) return latest;
   if (firstOverlap < 0) return { ...current, context_display: latest.context_display ?? null, context_reset_at: latest.context_reset_at ?? 0, latest_turn_usage: latest.latest_turn_usage ?? null, session: latest.session, messages_page: { ...current.messages_page, total: latest.messages_page.total, has_next: true, next_cursor: current.messages_page.newest_cursor } };
   const currentCut = currentIndexes.get(latestGroups[firstOverlap]!.id)!;
   return {
@@ -121,13 +124,14 @@ const pageGroups = (page: SessionDetailPayload): string[] => page.messages_page.
 /** Evict only whole, non-visible groups. The current visible group may exceed the budget. */
 export function boundConversationWindow(
   page: SessionDetailPayload, visible: readonly string[] = [], direction: "older" | "newer" = "newer",
+  budget = { groups: CONVERSATION_GROUP_BUDGET, bytes: CONVERSATION_BYTE_BUDGET },
 ): SessionDetailPayload {
   const groups = pageGroups(page).slice();
   const protectedIds = new Set(visible);
   const sizes = new Map(groups.map((id) => [id, new TextEncoder().encode(JSON.stringify(page.messages.filter((m) => m.display_group_id === id))).byteLength]));
   let bytes = [...sizes.values()].reduce((a, b) => a + b, 0);
   let removedStart = false, removedEnd = false;
-  while (groups.length > 1 && (groups.length > CONVERSATION_GROUP_BUDGET || bytes > CONVERSATION_BYTE_BUDGET)) {
+  while (groups.length > 1 && (groups.length > budget.groups || bytes > budget.bytes)) {
     const first = groups[0]!, last = groups.at(-1)!;
     const removeStart = direction === "newer" ? !protectedIds.has(first) : protectedIds.has(last);
     const candidate = removeStart ? first : last;
