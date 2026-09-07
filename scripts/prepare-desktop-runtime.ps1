@@ -8,6 +8,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+# Archive progress rendering requires a console buffer unavailable over OpenSSH.
+$ProgressPreference = "SilentlyContinue"
 
 $consoleEncodingHelper = Join-Path $PSScriptRoot "_console_encoding.ps1"
 if (Test-Path -LiteralPath $consoleEncodingHelper -PathType Leaf) {
