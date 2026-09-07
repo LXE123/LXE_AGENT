@@ -6,6 +6,7 @@ import {
   managedRipgrepPath,
   resolveRipgrepExecutable,
   WorkspaceSearchService,
+  type WorkspaceGrepRequest,
 } from "../../src/tooling/workspace-search";
 
 const roots: string[] = [];
@@ -53,6 +54,18 @@ describe("WorkspaceSearchService", () => {
     expect(args).toContain("--regexp\nneedle");
     expect(args).toContain("--max-columns\n500");
     expect(args).not.toContain("--max-columns-preview");
+    expect(args).not.toContain("--fixed-strings");
+    const literalPattern = String.raw`-items[0].$HOME\n`;
+    await new WorkspaceSearchService(root, { ripgrepPath: fake }).grep({
+      pattern: literalPattern, literal: true, multiline: true, caseInsensitive: true,
+      searchPath: join(root, "src"), outputMode: "content", context: 2, beforeContext: 0, afterContext: 0, limit: 20,
+    });
+    const literalArgs = readFileSync(argsPath, "utf8");
+    expect(literalArgs).toContain("--fixed-strings");
+    expect(literalArgs).toContain(`--regexp\n${literalPattern}\n--\n`);
+    expect(literalArgs).toContain("--ignore-case");
+    expect(literalArgs).toContain("--multiline\n--multiline-dotall");
+    expect(literalArgs).toContain("-C\n2\n-B\n0\n-A\n0");
   });
 
   test("keeps external ripgrep results absolute and reusable", async () => {
@@ -208,3 +221,67 @@ process.stdout.write("src/a.ts:1:hit\\n");
     expect(found).toContain("showing first 2 of 160");
   });
 });
+
+const realRipgrep = resolveRipgrepExecutable();
+for (const backend of ["fallback", "real rg"] as const) {
+  describe(`literal grep (${backend})`, () => {
+    const backendTest = test.skipIf(backend === "real rg" && !realRipgrep);
+    function fixture(source: string) {
+      const root = mkdtempSync(join(tmpdir(), "lxe-literal-"));
+      roots.push(root);
+      writeFileSync(join(root, "sample.txt"), source);
+      const service = new WorkspaceSearchService(root, { ripgrepPath: backend === "fallback" ? null : realRipgrep! });
+      const search = (options: Partial<WorkspaceGrepRequest> & { pattern: string }) => service.grep({
+        searchPath: root, outputMode: "content", limit: 100, ...options,
+      });
+      return { root, search };
+    }
+    backendTest("distinguishes literal text from regex and preserves backend regex errors", async () => {
+      const { search } = fixture("foo.bar\nfooXbar\nitems[0]\nitems0\n[\n");
+      expect(await search({ pattern: "foo.bar", literal: true })).toBe("sample.txt:1:foo.bar");
+      expect(await search({ pattern: "foo.bar" })).toContain("sample.txt:2:fooXbar");
+      expect(await search({ pattern: "items[0]", literal: true })).toBe("sample.txt:3:items[0]");
+      expect(await search({ pattern: "items[0]", literal: false })).toBe("sample.txt:4:items0");
+      expect(await search({ pattern: "[", literal: true })).toContain("sample.txt:5:[");
+      await expect(search({ pattern: "[" })).rejects.toThrow();
+    });
+    backendTest("treats metacharacters, backslash-n and Unicode punctuation as text", async () => {
+      const pattern = String.raw`-a/b\c.$^*+?()[]{}| 中文—🙂\n`;
+      const { search } = fixture(`${pattern}\nnot a match\n`);
+      expect(await search({ pattern, literal: true })).toBe(`sample.txt:1:${pattern}`);
+      expect(await search({ pattern: "中文-", literal: true })).toBe("No matches found.");
+    });
+    backendTest("supports case folding, all modes and explicit zero context overrides", async () => {
+      const { search } = fixture("before\nITEMS[0]\nafter\nitems[0]\nlast\n");
+      const options = { pattern: "items[0]", literal: true, caseInsensitive: true };
+      expect(await search({ ...options, outputMode: "files_with_matches", context: 2 })).toBe("sample.txt");
+      expect(await search({ ...options, outputMode: "count", context: 2 })).toBe("sample.txt:2");
+      expect(await search({ ...options, context: 2, beforeContext: 0, afterContext: 0 })).toBe("sample.txt:2:ITEMS[0]\nsample.txt:4:items[0]");
+      const after = await search({ ...options, context: 1, beforeContext: 0 });
+      expect(after).not.toContain("before");
+      expect(after).toContain("sample.txt-3-after");
+      expect(after).toContain("sample.txt-5-last");
+      const before = await search({ ...options, context: 1, afterContext: 0 });
+      expect(before).toContain("sample.txt-1-before");
+      expect(before).not.toContain("last");
+    });
+    backendTest("matches literal LF only with multiline and retains backend formatting", async () => {
+      const { search } = fixture("a[0]\nb.*\na0\nbZZ\n");
+      const options = { pattern: "a[0]\nb.*", literal: true };
+      await expect(search(options)).rejects.toThrow("multiline=true");
+      const output = await search({ ...options, multiline: true });
+      expect(output).toContain("sample.txt:1:a[0]");
+      expect(output).not.toContain("a0");
+      if (backend === "real rg") expect(output).toContain("sample.txt:2:b.*");
+      else expect(output).toBe("sample.txt:1:a[0]");
+      expect(await search({ ...options, multiline: true, outputMode: "files_with_matches" })).toBe("sample.txt");
+      expect(await search({ ...options, multiline: true, outputMode: "count" })).toBe("sample.txt:1");
+    });
+    backendTest("honors cancellation before starting either backend", async () => {
+      const { search } = fixture("x");
+      const controller = new AbortController();
+      controller.abort(new Error("literal search cancelled"));
+      await expect(search({ pattern: "x", literal: true, signal: controller.signal })).rejects.toThrow("literal search cancelled");
+    });
+  });
+}

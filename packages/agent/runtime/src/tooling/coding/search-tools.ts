@@ -3,6 +3,7 @@ import type { ToolDefinition } from "../registry";
 import { WorkspaceSearchService } from "../workspace-search";
 import type { CodingPathPolicy, ReadableTarget } from "./path-policy";
 import { directoryListSchema, listDirectory, validateDirectoryListInput } from "./directory-list";
+import { grepSchema, validateGrepInput } from "./grep-input";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
@@ -48,32 +49,24 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
   return [
     {
       name: "grep",
-      description: "Search UTF-8 files at any path readable by the local LXE Agent process for a regular expression. Relative paths resolve from the session working directory.",
-      input_schema: { type: "object", properties: {
-        pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, type: { type: "string" },
-        output_mode: { type: "string", enum: ["files_with_matches", "content", "count"] },
-        case_insensitive: { type: "boolean" }, context: { type: "integer" }, before_context: { type: "integer" },
-        after_context: { type: "integer" }, multiline: { type: "boolean" }, head_limit: { type: "integer" },
-      }, required: ["pattern"], additionalProperties: false },
+      description: "Search UTF-8 files at any path readable by the local LXE Agent process. Relative paths resolve from the session working directory. pattern is a regular expression by default; set literal=true to search copied text without regex escaping. A literal LF requires multiline=true. Defaults to file names; use output_mode=content for matching lines or count for counts. head_limit defaults to 100 output lines, including context. before_context/after_context override context on that side, including zero; context only applies to content mode.",
+      input_schema: grepSchema,
       execute: async (input, context) => {
-        const target = paths.resolveReadable(context.workspace, input.path ?? ".");
-        const pattern = inputText(input, "pattern");
-        if (!pattern) throw new Error("pattern 不能为空");
-        const maxLines = Math.max(1, Number(input.head_limit ?? 100));
-        const mode = String(input.output_mode ?? "files_with_matches");
-        if (!["files_with_matches", "content", "count"].includes(mode)) throw new Error(`未知 output_mode: ${mode}`);
+        const args = validateGrepInput(input);
+        const target = paths.resolveReadable(context.workspace, args.path);
         const output = await searchFor(target, context).grep({
-          pattern,
+          pattern: args.pattern,
           searchPath: target.path,
-          outputMode: mode as "files_with_matches" | "content" | "count",
-          glob: inputText(input, "glob"),
-          fileType: inputText(input, "type"),
-          caseInsensitive: input.case_insensitive === true,
-          ...(input.context === undefined ? {} : { context: Math.max(0, Number(input.context)) }),
-          ...(input.before_context === undefined ? {} : { beforeContext: Math.max(0, Number(input.before_context)) }),
-          ...(input.after_context === undefined ? {} : { afterContext: Math.max(0, Number(input.after_context)) }),
-          multiline: input.multiline === true,
-          limit: maxLines,
+          outputMode: args.output_mode,
+          glob: args.glob,
+          fileType: args.type,
+          literal: args.literal,
+          caseInsensitive: args.case_insensitive,
+          ...(args.context === undefined ? {} : { context: args.context }),
+          ...(args.before_context === undefined ? {} : { beforeContext: args.before_context }),
+          ...(args.after_context === undefined ? {} : { afterContext: args.after_context }),
+          multiline: args.multiline,
+          limit: args.head_limit,
           signal: context.handle.signal,
         });
         return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };

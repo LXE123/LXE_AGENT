@@ -43,6 +43,22 @@ Schema 应描述：
 
 不要把 secret 默认值、真实 token、cookie 或本机私有路径写入 schema/description。
 
+## 内容搜索 grep
+
+复制代码搜索时可以直接使用原文模式：
+
+```json
+{ "pattern": "items[0]", "literal": true, "path": "src", "output_mode": "content" }
+```
+
+`literal` 默认 false，沿用正则语义。原文模式的 `items[0]` 匹配数组访问文本；正则模式的 `items[0]` 匹配 `items0`。要用正则搜索同一段原文，JSON 写成 `{ "pattern": "items\\[0\\]" }`。原文模式不解释正则特殊字符，不做 Unicode 或换行归一化，可与 `case_insensitive`、`multiline` 及三种输出模式组合。pattern 含实际 LF 时，原文模式要求 `multiline: true`；反斜杠和字母 n 组成的文本仍按两个字符查找。
+
+只要求 `pattern`：必须为非空字符串，允许纯空白且不裁剪。省略 `path` 时使用当前会话目录；提供时必须为非空、非纯空白字符串，保留原路径。`glob`、`type` 必须为字符串，空字符串表示不筛选。`output_mode` 仅接受 `files_with_matches`（默认）、`content`、`count`。`literal`、`case_insensitive`、`multiline` 必须为布尔值，默认 false。
+
+`head_limit` 默认 100，必须为正的安全整数；`context`、`before_context`、`after_context` 必须为非负安全整数。单侧参数覆盖该侧的 context，显式 0 也有效；上下文仅用于 content 模式，其余模式接受但不使用。schema 与执行端均拒绝未知字段、null、错误类型和无效数值，不隐式转换或静默修正。校验发生在路径解析及搜索之前；正则语法和 type 支持范围由实际后端判断，保留实际后端错误。
+
+有 rg 时原文搜索使用 `--fixed-strings`，通过参数数组传递；无 rg 时将原文安全转义后复用内置匹配流程。搜索范围、忽略规则、隐藏文件行为以及多行展示和计数沿用各后端现状，不保证两种后端的这些行为完全一致。`head_limit` 限制的是输出行数，包含上下文，并非纯匹配数；工具层仍有 10,000 字符头尾截断，不提供连续分页。
+
 ## 目录分页 ls
 
 ```json

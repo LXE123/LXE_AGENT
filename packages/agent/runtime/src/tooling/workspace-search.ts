@@ -39,6 +39,7 @@ export interface WorkspaceGrepRequest {
   outputMode: GrepOutputMode;
   glob?: string;
   fileType?: string;
+  literal?: boolean;
   caseInsensitive?: boolean;
   context?: number;
   beforeContext?: number;
@@ -280,6 +281,10 @@ export class WorkspaceSearchService {
   }
 
   async grep(request: WorkspaceGrepRequest): Promise<string> {
+    assertActive(request.signal);
+    if (request.literal && request.pattern.includes("\n") && !request.multiline) {
+      throw new Error("grep pattern contains a literal LF; set multiline=true.");
+    }
     if (this.ripgrepPath) return this.grepWithRipgrep(request, this.ripgrepPath);
     return this.grepFallback(request);
   }
@@ -327,6 +332,7 @@ export class WorkspaceSearchService {
       if (request.afterContext !== undefined) args.push("-A", String(Math.max(0, request.afterContext)));
     }
     if (request.caseInsensitive) args.push("--ignore-case");
+    if (request.literal) args.push("--fixed-strings");
     if (request.multiline) args.push("--multiline", "--multiline-dotall");
     if (request.glob) args.push("--glob", request.glob);
     for (const skipped of [...SKIP_DIRECTORIES].sort()) args.push("--glob", `!**/${skipped}/**`);
@@ -362,7 +368,9 @@ export class WorkspaceSearchService {
       throw new Error(`未知 type: ${request.fileType}（无 ripgrep 时支持: ${Object.keys(TYPE_EXTENSIONS).sort().join(", ")}），或改用 glob 过滤`);
     }
     // Compile before touching the workspace so invalid expressions fail immediately.
-    new RegExp(request.pattern, `${request.caseInsensitive ? "i" : ""}${request.multiline ? "s" : ""}u`);
+    // Escape regex syntax only: identity escapes such as \- are invalid in Unicode mode.
+    const pattern = request.literal ? request.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : request.pattern;
+    new RegExp(pattern, `${request.caseInsensitive ? "i" : ""}${request.multiline ? "s" : ""}u`);
     const files = await collectFiles(this.workspaceRoot, request.searchPath, request.signal);
     const baseRelative = normalizePath(relative(this.workspaceRoot, request.searchPath));
     const results: string[] = [];
@@ -378,7 +386,7 @@ export class WorkspaceSearchService {
         try { bytes = await readFile(join(this.workspaceRoot, path)); } catch { return []; }
         if (isProbablyBinary(bytes)) return [];
         const source = new TextDecoder().decode(bytes);
-        const indexes = matchingLineIndexes(source, request.pattern, request.caseInsensitive ?? false, request.multiline ?? false);
+        const indexes = matchingLineIndexes(source, pattern, request.caseInsensitive ?? false, request.multiline ?? false);
         if (indexes.length === 0) return [];
         if (request.outputMode === "files_with_matches") return [displayedPath];
         if (request.outputMode === "count") return [`${displayedPath}:${indexes.length}`];
