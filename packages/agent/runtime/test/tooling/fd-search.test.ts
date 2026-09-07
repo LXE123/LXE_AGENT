@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkFdVersion, escapeFindPath, fdArguments, findWithFd, resolveFdExecutable, validateFindInput } from "../../src/tooling/fd-search";
+import { checkFdVersion, escapeFindPath, fdArguments, findWithFd, resolveFdExecutable, validateFindInput, windowsFdGlob } from "../../src/tooling/fd-search";
 
 const roots: string[] = [];
 const temporary = () => { const root = mkdtempSync(join(tmpdir(), "lxe-fd-")); roots.push(root); return root; };
@@ -26,7 +26,9 @@ describe("find input", () => {
     expect(args).toContain("--print0");
     expect(args).toContain("--show-errors");
     expect(args).not.toContain("--type");
-    expect(args.at(-2)).toBe(String.raw`**[/\\]src[/\\]**[/\\]*.ts`);
+    expect(args.at(-2)).toBe(String.raw`{src[/\\]*.ts,src[/\\]**[/\\]*.ts,**[/\\]src[/\\]*.ts,**[/\\]src[/\\]**[/\\]*.ts}`);
+    expect(windowsFdGlob("**/src/**/*.{ts,tsx}")).not.toContain("{{");
+    expect(() => windowsFdGlob("**/".repeat(9) + "*.ts")).toThrow("256");
     expect(fdArguments({ pattern: "-name", searchPath: "/repo", limit: 1 }, true).slice(-3)).toEqual(["--", "-name", "/repo"]);
   });
   test("escapes display without trimming or losing backslashes", () => {
@@ -50,6 +52,7 @@ describe("real pinned fd", () => {
     expect(all).toContain("app.ts"); expect(all).toContain("src/a.ts");
     expect((await search("src/**/*.ts")).split("\n")).toContain("src/a.ts");
     expect((await search("*.{ts,tsx}")).split("\n")).toContain("src/c.tsx");
+    expect((await search("src/**/*.{ts,tsx}")).split("\n")).toContain("src/c.tsx");
     expect(await search("[ab].ts")).toContain("src/nested/b.ts");
     expect(await search("foo.ts")).toBe("src/Foo.ts");
     expect(await search("FOO.ts")).toBe("No entries found.");

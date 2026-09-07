@@ -74,6 +74,60 @@ async function insideGitRepository(path: string): Promise<boolean> {
     if (dirname(current) === current) return false;
   }
 }
+// fd's Windows full-path matcher uses native separators. Replacing / with a
+// character class breaks globstar's zero-directory rule, so enumerate those
+// alternatives before translating separators. Flatten user braces as well:
+// globset cannot reliably express nested/empty alternatives here.
+export function windowsFdGlob(pattern: string): string {
+  const maximum = 256;
+  const expandBraces = (text: string): string[] => {
+    let bracket = false;
+    let opening = -1;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "\\") { i++; continue; }
+      if (text[i] === "[") bracket = true;
+      if (text[i] === "]") bracket = false;
+      if (!bracket && text[i] === "{") { opening = i; break; }
+    }
+    if (opening < 0) return [text];
+    let depth = 0;
+    let start = opening + 1;
+    const choices: string[] = [];
+    for (let i = opening + 1; i < text.length; i++) {
+      if (text[i] === "\\") { i++; continue; }
+      if (text[i] === "[") bracket = true;
+      if (text[i] === "]") bracket = false;
+      if (bracket) continue;
+      if (text[i] === "{") depth++;
+      if (text[i] === "}" && depth-- === 0) {
+        choices.push(text.slice(start, i));
+        const result: string[] = [];
+        for (const choice of choices) {
+          result.push(...expandBraces(text.slice(0, opening) + choice + text.slice(i + 1)));
+          if (result.length > maximum) throw new Error("find Windows glob exceeds 256 expanded alternatives; simplify the pattern.");
+        }
+        return result;
+      }
+      if (text[i] === "," && depth === 0) { choices.push(text.slice(start, i)); start = i + 1; }
+    }
+    return [text]; // Let fd report malformed glob syntax.
+  };
+  const variants: string[] = [];
+  for (const alternative of expandBraces(pattern)) {
+    let prefixes = [""];
+    const parts = alternative.split("/");
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i]!;
+      const suffix = i < parts.length - 1 ? "/" : "";
+      prefixes = prefixes.flatMap(prefix => segment === "**" && suffix ? [prefix, prefix + "**/"] : [prefix + segment + suffix]);
+      if (prefixes.length + variants.length > maximum) throw new Error("find Windows glob exceeds 256 expanded alternatives; simplify the pattern.");
+    }
+    variants.push(...prefixes);
+  }
+  const translated = [...new Set(variants)].map(value => value.replaceAll("/", String.raw`[/\\]`));
+  return translated.length === 1 ? translated[0]! : `{${translated.join(",")}}`;
+}
+
 export function fdArguments(request: FdRequest, inGit: boolean, platform = process.platform): string[] {
   const args = ["--glob", "--hidden", "--color=never", "--absolute-path", "--print0", "--show-errors", "--max-results", String(request.limit)];
   if (!inGit) args.push("--no-require-git");
@@ -81,7 +135,7 @@ export function fdArguments(request: FdRequest, inGit: boolean, platform = proce
   if (pattern.includes("/")) {
     args.push("--full-path");
     if (!pattern.startsWith("/") && !pattern.startsWith("**/")) pattern = `**/${pattern}`;
-    if (platform === "win32") pattern = pattern.replaceAll("/", String.raw`[/\\]`);
+    if (platform === "win32") pattern = windowsFdGlob(pattern);
   }
   args.push("--", pattern, request.searchPath);
   return args;
