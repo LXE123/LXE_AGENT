@@ -628,11 +628,11 @@ def test_replenishment_algorithm_config_skill_contract() -> None:
     template_skill = Path("skills/replenishment-algorithm-config-manage/SKILL.md").read_text(encoding="utf-8")
     calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
     workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")
-    assert "参数方案只管理论算法" in template_skill
-    assert "浅黄色单元格表示业务可修改" in template_skill
-    assert "浅灰色单元格是参数名或说明信息" in template_skill
-    assert "表格下方有 `修改说明` 区" in template_skill
-    assert "仅多出旧重量字段的上一版配置表仍可导入" in template_skill
-    assert "固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件" in calculate_skill
-    assert "算法参数方案" in workflow_skill
-    assert "扣减数据流程" in workflow_skill
+    for command in ("list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"):
+        assert f"lxeskill replenish template {command}" in template_skill
+    assert "不管理库存扣减" in template_skill
+    assert "sea.min_weight_kg" in template_skill
+    assert "兼容配置仍允许导入" in template_skill
+    assert "--template" in calculate_skill
+    assert "replenishment-algorithm-config-manage" in workflow_skill
+    assert "--unlinked-shipments-snapshot" in workflow_skill

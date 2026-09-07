@@ -2,8 +2,6 @@
 
 截图路径相对于本参考文件目录；调用 send_files 前将 assets 路径解析为实际文件绝对路径。
 
-
-
 本 skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。用户需要下载指引时，按美国站示例引导：
 
 1. 打开美国站补充库存报告入口：`https://sellercentral.amazon.com/reportcentral/RestockReport/1`
@@ -21,9 +19,6 @@
 ```
 
 只有用户明确要求解释截图时，才补充简短文字说明；否则只说明已发送截图，并提醒最终应上传包含 `Merchant SKU` 和 `Total Units` 的补充库存 CSV。
-
-
-
 
 CLI 会执行硬校验，任一失败都不会生成 snapshot：
 
