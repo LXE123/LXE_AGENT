@@ -42,7 +42,7 @@ from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
-from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP, fetch_fba_stores
+from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP, FbaStore, fetch_fba_stores
 from .combo_sku import OFFICIAL_LOOKUP_TIMEOUT_SECONDS, fetch_listing_snapshot
 from .active_msku_source import annotate_source
 
@@ -138,6 +138,22 @@ STORE_MSKU_EXPORT_FIELDS = tuple((name, uq) for name, uq, _map_text in STORE_MSK
 
 class StoreMskuDownloadError(MabangBusinessError):
     pass
+
+
+class StoreMskuGroupNotSupportedError(StoreMskuDownloadError):
+    def __init__(self, group: FbaStore, candidates: list[FbaStore]) -> None:
+        def identity(store: FbaStore) -> dict[str, str]:
+            return {"store_name": store.store_name, "store_id": store.store_id, "id_type": store.id_type}
+
+        self.context = {
+            "reason": "multi_site_group",
+            "group": identity(group),
+            "candidates": [identity(store) for store in candidates],
+        }
+        super().__init__(
+            "当前选择的是多站点整组，请选择具体子站点: "
+            f"name={group.store_name}, id={group.store_id}, id_type={group.id_type}"
+        )
 
 
 class StoreMskuDownloadAuthError(StoreMskuDownloadError, MabangAuthError):
@@ -554,20 +570,23 @@ async def download_store_msku_excel(
                and clean_store_name in (item.store_name, *item.legacy_names)]
     if len(matches) != 1:
         raise StoreMskuDownloadError(f"下载店铺名称与网页 ID 未唯一对应: name={clean_store_name}, id={clean_store_id}, id_type={clean_id_type}")
-    is_group = any(item.parent_store_id == clean_store_id and item.parent_id_type == clean_id_type for item in stores)
+    children = [
+        item for item in stores
+        if item.parent_store_id == clean_store_id and item.parent_id_type == clean_id_type
+    ]
+    if children:
+        raise StoreMskuGroupNotSupportedError(matches[0], children)
     directory = _resolve_output_dir(output_dir)
     with TemporaryDirectory(prefix=".active-msku-", dir=directory) as staging:
         result = await download(Path(staging))
         staged_path = Path(result.xlsx_path)
-        counts = {}
-        if not is_group:
-            try:
-                async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
-                    snapshot = await fetch_listing_snapshot(clean_store_name)
-            except TimeoutError as exc:
-                raise OfficialApiError(f"店铺={clean_store_name}", f"Active Listing 官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
-            metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
-            counts = {key: metadata[key] for key in ("original_row_count", "active_row_count", "excluded_row_count")}
+        try:
+            async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
+                snapshot = await fetch_listing_snapshot(clean_store_name)
+        except TimeoutError as exc:
+            raise OfficialApiError(f"店铺={clean_store_name}", f"Active Listing 官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
+        metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
+        counts = {key: metadata[key] for key in ("original_row_count", "active_row_count", "excluded_row_count")}
         target = directory / staged_path.name
         # Atomic publication with no overwrite, including repeated downloads in one minute.
         os.link(staged_path, target)
@@ -585,6 +604,7 @@ __all__ = [
     "STORE_MSKU_FIELDLABELS",
     "StoreMskuDownloadAuthError",
     "StoreMskuDownloadError",
+    "StoreMskuGroupNotSupportedError",
     "StoreMskuExcelResult",
     "convert_store_msku_xls_to_xlsx",
     "delete_raw_store_msku_xls",

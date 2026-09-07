@@ -1,6 +1,6 @@
 ---
 name: replenishment-msku-download
-description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
+description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个单店或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
 type: amazon_replenish
 commands:
   - lxeskill replenish msku download
@@ -89,6 +89,6 @@ lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]
 - 原始记录全部保留，新增“在售核验结果”“是否参与计算”“排除原因”。只有确认 Active 的行进入后续销量和库存计算；未匹配的行标为“未确认在售”，不能转述成“停售”。即使有近期销量，被排除的行也不参与计算。
 - 隐藏的 `Active核验信息` Sheet 保存本轮绑定、SKU 类型、店铺站点及源数据指纹。请保留完整文件，不手动改标记或删除核验 Sheet。
 - `original_row_count`、`active_row_count`、`excluded_row_count` 分别表示原始、参与、排除行数；原始数等于后两者之和。
-- 欧洲多站点整组仍可下载原表，但暂不支持 Active 计算；需要计算时分别下载子站点。旧版未打标源表需重新下载。
+- 下载命令只接受单店、单站点，不支持多站点整组下载。整组会在导出前返回 `context.reason=multi_site_group`，`context.group` 是父级信息，`context.candidates` 是网页中的真实子站点（`store_name`、`store_id`、`id_type`）。将候选展示给用户选择，再用所选站点重新调用；不要重试同一整组、自动选择站点或自动拆成多个任务。旧版未打标源表需重新下载。
 - 命令最多执行 30 分钟，官方 Listing 阶段期限 25 分钟。进度在 stderr，等待最终 terminal；官方 API 失败不会触发 Cookie 刷新，也不会发布未核验的源表。
 - 同一分钟下载若目标文件已存在，会保留已有文件并报错；下一分钟重新下载即可，不要删除历史文件来规避冲突。

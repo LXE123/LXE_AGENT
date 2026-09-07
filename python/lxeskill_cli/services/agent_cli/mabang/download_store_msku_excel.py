@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from services.mabang.errors import MabangAuthError
 from typing import Any
 
+from services.mabang.errors import MabangAuthError
+
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
-from services.mabang.amazon.fba.store_msku import download_store_msku_excel
+from services.mabang.amazon.fba.store_msku import StoreMskuGroupNotSupportedError, download_store_msku_excel
 
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -17,7 +18,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         result = asyncio.run(download_store_msku_excel(store_id, id_type, store_name=store_name))
         return result.to_payload()
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
-        return {
+        payload = {
             "success": False,
             "store_name": store_name,
             "store_id": store_id,
@@ -25,3 +26,6 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             "exception": _exception_text(exc),
             "auth_refresh_required": isinstance(exc, MabangAuthError),
         }
+        if isinstance(exc, StoreMskuGroupNotSupportedError):
+            payload["context"] = exc.context
+        return payload

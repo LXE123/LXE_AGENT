@@ -157,10 +157,13 @@ def test_download_publication_and_group_scope(monkeypatch, tmp_path, group):
     monkeypatch.setattr(download, 'run_export_pipeline', pipeline)
     monkeypatch.setattr(download, 'fetch_listing_snapshot', failing_snapshot)
     if group:
-        result = asyncio.run(download.download_store_msku_excel('1', 'fbaWarehouseIds[]', store_name='shop', output_dir=tmp_path))
-        assert Path(result.xlsx_path).exists()
-        with pytest.raises(active.ActiveSourceError, match='欧洲整组'):
-            active.load_active_source(result.xlsx_path, store_name='shop')
+        async def unexpected(spec):
+            pytest.fail('Group must be blocked before the export pipeline')
+        monkeypatch.setattr(download, 'run_export_pipeline', unexpected)
+        with pytest.raises(download.StoreMskuGroupNotSupportedError) as exc:
+            asyncio.run(download.download_store_msku_excel('1', 'fbaWarehouseIds[]', store_name='shop', output_dir=tmp_path/'not-created'))
+        assert exc.value.context['candidates'] == [{'store_name': 'child', 'store_id': '2', 'id_type': 'shopId'}]
+        assert not (tmp_path/'not-created').exists()
     else:
         with pytest.raises(OfficialApiError, match='upstream-denied'):
             asyncio.run(download.download_store_msku_excel('1', 'fbaWarehouseIds[]', store_name='shop', output_dir=tmp_path))
