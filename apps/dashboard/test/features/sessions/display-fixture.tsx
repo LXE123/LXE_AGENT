@@ -297,8 +297,14 @@ function Fixture(){
     const row=document.querySelector<HTMLElement>('[data-conversation-row="tool:tool-turn:fixture-call"]')!;
     const summary=row.querySelector<HTMLButtonElement>(".tool-op-summary")!;
     const height=summary.getBoundingClientRect().height;
-    const chevron=summary.querySelector(".tool-op-chevron")!;
-    assert(summary.getBoundingClientRect().right-chevron.getBoundingClientRect().right<16,"status/chevron are not aligned at the right edge");
+    assert(!summary.querySelector(".tool-op-chevron"),"tool still has an expand arrow");
+    assert(summary.getBoundingClientRect().right-icon().getBoundingClientRect().right<16,"status is not aligned at the right edge");
+    const argument=summary.querySelector<HTMLElement>(".tool-op-argument")!;
+    const originalArgument=argument.textContent;
+    argument.textContent="long-command-argument ".repeat(100);await delay(60);
+    assert(argument.scrollWidth>argument.clientWidth,"long argument is not truncated");
+    assert(icon().getBoundingClientRect().width===13&&summary.scrollWidth<=summary.clientWidth,"long argument squeezed status or overflowed summary");
+    argument.textContent=originalArgument;
     assert(summary.getAttribute("aria-expanded")==="false","tool details not collapsed by default");
     assert(icon().title==="运行中"&&icon().textContent==="","status should be icon-only with title");
     const spinner=icon().querySelector<HTMLElement>(".conversation-spinner")!;
@@ -311,13 +317,17 @@ function Fixture(){
       assert(row===document.querySelector('[data-conversation-row="tool:tool-turn:fixture-call"]'),"tool row remounted");
     }
     assert(Number(spinner.getAnimations()[0]?.currentTime??0)>startedAt+900,"spinner stopped after one cycle");
-    summary.click();await delay(120);summary.click();await delay(120);
+    summary.click();await delay(120);
+    assert(summary.getAttribute("aria-expanded")==="true"&&row.querySelector(".tool-op-body"),"click did not expand tool details");
+    summary.click();await delay(120);
+    assert(summary.getAttribute("aria-expanded")==="false"&&!row.querySelector(".tool-op-body"),"click did not collapse tool details");
     assert(icon().dataset.toolStatus==="running","folding changed tool status");
     // The tool invocation yielded, and the turn settled, while its process still runs.
     records.set(sessionId,[...records.get(sessionId)!,{...base,display_id:"tool-result",role:"tool",
       content:[{type:"tool_result",tool_call_id:"fixture-call",display_status:"running",content:"yielded"}]}] as SessionMessage[]);
     push(sessionId,update(2,"running","completed"));await delay(180);
     const process=document.querySelector<HTMLButtonElement>(".conversation-process-toggle")!;
+    assert(process.querySelector("svg"),"whole-turn process lost its expand arrow");
     if(process.getAttribute("aria-expanded")==="false"){process.click();await delay(180);}
     await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(sessionId)});await delay(180);
     assert(icon().dataset.toolStatus==="running","yielded tool was treated as completed");

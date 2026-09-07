@@ -5735,31 +5735,12 @@ h1 {
   color: var(--muted-light);
 }
 
-/* Not after the mark: the mark already carries the auto margin, and two of them
-   on one line split the free space between them, which parks the mark in the
-   middle of the row at a spot that moves with the length of the text beside it.
-   Letting the mark take all of it instead lines the marks up in a column. */
-.tool-op-argument + .tool-op-chevron,
-.tool-op-name + .tool-op-chevron {
-  margin-left: auto;
-}
-
 .tool-op-mark.error {
   color: var(--danger);
 }
 
 .tool-op.state-error .tool-op-name {
   color: var(--danger);
-}
-
-.tool-op-chevron {
-  flex: 0 0 auto;
-  color: var(--muted);
-  transition: transform 0.16s ease;
-}
-
-.tool-op-chevron.expanded {
-  transform: rotate(90deg);
 }
 
 .tool-op-body {

@@ -1451,7 +1451,6 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
         <span className="tool-status-icon" role="img" aria-label={statusLabel} title={statusLabel} data-tool-status={operation.status}>
           <StatusIcon aria-hidden="true" className={operation.status === "running" ? "conversation-spinner" : undefined} size={13} />
         </span>
-        <ChevronRight className={expanded ? "tool-op-chevron expanded" : "tool-op-chevron"} size={14} />
       </button>
       {expanded ? <div className="tool-op-body">{row.operation ? defaultToolOperationBody(operation) : <LiveToolOperationBody operation={operation} />}</div> : null}
     </li></ul></section>;
