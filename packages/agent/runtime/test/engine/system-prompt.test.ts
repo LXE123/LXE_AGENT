@@ -18,6 +18,15 @@ describe("system prompt builder", () => {
     const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
     expect(stable).toContain("Careful agent.");
     expect(stable).toContain("Safety & Boundaries");
+    expect(stable).toContain("An explicit user request authorizes the actions within its stated scope.");
+    expect(stable).toContain("Previously granted authorization remains valid within its stated task, targets, operations, and duration across conversation turns, unless revoked or expired.");
+    expect(stable).toContain("Do not infer authorization or expand its scope.");
+    expect(stable).toContain("Ask only when authorization is missing or its scope is unclear.");
+    expect(stable).toContain("Resolve instruction conflicts using the applicable instruction hierarchy and scope.");
+    expect(stable).toContain("Ask the user when the conflict remains unresolved or leaves the requested action or authorization unclear.");
+    expect(prompt).not.toContain("unless this turn explicitly asks");
+    expect(prompt).not.toContain("Approval in one context does not carry over to the next.");
+    expect(prompt).not.toContain("If instructions conflict, pause and ask.");
     expect(stable).toContain("Attachment Handling");
     expect(stable).toContain("cause_known=true");
     expect(stable).toContain("preserve the actual observed error");
@@ -50,6 +59,8 @@ describe("system prompt builder", () => {
     const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
     // The map never changes between turns, so it must sit inside the cached prefix.
     expect(stable).toContain("## Data Directories");
+    expect(stable).toContain("These lxeskill CLI output directories are relative to artifact_root in the most recent environment_context.");
+    expect(prompt).not.toContain("artifact root given under Workspace");
     expect(stable).toContain("fba/delivery_csv — FBA 发货单 CSV。");
     expect(stable).toContain("### replenish");
     expect(stable).not.toContain("/data/var/artifacts");
