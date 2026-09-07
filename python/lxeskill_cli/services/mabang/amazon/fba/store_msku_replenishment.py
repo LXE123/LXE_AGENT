@@ -87,6 +87,12 @@ UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING = "未找到与备货数据同日
 AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊物流库存]和未关联货件）"
 AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊补充库存]和未关联货件）"
 DETAIL_SHEET = "MSKU明细"
+FINAL_SHIPPING_SHEET = "最终备货意见"
+FINAL_SHIPPING_COLUMNS = (
+    "MSKU", "ASIN", "本地SKU", "品名", "加权日销", "FBA总库存（马帮）",
+    "深圳可用库存", "建议运输方式", "空运建议量", "海运建议量",
+    "单件重量(g)", "预计总重量(kg)", "备注",
+)
 SUMMARY_SHEET = "链接备货汇总"
 INVENTORY_SHORTAGE_SHEET = "真实库存（深圳仓库）不足"
 CLEARANCE_SHEET = "清货"
@@ -101,6 +107,7 @@ INVENTORY_SHEET_GROUPS = (
     ((STOCK_ACTUAL_INVENTORY_SHEET, LEGACY_STOCK_ACTUAL_INVENTORY_SHEET), "库存sku"),
 )
 REPORT_SHEETS = (
+    FINAL_SHIPPING_SHEET,
     AIR_URGENT_SHEET,
     AIR_SHEET,
     SEA_SHEET,
@@ -1532,6 +1539,78 @@ def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]
     return [row for row in shortages if row is not None]
 
 
+def _final_shipping_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
+    """Project final shipping decisions without repeating inventory deductions."""
+    order = {AIR_URGENT_SHEET: 0, AIR_SHEET: 1, SEA_SHEET: 2}
+    selected = sorted(
+        (row for row in rows if row.sheet_name in order and (row.replenish_quantity or 0) > 0),
+        key=lambda row: (order[row.sheet_name], -row.replenish_quantity, row.msku, row.asin),
+    )
+    result = []
+    for row in selected:
+        is_sea = row.sheet_name == SEA_SHEET
+        air_quantity = (row.companion_air_quantity or 0) if is_sea else row.replenish_quantity
+        sea_quantity = (row.sea_quantity or 0) if is_sea else 0
+        total_quantity = air_quantity + sea_quantity
+        notes = [text for text in (row.remark, row.decision_reason) if text]
+        if row.actual_inventory is not None and total_quantity > row.actual_inventory:
+            notes.append(f"深圳库存不足，缺口{_display_quantity(total_quantity - row.actual_inventory)}件")
+        if row.weight_grams is None:
+            notes.append("单件重量缺失，无法计算预计总重量")
+        result.append({
+            "MSKU": row.msku,
+            "ASIN": row.asin,
+            "本地SKU": row.local_sku,
+            "品名": row.local_sku_name or row.product_name,
+            "加权日销": _display_float(row.weighted_daily_sales),
+            "FBA总库存（马帮）": _display_quantity(row.fba_total_inventory),
+            "深圳可用库存": _display_optional_quantity(row.actual_inventory),
+            "建议运输方式": "空运＋海运" if is_sea and air_quantity > 0 else row.sheet_name,
+            "空运建议量": air_quantity,
+            "海运建议量": sea_quantity,
+            "单件重量(g)": _display_optional_float(row.weight_grams),
+            "预计总重量(kg)": _display_optional_float(
+                total_quantity * row.weight_grams / 1000 if row.weight_grams is not None else None
+            ),
+            "备注": "；".join(dict.fromkeys(notes)),
+        })
+    return result
+
+
+def _format_final_shipping_sheet(worksheet: Any) -> None:
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    widths = (34, 16, 30, 36, 13, 22, 18, 18, 16, 16, 18, 22, 64)
+    worksheet.freeze_panes = "D2"
+    worksheet.auto_filter.ref = worksheet.dimensions
+    worksheet.row_dimensions[1].height = 34
+    for index, width in enumerate(widths, start=1):
+        header = worksheet.cell(1, index)
+        worksheet.column_dimensions[header.column_letter].width = width
+        header.fill = PatternFill("solid", fgColor="243746")
+        header.font = Font(bold=True, color="FFFFFF")
+        header.alignment = Alignment(vertical="center", wrap_text=True)
+    for cells in worksheet.iter_rows(min_row=2):
+        line_count = 1
+        for index, cell in enumerate(cells, start=1):
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if index in (5, 11, 12):
+                cell.number_format = "#,##0.00"
+            elif index in (6, 7, 9, 10):
+                cell.number_format = "#,##0.00" if isinstance(cell.value, float) and not cell.value.is_integer() else "#,##0"
+            if index in (9, 10):
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill("solid", fgColor="EAF2F8")
+            if isinstance(cell.value, str):
+                # Account for wide Chinese characters when sizing wrapped notes.
+                lines = sum(
+                    max(1, math.ceil(sum(2 if ord(c) > 255 else 1 for c in line) / (widths[index - 1] - 2)))
+                    for line in cell.value.split("\n")
+                )
+                line_count = max(line_count, lines)
+        worksheet.row_dimensions[cells[0].row].height = min(409, max(30, line_count * 15 + 6))
+
+
 def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     worksheet.append(list(headers))
     for row in rows:
@@ -1576,6 +1655,7 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
     workbook = Workbook()
     try:
         specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
+            (FINAL_SHIPPING_SHEET, FINAL_SHIPPING_COLUMNS, _final_shipping_rows(rows)),
             *[
                 (
                     sheet_name,
@@ -1620,6 +1700,8 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
             worksheet = workbook.active if index == 0 else workbook.create_sheet()
             worksheet.title = sheet_name
             _write_table(worksheet, headers, payload_rows)
+            if sheet_name == FINAL_SHIPPING_SHEET:
+                _format_final_shipping_sheet(worksheet)
         workbook.save(target_path)
     finally:
         workbook.close()

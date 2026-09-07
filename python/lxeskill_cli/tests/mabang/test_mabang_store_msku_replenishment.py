@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,104 @@ def _replenishment_row(
         child_skus="",
         sheet_name=sheet_name,
     )
+
+
+def test_final_shipping_sheet_uses_net_quantities_and_preserves_details(tmp_path) -> None:
+    from openpyxl import load_workbook
+
+    def deducted(msku, channel, quantity, **changes):
+        return repl._with_inventory_deductions(replace(
+            _replenishment_row(msku, channel, replenish_quantity=quantity, actual_inventory=100),
+            **changes,
+        ))
+
+    urgent = deducted("URGENT", repl.AIR_URGENT_SHEET, 60, unlinked_quantity=10, weight_grams=None)
+    air = deducted("AIR", repl.AIR_SHEET, 1000, fba_total_inventory=100, unlinked_quantity=50,
+                   local_sku_name="", remark="整箱包装", amazon_deducted_replenish_quantity=123)
+    air_small = replace(air, msku="AIR-SMALL", asin="ASIN-SMALL", replenish_quantity=20)
+    sea = deducted("SEA", repl.SEA_SHEET, 1100, sea_quantity=800, companion_air_quantity=300,
+                   fba_total_inventory=100, unlinked_quantity=50, weight_grams=200)
+    sea_only = deducted("SEA-ONLY", repl.SEA_SHEET, 800, sea_quantity=800, companion_air_quantity=0,
+                        fba_total_inventory=300, unlinked_quantity=50)
+    excluded = [
+        _replenishment_row("NO-SHIP-POSITIVE", repl.NO_SHIP_SHEET, replenish_quantity=100, actual_inventory=100),
+        replace(air, msku="CLEARANCE", sheet_name=repl.CLEARANCE_SHEET, transport_channel=repl.AIR_SHEET),
+        _replenishment_row("SAMPLE", repl.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=None, actual_inventory=100),
+        replace(air, msku="ZERO", replenish_quantity=0),
+        replace(air, msku="MISSING", replenish_quantity=None),
+    ]
+    rows = [sea_only, *excluded, air_small, sea, air, urgent]
+    before = [row.to_detail_payload() for row in rows]
+    path = repl.write_replenishment_report(rows, tmp_path / "report.xlsx")
+    assert [row.to_detail_payload() for row in rows] == before
+    final = _load_records(path, "最终备货意见")
+    assert [row["MSKU"] for row in final] == ["URGENT", "AIR", "AIR-SMALL", "SEA", "SEA-ONLY"]
+    assert [(r["空运建议量"], r["海运建议量"]) for r in final] == [(40, 0), (850, 0), (20, 0), (150, 800), (0, 450)]
+    assert [r["预计总重量(kg)"] for r in final] == [None, 85, 2, 190, 45]
+    assert final[0]["单件重量(g)"] is None
+    assert "单件重量缺失" in final[0]["备注"]
+    assert final[1]["品名"] == air.product_name
+    assert final[3]["品名"] == sea.local_sku_name
+    assert final[1]["本地SKU"] == final[2]["本地SKU"]  # Shared local SKU must not merge MSKUs.
+    assert final[1]["FBA总库存（马帮）"] == 100
+    assert final[1]["深圳可用库存"] == 100
+    assert "整箱包装" in final[1]["备注"]
+    assert "深圳库存不足，缺口750件" in final[1]["备注"]
+    assert "深圳库存不足" not in final[0]["备注"]
+    assert air.decision_reason in final[1]["备注"]
+    assert [r["建议运输方式"] for r in final] == ["空运（急发）", "空运", "空运", "空运＋海运", "海运"]
+    assert _headers(path, "最终备货意见") == [
+        "MSKU", "ASIN", "本地SKU", "品名", "加权日销", "FBA总库存（马帮）", "深圳可用库存",
+        "建议运输方式", "空运建议量", "海运建议量", "单件重量(g)", "预计总重量(kg)", "备注",
+    ]
+    for sheet in (repl.AIR_URGENT_SHEET, repl.AIR_SHEET, repl.SEA_SHEET):
+        details = {r["MSKU"]: r for r in _load_records(path, sheet)}
+        for row in (r for r in final if r["MSKU"] in details):
+            detail = details[row["MSKU"]]
+            assert row["空运建议量"] + row["海运建议量"] == detail["补货量（减去 FBA 总库存和未关联货件）"]
+            assert row["预计总重量(kg)"] == detail["预计总重量kg"]
+    workbook = load_workbook(path)
+    try:
+        assert workbook.sheetnames == list(repl.REPORT_SHEETS)
+        assert workbook.active.title == "最终备货意见"
+        sheet = workbook.active
+        assert sheet.freeze_panes == "D2"
+        assert sheet.auto_filter.ref == "A1:M6"
+        assert sheet["I3"].number_format == "#,##0"
+        assert sheet["L3"].number_format == "#,##0.00"
+        assert sheet["M3"].alignment.wrap_text
+        assert sheet.row_dimensions[3].height > 30
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize("rows", [[], [
+    _replenishment_row("EXCLUDED", repl.NO_SHIP_SHEET, replenish_quantity=50, actual_inventory=0),
+]])
+def test_final_shipping_sheet_empty_keeps_only_headers(tmp_path, rows) -> None:
+    from openpyxl import load_workbook
+
+    path = repl.write_replenishment_report(rows, tmp_path / "empty.xlsx")
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["最终备货意见"]
+        assert sheet.max_row == 1
+        assert sheet.max_column == 13
+        assert sheet.auto_filter.ref == "A1:M1"
+    finally:
+        workbook.close()
+
+
+def test_final_shipping_sheet_keeps_zero_weight_and_fractional_stock() -> None:
+    row = replace(_replenishment_row("ZERO-WEIGHT", repl.AIR_SHEET, replenish_quantity=10, actual_inventory=2.5),
+                  weight_grams=0, fba_total_inventory=3.5, local_sku_name="", product_name="")
+    final = repl._final_shipping_rows([row])[0]
+    assert final["单件重量(g)"] == final["预计总重量(kg)"] == 0
+    assert final["品名"] == ""
+    assert final["FBA总库存（马帮）"] == 3.5
+    assert final["深圳可用库存"] == 2.5
+    assert "缺口7.5件" in final["备注"]
+    assert "重量缺失" not in final["备注"]
 
 
 def _inventory_input_row(msku: str, *, fba_total_inventory: float) -> repl.InventoryInputRow:
@@ -559,8 +658,8 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "Active核验信息"]
-    _assert_standard_dimensions(report_path, [name for name in _sheet_names(report_path) if name != "Active核验信息"])
+    assert _sheet_names(report_path) == ["最终备货意见", "空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "Active核验信息"]
+    _assert_standard_dimensions(report_path, [name for name in _sheet_names(report_path) if name not in {"Active核验信息", "最终备货意见"}])
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)
