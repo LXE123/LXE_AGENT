@@ -208,6 +208,10 @@ function Fixture(){
     assert(footer===document.querySelector('[data-conversation-row="answer-meta:turn:footer-turn"]'),"late file remounted footer");
     const file=document.querySelector('[data-conversation-row="artifacts:turn:footer-turn"]')!;
     assert(file.getBoundingClientRect().bottom<=footer!.getBoundingClientRect().top,"footer appears above files");
+    const finalText=document.querySelector('[data-conversation-row="footer-answer:1"] .message-markdown > :last-child')!;
+    const heading=file.querySelector(".turn-file-heading")!;
+    const gap=heading.getBoundingClientRect().top-finalText.getBoundingClientRect().bottom;
+    assert(gap>=0&&gap<=9,`final text to files gap is ${gap}px`);
     assert(document.querySelectorAll('.answer-footer .message-meta-copy').length===1,"duplicate final copy buttons");
     assert(document.querySelectorAll('.response-final-answer + .message-meta').length===0,"metadata still nested with final body");
     const toggle=document.querySelector<HTMLButtonElement>('.conversation-process-toggle')!;toggle.click();await delay(180);
@@ -222,7 +226,21 @@ function Fixture(){
       if(clipboardDescriptor)Object.defineProperty(navigator,"clipboard",clipboardDescriptor);
       else Reflect.deleteProperty(navigator,"clipboard");
     }
-    report("Empty hint: plain text; late files: same body/footer nodes; order: final text → files → copy/time; one copy button; copied final text only");
+    const meta=footer!.querySelector<HTMLElement>(".message-meta")!;
+    const user=document.querySelector('[data-conversation-row="user:footer-user"]')!;
+    user.dispatchEvent(new MouseEvent("mouseover",{bubbles:true}));await delay(180);
+    assert(getComputedStyle(meta).opacity==="0","footer is always visible");
+    for(const target of [body!,file,footer!]){
+      target.dispatchEvent(new MouseEvent("mouseover",{bubbles:true}));await delay(180);
+      assert(getComputedStyle(meta).opacity==="1","hovering answer text/files/footer did not reveal actions");
+    }
+    user.dispatchEvent(new MouseEvent("mouseover",{bubbles:true}));await delay(180);
+    assert(getComputedStyle(meta).opacity==="0","hovering user message reveals assistant actions");
+    meta.querySelector<HTMLButtonElement>("button")!.focus();await delay(180);
+    assert(getComputedStyle(meta).opacity==="1","keyboard focus did not reveal actions");
+    meta.querySelector<HTMLButtonElement>("button")!.blur();await delay(180);
+    assert(getComputedStyle(meta).opacity==="0","actions stayed visible after focus left");
+    report(`Empty hint: plain text; late files: same body/footer nodes; order: final text → files → copy/time; copied final text only; gap ${gap}px; hover/focus reveal passed`);
   };
   return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
     <div style={{padding:8,display:"flex",gap:12}}><button disabled={busy} onClick={()=>void run(sendCases)}>Run send scenarios</button><button disabled={busy} onClick={()=>void run(longHistory)}>Run 1000 group history</button>

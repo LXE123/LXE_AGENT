@@ -11440,9 +11440,19 @@ pre {
   text-align: center;
 }
 
-/* The final answer footer is its own virtual row below any generated files. */
-.answer-footer .message-meta.role-assistant {
+/* Virtual rows share answer identity so text, files and footer reveal one toolbar. */
+[data-answer-active="true"] .answer-footer .message-meta.role-assistant {
   opacity: 1;
   pointer-events: auto;
   transform: none;
+}
+
+/* Virtual rows own the spacing between final text, files and metadata. */
+.conversation-feed .response-final-answer .message-block-list > :last-child,
+.conversation-feed .response-final-answer .message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.conversation-feed [data-answer-id] > .turn-file-section {
+  margin-block: 0;
 }

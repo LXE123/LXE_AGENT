@@ -20,6 +20,18 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const [following, setFollowing] = useState(true);
   useEffect(() => { onFollowingChange?.(following); }, [following, onFollowingChange]);
   const [loading, setLoading] = useState(false);
+  const [hoveredAnswer, setHoveredAnswer] = useState<string>();
+  const [focusedAnswer, setFocusedAnswer] = useState<string>();
+  const answerAt = (target: EventTarget | null) => target instanceof Element
+    ? target.closest<HTMLElement>("[data-answer-id]")?.dataset.answerId : undefined;
+  const answerByTurn = new Map<string, string>();
+  const answerByGroup = new Map<string, string>();
+  for (const row of rows) if (row.kind === "answer_meta") {
+    if (row.turnId) answerByTurn.set(row.turnId, row.id);
+    answerByGroup.set(row.groupId, row.id);
+  }
+  const answerId = (row: ConversationRow) => row.presentation === "final" || row.kind === "artifacts" || row.kind === "answer_meta"
+    ? answerByTurn.get(row.turnId) ?? answerByGroup.get(row.groupId) : undefined;
   const getItemKey = useCallback((index: number) => rows[index]!.id, [rows]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => root.current,
     getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: following && connection === "attached" ? "auto" : false,
@@ -110,7 +122,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && hasNewer) void load("newer");
   }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length]);
   return <div className="conversation-scroll-area">
-    <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} onClickCapture={(event) => {
+    <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }}
+      onMouseOver={(event) => setHoveredAnswer(answerAt(event.target))}
+      onMouseLeave={() => setHoveredAnswer(undefined)}
+      onFocusCapture={(event) => setFocusedAnswer(answerAt(event.target))}
+      onBlurCapture={(event) => setFocusedAnswer(answerAt(event.relatedTarget))}
+      onClickCapture={(event) => {
       const target = event.target as HTMLElement;
       const button = target.closest(".conversation-process-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
@@ -127,7 +144,9 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       <div className="conversation-feed" style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? virtual.getTotalSize() : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
           data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)`, paddingBottom: rows[item.index]!.kind === "process" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
+          data-answer-id={answerId(rows[item.index]!)}
+          data-answer-active={Boolean(answerId(rows[item.index]!) && (answerId(rows[item.index]!) === hoveredAnswer || answerId(rows[item.index]!) === focusedAnswer)) || undefined}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)`, paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
           {renderRow(rows[item.index]!)}
         </div>)}
       </div>
