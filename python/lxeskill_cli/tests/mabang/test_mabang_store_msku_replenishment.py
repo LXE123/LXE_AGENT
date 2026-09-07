@@ -80,6 +80,7 @@ def _assert_standard_dimensions(path: Path, sheet_names: list[str]) -> None:
         for sheet_name in sheet_names:
             worksheet = workbook[sheet_name]
             assert worksheet.sheet_format.defaultRowHeight == 15
+            assert worksheet.sheet_format.defaultColWidth == 15
             for row_index in range(1, worksheet.max_row + 1):
                 assert worksheet.row_dimensions[row_index].height == 15
             for column_index in range(1, worksheet.max_column + 1):
@@ -564,7 +565,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     }
     assert report_path.is_file()
     assert _sheet_names(report_path) == ["最终备货意见", "空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "备货公式参数", "Active核验信息"]
-    _assert_standard_dimensions(report_path, [name for name in _sheet_names(report_path) if name not in {"Active核验信息", "最终备货意见", "备货公式参数"}])
+    _assert_standard_dimensions(report_path, _sheet_names(report_path))
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)

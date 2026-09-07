@@ -1551,6 +1551,24 @@ def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, 
         worksheet.column_dimensions[column_cells[0].column_letter].width = EXCEL_COLUMN_WIDTH
 
 
+def _set_report_dimensions(path: Path) -> None:
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    workbook = load_workbook(path)
+    try:
+        for worksheet in workbook:
+            worksheet.sheet_format.defaultRowHeight = EXCEL_ROW_HEIGHT
+            worksheet.sheet_format.defaultColWidth = EXCEL_COLUMN_WIDTH
+            for index in range(1, worksheet.max_row + 1):
+                worksheet.row_dimensions[index].height = EXCEL_ROW_HEIGHT
+            for index in range(1, worksheet.max_column + 1):
+                worksheet.column_dimensions[get_column_letter(index)].width = EXCEL_COLUMN_WIDTH
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+
 def write_replenishment_report(
     rows: list[ReplenishmentRow], report_path: str | Path, *,
     active_metadata: dict[str, Any] | None = None, missing_unlinked_snapshot: bool = False,
@@ -1626,6 +1644,8 @@ def write_replenishment_report(
             workbook.close()
         if active_metadata is not None:
             stamp_report(staged_path, active_metadata)
+        # Include the metadata sheet and finish layout before injecting caches.
+        _set_report_dimensions(staged_path)
         cache_formula_values(staged_path, caches)
         from zipfile import BadZipFile, ZipFile
         with ZipFile(staged_path) as archive:
