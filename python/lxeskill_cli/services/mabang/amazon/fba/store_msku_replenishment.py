@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .report_staging import staged_report_path
 from .active_msku_source import require_matching_reports, stamp_report
 from .replenishment_formula_sheet import (
     FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
@@ -1568,62 +1570,69 @@ def write_replenishment_report(
         NO_SHIP_SHEET: [row for row in rows if row.sheet_name == NO_SHIP_SHEET],
         SAMPLE_INSUFFICIENT_SHEET: [row for row in rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET],
     }
-    workbook = Workbook()
-    try:
-        specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
-            *[
+    with staged_report_path(target_path) as staged_path:
+        workbook = Workbook()
+        try:
+            specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
+                *[
+                    (
+                        sheet_name,
+                        AIR_DETAIL_COLUMNS if sheet_name in {AIR_URGENT_SHEET, AIR_SHEET} else DETAIL_COLUMNS,
+                        [row.to_detail_payload() for row in sorted(sheet_rows[sheet_name], key=_detail_sort_key)],
+                    )
+                    for sheet_name in (
+                        AIR_URGENT_SHEET,
+                        AIR_SHEET,
+                        SEA_SHEET,
+                    )
+                ],
                 (
-                    sheet_name,
-                    AIR_DETAIL_COLUMNS if sheet_name in {AIR_URGENT_SHEET, AIR_SHEET} else DETAIL_COLUMNS,
-                    [row.to_detail_payload() for row in sorted(sheet_rows[sheet_name], key=_detail_sort_key)],
-                )
-                for sheet_name in (
-                    AIR_URGENT_SHEET,
-                    AIR_SHEET,
-                    SEA_SHEET,
-                )
-            ],
-            (
-                INVENTORY_SHORTAGE_SHEET,
-                INVENTORY_SHORTAGE_COLUMNS,
-                sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
-            ),
-            (
-                CLEARANCE_SHEET,
-                CLEARANCE_COLUMNS,
-                [
-                    row.to_detail_payload()
-                    for row in sorted(sheet_rows[CLEARANCE_SHEET], key=_detail_sort_key)
-                ],
-            ),
-            (
-                NO_SHIP_SHEET,
-                DETAIL_COLUMNS,
-                [row.to_detail_payload() for row in sorted(sheet_rows[NO_SHIP_SHEET], key=_detail_sort_key)],
-            ),
-            (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
-            (
-                SAMPLE_INSUFFICIENT_SHEET,
-                DETAIL_COLUMNS,
-                [
-                    row.to_detail_payload()
-                    for row in sorted(sheet_rows[SAMPLE_INSUFFICIENT_SHEET], key=_detail_sort_key)
-                ],
-            ),
-        ]
-        for index, (sheet_name, headers, payload_rows) in enumerate(specs):
-            worksheet = workbook.active if index == 0 else workbook.create_sheet()
-            worksheet.title = sheet_name
-            _write_table(worksheet, headers, payload_rows)
-        from openpyxl.workbook.properties import CalcProperties
-        caches = write_formula_sheet(workbook, rows, missing_snapshot=missing_unlinked_snapshot)
-        workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)
-        workbook.save(target_path)
-    finally:
-        workbook.close()
-    if active_metadata is not None:
-        stamp_report(target_path, active_metadata)
-    cache_formula_values(target_path, caches)
+                    INVENTORY_SHORTAGE_SHEET,
+                    INVENTORY_SHORTAGE_COLUMNS,
+                    sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
+                ),
+                (
+                    CLEARANCE_SHEET,
+                    CLEARANCE_COLUMNS,
+                    [
+                        row.to_detail_payload()
+                        for row in sorted(sheet_rows[CLEARANCE_SHEET], key=_detail_sort_key)
+                    ],
+                ),
+                (
+                    NO_SHIP_SHEET,
+                    DETAIL_COLUMNS,
+                    [row.to_detail_payload() for row in sorted(sheet_rows[NO_SHIP_SHEET], key=_detail_sort_key)],
+                ),
+                (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
+                (
+                    SAMPLE_INSUFFICIENT_SHEET,
+                    DETAIL_COLUMNS,
+                    [
+                        row.to_detail_payload()
+                        for row in sorted(sheet_rows[SAMPLE_INSUFFICIENT_SHEET], key=_detail_sort_key)
+                    ],
+                ),
+            ]
+            for index, (sheet_name, headers, payload_rows) in enumerate(specs):
+                worksheet = workbook.active if index == 0 else workbook.create_sheet()
+                worksheet.title = sheet_name
+                _write_table(worksheet, headers, payload_rows)
+            from openpyxl.workbook.properties import CalcProperties
+            caches = write_formula_sheet(workbook, rows, missing_snapshot=missing_unlinked_snapshot)
+            workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)
+            workbook.save(staged_path)
+        finally:
+            workbook.close()
+        if active_metadata is not None:
+            stamp_report(staged_path, active_metadata)
+        cache_formula_values(staged_path, caches)
+        from zipfile import BadZipFile, ZipFile
+        with ZipFile(staged_path) as archive:
+            corrupt_entry = archive.testzip()
+            if corrupt_entry is not None:
+                raise BadZipFile(f"备货报表 ZIP 校验失败: {corrupt_entry}")
+        os.replace(staged_path, target_path)
     return target_path
 
 

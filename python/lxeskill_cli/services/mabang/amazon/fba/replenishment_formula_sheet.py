@@ -230,7 +230,7 @@ def cache_formula_values(path: Path, caches: dict[str, dict[str, Any]]) -> None:
     """Insert initial OOXML cached values after openpyxl's final metadata save."""
     import os
     import posixpath
-    import tempfile
+    from .report_staging import staged_report_path
     from xml.etree import ElementTree as ET
     from zipfile import ZipFile
 
@@ -239,43 +239,41 @@ def cache_formula_values(path: Path, caches: dict[str, dict[str, Any]]) -> None:
     # Preserve the default worksheet namespace used by the original Excel package.
     ET.register_namespace("", ns)
     ET.register_namespace("r", relns)
-    with ZipFile(path) as source:
-        relationships = {r.attrib["Id"]: r.attrib["Target"] for r in ET.fromstring(source.read("xl/_rels/workbook.xml.rels"))}
-        sheets = ET.fromstring(source.read("xl/workbook.xml")).find(f"{{{ns}}}sheets")
-        replacements = {}
-        for sheet in sheets:
-            values = caches.get(sheet.attrib["name"])
-            if not values:
-                continue
-            target = relationships[sheet.attrib[f"{{{relns}}}id"]]
-            filename = target.lstrip("/") if target.startswith("/") else posixpath.normpath("xl/" + target)
-            tree = ET.fromstring(source.read(filename))
-            found = set()
-            for cell in tree.iter(f"{{{ns}}}c"):
-                address = cell.attrib["r"]
-                if address not in values:
+    with staged_report_path(path) as temporary_path:
+        with ZipFile(path) as source:
+            relationships = {r.attrib["Id"]: r.attrib["Target"] for r in ET.fromstring(source.read("xl/_rels/workbook.xml.rels"))}
+            sheets = ET.fromstring(source.read("xl/workbook.xml")).find(f"{{{ns}}}sheets")
+            replacements = {}
+            for sheet in sheets:
+                values = caches.get(sheet.attrib["name"])
+                if not values:
                     continue
-                if cell.find(f"{{{ns}}}f") is None:
-                    raise ValueError(f"公式缓存目标不是公式: {sheet.attrib['name']}!{address}")
-                value = values[address]
-                if value is None or isinstance(value, str):
-                    cell.attrib["t"] = "str"
-                else:
-                    cell.attrib.pop("t", None)
-                cached = cell.find(f"{{{ns}}}v")
-                if cached is None:
-                    cached = ET.SubElement(cell, f"{{{ns}}}v")
-                cached.text = "" if value is None else str(value)
-                found.add(address)
-            if found != set(values):
-                raise ValueError(f"公式缓存目标缺失: {set(values) - found}")
-            replacements[filename] = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
-        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".xlsx", delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-        try:
+                target = relationships[sheet.attrib[f"{{{relns}}}id"]]
+                filename = target.lstrip("/") if target.startswith("/") else posixpath.normpath("xl/" + target)
+                tree = ET.fromstring(source.read(filename))
+                found = set()
+                for cell in tree.iter(f"{{{ns}}}c"):
+                    address = cell.attrib["r"]
+                    if address not in values:
+                        continue
+                    if cell.find(f"{{{ns}}}f") is None:
+                        raise ValueError(f"公式缓存目标不是公式: {sheet.attrib['name']}!{address}")
+                    value = values[address]
+                    if value is None or isinstance(value, str):
+                        cell.attrib["t"] = "str"
+                    else:
+                        cell.attrib.pop("t", None)
+                    cached = cell.find(f"{{{ns}}}v")
+                    if cached is None:
+                        cached = ET.SubElement(cell, f"{{{ns}}}v")
+                    cached.text = "" if value is None else str(value)
+                    found.add(address)
+                if found != set(values):
+                    raise ValueError(f"公式缓存目标缺失: {set(values) - found}")
+                replacements[filename] = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
             with ZipFile(temporary_path, "w") as output:
                 for info in source.infolist():
-                    output.writestr(info, replacements.get(info.filename, source.read(info.filename)))
-            os.replace(temporary_path, path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
+                    data = replacements[info.filename] if info.filename in replacements else source.read(info.filename)
+                    output.writestr(info, data)
+        # Windows rejects replacement while the source ZIP is still open.
+        os.replace(temporary_path, path)
