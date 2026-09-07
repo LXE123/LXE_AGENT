@@ -180,7 +180,7 @@ describe("native coding tools", () => {
     });
     await registry.execute("write", { file_path: "src/a.txt", content: "hello\nworld\n" }, context(root));
     expect(readFileSync(join(root, "src", "a.txt"), "utf8")).toBe("hello\nworld\n");
-    await registry.execute("edit", { file_path: "src/a.txt", old_string: "world", new_string: "Bun" }, context(root));
+    await registry.execute("edit", { path: "src/a.txt", edits: [{ oldText: "world", newText: "Bun" }] }, context(root));
     const read = await registry.execute("read", { path: "src/a.txt", offset: 2, limit: 1 }, context(root));
     expect(read.content[0]?.text).toContain("Bun");
     const grep = await registry.execute("grep", { pattern: "Bun", path: "src" }, context(root));
@@ -897,7 +897,7 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
     await expect(registry.execute("edit", {
-      file_path: "existing.txt", old_string: "v1", new_string: "v2",
+      path: "existing.txt", edits: [{ oldText: "v1", newText: "v2" }],
     }, context(root))).rejects.toThrow("先用 read");
     await registry.execute("read", { path: "existing.txt" }, context(root));
     writeFileSync(join(root, "existing.txt"), "external\n", "utf8");
@@ -998,10 +998,8 @@ describe("native coding tools", () => {
       clearInterval(mutation);
     }
     await expect(registry.execute("edit", {
-      file_path: "changing.txt",
-      old_string: "old",
-      new_string: "new",
-      replace_all: true,
+      path: "changing.txt",
+      edits: [{ oldText: "old", newText: "new" }],
     }, context(root))).rejects.toThrow("请先用 read");
     await processes.stop();
   });
@@ -1016,7 +1014,7 @@ describe("native coding tools", () => {
     controller.abort(new DOMException("cancelled", "AbortError"));
     await expect(registry.execute("read", { path: "cancelled.txt" }, context(root, controller))).rejects.toThrow("cancelled");
     await expect(registry.execute("edit", {
-      file_path: "cancelled.txt", old_string: "content", new_string: "changed",
+      path: "cancelled.txt", edits: [{ oldText: "content", newText: "changed" }],
     }, context(root))).rejects.toThrow("请先用 read");
     await processes.stop();
   });

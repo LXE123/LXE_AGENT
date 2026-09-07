@@ -18,6 +18,7 @@ import {
   fileVersionFromStats,
 } from "./file-version-ledger";
 import type { CodingPathPolicy } from "./path-policy";
+import { editInputSchema, prepareTextEdit, summarizeTextEdit, validateEditInput } from "./edit-text";
 
 const BINARY_EXTENSIONS = new Set([
   ".pyc", ".pyo", ".exe", ".dll", ".so", ".bin", ".zip", ".tar", ".gz", ".7z", ".rar", ".whl",
@@ -211,31 +212,22 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "edit",
-      description: "Replace exact text in any file writable by the local LXE Agent process. Relative paths resolve from the session working directory.",
-      input_schema: { type: "object", properties: { file_path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, required: ["file_path", "old_string", "new_string"], additionalProperties: false },
+      description: "Edit an existing UTF-8 file using edits[{oldText,newText}]. Read the file first; changes since the last read/write are rejected. Combine disjoint changes in one call: every oldText must uniquely match the same ORIGINAL file, and targets must not overlap. Exact matching is preferred, with normalized whitespace/Unicode matching as fallback. All edits are checked before writing. Returns a bounded diff summary. Relative paths resolve from the session working directory.",
+      input_schema: editInputSchema,
       execute: async (input, context) => {
-        const path = paths.resolveWritable(context.workspace, input.file_path);
-        let info: ReturnType<typeof statSync>;
-        try {
-          info = statSync(path);
-        } catch (cause) {
-          if (!isMissingPathError(cause)) throw cause;
-          throw new Error(`file not found: ${input.file_path}`);
-        }
-        if (!info.isFile()) throw new Error(`file not found: ${input.file_path}`);
+        const args = validateEditInput(input);
+        const path = paths.resolveWritable(context.workspace, args.path);
+        const info = statSync(path);
+        if (!info.isFile()) throw new Error(`path is not a regular file: ${args.path}`);
         ledger.assertCurrent(context.session_id, path, "edit");
         const source = readFileSync(path, "utf8");
-        const oldText = inputText(input, "old_string");
-        if (!oldText) throw new Error("old_string must not be empty");
-        const occurrences = source.split(oldText).length - 1;
-        if (occurrences === 0) throw new Error("old_string not found");
-        if (!input.replace_all && occurrences !== 1) throw new Error("old_string is not unique");
-        const updated = input.replace_all
-          ? source.replaceAll(oldText, inputText(input, "new_string"))
-          : source.replace(oldText, inputText(input, "new_string"));
-        writeFileSync(path, updated, "utf8");
+        const prepared = prepareTextEdit(source, args.edits);
+        const summary = summarizeTextEdit(relative(context.workspace.directory, path), args.edits.length, prepared, toolOutputLimit);
+        ledger.assertCurrent(context.session_id, path, "edit");
+        assertActive(context.handle.signal);
+        writeFileSync(path, prepared.content, "utf8");
         ledger.recordCurrent(context.session_id, path);
-        return { content: textBlock(`Edited ${relative(context.workspace.directory, path)}`) };
+        return { content: textBlock(summary) };
       },
     },
   ];
