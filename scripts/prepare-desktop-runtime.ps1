@@ -421,6 +421,20 @@ function Assert-LxeManagedDestination {
     if ($entries.Count -eq 0) { return }
     $marker = Join-Path $Destination ".lxe-desktop-runtime.json"
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+        # desktop:tools:fd may prepare only fd before the complete runtime build.
+        # Recognize that exact verified layout; never accept unrelated files.
+        $toolsRoot = Join-Path $Destination "tools"
+        if ($entries.Count -eq 1 -and $entries[0].Name -eq "tools" -and (Test-Path -LiteralPath $toolsRoot -PathType Container)) {
+            $toolFiles = @(Get-ChildItem -LiteralPath $toolsRoot -Force)
+            $fdOnlyMarker = Join-Path $toolsRoot ".fd.json"
+            $fdOnlyBinary = Join-Path $toolsRoot "fd.exe"
+            if ($toolFiles.Count -eq 2 -and (Test-Path -LiteralPath $fdOnlyMarker -PathType Leaf) -and (Test-Path -LiteralPath $fdOnlyBinary -PathType Leaf)) {
+                $fdOnly = Get-Content -LiteralPath $fdOnlyMarker -Raw | ConvertFrom-Json
+                if ($fdOnly.version -eq $script:FdLock.version -and
+                    $fdOnly.archive_sha256 -eq $script:FdLock.platforms.'win32-x64'.archive_sha256 -and
+                    $fdOnly.binary_sha256 -eq (Get-LxeFileSha256 -Path $fdOnlyBinary)) { return }
+            }
+        }
         throw "Refusing to replace a non-empty directory not managed by LXE: $Destination"
     }
     try {

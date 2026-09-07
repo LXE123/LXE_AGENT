@@ -55,6 +55,8 @@ test("Windows package wiring includes the fd descriptor, fingerprint and resourc
   expect(prep).toContain('"config/desktop-runtime/fd.lock.json"');
   expect(prep).toContain('fd_path = Join-Path $Root "tools\\fd.exe"');
   expect(prep).toContain("fd archive checksum mismatch");
+  expect(prep).toContain("$toolFiles.Count -eq 2");
+  expect(prep).toContain("$fdOnly.binary_sha256 -eq (Get-LxeFileSha256 -Path $fdOnlyBinary)");
   expect(readFileSync(join(root, "scripts/prepare-desktop-resources.ts"), "utf8")).toContain('`${scopeEntry("runtime-tools").target}/fd.exe`');
   expect(readFileSync(join(root, "scripts/build-desktop-windows.ps1"), "utf8")).toContain("LXE_DESKTOP_FD_PATH");
 });
