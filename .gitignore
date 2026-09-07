@@ -62,6 +62,7 @@ config/mcp_servers.local.yaml
 config/desktop-version.local.json
 /debug_data/
 /artifacts/
+/outputs/
 /downloads/
 /auth_data/
 /tasks/
