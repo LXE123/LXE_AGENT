@@ -37,8 +37,8 @@ def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, 
     # Both names refer to this file; a newer, unrelated shop must not be selected.
     for index, name in enumerate(['Amazon-YYH-US', 'Amazon-OTHER-US']):
         row = dict.fromkeys(inv.SOURCE_COLUMNS, 0)
-        row.update({'MSKU': f'M{index}', '父ASIN': 'P', 'ASIN': 'A', '本地SKU': 'S', '商品链接': 'https://www.amazon.com/dp/A', '7天销量': 7, '14天销量': 14, '30天销量': 30, '90天销量': 90})
-        _write_xlsx(tmp_path/'source'/f'20260907090{index}-{name}_店铺MSKU数据.xlsx', [row], columns=[*inv.SOURCE_COLUMNS, '90天销量', '单品重量(g)(cm)'])
+        row.update({'MSKU': f'M{index}', '父ASIN': 'P', 'ASIN': 'A', '本地SKU': 'S', '商品链接': 'https://www.amazon.com/dp/A', '7天销量': 7, '14天销量': 14, '30天销量': 30, '90天销量': 90, '计划入库': 0})
+        _write_xlsx(tmp_path/'source'/f'20260907090{index}-{name}_店铺MSKU数据.xlsx', [row], columns=[*inv.SOURCE_COLUMNS, '90天销量', '计划入库', '单品重量(g)(cm)'])
 
     async def web_stores():
         return stores.parse_fba_store_options('<li><input name="fbaWarehouseIds[]" value="1039477"><span class="texts">Amazon-YYH-US<span class="shop-country-cn">美国</span></span></li>')
