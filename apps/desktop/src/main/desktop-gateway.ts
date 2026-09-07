@@ -158,6 +158,7 @@ export class DesktopGateway {
       LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.yaml"),
       LXE_CONNECTOR_STATE_PATH: join(this.options.paths.dataRoot, "config", "connector-states.local.json"),
       LXE_MANAGED_PATH: this.options.paths.managedPath,
+      LXE_FD_PATH: this.options.paths.fdPath,
       LXE_MANAGED_PYTHON: this.options.paths.managedPythonPath,
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONNOUSERSITE: "1",

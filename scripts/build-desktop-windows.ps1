@@ -118,6 +118,7 @@ $runtimeEnvironment = @{
     LXE_DESKTOP_PYTHON_ROOT = [string]$descriptor.inputs.python_root
     LXE_DESKTOP_UV_PATH = [string]$descriptor.inputs.uv_path
     LXE_DESKTOP_RG_PATH = [string]$descriptor.inputs.rg_path
+    LXE_DESKTOP_FD_PATH = [string]$descriptor.inputs.fd_path
     LXE_DESKTOP_EXIFTOOL_ROOT = [string]$descriptor.inputs.exiftool_root
     LXE_DESKTOP_PLAYWRIGHT_ROOT = [string]$descriptor.inputs.playwright_root
 }
@@ -130,6 +131,7 @@ foreach ($entry in $runtimeEnvironment.GetEnumerator()) {
 $effectiveNodeRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_NODE_ROOT")
 $effectivePythonRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_PYTHON_ROOT")
 $effectiveUvPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_UV_PATH")
+$effectiveFdPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_FD_PATH")
 $effectiveRipgrepPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_RG_PATH")
 $effectiveExifToolRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_EXIFTOOL_ROOT")
 $effectivePlaywrightRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_PLAYWRIGHT_ROOT")
@@ -138,6 +140,7 @@ foreach ($requiredPath in @(
     $effectivePythonRoot,
     $effectiveUvPath,
     $effectiveRipgrepPath,
+    $effectiveFdPath,
     (Join-Path $effectiveExifToolRoot "exiftool.exe"),
     (Join-Path $effectiveExifToolRoot "exiftool_files"),
     $effectivePlaywrightRoot
@@ -153,6 +156,7 @@ $managedPath = @(
     (Join-Path $effectivePythonRoot "Scripts"),
     (Split-Path -Parent $effectiveUvPath),
     (Split-Path -Parent $effectiveRipgrepPath),
+    (Split-Path -Parent $effectiveFdPath),
     (Join-Path $effectiveNodeRoot "node_modules\.bin"),
     [string]$env:Path
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }

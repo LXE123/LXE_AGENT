@@ -45,6 +45,7 @@ export function registerCodingTools(
   for (const tool of createSearchTools({
     paths,
     toolOutputLimit,
+    ...(options.fdPath === undefined ? {} : { fdPath: options.fdPath }),
     ...(options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath }),
   })) {
     registry.register(tool);

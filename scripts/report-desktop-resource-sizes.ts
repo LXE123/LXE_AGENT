@@ -52,6 +52,7 @@ export interface DesktopResourceSizeReport {
       tools: {
         total: SizeSummary;
         ripgrep: SizeSummary;
+        fd: SizeSummary;
         exiftool: SizeSummary;
         exiftool_executable: SizeSummary;
         exiftool_support: SizeSummary;
@@ -160,6 +161,7 @@ export const createDesktopResourceSizeReport = (unpackedRoot: string): DesktopRe
         uv: summarizePath(join(runtimeRoot, "uv")),
         tools: {
           total: summarizePath(join(runtimeRoot, "tools")),
+          fd: summarizePath(join(runtimeRoot, "tools", "fd.exe")),
           ripgrep: summarizePath(join(runtimeRoot, "tools", "rg.exe")),
           exiftool: summarizePath(join(runtimeRoot, "tools", "exiftool")),
           exiftool_executable: summarizePath(join(runtimeRoot, "tools", "exiftool", "exiftool.exe")),

@@ -1,3 +1,4 @@
+import { findSchema, validateFindInput } from "../fd-search";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { ToolDefinition } from "../registry";
 import { WorkspaceSearchService } from "../workspace-search";
@@ -6,7 +7,6 @@ import { directoryListSchema, listDirectory, validateDirectoryListInput } from "
 import { grepSchema, validateGrepInput } from "./grep-input";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
-const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 
 const truncateHeadTail = (value: string, limit: number): { value: string; truncated: boolean } => {
   if (value.length <= limit) return { value, truncated: false };
@@ -20,6 +20,7 @@ export interface SearchToolDependencies {
   paths: CodingPathPolicy;
   toolOutputLimit: number;
   ripgrepPath?: string | null;
+  fdPath?: string | null;
 }
 
 export function createSearchTools(dependencies: SearchToolDependencies): ToolDefinition[] {
@@ -38,6 +39,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     if (!search) {
       search = new WorkspaceSearchService(target.scope.root, {
         ...searchOptions,
+        ...(dependencies.fdPath === undefined ? {} : { fdPath: dependencies.fdPath }),
         absolutePaths: target.scope.kind !== "workspace",
       });
       externalSearches.set(key, search);
@@ -74,20 +76,16 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     },
     {
       name: "find",
-      description: "Find files at any path readable by the local LXE Agent process using a glob-like pattern. Relative paths resolve from the session working directory.",
-      input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" }, head_limit: { type: "integer" } }, required: ["pattern"], additionalProperties: false },
+      description: "Find filesystem entries by glob using fd. Includes hidden entries and respects ignore rules; returns files, directories and links without following directory links. Smart-case: uppercase in pattern makes matching case-sensitive. path defaults to the session directory. Patterns with / match full paths and need not be anchored at the search root. limit defaults to 1000; fd stops early. Results are unsorted, with no pagination or exact total. Output contains complete escaped paths within the character budget.",
+      input_schema: findSchema,
       execute: async (input, context) => {
-        const target = paths.resolveReadable(context.workspace, input.path ?? ".");
-        const pattern = inputText(input, "pattern");
-        if (!pattern) throw new Error("pattern 不能为空");
-        const max = Math.max(1, Number(input.head_limit ?? 200));
+        const args = validateFindInput(input);
+        const target = paths.resolveReadable(context.workspace, args.path);
         const output = await searchFor(target, context).find({
-          pattern,
-          searchPath: target.path,
-          limit: max,
-          signal: context.handle.signal,
+          pattern: args.pattern, searchPath: target.path, limit: args.limit,
+          outputLimit: toolOutputLimit, signal: context.handle.signal,
         });
-        return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };
+        return { content: textBlock(output) };
       },
     },
     {

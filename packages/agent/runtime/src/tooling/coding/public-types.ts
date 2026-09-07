@@ -21,6 +21,7 @@ export interface CodingToolOptions {
   /** Called once when an exec that already yielded reaches a terminal state. */
   onExecComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
+  fdPath?: string | null;
   businessCommands?: ReadonlyMap<string, readonly string[]>;
   businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];
   execShell?: ExecShellAdapter;

@@ -39,6 +39,7 @@ import {
   ToolRegistry,
   TypeScriptAgentRuntime,
   WorkspaceInstanceManager,
+  WorkspaceSearchService,
   type RuntimeEmitter,
   type RuntimeHandle,
   type TurnOutcome,
@@ -121,6 +122,7 @@ export function createAgentRuntimeHost(
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
   const skillCatalog = new SkillCatalog(options.dataRoot, options.userSkillsRoot, {
+    ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     repositorySkillsRoot: options.skillsRoot,
   });
   const connectorStatePath = join(options.dataRoot, "config", "connector-states.local.json");
@@ -182,6 +184,7 @@ export function createAgentRuntimeHost(
     logger,
   });
   const processes = registerCodingTools(tools, {
+    ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     artifactRoot: join(options.dataRoot, "artifacts"),
@@ -232,6 +235,7 @@ export function createAgentRuntimeHost(
     },
   });
   workspaceInstances = new WorkspaceInstanceManager({
+    createSearch: root => new WorkspaceSearchService(root, environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     soulPath: options.agentSoulPath,
     connectorStatePath,
     skillCatalog,

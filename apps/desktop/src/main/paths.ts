@@ -21,6 +21,7 @@ export interface DesktopPaths {
   lxeskillModulePath: string;
   managedPythonPath: string;
   exifToolPath: string;
+  fdPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
 }
@@ -128,6 +129,9 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     lxeskillModulePath,
     managedPythonPath,
     exifToolPath,
+    fdPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "runtime", "tools", `fd${executable}`)
+      : String(environment.LXE_FD_PATH ?? "").trim() || targetPath.join(sourceRoot, "build", "desktop-runtime", `${platform}-${arch}`, "tools", `fd${executable}`),
     managedPath: existingDirectories(managedDirectories).join(targetPath.delimiter),
     playwrightBrowsersPath: options.packaged
       ? targetPath.join(options.resourcesPath, "runtime", "playwright")

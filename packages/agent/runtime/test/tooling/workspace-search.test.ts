@@ -194,7 +194,7 @@ process.stdout.write("src/a.ts:1:hit\\n");
     expect(output).toBe("src/a.ts:1:hit");
   });
 
-  test("keeps fallback grep/find asynchronous and skips binary content", async () => {
+  test("keeps fallback grep asynchronous and uses fd for find", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-search-fallback-"));
     roots.push(root);
     const source = join(root, "src");
@@ -218,7 +218,7 @@ process.stdout.write("src/a.ts:1:hit\\n");
     expect(grep).not.toContain("binary.unknown");
     const found = await service.find({ pattern: "file-*.txt", searchPath: source, limit: 2 });
     expect(found).toContain("src/file-");
-    expect(found).toContain("showing first 2 of 160");
+    expect(found).toContain("Result limit (2)");
   });
 });
 

@@ -15,6 +15,7 @@ export interface ExecRuntimePaths {
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
   managedPythonPath: string;
+  fdPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
 }
@@ -95,6 +96,8 @@ export function resolveExecRuntimePaths(
       : join(layoutRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
     llmConfigRoot: join(resourceRoot, "config", "llm"),
     managedPythonPath,
+    fdPath: packaged ? join(resourceRoot, "runtime", "tools", platform === "win32" ? "fd.exe" : "fd")
+      : text(environment.LXE_FD_PATH) || join(layoutRoot, "build", "desktop-runtime", `${platform}-${process.arch}`, "tools", platform === "win32" ? "fd.exe" : "fd"),
     managedPath: existingDirectories(managedDirectories).join(delimiter),
     playwrightBrowsersPath: packaged
       ? join(resourceRoot, "runtime", "playwright")
@@ -121,6 +124,7 @@ export function execRuntimeEnvironment(
     LXE_MCP_CONFIG_PATH: join(paths.dataRoot, "config", "mcp_servers.local.yaml"),
     LXE_CONNECTOR_STATE_PATH: join(paths.dataRoot, "config", "connector-states.local.json"),
     LXE_MANAGED_PATH: paths.managedPath,
+    LXE_FD_PATH: paths.fdPath,
     LXE_MANAGED_PYTHON: paths.managedPythonPath,
     TMP: temporaryRoot,
     TEMP: temporaryRoot,

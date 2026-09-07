@@ -117,3 +117,11 @@ describe("desktop private runtime paths", () => {
     expect(paths.exifToolPath).toBe("/opt/tools/exiftool");
   });
 });
+
+test("pins packaged fd even if the host configures another executable", () => {
+  const paths = resolveDesktopPaths({
+    packaged: true, appPath: "C:\\app\\resources\\app.asar", executablePath: "C:\\app\\LXE Agent.exe",
+    resourcesPath: "C:\\app\\resources", platform: "win32", environment: { LXE_FD_PATH: "C:\\other\\fd.exe" },
+  });
+  expect(paths.fdPath).toBe("C:\\app\\resources\\runtime\\tools\\fd.exe");
+});

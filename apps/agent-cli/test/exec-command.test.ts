@@ -39,6 +39,7 @@ const pathsFor = (root: string): ExecRuntimePaths => ({
   llmConfigRoot: join(root, "config", "llm"),
   managedPythonPath: join(root, ".venv", "bin", "python"),
   managedPath: "",
+  fdPath: join(root, "fd"),
   playwrightBrowsersPath: "",
 });
 

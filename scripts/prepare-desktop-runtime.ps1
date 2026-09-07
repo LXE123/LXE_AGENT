@@ -389,6 +389,7 @@ function Assert-LxeLockConfiguration {
 function Get-LxeLockFingerprint {
     $relativePaths = @(
         "config/desktop-runtime/windows-x64/runtime.lock.json",
+        "config/desktop-runtime/fd.lock.json",
         "config/desktop-runtime/windows-x64/node/package.json",
         "config/desktop-runtime/windows-x64/node/package-lock.json",
         "pyproject.toml",
@@ -452,6 +453,8 @@ function Assert-LxeRuntimeMarker {
         "python\python.exe",
         "uv\uv.exe",
         "tools\rg.exe",
+        "tools\fd.exe",
+        "tools\.fd.json",
         "tools\exiftool\exiftool.exe"
     )) {
         $absolutePath = Join-Path $Root $requiredPath
@@ -459,6 +462,11 @@ function Assert-LxeRuntimeMarker {
             throw "Managed runtime file is missing: $absolutePath"
         }
     }
+    $fdPath = Join-Path $Root "tools\fd.exe"
+    $fdMarker = Get-Content -LiteralPath (Join-Path $Root "tools\.fd.json") -Raw | ConvertFrom-Json
+    if ($fdMarker.binary_sha256 -ne (Get-LxeFileSha256 -Path $fdPath)) { throw "Managed fd binary checksum mismatch" }
+    $fdVersion = Invoke-LxeNative -Label "fd version" -FilePath $fdPath -Arguments @("--version") -TimeoutSeconds 5 -Quiet
+    if ($fdVersion.Stdout -ne "fd $($script:FdLock.version)") { throw "Managed fd version mismatch: $($fdVersion.Stdout)" }
     $exifToolFiles = Join-Path $Root "tools\exiftool\exiftool_files"
     if (-not (Test-Path -LiteralPath $exifToolFiles -PathType Container)) {
         throw "Managed ExifTool support directory is missing: $exifToolFiles"
@@ -695,6 +703,28 @@ function Install-LxeUvRipgrepAndExifTool {
     New-Item -ItemType Directory -Path (Split-Path -Parent $rgDestination) -Force | Out-Null
     Copy-Item -LiteralPath $rgCandidate[0].FullName -Destination $rgDestination -Force
 
+    $fdAsset = $script:FdLock.platforms.'win32-x64'
+    $fdArchive = Get-LxeCachedArchive -Label "fd $($script:FdLock.version)" -Url $fdAsset.archive_url
+    if ((Get-LxeFileSha256 -Path $fdArchive) -ne $fdAsset.archive_sha256) {
+        Remove-Item -LiteralPath $fdArchive -Force
+        if ($script:Offline) { throw "Cached fd archive checksum mismatch in offline mode" }
+        $fdArchive = Get-LxeCachedArchive -Label "fd $($script:FdLock.version)" -Url $fdAsset.archive_url
+        if ((Get-LxeFileSha256 -Path $fdArchive) -ne $fdAsset.archive_sha256) { throw "fd archive checksum mismatch" }
+    }
+    $fdExtract = Join-Path $WorkRoot "fd"
+    Expand-LxeArchiveFresh -Archive $fdArchive -Destination $fdExtract
+    $fdCandidates = @(Get-ChildItem -LiteralPath $fdExtract -Filter "fd.exe" -File -Recurse)
+    if ($fdCandidates.Count -ne 1) { throw "The pinned fd archive must contain exactly one fd.exe" }
+    $fdVersion = Invoke-LxeNative -Label "fd version" -FilePath $fdCandidates[0].FullName -Arguments @("--version") -TimeoutSeconds 5 -Quiet
+    if ($fdVersion.Stdout -ne "fd $($script:FdLock.version)") { throw "fd version mismatch: $($fdVersion.Stdout)" }
+    $fdDestination = Join-Path $Root "tools\fd.exe"
+    Copy-Item -LiteralPath $fdCandidates[0].FullName -Destination $fdDestination -Force
+    Write-LxeUtf8NoBom -Path (Join-Path $Root "tools\.fd.json") -Value ((@{
+        version = $script:FdLock.version
+        archive_sha256 = $fdAsset.archive_sha256
+        binary_sha256 = Get-LxeFileSha256 -Path $fdDestination
+    } | ConvertTo-Json) + "`n")
+
     $exifToolArchive = Get-LxeCachedArchive -Label "ExifTool $($script:RuntimeLock.exiftool.version)" -Url $script:RuntimeLock.exiftool.archive_url
     $exifToolExtract = Join-Path $WorkRoot "exiftool"
     Expand-LxeArchiveFresh -Archive $exifToolArchive -Destination $exifToolExtract
@@ -739,6 +769,7 @@ function Write-LxeRuntimeDescriptor {
             python_root = Join-Path $Root "python"
             uv_path = Join-Path $Root "uv\uv.exe"
             rg_path = Join-Path $Root "tools\rg.exe"
+            fd_path = Join-Path $Root "tools\fd.exe"
             exiftool_root = Join-Path $Root "tools\exiftool"
             playwright_root = Join-Path $Root "playwright"
         }
@@ -814,6 +845,7 @@ if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitProcess) {
 $script:RuntimeLockPath = Join-Path $script:RepositoryRoot "config\desktop-runtime\windows-x64\runtime.lock.json"
 $script:NodeManifestPath = Join-Path $script:RepositoryRoot "config\desktop-runtime\windows-x64\node\package.json"
 $script:NodePackageLockPath = Join-Path $script:RepositoryRoot "config\desktop-runtime\windows-x64\node\package-lock.json"
+$script:FdLock = Get-Content -LiteralPath (Join-Path $script:RepositoryRoot "config\desktop-runtime\fd.lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $script:RuntimeLock = Get-Content -LiteralPath $script:RuntimeLockPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ([int]$script:RuntimeLock.schema_version -ne 1 -or [string]$script:RuntimeLock.platform -ne "win32-x64") {
     throw "Unsupported desktop runtime lock: $script:RuntimeLockPath"

@@ -1,3 +1,4 @@
+import { findWithFd } from "./fd-search";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
@@ -50,6 +51,7 @@ export interface WorkspaceGrepRequest {
 }
 
 export interface WorkspaceFindRequest {
+  outputLimit?: number;
   pattern: string;
   searchPath: string;
   limit: number;
@@ -57,6 +59,7 @@ export interface WorkspaceFindRequest {
 }
 
 export interface WorkspaceSearchOptions {
+  fdPath?: string | null;
   ripgrepPath?: string | null;
   homeDirectory?: string;
   platform?: NodeJS.Platform;
@@ -270,9 +273,11 @@ const matchingLineIndexes = (source: string, pattern: string, caseInsensitive: b
 export class WorkspaceSearchService {
   private readonly ripgrepPath: string | undefined;
   private readonly absolutePaths: boolean;
+  private readonly fdPath: string | null | undefined;
 
   constructor(private readonly workspaceRoot: string, options: WorkspaceSearchOptions = {}) {
     this.ripgrepPath = resolveRipgrepExecutable(options);
+    this.fdPath = options.fdPath;
     this.absolutePaths = options.absolutePaths ?? false;
   }
 
@@ -290,32 +295,10 @@ export class WorkspaceSearchService {
   }
 
   async find(request: WorkspaceFindRequest): Promise<string> {
-    const files = await collectFiles(this.workspaceRoot, request.searchPath, request.signal);
-    const baseRelative = normalizePath(relative(this.workspaceRoot, request.searchPath));
-    const matcher = globRegex(request.pattern);
-    const matched: Array<{ path: string; mtime: number }> = [];
-    for (let index = 0; index < files.length; index += 16) {
-      assertActive(request.signal);
-      const batch = files.slice(index, index + 16);
-      const details = await Promise.all(batch.map(async (path) => {
-        const searchRelative = baseRelative && path.startsWith(`${baseRelative}/`) ? path.slice(baseRelative.length + 1) : path;
-        if (!matcher.test(searchRelative) && !matcher.test(basename(path))) return undefined;
-        try {
-          return { path, mtime: (await stat(join(this.workspaceRoot, path))).mtimeMs };
-        } catch {
-          return { path, mtime: 0 };
-        }
-      }));
-      matched.push(...details.filter((item): item is { path: string; mtime: number } => Boolean(item)));
-      await Bun.sleep(0);
-    }
-    matched.sort((left, right) => right.mtime - left.mtime || left.path.localeCompare(right.path));
-    if (matched.length === 0) return "No files found.";
-    const lines = matched.slice(0, request.limit).map((item) => this.displayPath(item.path));
-    if (matched.length > request.limit) {
-      lines.push(`... (showing first ${request.limit} of ${matched.length} results, sorted by modification time)`);
-    }
-    return lines.join("\n");
+    return findWithFd(this.workspaceRoot, request, {
+      absolutePaths: this.absolutePaths,
+      ...(this.fdPath === undefined ? {} : { fdPath: this.fdPath }),
+    });
   }
 
   private async grepWithRipgrep(request: WorkspaceGrepRequest, executable: string): Promise<string> {

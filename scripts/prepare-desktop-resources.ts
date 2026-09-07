@@ -112,6 +112,7 @@ const {
   pythonRoot,
   uvExecutable,
   ripgrepExecutable,
+  fdExecutable,
   exifToolRoot,
   playwrightRoot,
 } = runtimeInputs;
@@ -127,6 +128,7 @@ for (const path of [
   join(pythonRoot, "python.exe"),
   playwrightEmbeddedNodeSource,
   ripgrepExecutable,
+  fdExecutable,
   join(exifToolRoot, "exiftool.exe"),
 ]) {
   if (!existsSync(path)) throw new Error(`Managed desktop runtime is incomplete: ${path}`);
@@ -211,6 +213,7 @@ const extraResources: BuilderFileSet[] = [
     filter: ["**/*"],
   },
   { from: playwrightRoot, to: scopeEntry("runtime-playwright").target, filter: ["**/*"] },
+  exactFileSet(fdExecutable, `${scopeEntry("runtime-tools").target}/fd.exe`),
   exactFileSet(ripgrepExecutable, `${scopeEntry("runtime-tools").target}/rg.exe`),
   {
     from: exifToolRoot,

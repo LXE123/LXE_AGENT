@@ -35,6 +35,7 @@ describe("desktop resource size report", () => {
     writeFileSync(join(runtime, "python", "python.exe"), Buffer.alloc(19));
     writeFileSync(join(runtime, "playwright", "chrome.exe"), Buffer.alloc(23));
     writeFileSync(join(runtime, "tools", "rg.exe"), Buffer.alloc(29));
+    writeFileSync(join(runtime, "tools", "fd.exe"), Buffer.alloc(7));
     writeFileSync(join(runtime, "tools", "exiftool", "exiftool.exe"), Buffer.alloc(31));
     writeFileSync(
       join(runtime, "tools", "exiftool", "exiftool_files", "perl.dll"),
@@ -43,14 +44,15 @@ describe("desktop resource size report", () => {
 
     const report = createDesktopResourceSizeReport(root);
 
-    expect(report.total.bytes).toBe(180);
+    expect(report.total.bytes).toBe(187);
     expect(report.electron.bytes).toBe(11);
-    expect(report.resources.runtime.total.bytes).toBe(169);
+    expect(report.resources.runtime.total.bytes).toBe(176);
     expect(report.resources.runtime.node.node_modules.bytes).toBe(17);
     expect(report.resources.runtime.node.npm_cache.bytes).toBe(0);
     expect(report.resources.runtime.python.playwright_driver_node.bytes).toBe(0);
     expect(report.resources.runtime.uv.bytes).toBe(0);
-    expect(report.resources.runtime.tools.total.bytes).toBe(97);
+    expect(report.resources.runtime.tools.total.bytes).toBe(104);
+    expect(report.resources.runtime.tools.fd.bytes).toBe(7);
     expect(report.resources.runtime.tools.ripgrep.bytes).toBe(29);
     expect(report.resources.runtime.tools.exiftool.bytes).toBe(68);
     expect(report.resources.runtime.tools.exiftool_executable.bytes).toBe(31);
