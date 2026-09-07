@@ -17,7 +17,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.datasets import dataset_dir
 
-from .combo_sku import ComboComponent, ComboSku, fetch_inventory_combos, normalize_sku_key
+from .combo_sku import ComboComponent, ComboSku, fetch_inventory_combos, normalize_sku_key, source_row_key
 
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header
@@ -171,9 +171,10 @@ class ActualInventoryResult:
     warehouse_id: str = WAREHOUSE_ID
     warehouse_name: str = WAREHOUSE_NAME
     result_source: str = SOURCE
+    skipped_amazon_found_msku_row_count: int = 0
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "success": True,
             "store_name": self.store_name,
             "warehouse_id": self.warehouse_id,
@@ -191,6 +192,9 @@ class ActualInventoryResult:
             "shenzhen_warehouse_inventory_report_xlsx_path": self.shenzhen_warehouse_inventory_report_xlsx_path,
             "result_source": self.result_source,
         }
+        if self.skipped_amazon_found_msku_row_count:
+            payload["skipped_amazon_found_msku_row_count"] = self.skipped_amazon_found_msku_row_count
+        return payload
 
 
 def _clean_text(value: Any) -> str:
@@ -631,6 +635,7 @@ def calculate_inventory_rows(
     *,
     combo_map: dict[str, ComboSku],
     stock_quantities: dict[str, Decimal],
+    unverified_found_rows: set[tuple[str, str, str]] | None = None,
 ) -> tuple[list[ActualInventoryRow], list[str]]:
     missing: OrderedDict[str, str] = OrderedDict()
     result_rows: list[ActualInventoryRow] = []
@@ -642,7 +647,12 @@ def calculate_inventory_rows(
         weighted_daily_sales = _weighted_daily_sales(row)
         actual_inventory: Decimal | None
         child_skus = ""
-        if not local_key:
+        remark = row.remark
+        if unverified_found_rows and source_row_key(row) in unverified_found_rows:
+            actual_inventory = None
+            is_combo_sku = False
+            remark = "；".join(filter(None, [remark, "Amazon.Found 未匹配 Listing，SKU类型未核验，不参与备货计算"]))
+        elif not local_key:
             actual_inventory = None
         elif combo is None:
             actual_inventory = stock_quantities.get(local_key)
@@ -675,7 +685,7 @@ def calculate_inventory_rows(
                 sales_days=_sales_days(fba_total_inventory, weighted_daily_sales),
                 local_sku_name=row.local_sku_name,
                 product_name=row.product_name,
-                remark=row.remark,
+                remark=remark,
             )
         )
     return result_rows, list(missing.values())
@@ -827,10 +837,16 @@ async def _export_store_msku_actual_inventory_once(
     local_skus = _unique_text([row.local_sku for row in msku_rows])
 
     output_directory = _resolve_output_dir(output_dir)
-    combo_map = await fetch_inventory_combos(clean_store_name, msku_rows)
-    stock_skus = stock_skus_for_inventory(local_skus, combo_map)
+    unverified_found_rows: set[tuple[str, str, str]] = set()
+    combo_map = await fetch_inventory_combos(clean_store_name, msku_rows, unverified_found_rows=unverified_found_rows)
+    verified_local_skus = _unique_text([
+        row.local_sku for row in msku_rows if source_row_key(row) not in unverified_found_rows
+    ])
+    stock_skus = stock_skus_for_inventory(verified_local_skus, combo_map)
 
     async def warehouse_once() -> dict[str, Decimal]:
+        if not stock_skus:
+            return {}
         await search_warehouse_stock(stock_skus)
         stock_xlsx_path = await download_warehouse_stock_xlsx(
             store_name=clean_store_name, output_dir=output_directory,
@@ -846,6 +862,7 @@ async def _export_store_msku_actual_inventory_once(
         msku_rows,
         combo_map=combo_map,
         stock_quantities=stock_quantities,
+        unverified_found_rows=unverified_found_rows,
     )
     inventory_groups = split_inventory_rows(inventory_rows)
 
@@ -863,6 +880,7 @@ async def _export_store_msku_actual_inventory_once(
         matched_warehouse_inventory_msku_row_count=len(inventory_groups.inventory_rows),
         missing_local_sku_msku_row_count=len(inventory_groups.no_local_sku_rows),
         missing_warehouse_inventory_msku_row_count=len(inventory_groups.no_inventory_rows),
+        skipped_amazon_found_msku_row_count=sum(source_row_key(row) in unverified_found_rows for row in msku_rows),
     )
 
 

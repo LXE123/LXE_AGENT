@@ -52,6 +52,10 @@ class SourceRow(Protocol):
     local_sku: str
 
 
+def source_row_key(row: SourceRow) -> tuple[str, str, str]:
+    return normalize_sku_key(row.msku), clean_text(row.asin), normalize_sku_key(row.local_sku)
+
+
 def _integer(value: Any, context: str, payload: Any, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not re.fullmatch(r"\d+", str(value)) or int(value) < minimum:
         invalid(context, f"无效整数: {value!r}", payload)
@@ -140,7 +144,10 @@ async def fetch_listing_bindings(store_name: str) -> list[ListingSkuBinding]:
         page += 1
 
 
-def select_combo_skus(rows: Sequence[SourceRow], bindings: Sequence[ListingSkuBinding]) -> list[str]:
+def select_combo_skus(
+    rows: Sequence[SourceRow], bindings: Sequence[ListingSkuBinding], *,
+    unverified_found_rows: set[tuple[str, str, str]] | None = None,
+) -> list[str]:
     by_msku: dict[str, list[ListingSkuBinding]] = {}
     for binding in bindings:
         by_msku.setdefault(normalize_sku_key(binding.msku), []).append(binding)
@@ -151,6 +158,14 @@ def select_combo_skus(rows: Sequence[SourceRow], bindings: Sequence[ListingSkuBi
         if not local_key:
             continue
         candidates = by_msku.get(normalize_sku_key(row.msku), [])
+        if (
+            not candidates and normalize_sku_key(row.msku).startswith("Amazon.Found.")
+            and unverified_found_rows is not None
+        ):
+            # A caller opting into this exception must retain these rows as unknown.
+            unverified_found_rows.add(source_row_key(row))
+            _progress(f"Amazon.Found 未匹配 Listing，跳过核验并保留为未知库存: MSKU={row.msku}")
+            continue
         if clean_text(row.asin):
             candidates = [item for item in candidates if item.asin == clean_text(row.asin)]
         definitions = {(normalize_sku_key(item.local_sku), item.stock_type) for item in candidates}
@@ -257,12 +272,15 @@ async def fetch_combo_sku_map(combo_skus: list[str]) -> dict[str, ComboSku]:
     return {normalize_sku_key(sku): results[normalize_sku_key(sku)] for sku in skus}
 
 
-async def fetch_inventory_combos(store_name: str, rows: Sequence[SourceRow]) -> dict[str, ComboSku]:
+async def fetch_inventory_combos(
+    store_name: str, rows: Sequence[SourceRow], *,
+    unverified_found_rows: set[tuple[str, str, str]] | None = None,
+) -> dict[str, ComboSku]:
     if not any(normalize_sku_key(row.local_sku) for row in rows):
         return {}
     try:
         async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
             bindings = await fetch_listing_bindings(store_name)
-            return await fetch_combo_sku_map(select_combo_skus(rows, bindings))
+            return await fetch_combo_sku_map(select_combo_skus(rows, bindings, unverified_found_rows=unverified_found_rows))
     except TimeoutError as exc:
         raise OfficialApiError(f"店铺={store_name}", f"官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒") from exc

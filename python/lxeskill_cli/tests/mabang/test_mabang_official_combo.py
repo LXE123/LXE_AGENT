@@ -65,6 +65,68 @@ def test_binding_failures(rows, bindings):
     with pytest.raises(http.OfficialApiError):
         combo.select_combo_skus(rows, bindings)
 
+
+def test_only_unmatched_amazon_found_can_be_retained_as_unknown():
+    found = source('Amazon.Found.A', 'S')
+    skipped = set()
+    assert combo.select_combo_skus([found, source()], [binding()], unverified_found_rows=skipped) == ['C']
+    assert skipped == {combo.source_row_key(found)}
+    # A bare mapping consumer cannot opt out of validation and lose the unknown row.
+    with pytest.raises(http.OfficialApiError):
+        combo.select_combo_skus([found], [])
+    for row in [source('ordinary', 'Amazon.Found.A'), source('XAmazon.Found.A'), source('amazon.found.A')]:
+        with pytest.raises(http.OfficialApiError):
+            combo.select_combo_skus([row], [], unverified_found_rows=set())
+
+
+@pytest.mark.parametrize('bindings', [
+    [binding('Amazon.Found.A', 'changed')],
+    [binding('Amazon.Found.A', 'S', asin='different')],
+    [binding('Amazon.Found.A', 'S'), binding('Amazon.Found.A', 'S', kind=1)],
+    [binding('Amazon.Found.A', 'S', kind=3)],
+])
+def test_found_conflicts_are_not_suppressed(bindings):
+    with pytest.raises(http.OfficialApiError):
+        combo.select_combo_skus([source('Amazon.Found.A', 'S')], bindings, unverified_found_rows=set())
+
+
+def test_found_with_valid_combo_binding_is_still_a_combo():
+    skipped = set()
+    assert combo.select_combo_skus([source('Amazon.Found.A', 'C')], [binding('Amazon.Found.A')], unverified_found_rows=skipped) == ['C']
+    assert skipped == set()
+
+
+def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
+    found = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '', remark='原备注')
+    normal = inv.StoreMskuRow('normal', '', 'A', 'S', '')
+    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_found_rows={combo.source_row_key(found)})
+    assert rows[0].actual_inventory is None
+    assert rows[1].actual_inventory == 100
+    assert '原备注' in rows[0].remark and 'SKU类型未核验' in rows[0].remark
+    assert missing == []
+    assert inv.split_inventory_rows(rows).no_inventory_rows == [rows[0]]
+
+
+def test_only_found_rows_do_not_query_warehouse_or_enter_replenishment(monkeypatch, tmp_path):
+    from services.mabang.amazon.fba.store_msku_replenishment import load_inventory_rows
+    row = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '')
+    src = inv.SourceMskuFile(Path('source.xlsx'), '202609071111', datetime(2026, 9, 7))
+    monkeypatch.setattr(inv, 'find_latest_store_msku_file', lambda *a, **kw: src)
+    monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a: [row])
+    async def listings(name):
+        return []
+    async def unexpected(*args, **kwargs):
+        pytest.fail('Unverified Found-only input must not query stock or combo details')
+    monkeypatch.setattr(combo, 'fetch_listing_bindings', listings)
+    monkeypatch.setattr(combo, 'post_json', unexpected)
+    monkeypatch.setattr(inv, 'search_warehouse_stock', unexpected)
+    monkeypatch.setattr(inv, 'download_warehouse_stock_xlsx', unexpected)
+    result = asyncio.run(inv.export_store_msku_actual_inventory('shop', output_dir=tmp_path))
+    assert result.to_payload()['skipped_amazon_found_msku_row_count'] == 1
+    assert result.queried_warehouse_stock_sku_count == 0
+    assert result.missing_warehouse_inventory_msku_row_count == 1
+    assert load_inventory_rows(result.shenzhen_warehouse_inventory_report_xlsx_path) == []
+
 def test_shop_sid_uk_conversion_and_listing_pagination(monkeypatch):
     calls = []
 
@@ -322,7 +384,7 @@ def test_api_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp
     monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a: [inv.StoreMskuRow('M', '', 'A', 'C', '')])
     calls = []
 
-    async def combos(*a):
+    async def combos(*a, **kw):
         calls.append('combo')
         return {'C': combo.ComboSku('C', (combo.ComboComponent('S', Decimal(2)),))}
 
@@ -347,7 +409,7 @@ def test_api_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp
     original = report.read_bytes()
     calls.clear()
 
-    async def failure(*a):
+    async def failure(*a, **kw):
         raise http.OfficialApiError('SKU=C', 'HTTP 401 denied')
     monkeypatch.setattr(inv, 'fetch_inventory_combos', failure)
     with pytest.raises(http.OfficialApiError):

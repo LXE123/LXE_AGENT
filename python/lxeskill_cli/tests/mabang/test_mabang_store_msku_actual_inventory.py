@@ -716,7 +716,7 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     monkeypatch.setattr(inv, "erp_http_session", fake_session)
     monkeypatch.setattr(inv, "external_http_session", fake_session)
     monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
-    async def fake_combos(store_name, rows):
+    async def fake_combos(store_name, rows, **kwargs):
         assert store_name == "Amazon-Lerxiuer-FR"
         return {"COMBO-A": inv.ComboSku("COMBO-A", (
             inv.ComboComponent("STOCK-A", Decimal("1")),
