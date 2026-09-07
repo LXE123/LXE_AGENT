@@ -6,6 +6,7 @@ import { callDashboard, setDashboardTransportForTests } from "../../../src/api/c
 import { useSessionConversationQuery, useConversationActivityQuery } from "../../../src/api/queries";
 import { dashboardQueryKeys } from "../../../src/api/query-keys";
 import { ConversationDisplayController, sendConversationMessage } from "../../../src/features/sessions/display-controller";
+import { useConversationEntry } from "../../../src/features/sessions/use-conversation-entry";
 import { acknowledgeConversationSend } from "../../../src/features/sessions/presentation";
 import { SessionDetailView } from "../../../src/features/sessions/view";
 import type { SessionDetailPayload, SessionMessage, SessionPayload, DesktopConversationTurnPayload } from "../../../src/api/payloads";
@@ -17,7 +18,13 @@ const client = new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWi
 const records = new Map<string, SessionMessage[]>();
 const activities = new Map<string, DesktopConversationActivityPayload>();
 const attachment: DesktopInputAttachmentPayload = {attachment_id:"fixture-image",name:"fixture.png",size_bytes:100,media_type:"image/png"};
-let serial=0, sendState: "completed"|"error"|"cancelled"|"transport-error"="completed", failNextPage=false, pageDelay=15;
+function runningOutput(key:string,seq:number,text:string):DesktopConversationTurnPayload{
+  return {turn_id:`${key}-turn`,message_id:`${key}-user`,text:"Continue the running task",created_at:Date.now(),started_at:Date.now(),user_persisted_at:0,settled_at:0,state:"running",
+    stream:{seq,state:"delta",content:text,thinking:"",redacted_thinking_count:0,thinking_elapsed_ms:0,tool_pending:false,tool_elapsed_ms:0,tool_steps:[],
+      process_parts:[{type:"text",part_id:`${key}-text`,sequence:1,text,status:"streaming",presentation:"final"}],
+      display_metrics:{status:"running",phase:"generating_answer",elapsed_ms:0,model:"fixture",input_tokens:0,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0,context_tokens:0,context_window_tokens:1000}}};
+}
+let serial=0, sendState: "completed"|"error"|"cancelled"|"transport-error"="completed", failNextPage=false, pageDelay=15, activityDelay=0;
 const session=(id:string):SessionPayload=>({session_id:id,title:"展示控制器 fixture",source:{},source_summary:{platform:"desktop",chat_type:"dm"},workspace:{directory:"/fixture",worktree:"/fixture"},model:"fixture",reasoning_effort:"",model_config:{},pinned_at:0,created_at:1,last_active_at:1,message_count:0,tool_call_count:0,input_tokens:0,output_tokens:0,api_call_count:0});
 function page(id:string,before?:string,after?:string):SessionDetailPayload{
   const messages=records.get(id)??[];
@@ -41,7 +48,10 @@ setDashboardTransportForTests({call:async(call)=>{
     if(failNextPage){failNextPage=false;throw new Error("Fixture history unavailable");}
     return captured as never;
   }
-  if(call.operation==="sessions.activity")return (activities.get((call.input as {session_id:string}).session_id)??{session_id:(call.input as {session_id:string}).session_id,active:null,queued:[],latest:null}) as never;
+  if(call.operation==="sessions.activity"){
+    const captured=activities.get((call.input as {session_id:string}).session_id)??{session_id:(call.input as {session_id:string}).session_id,active:null,queued:[],latest:null};
+    await delay(activityDelay);return captured as never;
+  }
   if(call.operation!=="sessions.send")throw new Error(`Unexpected fixture operation ${call.operation}`);
   const input=call.input as {session_id?:string;client_message_id:string;text:string;attachment_ids?:string[]};
   const id=input.session_id||`created-${++serial}`,turnId=`turn-${++serial}`,messageId=`message-${serial}`,outcome=sendState;
@@ -49,7 +59,7 @@ setDashboardTransportForTests({call:async(call)=>{
   if(outcome==="transport-error")throw new Error("Fixture actual send error");
   const turn:DesktopConversationTurnPayload={turn_id:turnId,message_id:messageId,client_message_id:input.client_message_id,text:input.text,attachments:input.attachment_ids?.length?[attachment]:[],created_at:Date.now(),started_at:Date.now(),user_persisted_at:Date.now(),settled_at:0,state:"running"};
   push(id,turn);await delay();
-  const user:SessionMessage={display_group_id:turnId,display_id:messageId,role:"user",message_id:messageId,client_message_id:input.client_message_id,content:input.text,created_at:Date.now()/1000,turn:{turn_id:turnId,status:"running",elapsed_ms:0}};
+  const user:SessionMessage={display_group_id:turnId,display_id:messageId,role:"user",message_id:messageId,client_message_id:input.client_message_id,content:input.text,created_at:Date.now()/1000,turn:{turn_id:turnId,status:null,elapsed_ms:0}};
   records.set(id,[...records.get(id)??[],user]);
   await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(id)});await delay();
   const body=outcome==="completed"?"**最终回答**：图片已收到。":"Fixture actual model failure";
@@ -71,10 +81,16 @@ function anchorError(saved:ReturnType<typeof anchor>){const root=document.queryS
   return row&&saved?Math.abs(row.getBoundingClientRect().top-root.getBoundingClientRect().top-saved.offset):Infinity;
 }
 const noop=async()=>{};
+function readAt(root:HTMLElement,offset:number){
+  root.dispatchEvent(new WheelEvent("wheel",{deltaY:-120,bubbles:true}));
+  root.scrollTop=offset;root.dispatchEvent(new Event("scroll"));
+}
 function Fixture(){
   const [controller]=useState(()=>new ConversationDisplayController());
   const [id,setId]=useState("empty");const [reports,setReports]=useState<string[]>([]);const [busy,setBusy]=useState(false);
-  const query=useSessionConversationQuery(id,true,controller);useConversationActivityQuery(id);
+  const [visible,setVisible]=useState(true);
+  useConversationEntry(controller,id,visible);
+  const query=useSessionConversationQuery(id,visible,controller);useConversationActivityQuery(id,visible);
   const current=useRef(query);current.current=query;
   const select=(value:string)=>{controller.select(value);setId(value);};
   const report=(value:string)=>setReports(values=>[...values,value]);
@@ -85,6 +101,76 @@ function Fixture(){
     await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(result.session_id)});
   };
   const run=async(task:()=>Promise<void>)=>{setBusy(true);try{await task();report("PASS");}catch(error){report(`FAIL ${String(error)}`);}finally{setBusy(false);}};
+  const reentryCases=async()=>{
+    const scroller=()=>document.querySelector<HTMLElement>(".conversation-transcript")!;
+    const distance=()=>scroller().scrollHeight-scroller().scrollTop-scroller().clientHeight;
+    const atLatest=async(label:string)=>{
+      await delay(450);
+      assert(distance()<=2,`${label}: latest distance ${distance()}px`);
+      assert(controller.getSnapshot().following,`${label}: lost following intent`);
+      const live=[...scroller().querySelectorAll<HTMLElement>("[data-conversation-row]")].find(el=>el.textContent?.includes("LIVE END"));
+      assert(live&&live.getBoundingClientRect().bottom>scroller().getBoundingClientRect().top&&live.getBoundingClientRect().top<scroller().getBoundingClientRect().bottom,`${label}: running output not visible`);
+    };
+    try{
+      for(const historyFirst of [true,false]){
+        const key=`reentry-${++serial}`;
+        const longText=Array.from({length:80},(_,i)=>`Paragraph ${i}: ${"Long prior answer. ".repeat(12)}`).join("\n\n");
+        records.set(key,[{display_group_id:`${key}-old`,display_id:`${key}-old`,role:"assistant",created_at:1,content:longText,turn:{turn_id:`${key}-old`,status:"completed",elapsed_ms:1000}}]);
+        const running=(seq:number)=>runningOutput(key,seq,`${"Streaming output\n\n".repeat(seq*10)}LIVE END`);
+        activities.set(key,{session_id:key,active:running(1),latest:null,queued:[]});
+        pageDelay=historyFirst?20:260;activityDelay=historyFirst?260:20;
+        select(key);await atLatest(`${historyFirst?"history":"activity"} first cold entry`);
+        readAt(scroller(),Math.max(0,scroller().scrollTop-350));await delay(100);
+        const position=scroller().scrollTop;
+        select(key);await delay(100);
+        assert(!controller.getSnapshot().following&&Math.abs(scroller().scrollTop-position)<=2,"repeated click reset reading");
+        select(`away-${serial}`);await delay(100);select(key);
+        await atLatest("switch back with cached activity");
+        // Home/other sections retain the selected ID and Query/controller state.
+        readAt(scroller(),Math.max(0,scroller().scrollTop-350));await delay(100);
+        setVisible(false);await delay(100);setVisible(true);await atLatest("home return with cached history");
+        push(key,running(4));await atLatest("stream grew after reentry");
+        const body=[...scroller().querySelectorAll<HTMLElement>(".message-markdown")].at(-1)!;
+        const img=document.createElement("img");img.alt="Late loaded screenshot";img.style.cssText="display:block;width:300px;height:30px";
+        img.src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='30'%3E%3Crect width='300' height='30' fill='%23ccc'/%3E%3C/svg%3E";
+        body.append(img);await delay(100);img.style.height="420px";await atLatest("image grew after reentry");
+        img.remove();await delay(100);
+        // Cancel while a tail correction and a latest request are pending.
+        pageDelay=260;
+        const request=client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(key)});
+        push(key,running(5));readAt(scroller(),Math.max(0,scroller().scrollTop-350));await delay(100);
+        const saved=anchor();await request;push(key,running(6));await delay(400);
+        assert(!controller.getSnapshot().following&&distance()>100,"late content pulled reading back to bottom");
+        assert(anchorError(saved)<=2,`reading anchor drift ${anchorError(saved)}px`);
+        document.querySelector<HTMLButtonElement>(".conversation-jump-latest")!.click();await atLatest("jump restores following");
+        for(const input of [new KeyboardEvent("keydown",{key:"PageUp",bubbles:true}),new PointerEvent("pointerdown",{bubbles:true})]){
+          scroller().dispatchEvent(input);assert(!controller.getSnapshot().following,"reading input did not synchronously cancel following");
+          await delay(30);document.querySelector<HTMLButtonElement>(".conversation-jump-latest")!.click();await atLatest("reading input then jump");
+        }
+        // Re-enter without cached activity, then read before the slower response.
+        select(`loading-away-${serial}`);await delay(100);
+        client.removeQueries({queryKey:dashboardQueryKeys.sessions.activity(key)});
+        pageDelay=historyFirst?20:300;activityDelay=historyFirst?300:20;
+        select(key);await delay(100);
+        readAt(scroller(),Math.max(0,scroller().scrollTop-220));await delay(80);
+        const loadingAnchor=anchor();await delay(500);
+        assert(!controller.getSnapshot().following,"initial late response resumed following");
+        assert(anchorError(loadingAnchor)<=2,`initial loading reading drift ${anchorError(loadingAnchor)}px`);
+        document.querySelector<HTMLButtonElement>(".conversation-jump-latest")!.click();await atLatest("jump after interrupted initial loading");
+        report(`${historyFirst?"history":"activity"} first: cold/cache/home reentry, live/image growth ≤2px; manual reading preserved; jump restored`);
+      }
+      pageDelay=15;activityDelay=0;
+      const key=`detached-${++serial}`;
+      records.set(key,Array.from({length:80},(_,i)=>({display_group_id:`detached-${i}`,display_id:`detached-${i}`,role:"assistant",created_at:i+1,content:`Historical answer ${i}\n\n${"Previous answer. ".repeat(40)}`,turn:{turn_id:`detached-${i}`,status:"completed",elapsed_ms:1000}})));
+      activities.set(key,{session_id:key,latest:null,queued:[],active:runningOutput(key,1,"LIVE END")});
+      select(key);await atLatest("detached case initial");
+      for(let i=0;i<7;i++){readAt(scroller(),140);await delay(50);await current.current.fetchPreviousPage();await delay(160);}
+      assert(controller.getSnapshot().connection==="detached","fixture did not leave the latest window");
+      setVisible(false);await delay(100);setVisible(true);await atLatest("home return from detached history");
+      assert(controller.getSnapshot().connection==="attached","home return did not restore latest window");
+      report("detached historical window: home return reconnects and shows running output");
+    }finally{pageDelay=15;activityDelay=0;setVisible(true);}
+  };
   const sendCases=async()=>{
     for(const [label,body,files,outcome] of [["text","hello",[],"completed"],["image","图片",[attachment],"error"],["attachment-only","",[attachment],"cancelled"],["draft","新会话",[attachment],"completed"],["send-error","失败",[],"transport-error"]] as const){
       select(label==="draft"?"":`case-${++serial}`);await delay(100);sendState=outcome;
@@ -111,7 +197,7 @@ function Fixture(){
     ]));select("long");await delay(200);
     let maxMounted=0,maxGroups=0,maxError=0;
     for(let i=0;i<99;i++){
-      const root=document.querySelector<HTMLElement>(".conversation-transcript")!;root.scrollTop=Math.min(140,root.scrollHeight-root.clientHeight);root.dispatchEvent(new Event("scroll"));await delay(25);
+      const root=document.querySelector<HTMLElement>(".conversation-transcript")!;readAt(root,Math.min(140,root.scrollHeight-root.clientHeight));await delay(25);
       const saved=anchor();await current.current.fetchPreviousPage();await delay(140);const drift=anchorError(saved);if(drift>2)report(`anchor page ${i}: ${saved?.id} drift ${drift.toFixed(2)}`);maxError=Math.max(maxError,drift);
       const snapshot=controller.getSnapshot();const groups=new Set([...snapshot.detail!.messages,...snapshot.latest!.messages].map(message=>message.display_group_id));
       maxGroups=Math.max(maxGroups,groups.size);maxMounted=Math.max(maxMounted,document.querySelectorAll("[data-conversation-row]").length);
@@ -124,7 +210,7 @@ function Fixture(){
     assert(controller.getSnapshot().detail===before,"failed pagination discarded window");
     while(current.current.hasNextPage){
       const root=document.querySelector<HTMLElement>(".conversation-transcript")!;
-      root.scrollTop=Math.max(0,root.scrollHeight-root.clientHeight-160);root.dispatchEvent(new Event("scroll"));await delay(25);
+      readAt(root,Math.max(0,root.scrollHeight-root.clientHeight-160));await delay(25);
       await current.current.fetchNextPage();await delay(140);
     }
     assert(controller.getSnapshot().detail!.messages.at(-1)!.display_group_id==="g999","did not reload newest group");
@@ -135,7 +221,7 @@ function Fixture(){
   const heightsAndRaces=async()=>{
     if(id!=="long")throw new Error("Run long history first");
     const root=document.querySelector<HTMLElement>(".conversation-transcript")!;
-    root.scrollTop=500;root.dispatchEvent(new Event("scroll"));await delay(180);
+    readAt(root,500);await delay(180);
     // Insert a local image into an already mounted Markdown block, as if its intrinsic
     // height became available after loading. ResizeObserver follows the production path.
     const saved=anchor();
@@ -190,7 +276,7 @@ function Fixture(){
   const toolLifecycle=async()=>{
     const sessionId="tool-lifecycle",turnId="tool-turn";
     select(sessionId);await delay(160);
-    const base={display_group_id:"tool-group",created_at:1,turn:{turn_id:turnId,status:"running"}};
+    const base={display_group_id:"tool-group",created_at:1,turn:{turn_id:turnId,status:null,elapsed_ms:0}};
     const user={...base,display_id:"tool-user",message_id:"tool-user",role:"user",content:"执行 fixture"};
     const call={...base,id:"tool-answer",display_id:"tool-answer",role:"assistant",
       content:[{type:"tool_call",id:"fixture-call",name:"exec",arguments:{cmd:"fixture download"}}]};
@@ -242,7 +328,7 @@ function Fixture(){
     assert(icon().dataset.toolStatus==="success","late start regressed completed tool");
     // New selection clears lifecycle evidence; cancelled call-only history remains unknown.
     select("tool-unknown");await delay(120);
-    records.set("tool-unknown",[{...call,turn:{turn_id:turnId,status:"cancelled"}}] as SessionMessage[]);
+    records.set("tool-unknown",[{...call,turn:{turn_id:turnId,status:"cancelled",elapsed_ms:0}}] as SessionMessage[]);
     await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession("tool-unknown")});await delay(180);
     assert(icon().dataset.toolStatus==="unconfirmed"&&icon().title==="结果未确认","cancelled call was treated as success");
     push("tool-unknown",update(1,"error","cancelled"));await delay(180);
@@ -254,7 +340,7 @@ function Fixture(){
     const hint=document.querySelector<HTMLElement>(".conversation-empty")!;
     assert(hint&&!hint.querySelector("svg"),"empty chat hint missing or still has icon");
     assert(getComputedStyle(hint).backgroundColor==="rgba(0, 0, 0, 0)"&&["auto","0px"].includes(getComputedStyle(hint).minHeight),"empty hint still looks like a card");
-    const turn={turn_id:"footer-turn",status:"completed",elapsed_ms:99000};
+    const turn={turn_id:"footer-turn",status:"completed" as const,elapsed_ms:99000};
     records.set("footer",[
       {display_group_id:"footer-group",display_id:"footer-user",role:"user",content:"测试文件",created_at:1,turn},
       {display_group_id:"footer-group",id:"footer-process",display_id:"footer-process",role:"assistant",content:[{type:"thinking",thinking:"过程内容，不应复制"}],created_at:2,turn},
@@ -310,14 +396,15 @@ function Fixture(){
       <button disabled={busy} onClick={()=>void run(toolLifecycle)}>Run tool lifecycle</button>
       <button disabled={busy} onClick={()=>void run(cacheBudget)}>Run cache budget</button>
       <button disabled={busy} onClick={()=>void run(heightsAndRaces)}>Run height and races</button>
+      <button disabled={busy} onClick={()=>void run(reentryCases)}>Run session reentry</button>
       <button disabled={busy} onClick={()=>void run(async()=>{sendState="completed";await send("主动发送回到最新",[]);})}>Send now</button></div>
     <pre id="fixture-report" style={{fontSize:12,maxHeight:145,overflow:"auto",margin:0}}>{reports.join("\n")}</pre>
     <output id="fixture-state">{JSON.stringify({session:id,load:query.display.loadState,connection:query.display.connection,following:query.display.following,groups:query.data?.messages_page.group_cursors?.length,rows:query.display.rows.length,bytes:new TextEncoder().encode(JSON.stringify(query.data?.messages??[])).byteLength})}</output>
-    <SessionDetailView fallbackSession={session(id)} detail={query.data??null} activity={query.display.activity??null} display={query.display} pendingMessages={query.display.pending}
+    {visible&&<SessionDetailView fallbackSession={session(id)} detail={query.data??null} activity={query.display.activity??null} display={query.display} pendingMessages={query.display.pending}
       currentModel={null} models={[]} modelLoading={false} modelSaving={false} thinkingSaving={false} newConversation={!id} runtimeReady={true} runtimeUnavailableMessage=""
       loading={query.isPending} error={query.display.error} hasOlder={query.hasPreviousPage} hasNewer={query.hasNextPage} loadingOlder={query.isFetchingPreviousPage}
       loadOlderError={query.isFetchPreviousPageError?String(query.error):""} onLoadOlder={query.fetchPreviousPage} onLoadNewer={query.fetchNextPage} onJumpToLatest={query.jumpToLatest}
-      onVisibleGroups={query.setVisibleGroups} onFollowingChange={query.setFollowing} onModelChange={()=>{}} onThinkingLevelChange={()=>{}} onSend={send} onStop={noop} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop}/>
+      onVisibleGroups={query.setVisibleGroups} onFollowingChange={query.setFollowing} onModelChange={()=>{}} onThinkingLevelChange={()=>{}} onSend={send} onStop={noop} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop}/>}
   </div>;
 }
 const root=createRoot(document.getElementById("root")!);root.render(<QueryClientProvider client={client}><Fixture/></QueryClientProvider>);

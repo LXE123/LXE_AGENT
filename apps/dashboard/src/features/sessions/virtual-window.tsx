@@ -14,11 +14,14 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const t = useUiText();
   const root = useRef<HTMLDivElement>(null);
   const initial = useRef(false);
-  const jumping = useRef(false);
+  const feed = useRef<HTMLDivElement>(null);
+  const followIntent = useRef(true);
+  const alignmentFrame = useRef<number | undefined>(undefined);
+  const readingVersion = useRef(0);
+  const touchY = useRef<number | undefined>(undefined);
   const busy = useRef(false);
   const retryDirection = useRef<"older" | "newer">("older");
   const [following, setFollowing] = useState(true);
-  useEffect(() => { onFollowingChange?.(following); }, [following, onFollowingChange]);
   const [loading, setLoading] = useState(false);
   const [hoveredAnswer, setHoveredAnswer] = useState<string>();
   const [focusedAnswer, setFocusedAnswer] = useState<string>();
@@ -34,12 +37,54 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     ? answerByTurn.get(row.turnId) ?? answerByGroup.get(row.groupId) : undefined;
   const getItemKey = useCallback((index: number) => rows[index]!.id, [rows]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => root.current,
-    getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: following && connection === "attached" ? "auto" : false,
-    scrollEndThreshold: 80, useAnimationFrameWithResizeObserver: true,
+    getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: false,
+    // Keep prepend anchoring, but don't let proximity resume following on resize.
+    scrollEndThreshold: following ? 80 : -1, useAnimationFrameWithResizeObserver: true,
     // Include edge spacing in virtual measurements and scroll-to-end targets.
     // The bottom fade covers 26px; keep the last row above it.
     paddingStart: 24, paddingEnd: 40,
   });
+  const cancelAlignment = useCallback(() => {
+    if (alignmentFrame.current !== undefined) cancelAnimationFrame(alignmentFrame.current);
+    alignmentFrame.current = undefined;
+  }, []);
+  const updateFollowing = useCallback((value: boolean) => {
+    followIntent.current = value;
+    setFollowing(value);
+    // Intent must reach the controller before an in-flight history request resolves.
+    onFollowingChange?.(value);
+  }, [onFollowingChange]);
+  const stopFollowing = () => {
+    readingVersion.current++;
+    cancelAlignment();
+    if (!followIntent.current) return;
+    updateFollowing(false);
+    // Replace the virtualizer's pending end-index reconciliation with a fixed
+    // offset. Subsequent measurements must not keep chasing the old end index.
+    virtual.setOptions({ ...virtual.options, scrollEndThreshold: -1 });
+    if (root.current) virtual.scrollToOffset(root.current.scrollTop);
+  };
+  const scheduleAlignment = useCallback(() => {
+    if (!followIntent.current || connection !== "attached" || alignmentFrame.current !== undefined) return;
+    alignmentFrame.current = requestAnimationFrame(() => {
+      alignmentFrame.current = undefined;
+      if (followIntent.current && virtual.options.count) virtual.scrollToEnd();
+    });
+  }, [connection, virtual]);
+  useLayoutEffect(() => {
+    if (jumpVersion) updateFollowing(true);
+  }, [jumpVersion, updateFollowing]);
+  const totalSize = virtual.getTotalSize();
+  useLayoutEffect(() => {
+    if (rows.length) initial.current = true;
+    scheduleAlignment();
+  }, [rows, totalSize, following, jumpVersion, scheduleAlignment]);
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(scheduleAlignment);
+    if (root.current) observer.observe(root.current);
+    if (feed.current) observer.observe(feed.current);
+    return () => { observer.disconnect(); cancelAlignment(); };
+  }, [scheduleAlignment, cancelAlignment]);
   useEffect(() => {
     const ids = new Set(rows.map((row) => row.id));
     for (const key of virtual.itemSizeCache.keys()) if (!ids.has(String(key))) virtual.itemSizeCache.delete(key);
@@ -68,19 +113,22 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
           offset = header ? Math.max(0, header.getBoundingClientRect().top - top) : 0;
         }
       }
-      anchor = {id, offset, bottom: el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && connection === "attached"};
+      anchor = {id, offset, bottom: followIntent.current && connection === "attached"};
     }
   }
   if (manualAnchor.current && (folding || unfolding)) anchor = manualAnchor.current;
+  const structureKey = JSON.stringify(rows.map(row => row.id));
+  useLayoutEffect(() => { previousRows.current = rows; }, [rows]);
   useLayoutEffect(() => {
-    previousRows.current = rows;
     manualAnchor.current = undefined;
     if (!anchor) return;
     const saved = anchor;
+    const version = readingVersion.current;
     let frame = 0;
     let passes = 0;
     const restore = () => {
-      if (saved.bottom) virtual.scrollToEnd();
+      if (readingVersion.current !== version) return;
+      if (saved.bottom) scheduleAlignment();
       else {
         const index = rows.findIndex(row => row.id === saved.id);
         const item = root.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
@@ -91,21 +139,13 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     };
     restore();
     return () => cancelAnimationFrame(frame);
-  }, [rows, virtual]);
-  useLayoutEffect(() => {
-    if (jumpVersion) { jumping.current = true; setFollowing(true); }
-  }, [jumpVersion]);
+    // Content-only renders must not cancel restoration between measurement frames.
+  }, [structureKey, virtual]);
   const items = virtual.getVirtualItems();
   const visibleIds = items.filter((item) => item.end >= (virtual.scrollOffset ?? 0)
     && item.start <= (virtual.scrollOffset ?? 0) + (root.current?.clientHeight ?? 0)).map((item) => rows[item.index]!.groupId);
   const visibleKey = JSON.stringify([...new Set(visibleIds)]);
   useLayoutEffect(() => { onVisibleGroups(JSON.parse(visibleKey)); }, [visibleKey, onVisibleGroups]);
-  useLayoutEffect(() => {
-    if (!rows.length) return;
-    if (!initial.current || (jumping.current && connection === "attached")) {
-      virtual.scrollToEnd(); initial.current = true; jumping.current = false; setFollowing(true);
-    }
-  }, [rows, connection, jumpVersion, virtual]);
   const load = useCallback(async (direction: "older" | "newer") => {
     if (busy.current) return;
     busy.current = true; retryDirection.current = direction; setLoading(true);
@@ -122,7 +162,25 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && hasNewer) void load("newer");
   }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length]);
   return <div className="conversation-scroll-area">
-    <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }}
+    <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} tabIndex={0}
+      onWheelCapture={(event) => { if (event.deltaY < 0) stopFollowing(); }}
+      onTouchStartCapture={(event) => { touchY.current = event.touches[0]?.clientY; }}
+      onTouchMoveCapture={(event) => {
+        const y = event.touches[0]?.clientY;
+        if (y !== undefined && touchY.current !== undefined && y > touchY.current) stopFollowing();
+        touchY.current = y;
+      }}
+      onTouchEndCapture={() => { touchY.current = undefined; }}
+      onKeyDownCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("input, textarea, select, [contenteditable=true]")) return;
+        if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stopFollowing();
+      }}
+      onPointerDownCapture={(event) => {
+        const el = root.current;
+        // Native scrollbar events target the scroller, including overlay scrollbars.
+        if (el && event.target === el && el.scrollHeight > el.clientHeight) stopFollowing();
+      }}
       onMouseOver={(event) => setHoveredAnswer(answerAt(event.target))}
       onMouseLeave={() => setHoveredAnswer(undefined)}
       onFocusCapture={(event) => setFocusedAnswer(answerAt(event.target))}
@@ -131,17 +189,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       const target = event.target as HTMLElement;
       const button = target.closest(".conversation-process-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
-      if (row && root.current) manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
-    }} onScroll={() => {
-      const el = root.current;
-      if (initial.current && el) {
-        const follow = el.scrollHeight - el.scrollTop - el.clientHeight <= 80 && connection === "attached";
-        setFollowing(follow);
-        // User scroll intent takes effect before a concurrent history promise resolves.
-        onFollowingChange?.(follow);
+      if (row && root.current) {
+        stopFollowing();
+        manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
       }
-    }}>
-      <div className="conversation-feed" style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? virtual.getTotalSize() : undefined, minHeight: rows.length ? undefined : "100%" }}>
+    }} onScroll={scheduleAlignment}>
+      <div className="conversation-feed" ref={feed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? totalSize : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
           data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
           data-answer-id={answerId(rows[item.index]!)}
@@ -154,7 +207,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}
     {pageError ? <div className="message-page-error" role="alert">{pageError}<button onClick={() => retryLatest ? jumpToLatest() : void load(retryDirection.current)}>{t.sessionDetail.retryEarlier}</button></div> : null}
     {!following || connection === "detached" ? <button className="conversation-jump-latest" type="button" onClick={() => {
-      jumping.current = true; jumpToLatest(); virtual.scrollToEnd(); setFollowing(true);
+      updateFollowing(true); jumpToLatest(); scheduleAlignment();
     }}><ChevronDown size={14} />{t.conversation.jumpToLatest}</button> : null}
   </div>;
 }

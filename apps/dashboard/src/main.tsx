@@ -22,6 +22,7 @@ import {
 
 import "./styles.css";
 import { ConversationDisplayController, sendConversationMessage } from "./features/sessions/display-controller";
+import { useConversationEntry } from "./features/sessions/use-conversation-entry";
 import { acknowledgeConversationSend } from "./features/sessions/presentation";
 import { callDashboard } from "./api/client";
 import { dashboardQueryKeys } from "./api/query-keys";
@@ -206,6 +207,7 @@ function App({
   const [conversationDisplay] = useState(() => new ConversationDisplayController());
   const setSelectedSessionId = (id: string) => { conversationDisplay.select(id); updateSelectedSessionId(id); };
   const [newConversation, setNewConversation] = useState(false);
+  useConversationEntry(conversationDisplay, selectedSessionId, activeSection === "sessions" && !newConversation);
   const sidebar = useThreeStateSidebar(browserStorage());
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
