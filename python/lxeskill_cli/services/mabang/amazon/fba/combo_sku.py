@@ -100,6 +100,7 @@ async def fetch_listing_bindings(store_name: str) -> list[ListingSkuBinding]:
         page_context = f"{context} sid={shop_id} 站点={site} page={page}"
         payload = await post_json("listings/search", {
             "shop_id": [shop_id], "amazonsite": [site], "page": str(page), "pageSize": "1000",
+            "pStatus": ["Active"],
         }, context=page_context)
         data = payload.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("list"), list):

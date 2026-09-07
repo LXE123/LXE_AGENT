@@ -73,7 +73,8 @@ def test_shop_sid_uk_conversion_and_listing_pagination(monkeypatch):
         if endpoint == 'shops/list':
             return {'code': 200, 'data': {'profile-key': {'name': 'shop', 'sid': 10, 'profile_id': 'wrong', 'amazonsite': 'uk'}}}
         assert body['shop_id'] == ['10'] and body['amazonsite'] == ['gb']
-        assert set(body) == {'shop_id', 'amazonsite', 'page', 'pageSize'}
+        assert set(body) == {'shop_id', 'amazonsite', 'page', 'pageSize', 'pStatus'}
+        assert body['pStatus'] == ['Active']
         page = int(body['page'])
         records = [listing(msku=str(i), site='uk') for i in range(1000)] if page == 1 else [listing('last', site='gb')]
         return listing_page(records, page, 1001)
