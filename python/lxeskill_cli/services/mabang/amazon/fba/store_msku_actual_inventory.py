@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import re
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+
+from .active_msku_source import load_active_source, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
@@ -172,6 +174,7 @@ class ActualInventoryResult:
     warehouse_name: str = WAREHOUSE_NAME
     result_source: str = SOURCE
     skipped_amazon_found_msku_row_count: int = 0
+    active_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -191,6 +194,7 @@ class ActualInventoryResult:
             "missing_warehouse_stock_skus": list(self.missing_warehouse_stock_skus),
             "shenzhen_warehouse_inventory_report_xlsx_path": self.shenzhen_warehouse_inventory_report_xlsx_path,
             "result_source": self.result_source,
+            **self.active_counts,
         }
         if self.skipped_amazon_found_msku_row_count:
             payload["skipped_amazon_found_msku_row_count"] = self.skipped_amazon_found_msku_row_count
@@ -304,7 +308,7 @@ def find_latest_store_msku_file(store_name: str, *, input_dir: str | Path | None
     return max(candidates, key=lambda item: (item.source_datetime, item.path.name))
 
 
-def load_store_msku_rows(xlsx_path: str | Path) -> list[StoreMskuRow]:
+def load_store_msku_rows(xlsx_path: str | Path, *, records: list[dict[str, Any]] | None = None) -> list[StoreMskuRow]:
     try:
         from openpyxl import load_workbook
     except Exception as exc:
@@ -326,8 +330,8 @@ def load_store_msku_rows(xlsx_path: str | Path) -> list[StoreMskuRow]:
             raise StoreMskuActualInventoryError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
 
         rows: list[StoreMskuRow] = []
-        for row_values in values:
-            row = dict(zip(headers, list(row_values or []), strict=False))
+        input_records = records if records is not None else (dict(zip(headers, list(row_values or []), strict=False)) for row_values in values)
+        for row in input_records:
             if not any(_clean_text(value) for value in row.values()):
                 continue
             rows.append(
@@ -833,16 +837,13 @@ async def _export_store_msku_actual_inventory_once(
 ) -> ActualInventoryResult:
     clean_store_name = normalize_store_name(store_name)
     source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
-    msku_rows = load_store_msku_rows(source.path)
+    active_source = load_active_source(source.path, store_name=clean_store_name)
+    msku_rows = load_store_msku_rows(source.path, records=active_source.records)
     local_skus = _unique_text([row.local_sku for row in msku_rows])
 
     output_directory = _resolve_output_dir(output_dir)
-    unverified_found_rows: set[tuple[str, str, str]] = set()
-    combo_map = await fetch_inventory_combos(clean_store_name, msku_rows, unverified_found_rows=unverified_found_rows)
-    verified_local_skus = _unique_text([
-        row.local_sku for row in msku_rows if source_row_key(row) not in unverified_found_rows
-    ])
-    stock_skus = stock_skus_for_inventory(verified_local_skus, combo_map)
+    combo_map = await fetch_inventory_combos(clean_store_name, msku_rows, bindings=active_source.bindings)
+    stock_skus = stock_skus_for_inventory(local_skus, combo_map)
 
     async def warehouse_once() -> dict[str, Decimal]:
         if not stock_skus:
@@ -862,14 +863,15 @@ async def _export_store_msku_actual_inventory_once(
         msku_rows,
         combo_map=combo_map,
         stock_quantities=stock_quantities,
-        unverified_found_rows=unverified_found_rows,
     )
     inventory_groups = split_inventory_rows(inventory_rows)
 
     final_xlsx_path = output_directory / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_{ACTUAL_INVENTORY_FILE_SUFFIX}.xlsx"
     write_actual_inventory_xlsx(inventory_rows, final_xlsx_path)
+    stamp_report(final_xlsx_path, active_source.metadata)
     return ActualInventoryResult(
         store_name=clean_store_name,
+        active_counts=active_source.counts,
         source_msku_xlsx_path=str(source.path),
         source_msku_data_time=source.source_data_time,
         unique_local_sku_count=len(local_skus),
@@ -880,7 +882,6 @@ async def _export_store_msku_actual_inventory_once(
         matched_warehouse_inventory_msku_row_count=len(inventory_groups.inventory_rows),
         missing_local_sku_msku_row_count=len(inventory_groups.no_local_sku_rows),
         missing_warehouse_inventory_msku_row_count=len(inventory_groups.no_inventory_rows),
-        skipped_amazon_found_msku_row_count=sum(source_row_key(row) in unverified_found_rows for row in msku_rows),
     )
 
 

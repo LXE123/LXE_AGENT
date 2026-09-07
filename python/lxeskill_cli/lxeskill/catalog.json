@@ -295,7 +295,7 @@
       "command_path": ["replenish", "msku", "download"],
       "legacy_aliases": ["mabang_download_store_msku_excel"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-msku-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "owner_skills": ["replenishment-msku-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}
     },
     {

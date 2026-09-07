@@ -65,3 +65,26 @@ def _xlsx_bytes(rows: list[dict], *, columns: list[str]) -> bytes:
     workbook.save(buffer)
     workbook.close()
     return buffer.getvalue()
+
+
+def _annotate_active_test_source(path: Path, *, requested_store_name: str | None = None) -> None:
+    """Existing report fixtures represent explicitly Active records."""
+    from openpyxl import load_workbook
+    from services.mabang.amazon.fba.active_msku_source import annotate_source
+    from services.mabang.amazon.fba.combo_sku import ActiveListingSnapshot, ListingSkuBinding
+    workbook = load_workbook(path, read_only=True)
+    try:
+        values = workbook.worksheets[0].values
+        headers = next(values)
+        rows = [dict(zip(headers, row)) for row in values]
+    finally:
+        workbook.close()
+    name = path.name.split('-', 1)[1].split('_', 1)[0]
+    bindings = tuple(ListingSkuBinding(str(row.get('MSKU') or ''), str(row.get('ASIN') or ''), str(row.get('本地SKU') or ''), 2 if str(row.get('本地SKU') or '').startswith('COMBO') else 1) for row in rows)
+    annotate_source(path, ActiveListingSnapshot(name, '10', 'us', bindings), requested_store_name=requested_store_name or name)
+
+
+def _stamp_active_test_report(path: Path) -> None:
+    from services.mabang.amazon.fba.active_msku_source import stamp_report
+    name = path.name.split('-', 1)[1].split('_', 1)[0]
+    stamp_report(path, {'version': 1, 'store_name': name, 'requested_store_name': name, 'source_fingerprint': 'a'*64, 'snapshot_id': 'b'*64, 'shop_id': '10', 'site': 'us', 'collected_at': '2026-09-07T00:00:00+00:00', 'original_row_count': 10, 'active_row_count': 10, 'excluded_row_count': 0})

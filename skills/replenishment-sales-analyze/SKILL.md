@@ -76,3 +76,10 @@ lxeskill replenish sales analyze --store-name "<店铺名>"
 - ASIN 表按 `ASIN + 父ASIN + MSKU` 售卖项粒度输出；如果源数据存在完全重复售卖项，CLI 会失败并提示重复键。
 - `data_is_stale=true`：明确提醒用户这份报告基于非当天下载的数据；如需最新结果，应先运行店铺 MSKU 下载 skill。
 - `success=false`：只转述 `exception`，不要猜测本地文件路径或自动下载。
+
+## Active 计算范围
+
+- 源表需要包含下载时生成的 Active 核验信息；旧版源表需重新下载。MSKU、ASIN、链接三个维度均只汇总确认 Active 的行。
+- 未确认在售的行保留在源表，不进入销量汇总；没有 Active 行时返回无符合条件的记录。
+- 报表附带隐藏的 `Active核验信息` Sheet；不要删除，备货计算会用它检查销量与库存是否来自同一份源表、同一轮核验。
+- 原始、参与、排除行数分别为 `original_row_count`、`active_row_count`、`excluded_row_count`；`msku_count` 是参与销量分析的行数。

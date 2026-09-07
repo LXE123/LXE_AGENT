@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from .active_msku_source import load_active_source, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.export_common import clean_text as _clean_text
@@ -65,6 +67,7 @@ class StoreMskuSalesAnalysisResult:
     msku_count: int
     report_xlsx_path: str
     source: str = SOURCE
+    active_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -78,6 +81,7 @@ class StoreMskuSalesAnalysisResult:
             "msku_count": self.msku_count,
             "report_xlsx_path": self.report_xlsx_path,
             "source": self.source,
+            **self.active_counts,
         }
 
 
@@ -432,7 +436,11 @@ def analyze_store_msku_sales(
 ) -> StoreMskuSalesAnalysisResult:
     clean_store_name = normalize_store_name(store_name)
     source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
-    original_headers, records = _load_rows(source.path)
+    active_source = load_active_source(source.path, store_name=clean_store_name)
+    original_headers, records = active_source.headers, active_source.records
+    missing = [column for column in REQUIRED_COLUMNS if column not in original_headers]
+    if missing:
+        raise StoreMskuSalesAnalysisError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
     msku_rows = _analyze_msku_rows(records)
     link_rows = _summarize_links(records)
     asin_rows = _summarize_asins(records)
@@ -447,7 +455,9 @@ def analyze_store_msku_sales(
         asin_rows=asin_rows,
     )
 
+    stamp_report(report_path, active_source.metadata)
     return StoreMskuSalesAnalysisResult(
+        active_counts=active_source.counts,
         store_name=clean_store_name,
         source_xlsx_path=str(source.path),
         source_data_time=source.source_data_time,

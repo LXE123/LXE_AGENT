@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mabang_test_helpers import _sheet_names
+from mabang_test_helpers import _sheet_names, _stamp_active_test_report
 from services.mabang.amazon.fba import amazon_fba_inventory as amazon_inv
 from services.mabang.amazon.fba import amazon_restock_inventory as restock_inv
 from services.mabang.amazon.fba import store_msku_replenishment as repl
@@ -27,6 +27,8 @@ def _write_workbook(path: Path, sheets: dict[str, tuple[list[str], list[dict]]])
         workbook.save(path)
     finally:
         workbook.close()
+    if path.name[:12].isdigit() and "-" in path.name:
+        _stamp_active_test_report(path)
     return path
 
 
@@ -553,11 +555,12 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "sample_insufficient_count": 1,
         "report_xlsx_path": str(output_dir / "202605251530-Amazon-Test_备货建议.xlsx"),
         "source": "mabang_store_msku_replenishment",
+        "original_row_count": 10, "active_row_count": 10, "excluded_row_count": 0,
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足"]
-    _assert_standard_dimensions(report_path, _sheet_names(report_path))
+    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "Active核验信息"]
+    _assert_standard_dimensions(report_path, [name for name in _sheet_names(report_path) if name != "Active核验信息"])
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)

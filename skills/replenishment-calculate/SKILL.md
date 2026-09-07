@@ -109,3 +109,10 @@ lxeskill replenish calculate --store-name "<店铺名>" --amazon-restock-invento
 - 结果文件固定包含 8 个 sheet：`空运（急发）`、`空运`、`海运`、`真实库存（深圳仓库）不足`、`清货`、`暂不建议发货`、`链接备货汇总`、`样本不足`。
 - 传入亚马逊补充库存 snapshot 时，提醒用户结果里会额外展示亚马逊补充库存扣减字段。
 - `success=false`：只转述 `exception`，不要猜测本地文件路径或自动补跑前置 skill。
+
+## Active 来源一致性
+
+- 销量与真实库存报表必须带有同一版本、同一源数据指纹和同一 Active 快照的核验信息，时间戳相同并不足以证明可混用。
+- 旧版全量报表不能与新版 Active 报表混用；核验失败时，从同一份新下载源表重新生成销量与库存报表。
+- 仅 Active 范围内且满足既有库存、绑定及算法条件的行进入建议。源表中的未确认在售记录不会因为仍有近期销量而重新进入计算。
+- 返回的 `original_row_count`、`active_row_count`、`excluded_row_count` 描述源表范围；`row_count` 仍表示实际生成建议的行数。

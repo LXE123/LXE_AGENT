@@ -23,7 +23,7 @@ def combo_page(sku='C', page=1, total=1, records=None):
     return {'code': 200, 'data': {'page': str(page), 'rowsPerPage': '20', 'total': total, 'data': records if records is not None else [{'comboSku': sku, 'comboProductDetail': [{'stockSku': 'S', 'quantity': 2}]}]}}
 
 def listing(msku='M', sku='C', site='us', shop='10', kind=2):
-    return {'platformSku': msku, 'asin': 'A', 'stockSku': sku, 'stockType': kind, 'shopIds': f',{shop},', 'amazonsite': site}
+    return {'platformSku': msku, 'asin': 'A', 'stockSku': sku, 'stockType': kind, 'pStatus': '在售', 'shopIds': f',{shop},', 'amazonsite': site}
 
 def listing_page(records, page=1, total=None):
     total = len(records) if total is None else total
@@ -108,24 +108,19 @@ def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
 
 
 def test_only_found_rows_do_not_query_warehouse_or_enter_replenishment(monkeypatch, tmp_path):
-    from services.mabang.amazon.fba.store_msku_replenishment import load_inventory_rows
-    row = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '')
-    src = inv.SourceMskuFile(Path('source.xlsx'), '202609071111', datetime(2026, 9, 7))
-    monkeypatch.setattr(inv, 'find_latest_store_msku_file', lambda *a, **kw: src)
-    monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a: [row])
-    async def listings(name):
-        return []
+    from services.mabang.amazon.fba.active_msku_source import annotate_source, ActiveSourceError
+    from mabang_test_helpers import _xlsx_bytes
+    path = tmp_path/'202609071111-shop_店铺MSKU数据.xlsx'
+    path.write_bytes(_xlsx_bytes([{'MSKU': 'Amazon.Found.A', 'ASIN': 'A', '本地SKU': 'S'}], columns=['MSKU', 'ASIN', '本地SKU']))
+    annotate_source(path, combo.ActiveListingSnapshot('shop', '10', 'us', ()), requested_store_name='shop')
     async def unexpected(*args, **kwargs):
-        pytest.fail('Unverified Found-only input must not query stock or combo details')
-    monkeypatch.setattr(combo, 'fetch_listing_bindings', listings)
+        pytest.fail('No Active rows must not query stock or combo details')
     monkeypatch.setattr(combo, 'post_json', unexpected)
     monkeypatch.setattr(inv, 'search_warehouse_stock', unexpected)
-    monkeypatch.setattr(inv, 'download_warehouse_stock_xlsx', unexpected)
-    result = asyncio.run(inv.export_store_msku_actual_inventory('shop', output_dir=tmp_path))
-    assert result.to_payload()['skipped_amazon_found_msku_row_count'] == 1
-    assert result.queried_warehouse_stock_sku_count == 0
-    assert result.missing_warehouse_inventory_msku_row_count == 1
-    assert load_inventory_rows(result.shenzhen_warehouse_inventory_report_xlsx_path) == []
+    with pytest.raises(ActiveSourceError, match='无符合条件'):
+        asyncio.run(inv.export_store_msku_actual_inventory('shop', input_dir=tmp_path, output_dir=tmp_path/'out'))
+    assert not list((tmp_path/'out').glob('*.xlsx'))
+
 
 def test_shop_sid_uk_conversion_and_listing_pagination(monkeypatch):
     calls = []
@@ -379,9 +374,13 @@ def test_transport_exceptions_and_redaction(transport):
     assert all((secret not in text for secret in ('data-secret', 'erp-secret', 'unknown-secret')))
 
 def test_api_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp_path):
-    src = inv.SourceMskuFile(Path('source.xlsx'), '202609050900', datetime(2026, 9, 5))
+    from mabang_test_helpers import _xlsx_bytes, _annotate_active_test_source
+    path = tmp_path/'202609050900-shop_店铺MSKU数据.xlsx'
+    path.write_bytes(_xlsx_bytes([{'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'C'}], columns=list(inv.SOURCE_COLUMNS)))
+    _annotate_active_test_source(path)
+    src = inv.SourceMskuFile(path, '202609050900', datetime(2026, 9, 5))
     monkeypatch.setattr(inv, 'find_latest_store_msku_file', lambda *a, **kw: src)
-    monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a: [inv.StoreMskuRow('M', '', 'A', 'C', '')])
+    monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a, **kw: [inv.StoreMskuRow('M', '', 'A', 'C', '')])
     calls = []
 
     async def combos(*a, **kw):
@@ -417,12 +416,12 @@ def test_api_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp
     assert calls == [] and report.read_bytes() == original
 
 
-def test_real_listing_projection_keeps_unpaired_binding(monkeypatch):
+def test_listing_projection_with_active_status_keeps_unpaired_binding(monkeypatch):
     async def post(endpoint, body, **kwargs):
         if endpoint == 'shops/list':
             return {'code': 200, 'data': {'wrong-profile-key': FIXTURE['shop']}}
         assert body['shop_id'] == [str(FIXTURE['shop']['sid'])]
-        return listing_page(copy.deepcopy(FIXTURE['listing_projection']))
+        return listing_page([{**row, 'pStatus': '在售'} for row in copy.deepcopy(FIXTURE['listing_projection'])])
 
     monkeypatch.setattr(combo, 'post_json', post)
     bindings = asyncio.run(combo.fetch_listing_bindings('Amazon-YYH-US'))

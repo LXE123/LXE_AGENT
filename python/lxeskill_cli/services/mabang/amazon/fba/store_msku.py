@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from services.mabang import config as mabang_settings
+from services.mabang.official_api import OfficialApiError
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
@@ -38,7 +42,9 @@ from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
-from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP
+from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP, fetch_fba_stores
+from .combo_sku import OFFICIAL_LOOKUP_TIMEOUT_SECONDS, fetch_listing_snapshot
+from .active_msku_source import annotate_source
 
 DEFAULT_LISTSEARCH_URL = "https://private-amz.mabangerp.com/index.php?mod=fbanew.listsearch"
 DEFAULT_FBA_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.doFbaExportFile"
@@ -148,6 +154,7 @@ class StoreMskuExcelResult:
     converted: bool
     raw_excel_deleted: bool
     source: str = SOURCE
+    active_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -160,6 +167,7 @@ class StoreMskuExcelResult:
             "converted": self.converted,
             "raw_excel_deleted": self.raw_excel_deleted,
             "source": self.source,
+            **self.active_counts,
         }
 
 
@@ -524,20 +532,46 @@ async def download_store_msku_excel(
             raw_excel_deleted=raw_excel_deleted,
         )
 
-    return await run_export_pipeline(
-        ExportPipelineSpec(
-            fetch_ids=fetch_store_msku_ids,
-            fetch_args=(clean_store_id, clean_id_type),
-            request_file_url=export_store_msku_file_url,
-            download_file=partial(
-                download_store_msku_excel_from_url,
-                store_id=clean_store_id,
-                store_name=clean_store_name,
-                output_dir=output_dir,
-            ),
-            transform_result=transform_result,
+    async def download(staging_dir: Path) -> StoreMskuExcelResult:
+        return await run_export_pipeline(
+            ExportPipelineSpec(
+                fetch_ids=fetch_store_msku_ids,
+                fetch_args=(clean_store_id, clean_id_type),
+                request_file_url=export_store_msku_file_url,
+                download_file=partial(
+                    download_store_msku_excel_from_url,
+                    store_id=clean_store_id,
+                    store_name=clean_store_name,
+                    output_dir=staging_dir,
+                ),
+                transform_result=transform_result,
+            )
         )
-    )
+
+    # Determine group scope from the same authoritative HTML hierarchy as download IDs.
+    stores = await fetch_fba_stores()
+    matches = [item for item in stores if item.store_id == clean_store_id and item.id_type == clean_id_type
+               and clean_store_name in (item.store_name, *item.legacy_names)]
+    if len(matches) != 1:
+        raise StoreMskuDownloadError(f"下载店铺名称与网页 ID 未唯一对应: name={clean_store_name}, id={clean_store_id}, id_type={clean_id_type}")
+    is_group = any(item.parent_store_id == clean_store_id and item.parent_id_type == clean_id_type for item in stores)
+    directory = _resolve_output_dir(output_dir)
+    with TemporaryDirectory(prefix=".active-msku-", dir=directory) as staging:
+        result = await download(Path(staging))
+        staged_path = Path(result.xlsx_path)
+        counts = {}
+        if not is_group:
+            try:
+                async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
+                    snapshot = await fetch_listing_snapshot(clean_store_name)
+            except TimeoutError as exc:
+                raise OfficialApiError(f"店铺={clean_store_name}", f"Active Listing 官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
+            metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
+            counts = {key: metadata[key] for key in ("original_row_count", "active_row_count", "excluded_row_count")}
+        target = directory / staged_path.name
+        # Atomic publication with no overwrite, including repeated downloads in one minute.
+        os.link(staged_path, target)
+        return replace(result, xlsx_path=str(target), active_counts=counts)
 
 
 __all__ = [

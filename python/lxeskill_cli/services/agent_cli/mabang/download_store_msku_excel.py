@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from services.mabang.errors import MabangAuthError
 from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
@@ -22,4 +23,5 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             "store_id": store_id,
             "id_type": id_type,
             "exception": _exception_text(exc),
+            "auth_refresh_required": isinstance(exc, MabangAuthError),
         }

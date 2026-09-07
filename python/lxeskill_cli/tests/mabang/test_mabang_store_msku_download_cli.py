@@ -10,6 +10,7 @@ def test_missing_store_id_returns_failure_json(monkeypatch, capsys) -> None:
     payload = cli.run({"id_type": 'shopId'})
     assert payload == {
         "success": False,
+        "auth_refresh_required": False,
         "store_name": "",
         "store_id": "",
         "id_type": "shopId",
@@ -22,6 +23,7 @@ def test_missing_id_type_returns_failure_json(monkeypatch, capsys) -> None:
     payload = cli.run({"store_id": '697456821'})
     assert payload == {
         "success": False,
+        "auth_refresh_required": False,
         "store_name": "",
         "store_id": "697456821",
         "id_type": "",
@@ -34,6 +36,7 @@ def test_invalid_id_type_returns_failure_json(monkeypatch, capsys) -> None:
     payload = cli.run({"store_id": '697456821', "id_type": 'shop_id'})
     assert payload == {
         "success": False,
+        "auth_refresh_required": False,
         "store_name": "",
         "store_id": "697456821",
         "id_type": "shop_id",

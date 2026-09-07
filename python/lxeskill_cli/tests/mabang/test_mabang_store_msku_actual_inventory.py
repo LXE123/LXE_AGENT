@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mabang_test_helpers import _form_value, _form_values, _sheet_names, _xlsx_bytes
+from mabang_test_helpers import _annotate_active_test_source, _form_value, _form_values, _sheet_names, _xlsx_bytes
 from services.mabang.amazon.fba import store_msku_actual_inventory as inv
 from services.mabang.auth import MabangAuthContext
 
@@ -59,6 +59,7 @@ def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, 
     monkeypatch.setattr(inv, 'download_warehouse_stock_xlsx', download)
     template = get_template('默认')
     monkeypatch.setattr(repl, 'get_template', lambda name: template)
+    _annotate_active_test_source(tmp_path/'source'/'202609070900-Amazon-YYH-US_店铺MSKU数据.xlsx', requested_store_name=names[1])
     for index, name in enumerate(names):
         analysis = sales.analyze_store_msku_sales(name, input_dir=tmp_path/'source', output_dir=tmp_path/'sales')
         actual = asyncio.run(inv.export_store_msku_actual_inventory(name, input_dir=tmp_path/'source', output_dir=tmp_path/'inventory'))
@@ -699,6 +700,7 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
             "调仓中",
         ],
     )
+    _annotate_active_test_source(source_path)
     fake_session = _FakeSession(
         [
             _FakeResponse({"success": True}),
@@ -758,9 +760,10 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
         "missing_warehouse_stock_skus": [],
         "shenzhen_warehouse_inventory_report_xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_真实库存（深圳仓库）.xlsx"),
         "result_source": "mabang_store_msku_shenzhen_warehouse_inventory",
+        "original_row_count": 3, "active_row_count": 3, "excluded_row_count": 0,
     }
     report_path = Path(result.shenzhen_warehouse_inventory_report_xlsx_path)
-    assert _sheet_names(report_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据"]
+    assert _sheet_names(report_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据", "Active核验信息"]
     combo_records = _load_records(report_path, "真实库存（深圳仓库）-组合sku")
     stock_records = _load_records(report_path, "真实库存（深圳仓库）-库存sku")
     assert combo_records[0]["真实库存（深圳仓库）数量"] == 6

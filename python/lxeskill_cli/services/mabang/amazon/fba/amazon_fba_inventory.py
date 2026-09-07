@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .store_sites import SITE_TO_MARKETPLACE
+
 from services.mabang import config as mabang_settings
 from services.mabang.export_common import clean_text as _clean_text
 from shared.datasets import dataset_dir
@@ -60,51 +62,6 @@ DETAIL_COLUMNS = (
     "product-name",
 )
 
-SITE_TO_MARKETPLACE = {
-    "美国站": "US",
-    "美国": "US",
-    "US": "US",
-    "英国站": "UK",
-    "英国": "UK",
-    "UK": "UK",
-    "GB": "UK",
-    "德国站": "DE",
-    "德国": "DE",
-    "DE": "DE",
-    "法国站": "FR",
-    "法国": "FR",
-    "FR": "FR",
-    "意大利站": "IT",
-    "意大利": "IT",
-    "IT": "IT",
-    "西班牙站": "ES",
-    "西班牙": "ES",
-    "ES": "ES",
-    "加拿大站": "CA",
-    "加拿大": "CA",
-    "CA": "CA",
-    "日本站": "JP",
-    "日本": "JP",
-    "JP": "JP",
-    "澳大利亚站": "AU",
-    "澳大利亚": "AU",
-    "AU": "AU",
-    "墨西哥站": "MX",
-    "墨西哥": "MX",
-    "MX": "MX",
-    "荷兰站": "NL",
-    "荷兰": "NL",
-    "NL": "NL",
-    "瑞典站": "SE",
-    "瑞典": "SE",
-    "SE": "SE",
-    "波兰站": "PL",
-    "波兰": "PL",
-    "PL": "PL",
-    "比利时站": "BE",
-    "比利时": "BE",
-    "BE": "BE",
-}
 
 
 class AmazonFbaInventorySnapshotError(ValueError):

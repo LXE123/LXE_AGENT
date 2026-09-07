@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .active_msku_source import require_matching_reports, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.amazon.fba.amazon_fba_inventory import (
@@ -459,6 +461,7 @@ class StoreMskuReplenishmentResult:
     amazon_fba_inventory_snapshot_path: str = ""
     amazon_fba_inventory_validation: dict[str, Any] | None = None
     source: str = SOURCE
+    active_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -479,6 +482,7 @@ class StoreMskuReplenishmentResult:
             "sample_insufficient_count": self.sample_insufficient_count,
             "report_xlsx_path": self.report_xlsx_path,
             "source": self.source,
+            **self.active_counts,
         }
         if self.unlinked_shipments_snapshot_path:
             payload["unlinked_shipments_snapshot_path"] = self.unlinked_shipments_snapshot_path
@@ -1650,6 +1654,7 @@ def calculate_store_msku_replenishment(
         sales_analysis_dir=sales_analysis_dir,
         actual_inventory_dir=actual_inventory_dir,
     )
+    active_metadata = require_matching_reports(reports.sales_analysis_path, reports.actual_inventory_path, store_name=clean_store_name)
     inventory_rows = load_inventory_rows(reports.actual_inventory_path)
     sales_details = load_sales_details(reports.sales_analysis_path)
     requested_snapshot_path = _clean_text(unlinked_shipments_snapshot_path)
@@ -1710,9 +1715,11 @@ def calculate_store_msku_replenishment(
     )
     report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(replenishment_rows, report_path)
+    stamp_report(report_path, active_metadata)
     summary_rows = summarize_links(replenishment_rows)
 
     return StoreMskuReplenishmentResult(
+        active_counts={key: active_metadata[key] for key in ("original_row_count", "active_row_count", "excluded_row_count")},
         store_name=clean_store_name,
         source_data_time=reports.source_data_time,
         sales_analysis_xlsx_path=str(reports.sales_analysis_path),

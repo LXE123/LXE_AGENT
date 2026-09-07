@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from mabang_test_helpers import _annotate_active_test_source
 
 from services.mabang.amazon.fba import store_msku_sales_analysis as analysis
 
@@ -33,6 +34,7 @@ def _write_source_xlsx(path: Path, rows: list[dict], *, columns: list[str] | Non
         worksheet.append([row.get(column, "") for column in headers])
     workbook.save(path)
     workbook.close()
+    _annotate_active_test_source(path)
     return path
 
 
