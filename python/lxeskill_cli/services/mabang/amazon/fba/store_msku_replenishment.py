@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from .active_msku_source import require_matching_reports, stamp_report
+from .replenishment_formula_sheet import (
+    FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
+    ShippingFormulaInputs, cache_formula_values, source_number, write_formula_sheet,
+)
 
 from services.mabang import config as mabang_settings
 from services.mabang.amazon.fba.amazon_fba_inventory import (
@@ -87,12 +91,6 @@ UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING = "未找到与备货数据同日
 AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊物流库存]和未关联货件）"
 AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊补充库存]和未关联货件）"
 DETAIL_SHEET = "MSKU明细"
-FINAL_SHIPPING_SHEET = "最终备货意见"
-FINAL_SHIPPING_COLUMNS = (
-    "MSKU", "ASIN", "本地SKU", "品名", "加权日销", "FBA总库存（马帮）",
-    "深圳可用库存", "建议运输方式", "空运建议量", "海运建议量",
-    "单件重量(g)", "预计总重量(kg)", "备注",
-)
 SUMMARY_SHEET = "链接备货汇总"
 INVENTORY_SHORTAGE_SHEET = "真实库存（深圳仓库）不足"
 CLEARANCE_SHEET = "清货"
@@ -343,6 +341,7 @@ class SalesDetail:
     sales_14d: float
     sales_30d: float
     trend_rate: float | None = None
+    source_values: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -403,6 +402,7 @@ class ReplenishmentRow:
     amazon_deducted_replenish_quantity: int | None = None
     transport_channel: str = ""
     sales_trend_rate: float | None = None
+    formula_inputs: ShippingFormulaInputs | None = None
 
     def to_detail_payload(self) -> dict[str, Any]:
         display_weight_kg = _report_estimated_weight_kg(self)
@@ -930,6 +930,7 @@ def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str],
     source_path = Path(xlsx_path)
     headers, records = _headers_and_rows(source_path, DETAIL_SHEET)
     _require_columns(headers, SALES_REQUIRED_COLUMNS, path=source_path, sheet_name=DETAIL_SHEET)
+    _require_columns(headers, SOURCE_VALUE_COLUMNS, path=source_path, sheet_name=DETAIL_SHEET)
     details: dict[tuple[str, str, str, str], SalesDetail] = {}
     for record in records:
         key = _row_key(record)
@@ -937,13 +938,18 @@ def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str],
             raise StoreMskuReplenishmentError(
                 f"销量分析MSKU明细存在重复行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
             )
+        source_values = {
+            column: source_number(record.get(column), context=f"MSKU={key[0]}, column={column}")
+            for column in SOURCE_VALUE_COLUMNS
+        }
         details[key] = SalesDetail(
             trend=_clean_text(record.get("销量趋势")),
             trend_rate=_optional_number(record.get("销量趋势速率")),
             weight_grams=parse_weight_grams(record.get("单品重量(g)(cm)")),
-            sales_7d=_number(record.get("7天销量")),
-            sales_14d=_number(record.get("14天销量")),
-            sales_30d=_number(record.get("30天销量")),
+            sales_7d=source_values["7天销量"],
+            sales_14d=source_values["14天销量"],
+            sales_30d=source_values["30天销量"],
+            source_values=source_values,
         )
     return details
 
@@ -1012,7 +1018,6 @@ def _with_clearance_split(row: ReplenishmentRow) -> ReplenishmentRow:
 def _with_inventory_deductions(
     row: ReplenishmentRow,
     *,
-    min_weight_kg: float | None = None,
     min_sea_quantity: float | None = None,
 ) -> ReplenishmentRow:
     if row.sheet_name not in {AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET}:
@@ -1022,7 +1027,7 @@ def _with_inventory_deductions(
 
     original_quantity = int(row.original_replenish_quantity or row.replenish_quantity)
     if row.sheet_name == SEA_SHEET:
-        original_sea_quantity = int(row.sea_quantity or original_quantity)
+        original_sea_quantity = int(original_quantity if row.sea_quantity is None else row.sea_quantity)
         original_companion_air_quantity = int(row.companion_air_quantity or 0)
         fba_companion_air_quantity, fba_sea_quantity = _deduct_companion_then_sea(
             companion_air_quantity=original_companion_air_quantity,
@@ -1078,8 +1083,8 @@ def _with_inventory_deductions(
         )
 
     estimated_weight_kg = row.estimated_weight_kg
-    if row.sheet_name == SEA_SHEET and row.weight_grams is not None:
-        estimated_weight_kg = final_sea_quantity * row.weight_grams / 1000
+    if row.sheet_name == SEA_SHEET:
+        estimated_weight_kg = final_sea_quantity * row.weight_grams / 1000 if row.weight_grams is not None else None
         if min_sea_quantity is not None and final_sea_quantity < min_sea_quantity:
             return replace(
                 row,
@@ -1096,25 +1101,6 @@ def _with_inventory_deductions(
                 decision_reason=(
                     f"{row.decision_reason}{reason_suffix}，"
                     f"扣减{MABANG_FBA_TOTAL_COLUMN}和未关联货件后，海运数量不足{min_sea_quantity:g}件"
-                ),
-                sheet_name=NO_SHIP_SHEET,
-            )
-        if min_weight_kg is not None and estimated_weight_kg <= min_weight_kg:
-            return replace(
-                row,
-                replenish_quantity=final_quantity,
-                fba_deducted_replenish_quantity=fba_deducted_quantity,
-                sea_quantity=final_sea_quantity,
-                companion_air_quantity=(
-                    final_companion_air_quantity
-                    if row.companion_air_quantity is not None
-                    else row.companion_air_quantity
-                ),
-                sea_net_quantity=final_sea_quantity if row.sea_net_quantity is not None else row.sea_net_quantity,
-                estimated_weight_kg=None,
-                decision_reason=(
-                    f"{row.decision_reason}{reason_suffix}，"
-                    f"扣减{MABANG_FBA_TOTAL_COLUMN}和未关联货件后，海运重量不足{min_weight_kg:g}kg"
                 ),
                 sheet_name=NO_SHIP_SHEET,
             )
@@ -1302,18 +1288,7 @@ def calculate_replenishment_row(
             decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但加权日销={weighted_daily_sales:.2f} {operator_text} {min_daily_sales:g}，不建议海运",
             sheet_name=NO_SHIP_SHEET,
         )
-    if sales_detail.weight_grams is None:
-        return ReplenishmentRow(
-            **base_kwargs,
-            sea_days=None,
-            sea_quantity=None,
-            estimated_weight_kg=None,
-            decision_reason=f"可销售天数 > {air_days:g} 且加权日销 > {min_daily_sales:g}，但缺少单品重量，暂不建议海运",
-            sheet_name=NO_SHIP_SHEET,
-        )
-
     tried: list[str] = []
-    min_weight_kg = float(params["sea"]["min_weight_kg"])
     companion_air_enabled = sea_companion_air_enabled_from_template(params)
     min_net_quantity = sea_min_net_quantity_from_template(params)
     for sea_days in sea_day_candidates_from_template(weighted_daily_sales, params):
@@ -1333,13 +1308,13 @@ def calculate_replenishment_row(
             sea_quantity = max(0, sea_target_quantity - companion_air_quantity)
             sea_net_quantity = sea_quantity
             actual_sea_quantity = sea_net_quantity
-        estimated_weight_kg = actual_sea_quantity * sales_detail.weight_grams / 1000
+        estimated_weight_kg = actual_sea_quantity * sales_detail.weight_grams / 1000 if sales_detail.weight_grams is not None else None
         if companion_air_enabled:
             total_replenish_quantity = sea_quantity + int(companion_air_quantity or 0)
             tried.append(
                 f"{sea_days}天: 海运目标ceil({weighted_daily_sales:.2f}*{sea_days})={sea_target_quantity}, "
                 f"同时空运ceil({weighted_daily_sales:.2f}*{companion_air_days})={companion_air_quantity}, "
-                f"海运建议量={sea_quantity}, 补货量={total_replenish_quantity}, 海运重量={estimated_weight_kg:.2f}kg"
+                f"海运建议量={sea_quantity}, 补货量={total_replenish_quantity}"
             )
             sea_kwargs = {
                 **base_kwargs,
@@ -1364,36 +1339,34 @@ def calculate_replenishment_row(
                     ),
                     sheet_name=SEA_SHEET,
                 ),
-                min_weight_kg=min_weight_kg,
                 min_sea_quantity=min_net_quantity,
             )
 
-        tried.append(f"{sea_days}天: ceil({weighted_daily_sales:.2f}*{sea_days})={sea_quantity}, 重量={estimated_weight_kg:.2f}kg")
-        if estimated_weight_kg > min_weight_kg:
-            sea_kwargs = {
-                **base_kwargs,
-                "replenish_days": sea_days,
-                "replenish_quantity": sea_quantity,
-                "original_replenish_quantity": sea_quantity,
-            }
-            return _with_inventory_deductions(
-                ReplenishmentRow(
-                    **sea_kwargs,
-                    sea_days=sea_days,
-                    sea_quantity=sea_quantity,
-                    estimated_weight_kg=estimated_weight_kg,
-                    decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运补货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
-                    sheet_name=SEA_SHEET,
-                ),
-                min_weight_kg=min_weight_kg,
-            )
+        tried.append(f"{sea_days}天: ceil({weighted_daily_sales:.2f}*{sea_days})={sea_quantity}")
+        sea_kwargs = {
+            **base_kwargs,
+            "replenish_days": sea_days,
+            "replenish_quantity": sea_quantity,
+            "original_replenish_quantity": sea_quantity,
+        }
+        return _with_inventory_deductions(
+            ReplenishmentRow(
+                **sea_kwargs,
+                sea_days=sea_days,
+                sea_quantity=sea_quantity,
+                estimated_weight_kg=estimated_weight_kg,
+                decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运补货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
+                sheet_name=SEA_SHEET,
+            ),
+            min_sea_quantity=min_net_quantity,
+        )
 
     return ReplenishmentRow(
         **base_kwargs,
         sea_days=None,
         sea_quantity=None,
         estimated_weight_kg=None,
-        decision_reason=f"可销售天数 > {air_days:g}，但海运重量未超过{min_weight_kg:g}kg；计算方法：" + "；".join(tried),
+        decision_reason=f"可销售天数 > {air_days:g}，未匹配海运补货天数；" + "；".join(tried),
         sheet_name=NO_SHIP_SHEET,
     )
 
@@ -1426,6 +1399,18 @@ def calculate_replenishment_rows(
             active_template,
             quantity_by_msku.get(row.msku, 0.0),
         )
+        if sales_detail.source_values is not None:
+            fba = sum(sales_detail.source_values[column] for column in STOCK_COLUMNS)
+            if not math.isclose(fba, row.fba_total_inventory, rel_tol=0, abs_tol=1e-6):
+                raise StoreMskuReplenishmentError(
+                    f"销量明细库存分项与真实库存报表不一致: MSKU={row.msku}, parts={fba}, total={row.fba_total_inventory}"
+                )
+            params, _ = effective_params_for_msku(active_template, row.msku)
+            replenishment_row = replace(replenishment_row, formula_inputs=ShippingFormulaInputs(
+                values=sales_detail.source_values,
+                weights=tuple(float(params["weighted_sales"][key]) for key in ("7d_weight", "14d_weight", "30d_weight")),
+                minimum_sea_quantity=sea_min_net_quantity_from_template(params) or 0,
+            ))
         if use_amazon_restock_inventory:
             replenishment_row = _with_amazon_restock_inventory_snapshot(
                 replenishment_row,
@@ -1539,78 +1524,6 @@ def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]
     return [row for row in shortages if row is not None]
 
 
-def _final_shipping_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
-    """Project final shipping decisions without repeating inventory deductions."""
-    order = {AIR_URGENT_SHEET: 0, AIR_SHEET: 1, SEA_SHEET: 2}
-    selected = sorted(
-        (row for row in rows if row.sheet_name in order and (row.replenish_quantity or 0) > 0),
-        key=lambda row: (order[row.sheet_name], -row.replenish_quantity, row.msku, row.asin),
-    )
-    result = []
-    for row in selected:
-        is_sea = row.sheet_name == SEA_SHEET
-        air_quantity = (row.companion_air_quantity or 0) if is_sea else row.replenish_quantity
-        sea_quantity = (row.sea_quantity or 0) if is_sea else 0
-        total_quantity = air_quantity + sea_quantity
-        notes = [text for text in (row.remark, row.decision_reason) if text]
-        if row.actual_inventory is not None and total_quantity > row.actual_inventory:
-            notes.append(f"深圳库存不足，缺口{_display_quantity(total_quantity - row.actual_inventory)}件")
-        if row.weight_grams is None:
-            notes.append("单件重量缺失，无法计算预计总重量")
-        result.append({
-            "MSKU": row.msku,
-            "ASIN": row.asin,
-            "本地SKU": row.local_sku,
-            "品名": row.local_sku_name or row.product_name,
-            "加权日销": _display_float(row.weighted_daily_sales),
-            "FBA总库存（马帮）": _display_quantity(row.fba_total_inventory),
-            "深圳可用库存": _display_optional_quantity(row.actual_inventory),
-            "建议运输方式": "空运＋海运" if is_sea and air_quantity > 0 else row.sheet_name,
-            "空运建议量": air_quantity,
-            "海运建议量": sea_quantity,
-            "单件重量(g)": _display_optional_float(row.weight_grams),
-            "预计总重量(kg)": _display_optional_float(
-                total_quantity * row.weight_grams / 1000 if row.weight_grams is not None else None
-            ),
-            "备注": "；".join(dict.fromkeys(notes)),
-        })
-    return result
-
-
-def _format_final_shipping_sheet(worksheet: Any) -> None:
-    from openpyxl.styles import Alignment, Font, PatternFill
-
-    widths = (34, 16, 30, 36, 13, 22, 18, 18, 16, 16, 18, 22, 64)
-    worksheet.freeze_panes = "D2"
-    worksheet.auto_filter.ref = worksheet.dimensions
-    worksheet.row_dimensions[1].height = 34
-    for index, width in enumerate(widths, start=1):
-        header = worksheet.cell(1, index)
-        worksheet.column_dimensions[header.column_letter].width = width
-        header.fill = PatternFill("solid", fgColor="243746")
-        header.font = Font(bold=True, color="FFFFFF")
-        header.alignment = Alignment(vertical="center", wrap_text=True)
-    for cells in worksheet.iter_rows(min_row=2):
-        line_count = 1
-        for index, cell in enumerate(cells, start=1):
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
-            if index in (5, 11, 12):
-                cell.number_format = "#,##0.00"
-            elif index in (6, 7, 9, 10):
-                cell.number_format = "#,##0.00" if isinstance(cell.value, float) and not cell.value.is_integer() else "#,##0"
-            if index in (9, 10):
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill("solid", fgColor="EAF2F8")
-            if isinstance(cell.value, str):
-                # Account for wide Chinese characters when sizing wrapped notes.
-                lines = sum(
-                    max(1, math.ceil(sum(2 if ord(c) > 255 else 1 for c in line) / (widths[index - 1] - 2)))
-                    for line in cell.value.split("\n")
-                )
-                line_count = max(line_count, lines)
-        worksheet.row_dimensions[cells[0].row].height = min(409, max(30, line_count * 15 + 6))
-
-
 def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     worksheet.append(list(headers))
     for row in rows:
@@ -1636,7 +1549,10 @@ def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, 
         worksheet.column_dimensions[column_cells[0].column_letter].width = EXCEL_COLUMN_WIDTH
 
 
-def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | Path) -> Path:
+def write_replenishment_report(
+    rows: list[ReplenishmentRow], report_path: str | Path, *,
+    active_metadata: dict[str, Any] | None = None, missing_unlinked_snapshot: bool = False,
+) -> Path:
     try:
         from openpyxl import Workbook
     except Exception as exc:
@@ -1655,7 +1571,6 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
     workbook = Workbook()
     try:
         specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
-            (FINAL_SHIPPING_SHEET, FINAL_SHIPPING_COLUMNS, _final_shipping_rows(rows)),
             *[
                 (
                     sheet_name,
@@ -1700,11 +1615,15 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
             worksheet = workbook.active if index == 0 else workbook.create_sheet()
             worksheet.title = sheet_name
             _write_table(worksheet, headers, payload_rows)
-            if sheet_name == FINAL_SHIPPING_SHEET:
-                _format_final_shipping_sheet(worksheet)
+        from openpyxl.workbook.properties import CalcProperties
+        caches = write_formula_sheet(workbook, rows, missing_snapshot=missing_unlinked_snapshot)
+        workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)
         workbook.save(target_path)
     finally:
         workbook.close()
+    if active_metadata is not None:
+        stamp_report(target_path, active_metadata)
+    cache_formula_values(target_path, caches)
     return target_path
 
 
@@ -1796,8 +1715,10 @@ def calculate_store_msku_replenishment(
         ),
     )
     report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
-    write_replenishment_report(replenishment_rows, report_path)
-    stamp_report(report_path, active_metadata)
+    write_replenishment_report(
+        replenishment_rows, report_path, active_metadata=active_metadata,
+        missing_unlinked_snapshot=bool(unlinked_snapshot_warning),
+    )
     summary_rows = summarize_links(replenishment_rows)
 
     return StoreMskuReplenishmentResult(

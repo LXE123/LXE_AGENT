@@ -44,7 +44,6 @@
     "sea": {
       "enabled": false,
       "min_daily_sales": 0,
-      "min_weight_kg": 0,
       "tiers": [
         {
           "daily_sales_gt": 0,

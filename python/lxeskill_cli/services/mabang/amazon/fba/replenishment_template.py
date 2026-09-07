@@ -436,7 +436,6 @@ def list_parameter_groups() -> list[dict[str, Any]]:
                 {"key": "sea.enabled", "name": "是否启用海运", "value_type": "boolean"},
                 {"key": "sea.min_daily_sales", "name": "海运最低加权日销", "value_type": "number"},
                 {"key": "sea.min_daily_sales_inclusive", "name": "海运最低加权日销是否包含等于", "value_type": "boolean"},
-                {"key": "sea.min_weight_kg", "name": "海运最低总重量kg", "value_type": "number"},
                 {"key": "sea.min_net_quantity", "name": "海运建议量最小件数", "value_type": "number"},
             ],
         },
@@ -533,11 +532,8 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
     if "min_daily_sales_inclusive" in sea:
         _bool_value(sea.get("min_daily_sales_inclusive"), field_name="sea.min_daily_sales_inclusive")
     min_daily_sales = _number(sea.get("min_daily_sales"), default=None)
-    min_weight_kg = _number(sea.get("min_weight_kg"), default=None)
     if min_daily_sales is None or min_daily_sales < 0:
         raise ReplenishmentTemplateError("海运最低日销必须大于等于0")
-    if min_weight_kg is None or min_weight_kg < 0:
-        raise ReplenishmentTemplateError("海运最低重量kg必须大于等于0")
     _validate_sea_tiers(_require_list(sea.get("tiers"), "sea.tiers"), name="sea.tiers")
     companion_enabled = sea_companion_air_enabled_from_template(params)
     if companion_enabled:
@@ -935,7 +931,6 @@ def export_template_xlsx(
             "是" if sea_min_daily_sales_inclusive_from_template(params) else "否",
             "是表示加权日销等于最低日销时也可进入海运判断",
         ])
-        sea_entry.append(["海运最低重量kg", params["sea"]["min_weight_kg"], "扣减库存后的海运部分重量大于该值才建议海运"])
         sea_entry.append([
             "海运建议量最小件数",
             params["sea"].get("min_net_quantity", ""),
@@ -946,7 +941,7 @@ def export_template_xlsx(
             [
                 "1. 只修改“值”列。",
                 "2. 是否启用海运支持 是/否、true/false、1/0、启用/关闭。",
-                "3. 最低日销、最低重量和最小件数是进入海运的前置门槛。",
+                "3. 最低日销和最小件数是进入海运的前置门槛；重量仅供物流参考。",
             ],
         )
 
@@ -996,7 +991,6 @@ def export_template_xlsx(
             "空运急发阈值",
             "空运阈值",
             "海运最低日销",
-            "海运最低重量kg",
             "备注",
         ])
         for rule in params.get("special_rules", []):
@@ -1013,7 +1007,6 @@ def export_template_xlsx(
                 shipping_overrides.get("air_urgent_sales_days_lte", ""),
                 shipping_overrides.get("air_sales_days_lte", ""),
                 sea_overrides.get("min_daily_sales", ""),
-                sea_overrides.get("min_weight_kg", ""),
                 rule.get("remark", ""),
             ])
         _append_note_block(
@@ -1226,7 +1219,7 @@ def _special_rule_overrides(record: dict[str, Any]) -> dict[str, Any]:
         overrides["shipping"] = shipping
 
     sea: dict[str, Any] = {}
-    for label, key in (("海运最低日销", "min_daily_sales"), ("海运最低重量kg", "min_weight_kg")):
+    for label, key in (("海运最低日销", "min_daily_sales"),):
         value = _optional_override(record.get(label))
         if value is not None:
             sea[key] = value
@@ -1272,7 +1265,6 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
                 _param_value(sea_entry_records, "海运最低日销是否包含等于"),
                 field_name="海运最低日销是否包含等于",
             ),
-            "min_weight_kg": _number(_param_value(sea_entry_records, "海运最低重量kg"), default=None),
             "companion_air_enabled": _bool_value(companion_air_enabled_value, field_name="是否启用海运同时备空运"),
             "companion_air_tiers": [],
             "min_net_quantity": _number(_param_value(sea_entry_records, "海运建议量最小件数"), default=0),

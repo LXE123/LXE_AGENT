@@ -51,7 +51,6 @@
     "sea": {
       "enabled": true,
       "min_daily_sales": 5,
-      "min_weight_kg": 60,
       "tiers": [
         {
           "daily_sales_gt": 5,

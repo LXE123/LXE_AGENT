@@ -94,7 +94,7 @@ def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     assert tmpl.replenishment_days_from_template(2, "下降", us_params) == 70
     assert tmpl.replenishment_days_from_template(0.5, "增长", us_params) == 60
     assert us_params["sea"]["min_daily_sales"] == 5
-    assert us_params["sea"]["min_weight_kg"] == 60
+    assert "min_weight_kg" not in us_params["sea"]
     assert tmpl.sea_day_candidates_from_template(6, us_params) == [110]
     assert tmpl.sea_day_candidates_from_template(4, us_params) == []
 
@@ -123,7 +123,7 @@ def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     assert tmpl.sea_min_daily_sales_inclusive_from_template(lin_params) is True
     assert tmpl.sea_companion_air_enabled_from_template(lin_params) is True
     assert lin_params["sea"]["min_daily_sales"] == 1
-    assert lin_params["sea"]["min_weight_kg"] == 60
+    assert "min_weight_kg" not in lin_params["sea"]
     assert lin_params["sea"]["min_net_quantity"] == 30
     assert tmpl.sea_day_candidates_from_template(0.99, lin_params) == []
     assert tmpl.sea_day_candidates_from_template(1, lin_params) == [100]
@@ -356,7 +356,7 @@ def test_template_xlsx_round_trips_inclusive_sea_min_daily_sales(tmp_path) -> No
     exported_path = tmpl.export_template_xlsx("2组-US站点-林美淇", output_dir=tmp_path / "editable")
 
     assert _cell_value(exported_path, "海运进入条件", 4, 2) == "是"
-    assert _cell_value(exported_path, "海运进入条件", 6, 2) == 30
+    assert _cell_value(exported_path, "海运进入条件", 5, 2) == 30
     assert _cell_value(exported_path, "海运补货天数", 2, 1) == "[1,5]"
     assert _cell_value(exported_path, "海运补货天数", 2, 2) == "100"
     assert _cell_value(exported_path, "海运同时空运", 2, 2) == "是"
@@ -564,7 +564,7 @@ def test_special_rule_applies_msku_overrides() -> None:
 
     params, rule_name = tmpl.effective_params_for_msku(custom, "MSKU-B")
     assert rule_name == ""
-    assert params["sea"]["min_weight_kg"] == 60
+    assert "min_weight_kg" not in params["sea"]
 
 
 def test_cli_list_and_list_params(capsys) -> None:
@@ -632,7 +632,7 @@ def test_replenishment_algorithm_config_skill_contract() -> None:
     assert "浅黄色单元格表示业务可修改" in template_skill
     assert "浅灰色单元格是参数名或说明信息" in template_skill
     assert "表格下方有 `修改说明` 区" in template_skill
-    assert "旧版备货算法配置表不兼容" in template_skill
+    assert "仅多出旧重量字段的上一版配置表仍可导入" in template_skill
     assert "固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件" in calculate_skill
     assert "算法参数方案" in workflow_skill
     assert "扣减数据流程" in workflow_skill

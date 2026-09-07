@@ -52,7 +52,6 @@
       "enabled": true,
       "min_daily_sales": 1,
       "min_daily_sales_inclusive": true,
-      "min_weight_kg": 60,
       "companion_air_enabled": true,
       "min_net_quantity": 30,
       "tiers": [
