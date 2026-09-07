@@ -397,7 +397,11 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                         "message": str((error or {}).get("message") or "business command failed"),
                     },
                 }
-            recovery = _recovery_for_auth_failure(failure["error"]["code"], failure["error"]["message"])
+            auth_refresh_required = data.get("auth_refresh_required") if isinstance(data, dict) else None
+            if isinstance(auth_refresh_required, bool):
+                recovery = {"command": "lxeskill auth refresh"} if auth_refresh_required else None
+            else:
+                recovery = _recovery_for_auth_failure(failure["error"]["code"], failure["error"]["message"])
             if recovery:
                 failure["recovery"] = recovery
             _emit(failure)

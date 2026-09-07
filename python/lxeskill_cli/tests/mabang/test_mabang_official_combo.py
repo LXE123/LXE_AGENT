@@ -95,11 +95,61 @@ def test_listing_rejects_wrong_scope_and_type(monkeypatch, bad):
 @pytest.mark.parametrize('shops', [{}, {'x': {'name': 'other', 'sid': 10, 'amazonsite': 'us'}}, {'x': {'name': 'shop', 'sid': 10, 'amazonsite': 'us'}, 'y': {'name': 'shop', 'sid': 11, 'amazonsite': 'us'}}, {'x': {'name': 'shop', 'profile_id': '10', 'amazonsite': 'us'}}, {'x': {'name': 'shop', 'sid': 10}}])
 def test_shop_resolution_failure(monkeypatch, shops):
 
+    async def web_stores():
+        return []
+    monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
+
     async def post(*a, **kw):
         return {'code': 200, 'data': shops}
     monkeypatch.setattr(combo, 'post_json', post)
     with pytest.raises(http.OfficialApiError):
         asyncio.run(combo.fetch_listing_bindings('shop'))
+
+
+@pytest.mark.parametrize('requested', ['Amazon-YYH-US', 'Amazon-YYH-US美国'])
+def test_official_shop_uses_verified_web_alias_only(monkeypatch, requested):
+    from services.mabang.amazon.fba import store_resolver as stores
+    calls = []
+    async def web_stores():
+        calls.append('web')
+        return stores.parse_fba_store_options('<li><input name="fbaWarehouseIds[]" value="1039477"><span class="texts">Amazon-YYH-US<span class="shop-country-cn">美国</span></span></li>')
+    async def post(endpoint, body, **kw):
+        if endpoint == 'shops/list':
+            return {'code': 200, 'data': {'profile-403': {'name': 'Amazon-YYH-US', 'sid': 10, 'amazonsite': 'us'}}}
+        assert body['shop_id'] == ['10']
+        calls.append('listing')
+        return listing_page([])
+    monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
+    monkeypatch.setattr(combo, 'post_json', post)
+    assert asyncio.run(combo.fetch_listing_bindings(requested)) == []
+    assert calls == (['web', 'listing'] if requested.endswith('美国') else ['listing'])
+    with pytest.raises(http.OfficialApiError, match='店铺精确匹配数量=0'):
+        asyncio.run(combo.fetch_listing_bindings('Amazon-YYH-US英国'))
+
+
+def test_ambiguous_web_alias_stops_before_listing(monkeypatch):
+    from services.mabang.amazon.fba import store_resolver as stores
+    async def web_stores():
+        return [stores.FbaStore('shop', str(i), legacy_names=('shop美国',)) for i in [1, 2]]
+    async def post(endpoint, body, **kw):
+        assert endpoint == 'shops/list'
+        return {'code': 200, 'data': {'p': {'name': 'shop', 'sid': 10, 'amazonsite': 'us'}}}
+    monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
+    monkeypatch.setattr(combo, 'post_json', post)
+    with pytest.raises(stores.FbaStoreAmbiguousError):
+        asyncio.run(combo.fetch_listing_bindings('shop美国'))
+
+
+def test_official_exact_name_wins_over_web_alias(monkeypatch):
+    async def web_stores():
+        pytest.fail('Exact official name must not fetch cookies or web aliases')
+    async def post(endpoint, body, **kw):
+        if endpoint == 'shops/list':
+            return {'code': 200, 'data': {'p': {'name': 'shop美国', 'sid': 10, 'amazonsite': 'us'}}}
+        return listing_page([])
+    monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
+    monkeypatch.setattr(combo, 'post_json', post)
+    assert asyncio.run(combo.fetch_listing_bindings('shop美国')) == []
 
 def test_combo_paginates_and_exact_matches(monkeypatch):
     calls = []

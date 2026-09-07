@@ -511,6 +511,18 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
     assert records[0]["recovery"] == {"command": "lxeskill auth refresh"}
 
 
+@pytest.mark.parametrize('required', [False, True])
+def test_structured_auth_recovery_overrides_error_text(monkeypatch, capsys, required):
+    def fake_execute(*args, **kwargs):
+        payload = {'success': False, 'auth_refresh_required': required}
+        return False, [{'type': 'text', 'text': json.dumps(payload)}], [], {'code': 'business_cli_failed', 'message': '店铺匹配失败 profile_id=1403401 Cookie字段存在'}
+    monkeypatch.setattr(lxeskill, 'execute_module_json', fake_execute)
+    assert lxeskill.main(['replenish', 'inventory', 'actual-export', '--store-name', 'shop']) == lxeskill.EXIT_BUSINESS
+    record = _records(capsys)[0]
+    assert ('recovery' in record) is required
+    assert '1403401' in record['error']['message']
+
+
 def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:
     monkeypatch.setattr(lxeskill, "load_catalog", lambda: (_ for _ in ()).throw(RuntimeError("broken catalog")))
 

@@ -11,6 +11,8 @@ from typing import Any, Protocol, Sequence
 
 from services.mabang.official_api import OfficialApiError, diagnostic, invalid, post_json
 
+from .store_resolver import fetch_fba_stores, match_legacy_fba_store
+
 OFFICIAL_LOOKUP_TIMEOUT_SECONDS = 25 * 60
 COMBO_WORKERS = 4
 
@@ -72,6 +74,13 @@ async def fetch_listing_bindings(store_name: str) -> list[ListingSkuBinding]:
     if not isinstance(data, dict):
         invalid(context, "店铺 data 必须为对象", shops)
     matches = [row for row in data.values() if isinstance(row, dict) and clean_text(row.get("name")) == store_name.strip()]
+    if not matches:
+        legacy_store = match_legacy_fba_store(store_name, await fetch_fba_stores())
+        if legacy_store is not None:
+            matches = [
+                row for row in data.values()
+                if isinstance(row, dict) and clean_text(row.get("name")) == legacy_store.store_name
+            ]
     if len(matches) != 1:
         invalid(context, f"店铺精确匹配数量={len(matches)}，需要唯一匹配", shops)
     shop = matches[0]

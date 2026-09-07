@@ -16,6 +16,32 @@ def _form_value(call: dict, name: str) -> str:
 from services.mabang.auth import MabangAuthContext
 
 
+def test_country_labels_and_verified_legacy_names():
+    html = '''<li><input name="fbaWarehouseIds[]" value="1039477">
+    <span class="texts">Amazon-YYH-US<span class="shop-country-cn">美国</span></span></li>
+    <li><input name="fbaWarehouseIds[]" value="2"><span class="texts">美国品牌-欧洲</span>
+    <ul class="dropdown-menu"><li><a data-type="shopId" data-val="3">美国品牌-UK<span class="shop-country-cn">英国</span></a></li></ul></li>'''
+    rows = stores.parse_fba_store_options(html)
+    assert [(r.store_name, r.store_id, r.id_type) for r in rows] == [
+        ('Amazon-YYH-US', '1039477', 'fbaWarehouseIds[]'),
+        ('美国品牌-欧洲', '2', 'fbaWarehouseIds[]'),
+        ('美国品牌-UK', '3', 'shopId'),
+    ]
+    assert rows[2].parent_store_name == '美国品牌-欧洲'
+    assert rows[0].legacy_names == ('Amazon-YYH-US美国',)
+    assert stores.match_fba_store('Amazon-YYH-US美国', rows).store == rows[0]
+    assert stores.match_legacy_fba_store('Amazon-YYH-US英国', rows) is None
+    assert 'legacy_names' not in rows[0].to_payload()
+
+
+def test_legacy_alias_ambiguity_and_duplicate_nodes():
+    html = '''<li><input name="fbaWarehouseIds[]" value="1"><span class="texts">A<span class="shop-country-cn">美国</span></span></li>'''
+    assert len(stores.parse_fba_store_options(html + html)) == 1
+    rows = stores.parse_fba_store_options(html + html.replace('value="1"', 'value="2"'))
+    with pytest.raises(stores.FbaStoreAmbiguousError):
+        stores.match_legacy_fba_store('A美国', rows)
+
+
 class _FakeResponse:
     def __init__(self, text_body: str, *, status: int = 200) -> None:
         self.status = status

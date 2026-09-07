@@ -27,6 +27,49 @@ def _stock_xlsx_bytes(rows: list[dict]) -> bytes:
     return _xlsx_bytes(rows, columns=["库存SKU编号", "可用库存量"])
 
 
+def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, tmp_path):
+    from services.mabang.amazon.fba import combo_sku as combo, store_resolver as stores
+    from services.mabang.amazon.fba import store_msku_sales_analysis as sales
+    from services.mabang.amazon.fba import store_msku_replenishment as repl
+    from services.mabang.amazon.fba.replenishment_template import get_template
+    names = ['Amazon-YYH-US', 'Amazon-YYH-US美国']
+    # Existing filename normalization already strips the trailing country text.
+    # Both names refer to this file; a newer, unrelated shop must not be selected.
+    for index, name in enumerate(['Amazon-YYH-US', 'Amazon-OTHER-US']):
+        row = dict.fromkeys(inv.SOURCE_COLUMNS, 0)
+        row.update({'MSKU': f'M{index}', '父ASIN': 'P', 'ASIN': 'A', '本地SKU': 'S', '商品链接': 'https://www.amazon.com/dp/A', '7天销量': 7, '14天销量': 14, '30天销量': 30, '90天销量': 90})
+        _write_xlsx(tmp_path/'source'/f'20260907090{index}-{name}_店铺MSKU数据.xlsx', [row], columns=[*inv.SOURCE_COLUMNS, '90天销量', '单品重量(g)(cm)'])
+
+    async def web_stores():
+        return stores.parse_fba_store_options('<li><input name="fbaWarehouseIds[]" value="1039477"><span class="texts">Amazon-YYH-US<span class="shop-country-cn">美国</span></span></li>')
+    async def post(endpoint, body, **kwargs):
+        if endpoint == 'shops/list':
+            return {'code': 200, 'data': {'profile': {'name': names[0], 'sid': 10, 'amazonsite': 'us'}}}
+        assert endpoint == 'listings/search' and body['shop_id'] == ['10']
+        return {'code': 200, 'data': {'list': [{'platformSku': f'M{i}', 'asin': 'A', 'stockSku': 'S', 'stockType': 1, 'shopIds': '10', 'amazonsite': 'us'} for i in range(2)], 'total': 2, 'nowPage': 1, 'totalPage': 1}}
+    stock_path = tmp_path/'stock.xlsx'
+    stock_path.write_bytes(_stock_xlsx_bytes([{'库存SKU编号': 'S', '可用库存量': 100}]))
+    async def search(skus):
+        assert skus == ['S']
+    async def download(**kwargs):
+        return stock_path
+    monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
+    monkeypatch.setattr(combo, 'post_json', post)
+    monkeypatch.setattr(inv, 'search_warehouse_stock', search)
+    monkeypatch.setattr(inv, 'download_warehouse_stock_xlsx', download)
+    template = get_template('默认')
+    monkeypatch.setattr(repl, 'get_template', lambda name: template)
+    for index, name in enumerate(names):
+        analysis = sales.analyze_store_msku_sales(name, input_dir=tmp_path/'source', output_dir=tmp_path/'sales')
+        actual = asyncio.run(inv.export_store_msku_actual_inventory(name, input_dir=tmp_path/'source', output_dir=tmp_path/'inventory'))
+        assert analysis.source_data_time == actual.source_msku_data_time == '202609070900'
+        result = repl.calculate_store_msku_replenishment(name, sales_analysis_dir=tmp_path/'sales', actual_inventory_dir=tmp_path/'inventory', output_dir=tmp_path/'replenishment', unlinked_shipments_snapshot_dir=tmp_path/'unlinked')
+        assert result.store_name == name
+        matched = repl.find_matching_report_files(name, sales_analysis_dir=tmp_path/'sales', actual_inventory_dir=tmp_path/'inventory')
+        assert matched.source_data_time == '202609070900'
+        assert [r.msku for r in repl.load_inventory_rows(matched.actual_inventory_path)] == ['M0']
+
+
 class _FakeResponse:
     def __init__(
         self,

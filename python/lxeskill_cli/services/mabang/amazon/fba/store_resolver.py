@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
@@ -85,6 +86,8 @@ class FbaStore:
     parent_store_name: str = ""
     parent_store_id: str = ""
     parent_id_type: str = ""
+    # Internal compatibility evidence from this same HTML node; not a public ID.
+    legacy_names: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, str]:
         payload = {
@@ -176,10 +179,29 @@ def _store_payloads(stores: list[FbaStore]) -> list[dict[str, str]]:
     return [store.to_payload() for store in stores]
 
 
+def _store_label(tag: Tag) -> tuple[str, str]:
+    legacy_name = _clean_text(tag.get_text())
+    label = deepcopy(tag)
+    for country in label.select(".shop-country-cn"):
+        country.decompose()
+    return _clean_text(label.get_text()), legacy_name
+
+
+def match_legacy_fba_store(query: str, stores: list[FbaStore]) -> FbaStore | None:
+    """Only exact aliases observed on the same node qualify; no suffix guessing."""
+    matches = [store for store in stores if _clean_text(query) in store.legacy_names]
+    if len(matches) > 1:
+        raise FbaStoreAmbiguousError(
+            f"旧店铺名匹配到多个FBA店铺: query={query}, count={len(matches)}",
+            query=query, candidates=_store_payloads(matches),
+        )
+    return matches[0] if matches else None
+
+
 def parse_fba_store_options(html: str) -> list[FbaStore]:
     soup = BeautifulSoup(str(html or ""), "html.parser")
     stores: list[FbaStore] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: dict[tuple[str, str, str], int] = {}
 
     def append_store(
         store_name: Any,
@@ -189,6 +211,7 @@ def parse_fba_store_options(html: str) -> list[FbaStore]:
         parent_store_name: Any = "",
         parent_store_id: Any = "",
         parent_id_type: Any = "",
+        legacy_name: str = "",
     ) -> None:
         clean_name = _clean_text(store_name)
         clean_id = _clean_text(store_id)
@@ -196,9 +219,15 @@ def parse_fba_store_options(html: str) -> list[FbaStore]:
         if not clean_id or not clean_name:
             return
         key = (clean_name, clean_id, clean_type)
+        aliases = (legacy_name,) if legacy_name and legacy_name != clean_name else ()
         if key in seen:
+            index = seen[key]
+            stores[index] = replace(
+                stores[index],
+                legacy_names=tuple(dict.fromkeys((*stores[index].legacy_names, *aliases))),
+            )
             return
-        seen.add(key)
+        seen[key] = len(stores)
         stores.append(
             FbaStore(
                 store_name=clean_name,
@@ -207,6 +236,7 @@ def parse_fba_store_options(html: str) -> list[FbaStore]:
                 parent_store_name=_clean_text(parent_store_name),
                 parent_store_id=_clean_text(parent_store_id),
                 parent_id_type=_clean_text(parent_id_type),
+                legacy_names=aliases,
             )
         )
 
@@ -217,19 +247,21 @@ def parse_fba_store_options(html: str) -> list[FbaStore]:
         parent_store_id = ""
         parent_id_type = ""
         if input_tag is not None and text_span is not None:
-            parent_store_name = _clean_text(text_span.get_text())
+            parent_store_name, legacy_name = _store_label(text_span)
             parent_store_id = _clean_text(input_tag.get("value"))
             parent_id_type = ID_TYPE_FBA_WAREHOUSE
-            append_store(parent_store_name, parent_store_id, parent_id_type)
+            append_store(parent_store_name, parent_store_id, parent_id_type, legacy_name=legacy_name)
 
         for anchor in li.select(f'ul.dropdown-menu a[data-type="{QUERY_FIELD_SHOP}"][data-val]'):
+            child_name, legacy_name = _store_label(anchor)
             append_store(
-                anchor.get_text(),
+                child_name,
                 anchor.get("data-val"),
                 ID_TYPE_SHOP,
                 parent_store_name=parent_store_name,
                 parent_store_id=parent_store_id,
                 parent_id_type=parent_id_type,
+                legacy_name=legacy_name,
             )
 
     if not stores:
@@ -300,6 +332,10 @@ def match_fba_store(query: str, stores: list[FbaStore]) -> FbaStoreResolveResult
             query=query_text,
             candidates=_store_payloads(exact_matches),
         )
+
+    legacy_match = match_legacy_fba_store(query_text, stores)
+    if legacy_match is not None:
+        return FbaStoreResolveResult(query=query_text, match_status="exact", store=legacy_match)
 
     contains_matches = [store for store in stores if query_key in normalize_store_name(store.store_name)]
     if len(contains_matches) == 1:

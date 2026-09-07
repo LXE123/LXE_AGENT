@@ -59,4 +59,17 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
         "success": False,
         "store_name": "Amazon-Lerxiuer-FR",
         "exception": "inventory failed for Amazon-Lerxiuer-FR",
+        "auth_refresh_required": False,
     }
+
+
+def test_auth_classification_preserves_actual_error(monkeypatch):
+    from services.mabang.errors import MabangAuthError
+    from services.mabang.official_api import OfficialApiError
+    for error, expected in [(OfficialApiError('店铺', '无匹配 profile_id=1403401'), False), (MabangAuthError('实际认证错误'), True)]:
+        async def fail(name):
+            raise error
+        monkeypatch.setattr(cli, 'export_store_msku_actual_inventory', fail)
+        payload = cli.run({'store_name': 'shop'})
+        assert payload['auth_refresh_required'] is expected
+        assert payload['exception'] == str(error)
