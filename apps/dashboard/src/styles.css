@@ -11432,3 +11432,17 @@ pre {
 .sent-image-dialog > header > button { flex-shrink: 0; display: grid; place-items: center; padding: 8px; border: 0; border-radius: 8px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; }
 .sent-image-dialog > img { display: block; max-width: 100%; max-height: calc(100dvh - 140px); object-fit: contain; margin: auto; }
 .sent-image-dialog > p { max-width: 80vw; overflow-wrap: anywhere; }
+
+/* Chat's empty hint is plain text, independent of shared panel empty states. */
+.conversation-empty {
+  padding: 24px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* The final answer footer is its own virtual row below any generated files. */
+.answer-footer .message-meta.role-assistant {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}

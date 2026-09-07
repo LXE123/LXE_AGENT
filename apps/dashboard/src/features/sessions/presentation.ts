@@ -1,7 +1,7 @@
 import type { DesktopConversationActivityPayload, DesktopConversationSendPayload } from "@lxe/desktop-protocol";
 import type { DesktopConversationTurnPayload, SessionMessage, SessionArtifactPayload } from "../../api/payloads";
 import { isRecord } from "../../shared/content";
-import { finalResponseIndex, fallbackToolCallBlocks, toolOperations, type ToolOperation } from "./conversation";
+import { finalResponseIndex, fallbackToolCallBlocks, readerFacingMessageText, toolOperations, type ToolOperation } from "./conversation";
 
 export interface PendingMessage {
   pendingId: string; sessionId: string; text: string; createdAt: number;
@@ -9,8 +9,9 @@ export interface PendingMessage {
   turnId?: string; messageId?: string; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
-  id: string; groupId: string; turnId: string; kind: "message" | "tool" | "status" | "artifacts" | "process";
+  id: string; groupId: string; turnId: string; kind: "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta";
   presentation?: "process" | "final";
+  answerMeta?: { text: string; createdAt: number };
   message?: SessionMessage; operation?: ToolOperation;
   liveTool?: NonNullable<DesktopConversationTurnPayload["stream"]>["tool_steps"][number];
   phase?: string; startedAt?: number; elapsedMs?: number;
@@ -131,7 +132,7 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
     }
     return 0;
   });
-  return appendTurnArtifacts(ordered, messages);
+  return appendAnswerMetadata(appendTurnArtifacts(ordered, messages));
 }
 
 /** Artifact storage location does not decide its presentation position. */
@@ -159,6 +160,33 @@ function appendTurnArtifacts(rows: ConversationRow[], messages: SessionMessage[]
     const entries = after.get(last) ?? [];
     entries.push({id: `artifacts:${key}`, kind: "artifacts", groupId: tail.groupId,
       turnId: owner.turnId, createdAt: tail.createdAt, artifacts: [...owner.files.values()]});
+    after.set(last, entries);
+  }
+  return rows.flatMap((row, index) => [row, ...(after.get(index) ?? [])]);
+}
+
+/** Final text and files stay independent virtual rows; one stable footer follows both. */
+function appendAnswerMetadata(rows: ConversationRow[]): ConversationRow[] {
+  const answers = new Map<string, ConversationRow[]>();
+  for (const row of rows) {
+    if (row.presentation !== "final" || row.message?.role !== "assistant") continue;
+    const key = row.turnId ? `turn:${row.turnId}` : `group:${row.groupId}`;
+    const parts = answers.get(key) ?? [];
+    parts.push(row); answers.set(key, parts);
+  }
+  const after = new Map<number, ConversationRow[]>();
+  for (const [key, parts] of answers) {
+    const text = parts.map(part => readerFacingMessageText(part.message!)).filter(value => value.trim()).join("\n\n");
+    if (!text.trim()) continue;
+    const tail = parts.at(-1)!;
+    let last = -1;
+    rows.forEach((row, index) => {
+      if (tail.turnId ? row.turnId === tail.turnId : row.groupId === tail.groupId) last = index;
+    });
+    const entries = after.get(last) ?? [];
+    entries.push({ id: `answer-meta:${key}`, kind: "answer_meta", groupId: tail.groupId,
+      turnId: tail.turnId, createdAt: tail.createdAt,
+      answerMeta: { text, createdAt: Number(tail.message!.created_at ?? tail.createdAt / 1000) } });
     after.set(last, entries);
   }
   return rows.flatMap((row, index) => [row, ...(after.get(index) ?? [])]);

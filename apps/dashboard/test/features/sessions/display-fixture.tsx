@@ -187,8 +187,46 @@ function Fixture(){
     assert(!client.getQueryData(dashboardQueryKeys.sessions.detail("budget","latest")),"old session Query payload remains");
     report(`single oversized group: ${largeBytes} bytes; previous session cache released`);
   };
+  const answerFooter=async()=>{
+    select("footer");await delay(150);
+    const hint=document.querySelector<HTMLElement>(".conversation-empty")!;
+    assert(hint&&!hint.querySelector("svg"),"empty chat hint missing or still has icon");
+    assert(getComputedStyle(hint).backgroundColor==="rgba(0, 0, 0, 0)"&&["auto","0px"].includes(getComputedStyle(hint).minHeight),"empty hint still looks like a card");
+    const turn={turn_id:"footer-turn",status:"completed",elapsed_ms:99000};
+    records.set("footer",[
+      {display_group_id:"footer-group",display_id:"footer-user",role:"user",content:"测试文件",created_at:1,turn},
+      {display_group_id:"footer-group",id:"footer-process",display_id:"footer-process",role:"assistant",content:[{type:"thinking",thinking:"过程内容，不应复制"}],created_at:2,turn},
+      {display_group_id:"footer-group",id:"footer-answer",display_id:"footer-answer",role:"assistant",content:[{type:"text",text:"测试完成 ✅"},{type:"text",text:"最终正文第二段"}],created_at:3,turn},
+    ]);
+    await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession("footer")});await delay(180);
+    const body=document.querySelector('[data-conversation-row="footer-answer:0"]');
+    const footer=document.querySelector('[data-conversation-row="answer-meta:turn:footer-turn"]');
+    assert(body&&footer,"missing answer or footer");
+    records.get("footer")![1]!.artifacts=[{artifact_id:"footer-file",turn_id:"footer-turn",tool_call_id:"fixture",name:"report.csv"}];
+    await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession("footer")});await delay(180);
+    assert(body===document.querySelector('[data-conversation-row="footer-answer:0"]'),"late file remounted body");
+    assert(footer===document.querySelector('[data-conversation-row="answer-meta:turn:footer-turn"]'),"late file remounted footer");
+    const file=document.querySelector('[data-conversation-row="artifacts:turn:footer-turn"]')!;
+    assert(file.getBoundingClientRect().bottom<=footer!.getBoundingClientRect().top,"footer appears above files");
+    assert(document.querySelectorAll('.answer-footer .message-meta-copy').length===1,"duplicate final copy buttons");
+    assert(document.querySelectorAll('.response-final-answer + .message-meta').length===0,"metadata still nested with final body");
+    const toggle=document.querySelector<HTMLButtonElement>('.conversation-process-toggle')!;toggle.click();await delay(180);
+    assert(file.getBoundingClientRect().bottom<=footer!.getBoundingClientRect().top,"process expansion moved footer before files");
+    let copied="";
+    const clipboardDescriptor=Object.getOwnPropertyDescriptor(navigator,"clipboard");
+    Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async(text:string)=>{copied=text;}}});
+    try {
+      document.querySelector<HTMLButtonElement>('.answer-footer .message-meta-copy')!.click();await delay(50);
+      assert(copied==="测试完成 ✅\n\n最终正文第二段","copy did not include exactly the final text blocks");
+    } finally {
+      if(clipboardDescriptor)Object.defineProperty(navigator,"clipboard",clipboardDescriptor);
+      else Reflect.deleteProperty(navigator,"clipboard");
+    }
+    report("Empty hint: plain text; late files: same body/footer nodes; order: final text → files → copy/time; one copy button; copied final text only");
+  };
   return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
     <div style={{padding:8,display:"flex",gap:12}}><button disabled={busy} onClick={()=>void run(sendCases)}>Run send scenarios</button><button disabled={busy} onClick={()=>void run(longHistory)}>Run 1000 group history</button>
+      <button disabled={busy} onClick={()=>void run(answerFooter)}>Run answer footer</button>
       <button disabled={busy} onClick={()=>void run(cacheBudget)}>Run cache budget</button>
       <button disabled={busy} onClick={()=>void run(heightsAndRaces)}>Run height and races</button>
       <button disabled={busy} onClick={()=>void run(async()=>{sendState="completed";await send("主动发送回到最新",[]);})}>Send now</button></div>

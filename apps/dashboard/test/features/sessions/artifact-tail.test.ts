@@ -39,6 +39,36 @@ test("failed, cancelled and textless turns retain their files outside collapsed 
 test("legacy records without turn metadata retain files after their response group",()=>{
   const history=source().slice(1,4).map(({turn,...m})=>m);
   const rows=conversationRows(history,[],[]);
-  expect(rows.at(-1)?.id).toBe("artifacts:turn:t");
-  expect(rows.at(-1)?.artifacts).toHaveLength(2);
+  expect(rows.at(-1)?.id).toBe("answer-meta:group:g:t");
+  expect(rows.at(-2)?.artifacts).toHaveLength(2);
+});
+
+
+test("one footer follows all final blocks and deduplicated files, copying only final text",()=>{
+  const history=source();history[3]!.content=[{type:"thinking",thinking:"private process"},{type:"text",text:"first paragraph"},{type:"text",text:"second paragraph"}];
+  const rows=conversationRows(history,[],[]);
+  const footer=rows.find(row=>row.kind==="answer_meta")!;
+  expect(rows.filter(row=>row.kind==="answer_meta")).toHaveLength(1);
+  expect(footer.answerMeta).toEqual({text:"first paragraph\n\nsecond paragraph",createdAt:1});
+  expect(rows.indexOf(footer)).toBeGreaterThan(rows.findIndex(row=>row.kind==="artifacts"));
+  expect(rows.indexOf(footer)).toBeLessThan(rows.findIndex(row=>row.id==="user:next"));
+});
+
+test("footer identity survives files arriving late and a live answer becoming history",()=>{
+  const stream={turn_id:"t",message_id:"u",text:"question",created_at:1000,started_at:1000,state:"running",stream:{display_metrics:{phase:"generating_answer"},process_parts:[
+    {type:"text",part_id:"answer:0",sequence:1,text:"answer",status:"streaming",presentation:"final"},
+  ]}} as unknown as DesktopConversationTurnPayload;
+  const stages=[conversationRows([], [stream], []),conversationRows(source().slice(0,3),[stream],[]),conversationRows(source(),[],[])];
+  for(const rows of stages){
+    expect(rows.filter(row=>row.kind==="answer_meta").map(row=>row.id)).toEqual(["answer-meta:turn:t"]);
+    expect(rows.find(row=>row.presentation==="final")?.id).toBe("answer:0");
+    const artifact=rows.findIndex(row=>row.kind==="artifacts");
+    if(artifact>=0)expect(artifact).toBeLessThan(rows.findIndex(row=>row.kind==="answer_meta"));
+  }
+});
+
+test("final-only replies have a footer; textless and empty final replies do not",()=>{
+  expect(conversationRows([message("answer","assistant","answer")],[],[]).at(-1)?.kind).toBe("answer_meta");
+  for(const history of [source().slice(0,3),[message("answer","assistant","")]])
+    expect(conversationRows(history,[],[]).some(row=>row.kind==="answer_meta")).toBe(false);
 });

@@ -1431,6 +1431,9 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
     : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
   if (row.kind === "status") return <ConversationStatus row={row} />;
+  if (row.kind === "answer_meta") return <div className="answer-footer">
+    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
+  </div>;
   if (row.kind === "process") return <button type="button" className="conversation-process-toggle"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>
     <ConversationStatus row={row} /><ChevronRight size={14} style={{transform: expanded ? "rotate(90deg)" : undefined}} />
@@ -1481,7 +1484,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
       {role === "user" && ["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
     </article>
-    <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={readerFacingMessageText(message)} />
+    {row.presentation !== "final" ? <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={readerFacingMessageText(message)} /> : null}
   </div>;
 }, (a, b) => a.expanded === b.expanded && a.onToggle === b.onToggle && a.onOpenFile === b.onOpenFile
   && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment
@@ -1642,7 +1645,7 @@ export function SessionDetailView({
         pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
           : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-          : newConversation ? <ConversationWelcome /> : <EmptyState label={t.sessionDetail.empty} />}
+          : newConversation ? <ConversationWelcome /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
         renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
           onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
       <div className="conversation-composer-dock">

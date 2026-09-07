@@ -15,9 +15,9 @@ test("history hides all process, keeps final text and user IDs; reopening preser
   const headers=processHeaders(rows);
   const state=reconcileProcesses(new Map(),headers);
   expect(headers).toHaveLength(1);
-  expect(visibleProcessRows(rows,headers,state).map(row=>row.id)).toEqual(["user:client","process:turn","last:1"]);
+  expect(visibleProcessRows(rows,headers,state).map(row=>row.id)).toEqual(["user:client","process:turn","last:1","answer-meta:turn:turn"]);
   state.set("process:turn",{status:"completed",expanded:true});
-  expect(visibleProcessRows(rows,headers,state).map(row=>row.id)).toEqual(["user:client","process:turn","first:0","first:1","tool:call","last:0","last:1"]);
+  expect(visibleProcessRows(rows,headers,state).map(row=>row.id)).toEqual(["user:client","process:turn","first:0","first:1","tool:call","last:0","last:1","answer-meta:turn:turn"]);
   expect(rows.find(row=>row.id==="last:1")?.message?.attachments).toHaveLength(1);
 });
 test("completion collapses once, repeated persisted terminal never overwrites manual reopening",()=>{
@@ -63,5 +63,5 @@ test("live classification wins over partial history and preserves failed attempt
   const completed=conversationRows(partial,[{...turn,state:"completed",settled_at:100}],[]);
   const completedHeaders=processHeaders(completed);
   const closed=reconcileProcesses(states,completedHeaders);
-  expect(visibleProcessRows(completed,completedHeaders,closed).map(row=>row.id)).toEqual(["user:client","process:turn","last:1"]);
+  expect(visibleProcessRows(completed,completedHeaders,closed).map(row=>row.id)).toEqual(["user:client","process:turn","last:1","answer-meta:turn:turn"]);
 });

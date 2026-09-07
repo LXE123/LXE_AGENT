@@ -201,7 +201,7 @@ export class ConversationDisplayController {
         this.turns.delete(id); this.touched.delete(id); this.historyRevisions.delete(id); continue;
       }
       if ((this.touched.get(id) ?? 0) > requestRevision) continue;
-      const rows = conversationRows([], [turn], []);
+      const rows = conversationRows([], [turn], []).filter(row => row.kind !== "answer_meta");
       const confirmed = rows.every(row => {
         const saved = stored.get(row.id);
         if (!saved) return false;
