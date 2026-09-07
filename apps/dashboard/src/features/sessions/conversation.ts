@@ -149,7 +149,7 @@ export interface ToolOperation {
   argument: string;
   action: ToolAction;
   target: string;
-  status: "running" | "success" | "error";
+  status: "pending" | "running" | "success" | "error" | "unconfirmed";
   expandable?: boolean;
   call: unknown;
   result: unknown;
@@ -335,13 +335,27 @@ const blockId = (block: unknown, keys: string[]): string => {
   return "";
 };
 
-const toolResultStatus = (result: unknown): ToolOperation["status"] => {
-  if (!isRecord(result)) return "success";
+const toolResultStatus = (result: unknown, toolName = ""): ToolOperation["status"] => {
+  if (!isRecord(result)) return "unconfirmed";
   const displayStatus = scalarText(result.display_status);
   if (displayStatus === "running" || displayStatus === "success" || displayStatus === "error") {
     return displayStatus;
   }
-  return result.is_error ? "error" : "success";
+  if (result.is_error) return "error";
+  // exec/wait persist the runtime's formatted observation, not display_status.
+  // Inspect only its control header; command stdout below output: is not metadata.
+  if (toolName === "exec" || toolName === "wait") {
+    const body = Array.isArray(result.content)
+      ? result.content.filter(isRecord).filter(block => block.type === "text").map(block => String(block.text ?? "")).join("\n")
+      : typeof result.content === "string" ? result.content : "";
+    const header = body.split(/^(?:output|new_output):\s*$/m, 1)[0] ?? "";
+    if (/^exec_id: \S+$/m.test(header)) {
+      const state = /^status: (running|completed|failed|killed)$/m.exec(header)?.[1];
+      if (state === "running") return "unconfirmed";
+      if (state === "failed" || state === "killed") return "error";
+    }
+  }
+  return "success";
 };
 
 /**
@@ -352,9 +366,13 @@ const toolResultStatus = (result: unknown): ToolOperation["status"] => {
  */
 export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
   const calls: unknown[] = [];
+  const callStates = new Map<unknown, string | undefined>();
   const results: unknown[] = [];
   for (const message of messages) {
-    calls.push(...toolCallBlocks(message));
+    for (const call of toolCallBlocks(message)) {
+      calls.push(call);
+      callStates.set(call, message.turn?.status ?? undefined);
+    }
     const own = toolResultBlocks(message);
     if (own.length) results.push(...own);
     else if (roleLabel(message.role) === "tool") results.push({ type: "tool_result", ...message });
@@ -380,7 +398,8 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
       name,
       argument,
       ...toolOperationPresentation(name, argument),
-      status: toolResultStatus(result),
+      status: result === undefined && ["running", "queued"].includes(callStates.get(call) ?? "")
+        ? "pending" : toolResultStatus(result, name),
       call,
       result,
     };
@@ -392,7 +411,7 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
       name,
       argument: "",
       ...toolOperationPresentation(name, ""),
-      status: toolResultStatus(result),
+      status: toolResultStatus(result, name),
       call: undefined,
       result,
     });

@@ -187,6 +187,68 @@ function Fixture(){
     assert(!client.getQueryData(dashboardQueryKeys.sessions.detail("budget","latest")),"old session Query payload remains");
     report(`single oversized group: ${largeBytes} bytes; previous session cache released`);
   };
+  const toolLifecycle=async()=>{
+    const sessionId="tool-lifecycle",turnId="tool-turn";
+    select(sessionId);await delay(160);
+    const base={display_group_id:"tool-group",created_at:1,turn:{turn_id:turnId,status:"running"}};
+    const user={...base,display_id:"tool-user",message_id:"tool-user",role:"user",content:"执行 fixture"};
+    const call={...base,id:"tool-answer",display_id:"tool-answer",role:"assistant",
+      content:[{type:"tool_call",id:"fixture-call",name:"exec",arguments:{cmd:"fixture download"}}]};
+    records.set(sessionId,[user,call] as SessionMessage[]);
+    const started=Date.now();
+    const initial={turn_id:turnId,message_id:"tool-user",text:"执行 fixture",created_at:started,started_at:started,settled_at:0,state:"running"} as DesktopConversationTurnPayload;
+    push(sessionId,initial);
+    await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(sessionId)});await delay(180);
+    const icon=()=>document.querySelector<HTMLElement>('[data-conversation-row="tool:tool-turn:fixture-call"] [data-tool-status]')!;
+    assert(icon()?.dataset.toolStatus==="pending","call without start was not pending");
+    const step=(status:string)=>({id:"fixture-call",name:"exec",detail:"fixture download",status,duration_ms:1000,
+      ...(status==="success"?{result_block:{language:"text",content:"download complete"}}:{}),
+      ...(status==="error"?{error_block:{language:"text",content:"fixture actual error"}}:{})});
+    const update=(seq:number,status:string,state="running")=>({...initial,state,settled_at:state==="running"?0:started+2000,
+      stream:{seq,tool_steps:[step(status)],process_parts:[{type:"tool",part_id:"tool:fixture-call",sequence:1,tool_step:step(status)}],
+        display_metrics:{phase:"running_tool"}}}) as DesktopConversationTurnPayload;
+    push(sessionId,update(1,"running"));await delay(180);
+    const row=document.querySelector<HTMLElement>('[data-conversation-row="tool:tool-turn:fixture-call"]')!;
+    const summary=row.querySelector<HTMLButtonElement>(".tool-op-summary")!;
+    const height=summary.getBoundingClientRect().height;
+    const chevron=summary.querySelector(".tool-op-chevron")!;
+    assert(summary.getBoundingClientRect().right-chevron.getBoundingClientRect().right<16,"status/chevron are not aligned at the right edge");
+    assert(summary.getAttribute("aria-expanded")==="false","tool details not collapsed by default");
+    assert(icon().title==="运行中"&&icon().textContent==="","status should be icon-only with title");
+    const spinner=icon().querySelector<HTMLElement>(".conversation-spinner")!;
+    const animation=getComputedStyle(spinner);
+    assert(animation.animationIterationCount==="infinite","spinner does not keep animating");
+    const startedAt=Number(spinner.getAnimations()[0]?.currentTime??0);
+    for(let i=0;i<4;i++){
+      await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(sessionId)});await delay(300);
+      assert(icon().dataset.toolStatus==="running","history refresh stopped running tool");
+      assert(row===document.querySelector('[data-conversation-row="tool:tool-turn:fixture-call"]'),"tool row remounted");
+    }
+    assert(Number(spinner.getAnimations()[0]?.currentTime??0)>startedAt+900,"spinner stopped after one cycle");
+    summary.click();await delay(120);summary.click();await delay(120);
+    assert(icon().dataset.toolStatus==="running","folding changed tool status");
+    // The tool invocation yielded, and the turn settled, while its process still runs.
+    records.set(sessionId,[...records.get(sessionId)!,{...base,display_id:"tool-result",role:"tool",
+      content:[{type:"tool_result",tool_call_id:"fixture-call",display_status:"running",content:"yielded"}]}] as SessionMessage[]);
+    push(sessionId,update(2,"running","completed"));await delay(180);
+    const process=document.querySelector<HTMLButtonElement>(".conversation-process-toggle")!;
+    if(process.getAttribute("aria-expanded")==="false"){process.click();await delay(180);}
+    await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(sessionId)});await delay(180);
+    assert(icon().dataset.toolStatus==="running","yielded tool was treated as completed");
+    push(sessionId,update(2,"success","completed"));await delay(180);
+    assert(icon().dataset.toolStatus==="success"&&icon().title==="已完成","same-seq completion missing");
+    assert(Math.abs(icon().closest(".tool-op-summary")!.getBoundingClientRect().height-height)<1,"status icon changed summary height");
+    push(sessionId,update(3,"running","completed"));await delay(180);
+    assert(icon().dataset.toolStatus==="success","late start regressed completed tool");
+    // New selection clears lifecycle evidence; cancelled call-only history remains unknown.
+    select("tool-unknown");await delay(120);
+    records.set("tool-unknown",[{...call,turn:{turn_id:turnId,status:"cancelled"}}] as SessionMessage[]);
+    await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession("tool-unknown")});await delay(180);
+    assert(icon().dataset.toolStatus==="unconfirmed"&&icon().title==="结果未确认","cancelled call was treated as success");
+    push("tool-unknown",update(1,"error","cancelled"));await delay(180);
+    assert(icon().dataset.toolStatus==="error"&&icon().title==="执行失败","error icon missing");
+    report("Tool lifecycle: five icon-only states; >1s continuous animation through four history refreshes; stable row/height; folds preserve state; same-seq background completion; late start ignored");
+  };
   const answerFooter=async()=>{
     select("footer");await delay(150);
     const hint=document.querySelector<HTMLElement>(".conversation-empty")!;
@@ -245,6 +307,7 @@ function Fixture(){
   return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
     <div style={{padding:8,display:"flex",gap:12}}><button disabled={busy} onClick={()=>void run(sendCases)}>Run send scenarios</button><button disabled={busy} onClick={()=>void run(longHistory)}>Run 1000 group history</button>
       <button disabled={busy} onClick={()=>void run(answerFooter)}>Run answer footer</button>
+      <button disabled={busy} onClick={()=>void run(toolLifecycle)}>Run tool lifecycle</button>
       <button disabled={busy} onClick={()=>void run(cacheBudget)}>Run cache budget</button>
       <button disabled={busy} onClick={()=>void run(heightsAndRaces)}>Run height and races</button>
       <button disabled={busy} onClick={()=>void run(async()=>{sendState="completed";await send("主动发送回到最新",[]);})}>Send now</button></div>

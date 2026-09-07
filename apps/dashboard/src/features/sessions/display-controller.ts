@@ -2,6 +2,7 @@ import type { DesktopConversationActivityPayload, DesktopConversationSendPayload
 import type { SessionDetailPayload, SessionMessage } from "../../api/payloads";
 import { acknowledgeConversationSend, conversationRows, type ConversationRow, type PendingMessage } from "./presentation";
 import { appendConversationWindow, boundConversationWindow, CONVERSATION_BYTE_BUDGET, CONVERSATION_GROUP_BUDGET, mergeLatestConversationWindow, prependConversationWindow } from "./model";
+import { isToolTerminal, mergeToolStream } from "./tool-state";
 
 export type WindowConnection = "attached" | "detached";
 export interface ConversationDisplaySnapshot {
@@ -31,6 +32,8 @@ export class ConversationDisplayController {
   private listeners = new Set<() => void>();
   private pending = new Map<string, PendingMessage>();
   private turns = new Map<string, DesktopConversationTurnPayload>();
+  // References to terminal rows in the current window, discarded on eviction/selection.
+  private toolEvidence = new Map<string, ConversationRow>();
   private visible: string[] = [];
   private selection = 0;
   private revision = 0;
@@ -54,7 +57,7 @@ export class ConversationDisplayController {
   select(sessionId: string, newDraft = false): void {
     if (sessionId === this.state.sessionId && !newDraft) return;
     this.selection += 1;
-    this.turns.clear(); this.touched.clear(); this.visible = []; this.historyRevisions.clear();
+    this.turns.clear(); this.touched.clear(); this.visible = []; this.historyRevisions.clear(); this.toolEvidence.clear();
     this.state = { sessionId, viewKey: sessionId || `draft:${this.selection}`, rows: [], pending: [], connection: "attached",
       following: true, loadState: sessionId ? "loading" : "ready", error: "", jump: 0 };
     this.publish();
@@ -135,7 +138,7 @@ export class ConversationDisplayController {
       const incoming = !previous && !terminal(value) && savedStatus && ["completed", "error", "cancelled"].includes(savedStatus)
         ? { ...value, state: savedStatus as DesktopConversationTurnPayload["state"], stream: undefined } : value;
       const state = previous && terminal(previous) && !terminal(incoming) ? previous.state : incoming.state;
-      const stream = previous?.stream && (previous.stream.seq >= (incoming.stream?.seq ?? 0)) ? previous.stream : incoming.stream;
+      const stream = mergeToolStream(previous?.stream, incoming.stream);
       const turn = previous ? { ...previous, ...incoming, state, ...(stream ? { stream } : {}) } : incoming;
       if (!previous || previous.state !== turn.state || previous.stream !== turn.stream) this.touched.set(turn.turn_id, ++this.revision);
       this.turns.set(turn.turn_id, turn);
@@ -208,7 +211,9 @@ export class ConversationDisplayController {
         if (row.kind === "status") return saved.status === turn.state;
         if (row.message) return Boolean(saved.message) && text(row.message) === text(saved.message!) && (row.message.attachments ?? []).every(attachment => saved.message?.attachments?.some(value => value.attachment_id === attachment.attachment_id));
         // Tools are only released once history contains their finished execution result.
-        return saved.operation && saved.operation.status !== "running";
+        const liveStatus = row.liveTool?.status;
+        return isToolTerminal(liveStatus) && saved.operation?.result !== undefined
+          && saved.operation?.status === liveStatus;
       });
       if (confirmed) { this.turns.delete(id); this.touched.delete(id); this.historyRevisions.delete(id); }
     }
@@ -218,6 +223,21 @@ export class ConversationDisplayController {
     const turns = this.state.connection === "attached" ? [...this.turns.values()] : [];
     const changedDuringHistory = new Set([...this.touched].filter(([id, revision]) => revision > (this.historyRevisions.get(id) ?? -1)).map(([id]) => id));
     const rows = conversationRows(this.state.detail?.messages ?? [], turns, this.state.connection === "attached" ? pending : [], changedDuringHistory);
+    const evidence = new Map<string, ConversationRow>();
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]!;
+      if (row.kind !== "tool") continue;
+      const key = JSON.stringify([row.turnId || row.groupId, row.id]);
+      const confirmed = this.toolEvidence.get(key);
+      const confirmedStatus = confirmed?.operation?.status ?? confirmed?.liveTool?.status;
+      // A matching persisted result releases the live details. A call-only or stale
+      // history response retains the already observed terminal result.
+      const persisted = row.operation?.result !== undefined && row.operation?.status === confirmedStatus;
+      if (confirmed && !persisted) rows[index] = { ...row, operation: confirmed.operation, liveTool: confirmed.liveTool };
+      const current = rows[index]!;
+      if (isToolTerminal(current.operation?.status ?? current.liveTool?.status)) evidence.set(key, current);
+    }
+    this.toolEvidence = evidence;
     this.state = { ...this.state, pending, rows };
     this.notify();
   }

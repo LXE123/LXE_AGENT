@@ -371,6 +371,7 @@ export const ZH_TEXT = {
     toolActivity: "工具活动",
     toolOperation: "工具操作",
     toolContinuation: "工具操作续段",
+    toolStatuses: { pending: "待执行", running: "运行中", success: "已完成", error: "执行失败", unconfirmed: "结果未确认" },
     toolActions: {
       read: "读取",
       edit: "编辑",
@@ -1179,6 +1180,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       toolActivity: "tool activity",
       toolOperation: "Tool activity",
       toolContinuation: "Tool activity continuation",
+      toolStatuses: { pending: "Pending execution", running: "Running", success: "Completed", error: "Execution failed", unconfirmed: "Result unconfirmed" },
       toolActions: {
         read: "Read",
         edit: "Edit",

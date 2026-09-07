@@ -11456,3 +11456,15 @@ pre {
 .conversation-feed [data-answer-id] > .turn-file-section {
   margin-block: 0;
 }
+
+.tool-status-icon {
+  display: inline-flex;
+  margin-left: auto;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.tool-status-icon[data-tool-status="error"] { color: var(--danger); }

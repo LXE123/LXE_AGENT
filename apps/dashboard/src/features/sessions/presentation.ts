@@ -21,6 +21,8 @@ export const userDisplayId = (message: { client_message_id?: string; message_id?
   `user:${message.client_message_id || message.message_id || message.display_id}`;
 export const isInternalMessage = (message: SessionMessage): boolean =>
   message.source_reason === "environment_context" || (message.role === "user" && isRecord(message.environmentContext));
+const toolDisplayId = (turnId: string, groupId: string, callId: string): string =>
+  `tool:${encodeURIComponent(turnId || groupId)}:${encodeURIComponent(callId)}`;
 
 /** One projection for both streaming and stored data. Source IDs never depend on the loaded page index. */
 export function conversationRows(messages: SessionMessage[], turns: DesktopConversationTurnPayload[], pending: PendingMessage[], preferLive: boolean | ReadonlySet<string> = false): ConversationRow[] {
@@ -45,7 +47,7 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
     rows.push(row);
     if (row.turnId) { const list = byTurn.get(row.turnId) ?? []; list.push(row); byTurn.set(row.turnId, list); }
   };
-  const operations = toolOperations(messages);
+  const operationsByGroup = new Map([...groups].map(([key, group]) => [key, toolOperations(group)]));
   const claimedTools = new Set<string>();
   for (const message of messages) {
     if (isInternalMessage(message)) continue;
@@ -60,14 +62,19 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
         const block = isRecord(value) ? value : { type: "text", text: String(value) };
         if (["tool_call", "tool_use", "tool_result"].includes(String(block.type))) {
           const callId = String(block.id || block.tool_call_id || block.tool_use_id || `${messageId}:${index}`);
-          const id = `tool:${callId}`;
+          const id = toolDisplayId(turnId, base.groupId, callId);
           if (claimedTools.has(id)) return;
-          const operation = operations.find((op) => {
+          const operation = operationsByGroup.get(turnId || base.groupId)?.find((op) => {
             const call = isRecord(op.call) ? op.call : {};
             const result = isRecord(op.result) ? op.result : {};
             return op.call === block || op.result === block || String(call.id || result.tool_call_id || result.tool_use_id) === callId;
           });
-          if (operation) { claimedTools.add(id); add({ ...base, id, kind: "tool", presentation: "process", operation: { ...operation, key: id } }); }
+          if (operation) {
+            const active = turns.some(turn => turn.turn_id === turnId && ["running", "queued"].includes(turn.state));
+            claimedTools.add(id);
+            add({ ...base, id, kind: "tool", presentation: "process",
+              operation: { ...operation, key: id, status: operation.result === undefined && active ? "pending" : operation.status } });
+          }
           return;
         }
         add({ ...base, id: `${messageId}:${index}`, kind: "message", presentation: message.role === "assistant" ? (finalMessages.has(message) && block.type === "text" ? "final" : "process") : undefined, status: "completed", message: { ...message, content: [block], attachments: index === blocks.length - 1 ? message.attachments : undefined, artifacts: undefined } });
@@ -87,7 +94,7 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
       rows.push({ ...base, id: userId, kind: "message", status: turn.state, message: { display_group_id: groupId, role: "user", content: turn.text, attachments: turn.attachments, created_at: base.createdAt / 1000 } });
     }
     const parts: ConversationRow[] = (turn.stream?.process_parts ?? []).map((part) => part.type === "tool"
-      ? { ...base, id: `tool:${part.tool_step.id}`, kind: "tool", presentation: "process", liveTool: part.tool_step }
+      ? { ...base, id: toolDisplayId(turn.turn_id, groupId, part.tool_step.id), kind: "tool", presentation: "process", liveTool: part.tool_step }
       : { ...base, id: part.part_id, kind: "message", presentation: part.type === "text" && part.presentation === "final" ? "final" : "process", status: part.status, message: { display_group_id: groupId, role: "assistant", content: [part.type === "thinking" ? { type: "thinking", thinking: part.text, redacted: part.redacted_count > 0 } : { type: "text", text: part.text }] } });
     // Stored data confirms an item; the live order remains authoritative during the handoff,
     // including failed-attempt rows that deliberately have no persisted counterpart.
@@ -96,7 +103,9 @@ export function conversationRows(messages: SessionMessage[], turns: DesktopConve
       const saved = existing.get(part.id);
       if (!saved) return part;
       if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.message) return { ...saved, ...part, groupId: saved.groupId, message: { ...saved.message!, content: part.message.content } };
-      if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.liveTool) return { ...saved, ...part, groupId: saved.groupId, operation: undefined };
+      // A transcript call (or a yielded command result) is not an execution end.
+      // Tool lifecycle state is authoritative independently of text refresh revisions.
+      if (part.liveTool) return { ...saved, ...part, groupId: saved.groupId, operation: undefined };
       return { ...saved, presentation: part.presentation };
     });
     const partIds = new Set(parts.map((part) => part.id));
