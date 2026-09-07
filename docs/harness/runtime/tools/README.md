@@ -23,6 +23,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 常用行为
 
 - `read` 可以读取文本和受支持的图片；已知二进制文件会明确拒绝。文本输出有统一上限，大文件通过 `offset` 和 `limit` 分段继续，不把整文件一次塞给模型。
+- `ls` 用 `limit`（默认 500）和 `offset`（默认 0）连续查看目录。只输出完整条目；条数或字符预算用尽时，按实际返回数量给出下一页 offset。目录以 `/` 标记，符号链接以 `@` 标记。详见 [目录分页规则](tool_schema.md#目录分页-ls)。
 - `edit` 用 `path` 和 `edits[{oldText,newText}]` 一次修改同一文件的多个位置。所有目标都在原文件中定位，必须唯一且不重叠；整批检查通过后才写入。精确匹配失败时尝试空白和 Unicode 归一化，结果会注明并返回有限长度的差异摘要。详见 [批量编辑规则](tool_schema.md#批量编辑-edit)。
 - `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。它先观察最多 `yield-time-ms`；命令仍运行时返回 `exec_id`，不设默认硬超时。
 - `wait` 只接受所属 Session 的 `exec_id`，返回上次成功观察后的新增输出；`terminate=true` 会终止完整进程树。v1 不提供 PTY、stdin、list 或重连。

@@ -1,8 +1,8 @@
-import { readdirSync } from "node:fs";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { ToolDefinition } from "../registry";
 import { WorkspaceSearchService } from "../workspace-search";
 import type { CodingPathPolicy, ReadableTarget } from "./path-policy";
+import { directoryListSchema, listDirectory, validateDirectoryListInput } from "./directory-list";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
@@ -99,14 +99,12 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     },
     {
       name: "ls",
-      description: "List any directory readable by the local LXE Agent process. Relative paths resolve from the session working directory.",
-      input_schema: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false },
+      description: "List one directory level, including hidden entries, at any path readable by the local LXE Agent process. Relative paths resolve from the session working directory. Names are sorted case-insensitively with original-name tie breaking; directories end in /, symbolic links in @, and control characters are escaped. limit defaults to 500, offset to 0. Output contains complete entries within the character budget; use the returned next offset to continue. Each call reads a fresh directory listing: additions or removals between pages may cause omissions or duplicates.",
+      input_schema: directoryListSchema,
       execute: async (input, context) => {
-        const target = paths.resolveReadable(context.workspace, input.path ?? ".");
-        const listing = readdirSync(target.path, { withFileTypes: true })
-          .map((entry) => `${entry.isDirectory() ? "d" : "f"} ${entry.name}`)
-          .sort();
-        return { content: textBlock(truncateHeadTail(listing.join("\n"), toolOutputLimit).value) };
+        const args = validateDirectoryListInput(input);
+        const target = paths.resolveReadable(context.workspace, args.path);
+        return { content: textBlock(listDirectory(target.path, args, toolOutputLimit, context.handle.signal)) };
       },
     },
   ];

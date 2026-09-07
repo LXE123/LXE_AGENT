@@ -294,7 +294,7 @@ describe("native coding tools", () => {
       .toContain("artifact text");
 
     const listed = await registry.execute("ls", { path: skillRoot }, context(root));
-    expect(String(listed.content[0]?.text)).toContain("d references");
+    expect(String(listed.content[0]?.text)).toContain("\nreferences/\n");
     const found = await registry.execute("find", {
       pattern: "*.md",
       path: repositorySkillsRoot,
