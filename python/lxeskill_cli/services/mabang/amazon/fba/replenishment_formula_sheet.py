@@ -185,9 +185,9 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
     sheet.freeze_panes = "E3"
     sheet.sheet_view.showGridLines = False
     sheet.column_dimensions["AB"].hidden = True
-    sheet.auto_filter.ref = f"A2:AB{max(2, end)}"
     if selected:
-        table = Table(displayName="FinalShipping", ref=sheet.auto_filter.ref)
+        # Excel rejects a worksheet filter overlapping a Table's own filter.
+        table = Table(displayName="FinalShipping", ref=f"A2:AB{end}")
         table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=False)
         sheet.add_table(table)
         numeric = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
@@ -201,6 +201,8 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         days.error = "请输入大于等于0的整数；0表示不适用。"
         sheet.add_data_validation(days)
         days.add(f"U3:V{end}")
+    else:
+        sheet.auto_filter.ref = "A2:AB2"
     widths = (32, 16, 28, 35, 13, 13, 13, 13, 14, 12, 12, 12, 13, 12, 13, 13, 22, 22, 18, 24, 18, 18, 17, 17, 18, 22, 66)
     input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 25}
     formula_columns = {9, 17, 23, 24, 26, 27}

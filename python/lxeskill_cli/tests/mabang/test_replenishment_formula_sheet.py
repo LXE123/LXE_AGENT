@@ -4,6 +4,7 @@ from dataclasses import replace
 from copy import deepcopy
 from pathlib import Path
 from zipfile import ZipFile
+from xml.etree import ElementTree as ET
 
 import pytest
 from openpyxl import load_workbook
@@ -67,6 +68,8 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert raw.active.title == formulas.FINAL_SHIPPING_SHEET
         assert raw.active.freeze_panes == "E3"
         assert raw.active.tables["FinalShipping"].ref == "A2:AB6"
+        assert raw.active.tables["FinalShipping"].autoFilter.ref == "A2:AB6"
+        assert raw.active.auto_filter.ref is None
         assert raw.active.column_dimensions["AB"].hidden
         assert [c.value for c in raw.active[2]][:27] == list(formulas.FINAL_SHIPPING_COLUMNS)
         for address in ("I3", "Q3", "W3", "X3", "Z3", "AA3"):
@@ -83,6 +86,14 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         raw.close()
     with ZipFile(path) as archive:
         assert archive.testzip() is None
+        ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        worksheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+        table = ET.fromstring(archive.read("xl/tables/table1.xml"))
+        # Check the final package after Active metadata and cache injection:
+        # Excel repairs/removes this table if a sheet-level filter overlaps it.
+        assert worksheet.find("s:autoFilter", ns) is None
+        assert table.find("s:autoFilter", ns).attrib["ref"] == "A2:AB6"
+        assert len(worksheet.findall("s:tableParts/s:tablePart", ns)) == 1
 
 
 def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
