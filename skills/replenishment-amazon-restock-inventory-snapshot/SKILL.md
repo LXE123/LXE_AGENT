@@ -4,103 +4,37 @@ description: 将用户从 Seller Central 手动下载的亚马逊补充库存 CS
 type: amazon_replenish
 commands:
   - lxeskill replenish inventory restock-snapshot-build
+references:
+  - references/download-and-validation.md
 ---
 
-## When to Use
+# 亚马逊补充库存对照快照
 
-- 用户已经从 Seller Central 下载亚马逊补充库存 CSV，需要转成备货可用 snapshot。
-- 用户不知道亚马逊库存 CSV 去哪里下载，需要下载路径或截图指引。
-- 用户要用亚马逊补充库存报告里的 `Total Units` 作为亚马逊侧 FBA 总库存字段。
-- 用户要检查亚马逊补充库存文件是否传错店铺。
+## 执行与错误
 
-## Hard Rules
+- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
+- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
+- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
+- 只有 `data.auth_refresh_required=true` 才按 `lxeskill auth refresh` 的恢复流程刷新一次，再重试失败步骤；为 false 或缺失时停止并保留诊断，不凭错误文本中的 401/403 或 ID 猜测认证失败。
+- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
+- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
+- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
+- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
+## 使用与命令
 
-- 默认解析命令：`lxeskill replenish inventory restock-snapshot-build --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"`
-- 本 skill 不登录 Seller Central，不自动下载亚马逊补充库存文件。
-- CSV 必须是 Seller Central 补充库存报告，并包含 `Merchant SKU` 和 `Total Units`。
-- CLI 会基于本地最新马帮原生 MSKU 数据做校验；如果本地没有店铺 MSKU 文件，先运行 `replenishment-msku-download`。
-- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
-- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
-
-## Download Guide
-
-本 skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。用户需要下载指引时，按美国站示例引导：
-
-1. 打开美国站补充库存报告入口：`https://sellercentral.amazon.com/reportcentral/RestockReport/1`
-2. 或从 Seller Central 进入：`库存 -> 亚马逊物流库存 -> 报告 -> 补货报告`
-3. 在 `亚马逊配送报告 / 补充库存` 页面点击 `请求下载 .csv 文件`
-4. 报告生成后，在对应 `.csv` 行点击 `下载`
-5. 将下载得到的 CSV 路径传给 snapshot CLI
-
-用户问“怎么点”、“发我截图”或“路径图”时，不要读取、不要解析、不要复述截图内容，将以下三张截图按顺序放入 `paths`，一次调用 `send_files`：
+只有用户明确要求 Amazon 侧库存对照时启用；输入为用户从 Seller Central 手动下载的 CSV。本 Skill 不登录或自动下载 Seller Central 数据，不替换主流程马帮库存口径。
 
 ```text
-skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg
-skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_2_report_menu.jpg
-skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_3_request_csv.jpg
+lxeskill replenish inventory restock-snapshot-build --store-name "<规范店铺名>" --csv "<CSV路径>"
 ```
 
-只有用户明确要求解释截图时，才补充简短文字说明；否则只说明已发送截图，并提醒最终应上传包含 `Merchant SKU` 和 `Total Units` 的补充库存 CSV。
+用户明确指定马帮源表时附加 `--msku-xlsx "<源表路径>"`。名称不确定先读店铺解析 Skill；缺源表按当前完整/单步范围处理。
 
-## How to Execute
+## 校验与结果
 
-如果店铺名不确定，先解析店铺：
-
-```text
-lxeskill replenish store resolve --store-name "<店铺名>"
-```
-
-解析成功后，生成亚马逊补充库存 snapshot：
-
-```text
-lxeskill replenish inventory restock-snapshot-build --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"
-```
-
-如果用户明确提供了马帮原生 MSKU 文件路径，可附加：
-
-```text
---msku-xlsx "<马帮原生MSKU文件.xlsx>"
-```
-
-## Validation Rules
-
-CLI 会执行硬校验，任一失败都不会生成 snapshot：
-
-- Amazon CSV 的 `Merchant SKU` 至少 `70%` 能在马帮原生 MSKU 表中找到。
-- Amazon `Total Units` 前 10 的 `Merchant SKU` 中，至少 `70%` 能在马帮原生 MSKU 表中找到。
-- 每行必须满足 `Inbound = Working + Shipped + Receiving`。
-- 每行必须满足 `Total Units = Available + FC transfer + FC Processing + Customer Order + Inbound`。
-
-`Amazon.Found.*` 是真实 MSKU，不做排除，正常参与校验和快照。
-
-## Result Handling
-
-成功时：
-
-```json
-{
-  "success": true,
-  "store_name": "Amazon-YRZ-US",
-  "snapshot_time": "202606211530",
-  "snapshot_date": "20260621",
-  "snapshot_xlsx_path": "artifacts/replenish/restock_inventory_snapshots/202606211530-Amazon-YRZ-US_亚马逊补充库存快照.xlsx",
-  "amazon_restock_inventory_validation": {
-    "country": "US",
-    "mabang_site": "美国站",
-    "amazon_sku_count": 1774,
-    "matched_amazon_sku_count": 1700,
-    "amazon_sku_match_ratio": 0.9583,
-    "top_inventory_sku_count": 10,
-    "top_inventory_matched_count": 10
-  },
-  "source": "amazon_restock_inventory_snapshot"
-}
-```
-
-- 告诉用户 snapshot 已生成，并列出 `snapshot_xlsx_path`。
-- 简要说明 Amazon SKU 匹配率和 Top 库存 SKU 匹配数。
-- 如果用户要把这个 snapshot 用进备货建议，切换到 `replenishment-calculate`，并在计算命令中传 `--amazon-restock-inventory-snapshot "<snapshot_xlsx_path>"`。
+- CSV 必须有 Merchant SKU、Total Units。CLI 校验店铺匹配率和库存分项；失败保留实际错误，不因字段相似自行转换。
+- `Amazon.Found.*` 作为真实 MSKU 参与快照校验，不按名称排除；这不改变主计算只使用 Active 行的范围。
+- 成功保留 `data.snapshot_xlsx_path` 和核验摘要；用户要求用于计算时传 `--amazon-restock-inventory-snapshot`，增加对照字段，不重复扣减主建议。
+- 单步任务交付 terminal files；完整任务保留对照快照路径到最终计算。
+- 用户询问下载入口、截图或详细分项校验时读 [references/download-and-validation.md](references/download-and-validation.md)，使用已有截图资产，不猜路径。

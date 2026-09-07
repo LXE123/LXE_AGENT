@@ -6,89 +6,34 @@ commands:
   - lxeskill replenish msku download
 ---
 
-## When to Use
+# 下载并核验 MSKU 源表
 
-- 用户要下载某个马帮 Amazon 店铺的 MSKU 数据 Excel。
-- 用户已提供 `store_name`、`store_id` 和 `id_type`，需要按店铺导出 MSKU 数据。
-- 用户只提供店铺名时，先用 `replenishment-store-resolve` 获取 `store_id`、`id_type`、`store_name`。
+## 执行与错误
 
-## Hard Rules
+- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
+- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
+- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
+- 只有 `data.auth_refresh_required=true` 才按 `lxeskill auth refresh` 的恢复流程刷新一次，再重试失败步骤；为 false 或缺失时停止并保留诊断，不凭错误文本中的 401/403 或 ID 猜测认证失败。
+- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
+- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
+- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
+- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
+## 使用与命令
 
-- 只使用固定 CLI：`lxeskill replenish msku download`
-- 不要手动拼接马帮请求。
-- 不要手写、复用或转述样例 Cookie/token。
-- 不要猜测店铺 ID；如果缺少 `store_name`、`store_id` 或 `id_type`，先运行 `replenishment-store-resolve`。
-- `id_type` 本身就是马帮请求字段名，值只允许是 `fbaWarehouseIds[]` 或 `shopId`。
-- 不要把 `shopId` 当作 `fbaWarehouseIds[]` 使用，也不要反过来使用。
-- 后续流程只使用 `xlsx_path`；CLI 已把 `.xls` 转成 `.xlsx` 并删除原始 `.xls`。
-- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
-
-## Required Input
-
-- 必须有 `store_name`、`store_id` 和 `id_type`。
-- `store_name` 用于输出展示和文件命名，不允许省略。
-
-## How to Execute
-
-如果用户只给店铺名，先解析店铺：
+用户需要单店、单站点 MSKU 数据时使用。缺少名称、ID 或类型时先读 `replenishment-store-resolve` 取得结果，不猜 ID。
 
 ```text
-lxeskill replenish store resolve --store-name "<店铺名>"
+lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<规范店铺名>"
 ```
 
-解析成功后，使用返回的 `store_id`、`id_type`、`store_name` 下载店铺 MSKU 数据：
+## 结果与下一步
 
-```text
-lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<店铺名>"
-```
-
-只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
-
-成功时：
-
-```json
-{
-  "success": true,
-  "store_name": "Amazon-Lerxiuer-FR",
-  "store_id": "697456821",
-  "id_type": "shopId",
-  "id_count": 123,
-  "xlsx_path": "artifacts/replenish/store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
-  "converted": true,
-  "raw_excel_deleted": true,
-  "source": "mabang_store_msku_download"
-}
-```
-
-失败时：
-
-```json
-{
-  "success": false,
-  "store_name": "Amazon-Lerxiuer-FR",
-  "store_id": "697456821",
-  "id_type": "shopId",
-  "exception": "..."
-}
-```
-
-## Result Handling
-
-- `success=true`：告诉用户店铺 MSKU 数据已下载完成，并提供 `xlsx_path`。
-- 可以简要说明 `store_name`、`store_id`、`id_type` 和 `id_count`。
-- `converted=true` 表示马帮返回了 `.xls`，CLI 已转换成 `.xlsx`。
-- `success=false`：只转述 `exception`。
-
-## Active 核验与计算范围
-
-- 单店、单站点下载后，CLI 用官方 `pStatus=["Active"]` Listing 标注源表；需要 `LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`，网页下载仍使用原来的店铺 ID 和登录态。
-- 原始记录全部保留，新增“在售核验结果”“是否参与计算”“排除原因”。只有确认 Active 的行进入后续销量和库存计算；未匹配的行标为“未确认在售”，不能转述成“停售”。即使有近期销量，被排除的行也不参与计算。
-- 隐藏的 `Active核验信息` Sheet 保存本轮绑定、SKU 类型、店铺站点及源数据指纹。请保留完整文件，不手动改标记或删除核验 Sheet。
-- `original_row_count`、`active_row_count`、`excluded_row_count` 分别表示原始、参与、排除行数；原始数等于后两者之和。
-- 下载命令只接受单店、单站点，不支持多站点整组下载。整组会在导出前返回 `context.reason=multi_site_group`，`context.group` 是父级信息，`context.candidates` 是网页中的真实子站点（`store_name`、`store_id`、`id_type`）。将候选展示给用户选择，再用所选站点重新调用；不要重试同一整组、自动选择站点或自动拆成多个任务。旧版未打标源表需重新下载。
-- 命令最多执行 30 分钟，官方 Listing 阶段期限 25 分钟。进度在 stderr，等待最终 terminal；官方 API 失败不会触发 Cookie 刷新，也不会发布未核验的源表。
-- 同一分钟下载若目标文件已存在，会保留已有文件并报错；下一分钟重新下载即可，不要删除历史文件来规避冲突。
+- CLI 保留网页下载和 XLSX 转换，随后使用官方 Active Listing 核验；只有全部成功才发布源表。后续只使用 `data.xlsx_path`。
+- 记录 `original_row_count`、`active_row_count`、`excluded_row_count`，原始数等于参与数加排除数；原始行保留，只有确认 Active 的行参与后续计算。
+- 未匹配 Active 的行只能称“未确认在售”，不能称“停售”；即使有近期销量也不重新纳入。`Amazon.Found.*` 遵循相同规则，不作名称特判。
+- 隐藏 `Active核验信息` 保存本轮 Listing 绑定、类型、店铺站点和源指纹；不能改标记、替换绑定或删除核验页。旧版未核验文件需重新下载。
+- `data.context.reason=multi_site_group` 时展示 `context.candidates` 的真实子站点，用户选择后再调用；不重试整组、不自动拆任务。
+- 完整任务下载成功后继续销量与库存；单步请求交付源表即可。无 Active 行时结束并说明范围，不生成补货建议。
+- 官方数据服务依赖 `LXE_DATA_SERVER_URL`、`LXE_DATA_SERVER_API_KEY`（安装版由桌面注入，可能承载设备凭据）；不索取或展示密钥。网页仍依赖马帮登录态，官方错误不刷新 Cookie。
+- 命令最长 30 分钟，官方阶段 25 分钟，进度在 stderr。同一分钟目标文件冲突时保留原文件，到下一分钟重试，不删除历史文件。

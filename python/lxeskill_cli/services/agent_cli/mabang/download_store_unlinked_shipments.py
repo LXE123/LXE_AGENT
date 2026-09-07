@@ -38,15 +38,9 @@ async def _download_with_snapshot(
     )
     payload = result.to_payload()
     raw_file_paths = _raw_file_paths_from_download_result(result)
-    if not raw_file_paths:
-        logger.info("[UnlinkedShipments] 本次没有可生成快照的原生文件，跳过 snapshot")
-        payload["snapshot"] = None
-        payload["snapshot_skipped_reason"] = "本次没有可生成快照的未关联货件原生文件"
-        return payload
-
     try:
         logger.info("[UnlinkedShipments] 开始生成 snapshot: raw_file_count=%d", len(raw_file_paths))
-        snapshot = build_store_unlinked_shipments_snapshot(raw_file_paths, store_name=result.store_name)
+        snapshot = build_store_unlinked_shipments_snapshot(raw_file_paths, store_name=result.store_name, query_result=result)
     except Exception as exc:
         logger.warning("[UnlinkedShipments] 生成 snapshot 失败: %s", _exception_text(exc))
         return {

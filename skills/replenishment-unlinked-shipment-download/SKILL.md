@@ -4,139 +4,43 @@ description: 按马帮 Amazon FBA 店铺名下载未关联货件原生导出文�
 type: amazon_replenish
 commands:
   - lxeskill replenish shipments unlinked-download
+references:
+  - references/results.md
 ---
 
-## When to Use
+# 下载未关联货件并保存快照
 
-- 用户要按店铺下载未关联货件原生文件。
-- 用户要测试备货缺失货件数据来源。
-- 用户提到 `WMS待配货`、`WMS待装箱`、`待关联货件` 三类发货单状态。
-- 用户要拿到原始导出文件和可供备货计算抵扣使用的未关联货件快照。
+## 执行与错误
 
-## Hard Rules
+- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
+- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
+- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
+- 只有 `data.auth_refresh_required=true` 才按 `lxeskill auth refresh` 的恢复流程刷新一次，再重试失败步骤；为 false 或缺失时停止并保留诊断，不凭错误文本中的 401/403 或 ID 猜测认证失败。
+- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
+- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
+- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
+- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
+## 使用与命令
 
-- 只使用固定下载 CLI：`lxeskill replenish shipments unlinked-download --store-name "<店铺名>"`
-- 下载 CLI 会自动基于本次下载到的 raw 文件生成未关联货件快照。
-- 不要手动拼马帮 API 请求。
-- 不要手写、复用或展示 bearer/freeToken/cookie。
-- 不要手动解析下载文件。
-- 只以本次下载 CLI 的 `type="result"` terminal 为准。
-- 不要自动接入或修改备货计算。
-- 如果店铺名不确定，先运行 `replenishment-store-resolve`，使用解析成功返回的规范 `store_name`。
-- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
-- 下载 CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`；如果是未找到店铺，可提示用户按候选店铺名重试。
-- 如果`type="result"` terminal 中有 `download_result`，说明 raw 文件已下载成功，但快照生成失败。
-
-## Required Input
-
-- 必须有一个马帮 Amazon FBA 店铺名。
-- 店铺名必须能被 CLI 严格匹配到马帮店铺；不要猜店铺 ID。
-
-## How to Execute
-
-如果店铺名不确定，先解析店铺：
+查询马帮 `WMS待配货`、`WMS待装箱`、`待关联货件` 三个状态，下载本轮原生文件并生成扣减快照。
 
 ```text
-lxeskill replenish store resolve --store-name "<店铺名>"
+lxeskill replenish shipments unlinked-download --store-name "<规范店铺名>"
 ```
 
-解析成功后，使用规范 `store_name` 下载未关联货件原生文件：
+模糊名称先读 `replenishment-store-resolve`，不猜店铺 ID。导出需要轮询，等待原会话，不重复启动。
 
-```text
-lxeskill replenish shipments unlinked-download --store-name "<店铺名>"
-```
+## 三种结果
 
-- 导出任务通常需要几十秒；CLI 内部会轮询马帮任务中心。
-- 不要因为命令一时没有返回就重复启动。
-- 如果工具返回命令仍在运行/session running，等待最终完成，或隔较长时间再查看。
-- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+- `terminal.ok=true` 且 `data.snapshot.confirmed_empty=false`：快照已生成，计算时使用本次 `snapshot.snapshot_xlsx_path` 扣减；简述未关联总数量。
+- `terminal.ok=true` 且 `data.snapshot.confirmed_empty=true`：三个状态均查询成功且记录数全为零。已保存确认零货件快照，正常进入计算扣减 0；不要再次下载，也不能说“未取得快照”。
+- `terminal.ok=false`、缺状态、缺快照或快照生成失败：完整任务停止正式建议，不按零货件计算、不改用旧快照；保留实际错误。有 `data.download_result` 表示原生下载已完成但快照阶段失败，不等于查询全失败。
 
-下载成功时：
+## 后续与交付
 
-```json
-{
-  "success": true,
-  "store_name": "Amazon-xxx-US",
-  "store_id": 697476809,
-  "download_time": "202606121730",
-  "status_results": [
-    {
-      "status_name": "WMS待配货",
-      "total": 0,
-      "task_id": null,
-      "file_hash": "",
-      "file_name": "",
-      "raw_file_path": ""
-    },
-    {
-      "status_name": "WMS待装箱",
-      "total": 3,
-      "task_id": 370502,
-      "file_hash": "...",
-      "file_name": "fba报表-发货单_...",
-      "raw_file_path": "artifacts/replenish/unlinked_shipments/..."
-    }
-  ],
-  "source": "mabang_fba_unlinked_shipments",
-  "snapshot": {
-    "success": true,
-    "store_name": "Amazon-xxx-US",
-    "snapshot_time": "202606121735",
-    "snapshot_xlsx_path": "artifacts/replenish/unlinked_shipments_snapshots/202606121735-Amazon-xxx-US_未关联货件快照.xlsx",
-    "raw_file_count": 1,
-    "detail_count": 100,
-    "msku_count": 80,
-    "total_unlinked_quantity": 1200,
-    "source": "mabang_fba_unlinked_shipments_snapshot"
-  }
-}
-```
-
-如果三个状态全部 `total = 0`，下载仍然成功，但不会生成快照：
-
-```json
-{
-  "success": true,
-  "store_name": "Amazon-xxx-US",
-  "status_results": [],
-  "snapshot": null,
-  "snapshot_skipped_reason": "本次没有可生成快照的未关联货件原生文件"
-}
-```
-
-失败时：
-
-```json
-{
-  "success": false,
-  "store_name": "Amazon-xxx-US",
-  "exception": "...",
-  "download_result": {
-    "success": true,
-    "status_results": []
-  }
-}
-```
-
-## Download Test Checklist
-
-- 确认 JSON 中包含三个状态：`WMS待配货`、`WMS待装箱`、`待关联货件`。
-- 对 `total > 0` 的状态，确认 `raw_file_path` 非空，并且本地文件存在。
-- 对 `total = 0` 的状态，确认 `task_id`、`file_name`、`raw_file_path` 为空；这不是失败。
-- 如果三个状态全部为 `total = 0`，下载流程仍算成功，不生成快照。
-- 如果存在 raw 文件，确认`type="result"` terminal 中 `snapshot.snapshot_xlsx_path` 非空且文件存在。
-
-## Result Handling
-
-- `success=true` 且 `snapshot` 非空：告诉用户未关联货件原生文件下载完成，快照也已生成。
-- 回复中列出 `store_name`、`store_id`、三个状态的 `total`。
-- 只列出 `total > 0` 状态的 `raw_file_path`。
-- 同时列出 `snapshot.snapshot_xlsx_path`、`snapshot.msku_count`、`snapshot.total_unlinked_quantity`。
-- 明确说明：本次只生成未关联货件快照，尚未自动接入备货计算。
-- `success=true` 且 `snapshot=null`：告诉用户三个状态都没有可导出的未关联货件，因此没有生成快照。
-- `success=false` 且有 `download_result`：说明 raw 文件已下载成功，但快照生成失败，并转述 `exception`。
-- `success=false` 且没有 `download_result`：只转述 `exception`，不要猜测本地文件路径或自动切换其它下载脚本。
+- 完整任务记录本轮快照路径，切换计算 Skill，显式传入 `--unlinked-shipments-snapshot`；先确认与本轮源表同店、同日，不改日期绕过。
+- 单步任务发送 terminal files；说明已生成可用于扣减的快照，不宣称已经完成备货计算。
+- 汇总、明细两个业务 Sheet 保留，确认零货件时只有表头，不伪造商品行。隐藏核验信息记录查询店铺、时间、三个状态及版本，不删除。
+- 旧版返回 `snapshot=null` 不能当作已确认零货件，不反复下载；保留结果并说明当前版本未提供可用快照。
+- 返回示例与核验字段按需读 [references/results.md](references/results.md)。

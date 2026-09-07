@@ -143,6 +143,7 @@ def test_build_store_unlinked_shipments_snapshot_aggregates_raw_csv(tmp_path) ->
         "msku_count": 2,
         "total_unlinked_quantity": 18,
         "source": "mabang_fba_unlinked_shipments_snapshot",
+        "confirmed_empty": False,
     }
     snapshot_path = Path(result.snapshot_xlsx_path)
     assert snapshot_path.is_file()

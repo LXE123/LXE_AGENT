@@ -43,7 +43,7 @@ def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog
 
     monkeypatch.setattr(cli, "download_store_unlinked_shipments", fake_download)
 
-    def fake_build_store_unlinked_shipments_snapshot(raw_file_paths, *, store_name=None, output_dir=None):
+    def fake_build_store_unlinked_shipments_snapshot(raw_file_paths, *, store_name=None, output_dir=None, query_result=None):
         assert raw_file_paths == ["artifacts/mabang_fba_unlinked_shipments/file.csv"]
         assert store_name == "Amazon-Test-US"
         assert output_dir is None
@@ -96,6 +96,7 @@ def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog
             "msku_count": 2,
             "total_unlinked_quantity": 18,
             "source": "mabang_fba_unlinked_shipments_snapshot",
+            "confirmed_empty": False,
         },
     }
 
@@ -118,16 +119,17 @@ def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path, c
             store_name=store_name,
             store_id=1,
             download_time="202606121730",
-            status_results=[],
+            status_results=[UnlinkedShipmentStatusResult(status_name=name, total=0) for name in ("WMS待配货", "WMS待装箱", "待关联货件")],
         )
 
     monkeypatch.setattr(cli, "download_store_unlinked_shipments", fake_download)
 
+    monkeypatch.setenv("MABANG_FBA_UNLINKED_SHIPMENTS_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
     payload = cli.run({"store_name": "Amazon-Test-US", "timeout_sec": "60", "poll_interval_sec": "15", "output_dir": str(tmp_path)})
     assert payload["success"] is True
-    assert payload["snapshot"] is None
-    assert payload["snapshot_skipped_reason"] == "本次没有可生成快照的未关联货件原生文件"
-    assert "[UnlinkedShipments] 本次没有可生成快照的原生文件，跳过 snapshot" in caplog.text
+    assert payload["snapshot"]["confirmed_empty"] is True
+    assert payload["snapshot"]["total_unlinked_quantity"] == 0
+    assert "snapshot_skipped_reason" not in payload
 
 
 def test_success_builds_snapshot_from_multiple_current_raw_files(monkeypatch, capsys) -> None:
@@ -162,7 +164,7 @@ def test_success_builds_snapshot_from_multiple_current_raw_files(monkeypatch, ca
 
     monkeypatch.setattr(cli, "download_store_unlinked_shipments", fake_download)
 
-    def fake_build_store_unlinked_shipments_snapshot(raw_file_paths, *, store_name=None, output_dir=None):
+    def fake_build_store_unlinked_shipments_snapshot(raw_file_paths, *, store_name=None, output_dir=None, query_result=None):
         assert raw_file_paths == [
             "artifacts/mabang_fba_unlinked_shipments/file-1.csv",
             "artifacts/mabang_fba_unlinked_shipments/file-2.csv",

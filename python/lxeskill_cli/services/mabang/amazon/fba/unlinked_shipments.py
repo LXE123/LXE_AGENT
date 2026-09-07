@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
+import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -39,6 +41,8 @@ SNAPSHOT_SOURCE = "mabang_fba_unlinked_shipments_snapshot"
 UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX = "未关联货件快照"
 SNAPSHOT_SUMMARY_SHEET = "未关联货件汇总"
 SNAPSHOT_DETAIL_SHEET = "未关联货件明细"
+SNAPSHOT_VERIFICATION_SHEET = "未关联货件核验信息"
+SNAPSHOT_VERIFICATION_VERSION = 1
 SNAPSHOT_SUMMARY_COLUMNS = (
     "店铺",
     "MSKU",
@@ -130,6 +134,7 @@ class UnlinkedShipmentSnapshotResult:
     msku_count: int
     total_unlinked_quantity: float
     source: str = SNAPSHOT_SOURCE
+    confirmed_empty: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -142,6 +147,7 @@ class UnlinkedShipmentSnapshotResult:
             "msku_count": self.msku_count,
             "total_unlinked_quantity": _display_quantity(self.total_unlinked_quantity),
             "source": self.source,
+            "confirmed_empty": self.confirmed_empty,
         }
 
 
@@ -423,6 +429,8 @@ def write_unlinked_shipments_snapshot(
     summary_rows: list[dict[str, Any]],
     detail_rows: list[dict[str, Any]],
     target_path: str | Path,
+    *,
+    verification: dict[str, Any] | None = None,
 ) -> Path:
     try:
         from openpyxl import Workbook
@@ -447,7 +455,24 @@ def write_unlinked_shipments_snapshot(
             worksheet.freeze_panes = "A2"
             if rows:
                 worksheet.auto_filter.ref = worksheet.dimensions
-        workbook.save(path)
+        if verification is not None:
+            sheet = workbook.create_sheet(SNAPSHOT_VERIFICATION_SHEET)
+            sheet.append(("version", "json"))
+            sheet.append((SNAPSHOT_VERIFICATION_VERSION, json.dumps(verification, ensure_ascii=False)))
+            sheet.sheet_state = "hidden"
+        from zipfile import BadZipFile, ZipFile
+        from .report_staging import staged_report_path
+
+        with staged_report_path(path) as staged_path:
+            workbook.save(staged_path)
+            workbook.close()
+            with ZipFile(staged_path) as archive:
+                corrupt = archive.testzip()
+                if corrupt is not None:
+                    raise BadZipFile(f"未关联货件快照 ZIP 校验失败: {corrupt}")
+            # Use the final name when checking metadata; staging names are private.
+            _snapshot_records(staged_path, expected_path=path)
+            os.replace(staged_path, path)
     finally:
         workbook.close()
     return path
@@ -459,9 +484,17 @@ def build_store_unlinked_shipments_snapshot(
     store_name: str | None = None,
     output_dir: str | Path | None = None,
     snapshot_time: str | None = None,
+    query_result: StoreUnlinkedShipmentDownloadResult | None = None,
 ) -> UnlinkedShipmentSnapshotResult:
     paths = [Path(path) for path in raw_file_paths]
-    if not paths:
+    timestamp = _timestamp_text(snapshot_time)
+    verification = None
+    if query_result is not None:
+        verification = _download_verification(query_result, timestamp, paths)
+        if store_name is not None and normalize_store_name(store_name) != verification["store_name"]:
+            raise UnlinkedShipmentError("快照店铺与本轮查询店铺不一致")
+        store_name = verification["store_name"]
+    if not paths and not (verification and verification["confirmed_empty"]):
         raise ValueError("raw_file_paths 不能为空")
     detail_rows = _raw_detail_rows(paths, store_name=store_name)
     summary_rows = summarize_unlinked_shipment_details(detail_rows)
@@ -472,9 +505,8 @@ def build_store_unlinked_shipments_snapshot(
     if any(store != clean_store_name for store in stores):
         raise UnlinkedShipmentError(f"未关联货件快照包含多个店铺: expected={clean_store_name}, stores={', '.join(stores)}")
 
-    timestamp = _timestamp_text(snapshot_time)
     target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name, fallback='store')}_{UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX}.xlsx"
-    write_unlinked_shipments_snapshot(summary_rows, detail_rows, target_path)
+    write_unlinked_shipments_snapshot(summary_rows, detail_rows, target_path, verification=verification)
     return UnlinkedShipmentSnapshotResult(
         store_name=clean_store_name,
         snapshot_time=timestamp,
@@ -483,15 +515,71 @@ def build_store_unlinked_shipments_snapshot(
         detail_count=len(detail_rows),
         msku_count=len(summary_rows),
         total_unlinked_quantity=sum(_number(row.get("未关联数量")) for row in summary_rows),
+        confirmed_empty=bool(verification and verification["confirmed_empty"]),
     )
 
 
-def _snapshot_records(path: str | Path) -> list[dict[str, Any]]:
+def _validate_verification(metadata: Any, path: Path) -> dict[str, Any]:
+    try:
+        if not isinstance(metadata, dict) or type(metadata.get("version")) is not int or metadata["version"] != SNAPSHOT_VERIFICATION_VERSION:
+            raise ValueError("核验版本无效")
+        store = normalize_store_name(metadata["store_name"])
+        if type(metadata["store_id"]) is not int or metadata["store_id"] <= 0:
+            raise ValueError("查询店铺 ID 无效")
+        for key in ("download_time", "snapshot_time"):
+            if not isinstance(metadata[key], str) or not re.fullmatch(r"\d{12}", metadata[key]):
+                raise ValueError(f"{key} 格式无效")
+            datetime.strptime(metadata[key], "%Y%m%d%H%M")
+        totals = metadata["status_totals"]
+        if not isinstance(totals, dict) or set(totals) != {s.status_name for s in UNLINKED_SHIPMENT_STATUS_SPECS}:
+            raise ValueError("三个状态不完整")
+        if any(type(total) is not int or total < 0 for total in totals.values()):
+            raise ValueError("状态 total 必须为非负整数")
+        if type(metadata["confirmed_empty"]) is not bool or metadata["confirmed_empty"] != all(total == 0 for total in totals.values()):
+            raise ValueError("confirmed_empty 与查询数量矛盾")
+        expected = f"{metadata['snapshot_time']}-{_safe_path_part(store, fallback='store')}_{UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX}.xlsx"
+        if path.name != expected:
+            raise ValueError(f"文件名店铺/时间与核验信息不一致: expected={expected}")
+        return metadata
+    except (KeyError, TypeError, ValueError) as exc:
+        raise UnlinkedShipmentError(f"未关联货件核验信息无效: path={path}, error={exc}") from exc
+
+
+def _download_verification(result: StoreUnlinkedShipmentDownloadResult, timestamp: str, paths: list[Path]) -> dict[str, Any]:
+    totals = {row.status_name: row.total for row in result.status_results}
+    if len(totals) != len(result.status_results):
+        raise UnlinkedShipmentError("未关联货件查询状态重复")
+    metadata = {
+        "version": SNAPSHOT_VERIFICATION_VERSION, "store_name": normalize_store_name(result.store_name),
+        "store_id": result.store_id, "download_time": result.download_time,
+        "snapshot_time": timestamp, "status_totals": totals,
+        "confirmed_empty": bool(totals) and all(total == 0 for total in totals.values()),
+    }
+    filename = f"{timestamp}-{_safe_path_part(metadata['store_name'], fallback='store')}_{UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX}.xlsx"
+    _validate_verification(metadata, Path(filename))
+    expected_paths = []
+    for row in result.status_results:
+        raw = _clean_text(row.raw_file_path)
+        if row.total > 0:
+            if not raw or not Path(raw).is_file():
+                raise UnlinkedShipmentError(f"{row.status_name} total={row.total} 但本轮下载文件不存在: {raw!r}")
+            expected_paths.append(Path(raw))
+        elif raw:
+            raise UnlinkedShipmentError(f"{row.status_name} total=0 却包含下载文件: {raw!r}")
+    if paths != expected_paths or len(set(paths)) != len(paths):
+        raise UnlinkedShipmentError("快照输入文件与本轮三个状态下载结果不一致或重复")
+    return metadata
+
+
+def _snapshot_records(path: str | Path, *, expected_path: Path | None = None, store_name: str | None = None) -> list[dict[str, Any]]:
     source_path = Path(path)
     if not source_path.is_file():
         raise FileNotFoundError(f"未关联货件快照不存在: {source_path}")
+    metadata = None
     if source_path.suffix.lower() == ".csv":
-        records = _csv_records(source_path)
+        reader = csv.DictReader(_decode_csv_bytes(source_path.read_bytes(), source_path).splitlines())
+        headers = set(reader.fieldnames or [])
+        records = [dict(row) for row in reader if any(_clean_text(v) for v in row.values())]
     else:
         try:
             from openpyxl import load_workbook
@@ -501,6 +589,19 @@ def _snapshot_records(path: str | Path) -> list[dict[str, Any]]:
         workbook = None
         try:
             workbook = load_workbook(source_path, read_only=True, data_only=True)
+            if SNAPSHOT_VERIFICATION_SHEET in workbook.sheetnames:
+                info = list(workbook[SNAPSHOT_VERIFICATION_SHEET].values)
+                if len(info) != 2 or tuple(info[0]) != ("version", "json") or type(info[1][0]) is not int or info[1][0] != SNAPSHOT_VERIFICATION_VERSION:
+                    raise UnlinkedShipmentError("未关联货件核验 Sheet 结构无效")
+                metadata = _validate_verification(json.loads(info[1][1]), expected_path or source_path)
+                if store_name and metadata["store_name"] != normalize_store_name(store_name):
+                    raise UnlinkedShipmentError(f"未关联货件核验店铺不一致: expected={store_name}, actual={metadata['store_name']}")
+                if metadata["confirmed_empty"]:
+                    if SNAPSHOT_SUMMARY_SHEET not in workbook.sheetnames or SNAPSHOT_DETAIL_SHEET not in workbook.sheetnames:
+                        raise UnlinkedShipmentError("确认零货件快照缺少业务 Sheet")
+                    detail = list(workbook[SNAPSHOT_DETAIL_SHEET].values)
+                    if not detail or tuple(detail[0]) != SNAPSHOT_DETAIL_COLUMNS or any(any(_clean_text(v) for v in row) for row in detail[1:]):
+                        raise UnlinkedShipmentError("确认零货件快照含明细或缺少表头")
             sheet_name = SNAPSHOT_SUMMARY_SHEET if SNAPSHOT_SUMMARY_SHEET in workbook.sheetnames else workbook.sheetnames[0]
             worksheet = workbook[sheet_name]
             rows = worksheet.iter_rows(values_only=True)
@@ -519,16 +620,21 @@ def _snapshot_records(path: str | Path) -> list[dict[str, Any]]:
             except Exception:
                 pass
 
-    headers = set(records[0].keys()) if records else set(SNAPSHOT_REQUIRED_COLUMNS)
     missing = [column for column in SNAPSHOT_REQUIRED_COLUMNS if column not in headers]
     if missing:
         raise UnlinkedShipmentError(f"未关联货件快照缺少列: {', '.join(missing)}, path={source_path}")
+    if not records and not (metadata and metadata["confirmed_empty"]):
+        raise UnlinkedShipmentError(f"空快照没有确认零货件的核验依据，请重新查询: path={source_path}")
+    if metadata and metadata["confirmed_empty"] and records:
+        raise UnlinkedShipmentError(f"确认零货件快照却包含汇总记录: path={source_path}")
+    if metadata and any(_clean_text(row.get("店铺")) != metadata["store_name"] for row in records):
+        raise UnlinkedShipmentError(f"快照记录与核验店铺不一致: path={source_path}")
     return records
 
 
 def load_unlinked_shipment_quantities(path: str | Path, *, store_name: str | None = None) -> dict[str, float]:
     clean_store_name = _clean_text(store_name)
-    records = _snapshot_records(path)
+    records = _snapshot_records(path, store_name=clean_store_name)
     stores = {_clean_text(row.get("店铺")) for row in records if _clean_text(row.get("店铺"))}
     if clean_store_name and stores and clean_store_name not in stores:
         raise UnlinkedShipmentError(f"未关联货件快照中未找到店铺: {clean_store_name}")
@@ -641,9 +747,11 @@ def _list_total(payload: dict[str, Any]) -> int:
     data = payload.get("data")
     if not isinstance(data, dict):
         raise UnlinkedShipmentError("未关联货件列表数据格式异常")
-    total = _int_value(data.get("total"))
-    if total is None or total < 0:
-        raise UnlinkedShipmentError("未关联货件列表缺少有效 total")
+    total = data.get("total")
+    if isinstance(total, str) and re.fullmatch(r"\d+", total.strip()):
+        total = int(total.strip())
+    if type(total) is not int or total < 0:
+        raise UnlinkedShipmentError(f"未关联货件列表缺少有效整数 total: {data.get('total')!r}")
     return total
 
 

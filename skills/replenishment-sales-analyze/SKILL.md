@@ -4,82 +4,38 @@ description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据生成销�
 type: amazon_replenish
 commands:
   - lxeskill replenish sales analyze
+references:
+  - references/report.md
 ---
 
-## When to Use
+# 销量分析
 
-- 用户要生成某个马帮 Amazon 店铺的 MSKU 销量分析报告。
-- 用户关注链接维度、ASIN 维度、MSKU 明细的销量趋势。
-- 用户已经下载过店铺 MSKU 数据，需要从本地最新文件生成分析报告。
+## 执行与错误
 
-## Hard Rules
+- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
+- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
+- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
+- 只有 `data.auth_refresh_required=true` 才按 `lxeskill auth refresh` 的恢复流程刷新一次，再重试失败步骤；为 false 或缺失时停止并保留诊断，不凭错误文本中的 401/403 或 ID 猜测认证失败。
+- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
+- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
+- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
+- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
+## 使用与命令
 
-- 只使用固定 CLI：`lxeskill replenish sales analyze --store-name "<店铺名>"`
-- 不要手动读取或改写马帮接口请求。
-- 不要自动下载最新 MSKU 数据；本 skill 只分析本地已下载文件。
-- 如果本地没有店铺 MSKU 数据文件，提示用户先运行 `replenishment-msku-download`。
-- 如果用户给的是模糊店铺名，先运行 `replenishment-store-resolve`，用解析成功返回的规范 `store_name` 再分析。
-- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
-- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
-
-## How to Execute
-
-如果店铺名不确定，先解析店铺：
+只分析本地已下载源表；单步请求缺源表时说明需下载，完整任务按流程补齐。
 
 ```text
-lxeskill replenish store resolve --store-name "<店铺名>"
+lxeskill replenish sales analyze --store-name "<规范店铺名>"
 ```
 
-解析成功后，用规范 `store_name` 生成销量分析报告：
+模糊店铺名先读 `replenishment-store-resolve`。
 
-```text
-lxeskill replenish sales analyze --store-name "<店铺名>"
-```
+## 结果与下一步
 
-成功时：
-
-```json
-{
-  "success": true,
-  "store_name": "Amazon-Lerxiuer-FR",
-  "source_xlsx_path": "artifacts/replenish/store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
-  "source_data_time": "202605251530",
-  "data_is_stale": true,
-  "link_count": 18,
-  "asin_count": 72,
-  "msku_count": 180,
-  "report_xlsx_path": "artifacts/replenish/sales_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
-  "source": "mabang_store_msku_sales_analysis"
-}
-```
-
-失败时：
-
-```json
-{
-  "success": false,
-  "store_name": "Amazon-Lerxiuer-FR",
-  "exception": "未找到本地店铺MSKU数据文件: Amazon-Lerxiuer-FR"
-}
-```
-
-## Result Handling
-
-- `success=true`：告诉用户报告已生成，并提供 `report_xlsx_path`。
-- 同时说明源数据文件 `source_xlsx_path`、源数据时间 `source_data_time`、链接数、ASIN 表行数和 MSKU 数。
-- 报告包含 `链接销量前10`、`其他链接`、`ASIN销量前50`、`其他ASIN`、`MSKU明细` 5 个 sheet。
-- 前 4 个聚合 sheet 在 `加权日销` 前提供 `商品链接`；链接维度会用源数据商品链接前缀拼接 `父ASIN`，ASIN 维度保留源数据里的商品链接。
-- ASIN 表按 `ASIN + 父ASIN + MSKU` 售卖项粒度输出；如果源数据存在完全重复售卖项，CLI 会失败并提示重复键。
-- `data_is_stale=true`：明确提醒用户这份报告基于非当天下载的数据；如需最新结果，应先运行店铺 MSKU 下载 skill。
-- `success=false`：只转述 `exception`，不要猜测本地文件路径或自动下载。
-
-## Active 计算范围
-
-- 源表需要包含下载时生成的 Active 核验信息；旧版源表需重新下载。MSKU、ASIN、链接三个维度均只汇总确认 Active 的行。
-- 未确认在售的行保留在源表，不进入销量汇总；没有 Active 行时返回无符合条件的记录。
-- 报表附带隐藏的 `Active核验信息` Sheet；不要删除，备货计算会用它检查销量与库存是否来自同一份源表、同一轮核验。
-- 原始、参与、排除行数分别为 `original_row_count`、`active_row_count`、`excluded_row_count`；`msku_count` 是参与销量分析的行数。
+- 成功记录 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time` 及参与范围，完整任务继续深圳库存，单步交付报告。
+- MSKU、ASIN、链接三个维度都只汇总确认 Active 的行，未确认在售记录不进入销量；没有 Active 行时结束。
+- 隐藏 Active 核验信息随报告传递，同源库存和计算依赖它。旧版无核验源表需重新下载，不当成全量 Active。
+- `data_is_stale=true` 时说明源时间；用户明确选择旧数据则尊重选择。完整任务默认重新采集，不能拿旧报告替代本轮结果。
+- CLI 报重复售卖项或输入冲突时保留真实错误，不自行去重、改表或补零。
+- 报告结构与字段解释按需读 [references/report.md](references/report.md)。
