@@ -107,6 +107,31 @@ def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
         book.close()
 
 
+def test_weighted_sales_integer_boundary_uses_formal_evaluation_order(tmp_path):
+    # YYH-US regression: sum() produced 184.00000000000003 before ceil,
+    # while the formal left-associative calculation produced exactly 184.
+    inventory = _inventory_input_row("CEIL-BOUNDARY", fba_total_inventory=82)
+    values = dict.fromkeys(formulas.SOURCE_VALUE_COLUMNS, 0.0)
+    values.update({"7天销量": 18.0, "14天销量": 33.0, "30天销量": 61.0,
+                   "90天销量": 181.0, "可售": 31.0, "预留": 2.0,
+                   "在途": 45.0, "待调仓": 2.0, "调仓中": 2.0})
+    detail = rep.SalesDetail("增长", 100, 18, 33, 61, source_values=values)
+    key = (inventory.msku, inventory.parent_asin, inventory.asin, inventory.local_sku)
+    row = rep.calculate_replenishment_rows([inventory], {key: detail}, templates.load_default_template())[0]
+    assert row.replenish_days == 75
+    assert row.replenish_quantity == 102
+    path = rep.write_replenishment_report([row], tmp_path / "boundary.xlsx")
+    book = load_workbook(path, data_only=True)
+    try:
+        assert book[formulas.FINAL_SHIPPING_SHEET]["I3"].value == row.weighted_daily_sales
+        assert book[formulas.FINAL_SHIPPING_SHEET]["W3"].value == 102
+        assert book[formulas.FINAL_SHIPPING_SHEET]["X3"].value == 0
+        assert book[formulas.FORMULA_PARAMS_SHEET]["J2"].value == 184
+        assert book[rep.AIR_URGENT_SHEET].max_row == 2
+    finally:
+        book.close()
+
+
 @pytest.mark.parametrize("value", [None, "", "unknown", "NaN", float("inf"), -1, True])
 def test_source_values_are_not_silently_zeroed(tmp_path, value):
     path = _write_sales_report(tmp_path / "source.xlsx")

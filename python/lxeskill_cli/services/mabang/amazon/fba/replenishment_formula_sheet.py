@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .replenishment_template import calculate_weighted_daily_sales
+
 if TYPE_CHECKING:
     from .store_msku_replenishment import ReplenishmentRow
 
@@ -59,7 +61,12 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict
     if inputs is None:
         raise ValueError(f"缺少备货公式源数据: MSKU={row.msku}，请重新生成同源销量分析报告")
     values = inputs.values
-    daily = sum(values[key] / days * weight for key, days, weight in zip(SOURCE_VALUE_COLUMNS[:3], (7, 14, 30), inputs.weights))
+    # Keep the same evaluation order as the formal calculation and Excel's
+    # left-associative formula. sum() can cross a ceil boundary on Python 3.12.
+    daily = calculate_weighted_daily_sales(
+        sales_7d=values["7天销量"], sales_14d=values["14天销量"], sales_30d=values["30天销量"],
+        params={"weighted_sales": dict(zip(("7d_weight", "14d_weight", "30d_weight"), inputs.weights))},
+    )
     fba = sum(values[key] for key in STOCK_COLUMNS)
     is_sea = row.sheet_name == "海运"
     air_days = (row.companion_air_days or 0) if is_sea else row.replenish_days
