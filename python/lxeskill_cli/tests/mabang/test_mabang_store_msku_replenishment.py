@@ -12,6 +12,21 @@ from services.mabang.amazon.fba import store_msku_replenishment as repl
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
 
+@pytest.fixture
+def calculated_details(monkeypatch):
+    """Capture real calculation output; shipping categories no longer have detail tabs."""
+    rows = []
+    calculate = repl.calculate_replenishment_rows
+
+    def capture(*args, **kwargs):
+        result = calculate(*args, **kwargs)
+        rows[:] = result
+        return result
+
+    monkeypatch.setattr(repl, "calculate_replenishment_rows", capture)
+    return lambda category: [row.to_detail_payload() for row in rows if row.sheet_name == category]
+
+
 def _write_workbook(path: Path, sheets: dict[str, tuple[list[str], list[dict]]]) -> Path:
     from openpyxl import Workbook
 
@@ -525,7 +540,7 @@ def test_load_inventory_rows_accepts_legacy_actual_inventory_sheet_and_column(tm
     assert rows[0].actual_inventory == 5
 
 
-def test_replenishment_rules_and_report_output(tmp_path) -> None:
+def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -564,14 +579,15 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["最终备货意见", "空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "备货公式参数", "Active核验信息"]
+    assert _sheet_names(report_path) == ["最终备货意见", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足", "备货公式参数", "Active核验信息"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
+    final = {r["MSKU"]: r for r in _load_records(report_path, "最终备货意见")}
+    assert set(final) == {"URGENT-1", "AIR-1", "SEA-1"}
+    assert [(final[k]["空运建议量"], final[k]["海运建议量"]) for k in ("URGENT-1", "AIR-1", "SEA-1")] == [(90, 0), (60, 0), (0, 60)]
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)
-    assert _headers(report_path, "空运（急发）") == list(repl.AIR_DETAIL_COLUMNS)
-    assert _headers(report_path, "空运") == list(repl.AIR_DETAIL_COLUMNS)
-    for sheet_name in ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "样本不足"]:
+    for sheet_name in ["真实库存（深圳仓库）不足", "清货", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
         assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) + 1
@@ -586,14 +602,11 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
                     assert set(formats) == {"0"}
     assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "库存缺口")) == {"0"}
     assert set(_column_number_formats(report_path, "链接备货汇总", "链接真实库存（深圳仓库）汇总")) == {"0"}
-    assert set(_column_number_formats(report_path, "海运", "加权日销")) == {"0.00"}
-    assert set(_column_number_formats(report_path, "海运", "预计总重量kg")) == {"0.00"}
+    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "加权日销")) == {"0.00"}
+    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "预计总重量kg")) == {"0.00"}
     for header in ["海运天数", "海运建议量", "同时空运天数", "同时空运建议量"]:
-        assert header not in _headers(report_path, "空运（急发）")
-        assert header not in _headers(report_path, "空运")
-        assert header in _headers(report_path, "海运")
         assert header in _headers(report_path, "真实库存（深圳仓库）不足")
-    for sheet_name in ["海运", "暂不建议发货", "样本不足"]:
+    for sheet_name in ["暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert headers == list(repl.DETAIL_COLUMNS)
         assert "未关联抵扣前建议量" not in headers
@@ -601,7 +614,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         assert "补货量（减去 FBA 总库存）" not in headers
         assert "海运实际补货量" not in headers
 
-    sea_rows = _load_records(report_path, "海运")
+    sea_rows = calculated_details("海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
     assert sea_rows[0]["本地SKU名称"] == "海运组合本地名"
     assert sea_rows[0]["产品名称"] == "Sea Combo Product"
@@ -618,7 +631,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sea_rows[0]["参数方案名称"] == "默认"
     assert sea_rows[0]["命中规则"] == "默认规则"
 
-    urgent_rows = _load_records(report_path, "空运（急发）")
+    urgent_rows = calculated_details("空运（急发）")
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
     assert urgent_rows[0]["本地SKU名称"] == "急发本地名"
     assert urgent_rows[0]["产品名称"] == "Urgent Product"
@@ -628,7 +641,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert urgent_rows[0]["预计总重量kg"] == 0.9
     assert urgent_rows[0]["真实库存（深圳仓库）数量"] == 10
 
-    air_rows = _load_records(report_path, "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["本地SKU名称"] == "空运本地名"
     assert air_rows[0]["产品名称"] == "Air Product"
@@ -689,7 +702,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert summary_rows[-1]["涉及运输方式"] == "样本不足"
 
 
-def test_amazon_fba_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path) -> None:
+def test_amazon_fba_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -722,27 +735,27 @@ def test_amazon_fba_inventory_snapshot_adds_comparison_fields_without_changing_e
     }
 
     report_path = Path(result.report_xlsx_path)
-    air_rows = _load_records(report_path, "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["补货量"] == 360
     assert air_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert air_rows[0][amazon_inv.AMAZON_FBA_TOTAL_COLUMN] == 320
     assert air_rows[0][repl.AMAZON_DEDUCTED_REPLENISH_COLUMN] == 40
 
-    sea_rows = _load_records(report_path, "海运")
+    sea_rows = calculated_details("海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
     assert sea_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert sea_rows[0][amazon_inv.AMAZON_FBA_TOTAL_COLUMN] == 500
     assert sea_rows[0][repl.AMAZON_DEDUCTED_REPLENISH_COLUMN] == 40
 
-    urgent_rows = _load_records(report_path, "空运（急发）")
+    urgent_rows = calculated_details("空运（急发）")
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
     assert urgent_rows[0][amazon_inv.AMAZON_FBA_TOTAL_COLUMN] in (None, "")
     assert urgent_rows[0][repl.AMAZON_DEDUCTED_REPLENISH_COLUMN] in (None, "")
     assert "未匹配亚马逊物流库存" in urgent_rows[0]["决策原因"]
 
 
-def test_amazon_restock_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path) -> None:
+def test_amazon_restock_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -775,20 +788,20 @@ def test_amazon_restock_inventory_snapshot_adds_comparison_fields_without_changi
     }
 
     report_path = Path(result.report_xlsx_path)
-    air_rows = _load_records(report_path, "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["补货量"] == 360
     assert air_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert air_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] == 330
     assert air_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] == 30
 
-    sea_rows = _load_records(report_path, "海运")
+    sea_rows = calculated_details("海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
     assert sea_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert sea_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] == 510
     assert sea_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] == 30
 
-    urgent_rows = _load_records(report_path, "空运（急发）")
+    urgent_rows = calculated_details("空运（急发）")
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
     assert urgent_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] in (None, "")
     assert urgent_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] in (None, "")
@@ -922,9 +935,8 @@ def test_clearance_rows_move_out_of_transport_and_summary_sheets(tmp_path) -> No
     assert result.sample_insufficient_count == 1
 
     report_path = Path(result.report_xlsx_path)
-    assert _load_records(report_path, "空运（急发）") == []
-    assert _load_records(report_path, "空运") == []
-    assert _load_records(report_path, "海运") == []
+    assert _load_records(report_path, "最终备货意见") == []
+    assert not {"空运（急发）", "空运", "海运"} & set(_sheet_names(report_path))
     assert _load_records(report_path, "真实库存（深圳仓库）不足") == []
 
     clearance_rows = _load_records(report_path, "清货")
@@ -956,7 +968,7 @@ def test_clearance_rows_move_out_of_transport_and_summary_sheets(tmp_path) -> No
     assert "PARENT-SAMPLE" in summary_parents
 
 
-def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_path) -> None:
+def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -993,7 +1005,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert result.to_payload()["unlinked_shipments_snapshot_path"] == str(snapshot_path)
     report_path = Path(result.report_xlsx_path)
 
-    air_rows = _load_records(report_path, "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0][repl.MABANG_FBA_TOTAL_COLUMN] == 300
     assert air_rows[0]["可销售天数"] == 50
@@ -1010,7 +1022,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert urgent_row["未关联数量"] == 250
     assert "FBA 总库存（马帮数据）和未关联数量已覆盖本次建议量" in urgent_row["决策原因"]
 
-    sea_row = _load_records(report_path, "海运")[0]
+    sea_row = calculated_details("海运")[0]
     assert sea_row["补货量"] == 540
     assert sea_row["补货量（减去 FBA 总库存和未关联货件）"] == 20
     assert sea_row["海运建议量"] == 20
@@ -1032,7 +1044,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert sea_summary["链接未关联数量汇总"] == 40
 
 
-def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_path) -> None:
+def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -1071,14 +1083,14 @@ def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_p
     payload = result.to_payload()
     assert payload["unlinked_shipments_snapshot_path"] == str(latest_snapshot)
     assert "unlinked_shipments_snapshot_warning" not in payload
-    air_rows = _load_records(Path(result.report_xlsx_path), "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["未关联数量"] == 20
     assert air_rows[0]["补货量"] == 360
     assert air_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 40
 
 
-def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_path) -> None:
+def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -1106,7 +1118,7 @@ def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_pa
     payload = result.to_payload()
     assert "unlinked_shipments_snapshot_path" not in payload
     assert payload["unlinked_shipments_snapshot_warning"] == repl.UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING
-    air_rows = _load_records(Path(result.report_xlsx_path), "空运")
+    air_rows = calculated_details("空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["未关联数量"] == 0
     assert air_rows[0]["补货量"] == 360
@@ -1174,7 +1186,7 @@ def test_detail_payload_estimated_weight_uses_final_replenishment_quantity() -> 
     assert no_ship_row.to_detail_payload()["预计总重量kg"] == ""
 
 
-def test_legacy_weight_parameter_does_not_change_replenishment_result(tmp_path, monkeypatch) -> None:
+def test_legacy_weight_parameter_does_not_change_replenishment_result(tmp_path, monkeypatch, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -1205,14 +1217,14 @@ def test_legacy_weight_parameter_does_not_change_replenishment_result(tmp_path, 
     assert result.template_name == "保守海运方案"
     assert result.template_version == 2
     report_path = Path(result.report_xlsx_path)
-    sea_rows = _load_records(report_path, "海运")
+    sea_rows = calculated_details("海运")
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     assert [row["MSKU"] for row in sea_rows] == ["SEA-1"]
     assert sea_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert not any(row["MSKU"] == "SEA-1" for row in no_ship_rows)
 
 
-def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
+def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path, calculated_details) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
@@ -1230,7 +1242,7 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
     assert result.template_name == "US-一组"
     assert result.sea_count == 1
     report_path = Path(result.report_xlsx_path)
-    sea_rows = _load_records(report_path, "海运")
+    sea_rows = calculated_details("海运")
     sea_row = next(row for row in sea_rows if row["MSKU"] == "SEA-1")
     assert sea_row["补货天数"] == 110
     assert sea_row["补货量"] == 660
@@ -1483,7 +1495,7 @@ def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:
     assert result.sea_count == 0
     assert result.no_ship_count == 2
     report_path = Path(result.report_xlsx_path)
-    assert _load_records(report_path, "海运") == []
+    assert not any(r["建议运输方式（生成时）"] in {"海运", "空运＋海运"} for r in _load_records(report_path, "最终备货意见"))
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     sea_candidate = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
     assert sea_candidate["补货天数"] == 85

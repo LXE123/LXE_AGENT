@@ -1576,9 +1576,6 @@ def write_replenishment_report(
     target_path = Path(report_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     sheet_rows = {
-        AIR_URGENT_SHEET: [row for row in rows if row.sheet_name == AIR_URGENT_SHEET],
-        AIR_SHEET: [row for row in rows if row.sheet_name == AIR_SHEET],
-        SEA_SHEET: [row for row in rows if row.sheet_name == SEA_SHEET],
         CLEARANCE_SHEET: [row for row in rows if row.sheet_name == CLEARANCE_SHEET],
         NO_SHIP_SHEET: [row for row in rows if row.sheet_name == NO_SHIP_SHEET],
         SAMPLE_INSUFFICIENT_SHEET: [row for row in rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET],
@@ -1587,18 +1584,6 @@ def write_replenishment_report(
         workbook = Workbook()
         try:
             specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
-                *[
-                    (
-                        sheet_name,
-                        AIR_DETAIL_COLUMNS if sheet_name in {AIR_URGENT_SHEET, AIR_SHEET} else DETAIL_COLUMNS,
-                        [row.to_detail_payload() for row in sorted(sheet_rows[sheet_name], key=_detail_sort_key)],
-                    )
-                    for sheet_name in (
-                        AIR_URGENT_SHEET,
-                        AIR_SHEET,
-                        SEA_SHEET,
-                    )
-                ],
                 (
                     INVENTORY_SHORTAGE_SHEET,
                     INVENTORY_SHORTAGE_COLUMNS,

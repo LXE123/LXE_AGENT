@@ -127,7 +127,7 @@ def test_weighted_sales_integer_boundary_uses_formal_evaluation_order(tmp_path):
         assert book[formulas.FINAL_SHIPPING_SHEET]["W3"].value == 102
         assert book[formulas.FINAL_SHIPPING_SHEET]["X3"].value == 0
         assert book[formulas.FORMULA_PARAMS_SHEET]["J2"].value == 184
-        assert book[rep.AIR_URGENT_SHEET].max_row == 2
+        assert not {rep.AIR_URGENT_SHEET, rep.AIR_SHEET, rep.SEA_SHEET} & set(book.sheetnames)
     finally:
         book.close()
 
