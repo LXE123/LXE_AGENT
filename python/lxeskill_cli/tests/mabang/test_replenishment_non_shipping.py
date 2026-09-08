@@ -65,7 +65,7 @@ def test_merge_preserves_records_and_sorts_on_daily_sales(tmp_path):
     book = load_workbook(path)
     try:
         assert rep.NO_SHIP_SHEET not in book.sheetnames and rep.SAMPLE_INSUFFICIENT_SHEET not in book.sheetnames
-        assert book.sheetnames == ['最终备货意见','本轮不备货','链接备货汇总','备货公式参数']
+        assert book.sheetnames == ['最终备货意见','本轮不备货','链接备货汇总']
         sheet = book[rep.NON_SHIPPING_SHEET]
         data = list(sheet.iter_rows(min_row=2, values_only=True))
         assert [(r[0],r[2]) for r in data] == [(r.msku,r.asin) for r in sorted(rows,key=rep._non_shipping_sort_key)]
@@ -107,7 +107,7 @@ def test_clearance_merges_without_broadening_classification(tmp_path):
     assert no_ship.non_shipping_reason_code=='fba_covered'
     book=load_workbook(rep.write_replenishment_report([clear,low,no_ship],tmp_path/'clear.xlsx'),data_only=True)
     try:
-        assert book.sheetnames==['最终备货意见','本轮不备货','链接备货汇总','备货公式参数']
+        assert book.sheetnames==['最终备货意见','本轮不备货','链接备货汇总']
         it=book[rep.NON_SHIPPING_SHEET].iter_rows(values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
         assert len(rows)==3
         assert {r['未备货原因分类'] for r in rows}=={'清货','样本不足','FBA库存已覆盖'}

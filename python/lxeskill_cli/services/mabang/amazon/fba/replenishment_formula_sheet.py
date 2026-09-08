@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from .store_msku_replenishment import ReplenishmentRow
 
 FINAL_SHIPPING_SHEET = "最终备货意见"
-FORMULA_PARAMS_SHEET = "备货公式参数"
 SOURCE_VALUE_COLUMNS = (
     "7天销量", "14天销量", "30天销量", "90天销量", "可售", "待入库", "预留",
     "计划入库", "在途", "待调仓", "调仓中",
@@ -22,14 +21,10 @@ FINAL_SHIPPING_COLUMNS = (
     "MSKU", "ASIN", "本地SKU", "品名", "7天销量", "14天销量", "30天销量", "90天销量",
     "加权日销", "可售", "待入库", "预留", "计划入库", "在途", "待调仓", "调仓中",
     "FBA总库存（马帮）", "未发出货件总计", "深圳可用库存", "建议运输方式（生成时）",
-    "空运补货天数", "海运补货天数", "空运建议量", "海运建议量", "单件重量(g)",
-    "预计总重量(kg)", "备注", "深圳库存缺口",
-)
-PARAM_COLUMNS = (
-    "记录标识", "7天权重", "14天权重", "30天权重", "海运最小件数", "生成时类型",
-    "商品备注", "缺少未关联快照", "输入有效", "理论空运", "理论海运", "扣FBA后空运",
-    "扣FBA后海运", "扣货件后空运", "扣货件后海运", "满足海运件数", "最终空运",
-    "最终海运", "预计总重量", "试算备注",
+    "空运补货天数", "海运补货天数", "理论空运需求", "理论海运需求",
+    "扣FBA后空运量", "扣FBA后海运量", "扣未关联货件后空运量", "扣未关联货件后海运量",
+    "空运建议量", "海运建议量", "单件重量(g)", "预计总重量(kg)", "备注", "深圳库存缺口",
+    "输入检查", "试算提示",
 )
 
 
@@ -52,10 +47,6 @@ def source_number(value: Any, *, context: str) -> float:
         raise ValueError(f"备货公式输入无效: {context}, value={value!r}, error={exc}") from exc
 
 
-def _number_text(number: float) -> str:
-    return str(int(number)) if float(number).is_integer() else f"{number:.2f}"
-
-
 def shipping_quantities(row: ReplenishmentRow) -> tuple[int, int, int]:
     """Final urgent-air, air (including companion air), and sea quantities."""
     quantity = row.replenish_quantity or 0
@@ -73,7 +64,7 @@ def shipping_quantities(row: ReplenishmentRow) -> tuple[int, int, int]:
     return (quantity, 0, 0) if row.sheet_name == "空运（急发）" else (0, quantity, 0)
 
 
-def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> dict[str, Any]:
     inputs = row.formula_inputs
     if inputs is None:
         raise ValueError(f"缺少备货公式源数据: MSKU={row.msku}，请重新生成同源销量分析报告")
@@ -101,14 +92,13 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict
     if air + sea != row.replenish_quantity:
         raise ValueError(f"试算初始值与正式计算不一致: MSKU={row.msku}, formula={air + sea}, calculated={row.replenish_quantity}")
     weight = (air + sea) * row.weight_grams / 1000 if row.weight_grams is not None and row.weight_grams > 0 else None
-    notes = [row.remark] if row.remark else []
-    notes.append(f"试算建议：空运{air}件，海运{sea}件")
+    notes = ["可试算"]
     if row.actual_inventory is None:
         notes.append("深圳可用库存缺失或无效")
     elif air + sea > row.actual_inventory:
-        notes.append(f"深圳库存不足，缺口{_number_text(air + sea - row.actual_inventory)}件")
+        notes.append("深圳库存不足")
     if weight is None:
-        notes.append("单件重量缺失或无效，无法计算预计总重量")
+        notes.append("单件重量缺失或无效")
     if missing_snapshot:
         notes.append("未取得同日未关联货件快照，需核实当前试算数量")
     public = {
@@ -117,25 +107,19 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict
         "I": daily, **dict(zip(("J", "K", "L", "M", "N", "O", "P"), (values[k] for k in SOURCE_VALUE_COLUMNS[4:]))),
         "Q": fba, "R": row.unlinked_quantity, "S": row.actual_inventory,
         "T": "空运＋海运" if is_sea and air > 0 else row.sheet_name,
-        "U": air_days, "V": sea_days, "W": air, "X": sea, "Y": row.weight_grams,
-        "Z": weight, "AA": "；".join(notes),
-        "AB": max(0, air + sea - row.actual_inventory) if row.actual_inventory is not None else None,
+        "U": air_days, "V": sea_days, "W": gross_air, "X": gross_sea,
+        "Y": air_fba, "Z": sea_fba, "AA": air_net, "AB": sea_net,
+        "AC": air, "AD": sea, "AE": row.weight_grams, "AF": weight, "AG": row.remark,
+        "AH": max(0, air + sea - row.actual_inventory) if row.actual_inventory is not None else None,
+        "AI": "正常", "AJ": "；".join(notes),
     }
-    params = dict(zip(("B", "C", "D"), inputs.weights))
-    params.update({
-        "E": inputs.minimum_sea_quantity, "F": "sea" if is_sea else "air", "G": row.remark,
-        "H": int(missing_snapshot), "I": 1, "J": gross_air, "K": gross_sea,
-        "L": air_fba, "M": sea_fba, "N": air_net, "O": sea_net, "P": int(gate),
-        "Q": air, "R": sea, "S": weight, "T": public["AA"],
-    })
-    return public, params
+    return public
 
 
 def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_snapshot: bool) -> dict[str, dict[str, Any]]:
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
-    from openpyxl.worksheet.table import Table, TableStyleInfo
 
     order = {"空运（急发）": 0, "空运": 1, "海运": 2}
     selected = sorted(
@@ -143,115 +127,90 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         key=lambda r: (order[r.sheet_name], -r.replenish_quantity, r.msku, r.asin),
     )
     sheet = workbook.create_sheet(FINAL_SHIPPING_SHEET, 0)
-    helper = workbook.create_sheet(FORMULA_PARAMS_SHEET)
-    helper.sheet_state = "hidden"
-    helper.append(PARAM_COLUMNS)
-    sheet.cell(1, 1, "浅黄色为可编辑输入，蓝色为公式。仅重算本表数量；运输方式固定，天数可手改。其他报表为生成时快照，排序请使用表头筛选。")
-    sheet.append([*FINAL_SHIPPING_COLUMNS, "记录标识"])
-    caches: dict[str, dict[str, Any]] = {FINAL_SHIPPING_SHEET: {}, FORMULA_PARAMS_SHEET: {}}
-    end, helper_end = len(selected) + 2, len(selected) + 1
-    for h, row in enumerate(selected, 2):
-        r = h + 1
-        public, params = _initial_values(row, missing_snapshot)
-        key = f"record-{h}"
-        public["AC"], params["A"] = key, key
-        for target, values, index in ((sheet, public, r), (helper, params, h)):
-            for column, value in values.items():
-                cell = target[f"{column}{index}"]
-                cell.value = value
-                if isinstance(value, str):
-                    cell.data_type = "s"
-
-        def p(column: str) -> str:
-            return f"INDEX('{FORMULA_PARAMS_SHEET}'!${column}$2:${column}${helper_end},MATCH($AC{r},'{FORMULA_PARAMS_SHEET}'!$A$2:$A${helper_end},0))"
-
-        def s(column: str) -> str:
-            return f"INDEX('{FINAL_SHIPPING_SHEET}'!${column}$3:${column}${end},MATCH($A{h},'{FINAL_SHIPPING_SHEET}'!$AC$3:$AC${end},0))"
-
-        visible_formulas = {
-            "I": f'IFERROR(IF(AND(COUNT(E{r}:G{r})=3,MIN(E{r}:G{r})>=0),E{r}/7*{p("B")}+F{r}/14*{p("C")}+G{r}/30*{p("D")},""),"")',
-            "AB": f'IFERROR(IF(AND({p("I")}=1,COUNT(S{r},W{r}:X{r})=3),MAX(0,SUM(W{r}:X{r})-S{r}),""),"")',
-            "Q": f'IFERROR(IF(AND(COUNT(J{r}:L{r},N{r}:P{r})=6,MIN(J{r}:L{r},N{r}:P{r})>=0),SUM(J{r}:L{r},N{r}:P{r}),""),"")',
-            **{column: p(param) for column, param in (("W", "Q"), ("X", "R"), ("Z", "S"), ("AA", "T"))},
+    sheet.cell(1, 1, "黄色为输入，蓝色为本行公式；权重和最低件数直接写在公式中。海运天数含空运覆盖期；库存、未关联货件先扣空运再扣海运。仅本表试算，运输方式及其他报表保持生成时结果。")
+    sheet.append(FINAL_SHIPPING_COLUMNS)
+    caches: dict[str, dict[str, Any]] = {FINAL_SHIPPING_SHEET: {}}
+    end = len(selected) + 2
+    for r, row in enumerate(selected, 3):
+        public = _initial_values(row, missing_snapshot)
+        inputs = row.formula_inputs
+        assert inputs is not None  # Validated by _initial_values.
+        for column, value in public.items():
+            cell = sheet[f"{column}{r}"]
+            cell.value = value
+            if isinstance(value, str):
+                cell.data_type = "s"
+        is_sea = row.sheet_name == "海运"
+        weights = tuple(repr(float(weight)) for weight in inputs.weights)
+        minimum = repr(float(inputs.minimum_sea_quantity))
+        valid = f'AI{r}="正常"'
+        # Each stage is independently visible; no cross-sheet lookup or hidden row IDs.
+        formulas = {
+            "I": f'E{r}/7*{weights[0]}+F{r}/14*{weights[1]}+G{r}/30*{weights[2]}',
+            "Q": f'SUM(J{r}:L{r},N{r}:P{r})',
+            "AI": f'IFERROR(IF(AND(COUNT(E{r}:R{r},U{r}:V{r})=16,MIN(E{r}:R{r},U{r}:V{r})>=0,U{r}=INT(U{r}),V{r}=INT(V{r}),{"V" if is_sea else "U"}{r}>0),"正常","输入无效"),"输入无效")',
+            "W": f'IF({valid},ROUNDUP(I{r}*U{r},0),"")',
+            "X": f'IF({valid},MAX(0,ROUNDUP(I{r}*V{r},0)-W{r}),"")' if is_sea else f'IF({valid},0,"")',
+            "Y": f'IF({valid},MAX(0,ROUNDUP(W{r}-Q{r},0)),"")',
+            "Z": f'IF({valid},MAX(0,ROUNDUP(X{r}-MAX(0,Q{r}-W{r}),0)),"")',
+            "AA": f'IF({valid},MAX(0,ROUNDUP(Y{r}-R{r},0)),"")',
+            "AB": f'IF({valid},MAX(0,ROUNDUP(Z{r}-MAX(0,R{r}-Y{r}),0)),"")',
+            "AC": f'IF({valid},IF(AB{r}>={minimum},AA{r},0),"")' if is_sea else f'IF({valid},AA{r},"")',
+            "AD": f'IF({valid},IF(AB{r}>={minimum},AB{r},0),"")' if is_sea else f'IF({valid},0,"")',
+            "AF": f'IFERROR(IF(AND({valid},ISNUMBER(AE{r}),AE{r}>0),(AC{r}+AD{r})*AE{r}/1000,""),"")',
+            "AH": f'IFERROR(IF(AND({valid},COUNT(S{r},AC{r}:AD{r})=3),MAX(0,AC{r}+AD{r}-S{r}),""),"")',
         }
-        required = [s(c) for c in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "U", "V")]
-        args = ",".join(required)
-        total = f"(Q{h}+R{h})"
-        shortage = f"({total}-{s('S')})"
-        shortage_text = f'IF(INT({shortage})={shortage},TEXT({shortage},"0"),TEXT({shortage},"0.00"))'
-        helper_formulas = {
-            "I": f'IFERROR(IF(AND(COUNT({args})=16,MIN({args})>=0,{s("U")}=INT({s("U")}),{s("V")}=INT({s("V")}),IF(F{h}="sea",{s("V")}>0,{s("U")}>0)),1,0),0)',
-            "J": f'IF(I{h}=1,ROUNDUP({s("I")}*{s("U")},0),0)',
-            "K": f'IF(AND(I{h}=1,F{h}="sea"),MAX(0,ROUNDUP({s("I")}*{s("V")},0)-J{h}),0)',
-            "L": f'IF(I{h}=1,MAX(0,ROUNDUP(J{h}-{s("Q")},0)),0)',
-            "M": f'IF(I{h}=1,MAX(0,ROUNDUP(K{h}-MAX(0,{s("Q")}-J{h}),0)),0)',
-            "N": f'IF(I{h}=1,MAX(0,ROUNDUP(L{h}-{s("R")},0)),0)',
-            "O": f'IF(I{h}=1,MAX(0,ROUNDUP(M{h}-MAX(0,{s("R")}-L{h}),0)),0)',
-            "P": f'IF(AND(F{h}="sea",O{h}<E{h}),0,1)',
-            "Q": f'IF(I{h}=1,IF(P{h}=1,N{h},0),"")',
-            "R": f'IF(I{h}=1,IF(P{h}=1,O{h},0),"")',
-            "S": f'IFERROR(IF(AND(I{h}=1,ISNUMBER({s("Y")}),{s("Y")}>0),{total}*{s("Y")}/1000,""),"")',
-            "T": (
-                f'G{h}&IF(G{h}="","","；")&IF(I{h}=0,"输入无效：销量、库存、货件须为非负数，补货天数须为有效整数",'
-                f'"试算建议：空运"&TEXT(Q{h},"0")&"件，海运"&TEXT(R{h},"0")&"件"'
-                f'&IF(P{h}=0,"；海运数量不足"&TEXT(E{h},"0.##")&"件","")'
-                f'&IF({total}=0,"；当前建议量为0","")'
-                f'&IF(IFERROR(AND(COUNTBLANK({s("S")})=0,ISNUMBER({s("S")})),FALSE),'
-                f'IF({total}>{s("S")},"；深圳库存不足，缺口"&{shortage_text}&"件",""),"；深圳可用库存缺失或无效")'
-                f'&IF(S{h}="","；单件重量缺失或无效，无法计算预计总重量",""))'
-                f'&IF(H{h}=1,"；未取得同日未关联货件快照，需核实当前试算数量","")'
-            ),
-        }
-        for target, formulas, initial, index in ((sheet, visible_formulas, public, r), (helper, helper_formulas, params, h)):
-            for column, formula in formulas.items():
-                address = f"{column}{index}"
-                target[address] = "=" + formula
-                caches[target.title][address] = initial[column]
+        sea_note = f'&IF(AND(AC{r}+AD{r}=0,AA{r}+AB{r}>0),"；海运最低件数条件未满足","")' if is_sea else ""
+        snapshot_note = '&"；未取得同日未关联货件快照，需核实当前试算数量"' if missing_snapshot else ""
+        formulas["AJ"] = (
+            f'IF({valid},"可试算"'
+            f'{sea_note}&IF(AC{r}+AD{r}=0,"；当前建议量为0","")'
+            f'&IF(AH{r}="","；深圳可用库存缺失或无效",IF(AH{r}>0,"；深圳库存不足",""))'
+            f'&IF(AF{r}="","；单件重量缺失或无效",""),'
+            f'"输入无效：销量、FBA库存、未关联货件须为非负数，补货天数须为有效整数"){snapshot_note}'
+        )
+        for column, formula in formulas.items():
+            address = f"{column}{r}"
+            sheet[address] = "=" + formula
+            caches[FINAL_SHIPPING_SHEET][address] = public[column]
 
     sheet.freeze_panes = "E3"
     sheet.sheet_view.showGridLines = False
-    sheet.column_dimensions["AC"].hidden = True
+    # A normal filter avoids Excel Table calculated-column autofill replacing
+    # row-specific literal weights/thresholds when a user edits one formula.
+    sheet.auto_filter.ref = f"A2:AJ{end}"
     if selected:
-        # Excel rejects a worksheet filter overlapping a Table's own filter.
-        table = Table(displayName="FinalShipping", ref=f"A2:AC{end}")
-        table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=False)
-        sheet.add_table(table)
         numeric = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         numeric.showErrorMessage = True
         numeric.error = "请输入大于等于0的数值；不要清空必需输入。"
         sheet.add_data_validation(numeric)
-        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "Y"):
+        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "AE"):
             numeric.add(f"{column}3:{column}{end}")
         days = DataValidation(type="whole", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         days.showErrorMessage = True
         days.error = "请输入大于等于0的整数；0表示不适用。"
         sheet.add_data_validation(days)
         days.add(f"U3:V{end}")
-    else:
-        sheet.auto_filter.ref = "A2:AC2"
-    widths = (32, 16, 28, 35, 13, 13, 13, 13, 14, 12, 12, 12, 13, 12, 13, 13, 22, 22, 18, 24, 18, 18, 17, 17, 18, 22, 66, 18)
-    input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 25}
-    formula_columns = {9, 17, 23, 24, 26, 27, 28}
-    for index, width in enumerate(widths, 1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
+    input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 31, 33}
+    formula_columns = {9, 17, *range(23, 31), 32, 34, 35, 36}
+    for index in range(1, len(FINAL_SHIPPING_COLUMNS) + 1):
+        sheet.column_dimensions[get_column_letter(index)].width = 15
         header = sheet.cell(2, index)
         header.fill = PatternFill("solid", fgColor="243746")
         header.font = Font(bold=True, color="FFFFFF")
         header.alignment = Alignment(vertical="center", wrap_text=True)
-    sheet.row_dimensions[1].height = 26
-    sheet.row_dimensions[2].height = 34
-    for cells in sheet.iter_rows(min_row=3, max_row=end, max_col=28):
-        sheet.row_dimensions[cells[0].row].height = 66
+    sheet.row_dimensions[1].height = 15
+    sheet.row_dimensions[2].height = 15
+    for cells in sheet.iter_rows(min_row=3, max_row=end, max_col=len(FINAL_SHIPPING_COLUMNS)):
+        sheet.row_dimensions[cells[0].row].height = 15
         for index, cell in enumerate(cells, 1):
             cell.alignment = Alignment(vertical="center", wrap_text=True)
             if index in input_columns | formula_columns:
                 cell.fill = PatternFill("solid", fgColor="FFF2CC" if index in input_columns else "EAF2F8")
-            if index == 28:
-                cell.number_format = "#,##0.##"
-            elif index in (9, 25, 26):
+            if index in (9, 31, 32):
                 cell.number_format = "#,##0.00"
-            elif 5 <= index <= 24 and index != 20:
-                cell.number_format = "#,##0.00" if isinstance(cell.value, float) and not cell.value.is_integer() else "#,##0"
+            elif 5 <= index <= 30 and index != 20 or index == 34:
+                cell.number_format = "#,##0.##"
     workbook.active = 0
     return caches
 

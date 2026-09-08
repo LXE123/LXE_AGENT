@@ -54,32 +54,34 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         sheet = book[formulas.FINAL_SHIPPING_SHEET]
         records = list(sheet.iter_rows(min_row=3, values_only=True))
         assert [r[0] for r in records] == ["URGENT", "AIR", "SEA", "SEA-ONLY"]
-        assert [(r[22], r[23]) for r in records] == [(90, 0), (130, 0), (10, 210), (0, 60)]
-        assert [r[25] for r in records] == [None, 13, 22, 0.06]
+        assert [(r[28], r[29]) for r in records] == [(90, 0), (130, 0), (10, 210), (0, 60)]
+        assert [r[31] for r in records] == [None, 13, 22, 0.06]
         assert all(r[12] == 1000 for r in records)  # Planned inbound never enters FBA deduction.
         assert records[2][16] == 430
         assert records[2][17] == 10
-        assert "缺口120件" in records[2][26]
-        assert "未取得同日未关联货件快照" in records[2][26]
-        assert "单件重量缺失" in records[0][26]
-        assert book[formulas.FORMULA_PARAMS_SHEET].sheet_state == "hidden"
+        assert "深圳库存不足" in records[2][35]
+        assert records[2][33] == 120
+        assert "未取得同日未关联货件快照" in records[2][35]
+        assert "单件重量缺失" in records[0][35]
+        assert "备货公式参数" not in book.sheetnames
+        assert all(r[32] == "整箱包装" for r in records)
         assert _read_info(book)[0] == metadata
         assert raw.calculation.calcMode == "auto"
         assert raw.active.title == formulas.FINAL_SHIPPING_SHEET
         assert raw.active.freeze_panes == "E3"
-        assert raw.active.tables["FinalShipping"].ref == "A2:AC6"
-        assert raw.active.tables["FinalShipping"].autoFilter.ref == "A2:AC6"
-        assert raw.active.auto_filter.ref is None
-        assert raw.active.column_dimensions["AC"].hidden
-        assert [c.value for c in raw.active[2]][:28] == list(formulas.FINAL_SHIPPING_COLUMNS)
-        for address in ("I3", "Q3", "W3", "X3", "Z3", "AA3"):
+        assert not raw.active.tables
+        assert raw.active.auto_filter.ref == "A2:AJ6"
+        assert not any(d.hidden for d in raw.active.column_dimensions.values())
+        assert [c.value for c in raw.active[2]] == list(formulas.FINAL_SHIPPING_COLUMNS)
+        for address in ("I3", "Q3", "W3", "X3", "Y3", "Z3", "AA3", "AB3", "AC3", "AD3", "AF3", "AH3", "AI3", "AJ3"):
             assert raw.active[address].data_type == "f"
         assert raw.active["E3"].fill != raw.active["W3"].fill
         for ws in raw:
             for cells in ws:
                 for cell in cells:
                     if cell.data_type == "f":
-                        assert len(cell.value) < 8192
+                        assert len(cell.value) < 600
+                        assert "!" not in cell.value and "INDEX(" not in cell.value and "MATCH(" not in cell.value
         assert len(raw.active.data_validations.dataValidation) == 2
     finally:
         book.close()
@@ -88,12 +90,9 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert archive.testzip() is None
         ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
         worksheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
-        table = ET.fromstring(archive.read("xl/tables/table1.xml"))
-        # Check the final package after Active metadata and cache injection:
-        # Excel repairs/removes this table if a sheet-level filter overlaps it.
-        assert worksheet.find("s:autoFilter", ns) is None
-        assert table.find("s:autoFilter", ns).attrib["ref"] == "A2:AC6"
-        assert len(worksheet.findall("s:tableParts/s:tablePart", ns)) == 1
+        assert worksheet.find("s:autoFilter", ns).attrib["ref"] == "A2:AJ6"
+        assert worksheet.find("s:tableParts", ns) is None
+
 
 
 def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
@@ -102,7 +101,7 @@ def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
     try:
         assert book.active.max_row == 2
         assert not book.active.tables
-        assert book.active.auto_filter.ref == "A2:AC2"
+        assert book.active.auto_filter.ref == "A2:AJ2"
     finally:
         book.close()
 
@@ -124,9 +123,9 @@ def test_weighted_sales_integer_boundary_uses_formal_evaluation_order(tmp_path):
     book = load_workbook(path, data_only=True)
     try:
         assert book[formulas.FINAL_SHIPPING_SHEET]["I3"].value == row.weighted_daily_sales
-        assert book[formulas.FINAL_SHIPPING_SHEET]["W3"].value == 102
-        assert book[formulas.FINAL_SHIPPING_SHEET]["X3"].value == 0
-        assert book[formulas.FORMULA_PARAMS_SHEET]["J2"].value == 184
+        assert book[formulas.FINAL_SHIPPING_SHEET]["AC3"].value == 102
+        assert book[formulas.FINAL_SHIPPING_SHEET]["AD3"].value == 0
+        assert book[formulas.FINAL_SHIPPING_SHEET]["W3"].value == 184
         assert not {rep.AIR_URGENT_SHEET, rep.AIR_SHEET, rep.SEA_SHEET} & set(book.sheetnames)
     finally:
         book.close()
@@ -203,7 +202,7 @@ def test_fractional_deductions_keep_each_rounding_stage(tmp_path):
     path = rep.write_replenishment_report([row], tmp_path / "rounding.xlsx")
     book = load_workbook(path, data_only=True)
     try:
-        assert book.active["W3"].value == 150
+        assert book.active["AC3"].value == 150
     finally:
         book.close()
 
@@ -233,7 +232,7 @@ def test_formula_uses_effective_special_weights_with_nonuniform_sales(tmp_path):
     book = load_workbook(path, data_only=True)
     try:
         assert book.active["I3"].value == pytest.approx(2.6)
-        assert book.active["W3"].value == row.replenish_quantity
+        assert book.active["AC3"].value == row.replenish_quantity
         assert book.active["H3"].value == 999
     finally:
         book.close()
@@ -245,17 +244,39 @@ def test_stock_gap_column_cached_and_sort_keys_preserved(tmp_path, stock, expect
     path=rep.write_replenishment_report([row],tmp_path/'gap.xlsx')
     book=load_workbook(path,data_only=True);raw=load_workbook(path)
     try:
-        assert book.active['AB2'].value=='深圳库存缺口'
-        assert book.active['AB3'].value==expected
-        assert book.active['W3'].value==130 and book.active['X3'].value==0
-        assert book.active['AC3'].value=='record-2'
-        assert raw.active['AB3'].data_type=='f'
-        assert 'COUNT(S3,W3:X3)=3' in raw.active['AB3'].value
-        assert raw.active.column_dimensions['AC'].hidden
-        assert not raw.active.column_dimensions['AB'].hidden
-        assert raw.active['AB3'].fill.fgColor.rgb==raw.active['W3'].fill.fgColor.rgb=='00EAF2F8'
-        assert raw.active['AB3'].fill.patternType=='solid'
-        assert raw.active.tables['FinalShipping'].ref=='A2:AC3'
-        assert '$AC3' in raw.active['W3'].value
-        assert '$AC$3:$AC$3' in raw['备货公式参数']['J2'].value
+        assert book.active['AH2'].value=='深圳库存缺口'
+        assert book.active['AH3'].value==expected
+        assert book.active['AC3'].value==130 and book.active['AD3'].value==0
+        assert '记录标识' not in [c.value for c in book.active[2]]
+        assert raw.active['AH3'].data_type=='f'
+        assert 'COUNT(S3,AC3:AD3)=3' in raw.active['AH3'].value
+        assert not any(d.hidden for d in raw.active.column_dimensions.values())
+        assert raw.active['AH3'].fill.fgColor.rgb==raw.active['AC3'].fill.fgColor.rgb=='00EAF2F8'
+        assert raw.active.auto_filter.ref=='A2:AJ3'
+        assert raw.active['AC3'].value=='=IF(AI3="正常",AA3,"")'
     finally:book.close();raw.close()
+
+
+def test_visible_deduction_stages_use_only_same_row_cells(tmp_path):
+    row = case_row()
+    path = rep.write_replenishment_report([row], tmp_path/'stages.xlsx')
+    raw = load_workbook(path);cached = load_workbook(path,data_only=True)
+    try:
+        assert [cached.active.cell(3,c).value for c in range(23,31)] == [450,210,20,210,10,210,10,210]
+        assert raw.active['W3'].value == '=IF(AI3="正常",ROUNDUP(I3*U3,0),"")'
+        assert raw.active['AA3'].value == '=IF(AI3="正常",MAX(0,ROUNDUP(Y3-R3,0)),"")'
+        assert raw.active['AB3'].value == '=IF(AI3="正常",MAX(0,ROUNDUP(Z3-MAX(0,R3-Y3),0)),"")'
+        assert 'AB3>=30.0' in raw.active['AD3'].value
+        assert raw.active['AG3'].data_type == 's'
+    finally:raw.close();cached.close()
+
+
+def test_effective_weights_are_literal_and_row_specific(tmp_path):
+    row = case_row(fba=300, unlinked=20, template_name='默认')
+    path = rep.write_replenishment_report([row], tmp_path/'weights.xlsx')
+    book = load_workbook(path)
+    try:
+        a,b,c=row.formula_inputs.weights
+        assert book.active['I3'].value == f'=E3/7*{float(a)!r}+F3/14*{float(b)!r}+G3/30*{float(c)!r}'
+        assert len(book.active['AC3'].value) < 80
+    finally:book.close()

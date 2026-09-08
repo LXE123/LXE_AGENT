@@ -583,7 +583,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["最终备货意见", "本轮不备货", "链接备货汇总", "备货公式参数", "源数据核验信息"]
+    assert _sheet_names(report_path) == ["最终备货意见", "本轮不备货", "链接备货汇总", "源数据核验信息"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     final = {r["MSKU"]: r for r in _load_records(report_path, "最终备货意见")}
     assert set(final) == {"URGENT-1", "AIR-1", "SEA-1"}

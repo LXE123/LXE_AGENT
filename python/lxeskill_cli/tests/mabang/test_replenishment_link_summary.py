@@ -37,9 +37,9 @@ def test_mixed_parent_ties_out_to_final_shipping_sheet(tmp_path):
             assert summary["总补货量"] == sum(summary[k] for k in ("空运（急发）补货量", "空运补货量", "海运建议量"))
         shipping = list(book[formulas.FINAL_SHIPPING_SHEET].iter_rows(min_row=3, values_only=True))
         assert {r[0] for r in shipping} == {"URGENT", "AIR", "COMPANION", "SEA"}
-        assert sum(r[22] for r in shipping) == mixed["空运（急发）补货量"] + mixed["空运补货量"]
-        assert sum(r[23] for r in shipping) == mixed["海运建议量"]
-        assert sum(r[22] + r[23] for r in shipping) == sum(r["总补货量"] for r in summaries)
+        assert sum(r[28] for r in shipping) == mixed["空运（急发）补货量"] + mixed["空运补货量"]
+        assert sum(r[29] for r in shipping) == mixed["海运建议量"]
+        assert sum(r[28] + r[29] for r in shipping) == sum(r["总补货量"] for r in summaries)
     finally:
         book.close()
 
