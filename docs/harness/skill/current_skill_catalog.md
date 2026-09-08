@@ -82,4 +82,19 @@ Dashboard skill APIs and the runtime prompt must use the same filtered catalog. 
 
 ## Keeping This Page Current
 
+### UI 中文名
+
+`config/skill-labels.json` 是本地与服务器前端共用的官方中文名源，首次覆盖本页的
+FBA、备货、亚马逊运营和紫鸟 26 个技能。只用于 UI 展示，不参与 AI 提示词、命令或权限判断。
+中文界面按英文 `name` 查名称；英文界面及未知技能保留原名。
+
+新增上述类型的技能时追加中文名，删除技能时保留映射，让历史统计继续可读。
+同一 `name` 始终代表同一技能；业务含义改变时使用新标识。更新中文名称会统一影响
+新旧统计展示，不改变请求、统计分组或历史记录。已退役但尚未收录的标识显示英文。
+
+服务器仓库使用 `uv run --frozen python scripts/import-skill-labels --agent-root <本仓库路径>`
+生成发布快照，再用同一命令加 `--check` 检查并提交生成文件。不要手改服务器快照。
+该检查会阻止缺少历史键的旧 checkout 覆盖已有映射。
+两端独立发布，不要求客户端同时升级；服务器未更新的新技能暂时显示英文。
+
 Update this page when a repository skill is added, removed, renamed, or changes type. Do not copy operational instructions, CLI schemas, selectors, or workbook column contracts here; link readers to the corresponding `skills/<name>/SKILL.md` instead.

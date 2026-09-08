@@ -556,7 +556,7 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
               <tbody>
                 {skillStats.map((skill) => (
                   <tr key={skill.name}>
-                    <td>{skill.name}</td>
+                    <td title={skill.name}>{t.skillDisplayName(skill.name)}</td>
                     <td>{formatNumber(skill.activations)}</td>
                     <td>{formatNumber(skill.executions)}</td>
                     <td><FailureCount value={skill.failures} /></td>

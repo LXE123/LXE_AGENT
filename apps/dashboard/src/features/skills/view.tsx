@@ -126,7 +126,7 @@ export function SkillsView({
                           onClick={() => onOpen({ type: "skill", item: skill, title: skill.name })}
                         >
                           <div className="item-heading">
-                            <h3>{skill.name}</h3>
+                            <h3 title={skill.name}>{t.skillDisplayName(skill.name)}</h3>
                           </div>
                           <p className="description">{skill.description}</p>
                           {skill.commands.length || skill.references.length ? (

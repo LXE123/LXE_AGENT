@@ -1,5 +1,6 @@
 // UI copy (zh/en) and the language context.
 import React from "react";
+import { skillDisplayName } from "./skill-labels";
 
 export const LANGUAGE_STORAGE_KEY = "lxe.window.main.language.v1";
 const LEGACY_LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
@@ -7,6 +8,7 @@ const LEGACY_LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 export type Language = "zh" | "en";
 
 export const ZH_TEXT = {
+  skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
   language: {
     label: "语言",
     zh: "中文",
@@ -816,6 +818,7 @@ export type UiText = typeof ZH_TEXT;
 export const UI_TEXT: Record<Language, UiText> = {
   zh: ZH_TEXT,
   en: {
+    skillDisplayName: (name: string) => skillDisplayName(name, "en"),
     language: {
       label: "Language",
       zh: "中文",

@@ -127,7 +127,7 @@ export function DashboardHome({
             <div className="home-skill-list">
               {activeSkills.map((skill) => (
                 <div className="home-skill-row" key={skill.name}>
-                  <span className="home-skill-name">{skill.name}</span>
+                  <span className="home-skill-name" title={skill.name}>{t.skillDisplayName(skill.name)}</span>
                   <span className="home-skill-meta">
                     <SuccessRateCell executions={skill.executions} failures={skill.failures} />
                     <span className="home-skill-count">{t.home.executionsUnit(formatNumber(skill.executions))}</span>

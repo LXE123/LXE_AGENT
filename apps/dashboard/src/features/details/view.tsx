@@ -231,12 +231,13 @@ export function DetailModal({
   const modalType =
     target.type === "tool" ? t.detailModal.tool
     : skillTypeLabel(target.item.type, t);
+  const title = target.type === "skill" ? t.skillDisplayName(target.item.name) : target.title;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
       <section
-        aria-label={target.title}
+        aria-label={title}
         aria-modal="true"
         className="modal"
         ref={dialogRef}
@@ -246,7 +247,8 @@ export function DetailModal({
         <div className="modal-header">
           <div>
             <div className="modal-kicker">{modalType}</div>
-            <h2>{target.title}</h2>
+            <h2>{title}</h2>
+            {target.type === "skill" ? <div className="mono">{target.item.name}</div> : null}
             {target.item.description ? (
               <div className="modal-subtitle">
                 <p>{target.item.description}</p>
