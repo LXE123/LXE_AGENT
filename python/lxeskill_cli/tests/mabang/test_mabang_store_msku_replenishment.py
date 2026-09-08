@@ -587,7 +587,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)
-    for sheet_name in ["真实库存（深圳仓库）不足", "清货", "暂不建议发货", "样本不足"]:
+    for sheet_name in ["真实库存（深圳仓库）不足", "清货", "暂不建议发货"]:
         headers = _headers(report_path, sheet_name)
         assert headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
         assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) + 1
@@ -606,7 +606,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
     assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "预计总重量kg")) == {"0.00"}
     for header in ["海运天数", "海运建议量", "同时空运天数", "同时空运建议量"]:
         assert header in _headers(report_path, "真实库存（深圳仓库）不足")
-    for sheet_name in ["暂不建议发货", "样本不足"]:
+    for sheet_name in ["暂不建议发货"]:
         headers = _headers(report_path, sheet_name)
         assert headers == list(repl.DETAIL_COLUMNS)
         assert "未关联抵扣前建议量" not in headers
@@ -663,9 +663,9 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
     assert sample_rows[0]["MSKU"] == "SAMPLE-1"
     assert sample_rows[0]["本地SKU名称"] == "样本不足本地名"
     assert sample_rows[0]["产品名称"] == "Sample Product"
-    assert sample_rows[0]["补货量"] in (None, "")
-    assert sample_rows[0]["预计总重量kg"] in (None, "")
-    assert sample_rows[0]["决策原因"] == "销量趋势为样本不足，不计算备货量"
+    assert _headers(report_path, "样本不足") == list(repl.SAMPLE_INSUFFICIENT_COLUMNS)
+    assert [sample_rows[0][k] for k in ("7天销量", "14天销量", "30天销量", "90天销量")] == [56, 112, 240, 720]
+    assert sample_rows[0]["排除原因"] == "参数方案「默认」将销量趋势「样本不足」设置为跳过，本轮不计算备货"
 
     shortage_rows = _load_records(report_path, "真实库存（深圳仓库）不足")
     assert {row["MSKU"] for row in shortage_rows} == {"SEA-1", "AIR-1", "URGENT-1"}

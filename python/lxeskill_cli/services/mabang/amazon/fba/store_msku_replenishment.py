@@ -152,6 +152,13 @@ DETAIL_COLUMNS = (
     "预计总重量kg",
     "决策原因",
 )
+SAMPLE_INSUFFICIENT_COLUMNS = (
+    "MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "备注",
+    "子SKU", "商品链接", "SKU类型", "7天销量", "14天销量", "30天销量", "90天销量",
+    "加权日销", MABANG_FBA_TOTAL_COLUMN, ACTUAL_INVENTORY_QUANTITY_COLUMN,
+    "未关联数量", "排除原因",
+)
+
 AIR_DETAIL_COLUMNS = tuple(
     column
     for column in DETAIL_COLUMNS
@@ -1521,6 +1528,22 @@ def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]
     return [row for row in shortages if row is not None]
 
 
+def _sample_insufficient_payload(row: ReplenishmentRow) -> dict[str, Any]:
+    context = f"MSKU={row.msku}, 父ASIN={row.parent_asin}, ASIN={row.asin}, 本地SKU={row.local_sku}"
+    if row.formula_inputs is None:
+        raise StoreMskuReplenishmentError(f"样本不足明细缺少同源销量输入: {context}")
+    sales = {
+        column: source_number(row.formula_inputs.values.get(column), context=f"{context}, column={column}")
+        for column in SOURCE_VALUE_COLUMNS[:4]
+    }
+    if row.sales_trend == "样本不足" and sales["30天销量"] < 10:
+        reason = "近30天销量不足10件，本轮不计算备货"
+    else:
+        reason = f"参数方案「{row.template_name}」将销量趋势「{row.sales_trend}」设置为跳过，本轮不计算备货"
+    payload = {**row.to_detail_payload(), **sales, "排除原因": reason}
+    return {column: payload[column] for column in SAMPLE_INSUFFICIENT_COLUMNS}
+
+
 def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     worksheet.append(list(headers))
     for row in rows:
@@ -1535,7 +1558,7 @@ def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, 
         if header in TWO_DECIMAL_COLUMNS:
             for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
                 cells[0].number_format = "0.00"
-        elif header in INTEGER_COLUMNS:
+        elif header in INTEGER_COLUMNS or header in SOURCE_VALUE_COLUMNS[:4]:
             for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
                 value = cells[0].value
                 if isinstance(value, float) and not value.is_integer():
@@ -1605,9 +1628,9 @@ def write_replenishment_report(
                 (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
                 (
                     SAMPLE_INSUFFICIENT_SHEET,
-                    DETAIL_COLUMNS,
+                    SAMPLE_INSUFFICIENT_COLUMNS,
                     [
-                        row.to_detail_payload()
+                        _sample_insufficient_payload(row)
                         for row in sorted(sheet_rows[SAMPLE_INSUFFICIENT_SHEET], key=_detail_sort_key)
                     ],
                 ),
