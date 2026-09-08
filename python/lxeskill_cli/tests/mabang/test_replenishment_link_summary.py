@@ -15,8 +15,8 @@ def test_mixed_parent_ties_out_to_final_shipping_sheet(tmp_path):
         case_row("COMPANION"),
         case_row("SEA", fba=480, unlinked=0, template_name="默认"),
     ]
-    rows += [replace(rows[0], msku="NO-SHIP", sheet_name=rep.NO_SHIP_SHEET, replenish_quantity=999),
-             replace(rows[0], msku="SAMPLE", sheet_name=rep.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=888)]
+    rows += [replace(rows[0], msku="NO-SHIP", non_shipping_reason_code="sea_daily_threshold", non_shipping_reason_detail="fixture: sea daily threshold", sheet_name=rep.NO_SHIP_SHEET, replenish_quantity=999),
+             replace(rows[0], msku="SAMPLE", non_shipping_reason_code="parameter_skip", non_shipping_reason_detail="fixture: skipped trend", sheet_name=rep.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=888)]
     rows = [replace(row, parent_asin="MIXED") for row in rows]
     rows += [replace(rows[0], msku="ZERO", parent_asin="ZERO-PARENT", replenish_quantity=0),
              replace(rows[0], msku="CLEAR", parent_asin="CLEAR-PARENT", sheet_name=rep.CLEARANCE_SHEET)]

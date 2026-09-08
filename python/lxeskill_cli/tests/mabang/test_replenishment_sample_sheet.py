@@ -31,20 +31,20 @@ def test_low_sales_boundary_and_snapshot_columns(tmp_path, sales):
     path = rep.write_replenishment_report([row], tmp_path / 'report.xlsx')
     book = load_workbook(path)
     try:
-        sheet = book[rep.SAMPLE_INSUFFICIENT_SHEET]
-        assert [c.value for c in sheet[1]] == list(rep.SAMPLE_INSUFFICIENT_COLUMNS)
-        assert sheet.max_column == 19
+        sheet = book[rep.NON_SHIPPING_SHEET]
+        assert [c.value for c in sheet[1]] == list(rep.NON_SHIPPING_COLUMNS)
+        assert sheet.max_column == 21
         assert sheet.freeze_panes == 'A2'
-        assert sheet.max_row == (2 if sales[2] < 10 else 1)
+        assert sheet.max_row == 2
         if sales[2] < 10:
-            assert sheet.auto_filter.ref == 'A1:S2'
-            record = dict(zip(rep.SAMPLE_INSUFFICIENT_COLUMNS, (c.value for c in sheet[2])))
+            assert sheet.auto_filter.ref == 'A1:U2'
+            record = dict(zip(rep.NON_SHIPPING_COLUMNS, (c.value for c in sheet[2])))
             assert [record[k] for k in SOURCE_VALUE_COLUMNS[:4]] == list(sales)
             assert record['加权日销'] == round(row.weighted_daily_sales, 2)
             assert record[rep.MABANG_FBA_TOTAL_COLUMN] == 28
             assert record[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == -86
             assert record['未关联数量'] == 3
-            assert record['排除原因'] == '近30天销量不足10件，本轮不计算备货'
+            assert record['具体原因'] == '近30天销量不足10件，本轮不计算备货'
             assert all(c.data_type != 'f' for c in sheet[2])
             assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[2][10:14])
             assert sheet['O2'].number_format == '0.00'
@@ -63,8 +63,8 @@ def test_custom_skip_reason_and_effective_weights(tmp_path):
     params['weighted_sales'].update({'7d_weight': .2, '14d_weight': .3, '30d_weight': .5})
     template = replace(template, name='自定义跳过', params=params)
     row = sample_row((14, 21, 30, 180), actual=None, template=template, trend='增长')
-    payload = rep._sample_insufficient_payload(row)
-    assert payload['排除原因'] == '参数方案「自定义跳过」将销量趋势「增长」设置为跳过，本轮不计算备货'
+    payload = rep._non_shipping_payload(row)
+    assert payload['具体原因'] == '参数方案「自定义跳过」将销量趋势「增长」设置为跳过，本轮不计算备货'
     assert payload[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == ''
     assert payload['加权日销'] == 1.35
     assert row.sheet_name == rep.SAMPLE_INSUFFICIENT_SHEET
@@ -112,6 +112,6 @@ def test_numeric_strings_come_from_matching_sales_input(tmp_path):
     details[other_key] = replace(details[key], sales_7d=0, sales_14d=0, sales_30d=0,
                                 source_values={**details[key].source_values, **dict.fromkeys(SOURCE_VALUE_COLUMNS[:4], 0)})
     rows = rep.calculate_replenishment_rows([inv, other], details)
-    payloads = [rep._sample_insufficient_payload(row) for row in rows]
+    payloads = [rep._non_shipping_payload(row) for row in rows]
     assert [payloads[0][k] for k in SOURCE_VALUE_COLUMNS[:4]] == [1, 2, 9, 1200]
     assert [payloads[1][k] for k in SOURCE_VALUE_COLUMNS[:4]] == [0, 0, 0, 0]

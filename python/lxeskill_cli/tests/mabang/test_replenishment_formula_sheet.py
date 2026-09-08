@@ -40,9 +40,9 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
     rows = [case_row("SEA"), case_row("AIR", fba=300, unlinked=20, template_name="默认"),
             case_row("URGENT", daily=3, fba=90, unlinked=0, weight=None, template_name="默认"),
             case_row("SEA-ONLY", fba=480, unlinked=0, weight=1, template_name="默认")]
-    rows.append(replace(rows[0], msku="NO-SHIP", sheet_name=rep.NO_SHIP_SHEET))
+    rows.append(replace(rows[0], msku="NO-SHIP", non_shipping_reason_code="sea_daily_threshold", non_shipping_reason_detail="fixture: sea daily threshold", sheet_name=rep.NO_SHIP_SHEET))
     rows.append(replace(rows[0], msku="CLEARANCE", sheet_name=rep.CLEARANCE_SHEET))
-    rows.append(replace(rows[0], msku="SAMPLE", sheet_name=rep.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=None))
+    rows.append(replace(rows[0], msku="SAMPLE", non_shipping_reason_code="parameter_skip", non_shipping_reason_detail="fixture: skipped trend", sheet_name=rep.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=None))
     source = _write_sales_report(tmp_path / "202605251530-Amazon-Test_销量分析.xlsx")
     wb = load_workbook(source)
     metadata, _ = _read_info(wb)

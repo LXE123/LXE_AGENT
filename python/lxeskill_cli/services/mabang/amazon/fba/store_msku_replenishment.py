@@ -152,12 +152,25 @@ DETAIL_COLUMNS = (
     "预计总重量kg",
     "决策原因",
 )
-SAMPLE_INSUFFICIENT_COLUMNS = (
+NON_SHIPPING_SHEET = "本轮不备货"
+NON_SHIPPING_COLUMNS = (
     "MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "备注",
     "子SKU", "商品链接", "SKU类型", "7天销量", "14天销量", "30天销量", "90天销量",
-    "加权日销", MABANG_FBA_TOTAL_COLUMN, ACTUAL_INVENTORY_QUANTITY_COLUMN,
-    "未关联数量", "排除原因",
+    "加权日销", "可销售天数", MABANG_FBA_TOTAL_COLUMN, ACTUAL_INVENTORY_QUANTITY_COLUMN,
+    "未关联数量", "未备货原因分类", "具体原因",
 )
+
+NON_SHIPPING_REASONS = {
+    "low_sample": "样本不足",
+    "parameter_skip": "参数跳过",
+    "fba_covered": "FBA库存已覆盖",
+    "inventory_shipments_covered": "库存及货件已覆盖",
+    "sea_daily_threshold": "未达海运日销门槛",
+    "sea_quantity_threshold": "海运件数不足",
+    "sea_disabled": "海运未启用",
+    "zero_daily_sales": "无法计算覆盖天数",
+    "sea_tier_missing": "未匹配海运分档",
+}
 
 AIR_DETAIL_COLUMNS = tuple(
     column
@@ -412,6 +425,8 @@ class ReplenishmentRow:
     transport_channel: str = ""
     sales_trend_rate: float | None = None
     formula_inputs: ShippingFormulaInputs | None = None
+    non_shipping_reason_code: str = ""
+    non_shipping_reason_detail: str = ""
 
     def to_detail_payload(self) -> dict[str, Any]:
         display_weight_kg = _report_estimated_weight_kg(self)
@@ -1076,6 +1091,8 @@ def _with_inventory_deductions(
             sea_net_quantity=0 if row.sea_net_quantity is not None else row.sea_net_quantity,
             estimated_weight_kg=None,
             decision_reason=f"{row.decision_reason}{reason_suffix}，{MABANG_FBA_TOTAL_COLUMN}已覆盖本次建议量",
+            non_shipping_reason_code="fba_covered",
+            non_shipping_reason_detail=f"理论需求{original_quantity}件，FBA库存{_display_quantity(row.fba_total_inventory)}件已覆盖，本轮不备货",
             sheet_name=NO_SHIP_SHEET,
         )
     if final_quantity <= 0:
@@ -1088,6 +1105,9 @@ def _with_inventory_deductions(
             sea_net_quantity=0 if row.sea_net_quantity is not None else row.sea_net_quantity,
             estimated_weight_kg=None,
             decision_reason=f"{row.decision_reason}{reason_suffix}，{MABANG_FBA_TOTAL_COLUMN}和未关联数量已覆盖本次建议量",
+            non_shipping_reason_code="inventory_shipments_covered",
+            non_shipping_reason_detail=(f"理论需求{original_quantity}件，FBA库存{_display_quantity(row.fba_total_inventory)}件"
+                                        f"及未关联货件{_display_quantity(row.unlinked_quantity)}件已覆盖，本轮不备货"),
             sheet_name=NO_SHIP_SHEET,
         )
 
@@ -1111,6 +1131,9 @@ def _with_inventory_deductions(
                     f"{row.decision_reason}{reason_suffix}，"
                     f"扣减{MABANG_FBA_TOTAL_COLUMN}和未关联货件后，海运数量不足{min_sea_quantity:g}件"
                 ),
+                non_shipping_reason_code="sea_quantity_threshold",
+                non_shipping_reason_detail=(f"扣除FBA库存和未关联货件后，海运数量{final_sea_quantity}件"
+                                            f"低于最低{min_sea_quantity:g}件，本轮不备货"),
                 sheet_name=NO_SHIP_SHEET,
             )
 
@@ -1181,6 +1204,7 @@ def calculate_replenishment_row(
     rule_name = matched_rule or "默认规则"
     mapped_trend = trend_group_from_template(sales_detail.trend, active_template)
     if mapped_trend is None:
+        low_sample = sales_detail.trend == "样本不足" and sales_detail.sales_30d < 10
         return ReplenishmentRow(
             msku=row.msku,
             parent_asin=row.parent_asin,
@@ -1211,6 +1235,11 @@ def calculate_replenishment_row(
             decision_reason="销量趋势为样本不足，不计算备货量",
             child_skus=row.child_skus,
             sheet_name=SAMPLE_INSUFFICIENT_SHEET,
+            non_shipping_reason_code="low_sample" if low_sample else "parameter_skip",
+            non_shipping_reason_detail=(
+                "近30天销量不足10件，本轮不计算备货" if low_sample else
+                f"参数方案「{active_template.name}」将销量趋势「{sales_detail.trend}」设置为跳过，本轮不计算备货"
+            ),
         )
 
     replenish_day_count = replenishment_days_from_template(weighted_daily_sales, mapped_trend, params)
@@ -1249,6 +1278,8 @@ def calculate_replenishment_row(
             sea_quantity=None,
             estimated_weight_kg=None,
             decision_reason="可销售天数为空，暂不建议发货",
+            non_shipping_reason_code="zero_daily_sales",
+            non_shipping_reason_detail="加权日销为零，无法计算覆盖天数，本轮不备货",
             sheet_name=NO_SHIP_SHEET,
         )
     air_urgent_days = float(params["shipping"]["air_urgent_sales_days_lte"])
@@ -1283,6 +1314,9 @@ def calculate_replenishment_row(
             sea_quantity=None,
             estimated_weight_kg=None,
             decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但参数方案已关闭海运，暂不建议发货",
+            non_shipping_reason_code="sea_disabled",
+            non_shipping_reason_detail=(f"库存覆盖{sales_days:.2f}天，超过空运门槛{air_days:g}天，"
+                                        f"参数方案「{active_template.name}」未启用海运，本轮不备货"),
             sheet_name=NO_SHIP_SHEET,
         )
 
@@ -1295,6 +1329,10 @@ def calculate_replenishment_row(
             sea_quantity=None,
             estimated_weight_kg=None,
             decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但加权日销={weighted_daily_sales:.2f} {operator_text} {min_daily_sales:g}，不建议海运",
+            non_shipping_reason_code="sea_daily_threshold",
+            non_shipping_reason_detail=(f"库存覆盖{sales_days:.2f}天，超过空运门槛{air_days:g}天，"
+                                        f"加权日销{weighted_daily_sales:.2f}件未达到海运门槛"
+                                        f"（需{'达到' if sea_min_daily_sales_inclusive_from_template(params) else '超过'}{min_daily_sales:g}件），本轮不备货"),
             sheet_name=NO_SHIP_SHEET,
         )
     tried: list[str] = []
@@ -1376,6 +1414,9 @@ def calculate_replenishment_row(
         sea_quantity=None,
         estimated_weight_kg=None,
         decision_reason=f"可销售天数 > {air_days:g}，未匹配海运补货天数；" + "；".join(tried),
+        non_shipping_reason_code="sea_tier_missing",
+        non_shipping_reason_detail=(f"加权日销{weighted_daily_sales:.2f}件，参数方案「{active_template.name}」"
+                                    f"未匹配{'海运同时空运' if tried else '海运'}天数分档，本轮不备货"),
         sheet_name=NO_SHIP_SHEET,
     )
 
@@ -1528,20 +1569,28 @@ def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]
     return [row for row in shortages if row is not None]
 
 
-def _sample_insufficient_payload(row: ReplenishmentRow) -> dict[str, Any]:
+def _non_shipping_payload(row: ReplenishmentRow) -> dict[str, Any]:
     context = f"MSKU={row.msku}, 父ASIN={row.parent_asin}, ASIN={row.asin}, 本地SKU={row.local_sku}"
     if row.formula_inputs is None:
-        raise StoreMskuReplenishmentError(f"样本不足明细缺少同源销量输入: {context}")
+        raise StoreMskuReplenishmentError(f"本轮不备货明细缺少同源销量输入: {context}")
     sales = {
         column: source_number(row.formula_inputs.values.get(column), context=f"{context}, column={column}")
         for column in SOURCE_VALUE_COLUMNS[:4]
     }
-    if row.sales_trend == "样本不足" and sales["30天销量"] < 10:
-        reason = "近30天销量不足10件，本轮不计算备货"
-    else:
-        reason = f"参数方案「{row.template_name}」将销量趋势「{row.sales_trend}」设置为跳过，本轮不计算备货"
-    payload = {**row.to_detail_payload(), **sales, "排除原因": reason}
-    return {column: payload[column] for column in SAMPLE_INSUFFICIENT_COLUMNS}
+    if row.non_shipping_reason_code not in NON_SHIPPING_REASONS or not row.non_shipping_reason_detail:
+        raise StoreMskuReplenishmentError(
+            f"本轮不备货明细缺少有效原因: {context}, code={row.non_shipping_reason_code!r}"
+        )
+    payload = {
+        **row.to_detail_payload(), **sales,
+        "未备货原因分类": NON_SHIPPING_REASONS[row.non_shipping_reason_code],
+        "具体原因": row.non_shipping_reason_detail,
+    }
+    return {column: payload[column] for column in NON_SHIPPING_COLUMNS}
+
+
+def _non_shipping_sort_key(row: ReplenishmentRow) -> tuple[float, str, str, str, str]:
+    return (-row.weighted_daily_sales, row.parent_asin, row.msku, row.asin, row.local_sku)
 
 
 def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
@@ -1600,8 +1649,7 @@ def write_replenishment_report(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     sheet_rows = {
         CLEARANCE_SHEET: [row for row in rows if row.sheet_name == CLEARANCE_SHEET],
-        NO_SHIP_SHEET: [row for row in rows if row.sheet_name == NO_SHIP_SHEET],
-        SAMPLE_INSUFFICIENT_SHEET: [row for row in rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET],
+        NON_SHIPPING_SHEET: [row for row in rows if row.sheet_name in {NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET}],
     }
     with staged_report_path(target_path) as staged_path:
         workbook = Workbook()
@@ -1621,19 +1669,11 @@ def write_replenishment_report(
                     ],
                 ),
                 (
-                    NO_SHIP_SHEET,
-                    DETAIL_COLUMNS,
-                    [row.to_detail_payload() for row in sorted(sheet_rows[NO_SHIP_SHEET], key=_detail_sort_key)],
+                    NON_SHIPPING_SHEET,
+                    NON_SHIPPING_COLUMNS,
+                    [_non_shipping_payload(row) for row in sorted(sheet_rows[NON_SHIPPING_SHEET], key=_non_shipping_sort_key)],
                 ),
                 (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
-                (
-                    SAMPLE_INSUFFICIENT_SHEET,
-                    SAMPLE_INSUFFICIENT_COLUMNS,
-                    [
-                        _sample_insufficient_payload(row)
-                        for row in sorted(sheet_rows[SAMPLE_INSUFFICIENT_SHEET], key=_detail_sort_key)
-                    ],
-                ),
             ]
             for index, (sheet_name, headers, payload_rows) in enumerate(specs):
                 worksheet = workbook.active if index == 0 else workbook.create_sheet()
