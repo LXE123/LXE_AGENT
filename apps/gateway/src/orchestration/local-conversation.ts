@@ -319,6 +319,8 @@ export class LocalConversationController {
       if (turn.payload.started_at <= 0) {
         turn.payload.started_at = Math.max(1, Math.trunc(this.now()));
       }
+    } else if (event.state === "stopping") {
+      turn.payload.state = "stopping";
     } else {
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       if (activity.activeTurnId === turnId) activity.activeTurnId = undefined;

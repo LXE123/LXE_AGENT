@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import {
 import "./styles.css";
 import { ConversationDisplayController, sendConversationMessage } from "./features/sessions/display-controller";
 import { useConversationEntry } from "./features/sessions/use-conversation-entry";
+import { useSessionStatus } from "./api/queries";
 import { acknowledgeConversationSend } from "./features/sessions/presentation";
 import { callDashboard } from "./api/client";
 import { dashboardQueryKeys } from "./api/query-keys";
@@ -170,6 +171,13 @@ function routeStateFromLocation(): DashboardRouteSelection {
   return dashboardRouteFromHistory(window.history.state, storedCapabilityView);
 }
 
+// Event handlers keep their latest closure without invalidating the sidebar on stream ticks.
+function useLatestCallback<A extends unknown[], R>(callback: (...args: A) => R) {
+  const latest = useRef(callback);
+  useLayoutEffect(() => { latest.current = callback; });
+  return useCallback((...args: A) => latest.current(...args), []);
+}
+
 function App({
   desktopCloud,
   desktopHealth,
@@ -244,7 +252,8 @@ function App({
       && capabilitiesOpen
       && (capabilityView === "tools" || capabilityView === "connections"),
   );
-  const sessions = flattenSessionPages(sessionsQuery.data?.pages);
+  const sessions = useMemo(() => flattenSessionPages(sessionsQuery.data?.pages), [sessionsQuery.data?.pages]);
+  const sessionStatuses=useSessionStatus(sessions.items.map(session=>session.session_id),dashboardRuntimeReady,sessionDetailQuery.display,activeSection==="sessions"&&!newConversation);
 
   useEffect(() => {
     const desktop = window.lxe?.desktop;
@@ -327,10 +336,6 @@ function App({
   useEffect(() => {
     if (!dashboardRuntimeReady) setDetailTarget(null);
   }, [dashboardRuntimeReady]);
-
-  function handleSessionQueryChange(value: string) {
-    setQuery(value);
-  }
 
   function loadMoreSessions() {
     if (dashboardRuntimeReady && !sessionsQuery.isFetchingNextPage && sessionsQuery.hasNextPage) {
@@ -767,6 +772,17 @@ function App({
     activeSection === "sessions" ? "sessions-focus" : "",
   ].filter(Boolean).join(" ");
 
+  const sessionIndexActions = {
+    onSearchClose: useLatestCallback(() => { setSessionSearchOpen(false); setQuery(""); }),
+    onLoadMore: useLatestCallback(loadMoreSessions),
+    onNew: useLatestCallback(startNewConversation),
+    onOpen: useLatestCallback(openSession),
+    onPin: useLatestCallback(setSessionPinned),
+    onDelete: useLatestCallback(deleteSession),
+  };
+  const selectedBusy = Boolean(conversationActivity?.active || conversationActivity?.queued.length);
+  const deleteBlockedSessionIds = useMemo(() => selectedBusy ? [selectedSessionId] : [], [selectedBusy, selectedSessionId]);
+
   return (
     <>
       <main className={shellClassName}>
@@ -835,6 +851,9 @@ function App({
           <div className="sidebar-session-section">
             <SessionsIndex
               sessions={sessions.items}
+              statuses={sessionStatuses.items}
+              statusUnavailable={!sessionStatuses.ready}
+              statusError={sessionStatuses.error}
               query={query}
               searchOpen={sessionSearchOpen}
               searchFocusKey={sessionSearchFocusKey}
@@ -848,25 +867,11 @@ function App({
                 ? queryError(sessionsQuery.error)
                 : ""}
               selectedSessionId={activeSection === "sessions" ? selectedSessionId : ""}
-              onQueryChange={handleSessionQueryChange}
-              onSearchClose={() => {
-                setSessionSearchOpen(false);
-                setQuery("");
-              }}
-              onLoadMore={loadMoreSessions}
-              onNew={() => {
-                startNewConversation();
-              }}
-              onOpen={(session) => {
-                openSession(session);
-              }}
-              onPin={setSessionPinned}
-              onDelete={deleteSession}
+              onQueryChange={setQuery}
+              {...sessionIndexActions}
               onTransientInteractionChange={sidebar.onTransientInteractionChange}
               visible={sidebarVisible}
-              deleteBlockedSessionIds={conversationActivity?.active || conversationActivity?.queued.length
-                ? [selectedSessionId]
-                : []}
+              deleteBlockedSessionIds={deleteBlockedSessionIds}
             />
           </div>
           <button

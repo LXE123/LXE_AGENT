@@ -87,7 +87,7 @@ export interface RuntimePort {
   steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
 }
 
-export type SchedulerJobState = "queued" | "running" | "completed" | "cancelled" | "error" | "cleared";
+export type SchedulerJobState = "queued" | "running" | "stopping" | "completed" | "cancelled" | "error" | "cleared";
 
 export interface SchedulerJobStateEvent {
   state: SchedulerJobState;
@@ -172,6 +172,12 @@ export class SessionScheduler {
   activeRun(sessionId: string): RunHandle | undefined {
     return this.activeBySession.get(clean(sessionId));
   }
+  runStatuses(): Array<{session_id:string;turn_id:string;state:"running"|"stopping"|"queued"}> {
+    return [
+      ...[...this.activeBySession.values()].map(h=>({session_id:h.sessionId,turn_id:h.jobId,state:h.cancelRequest || h.cancelRequested ? "stopping" as const : "running" as const})),
+      ...[...this.pending.values()].flat().map(job=>({session_id:job.session_id,turn_id:job.job_id,state:"queued" as const})),
+    ];
+  }
 
   hasInflightWork(sessionId: string): boolean {
     const safe = clean(sessionId);
@@ -236,6 +242,7 @@ export class SessionScheduler {
     if (expectedJobId && handle.jobId !== clean(expectedJobId)) return false;
     if (handle.cancelRequested) return true;
     if (handle.cancelRequest) return handle.cancelRequest;
+    this.publishJobState("stopping",handle.originJob);
     const request = Promise.resolve()
       .then(() => this.runtime.cancelTurn(handle))
       .then(() => {
@@ -245,6 +252,7 @@ export class SessionScheduler {
       })
       .catch((error: unknown) => {
         handle.cancelRequested = false;
+        if (this.activeByRun.get(handle.runId) === handle) this.publishJobState("running",handle.originJob);
         if (isRunUnavailableError(error)) return false;
         throw error;
       })
@@ -343,6 +351,7 @@ export class SessionScheduler {
     const queue = this.pending.get(handle.sessionId) ?? [];
     queue.unshift(requeued);
     this.pending.set(handle.sessionId, queue);
+    this.publishJobState("queued",requeued);
     this.logger.info("scheduler_steering_requeued", {
       session_id: handle.sessionId,
       turn_id: requeued.job_id,

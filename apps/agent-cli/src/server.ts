@@ -216,6 +216,11 @@ export class AgentProtocolServer {
       }
       case "dashboard_call":
         return this.readyHost().dashboardCall(request.params) as Promise<JsonValue>;
+      case "session_status": {
+        const host = this.readyHost();
+        if (!host.sessionStatus) throw new Error("session status storage unavailable");
+        return host.sessionStatus(request.params) as JsonValue;
+      }
       case "shutdown":
         await this.shutdown();
         return { stopped: true };

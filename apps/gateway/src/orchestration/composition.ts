@@ -21,11 +21,14 @@ import { DesktopConversationChannel, LocalConversationController } from "./local
 import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "../state/session-bindings";
 import { SessionRuntimeState } from "../state/session-state";
+import { SessionStatusCoordinator } from "./session-status";
+import type { SessionStatusRequest, SessionRunSummary, SessionStatusSnapshot } from "@lxe/desktop-protocol";
 import type { ResponseRoutePatch, ResponseRouteRecord } from "../state/models";
 
 export type DirectRuntimeOutcome = AgentRunTurnResult;
 
 export interface DirectAgentRuntime {
+  sessionStatus?(request: SessionStatusRequest): Promise<SessionRunSummary[]>;
   readonly isReady: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -63,6 +66,7 @@ export interface DirectGatewayCompositionOptions {
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
+  onSessionStatus?: (snapshot: SessionStatusSnapshot) => void;
   onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
 }
 
@@ -74,6 +78,7 @@ export interface DirectGatewayComposition {
     runtime: DirectAgentRuntime;
     router: SessionRouter;
     conversations: LocalConversationController;
+    sessionStatus?: SessionStatusCoordinator;
     heartbeatQueue: HeartbeatWakeQueue;
     heartbeatBridge: HeartbeatBridge;
     channels: ChannelRegistry;
@@ -102,6 +107,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
 
   let scheduler!: SessionScheduler;
   let conversations!: LocalConversationController;
+  let sessionStatus: SessionStatusCoordinator | undefined;
   const active = new Map<string, { handle: RunHandle; promise: Promise<void> }>();
   const runtimePort: RuntimePort = {
     startTurn: async (job, handle) => {
@@ -145,10 +151,20 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   scheduler = new SessionScheduler({
     runtime: runtimePort,
     maxConcurrency: options.maxConcurrency ?? 2,
-    onJobState: (event) => conversations?.handleSchedulerEvent(event),
+    onJobState: (event) => {
+      sessionStatus?.event(event);
+      conversations?.handleSchedulerEvent(event);
+    },
+  });
+  if (options.runtime.sessionStatus) sessionStatus = new SessionStatusCoordinator({
+    request: request => options.runtime.sessionStatus!(request),
+    live: () => scheduler.runStatuses(),
+    publish: snapshot => options.onSessionStatus?.(snapshot),
+    onError: error => options.onObserverError?.(error),
   });
   scheduler.setRuntimeReady(false);
   const syncRuntimeReadiness = (): void => {
+    sessionStatus?.setReady(options.runtime.isReady);
     scheduler.setRuntimeReady(options.runtime.isReady);
   };
 
@@ -199,6 +215,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     stop: async (): Promise<void> => {
       scheduler.setRuntimeReady(false);
       await Promise.allSettled([...active.values()].map(({ promise }) => promise));
+      await sessionStatus?.stop();
       await options.runtime.stop();
       syncRuntimeReadiness();
     },
@@ -226,6 +243,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     runtime: options.runtime,
     router,
     conversations,
+    ...(sessionStatus ? {sessionStatus} : {}),
     heartbeatQueue,
     heartbeatBridge,
     channels,

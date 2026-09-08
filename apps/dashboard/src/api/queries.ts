@@ -8,7 +8,9 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { ConversationDisplayController } from "../features/sessions/display-controller";
+import { ConversationDisplayController, type ConversationDisplaySnapshot } from "../features/sessions/display-controller";
+
+import { canReadSessionResult, SessionStatusCache } from "../features/sessions/session-status";
 
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
@@ -347,4 +349,59 @@ export function useSkillReferenceQuery(name: string, path: string, enabled = tru
     enabled: enabled && Boolean(name) && Boolean(path),
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });
+}
+
+export function useSessionStatus(sessionIds:string[],ready:boolean,display:ConversationDisplaySnapshot,visible:boolean){
+  const [cache]=useState(()=>new SessionStatusCache());
+  const items=useSyncExternalStore(cache.subscribe,cache.getSnapshot,cache.getSnapshot);
+  const [error,setError]=useState("");
+  const [focused,setFocused]=useState(()=>document.hasFocus()&&document.visibilityState==="visible");
+  const [refresh,setRefresh]=useState(0);
+  const attempted=useRef(new Set<string>());
+  const queryClient=useQueryClient();
+  const key=JSON.stringify([...new Set([...sessionIds,display.sessionId].filter(Boolean))]);
+  useEffect(()=>{
+    const focus=()=>{const active=document.hasFocus()&&document.visibilityState==="visible";setFocused(active);if(active){attempted.current.clear();setRefresh(v=>v+1);}};
+    window.addEventListener("focus",focus);window.addEventListener("blur",focus);document.addEventListener("visibilitychange",focus);
+    return ()=>{window.removeEventListener("focus",focus);window.removeEventListener("blur",focus);document.removeEventListener("visibilitychange",focus);};
+  },[]);
+  // Register the stream before the first batch query; no per-token subscriptions.
+  useEffect(()=>window.lxe?.desktop.onSessionStatus?.(snapshot=>{
+    cache.receive(snapshot);
+    for(const item of snapshot.items)if(item.result)void queryClient.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(item.session_id)});
+  }),[cache,queryClient]);
+  useEffect(()=>{
+    if(!ready||!error)return;
+    const timer=setTimeout(()=>{attempted.current.clear();setRefresh(v=>v+1);},1000);
+    return ()=>clearTimeout(timer);
+  },[ready,error,refresh]);
+  useEffect(()=>{
+    if(!ready)return;
+    let cancelled=false;
+    const ids=JSON.parse(key) as string[];
+    void (async()=>{
+      try{
+        for(let i=0;i<ids.length;i+=200){
+          const snapshot=await callDashboard({operation:"sessions.status.list",input:{session_ids:ids.slice(i,i+200)}});
+          if(cancelled)return;cache.receive(snapshot);
+          // A snapshot can be the first evidence of a result missed while this
+          // window was disconnected; refresh an already-cached transcript too.
+          for(const item of snapshot.items)if(item.result)void queryClient.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(item.session_id)});
+        }
+        setError("");
+      }catch(cause){if(!cancelled)setError(cause instanceof Error?cause.message:String(cause));}
+    })();
+    return ()=>{cancelled=true;};
+  },[key,ready,refresh,cache,queryClient]);
+  const selected=items.get(display.sessionId);
+  useEffect(()=>{
+    if(!ready||error||!canReadSessionResult(selected,display,visible,focused))return;
+    const result=selected!.result!;
+    const ticket=JSON.stringify([selected!.session_id,result.turn_id,result.version]);
+    if(attempted.current.has(ticket))return;
+    attempted.current.add(ticket);
+    void callDashboard({operation:"sessions.status.ack",input:{session_id:selected!.session_id,turn_id:result.turn_id,version:result.version}})
+      .then(cache.receive).catch(cause=>setError(cause instanceof Error?cause.message:String(cause)));
+  },[selected,display,visible,focused,ready,error,refresh,cache]);
+  return {items,error,ready};
 }

@@ -51,11 +51,11 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(sessions, /onTransientInteractionChange\?\.\(transientInteractionActive\)/);
   assert.match(sessions, /if \(visible\) return;\s*closeMenu\(false\);/);
   assert.doesNotMatch(sessions, /className="session-meta-line"/);
-  // A bare marker, not an icon: the row already says "conversation".
-  assert.match(sessions, /<span aria-hidden="true" className="session-index-icon" \/>/);
+  // The existing compact marker now conveys lifecycle state accessibly.
+  assert.match(sessions, /<span className="session-index-icon" data-session-state=\{state\} role="img" aria-label=\{statusLabel\} title=\{statusLabel\} \/>/);
   assert.doesNotMatch(sessions, /MessageCircle/);
   assert.match(styles, /\.session-index-open \{[^}]*grid-template-columns:\s*5px minmax\(0, 1fr\);/s);
-  assert.match(sessions, /aria-label=\{sessionTitle\}/);
+  assert.match(sessions, /aria-label=\{`\$\{sessionTitle\} · \$\{statusLabel\}`\}/);
   assert.match(sessions, /title=\{sessionTitle\}/);
   assert.doesNotMatch(sessions, /pill sessions-loading-pill/);
   assert.match(sessions, /loadingMore \? \([\s\S]*?sessions-load-more-indicator[\s\S]*?LoaderCircle/);

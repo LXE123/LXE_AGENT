@@ -28,10 +28,24 @@ const setup = (host: Record<string, unknown> = {}) => {
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });
 
 describe("JSON-RPC server semantics", () => {
+  test("session status uses the Runtime host and rejects invalid acknowledgement versions", async () => {
+    const requests: unknown[] = [];
+    const { call, responses } = setup({ sessionStatus: (request: unknown) => {
+      requests.push(request);
+      return [{ session_id: "s", version: 2, state: "running" }];
+    } });
+    await call("initialize", initialize);
+    await call("session_status", { action: "list", session_ids: ["s"] }, "status");
+    expect(requests).toEqual([{ action: "list", session_ids: ["s"] }]);
+    expect(responses().find(r => r.id === "status")).toMatchObject({ result: [{ session_id: "s", state: "running" }] });
+    await call("session_status", { action: "ack", session_id: "s", turn_id: "t", version: -1 }, "invalid");
+    expect(responses().find(r => r.id === "invalid")).toMatchObject({ error: { code: -32602 } });
+    expect(requests).toHaveLength(1);
+  });
   test.each(["request", "", 0, 1.5, null])("returns original ID %s", async (id) => {
     const { call, responses } = setup();
     await call("initialize", initialize, id);
-    expect(responses()[0]).toMatchObject({ jsonrpc: "2.0", id, result: { protocol_version: 18 } });
+    expect(responses()[0]).toMatchObject({ jsonrpc: "2.0", id, result: { protocol_version: AGENT_PROTOCOL_VERSION } });
   });
 
   test("returns protocol-specific codes and preserves identity after parameter validation fails", async () => {
@@ -65,7 +79,7 @@ describe("JSON-RPC server semantics", () => {
     await call("initialize", { ...initialize, protocol_version: 17 }, "wrong-version");
     expect(creates()).toBe(1);
     expect(responses().find((r) => r.id === "early")).toMatchObject({ error: { code: -32001 } });
-    for (const id of ["first", "second", "repeat"]) expect(responses().find((r) => r.id === id)).toMatchObject({ result: { protocol_version: 18 } });
+    for (const id of ["first", "second", "repeat"]) expect(responses().find((r) => r.id === id)).toMatchObject({ result: { protocol_version: AGENT_PROTOCOL_VERSION } });
     expect(responses().find((r) => r.id === "wrong-version")).toMatchObject({ error: { code: -32002 } });
   });
 

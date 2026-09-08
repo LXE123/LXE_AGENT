@@ -385,6 +385,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   ): Promise<DashboardRpcResult<O>> {
     return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
   }
+  async sessionStatus(request: import("@lxe/desktop-protocol").SessionStatusRequest): Promise<import("@lxe/desktop-protocol").SessionRunSummary[]> {
+    return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];
+  }
 
   private async cancelRun(runId: string): Promise<void> {
     if (!this.isReady) return;

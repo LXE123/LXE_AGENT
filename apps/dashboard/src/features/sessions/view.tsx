@@ -1812,7 +1812,7 @@ function SessionDeleteDialog({
   );
 }
 
-export function SessionsIndex({
+export const SessionsIndex = React.memo(function SessionsIndex({
   sessions,
   query,
   searchOpen,
@@ -1833,6 +1833,9 @@ export function SessionsIndex({
   onTransientInteractionChange,
   visible = true,
   deleteBlockedSessionIds = [],
+  statuses,
+  statusUnavailable = false,
+  statusError = "",
 }: {
   sessions: SessionPayload[];
   query: string;
@@ -1854,6 +1857,9 @@ export function SessionsIndex({
   onTransientInteractionChange?: (active: boolean) => void;
   visible?: boolean;
   deleteBlockedSessionIds?: readonly string[];
+  statuses?: ReadonlyMap<string,import("@lxe/protocol/session-status").SessionRunSummary>;
+  statusUnavailable?: boolean;
+  statusError?: string;
 }) {
   const t = useUiText();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1942,17 +1948,21 @@ export function SessionsIndex({
     const selected = selectedSessionId === session.session_id;
     const sessionTitle = session.title || t.common.unnamedSession;
     const menuOpen = menu?.session.session_id === session.session_id;
+    const summary=statuses?.get(session.session_id);
+    const failure=statusError||summary?.error;
+    const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state??"idle";
+    const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
     return (
       <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
         <button
           aria-current={selected ? "page" : undefined}
-          aria-label={sessionTitle}
+          aria-label={`${sessionTitle} · ${statusLabel}`}
           className="session-index-open"
           title={sessionTitle}
           type="button"
           onClick={() => onOpen(session)}
         >
-          <span aria-hidden="true" className="session-index-icon" />
+          <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
           <span className="primary-cell">{sessionTitle}</span>
         </button>
         <button
@@ -2062,4 +2072,4 @@ export function SessionsIndex({
       ) : null}
     </div>
   );
-}
+});

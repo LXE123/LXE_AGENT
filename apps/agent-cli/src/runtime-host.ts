@@ -72,6 +72,7 @@ export interface AgentRuntimeHostOptions {
 }
 
 export interface AgentRuntimeHost {
+  sessionStatus?: SqliteRuntimeStore["sessionStatus"];
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
@@ -311,6 +312,7 @@ export function createAgentRuntimeHost(
       return attachment ? { path: attachment.path } : undefined;
     },
     dashboardCall: (call) => dashboardService.call(call),
+    sessionStatus: (request) => store.sessionStatus(request),
     updateSkillPermissions: (nextAllowedSkillTypes) => {
       const normalized = new Set(
         nextAllowedSkillTypes.map((item) => item.trim()).filter(Boolean),

@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { SessionStatusStore } from "../../../../packages/agent/runtime/src/state/session-status-store";
+import type { SessionStatusRequest } from "@lxe/protocol/session-status";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -66,6 +69,35 @@ const resourcePaths = (root: string) => ({
 });
 
 describe("direct Gateway composition", () => {
+  test("execution rejection becomes one authoritative failed turn for non-desktop sources", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-status-composition-"));
+    roots.push(root);
+    const db = new Database(":memory:");
+    SessionStatusStore.migrate(db);
+    const store = new SessionStatusStore(db);
+    const errors: string[] = [];
+    let ready = false;
+    const composition = createDirectGatewayComposition({
+      projectRoot: root, defaultWorkspace: () => testWorkspace,
+      bindingsPath: join(root, "sessions.json"), storage: storage(),
+      onRunFailure: (_handle, error) => errors.push(error.message),
+      runtime: {
+        get isReady() { return ready; },
+        start: async () => { ready = true; }, stop: async () => { ready = false; },
+        sessionStatus: async (request: SessionStatusRequest) => store.request(request),
+        runTurn: async () => { throw new Error("fixture actual execution failure"); },
+      },
+    });
+    try {
+      await composition.start();
+      await composition.parts.scheduler.enqueue(job());
+      await waitFor(() => !composition.parts.scheduler.hasInflightJobs());
+      const snapshot = await composition.parts.sessionStatus!.list(["s1"]);
+      expect(snapshot.items[0]!.state).toBe("error");
+      expect(snapshot.items[0]!.result?.turn_id).toBe("j1");
+      expect(errors).toEqual(["fixture actual execution failure"]);
+    } finally { await composition.stop(); db.close(); }
+  });
   test("runs and completes a turn in-process while preserving lifecycle ordering", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-direct-"));
     roots.push(root);

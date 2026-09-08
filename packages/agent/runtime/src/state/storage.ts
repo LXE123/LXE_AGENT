@@ -32,6 +32,8 @@ import {
 } from "./transcript";
 import { allPrepared, getPrepared, parseObject, text } from "./sql";
 import { UsageStore } from "./usage-store";
+import { SessionStatusStore } from "./session-status-store";
+import type { SessionStatusRequest, SessionRunSummary } from "@lxe/protocol/session-status";
 
 const transcriptArtifact = (event: JsonObject): RuntimeArtifactRecord | undefined => {
   if (text(event.kind) !== "artifact") return undefined;
@@ -539,6 +541,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         database.exec(`ALTER TABLE agent_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
       }
       UsageStore.migrate(database);
+      SessionStatusStore.migrate(database);
       const displayGroupColumns = this.allPrepared<{ name: string }>(
         "PRAGMA table_info(transcript_display_groups)",
       );
@@ -1145,6 +1148,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       }
       try {
         this.db().transaction(() => {
+          new SessionStatusStore(this.db()).delete(safeSessionId);
           this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(safeSessionId);
           this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(safeSessionId);
           this.db().query("DELETE FROM transcript_attachments WHERE session_id = ?").run(safeSessionId);
@@ -1222,6 +1226,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private usage(): UsageStore {
     if (!this.usageStore) throw new Error("runtime store is not started");
     return this.usageStore;
+  }
+  sessionStatus(request: SessionStatusRequest): SessionRunSummary[] {
+    return new SessionStatusStore(this.db()).request(request);
   }
 
   private allPrepared<T>(sql: string, ...bindings: SQLQueryBindings[]): T[] {

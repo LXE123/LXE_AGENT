@@ -8498,7 +8498,7 @@ pre {
   opacity: 0.35;
 }
 
-.sidebar-session-section .session-index-item.active .session-index-icon {
+.sidebar-session-section .session-index-item.active .session-index-icon:not([data-session-state]) {
   border-color: var(--sidebar-accent);
   opacity: 1;
 }
@@ -11449,3 +11449,16 @@ pre {
   color: var(--muted);
 }
 .tool-status-icon[data-tool-status="error"] { color: var(--danger); }
+.session-index-icon[data-session-state] { flex: 0 0 6px; width: 6px; height: 6px; }
+.session-index-item .session-index-icon[data-session-state] { color: var(--muted); border-color: currentColor; opacity: .55; }
+.session-index-item .session-index-icon[data-session-state="running"],
+.session-index-item .session-index-icon[data-session-state="stopping"],
+.session-index-item .session-index-icon[data-session-state="queued"] { color: var(--sidebar-accent, var(--accent)); opacity: 1; }
+.session-index-item .session-index-icon[data-session-state="running"],
+.session-index-item .session-index-icon[data-session-state="stopping"] { background: currentColor; animation: session-status-breathe 1.8s ease-in-out infinite; }
+.session-index-item .session-index-icon[data-session-state="completed"] { color: #62ad7c; background: currentColor; opacity: 1; }
+.session-index-item .session-index-icon[data-session-state="error"] { color: #e27e73; background: currentColor; opacity: 1; }
+.session-index-item .session-index-icon[data-session-state="unknown"],
+.session-index-item .session-index-icon[data-session-state="unavailable"] { border-style: dotted; opacity: .8; }
+@keyframes session-status-breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .session-index-item .session-index-icon[data-session-state] { animation: none; } }

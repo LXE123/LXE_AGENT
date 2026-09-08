@@ -9,6 +9,7 @@ export type Language = "zh" | "en";
 
 export const ZH_TEXT = {
   skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
+  sessionStatus: {running:"运行中",stopping:"正在停止",queued:"排队中",completed:"已完成，尚未查看",error:"执行失败，尚未查看",cancelled:"已停止",idle:"暂无未查看结果",unknown:"上次运行结果未确认",unavailable:"状态暂不可用",syncError:"状态同步失败"},
   language: {
     label: "语言",
     zh: "中文",
@@ -819,6 +820,7 @@ export const UI_TEXT: Record<Language, UiText> = {
   zh: ZH_TEXT,
   en: {
     skillDisplayName: (name: string) => skillDisplayName(name, "en"),
+    sessionStatus: {running:"Running",stopping:"Stopping",queued:"Queued",completed:"Completed, not viewed",error:"Failed, not viewed",cancelled:"Stopped",idle:"No unviewed results",unknown:"Previous run result unconfirmed",unavailable:"Status unavailable",syncError:"Status sync failed"},
     language: {
       label: "Language",
       zh: "中文",

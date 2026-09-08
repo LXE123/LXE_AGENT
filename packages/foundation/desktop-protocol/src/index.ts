@@ -27,6 +27,8 @@ import type {
 } from "./dashboard-rpc";
 
 export * from "./dashboard-rpc";
+export * from "@lxe/protocol/session-status";
+import { validateSessionStatusRequest, type SessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
 
 /** Browser draft preview only; never include this value in a sent message. */
 export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
@@ -35,7 +37,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 18 as const;
+export const AGENT_PROTOCOL_VERSION = 19 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
 export type ExecTaskSnapshotPayload = {
@@ -123,6 +125,7 @@ export type AgentCommandPayloads = {
   resolve_artifact: { session_id: string; artifact_id: string };
   resolve_attachment: { session_id: string; attachment_id: string };
   dashboard_call: AgentDashboardRpcCall;
+  session_status: SessionStatusRequest;
   shutdown: Record<string, never>;
 };
 
@@ -622,6 +625,7 @@ export interface LxeDesktopBridge {
     ): () => void;
     onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
     onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
+    onSessionStatus(listener: (snapshot: SessionStatusSnapshot) => void): () => void;
     onConversationStreamEvent(listener: (event: DesktopConversationStreamEvent) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
@@ -646,6 +650,7 @@ const agentCommands = new Set<AgentCommand>([
   "resolve_artifact",
   "resolve_attachment",
   "dashboard_call",
+  "session_status",
   "shutdown",
 ]);
 const agentEventTypes = new Set<AgentEvent["type"]>([
@@ -781,6 +786,9 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       break;
     case "dashboard_call":
       parseAgentDashboardRpcCall(payload);
+      break;
+    case "session_status":
+      validateSessionStatusRequest(payload);
       break;
     case "shutdown":
       break;

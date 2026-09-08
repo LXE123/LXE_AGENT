@@ -109,6 +109,7 @@ export interface DesktopGatewayOptions {
     sessionIds: string[],
   ) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
+  onSessionStatus?: (snapshot: import("@lxe/desktop-protocol").SessionStatusSnapshot) => void;
   onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
   onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
@@ -267,6 +268,7 @@ export class DesktopGateway {
       ...(this.options.onConversationActivity
         ? { onConversationActivity: this.options.onConversationActivity }
         : {}),
+      ...(this.options.onSessionStatus ? {onSessionStatus:this.options.onSessionStatus} : {}),
       ...(this.options.onConversationStreamBatch
         ? { onConversationStreamBatch: this.options.onConversationStreamBatch }
         : {}),
@@ -374,6 +376,7 @@ export class DesktopGateway {
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.delete") {
+      await this.composition.parts.sessionStatus?.flush();
       const sessionId = call.input.session_id;
       const sessionKeys = Object.values(this.composition.parts.bindings.loadAll())
         .filter((entry) => entry.session_id === sessionId)
@@ -434,6 +437,12 @@ export class DesktopGateway {
     }
     if (call.operation === "sessions.activity") {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.status.list" || call.operation === "sessions.status.ack") {
+      const status=this.composition.parts.sessionStatus;
+      if (!status) throw new Error("Session status service is unavailable");
+      return await (call.operation === "sessions.status.list" ? status.list(call.input.session_ids)
+        : status.ack(call.input.session_id,call.input.turn_id,call.input.version)) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.file.open") {
       const { session_id: sessionId, artifact_id: artifactId } = call.input;

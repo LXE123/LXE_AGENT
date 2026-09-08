@@ -1,4 +1,5 @@
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
+import { validateSessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
 export type { TurnProcessPart } from "@lxe/protocol";
 
 export type CapabilityPayload = {
@@ -479,6 +480,8 @@ export interface DashboardRpcSpec {
     input: { session_id: string };
     result: DesktopConversationActivityPayload;
   };
+  "sessions.status.list": { input: { session_ids: string[] }; result: SessionStatusSnapshot };
+  "sessions.status.ack": { input: { session_id:string; turn_id:string; version:number }; result: SessionStatusSnapshot };
   "sessions.file.open": {
     input: { session_id: string; artifact_id: string };
     result: DesktopConversationFileOpenPayload;
@@ -539,6 +542,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
   "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+    | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview"
 >;
 
@@ -706,6 +710,14 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "sessions.activity":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
+    case "sessions.status.list":
+      exactKeys(input,["session_ids"],`${operation}.input`);
+      validateSessionStatusRequest({action:"list",...input});
+      return {operation,input:{session_ids:input.session_ids as string[]}};
+    case "sessions.status.ack":
+      exactKeys(input,["session_id","turn_id","version"],`${operation}.input`);
+      validateSessionStatusRequest({action:"ack",...input});
+      return {operation,input:{session_id:input.session_id as string,turn_id:input.turn_id as string,version:input.version as number}};
     case "sessions.file.open":
     case "sessions.file.reveal":
       exactKeys(input, ["session_id", "artifact_id"], `${operation}.input`);
@@ -799,6 +811,8 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"
     || call.operation === "sessions.activity"
+    || call.operation === "sessions.status.list"
+    || call.operation === "sessions.status.ack"
     || call.operation === "sessions.file.open"
     || call.operation === "sessions.file.reveal"
     || call.operation === "sessions.attachment.open"

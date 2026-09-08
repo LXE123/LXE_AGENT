@@ -284,6 +284,11 @@ async function bootstrap(): Promise<void> {
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
+    onSessionStatus: snapshot => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.sessionStatus,snapshot);
+      }
+    },
     onConversationStreamBatch: broadcastConversationStream,
     onManagedLlmAuthenticationFailure: async (revision) => {
       config.invalidateManagedLlmCredential(revision);

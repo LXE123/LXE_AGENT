@@ -97,6 +97,11 @@ export function createDesktopBridge(
         ipc.on(IPC_CHANNELS.conversationEvent, handler);
         return () => ipc.removeListener(IPC_CHANNELS.conversationEvent, handler);
       },
+      onSessionStatus: (listener) => {
+        const handler: IpcListener = (_event,snapshot) => listener(snapshot as import("@lxe/desktop-protocol").SessionStatusSnapshot);
+        ipc.on(IPC_CHANNELS.sessionStatus,handler);
+        return () => ipc.removeListener(IPC_CHANNELS.sessionStatus,handler);
+      },
       onConversationStreamEvent: (listener) => {
         const handler: IpcListener = (_event, conversationEvent) =>
           listener(conversationEvent as DesktopConversationStreamEvent);

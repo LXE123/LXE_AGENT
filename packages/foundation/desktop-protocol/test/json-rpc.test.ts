@@ -26,13 +26,14 @@ const methods = {
   resolve_artifact: { session_id: "session", artifact_id: "file" },
   resolve_attachment: { session_id: "session", attachment_id: "file" },
   dashboard_call: { operation: "models.list", input: {} },
+  session_status: {action:"list",session_ids:["session"]},
   shutdown: {},
 };
 
 describe("JSON-RPC boundary", () => {
-  test("all 13 command names remain reachable with their business payloads", () => {
+  test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(14);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));
