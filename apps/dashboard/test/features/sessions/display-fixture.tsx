@@ -101,6 +101,70 @@ function Fixture(){
     await client.invalidateQueries({queryKey:dashboardQueryKeys.sessions.detailSession(result.session_id)});
   };
   const run=async(task:()=>Promise<void>)=>{setBusy(true);try{await task();report("PASS");}catch(error){report(`FAIL ${String(error)}`);}finally{setBusy(false);}};
+  const followRun = useRef({ key: "", sequence: 1 });
+  const followSetup = async () => {
+    const key = `follow-${++serial}`;
+    followRun.current = { key, sequence: 1 };
+    records.set(key,[{display_group_id:`${key}-old`,display_id:`${key}-old`,role:"assistant",created_at:1,
+      content:Array.from({length:40},(_,i)=>`Previous paragraph ${i}. ${"Long prior answer. ".repeat(12)}`).join("\n\n"),
+      turn:{turn_id:`${key}-old`,status:"completed",elapsed_ms:1000}}]);
+    activities.set(key,{session_id:key,active:runningOutput(key,1,"Streaming output\n\n".repeat(10)+"LIVE END"),latest:null,queued:[]});
+    select(key); await delay(500);
+  };
+  const followGrow = async () => {
+    const { key } = followRun.current;
+    const seq = ++followRun.current.sequence;
+    push(key,runningOutput(key,seq,"Streaming output\n\n".repeat(seq*10)+"LIVE END"));
+    await delay(400);
+  };
+  const followState = () => {
+    const el = document.querySelector<HTMLElement>(".conversation-transcript")!;
+    return {following:controller.getSnapshot().following,connection:controller.getSnapshot().connection,
+      distance:el.scrollHeight-el.scrollTop-el.clientHeight,top:el.scrollTop,height:el.scrollHeight,viewport:el.clientHeight};
+  };
+  Object.assign(window,{scrollFollowFixture:{setup:followSetup,grow:followGrow,state:followState}});
+  const manualFollowCases = async () => {
+    await followSetup();
+    const el = document.querySelector<HTMLElement>(".conversation-transcript")!;
+    const wheel = (deltaY:number,target:HTMLElement=el) => target.dispatchEvent(new WheelEvent("wheel",{deltaY,bubbles:true}));
+    const bottom = () => { el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event("scroll")); };
+    readAt(el,el.scrollTop-300);await delay(100);bottom();await delay(100);
+    assert(!followState().following,"programmatic bottom resumed following");
+    wheel(10);await followGrow();
+    assert(followState().following&&followState().distance<=2,"downward input at clamped bottom did not resume");
+    readAt(el,el.scrollTop-300);await delay(100);wheel(200);bottom();await followGrow();
+    assert(followState().following&&followState().distance<=2,"manual return to bottom did not resume");
+    // Instant programmatic moves each finish with a native scrollend. An old
+    // wheel must not authorize later, unrelated scrolls after that gesture ends.
+    readAt(el,el.scrollTop-200);await delay(100);wheel(30);
+    for(let i=0;i<4;i++){await delay(180);el.scrollTop+=20;el.dispatchEvent(new Event("scroll"));}
+    bottom();await delay(100);
+    assert(!followState().following,"ended gesture authorized a later programmatic scroll");
+    wheel(10);await followGrow();
+    assert(followState().following&&followState().distance<=2,"new downward input did not restore following");
+    // Restoring an old anchor must not win after a new follow decision.
+    readAt(el,el.scrollTop-300);await delay(100);wheel(200);bottom();wheel(-100);await followGrow();
+    assert(!followState().following&&followState().distance>100,"new output defeated an immediate upward gesture");
+    bottom();wheel(10);await delay(250);
+    const body=[...el.querySelectorAll<HTMLElement>(".message-markdown")].at(-1)!;
+    const nested=document.createElement("div");nested.style.cssText="height:40px;overflow:auto";
+    nested.innerHTML='<div style="height:500px">Nested code scroller</div>';body.append(nested);await delay(150);
+    wheel(-100,nested);assert(followState().following,"nested scroll cancelled conversation following");
+    nested.remove();await delay(100);wheel(-10);
+    const button=document.createElement("button");button.textContent="Nested action";body.append(button);await delay(150);bottom();
+    button.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
+    assert(!followState().following,"button activation resumed conversation following");button.remove();
+    // Late layout shrink at the bottom must not reuse a stale gesture.
+    const spacer=document.createElement("div");spacer.style.height="400px";body.append(spacer);await delay(150);
+    readAt(el,el.scrollHeight-el.clientHeight-250);wheel(10);spacer.remove();await delay(250);
+    assert(!followState().following,"layout shrink resumed following");
+    bottom();wheel(10);await delay(250);
+    const image=document.createElement("img");image.alt="late image";image.style.cssText="display:block;height:20px;width:300px";
+    image.src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='20'%3E%3C/svg%3E";
+    body.append(image);await delay(100);image.style.height="450px";await delay(450);
+    assert(followState().following&&followState().distance<=2,"late image stopped resumed following");image.remove();
+    report("manual bottom: programmatic guard, upward cancellation, nested controls, layout shrink and late image passed");
+  };
   const reentryCases=async()=>{
     const scroller=()=>document.querySelector<HTMLElement>(".conversation-transcript")!;
     const distance=()=>scroller().scrollHeight-scroller().scrollTop-scroller().clientHeight;
@@ -166,6 +230,9 @@ function Fixture(){
       select(key);await atLatest("detached case initial");
       for(let i=0;i<7;i++){readAt(scroller(),140);await delay(50);await current.current.fetchPreviousPage();await delay(160);}
       assert(controller.getSnapshot().connection==="detached","fixture did not leave the latest window");
+      scroller().dispatchEvent(new WheelEvent("wheel",{deltaY:2000,bubbles:true}));
+      scroller().scrollTop=scroller().scrollHeight;scroller().dispatchEvent(new Event("scroll"));
+      assert(!controller.getSnapshot().following,"historical page bottom resumed following before connecting latest");
       setVisible(false);await delay(100);setVisible(true);await atLatest("home return from detached history");
       assert(controller.getSnapshot().connection==="attached","home return did not restore latest window");
       report("detached historical window: home return reconnects and shows running output");
@@ -407,6 +474,7 @@ function Fixture(){
       <button disabled={busy} onClick={()=>void run(cacheBudget)}>Run cache budget</button>
       <button disabled={busy} onClick={()=>void run(heightsAndRaces)}>Run height and races</button>
       <button disabled={busy} onClick={()=>void run(reentryCases)}>Run session reentry</button>
+      <button disabled={busy} onClick={()=>void run(manualFollowCases)}>Run manual follow</button>
       <button disabled={busy} onClick={()=>void run(async()=>{sendState="completed";await send("主动发送回到最新",[]);})}>Send now</button></div>
     <pre id="fixture-report" style={{fontSize:12,maxHeight:145,overflow:"auto",margin:0}}>{reports.join("\n")}</pre>
     <output id="fixture-state">{JSON.stringify({session:id,load:query.display.loadState,connection:query.display.connection,following:query.display.following,groups:query.data?.messages_page.group_cursors?.length,rows:query.display.rows.length,bytes:new TextEncoder().encode(JSON.stringify(query.data?.messages??[])).byteLength})}</output>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
+import { useScrollFollowInput } from "./use-scroll-follow-input";
 import { processId } from "./process";
 import type { ConversationRow } from "./presentation";
 import { useUiText } from "../../shared/i18n";
@@ -18,7 +19,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const followIntent = useRef(true);
   const alignmentFrame = useRef<number | undefined>(undefined);
   const readingVersion = useRef(0);
-  const touchY = useRef<number | undefined>(undefined);
+  const manualAnchor = useRef<{id: string; offset: number; bottom: boolean} | undefined>(undefined);
   const busy = useRef(false);
   const retryDirection = useRef<"older" | "newer">("older");
   const [following, setFollowing] = useState(true);
@@ -71,8 +72,17 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (followIntent.current && virtual.options.count) virtual.scrollToEnd();
     });
   }, [connection, virtual]);
+  const resumeFollowing = () => {
+    readingVersion.current++;
+    manualAnchor.current = undefined;
+    cancelAlignment();
+    updateFollowing(true);
+    virtual.setOptions({ ...virtual.options, scrollEndThreshold: 80 });
+    scheduleAlignment();
+  };
+  const scrollInput = useScrollFollowInput(root, connection === "attached" && !hasNewer, stopFollowing, resumeFollowing);
   useLayoutEffect(() => {
-    if (jumpVersion) updateFollowing(true);
+    if (jumpVersion) { scrollInput.clear(); resumeFollowing(); }
   }, [jumpVersion, updateFollowing]);
   const totalSize = virtual.getTotalSize();
   useLayoutEffect(() => {
@@ -89,7 +99,6 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     const ids = new Set(rows.map((row) => row.id));
     for (const key of virtual.itemSizeCache.keys()) if (!ids.has(String(key))) virtual.itemSizeCache.delete(key);
   }, [rows, virtual]);
-  const manualAnchor = useRef<{id: string; offset: number; bottom: boolean} | undefined>(undefined);
   const previousRows = useRef(rows);
   const previousIds = new Set(previousRows.current.map(row => row.id));
   const currentIds = new Set(rows.map(row => row.id));
@@ -130,6 +139,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (readingVersion.current !== version) return;
       if (saved.bottom) scheduleAlignment();
       else {
+        scrollInput.clearPending();
         const index = rows.findIndex(row => row.id === saved.id);
         const item = root.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
         if (item && root.current) virtual.scrollBy(item.getBoundingClientRect().top - root.current.getBoundingClientRect().top - saved.offset);
@@ -163,24 +173,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length]);
   return <div className="conversation-scroll-area">
     <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} tabIndex={0}
-      onWheelCapture={(event) => { if (event.deltaY < 0) stopFollowing(); }}
-      onTouchStartCapture={(event) => { touchY.current = event.touches[0]?.clientY; }}
-      onTouchMoveCapture={(event) => {
-        const y = event.touches[0]?.clientY;
-        if (y !== undefined && touchY.current !== undefined && y > touchY.current) stopFollowing();
-        touchY.current = y;
-      }}
-      onTouchEndCapture={() => { touchY.current = undefined; }}
-      onKeyDownCapture={(event) => {
-        const target = event.target as HTMLElement;
-        if (target.closest("input, textarea, select, [contenteditable=true]")) return;
-        if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stopFollowing();
-      }}
-      onPointerDownCapture={(event) => {
-        const el = root.current;
-        // Native scrollbar events target the scroller, including overlay scrollbars.
-        if (el && event.target === el && el.scrollHeight > el.clientHeight) stopFollowing();
-      }}
+      {...scrollInput.handlers}
       onMouseOver={(event) => setHoveredAnswer(answerAt(event.target))}
       onMouseLeave={() => setHoveredAnswer(undefined)}
       onFocusCapture={(event) => setFocusedAnswer(answerAt(event.target))}
@@ -190,10 +183,14 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       const button = target.closest(".conversation-process-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
       if (row && root.current) {
+        scrollInput.clear();
         stopFollowing();
         manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
       }
-    }} onScroll={scheduleAlignment}>
+    }} onScroll={(event) => {
+      if (event.target !== root.current) return;
+      scrollInput.onScroll(); scheduleAlignment();
+    }}>
       <div className="conversation-feed" ref={feed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? totalSize : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
           data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
@@ -207,7 +204,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}
     {pageError ? <div className="message-page-error" role="alert">{pageError}<button onClick={() => retryLatest ? jumpToLatest() : void load(retryDirection.current)}>{t.sessionDetail.retryEarlier}</button></div> : null}
     {!following || connection === "detached" ? <button className="conversation-jump-latest" type="button" onClick={() => {
-      updateFollowing(true); jumpToLatest(); scheduleAlignment();
+      scrollInput.clear(); resumeFollowing(); jumpToLatest();
     }}><ChevronDown size={14} />{t.conversation.jumpToLatest}</button> : null}
   </div>;
 }

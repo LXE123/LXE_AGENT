@@ -38,6 +38,20 @@ bun apps/dashboard/test/features/sessions/display-fixture-server.ts
    点击“跳到最新”恢复跟随；阅读导航键和滚动条按下立即取消跟随，重复点击当前会话
    不重置阅读位置。还覆盖初次加载中主动阅读，以及阅读窗口脱离最新页后从首页返回。
    会话进入使用与主页面相同的 `useConversationEntry`。
+8. **Run manual follow**：向上阅读后，手动滚到最新底部恢复跟随；程序定位到底部不能恢复。
+   覆盖已经到底时继续向下操作、恢复后立即上滚、嵌套滚动区域与按钮、内容缩短及图片增高。
+   恢复后正文或图片增长，稳定位置距底部不超过 2px。“Run session reentry”同时检查
+   脱离最新消息的历史页底部不会误恢复。
+
+原生输入验收（先启动上面的 fixture server）：
+
+```sh
+apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron apps/desktop/test/fixtures/scroll-follow.electron.cjs
+```
+
+脚本使用真实滚轮、键盘、滚动条及 Chromium 触摸输入。滚动条按住期间即使正文增长也
+保持暂停，松开且到达最新底部才恢复；触摸平移触发的 pointercancel 不会截断 touchmove。
+截图保存到系统临时目录的 `lxe-scroll-follow.png`。Windows 使用本机 Electron 可执行文件。
 
 工具运行状态使用生命周期，正文刷新优先级不决定工具是否完成。历史缺少结果时不判成功；
 旧 exec/wait 的运行观察只解析执行器控制头，不把 stdout 当状态，也不把过去的后台运行
@@ -56,6 +70,7 @@ fixture 的全量数据是模拟服务端数据，不计入被测应用的常驻
 - `has_previous` / `has_next` 只描述分页；实时行是否参与当前窗口由连续性决定。
 - 发送和“跳到最新”共用一个入口；手动发送重连尾部，后台更新保留阅读锚点。
 - 切回会话也复用“跳到最新”；跟随意图由明确的阅读操作取消，布局和程序滚动不取消。
+  主动向下滚到已接通的最新底部（误差最多 2px）会恢复跟随；历史页底部仍按分页处理。
   历史分页测试先发送上滚意图，再设置目标位置，区别于程序自动对齐。
 
 ## 浏览器实测（2026-09-07）
