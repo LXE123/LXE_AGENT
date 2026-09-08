@@ -33,11 +33,11 @@ lxeskill replenish inventory actual-export --store-name "<规范店铺名>"
 
 ## 数据边界与结果
 
-- 仅使用确认 Active 的行，复用源表核验页保存的 Listing 绑定和类型；不重复拉 Listing，不用实时数据悄悄替换源表本地 SKU。
+- 仅对通过绑定核验且有本地 SKU 的记录查询库存，复用源表核验页保存的 Listing 绑定和类型；不重复拉 Listing，不用实时数据悄悄替换源表本地 SKU。
 - 仅查询去重组合 SKU 的官方明细，再查询深圳仓库。组合可用套数是各子 SKU 库存除以捆绑数向下取整后的最小值；任一子 SKU 缺库存则未知，不能当作 0 或跳过该子项。
-- 缺核验信息、绑定冲突、组合明细缺失等失败不生成报告，也不回退网页组合导出。没有 Active 行时结束，不查询仓库。
+- 缺新版核验信息、绑定冲突、组合明细缺失时停止并保留真实错误，不回退旧组合导出。全部未通过绑定核验时不查询仓库，仍可生成库存异常明细，不生成备货建议。
 - 深圳仓库数据是马帮的“可用库存量”，不是 FBA 或 Amazon 后台库存。
 - 官方数据服务凭据由桌面注入；仓库查询需要马帮登录态。官方 API 错误不触发 Cookie 刷新。
 - 成功保留 `data.shenzhen_warehouse_inventory_report_xlsx_path`、`source_msku_xlsx_path`、`source_msku_data_time`，完整任务继续本轮货件查询。
-- 缺本地 SKU、缺库存必须说明并指向对应业务 Sheet；未知库存留空，不补造零值。排除的非 Active 行不混入缺库存分类。
-- 保留隐藏 Active 核验信息；不能仅凭文件日期判断与销量报告同源。字段与数量定义按需读 [references/report.md](references/report.md)。
+- 缺本地 SKU 指向“无本地SKU”；未匹配 Listing 的记录在“无库存数据”中写明 SKU 类型未核验并排除备货。未知库存留空，不能补零，也不能把未匹配记录当普通 SKU。
+- 保留隐藏源数据核验信息；不能仅凭文件日期判断与销量报告同源。字段与数量定义按需读 [references/report.md](references/report.md)。

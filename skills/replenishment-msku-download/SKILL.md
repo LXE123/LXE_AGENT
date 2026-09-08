@@ -29,11 +29,11 @@ lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]
 
 ## 结果与下一步
 
-- CLI 保留网页下载和 XLSX 转换，随后使用官方 Active Listing 核验；只有全部成功才发布源表。后续只使用 `data.xlsx_path`。
-- 记录 `original_row_count`、`active_row_count`、`excluded_row_count`，原始数等于参与数加排除数；原始行保留，只有确认 Active 的行参与后续计算。
-- 未匹配 Active 的行只能称“未确认在售”，不能称“停售”；即使有近期销量也不重新纳入。`Amazon.Found.*` 遵循相同规则，不作名称特判。
-- 隐藏 `Active核验信息` 保存本轮 Listing 绑定、类型、店铺站点和源指纹；不能改标记、替换绑定或删除核验页。旧版未核验文件需重新下载。
+- CLI 保留网页下载和 XLSX 转换，随后使用官方全状态 Listing 绑定核验，不传 `pStatus`；只有全部成功才发布源表。后续只使用 `data.xlsx_path`。
+- 记录 `original_row_count`、`binding_verified_row_count`、`binding_unverified_row_count`：原始行数＝绑定核验通过行数＋未通过行数。全部原始行进入销量分析，核验通过不代表一定建议发货。
+- 未匹配全状态 Listing 的记录保留在源表和销量分析中，不进入备货计算；明确显示核验原因。`Amazon.Found.*` 遵循同一规则，不作名称特判。绑定冲突仍报错。
+- 隐藏 `源数据核验信息` 保存本轮 Listing 绑定、类型、店铺站点和源指纹；不能改标记、替换绑定或删除核验页。旧版未核验文件需重新下载。
 - `data.context.reason=multi_site_group` 时展示 `context.candidates` 的真实子站点，用户选择后再调用；不重试整组、不自动拆任务。
-- 完整任务下载成功后继续销量与库存；单步请求交付源表即可。无 Active 行时结束并说明范围，不生成补货建议。
+- 完整任务下载成功后继续销量与库存；单步请求交付源表即可。没有可计算记录时结束并说明原因，不生成补货建议。
 - 官方数据服务依赖 `LXE_DATA_SERVER_URL`、`LXE_DATA_SERVER_API_KEY`（安装版由桌面注入，可能承载设备凭据）；不索取或展示密钥。网页仍依赖马帮登录态，官方错误不刷新 Cookie。
 - 命令最长 30 分钟，官方阶段 25 分钟，进度在 stderr。同一分钟目标文件冲突时保留原文件，到下一分钟重试，不删除历史文件。

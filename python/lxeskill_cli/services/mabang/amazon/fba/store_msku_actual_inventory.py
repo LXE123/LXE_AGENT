@@ -9,7 +9,7 @@ from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from .active_msku_source import load_active_source, stamp_report
+from .source_verification import product_key, unverified_reasons, load_verified_source, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
@@ -19,7 +19,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.datasets import dataset_dir
 
-from .combo_sku import ComboComponent, ComboSku, fetch_inventory_combos, normalize_sku_key, source_row_key
+from .combo_sku import ComboComponent, ComboSku, fetch_inventory_combos, normalize_sku_key
 
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header
@@ -144,6 +144,7 @@ class ActualInventoryRow:
     product_name: str = ""
     remark: str = ""
 
+    binding_verified: bool = True
 
 @dataclass(frozen=True)
 class ActualInventoryRowGroups:
@@ -174,7 +175,7 @@ class ActualInventoryResult:
     warehouse_name: str = WAREHOUSE_NAME
     result_source: str = SOURCE
     skipped_amazon_found_msku_row_count: int = 0
-    active_counts: dict[str, int] = field(default_factory=dict)
+    binding_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -194,7 +195,7 @@ class ActualInventoryResult:
             "missing_warehouse_stock_skus": list(self.missing_warehouse_stock_skus),
             "shenzhen_warehouse_inventory_report_xlsx_path": self.shenzhen_warehouse_inventory_report_xlsx_path,
             "result_source": self.result_source,
-            **self.active_counts,
+            **self.binding_counts,
         }
         if self.skipped_amazon_found_msku_row_count:
             payload["skipped_amazon_found_msku_row_count"] = self.skipped_amazon_found_msku_row_count
@@ -639,7 +640,7 @@ def calculate_inventory_rows(
     *,
     combo_map: dict[str, ComboSku],
     stock_quantities: dict[str, Decimal],
-    unverified_found_rows: set[tuple[str, str, str]] | None = None,
+    unverified_rows: dict[tuple[str, str, str, str], str] | None = None,
 ) -> tuple[list[ActualInventoryRow], list[str]]:
     missing: OrderedDict[str, str] = OrderedDict()
     result_rows: list[ActualInventoryRow] = []
@@ -652,10 +653,11 @@ def calculate_inventory_rows(
         actual_inventory: Decimal | None
         child_skus = ""
         remark = row.remark
-        if unverified_found_rows and source_row_key(row) in unverified_found_rows:
+        verified = not unverified_rows or product_key(row) not in unverified_rows
+        if not verified:
             actual_inventory = None
             is_combo_sku = False
-            remark = "；".join(filter(None, [remark, "Amazon.Found 未匹配 Listing，SKU类型未核验，不参与备货计算"]))
+            remark = "；".join(filter(None, [remark, unverified_rows[product_key(row)]]))
         elif not local_key:
             actual_inventory = None
         elif combo is None:
@@ -684,6 +686,7 @@ def calculate_inventory_rows(
                 actual_inventory=actual_inventory,
                 child_skus=child_skus,
                 is_combo_sku=is_combo_sku,
+                binding_verified=verified,
                 fba_total_inventory=fba_total_inventory,
                 weighted_daily_sales=weighted_daily_sales,
                 sales_days=_sales_days(fba_total_inventory, weighted_daily_sales),
@@ -703,7 +706,7 @@ def split_inventory_rows(rows: list[ActualInventoryRow]) -> ActualInventoryRowGr
     for row in rows:
         if not normalize_sku_key(row.local_sku):
             no_local_sku_rows.append(row)
-        elif row.actual_inventory is None:
+        elif not row.binding_verified or row.actual_inventory is None:
             no_inventory_rows.append(row)
         elif row.is_combo_sku:
             combo_inventory_rows.append(row)
@@ -837,12 +840,14 @@ async def _export_store_msku_actual_inventory_once(
 ) -> ActualInventoryResult:
     clean_store_name = normalize_store_name(store_name)
     source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
-    active_source = load_active_source(source.path, store_name=clean_store_name)
-    msku_rows = load_store_msku_rows(source.path, records=active_source.records)
-    local_skus = _unique_text([row.local_sku for row in msku_rows])
+    verified_source = load_verified_source(source.path, store_name=clean_store_name)
+    msku_rows = load_store_msku_rows(source.path, records=verified_source.records)
+    unverified = unverified_reasons(verified_source.metadata)
+    verified_rows = [row for row in msku_rows if product_key(row) not in unverified]
+    local_skus = _unique_text([row.local_sku for row in verified_rows])
 
     output_directory = _resolve_output_dir(output_dir)
-    combo_map = await fetch_inventory_combos(clean_store_name, msku_rows, bindings=active_source.bindings)
+    combo_map = await fetch_inventory_combos(clean_store_name, verified_rows, bindings=verified_source.bindings)
     stock_skus = stock_skus_for_inventory(local_skus, combo_map)
 
     async def warehouse_once() -> dict[str, Decimal]:
@@ -863,15 +868,16 @@ async def _export_store_msku_actual_inventory_once(
         msku_rows,
         combo_map=combo_map,
         stock_quantities=stock_quantities,
+        unverified_rows=unverified,
     )
     inventory_groups = split_inventory_rows(inventory_rows)
 
     final_xlsx_path = output_directory / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_{ACTUAL_INVENTORY_FILE_SUFFIX}.xlsx"
     write_actual_inventory_xlsx(inventory_rows, final_xlsx_path)
-    stamp_report(final_xlsx_path, active_source.metadata)
+    stamp_report(final_xlsx_path, verified_source.metadata)
     return ActualInventoryResult(
         store_name=clean_store_name,
-        active_counts=active_source.counts,
+        binding_counts=verified_source.counts,
         source_msku_xlsx_path=str(source.path),
         source_msku_data_time=source.source_data_time,
         unique_local_sku_count=len(local_skus),

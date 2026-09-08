@@ -35,7 +35,7 @@ def case_row(msku="ITEM", *, daily=6, fba=430, unlinked=10, weight=100, template
 
 def test_formulas_cached_initial_values_and_metadata(tmp_path):
     from mabang_test_helpers import _stamp_active_test_report
-    from services.mabang.amazon.fba.active_msku_source import _read_info
+    from services.mabang.amazon.fba.source_verification import _read_info
 
     rows = [case_row("SEA"), case_row("AIR", fba=300, unlinked=20, template_name="默认"),
             case_row("URGENT", daily=3, fba=90, unlinked=0, weight=None, template_name="默认"),
@@ -47,7 +47,7 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
     wb = load_workbook(source)
     metadata, _ = _read_info(wb)
     wb.close()
-    path = rep.write_replenishment_report(rows, tmp_path / "result.xlsx", active_metadata=metadata, missing_unlinked_snapshot=True)
+    path = rep.write_replenishment_report(rows, tmp_path / "result.xlsx", source_metadata=metadata, missing_unlinked_snapshot=True)
     book = load_workbook(path, data_only=True)
     raw = load_workbook(path, data_only=False)
     try:

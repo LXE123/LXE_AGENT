@@ -1,3 +1,5 @@
+> 历史验收记录：Active 筛选已取消。当前行为见 [全量 MSKU 与 Listing 绑定核验](full-msku-binding-validation.md)。下列数据仅记录旧版实测，不代表当前计算范围。
+
 # MSKU 下载阶段核验 Active
 
 单店、单站点继续下载马帮原始 XLSX，随后完整分页查询官方 `pStatus=["Active"]` Listing。原始行全部保留，追加“在售核验结果”“是否参与计算”“排除原因”。销量、深圳库存和备货计算使用同一个 Active 范围。

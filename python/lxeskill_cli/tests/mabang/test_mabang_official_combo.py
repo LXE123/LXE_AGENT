@@ -66,17 +66,10 @@ def test_binding_failures(rows, bindings):
         combo.select_combo_skus(rows, bindings)
 
 
-def test_only_unmatched_amazon_found_can_be_retained_as_unknown():
-    found = source('Amazon.Found.A', 'S')
-    skipped = set()
-    assert combo.select_combo_skus([found, source()], [binding()], unverified_found_rows=skipped) == ['C']
-    assert skipped == {combo.source_row_key(found)}
-    # A bare mapping consumer cannot opt out of validation and lose the unknown row.
+@pytest.mark.parametrize('msku', ['Amazon.Found.A', 'ordinary', 'XAmazon.Found.A', 'amazon.found.A'])
+def test_combo_selector_requires_preverified_rows(msku):
     with pytest.raises(http.OfficialApiError):
-        combo.select_combo_skus([found], [])
-    for row in [source('ordinary', 'Amazon.Found.A'), source('XAmazon.Found.A'), source('amazon.found.A')]:
-        with pytest.raises(http.OfficialApiError):
-            combo.select_combo_skus([row], [], unverified_found_rows=set())
+        combo.select_combo_skus([source(msku)], [])
 
 
 @pytest.mark.parametrize('bindings', [
@@ -87,19 +80,19 @@ def test_only_unmatched_amazon_found_can_be_retained_as_unknown():
 ])
 def test_found_conflicts_are_not_suppressed(bindings):
     with pytest.raises(http.OfficialApiError):
-        combo.select_combo_skus([source('Amazon.Found.A', 'S')], bindings, unverified_found_rows=set())
+        combo.select_combo_skus([source('Amazon.Found.A', 'S')], bindings)
 
 
 def test_found_with_valid_combo_binding_is_still_a_combo():
     skipped = set()
-    assert combo.select_combo_skus([source('Amazon.Found.A', 'C')], [binding('Amazon.Found.A')], unverified_found_rows=skipped) == ['C']
+    assert combo.select_combo_skus([source('Amazon.Found.A', 'C')], [binding('Amazon.Found.A')]) == ['C']
     assert skipped == set()
 
 
 def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
     found = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '', remark='原备注')
     normal = inv.StoreMskuRow('normal', '', 'A', 'S', '')
-    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_found_rows={combo.source_row_key(found)})
+    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_rows={inv.product_key(found): "SKU类型未核验"})
     assert rows[0].actual_inventory is None
     assert rows[1].actual_inventory == 100
     assert '原备注' in rows[0].remark and 'SKU类型未核验' in rows[0].remark
@@ -108,18 +101,19 @@ def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
 
 
 def test_only_found_rows_do_not_query_warehouse_or_enter_replenishment(monkeypatch, tmp_path):
-    from services.mabang.amazon.fba.active_msku_source import annotate_source, ActiveSourceError
+    from services.mabang.amazon.fba.source_verification import annotate_source, SourceVerificationError
     from mabang_test_helpers import _xlsx_bytes
     path = tmp_path/'202609071111-shop_店铺MSKU数据.xlsx'
-    path.write_bytes(_xlsx_bytes([{'MSKU': 'Amazon.Found.A', 'ASIN': 'A', '本地SKU': 'S'}], columns=['MSKU', 'ASIN', '本地SKU']))
-    annotate_source(path, combo.ActiveListingSnapshot('shop', '10', 'us', ()), requested_store_name='shop')
+    path.write_bytes(_xlsx_bytes([{'MSKU': 'Amazon.Found.A', 'ASIN': 'A', '本地SKU': 'S'}], columns=list(inv.SOURCE_COLUMNS)))
+    annotate_source(path, combo.ListingSnapshot('shop', '10', 'us', ()), requested_store_name='shop')
     async def unexpected(*args, **kwargs):
-        pytest.fail('No Active rows must not query stock or combo details')
+        pytest.fail('Unverified rows must not query stock or combo details')
     monkeypatch.setattr(combo, 'post_json', unexpected)
     monkeypatch.setattr(inv, 'search_warehouse_stock', unexpected)
-    with pytest.raises(ActiveSourceError, match='无符合条件'):
-        asyncio.run(inv.export_store_msku_actual_inventory('shop', input_dir=tmp_path, output_dir=tmp_path/'out'))
-    assert not list((tmp_path/'out').glob('*.xlsx'))
+    result = asyncio.run(inv.export_store_msku_actual_inventory('shop', input_dir=tmp_path, output_dir=tmp_path/'out'))
+    assert result.missing_warehouse_inventory_msku_row_count == 1
+    from services.mabang.amazon.fba.store_msku_replenishment import load_inventory_rows
+    assert load_inventory_rows(result.shenzhen_warehouse_inventory_report_xlsx_path) == []
 
 
 def test_shop_sid_uk_conversion_and_listing_pagination(monkeypatch):
@@ -130,8 +124,8 @@ def test_shop_sid_uk_conversion_and_listing_pagination(monkeypatch):
         if endpoint == 'shops/list':
             return {'code': 200, 'data': {'profile-key': {'name': 'shop', 'sid': 10, 'profile_id': 'wrong', 'amazonsite': 'uk'}}}
         assert body['shop_id'] == ['10'] and body['amazonsite'] == ['gb']
-        assert set(body) == {'shop_id', 'amazonsite', 'page', 'pageSize', 'pStatus'}
-        assert body['pStatus'] == ['Active']
+        assert set(body) == {'shop_id', 'amazonsite', 'page', 'pageSize'}
+        assert 'pStatus' not in body
         page = int(body['page'])
         records = [listing(msku=str(i), site='uk') for i in range(1000)] if page == 1 else [listing('last', site='gb')]
         return listing_page(records, page, 1001)

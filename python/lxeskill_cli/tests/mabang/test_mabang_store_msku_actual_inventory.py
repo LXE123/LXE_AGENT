@@ -760,10 +760,10 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
         "missing_warehouse_stock_skus": [],
         "shenzhen_warehouse_inventory_report_xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_真实库存（深圳仓库）.xlsx"),
         "result_source": "mabang_store_msku_shenzhen_warehouse_inventory",
-        "original_row_count": 3, "active_row_count": 3, "excluded_row_count": 0,
+        "original_row_count": 3, "binding_verified_row_count": 2, "binding_unverified_row_count": 1,
     }
     report_path = Path(result.shenzhen_warehouse_inventory_report_xlsx_path)
-    assert _sheet_names(report_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据", "Active核验信息"]
+    assert _sheet_names(report_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据", "源数据核验信息"]
     combo_records = _load_records(report_path, "真实库存（深圳仓库）-组合sku")
     stock_records = _load_records(report_path, "真实库存（深圳仓库）-库存sku")
     assert combo_records[0]["真实库存（深圳仓库）数量"] == 6

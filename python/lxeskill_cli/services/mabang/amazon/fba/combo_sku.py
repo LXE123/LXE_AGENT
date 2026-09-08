@@ -72,14 +72,14 @@ def _progress(message: str) -> None:
 
 
 @dataclass(frozen=True)
-class ActiveListingSnapshot:
+class ListingSnapshot:
     store_name: str
     shop_id: str
     site: str
     bindings: tuple[ListingSkuBinding, ...]
 
 
-async def fetch_listing_snapshot(store_name: str) -> ActiveListingSnapshot:
+async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
     context = f"Listing 店铺={store_name}"
     shops = await post_json("shops/list", {}, context=context)
     data = shops.get("data")
@@ -112,7 +112,6 @@ async def fetch_listing_snapshot(store_name: str) -> ActiveListingSnapshot:
         page_context = f"{context} sid={shop_id} 站点={site} page={page}"
         payload = await post_json("listings/search", {
             "shop_id": [shop_id], "amazonsite": [site], "page": str(page), "pageSize": "1000",
-            "pStatus": ["Active"],
         }, context=page_context)
         data = payload.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("list"), list):
@@ -140,8 +139,6 @@ async def fetch_listing_snapshot(store_name: str) -> ActiveListingSnapshot:
             row_shops = {s.strip() for s in clean_text(row.get("shopIds")).split(",") if s.strip()}
             if row_shops != {shop_id} or _site(row.get("amazonsite")) != site:
                 invalid(page_context, "返回了其他店铺或站点的 Listing", row)
-            if clean_text(row.get("pStatus")) not in ("Active", "在售"):
-                invalid(page_context, "Active 查询返回了其他或缺失的平台状态", row)
             local_sku = clean_text(row.get("stockSku"))
             stock_type = _integer(row.get("stockType"), page_context, row, minimum=1)
             if stock_type not in (1, 2) or not clean_text(row.get("platformSku")):
@@ -150,7 +147,7 @@ async def fetch_listing_snapshot(store_name: str) -> ActiveListingSnapshot:
         count += len(records)
         _progress(f"{context}: Listing {count}/{total}，page={page}/{pages}")
         if count == total:
-            return ActiveListingSnapshot(clean_text(shop["name"]), shop_id, site, tuple(bindings))
+            return ListingSnapshot(clean_text(shop["name"]), shop_id, site, tuple(bindings))
         page += 1
 
 
@@ -159,8 +156,7 @@ async def fetch_listing_bindings(store_name: str) -> list[ListingSkuBinding]:
 
 
 def select_combo_skus(
-    rows: Sequence[SourceRow], bindings: Sequence[ListingSkuBinding], *,
-    unverified_found_rows: set[tuple[str, str, str]] | None = None,
+    rows: Sequence[SourceRow], bindings: Sequence[ListingSkuBinding],
 ) -> list[str]:
     by_msku: dict[str, list[ListingSkuBinding]] = {}
     for binding in bindings:
@@ -172,14 +168,6 @@ def select_combo_skus(
         if not local_key:
             continue
         candidates = by_msku.get(normalize_sku_key(row.msku), [])
-        if (
-            not candidates and normalize_sku_key(row.msku).startswith("Amazon.Found.")
-            and unverified_found_rows is not None
-        ):
-            # A caller opting into this exception must retain these rows as unknown.
-            unverified_found_rows.add(source_row_key(row))
-            _progress(f"Amazon.Found 未匹配 Listing，跳过核验并保留为未知库存: MSKU={row.msku}")
-            continue
         if clean_text(row.asin):
             candidates = [item for item in candidates if item.asin == clean_text(row.asin)]
         definitions = {(normalize_sku_key(item.local_sku), item.stock_type) for item in candidates}
@@ -288,7 +276,6 @@ async def fetch_combo_sku_map(combo_skus: list[str]) -> dict[str, ComboSku]:
 
 async def fetch_inventory_combos(
     store_name: str, rows: Sequence[SourceRow], *,
-    unverified_found_rows: set[tuple[str, str, str]] | None = None,
     bindings: Sequence[ListingSkuBinding] | None = None,
 ) -> dict[str, ComboSku]:
     if not any(normalize_sku_key(row.local_sku) for row in rows):
@@ -297,6 +284,6 @@ async def fetch_inventory_combos(
         async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
             if bindings is None:
                 bindings = await fetch_listing_bindings(store_name)
-            return await fetch_combo_sku_map(select_combo_skus(rows, bindings, unverified_found_rows=unverified_found_rows))
+            return await fetch_combo_sku_map(select_combo_skus(rows, bindings))
     except TimeoutError as exc:
         raise OfficialApiError(f"店铺={store_name}", f"官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒") from exc

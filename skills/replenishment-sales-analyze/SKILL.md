@@ -34,8 +34,8 @@ lxeskill replenish sales analyze --store-name "<规范店铺名>"
 ## 结果与下一步
 
 - 成功记录 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time` 及参与范围，完整任务继续深圳库存，单步交付报告。
-- MSKU、ASIN、链接三个维度都只汇总确认 Active 的行，未确认在售记录不进入销量；没有 Active 行时结束。
-- 隐藏 Active 核验信息随报告传递，同源库存和计算依赖它。旧版无核验源表需重新下载，不当成全量 Active。
+- 源表必须具有新版源数据核验信息。MSKU、ASIN、链接三个维度均汇总完整 XLSX 的全部记录，包括未匹配 Listing 的记录；绑定核验只限制备货计算范围。
+- 隐藏源数据核验信息随报告传递，同源库存和计算依赖它。旧版无核验源表需重新下载，不能自动当成新版全量源表。
 - `data_is_stale=true` 时说明源时间；用户明确选择旧数据则尊重选择。完整任务默认重新采集，不能拿旧报告替代本轮结果。
 - CLI 报重复售卖项或输入冲突时保留真实错误，不自行去重、改表或补零。
 - 报告结构与字段解释按需读 [references/report.md](references/report.md)。

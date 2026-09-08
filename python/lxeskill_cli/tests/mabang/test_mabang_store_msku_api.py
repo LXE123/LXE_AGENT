@@ -232,11 +232,11 @@ def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
 
 def _mock_active_shop(monkeypatch):
     from services.mabang.amazon.fba.store_resolver import FbaStore
-    from services.mabang.amazon.fba.combo_sku import ActiveListingSnapshot
+    from services.mabang.amazon.fba.combo_sku import ListingSnapshot
     async def stores():
         return [FbaStore("Amazon-Lerxiuer-FR", "697456821", "shopId")]
     async def snapshot(name):
-        return ActiveListingSnapshot(name, "10", "fr", ())
+        return ListingSnapshot(name, "10", "fr", ())
     monkeypatch.setattr(msku, "fetch_fba_stores", stores)
     monkeypatch.setattr(msku, "fetch_listing_snapshot", snapshot)
 
@@ -274,7 +274,7 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
         "converted": False,
         "raw_excel_deleted": False,
         "source": "mabang_store_msku_download",
-        "original_row_count": 1, "active_row_count": 0, "excluded_row_count": 1,
+        "original_row_count": 1, "binding_verified_row_count": 0, "binding_unverified_row_count": 1,
     }
     assert Path(result.xlsx_path).is_file()
     assert len([call for call in fake_session.calls if call["method"] == "POST"]) == 2

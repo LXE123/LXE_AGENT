@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .report_staging import staged_report_path
-from .active_msku_source import require_matching_reports, stamp_report
+from .source_verification import product_key, unverified_reasons, read_report_metadata, require_matching_reports, stamp_report
 from .replenishment_formula_sheet import (
     FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
     ShippingFormulaInputs, cache_formula_values, shipping_quantities, source_number, write_formula_sheet,
@@ -493,7 +493,7 @@ class StoreMskuReplenishmentResult:
     amazon_fba_inventory_snapshot_path: str = ""
     amazon_fba_inventory_validation: dict[str, Any] | None = None
     source: str = SOURCE
-    active_counts: dict[str, int] = field(default_factory=dict)
+    binding_counts: dict[str, int] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -514,7 +514,7 @@ class StoreMskuReplenishmentResult:
             "sample_insufficient_count": self.sample_insufficient_count,
             "report_xlsx_path": self.report_xlsx_path,
             "source": self.source,
-            **self.active_counts,
+            **self.binding_counts,
         }
         if self.unlinked_shipments_snapshot_path:
             payload["unlinked_shipments_snapshot_path"] = self.unlinked_shipments_snapshot_path
@@ -910,11 +910,14 @@ def _first_record_value(record: dict[str, Any], columns: tuple[str, ...]) -> Any
 def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
     source_path = Path(xlsx_path)
     rows: list[InventoryInputRow] = []
+    excluded = unverified_reasons(read_report_metadata(source_path))
     for sheet_names, sku_type in INVENTORY_SHEET_GROUPS:
         sheet_name, headers, records = _headers_and_rows_any(source_path, sheet_names)
         _require_columns(headers, INVENTORY_REQUIRED_COLUMNS, path=source_path, sheet_name=sheet_name)
         _require_any_column(headers, INVENTORY_QUANTITY_COLUMNS, path=source_path, sheet_name=sheet_name)
         for record in records:
+            if product_key(record) in excluded:
+                continue
             rows.append(
                 InventoryInputRow(
                     msku=_clean_text(record.get("MSKU")),
@@ -1641,7 +1644,7 @@ def _set_report_dimensions(path: Path) -> None:
 
 def write_replenishment_report(
     rows: list[ReplenishmentRow], report_path: str | Path, *,
-    active_metadata: dict[str, Any] | None = None, missing_unlinked_snapshot: bool = False,
+    source_metadata: dict[str, Any] | None = None, missing_unlinked_snapshot: bool = False,
 ) -> Path:
     try:
         from openpyxl import Workbook
@@ -1674,8 +1677,8 @@ def write_replenishment_report(
             workbook.save(staged_path)
         finally:
             workbook.close()
-        if active_metadata is not None:
-            stamp_report(staged_path, active_metadata)
+        if source_metadata is not None:
+            stamp_report(staged_path, source_metadata)
         # Include the metadata sheet and finish layout before injecting caches.
         _set_report_dimensions(staged_path)
         cache_formula_values(staged_path, caches)
@@ -1716,8 +1719,10 @@ def calculate_store_msku_replenishment(
         sales_analysis_dir=sales_analysis_dir,
         actual_inventory_dir=actual_inventory_dir,
     )
-    active_metadata = require_matching_reports(reports.sales_analysis_path, reports.actual_inventory_path, store_name=clean_store_name)
+    source_metadata = require_matching_reports(reports.sales_analysis_path, reports.actual_inventory_path, store_name=clean_store_name)
     inventory_rows = load_inventory_rows(reports.actual_inventory_path)
+    if not inventory_rows:
+        raise StoreMskuReplenishmentError("无可计算记录：没有通过绑定核验且具备库存数据的 MSKU")
     sales_details = load_sales_details(reports.sales_analysis_path)
     requested_snapshot_path = _clean_text(unlinked_shipments_snapshot_path)
     unlinked_snapshot_warning = ""
@@ -1777,13 +1782,13 @@ def calculate_store_msku_replenishment(
     )
     report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(
-        replenishment_rows, report_path, active_metadata=active_metadata,
+        replenishment_rows, report_path, source_metadata=source_metadata,
         missing_unlinked_snapshot=bool(unlinked_snapshot_warning),
     )
     summary_rows = summarize_links(replenishment_rows)
 
     return StoreMskuReplenishmentResult(
-        active_counts={key: active_metadata[key] for key in ("original_row_count", "active_row_count", "excluded_row_count")},
+        binding_counts={key: source_metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")},
         store_name=clean_store_name,
         source_data_time=reports.source_data_time,
         sales_analysis_xlsx_path=str(reports.sales_analysis_path),

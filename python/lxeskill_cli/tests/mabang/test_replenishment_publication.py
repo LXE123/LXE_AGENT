@@ -45,7 +45,7 @@ def test_failure_never_publishes_or_changes_previous_report(tmp_path, monkeypatc
 
         monkeypatch.setattr(os, "replace", fail_publication)
     with pytest.raises(OSError) as caught:
-        rep.write_replenishment_report([case_row("NEW")], target, active_metadata={"fixture": True})
+        rep.write_replenishment_report([case_row("NEW")], target, source_metadata={"fixture": True})
     assert caught.value is failure
     assert target.read_bytes() == previous if existing else not target.exists()
     assert list(tmp_path.iterdir()) == ([target] if existing else [])
@@ -73,14 +73,14 @@ def test_publish_happens_once_after_handles_close_and_complete_validation(tmp_pa
             try:
                 assert book.active["A3"].value == "NEW"
                 assert book.active["W3"].value is not None
-                assert "Active核验信息" in book.sheetnames
+                assert "源数据核验信息" in book.sheetnames
             finally:
                 book.close()
         return original_replace(source, destination)
 
     monkeypatch.setattr(ZipFile, "__init__", track)
     monkeypatch.setattr(os, "replace", replace)
-    assert rep.write_replenishment_report([case_row("NEW")], target, active_metadata={"fixture": True}) == target
+    assert rep.write_replenishment_report([case_row("NEW")], target, source_metadata={"fixture": True}) == target
     assert len(publications) == 1
     assert target.read_bytes() != previous
     assert list(tmp_path.iterdir()) == [target]

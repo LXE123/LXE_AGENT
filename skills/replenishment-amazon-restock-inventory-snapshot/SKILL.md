@@ -34,7 +34,7 @@ lxeskill replenish inventory restock-snapshot-build --store-name "<规范店铺�
 ## 校验与结果
 
 - CSV 必须有 Merchant SKU、Total Units。CLI 校验店铺匹配率和库存分项；失败保留实际错误，不因字段相似自行转换。
-- `Amazon.Found.*` 作为真实 MSKU 参与快照校验，不按名称排除；这不改变主计算只使用 Active 行的范围。
+- `Amazon.Found.*` 作为真实 MSKU 参与快照校验，不按名称排除；这不改变主计算只使用通过绑定核验记录的范围。
 - 成功保留 `data.snapshot_xlsx_path` 和核验摘要；用户要求用于计算时传 `--amazon-restock-inventory-snapshot`，增加对照字段，不重复扣减主建议。
 - 单步任务交付 terminal files；完整任务保留对照快照路径到最终计算。
 - 用户询问下载入口、截图或详细分项校验时读 [references/download-and-validation.md](references/download-and-validation.md)，使用已有截图资产，不猜路径。

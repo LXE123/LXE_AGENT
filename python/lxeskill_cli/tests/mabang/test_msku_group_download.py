@@ -8,7 +8,7 @@ import pytest
 from mabang_test_helpers import _xlsx_bytes
 from services.agent_cli.mabang import download_store_msku_excel as cli
 from services.mabang.amazon.fba import store_msku as msku
-from services.mabang.amazon.fba.combo_sku import ActiveListingSnapshot, ListingSkuBinding
+from services.mabang.amazon.fba.combo_sku import ListingSnapshot, ListingSkuBinding
 from services.mabang.amazon.fba.store_resolver import FbaStore, parse_fba_store_options
 
 
@@ -80,13 +80,13 @@ def test_single_station_download_preserves_both_web_id_types(monkeypatch, tmp_pa
     async def snapshot(name):
         assert name == single.store_name
         calls.append('listing')
-        return ActiveListingSnapshot(name, '99', 'de', (ListingSkuBinding('M', 'A', 'S', 1),))
+        return ListingSnapshot(name, '99', 'de', (ListingSkuBinding('M', 'A', 'S', 1),))
     monkeypatch.setattr(msku, 'fetch_fba_stores', fetch)
     monkeypatch.setattr(msku, 'run_export_pipeline', pipeline)
     monkeypatch.setattr(msku, 'fetch_listing_snapshot', snapshot)
     result = asyncio.run(msku.download_store_msku_excel(single.store_id, single.id_type, store_name=single.store_name, output_dir=tmp_path))
     assert Path(result.xlsx_path).exists()
-    assert result.active_counts == {'original_row_count': 1, 'active_row_count': 1, 'excluded_row_count': 0}
+    assert result.binding_counts == {'original_row_count': 1, 'binding_verified_row_count': 1, 'binding_unverified_row_count': 0}
     assert calls == ['export', 'listing']
 
 

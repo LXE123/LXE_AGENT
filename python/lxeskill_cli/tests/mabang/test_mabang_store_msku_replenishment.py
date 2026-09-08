@@ -455,7 +455,7 @@ def test_find_same_day_unlinked_shipments_snapshot_accepts_legacy_english_file_n
 
 
 def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> None:
-    path = tmp_path / "actual_inventory.xlsx"
+    path = tmp_path / "202605251530-Amazon-Test_真实库存.xlsx"
     old_headers = [
         "MSKU",
         "父ASIN",
@@ -579,11 +579,11 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
         "sample_insufficient_count": 1,
         "report_xlsx_path": str(output_dir / "202605251530-Amazon-Test_备货建议.xlsx"),
         "source": "mabang_store_msku_replenishment",
-        "original_row_count": 10, "active_row_count": 10, "excluded_row_count": 0,
+        "original_row_count": 10, "binding_verified_row_count": 10, "binding_unverified_row_count": 0,
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["最终备货意见", "本轮不备货", "链接备货汇总", "备货公式参数", "Active核验信息"]
+    assert _sheet_names(report_path) == ["最终备货意见", "本轮不备货", "链接备货汇总", "备货公式参数", "源数据核验信息"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     final = {r["MSKU"]: r for r in _load_records(report_path, "最终备货意见")}
     assert set(final) == {"URGENT-1", "AIR-1", "SEA-1"}
