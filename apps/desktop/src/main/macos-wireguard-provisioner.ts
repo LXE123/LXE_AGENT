@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import serviceScript from "../../resources/wireguard/macos-service.sh" with { type: "text" };
 import type { Logger } from "@lxe/core";
 import type { CloudEnrollmentPayload } from "./cloud-enrollment";
 import {
@@ -31,9 +32,10 @@ const HOMEBREW_COMMAND_PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 const HOMEBREW_INSTALL_COMMAND = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
 
 export interface MacOSWireGuardCommand {
-  action: "down" | "up";
+  action: "install";
   configPath: string;
-  ignoreFailure?: boolean;
+  previousConfigPath?: string;
+  scriptPath: string;
 }
 
 interface ProcessResult {
@@ -104,8 +106,8 @@ const defaultRunElevated = async (commands: readonly MacOSWireGuardCommand[]): P
     `PATH=${shellQuote(HOMEBREW_COMMAND_PATH)}`,
     "export PATH",
     ...commands.map((item) => {
-      const line = `${shellQuote(WG_QUICK_PATH)} ${item.action} ${shellQuote(item.configPath)}`;
-      return item.ignoreFailure ? `${line} >/dev/null 2>&1 || true` : line;
+      return [shellQuote("/opt/homebrew/bin/bash"), shellQuote(item.scriptPath), "install",
+        shellQuote(item.configPath), shellQuote(item.previousConfigPath ?? ""), shellQuote(item.scriptPath)].join(" ");
     }),
   ].join("\n");
   try {
@@ -119,7 +121,9 @@ const defaultRunElevated = async (commands: readonly MacOSWireGuardCommand[]): P
       ? `${error.message} ${(error as Error & { stderr?: string }).stderr ?? ""}`.trim()
       : String(error);
     if (/cancel|取消|-128/iu.test(detail)) throw new Error("管理员授权已取消");
-    throw new Error(detail || "WireGuard 管理员命令失败");
+    const stdout = error instanceof Error ? (error as Error & { stdout?: string }).stdout ?? "" : "";
+    throw new WireGuardProvisioningError(detail || "WireGuard 管理员命令失败",
+      /LXE_WG_PREVIOUS_REMOVED=1/u.test(`${stdout} ${detail}`));
   }
 };
 
@@ -218,7 +222,7 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
   private scanDependencies(): WireGuardDependencyStatus {
     if (!this.supported()) return { state: "not_required", error: "" };
     if (!this.pathIsExecutable(BREW_PATH)) return { state: "homebrew_missing", error: "" };
-    if (![WG_PATH, WG_QUICK_PATH, WIREGUARD_GO_PATH].every(this.pathIsExecutable)) {
+    if (![WG_PATH, WG_QUICK_PATH, WIREGUARD_GO_PATH, "/opt/homebrew/bin/bash"].every(this.pathIsExecutable)) {
       return { state: "wireguard_tools_missing", error: "" };
     }
     return { state: "ready", error: "" };
@@ -271,6 +275,9 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
     operationId: string,
     fields: Record<string, unknown>,
   ): Promise<void> {
+    if (target.tunnel_name !== "lxe-agent" || (previous && previous.tunnel_name !== "lxe-agent")) {
+      throw new WireGuardProvisioningError("WireGuard 系统服务仅支持 lxe-agent 隧道", false);
+    }
     const startedAt = this.now();
     const logger = this.options.logger.child({ operation_id: operationId, ...fields });
     if (!this.supported()) throw new WireGuardProvisioningError("公司云端当前仅支持 Apple Silicon Mac 开发版", false);
@@ -295,54 +302,31 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
       const previousPath = previous
         ? this.stageConfiguration(operationRoot, "previous", previous)
         : undefined;
-      let targetError: unknown;
-      let previousRemoved = Boolean(previous);
+      const scriptPath = join(operationRoot, "service.sh");
+      writeFileSync(scriptPath, serviceScript, { encoding: "utf8", mode: 0o700 });
       try {
-        await this.runElevated([
-          { action: "down", configPath: previousPath ?? targetPath, ignoreFailure: true },
-          { action: "up", configPath: targetPath },
-        ]);
+        await this.runElevated([{
+          action: "install", configPath: targetPath, ...(previousPath ? { previousConfigPath: previousPath } : {}), scriptPath,
+        }]);
         logger.info("wireguard_provision_completed", {
           duration_ms: Math.max(0, this.now() - startedAt),
           connection: "connected",
-          previous_removed: previousRemoved,
+          coordination: "launchd",
+          previous_removed: Boolean(previous),
         });
-        return;
       } catch (error) {
-        targetError = error;
+        const previousRemoved = error instanceof WireGuardProvisioningError && error.previousRemoved;
+        const observedError = boundedDiagnostic(redactTunnelSecrets(
+          error instanceof Error ? `${error.message} ${(error as Error & { stderr?: string }).stderr ?? ""}` : String(error),
+          [target, previous],
+        ));
+        logger.error("wireguard_provision_failed", {
+          failed_stage: "system_service_install", previous_removed: previousRemoved,
+          duration_ms: Math.max(0, this.now() - startedAt), observed_error: observedError,
+        });
+        throw new WireGuardProvisioningError(observedError === "管理员授权已取消"
+          ? observedError : `WireGuard 配置失败：${observedError || "命令执行失败"}`.slice(0, 700), previousRemoved);
       }
-      const targetWasCancelled = boundedDiagnostic(targetError) === "管理员授权已取消";
-      if (previous && previousPath && !targetWasCancelled) {
-        try {
-          await this.runElevated([
-            { action: "down", configPath: targetPath, ignoreFailure: true },
-            { action: "up", configPath: previousPath },
-          ]);
-          previousRemoved = false;
-        } catch (rollbackError) {
-          previousRemoved = true;
-          logger.error("wireguard_provision_rollback_failed", {
-            duration_ms: Math.max(0, this.now() - startedAt),
-            observed_error: redactTunnelSecrets(
-              boundedDiagnostic(rollbackError),
-              [target, previous],
-            ),
-          });
-        }
-      } else {
-        previousRemoved = false;
-      }
-      const observedError = redactTunnelSecrets(boundedDiagnostic(targetError), [target, previous]);
-      logger.error("wireguard_provision_failed", {
-        failed_stage: "elevated_process",
-        previous_removed: previousRemoved,
-        duration_ms: Math.max(0, this.now() - startedAt),
-        observed_error: observedError || "WireGuard command failed without diagnostic output",
-      });
-      const message = observedError === "管理员授权已取消"
-        ? observedError
-        : `WireGuard 配置失败：${observedError || "命令执行失败"}`.slice(0, 700);
-      throw new WireGuardProvisioningError(message, previousRemoved);
     } finally {
       rmSync(operationRoot, { recursive: true, force: true });
     }
@@ -368,4 +352,5 @@ export const MACOS_WIREGUARD_PATHS = {
   wg: WG_PATH,
   wgQuick: WG_QUICK_PATH,
   wireguardGo: WIREGUARD_GO_PATH,
+  bash: "/opt/homebrew/bin/bash",
 } as const;

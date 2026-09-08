@@ -113,6 +113,7 @@ describe("MacOSWireGuardProvisioner", () => {
         executablePaths.add(MACOS_WIREGUARD_PATHS.wg);
         executablePaths.add(MACOS_WIREGUARD_PATHS.wgQuick);
         executablePaths.add(MACOS_WIREGUARD_PATHS.wireguardGo);
+        executablePaths.add(MACOS_WIREGUARD_PATHS.bash);
         return { stdout: "installed", stderr: "" };
       },
     });
@@ -149,6 +150,7 @@ describe("MacOSWireGuardProvisioner", () => {
         executablePaths.add(MACOS_WIREGUARD_PATHS.wg);
         executablePaths.add(MACOS_WIREGUARD_PATHS.wgQuick);
         executablePaths.add(MACOS_WIREGUARD_PATHS.wireguardGo);
+        executablePaths.add(MACOS_WIREGUARD_PATHS.bash);
         return { stdout: "installed", stderr: "" };
       },
     });
@@ -173,9 +175,9 @@ describe("MacOSWireGuardProvisioner", () => {
       pathIsExecutable: (path) => allTools().has(path),
       runElevated: async (commands) => {
         calls.push([...commands]);
-        expect(commands.map(({ action }) => action)).toEqual(["down", "up"]);
-        expect(commands[0]?.ignoreFailure).toBeTrue();
-        const configPath = commands[1]!.configPath;
+        expect(commands.map(({ action }) => action)).toEqual(["install"]);
+        expect(readFileSync(commands[0]!.scriptPath, "utf8")).toContain("supervise");
+        const configPath = commands[0]!.configPath;
         expect(statSync(configPath).mode & 0o777).toBe(0o600);
         expect(statSync(join(configPath, "..", "..")).mode & 0o777).toBe(0o700);
         const configuration = readFileSync(configPath, "utf8");
@@ -193,7 +195,7 @@ describe("MacOSWireGuardProvisioner", () => {
     expect(serialized).not.toContain(payload.data_server.api_token);
   });
 
-  test("reconnects from the stored configuration with down then up", async () => {
+  test("reconnects by updating the system service from stored configuration", async () => {
     const root = createRoot();
     const commands: MacOSWireGuardCommand[][] = [];
     const provisioner = new MacOSWireGuardProvisioner({
@@ -209,12 +211,11 @@ describe("MacOSWireGuardProvisioner", () => {
     await provisioner.reconnect(wireGuardTunnelFromEnrollment(payload), "reconnect-1");
 
     expect(commands).toHaveLength(1);
-    expect(commands[0]?.map(({ action }) => action)).toEqual(["down", "up"]);
-    expect(commands[0]?.[0]?.configPath).toBe(commands[0]?.[1]?.configPath);
+    expect(commands[0]?.map(({ action }) => action)).toEqual(["install"]);
     expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
   });
 
-  test("restores the previous tunnel after replacement failure and reports whether rollback failed", async () => {
+  test("passes previous configuration into the single elevated transaction and preserves rollback result", async () => {
     const previousPayload: CloudEnrollmentPayload = {
       ...payload,
       wireguard: {
@@ -234,9 +235,10 @@ describe("MacOSWireGuardProvisioner", () => {
         dataRoot: root,
         logger: testLogger(events),
         pathIsExecutable: (path) => allTools().has(path),
-        runElevated: async () => {
+        runElevated: async (commands) => {
+          expect(readFileSync(commands[0]!.previousConfigPath!, "utf8")).toContain("10.88.0.9/32");
           call += 1;
-          if (call === 1 || rollbackFails) throw new Error(`failed ${payload.wireguard.private_key}`);
+          throw new WireGuardProvisioningError(`failed ${payload.wireguard.private_key}`, rollbackFails);
         },
       });
       let failure: unknown;
@@ -251,7 +253,7 @@ describe("MacOSWireGuardProvisioner", () => {
       }
       expect(failure).toBeInstanceOf(WireGuardProvisioningError);
       expect(failure).toMatchObject({ previousRemoved: rollbackFails });
-      expect(call).toBe(2);
+      expect(call).toBe(1);
       expect(JSON.stringify(events)).not.toContain(payload.wireguard.private_key);
       expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
     }
