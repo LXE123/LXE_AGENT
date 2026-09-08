@@ -12,7 +12,7 @@ from .report_staging import staged_report_path
 from .active_msku_source import require_matching_reports, stamp_report
 from .replenishment_formula_sheet import (
     FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
-    ShippingFormulaInputs, cache_formula_values, source_number, write_formula_sheet,
+    ShippingFormulaInputs, cache_formula_values, shipping_quantities, source_number, write_formula_sheet,
 )
 
 from services.mabang import config as mabang_settings
@@ -1443,7 +1443,6 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "最小可销售天数": None,
                 "链接未关联数量汇总": 0.0,
                 LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN: 0.0,
-                "总补货量": 0,
                 "空运（急发）补货量": 0,
                 "空运补货量": 0,
                 "海运建议量": 0,
@@ -1459,17 +1458,13 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
             group["商品链接前缀"] = link_prefix
             if row.parent_asin != "未填写父ASIN":
                 group["商品链接"] = f"{link_prefix}{row.parent_asin}"
-        if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET:
-            group["涉及运输方式"].add(SAMPLE_INSUFFICIENT_SHEET)
-        else:
-            group["总补货量"] += row.replenish_quantity or 0
-            group["涉及运输方式"].add(row.sheet_name)
-        if row.sheet_name == AIR_URGENT_SHEET:
-            group["空运（急发）补货量"] += row.replenish_quantity or 0
-        elif row.sheet_name == AIR_SHEET:
-            group["空运补货量"] += row.replenish_quantity or 0
-        elif row.sheet_name == SEA_SHEET:
-            group["海运建议量"] += row.sea_quantity or 0
+        group["涉及运输方式"].add(row.sheet_name)
+        urgent_air, air, sea = shipping_quantities(row)
+        group["空运（急发）补货量"] += urgent_air
+        group["空运补货量"] += air
+        group["海运建议量"] += sea
+        if row.sheet_name == SEA_SHEET and air > 0:
+            group["涉及运输方式"].add(AIR_SHEET)
         group["最大加权日销"] = max(group["最大加权日销"], row.weighted_daily_sales)
         group["合计加权日销"] += row.weighted_daily_sales
         if row.sales_days is not None:
@@ -1494,7 +1489,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "最小可销售天数": _display_optional_float(group["最小可销售天数"]),
                 "链接未关联数量汇总": _display_quantity(group["链接未关联数量汇总"]),
                 LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN: _display_quantity(group[LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN]),
-                "总补货量": group["总补货量"],
+                "总补货量": group["空运（急发）补货量"] + group["空运补货量"] + group["海运建议量"],
                 "空运（急发）补货量": group["空运（急发）补货量"],
                 "空运补货量": group["空运补货量"],
                 "海运建议量": group["海运建议量"],

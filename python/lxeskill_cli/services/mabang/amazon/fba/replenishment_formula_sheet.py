@@ -56,6 +56,23 @@ def _number_text(number: float) -> str:
     return str(int(number)) if float(number).is_integer() else f"{number:.2f}"
 
 
+def shipping_quantities(row: ReplenishmentRow) -> tuple[int, int, int]:
+    """Final urgent-air, air (including companion air), and sea quantities."""
+    quantity = row.replenish_quantity or 0
+    if row.sheet_name not in {"空运（急发）", "空运", "海运"} or quantity <= 0:
+        return 0, 0, 0
+    if row.sheet_name == "海运":
+        air = row.companion_air_quantity if row.companion_air_quantity is not None else 0
+        sea = row.sea_quantity
+        if sea is None or air < 0 or sea < 0 or air + sea != quantity:
+            raise ValueError(
+                f"最终发货数量拆分不一致: MSKU={row.msku}, "
+                f"companion_air={air}, sea={sea}, total={quantity}"
+            )
+        return 0, air, sea
+    return (quantity, 0, 0) if row.sheet_name == "空运（急发）" else (0, quantity, 0)
+
+
 def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     inputs = row.formula_inputs
     if inputs is None:
@@ -121,7 +138,7 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
 
     order = {"空运（急发）": 0, "空运": 1, "海运": 2}
     selected = sorted(
-        (r for r in rows if r.sheet_name in order and (r.replenish_quantity or 0) > 0),
+        (r for r in rows if any(shipping_quantities(r))),
         key=lambda r: (order[r.sheet_name], -r.replenish_quantity, r.msku, r.asin),
     )
     sheet = workbook.create_sheet(FINAL_SHIPPING_SHEET, 0)
