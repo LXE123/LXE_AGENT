@@ -157,10 +157,10 @@ def test_later_confirmed_empty_supersedes_old_nonzero_in_calculation(tmp_path):
     assert not result.unlinked_shipments_snapshot_warning
     book = load_workbook(result.report_xlsx_path, data_only=True)
     try:
-        rows = list(book["空运"].values); cols = {v:i for i,v in enumerate(rows[0])}
+        rows = list(book["最终备货意见"].iter_rows(min_row=2, values_only=True)); cols = {v:i for i,v in enumerate(rows[0])}
         row = next(row for row in rows[1:] if row[cols["MSKU"]] == "AIR-1")
-        assert row[cols["未关联数量"]] == 0
-        assert row[cols["补货量（减去 FBA 总库存和未关联货件）"]] == 60
+        assert row[cols["未发出货件总计"]] == 0
+        assert row[cols["空运建议量"]] == 60
     finally: book.close()
 
 
