@@ -23,7 +23,7 @@ FINAL_SHIPPING_COLUMNS = (
     "加权日销", "可售", "待入库", "预留", "计划入库", "在途", "待调仓", "调仓中",
     "FBA总库存（马帮）", "未发出货件总计", "深圳可用库存", "建议运输方式（生成时）",
     "空运补货天数", "海运补货天数", "空运建议量", "海运建议量", "单件重量(g)",
-    "预计总重量(kg)", "备注",
+    "预计总重量(kg)", "备注", "深圳库存缺口",
 )
 PARAM_COLUMNS = (
     "记录标识", "7天权重", "14天权重", "30天权重", "海运最小件数", "生成时类型",
@@ -119,6 +119,7 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> tuple[dict
         "T": "空运＋海运" if is_sea and air > 0 else row.sheet_name,
         "U": air_days, "V": sea_days, "W": air, "X": sea, "Y": row.weight_grams,
         "Z": weight, "AA": "；".join(notes),
+        "AB": max(0, air + sea - row.actual_inventory) if row.actual_inventory is not None else None,
     }
     params = dict(zip(("B", "C", "D"), inputs.weights))
     params.update({
@@ -145,7 +146,7 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
     helper = workbook.create_sheet(FORMULA_PARAMS_SHEET)
     helper.sheet_state = "hidden"
     helper.append(PARAM_COLUMNS)
-    sheet.cell(1, 1, "浅黄色为可编辑输入，蓝色为公式。仅重算本表数量；运输方式固定，天数可手改。原明细为生成时快照，排序请使用表头筛选。")
+    sheet.cell(1, 1, "浅黄色为可编辑输入，蓝色为公式。仅重算本表数量；运输方式固定，天数可手改。其他报表为生成时快照，排序请使用表头筛选。")
     sheet.append([*FINAL_SHIPPING_COLUMNS, "记录标识"])
     caches: dict[str, dict[str, Any]] = {FINAL_SHIPPING_SHEET: {}, FORMULA_PARAMS_SHEET: {}}
     end, helper_end = len(selected) + 2, len(selected) + 1
@@ -153,7 +154,7 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         r = h + 1
         public, params = _initial_values(row, missing_snapshot)
         key = f"record-{h}"
-        public["AB"], params["A"] = key, key
+        public["AC"], params["A"] = key, key
         for target, values, index in ((sheet, public, r), (helper, params, h)):
             for column, value in values.items():
                 cell = target[f"{column}{index}"]
@@ -162,13 +163,14 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
                     cell.data_type = "s"
 
         def p(column: str) -> str:
-            return f"INDEX('{FORMULA_PARAMS_SHEET}'!${column}$2:${column}${helper_end},MATCH($AB{r},'{FORMULA_PARAMS_SHEET}'!$A$2:$A${helper_end},0))"
+            return f"INDEX('{FORMULA_PARAMS_SHEET}'!${column}$2:${column}${helper_end},MATCH($AC{r},'{FORMULA_PARAMS_SHEET}'!$A$2:$A${helper_end},0))"
 
         def s(column: str) -> str:
-            return f"INDEX('{FINAL_SHIPPING_SHEET}'!${column}$3:${column}${end},MATCH($A{h},'{FINAL_SHIPPING_SHEET}'!$AB$3:$AB${end},0))"
+            return f"INDEX('{FINAL_SHIPPING_SHEET}'!${column}$3:${column}${end},MATCH($A{h},'{FINAL_SHIPPING_SHEET}'!$AC$3:$AC${end},0))"
 
         visible_formulas = {
             "I": f'IFERROR(IF(AND(COUNT(E{r}:G{r})=3,MIN(E{r}:G{r})>=0),E{r}/7*{p("B")}+F{r}/14*{p("C")}+G{r}/30*{p("D")},""),"")',
+            "AB": f'IFERROR(IF(AND({p("I")}=1,COUNT(S{r},W{r}:X{r})=3),MAX(0,SUM(W{r}:X{r})-S{r}),""),"")',
             "Q": f'IFERROR(IF(AND(COUNT(J{r}:L{r},N{r}:P{r})=6,MIN(J{r}:L{r},N{r}:P{r})>=0),SUM(J{r}:L{r},N{r}:P{r}),""),"")',
             **{column: p(param) for column, param in (("W", "Q"), ("X", "R"), ("Z", "S"), ("AA", "T"))},
         }
@@ -194,7 +196,7 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
                 f'"试算建议：空运"&TEXT(Q{h},"0")&"件，海运"&TEXT(R{h},"0")&"件"'
                 f'&IF(P{h}=0,"；海运数量不足"&TEXT(E{h},"0.##")&"件","")'
                 f'&IF({total}=0,"；当前建议量为0","")'
-                f'&IF(IFERROR(AND(COUNTBLANK({s("S")})=0,ISNUMBER({s("S")}),{s("S")}>={0}),FALSE),'
+                f'&IF(IFERROR(AND(COUNTBLANK({s("S")})=0,ISNUMBER({s("S")})),FALSE),'
                 f'IF({total}>{s("S")},"；深圳库存不足，缺口"&{shortage_text}&"件",""),"；深圳可用库存缺失或无效")'
                 f'&IF(S{h}="","；单件重量缺失或无效，无法计算预计总重量",""))'
                 f'&IF(H{h}=1,"；未取得同日未关联货件快照，需核实当前试算数量","")'
@@ -208,17 +210,17 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
 
     sheet.freeze_panes = "E3"
     sheet.sheet_view.showGridLines = False
-    sheet.column_dimensions["AB"].hidden = True
+    sheet.column_dimensions["AC"].hidden = True
     if selected:
         # Excel rejects a worksheet filter overlapping a Table's own filter.
-        table = Table(displayName="FinalShipping", ref=f"A2:AB{end}")
+        table = Table(displayName="FinalShipping", ref=f"A2:AC{end}")
         table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=False)
         sheet.add_table(table)
         numeric = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         numeric.showErrorMessage = True
         numeric.error = "请输入大于等于0的数值；不要清空必需输入。"
         sheet.add_data_validation(numeric)
-        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "S", "Y"):
+        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "Y"):
             numeric.add(f"{column}3:{column}{end}")
         days = DataValidation(type="whole", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         days.showErrorMessage = True
@@ -226,10 +228,10 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         sheet.add_data_validation(days)
         days.add(f"U3:V{end}")
     else:
-        sheet.auto_filter.ref = "A2:AB2"
-    widths = (32, 16, 28, 35, 13, 13, 13, 13, 14, 12, 12, 12, 13, 12, 13, 13, 22, 22, 18, 24, 18, 18, 17, 17, 18, 22, 66)
+        sheet.auto_filter.ref = "A2:AC2"
+    widths = (32, 16, 28, 35, 13, 13, 13, 13, 14, 12, 12, 12, 13, 12, 13, 13, 22, 22, 18, 24, 18, 18, 17, 17, 18, 22, 66, 18)
     input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 25}
-    formula_columns = {9, 17, 23, 24, 26, 27}
+    formula_columns = {9, 17, 23, 24, 26, 27, 28}
     for index, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(index)].width = width
         header = sheet.cell(2, index)
@@ -238,13 +240,15 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         header.alignment = Alignment(vertical="center", wrap_text=True)
     sheet.row_dimensions[1].height = 26
     sheet.row_dimensions[2].height = 34
-    for cells in sheet.iter_rows(min_row=3, max_row=end, max_col=27):
+    for cells in sheet.iter_rows(min_row=3, max_row=end, max_col=28):
         sheet.row_dimensions[cells[0].row].height = 66
         for index, cell in enumerate(cells, 1):
             cell.alignment = Alignment(vertical="center", wrap_text=True)
             if index in input_columns | formula_columns:
                 cell.fill = PatternFill("solid", fgColor="FFF2CC" if index in input_columns else "EAF2F8")
-            if index in (9, 25, 26):
+            if index == 28:
+                cell.number_format = "#,##0.##"
+            elif index in (9, 25, 26):
                 cell.number_format = "#,##0.00"
             elif 5 <= index <= 24 and index != 20:
                 cell.number_format = "#,##0.00" if isinstance(cell.value, float) and not cell.value.is_integer() else "#,##0"

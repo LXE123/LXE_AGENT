@@ -161,6 +161,7 @@ NON_SHIPPING_COLUMNS = (
 )
 
 NON_SHIPPING_REASONS = {
+    "clearance": "清货",
     "low_sample": "样本不足",
     "parameter_skip": "参数跳过",
     "fba_covered": "FBA库存已覆盖",
@@ -1036,6 +1037,8 @@ def _with_clearance_split(row: ReplenishmentRow) -> ReplenishmentRow:
         sheet_name=CLEARANCE_SHEET,
         transport_channel=row.sheet_name,
         decision_reason=f"{row.decision_reason}；备注包含{CLEARANCE_KEYWORD}，移入清货sheet",
+        non_shipping_reason_code="clearance",
+        non_shipping_reason_detail="商品备注含‘清货’，本轮不安排备货",
     )
 
 
@@ -1648,26 +1651,12 @@ def write_replenishment_report(
     target_path = Path(report_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     sheet_rows = {
-        CLEARANCE_SHEET: [row for row in rows if row.sheet_name == CLEARANCE_SHEET],
-        NON_SHIPPING_SHEET: [row for row in rows if row.sheet_name in {NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET}],
+        NON_SHIPPING_SHEET: [row for row in rows if row.sheet_name in {NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET, CLEARANCE_SHEET}],
     }
     with staged_report_path(target_path) as staged_path:
         workbook = Workbook()
         try:
             specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
-                (
-                    INVENTORY_SHORTAGE_SHEET,
-                    INVENTORY_SHORTAGE_COLUMNS,
-                    sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
-                ),
-                (
-                    CLEARANCE_SHEET,
-                    CLEARANCE_COLUMNS,
-                    [
-                        row.to_detail_payload()
-                        for row in sorted(sheet_rows[CLEARANCE_SHEET], key=_detail_sort_key)
-                    ],
-                ),
                 (
                     NON_SHIPPING_SHEET,
                     NON_SHIPPING_COLUMNS,

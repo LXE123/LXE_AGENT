@@ -41,7 +41,7 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
             case_row("URGENT", daily=3, fba=90, unlinked=0, weight=None, template_name="默认"),
             case_row("SEA-ONLY", fba=480, unlinked=0, weight=1, template_name="默认")]
     rows.append(replace(rows[0], msku="NO-SHIP", non_shipping_reason_code="sea_daily_threshold", non_shipping_reason_detail="fixture: sea daily threshold", sheet_name=rep.NO_SHIP_SHEET))
-    rows.append(replace(rows[0], msku="CLEARANCE", sheet_name=rep.CLEARANCE_SHEET))
+    rows.append(replace(rows[0], msku="CLEARANCE", non_shipping_reason_code="clearance", non_shipping_reason_detail="商品备注含‘清货’，本轮不安排备货", sheet_name=rep.CLEARANCE_SHEET))
     rows.append(replace(rows[0], msku="SAMPLE", non_shipping_reason_code="parameter_skip", non_shipping_reason_detail="fixture: skipped trend", sheet_name=rep.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=None))
     source = _write_sales_report(tmp_path / "202605251530-Amazon-Test_销量分析.xlsx")
     wb = load_workbook(source)
@@ -67,11 +67,11 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert raw.calculation.calcMode == "auto"
         assert raw.active.title == formulas.FINAL_SHIPPING_SHEET
         assert raw.active.freeze_panes == "E3"
-        assert raw.active.tables["FinalShipping"].ref == "A2:AB6"
-        assert raw.active.tables["FinalShipping"].autoFilter.ref == "A2:AB6"
+        assert raw.active.tables["FinalShipping"].ref == "A2:AC6"
+        assert raw.active.tables["FinalShipping"].autoFilter.ref == "A2:AC6"
         assert raw.active.auto_filter.ref is None
-        assert raw.active.column_dimensions["AB"].hidden
-        assert [c.value for c in raw.active[2]][:27] == list(formulas.FINAL_SHIPPING_COLUMNS)
+        assert raw.active.column_dimensions["AC"].hidden
+        assert [c.value for c in raw.active[2]][:28] == list(formulas.FINAL_SHIPPING_COLUMNS)
         for address in ("I3", "Q3", "W3", "X3", "Z3", "AA3"):
             assert raw.active[address].data_type == "f"
         assert raw.active["E3"].fill != raw.active["W3"].fill
@@ -92,7 +92,7 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         # Check the final package after Active metadata and cache injection:
         # Excel repairs/removes this table if a sheet-level filter overlaps it.
         assert worksheet.find("s:autoFilter", ns) is None
-        assert table.find("s:autoFilter", ns).attrib["ref"] == "A2:AB6"
+        assert table.find("s:autoFilter", ns).attrib["ref"] == "A2:AC6"
         assert len(worksheet.findall("s:tableParts/s:tablePart", ns)) == 1
 
 
@@ -102,7 +102,7 @@ def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
     try:
         assert book.active.max_row == 2
         assert not book.active.tables
-        assert book.active.auto_filter.ref == "A2:AB2"
+        assert book.active.auto_filter.ref == "A2:AC2"
     finally:
         book.close()
 
@@ -237,3 +237,25 @@ def test_formula_uses_effective_special_weights_with_nonuniform_sales(tmp_path):
         assert book.active["H3"].value == 999
     finally:
         book.close()
+
+
+@pytest.mark.parametrize('stock,expected', [(None,None), (-5,135), (0,130), (10.5,119.5), (130,0), (1000,0)])
+def test_stock_gap_column_cached_and_sort_keys_preserved(tmp_path, stock, expected):
+    row=replace(case_row('GAP', fba=300, unlinked=20, template_name='默认'),actual_inventory=stock)
+    path=rep.write_replenishment_report([row],tmp_path/'gap.xlsx')
+    book=load_workbook(path,data_only=True);raw=load_workbook(path)
+    try:
+        assert book.active['AB2'].value=='深圳库存缺口'
+        assert book.active['AB3'].value==expected
+        assert book.active['W3'].value==130 and book.active['X3'].value==0
+        assert book.active['AC3'].value=='record-2'
+        assert raw.active['AB3'].data_type=='f'
+        assert 'COUNT(S3,W3:X3)=3' in raw.active['AB3'].value
+        assert raw.active.column_dimensions['AC'].hidden
+        assert not raw.active.column_dimensions['AB'].hidden
+        assert raw.active['AB3'].fill.fgColor.rgb==raw.active['W3'].fill.fgColor.rgb=='00EAF2F8'
+        assert raw.active['AB3'].fill.patternType=='solid'
+        assert raw.active.tables['FinalShipping'].ref=='A2:AC3'
+        assert '$AC3' in raw.active['W3'].value
+        assert '$AC$3:$AC$3' in raw['备货公式参数']['J2'].value
+    finally:book.close();raw.close()

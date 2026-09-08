@@ -65,7 +65,7 @@ def test_merge_preserves_records_and_sorts_on_daily_sales(tmp_path):
     book = load_workbook(path)
     try:
         assert rep.NO_SHIP_SHEET not in book.sheetnames and rep.SAMPLE_INSUFFICIENT_SHEET not in book.sheetnames
-        assert book.sheetnames == ['最终备货意见','真实库存（深圳仓库）不足','清货','本轮不备货','链接备货汇总','备货公式参数']
+        assert book.sheetnames == ['最终备货意见','本轮不备货','链接备货汇总','备货公式参数']
         sheet = book[rep.NON_SHIPPING_SHEET]
         data = list(sheet.iter_rows(min_row=2, values_only=True))
         assert [(r[0],r[2]) for r in data] == [(r.msku,r.asin) for r in sorted(rows,key=rep._non_shipping_sort_key)]
@@ -95,3 +95,24 @@ def test_missing_structured_reason_blocks_publication(tmp_path, code, detail):
         rep.write_replenishment_report([row],path)
     assert path.read_bytes()==b'previous'
     assert list(tmp_path.iterdir())==[path]
+
+
+def test_clearance_merges_without_broadening_classification(tmp_path):
+    clear=rep._with_clearance_split(replace(case_row('CLEAR'),remark='一般清货'))
+    low=rep._with_clearance_split(replace(sample_row(),remark='一般清货'))
+    no_ship=rep._with_clearance_split(replace(decide(daily=1,fba=60),remark='一般清货'))
+    assert clear.sheet_name==rep.CLEARANCE_SHEET
+    assert clear.non_shipping_reason_code=='clearance'
+    assert low.non_shipping_reason_code=='low_sample'
+    assert no_ship.non_shipping_reason_code=='fba_covered'
+    book=load_workbook(rep.write_replenishment_report([clear,low,no_ship],tmp_path/'clear.xlsx'),data_only=True)
+    try:
+        assert book.sheetnames==['最终备货意见','本轮不备货','链接备货汇总','备货公式参数']
+        it=book[rep.NON_SHIPPING_SHEET].iter_rows(values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
+        assert len(rows)==3
+        assert {r['未备货原因分类'] for r in rows}=={'清货','样本不足','FBA库存已覆盖'}
+        row=next(r for r in rows if r['MSKU']=='CLEAR')
+        assert row['备注']=='一般清货'
+        assert row['具体原因']=='商品备注含‘清货’，本轮不安排备货'
+        assert book['最终备货意见'].max_row==2
+    finally:book.close()

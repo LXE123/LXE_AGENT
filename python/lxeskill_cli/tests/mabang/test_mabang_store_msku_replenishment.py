@@ -24,7 +24,11 @@ def calculated_details(monkeypatch):
         return result
 
     monkeypatch.setattr(repl, "calculate_replenishment_rows", capture)
-    return lambda category: [row.to_detail_payload() for row in rows if row.sheet_name == category]
+    def details(category):
+        return [row.to_detail_payload() for row in rows if row.sheet_name == category]
+
+    details.shortages = lambda: repl.inventory_shortage_rows(rows)
+    return details
 
 
 def _write_workbook(path: Path, sheets: dict[str, tuple[list[str], list[dict]]]) -> Path:
@@ -579,20 +583,12 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["最终备货意见", "真实库存（深圳仓库）不足", "清货", "本轮不备货", "链接备货汇总", "备货公式参数", "Active核验信息"]
+    assert _sheet_names(report_path) == ["最终备货意见", "本轮不备货", "链接备货汇总", "备货公式参数", "Active核验信息"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     final = {r["MSKU"]: r for r in _load_records(report_path, "最终备货意见")}
     assert set(final) == {"URGENT-1", "AIR-1", "SEA-1"}
     assert [(final[k]["空运建议量"], final[k]["海运建议量"]) for k in ("URGENT-1", "AIR-1", "SEA-1")] == [(90, 0), (60, 0), (0, 60)]
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
-    assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
-    assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)
-    for sheet_name in ["真实库存（深圳仓库）不足", "清货"]:
-        headers = _headers(report_path, sheet_name)
-        assert headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
-        assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) + 1
-        assert "销量趋势速率" in headers
-        assert "销量趋势" not in headers
     for sheet_name in _sheet_names(report_path):
         headers = _headers(report_path, sheet_name)
         for header in (repl.MABANG_FBA_TOTAL_COLUMN, "真实库存（深圳仓库）数量"):
@@ -600,12 +596,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
                 formats = _column_number_formats(report_path, sheet_name, header)
                 if formats:
                     assert set(formats) == {"0"}
-    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "库存缺口")) == {"0"}
     assert set(_column_number_formats(report_path, "链接备货汇总", "链接真实库存（深圳仓库）汇总")) == {"0"}
-    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "加权日销")) == {"0.00"}
-    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "预计总重量kg")) == {"0.00"}
-    for header in ["海运天数", "海运建议量", "同时空运天数", "同时空运建议量"]:
-        assert header in _headers(report_path, "真实库存（深圳仓库）不足")
 
     sea_rows = calculated_details("海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
@@ -660,7 +651,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
     assert [sample_rows[0][k] for k in ("7天销量", "14天销量", "30天销量", "90天销量")] == [56, 112, 240, 720]
     assert sample_rows[0]["具体原因"] == "参数方案「默认」将销量趋势「样本不足」设置为跳过，本轮不计算备货"
 
-    shortage_rows = _load_records(report_path, "真实库存（深圳仓库）不足")
+    shortage_rows = calculated_details.shortages()
     assert {row["MSKU"] for row in shortage_rows} == {"SEA-1", "AIR-1", "URGENT-1"}
     assert {row["运输渠道"] for row in shortage_rows} == {"海运", "空运", "空运（急发）"}
     shortage_by_msku = {row["MSKU"]: row for row in shortage_rows}
@@ -930,9 +921,9 @@ def test_clearance_rows_move_out_of_transport_and_summary_sheets(tmp_path, calcu
     report_path = Path(result.report_xlsx_path)
     assert _load_records(report_path, "最终备货意见") == []
     assert not {"空运（急发）", "空运", "海运"} & set(_sheet_names(report_path))
-    assert _load_records(report_path, "真实库存（深圳仓库）不足") == []
+    assert calculated_details.shortages() == []
 
-    clearance_rows = _load_records(report_path, "清货")
+    clearance_rows = calculated_details("清货")
     assert {row["MSKU"] for row in clearance_rows} == {"SEA-1", "URGENT-1", "AIR-1"}
     clearance_by_msku = {row["MSKU"]: row for row in clearance_rows}
     assert clearance_by_msku["SEA-1"]["运输渠道"] == "海运"
@@ -1022,7 +1013,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert sea_row["预计总重量kg"] == 24
     assert "重量不足" not in sea_row["决策原因"]
 
-    shortage_rows = _load_records(report_path, "真实库存（深圳仓库）不足")
+    shortage_rows = calculated_details.shortages()
     assert [row["MSKU"] for row in shortage_rows] == ["AIR-1"]
     assert shortage_rows[0]["库存缺口"] == 10
 
