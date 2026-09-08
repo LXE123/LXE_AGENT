@@ -14,12 +14,13 @@ Status: Current
 | --- | --- | --- |
 | 开发桌面界面 | `bun run desktop:dev` | Vite 热更新页面和源码运行的 Electron |
 | 预览生产版页面 | `bun run desktop:preview` | 生产版 Dashboard，但 Gateway 和 Agent Runtime 仍从源码运行 |
-| 单独准备 Mac 媒体工具 | `bun run desktop:tools:mac` | 项目私有的 ExifTool 13.59；开发和预览会自动执行 |
+| 单独准备 Mac 工具 | `bun run desktop:tools:mac` | 项目私有的 ExifTool 13.59 和 fd 10.5.0；开发和预览会自动执行 |
+| 单独准备文件搜索工具 | `bun run desktop:tools:fd` | 当前平台的固定版本 fd 10.5.0 |
 | 只检查源码 | `bun run verify:source` | 类型检查、Bun 测试和 Python 测试结果，不生成安装包 |
 | 准备 Windows 私有运行环境 | `bun run desktop:runtime:win` | 可重复使用的 Node、Python、浏览器等受管 Runtime |
 | 快速检查真实打包目录 | `bun run desktop:pack:win` | `dist/desktop-unpacked/win-unpacked/LXE Agent.exe` |
 | 生成 Windows 安装程序 | `bun run desktop:dist:win` | `dist/desktop/LXE-Agent-<version>-windows-x64.exe` |
-| 做一次正式发布验证 | `bun run verify:platform:win` | 先完整检查源码，再生成一次 NSIS 安装程序 |
+| 做一次正式发布验证 | `bun run verify:platform:win` | 先准备 fd，再完整检查源码，最后生成一次 NSIS 安装程序 |
 
 平时最常用的是三条：
 
@@ -28,6 +29,8 @@ Status: Current
 - 准备发布时用 `bun run verify:platform:win`。
 
 目前正式打包只支持 **Windows x64**。macOS 可以运行源码版、预览版和工作台媒体标签，但不生成正式 DMG。
+
+新 checkout 直接运行 `bun run verify`、`bun run verify:source` 或 `bun run verify:platform` 前，先执行一次 `bun run desktop:tools:fd`。真实 `find` 集成测试必须使用 fd 10.5.0；测试本身不会下载工具，也不会因为缺少 fd 就跳过。Windows 的 `verify:platform:win` 和 Mac 的 `verify:platform:mac` 已在源码验证前自动准备所需工具。准备步骤会校验并复用有效缓存；只有缓存缺失或失效时才下载，准备失败会停止后续验证和打包。
 
 Mac 第一次运行 `desktop:dev` 或 `desktop:preview` 时，会自动下载约 8 MB 的 ExifTool 13.59 完整 Perl 版本，核对固定 SHA-256，再把 `exiftool` 和 `lib` 放进项目的 `build/desktop-runtime/darwin-<arch>` 缓存。以后启动只检查并复用缓存，不要求用户另外安装 ExifTool。这个缓存服务于源码开发，不会把缺少其他私有 Runtime 的 Mac 应用伪装成正式安装包。
 
@@ -396,7 +399,7 @@ flowchart LR
 bun run verify:platform:win
 ```
 
-这个命令固定执行一次 `verify:source`，再执行一次 `desktop:dist:win`，避免同一批生产代码重复构建。
+这个命令先检查 Windows x64 平台并执行 `desktop:tools:fd`，再执行一次 `verify:source`，最后执行一次 `desktop:dist:win`。这样全新工作区也能在真实 `find` 测试开始前获得 fd，不必提前准备整套 Node、Python 和浏览器；完整 Runtime 仍在打包阶段准备，同一批生产代码只构建一次。
 
 ## 当前自动门禁和人工边界
 

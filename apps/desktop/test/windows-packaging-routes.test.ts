@@ -22,7 +22,7 @@ describe("Windows desktop packaging routes", () => {
     expect(workspaceScripts.verify).toBe("bun run verify:source");
     expect(workspaceScripts["verify:platform"]).toBe("bun run verify:source");
     expect(releaseVerification).toBe(
-      "bun scripts/assert-host-platform.ts win32 x64 && bun run verify:source && bun run desktop:dist:win",
+      "bun scripts/assert-host-platform.ts win32 x64 && bun run desktop:tools:fd && bun run verify:source && bun run desktop:dist:win",
     );
     expect(workspaceScripts["verify:platform:mac"]).toBe(
       "bun scripts/assert-host-platform.ts darwin && bun run desktop:tools:mac && bun run verify:source && bun scripts/verify-desktop-macos-media.ts",

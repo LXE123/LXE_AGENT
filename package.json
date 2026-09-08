@@ -40,7 +40,7 @@
     "verify:source": "bun run protocol:check && bun run check:ts-boundary && bun run typecheck && bun run test && bun run test:py-tools",
     "verify": "bun run verify:source",
     "verify:platform": "bun run verify:source",
-    "verify:platform:win": "bun scripts/assert-host-platform.ts win32 x64 && bun run verify:source && bun run desktop:dist:win",
+    "verify:platform:win": "bun scripts/assert-host-platform.ts win32 x64 && bun run desktop:tools:fd && bun run verify:source && bun run desktop:dist:win",
     "verify:platform:mac": "bun scripts/assert-host-platform.ts darwin && bun run desktop:tools:mac && bun run verify:source && bun scripts/verify-desktop-macos-media.ts"
   },
   "devDependencies": {
