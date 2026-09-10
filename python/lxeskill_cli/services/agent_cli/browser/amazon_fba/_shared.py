@@ -19,7 +19,7 @@ from services.browser.workflows.amazon_fba_common import workflow_output_dir as 
 from shared.infra.net import close_all_network_clients
 from shared.logging import get_logger
 from shared.datasets import dataset_dir
-from shared.workspace import workspace_root
+from shared.workspace import resolve_workspace_input, workspace_root
 
 logger = get_logger(__name__)
 
@@ -136,10 +136,7 @@ def _safe_path_segment(value: object, fallback: str) -> str:
 
 
 def _resolve_attachment_source(path: str) -> Path:
-    source = Path(str(path or "").strip()).expanduser()
-    if not source.is_absolute():
-        source = _PROJECT_ROOT / source
-    return source.resolve()
+    return resolve_workspace_input(str(path or "").strip())
 
 
 def _relative_workspace_path(path: Path) -> str:

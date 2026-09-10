@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from services.agent_cli.browser.amazon_fba import _shared as fba_shared
+from shared import workspace
 from shared.repository import repository_root
 
 
@@ -23,6 +24,7 @@ def _configure_archive_root(monkeypatch, tmp_path: Path) -> Path:
     project_root.mkdir()
     monkeypatch.setattr(fba_shared, "_ATTACHMENTS_ROOT", attachments_root)
     monkeypatch.setattr(fba_shared, "workspace_root", lambda: project_root)
+    monkeypatch.setattr(workspace, "_workspace_root", project_root)
     return project_root
 
 
@@ -74,6 +76,32 @@ def test_archive_selected_result_files_copies_allowed_files_to_artifacts(monkeyp
         project_root
         / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/amazon_template_template.xlsx"
     ).exists()
+
+
+def test_archive_relative_attachment_uses_workspace_instead_of_process_cwd(monkeypatch, tmp_path: Path):
+    project_root = _configure_archive_root(monkeypatch, tmp_path)
+    relative_path = Path("exports") / "装箱表 filled.xlsx"
+    source = project_root / relative_path
+    source.parent.mkdir()
+    source.write_bytes(b"workspace attachment")
+
+    other_cwd = tmp_path / "other"
+    decoy = other_cwd / relative_path
+    decoy.parent.mkdir(parents=True)
+    decoy.write_bytes(b"wrong attachment")
+    monkeypatch.chdir(other_cwd)
+
+    result = fba_shared.archive_selected_result_files(
+        _payload([{"key": "filled_template", "value": str(relative_path)}]),
+        allowed_keys=("filled_template",),
+        stage="prepare_upload",
+    )
+
+    archived_path = "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/SP260516028_upload.xlsx"
+    assert result["notice"] == "base notice"
+    assert result["file_path"] == [{"key": "filled_template", "value": archived_path}]
+    assert (project_root / archived_path).read_bytes() == b"workspace attachment"
+    assert source.read_bytes() == b"workspace attachment"
 
 
 def test_archive_selected_result_files_works_without_agent_session(monkeypatch, tmp_path: Path):
