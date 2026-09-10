@@ -132,7 +132,7 @@ describe("DesktopConfigStore", () => {
     expect(store.environment()).toMatchObject({
       MABANG_PASSWORD: "source-mabang-secret",
       FEISHU_APP_SECRET: "source-feishu-secret",
-      LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
+      LXE_SAIHU_MCP_API_KEY: "",
     });
     expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
     store.saveRuntimePreference("kimi_coding", "k3", "high");
@@ -390,7 +390,7 @@ describe("DesktopConfigStore", () => {
       vpnIp: "10.88.0.8",
       dataServerUrl: "http://10.88.0.1:8000",
       tunnelName: "lxe-agent",
-      apiKey: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
+      apiKey: "lxe_client_0123456789abcdef0123456789abcdef.secret-value",
       erpApiKey: "erp-dedicated-secret",
       wireGuard: {
         tunnel_name: "lxe-agent",
@@ -418,10 +418,10 @@ describe("DesktopConfigStore", () => {
       address: "10.88.0.8/32",
     });
     expect(store.environment()).toMatchObject({
-      LXE_DATA_SERVER_ENABLED: "1",
-      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
-      LXE_DATA_SERVER_API_KEY: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
-      LXE_ERP_API_KEY: "erp-dedicated-secret",
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_DATA_SERVER_URL: "",
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     });
 
@@ -499,9 +499,9 @@ describe("DesktopConfigStore", () => {
       switch_in_progress: false,
     });
     expect(store.environment()).toMatchObject({
-      LXE_DATA_SERVER_ENABLED: "1",
-      LXE_DATA_SERVER_API_KEY: "old-data-token",
-      LXE_ERP_API_KEY: "old-erp-token",
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
       LXE_MANAGED_LLM_API_KEY: "old-managed-model-token",
     });
     expect(store.cloudPermissionSnapshot()).toMatchObject({ permission_profile: "fba" });

@@ -113,6 +113,12 @@ export class DesktopConfigStore {
     return this.cloud.configuration();
   }
 
+  cloudIdentityCredential(): string { return this.cloud.identityCredential(); }
+  cloudBusinessCredential() { return this.cloud.businessCredential(); }
+  saveCloudBusinessCredential(value: { token: string; erp_token: string; expires_at: number }): void {
+    this.cloud.saveBusinessCredential(value);
+  }
+
   saveCloudEnrollment(input: DesktopCloudEnrollmentConfig): DesktopCloudConfiguration {
     return this.cloud.saveEnrollment(input);
   }

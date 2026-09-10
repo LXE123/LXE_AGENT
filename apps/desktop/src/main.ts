@@ -45,7 +45,6 @@ import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
 import { DesktopCloudService } from "./main/desktop-cloud";
-import { resolvePreviewDataServerTarget } from "./main/data-server-policy";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
   DashboardInvalidationBatcher,
@@ -206,12 +205,6 @@ async function bootstrap(): Promise<void> {
       llmConfigRoot: paths.llmConfigRoot,
     },
   );
-  const previewCloudTarget = launchMode === "preview"
-    ? resolvePreviewDataServerTarget({
-        ...config.environment(),
-        ...desktopEnvironment,
-      })
-    : undefined;
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.statusChanged, health);
@@ -321,11 +314,13 @@ async function bootstrap(): Promise<void> {
     llmConfigRoot: paths.llmConfigRoot,
     supported: cloudProvisioner.supported(),
     unsupportedMessage: "公司云端支持 Windows 10/11 x64 安装包和 Apple Silicon Mac 开发版",
-    ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
     config,
     enrollments: new DesktopCloudEnrollmentManager(),
     logger: cloudLogger,
     provisioner: cloudProvisioner,
+    onRuntimeCredentialChanged: async () => {
+      if (gateway.health().gateway !== "stopped") await gateway.restart();
+    },
     onConfigured: async () => {
       await gateway.restart();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
@@ -433,8 +428,11 @@ async function bootstrap(): Promise<void> {
     retryCloudConnection: () => cloud.retry(),
     openCloudDestination: async (destination: DesktopCloudDestination): Promise<void> => {
       const state = cloud.state();
-      const dataServerUrl = previewCloudTarget?.dataServerUrl
-        ?? config.cloudConfiguration().data_server_url;
+      const dataServerUrl = config.cloudConfiguration().data_server_url;
+      if (destination === "admin_dashboard") {
+        await shell.openExternal(await cloud.adminDashboardUrl());
+        return;
+      }
       await shell.openExternal(resolveCloudDestinationUrl({
         configured: state.configured,
         connection: state.connection,
@@ -479,12 +477,12 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  await cloud.start();
   try {
     await gateway.start();
   } catch (error) {
     logger.error("desktop_gateway_start_failed", { error });
   }
-  void cloud.start();
 
   window = new BrowserWindow({
     ...desktopWindowAppearance(desktopPlatform),

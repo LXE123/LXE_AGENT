@@ -5,7 +5,6 @@ import type {
   DesktopCloudPermissionSnapshot,
 } from "./public-types";
 import type { DesktopConfigRepository } from "./repository";
-import { effectiveDesktopSecrets } from "./secrets";
 import type { WireGuardTunnelConfiguration } from "../wireguard-types";
 
 export class DesktopCloudConfigService {
@@ -18,17 +17,14 @@ export class DesktopCloudConfigService {
     const cloud = this.repository.readConfig().cloud;
     return {
       ...cloud,
-      api_key_configured: Boolean(text(effectiveDesktopSecrets(
-        this.repository.readSecrets(),
-        this.secretEnvironment,
-      ).data_server_api_key)),
+      api_key_configured: Boolean(this.identityCredential()),
     };
   }
 
   saveEnrollment(input: DesktopCloudEnrollmentConfig): DesktopCloudConfiguration {
     this.repository.requireSafeStorage();
     const apiKey = text(input.apiKey);
-    if (!apiKey) throw new Error("Device upload token is required");
+    if (!apiKey) throw new Error("Client identity credential is required");
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
     config.cloud = {
@@ -47,6 +43,9 @@ export class DesktopCloudConfigService {
       throw new Error("Cloud enrollment metadata is incomplete");
     }
     secrets.data_server_api_key = apiKey;
+    secrets.cloud_business_token = "";
+    secrets.cloud_business_erp_token = "";
+    secrets.cloud_business_expires_at = 0;
     secrets.erp_api_key = text(input.erpApiKey);
     secrets.cloud_permission_snapshot = null;
     secrets.cloud_wireguard = input.wireGuard ? structuredClone(input.wireGuard) : null;
@@ -90,6 +89,9 @@ export class DesktopCloudConfigService {
       switch_in_progress: false,
     };
     secrets.data_server_api_key = "";
+    secrets.cloud_business_token = "";
+    secrets.cloud_business_erp_token = "";
+    secrets.cloud_business_expires_at = 0;
     secrets.erp_api_key = "";
     secrets.cloud_permission_snapshot = null;
     secrets.cloud_wireguard = null;
@@ -108,6 +110,26 @@ export class DesktopCloudConfigService {
     const config = this.repository.readConfig();
     const snapshot = this.repository.readSecrets().cloud_permission_snapshot;
     return snapshot?.device_id === config.cloud.device_id ? structuredClone(snapshot) : null;
+  }
+
+  identityCredential(): string {
+    const token = this.repository.readSecrets().data_server_api_key;
+    return /^lxe_(?:client|identity)_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$/u.test(token) ? token : "";
+  }
+
+  businessCredential(): { token: string; erp_token: string; expires_at: number } {
+    const secrets = this.repository.readSecrets();
+    return { token: secrets.cloud_business_token, erp_token: secrets.cloud_business_erp_token,
+      expires_at: secrets.cloud_business_expires_at };
+  }
+
+  saveBusinessCredential(value: { token: string; erp_token: string; expires_at: number }): void {
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    secrets.cloud_business_token = value.token;
+    secrets.cloud_business_erp_token = value.erp_token;
+    secrets.cloud_business_expires_at = value.expires_at;
+    this.repository.commit(config, secrets);
   }
 
   wireGuardConfiguration(): WireGuardTunnelConfiguration | null {

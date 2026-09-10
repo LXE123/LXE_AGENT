@@ -19,11 +19,11 @@ const serveOnAvailablePort = (fetch: (request: Request) => Promise<Response>) =>
   throw new Error("No available local port for Preview Data Server smoke test");
 };
 
-test("Preview settings environment uploads to the configured Data Server without logging its API key", async () => {
+test("Scoped desktop environment uploads to the configured Data Server without logging its API key", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-preview-data-server-smoke-"));
   const dataRoot = join(root, "var");
-  const apiKey = "preview-only-secret";
-  const managedSecret = "managed-secret-must-not-win";
+  const apiKey = "lxe_run_" + "t".repeat(43);
+  const managedSecret = "inherited-admin-secret-must-not-win";
   const uploads: Array<{ authorization: string; body: string }> = [];
   const server = serveOnAvailablePort(async (request) => {
     const body = await request.text();
@@ -45,12 +45,8 @@ test("Preview settings environment uploads to the configured Data Server without
   const environment = {
     ...resolveDataServerRuntimeEnvironment({
       packaged: false,
-      sourceEnvironment,
-      managedEnvironment: {
-        LXE_DATA_SERVER_ENABLED: "0",
-        LXE_DATA_SERVER_URL: "",
-        LXE_DATA_SERVER_API_KEY: managedSecret,
-      },
+      sourceEnvironment: { LXE_DATA_SERVER_API_KEY: managedSecret },
+      managedEnvironment: sourceEnvironment,
       machineIdentityPath: join(dataRoot, "db", "machine_identity.json"),
     }),
   };

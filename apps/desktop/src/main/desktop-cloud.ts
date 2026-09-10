@@ -14,7 +14,6 @@ import type {
 } from "@lxe/desktop-protocol";
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
-import type { PreviewDataServerTarget } from "./data-server-policy";
 import {
   previousEnrollmentRemoved,
   type WireGuardDependencyStatus,
@@ -60,7 +59,7 @@ interface DesktopCloudServiceOptions {
   llmConfigRoot?: string;
   supported: boolean;
   unsupportedMessage?: string;
-  previewTarget?: PreviewDataServerTarget;
+  onRuntimeCredentialChanged?(): Promise<void>;
   config: DesktopConfigStore;
   enrollments: DesktopCloudEnrollmentManager;
   provisioner: WireGuardProvisionerPort;
@@ -81,10 +80,6 @@ interface CloudProbeTargetBase {
   apiToken: string;
 }
 
-interface PreviewCloudProbeTarget extends CloudProbeTargetBase {
-  source: "preview";
-}
-
 interface ManagedCloudProbeTarget extends CloudProbeTargetBase {
   source: "managed";
   deviceId: string;
@@ -92,7 +87,7 @@ interface ManagedCloudProbeTarget extends CloudProbeTargetBase {
   vpnIp: string;
 }
 
-type CloudProbeTarget = PreviewCloudProbeTarget | ManagedCloudProbeTarget;
+type CloudProbeTarget = ManagedCloudProbeTarget;
 
 interface CloudDeviceIdentity {
   deviceId: string;
@@ -131,14 +126,11 @@ export class DesktopCloudService {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
     this.clock = options.clock ?? systemClock;
-    const dependency = options.previewTarget
-      ? { state: "not_required" as const, error: "" }
-      : options.provisioner.dependencyStatus?.() ?? { state: "not_required" as const, error: "" };
+    const dependency = options.provisioner.dependencyStatus?.() ?? { state: "not_required" as const, error: "" };
     this.dependencyState = dependency.state;
     this.dependencyError = dependency.error;
-    this.recoveredInterruptedSwitch = !options.previewTarget
-      && options.config.recoverInterruptedCloudEnrollmentSwitch();
-    const configured = Boolean(options.previewTarget) || options.config.cloudConfiguration().managed;
+    this.recoveredInterruptedSwitch = options.config.recoverInterruptedCloudEnrollmentSwitch();
+    const configured = options.config.cloudConfiguration().managed;
     this.connection = this.recoveredInterruptedSwitch
       ? "error"
       : configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
@@ -148,9 +140,7 @@ export class DesktopCloudService {
         previous_removed: true,
       });
     }
-    this.permissionSnapshot = options.previewTarget
-      ? null
-      : options.config.cloudPermissionSnapshot();
+    this.permissionSnapshot = options.config.cloudPermissionSnapshot();
   }
 
   select(path: string): DesktopCloudEnrollmentSelection {
@@ -160,21 +150,6 @@ export class DesktopCloudService {
 
   state(): DesktopCloudState {
     const permission = this.permissionState();
-    if (this.options.previewTarget) {
-      return {
-        configured: true,
-        is_admin: this.isAdmin,
-        device_name: "",
-        device_id: "",
-        vpn_ip: "",
-        connection: this.connection,
-        last_error: this.lastError,
-        last_checked_at: this.lastCheckedAt,
-        dependency_state: this.dependencyState,
-        dependency_error: this.dependencyError,
-        ...permission,
-      };
-    }
     const cloud = this.options.config.cloudConfiguration();
     const switching = cloud.switch_in_progress;
     return {
@@ -196,9 +171,62 @@ export class DesktopCloudService {
     return [...(this.permissionSnapshot?.allowed_skill_types ?? [])];
   }
 
+  async adminDashboardUrl(): Promise<string> {
+    const target = this.probeTarget();
+    if (!target || this.connection !== "connected" || !this.isAdmin) {
+      throw new Error("请先连接并验证管理员身份");
+    }
+    const response = await this.request(`${target.dataServerUrl}/api/v1/agent-data/identity/admin-handoff`, {
+      method: "POST", headers: { authorization: `Bearer ${target.apiToken}` }, cache: "no-store",
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      if (response.status === 401 || response.status === 403) this.isAdmin = false;
+      this.publishState();
+      throw new Error(this.diagnosticError(new Error(`Administrator handoff HTTP ${response.status}: ${body}`), target));
+    }
+    const payload = objectValue(await response.json());
+    if (typeof payload?.code !== "string" || !/^lxe_handoff_[A-Za-z0-9_-]{32,}$/u.test(payload.code)) {
+      throw new Error("Invalid administrator handoff response");
+    }
+    return `${target.dataServerUrl}/admin#handoff=${encodeURIComponent(payload.code)}`;
+  }
+
+  private validatePrincipal(payload: Record<string, unknown>, target: ManagedCloudProbeTarget): void {
+    const kind = target.apiToken.startsWith("lxe_identity_") ? "system_administrator" : "managed_device";
+    if (payload.principal_kind !== kind || payload.principal_id !== target.deviceId
+      || payload.registration_status !== "active"
+      || (payload.management_role !== "member" && payload.management_role !== "administrator")
+      || !Number.isSafeInteger(payload.management_version) || Number(payload.management_version) < 1) {
+      throw new Error("Invalid server principal identity or management role");
+    }
+  }
+
+  private async syncBusinessCredential(target: ManagedCloudProbeTarget): Promise<void> {
+    const previous = this.options.config.cloudBusinessCredential();
+    if (previous.token && previous.erp_token && previous.expires_at > this.now() / 1_000 + 3_600) return;
+    const response = await this.request(`${target.dataServerUrl}/api/v1/agent-data/identity/business-credential`, {
+      method: "POST", headers: { authorization: `Bearer ${target.apiToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ token: previous.token, erp_token: previous.erp_token }), cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(this.diagnosticError(new Error(`Business credential HTTP ${response.status}: ${await response.text()}`), target));
+    }
+    const payload = objectValue(await response.json());
+    if (typeof payload?.token !== "string" || !/^lxe_run_[A-Za-z0-9_-]{32,}$/u.test(payload.token)
+      || typeof payload.erp_token !== "string" || !/^lxe_erp_run_[A-Za-z0-9_-]{32,}$/u.test(payload.erp_token)
+      || !Number.isFinite(payload.expires_at) || Number(payload.expires_at) <= this.now() / 1_000) {
+      throw new Error("Invalid business credential response");
+    }
+    this.options.config.saveCloudBusinessCredential({ token: payload.token, erp_token: payload.erp_token, expires_at: Number(payload.expires_at) });
+    if (payload.token !== previous.token || payload.erp_token !== previous.erp_token) {
+      if (!this.activation) await this.options.onRuntimeCredentialChanged?.();
+    }
+  }
+
   start(): Promise<DesktopCloudState> {
     this.stopped = false;
-    if ((this.options.supported || this.options.previewTarget) && this.probeTimer === undefined) {
+    if ((this.options.supported || this.options.config.cloudConfiguration().managed) && this.probeTimer === undefined) {
       this.probeTimer = this.clock.setInterval(() => {
         void this.check();
       }, Math.max(1, Math.trunc(this.options.probeIntervalMs ?? 60_000)));
@@ -267,7 +295,7 @@ export class DesktopCloudService {
   private checkConnection(showProgress: boolean): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
     if (this.probe) return this.probe;
-    if (!this.options.supported && !this.options.previewTarget) {
+    if (!this.options.supported && !this.options.config.cloudConfiguration().managed) {
       return Promise.resolve(this.setConnection("unsupported", ""));
     }
     const target = this.probeTarget();
@@ -278,7 +306,7 @@ export class DesktopCloudService {
     const probeId = randomUUID();
     const logger = this.options.logger.child({
       probe_id: probeId,
-      probe_kind: target.source === "preview" ? "admin" : "device",
+      probe_kind: "identity",
       ...(target.source === "managed" && target.deviceId ? { device_id: target.deviceId } : {}),
       ...(target.source === "managed" && target.vpnIp ? { vpn_ip: target.vpnIp } : {}),
     });
@@ -305,6 +333,13 @@ export class DesktopCloudService {
     const previousManagedLlmCredential = this.options.config.managedLlmCredential();
     try {
       const payload = this.options.enrollments.decrypt(input.enrollment_id, input.password);
+      if (payload.existing_tunnel) {
+        const state = await this.activateExistingEnrollment(payload);
+        this.options.enrollments.complete(input.enrollment_id);
+        configured = true;
+        return state;
+      }
+      if (payload.enrollment_version !== 5) throw new Error("此设备文件使用旧版业务凭据，请在管理后台换发接入凭据后导入");
       const vpnIp = payload.wireguard.address.replace(/\/32$/u, "");
       logger = logger.child({ device_id: payload.device.id, vpn_ip: vpnIp });
       logger.info("cloud_enrollment_decrypted", {
@@ -404,12 +439,38 @@ export class DesktopCloudService {
     }
   }
 
+  private async activateExistingEnrollment(payload: import("./cloud-enrollment").ExistingCloudEnrollmentPayload): Promise<DesktopCloudState> {
+    const target: ManagedCloudProbeTarget = { source: "managed", dataServerUrl: payload.data_server.url,
+      apiToken: payload.data_server.api_token, deviceId: payload.device.id, deviceName: payload.device.name,
+      vpnIp: payload.wireguard.address.replace(/\/32$/u, "") };
+    const machine = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
+    const response = await this.request(`${target.dataServerUrl}/api/v1/agent-data/identity/activate`, {
+      method: "POST", headers: { authorization: `Bearer ${target.apiToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ machine_id: machine.machine_id, hostname: hostname() }),
+    });
+    if (!response.ok) throw new Error(this.diagnosticError(new Error(`Identity activation HTTP ${response.status}: ${await response.text()}`), target));
+    const result = objectValue(await response.json());
+    if (!result) throw new Error("Invalid identity activation response");
+    this.validatePrincipal(result, target);
+    if (result.machine_id !== machine.machine_id || result.wireguard_ip !== target.vpnIp) throw new Error("Identity binding mismatch");
+    const previous = this.options.config.cloudConfiguration();
+    const tunnel = previous.vpn_ip === target.vpnIp ? this.options.config.cloudWireGuardConfiguration() : null;
+    this.options.config.saveCloudEnrollment({ deviceId: target.deviceId, deviceName: String(result.display_name),
+      vpnIp: target.vpnIp, dataServerUrl: target.dataServerUrl, apiKey: target.apiToken,
+      tunnelName: tunnel?.tunnel_name ?? "", ...(tunnel ? { wireGuard: tunnel } : {}) });
+    this.permissionSnapshot = null;
+    await this.acceptPermission(result.permission_v2, result.permission, target.deviceId);
+    await this.syncBusinessCredential(target);
+    await this.syncManagedLlmCredential(result.managed_llm, target, this.options.logger, result.managed_llm_v2);
+    return this.setConnection("connected", "", true, result.management_role === "administrator");
+  }
+
   private async probeStatus(
     target: CloudProbeTarget,
     logger: Logger,
   ): Promise<DesktopCloudState> {
     const startedAt = this.now();
-    const statusPath = target.source === "preview" ? "admin/status" : "devices/status";
+    const statusPath = "identity";
     let response: Response;
     try {
       response = await this.request(
@@ -439,25 +500,6 @@ export class DesktopCloudService {
       return this.httpFailure(response, "status", logger, startedAt, target);
     }
     const payload = objectValue(await response.json().catch(() => undefined));
-    if (target.source === "preview") {
-      if (!payload || payload.status !== "ok" || payload.role !== "admin") {
-        return this.invalidCloudResponse(logger, startedAt, "invalid admin status response");
-      }
-      logger.info("cloud_status_check_completed", {
-        duration_ms: Math.max(0, this.now() - startedAt),
-        http_status: response.status,
-        connection: "connected",
-      });
-      await this.acceptPreviewPermission();
-      try {
-        await this.syncManagedLlmCredential(payload.managed_llm, target, logger, payload.managed_llm_v2);
-      } catch (error) {
-        logger.warn("managed_llm_credential_refresh_failed", {
-          observed_error: this.diagnosticError(error, target),
-        });
-      }
-      return this.setConnection("connected", "", true, true);
-    }
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
       return this.invalidCloudResponse(logger, startedAt, "invalid device status response");
     }
@@ -484,7 +526,9 @@ export class DesktopCloudService {
       return this.invalidCloudResponse(logger, startedAt, "machine identity mismatch");
     }
     try {
+      this.validatePrincipal(payload, target);
       await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
+      await this.syncBusinessCredential(target);
     } catch (error) {
       return this.invalidCloudResponse(
         logger,
@@ -504,7 +548,7 @@ export class DesktopCloudService {
       http_status: response.status,
       connection: "connected",
     });
-    return this.setConnection("connected", "", true);
+    return this.setConnection("connected", "", true, payload.management_role === "administrator");
   }
 
   private async verifyActivation(
@@ -517,7 +561,7 @@ export class DesktopCloudService {
     let response: Response;
     try {
       response = await this.request(
-        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/activate`,
+        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/identity/activate`,
         {
           method: "POST",
           headers: {
@@ -552,7 +596,9 @@ export class DesktopCloudService {
       return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
     }
     try {
+      this.validatePrincipal(payload, target);
       await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
+      await this.syncBusinessCredential(target);
     } catch (error) {
       return this.invalidCloudResponse(
         logger,
@@ -572,20 +618,13 @@ export class DesktopCloudService {
       http_status: response.status,
       connection: "connected",
     });
-    return this.setConnection("connected", "", true);
+    return this.setConnection("connected", "", true, payload.management_role === "administrator");
   }
 
   private probeTarget(): CloudProbeTarget | undefined {
-    if (this.options.previewTarget) {
-      return {
-        source: "preview",
-        dataServerUrl: this.options.previewTarget.dataServerUrl,
-        apiToken: this.options.previewTarget.apiToken,
-      };
-    }
     const cloud = this.options.config.cloudConfiguration();
     if (!cloud.managed || cloud.switch_in_progress || !cloud.api_key_configured) return undefined;
-    const apiToken = this.options.config.environment().LXE_DATA_SERVER_API_KEY ?? "";
+    const apiToken = this.options.config.cloudIdentityCredential();
     if (!apiToken) return undefined;
     return {
       source: "managed",
@@ -631,9 +670,7 @@ export class DesktopCloudService {
         : response.status === 409
           ? "该设备文件已绑定到另一台电脑"
           : response.status === 401 || response.status === 403
-            ? target.source === "preview"
-              ? "管理员凭证无效，请检查开发配置"
-              : "设备凭证已失效，请联系管理员"
+            ? "设备凭证已失效，请联系管理员"
             : operation === "status"
               ? `公司云端状态检查失败（HTTP ${response.status}）`
               : `公司云端拒绝激活（HTTP ${response.status}）`;
@@ -717,25 +754,6 @@ export class DesktopCloudService {
     }
   }
 
-  private async acceptPreviewPermission(): Promise<void> {
-    const previous = this.permissionSnapshot;
-    this.permissionSnapshot = {
-      device_id: "preview-admin",
-      permission_schema: 2,
-      permission_profile: "full_access",
-      permission_version: 0,
-      profile_revision: 1,
-      profile_labels: { "zh-CN": "全部业务", "en-US": "Full access" },
-      allowed_skill_types: ["*"],
-      desktop_features: ["erp_dashboard"],
-      verified_at: Math.floor(this.now() / 1_000),
-    };
-    this.permissionFresh = true;
-    if (!previous?.allowed_skill_types.includes("*")) {
-      await this.options.onPermissionChanged?.(["*"]);
-    }
-  }
-
   private async syncManagedLlmPublication(value: unknown, target: CloudProbeTarget, logger: Logger): Promise<void> {
     const manifest = parseManagedManifest(value);
     const cached = this.options.config.managedLlmState();
@@ -750,7 +768,7 @@ export class DesktopCloudService {
       if (!model.available || !model.credential_revision || !managedLlmTargetSupported(this.options.llmConfigRoot ?? join(process.cwd(), "config", "llm"), model)
         || next.credentials.some((c) => managedTargetKey(c) === managedTargetKey(model))) continue;
       try {
-        const path = target.source === "preview" ? "admin/llm-credential" : "devices/llm-credential";
+        const path = "identity/llm-credential";
         const query = new URLSearchParams({ provider: model.provider, model: model.model });
         const response = await this.request(`${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${path}?${query}`, {
           method: "GET", headers: { authorization: `Bearer ${target.apiToken}` }, cache: "no-store",
@@ -831,9 +849,7 @@ export class DesktopCloudService {
       }
       return;
     }
-    const path = target.source === "preview"
-      ? "admin/llm-credential"
-      : "devices/llm-credential";
+    const path = "identity/llm-credential";
     const response = await this.request(
       `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${path}`,
       {
@@ -936,9 +952,8 @@ export class DesktopCloudService {
     if (!cloud.managed) return this.checkConnection(true);
     const configuration = this.options.config.cloudWireGuardConfiguration();
     if (!configuration) {
-      const message = "本机缺少可重新连接的 WireGuard 配置，请重新导入 Enrollment";
-      this.setConnection("error", message);
-      throw new Error(message);
+      // Manually configured administrator tunnels are owned outside this application.
+      return this.checkConnection(true);
     }
     this.setConnection("connecting", "");
     try {
@@ -957,7 +972,8 @@ export class DesktopCloudService {
 
   private diagnosticError(error: unknown, target?: CloudProbeTarget): string {
     const message = error instanceof Error ? error.message : String(error);
-    return target ? this.redactSensitiveText(message, target) : message.trim().slice(0, 500);
+    const sanitized = message.replace(/\blxe_(?:(?:dev|client|identity)_[A-Za-z0-9]+\.|(?:erp_run|run|handoff|session)_)[A-Za-z0-9_-]+\b/gu, "[redacted]");
+    return target ? this.redactSensitiveText(sanitized, target) : sanitized.trim().slice(0, 500);
   }
 
   private redactSensitiveText(value: string, target: CloudProbeTarget): string {
@@ -969,11 +985,6 @@ export class DesktopCloudService {
   }
 
   private publicError(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("设备文件") || message.includes("WireGuard")
-      || message.includes("管理员授权") || message.includes("公司云端")) {
-      return message.slice(0, 300);
-    }
-    return "公司云端配置未完成，请重试";
+    return this.diagnosticError(error).slice(0, 300);
   }
 }

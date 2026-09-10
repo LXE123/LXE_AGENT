@@ -244,7 +244,7 @@ try {
   $activation = Get-Content -LiteralPath $ActivationPath -Raw | ConvertFrom-Json
   $activationState = "offline"
   try {
-    $activationUrl = $activation.url.TrimEnd("/") + "/api/v1/agent-data/devices/activate"
+    $activationUrl = $activation.url.TrimEnd("/") + "/api/v1/agent-data/identity/activate"
     $activationBody = @{
       machine_id = $activation.machine_id
       hostname = $activation.hostname

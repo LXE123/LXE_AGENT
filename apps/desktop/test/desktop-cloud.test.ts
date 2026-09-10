@@ -63,10 +63,10 @@ class FakeClock implements DesktopCloudClock {
 }
 
 const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: number } = {
-  enrollment_version: 1,
+  enrollment_version: 5,
   format: "lxe-agent-enrollment-payload",
-  version: 1,
-  device: { id: "0123456789abcdef0123456789abcdef", name: "Finance-PC-01" },
+  version: 5,
+  device: { id: "0123456789abcdef0123456789abcdef", name: "Finance-PC-01", minimum_permission_contract_version: 2 },
   wireguard: {
     private_key: Buffer.alloc(32, 1).toString("base64"),
     address: "10.88.0.8/32",
@@ -77,7 +77,7 @@ const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: num
   },
   data_server: {
     url: "http://10.88.0.1:8000",
-    api_token: "lxe_dev_0123456789abcdef0123456789abcdef.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
+    api_token: "lxe_client_0123456789abcdef0123456789abcdef.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
     sync_interval_seconds: 3_600,
   },
   erp: { api_token: "erp-dedicated-secret" },
@@ -85,7 +85,7 @@ const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: num
 
 const replacementEnrollmentPayload: CloudEnrollmentPayload & { format: string; version: number } = {
   ...enrollmentPayload,
-  device: { id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Replacement-PC-02" },
+  device: { id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Replacement-PC-02", minimum_permission_contract_version: 2 },
   wireguard: {
     ...enrollmentPayload.wireguard,
     private_key: Buffer.alloc(32, 3).toString("base64"),
@@ -93,7 +93,7 @@ const replacementEnrollmentPayload: CloudEnrollmentPayload & { format: string; v
   },
   data_server: {
     ...enrollmentPayload.data_server,
-    api_token: "lxe_dev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.abcdefghijklmnopqrstuvwxyzABCDEF",
+    api_token: "lxe_client_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.abcdefghijklmnopqrstuvwxyzABCDEF",
   },
   erp: { api_token: "replacement-erp-secret" },
 };
@@ -167,6 +167,23 @@ const encryptedEnrollment = (
   }));
 };
 
+const businessFixture = { token: "lxe_run_" + "r".repeat(43), erp_token: "lxe_erp_run_" + "e".repeat(43), expires_at: 4_000_000_000 };
+const identityJson = (value: any, init?: ResponseInit): Response => Response.json({
+  ...(value.device_id ? { principal_id: value.device_id, principal_kind: "managed_device", registration_status: "active",
+    management_role: "member", management_version: 1 } : {}), ...value,
+}, init);
+const cloudService = (options: ConstructorParameters<typeof DesktopCloudService>[0]): DesktopCloudService => {
+  const fetcher = options.fetch;
+  return new DesktopCloudService({ ...options, ...(fetcher ? { fetch: async (input, init) => {
+    if (String(input).endsWith("/identity/business-credential")) return Response.json(businessFixture);
+    return fetcher(input, init);
+  } } : {}) });
+};
+const configuredIdentity = (config: DesktopConfigStore): void => config.saveCloudEnrollment({
+  deviceId: enrollmentPayload.device.id, deviceName: enrollmentPayload.device.name, vpnIp: "10.88.0.8",
+  dataServerUrl: enrollmentPayload.data_server.url, tunnelName: "lxe-agent", apiKey: enrollmentPayload.data_server.api_token,
+});
+
 describe("DesktopCloudService", () => {
   test("refreshes changed or invalid managed credentials, retains them offline, and applies revocation", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-managed-llm-"));
@@ -174,17 +191,17 @@ describe("DesktopCloudService", () => {
     mkdirSync(join(root, "workspace"));
     const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
     const previewUrl = "http://10.88.0.1:8000";
-    const previewToken = "preview-admin-secret";
+    const previewToken = enrollmentPayload.data_server.api_token;
+    configuredIdentity(config);
     let revision = "a".repeat(64);
     let apiKey = "managed-key-one";
     let offline = false;
     let available = true;
     const requests: string[] = [];
     const changed: string[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: false,
-      previewTarget: { dataServerUrl: previewUrl, apiToken: previewToken },
       config,
       enrollments: new DesktopCloudEnrollmentManager(),
       logger: testLogger([]),
@@ -197,10 +214,12 @@ describe("DesktopCloudService", () => {
         if (offline) throw new Error("data server offline");
         const url = String(input);
         requests.push(url);
-        if (url.endsWith("/admin/status")) {
-          return Response.json({
+        if (url.endsWith("/identity")) {
+          return identityJson({
             status: "ok",
-            role: "admin",
+            device_id: enrollmentPayload.device.id, display_name: enrollmentPayload.device.name, wireguard_ip: "10.88.0.8",
+            machine_id: resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id,
+            activation_required: false, permission: devicePermission("full_access"), management_role: "administrator",
             managed_llm: available ? {
               available: true,
               provider: "deepseek",
@@ -209,7 +228,7 @@ describe("DesktopCloudService", () => {
             } : { available: false },
           });
         }
-        return Response.json({
+        return identityJson({
           provider: "deepseek",
           model: "deepseek-v4-flash",
           credential_revision: revision,
@@ -220,8 +239,8 @@ describe("DesktopCloudService", () => {
 
     await service.start();
     expect(requests).toEqual([
-      `${previewUrl}/api/v1/agent-data/admin/status`,
-      `${previewUrl}/api/v1/agent-data/admin/llm-credential`,
+      `${previewUrl}/api/v1/agent-data/identity`,
+      `${previewUrl}/api/v1/agent-data/identity/llm-credential`,
     ]);
     expect(changed).toEqual(["a".repeat(64)]);
     expect(config.state()).toMatchObject({ complete: true, credential_source: "cloud" });
@@ -272,14 +291,14 @@ describe("DesktopCloudService", () => {
     roots.push(root);
     mkdirSync(join(root, "workspace"));
     const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    configuredIdentity(config);
     let provider = "kimi_coding";
     let model = "kimi-for-coding";
     let revision = "d".repeat(64);
     const credentialRequests: string[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: false,
-      previewTarget: { dataServerUrl: "http://10.88.0.1:8000", apiToken: "preview-admin-secret" },
       config,
       enrollments: new DesktopCloudEnrollmentManager(),
       logger: testLogger([]),
@@ -287,15 +306,17 @@ describe("DesktopCloudService", () => {
       onConfigured: async () => undefined,
       fetch: async (input) => {
         const url = String(input);
-        if (url.endsWith("/admin/status")) {
-          return Response.json({
+        if (url.endsWith("/identity")) {
+          return identityJson({
             status: "ok",
-            role: "admin",
+            device_id: enrollmentPayload.device.id, display_name: enrollmentPayload.device.name, wireguard_ip: "10.88.0.8",
+            machine_id: resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id,
+            activation_required: false, permission: devicePermission("full_access"), management_role: "administrator",
             managed_llm: { available: true, provider, model, credential_revision: revision },
           });
         }
         credentialRequests.push(url);
-        return Response.json({
+        return identityJson({
           provider,
           model,
           credential_revision: revision,
@@ -368,173 +389,6 @@ describe("DesktopCloudService", () => {
       .not.toContain("key-for-kimi_coding");
   });
 
-  test("uses an in-memory Preview target on unsupported platforms and prefers it over managed config", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-"));
-    roots.push(root);
-    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    config.saveCloudEnrollment({
-      deviceId: "managed-device",
-      deviceName: "Managed device",
-      vpnIp: "10.88.0.99",
-      dataServerUrl: "http://managed.example",
-      tunnelName: "lxe-agent",
-      apiKey: "managed-secret",
-    });
-    const previewToken = "preview-admin-secret";
-    const previewUrl = "http://10.88.0.1:8000";
-    const requests: Array<{ url: string; authorization: string }> = [];
-    const events: LogEvent[] = [];
-    let configured = 0;
-    let role = "admin";
-    const service = new DesktopCloudService({
-      dataRoot: root,
-      supported: false,
-      previewTarget: { dataServerUrl: previewUrl, apiToken: previewToken },
-      config,
-      enrollments: new DesktopCloudEnrollmentManager(),
-      logger: testLogger(events),
-      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
-      onConfigured: async () => { configured += 1; },
-      fetch: async (input, init) => {
-        requests.push({
-          url: String(input),
-          authorization: String(new Headers(init?.headers).get("authorization")),
-        });
-        return Response.json({ status: "ok", role });
-      },
-    });
-
-    expect(service.state()).toMatchObject({
-      configured: true,
-      connection: "connecting",
-      is_admin: false,
-      device_id: "",
-      vpn_ip: "",
-    });
-    expect(() => service.select("ignored.lxe-enroll"))
-      .toThrow("公司云端仅支持 Windows 10/11 x64 安装包");
-    expect(await service.start()).toMatchObject({
-      configured: true,
-      connection: "connected",
-      is_admin: true,
-      device_id: "",
-      device_name: "",
-      vpn_ip: "",
-    });
-    expect(requests).toEqual([{
-      url: `${previewUrl}/api/v1/agent-data/admin/status`,
-      authorization: `Bearer ${previewToken}`,
-    }]);
-    expect(configured).toBe(0);
-    expect(events.at(-1)?.fields).toMatchObject({ probe_kind: "admin", http_status: 200 });
-    expect(JSON.stringify(service.state())).not.toContain(previewToken);
-    expect(JSON.stringify(service.state())).not.toContain(previewUrl);
-    expect(JSON.stringify(events)).not.toContain(previewToken);
-    expect(JSON.stringify(events)).not.toContain(previewUrl);
-
-    role = "device";
-    expect(await service.retry()).toMatchObject({ connection: "error", is_admin: false });
-    expect(requests).toHaveLength(2);
-  });
-
-  test("never activates a Preview target and rejects a non-admin response", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-activation-"));
-    roots.push(root);
-    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    const requests: Array<{ url: string; method: string; body: string }> = [];
-    const service = new DesktopCloudService({
-      dataRoot: root,
-      supported: false,
-      previewTarget: {
-        dataServerUrl: enrollmentPayload.data_server.url,
-        apiToken: enrollmentPayload.data_server.api_token,
-      },
-      config,
-      enrollments: new DesktopCloudEnrollmentManager(),
-      logger: testLogger([]),
-      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
-      onConfigured: async () => undefined,
-      fetch: async (input, init) => {
-        requests.push({
-          url: String(input),
-          method: String(init?.method),
-          body: String(init?.body ?? ""),
-        });
-        return Response.json({ status: "ok", role: "device" });
-      },
-    });
-
-    expect(await service.check()).toMatchObject({
-      connection: "error",
-      is_admin: false,
-      last_error: "公司云端权限响应无效：invalid admin status response",
-    });
-    expect(requests).toEqual([{
-      url: `${enrollmentPayload.data_server.url}/api/v1/agent-data/admin/status`,
-      method: "GET",
-      body: "",
-    }]);
-  });
-
-  test("maps a Preview admin credential rejection without exposing the key", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-auth-"));
-    roots.push(root);
-    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    const apiToken = "preview-admin-secret";
-    const events: LogEvent[] = [];
-    const service = new DesktopCloudService({
-      dataRoot: root,
-      supported: false,
-      previewTarget: { dataServerUrl: enrollmentPayload.data_server.url, apiToken },
-      config,
-      enrollments: new DesktopCloudEnrollmentManager(),
-      logger: testLogger(events),
-      provisioner: { provision: async () => undefined },
-      onConfigured: async () => undefined,
-      fetch: async () => new Response("Invalid data server API key", { status: 401 }),
-    });
-
-    expect(await service.check()).toMatchObject({
-      connection: "error",
-      is_admin: false,
-      last_error: "管理员凭证无效，请检查开发配置",
-    });
-    expect(events.at(-1)).toMatchObject({
-      message: "cloud_status_check_failed",
-      fields: { probe_kind: "admin", http_status: 401, connection: "error" },
-    });
-    expect(JSON.stringify(events)).not.toContain(apiToken);
-  });
-
-  test("redacts the Preview URL and token from network diagnostics", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-redaction-"));
-    roots.push(root);
-    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    const dataServerUrl = "http://10.88.0.1:8000";
-    const apiToken = "preview-sensitive-token";
-    const events: LogEvent[] = [];
-    const service = new DesktopCloudService({
-      dataRoot: root,
-      supported: false,
-      previewTarget: { dataServerUrl, apiToken },
-      config,
-      enrollments: new DesktopCloudEnrollmentManager(),
-      logger: testLogger(events),
-      provisioner: { provision: async () => undefined },
-      onConfigured: async () => undefined,
-      fetch: async () => {
-        throw new Error(`request to ${dataServerUrl} failed for ${apiToken}`);
-      },
-    });
-
-    expect(await service.check()).toMatchObject({ connection: "offline" });
-    expect(events.at(-1)?.fields).toMatchObject({ probe_kind: "admin" });
-    const serialized = JSON.stringify(events);
-    expect(serialized).toContain("[redacted]");
-    expect(serialized).not.toContain(dataServerUrl);
-    expect(serialized).not.toContain(apiToken);
-  });
-
   test("persists a provisioned device while offline and reconnects without reimporting secrets", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-service-"));
     roots.push(root);
@@ -550,8 +404,8 @@ describe("DesktopCloudService", () => {
     const events: LogEvent[] = [];
     const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (!online) throw new Error("network unavailable");
-      if (String(input).endsWith("/devices/status")) {
-        return Response.json({
+      if (String(input).endsWith("/identity")) {
+        return identityJson({
           status: "ok",
           activation_required: !activated,
           device_id: enrollmentPayload.device.id,
@@ -563,7 +417,7 @@ describe("DesktopCloudService", () => {
       }
       const request = JSON.parse(String(init?.body)) as { machine_id: string };
       activated = true;
-      return Response.json({
+      return identityJson({
         status: "ok",
         device_id: enrollmentPayload.device.id,
         display_name: enrollmentPayload.device.name,
@@ -572,7 +426,7 @@ describe("DesktopCloudService", () => {
         permission: devicePermission(),
       });
     };
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -589,8 +443,8 @@ describe("DesktopCloudService", () => {
     expect(offline).toMatchObject({ configured: true, connection: "offline", vpn_ip: "10.88.0.8" });
     expect(provisioned).toBe(1);
     expect(restarted).toBe(1);
-    expect(config.environment().LXE_DATA_SERVER_API_KEY).toBe(enrollmentPayload.data_server.api_token);
-    expect(config.environment().LXE_ERP_API_KEY).toBe(enrollmentPayload.erp?.api_token);
+    expect(config.cloudIdentityCredential()).toBe(enrollmentPayload.data_server.api_token);
+    expect(config.environment().LXE_ERP_API_KEY).toBe("");
     online = true;
     expect(await service.retry()).toMatchObject({
       configured: true,
@@ -647,7 +501,7 @@ describe("DesktopCloudService", () => {
     const managedCredentialChanges: string[] = [];
     let provisionedDevice = "";
     let restarted = 0;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -662,8 +516,8 @@ describe("DesktopCloudService", () => {
         managedCredentialChanges.push(credential?.credential_revision ?? "revoked");
       },
       fetch: async (input, init) => {
-        if (String(input).endsWith("/devices/llm-credential")) {
-          return Response.json({
+        if (String(input).endsWith("/identity/llm-credential")) {
+          return identityJson({
             provider: "deepseek",
             model: "deepseek-v4-flash",
             credential_revision: "e".repeat(64),
@@ -671,7 +525,7 @@ describe("DesktopCloudService", () => {
           });
         }
         const request = JSON.parse(String(init?.body)) as { machine_id: string };
-        return Response.json({
+        return identityJson({
           status: "ok",
           device_id: replacementEnrollmentPayload.device.id,
           display_name: replacementEnrollmentPayload.device.name,
@@ -703,8 +557,8 @@ describe("DesktopCloudService", () => {
       permission_status: "verified",
     });
     expect(config.environment()).toMatchObject({
-      LXE_DATA_SERVER_API_KEY: replacementEnrollmentPayload.data_server.api_token,
-      LXE_ERP_API_KEY: replacementEnrollmentPayload.erp?.api_token,
+      LXE_DATA_SERVER_API_KEY: businessFixture.token,
+      LXE_ERP_API_KEY: businessFixture.erp_token,
     });
     expect(config.cloudWireGuardConfiguration()).toMatchObject({
       tunnel_name: "lxe-agent",
@@ -752,7 +606,7 @@ describe("DesktopCloudService", () => {
     writeFileSync(enrollmentPath, encryptedEnrollment(password, replacementEnrollmentPayload));
     let restarted = 0;
     const permissionChanges: string[][] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -781,8 +635,8 @@ describe("DesktopCloudService", () => {
       permission_status: "cached",
     });
     expect(config.environment()).toMatchObject({
-      LXE_DATA_SERVER_API_KEY: enrollmentPayload.data_server.api_token,
-      LXE_ERP_API_KEY: enrollmentPayload.erp?.api_token,
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
     });
     expect(config.cloudPermissionSnapshot()).toMatchObject({ device_id: enrollmentPayload.device.id });
   });
@@ -812,7 +666,7 @@ describe("DesktopCloudService", () => {
     let attempts = 0;
     let restarted = 0;
     const permissionChanges: string[][] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -833,7 +687,7 @@ describe("DesktopCloudService", () => {
       onPermissionChanged: (allowed) => { permissionChanges.push([...allowed]); },
       fetch: async (_input, init) => {
         const request = JSON.parse(String(init?.body)) as { machine_id: string };
-        return Response.json({
+        return identityJson({
           status: "ok",
           device_id: replacementEnrollmentPayload.device.id,
           display_name: replacementEnrollmentPayload.device.name,
@@ -899,7 +753,7 @@ describe("DesktopCloudService", () => {
     });
     config.beginCloudEnrollmentSwitch();
     let fetched = false;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -950,7 +804,7 @@ describe("DesktopCloudService", () => {
     let releaseProbe = (): void => undefined;
     const probeGate = new Promise<void>((resolve) => { releaseProbe = resolve; });
     let provisioned = false;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -959,9 +813,9 @@ describe("DesktopCloudService", () => {
       provisioner: { provision: async () => { provisioned = true; } },
       onConfigured: async () => undefined,
       fetch: async (input, init) => {
-        if (String(input).endsWith("/devices/status")) {
+        if (String(input).endsWith("/identity")) {
           await probeGate;
-          return Response.json({
+          return identityJson({
             status: "ok",
             activation_required: false,
             device_id: enrollmentPayload.device.id,
@@ -972,7 +826,7 @@ describe("DesktopCloudService", () => {
           });
         }
         const request = JSON.parse(String(init?.body)) as { machine_id: string };
-        return Response.json({
+        return identityJson({
           status: "ok",
           device_id: replacementEnrollmentPayload.device.id,
           display_name: replacementEnrollmentPayload.device.name,
@@ -1027,7 +881,7 @@ describe("DesktopCloudService", () => {
     let provisioned = 0;
     let restarted = 0;
     const permissionChanges: string[][] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1053,8 +907,8 @@ describe("DesktopCloudService", () => {
     });
     expect(config.cloudConfiguration()).toMatchObject({ switch_in_progress: false });
     expect(config.environment()).toMatchObject({
-      LXE_DATA_SERVER_API_KEY: enrollmentPayload.data_server.api_token,
-      LXE_ERP_API_KEY: enrollmentPayload.erp?.api_token,
+      LXE_DATA_SERVER_API_KEY: "",
+      LXE_ERP_API_KEY: "",
     });
     expect(events.map(({ message }) => message)).toEqual([
       "cloud_enrollment_activation_started",
@@ -1076,7 +930,7 @@ describe("DesktopCloudService", () => {
     const password = "ABCD-EFGH-JKLM-NPQR-2345";
     writeFileSync(enrollmentPath, encryptedEnrollment(password));
     const events: LogEvent[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1116,7 +970,7 @@ describe("DesktopCloudService", () => {
     const states: string[] = [];
     const events: LogEvent[] = [];
     let now = 1_000;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1129,7 +983,7 @@ describe("DesktopCloudService", () => {
       now: () => now,
       fetch: async (input, init) => {
         requests.push({ url: String(input), method: String(init?.method) });
-        return Response.json({
+        return identityJson({
           status: "ok",
           activation_required: false,
           device_id: enrollmentPayload.device.id,
@@ -1149,10 +1003,10 @@ describe("DesktopCloudService", () => {
       permission_profile: "fba",
     });
     expect(requests).toEqual([{
-      url: "http://10.88.0.1:8000/api/v1/agent-data/devices/status",
+      url: "http://10.88.0.1:8000/api/v1/agent-data/identity",
       method: "GET",
     }]);
-    expect(events.at(-1)?.fields).toMatchObject({ probe_kind: "device", http_status: 200 });
+    expect(events.at(-1)?.fields).toMatchObject({ probe_kind: "identity", http_status: 200 });
     now = 61_000;
     clock.fireIntervals();
     await service.check();
@@ -1179,7 +1033,7 @@ describe("DesktopCloudService", () => {
     const clock = new FakeClock();
     let calls = 0;
     let complete: ((response: Response) => void) | undefined;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1206,9 +1060,9 @@ describe("DesktopCloudService", () => {
 
     const responses = [
       new Response("denied", { status: 401 }),
-      Response.json({ status: "ok", activation_required: "no" }),
+      identityJson({ status: "ok", activation_required: "no" }),
     ];
-    const mapped = new DesktopCloudService({
+    const mapped = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1228,7 +1082,7 @@ describe("DesktopCloudService", () => {
     });
 
     const timeoutClock = new FakeClock();
-    const timedOut = new DesktopCloudService({
+    const timedOut = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1263,7 +1117,7 @@ describe("DesktopCloudService", () => {
       ...devicePermission("fba", 7),
       verified_at: 1,
     });
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1311,7 +1165,7 @@ describe("DesktopCloudService", () => {
       { ...devicePermission("fba", 3), allowed_skill_types: ["*"] },
     ];
     const updates: string[][] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1320,7 +1174,7 @@ describe("DesktopCloudService", () => {
       provisioner: { provision: async () => undefined },
       onConfigured: async () => undefined,
       onPermissionChanged: (allowed) => { updates.push([...allowed]); },
-      fetch: async () => Response.json({
+      fetch: async () => identityJson({
         status: "ok",
         activation_required: false,
         device_id: enrollmentPayload.device.id,
@@ -1373,7 +1227,7 @@ describe("DesktopCloudService", () => {
       apiKey: enrollmentPayload.data_server.api_token,
     });
     const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1381,7 +1235,7 @@ describe("DesktopCloudService", () => {
       logger: testLogger([]),
       provisioner: { provision: async () => undefined },
       onConfigured: async () => undefined,
-      fetch: async () => Response.json({
+      fetch: async () => identityJson({
         status: "ok",
         activation_required: false,
         device_id: enrollmentPayload.device.id,
@@ -1421,7 +1275,7 @@ describe("DesktopCloudService", () => {
       devicePermissionV2("shopee", 1, 1),
     ];
     const observedContracts: string[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1431,7 +1285,7 @@ describe("DesktopCloudService", () => {
       onConfigured: async () => undefined,
       fetch: async (_input, init) => {
         observedContracts.push(String(new Headers(init?.headers).get("x-lxe-permission-contract")));
-        return Response.json({
+        return identityJson({
           status: "ok",
           activation_required: false,
           device_id: enrollmentPayload.device.id,
@@ -1476,7 +1330,7 @@ describe("DesktopCloudService", () => {
     roots.push(root);
     const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
     const published: string[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1526,7 +1380,7 @@ describe("DesktopCloudService", () => {
     });
     const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
     const sequence: string[] = [];
-    const service = new DesktopCloudService({
+    const service = cloudService({
       dataRoot: root,
       supported: true,
       config,
@@ -1543,7 +1397,7 @@ describe("DesktopCloudService", () => {
       onConfigured: async () => undefined,
       fetch: async () => {
         sequence.push("probe");
-        return Response.json({
+        return identityJson({
           status: "ok",
           activation_required: false,
           device_id: enrollmentPayload.device.id,

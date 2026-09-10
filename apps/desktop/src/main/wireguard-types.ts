@@ -1,4 +1,4 @@
-import type { CloudEnrollmentPayload } from "./cloud-enrollment";
+import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./cloud-enrollment";
 
 export interface WireGuardTunnelConfiguration {
   tunnel_name: string;

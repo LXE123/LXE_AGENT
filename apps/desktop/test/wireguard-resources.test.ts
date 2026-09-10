@@ -35,7 +35,7 @@ describe("packaged WireGuard resources", () => {
     expect(provision).not.toMatch(/Copy-Item[^\r\n]*SecureConfiguration/u);
     expect(provision).not.toMatch(/Get-Content[^\r\n]*SecureConfiguration/u);
     expect(provision).toContain("$managerInstalledHere");
-    expect(provision).toContain("/api/v1/agent-data/devices/activate");
+    expect(provision).toContain("/api/v1/agent-data/identity/activate");
     expect(provision).toContain("This device file is already bound to another computer");
     const uninstallPrevious = provision.indexOf('$Stage = "uninstall_previous_tunnel"');
     const removeExistingTunnel = provision.indexOf("& $WireGuardExe /uninstalltunnelservice $TunnelName");

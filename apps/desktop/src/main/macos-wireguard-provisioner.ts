@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import serviceScript from "../../resources/wireguard/macos-service.sh" with { type: "text" };
 import type { Logger } from "@lxe/core";
-import type { CloudEnrollmentPayload } from "./cloud-enrollment";
+import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./cloud-enrollment";
 import {
   WireGuardProvisioningError,
   type WireGuardDependencyStatus,

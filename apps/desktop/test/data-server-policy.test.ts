@@ -1,40 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   resolveDataServerRuntimeEnvironment,
-  resolvePreviewDataServerTarget,
   withoutDataServerEnvironment,
 } from "../src/main/data-server-policy";
 
 describe("desktop data server policy", () => {
-  test("resolves a complete Preview target without exposing unrelated environment values", () => {
-    expect(resolvePreviewDataServerTarget({
-      LXE_DATA_SERVER_ENABLED: "yes",
-      LXE_DATA_SERVER_URL: " http://10.88.0.1:8000/ ",
-      LXE_DATA_SERVER_API_KEY: " device-secret ",
-      LXE_ERP_API_KEY: "unrelated-secret",
-    })).toEqual({
-      dataServerUrl: "http://10.88.0.1:8000",
-      apiToken: "device-secret",
-    });
-  });
-
-  test("does not enable Preview probing with disabled or incomplete source settings", () => {
-    expect(resolvePreviewDataServerTarget({
-      LXE_DATA_SERVER_ENABLED: "0",
-      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
-      LXE_DATA_SERVER_API_KEY: "device-secret",
-    })).toBeUndefined();
-    expect(resolvePreviewDataServerTarget({
-      LXE_DATA_SERVER_ENABLED: "1",
-      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
-    })).toBeUndefined();
-    expect(resolvePreviewDataServerTarget({
-      LXE_DATA_SERVER_ENABLED: "1",
-      LXE_DATA_SERVER_API_KEY: "device-secret",
-    })).toBeUndefined();
-  });
-
-  test("uses the resolved settings environment for source development and Preview", () => {
+  test("uses only scoped desktop configuration in source development and Preview", () => {
     const sourceEnvironment = {
       LXE_DATA_SERVER_ENABLED: "1",
       LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
@@ -58,16 +29,11 @@ describe("desktop data server policy", () => {
     });
 
     expect(environment).toMatchObject({
-      LXE_DATA_SERVER_ENABLED: "1",
-      LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
-      LXE_DATA_SERVER_API_KEY: "source-secret",
-      LXE_ERP_API_KEY: "source-erp-secret",
-      LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
-      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
-      LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:18001",
-      LXE_DATA_SERVER_FALLBACK_API_KEY: "fallback-secret",
-      LXE_DATA_SERVER_MACHINE_ID_PATH: "/worktree/var/db/machine_identity.json",
+      LXE_DATA_SERVER_ENABLED: "0", LXE_DATA_SERVER_URL: "", LXE_DATA_SERVER_API_KEY: "managed-secret",
+      LXE_ERP_API_KEY: "managed-erp-secret", LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0", LXE_DATA_SERVER_MACHINE_ID_PATH: "/worktree/var/db/machine_identity.json",
     });
+    expect(JSON.stringify(environment)).not.toContain("source-secret");
   });
 
   test("uses only managed data server values for packaged builds", () => {

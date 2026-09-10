@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { DesktopCloudDependencyState } from "@lxe/desktop-protocol";
 import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
-import type { CloudEnrollmentPayload } from "./cloud-enrollment";
+import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./cloud-enrollment";
 import {
   wireGuardConfiguration,
   wireGuardTunnelFromEnrollment,

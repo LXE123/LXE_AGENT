@@ -7,8 +7,9 @@ const ENROLLMENT_AAD = Buffer.from("lxe-agent-enrollment:v1", "ascii");
 const MAX_ENROLLMENT_BYTES = 128 * 1024;
 const SELECTION_TTL_MS = 10 * 60_000;
 
-export interface CloudEnrollmentPayload {
-  enrollment_version: 1 | 2 | 3;
+export interface ManagedCloudEnrollmentPayload {
+  existing_tunnel?: false;
+  enrollment_version: 1 | 2 | 3 | 5;
   device: {
     id: string;
     name: string;
@@ -31,6 +32,15 @@ export interface CloudEnrollmentPayload {
   };
   erp?: { api_token: string };
 }
+
+export interface ExistingCloudEnrollmentPayload {
+  existing_tunnel: true;
+  enrollment_version: 4;
+  device: { id: string; name: string; principal_kind: "managed_device" | "system_administrator" };
+  wireguard: { address: string };
+  data_server: ManagedCloudEnrollmentPayload["data_server"];
+}
+export type CloudEnrollmentPayload = ManagedCloudEnrollmentPayload | ExistingCloudEnrollmentPayload;
 
 interface PendingEnrollment {
   path: string;
@@ -78,8 +88,28 @@ const wireGuardKey = (value: unknown, label: string): string => {
 
 const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   const payload = objectValue(value, "Enrollment payload");
+  if (payload.format === "lxe-agent-enrollment-payload" && payload.version === 4) {
+    const device = objectValue(payload.device, "Device");
+    const wireguard = objectValue(payload.wireguard, "WireGuard");
+    const server = objectValue(payload.data_server, "Data server");
+    const id = exactText(device.id, "Principal ID", 64);
+    const name = exactText(device.name, "Device name", 128);
+    const address = exactText(wireguard.address, "WireGuard address", 32);
+    const token = exactText(server.api_token, "Client identity credential", 512);
+    const kind = device.principal_kind;
+    if (!/^[a-f0-9]{32}$/u.test(id)
+      || (kind !== "managed_device" && kind !== "system_administrator")
+      || wireguard.mode !== "existing" || !/^10\.88\.0\.(?:[2-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\/32$/u.test(address)
+      || server.url !== "http://10.88.0.1:8000" || server.sync_interval_seconds !== 3600
+      || !token.startsWith(`lxe_${kind === "managed_device" ? "client" : "identity"}_${id}.`)
+      || !/^lxe_(?:client|identity)_[a-f0-9]{32}\.[A-Za-z0-9_-]{32,}$/u.test(token)) {
+      throw new Error("Existing-tunnel identity enrollment is invalid");
+    }
+    return { existing_tunnel: true, enrollment_version: 4, device: { id, name, principal_kind: kind },
+      wireguard: { address }, data_server: { url: server.url, api_token: token, sync_interval_seconds: 3600 } };
+  }
   if (payload.format !== "lxe-agent-enrollment-payload"
-    || (payload.version !== 1 && payload.version !== 2 && payload.version !== 3)) {
+    || (payload.version !== 1 && payload.version !== 2 && payload.version !== 3 && payload.version !== 5)) {
     throw new Error("不支持的设备文件版本");
   }
   const enrollmentVersion = payload.version;
@@ -115,7 +145,7 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
       permission_profile: permissionProfile as "fba" | "replenishment" | "full_access",
       permission_version: device.permission_version,
     };
-  } else if (enrollmentVersion === 3) {
+  } else if ((enrollmentVersion === 3 || enrollmentVersion === 5)) {
     if (device.permission_profile !== undefined || device.permission_version !== undefined
       || device.minimum_permission_contract_version !== 2) {
       throw new Error("Device permission contract metadata is invalid");
@@ -140,7 +170,8 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   const dataServerUrl = exactText(dataServer.url, "Data server URL", 256).replace(/\/+$/u, "");
   if (dataServerUrl !== "http://10.88.0.1:8000") throw new Error("Data server URL is invalid");
   const apiToken = exactText(dataServer.api_token, "Device upload token", 512);
-  if (!/^lxe_dev_[a-f0-9]{32}\.[A-Za-z0-9_-]{32,}$/u.test(apiToken)) {
+  const expectedToken = enrollmentVersion === 5 ? /^lxe_client_[a-f0-9]{32}\.[A-Za-z0-9_-]{32,}$/u : /^lxe_dev_[a-f0-9]{32}\.[A-Za-z0-9_-]{32,}$/u;
+  if (!expectedToken.test(apiToken) || !apiToken.startsWith(`lxe_${enrollmentVersion === 5 ? "client" : "dev"}_${deviceId}.`)) {
     throw new Error("Device upload token is invalid");
   }
   if (dataServer.sync_interval_seconds !== 3_600) throw new Error("Data sync interval is invalid");
@@ -151,7 +182,7 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
       id: deviceId,
       name: deviceName,
       ...(enrollmentVersion === 2 ? enrollmentPermission : {}),
-      ...(enrollmentVersion === 3
+      ...((enrollmentVersion === 3 || enrollmentVersion === 5)
         ? { minimum_permission_contract_version: 2 as const }
         : {}),
     },

@@ -489,7 +489,8 @@ export class DesktopSetupService {
     const logsEnabled = config.logging.profile !== "off";
     const cloudEnabled = config.cloud.managed
       && !config.cloud.switch_in_progress
-      && Boolean(text(secrets.data_server_api_key));
+      && Boolean(text(secrets.cloud_business_token))
+      && secrets.cloud_business_expires_at > Date.now() / 1_000;
     return {
       AGENT_LLM_PROVIDER: provider,
       AGENT_LLM_CREDENTIAL_SOURCE: config.llm.credential_source,
@@ -525,12 +526,12 @@ export class DesktopSetupService {
       FEISHU_RAW_EVENT_DUMP_ENABLED: diagnostic ? "1" : "0",
       LXE_DATA_SERVER_ENABLED: cloudEnabled ? "1" : "0",
       LXE_DATA_SERVER_URL: cloudEnabled ? config.cloud.data_server_url : "",
-      LXE_DATA_SERVER_API_KEY: cloudEnabled ? secrets.data_server_api_key : "",
+      LXE_DATA_SERVER_API_KEY: cloudEnabled ? secrets.cloud_business_token : "",
       LXE_DATA_SERVER_FALLBACK_API_KEY: config.cloud.local_fallback_enabled
         ? secrets.data_server_fallback_api_key
         : "",
-      LXE_ERP_API_KEY: cloudEnabled ? secrets.erp_api_key : "",
-      LXE_SAIHU_MCP_API_KEY: secrets.saihu_mcp_api_key,
+      LXE_ERP_API_KEY: cloudEnabled ? secrets.cloud_business_erp_token : "",
+      LXE_SAIHU_MCP_API_KEY: cloudEnabled ? secrets.cloud_business_token : "",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: config.cloud.local_fallback_enabled ? "1" : "0",
       LXE_DATA_SERVER_FALLBACK_URL: config.cloud.local_fallback_url,
       BROWSER_AUTH_HEADLESS: "1",
