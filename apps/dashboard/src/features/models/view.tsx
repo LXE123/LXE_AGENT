@@ -6,12 +6,13 @@ import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
   groupModelsByProvider,
+  modelDisabledReasonLabel,
   modelThinkingLevelLabel,
   modelWithOption,
   reconcileShowcaseSelections,
 } from "./model";
 import { useUiText } from "../../shared/i18n";
-import type { CredentialSource, ShowcaseCredential } from "./model";
+import type { CredentialSource, ShowcaseProviderGroup } from "./model";
 import type { UiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
 
@@ -63,32 +64,20 @@ function credentialSourceName(t: UiText, source: CredentialSource): string {
   return source === "cloud" ? t.models.credentialCloud : t.models.credentialLocal;
 }
 
-function CredentialChip({ credential }: { credential: ShowcaseCredential }) {
+function CredentialChip({ model }: { model: ModelPayload }) {
   const t = useUiText();
-  const { credentialSource, configured } = credential;
+  const source = model.credential_source;
+  const configured = source === "cloud" ? model.selectable : model.configured;
   return (
-    <span
-      className="model-source-chip"
-      data-source={credentialSource}
-      title={credentialSource === "cloud" ? t.models.credentialCloudHint : t.models.credentialLocalHint}
-    >
-      <CredentialSourceIcon source={credentialSource} />
-      {credentialSourceName(t, credentialSource)}
+    <span className="model-source-chip" data-source={source}
+      title={source === "cloud" ? t.models.credentialCloudHint : t.models.credentialLocalHint}>
+      <CredentialSourceIcon source={source} />
+      {credentialSourceName(t, source)}
       <span className={`model-source-chip-state ${configured ? "configured" : "unconfigured"}`}>
-        {configured ? t.models.configured : t.models.unconfigured}
+        {source === "cloud"
+          ? configured ? t.models.available : t.models.unavailable
+          : configured ? t.models.configured : t.models.unconfigured}
       </span>
-    </span>
-  );
-}
-
-// Every variant runs through the local agent, so the only thing worth marking
-// on one is that the company's managed credential reaches it.
-function CloudCoverageChip() {
-  const t = useUiText();
-  return (
-    <span className="model-variant-source" title={t.models.credentialCloudVariantHint}>
-      <CredentialSourceIcon source="cloud" />
-      {t.models.credentialCloud}
     </span>
   );
 }
@@ -129,162 +118,136 @@ function ThinkingSpec({ model, current }: { model: ModelPayload; current: boolea
   );
 }
 
-export function ModelsView({
-  models,
-  current,
+function ModelSourceSection({
+  groups, current, source, title, hint,
 }: {
-  models: ModelPayload[];
+  groups: ShowcaseProviderGroup[];
   current: ModelPayload | null;
+  source: CredentialSource;
+  title: string;
+  hint: string;
 }) {
   const t = useUiText();
-  const providerGroups = useMemo(() => groupModelsByProvider(models), [models]);
-  const variantCount = providerGroups.reduce((count, group) => count + group.variants.length, 0);
-  const [showcaseSelections, setShowcaseSelections] = useState<Record<string, string>>(() => (
-    reconcileShowcaseSelections(providerGroups, current)
-  ));
-
+  const [showcaseSelections, setShowcaseSelections] = useState<Record<string, string>>(() =>
+    reconcileShowcaseSelections(groups, current));
   useEffect(() => {
-    setShowcaseSelections((existing) => reconcileShowcaseSelections(providerGroups, current, existing));
-  }, [current, providerGroups]);
+    setShowcaseSelections(existing => reconcileShowcaseSelections(groups, current, existing));
+  }, [current, groups]);
 
   return (
-    <div className="models-page models-showcase-page">
-      <section className="models-showcase-hero">
-        <div className="models-showcase-intro">
-          <span>{t.models.galleryEyebrow}</span>
-          <h2>{t.models.galleryTitle}</h2>
-          <p>{t.models.galleryDescription}</p>
-        </div>
-        <dl className="models-showcase-counts">
-          <div>
-            <dt>{t.models.providers}</dt>
-            <dd>{formatNumber(providerGroups.length)}</dd>
-          </div>
-          <div>
-            <dt>{t.models.variants}</dt>
-            <dd>{formatNumber(variantCount)}</dd>
-          </div>
-        </dl>
-      </section>
-
+    <section className="models-source-section" data-model-source={source} aria-labelledby={`models-${source}-title`}>
+      <header className="models-source-heading">
+        <h2 id={`models-${source}-title`}><CredentialSourceIcon source={source} />{title}</h2>
+        <p>{hint}</p>
+      </header>
+      {source === "cloud" && groups.length === 0 ? (
+        <div className="models-source-empty" role="status">{t.models.cloudModelsEmpty}</div>
+      ) : null}
       <div className="grid-list models-grid models-showcase-grid">
-        {providerGroups.map((group, index) => {
-          const { base, provider } = group;
-          const providerActive = current?.provider === provider;
-          const displayedVariant = group.variants.find(
-            (variant) => variant.option.model === showcaseSelections[provider],
-          ) ?? group.variants[0];
+        {groups.map(group => {
+          const { provider, credentialSource, label } = group;
+          const providerActive = current?.provider === provider && current.credential_source === credentialSource;
+          const displayedVariant = group.variants.find(variant => variant.option.model === showcaseSelections[group.key]) ?? group.variants[0];
           const displayedOption = displayedVariant?.option;
           const isCurrent = providerActive && current?.model === displayedOption?.model;
-          const displayedModel = displayedOption
-            ? modelWithOption(base, displayedOption, isCurrent ? current?.thinking_state : undefined)
+          const displayedModel = displayedVariant
+            ? modelWithOption(displayedVariant.model, displayedVariant.option, isCurrent ? current?.thinking_state : undefined)
             : null;
-          const selectId = `model-showcase-select-${index}`;
+          const selectId = `model-showcase-select-${source}-${provider}`;
           return (
             <article
               aria-current={providerActive ? "true" : undefined}
               className={`item-card model-card model-showcase-card ${providerActive ? "item-active" : ""}`}
               data-provider={provider}
-              key={provider}
+              data-credential-source={credentialSource}
+              key={group.key}
             >
               <ModelArtwork provider={provider} />
               <div className="model-card-header">
                 <div className="item-heading">
-                  <div className="item-icon">
-                    <ProviderBrandMark provider={provider} size={23} />
-                  </div>
+                  <div className="item-icon"><ProviderBrandMark provider={provider} size={23} /></div>
                   <div className="model-heading-copy">
-                    <h3>{base.label}</h3>
-                    <span>{base.api_style}</span>
+                    <h3>{label}</h3>
+                    <span>{displayedModel?.api_style}</span>
                   </div>
                 </div>
-                {providerActive ? (
-                  <span className="model-current-badge">
-                    <Check aria-hidden size={13} />
-                    {t.models.inUse}
-                  </span>
-                ) : null}
+                {providerActive ? <span className="model-current-badge"><Check aria-hidden size={13} />{t.models.inUse}</span> : null}
               </div>
-
-              <div className="model-showcase-provider-state">
-                {group.credentials.map((credential) => (
-                  <CredentialChip credential={credential} key={credential.credentialSource} />
-                ))}
-              </div>
-
+              {displayedModel ? <div className="model-showcase-provider-state"><CredentialChip model={displayedModel} /></div> : null}
               <div className="model-showcase-variants">
-                {displayedModel && displayedOption && displayedVariant ? (
-                  <section
-                    aria-current={isCurrent ? "true" : undefined}
-                    className={`model-showcase-variant ${isCurrent ? "current" : ""}`}
-                  >
+                {displayedModel && displayedOption ? (
+                  <section aria-current={isCurrent ? "true" : undefined} className={`model-showcase-variant ${isCurrent ? "current" : ""}`}>
                     <header className="model-showcase-variant-header">
                       <label htmlFor={selectId}>{t.models.displayVariant}</label>
                       <div className="model-showcase-select-wrap">
                         <select
-                          aria-label={`${base.label} ${t.models.displayVariant}`}
+                          aria-label={`${title} · ${label} · ${t.models.displayVariant}`}
                           className="model-showcase-select"
                           disabled={group.variants.length < 2}
                           id={selectId}
-                          onChange={(event) => {
+                          onChange={event => {
                             const selectedModel = event.currentTarget.value;
-                            setShowcaseSelections((existing) => ({
-                              ...existing,
-                              [provider]: selectedModel,
-                            }));
+                            setShowcaseSelections(existing => ({ ...existing, [group.key]: selectedModel }));
                           }}
                           value={displayedOption.model}
                         >
-                          {group.variants.map((variant) => (
+                          {group.variants.map(variant => (
                             <option key={variant.option.model} value={variant.option.model}>
-                              {variant.option.model}
-                              {providerActive && current?.model === variant.option.model
-                                ? ` · ${t.models.current}`
-                                : ""}
+                              {variant.option.model}{providerActive && current?.model === variant.option.model ? ` · ${t.models.current}` : ""}
                             </option>
                           ))}
                         </select>
                         <ChevronDown aria-hidden size={15} />
                       </div>
-                      <div className="model-variant-flags">
-                        {displayedVariant.sources.includes("cloud") ? <CloudCoverageChip /> : null}
-                        {isCurrent ? (
-                          <span className="model-variant-current">
-                            <Check aria-hidden size={12} />{t.models.current}
-                          </span>
-                        ) : null}
-                      </div>
+                      {isCurrent ? <div className="model-variant-flags"><span className="model-variant-current"><Check aria-hidden size={12} />{t.models.current}</span></div> : null}
                     </header>
+                    {source === "cloud" && !displayedModel.selectable ? (
+                      <p className="model-showcase-unavailable" role="status">
+                        {modelDisabledReasonLabel(t, displayedModel.disabled_reason) || t.models.unavailable}
+                      </p>
+                    ) : null}
                     <dl className="model-showcase-metrics">
-                      <div>
-                        <dt>{t.models.context}</dt>
-                        <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
-                      </div>
-                      <div>
-                        <dt>{t.models.output}</dt>
-                        <CompactTokenMetric
-                          value={displayedModel.capabilities.max_tokens
-                            ?? displayedModel.capabilities.max_output_tokens
-                            ?? 0}
-                        />
-                      </div>
-                      <div>
-                        <dt>{t.models.vision}</dt>
-                        <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
-                          {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
-                        </dd>
-                      </div>
+                      <div><dt>{t.models.context}</dt><CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} /></div>
+                      <div><dt>{t.models.output}</dt><CompactTokenMetric value={displayedModel.capabilities.max_tokens ?? displayedModel.capabilities.max_output_tokens ?? 0} /></div>
+                      <div><dt>{t.models.vision}</dt><dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>{displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}</dd></div>
                     </dl>
                     <ThinkingSpec current={isCurrent} model={displayedModel} />
                   </section>
-                ) : (
-                  <div className="model-showcase-empty">{t.models.modelOptionUnavailable}</div>
-                )}
+                ) : <div className="model-showcase-empty">{t.models.modelOptionUnavailable}</div>}
               </div>
             </article>
           );
         })}
       </div>
+    </section>
+  );
+}
+
+export function ModelsView({ models, current }: { models: ModelPayload[]; current: ModelPayload | null }) {
+  const t = useUiText();
+  const sections = useMemo(() => {
+    const groups = groupModelsByProvider(models);
+    return (["cloud", "local"] as const).map(source => ({ source, groups: groups.filter(group => group.credentialSource === source) }));
+  }, [models]);
+  const titles = { cloud: t.models.cloudModels, local: t.models.localModels };
+  return (
+    <div className="models-page models-showcase-page">
+      <section className="models-showcase-hero">
+        <div className="models-showcase-intro">
+          <span>{t.models.galleryEyebrow}</span><h2>{t.models.galleryTitle}</h2><p>{t.models.galleryDescription}</p>
+        </div>
+        <dl className="models-showcase-counts">
+          {sections.map(({ source, groups }) => <div key={source}>
+            <dt>{titles[source]}</dt>
+            <dd className="models-source-counts">
+              <span><strong>{formatNumber(groups.length)}</strong> {t.models.providers}</span>
+              <span><strong>{formatNumber(groups.reduce((count, group) => count + group.variants.length, 0))}</strong> {t.models.variants}</span>
+            </dd>
+          </div>)}
+        </dl>
+      </section>
+      {sections.map(({ source, groups }) => <ModelSourceSection key={source} source={source} groups={groups} current={current}
+        title={titles[source]} hint={source === "cloud" ? t.models.cloudModelsHint : t.models.localModelsHint} />)}
     </div>
   );
 }

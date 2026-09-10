@@ -3330,6 +3330,65 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+.models-source-section {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.models-source-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.125rem;
+}
+
+.models-source-heading h2 svg {
+  width: 19px;
+  height: 19px;
+  color: var(--accent-strong);
+}
+
+.models-source-heading p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.models-showcase-counts .models-source-counts {
+  display: grid;
+  gap: 3px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.models-source-counts strong {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.models-source-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+  font-size: 0.8125rem;
+}
+
+.model-showcase-unavailable {
+  margin: 0;
+  color: var(--model-card-text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .models-grid .model-card {
   --model-hue: var(--accent);
   --model-hue-strong: var(--accent-strong);
@@ -3851,8 +3910,7 @@ h1 {
   background: var(--model-panel-bg);
 }
 
-/* A provider can hold one credential per source, so the card carries a chip per
-   source instead of a bare configured/unconfigured state. */
+/* Availability belongs to the displayed target in this source section. */
 .model-source-chip {
   padding-right: 3px;
   padding-left: 6px;

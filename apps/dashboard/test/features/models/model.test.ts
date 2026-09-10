@@ -6,8 +6,11 @@ import {
   modelsInDisplayOrder,
   reconcileShowcaseSelections,
   resolveModelSelection,
+  showcaseProviderKey,
+  modelWithOption,
   thinkingStateForModelOption,
 } from "../../../src/features/models/model";
+import { sourceFixtureModels } from "./source-fixtures";
 import type { ModelPayload } from "../../../src/api/payloads";
 
 const showcaseOption = (model: string) => ({
@@ -45,55 +48,45 @@ const showcasePayload = (
   ...overrides,
 });
 
-describe("provider grouping", () => {
-  const deepseekLocal = showcasePayload({
-    provider: "deepseek",
-    credential_source: "local",
-    model: "deepseek-v4-flash",
-    configured: false,
-    model_options: [showcaseOption("deepseek-v4-pro"), showcaseOption("deepseek-v4-flash")],
-  });
-  const deepseekCloud = showcasePayload({
-    provider: "deepseek",
-    credential_source: "cloud",
-    model: "deepseek-v4-flash",
-    configured: true,
-    model_options: [showcaseOption("deepseek-v4-flash")],
-  });
-  const kimi = showcasePayload({
-    provider: "kimi_coding",
-    credential_source: "local",
-    model: "kimi-for-coding",
-    configured: false,
-    model_options: [showcaseOption("kimi-for-coding")],
+describe("provider grouping by credential source", () => {
+  test("separates shared suppliers and retains all unconfigured personal suppliers", () => {
+    const models = sourceFixtureModels();
+    const groups = groupModelsByProvider(models);
+    expect(groups.filter(g => g.credentialSource === "cloud")).toHaveLength(2);
+    expect(groups.filter(g => g.credentialSource === "local")).toHaveLength(5);
+    expect(new Set(groups.map(g => g.key)).size).toBe(7);
+    expect(groups.filter(g => g.provider === "deepseek").map(g => g.credentialSource)).toEqual(["cloud", "local"]);
+    expect(groups.filter(g => g.provider === "deepseek").map(g => g.label)).toEqual(["DeepSeek", "DeepSeek"]);
   });
 
-  test("folds a provider's credential sources into one card", () => {
-    const groups = groupModelsByProvider([deepseekLocal, deepseekCloud, kimi]);
-
-    expect(groups.map((group) => group.provider)).toEqual(["deepseek", "kimi_coding"]);
-    expect(groups[0]!.credentials).toEqual([
-      { credentialSource: "local", configured: false },
-      { credentialSource: "cloud", configured: true },
-    ]);
+  test("keeps cloud and personal capabilities separate for identical model IDs, regardless of order", () => {
+    for (const models of [sourceFixtureModels(), sourceFixtureModels().reverse()]) {
+      const groups = groupModelsByProvider(models).filter(g => g.provider === "deepseek");
+      const shown = groups.map(g => {
+        const variant = g.variants.find(v => v.option.model === "deepseek-v4-flash")!;
+        return modelWithOption(variant.model, variant.option);
+      });
+      expect(shown.map(m => m.capabilities.supports_vision)).toEqual([true, false]);
+      expect(shown.map(m => m.capabilities.context_window_tokens)).toEqual([2_000_000, 1_000_000]);
+      expect(shown.map(m => m.capabilities.max_tokens)).toEqual([65_536, 384_000]);
+      expect(shown.map(m => m.configured)).toEqual([true, false]);
+    }
   });
 
-  test("lists each variant once and records every source that reaches it", () => {
-    const deepseek = groupModelsByProvider([deepseekLocal, deepseekCloud])[0]!;
-
-    expect(deepseek.variants.map((variant) => ({
-      model: variant.option.model,
-      sources: variant.sources,
-    }))).toEqual([
-      { model: "deepseek-v4-pro", sources: ["local"] },
-      { model: "deepseek-v4-flash", sources: ["local", "cloud"] },
-    ]);
+  test("retains availability and errors per cloud variant without borrowing another key", () => {
+    const group = groupModelsByProvider(sourceFixtureModels()).find(g => g.provider === "deepseek" && g.credentialSource === "cloud")!;
+    expect(group.variants.map(v => v.option.model)).toEqual(["deepseek-v4-flash", "deepseek-flash"]);
+    const shown = group.variants.map(v => modelWithOption(v.model, v.option));
+    expect(shown.map(m => m.selectable)).toEqual([true, false]);
+    expect(shown[1]!.disabled_reason).toBe("credential_unavailable");
+    expect(shown[1]!.thinking_levels).toEqual(["off", "max"]);
+    expect(shown[1]!.capabilities.context_window_tokens).toBe(3_000_000);
+    expect(group.variants.map(v => v.option.model)).not.toContain("deepseek-v4-pro");
   });
 
-  test("lets a configured source speak for the card even when it arrives second", () => {
-    expect(groupModelsByProvider([deepseekLocal, deepseekCloud])[0]!.base.credential_source)
-      .toBe("cloud");
-    expect(groupModelsByProvider([deepseekLocal])[0]!.base.credential_source).toBe("local");
+  test("uses provider ID as a fallback rather than a cloud model display name", () => {
+    const clouds = sourceFixtureModels().filter(m => m.credential_source === "cloud");
+    expect(groupModelsByProvider(clouds)[0]!.label).toBe("deepseek");
   });
 });
 
@@ -207,47 +200,37 @@ describe("conversation model choices", () => {
 });
 
 describe("showcase model browsing", () => {
-  const variant = (model: string) => ({ option: { model }, sources: ["local" as const] });
-  const groups = [
-    {
-      provider: "kimi_coding",
-      base: { model: "kimi-default" },
-      variants: [variant("kimi-default"), variant("kimi-long")],
-    },
-    {
-      provider: "deepseek",
-      base: { model: "deepseek-flash" },
-      variants: [variant("deepseek-pro"), variant("deepseek-flash")],
-    },
-  ];
+  const cloudKey = showcaseProviderKey("deepseek", "cloud");
+  const localKey = showcaseProviderKey("deepseek", "local");
+  const models = sourceFixtureModels();
+  const groups = groupModelsByProvider(models);
+  const current = { provider: "deepseek", model: "deepseek-flash", credential_source: "cloud" as const };
 
-  test("starts the active provider on its current model and other providers on their defaults", () => {
-    expect(reconcileShowcaseSelections(
-      groups,
-      { provider: "deepseek", model: "deepseek-pro" },
-    )).toEqual({
-      kimi_coding: "kimi-default",
-      deepseek: "deepseek-pro",
-    });
+  test("restores the active model only in its own source section", () => {
+    const selections = reconcileShowcaseSelections(groups, current);
+    expect(selections[cloudKey]).toBe("deepseek-flash");
+    expect(selections[localKey]).toBe("deepseek-v4-flash");
   });
 
-  test("preserves a valid local browsing choice without changing the current model", () => {
-    expect(reconcileShowcaseSelections(
-      groups,
-      { provider: "deepseek", model: "deepseek-flash" },
-      { kimi_coding: "kimi-long", deepseek: "deepseek-pro" },
-    )).toEqual({
-      kimi_coding: "kimi-long",
-      deepseek: "deepseek-pro",
+  test("preserves separate browsing choices without changing the runtime selection", () => {
+    const original = structuredClone(current);
+    const selections = reconcileShowcaseSelections(groups, current, {
+      [cloudKey]: "deepseek-v4-flash", [localKey]: "deepseek-v4-pro",
     });
+    expect(selections[cloudKey]).toBe("deepseek-v4-flash");
+    expect(selections[localKey]).toBe("deepseek-v4-pro");
+    expect(current).toEqual(original);
   });
 
-  test("falls back when a browsed variant or provider disappears", () => {
-    expect(reconcileShowcaseSelections(
-      groups.slice(1),
-      null,
-      { kimi_coding: "kimi-long", deepseek: "removed-model" },
-    )).toEqual({ deepseek: "deepseek-flash" });
+  test("reconciles removed cloud models and empty publication without losing local browsing", () => {
+    const existing = { [cloudKey]: "deepseek-flash", [localKey]: "deepseek-v4-pro" };
+    const remaining = models.filter(m => m.model !== "deepseek-flash");
+    const selections = reconcileShowcaseSelections(groupModelsByProvider(remaining), current, existing);
+    expect(selections[cloudKey]).toBe("deepseek-v4-flash");
+    expect(selections[localKey]).toBe("deepseek-v4-pro");
+    const cleared = reconcileShowcaseSelections(groupModelsByProvider(remaining.filter(m => m.credential_source === "local")), current, selections);
+    expect(cleared).not.toHaveProperty(cloudKey);
+    expect(cleared[localKey]).toBe("deepseek-v4-pro");
   });
 });
 

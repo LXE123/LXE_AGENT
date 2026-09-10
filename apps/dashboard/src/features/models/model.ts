@@ -31,88 +31,60 @@ export function resolveModelSelection(
   return undefined;
 }
 
-export type ShowcaseCredential = {
-  credentialSource: CredentialSource;
-  configured: boolean;
-};
-
 export type ShowcaseVariant = {
   option: ModelOptionPayload;
-  sources: CredentialSource[];
+  // Keep the target's own availability and metadata alongside its option.
+  model: ModelPayload;
 };
 
 export type ShowcaseProviderGroup = {
+  key: string;
   provider: string;
-  // The payload the card borrows its brand copy and default variant from.
-  base: ModelPayload;
-  credentials: ShowcaseCredential[];
+  credentialSource: CredentialSource;
+  label: string;
+  defaultModel: string;
   variants: ShowcaseVariant[];
 };
 
-const CREDENTIAL_SOURCE_RANK: Record<CredentialSource, number> = { local: 0, cloud: 1 };
+export const showcaseProviderKey = (provider: string, source: CredentialSource): string =>
+  JSON.stringify([source, provider]);
 
-const bySourceRank = (left: CredentialSource, right: CredentialSource): number =>
-  CREDENTIAL_SOURCE_RANK[left] - CREDENTIAL_SOURCE_RANK[right];
-
-/**
- * The catalog ships one payload per provider *and credential source*, so a
- * provider whose key can come from either place arrives as two look-alike
- * entries. Credentials only decide where the API key is read from — the request
- * still leaves from the local agent and every variant's capabilities come from
- * the same provider spec — so the gallery folds them back into one brand card
- * and keeps the sources as metadata.
- */
+/** Source is part of identity; only the supplier's label is shared across sources. */
 export function groupModelsByProvider(models: readonly ModelPayload[]): ShowcaseProviderGroup[] {
+  const providerLabels = new Map(models.filter(m => m.credential_source === "local").map(m => [m.provider, m.label]));
   const groups = new Map<string, ShowcaseProviderGroup>();
-  for (const model of modelsInDisplayOrder(models)) {
-    const group = groups.get(model.provider)
-      ?? { provider: model.provider, base: model, credentials: [], variants: [] };
-    groups.set(model.provider, group);
-    // A source with a working credential speaks for the card, so the header
-    // reflects the entry the agent can actually run.
-    if (model.configured && !group.base.configured) group.base = model;
-    const credential = group.credentials.find((entry) => entry.credentialSource === model.credential_source);
-    if (credential) credential.configured ||= model.configured;
-    else group.credentials.push({ credentialSource: model.credential_source, configured: model.configured });
+  for (const model of models) {
+    const key = showcaseProviderKey(model.provider, model.credential_source);
+    const group = groups.get(key) ?? {
+      key, provider: model.provider, credentialSource: model.credential_source,
+      label: providerLabels.get(model.provider) || model.provider,
+      defaultModel: model.model, variants: [],
+    };
+    groups.set(key, group);
     for (const option of model.model_options) {
-      const variant = group.variants.find((entry) => entry.option.model === option.model);
-      if (!variant) {
-        group.variants.push({ option, sources: [model.credential_source] });
-        continue;
-      }
-      if (!variant.sources.includes(model.credential_source)) {
-        variant.sources.push(model.credential_source);
+      if (!group.variants.some(variant => variant.option.model === option.model)) {
+        group.variants.push({ option, model });
       }
     }
   }
-  for (const group of groups.values()) {
-    group.credentials.sort((left, right) => bySourceRank(left.credentialSource, right.credentialSource));
-    for (const variant of group.variants) variant.sources.sort(bySourceRank);
-  }
-  return [...groups.values()];
+  return [...groups.values()].sort((a, b) =>
+    (a.credentialSource === b.credentialSource ? 0 : a.credentialSource === "cloud" ? -1 : 1)
+    || a.label.localeCompare(b.label) || a.provider.localeCompare(b.provider));
 }
 
 export function reconcileShowcaseSelections(
-  groups: readonly {
-    provider: string;
-    base: Pick<ModelPayload, "model">;
-    variants: readonly { option: Pick<ModelOptionPayload, "model"> }[];
-  }[],
-  current: Pick<ModelPayload, "provider" | "model"> | null,
+  groups: readonly Pick<ShowcaseProviderGroup, "key" | "provider" | "credentialSource" | "defaultModel" | "variants">[],
+  current: Pick<ModelPayload, "provider" | "model" | "credential_source"> | null,
   existing: Readonly<Record<string, string>> = {},
 ): Record<string, string> {
   const selections: Record<string, string> = {};
   for (const group of groups) {
-    const options = group.variants.map((variant) => variant.option.model);
-    if (!options.length) {
-      continue;
-    }
-    const currentModel = current?.provider === group.provider ? current.model : "";
-    const selection = [existing[group.provider], currentModel, group.base.model, options[0]]
+    const options = group.variants.map(variant => variant.option.model);
+    const currentModel = current?.provider === group.provider && current.credential_source === group.credentialSource
+      ? current.model : "";
+    const selection = [existing[group.key], currentModel, group.defaultModel, options[0]]
       .find((model): model is string => Boolean(model && options.includes(model)));
-    if (selection) {
-      selections[group.provider] = selection;
-    }
+    if (selection) selections[group.key] = selection;
   }
   return selections;
 }
@@ -239,8 +211,12 @@ export function modelDisabledReasonLabel(t: UiText, reason: string): string {
   if (reason === "missing API key") {
     return t.models.missingApiKey;
   }
-  if (reason === "unsupported managed model") {
+  if (["unsupported managed model", "agent_upgrade_required", "configuration_unsupported"].includes(reason)) {
     return t.models.unsupportedManagedModel;
   }
+  if (["credential_unavailable", "credential unavailable", "company model credential unavailable"].includes(reason)) {
+    return t.models.companyCredentialUnavailable;
+  }
+  if (reason === "configuration_unavailable") return t.models.companyConfigurationUnavailable;
   return reason;
 }
