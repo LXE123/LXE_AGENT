@@ -29,9 +29,9 @@ flowchart TD
   A["fba-shipment-delivery-csv-download<br/>FBA 发货单 SKU CSV"] --> B["fba-stock-sku-download<br/>库存 SKU"]
   A --> C["fba-msku-detail-download<br/>MSKU 明细"]
   A --> D["fba-invoice-template-fill<br/>发票导入模板"]
+  A -->|MSKU发货量| R["fba-erp-packing-upload<br/>ERP 真实发货量与库存 SKU 对账"]
 
   E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
-  E --> R["fba-erp-packing-upload<br/>ERP 真实发货量与库存 SKU 对账"]
   E --> D
   L["备货单 xlsx"] --> D
   A --> H["fba-customs-declaration-fill<br/>报关资料"]
@@ -58,7 +58,7 @@ flowchart TD
 |---|---|
 | 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `fba-shipment-delivery-csv-download` |
 | 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `fba-shipment-wms-box-download` |
-| 上传真实发货量、同步装箱数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
+| 上传真实发货量、同步发货数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
 | 将现有进销存表初始化为 ERP 历史库存 | 说明这是部署前的一次性管理操作；由后端服务器管理员执行 `lxe-erp-admin opening-inventory` |
 | 补录 ERP 上线前、尚未进入期初库存的历史 SP 剩余库存 | 说明这是 ERP“留存库存”页的管理员操作；使用“补录历史库存”，不执行 Agent Skill |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
@@ -79,7 +79,7 @@ flowchart TD
 |---|---|
 | 发货单数据 | `fba-shipment-delivery-csv-download` |
 | 装箱与货件创建 | `fba-shipment-wms-box-download` -> `ziniao-browser` -> `fba-shipment-create` |
-| ERP 真实发货量 | 原始 WMS 装箱文件 -> `fba-erp-packing-upload` -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
+| ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
 | ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
 | ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
@@ -89,6 +89,8 @@ flowchart TD
 | 正式采购文件重新生成 | ERP 采购批次号 + 本机当前合同模板 -> `fba-purchase-files-regenerate` 只读取得冻结数据并覆盖生成采购汇总、备货单和合同 |
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
+
+ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关，不作为 ERP 实发量上传来源。
 
 日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`，不能自行推断，也不需要每次固定询问。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，但正式执行必须重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 只作为单 SP 备货单兼容入口，旧采购汇总表不再提供单独生成合同的入口。
 
