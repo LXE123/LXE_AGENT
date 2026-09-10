@@ -120,7 +120,6 @@ $runtimeEnvironment = @{
     LXE_DESKTOP_RG_PATH = [string]$descriptor.inputs.rg_path
     LXE_DESKTOP_FD_PATH = [string]$descriptor.inputs.fd_path
     LXE_DESKTOP_EXIFTOOL_ROOT = [string]$descriptor.inputs.exiftool_root
-    LXE_DESKTOP_PLAYWRIGHT_ROOT = [string]$descriptor.inputs.playwright_root
 }
 foreach ($entry in $runtimeEnvironment.GetEnumerator()) {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($entry.Key))) {
@@ -134,7 +133,6 @@ $effectiveUvPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_UV_PATH")
 $effectiveFdPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_FD_PATH")
 $effectiveRipgrepPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_RG_PATH")
 $effectiveExifToolRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_EXIFTOOL_ROOT")
-$effectivePlaywrightRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_PLAYWRIGHT_ROOT")
 foreach ($requiredPath in @(
     $effectiveNodeRoot,
     $effectivePythonRoot,
@@ -142,8 +140,7 @@ foreach ($requiredPath in @(
     $effectiveRipgrepPath,
     $effectiveFdPath,
     (Join-Path $effectiveExifToolRoot "exiftool.exe"),
-    (Join-Path $effectiveExifToolRoot "exiftool_files"),
-    $effectivePlaywrightRoot
+    (Join-Path $effectiveExifToolRoot "exiftool_files")
 )) {
     if ([string]::IsNullOrWhiteSpace($requiredPath) -or -not (Test-Path -LiteralPath $requiredPath)) {
         throw "Desktop runtime build input is missing: $requiredPath"
@@ -163,7 +160,6 @@ $managedPath = @(
 $env:Path = $managedPath -join [System.IO.Path]::PathSeparator
 $env:UV_PYTHON = Join-Path $effectivePythonRoot "python.exe"
 $env:UV_PYTHON_DOWNLOADS = "never"
-$env:PLAYWRIGHT_BROWSERS_PATH = $effectivePlaywrightRoot
 
 $configuredCacheRoot = $CacheRoot
 if ([string]::IsNullOrWhiteSpace($configuredCacheRoot)) {

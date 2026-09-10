@@ -188,6 +188,9 @@ export const assertDesktopResourceSizeBudgets = (report: DesktopResourceSizeRepo
   const failures = Object.entries(report.budgets)
     .filter(([, budget]) => !budget.passed)
     .map(([name, budget]) => `${name} is ${budget.mib} MiB; limit is ${budget.limit_mib} MiB`);
+  if (report.resources.runtime.playwright.files > 0) {
+    failures.push("Standalone Chromium must not be packaged; desktop authentication uses Electron");
+  }
   const playwrightDriverNode = report.resources.runtime.python.playwright_driver_node;
   if (playwrightDriverNode.files > 0) {
     failures.push(

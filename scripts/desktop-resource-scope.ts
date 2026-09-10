@@ -25,7 +25,6 @@ const normalized = (path: string): string => path.replaceAll("\\", "/").replace(
 const managedDependencyPrefixes = [
   "runtime/python/lib/",
   "runtime/node/node_modules/",
-  "runtime/playwright/",
 ] as const;
 const prohibitedConstructiveDirectories = new Set([
   "docs",
@@ -53,6 +52,7 @@ export const approvedConstructiveResourcePath = (resourcePath: string): boolean 
   const parts = normalizedPath.split("/").filter(Boolean);
   if (parts.length === 0) return false;
   const lowerPath = normalizedPath.toLowerCase();
+  if (lowerPath.startsWith("runtime/playwright/")) return false;
   if (managedDependencyPrefixes.some((prefix) => lowerPath.startsWith(prefix))) {
     return true;
   }

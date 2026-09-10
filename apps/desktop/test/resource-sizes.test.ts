@@ -33,7 +33,6 @@ describe("desktop resource size report", () => {
     writeFileSync(join(runtime, "node", "node.exe"), Buffer.alloc(13));
     writeFileSync(join(runtime, "node", "node_modules", "module.js"), Buffer.alloc(17));
     writeFileSync(join(runtime, "python", "python.exe"), Buffer.alloc(19));
-    writeFileSync(join(runtime, "playwright", "chrome.exe"), Buffer.alloc(23));
     writeFileSync(join(runtime, "tools", "rg.exe"), Buffer.alloc(29));
     writeFileSync(join(runtime, "tools", "fd.exe"), Buffer.alloc(7));
     writeFileSync(join(runtime, "tools", "exiftool", "exiftool.exe"), Buffer.alloc(31));
@@ -44,9 +43,9 @@ describe("desktop resource size report", () => {
 
     const report = createDesktopResourceSizeReport(root);
 
-    expect(report.total.bytes).toBe(187);
+    expect(report.total.bytes).toBe(164);
     expect(report.electron.bytes).toBe(11);
-    expect(report.resources.runtime.total.bytes).toBe(176);
+    expect(report.resources.runtime.total.bytes).toBe(153);
     expect(report.resources.runtime.node.node_modules.bytes).toBe(17);
     expect(report.resources.runtime.node.npm_cache.bytes).toBe(0);
     expect(report.resources.runtime.python.playwright_driver_node.bytes).toBe(0);
@@ -62,6 +61,8 @@ describe("desktop resource size report", () => {
     expect(report.budgets.runtime.passed).toBe(true);
     expect(report.budgets.unpacked.passed).toBe(true);
     expect(() => assertDesktopResourceSizeBudgets(report)).not.toThrow();
+    writeFileSync(join(runtime, "playwright", "chrome.exe"), Buffer.alloc(23));
+    expect(() => assertDesktopResourceSizeBudgets(createDesktopResourceSizeReport(root))).toThrow("Standalone Chromium must not be packaged");
   });
 
   test("rejects a packaged Playwright driver containing its duplicate Node runtime", () => {

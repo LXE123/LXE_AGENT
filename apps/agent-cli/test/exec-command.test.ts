@@ -40,7 +40,6 @@ const pathsFor = (root: string): ExecRuntimePaths => ({
   managedPythonPath: join(root, ".venv", "bin", "python"),
   managedPath: "",
   fdPath: join(root, "fd"),
-  playwrightBrowsersPath: "",
 });
 
 const streamRequest = (job: AgentJob, state: "delta" | "final", seq: number): EmitRequest => ({

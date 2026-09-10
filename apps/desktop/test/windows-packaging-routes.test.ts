@@ -147,7 +147,8 @@ describe("Windows desktop packaging routes", () => {
     expect(runtimePreparation).toContain('"scripts/prepare-desktop-runtime.ps1"');
     expect(runtimeInputs).toContain('"scripts/prepare-desktop-runtime.ps1"');
     expect(runtimePreparation).not.toContain("Copy-LxeDirectoryContents -Source $npmCache");
-    expect(runtimePreparation).toContain("desktop-runtime-publish-layout=2");
+    expect(runtimePreparation).toContain("desktop-runtime-publish-layout=3");
+    expect(runtimePreparation).not.toContain("Install-LxePlaywrightBrowser");
     expect(runtimeInputs).toContain('desktop-runtime-publish-layout=${desktopRuntimePublishLayout}');
     expect(runtimePreparation).not.toContain("Test-LxeRuntimeImage");
     expect(runtimePreparation).not.toContain("Playwright Chromium smoke");

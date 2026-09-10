@@ -50,13 +50,6 @@
       "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"]
     },
     {
-      "id": "runtime-playwright",
-      "owner": "managed-playwright-runtime",
-      "source": { "kind": "managed-build", "name": "playwright" },
-      "target": "runtime/playwright",
-      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"]
-    },
-    {
       "id": "runtime-python",
       "owner": "managed-python-runtime",
       "source": { "kind": "managed-build", "name": "python" },

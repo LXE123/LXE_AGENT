@@ -407,7 +407,7 @@ function Get-LxeLockFingerprint {
         }
         $lines += "$relativePath=$(Get-LxeFileSha256 -Path $absolutePath)"
     }
-    $lines += "desktop-runtime-publish-layout=2"
+    $lines += "desktop-runtime-publish-layout=3"
     return Get-LxeTextSha256 -Value (($lines -join "`n") + "`n")
 }
 
@@ -641,60 +641,6 @@ function Install-LxePythonRuntime {
     }
 }
 
-function Install-LxePlaywrightBrowser {
-    param(
-        [Parameter(Mandatory = $true)][string]$PythonRoot,
-        [Parameter(Mandatory = $true)][string]$Destination
-    )
-
-    $python = Join-Path $PythonRoot "python.exe"
-    $browserCache = Join-Path $script:ResolvedCacheRoot "playwright\$($script:RuntimeLock.playwright.cache_key)"
-    if ($Offline) {
-        if (-not (Test-Path -LiteralPath $browserCache -PathType Container)) {
-            throw "Playwright Chromium is missing from the offline cache: $browserCache"
-        }
-        Copy-LxeDirectoryContents -Source $browserCache -Destination $Destination
-        return
-    }
-
-    $attempts = [int]$script:RuntimeLock.playwright.download_attempts
-    $waitSeconds = @(2, 5, 10)
-    $previousBrowserRoot = $env:PLAYWRIGHT_BROWSERS_PATH
-    $previousConnectionTimeout = $env:PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT
-    try {
-        $env:PLAYWRIGHT_BROWSERS_PATH = $browserCache
-        $env:PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT = [string]$script:RuntimeLock.playwright.download_connection_timeout_ms
-        for ($attempt = 1; $attempt -le $attempts; $attempt++) {
-            try {
-                Write-Host "Preparing Playwright Chromium (attempt $attempt/$attempts)..."
-                Invoke-LxeNative -Label "Playwright Chromium installation" -FilePath $python -Arguments @(
-                    "-I", "-m", "playwright", "install", "--no-shell", [string]$script:RuntimeLock.playwright.browser
-                ) -TimeoutSeconds 900 | Out-Null
-                if (Test-Path -LiteralPath $Destination) {
-                    Remove-Item -LiteralPath $Destination -Recurse -Force
-                }
-                Copy-LxeDirectoryContents -Source $browserCache -Destination $Destination
-                return
-            }
-            catch {
-                if (Test-Path -LiteralPath $browserCache) {
-                    Remove-Item -LiteralPath $browserCache -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                if (Test-Path -LiteralPath $Destination) {
-                    Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                if ($attempt -eq $attempts) { throw }
-                Write-Warning "Playwright Chromium preparation failed: $($_.Exception.Message)"
-                Start-Sleep -Seconds $waitSeconds[$attempt - 1]
-            }
-        }
-    }
-    finally {
-        $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowserRoot
-        $env:PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT = $previousConnectionTimeout
-    }
-}
-
 function Install-LxeUvRipgrepAndExifTool {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -787,7 +733,6 @@ function Write-LxeRuntimeDescriptor {
             rg_path = Join-Path $Root "tools\rg.exe"
             fd_path = Join-Path $Root "tools\fd.exe"
             exiftool_root = Join-Path $Root "tools\exiftool"
-            playwright_root = Join-Path $Root "playwright"
         }
     }
     $descriptorJson = ($descriptor | ConvertTo-Json -Depth 6) + "`n"
@@ -937,7 +882,6 @@ try {
         Install-LxeUvRipgrepAndExifTool -Root $stagedRoot -WorkRoot $workRoot
         Install-LxeNodeRuntime -Destination (Join-Path $stagedRoot "node") -WorkRoot $workRoot
         Install-LxePythonRuntime -Destination (Join-Path $stagedRoot "python") -UvExecutable (Join-Path $stagedRoot "uv\uv.exe") -WorkRoot $workRoot
-        Install-LxePlaywrightBrowser -PythonRoot (Join-Path $stagedRoot "python") -Destination (Join-Path $stagedRoot "playwright")
         Write-LxeRuntimeMarker -Root $stagedRoot
         Save-LxeRuntimeImageCache -Source $stagedRoot -Destination $runtimeImageCache
     }

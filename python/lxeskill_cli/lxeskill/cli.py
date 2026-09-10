@@ -365,7 +365,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     _require_uploaded_file_inputs(entry, arguments)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
-    if str(entry.get("visibility") or "") == "maintenance":
+    if str(entry.get("handler") or "") == "auth":
         try:
             data = _execute_auth(arguments)
         except ValueError as exc:
@@ -373,6 +373,23 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         except RuntimeError as exc:
             raise LxeSkillError("auth_refresh_failed", str(exc), exit_code=EXIT_BUSINESS) from exc
         files: list[str] = []
+    elif str(entry.get("handler") or "") == "auth_browser":
+        from browser_auth_service import binding
+        from browser_auth_service.service import _diagnostic
+
+        try:
+            action = entry["command_path"][-1]
+            if action == "bind":
+                data = binding.bind_browser(str(arguments["executable"]))
+            elif action == "status":
+                data = binding.browser_status()
+            elif action == "unbind":
+                data = binding.unbind_browser()
+            else:
+                raise ValueError(f"Unknown auth browser action: {action}")
+        except Exception as exc:
+            raise LxeSkillError("auth_browser_unavailable", _diagnostic(exc), exit_code=EXIT_ENVIRONMENT) from exc
+        files = []
     elif str(entry.get("handler") or "") == "browser":
         try:
             data, files = asyncio.run(execute_browser_command(entry, arguments, session_id))

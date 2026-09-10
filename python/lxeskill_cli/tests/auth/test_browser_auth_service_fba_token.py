@@ -30,7 +30,8 @@ class FakePage:
         self.waits.append(timeout_ms)
 
 
-def test_launch_chromium_uses_single_full_browser_for_headed_and_headless_modes() -> None:
+def test_launch_chromium_uses_bound_executable_for_both_modes(monkeypatch) -> None:
+    monkeypatch.setattr(service, "bound_executable", lambda: "/browser/chrome")
     calls: list[dict[str, object]] = []
 
     class FakeChromium:
@@ -45,8 +46,8 @@ def test_launch_chromium_uses_single_full_browser_for_headed_and_headless_modes(
     service._launch_chromium(FakePlaywright(), headless=False)
 
     assert calls == [
-        {"channel": "chromium", "headless": True},
-        {"channel": "chromium", "headless": False},
+        {"executable_path": "/browser/chrome", "headless": True},
+        {"executable_path": "/browser/chrome", "headless": False},
     ]
 
 

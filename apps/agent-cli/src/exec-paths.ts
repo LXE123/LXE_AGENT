@@ -17,7 +17,6 @@ export interface ExecRuntimePaths {
   managedPythonPath: string;
   fdPath: string;
   managedPath: string;
-  playwrightBrowsersPath: string;
 }
 
 export interface ResolveExecRuntimePathsOptions {
@@ -99,9 +98,6 @@ export function resolveExecRuntimePaths(
     fdPath: packaged ? join(resourceRoot, "runtime", "tools", platform === "win32" ? "fd.exe" : "fd")
       : text(environment.LXE_FD_PATH) || join(layoutRoot, "build", "desktop-runtime", `${platform}-${process.arch}`, "tools", platform === "win32" ? "fd.exe" : "fd"),
     managedPath: existingDirectories(managedDirectories).join(delimiter),
-    playwrightBrowsersPath: packaged
-      ? join(resourceRoot, "runtime", "playwright")
-      : text(environment.PLAYWRIGHT_BROWSERS_PATH),
   };
 }
 
@@ -131,7 +127,6 @@ export function execRuntimeEnvironment(
     TMPDIR: temporaryRoot,
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONNOUSERSITE: "1",
-    PLAYWRIGHT_BROWSERS_PATH: paths.playwrightBrowsersPath,
     ...(paths.sourceRoot ? {
       LXE_SOURCE_ROOT: paths.sourceRoot,
       UV_PYTHON: paths.managedPythonPath,

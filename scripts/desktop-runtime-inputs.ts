@@ -11,7 +11,7 @@ export const desktopRuntimeLockInputPaths = [
   "scripts/prepare-desktop-runtime.ps1",
   "uv.lock",
 ] as const;
-const desktopRuntimePublishLayout = 2;
+const desktopRuntimePublishLayout = 3;
 
 const runtimeInputFields = [
   ["LXE_DESKTOP_NODE_ROOT", "node_root"],
@@ -20,7 +20,6 @@ const runtimeInputFields = [
   ["LXE_DESKTOP_RG_PATH", "rg_path"],
   ["LXE_DESKTOP_FD_PATH", "fd_path"],
   ["LXE_DESKTOP_EXIFTOOL_ROOT", "exiftool_root"],
-  ["LXE_DESKTOP_PLAYWRIGHT_ROOT", "playwright_root"],
 ] as const;
 
 type RuntimeInputKey = (typeof runtimeInputFields)[number][1];
@@ -32,7 +31,6 @@ export interface DesktopRuntimeInputs {
   ripgrepExecutable: string;
   fdExecutable: string;
   exifToolRoot: string;
-  playwrightRoot: string;
 }
 
 interface DesktopRuntimeDescriptor {
@@ -134,6 +132,5 @@ export const resolveDesktopRuntimeInputs = (
     ripgrepExecutable: values.rg_path,
     fdExecutable: values.fd_path,
     exifToolRoot: values.exiftool_root,
-    playwrightRoot: values.playwright_root,
   };
 };

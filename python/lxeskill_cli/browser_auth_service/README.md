@@ -1,7 +1,7 @@
 # browser_auth_service
 
 马帮登录态刷新 CLI。业务请求平时直接读取本地状态；需要刷新时才通过子进程调用本服务，
-用 Playwright 重新获取 Cookie、FBA `freeToken` 和 WMS Cookie Header。
+通过桌面提供的 Electron 窗口，或手动绑定的 Chrome/Edge，重新获取 Cookie、FBA `freeToken` 和 WMS Cookie Header。
 
 状态文件在：
 
@@ -19,6 +19,45 @@ var/db/lxeskill/browser_auth_service/mabang_erp/<account>/state.json
 `Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
 
 ## 用 CLI 测统一认证路径
+
+桌面内发起的业务调用自动使用 Electron。独立终端运行时，先绑定本机浏览器的实际可执行文件：
+
+```bash
+uv run --frozen lxeskill auth browser bind --executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+uv run --frozen lxeskill auth browser status
+uv run --frozen lxeskill auth refresh
+uv run --frozen lxeskill auth browser unbind
+```
+
+Windows 示例：
+
+```powershell
+uv run --frozen lxeskill auth browser bind --executable "C:\Program Files\Google\Chrome\Application\chrome.exe"
+# 或指定 Edge；两者任选其一，不扫描或自动切换。
+uv run --frozen lxeskill auth browser bind --executable "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+```
+
+绑定会在临时环境启动一次空白页，验证成功后才保存路径；替换失败保留原配置。
+配置位于当前 `LXE_DATA_ROOT` 对应的 `config/mabang-auth-browser.json`，只保存版本与程序路径，
+不依赖桌面设置或账号。`status` 只检查路径和选择来源，不启动浏览器；`unbind` 不删除已有登录态。
+第一版验证 Chrome/Edge；不会连接个人浏览器标签页或复用其用户配置。独立 CLI 无绑定且需要刷新时会报错。
+
+### 浏览器来源与状态归属
+
+Python 中的登录路线、账号锁、等待与校验只有一份。桌面注入 `LXE_AUTH_BROWSER_HOST_URL` 和
+`LXE_AUTH_BROWSER_HOST_TOKEN` 时使用宿主适配器；未注入时使用绑定路径和 Playwright 控制库。
+宿主配置不完整、连接失败或绑定失效时直接报告实际错误，不自动切换后再次提交登录。
+有效缓存的读取不需要 Electron、浏览器绑定或浏览器进程。
+
+Electron 主进程提供回环地址上的 `/v1/auth-browser` 协议，限定为认证需要的导航、表单操作、
+响应捕获、Cookie 和 frame 存储读取。每次认证创建独立内存 session 与窗口，页面没有桌面 preload、
+Node 权限或业务事件。操作结束关闭窗口；客户端中断、桌面退出或会话闲置 180 秒后也会清理。
+密码、宿主令牌和材料只通过内存与已鉴权的本机连接传递，不写入浏览器绑定配置或日志。
+
+两种浏览器最终都交由 Python 完整校验并原子保存同一份 `state.json`。
+桌面安装包保留 Playwright 控制库和共享 Node 驱动运行时，但不再附带独立 Chromium。
+
+### 查看刷新过程
 
 建议先开可视化，方便看页面到底跳到哪里：
 
@@ -102,6 +141,12 @@ uv run --frozen python -m pytest -q python/lxeskill_cli/tests/auth
 ```bash
 uv run --frozen python -m compileall -q python/lxeskill_cli/browser_auth_service python/lxeskill_cli/tests
 ```
+
+真实 Electron 页面测试使用本机虚构站点和测试凭据，不会登录真实马帮。从仓库根构建
+`apps/desktop/scripts/auth-browser-smoke.ts`（`bun build --target node --format esm --external electron`），
+用 Electron 启动生成的 `.mjs`，后接当前 worktree 的 Python 可执行文件和
+`python/lxeskill_cli/tests/auth/browser_host_fixture.py` 绝对路径。它验证跨域 Cookie、目标域 Token、
+WMS 跳转后的存储、验证码失败不重试以及失败不保存半成品。
 
 ## 看 state 摘要
 

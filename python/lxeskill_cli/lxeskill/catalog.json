@@ -31,11 +31,44 @@
       "command_path": ["auth", "refresh"],
       "visibility": "maintenance",
       "session_mode": "none",
-      "handler": "internal",
+      "handler": "auth",
       "owner_skills": ["ziniao-browser"],
       "timeout_ms": 180000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {"account": {"type": "string"}}, "additionalProperties": false}
+    },
+    {
+      "name": "browser_auth_bind",
+      "command_path": ["auth", "browser", "bind"],
+      "visibility": "maintenance",
+      "session_mode": "none",
+      "handler": "auth_browser",
+      "owner_skills": [],
+      "timeout_ms": 60000,
+      "exposed": false,
+      "input_schema": {"type": "object", "properties": {"executable": {"type": "string", "minLength": 1}}, "required": ["executable"], "additionalProperties": false}
+    },
+    {
+      "name": "browser_auth_status",
+      "command_path": ["auth", "browser", "status"],
+      "visibility": "maintenance",
+      "session_mode": "none",
+      "handler": "auth_browser",
+      "owner_skills": [],
+      "timeout_ms": 10000,
+      "exposed": false,
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "browser_auth_unbind",
+      "command_path": ["auth", "browser", "unbind"],
+      "visibility": "maintenance",
+      "session_mode": "none",
+      "handler": "auth_browser",
+      "owner_skills": [],
+      "timeout_ms": 10000,
+      "exposed": false,
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
     },
     {
       "name": "assets_inspect",

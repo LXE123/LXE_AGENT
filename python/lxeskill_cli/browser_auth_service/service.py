@@ -22,6 +22,7 @@ from services.mabang.auth_constants import MABANG_MEMCACHE_COOKIE_NAME, PRIVATE_
 from services.mabang import config as mabang_settings
 
 from . import config as auth_settings
+from .binding import bound_executable, host_connection
 
 logger = get_logger(__name__)
 
@@ -103,7 +104,7 @@ class BrowserAuthRefreshError(RuntimeError):
     def __init__(self, *, stage: str, current_url: str, cause: Exception) -> None:
         self.stage = str(stage or "browser").strip()
         self.current_url = _diagnostic(current_url)
-        self.exception_type = type(cause).__name__
+        self.exception_type = getattr(cause, "remote_exception_type", type(cause).__name__)
         message = _diagnostic(cause) or self.exception_type
         super().__init__(message)
 
@@ -400,7 +401,7 @@ def _save_storage_state(
 ) -> dict[str, Any]:
     storage_payload = context.storage_state()
     if not isinstance(storage_payload, dict):
-        raise RuntimeError("Playwright storage_state response must be an object")
+        raise RuntimeError("Browser storage_state response must be an object")
     payload = dict(storage_payload)
     removed_cookies, removed_origins = _remove_dingtalk_storage_state(payload)
     if removed_cookies or removed_origins:
@@ -799,8 +800,8 @@ def _clear_state_file(state_file: Path) -> None:
 
 
 def _launch_chromium(playwright, *, headless: bool):
-    """Launch the single packaged Chromium build in headed or new-headless mode."""
-    return playwright.chromium.launch(channel="chromium", headless=headless)
+    """Launch the explicitly bound browser in an independent temporary profile."""
+    return playwright.chromium.launch(executable_path=bound_executable(), headless=headless)
 
 
 def _is_login_url(url: str) -> bool:
@@ -867,7 +868,10 @@ def _perform_login(page, account: str, password: str) -> None:
     try:
         body = response.text()
     except PlaywrightError as exc:
-        if response.status >= 400 or "Protocol error (Network.getResponseBody): No resource with given identifier found" not in str(exc):
+        if response.status >= 400 or not (
+            "Network.getResponseBody" in str(exc)
+            and "No resource with given identifier found" in str(exc)
+        ):
             raise
         # Observed during a real login. Chromium can no longer provide this body;
         # retain the actual error and require the ERP member cookie as evidence.
@@ -926,7 +930,7 @@ def _close_browser_resource(resource, label: str) -> None:
     try:
         resource.close()
     except Exception as exc:
-        logger.warning(f"[BrowserAuth] {label} close failed: {exc}")
+        logger.warning(f"[BrowserAuth] {label} close failed: {_diagnostic(exc)}")
 
 
 def _visit_private_amz_cookie_refresh_page(page) -> None:
@@ -964,11 +968,18 @@ def _refresh_auth(
     page = None
     try:
         _clear_state_file(state_file)
-        with sync_playwright() as playwright, ExitStack() as browser_resources:
+        with ExitStack() as browser_resources:
             _log_refresh_stage(stage=stage, status="start", started_at=stage_started_at)
-            browser = _launch_chromium(playwright, headless=headless)
-            browser_resources.callback(_close_browser_resource, browser, "browser")
-            context = _open_context(browser)
+            connection = host_connection()
+            if connection:
+                from .host import HostContext
+
+                context = HostContext(connection, headless=headless)
+            else:
+                playwright = browser_resources.enter_context(sync_playwright())
+                browser = _launch_chromium(playwright, headless=headless)
+                browser_resources.callback(_close_browser_resource, browser, "browser")
+                context = _open_context(browser)
             browser_resources.callback(_close_browser_resource, context, "context")
             page = context.new_page()
             _log_refresh_stage(stage=stage, status="success", started_at=stage_started_at)

@@ -23,7 +23,6 @@ export interface DesktopPaths {
   exifToolPath: string;
   fdPath: string;
   managedPath: string;
-  playwrightBrowsersPath: string;
 }
 
 export interface DesktopPathOptions {
@@ -133,8 +132,5 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
       ? targetPath.join(options.resourcesPath, "runtime", "tools", `fd${executable}`)
       : String(environment.LXE_FD_PATH ?? "").trim() || targetPath.join(sourceRoot, "build", "desktop-runtime", `${platform}-${arch}`, "tools", `fd${executable}`),
     managedPath: existingDirectories(managedDirectories).join(targetPath.delimiter),
-    playwrightBrowsersPath: options.packaged
-      ? targetPath.join(options.resourcesPath, "runtime", "playwright")
-      : String(environment.PLAYWRIGHT_BROWSERS_PATH ?? "").trim(),
   };
 }

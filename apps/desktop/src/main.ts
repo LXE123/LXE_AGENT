@@ -52,6 +52,8 @@ import {
   dashboardDomainsForMutation,
 } from "./main/dashboard-invalidation";
 import { DesktopGateway } from "./main/desktop-gateway";
+import { AuthBrowserHost } from "./main/auth-browser-host";
+import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
 import { editableContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
@@ -131,6 +133,8 @@ let shutdownComplete = false;
 let shutdownPromise: Promise<void> | undefined;
 let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
+let activeAuthBrowserHost: AuthBrowserHost | undefined;
+const applicationWindows = (): BrowserWindow[] => window && !window.isDestroyed() ? [window] : [];
 let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
 let activeLogging: DesktopLoggingManager | undefined;
@@ -163,6 +167,8 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     } catch (error) {
       logger.error("desktop_gateway_stop_failed", { error });
     }
+    await activeAuthBrowserHost?.stop();
+    activeAuthBrowserHost = undefined;
     removeIpcHandlers?.();
     removeIpcHandlers = undefined;
     tray?.destroy();
@@ -207,38 +213,38 @@ async function bootstrap(): Promise<void> {
     },
   );
   const broadcastHealth = (health: DesktopHealth): void => {
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.statusChanged, health);
     }
   };
   const broadcastCloudState = (state: DesktopCloudState): void => {
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.cloudStateChanged, state);
     }
   };
   const broadcastConversationActivity = (activity: DesktopConversationActivityPayload): void => {
     const event: DesktopConversationEvent = { activity };
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.conversationEvent, event);
     }
   };
   const broadcastConversationStream = (batch: DesktopConversationStreamBatch): void => {
     const event: DesktopConversationStreamEvent = { batch };
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) {
         browserWindow.webContents.send(IPC_CHANNELS.conversationStreamEvent, event);
       }
     }
   };
   const broadcastSyntheticPerformerTask = (task: DesktopSyntheticPerformerTask): void => {
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) {
         browserWindow.webContents.send(IPC_CHANNELS.syntheticPerformerTaskChanged, task);
       }
     }
   };
   const broadcastInvalidation = (invalidation: DesktopDashboardInvalidation): void => {
-    for (const browserWindow of BrowserWindow.getAllWindows()) {
+    for (const browserWindow of applicationWindows()) {
       if (!browserWindow.isDestroyed()) {
         browserWindow.webContents.send(IPC_CHANNELS.dashboardInvalidated, invalidation);
       }
@@ -265,6 +271,9 @@ async function bootstrap(): Promise<void> {
     prepare: prepareClipboardScreenshot,
   });
   activeConversationAttachments = conversationAttachments;
+  const authBrowserHost = new AuthBrowserHost(async headless => new ElectronAuthBrowserSession(headless));
+  await authBrowserHost.start();
+  activeAuthBrowserHost = authBrowserHost;
   gateway = new DesktopGateway({
     paths,
     config,
@@ -272,6 +281,7 @@ async function bootstrap(): Promise<void> {
     packaged: packagedRuntime,
     desktopLoggingStatus: () => logging.status(),
     attachments: conversationAttachments,
+    authBrowserEnvironment: () => authBrowserHost.environment(),
     allowedSkillTypes: () => cloud?.allowedSkillTypes()
       ?? config.cloudPermissionSnapshot()?.allowed_skill_types
       ?? [],
@@ -279,7 +289,7 @@ async function bootstrap(): Promise<void> {
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
     onSessionStatus: snapshot => {
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of applicationWindows()) {
         if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.sessionStatus,snapshot);
       }
     },
