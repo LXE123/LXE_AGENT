@@ -688,7 +688,7 @@ export class DashboardService {
       model: target.model,
       configured: false,
       selectable: false,
-      disabled_reason: this.options.managedLlmState?.()?.models.find(m => m.provider === target.provider && m.model === target.model)?.unavailable_reason ?? "unsupported managed model; update the Agent or publication",
+      disabled_reason: this.options.managedLlmState?.()?.models.find(m => m.provider === target.provider && m.model === target.model)?.unavailable_reason ?? "unsupported managed model",
       model_options: [option],
       thinking_request_style: "none",
       thinking_levels: [],
