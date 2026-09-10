@@ -17,6 +17,7 @@ import {
   CircleHelp,
   Clock,
   Copy,
+  File as FileIcon,
   FileText,
   FolderOpen,
   Info,
@@ -669,7 +670,7 @@ function InputAttachmentList({
     <div className={`turn-file-list input-attachment-list${draft ? " input-attachment-draft" : ""}`} role="group" aria-label={t.conversation.attachments}>
       {!draft ? <span className="turn-file-label">{t.conversation.attachments}</span> : null}
       {attachments.map((attachment) => (
-        <span className={`input-attachment-chip${draft && attachment.preview_data_url ? " input-attachment-image" : ""}`} key={attachment.attachment_id}>
+        <span className={`input-attachment-chip${draft ? attachment.preview_data_url ? " input-attachment-image" : " input-attachment-file" : ""}`} key={attachment.attachment_id}>
           <button
             className="turn-file-chip"
             disabled={!onOpen && !(draft && attachment.preview_data_url)}
@@ -677,7 +678,13 @@ function InputAttachmentList({
             title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
             type="button"
           >
-            {attachment.preview_data_url ? <img className="input-attachment-preview" src={attachment.preview_data_url} alt={attachment.name} /> : <Paperclip size={14} />}
+            {attachment.preview_data_url ? <img className="input-attachment-preview" src={attachment.preview_data_url} alt={attachment.name} /> : draft ? (
+              <span className="input-attachment-file-icon" aria-hidden="true">
+                {FILE_TYPE_ICONS[attachmentSuffix(attachment.name)]
+                  ? <img src={FILE_TYPE_ICONS[attachmentSuffix(attachment.name)]} alt="" draggable={false} />
+                  : <FileIcon size={28} />}
+              </span>
+            ) : <Paperclip size={14} />}
             {!draft || !attachment.preview_data_url ? <span className="input-attachment-info">
               <span>{attachment.preview_data_url ? t.conversation.screenshot : attachment.name}</span>
               {attachmentSuffix(attachment.name) ? <span className="input-attachment-suffix">{attachmentSuffix(attachment.name)}</span> : null}

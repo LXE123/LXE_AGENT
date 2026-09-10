@@ -11333,18 +11333,57 @@ pre {
   overflow-x: auto;
   min-width: 0;
   gap: 8px;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .input-attachment-draft > .input-attachment-chip {
+  position: relative;
   flex-shrink: 0;
+  height: 80px;
+  border-radius: 12px;
 }
 
 .input-attachment-image {
-  position: relative;
   width: 80px;
-  height: 80px;
-  border-radius: 12px;
   overflow: hidden;
+}
+
+.input-attachment-file {
+  width: 264px;
+}
+
+.input-attachment-file .turn-file-chip {
+  width: 100%;
+  height: 100%;
+  gap: 10px;
+  padding: 10px 32px 10px 10px;
+}
+
+.input-attachment-file-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.input-attachment-file-icon > img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.input-attachment-file .input-attachment-info {
+  flex: 1;
+  gap: 5px;
+  font-size: 0.8125rem;
+}
+
+.input-attachment-file .input-attachment-suffix {
+  font-size: 0.75rem;
 }
 
 .input-attachment-image .turn-file-chip {
@@ -11362,7 +11401,7 @@ pre {
   border-radius: inherit;
 }
 
-.input-attachment-image .input-attachment-remove {
+.input-attachment-draft .input-attachment-remove {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -11372,11 +11411,11 @@ pre {
   box-shadow: 0 1px 4px #0003;
 }
 
-.input-attachment-image .input-attachment-remove:hover {
+.input-attachment-draft .input-attachment-remove:hover {
   background: var(--surface-subtle);
 }
 
-.input-attachment-image .input-attachment-remove:focus-visible {
+.input-attachment-draft .input-attachment-remove:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 1px;
 }
