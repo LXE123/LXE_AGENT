@@ -124,8 +124,8 @@ def mock_download(monkeypatch, tmp_path, *, local_sku=""):
     async def pipeline(spec):
         staging = spec.download_file.keywords["output_dir"]
         path = staging / f"202609101600-{STORE}_店铺MSKU数据.xlsx"
-        path.write_bytes(_xlsx_bytes([{"店铺名称": STORE, "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": local_sku}],
-                                    columns=["店铺名称", "MSKU", "ASIN", "本地SKU"]))
+        path.write_bytes(_xlsx_bytes([{"店铺名称": STORE, "站点": "欧洲站", "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": local_sku}],
+                                    columns=["店铺名称", "站点", "MSKU", "ASIN", "本地SKU"]))
         return msku.StoreMskuExcelResult(STORE, SID, "shopId", 1, str(path), False, False)
 
     monkeypatch.setattr(msku, "fetch_fba_stores", stores)
@@ -140,6 +140,7 @@ def test_download_publishes_country_metadata_and_keeps_missing_local_sku(monkeyp
     assert result.xlsx_path == str(target)
     verified = load_verified_source(target, store_name=STORE)
     assert verified.metadata["site"] == "de"
+    assert verified.records[0]["站点"] == "欧洲站"
     assert verified.metadata["binding_verified_row_count"] == 0
     assert verified.metadata["unverified_rows"][0]["reason"] == "源表无本地SKU，不参与备货计算"
     assert list(tmp_path.iterdir()) == [target]

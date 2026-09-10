@@ -18,7 +18,6 @@ from .sku_catalog import (
     NOT_FOUND_REASON, VERIFICATION_METHOD, LocalSkuDefinition, SkuCatalogSnapshot,
     combo_map, definition_map,
 )
-from .store_sites import SITE_TO_MARKETPLACE
 
 SHEET = "源数据核验信息"
 VERSION = 3
@@ -169,12 +168,10 @@ def annotate_source(path: Path, snapshot: SkuCatalogSnapshot, *, requested_store
             raise SourceVerificationError("下载原表包含保留的源数据核验字段，拒绝覆盖")
         for record in records:
             store = clean_text(record.get("店铺名称"))
-            site = clean_text(record.get("站点")).upper()
-            site = SITE_TO_MARKETPLACE.get(site, site).lower()
-            if site == "uk":
-                site = "gb"
-            if (store and store not in (snapshot.store_name, requested_store_name)) or (site and site != snapshot.site):
-                invalid("MSKU 源表店铺/站点核验", "源表包含其他店铺或站点", record)
+            # The XLSX site is a region label (e.g. 欧洲站), not a country code.
+            # Preserve it as source data; the selected shop supplies metadata.site.
+            if store and store not in (snapshot.store_name, requested_store_name):
+                invalid("MSKU 源表店铺核验", "源表店铺名称与所选店铺不一致", record)
         tags = classify(records, snapshot.skus)
         metadata = {
             "version": VERSION, "scope": "xlsx_all", "verification_method": VERIFICATION_METHOD, "store_name": snapshot.store_name,

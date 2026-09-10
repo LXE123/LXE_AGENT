@@ -177,13 +177,37 @@ def test_listing_accepts_all_statuses_without_filter(monkeypatch, status):
     assert asyncio.run(combo.fetch_listing_snapshot('shop')).bindings == (combo.ListingSkuBinding('M', 'A', 'S', 1),)
 
 
-@pytest.mark.parametrize('extra', [{'店铺名称': 'other'}, {'站点': '德国站'}])
-def test_source_scope_is_not_inferred_from_matching_sku(tmp_path, extra):
+def test_source_shop_is_not_inferred_from_matching_sku(tmp_path):
+    extra = {'店铺名称': 'other', '站点': '欧洲站'}
     path = tmp_path/'source.xlsx'
     workbook = Workbook(); workbook.active.append(['MSKU', 'ASIN', '本地SKU', *extra])
     workbook.active.append(['M', 'A', 'S', *extra.values()]); workbook.save(path); workbook.close()
-    with pytest.raises(OfficialApiError, match='其他店铺或站点'):
+    with pytest.raises(OfficialApiError, match='源表店铺名称与所选店铺不一致'):
         active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (binding(),)), requested_store_name='shop')
+
+
+@pytest.mark.parametrize('site,label', [('de', '欧洲站'), ('fr', '欧洲站'), ('gb', '欧洲站'), ('us', '美国站'), ('de', None)])
+def test_source_region_label_is_preserved_without_country_comparison(tmp_path, site, label):
+    path = tmp_path/'source.xlsx'
+    original = {'店铺名称': 'shop', '站点': label, 'MSKU': 'Amazon.Found.B0BN5NRBP1',
+                'ASIN': 'B0BN5NRBP1', '本地SKU': 'S', '7天销量': 7, '可售': 5}
+    workbook = Workbook()
+    workbook.active.append(list(original))
+    workbook.active.append(list(original.values()))
+    workbook.save(path)
+    workbook.close()
+    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', site, (binding(),)), requested_store_name='shop')
+    verified = active.load_verified_source(path, store_name='shop')
+    assert verified.metadata['site'] == site
+    assert verified.counts['binding_verified_row_count'] == 1
+    assert {key: verified.records[0][key] for key in original} == original
+    # A display-only field is still part of the immutable source fingerprint.
+    workbook = load_workbook(path)
+    workbook.active.cell(2, 2, 'changed-label')
+    workbook.save(path)
+    workbook.close()
+    with pytest.raises(active.SourceVerificationError, match='发生变化'):
+        active.load_verified_source(path, store_name='shop')
 
 
 def test_download_listing_deadline_cancels_without_publication(monkeypatch, tmp_path):
