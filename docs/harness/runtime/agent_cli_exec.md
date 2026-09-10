@@ -1,7 +1,5 @@
 # Agent CLI exec
 
-状态：Current
-
 ## 先说结论
 
 `agent-cli exec` 是面向脚本和 CI 的一次性 Runtime 入口。一次命令只执行一个 turn，完成后关闭 Runtime；Desktop 继续使用长驻的 `agent-cli serve`，两者的协议、数据库和生命周期互不混用。

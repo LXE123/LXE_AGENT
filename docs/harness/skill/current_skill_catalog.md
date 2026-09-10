@@ -1,7 +1,5 @@
 # Current Skill Catalog
 
-Status: `Current`
-
 This page is a navigation inventory, not a second source of runtime prompt truth. The authoritative content remains each repository `skills/*/SKILL.md`; discovery behavior is implemented in `packages/agent/runtime/src/tooling/skills.ts`.
 
 ## Inventory

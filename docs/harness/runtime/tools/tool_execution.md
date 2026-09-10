@@ -1,10 +1,8 @@
 # Tool Execution
 
-状态：Current
-
 ## 目的
 
-Tool execution 把 provider 的 `tool_use` 转为受控本地调用，并确保 cancel、error、artifact、state patch、usage 和 canonical result 在所有来源上保持一致。
+Tool execution 把 Provider 归一化后的 `tool_call` 转为受控本地调用，并确保 cancel、error、artifact、state patch、usage 和 canonical result 在所有来源上保持一致。
 
 ## Dispatch 前检查
 
@@ -18,9 +16,11 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 未知或未暴露工具不能通过直接构造 name 绕过 schema。
 
+执行按原调用顺序分组：相邻且声明 `supportsParallelCalls=true` 的调用可并行；其他调用独占执行，不能跨它们合并并行组。结果按原调用顺序闭合。`ask_user_question` 不参加并行执行，详见 [结构化提问](../../tool/ask-user-question.md)。
+
 ## Native 工具
 
-Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、wait 和 send_files：
+Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、ls、exec、wait 和 send_files：
 
 - 路径先相对 Session working directory 解析；绝对路径、`~`、`..` 和跨 workspace 符号链接都交给宿主文件系统处理。
 - read/write/edit/grep/find/ls/send_files 和 `exec.cwd` 可以访问 LXE Agent 进程用户有权访问的任意宿主路径；OS 拒绝时只对敏感值做统一脱敏和显式截断，`EACCES`、`EPERM` 等实际系统错误不会改写成泛化提示。
@@ -44,7 +44,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 
 - `catalog.json` 决定稳定 command path、owner skill、业务 module 和 artifact 声明。
 - `exec.command` 只允许一条独立的 `lxeskill` 调用；拒绝 `python -m`、内部业务 module、管道、重定向和 shell 拼接。
-- Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 生成实际 skill scope，Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责命令授权、参数校验和业务 dispatch。
+- Desktop 下发服务器验证的业务权限决定允许的 skill types；`AgentRuntimeHost` 生成实际 skill scope，Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责命令授权、参数校验和业务 dispatch。
 - Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、yield observation、output limit、Session ownership 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
 
@@ -70,14 +70,14 @@ Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预�
 
 `tool-display.ts` 生成 CardKit step：
 
-- detail 默认限制 240 chars。
+- 普通 detail 默认限制 240 chars；exec 的命令文本保留以便核对实际执行内容。
 - full mode 才展示 result detail，最大 4000 chars。
 - error detail 最大 2000 chars。
-- 路径、secret、cookie、authorization 和大型 payload 被脱敏/截断。
+- result/error 经脱敏和截断；路径显示由 showFullPaths 控制，桌面本机视图可显示完整路径。不能把工具卡当作任意输入的脱敏导出。
 
 Model-visible result、用户展示和运行日志是三个不同输出，不能互相直接复用。
 
-其中模型只能根据 `verified_reason` 陈述原因。HTTP status、异常文本、平台 fallback、旧 transcript 中的 assistant 判断，以及 `[Unable to download ...]` 一类历史占位符都只是观测事实，不能升级为权限、过期、网络、格式或客户端版本诊断。用户卡片只显示稳定的安全提示；provider code、log ID 和诊断上下文进入结构化结果或日志。
+其中模型只能根据 `verified_reason` 陈述原因。HTTP status、异常文本、平台 fallback、旧 transcript 中的 assistant 判断，以及 `[Unable to download ...]` 一类历史占位符都只是观测事实，不能升级为权限、过期、网络、格式或客户端版本诊断。用户卡片按展示设置显示有界的实际错误信息；结构化结果与日志保留经过必要脱敏的诊断。只有固定形状且有 fixture 或集成测试证明语义等价的错误，才可采用固定替代文本。
 
 ## Usage
 

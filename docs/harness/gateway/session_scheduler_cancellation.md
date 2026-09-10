@@ -1,7 +1,5 @@
 # Session Scheduler and Cancellation
 
-状态：Current
-
 ## 目的
 
 `SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行，允许不同 session 同时执行，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。

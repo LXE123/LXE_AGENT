@@ -1,7 +1,5 @@
 # Turn Step Lifecycle
 
-状态：Current
-
 ## 目的
 
 Step 是一次 provider request 与其 tool dispatch 的闭合周期。固定 step 顺序能保证 cancellation、steering、context compaction 和 transcript replay 在任意中断点都得到同样结果。
@@ -16,7 +14,7 @@ cancel checkpoint
   -> provider attempts
   -> append assistant content
   -> no tools? final
-  -> dispatch tool uses in order
+  -> dispatch tool calls in ordered parallel/exclusive groups
   -> append closed tool results
   -> next step
 ```
@@ -52,7 +50,7 @@ Provider response 无论包含正文、thinking 还是 tool use，都先作为 a
 
 ## Tool 阶段
 
-同一 assistant 中多个 tool use 按顺序执行。每个调用：
+同一 assistant 中的 tool call 按原顺序分组，相邻且声明支持并行的调用一起执行，其余调用独占。每个调用：
 
 1. 检查 steering/cancel。
 2. 验证 exposure 和 input schema 边界。
@@ -62,7 +60,7 @@ Provider response 无论包含正文、thinking 还是 tool use，都先作为 a
 6. 记录 duration、usage 与展示终态。
 7. 构造 model-visible result。
 
-全部结果组成 user message append。即使一个工具失败，后续工具仍按当前策略执行，除非 cancel 或 steering 明确中断计划。
+全部结果按原调用顺序组成 tool message append。即使一个工具失败，后续工具仍按当前策略执行，除非 cancel 或 steering 明确中断计划。
 
 ## Exposure 生效时机
 
@@ -78,7 +76,7 @@ tool dispatch 前发现 steering 时，当前及剩余未执行 tool use 都写 
 
 ## Cancel 中断
 
-取消时剩余 tool use 写 cancelled stub。正在运行的 handler 通过 signal 终止；Runtime 等待必要的有界清理后关闭 streamer 和 turn usage。
+取消时尚未 dispatch 的调用写 cancelled stub；正在等待的问题与当前 exec/wait 观察通过 signal 结束。已创建的 exec 继续由 Session manager 持有，只有 terminate、Session 删除或 Runtime 关闭才终止进程树。Runtime 完成工具闭合后关闭 streamer 和 turn usage。
 
 cancelled step 不进入新的 provider request，剩余 steering 由 Scheduler 根据 run 状态决定丢弃或重新排队。
 

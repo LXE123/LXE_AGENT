@@ -1,41 +1,11 @@
-# Product lines and branch migration
+# 产品分支边界
 
-Status: Accepted (2026-07-16)
+决策日期：2026-07-16。当前开发和打包入口见 [Desktop 技术手册](../desktop/README.md)。
 
-## Decision
+- main 是 Electron Desktop 产品线，负责桌面会话、Main/Renderer、私有 Agent CLI、运行资源和 Windows NSIS 分发。macOS 源码开发和预览也在此分支。
+- lxe-agent-TUI 是独立源码终端产品线，其终端启动器、浏览器 Dashboard 和安装方式以该分支 README 为准。
+- 两条分支保留独立产品历史，公共修复按需选择性移植，不通过整体 merge 或 rebase 保持同步。
 
-- `main` is the default Electron desktop product line. It owns Electron Main,
-  the React renderer, the private `agent-cli`, managed runtimes, and Windows NSIS packaging.
-- `lxe-agent-TUI` is the source-installed Gateway/TUI product line. It owns the
-  terminal launchers, browser Dashboard installation flow, and project `.venv` runtime.
-- The branches remain independent product histories. Shared fixes are moved
-  selectively; the branches are not kept synchronized by merge or rebase.
+main 中保留的旧源码安装脚本默认获取 lxe-agent-TUI，供历史安装 URL 继续使用。开发 Desktop 应按桌面手册安装当前 checkout 的 Bun/uv 依赖，不使用这些 TUI 安装脚本。
 
-Both branches retain `scripts/install.sh` and `scripts/install.ps1`, but their
-default source ref is always `lxe-agent-TUI`. This keeps historical raw URLs under
-`main` safe after the desktop branch becomes the default: invoking an old installer
-still installs the source product rather than a desktop source tree.
-
-## Existing source installations
-
-An installation that still tracks the former `main` must retarget once after the
-GitHub branch rename:
-
-```bash
-git fetch origin
-git branch -m main lxe-agent-TUI
-git branch --set-upstream-to=origin/lxe-agent-TUI lxe-agent-TUI
-git remote set-head origin -a
-```
-
-After that migration, `LXE update` continues to update the source product. Raw
-installer URLs and existing local upstream configuration do not follow a GitHub
-branch rename automatically.
-
-## Local worktrees
-
-- `/Users/llxx/Projects/github/LXE_AGENT_LOCAL_FBA` tracks desktop `main`.
-- `/Users/llxx/Projects/github/LXE_AGENT_LOCAL_FBA-TUI` tracks `lxe-agent-TUI`.
-
-The primary workspace path is unchanged. No Codex or Claude Code session storage
-is modified as part of the branch or linked-worktree rename.
+main 同样提供显式调用的 [一次性 Agent CLI exec](../harness/runtime/agent_cli_exec.md)，不要求切换产品分支。每份源码 checkout 和 worktree 各自维护 .venv；分支划分不改变这条依赖隔离规则。

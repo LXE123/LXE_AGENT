@@ -1,7 +1,5 @@
 # Session Routing
 
-状态：Current
-
 ## 目的
 
 Session Router 是平台事件进入调度器前的控制面。它解析稳定 session source，维护 binding 与 response route，处理 `/stop`、`/clear` 和 steering，最后创建字段完整的 `AgentJob`。

@@ -13,9 +13,10 @@ stdout 只写协议消息，日志写 stderr。桌面 Renderer ↔ Electron 的 
 
 ## 启动握手
 
-`jsonrpc: "2.0"` 表示通信规范版本，业务协议版本单独管理，目前为 **18**。
-`initialize.params` 在资源路径、数据目录、工作区和技能权限之外必须携带
-`protocol_version: 18`；成功结果在原健康信息之外返回同一字段。
+`jsonrpc: "2.0"` 表示通信规范版本；业务协议版本由共享包中的
+[`AGENT_PROTOCOL_VERSION`](../../packages/foundation/desktop-protocol/src/index.ts) 单独管理。
+`initialize.params` 在资源路径、数据目录、工作区和技能权限之外必须携带对应的
+`protocol_version`；成功结果返回相同版本，不能从旧文档复制固定数字。
 
 agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后才标记 ready。
 版本不匹配立即失败，不自动重启同一不兼容程序。初始化期间复用同一个 Promise，
@@ -31,17 +32,15 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后
 {"jsonrpc":"2.0","method":"session.changed","params":{"thread_id":"session-1","payload":{"changes":["messages"]}}}
 ```
 
-请求方法沿用原来的 13 个名称：`initialize`、`update_skill_permissions`、
-`update_managed_llm_credential`、`run_turn`、`cancel_turn`、`steer_turn`、`ensure_session`、
-`append_pending_event`、`has_pending_events`、`resolve_artifact`、`resolve_attachment`、
-`dashboard_call`、`shutdown`。方法只接受对象参数；省略 params 按空对象校验。
-`dashboard_call` 继续携带 `{ operation, input }`，沿用业务 Schema 与权限边界。
+方法名、参数和通知列表统一以 [`AgentCommandPayloads` 与 `AgentEvent`](../../packages/foundation/desktop-protocol/src/index.ts) 为准。执行与控制使用 `run_turn`、`cancel_turn`、`steer_turn`，会话状态使用 `session_status`；Dashboard 查询使用 `dashboard_call` 携带 `{ operation, input }`。方法只接受对象参数，省略 params 按空对象校验。
+
+桌面问题通过 `sessions.questions` 查询当前快照、`sessions.answer` 提交答案，均由专用 Dashboard operation 到达 Runtime，不进入普通消息队列。`session.changed` 的 `questions` 变化只通知客户端重新查询，详见 [结构化提问](../harness/tool/ask-user-question.md)。
 
 Gateway 生成 UUID 请求 ID；通用解析器接受字符串、有限数值与 null，并原样回传。
 成功响应只有 result，失败响应只有 error。无 id 的调用是通知，即使未知方法、
 非法业务参数或执行失败，也不会回送响应，只记录诊断。
 
-服务端通知保留 13 个名称：`item.completed`、`conversation.stream.delta`、`typing.changed`、
+主要服务端通知包括：`item.completed`、`conversation.stream.delta`、`typing.changed`、
 `agent.wake`、`background_task.changed`、`managed_llm.authentication_failed`、`session.changed`、
 `system.ready`、`system.status`、`thread.started`、`turn.started`、`turn.completed`、`turn.failed`。
 原事件的路由字段与 payload 放进 params；Gateway 校验后转成内部 AgentEvent，
@@ -72,7 +71,7 @@ Invalid Request。Gateway 正常业务仍逐行发送单条请求，响应可乱
 interface 由生成脚本转换为等价 type 别名，遇到未支持的声明形式直接失败。
 TypeScript 检查字段结构和判别联合；长度、数值范围等约束仍由 Ajv 在运行时检查。
 Ajv 显式注册本地共享 Schema，不下载引用文件。展示流报错按 `kind`、`type` 选择实际
-分支，避免将其他分支缺少的字段误报为当前消息错误。本次整理不改变通信格式或版本 18。
+分支，避免将其他分支缺少的字段误报为当前消息错误。业务契约变化时同步更新共享版本和两端校验，不能只更新文档或生成类型。
 
 ### 错误码
 
@@ -108,7 +107,7 @@ stdout flush 完成后退出。重复 shutdown 等待同一次清理，不提前
 
 ## 验证
 
-协议、agent-cli 服务端及 Gateway 子进程测试覆盖 13 个命令、13 类通知、batch、
+协议、agent-cli 服务端及 Gateway 子进程测试覆盖请求、通知、batch、
 版本握手、并发取消、错误脱敏、乱序响应、断连恢复和 context_source。
 展示、IPC 和历史交接沿用相关定向回归。
 
@@ -123,6 +122,4 @@ bun apps/dashboard/test/features/sessions/jsonrpc-fixture-server.ts
 runtime host 和会话存储为内存 fixture。HTTP 仅用于验收页面桥接，不属于生产通信。
 不调用模型、不读写生产数据库。退出 fixture 服务会关闭子进程。
 
-2026-09-06 浏览器验收：发送后出现右侧用户气泡和分段文本；完成显示 completed；
-生成期间点击停止显示 cancelled，正文和气泡保留，Gateway/agent-cli 始终 ready，
-展示用量收到 context_tokens=100。该 fixture 不覆盖原生 Electron 窗口；IPC 用定向测试回归。
+该 fixture 验证消息、展示交接和取消；原生 IPC 与窗口行为另用 Electron fixture。问题卡片的真实窗口验收入口见 [结构化提问](../harness/tool/ask-user-question.md#验证)。

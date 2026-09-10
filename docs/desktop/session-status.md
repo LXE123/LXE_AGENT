@@ -2,6 +2,8 @@
 
 圆点表示整轮任务状态，选中会话只用背景高亮。运行与停止时呼吸，排队时空心；空闲后，未查看的失败显示红点，成功显示绿点。取消不产生完成提示。系统要求减少动画时停用呼吸。
 
+等待结构化答案时，列表和当前会话额外显示“等待回答”。该标记来自 Runtime 问题快照，任务仍占用本会话的执行位置，不产生完成提示；问题结束或失效后刷新。见 [结构化提问](../harness/tool/ask-user-question.md)。
+
 ## 谁决定开始与结束
 
 Scheduler 接受任务后发布 queued，分配执行位置后发布 running；取消请求期间是 stopping，被拒后恢复 running。Runtime 返回或抛错，由 Gateway 转为 runtime.turn.completed，Scheduler 核对 session/run/job 身份后才发布终态。流结束、工具失败、后台命令仍存活都不能单独决定整轮结束。自动唤起也走同一调度入口。

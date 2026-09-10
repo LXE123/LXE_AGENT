@@ -1,7 +1,5 @@
 # Runtime Context
 
-状态：Current
-
 ## 目的
 
 Context subsystem 决定 provider 实际看见哪些 system、message、tool schema 和 image 信息，并保证 replay、steering、tool closure 与 compaction 后仍可继续执行。它不是简单的 prompt 拼接器，而是会影响长期模型视图的状态边界。

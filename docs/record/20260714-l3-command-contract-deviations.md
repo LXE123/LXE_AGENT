@@ -1,7 +1,5 @@
 # L3 command contract deviations
 
-状态：Current
-
 日期：2026-07-14
 
 ## 背景

@@ -1,73 +1,31 @@
 # Streaming Adapter
 
-Status: `Current`
+三类 Provider 使用各自的协议适配器，将响应归一化为共享 AssistantMessage 和流事件。选择入口见 [LLM 适配](README.md)，完整内容索引与事件契约见 [统一模型消息流](../assistant-message-stream.md)。
 
-The streaming adapter converts one runtime step into an Anthropic-compatible Messages stream and converts provider events back into runtime deltas. Its implementation is centered in `packages/agent/runtime/src/providers/provider.ts`.
+## 输入与输出
 
-## Inputs
+每次调用使用固定的 system、canonical history、可见工具、provider/model、推理设置、输出上限和取消信号。适配器不发现 Skills、不执行工具，也不直接持久化会话。
 
-Each call receives a stable step snapshot:
+协议事件累计为文本、思考和工具调用内容，保留稳定的内容索引、调用 ID、参数、usage 和停止原因。Runtime 消费统一事件生成桌面或渠道展示，收到完整消息后再进入工具执行或 final。
 
-- system instructions and canonical conversation messages;
-- provider-visible tool definitions;
-- selected provider, model, thinking level, and output limit;
-- explicit tool choice, including the provider-level `none` value;
-- cancellation signal and request timeout;
-- turn/session identifiers used only for scoped diagnostics.
+## 协议专属处理
 
-Context assembly and tool exposure happen before the adapter is called. The adapter must not discover skills, execute tools, or persist messages.
-Before transport, it applies the selected provider's history whitelist and thinking-field rules; unsupported blocks never pass through unchanged.
+- **Anthropic Messages**：消费 SDK 的原始 streamEvent，包括 content_block_start 和后续 delta；由 AnthropicMessagesStreamAdapter 累计 block，保留该协议允许的 signature 和 redacted thinking。这个事件名称不适用于 OpenAI 两类接口。
+- **OpenAI Completions**：累计增量正文、推理字段和按 index 分段的 tool_calls；reasoning 字段差异由已验证的模型描述控制。
+- **OpenAI Responses**：按 item ID、output index 和 content index 关联内容，done 事件校正最终值；tool call ID 与供应商 item ID 分开保存。
 
-## Event Normalization
+历史中的不透明签名、item ID 等只在来源匹配时重放。适配发生在请求视图中，持久化的 canonical transcript 保持原有内容。
 
-Provider stream events are accumulated into a runtime assistant message. The normalized stream distinguishes:
+## 取消、超时与失败
 
-- user-visible answer text;
-- reasoning/thinking text when the provider exposes it;
-- tool-use identifiers, names, and incrementally decoded arguments;
-- usage and completion metadata;
-- terminal provider errors.
+调用方 abort 会结束当前流，不作为普通传输错误重试。Provider 的空闲 watchdog 使用已验证的 descriptor 时限，默认 120 秒，连接与流活动会重置计时；它约束无响应间隔，不是整个回合的总时限，也不适用于等待用户回答。
 
-Partial JSON tool arguments are buffered until they form the final tool-call input. A completed step returns either final assistant content or tool calls for the runtime loop; it does not execute those calls itself.
+普通可重试失败由 Runtime step loop 最多尝试三次；认证、权限、非法请求和取消不会盲目重试。上下文溢出走独立的压缩与恢复路径，不能只重复发送同一份过大请求。具体策略见 [Turn Execution](../runtime/turn_execution.md)。
 
-The SDK's raw `streamEvent` supplies non-empty initial content from `content_block_start`. SDK high-level callbacks continue to supply subsequent text and thinking deltas. Redacted-thinking blocks are emitted once even when both callback layers observe the same block. Listener or conversion failures are isolated as wire `parse_error` diagnostics and cannot terminate an otherwise healthy provider stream.
+协议归一化失败必须使本次请求失败，不能伪装成空白成功。写 trace 的失败与业务解析失败分开：诊断写入错误不应破坏模型调用，实际协议解析错误则保留诊断并终止该请求。
 
-## Cancellation And Timeouts
+## 诊断与持久化
 
-The caller supplies an abort signal. Cancellation must close the provider stream promptly and surface as turn cancellation, not as a generic provider failure.
+日志和 wire trace 对凭据、Cookie、签名、不透明推理数据、base64 和过长载荷做脱敏及截断。可读的文本或思考增量可能出现在显式启用的诊断 trace 中，详见 [日志契约](../logger.md)。
 
-A fixed 120-second watchdog bounds Provider inactivity independently of gateway job cancellation. The watchdog resets on connection and every stream event, so an active long-running response is not treated as timed out. Timeout errors are classified so the turn loop can apply bounded retry policy. Cleanup must run even when the stream ends before yielding content.
-
-## Retry And Overflow
-
-Ordinary transient requests use bounded attempts; the current turn policy allows up to three normal attempts. Authentication, invalid-request, and permission errors are not retried blindly.
-HTTP errors and SSE error events share the same provider classifier. Nested status fields such as `error.error.status_code` are retained before category and retryability are decided.
-
-Context overflow is a separate path:
-
-1. Runtime estimates `system + messages + tool schemas` before the call.
-2. If the soft threshold is crossed, it attempts summary compaction.
-3. If the provider still reports overflow, runtime performs its dedicated recovery path.
-4. If safe compaction cannot reduce the request, the turn returns an explicit overflow result.
-
-This separation prevents a too-large request from consuming normal transport retries without changing its size.
-
-## Tracing And Redaction
-
-Stream and wire traces are optional local diagnostics controlled by runtime trace settings and the local-log master switch. Traces must sanitize:
-
-- authorization, API key, token, secret, password, cookie, and signature fields;
-- redacted/encrypted thinking payloads;
-- base64 media and oversized strings;
-- absolute local filesystem paths.
-
-Console INFO output should summarize request lifecycle and outcome. Detailed event payloads belong at DEBUG or in sanitized local trace files.
-
-## Invariants
-
-- The persisted canonical transcript is not replaced by a provider-repaired request view.
-- DeepSeek thinking history is replayed without signature fields; unsupported image, redacted, and unknown blocks are replaced or dropped according to its provider contract.
-- Tool calls returned from a stream have stable IDs and valid object arguments.
-- A failed stream cannot masquerade as a successful empty assistant response.
-- Cancellation and timeout always release stream resources.
-- Provider details do not leak through user-facing errors or channel cards.
+Transcript 为后续 replay 保存必要的模型内容；它不是日志脱敏后的副本。用户展示、模型上下文和诊断输出分别处理，错误不得用无事实依据的通用提示覆盖。

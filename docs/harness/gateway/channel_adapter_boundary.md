@@ -1,7 +1,5 @@
 # Channel Adapter Boundary
 
-状态：Current
-
 ## 目的
 
 Channel adapter 隔离平台 SDK 与 Agent 核心。Gateway 只接受统一 `InboundEvent` 并发出统一 `OutboundRequest`；飞书事件结构、资源下载、reaction、CardKit sequence 和 API 错误都留在 adapter 内部。

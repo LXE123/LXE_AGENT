@@ -1,14 +1,13 @@
 # Runtime Tools
 
-状态：Current
-
 ## 目的
 
 Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy、cancel、artifact 和 usage 统一在一个 registry 中。工具来源可以不同，但 provider 只看到当前 turn/step 允许的标准 definition。
 
 ## 工具来源
 
-- Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/wait 等能力。
+- Native direct tools：Runtime 内置的 read/write/edit/grep/find/ls/send_files/exec/wait 等能力。
+- Desktop interaction：`ask_user_question` 只对真实来源为桌面的当前回合开放，返回答案后继续同一工具调用。
 - 飞书远程渠道：Gateway 保留入站、回复、typing、附件与重连；Agent 主动读写飞书统一通过 `lark-cli` Skill，不再注册 Bot 专用原生读取工具。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
@@ -19,6 +18,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 
 - [Tool Schema](tool_schema.md)：definition、命名、JSON schema 和 exposure。
 - [Tool Execution](tool_execution.md)：dispatch、cancel、result、artifact 与错误语义。
+- [Ask User Question](../../tool/ask-user-question.md)：问题卡片、专用答复接口和失效规则。
 
 ## 常用行为
 
@@ -53,7 +53,7 @@ Definition 注册与模型可见是两个不同阶段。Registry 保存所有可
 - 有 `ownerSkills` 的工具要求至少一个 owner skill 已激活。
 - connector/MCP disabled state 可以继续过滤 definition。
 
-Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的工具从下一 provider request 生效。
+平台过滤依据本轮任务来源，不根据会话最初来自哪里判断。Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的工具从下一 provider request 生效。
 
 ## 本机信任模型
 
@@ -82,7 +82,7 @@ Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整�
 - `state_patch`：合并到受控 session state。
 - `display_status`：只控制当前工具卡展示，例如 yielded exec 保持 `running`；不进入 canonical tool result。
 
-Tool result 在 append 前执行 token-aware 裁剪。日志和 CardKit 使用独立 display sanitizer；完整 result 不自动显示给用户，也不能泄露 secret、绝对敏感路径或 encrypted data。
+Tool result 在 append 前执行 token-aware 裁剪。模型、桌面、渠道和日志分别处理展示预算与脱敏；桌面可显示完整路径和 exec 命令。Transcript 和工具卡都不能直接当作已脱敏的导出副本，具体展示规则见 [Tool Execution](tool_execution.md#display-与日志)。
 
 错误结果使用统一的事实边界：`cause_known=false` 表示只能复述观测和安全下一步，不能从 HTTP status、异常文本或历史占位符猜原因；只有 `cause_known=true` 且带 `verified_reason` 的已分类错误才能作为归因依据。
 

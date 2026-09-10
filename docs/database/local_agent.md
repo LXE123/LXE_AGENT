@@ -1,7 +1,5 @@
 # 本地状态与数据库
 
-状态：Current
-
 ## 先说结论
 
 Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main、私有 `agent-cli` 和 Python 业务命令各自拥有自己的数据库，避免两个进程同时写同一个 SQLite 文件。
@@ -15,7 +13,7 @@ Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main�
 | `db/gateway.sqlite3` | Electron Main / Gateway | Gateway session、平台来源和 response route |
 | `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session、pending event、usage、模型信息和 transcript 索引 |
 | `db/exec-sessions/<thread-id>/agent.sqlite3` | 一次性 `agent-cli exec` / Runtime | 单个 CLI thread 的 session、usage、模型信息和 transcript 索引 |
-| `db/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态，目前主要是紫鸟浏览器会话 |
+| `db/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态与可丢弃的紫鸟会话缓存；浏览器真实状态以紫鸟客户端实时接口为准 |
 | `db/sessions.json` | Gateway | 平台 source 到 session id 的稳定绑定 |
 | `db/session_transcripts/<session>.jsonl` | Runtime | 原始消息、turn metadata 和 `context_patch` |
 | `db/machine_identity.json` | Desktop 与 Runtime maintenance（共用 Core 实现） | Cloud、WireGuard 和可选 Data Server 共用的本机身份 |
@@ -46,9 +44,11 @@ Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立�
 - session、route、pending event 和 usage 更新使用各自数据库事务。
 - tool call 与 tool result 必须在 transcript 中保持闭合。
 - 轻量查询只读 SQLite metadata；需要模型历史时才 replay transcript。
-- 程序管理的数据库、日志和本地配置不能由模型文件工具修改。
-- 凭证由桌面安全配置保存，不因为 SQLite 被 Git 忽略就写进数据库。
+- 数据库所有权是程序设计约束，不是文件系统隔离。模型文件工具和 Shell 使用宿主用户权限，workspace 只是路径基准；Runtime 没有对 `var/db`、日志或配置提供写保护。边界见 [工具信任模型](../harness/runtime/tools/README.md#本机信任模型)。
+- 公司身份和集成凭证由桌面安全存储保存；用户本地模型 Key 明文写入 `var/config/auth.json`。具体存储与访问规则见 [桌面配置](../desktop/README.md#桌面配置与安全)。
 - Workspace Skill、AGENTS Instructions 和搜索服务只做进程内缓存，不新增数据库表或磁盘解析缓存。
+
+待回答问题及其唤醒回调只存在 Bun Runtime 内存中，问题和最终工具结果进入会话历史。界面刷新重新查询当前问题；Agent 重启不会恢复旧等待，未闭合调用沿用历史修复机制处理。详见 [结构化提问](../harness/tool/ask-user-question.md)。
 
 ## 备份与恢复
 

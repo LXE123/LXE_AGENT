@@ -1,7 +1,5 @@
 # Emitter and Heartbeat Wake
 
-状态：Current
-
 ## 目的
 
 本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及 heartbeat/wake 与 exec 完成通知为什么是两条独立链路。

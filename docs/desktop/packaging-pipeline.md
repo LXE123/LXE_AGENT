@@ -1,7 +1,5 @@
 # Electron 桌面应用：构建、打包、安装与启动
 
-Status: Current
-
 这篇文档用大白话说明 LXE Agent Desktop 是怎么从一份源码，变成 Windows 安装程序，再变成一套正在运行的桌面应用。
 
 这里重点讲主流程。具体版本号、资源白名单和脚本实现仍以仓库代码为准。
@@ -105,8 +103,8 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 
 - 私有 Node.js。
 - 私有 Python。
-- Playwright Chromium。
-- ripgrep。
+- Electron 提供桌面马帮认证窗口；独立 CLI 使用用户绑定的 Chrome/Edge。安装包保留 Playwright 控制库，不携带独立 Chromium。
+- ripgrep 和 fd。
 - ExifTool，用来读取和写入图片、视频元数据。
 - WireGuard 安装包和受控配置脚本。
 - 安装在私有 Node 中的 DWS、Lark 和 Whiteboard CLI。
@@ -135,7 +133,7 @@ python.exe -I -m lxeskill ...
 ```mermaid
 flowchart TD
     SOURCE["五类输入<br/>TS/TSX、资源、JS 依赖、外部 Runtime、Python"]
-    RUNTIME["准备受管 Runtime<br/>Node、Python、Playwright、ripgrep、ExifTool、WireGuard"]
+    RUNTIME["准备受管 Runtime<br/>Node、Python、ripgrep、fd、ExifTool、WireGuard"]
     JS["构建 JS/TS<br/>Main、Preload、Dashboard、Agent CLI"]
     PY["构建 Python wheel<br/>安装进私有 Python overlay"]
     INPUTS["准备发布输入<br/>挑选 Skills、配置、品牌和法律文件"]
@@ -158,7 +156,7 @@ flowchart TD
 
 ## 第一步：准备受管 Runtime
 
-Windows 打包首先准备应用自带的运行环境，包括 Node、Python、Playwright Chromium、ripgrep 和 ExifTool。WireGuard MSI 也会在这个阶段单独准备。
+Windows 打包首先准备应用自带的运行环境，包括 Node、Python、ripgrep、fd 和 ExifTool。WireGuard MSI 也会在这个阶段单独准备。
 
 第一次联网构建需要下载这些固定版本的文件。准备完成后会保存在本地缓存中，后续构建可以直接复用，避免每次都重新下载几百 MiB 的 Runtime。
 
@@ -171,6 +169,16 @@ bun run desktop:runtime:win
 ```
 
 日常执行 `desktop:pack:win` 或 `desktop:dist:win` 时，公共打包脚本也会自动准备或复用这套 Runtime，一般不需要提前单独运行。
+
+固定版本与下载输入以 [`runtime.lock.json`](../../config/desktop-runtime/windows-x64/runtime.lock.json)、[`fd.lock.json`](../../config/desktop-runtime/fd.lock.json) 和准备脚本为准。运行时默认位于 `build/desktop-runtime/win32-x64`，缓存位于 `build/desktop-runtime-cache/win32-x64`；可通过 `LXE_DESKTOP_RUNTIME_ROOT`、`LXE_DESKTOP_CACHE_ROOT` 或脚本的 `-RuntimeRoot`、`-CacheRoot` 指定不同目录，显式参数优先。目录必须分开且不能互相嵌套，不修改系统 Python 或源码 `.venv`。
+
+已有完整缓存时，可从仓库根执行离线 Unpacked 构建：
+
+```powershell
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-windows.ps1 -PackageTarget Unpacked -Offline
+```
+
+离线模式也覆盖 wheel 构建；缓存缺少下载物、依赖或 Hatchling 构建后端时明确失败。构建输入由 `build/desktop-runtime-inputs.json` 描述，字段及覆盖规则见 [`build-desktop-windows.ps1`](../../scripts/build-desktop-windows.ps1)。
 
 ## 第二步：构建当前项目代码
 
@@ -230,7 +238,9 @@ dist/agent-cli/agent-cli.exe
 build/desktop-publish/python-site-packages/
 ```
 
-electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Lib/site-packages`。因此每次打包都会带上当前 Python 源码，同时可以复用那套很大的基础 Python Runtime。
+electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Lib/site-packages`。因此每次打包都会带上当前 Python 源码，同时可以复用那套很大的基础 Python Runtime。基础缓存不保存项目 wheel，wheel 构建输出每次重新生成，避免发布旧业务代码。
+
+资源装配从模块各自的生产输出直接生成 `extraResources`。最终不携带 wheel 文件、旧冻结版 `runtime/lxeskill`、构建用 `uv.exe`、npm/npx 和 npm 缓存。Playwright 控制库复用私有 Node，移除其重复 Node；安装包不包含 `runtime/playwright` 浏览器目录。运行时真实检查 `lxeskill list`，打包成功不能代替业务 CLI 健康验证。
 
 ## 第三步：准备发布资源
 
@@ -276,9 +286,9 @@ resources/
 │   ├── agent-cli/agent-cli.exe
 │   ├── node/
 │   ├── python/
-│   ├── playwright/
 │   └── tools/
 │       ├── rg.exe
+│       ├── fd.exe
 │       └── exiftool/
 │           ├── exiftool.exe
 │           └── exiftool_files/
@@ -357,7 +367,7 @@ LXE Agent/
 2. Main 确定 `resources` 和 `var` 路径，初始化配置、日志、数据库和单实例锁。
 3. 配置完成后，Main 在自己的进程里启动 Gateway。
 4. Gateway 启动 `resources/runtime/agent-cli/agent-cli.exe` 子进程，通过 NDJSON 与它通信。
-5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 Playwright Chromium；桌面工作台的媒体任务则由 Main 直接启动私有 Python 和 ExifTool，不绕经 Agent CLI。
+5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 fd；马帮认证通过 Main 的受控服务操作独立 Electron 窗口，紫鸟使用用户配置的客户端和配对 Selenium。桌面媒体任务由 Main 直接启动私有 Python 和 ExifTool。
 6. Main 创建 BrowserWindow，通过 Preload 暴露的白名单 IPC，让 Dashboard 与 Main、Gateway 和 Agent 交互。
 
 ```mermaid
@@ -369,7 +379,8 @@ flowchart LR
     MAIN <-->|"NDJSON"| AGENT["agent-cli.exe"]
     AGENT --> PY["私有 Python<br/>lxeskill"]
     AGENT --> NODE["私有 Node<br/>DWS、Lark、Whiteboard"]
-    AGENT --> TOOLS["Playwright、ripgrep 等工具"]
+    AGENT --> TOOLS["ripgrep / fd 等工具"]
+    MAIN --> AUTH["马帮认证窗口 / 受控服务"]
     MAIN --> MEDIA["工作台媒体任务<br/>私有 Python → ExifTool"]
 ```
 
@@ -427,8 +438,8 @@ desktop-resource-sizes.json
 - 公司云端设备场景下的 WireGuard UAC 和隧道配置正常。
 - 工作台能分别处理一张图片和一个视频，输出文件带有目标标签，而且原文件没有变化。
 
-## 一句话总结
+## 发布边界
 
-LXE Agent 的桌面打包不是简单地把 TypeScript 变成一个 EXE，而是：
+Windows 签名使用 electron-builder 的 `CSC_LINK` 与 `CSC_KEY_PASSWORD`，凭据不提交仓库。macOS 源码验证不覆盖私有 Runtime 分发、签名或 notarization；未建立对应流水线前，不将普通 Mac 构建视为正式安装包。
 
-> 先分别构建 Electron、Dashboard、Agent CLI 和 Python wheel，再准备私有 Node、Python、浏览器、ExifTool 和其他工具，随后由 electron-builder 组装成可运行目录，最后由 NSIS 封装成 Windows 安装程序。
+资源选择、裁剪和体积门禁以 [`prepare-desktop-resources.ts`](../../scripts/prepare-desktop-resources.ts) 与 [`report-desktop-resource-sizes.ts`](../../scripts/report-desktop-resource-sizes.ts) 为准，避免沿用旧安装包体积样本作为当前保证。

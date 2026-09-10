@@ -1,7 +1,5 @@
 # Logging And Runtime Traces
 
-Status: `Current`
-
 The shared logging implementation is `packages/foundation/core/src/logging.ts`. Provider wire-trace sanitization and file layout are implemented by `packages/agent/runtime/src/providers/wire-trace.ts`.
 
 ## Logging Surfaces

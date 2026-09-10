@@ -1,7 +1,5 @@
 # Tool Schema
 
-状态：Current
-
 ## 目的
 
 Tool schema 是 provider 可见的调用合同。它必须与 handler input 边界一致，同时允许 Runtime 在不把全部工具塞进 prompt 的情况下按 policy、skill 和搜索结果逐步暴露能力。
@@ -18,6 +16,8 @@ Registry definition 包含：
 - `exposure`：direct 或 deferred。
 - `connectorName`：可选 connector/server identity。
 - `ownerSkills`：允许激活该工具的 skill names。
+- `platforms`：允许的当前回合来源；例如 `ask_user_question` 只允许 desktop。
+- `supportsParallelCalls`：明确为 true 时可与相邻的同类调用并行；省略时独占执行。
 - `execute`：不进入 provider schema 的本地 handler。
 
 Provider 只接收 name、description 和 input schema；handler、source metadata 和本地路径不序列化到请求。
@@ -36,12 +36,16 @@ Schema 应描述：
 
 - 必填参数和允许类型。
 - enum/范围/格式约束。
-- 路径是 workspace-relative 还是绝对 artifact path。
+- 相对路径的 workspace 基准与可接受的宿主绝对路径；workspace 不构成沙箱。
 - `exec` 的 command、cwd 与 `yield-time-ms`（250–30000ms）；没有 background 或默认硬超时。
 - `wait` 的 `exec_id`、`yield-time-ms`（5000–300000ms）与 `terminate`。
 - 互斥参数或调用前提。
 
 不要把 secret 默认值、真实 token、cookie 或本机私有路径写入 schema/description。
+
+## 结构化提问 ask_user_question
+
+输入为 `questions`，结果为 `answers[{id, selected, custom?}]`。Bun Runtime 负责问题归属、验证、一次性结算和取消；工具等待不采用普通短超时。完整输入输出与桌面协议见 [结构化提问](../../tool/ask-user-question.md)。
 
 ## 内容搜索 grep
 

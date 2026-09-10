@@ -1,10 +1,8 @@
 # Gateway
 
-状态：Current
-
 ## 先说结论
 
-Gateway 是桌面应用里的“接待和调度中心”。它运行在 Electron Main 中，负责接收飞书消息、检查权限、找到会话、安排执行顺序，再把结果送回正确的聊天窗口。
+Gateway 是桌面应用里的“接待和调度中心”。它运行在 Electron Main 中，负责接收桌面任务和飞书消息、检查权限、找到会话、安排执行顺序，再把结果送回对应入口。
 
 真正调用模型和工具的是私有 `agent-cli` 子进程里的 Runtime。`agent-cli` 自己拥有 `AgentRuntimeHost` composition root，装配 Agent store、provider、Runtime、MCP、Python CLI、Workspace、工具和 Dashboard 查询。Gateway 不直接执行 turn，也不依赖 Runtime package；它只通过版本化 NDJSON 协议向宿主发任务、取消和查询请求。
 
@@ -13,6 +11,7 @@ Gateway 是桌面应用里的“接待和调度中心”。它运行在 Electron
 ```mermaid
 flowchart LR
     A["飞书事件"] --> B["Electron Main<br/>Gateway"]
+    UI["桌面会话 / 问题卡片"] <-->|"preload IPC"| B
     B --> C["权限 / 会话 / 调度"]
     C <-->|"NDJSON"| D["私有 agent-cli"]
     D --> E["TypeScript Runtime<br/>模型 / Context / Tools"]
@@ -39,11 +38,12 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 ## 调度与失败边界
 
 - Router 在创建任务前完成权限、session source 和 response route 校验。
-- Scheduler 保证同一个 session 串行执行，不同 session 可以并发。
-- `/stop`、steering 和桌面退出共用同一条取消链，最终传到 provider、MCP 和工具进程。
+- Scheduler 保证同一个 session 串行执行；不同 session 没有全局并发数量门槛，调度仍受 Runtime readiness 约束。
+- `/stop` 和桌面停止操作走取消链；steering 通过独立队列在安全边界消费。取消中止 provider、MCP、问题等待和 exec/wait 观察，桌面退出还会关闭 Runtime 并清理 Session 进程。
 - Runtime 子进程短暂异常时，Gateway 停止接收新任务并按受控策略重启；不会偷偷切换到同进程 Runtime。
 - 平台发送失败只影响 delivery，不回滚 transcript，也不重跑已完成工具。
-- 后台命令结束后先写 pending event，再通过 heartbeat 回到正常调度链。
+- exec 完成只发送 `background_task.changed` 刷新工具卡，不写 pending event，也不唤醒模型；heartbeat/wake 保留给其他自主调度来源。
+- 结构化答案通过 `sessions.answer` 直接提交给 Runtime，不能进入普通任务或 steering 队列。查询和生命周期见 [结构化提问](../tool/ask-user-question.md)。
 
 ## 专题导航
 

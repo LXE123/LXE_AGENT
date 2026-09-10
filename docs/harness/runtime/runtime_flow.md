@@ -1,12 +1,10 @@
 # Runtime Flow
 
-状态：Current
-
 ## 目的
 
-本专题给出一次用户消息从平台 ingress 到最终 CardKit/file delivery 的端到端地图，并说明每层拥有的状态。需要定位“消息在哪一步丢失”“谁负责 cancel”“工具结果何时持久化”时，应先从这里确定边界，再进入专题文档。
+本专题给出一次用户消息从桌面或平台 ingress 到最终展示与文件交付的端到端地图，并说明每层拥有的状态。需要定位“消息在哪一步丢失”“谁负责 cancel”“工具结果何时持久化”时，应先从这里确定边界，再进入专题文档。
 
-## 主链路
+## 飞书主链路
 
 ```text
 Feishu event
@@ -23,7 +21,7 @@ Feishu event
   -> Feishu CardKit / message / file
 ```
 
-Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cli` 子进程；两者通过版本化 agent protocol 通信。平台 callback、session 排队和 turn 执行仍以接口隔离职责。
+Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cli` 子进程；两者通过版本化 agent protocol 通信。平台 callback、session 排队和 turn 执行仍以接口隔离职责。桌面任务从 preload IPC 进入 Main 的会话控制面，再经过同一 Scheduler 和 Runtime；实时展示回到 Renderer，具体入口见 [Gateway](../gateway/README.md)。
 
 ## 边界地图
 
@@ -38,7 +36,7 @@ Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cl
 | Context | canonical history、预算与 compaction | [`context.ts`](/packages/agent/runtime/src/engine/context.ts) |
 | Provider | catalog、SDK stream、retry、usage | [`provider.ts`](/packages/agent/runtime/src/providers/provider.ts) |
 | Tools | native、MCP、script、skill exposure | [`tools.ts`](/packages/agent/runtime/src/tooling/registry.ts) |
-| Storage | session、route、JSONL、usage | [`storage.ts`](/packages/agent/runtime/src/state/storage.ts) |
+| Storage | Agent session、JSONL、pending event、usage；route 归 Gateway | [`storage.ts`](/packages/agent/runtime/src/state/storage.ts) |
 | Outbound | emit validation、route resolution、platform action | [`emitter.ts`](/apps/gateway/src/channels/emitter.ts) |
 
 ## Turn 建立
@@ -56,14 +54,14 @@ Router ensure session、保存 response route，并根据当前用户输入创�
 3. ContextPipeline 修复 message closure、裁剪新 tool result、估算完整请求并按需压缩。
 4. Provider streaming 产出 thinking/text/redacted/tool-use 和 usage。
 5. assistant content 先 append transcript。
-6. 没有 tool use 时进入 final；否则逐个执行工具。
-7. 每个 tool result 即时 append，然后进入下一 step。
+6. 没有 tool call 时进入 final；否则按相邻的并行调用组和独占调用顺序执行。
+7. 本批结果按原调用顺序组成 tool message append，再进入下一 step。
 
 默认最多 50 step。达到上限会返回可继续的用户提示并保持 transcript 闭合，不把 Gateway 进程视为失败。
 
 ## Tool 数据流
 
-`ToolExposureState` 在 turn 内持续存在。direct 工具最初可见；deferred 工具通过 `tool_search` 暴露；读取允许的 `SKILL.md` 会激活 owner-gated tools。新 exposure 从下一 provider step 使用。
+`ToolExposureState` 在 turn 内持续存在。direct 工具经过本轮来源和权限过滤后可见；deferred 工具通过 `tool_search` 暴露；读取允许的 `SKILL.md` 会激活 owner-gated tools。新 exposure 从下一 provider step 使用。
 
 Tool execute context 包含 handle、session、route、turn 和 exposure state。工具可以返回 model-visible content、artifact files 与受控 session state patch。Runtime 先写 state patch/发送 artifact，再把 tool result 放入 canonical history；错误转换成 `is_error` result，不让模型看见未闭合 tool use。
 
@@ -87,4 +85,4 @@ turn_start/end、provider attempt、stream event、tool start/end、context chec
 
 ## 一次性业务命令边界
 
-业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 据此构造可见 skill scope，并由 Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责最终授权与 dispatch；Runtime process manager 负责 yield observation、最大输出、Session 生命周期和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。
+业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Desktop 下发服务器验证的业务权限决定允许的 skill types；`AgentRuntimeHost` 据此构造可见 skill scope，并由 Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责最终授权与 dispatch；Runtime process manager 负责 yield observation、最大输出、Session 生命周期和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。

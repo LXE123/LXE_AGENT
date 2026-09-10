@@ -1,7 +1,5 @@
 # Turn Execution
 
-状态：Current
-
 ## 目的
 
 Turn 是 Runtime 的一次用户可观察执行单元。它从一个 `AgentJob` 开始，以 `TurnOutcome` 和闭合 transcript 结束。本文描述 snapshot、step retry、tool dispatch、cancel、final streaming 和 usage 记录。
@@ -36,7 +34,7 @@ Runtime 同时初始化 turn/tool/skill usage counters。usage 最多写一次�
 4. 调用 `ContextPipeline.prepare(trigger="pre_call")`。
 5. 发送 provider request并消费 stream events。
 6. 持久化 canonical assistant content。
-7. 无 tool use 时结束；有 tool use 时逐个 dispatch。
+7. 无 tool call 时结束；有调用时按并行能力分组 dispatch，结果按原顺序闭合。
 
 Context prepare 返回新的 message view、compaction usage、token estimate 和 failure flags。失败摘要或仍超过 hard limit 会显式终止，不使用本地伪摘要。
 
@@ -61,13 +59,13 @@ Provider 完成后，完整 assistant content 作为 canonical message 持久化
 
 ## Tool dispatch
 
-Runtime 从 assistant content 中按顺序取得合法 `tool_use`：
+Runtime 从 assistant content 中按顺序取得合法 `tool_call`；相邻且支持并行的调用成组执行，其他调用独占：
 
 - dispatch 前再次检查 steering 和 cancel。
 - `ToolRegistry.execute()` 验证工具存在、当前已暴露并接收 object input。
 - state patch 通过 store 的受控 merge 写入。
 - artifact files 通过 emitter 的 tool action 立即发送。
-- result/error 转成 `tool_result`，经单结果预算裁剪后 append transcript。
+- result/error 转成 `tool_result`，本批完成后按原调用顺序裁剪并组成 tool message 追加到 transcript。
 
 每个 tool call 更新 duration、error、owner skill usage 和 trace。工具异常不会跳过 result；错误文本以 `is_error=true` 返回模型，由下一 step 决定恢复或结束。
 
@@ -75,7 +73,9 @@ Runtime 从 assistant content 中按顺序取得合法 `tool_use`：
 
 如果 steering 在一组 tool use 中间到达，尚未执行的调用写 skipped stub，然后先 append tool results，再 append steering。模型下一 step 会看到闭合的原计划和新指令。
 
-如果 cancel 到达，剩余调用写 cancelled stub，streamer 执行 cancel close，turn 记录 cancelled outcome。cancel 不创建新的普通错误卡。
+如果 cancel 到达，剩余调用写 cancelled stub，streamer 执行 cancel close，turn 记录 cancelled outcome。问题等待被取消；exec/wait 只停止当前观察，已创建的进程仍属于 Session。cancel 不创建新的普通错误卡。
+
+`ask_user_question` 仅按本轮任务的 desktop 来源开放，独占等待专用答案提交，不发起额外模型请求；普通 steering 不能解除该等待。
 
 ## Final 与 post-turn
 

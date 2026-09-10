@@ -1,7 +1,5 @@
 # Workspace Instance 与指令缓存
 
-状态：Current
-
 ## 先说结论
 
 Session 保存自己不可变的 `WorkspaceContext`，但同一个 Git worktree 下的 Session 不会各自重复加载 Skill、Instructions 和搜索服务。Runtime 用规范化后的 worktree 路径找到一个进程内 `WorkspaceInstance`，再按 Session 的 `directory` 生成当前视图。

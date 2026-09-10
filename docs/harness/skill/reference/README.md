@@ -1,6 +1,6 @@
 # Skill References
 
-状态：Current
+状态：Reference
 
 本目录保存外部平台/API 参考资料。这里的文档不是当前运行时 skill；当前 truth source 是 `/skills/*/SKILL.md`。
 

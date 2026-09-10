@@ -1,7 +1,5 @@
 # Context 持久化
 
-状态：Current
-
 ## 先说结论
 
 Context 持久化解决两个问题：进程重启后还能继续对话，以及历史太长时能缩短模型看到的内容。Runtime 不会重写旧消息，而是在 Transcript v2 中持续追加事件。
@@ -51,7 +49,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 - 当前 user message 在第一次 provider request 前写入。
 - steering 被消费时立即作为独立 user message 写入。
 - 完整 assistant response 在 tool dispatch 前写入。
-- tool result 在执行后写入，并保证 tool call 闭合。
+- 本批 tool result 按原调用顺序组成 tool message 写入，保证 tool call 闭合。
 - compaction 只有在摘要有效、上下文确实变短且没有取消时才写 `context_patch`。
 - post-turn maintenance 可以继续治理长期历史；失败只记 warning，不撤销已经发送的最终答案。
 
@@ -67,7 +65,7 @@ SQLite 中的 transcript 状态和 Dashboard 分页区间都是可重建索引�
 
 图片第一次交给模型后，持久化时会把 base64 数据换成文本占位，保留“这里曾有图片”的语义，避免后续 turn 反复携带大块二进制。
 
-Provider 密钥、cookie、authorization header 和本地 secret 不进入 Context。需要兼容的 opaque thinking 数据也不能出现在 summary、日志或 Dashboard 正文中。
+应用不把认证配置注入 Context。Transcript 会保存实际会话内容，不能把它当作已脱敏日志；用户或工具提供的内容仍需遵守敏感数据处理规则。需要兼容的 opaque thinking 数据可留在模型历史中，但不能原样出现在 summary、日志或 Dashboard 正文中。
 
 ## 旧数据兼容
 

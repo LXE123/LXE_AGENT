@@ -1,7 +1,5 @@
 # Context Assembly
 
-状态：Current
-
 ## 目的
 
 Context assembly 把持久化 history、本轮输入、system prompt 和当前 tool schemas 组装成一个可验证、可预算的 provider request。组装在每个 step 执行，而不是只在 turn 开始执行一次。

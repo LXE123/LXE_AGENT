@@ -1,23 +1,22 @@
 # Canonical Message
 
-状态：Current
-
 ## 目的
 
-Canonical message 是 storage、ContextPipeline、provider 和 tool loop 共享的模型历史格式。Provider-specific 字段只在请求边界 adaptation，不能污染持久化 transcript。
+Canonical message 是 storage、ContextPipeline、provider 和 tool loop 共享的模型历史格式。供应商专属字段按来源保存，只在匹配的请求边界重放；协议适配不能反向改写持久化 transcript。
 
 ## Message 形态
 
-消息 role 为 `user`、`assistant`、`tool` 或 `system`。content 可以是字符串或 block 列表，主要 block 包括：
+普通消息 role 为 `user`、`assistant`、`tool` 或 `system`。Runtime 还使用 `compactionSummary` 保存结构化摘要及文件读写线索，发送给 Provider 时投影为用户上下文。普通 content 可以是字符串或 block 列表，主要 block 包括：
 
 - `text`
-- `thinking`，可带 signature
-- `redacted_thinking`，只保存 opaque data
+- `thinking`，新消息用 `thinkingSignature` 和可选 `redacted` 保存来源相关元数据
+- `redacted_thinking` 与旧 `signature` 字段仍可在兼容历史中出现
 - `tool_call`，包含 id、name 和 object arguments
 - `tool_result`，包含对应 `tool_call_id`、content 和可选 `is_error`
 - `image`，本轮可携带 provider 支持的 source
+- `local_file`，用户提供的本地附件引用
 
-Tool result 位于独立 `tool` message。只有 Provider adapter 会将它转换为 Anthropic-compatible 的 `user + tool_result/tool_use_id` wire message；Provider 响应中的 `tool_use/input` 也必须先还原成 canonical `tool_call/arguments` 才能进入 Runtime 和 transcript。
+Tool result 位于独立 `tool` message。各 Provider adapter 转换为对应 wire 格式，例如 Anthropic 的 `user + tool_result/tool_use_id`；响应先还原为 canonical `tool_call/arguments` 再进入 Runtime 和 transcript。统一 AssistantMessage 的来源字段和流事件见 [模型消息流](../../assistant-message-stream.md)。
 
 ## Tool closure
 
@@ -28,11 +27,11 @@ Tool result 位于独立 `tool` message。只有 Provider adapter 会将它转�
 3. 对缺失 result 的 tool use 注入 `Tool result unavailable.` error stub。
 4. 保持原消息顺序和非工具 blocks。
 
-Runtime 正常路径会在 tool dispatch 后立即写结果；sanitizer 主要修复旧数据、崩溃中断或外部 transcript 修改。
+Runtime 正常路径在本批工具执行结束后按原调用顺序写入 tool message；sanitizer 主要修复旧数据、崩溃中断或外部 transcript 修改。
 
 ## Thinking
 
-`thinking` signature 和 `redacted_thinking.data` 可以进入 canonical history，使支持的 provider 在后续 turn 继续使用。它们受到严格隔离：
+思考签名与不透明数据可以进入 canonical history，使来源匹配的 provider 在后续 turn 继续使用。新消息字段以 [AssistantMessage](/packages/agent/runtime/src/messages/assistant-message.ts) 为准；旧历史可能包含 `signature` 和 `redacted_thinking.data`。它们受到严格隔离：
 
 - summary transcript 只写占位或描述，不写 opaque data。
 - runtime log、wire trace 和错误文本不写 data/signature 原文。
@@ -47,9 +46,7 @@ Runtime 正常路径会在 tool dispatch 后立即写结果；sanitizer 主要�
 
 ## Legacy replay
 
-Storage 的模型 replay 会归一化历史兼容形态，包括早期 Bun 写入的 `user + tool_use/tool_result` 和 main 的 tool role。兼容只发生在模型读取边界，不改写 JSONL；Dashboard 的 immutable transcript 视图不会重解释旧 Bun 记录。
-
-无法识别的安全文本应尽量保留；结构损坏、越界对象或无法闭合的 tool metadata 转换为明确占位，不能导致整个 session 无法读取。
+运行时直接读取 Transcript v2；v1 整段替换事件、旧工具块命名和早期 session_messages 存储需要先离线迁移，不会在正常加载时静默转换。损坏行或非法 patch 明确报错；v2 中因异常中断缺失的工具结果可由 replay closure 修复，但不会重跑工具。迁移与恢复见 [Context Persistence](context_persistence.md)。
 
 ## 序列化原则
 

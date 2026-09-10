@@ -1,45 +1,38 @@
 # Provider Catalog
 
-Status: `Current`
-
-The catalog turns repository-owned provider descriptors into validated runtime configuration. The source of truth is `config/llm/providers/`, loaded by `packages/agent/runtime/src/providers/provider.ts`.
+Runtime resolves a provider descriptor from the local catalog and, for company models, the validated cloud definition. Local model entries live in `config/llm/providers/`; cloud compatibility is defined by [managed-model-definition.ts](/packages/foundation/core/src/managed-model-definition.ts). [provider.ts](/packages/agent/runtime/src/providers/provider.ts) builds the selected runtime descriptor.
 
 ## Descriptor Contract
 
 A descriptor records the stable facts needed to create a provider client:
 
 - provider identifier and display metadata;
-- Anthropic-compatible base URL;
+- API style (Anthropic Messages, OpenAI Completions, or OpenAI Responses) and base URL;
 - authentication environment variable;
 - available model identifiers and labels;
 - context-window and output-token limits;
 - supported thinking levels and provider quirks.
 
-Descriptors contain no credentials. Local secrets remain in private environment files and are resolved only when a provider is instantiated.
+Repository and cloud model definitions contain no credentials; the resolved Runtime descriptor receives the selected key separately. Desktop owns credential selection: company credentials use encrypted storage, while personal model keys use local auth.json. Source Desktop dotenv files do not configure model keys. See [Desktop configuration](../../desktop/README.md#桌面配置与安全).
 
 ## Runtime Selection
 
-The Dashboard and environment configuration select a provider/model pair. Runtime validates that the model belongs to the selected descriptor before starting a request. A configuration update replaces the shared provider snapshot atomically and affects the next turn, not a request already streaming.
+Desktop selects a provider/model pair and passes the resolved configuration to Runtime. The explicit CLI exec entry supplies its own runtime configuration. Runtime validates the model against the selected local catalog or supported cloud definition before starting a request. A configuration update replaces the shared provider snapshot atomically and affects the next turn, not a request already streaming.
 
 Relevant runtime controls include:
 
 - the selected provider and model;
 - the selected thinking or effort level.
 
-The requested output cap comes from the selected model descriptor, with a conservative internal fallback when metadata is absent. Provider inactivity uses a fixed 120-second watchdog between connection and stream events. Model context limits come from catalog metadata rather than a global environment setting.
+The requested output cap comes from the selected model descriptor, with a conservative internal fallback when metadata is absent. Provider inactivity uses the validated descriptor timeout, defaulting to 120 seconds, between connection and stream events. Model context limits come from the local catalog or cloud model definition rather than a global environment setting.
 
-## Anthropic-Compatible Providers
+## Protocol And History Adaptation
 
-The production transport uses the Anthropic Messages shape. Compatibility does not mean providers accept identical history. The adapter performs narrowly scoped repair before sending:
+The descriptor selects one of the [three runtime adapters](README.md). The same model family can have protocol-specific tool, reasoning and image requirements; an Anthropic wire rule must not be applied to OpenAI requests.
 
-- Kimi and DeepSeek histories are normalized to their accepted content shape;
-- unsupported thinking signatures and encrypted redacted-thinking payloads are removed;
-- historical base64 image content that cannot be replayed is stripped;
-- canonical tool-use and tool-result relationships remain closed and ordered.
+Adapters preserve closed tool-call/result relationships and translate canonical history to their wire format. Opaque reasoning signatures, provider item IDs and namespaces are replayed only for a matching source. Unsupported content is adapted for the selected protocol without silently rewriting the persisted transcript. See [Assistant message streaming](../assistant-message-stream.md).
 
-These repairs apply to the provider request view. They must not silently rewrite the persisted canonical transcript.
-
-## Adding A Provider Or Model
+## Adding A Local Provider Or Model
 
 1. Add or update a descriptor under `config/llm/providers/`.
 2. Use an environment-variable name for authentication; never place a key in the descriptor.
@@ -61,27 +54,8 @@ Do not add provider-specific conditionals to the turn loop when the behavior bel
 
 ## Company-managed model sets
 
-The cloud publishes a list of provider/model pairs and one default through
-`managed_llm_v2`. Only listed targets supported by this Agent version are shown
-as company choices. Personal credentials remain a separate source and are never
-replaced by a company publication. One published item behaves like the original
-single-model setup. Older servers are still read through `managed_llm`.
+Desktop prefers the v3 cloud manifest, with v2 and legacy responses retained for compatibility. v3 can publish a model ID absent from the local catalog, provided its supplier, protocol, address and model definition pass the client contract. Personal credentials and local model entries remain a separate source.
 
-Desktop stores the manifest and per-target credentials in encrypted secrets.
-An additive read migration converts the old single credential to a one-item set
-without changing the user's selection. The legacy single field is maintained as
-the selected target's projection, not as an independent credential authority.
-The typed credential set reaches Gateway and Agent CLI through initialization
-and update IPC, never as a JSON environment variable. Each acquired provider
-snapshot holds its own credentials until its turn completes.
+The manifest and per-target credentials are encrypted locally and passed to Gateway and Agent CLI as typed state. Each running turn holds its acquired configuration and credentials; updates apply to later turns. Network failures preserve cache, while explicit withdrawal removes the affected target. An unavailable company target must not silently spend a personal key.
 
-Successful manifest reads remove unpublished or outdated keys before fetching
-replacements. Individual fetch failures leave other models usable. Network
-failures preserve cache; explicit unpublication clears it. Invalid authentication
-marks only the failing target/revision until the server publishes a new version.
-
-A still-published user selection survives default changes and restart. If it is
-removed, the Agent selects the administrator's default. An unsupported or
-unavailable default is shown as unavailable; the Agent does not silently select
-another company model or spend a personal key. Personal model selections are
-unaffected by publication, default changes and company-model shutdown.
+Cloud publication, configuration revisions, credential refresh and rollout have one maintained reference: [Cloud model definitions v3](managed-model-catalog.md).

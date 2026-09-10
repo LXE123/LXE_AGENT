@@ -1,7 +1,5 @@
 # TypeScript Runtime
 
-状态：Current
-
 ## 先说结论
 
 Runtime 是 Agent 的执行核心，负责一个 turn 里的 Context、模型调用、工具执行、streaming、持久化和 usage。它运行在私有 `agent-cli` 子进程中，不在 Electron Main 里直接运行。
@@ -29,8 +27,8 @@ Runtime package 提供执行核心，但不提供产品 composition root。真�
 
 - Runtime 收到的任务已经带有稳定的 session、turn 和 response route 标识。
 - 每个 turn 开始时固定 provider、system prompt 和允许的 skill；工具 exposure 可以从下一 step 开始变化。
-- assistant tool call 先持久化，tool result 执行后立即闭合并持久化。
-- cancel 会传给 provider、summary、MCP 和工具进程，未执行的 tool call 会写明确的关闭结果。
+- assistant tool call 先持久化；本批工具结果收集后，以同一 tool message 闭合并追加到 transcript。进程异常中断时由 replay 修复未完成调用。
+- cancel 会传给 provider、summary、MCP、问题等待和 exec/wait 的当前观察；已创建的 exec 仍由 Session 持有，未执行的 tool call 写明确的关闭结果。进程终止条件见 [工具生命周期](tools/README.md#cancel-与-exec-生命周期)。
 - 业务 Python 不作为常驻服务加载。模型只能通过 native `exec` 启动一条受 catalog 管理的 `lxeskill ...` 命令。
 - Runtime 只产生出站意图；真正的平台发送由 GatewayEmitter 完成。
 
@@ -52,10 +50,10 @@ Runtime package 提供执行核心，但不提供产品 composition root。真�
 
 ## 核心原则
 
-1. Runtime core 不持有 channel/出站平台 SDK，也不绕过 Gateway 直接发消息；`AgentRuntimeHost` 注册的飞书读取工具是独立产品适配层。
+1. Runtime core 不持有 channel/出站平台 SDK，也不绕过 Gateway 直接发消息；Agent 主动访问飞书使用 `lark-cli` Skill。
 2. 每次 provider request 使用闭合、可预算的 canonical history。
 3. Context 压缩失败时保留原历史，不做静默删除。
 4. 工具业务执行和 artifact delivery 分开，发送失败不重跑工具。
-5. Transcript、usage 和 trace 不记录 secret 或未脱敏的 thinking data。
+5. 认证配置不作为模型上下文注入。Canonical transcript 可保留后续 replay 所需的 thinking signature 和 opaque data；它们不得原样进入日志、摘要和桌面展示。Transcript 包含会话内容，不能把它当作已脱敏日志。
 
 实现事实来源是 [Runtime source](/packages/agent/runtime/src)、[Agent Runtime host](/apps/agent-cli/src/runtime-host.ts) 和对应测试；桌面进程关系见 [Gateway](../gateway/README.md) 与 [Desktop 技术手册](../../desktop/README.md)。

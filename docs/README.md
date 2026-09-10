@@ -1,79 +1,40 @@
-# Docs 入口
+# 文档入口
 
-这里是 LXE Agent 文档的入口。
+面向 `main` 桌面产品线。产品介绍从 [项目 README](../README.md) 开始；独立 TUI 的安装和运行说明以对应分支为准。
 
-第一条维护规则：如果一篇文档没有出现在本文件或 `DOCS_AUDIT.md` 中，先把它当成未分类文档，不要默认认为它是当前事实。当前 docs 漂移的根因不是某一篇文档没更新，而是正式手册、设计笔记、草稿、阶段记录和运行时 skill 提示词长期混在同一棵目录树里，没有状态标签。
+## 使用与开发
 
-## 状态标签
+- [Desktop 技术手册](desktop/README.md)：桌面交互、进程边界、配置和开发入口。
+- [构建、打包、安装与启动](desktop/packaging-pipeline.md)：源码验证、Windows 分发和安装验收。
+- [桌面对话窗口](harness/conversation-window.md)、[会话状态](desktop/session-status.md)、[结构化提问](harness/tool/ask-user-question.md)：聊天、附件、等待回答和停止任务。
+- [客户端身份与后台登录](record/20260910-client-identity-v1.md)、[Mac WireGuard 服务](harness/desktop/macos-wireguard-service.md)：设备接入与身份边界。
+- [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：Electron 认证窗口、独立 CLI 浏览器绑定和排障。
+- [日志与诊断](harness/logger.md)、[事故记录](incidents/README.md)：日志位置、脱敏和未解决问题。
 
-| 状态 | 含义 |
-| --- | --- |
-| `Current` | 已和当前代码、README 或测试对齐，可以作为工作参考。 |
-| `Needs Refresh` | 内容有价值，但依赖细节需要先对照当前代码更新。 |
-| `Draft` | 想法、草稿、未完成设计或待验证流程。 |
-| `Archive` | 历史排障、日期记录、阶段记录。 |
-| `Reference` | 外部平台、API、协议或供应商资料。 |
+## 架构与契约
 
-## 当前可信入口
+- [桌面事件循环](eventloop.md)：进程、任务所有权和退出顺序。
+- [Gateway](harness/gateway/README.md)：平台接入、路由、调度、取消和出站。
+- [Gateway ↔ Agent 协议](record/20260715-agent-cli-stream-json.md)：JSON-RPC、握手、事件和错误。
+- [Runtime](harness/runtime/README.md)：执行回合、上下文、持久化和工具。
+- [Agent CLI exec](harness/runtime/agent_cli_exec.md)：一次性终端调用与独立会话存储。
+- [LLM 适配](harness/llm/README.md)：模型目录、三类协议适配和流式响应。
+- [工具](harness/runtime/tools/README.md)：可见性、宿主机权限、执行和进程生命周期。
+- [本地状态与数据库](database/local_agent.md)：Bun、Gateway、Python 的状态归属。
+- [仓库结构契约](record/20260714-repo-structure-contract.md)：目录规则和配套校验。
 
-优先从这些文档开始：
+`record/` 保留仍有独立价值的决策，例如 [命令契约差异](record/20260714-l3-command-contract-deviations.md)、[导出流水线边界](record/20260714-mabang-export-pipeline-evaluation.md)、[Transcript v2](record/20260715-transcript-v2.md)、[产品分支](record/20260716-product-lines-branch-migration.md)、[宿主装配](record/20260718-agent-host-composition-boundary.md)、[Workspace Instance](record/20260718-workspace-instance-domain.md) 和 [模型消息领域](record/20260905-assistant-message-domain.md)。日期表示决策背景，使用时结合对应专题和当前代码。
 
-- `Current` [Project README](../README.md)：产品概览、主要能力、支持平台和产品版本入口。
-- `Current` [Desktop 技术手册](desktop/README.md)：Electron 进程架构、私有运行时、配置、开发和 Windows 打包。
-- `Current` [Desktop 构建、打包、安装与启动](desktop/packaging-pipeline.md)：常用命令、五类输入、Windows 打包流水线、安装目录和启动链路。
-- `Current` [产品分支与安装入口](record/20260716-product-lines-branch-migration.md)：Desktop `main` 与源码 `lxe-agent-TUI` 的长期边界和迁移规则。
-- `Current` [LXE Skill CLI Python wheel 运行时](record/20260715-lxeskill-python-runtime.md)：源码 `.venv` 与 Electron 私有 Python 的统一模块调用规则。
-- `Current` [本地状态与数据库](database/local_agent.md)：Desktop 三个 SQLite、session binding 与 Transcript v2 的所有权边界。
-- `Current` [Transcript v2 与上下文投影](record/20260715-transcript-v2.md)：`context_patch`、模型 replay、Dashboard 审计视图和迁移规则。
-- `Current` [Event loop architecture](eventloop.md)：Bun 事件循环、任务所有权和关闭策略。
-- `Current` [Runtime](harness/runtime/README.md)：agent runtime 架构、turn execution、context 和 tools 文档入口。
-- `Current` [LLM Integration](harness/llm/README.md)：模型供应商 catalog、Anthropic-compatible streaming 和 provider 边界。
-- `Current` [Logging and runtime traces](harness/logger.md)：终端日志、runtime 文件日志、trace 脱敏和保留策略。
-- `Current` [Incident records](incidents/README.md)：运行故障、影响范围、已确认事实和后续排查状态。
-- `Current` [Gateway](harness/gateway/README.md)：gateway 生命周期、平台边界、路由权限、调度取消和出站唤醒。
-- `Current` [Skill docs and catalog](harness/skill/README.md)：当前运行中 skill catalog 和旧 skill 文档分类入口。
-- `Current` [Browser auth service](../python/lxeskill_cli/browser_auth_service/README.md)：马帮登录态刷新 CLI 和诊断方式。
-- `Current` [Runtime skills](../skills)：agent 实际加载的 skill 提示词来源。
+## Skills 与参考资料
 
-## Runtime Skill 文档
+运行时提示词在 [skills/](../skills)，发现和权限规则见 [Skill 手册](harness/skill/README.md)，业务目录见 [Skill 清单](harness/skill/current_skill_catalog.md)。工作流入口是 [FBA](../skills/fba-workflow-map/SKILL.md) 和 [补货](../skills/replenishment-workflow-map/SKILL.md)。
 
-正式运行时 skill 文档在 `skills/*/SKILL.md`。这些文件由 TypeScript Runtime 的 skill index 加载，并且有测试覆盖。
-
-当前运行中 skill 摘要见 [Skill docs and catalog](harness/skill/README.md) 和 [Current skill catalog](harness/skill/current_skill_catalog.md)。
-
-旧 skill 草稿、实现笔记、流程录制和参考资料已经分流到 [Skill archive](harness/skill/archive/README.md) 和 [Skill references](harness/skill/reference/README.md)。除非当前 `skills/*/SKILL.md` 明确指向它们，否则不要把归档材料当成运行时提示词来源。
-
-带有 `Archive / Sanitized` 状态的旧 skill 记录已经开始脱敏；它们只保留历史流程参考，不代表当前凭据、选择器或运行逻辑。
-
-常用 workflow map：
-
-- [FBA workflow map](../skills/fba-workflow-map/SKILL.md)
-- [Replenishment workflow map](../skills/replenishment-workflow-map/SKILL.md)
-
-## 需要刷新
-
-这些区域有价值，但使用前需要对照当前代码：
-
-- `Needs Refresh` [Dashboard/UI idea](visualization/preliminary_idea.md)：早期 UI 设想，当前实现是 React 前端加 Bun Dashboard API。
-
-## 草稿和归档
-
-以下文档只作为历史上下文或后续整理素材：
-
-- `Archive` `docs/harness/skill/archive/amazon_fba/fba-*/`
-- `Archive` `docs/harness/skill/archive/amazon_replenish/replenishment-*/`
-- `Archive` `docs/harness/skill/archive/unmapped/`
-- `Reference` `docs/harness/skill/reference/`
-- `Archive` `docs/harness/tool/read.md`、`exec-process.md`、`powershell.md`
-- `Archive` `docs/goals/*`
-- `Archive / Superseded` `docs/record/20260428-python-3.12.10-uv.md`
-- `Archive / Superseded` `docs/record/20260714-typescript-workspace-domain-layout.md`
-- `Archive` 未在“当前可信入口”中明确列为 `Current` 的其他 `docs/record/*`
-- `Draft` `docs/tool_draft/*`
+[平台参考资料](harness/skill/reference/README.md) 保存供应商 API、真实响应和紫鸟自动化约束；[Codex 工具载荷研究](study/codex-code-mode-tool-payload.md) 是外部项目资料。它们不定义 LXE 的当前实现，也不能替代运行时 Skill。
 
 ## 维护规则
 
-- 新增面向使用者的文档后，要同步登记到这个入口。
-- 不要把完整运行时 skill 提示词复制到 `docs/`，链接到 `skills/*/SKILL.md` 即可。
-- 更新旧草稿时，要么在这里提升为 `Current`，要么继续标为 `Needs Refresh`、`Draft` 或 `Archive`。
-- 第一版盘点和清理 backlog 见 [DOCS_AUDIT.md](DOCS_AUDIT.md)。
+- 产品行为以当前代码及测试为准；文档说明稳定边界，易变版本和参数链接到对应契约。
+- 每个主题维护一个主要入口。行为变更时同步更新相关手册和导航，不只追加日期记录。
+- 已被取代的草稿、重复迁移说明和阶段清单直接删除，历史从 Git 查询。
+- 外部参考标明来源，未完成事故保留调查状态；不要给未经核对的文档盖上 `Current` 标签。
+- 不复制完整 Skill 提示词，不在文档中保存实际凭据或业务数据。

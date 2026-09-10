@@ -1,7 +1,5 @@
 # Transcript v2 与上下文投影
 
-Status: `Current`
-
 ## 决策
 
 - `<data-root>/db/session_transcripts/<session>.jsonl` 是会话上下文的逐 turn 权威历史；源码默认 data root 时对应仓库 `var/db/`。

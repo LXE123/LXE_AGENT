@@ -1,7 +1,5 @@
 # Skill Documentation
 
-Status: `Current`
-
 Runtime skill prompts live in repository `skills/*/SKILL.md` and optional user skills under `~/.agents/skills`. This directory explains discovery and classification; it does not duplicate full runtime prompts.
 
 ## Discovery And Precedence
@@ -30,7 +28,7 @@ Discovery is not the same as model activation.
 5. The model reads a skill's `SKILL.md` when it chooses that workflow.
 6. Owner-gated deferred tools from the activated skill become available on the next step.
 
-The read-only coding-tool scope includes bundled skills, optional user skills and managed runtime artifacts. Writes and command working directories remain workspace-only. Skill references, scripts and assets should therefore be resolved from the manifest's actual directory rather than from the process working directory.
+Resolve skill references, scripts and assets from the manifest's actual directory rather than the process working directory. Catalog reference validation prevents references escaping a skill root; it does not sandbox coding tools. File tools and command working directories can access host paths using the Agent process user's OS permissions. See the [runtime tool trust boundary](../runtime/tools/README.md#本机信任模型).
 
 This keeps the base prompt bounded while preserving detailed workflow contracts on demand.
 
@@ -47,10 +45,9 @@ Runtime records which skills were activated and used during a turn. This support
 ## Documentation Classes
 
 - [Current skill catalog](current_skill_catalog.md): active repository skill inventory and categories.
-- [Archive](archive/README.md): historical workflows, recordings, and superseded implementation notes.
 - [Reference](reference/README.md): external platform or vendor material.
 
-Archive and reference files are not runtime prompts unless a current `SKILL.md` explicitly links to them. Historical credentials, selectors, and examples must be sanitized before retention.
+Reference material supports API and policy checks; runtime instructions remain in the active `SKILL.md`. Superseded drafts and workflow recordings are removed; their history remains in Git.
 
 ## Maintenance Checklist
 
