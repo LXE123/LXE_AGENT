@@ -5,6 +5,7 @@ import {
   groupModelsByProvider,
   modelsInDisplayOrder,
   reconcileShowcaseSelections,
+  resolveModelSelection,
   thinkingStateForModelOption,
 } from "../../../src/features/models/model";
 import type { ModelPayload } from "../../../src/api/payloads";
@@ -288,5 +289,54 @@ describe("thinking state reconciliation", () => {
       level: "xhigh",
       editable: true,
     })).toEqual({ enabled: true, level: "max", editable: true });
+  });
+});
+
+
+describe("model selection across cloud publication rows", () => {
+  const oldCloud = showcasePayload({
+    provider: "deepseek", credential_source: "cloud", model: "deepseek-v4-flash",
+    configured: true, model_options: [showcaseOption("deepseek-v4-flash")],
+  });
+  const newCloud = showcasePayload({
+    provider: "deepseek", credential_source: "cloud", model: "deepseek-flash",
+    configured: true, model_options: [showcaseOption("deepseek-flash")],
+  });
+  const local = showcasePayload({
+    provider: "deepseek", credential_source: "local", model: "deepseek-v4-flash",
+    configured: true, model_options: [showcaseOption("deepseek-v4-pro"), showcaseOption("deepseek-v4-flash")],
+  });
+
+  test("resolves every displayed cloud choice with two models from the same provider", () => {
+    for (const models of [[local, oldCloud, newCloud], [newCloud, oldCloud, local]]) {
+      for (const choice of conversationModelChoices(models)) {
+        const selection = resolveModelSelection(models, choice.provider, choice.model, choice.credentialSource);
+        expect(selection?.selectedOption.model).toBe(choice.model);
+        expect(selection?.providerModel.credential_source).toBe(choice.credentialSource);
+      }
+      expect(resolveModelSelection(models, "deepseek", "deepseek-flash", "cloud")?.providerModel).toBe(newCloud);
+    }
+  });
+
+  test("uses availability from the chosen cloud model, including its failure reason", () => {
+    const unavailable = { ...oldCloud, configured: false, selectable: false, disabled_reason: "credential unavailable" };
+    const models = [unavailable, newCloud];
+    expect(resolveModelSelection(models, "deepseek", "deepseek-flash", "cloud")?.providerModel.selectable).toBe(true);
+    expect(resolveModelSelection(models, "deepseek", "deepseek-v4-flash", "cloud")?.providerModel).toBe(unavailable);
+  });
+
+  test("keeps identical model IDs distinct by credential source", () => {
+    const models = [local, oldCloud, newCloud];
+    expect(resolveModelSelection(models, "deepseek", "deepseek-v4-flash", "local")?.providerModel).toBe(local);
+    expect(resolveModelSelection(models, "deepseek", "deepseek-v4-flash", "cloud")?.providerModel).toBe(oldCloud);
+  });
+
+  test("does not substitute another provider, personal model, or removed cloud target", () => {
+    const models = [local, newCloud];
+    expect(resolveModelSelection(models, "deepseek", "deepseek-v4-pro", "cloud")).toBeUndefined();
+    expect(resolveModelSelection(models, "deepseek", "deepseek-flash", "local")).toBeUndefined();
+    expect(resolveModelSelection(models, "deepseek", "deepseek-v4-flash", "cloud")).toBeUndefined();
+    expect(resolveModelSelection(models, "zhipuai", "deepseek-flash", "cloud")).toBeUndefined();
+    expect(resolveModelSelection([], "deepseek", "deepseek-flash", "cloud")).toBeUndefined();
   });
 });

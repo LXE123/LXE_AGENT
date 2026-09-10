@@ -16,6 +16,21 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider"> & 
 
 export type CredentialSource = ModelPayload["credential_source"];
 
+/** Resolve the exact target; a provider/source can have multiple cloud rows. */
+export function resolveModelSelection(
+  models: readonly ModelPayload[],
+  provider: string,
+  modelName: string,
+  credentialSource: CredentialSource,
+): { providerModel: ModelPayload; selectedOption: ModelOptionPayload } | undefined {
+  for (const providerModel of models) {
+    if (providerModel.provider !== provider || providerModel.credential_source !== credentialSource) continue;
+    const selectedOption = providerModel.model_options.find((option) => option.model === modelName);
+    if (selectedOption) return { providerModel, selectedOption };
+  }
+  return undefined;
+}
+
 export type ShowcaseCredential = {
   credentialSource: CredentialSource;
   configured: boolean;

@@ -46,7 +46,8 @@ import { formatDate, formatNumber } from "./shared/format";
 import {
   modelDisabledReasonLabel,
   modelWithOption,
-  modelWithThinkingLevel
+  modelWithThinkingLevel,
+  resolveModelSelection
 } from "./features/models/model";
 import {
   I18nContext,
@@ -661,14 +662,14 @@ function App({
     credentialSource: "local" | "cloud",
   ) {
     if (modelMutation.isPending) return;
-    const providerModel = modelsQuery.data?.items.find((item) =>
-      item.provider === provider && item.credential_source === credentialSource
+    const selection = resolveModelSelection(
+      modelsQuery.data?.items ?? [], provider, modelName, credentialSource,
     );
-    const selectedOption = providerModel?.model_options.find((option) => option.model === modelName);
-    if (!providerModel || !selectedOption) {
+    if (!selection) {
       setError(t.models.modelOptionUnavailable);
       return;
     }
+    const { providerModel, selectedOption } = selection;
     if (!providerModel.selectable) {
       setError(
         providerModel.disabled_reason ? modelDisabledReasonLabel(t, providerModel.disabled_reason) : t.models.providerNotSelectable
