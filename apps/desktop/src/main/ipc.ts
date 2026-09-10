@@ -66,6 +66,7 @@ export interface DesktopIpcApplication {
   inputAssetSlotDirectory(slot: string): Promise<string>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
   registerPastedConversationFiles(input: unknown): DesktopDraftAttachmentPayload[];
+  previewDraftConversationFile(attachmentId: string): Promise<{ data_url: string }>;
   discardConversationFiles(attachmentIds: string[]): void;
 }
 
@@ -177,6 +178,10 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     application.registerPastedConversationFiles(input));
   ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, () =>
     application.registerConversationFiles(readClipboardFilePaths()));
+  ipcMain.handle(IPC_CHANNELS.previewDraftConversationFile, (_event, attachmentId: unknown) => {
+    if (typeof attachmentId !== "string" || !attachmentId.trim()) throw new Error("Invalid attachment ID");
+    return application.previewDraftConversationFile(attachmentId);
+  });
   ipcMain.handle(IPC_CHANNELS.discardConversationFiles, (_event, attachmentIds: unknown) =>
     application.discardConversationFiles(stringArray(attachmentIds, "attachment IDs")));
   ipcMain.handle(IPC_CHANNELS.startSyntheticPerformerTask, (_event, input: unknown) =>

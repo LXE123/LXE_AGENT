@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   stageDroppedConversationFiles: "lxe:desktop:conversation-files:stage-dropped",
   stagePastedConversationFiles: "lxe:desktop:conversation-files:stage-pasted",
   readClipboardConversationFiles: "lxe:desktop:conversation-files:read-clipboard",
+  previewDraftConversationFile: "lxe:desktop:conversation-files:preview-draft",
   discardConversationFiles: "lxe:desktop:conversation-files:discard",
   startSyntheticPerformerTask: "lxe:desktop:synthetic-performer:start",
   getSyntheticPerformerTask: "lxe:desktop:synthetic-performer:get-task",

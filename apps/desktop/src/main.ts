@@ -44,6 +44,7 @@ import { prepareClipboardScreenshot } from "./main/inbound-image";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
+import { attachmentThumbnail } from "./main/attachment-thumbnail";
 import { DesktopCloudService } from "./main/desktop-cloud";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
@@ -453,6 +454,10 @@ async function bootstrap(): Promise<void> {
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
+    previewDraftConversationFile: async (attachmentId) => {
+      const [attachment] = conversationAttachments.resolve([attachmentId]);
+      return { data_url: await attachmentThumbnail(attachment!.path, 1600) };
+    },
     discardConversationFiles: (attachmentIds) => conversationAttachments.discard(attachmentIds),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);

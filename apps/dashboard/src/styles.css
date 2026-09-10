@@ -11328,6 +11328,59 @@ pre {
   line-height: 1.3;
 }
 
+.input-attachment-draft {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+  gap: 8px;
+}
+
+.input-attachment-draft > .input-attachment-chip {
+  flex-shrink: 0;
+}
+
+.input-attachment-image {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.input-attachment-image .turn-file-chip {
+  cursor: zoom-in;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: inherit;
+}
+
+.input-attachment-image .input-attachment-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.input-attachment-image .input-attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px #0003;
+}
+
+.input-attachment-image .input-attachment-remove:hover {
+  background: var(--surface-subtle);
+}
+
+.input-attachment-image .input-attachment-remove:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
 /* Sent attachments sit above the text bubble, within the same message. */
 .conversation-feed .message-with-meta.role-user.has-sent-attachments {
   width: 100%;

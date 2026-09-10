@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { IPC_CHANNELS } from "../../src/ipc-channels";
 import { DesktopConversationAttachmentService } from "../../src/main/conversation-attachments";
+import { attachmentThumbnail } from "../../src/main/attachment-thumbnail";
 import { ElectronInboundImageProcessor, prepareClipboardScreenshot } from "../../src/main/inbound-image";
 import { prepareConversationAttachments } from "../../src/main/conversation-submission";
 import { readClipboardFilePaths } from "../../src/main/clipboard-files";
@@ -84,12 +85,16 @@ async function run() {
   try {
     const input = join(root, "中文 file.txt"); writeFileSync(input, "local reference");
     const imagePath = join(root, "original.png");
-    const image = nativeImage.createFromBitmap(Buffer.alloc(4 * 2 * 2, 255), { width: 2, height: 2 });
+    const image = nativeImage.createFromBitmap(Buffer.alloc(4 * 800 * 400, 255), { width: 800, height: 400 });
     assert.equal(image.isEmpty(), false);
     writeFileSync(imagePath, image.toPNG());
     let staged: DesktopDraftAttachmentPayload[] = [];
     ipcMain.handle(IPC_CHANNELS.stagePastedConversationFiles, (_event, value) => { staged = service.registerPaste(value); return staged; });
     ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, () => { staged = service.register(readClipboardFilePaths()); return staged; });
+    ipcMain.handle(IPC_CHANNELS.previewDraftConversationFile, async (_event, id) => {
+      const [item] = service.resolve([id]);
+      return { data_url: await attachmentThumbnail(item!.path, 1600) };
+    });
     ipcMain.handle(IPC_CHANNELS.discardConversationFiles, (_event, ids) => service.discard(ids));
     window = new BrowserWindow({ show: false, width: 850, height: 400, webPreferences: { preload, contextIsolation: true, sandbox: true } });
     if (composerPage) await window.loadFile(resolve(composerPage));
@@ -113,7 +118,29 @@ async function run() {
           },20)
         })`);
         assert.equal(state.count, staged.length);
-        if (state.preview) writeFileSync("/tmp/lxe-composer-paste.png", (await window!.webContents.capturePage()).toPNG());
+        if (state.preview) {
+          const tile = await window!.webContents.executeJavaScript(`(()=>{
+            const tile=document.querySelector('.input-attachment-image');
+            const r=tile.getBoundingClientRect();
+            return {width:r.width,height:r.height,text:tile.innerText,label:!!document.querySelector('.input-attachment-draft .turn-file-label')};
+          })()`);
+          assert.equal(tile.width, 80); assert.equal(tile.height, 80);
+          assert.equal(tile.text, ""); assert.equal(tile.label, false);
+          writeFileSync("/tmp/lxe-composer-paste.png", (await window!.webContents.capturePage()).toPNG());
+          await window!.webContents.executeJavaScript("document.querySelector('.input-attachment-image .turn-file-chip').click()");
+          const naturalWidth = await window!.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
+            let tries=0;const timer=setInterval(()=>{
+              const image=document.querySelector('.sent-image-dialog img');
+              if(image?.complete && image.getAttribute('aria-busy')==='false'){clearInterval(timer);resolve(image.naturalWidth)}
+              else if(++tries>100){clearInterval(timer);reject(new Error('Draft full image did not load'))}
+            },20)
+          })`);
+          assert.equal(naturalWidth, 800, "Expanded view must load the original image, not enlarge the 320px thumbnail");
+          window!.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+          window!.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+          await new Promise(resolve => setTimeout(resolve, 100));
+          assert.equal(await window!.webContents.executeJavaScript("!!document.querySelector('.sent-image-dialog')"), false);
+        }
         const items = staged;
         await window!.webContents.executeJavaScript("document.querySelector('.conversation-send-button').click()");
         return { items, text: state.text };
@@ -142,7 +169,7 @@ async function run() {
     assert.equal(ready[0]!.image_block?.type, "image");
     assert(!JSON.stringify(ready).includes("preview_data_url"));
     service.consume(ids); service.clear(); assert(existsSync(refs[0]!.path));
-    console.log("PASS: native macOS single/multi-file and image references, screenshot + text, PNG preview, visual model block, accepted-file retention");
+    console.log("PASS: native macOS single/multi-file and image references, screenshot + text, PNG preview, 80px draft tile and expanded original with Escape dismissal, visual model block, accepted-file retention");
   } finally {
     writer?.kill();
     window?.destroy(); service.clear();

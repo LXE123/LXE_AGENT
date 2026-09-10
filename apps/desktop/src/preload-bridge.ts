@@ -66,6 +66,8 @@ export function createDesktopBridge(
           droppedFiles.map((file) => files.getPathForFile(file)),
         );
       },
+      previewDraftConversationFile: (attachmentId) =>
+        ipc.invoke(IPC_CHANNELS.previewDraftConversationFile, attachmentId),
       discardConversationFiles: (attachmentIds) =>
         ipc.invoke(IPC_CHANNELS.discardConversationFiles, attachmentIds),
       stagePastedConversationFiles: async (pastedFiles) => {

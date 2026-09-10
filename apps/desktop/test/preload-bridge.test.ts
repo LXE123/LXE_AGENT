@@ -45,6 +45,7 @@ describe("preload bridge", () => {
       "openSyntheticPerformerOutput",
       "platform",
       "prepareCloudDependencies",
+      "previewDraftConversationFile",
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
@@ -89,6 +90,7 @@ describe("preload bridge", () => {
     await bridge.desktop.selectConversationFiles();
     await bridge.desktop.stageDroppedConversationFiles([new File(["hello"], "notes.txt")]);
     await bridge.desktop.discardConversationFiles(["attachment-1"]);
+    await bridge.desktop.previewDraftConversationFile("attachment-1");
     let cloudConnection = "";
     const unsubscribeCloud = bridge.desktop.onCloudStateChanged((state) => {
       cloudConnection = state.connection;
@@ -195,9 +197,11 @@ describe("preload bridge", () => {
       IPC_CHANNELS.selectConversationFiles,
       IPC_CHANNELS.stageDroppedConversationFiles,
       IPC_CHANNELS.discardConversationFiles,
+      IPC_CHANNELS.previewDraftConversationFile,
     ]);
     expect(invocations[21]?.arguments).toEqual([["/private/drop/notes.txt"]]);
     expect(invocations[22]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[23]?.arguments).toEqual(["attachment-1"]);
     expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
     expect(invocations[2]?.arguments).toEqual(["deepseek"]);
     expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);

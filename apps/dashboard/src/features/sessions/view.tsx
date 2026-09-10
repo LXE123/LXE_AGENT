@@ -1,6 +1,6 @@
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { ConversationAttachmentDraft } from "./attachment-draft";
-import { SentAttachmentList } from "./sent-attachments";
+import { DraftImagePreview, SentAttachmentList } from "./sent-attachments";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -643,15 +643,19 @@ function attachmentSuffix(name: string): string {
 
 function InputAttachmentList({
   attachments,
+  draft = false,
   onOpen,
   onRemove,
 }: {
   attachments: DesktopDraftAttachmentPayload[];
+  draft?: boolean;
   onOpen?: (attachmentId: string) => Promise<void>;
   onRemove?: (attachmentId: string) => void;
 }) {
   const t = useUiText();
   const [error, setError] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const expandedImage = draft ? attachments.find(item => item.attachment_id === expandedId && item.preview_data_url) : undefined;
   const open = async (attachmentId: string) => {
     if (!onOpen) return;
     setError("");
@@ -662,22 +666,22 @@ function InputAttachmentList({
     }
   };
   return (
-    <div className="turn-file-list input-attachment-list">
-      <span className="turn-file-label">{t.conversation.attachments}</span>
+    <div className={`turn-file-list input-attachment-list${draft ? " input-attachment-draft" : ""}`} role="group" aria-label={t.conversation.attachments}>
+      {!draft ? <span className="turn-file-label">{t.conversation.attachments}</span> : null}
       {attachments.map((attachment) => (
-        <span className="input-attachment-chip" key={attachment.attachment_id}>
+        <span className={`input-attachment-chip${draft && attachment.preview_data_url ? " input-attachment-image" : ""}`} key={attachment.attachment_id}>
           <button
             className="turn-file-chip"
-            disabled={!onOpen}
-            onClick={() => void open(attachment.attachment_id)}
+            disabled={!onOpen && !(draft && attachment.preview_data_url)}
+            onClick={() => draft && attachment.preview_data_url ? setExpandedId(attachment.attachment_id) : void open(attachment.attachment_id)}
             title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
             type="button"
           >
             {attachment.preview_data_url ? <img className="input-attachment-preview" src={attachment.preview_data_url} alt={attachment.name} /> : <Paperclip size={14} />}
-            <span className="input-attachment-info">
+            {!draft || !attachment.preview_data_url ? <span className="input-attachment-info">
               <span>{attachment.preview_data_url ? t.conversation.screenshot : attachment.name}</span>
               {attachmentSuffix(attachment.name) ? <span className="input-attachment-suffix">{attachmentSuffix(attachment.name)}</span> : null}
-            </span>
+            </span> : null}
           </button>
           {onRemove ? (
             <button
@@ -692,6 +696,7 @@ function InputAttachmentList({
         </span>
       ))}
       {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
+      {expandedImage ? <DraftImagePreview key={expandedImage.attachment_id} attachment={expandedImage} onClose={() => setExpandedId(null)} /> : null}
     </div>
   );
 }
@@ -1283,7 +1288,7 @@ export function ConversationComposer({
       {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
       <div className="conversation-compose-box">
         {attachments.length ? (
-          <InputAttachmentList attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
+          <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <textarea

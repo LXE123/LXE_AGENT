@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { File, Image as ImageIcon, LoaderCircle, X } from "lucide-react";
-import type { DesktopInputAttachmentPayload } from "@lxe/desktop-protocol";
+import type { DesktopDraftAttachmentPayload, DesktopInputAttachmentPayload } from "@lxe/desktop-protocol";
 import { queryError, useAttachmentPreviewQuery } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
@@ -21,16 +21,44 @@ function usePreview(sessionId: string | undefined, id: string, variant: "thumbna
 function ImagePreview({ attachment, sessionId, thumbnail, onClose }: {
   attachment: DesktopInputAttachmentPayload; sessionId?: string; thumbnail: string; onClose(): void;
 }) {
+  const preview = usePreview(sessionId, attachment.attachment_id, "expanded", true);
+  return <ImagePreviewDialog attachment={attachment} url={preview.url || thumbnail} error={preview.error} onClose={onClose} />;
+}
+
+export function DraftImagePreview({ attachment, onClose }: { attachment: DesktopDraftAttachmentPayload; onClose(): void }) {
+  const t = useUiText();
+  const [preview, setPreview] = useState({ url: "", error: "" });
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        if (!window.lxe) throw new Error(t.conversation.unavailable);
+        const result = await window.lxe.desktop.previewDraftConversationFile(attachment.attachment_id);
+        if (active) setPreview({ url: result.data_url, error: "" });
+      } catch (cause) {
+        if (active) setPreview({ url: "", error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [attachment.attachment_id, t.conversation.unavailable]);
+  return <ImagePreviewDialog attachment={attachment} url={preview.url || attachment.preview_data_url || ""}
+    error={preview.error} loading={!preview.url && !preview.error} onClose={onClose} />;
+}
+
+function ImagePreviewDialog({ attachment, url, error, loading = false, onClose }: {
+  attachment: DesktopInputAttachmentPayload; url: string; error: string; loading?: boolean; onClose(): void;
+}) {
   const t = useUiText();
   const ref = useDialogFocus<HTMLDivElement>(true, onClose);
-  const preview = usePreview(sessionId, attachment.attachment_id, "expanded", true);
   return createPortal(<div className="sent-image-backdrop" onClick={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
     <div className="sent-image-dialog" role="dialog" aria-modal="true" aria-label={attachment.name} ref={ref} tabIndex={-1}>
       <header><span>{attachment.name}</span><button type="button" aria-label={t.detailModal.close} onClick={onClose}><X size={20} /></button></header>
-      <img src={preview.url || thumbnail} alt={attachment.name} />
-      {preview.error ? <p role="alert">{preview.error}</p> : null}
+      <img src={url} alt={attachment.name} aria-busy={loading} />
+      {loading ? <LoaderCircle className="conversation-spinner" aria-label={t.sessionDetail.loading} size={20} /> : null}
+      {error ? <p role="alert">{error}</p> : null}
     </div>
   </div>, document.body);
 }
