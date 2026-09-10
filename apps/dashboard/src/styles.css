@@ -3214,8 +3214,9 @@ h1 {
   gap: 12px;
 }
 
+/* Reserve empty columns so cloud and local cards have the same width. */
 .models-grid {
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 16px;
 }
 
@@ -3226,115 +3227,18 @@ h1 {
   margin: 0 auto;
 }
 
-.models-showcase-hero {
-  position: relative;
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  min-width: 0;
-  gap: 24px;
-  padding: 21px 24px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 78% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34%),
-    linear-gradient(135deg, var(--surface), var(--surface-subtle));
-  box-shadow: var(--shadow-card);
-}
-
-.models-showcase-hero::after {
-  position: absolute;
-  top: -26px;
-  right: 22%;
-  width: 170px;
-  height: 170px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 50%;
-  content: "";
-  opacity: 0.7;
-  pointer-events: none;
-}
-
-.models-showcase-hero > * {
-  position: relative;
-  z-index: 1;
-}
-
-.models-showcase-intro {
-  display: grid;
-  max-width: 680px;
-  gap: 5px;
-}
-
-.models-showcase-intro > span {
-  color: var(--accent-strong);
-  font-size: 0.625rem;
-  font-weight: 750;
-  letter-spacing: 0.15em;
-}
-
-.models-showcase-intro h2,
-.models-showcase-intro p {
-  margin: 0;
-}
-
-.models-showcase-intro h2 {
-  color: var(--text-strong);
-  font-size: 1.375rem;
-  letter-spacing: -0.025em;
-}
-
-.models-showcase-intro p {
-  color: var(--text-soft);
-  font-size: 0.75rem;
-  line-height: 1.6;
-}
-
-.models-showcase-counts {
-  display: grid;
-  min-width: 210px;
-  grid-template-columns: repeat(2, minmax(86px, 1fr));
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 76%, transparent);
-  backdrop-filter: blur(10px);
-}
-
-.models-showcase-counts > div {
-  display: grid;
-  gap: 2px;
-  padding: 10px 13px;
-}
-
-.models-showcase-counts > div + div {
-  border-left: 1px solid var(--border);
-}
-
-.models-showcase-counts dt,
-.models-showcase-counts dd {
-  margin: 0;
-}
-
-.models-showcase-counts dt {
-  color: var(--muted);
-  font-size: 0.625rem;
-}
-
-.models-showcase-counts dd {
-  color: var(--text-strong);
-  font-size: 1.125rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
 .models-source-section {
   display: grid;
   min-width: 0;
   gap: 16px;
   margin-top: 8px;
+}
+
+.models-source-heading-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 }
 
 .models-source-heading h2 {
@@ -3359,17 +3263,18 @@ h1 {
   line-height: 1.6;
 }
 
-.models-showcase-counts .models-source-counts {
-  display: grid;
-  gap: 3px;
+.models-source-heading .models-source-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--muted);
   font-size: 0.6875rem;
-  font-weight: 400;
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .models-source-counts strong {
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .models-source-empty {
@@ -3410,6 +3315,8 @@ h1 {
   --model-badge-border: var(--model-ring);
   position: relative;
   display: flex;
+  width: 100%;
+  max-width: 420px;
   min-height: 365px;
   flex-direction: column;
   padding: 19px;
@@ -7109,18 +7016,6 @@ pre {
   .grid-list,
   .models-grid {
     grid-template-columns: 1fr;
-  }
-
-  .models-showcase-hero {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 16px;
-    padding: 18px;
-  }
-
-  .models-showcase-counts {
-    width: 100%;
-    min-width: 0;
   }
 
   .models-grid .model-card {

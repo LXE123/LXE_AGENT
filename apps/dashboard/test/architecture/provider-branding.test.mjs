@@ -18,7 +18,7 @@ const kimiDust = path.join(sourceDir, "assets/providers/kimi/kimi-moon-dust.png"
 test("model and runtime surfaces share local provider marks", () => {
   assert.match(models, /ProviderBrandMark/);
   assert.match(models, /providerBrandKind/);
-  assert.match(models, /className="models-showcase-hero"/);
+  assert.doesNotMatch(models, /className="models-showcase-hero"/);
   assert.match(models, /className="model-showcase-variants"/);
   assert.match(models, /className="model-showcase-select"/);
   assert.match(models, /className="model-showcase-metrics"/);
@@ -77,7 +77,6 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.match(styles, /\.model-card\[data-provider="deepseek"\]::after[\s\S]*?radial-gradient/);
   assert.match(models, /className="model-deepseek-waves"/);
   assert.match(styles, /\.model-deepseek-waves[\s\S]*?mask-image:\s*linear-gradient/);
-  assert.match(styles, /\.models-showcase-hero[\s\S]*?radial-gradient/);
   assert.match(styles, /\.model-showcase-variant\.current/);
   assert.match(styles, /\.model-showcase-select:focus-visible/);
   assert.match(styles, /\.model-showcase-thinking-levels > span\.active/);

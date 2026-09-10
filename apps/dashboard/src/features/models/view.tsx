@@ -137,7 +137,13 @@ function ModelSourceSection({
   return (
     <section className="models-source-section" data-model-source={source} aria-labelledby={`models-${source}-title`}>
       <header className="models-source-heading">
-        <h2 id={`models-${source}-title`}><CredentialSourceIcon source={source} />{title}</h2>
+        <div className="models-source-heading-row">
+          <h2 id={`models-${source}-title`}><CredentialSourceIcon source={source} />{title}</h2>
+          <p className="models-source-counts">
+            <span><strong>{formatNumber(groups.length)}</strong> {t.models.providers}</span>
+            <span><strong>{formatNumber(groups.reduce((count, group) => count + group.variants.length, 0))}</strong> {t.models.variants}</span>
+          </p>
+        </div>
         <p>{hint}</p>
       </header>
       {source === "cloud" && groups.length === 0 ? (
@@ -232,20 +238,6 @@ export function ModelsView({ models, current }: { models: ModelPayload[]; curren
   const titles = { cloud: t.models.cloudModels, local: t.models.localModels };
   return (
     <div className="models-page models-showcase-page">
-      <section className="models-showcase-hero">
-        <div className="models-showcase-intro">
-          <span>{t.models.galleryEyebrow}</span><h2>{t.models.galleryTitle}</h2><p>{t.models.galleryDescription}</p>
-        </div>
-        <dl className="models-showcase-counts">
-          {sections.map(({ source, groups }) => <div key={source}>
-            <dt>{titles[source]}</dt>
-            <dd className="models-source-counts">
-              <span><strong>{formatNumber(groups.length)}</strong> {t.models.providers}</span>
-              <span><strong>{formatNumber(groups.reduce((count, group) => count + group.variants.length, 0))}</strong> {t.models.variants}</span>
-            </dd>
-          </div>)}
-        </dl>
-      </section>
       {sections.map(({ source, groups }) => <ModelSourceSection key={source} source={source} groups={groups} current={current}
         title={titles[source]} hint={source === "cloud" ? t.models.cloudModelsHint : t.models.localModelsHint} />)}
     </div>
