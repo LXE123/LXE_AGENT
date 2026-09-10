@@ -232,13 +232,13 @@ def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
 
 def _mock_active_shop(monkeypatch):
     from services.mabang.amazon.fba.store_resolver import FbaStore
-    from services.mabang.amazon.fba.combo_sku import ListingSnapshot
+    from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot
     async def stores():
         return [FbaStore("Amazon-Lerxiuer-FR", "697456821", "shopId")]
-    async def snapshot(name):
-        return ListingSnapshot(name, "10", "fr", ())
+    async def snapshot(name, skus):
+        return SkuCatalogSnapshot(name, "10", "fr", ())
     monkeypatch.setattr(msku, "fetch_fba_stores", stores)
-    monkeypatch.setattr(msku, "fetch_listing_snapshot", snapshot)
+    monkeypatch.setattr(msku, "fetch_sku_catalog_snapshot", snapshot)
 
 
 def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None:

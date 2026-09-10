@@ -1,3 +1,5 @@
+> 历史 Listing 核验记录；当前备货改用[库存/组合商品类型核验](stock-combo-type-validation.md)，不再请求 Listing。
+
 # 全量 MSKU 与 Listing 绑定核验
 
 从 2026-09-08 起，备货不再用马帮 Active 状态筛选商品。网页 XLSX 保留全部行；官方 Listing 不传 `pStatus` 或其他状态过滤，只用于核对本地 SKU 和普通／组合类型。

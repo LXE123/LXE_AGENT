@@ -15,7 +15,7 @@ commands:
 - 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
 - 只有 `data.auth_refresh_required=true` 才按 `lxeskill auth refresh` 的恢复流程刷新一次，再重试失败步骤；为 false 或缺失时停止并保留诊断，不凭错误文本中的 401/403 或 ID 猜测认证失败。
 - 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
-- Listing 站点核验失败时保留请求与响应中的实际字段；字段差异本身不能证明马帮店铺配置错误，不据此要求用户修改店铺信息。
+- 源表店铺或站点校验失败时保留实际字段；商品接口命中不能证明销量、库存属于所选国家，不绕过源表范围校验。
 - 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
 - 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
 - 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
@@ -30,10 +30,11 @@ lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]
 
 ## 结果与下一步
 
-- CLI 保留网页下载和 XLSX 转换，随后使用官方全状态 Listing 绑定核验，不传 `pStatus`；只有全部成功才发布源表。后续只使用 `data.xlsx_path`。
-- 记录 `original_row_count`、`binding_verified_row_count`、`binding_unverified_row_count`：原始行数＝绑定核验通过行数＋未通过行数。全部原始行进入销量分析，核验通过不代表一定建议发货。
-- 未匹配全状态 Listing 的记录保留在源表和销量分析中，不进入备货计算；明确显示核验原因。`Amazon.Found.*` 遵循同一规则，不作名称特判。绑定冲突仍报错。
-- 隐藏 `源数据核验信息` 保存本轮 Listing 绑定、类型、店铺站点和源指纹；不能改标记、替换绑定或删除核验页。旧版未核验文件需重新下载。
+- CLI 保留网页下载和 XLSX 转换，随后按 XLSX 本地 SKU 去重，批量查询官方库存 SKU 接口（每批最多 50 个），未命中项再逐个查组合明细；不请求 Listing；只有全部成功才发布源表。后续只使用 `data.xlsx_path`。
+- 返回字段沿用旧名，`binding_verified_row_count` 现在表示源表本地 SKU 的商品类型已确认，并不表示实时 Listing 绑定一致。
+- 记录 `original_row_count`、`binding_verified_row_count`、`binding_unverified_row_count`：原始行数＝商品类型核验通过行数＋未通过行数。全部原始行进入销量分析，核验通过不代表一定建议发货。
+- 库存和组合接口均完整查询成功但都未精确命中的本地 SKU，对应 MSKU 保留在源表和销量分析中，不进入备货计算。接口失败、分页异常或无效组件必须报错，不能当作未命中。`Amazon.Found.*` 遵循同一规则，不作名称特判。
+- 隐藏 `源数据核验信息` 使用版本 3，保存本轮本地 SKU 查询结果、组合组件、店铺站点和源指纹；MSKU 与本地 SKU 的绑定以原始 XLSX 为准。不能改标记、替换绑定或删除核验页；历史 Active/Listing 核验文件需重新下载并重跑销量和库存报表。
 - `data.context.reason=multi_site_group` 时展示 `context.candidates` 的真实子站点，用户选择后再调用；不重试整组、不自动拆任务。
 - 完整任务下载成功后继续销量与库存；单步请求交付源表即可。没有可计算记录时结束并说明原因，不生成补货建议。
 - 官方数据服务依赖 `LXE_DATA_SERVER_URL`、`LXE_DATA_SERVER_API_KEY`（安装版由桌面注入，可能承载设备凭据）；不索取或展示密钥。网页仍依赖马帮登录态，官方错误不刷新 Cookie。

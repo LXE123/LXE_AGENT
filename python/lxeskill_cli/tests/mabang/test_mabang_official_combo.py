@@ -105,7 +105,8 @@ def test_only_found_rows_do_not_query_warehouse_or_enter_replenishment(monkeypat
     from mabang_test_helpers import _xlsx_bytes
     path = tmp_path/'202609071111-shop_店铺MSKU数据.xlsx'
     path.write_bytes(_xlsx_bytes([{'MSKU': 'Amazon.Found.A', 'ASIN': 'A', '本地SKU': 'S'}], columns=list(inv.SOURCE_COLUMNS)))
-    annotate_source(path, combo.ListingSnapshot('shop', '10', 'us', ()), requested_store_name='shop')
+    from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot, LocalSkuDefinition
+    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (LocalSkuDefinition('S', None),)), requested_store_name='shop')
     async def unexpected(*args, **kwargs):
         pytest.fail('Unverified rows must not query stock or combo details')
     monkeypatch.setattr(combo, 'post_json', unexpected)
@@ -367,46 +368,40 @@ def test_transport_exceptions_and_redaction(transport):
     assert 'actual failure' in text and '[truncated' in text
     assert all((secret not in text for secret in ('data-secret', 'erp-secret', 'unknown-secret')))
 
-def test_api_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp_path):
-    from mabang_test_helpers import _xlsx_bytes, _annotate_active_test_source
+def test_snapshot_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch, tmp_path):
+    from mabang_test_helpers import _xlsx_bytes
+    from services.mabang.amazon.fba.source_verification import annotate_source, SourceVerificationError
+    from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot
     path = tmp_path/'202609050900-shop_店铺MSKU数据.xlsx'
     path.write_bytes(_xlsx_bytes([{'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'C'}], columns=list(inv.SOURCE_COLUMNS)))
-    _annotate_active_test_source(path)
-    src = inv.SourceMskuFile(path, '202609050900', datetime(2026, 9, 5))
-    monkeypatch.setattr(inv, 'find_latest_store_msku_file', lambda *a, **kw: src)
-    monkeypatch.setattr(inv, 'load_store_msku_rows', lambda *a, **kw: [inv.StoreMskuRow('M', '', 'A', 'C', '')])
+    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (LocalSkuDefinition('C', 2, (combo.ComboComponent('S', Decimal(2)),)),)), requested_store_name='shop')
     calls = []
-
-    async def combos(*a, **kw):
-        calls.append('combo')
-        return {'C': combo.ComboSku('C', (combo.ComboComponent('S', Decimal(2)),))}
-
-    async def search(*a):
+    async def forbidden(*a, **kw):
+        pytest.fail('Inventory must not query Listing or product catalogs again')
+    async def search(skus):
+        assert skus == ['S']
         calls.append('warehouse')
-        if calls.count('warehouse') == 1:
+        if len(calls) == 1:
             raise inv.StoreMskuActualInventoryAuthError('expired cookie')
-
     async def refresh(**kw):
         calls.append('refresh')
-
     async def download(**kw):
         return Path('stock.xlsx')
-    monkeypatch.setattr(inv, 'fetch_inventory_combos', combos)
+    monkeypatch.setattr(combo, 'post_json', forbidden)
     monkeypatch.setattr(inv, 'search_warehouse_stock', search)
     monkeypatch.setattr(inv, 'refresh_mabang_auth', refresh)
     monkeypatch.setattr(inv, 'download_warehouse_stock_xlsx', download)
     monkeypatch.setattr(inv, 'parse_stock_inventory_xlsx', lambda *a: {'S': Decimal(10)})
-    result = asyncio.run(inv.export_store_msku_actual_inventory('shop', output_dir=tmp_path))
-    assert calls == ['combo', 'warehouse', 'refresh', 'warehouse']
+    result = asyncio.run(inv.export_store_msku_actual_inventory('shop', input_dir=tmp_path, output_dir=tmp_path/'out'))
+    assert calls == ['warehouse', 'refresh', 'warehouse']
     report = Path(result.shenzhen_warehouse_inventory_report_xlsx_path)
     original = report.read_bytes()
     calls.clear()
-
-    async def failure(*a, **kw):
-        raise http.OfficialApiError('SKU=C', 'HTTP 401 denied')
-    monkeypatch.setattr(inv, 'fetch_inventory_combos', failure)
-    with pytest.raises(http.OfficialApiError):
-        asyncio.run(inv.export_store_msku_actual_inventory('shop', output_dir=tmp_path))
+    def failure(*a, **kw):
+        raise SourceVerificationError('snapshot changed')
+    monkeypatch.setattr(inv, 'load_verified_source', failure)
+    with pytest.raises(SourceVerificationError):
+        asyncio.run(inv.export_store_msku_actual_inventory('shop', input_dir=tmp_path, output_dir=tmp_path/'out'))
     assert calls == [] and report.read_bytes() == original
 
 

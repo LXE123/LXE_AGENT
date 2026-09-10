@@ -1,0 +1,14 @@
+[
+  {
+    "request_cursor": null,
+    "response": {"code": 200, "data": {"data": [{"stockSku": "DP201101L04-M"}, {"stockSku": "DP211219SI18"}], "nextCursor": "_6da-A8RToJvyEZ1au8HqA=="}}
+  },
+  {
+    "request_cursor": "_6da-A8RToJvyEZ1au8HqA==",
+    "response": {"code": 200, "data": {"data": [{"stockSku": "DX0210817S06"}, {"stockSku": "AMDDP021015L01"}], "nextCursor": "PXDrYeJuqW-R_dd4JVGfsA=="}}
+  },
+  {
+    "request_cursor": "PXDrYeJuqW-R_dd4JVGfsA==",
+    "response": {"code": 200, "data": {"data": null, "nextCursor": ""}}
+  }
+]

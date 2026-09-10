@@ -117,14 +117,14 @@ def test_real_response_full_pagination_and_aggregated_progress(monkeypatch, caps
     assert '"o5": 1000' in summaries[0] and '"o5": 1' in summaries[1]
 
 
-def mock_download(monkeypatch, tmp_path):
+def mock_download(monkeypatch, tmp_path, *, local_sku=""):
     async def stores():
         return [FbaStore(STORE, SID, "shopId")]
 
     async def pipeline(spec):
         staging = spec.download_file.keywords["output_dir"]
         path = staging / f"202609101600-{STORE}_店铺MSKU数据.xlsx"
-        path.write_bytes(_xlsx_bytes([{"店铺名称": STORE, "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": ""}],
+        path.write_bytes(_xlsx_bytes([{"店铺名称": STORE, "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": local_sku}],
                                     columns=["店铺名称", "MSKU", "ASIN", "本地SKU"]))
         return msku.StoreMskuExcelResult(STORE, SID, "shopId", 1, str(path), False, False)
 
@@ -146,11 +146,19 @@ def test_download_publishes_country_metadata_and_keeps_missing_local_sku(monkeyp
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_later_page_failure_has_no_publication_or_auth_retry(monkeypatch, tmp_path, existing):
+def test_catalog_later_page_failure_has_no_publication_or_auth_retry(monkeypatch, tmp_path, existing):
     from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.mabang.amazon.fba import sku_catalog
 
-    calls = mock_pages(monkeypatch, bad_last=True)
-    target = mock_download(monkeypatch, tmp_path)
+    calls = mock_pages(monkeypatch)
+    target = mock_download(monkeypatch, tmp_path, local_sku="S")
+    async def stock(endpoint, body, **kwargs):
+        calls.append((endpoint, body.copy()))
+        assert endpoint == "stock-skus/search"
+        if "cursor" not in body:
+            return {"code": 200, "data": {"data": [{"stockSku": "S"}], "nextCursor": "next"}}
+        return {"code": 200, "data": {"data": None, "nextCursor": "next"}}
+    monkeypatch.setattr(sku_catalog, "post_json", stock)
     original = _xlsx_bytes([{"previous": "valid report"}], columns=["previous"])
     if existing:
         target.write_bytes(original)
@@ -161,7 +169,7 @@ def test_later_page_failure_has_no_publication_or_auth_retry(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "download_store_msku_excel", download)
     result = cli.run({"store_id": SID, "id_type": "shopId", "store_name": STORE})
     assert not result["success"] and result["auth_refresh_required"] is False
-    assert "page=2" in result["exception"] and "明确站点冲突" in result["exception"]
+    assert "page=2" in result["exception"] and "结构或分页数量异常" in result["exception"]
     assert len(calls) == 3
     assert list(tmp_path.iterdir()) == ([target] if existing else [])
     if existing:

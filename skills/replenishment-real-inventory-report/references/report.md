@@ -9,11 +9,11 @@
 - `source_msku_xlsx_path` = 源店铺 MSKU 数据文件。
 - `source_msku_data_time` = 源店铺 MSKU 数据时间。
 - `unique_local_sku_count` = 通过绑定核验且有本地 SKU 的去重本地 SKU 数。
-- `detected_combo_sku_count` = 本次识别到的组合 SKU 数。
+- `detected_combo_sku_count` = 源表快照中已确认的组合 SKU 数。
 - `queried_warehouse_stock_sku_count` = 本次实际查询深圳仓库库存的去重库存 SKU 数；普通本地 SKU 按本身计，组合 SKU 会拆成子库存 SKU 后计数。
 - `matched_warehouse_inventory_msku_row_count` = 成功得到深圳仓库库存数量的 MSKU 行数。
 - `missing_local_sku_msku_row_count` = 源数据没有 `本地SKU`、未参与库存查询的 MSKU 行数。
-- `missing_warehouse_inventory_msku_row_count` = 有 `本地SKU` 但没查到深圳仓库库存数量的 MSKU 行数。
+- `missing_warehouse_inventory_msku_row_count` = 有 `本地SKU` 但未确认商品类型或没查到深圳仓库库存数量的 MSKU 行数。
 - `missing_warehouse_stock_sku_count` = 查不到的库存 SKU 编号数。
 - `missing_local_sku_msku_row_count > 0`：提醒这些 MSKU 源数据没有 `本地SKU`，没有参与库存查询，详情在 `无本地SKU` sheet。
 - `missing_warehouse_inventory_msku_row_count > 0`：提醒这些 MSKU 有 `本地SKU` 但没有查到深圳仓库库存数量，详情在 `无库存数据` sheet。

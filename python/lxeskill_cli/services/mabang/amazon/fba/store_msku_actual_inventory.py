@@ -19,7 +19,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.datasets import dataset_dir
 
-from .combo_sku import ComboComponent, ComboSku, fetch_inventory_combos, normalize_sku_key
+from .combo_sku import ComboComponent, ComboSku, normalize_sku_key
 
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header
@@ -847,7 +847,7 @@ async def _export_store_msku_actual_inventory_once(
     local_skus = _unique_text([row.local_sku for row in verified_rows])
 
     output_directory = _resolve_output_dir(output_dir)
-    combo_map = await fetch_inventory_combos(clean_store_name, verified_rows, bindings=verified_source.bindings)
+    combo_map = verified_source.combo_map
     stock_skus = stock_skus_for_inventory(local_skus, combo_map)
 
     async def warehouse_once() -> dict[str, Decimal]:

@@ -43,8 +43,9 @@ from shared.datasets import dataset_dir
 from ...auth import get_auth_context
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP, FbaStore, fetch_fba_stores
-from .combo_sku import OFFICIAL_LOOKUP_TIMEOUT_SECONDS, fetch_listing_snapshot
-from .source_verification import annotate_source
+from .combo_sku import OFFICIAL_LOOKUP_TIMEOUT_SECONDS
+from .sku_catalog import fetch_sku_catalog_snapshot
+from .source_verification import annotate_source, read_source_local_skus
 
 DEFAULT_LISTSEARCH_URL = "https://private-amz.mabangerp.com/index.php?mod=fbanew.listsearch"
 DEFAULT_FBA_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.doFbaExportFile"
@@ -582,9 +583,9 @@ async def download_store_msku_excel(
         staged_path = Path(result.xlsx_path)
         try:
             async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
-                snapshot = await fetch_listing_snapshot(clean_store_name)
+                snapshot = await fetch_sku_catalog_snapshot(clean_store_name, read_source_local_skus(staged_path))
         except TimeoutError as exc:
-            raise OfficialApiError(f"店铺={clean_store_name}", f"全状态 Listing 官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
+            raise OfficialApiError(f"店铺={clean_store_name}", f"商品 SKU 类型官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
         metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
         counts = {key: metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")}
         target = directory / staged_path.name

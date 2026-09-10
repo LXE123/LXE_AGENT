@@ -8,7 +8,7 @@ import pytest
 from mabang_test_helpers import _xlsx_bytes
 from services.agent_cli.mabang import download_store_msku_excel as cli
 from services.mabang.amazon.fba import store_msku as msku
-from services.mabang.amazon.fba.combo_sku import ListingSnapshot, ListingSkuBinding
+from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot, LocalSkuDefinition
 from services.mabang.amazon.fba.store_resolver import FbaStore, parse_fba_store_options
 
 
@@ -33,7 +33,7 @@ def test_group_cli_returns_real_children_without_export_or_auth_recovery(monkeyp
     def directory(*args, **kwargs):
         pytest.fail('Group must stop before output directory creation')
     monkeypatch.setattr(msku, 'fetch_fba_stores', fetch)
-    for target in ['run_export_pipeline', 'fetch_store_msku_ids', 'export_store_msku_file_url', 'download_store_msku_excel_from_url', 'fetch_listing_snapshot']:
+    for target in ['run_export_pipeline', 'fetch_store_msku_ids', 'export_store_msku_file_url', 'download_store_msku_excel_from_url', 'fetch_sku_catalog_snapshot']:
         monkeypatch.setattr(msku, target, unexpected)
     monkeypatch.setattr(msku, '_resolve_output_dir', directory)
     payload = cli.run({'store_name': name, 'store_id': '401403', 'id_type': 'fbaWarehouseIds[]'})
@@ -77,17 +77,17 @@ def test_single_station_download_preserves_both_web_id_types(monkeypatch, tmp_pa
         path = spec.download_file.keywords['output_dir']/'202609071200-source.xlsx'
         path.write_bytes(_xlsx_bytes([{'店铺名称': single.store_name, 'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'S'}], columns=list(msku.CORE_STORE_MSKU_HEADERS)))
         return spec.transform_result(['1'], path)
-    async def snapshot(name):
+    async def snapshot(name, skus):
         assert name == single.store_name
-        calls.append('listing')
-        return ListingSnapshot(name, '99', 'de', (ListingSkuBinding('M', 'A', 'S', 1),))
+        calls.append('catalog')
+        return SkuCatalogSnapshot(name, '99', 'de', (LocalSkuDefinition('S', 1),))
     monkeypatch.setattr(msku, 'fetch_fba_stores', fetch)
     monkeypatch.setattr(msku, 'run_export_pipeline', pipeline)
-    monkeypatch.setattr(msku, 'fetch_listing_snapshot', snapshot)
+    monkeypatch.setattr(msku, 'fetch_sku_catalog_snapshot', snapshot)
     result = asyncio.run(msku.download_store_msku_excel(single.store_id, single.id_type, store_name=single.store_name, output_dir=tmp_path))
     assert Path(result.xlsx_path).exists()
     assert result.binding_counts == {'original_row_count': 1, 'binding_verified_row_count': 1, 'binding_unverified_row_count': 0}
-    assert calls == ['export', 'listing']
+    assert calls == ['export', 'catalog']
 
 
 def test_group_context_survives_cli_terminal_without_cookie_recovery(monkeypatch, capsys):

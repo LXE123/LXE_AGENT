@@ -120,8 +120,8 @@ class ListingSnapshot:
     bindings: tuple[ListingSkuBinding, ...]
 
 
-async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
-    context = f"Listing 店铺={store_name}"
+async def resolve_official_shop(store_name: str) -> tuple[str, str, str]:
+    context = f"官方店铺={store_name}"
     shops = await post_json("shops/list", {}, context=context)
     data = shops.get("data")
     if not isinstance(data, dict):
@@ -143,6 +143,12 @@ async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
     site = _site(shop.get("amazonsite"))
     if not site:
         invalid(context, "店铺缺少站点", shop)
+    return clean_text(shop["name"]), shop_id, site
+
+
+async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
+    name, shop_id, site = await resolve_official_shop(store_name)
+    context = f"Listing 店铺={store_name}"
     bindings: list[ListingSkuBinding] = []
     total: int | None = None
     pages: int | None = None
@@ -191,7 +197,7 @@ async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
                       + json.dumps(detail_verified_codes, ensure_ascii=False, sort_keys=True))
         _progress(f"{context}: Listing {count}/{total}，page={page}/{pages}")
         if count == total:
-            return ListingSnapshot(clean_text(shop["name"]), shop_id, site, tuple(bindings))
+            return ListingSnapshot(name, shop_id, site, tuple(bindings))
         page += 1
 
 
@@ -252,7 +258,7 @@ def _parse_combo(row: dict[str, Any], context: str) -> ComboSku:
     return ComboSku(clean_text(row["comboSku"]), tuple(components))
 
 
-async def _fetch_combo(sku: str) -> ComboSku:
+async def _fetch_combo(sku: str, *, allow_missing: bool = False) -> ComboSku | None:
     count = 0
     total: int | None = None
     page = 1
@@ -291,7 +297,7 @@ async def _fetch_combo(sku: str) -> ComboSku:
             found = combo
         count += len(records)
         if count == total:
-            if found is None:
+            if found is None and not allow_missing:
                 invalid(context, "Listing 已标记为组合 SKU，但未找到精确匹配的组合明细", payload)
             return found
         page += 1
