@@ -1,4 +1,4 @@
-import { managedCredentialFor, type ManagedLlmState } from "@lxe/core";
+import { withManagedModels, managedCredentialFor, type ManagedLlmState } from "@lxe/core";
 import { canReplayMetadata, legacyMessage, completeTool } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import { readFileSync } from "node:fs";
@@ -59,6 +59,10 @@ export interface ProviderDescriptor {
   apiStyle: string;
   credentialSource?: "local" | "cloud";
   credentialRevision?: string;
+  configurationRevision?: string;
+  compat?: Record<string, boolean | string>;
+  thinkingLevelMap?: Record<string, string | null>;
+  supportsTemperature?: boolean;
   baseURL: string;
   apiKey: string;
   maxTokens: number;
@@ -195,7 +199,8 @@ export function loadProviderDescriptor(
   const paths = options.llmConfigRoot
     ? runtimeConfigPathsFromRoot(options.llmConfigRoot)
     : runtimeConfigPaths(projectRoot);
-  const catalog = loadLlmProviderCatalog(paths.root);
+  const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud" ? "cloud" : "local";
+  const catalog = withManagedModels(loadLlmProviderCatalog(paths.root), credentialSource === "cloud" ? options.managedLlmState : undefined);
   const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", catalog.defaultProvider));
   const spec = catalog.requireProvider(requested);
   const name = spec.name;
@@ -203,9 +208,14 @@ export function loadProviderDescriptor(
   const configuredModel = envText(env, "AGENT_LLM_MODEL", "");
   const requestedModel = configuredModel || preference.model || spec.defaultModel;
   let model = catalog.resolveModel(spec, requestedModel);
-  if (!model && preference.model) model = spec.defaultModel;
+  if (!model && preference.model && credentialSource === "local") model = spec.defaultModel;
+  if (!model && credentialSource === "cloud" && options.deferCredential) model = requestedModel;
   if (!model) throw new Error(`unsupported LLM model: ${name}/${requestedModel}`);
-  const selectedModel = spec.models[model]!;
+  // Unavailable cloud selections still need metadata for startup and diagnostics.
+  // Credentials always resolve strictly at the turn boundary; this cannot execute the fallback.
+  const localSpec = loadLlmProviderCatalog(paths.root).requireProvider(name);
+  const selectedModel = spec.models[model] ?? { ...localSpec.models[localSpec.defaultModel]!, id: model,
+    supportsThinking: false, thinkingLevels: [], thinkingDefault: "off" };
   const thinkingLevels = selectedModel.thinkingLevels;
   const thinkingDefault = selectedModel.thinkingDefault;
   const requestedThinkingEffort = envText(
@@ -219,16 +229,15 @@ export function loadProviderDescriptor(
   const thinkingEnvironment = configuredThinkingEnabled || !preference.thinkingEnabled
     ? env
     : { ...env, AGENT_LLM_THINKING_ENABLED: preference.thinkingEnabled };
-  const thinkingEnabled = thinkingRequired
-    || (envFlag(thinkingEnvironment, "AGENT_LLM_THINKING_ENABLED", true) && normalizedThinkingEffort !== "off");
+  const thinkingEnabled = selectedModel.supportsThinking && (thinkingRequired
+    || (envFlag(thinkingEnvironment, "AGENT_LLM_THINKING_ENABLED", true) && normalizedThinkingEffort !== "off"));
   const thinkingEffort = !thinkingEnabled && thinkingLevels.includes("off")
     ? "off"
     : normalizedThinkingEffort;
   const profile = catalog.authProfiles[name];
   const envNames = profile?.envNames ?? [];
-  const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud"
-    ? "cloud"
-    : "local";
+  const managedModel = credentialSource === "cloud" ? options.managedLlmState?.models.find(m => m.provider === name && m.model === model) : undefined;
+  const definition = managedModel?.definition;
   const selectedManagedProvider = envText(env, "LXE_MANAGED_LLM_PROVIDER", "");
   const matchesManagedSelection = !selectedManagedProvider || (selectedManagedProvider === name && envText(env, "LXE_MANAGED_LLM_MODEL", "") === model);
   const managedCredential = options.managedLlmState && matchesManagedSelection ? managedCredentialFor(options.managedLlmState, { provider: name, model }) : undefined;
@@ -236,7 +245,7 @@ export function loadProviderDescriptor(
     ? envText(env, "LXE_MANAGED_LLM_CREDENTIAL_REVISION", "").toLowerCase()
     : "";
   const managedProvider = options.managedLlmState ? managedCredential?.provider ?? "" : normalizeProviderKey(envText(env, "LXE_MANAGED_LLM_PROVIDER", ""));
-  const managedModel = options.managedLlmState ? managedCredential?.model ?? "" : envText(env, "LXE_MANAGED_LLM_MODEL", "");
+  const managedCredentialModel = options.managedLlmState ? managedCredential?.model ?? "" : envText(env, "LXE_MANAGED_LLM_MODEL", "");
   const invalidRevision = options.managedLlmState ? managedCredential?.invalid_revision ?? "" : envText(env, "LXE_MANAGED_LLM_INVALID_REVISION", "").toLowerCase();
   let localApiKey = "";
   if (credentialSource === "local" && options.localAuthPath) {
@@ -258,7 +267,7 @@ export function loadProviderDescriptor(
       : envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
   if (!options.deferCredential && credentialSource === "cloud" && (
     managedProvider !== name
-    || managedModel !== model
+    || managedCredentialModel !== model
     || !/^[a-f0-9]{64}$/u.test(credentialRevision)
     || invalidRevision === credentialRevision
   )) {
@@ -277,7 +286,9 @@ export function loadProviderDescriptor(
     apiStyle: spec.apiStyle,
     credentialSource,
     credentialRevision,
-    baseURL: spec.baseURL,
+    ...(definition ? { compat: definition.compat, thinkingLevelMap: definition.thinkingLevelMap, configurationRevision: managedModel?.configuration_revision } : {}),
+    supportsTemperature: selectedModel.supportsTemperature,
+    baseURL: definition?.baseUrl ?? spec.baseURL,
     apiKey: options.deferCredential ? "" : apiKey,
     maxTokens: selectedModel.maxTokens,
     defaultHeaders,
@@ -293,7 +304,7 @@ export function loadProviderDescriptor(
     thinkingDisplay: "omitted",
     contextWindowTokens: selectedModel.contextWindowTokens,
     supportsVision: selectedModel.supportsVision,
-    requestIdleTimeoutMs: configuredRequestIdleTimeout(spec.requestIdleTimeoutMs),
+    requestIdleTimeoutMs: configuredRequestIdleTimeout(definition?.requestIdleTimeoutMs ?? spec.requestIdleTimeoutMs),
   };
 }
 
@@ -433,6 +444,10 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
             if (deepseek) return { type: "text", text: DEEPSEEK_REDACTED_THINKING_PLACEHOLDER };
             return replay ? { type: "redacted_thinking", data: String(block.thinkingSignature ?? "") } : undefined;
           }
+          const signature = String(block.thinkingSignature ?? block.signature ?? "");
+          if (!deepseek && !signature && descriptor.compat?.allowEmptySignature === false) {
+            return { type: "text", text: String(block.thinking ?? "") };
+          }
           return {
             type: "thinking",
             thinking: String(block.thinking ?? ""),
@@ -514,8 +529,16 @@ const safeBudgetTokens = (budget: number, maxTokens: number): number | undefined
 };
 
 export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
-  const style = descriptor.thinkingStyle;
+  const style = descriptor.compat?.forceAdaptiveThinking === true ? "anthropic-adaptive" : descriptor.thinkingStyle;
+  if (descriptor.thinkingLevelMap) {
+    const mapped = descriptor.thinkingLevelMap[descriptor.thinkingEffort];
+    descriptor = { ...descriptor, thinkingEffort: mapped ?? descriptor.thinkingEffort,
+      thinkingLevels: [...new Set(Object.values(descriptor.thinkingLevelMap).filter((v): v is string => v !== null))],
+      thinkingDefault: descriptor.thinkingLevelMap[descriptor.thinkingDefault] ?? descriptor.thinkingDefault,
+      thinkingEnabled: descriptor.thinkingEnabled && mapped !== null && mapped !== "off" && mapped !== "none" };
+  }
   if (style === "anthropic-output-effort") {
+    if (!descriptor.thinkingEnabled) return {};
     const effort = normalizeThinkingEffort(
       descriptor.thinkingEffort,
       descriptor.thinkingLevels,
@@ -586,9 +609,16 @@ export const buildSummaryThinkingPayload = (
   maxTokens: Math.min(descriptor.maxTokens, Math.max(1, Math.trunc(maxOutputTokens))),
 });
 
+/** Optional call temperature is omitted for models/routes that reject the field. */
+export function providerTemperature(descriptor: ProviderDescriptor, temperature?: number): Record<string, unknown> {
+  if (temperature === undefined || descriptor.supportsTemperature === false || descriptor.compat?.supportsTemperature === false) return {};
+  if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) throw new Error("temperature must be between 0 and 2");
+  return { temperature };
+}
+
 export function buildProviderRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature">,
 ): Record<string, unknown> {
   return {
     model: descriptor.model,
@@ -604,6 +634,7 @@ export function buildProviderRequest(
     stream: true,
     ...providerMetadata(descriptor, request.userIdentity),
     ...buildThinkingPayload(descriptor),
+    ...providerTemperature(descriptor, request.temperature),
   };
 }
 
@@ -903,15 +934,13 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const stream = this.clientFor().messages.stream({
-        model: this.descriptor.model,
-        max_tokens: maxOutputTokens,
-        system: SUMMARY_SYSTEM_PROMPT,
-        messages: adaptMessagesForProvider(request.messages, this.descriptor),
-        stream: true,
-        ...providerMetadata(this.descriptor, request.userIdentity),
-        ...buildSummaryThinkingPayload(this.descriptor, maxOutputTokens),
-      }, { signal: watchdog.signal });
+      const parameters = buildProviderRequest({ ...this.descriptor, maxTokens: maxOutputTokens }, {
+        system: SUMMARY_SYSTEM_PROMPT, messages: request.messages, tools: [], toolChoice: "auto",
+        ...(request.userIdentity ? { userIdentity: request.userIdentity } : {}), ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      });
+      // Preserve the existing summary system encoding while sharing all model parameters.
+      parameters.system = SUMMARY_SYSTEM_PROMPT;
+      const stream = this.clientFor().messages.stream(parameters, { signal: watchdog.signal });
       try {
         stream.on?.("connect", () => watchdog.activity());
         stream.on?.("streamEvent", () => watchdog.activity());

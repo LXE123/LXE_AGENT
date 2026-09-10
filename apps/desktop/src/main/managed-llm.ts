@@ -1,5 +1,5 @@
 import type { ManagedLlmCredential, ManagedLlmTarget } from "@lxe/desktop-protocol";
-import { loadLlmProviderCatalog } from "@lxe/core";
+import { parseManagedModelDefinition, type ManagedModel, type ManagedLlmState, loadLlmProviderCatalog } from "@lxe/core";
 
 export type ManagedLlmStatus =
   | ({ available: false } & Partial<ManagedLlmTarget>)
@@ -29,8 +29,13 @@ const targetValue = (value: unknown): ManagedLlmTarget | undefined => {
 
 export const managedLlmTargetSupported = (
   llmConfigRoot: string,
-  target: ManagedLlmTarget,
+  target: ManagedLlmTarget & Partial<ManagedModel>,
+  state?: ManagedLlmState,
 ): boolean => {
+  const model = state?.models.find(m => m.provider === target.provider && m.model === target.model) ?? target;
+  if (state?.model_schema === 3 || model.definition) {
+    try { const d = parseManagedModelDefinition(model.definition); return d.provider === target.provider && d.model === target.model; } catch { return false; }
+  }
   const catalog = loadLlmProviderCatalog(llmConfigRoot);
   const provider = catalog.provider(target.provider);
   return Boolean(provider && catalog.resolveModel(provider, target.model));

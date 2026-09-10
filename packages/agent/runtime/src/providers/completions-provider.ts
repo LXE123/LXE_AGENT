@@ -1,3 +1,4 @@
+import { providerTemperature } from "./provider";
 import { canReplayMetadata, legacyMessage, completeTool, replayReasoningDetails } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import OpenAI from "openai";
@@ -94,7 +95,7 @@ export function adaptMessagesForCompletions(
       continue;
     }
     if (message.role === "system") {
-      result.push({ role: "system", content: text(message.content) });
+      result.push({ role: descriptor?.compat?.supportsDeveloperRole === true ? "developer" : "system", content: text(message.content) });
       continue;
     }
     if (message.role === "assistant") {
@@ -110,6 +111,7 @@ export function adaptMessagesForCompletions(
           .join("");
         if (reasoning) assistant[field] = reasoning;
       }
+      if (descriptor?.compat?.requiresReasoningContentOnAssistantMessages === true && descriptor.thinkingEnabled && assistant.reasoning_content === undefined) assistant.reasoning_content = "";
       if (canReplayMetadata(message, descriptor)) {
         const details = blocks.flatMap((block) => block.type === "thinking" ? replayReasoningDetails(block.thinkingSignature) ?? [] : []);
         if (details.length) assistant.reasoning_details = details;
@@ -162,38 +164,42 @@ export const adaptToolsForCompletions = (tools: ToolSchema[]): JsonObject[] => t
 }));
 
 export const buildCompletionsThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
-  if (descriptor.thinkingStyle !== "zai") return {};
+  if ((descriptor.compat?.thinkingFormat ?? descriptor.thinkingStyle) !== "zai") return {};
+  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
   const effort = normalizeThinkingEffort(
     descriptor.thinkingEffort,
     descriptor.thinkingLevels,
     descriptor.thinkingDefault,
   );
+  if (["off", "none"].includes(descriptor.thinkingLevelMap?.[effort] ?? "")) return { thinking: { type: "disabled" } };
   return {
     thinking: { type: "enabled", clear_thinking: false },
-    reasoning_effort: effort,
+    ...(descriptor.compat?.supportsReasoningEffort === false ? {} : { reasoning_effort: descriptor.thinkingLevelMap?.[effort] ?? effort }),
   };
 };
 
 export function buildCompletionsRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "temperature">,
 ): Record<string, unknown> {
   const toolsEnabled = request.toolChoice !== "none" && request.tools.length > 0;
   return {
     model: descriptor.model,
     messages: [
-      ...(request.system.trim() ? [{ role: "system", content: request.system.trim() }] : []),
+      ...(request.system.trim() ? [{ role: descriptor.compat?.supportsDeveloperRole === true ? "developer" : "system", content: request.system.trim() }] : []),
       ...adaptMessagesForCompletions(request.messages, descriptor.supportsVision === true, descriptor),
     ],
-    max_tokens: descriptor.maxTokens,
+    [String(descriptor.compat?.maxTokensField ?? "max_tokens")]: descriptor.maxTokens,
     stream: true,
-    stream_options: { include_usage: true },
+    ...(descriptor.compat?.supportsUsageInStreaming === false ? {} : { stream_options: { include_usage: true } }),
+    ...(descriptor.compat?.supportsStore === true ? { store: false } : {}),
     ...(toolsEnabled ? {
       tools: adaptToolsForCompletions(request.tools),
       tool_choice: "auto",
-      ...(descriptor.toolStream ? { tool_stream: true } : {}),
+      ...((descriptor.compat?.zaiToolStream ?? descriptor.toolStream) ? { tool_stream: true } : {}),
     } : {}),
     ...buildCompletionsThinkingPayload(descriptor),
+    ...providerTemperature(descriptor, request.temperature),
   };
 }
 
@@ -301,17 +307,9 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const body = {
-        model: this.descriptor.model,
-        messages: [
-          { role: "system", content: SUMMARY_SYSTEM_PROMPT },
-          ...adaptMessagesForCompletions(request.messages, this.descriptor.supportsVision === true, this.descriptor),
-        ],
-        max_tokens: maxOutputTokens,
-        stream: true,
-        stream_options: { include_usage: true },
-        ...buildCompletionsThinkingPayload(this.descriptor),
-      };
+      const body = buildCompletionsRequest({ ...this.descriptor, maxTokens: maxOutputTokens }, {
+        system: SUMMARY_SYSTEM_PROMPT, messages: request.messages, tools: [], toolChoice: "auto", ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      });
       const stream = await this.clientFor().chat.completions.create(body, { signal: watchdog.signal });
       const normalizer = new OpenAICompletionsStreamAdapter(new AssistantMessageAccumulator(this.descriptor));
       for await (const chunk of stream) {

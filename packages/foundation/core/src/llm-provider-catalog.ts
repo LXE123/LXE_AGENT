@@ -1,3 +1,4 @@
+import { parseManagedModelDefinition, type ManagedLlmState, type ManagedModelDefinition } from "./managed-llm";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -293,4 +294,23 @@ export function loadLlmProviderCatalog(root: string): LlmProviderCatalog {
     resolveModel,
     requireModel,
   };
+}
+
+/** Overlay only at company-credential call sites; the personal catalog is never mutated. */
+export function managedModelSpec(definition: ManagedModelDefinition): LlmProviderModelSpec {
+  const m = parseManagedModelDefinition(definition);
+  return { id: m.model, contextWindowTokens: m.contextWindow, maxTokens: m.maxTokens,
+    supportsVision: m.input.includes("image"), supportsThinking: m.reasoning, supportsTemperature: m.supportsTemperature,
+    thinkingRequestStyle: m.thinkingStyle, ...(m.thinkingBudgetTokens === null ? {} : { thinkingBudgetTokens: m.thinkingBudgetTokens }),
+    toolStream: m.compat.zaiToolStream === true, thinkingLevels: Object.keys(m.thinkingLevelMap).filter(k => m.thinkingLevelMap[k] !== null), thinkingDefault: m.thinkingDefault };
+}
+export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState): LlmProviderCatalog {
+  if (!state || state.model_schema !== 3) return catalog;
+  const providers = catalog.providers.map(p => {
+    const models = Object.fromEntries(state.models.filter(m => m.provider === p.name && m.definition).map(m => [m.model, managedModelSpec(m.definition!)]));
+    return { ...p, models, modelAliases: {} };
+  });
+  const provider = (name: unknown) => providers.find(p => p.name === normalizeProviderKey(name));
+  const requireProvider = (name: unknown) => { const p = provider(name); if (!p) throw new Error("unsupported managed provider"); return p; };
+  return { ...catalog, providers, provider, requireProvider };
 }

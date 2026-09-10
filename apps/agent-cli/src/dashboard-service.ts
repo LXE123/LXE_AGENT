@@ -1,4 +1,4 @@
-import { managedCredentialFor, type ManagedLlmState, type ManagedTarget } from "@lxe/core";
+import { withManagedModels, managedCredentialFor, type ManagedLlmState, type ManagedTarget } from "@lxe/core";
 import {
   existsSync,
   mkdirSync,
@@ -641,7 +641,9 @@ export class DashboardService {
   }
 
   private managedProviderSpec(provider: string): Record<string, unknown> | undefined {
-    return this.providerSpecs().find((spec) => text(spec.name) === provider);
+    const catalog = withManagedModels(loadLlmProviderCatalog(this.options.llmConfigRoot), this.options.managedLlmState?.());
+    const spec = catalog.provider(provider);
+    return spec ? this.providerSpecPayload(spec) : undefined;
   }
 
   private managedConfigured(target: { provider: string; model: string }): boolean {
@@ -686,7 +688,7 @@ export class DashboardService {
       model: target.model,
       configured: false,
       selectable: false,
-      disabled_reason: "unsupported managed model",
+      disabled_reason: this.options.managedLlmState?.()?.models.find(m => m.provider === target.provider && m.model === target.model)?.unavailable_reason ?? "unsupported managed model; update the Agent or publication",
       model_options: [option],
       thinking_request_style: "none",
       thinking_levels: [],
@@ -773,12 +775,12 @@ export class DashboardService {
     return {
       provider: name,
       credential_source: credentialSource,
-      label: text(spec.label) || name,
+      label: credentialSource === "cloud" ? this.options.managedLlmState?.()?.models.find(m => m.provider === name && m.model === model)?.definition?.name ?? (text(spec.label) || name) : text(spec.label) || name,
       api_style: text(spec.api_style),
       model,
       configured,
       selectable: configured,
-      disabled_reason: configured ? "" : "missing API key",
+      disabled_reason: configured ? "" : credentialSource === "cloud" ? this.options.managedLlmState?.()?.models.find(m => m.provider === name && m.model === model)?.unavailable_reason ?? "company model credential unavailable" : "missing API key",
       model_options: (credentialSource === "cloud" ? [model] : Object.keys(models)).map(option),
       thinking_request_style: text(selected.thinking_request_style),
       thinking_levels: levels,
@@ -809,7 +811,7 @@ export class DashboardService {
   }
 
   private async updateModel(input: DashboardRpcSpec["models.update"]["input"]): Promise<JsonObject> {
-    const spec = this.providerSpec(input.provider);
+    const spec = input.credential_source === "cloud" ? this.managedProviderSpec(input.provider) : this.providerSpec(input.provider);
     if (!spec) rpcError("invalid_argument", "Unsupported model provider");
     const provider = normalizeProviderKey(spec.name);
     const credentialSource: "local" | "cloud" = input.credential_source === "cloud" ? "cloud" : "local";

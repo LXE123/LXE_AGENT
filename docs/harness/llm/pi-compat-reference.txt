@@ -1,0 +1,189 @@
+PI reference commit: 9767ba275f3e9a5ee0f5c5342249b629ab1b2282
+Source: packages/ai/src/types.ts
+Reference only: LXE accepts only its explicitly implemented subset.
+
+MIT License
+
+Copyright (c) 2025 Mario Zechner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+export interface OpenAICompletionsCompat {
+	/** Whether the provider supports the `store` field. Default: auto-detected from URL. */
+	supportsStore?: boolean;
+	/** Whether the provider supports the `developer` role (vs `system`). Default: auto-detected from URL. */
+	supportsDeveloperRole?: boolean;
+	/** Whether the provider supports `reasoning_effort`. Default: auto-detected from URL. */
+	supportsReasoningEffort?: boolean;
+	/** Whether the provider supports `stream_options: { include_usage: true }` for token usage in streaming responses. Default: true. */
+	supportsUsageInStreaming?: boolean;
+	/** Whether streamed responses include `finish_reason`. When false, pi infers `stop` or `toolUse` when the stream ends. Default: true. */
+	supportsFinishReason?: boolean;
+	/** Which field to use for max tokens. Default: auto-detected from URL. */
+	maxTokensField?: "max_completion_tokens" | "max_tokens";
+	/** Whether tool results require the `name` field. Default: auto-detected from URL. */
+	requiresToolResultName?: boolean;
+	/** Whether a user message after tool results requires an assistant message in between. Default: auto-detected from URL. */
+	requiresAssistantAfterToolResult?: boolean;
+	/** Whether thinking blocks must be converted to text blocks with <thinking> delimiters. Default: auto-detected from URL. */
+	requiresThinkingAsText?: boolean;
+	/** Whether all replayed assistant messages must include an empty reasoning_content field when reasoning is enabled. Default: auto-detected from URL. */
+	requiresReasoningContentOnAssistantMessages?: boolean;
+	/** Format for reasoning/thinking parameter. "openai" uses reasoning_effort, "openrouter" uses reasoning: { effort }, "deepseek" uses thinking: { type } plus reasoning_effort when supported, "together" uses reasoning: { enabled } plus reasoning_effort when supported, "baseten" uses configurable chat_template_args plus reasoning_effort when supported, "zai" uses thinking: { type }, "qwen" uses top-level enable_thinking: boolean, "qwen-chat-template" uses chat_template_kwargs.enable_thinking and preserve_thinking, "chat-template" uses configurable chat_template_kwargs, "string-thinking" uses top-level thinking: string, and "ant-ling" uses reasoning: { effort } only when the mapped effort is non-null. Default: "openai". */
+	thinkingFormat?:
+		| "openai"
+		| "openrouter"
+		| "deepseek"
+		| "together"
+		| "baseten"
+		| "zai"
+		| "qwen"
+		| "chat-template"
+		| "qwen-chat-template"
+		| "string-thinking"
+		| "ant-ling";
+	/** Kwargs to send as `chat_template_kwargs` when `thinkingFormat` is `chat-template`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for pi-controlled thinking values. */
+	chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>;
+	/** Arguments to send as `chat_template_args` when `thinkingFormat` is `baseten`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for pi-controlled thinking values. */
+	chatTemplateArgs?: Record<string, ChatTemplateKwargValue>;
+	/** OpenRouter-compatible routing preferences sent as the `provider` request field. */
+	openRouterRouting?: OpenRouterRouting;
+	/** Vercel AI Gateway routing preferences. Only used when baseUrl points to Vercel AI Gateway. */
+	vercelGatewayRouting?: VercelGatewayRouting;
+	/** Whether z.ai supports top-level `tool_stream: true` for streaming tool call deltas. Default: false. */
+	zaiToolStream?: boolean;
+	/**
+	 * Top-level request field used to cap reasoning tokens from `thinkingBudgets`.
+	 * Reasoning and the answer share `max_tokens` on these endpoints, so without a budget a
+	 * reasoning-heavy turn can consume the whole response and emit no answer.
+	 * `"thinking_token_budget"` is vLLM, `"thinking_budget"` is Qwen/DashScope/SGLang,
+	 * `"thinking_budget_tokens"` is llama.cpp. Off by default; not set on the generated catalog.
+	 */
+	thinkingTokenBudgetField?: ThinkingTokenBudgetField;
+	/** Alias for `thinkingTokenBudgetField: "thinking_token_budget"` (vLLM). Prefer `thinkingTokenBudgetField`. Default: false. */
+	supportsThinkingTokenBudget?: boolean;
+	/** Whether the provider supports OpenAI custom tools with Lark/regex grammar formats. When false, grammar-constrained tools fall back to normal function tools. Default: false; the generated model catalog enables it for capable models. */
+	supportsOpenAIGrammarTools?: boolean;
+	/** Whether the provider supports the `strict` field in tool definitions. Default: true. */
+	supportsStrictMode?: boolean;
+	/** Cache control convention for prompt caching. "anthropic" applies Anthropic-style `cache_control` markers to the system prompt, last tool definition, and last user, assistant, or tool-result text content. */
+	cacheControlFormat?: "anthropic";
+	/** Whether to send session-affinity data from `options.sessionId`. Default: false. */
+	sendSessionAffinityHeaders?: boolean;
+	/** Provider-specific deferred tool serialization mode. */
+	deferredToolsMode?: "kimi";
+	/** Session-affinity header format: `openai` sends `session_id`, `x-client-request-id`, and `x-session-affinity`; `openai-nosession` sends `x-client-request-id` and `x-session-affinity`; `openrouter` sends `x-session-id`. Does not affect the `prompt_cache_key` body param, which is governed by cache retention. Default: auto-detected. */
+	sessionAffinityFormat?: SessionAffinityFormat;
+	/** Whether the provider supports long prompt cache retention (`prompt_cache_retention: "24h"` or Anthropic-style `cache_control.ttl: "1h"`, depending on format). Default: true. */
+	supportsLongCacheRetention?: boolean;
+	/**
+	 * vLLM scheduler priority sent as the top-level `priority` request field (lower values are
+	 * handled earlier; server default 0). Only meaningful when vLLM runs with
+	 * `--scheduling-policy priority`; useful for keeping background/batch work from stalling
+	 * interactive sessions. Off by default; not set on the generated catalog.
+	 */
+	vllmPriority?: number;
+}
+
+/** Compatibility settings for OpenAI Responses APIs. */
+export interface OpenAIResponsesCompat {
+	/** Whether the provider supports the `developer` role (vs `system`). Default: true. */
+	supportsDeveloperRole?: boolean;
+	/** Session-affinity header format: `openai` sends `session_id` and `x-client-request-id`; `openai-nosession` sends `x-client-request-id`; `openrouter` sends `x-session-id`. Does not affect the `prompt_cache_key` body param, which is governed by cache retention. Default: auto-detected. */
+	sessionAffinityFormat?: SessionAffinityFormat;
+	/** Whether the provider supports long prompt cache retention. This uses `prompt_cache_options.ttl: "30m"` on GPT-5.6+ and `prompt_cache_retention: "24h"` on earlier models. Default: true. */
+	supportsLongCacheRetention?: boolean;
+	/** Whether the provider supports strict JSON-schema function tools. Defaults are API-specific; generated OpenAI models enable it explicitly. */
+	supportsStrictMode?: boolean;
+	/** Whether to emit OpenAI custom tools with Lark/regex grammar formats. When false, grammar-constrained tools fall back to normal function tools. Default: false; the generated model catalog enables it for capable models. */
+	supportsOpenAIGrammarTools?: boolean;
+	/** Whether the model supports message-anchored `additional_tools` input items. Default: false. */
+	supportsAdditionalTools?: boolean;
+	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
+	supportsToolSearch?: boolean;
+	/** Whether the model accepts `prompt_cache_options` (OpenAI GPT-5.6+ prompt caching). Older OpenAI models reject the parameter. Default: false. */
+	supportsExplicitPromptCacheMode?: boolean;
+	/** Whether the provider accepts the `max_output_tokens` parameter. Some Codex-protocol gateways reject it. Default: true. */
+	supportsMaxOutputTokens?: boolean;
+}
+
+/** Compatibility settings for Anthropic Messages-compatible APIs. */
+export interface AnthropicMessagesCompat {
+	/**
+	 * Whether the provider accepts per-tool `eager_input_streaming`.
+	 * When false, the Anthropic provider omits `tools[].eager_input_streaming`
+	 * and sends the legacy `fine-grained-tool-streaming-2025-05-14` beta header
+	 * for tool-enabled requests.
+	 * Default: true.
+	 */
+	supportsEagerToolInputStreaming?: boolean;
+	/** Whether the provider supports Anthropic long cache retention (`cache_control.ttl: "1h"`). Default: true. */
+	supportsLongCacheRetention?: boolean;
+	/**
+	 * Whether to send the `x-session-affinity` header from `options.sessionId`
+	 * when caching is enabled. Required for providers like Fireworks that use
+	 * session affinity for prompt cache routing (requests to the same replica
+	 * maximize cache hits).
+	 * Default: false.
+	 */
+	sendSessionAffinityHeaders?: boolean;
+	/**
+	 * Whether the provider supports Anthropic-style `cache_control` markers on
+	 * tool definitions. When false, `cache_control` is omitted from tool params.
+	 * Some Anthropic-compatible providers (e.g., Fireworks) do not support this
+	 * field on tools and may reject or ignore it.
+	 * Default: true.
+	 */
+	supportsCacheControlOnTools?: boolean;
+	/**
+	 * Whether the model accepts the Anthropic `temperature` request field.
+	 * Claude Opus 4.7+ rejects non-default temperature values.
+	 * Default: true.
+	 */
+	supportsTemperature?: boolean;
+	/**
+	 * Whether to force adaptive thinking (`thinking.type: "adaptive"` plus
+	 * `output_config.effort`) regardless of the model id. Built-in models that
+	 * require adaptive thinking set this in generated metadata. Custom
+	 * Anthropic-compatible providers can set this to `true` for any model whose
+	 * upstream requires the adaptive format. Set to `false` to
+	 * opt out on overridden built-in models.
+	 * Default: false.
+	 */
+	forceAdaptiveThinking?: boolean;
+	/** Whether to replay empty thinking signatures as `signature: ""` instead of converting thinking to text. Default: false. */
+	allowEmptySignature?: boolean;
+	/** Whether the provider supports Anthropic strict tool schemas. Default: false; generated Anthropic models enable it explicitly. */
+	supportsStrictTools?: boolean;
+	/** Whether the exact model transport supports effort-only system messages and thinking binding controls. Default: false. */
+	supportsMidConvoEffort?: boolean;
+	/**
+	 * Models Anthropic accepts in `fallbacks` for server-side refusal fallback,
+	 * with local pricing metadata for returned fallback responses. When absent or
+	 * empty, callers must omit `fallbacks`; Anthropic rejects the field for models
+	 * with no permitted fallback targets.
+	 */
+	allowedFallbackModels?: AnthropicAllowedFallbackModel[];
+	/**
+	 * Whether the provider supports deferred tools loaded by `tool_reference`
+	 * blocks in tool results. Default: true for first-party Anthropic models
+	 * except Haiku and models older than Claude 4.5; false for other providers.
+	 */
+	supportsToolReferences?: boolean;
+}
+

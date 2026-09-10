@@ -1,10 +1,12 @@
+import { parseManagedModelDefinition, type ManagedModelDefinition } from "./managed-model-definition";
+export * from "./managed-model-definition";
 /** Public manifest plus encrypted-at-rest credentials, passed only over internal IPC. */
 export interface ManagedTarget { provider: string; model: string }
 export interface ManagedCredential extends ManagedTarget {
   api_key: string; credential_revision: string; fetched_at: number; invalid_revision: string;
 }
-export interface ManagedModel extends ManagedTarget { available: boolean; credential_revision: string | null }
-export interface ManagedManifest { revision: number; default_target: ManagedTarget | null; models: ManagedModel[] }
+export interface ManagedModel extends ManagedTarget { available: boolean; credential_revision: string | null; definition?: ManagedModelDefinition; configuration_revision?: string; unavailable_reason?: string | null }
+export interface ManagedManifest { model_schema?: 3; revision: number; default_target: ManagedTarget | null; models: ManagedModel[] }
 export interface ManagedLlmState extends ManagedManifest { credentials: ManagedCredential[] }
 export const managedTargetKey = (value: ManagedTarget): string => JSON.stringify([value.provider, value.model]);
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -20,11 +22,21 @@ export function parseManagedManifest(value: unknown): ManagedManifest {
   const models = item.models.map((raw): ManagedModel => {
     const model = record(raw); const target = parseManagedTarget(raw);
     if (typeof model.available !== "boolean" || (model.available ? typeof model.credential_revision !== "string" || !/^[a-f0-9]{64}$/u.test(model.credential_revision) : model.credential_revision !== null)) throw new Error("invalid managed LLM model status");
-    return { ...target, available: model.available, credential_revision: model.credential_revision as string | null };
+    const base: ManagedModel = { ...target, available: model.available, credential_revision: model.credential_revision as string | null,
+      ...(typeof model.unavailable_reason === "string" ? { unavailable_reason: model.unavailable_reason } : {}) };
+    if (item.model_schema === 3) {
+      try {
+        const definition = parseManagedModelDefinition(model.definition);
+        if (definition.provider !== target.provider || definition.model !== target.model || typeof model.configuration_revision !== "string" || !/^[a-f0-9]{64}$/u.test(model.configuration_revision)) throw new Error("invalid configuration revision");
+        return { ...base, definition, configuration_revision: model.configuration_revision };
+      } catch { return { ...base, available: false, credential_revision: null, unavailable_reason: "configuration_unsupported" }; }
+    }
+    return base;
   });
   const defaultTarget = item.default_target === null ? null : parseManagedTarget(item.default_target);
   if (new Set(models.map(managedTargetKey)).size !== models.length || (models.length ? !defaultTarget || !models.some((m) => managedTargetKey(m) === managedTargetKey(defaultTarget)) : defaultTarget !== null)) throw new Error("invalid managed LLM default or duplicate target");
-  return { revision: Number(item.revision), default_target: defaultTarget, models };
+  if (item.model_schema !== undefined && item.model_schema !== 3) throw new Error("unsupported managed manifest schema");
+  return { ...(item.model_schema === 3 ? { model_schema: 3 as const } : {}), revision: Number(item.revision), default_target: defaultTarget, models };
 }
 export function parseManagedCredential(value: unknown): ManagedCredential {
   const item = record(value); const target = parseManagedTarget(value);
@@ -37,7 +49,8 @@ export function parseManagedCredential(value: unknown): ManagedCredential {
 export function parseManagedState(value: unknown): ManagedLlmState {
   const manifest = parseManagedManifest(value); const item = record(value);
   if (!Array.isArray(item.credentials)) throw new Error("invalid managed LLM credential set");
-  const credentials = item.credentials.map(parseManagedCredential);
+  const credentials = item.credentials.map(parseManagedCredential).filter(c => !manifest.models.some(m =>
+    managedTargetKey(m) === managedTargetKey(c) && m.unavailable_reason === "configuration_unsupported"));
   if (new Set(credentials.map(managedTargetKey)).size !== credentials.length || credentials.some((c) => !manifest.models.some((m) => m.available && managedTargetKey(m) === managedTargetKey(c) && m.credential_revision === c.credential_revision))) throw new Error("managed LLM credential does not match publication");
   return { ...manifest, credentials };
 }

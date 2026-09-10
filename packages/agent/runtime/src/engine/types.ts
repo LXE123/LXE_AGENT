@@ -84,6 +84,7 @@ export interface RuntimeProviderUserIdentity {
 }
 
 export interface RuntimeSummaryRequest {
+  temperature?: number;
   messages: RuntimeMessage[];
   signal: AbortSignal;
   kind: "history" | "midturn";
@@ -97,6 +98,7 @@ export interface RuntimeSummaryResult {
 }
 
 export interface RuntimeProviderRequest {
+  temperature?: number;
   system: string;
   messages: RuntimeMessage[];
   tools: ToolSchema[];

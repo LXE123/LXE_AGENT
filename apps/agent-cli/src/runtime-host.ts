@@ -1,4 +1,4 @@
-import { managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
+import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
@@ -335,7 +335,7 @@ export function createAgentRuntimeHost(
       environment.LXE_MANAGED_LLM_CREDENTIAL_REVISION = next?.credential_revision ?? "";
       environment.LXE_MANAGED_LLM_INVALID_REVISION = next?.invalid_revision ?? "";
       if (environment.AGENT_LLM_CREDENTIAL_SOURCE === "cloud") {
-        const catalog = loadLlmProviderCatalog(options.llmConfigRoot);
+        const catalog = withManagedModels(loadLlmProviderCatalog(options.llmConfigRoot), managedLlmState);
         const spec = selected ? catalog.provider(selected.provider) : undefined;
         if (selected && spec && catalog.resolveModel(spec, selected.model)) {
           await providerManager.reconfigure({ ...selected, credentialSource: "cloud" });

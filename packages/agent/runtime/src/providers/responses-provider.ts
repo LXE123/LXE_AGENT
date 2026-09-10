@@ -1,3 +1,4 @@
+import { providerTemperature } from "./provider";
 import { canReplayMetadata, completeTool, replaySignature } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import OpenAI from "openai";
@@ -190,12 +191,12 @@ export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => too
  */
 export const buildResponsesThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   if (descriptor.thinkingStyle === "provider-managed") return {};
-  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") {
+  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "none" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "off") {
     return { reasoning: { effort: "none" } };
   }
   return {
     reasoning: {
-      effort: normalizeThinkingEffort(
+      effort: descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] ?? normalizeThinkingEffort(
         descriptor.thinkingEffort,
         descriptor.thinkingLevels.filter((level) => level !== "off"),
         descriptor.thinkingDefault,
@@ -211,7 +212,7 @@ export const buildResponsesSummaryThinkingPayload = (
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature">,
 ): Record<string, unknown> {
   // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
   // rate-limits and isolates against. A shared Feishu bot would otherwise put
@@ -220,14 +221,18 @@ export function buildResponsesRequest(
   return {
     ...(user ? { user } : {}),
     model: descriptor.model,
-    instructions: request.system.trim(),
-    input: adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor),
-    max_output_tokens: descriptor.maxTokens,
+    ...(descriptor.compat?.supportsDeveloperRole === true ? {} : { instructions: request.system.trim() }),
+    input: [
+      ...(descriptor.compat?.supportsDeveloperRole === true && request.system.trim() ? [{ type: "message", role: "developer", content: [{ type: "input_text", text: request.system.trim() }] }] : []),
+      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor),
+    ],
+    ...(descriptor.compat?.supportsMaxOutputTokens === false ? {} : { max_output_tokens: descriptor.maxTokens }),
     stream: true,
     ...(request.tools.length > 0
       ? { tools: adaptToolsForResponses(request.tools), tool_choice: request.toolChoice }
       : {}),
     ...buildResponsesThinkingPayload(descriptor),
+    ...providerTemperature(descriptor, request.temperature),
   };
 }
 
@@ -330,17 +335,10 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const stream = this.clientFor().responses.stream({
-        model: this.descriptor.model,
-        instructions: SUMMARY_SYSTEM_PROMPT,
-        input: adaptMessagesForResponses(request.messages, this.descriptor.supportsVision === true, this.descriptor),
-        max_output_tokens: maxOutputTokens,
-        stream: true,
-        ...(providerUserIdentifier(request.userIdentity)
-          ? { user: providerUserIdentifier(request.userIdentity) }
-          : {}),
-        ...buildResponsesSummaryThinkingPayload(this.descriptor),
-      }, { signal: watchdog.signal });
+      const stream = this.clientFor().responses.stream(buildResponsesRequest({ ...this.descriptor, maxTokens: maxOutputTokens }, {
+        system: SUMMARY_SYSTEM_PROMPT, messages: request.messages, tools: [], toolChoice: "auto",
+        ...(request.userIdentity ? { userIdentity: request.userIdentity } : {}), ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      }), { signal: watchdog.signal });
       try {
         stream.on?.("response.output_text.delta", () => watchdog.activity());
         stream.on?.("response.reasoning_text.delta", () => watchdog.activity());
