@@ -1,6 +1,6 @@
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
-import { parseUserQuestionSubmission, type PendingUserQuestion, type SubmitUserQuestionAnswer } from "@lxe/protocol";
-export type { PendingUserQuestion, UserQuestion, UserQuestionAnswer, SubmitUserQuestionAnswer } from "@lxe/protocol";
+import { parseUserQuestionSubmission, type PendingUserQuestion, type SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
+export type { PendingUserQuestion, UserQuestion, UserQuestionAnswer, SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
 import { validateSessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
 export type { TurnProcessPart } from "@lxe/protocol";
 

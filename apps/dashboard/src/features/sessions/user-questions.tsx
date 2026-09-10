@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { PendingUserQuestion, UserQuestionAnswer } from "@lxe/desktop-protocol";
-import { parseUserQuestions, validateUserQuestionAnswers } from "@lxe/protocol";
+import { parseUserQuestions, validateUserQuestionAnswers } from "@lxe/protocol/user-questions";
 import { callDashboard } from "../../api/client";
 import { useUiText } from "../../shared/i18n";
 import { isRecord } from "../../shared/content";

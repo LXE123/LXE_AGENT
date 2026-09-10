@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./context-display": "./src/context-display.ts",
+    "./user-questions": "./src/user-questions.ts",
     "./session-status": "./src/session-status.ts"
   },
   "scripts": {
