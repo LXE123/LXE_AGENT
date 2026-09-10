@@ -18,6 +18,7 @@ commands:
 - 退税产品表由系统记忆，见下方「长期资产」；只有用户上传新版时才传 `products_path`，且只使用附件下载结果中的真实绝对路径。
 - CLI 返回 `input_required` 时（系统还没存过任何版本）才向用户索取文件。
 - CLI 不修改用户上传的原文件；有新增 SKU 时在受管 artifacts 中生成更新后的副本。
+- 更新副本校验成功后自动保存为当前白名单，后续导入和退税汇总默认使用它；旧版保留用于回退。没有新增 SKU 时不生成更新副本。
 - 不要自己查询或拼接马帮 API 请求，不要手写或复用 bearer/freeToken/Cookie。
 - v1 只支持导入新增 SKU，不支持删除、修改、查询。
 - 已存在 SKU 不导入、不覆盖；马帮 API 查不到的 SKU 不导入。
@@ -54,4 +55,5 @@ lxeskill fba export-tax products-import --sku <sku1> --sku <sku2> --products-pat
 - `backup_path` 非空：说明导入前已自动备份。
 - `output_xlsx` 非空：terminal `files` 中会包含受管 artifacts 生成的更新后产品表，一次调用 `send_files(paths=<terminal.files>)`；用户上传的原文件保持不变。
 - `backup_path` 是诊断备份，不属于正式交付文件，不主动调用 `send_files`。
-- `success=false`：只转述 `exception`。
+- `input_asset_update_failed`：更新文件已生成，但保存为当前白名单失败；转述 `error.message`，发送 terminal `files` 中的更新文件，不声称系统已记住新版。
+- 其他 `success=false`：只转述 `exception`。

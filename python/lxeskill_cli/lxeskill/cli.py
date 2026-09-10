@@ -234,20 +234,34 @@ def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> di
     return sources
 
 
-def _promote_supplied_assets(
+def _promote_successful_assets(
     entry: dict[str, Any],
     arguments: dict[str, Any],
     sources: dict[str, dict[str, str]],
+    data: dict[str, Any],
 ) -> None:
-    """After a successful run, keep the caller-supplied files as the new current."""
+    """Keep a declared updated output, or otherwise the supplied input, as current."""
+    properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
     for name, info in sources.items():
-        if info.get("from") != "upload":
+        output_field = str(dict(properties.get(name) or {}).get("x-lxe-asset-output-field") or "")
+        updated_path = str(data.get(output_field) or "") if output_field else ""
+        if not updated_path and info.get("from") != "upload":
             continue
         try:
-            promoted = promote_asset(info["slot"], str(arguments.get(name) or ""))
-        except InputAssetError as exc:
+            promoted = promote_asset(info["slot"], updated_path or str(arguments.get(name) or ""))
+        except (InputAssetError, OSError) as exc:
+            if updated_path:
+                raise LxeSkillError(
+                    "input_asset_update_failed",
+                    f"更新文件已生成，但保存为当前资产失败: {type(exc).__name__}: {exc}",
+                    exit_code=EXIT_BUSINESS,
+                ) from exc
+            if not isinstance(exc, InputAssetError):
+                raise
             logger.warning("input_asset_promote_failed: slot=%s error=%s", info["slot"], exc)
             continue
+        if updated_path:
+            info["from"] = "generated"
         info["file_name"] = promoted.file_name
         info["updated_at"] = promoted.updated_at
 
@@ -406,7 +420,13 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                 failure["recovery"] = recovery
             _emit(failure)
             return EXIT_BUSINESS
-    _promote_supplied_assets(entry, arguments, asset_sources)
+    try:
+        _promote_successful_assets(entry, arguments, asset_sources, data)
+    except LxeSkillError as exc:
+        error = {"code": exc.code, "message": str(exc)}
+        data = {**data, "success": False, "error": error}
+        _emit({"type": "result", "command": command, "ok": False, "data": data, "files": files, "error": error})
+        return exc.exit_code
     _emit({"type": "result", "command": command, "ok": True, "data": data, "files": files})
     return 0
 

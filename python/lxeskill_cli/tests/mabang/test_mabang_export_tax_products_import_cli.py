@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from lxeskill import business, cli as lxeskill
 from services.agent_cli.mabang import import_export_tax_products as cli
+from services.agent_cli.mabang import summarize_fba_delivery_tax_sku as summary_cli
+from shared import input_assets
 
 
 def _write_products(
@@ -192,3 +198,106 @@ def test_main_validation_failure_returns_failure_json(monkeypatch, tmp_path, cap
     payload = cli.run({"sku": "SKU-NEW", "products_path": str(products_path)})
     assert payload["success"] is False
     assert "缺少列: 产品名称" in payload["exception"]
+
+
+@pytest.fixture
+def stored_products(monkeypatch, tmp_path):
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
+    monkeypatch.setattr(business, "artifact_root", lambda: artifacts)
+    monkeypatch.setattr(lxeskill, "activate_project_workspace", lambda: tmp_path)
+    monkeypatch.setattr(cli, "DEFAULT_BACKUP_DIR", artifacts / "backup")
+    monkeypatch.setattr(cli, "DEFAULT_OUTPUT_DIR", artifacts / "products")
+    original = tmp_path / "products.xlsx"
+    _write_products(original, [{"sku": "SKU-EXIST", "产品名称": "已有产品"}])
+    input_assets.promote_asset("export_tax_products", original)
+
+    async def fake_export(skus, **kwargs):
+        assert skus == ["SKU-NEW"]
+        return SimpleNamespace(names_by_key={"SKU-NEW": "新产品"}, xlsx_paths=[])
+
+    monkeypatch.setattr(cli, "export_stock_sku_names", fake_export)
+    return original
+
+
+@pytest.mark.parametrize("use_upload", [False, True])
+def test_import_updates_default_asset_for_next_import_and_summary(
+    stored_products, use_upload, monkeypatch, capsys
+):
+    original_bytes = stored_products.read_bytes()
+    arguments = ["fba", "export-tax", "products-import", "--sku", "SKU-NEW"]
+    if use_upload:
+        arguments.extend(["--products-path", str(stored_products)])
+
+    assert lxeskill.main(arguments) == 0
+    record = json.loads(capsys.readouterr().out)
+    updated = input_assets.current_asset("export_tax_products")
+    previous = input_assets.previous_asset("export_tax_products")
+    assert updated.path.read_bytes() == Path(record["data"]["output_xlsx"]).read_bytes()
+    assert _read_rows(updated.path) == [
+        ("sku", "产品名称"), ("SKU-EXIST", "已有产品"), ("SKU-NEW", "新产品"),
+    ]
+    assert previous.path.read_bytes() == original_bytes
+    assert stored_products.read_bytes() == original_bytes
+    assert record["files"] == [record["data"]["output_xlsx"]]
+    assert record["data"]["asset_sources"]["products_path"] == {
+        "slot": "export_tax_products", "from": "generated",
+        "file_name": updated.file_name, "updated_at": updated.updated_at,
+    }
+
+    async def unexpected_export(*args, **kwargs):
+        pytest.fail("the next import must recognize the SKU in the stored updated file")
+
+    monkeypatch.setattr(cli, "export_stock_sku_names", unexpected_export)
+    assert lxeskill.main(["fba", "export-tax", "products-import", "--sku", "SKU-NEW"]) == 0
+    duplicate = json.loads(capsys.readouterr().out)
+    assert duplicate["data"]["skipped_duplicate_count"] == 1
+    assert duplicate["data"]["output_xlsx"] == ""
+    assert input_assets.current_asset("export_tax_products") == updated
+    assert input_assets.previous_asset("export_tax_products") == previous
+
+    def read_summary_input(arguments):
+        assert Path(arguments["products_path"]) == updated.path
+        assert ("SKU-NEW", "新产品") in _read_rows(Path(arguments["products_path"]))
+        return {"success": True}
+
+    monkeypatch.setattr(summary_cli, "run", read_summary_input)
+    assert lxeskill.main(["fba", "export-tax", "delivery-summary", "--delivery-no", "SP123"]) == 0
+
+
+def test_failed_output_validation_keeps_current_asset(stored_products, monkeypatch, capsys):
+    current = input_assets.current_asset("export_tax_products")
+    original_bytes = current.path.read_bytes()
+    validate = cli.validate_export_tax_products
+
+    def reject_updated(path):
+        if "_updated_" in Path(path).name:
+            raise ValueError("updated workbook validation failed")
+        return validate(path)
+
+    monkeypatch.setattr(cli, "validate_export_tax_products", reject_updated)
+    assert lxeskill.main(["fba", "export-tax", "products-import", "--sku", "SKU-NEW"]) == lxeskill.EXIT_BUSINESS
+    record = json.loads(capsys.readouterr().out)
+    assert record["ok"] is False
+    assert "updated workbook validation failed" in record["error"]["message"]
+    assert input_assets.current_asset("export_tax_products") == current
+    assert current.path.read_bytes() == original_bytes
+    assert input_assets.previous_asset("export_tax_products") is None
+
+
+@pytest.mark.parametrize("error_type", [input_assets.InputAssetError, PermissionError])
+def test_asset_save_failure_reports_error_and_keeps_generated_file(
+    stored_products, monkeypatch, capsys, error_type
+):
+    def fail_promotion(*args, **kwargs):
+        raise error_type("cannot save updated whitelist")
+
+    monkeypatch.setattr(lxeskill, "promote_asset", fail_promotion)
+    assert lxeskill.main(["fba", "export-tax", "products-import", "--sku", "SKU-NEW"]) == lxeskill.EXIT_BUSINESS
+    record = json.loads(capsys.readouterr().out)
+    assert record["ok"] is False
+    assert record["data"]["success"] is False
+    assert record["error"]["code"] == "input_asset_update_failed"
+    assert f"{error_type.__name__}: cannot save updated whitelist" in record["error"]["message"]
+    assert record["files"] == [record["data"]["output_xlsx"]]
+    assert ("SKU-NEW", "新产品") in _read_rows(Path(record["files"][0]))
