@@ -187,7 +187,7 @@ describe("desktop resource scope", () => {
     expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.env.production")).toBe(true);
     expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.npmrc")).toBe(true);
     expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/auth.json")).toBe(true);
-    expect(approvedConstructiveResourcePath("runtime/playwright/chromium/locales/fr.pak")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/playwright/chromium/locales/fr.pak")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/python/credentials.json")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/python/.lxe-lxeskill-ready.json")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/node/npm-cache/_logs/install.log")).toBe(false);

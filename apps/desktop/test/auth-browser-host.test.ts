@@ -76,4 +76,7 @@ describe("authentication browser host", () => {
     expect(sessions[1]!.closed).toBe(1);
     expect(() => host.environment()).toThrow("not running");
   });
+
+  // Disconnect cleanup runs in the native Electron fixture: Electron uses Node HTTP,
+  // whose socket lifecycle differs from Bun's node:http compatibility layer.
 });

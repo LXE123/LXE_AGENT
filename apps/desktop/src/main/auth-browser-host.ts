@@ -129,9 +129,13 @@ export class AuthBrowserHost {
         } else {
           if (lease.busy) throw new Error("Auth browser session already has an active operation");
           lease.busy = true;
-          response.once("close", () => {
+          const disconnected = (): void => {
             if (!response.writableEnded) void this.closeLease(id).catch(() => {});
-          });
+          };
+          const socket = request.socket;
+          response.once("close", disconnected);
+          socket.once("close", disconnected);
+          response.once("finish", () => socket.removeListener("close", disconnected));
           try {
             result = await lease.session.invoke(operation, args);
           } finally {

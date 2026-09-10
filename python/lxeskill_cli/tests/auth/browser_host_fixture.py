@@ -1,6 +1,7 @@
 """Executable local fixture used by the real Electron smoke runner."""
 import json
 import os
+import socket
 import threading
 import time
 from email.utils import formatdate
@@ -81,6 +82,27 @@ service.mabang_settings.MABANG_ACCOUNT = "fixture-account"
 service.mabang_settings.MABANG_PASSWORD = "fixture-password"
 
 try:
+    if not system_executable:
+        from browser_auth_service.host import HostContext, HostBrowserError
+        context = HostContext(binding.host_connection(), headless=True)
+        context.new_page().goto(root + '/home', wait_until='domcontentloaded')
+        endpoint = urlsplit(context.url)
+        connection = socket.create_connection((endpoint.hostname, endpoint.port))
+        body = json.dumps({'operation':'element','session_id':context.session_id,'arguments':{'selector':{'css':"input[type='password']"},'action':'wait','timeout':30000}}).encode()
+        connection.sendall((f'POST /v1/auth-browser HTTP/1.1\r\nHost: {endpoint.netloc}\r\nAuthorization: Bearer {context.token}\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n').encode() + body)
+        time.sleep(0.2)
+        connection.shutdown(socket.SHUT_RDWR)
+        connection.close()
+        deadline = time.monotonic() + 3
+        while True:
+            try:
+                context.call('url')
+            except HostBrowserError as error:
+                if 'closed or expired' in str(error): break
+                if 'active operation' not in str(error): raise
+            if time.monotonic() >= deadline: raise AssertionError('Disconnected client left an authentication window alive')
+            time.sleep(0.1)
+        print(json.dumps({'check':'native client disconnect closes window', 'success':True}), flush=True)
     state = Path(os.environ["LXE_DATA_ROOT"]) / "state.json"
     service._state_file = lambda account: state
     result = service.refresh_auth()
