@@ -17,8 +17,11 @@ export function prepareClipboardScreenshot(bytes: Uint8Array): { png: Uint8Array
   const { width, height } = source.getSize();
   if (width * height > MAX_SCREENSHOT_PIXELS) throw new InboundImageError("ERR_IMAGE_TOO_MANY_PIXELS", `Screenshot exceeds ${MAX_SCREENSHOT_PIXELS} pixels`);
   const png = source.toPNG();
-  const scale = Math.min(128 / width, 128 / height, 1);
-  const thumbnail = source.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) });
+  // Match the centered square tile before downsampling. Fitting the entire
+  // image first leaves too few pixels on the short edge of wide/tall captures.
+  const side = Math.min(width, height);
+  const square = source.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side });
+  const thumbnail = side > 256 ? square.resize({ width: 256, height: 256, quality: "best" }) : square;
   return { png, preview: thumbnail.toDataURL() };
 }
 

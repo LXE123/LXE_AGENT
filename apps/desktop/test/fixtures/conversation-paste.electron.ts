@@ -73,6 +73,27 @@ function run(){var value=handle();$.NSFileHandle.fileHandleWithStandardOutput.wr
 
 async function run() {
   assert.equal(process.platform, "darwin", "This native pasteboard smoke requires macOS");
+  // A white centered square in a black wide/tall image detects off-center
+  // crops. The retained PNG must still include every original pixel.
+  for (const [width, height] of [[1600, 400], [400, 1600], [600, 600], [32, 12]] as const) {
+    const side = Math.min(width, height);
+    const pixels = Buffer.alloc(width * height * 4);
+    const left = Math.floor((width - side) / 2), top = Math.floor((height - side) / 2);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      if (x >= left && x < left + side && y >= top && y < top + side) pixels.fill(255, offset, offset + 3);
+      pixels[offset + 3] = 255;
+    }
+    const original = nativeImage.createFromBitmap(pixels, { width: width, height: height });
+    const prepared = prepareClipboardScreenshot(original.toPNG());
+    const preview = nativeImage.createFromDataURL(prepared.preview);
+    assert.deepEqual(preview.getSize(), { width: Math.min(side, 256), height: Math.min(side, 256) });
+    assert(preview.toBitmap().every(byte => byte === 255), "Preview must crop the center before downsampling");
+    const retained = nativeImage.createFromBuffer(Buffer.from(prepared.png));
+    assert.deepEqual(retained.getSize(), original.getSize());
+    assert(retained.toBitmap().equals(original.toBitmap()), "Thumbnail cropping must not alter the retained original");
+  }
+  console.log("PASS: wide/tall/square/small screenshots use centered 256px previews without upscaling or changing originals");
   const preload = resolve(process.argv[2]!);
   const composerPage = process.argv[3];
   const root = mkdtempSync(join(tmpdir(), "lxe-native-paste-"));
