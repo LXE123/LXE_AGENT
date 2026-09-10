@@ -17,7 +17,7 @@ const lifecycleEvent = (
   payload: {},
 } as AgentEvent);
 
-const sessionChanged = (changes: Array<"messages" | "usage" | "artifacts"> = ["messages"]): AgentEvent => ({
+const sessionChanged = (changes: Array<"messages" | "usage" | "artifacts" | "questions"> = ["messages"]): AgentEvent => ({
 
   type: "session.changed",
   thread_id: "session-1",
@@ -69,6 +69,10 @@ const itemCompleted = (
 } as AgentEvent);
 
 describe("Dashboard invalidation bridge", () => {
+  test("question changes and answer acknowledgements invalidate session snapshots", () => {
+    expect(dashboardInvalidationForAgentEvent(sessionChanged(["questions"]))).toEqual({ domains: ["sessions"], sessionIds: ["session-1"] });
+    expect(dashboardDomainsForMutation("sessions.answer")).toEqual(["sessions"]);
+  });
   test("maps runtime events to the minimum data domains", () => {
     expect(dashboardInvalidationForAgentEvent(sessionChanged(["messages", "usage", "artifacts"]))).toEqual({
       domains: ["sessions"],

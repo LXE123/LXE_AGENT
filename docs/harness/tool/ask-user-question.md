@@ -1,0 +1,33 @@
+# 桌面结构化提问
+
+`ask_user_question` 让 AI 暂停当前回合，等待用户在桌面输入区回答。它按当前 job 的 `source.platform` 开放；只有 `desktop` 能看到并执行，不能根据会话最早的来源推断。模型不能用参数改变来源。
+
+一次询问 1–3 个问题，每个问题有独立 `id`、`question`，可带 `header`、1–8 个 `options[{label, description?}]` 和 `multi_select`。不传选项就是自由回答。单选接受一个选项或自己的文字，多选可以同时选择选项并补充文字。所有问题都必须回答；不预选、不提供跳过。
+
+模型收到的工具结果是 `{"answers":[{"id":"scope","selected":["店铺 A"]}]}`，自由回答放在 `custom`。回答只针对该问题，不扩大原任务和授权范围。
+
+## 谁负责等待
+
+`UserQuestionService` 是 Bun 运行时内的唯一属主。每个请求生成新的 UUID，绑定 session、turn 和 tool call；同一 session 最多有一个待回答请求。工具没有普通短超时，也不参与并行工具组。等待中没有新的模型请求。
+
+桌面经现有 preload IPC → Gateway → Agent JSON-RPC 调用：
+
+- `sessions.questions` 查询全部当前请求，供卡片和侧栏使用。
+- `sessions.answer` 提交 `{session_id, request_id, answers}`，直接完成对应 Promise。它不经过普通消息或 steering 队列。
+- `session.changed` 的 `questions` 变化只提示重新查询，不承载答案和恢复决策。协议版本同步升级为 20。
+
+选项和问题 ID 由运行时再次校验。一次提交同步取走 pending 请求，然后解除等待。相同答案重试返回相同确认，不再次恢复；改答案、跨会话、取消后提交、重启后提交都报实际错误。已接受请求的重试记录只保存在本进程内，最多保留最近 1000 条。
+
+## 桌面与生命周期
+
+卡片暂时代替普通发送入口，原聊天文字与已选附件保留。回答在卡片里填写；只有收到提交确认后才解除提交状态。失败保留答案并展示实际错误。文字草稿存于 renderer 的 sessionStorage；选择会话、重新加载和每 5 秒兜底查询都能恢复仍有效的问题。附件沿用原有生命周期，刷新不恢复未发送附件。
+
+“停止本次任务”走原取消链路，同时携带该问题的 `turn_id`。Gateway 先确认还是同一回合，避免旧卡片停止随后启动的新任务。abort 解除等待，运行时写入错误工具结果并结束回合。删除 session 和关闭运行时会清理请求。进程异常退出后不恢复旧等待，下一次构建上下文时沿用现有 tool-call closure 修复。历史问题和答案只有只读展示，不能再次提交。
+
+未来接其他渠道时，可替换 `UserQuestionInteraction`，并显式配置可用来源。等待归属与答案校验仍须留在运行时。
+
+## 验证
+
+定向测试覆盖工具归属和校验、提交/停止竞态、来源控制、模型暂停与历史配对、RPC 协议、通知失效及无全局数量门槛的调度。Electron fixture 使用真实问题组件、preload IPC、Gateway scheduler、Agent 子进程、运行时和 SQLite；只有模型是固定回答，不连接外部服务。
+
+从仓库根启动 `bun apps/dashboard/test/features/sessions/user-questions-fixture-server.ts`。将 `apps/desktop/src/preload.ts` 和 `apps/desktop/test/fixtures/user-questions.electron.ts` 分别用 `bun build --target node --format cjs --external electron --outfile <临时路径>` 构建，再用本 checkout 的 Electron 可执行文件运行 `<验收脚本路径> <preload路径>`。退出时停止 fixture server，清理临时数据库。

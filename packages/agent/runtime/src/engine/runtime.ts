@@ -419,6 +419,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
       const toolExposure = this.options.tools.createExposureState({
         ...exposureOptions,
+        platform: String(job.source.platform ?? "").trim(),
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames) } : {}),
         ...(skillSnapshot?.disabledConnectorIds
           ? { disabledConnectors: new Set(skillSnapshot.disabledConnectorIds) }
@@ -733,6 +734,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           try {
             const result = await this.options.tools.execute(call.name, call.arguments, {
               handle,
+              platform: String(job.source.platform ?? "").trim(),
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               turn_id: job.job_id,

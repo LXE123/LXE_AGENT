@@ -1,4 +1,6 @@
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
+import { parseUserQuestionSubmission, type PendingUserQuestion, type SubmitUserQuestionAnswer } from "@lxe/protocol";
+export type { PendingUserQuestion, UserQuestion, UserQuestionAnswer, SubmitUserQuestionAnswer } from "@lxe/protocol";
 import { validateSessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
 export type { TurnProcessPart } from "@lxe/protocol";
 
@@ -452,6 +454,8 @@ export type StatsOverviewPayload = {
 export type DashboardRpcEmptyInput = Record<string, never>;
 
 export interface DashboardRpcSpec {
+  "sessions.questions": { input: DashboardRpcEmptyInput; result: { items: PendingUserQuestion[] } };
+  "sessions.answer": { input: SubmitUserQuestionAnswer; result: { accepted: true; request_id: string } };
   "sessions.list": {
     input: { query?: string; limit?: number; offset?: number };
     result: SessionListPayload;
@@ -473,7 +477,7 @@ export interface DashboardRpcSpec {
     result: DesktopConversationSendPayload;
   };
   "sessions.stop": {
-    input: { session_id: string };
+    input: { session_id: string; turn_id?: string };
     result: DesktopConversationStopPayload;
   };
   "sessions.activity": {
@@ -664,6 +668,13 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   }
 
   switch (operation) {
+    case "sessions.questions":
+      exactKeys(input, [], `${operation}.input`);
+      return { operation, input: {} };
+    case "sessions.answer":
+      exactKeys(input, ["session_id", "request_id", "answers"], `${operation}.input`);
+      try { return { operation, input: parseUserQuestionSubmission(input) }; }
+      catch (error) { return rpcError(error instanceof Error ? error.message : String(error)); }
     case "sessions.list":
       exactKeys(input, ["query", "limit", "offset"], `${operation}.input`);
       return { operation, input: {
@@ -707,6 +718,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       } };
     }
     case "sessions.stop":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)!,
+        ...(input.turn_id === undefined ? {} : { turn_id: textValue(input.turn_id, `${operation}.turn_id`)! }),
+      } };
     case "sessions.activity":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };

@@ -46,6 +46,24 @@ export function queryError(error: unknown): string {
   return error instanceof Error ? error.message : error ? String(error) : "";
 }
 
+export function useUserQuestionsQuery(enabled: boolean, selectedSessionId: string) {
+  const query = useQuery({
+    queryKey: dashboardQueryKeys.sessions.questions,
+    queryFn: async ({ signal }) => {
+      const result = await callDashboard({ operation: "sessions.questions", input: {} });
+      signal.throwIfAborted();
+      return result;
+    },
+    enabled, retry: false, staleTime: 0,
+    refetchOnMount: "always", refetchOnWindowFocus: "always",
+    // Events are hints. Recover missed notifications and changes while unfocused.
+    refetchInterval: 5_000, refetchIntervalInBackground: true,
+  });
+  const refetch = query.refetch;
+  useEffect(() => { if (enabled) void refetch(); }, [enabled, selectedSessionId, refetch]);
+  return query;
+}
+
 export function useAttachmentPreviewQuery(
   sessionId: string | undefined, id: string, variant: "thumbnail" | "expanded", enabled: boolean,
 ) {

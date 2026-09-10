@@ -64,7 +64,6 @@ function harness(ids: string[]) {
   let controller!: LocalConversationController;
   const scheduler = new SessionScheduler({
     runtime,
-    maxConcurrency: 1,
     onJobState: (event) => {
       events.push(event);
       controller.handleSchedulerEvent(event);
@@ -296,7 +295,11 @@ describe("LocalConversationController", () => {
     await tick();
     await h.scheduler.enqueue(externalJob("session-1"));
 
-    const stopped = await h.controller.stop("session-1");
+    await expect(h.controller.stop("session-1", "old-question-turn")).rejects.toThrow("no longer active");
+    expect(h.runtime.cancelled).toEqual([]);
+    expect(h.scheduler.hasInflightWork("session-1")).toBe(true);
+
+    const stopped = await h.controller.stop("session-1", "turn-1");
     expect(stopped).toEqual({
       session_id: "session-1",
       stopped_turn_id: "turn-1",

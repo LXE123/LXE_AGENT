@@ -54,6 +54,7 @@ export function dashboardDomainsForMutation(operation: DashboardRpcOperation): D
     case "mcp.servers.update":
       return ["tools"];
     case "sessions.send":
+    case "sessions.answer":
     case "sessions.stop":
     case "sessions.pin":
     case "sessions.delete":

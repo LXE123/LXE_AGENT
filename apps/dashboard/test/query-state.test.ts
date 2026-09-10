@@ -114,6 +114,7 @@ describe("Dashboard Query state", () => {
 
   test("invalidates lists and only the named session detail", async () => {
     const client = createDashboardQueryClient();
+    client.setQueryData(dashboardQueryKeys.sessions.questions, { items: [] });
     client.setQueryData(dashboardQueryKeys.sessions.list(""), page([session("s-1")]));
     client.setQueryData(dashboardQueryKeys.sessions.detail("s-1", "latest"), { id: "s-1" });
     client.setQueryData(dashboardQueryKeys.sessions.detail("s-2", "latest"), { id: "s-2" });
@@ -125,6 +126,7 @@ describe("Dashboard Query state", () => {
     });
 
     expect(client.getQueryState(dashboardQueryKeys.sessions.list(""))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(dashboardQueryKeys.sessions.questions)?.isInvalidated).toBe(true);
     expect(client.getQueryState(dashboardQueryKeys.sessions.detail("s-1", "latest"))?.isInvalidated).toBe(true);
     expect(client.getQueryState(dashboardQueryKeys.sessions.detail("s-2", "latest"))?.isInvalidated).toBe(false);
   });

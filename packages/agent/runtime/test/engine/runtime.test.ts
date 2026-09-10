@@ -11,6 +11,7 @@ import {
   type RuntimeProviderSnapshot,
 } from "../../src/providers/provider";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
+import { UserQuestionService, registerUserQuestionTool } from "../../src/tooling/user-questions";
 import { WorkspaceSearchService } from "../../src/tooling/workspace-search";
 import type {
   RuntimeHandle,
@@ -138,6 +139,93 @@ const lxeSkillInvocationError = (details: JsonObject = {
 );
 
 describe("TypeScriptAgentRuntime", () => {
+  test("repairs an abandoned question call after restart without reviving its wait", async () => {
+    const store = new MemoryStore();
+    store.messages = [
+      { role: "user", content: "Please ask first" },
+      messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "abandoned-question", name: "ask_user_question",
+        arguments: { questions: [{ id: "q", question: "Which store?" }] } }] }),
+    ];
+    const questions = new UserQuestionService(() => {});
+    const tools = new ToolRegistry(); registerUserQuestionTool(tools, questions);
+    const runtime = new TypeScriptAgentRuntime({ store, tools, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => {
+        const results = request.messages.flatMap(m => Array.isArray(m.content) ? m.content : [])
+          .filter(b => b.type === "tool_result" && b.tool_call_id === "abandoned-question");
+        expect(results).toHaveLength(1);
+        expect(results[0]!.is_error).toBe(true);
+        return messageFixture({ content: [{ type: "text", text: "Recovered" }] });
+      } },
+    });
+    await runtime.start();
+    await runtime.runTurn(job({ source: { platform: "desktop" } }), handle());
+    expect(questions.snapshot()).toEqual([]);
+    expect(store.replacements.length).toBeGreaterThan(0);
+    expect(() => questions.submit({ session_id: "s1", request_id: "old-process-request", answers: [{ id: "q", selected: [], custom: "A" }] })).toThrow("no longer pending");
+    await runtime.stop();
+  });
+
+  test.each(["answer", "cancel"])("desktop questions pause the model and close transcript calls on %s", async action => {
+    const store = new MemoryStore(); // Its persisted source is feishu: the desktop turn must take precedence.
+    const tools = new ToolRegistry();
+    const questions = new UserQuestionService(() => {});
+    registerUserQuestionTool(tools, questions);
+    let modelCalls = 0;
+    const runtime = new TypeScriptAgentRuntime({ store, tools, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => {
+        modelCalls++;
+        expect(request.tools.map(t => t.name)).toContain("ask_user_question");
+        return modelCalls === 1 ? messageFixture({ stopReason: "toolUse", content: [
+          { type: "tool_call", id: "question-call", name: "ask_user_question", arguments: { questions: [{ id: "choice", question: "Choose?" }] } },
+        ] }) : messageFixture({ stopReason: "stop", content: [{ type: "text", text: "Continued" }] });
+      } },
+    });
+    await runtime.start();
+    const controller = new AbortController();
+    const turn = runtime.runTurn(job({ source: { platform: "desktop" } }), {
+      ...handle(), signal: controller.signal, get cancelled() { return controller.signal.aborted; },
+    });
+    for (let attempt = 0; attempt < 100 && !questions.snapshot().length; attempt++) await Bun.sleep(5);
+    expect(questions.snapshot()).toHaveLength(1);
+    const pending = questions.snapshot()[0]!;
+    expect(pending).toMatchObject({ session_id: "s1", turn_id: "j1", tool_call_id: "question-call" });
+    // No ordinary tool deadline or another model request while waiting for a person.
+    setSystemTime(Date.now() + 60 * 60 * 1000);
+    await Bun.sleep(20);
+    expect(modelCalls).toBe(1);
+    if (action === "answer") questions.submit({ session_id: "s1", request_id: pending.request_id,
+      answers: [{ id: "choice", selected: [], custom: "Use my draft" }] });
+    else controller.abort();
+    expect((await turn).status).toBe(action === "answer" ? "completed" : "cancelled");
+    expect(modelCalls).toBe(action === "answer" ? 2 : 1);
+    expect(questions.snapshot()).toEqual([]);
+    const blocks = store.messages.flatMap(m => Array.isArray(m.content) ? m.content : []);
+    const results = blocks.filter(b => b.type === "tool_result" && b.tool_call_id === "question-call");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_error ?? false).toBe(action === "cancel");
+    expect(JSON.stringify(results)).toContain(action === "answer" ? "Use my draft" : "cancelled");
+    await runtime.stop();
+  });
+
+  test.each(["feishu", "cli", ""])("does not expose desktop questions to an actual %s turn on a desktop session", async platform => {
+    const store = new MemoryStore();
+    store.getSession = async () => ({ session_id: "s1", source: { platform: "desktop" }, workspace });
+    const tools = new ToolRegistry();
+    registerUserQuestionTool(tools, new UserQuestionService(() => {}));
+    const runtime = new TypeScriptAgentRuntime({ store, tools, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => {
+        expect(request.tools.map(t => t.name)).not.toContain("ask_user_question");
+        return messageFixture({ stopReason: "stop", content: [{ type: "text", text: "Done" }] });
+      } },
+    });
+    await runtime.start();
+    await runtime.runTurn(job({ source: platform ? { platform } : {} }), handle());
+    await runtime.stop();
+  });
+
   test("reports persisted message and usage changes without reporting failed writes", async () => {
     const changes: string[] = [];
     const store = new MemoryStore();

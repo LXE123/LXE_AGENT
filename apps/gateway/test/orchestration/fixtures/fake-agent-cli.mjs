@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 19;
+const protocolVersion = 20;
 const event = ({ type, ...params }) => write({ jsonrpc: "2.0", method: type, params });
 let activeRunRequest;
 let steered = [];

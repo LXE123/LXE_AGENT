@@ -77,9 +77,24 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
+  test("many sessions waiting on a tool do not block new sessions, but each session remains ordered", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime });
+    for (let i = 0; i < 30; i++) await scheduler.enqueue(job(`s${i}`, `j${i}`));
+    await scheduler.enqueue(job("s0", "follow-up"));
+    await tick();
+    expect(runtime.started).toHaveLength(30);
+    await scheduler.enqueue(job("new-session", "new-job"));
+    await tick();
+    expect(runtime.started.at(-1)?.job_id).toBe("new-job");
+    expect(runtime.started.some(j => j.job_id === "follow-up")).toBe(false);
+    scheduler.handleRuntimeEvent(completion("j0", "s0"));
+    await tick();
+    expect(runtime.started.at(-1)?.job_id).toBe("follow-up");
+  });
   test("fences idle sessions during deletion and rejects active or queued sessions", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     const release = scheduler.beginSessionDeletion("idle", ["agent:main:feishu:dm:chat"]);
     expect(release).toBeFunction();
     expect(scheduler.isSessionDeletionFenced("idle")).toBe(true);
@@ -104,7 +119,7 @@ describe("SessionScheduler", () => {
       runtime.started.push(value);
       if (value.job_id === "j1") throw new Error("runtime unavailable");
     };
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await tick();
@@ -121,7 +136,7 @@ describe("SessionScheduler", () => {
 
   test("does not dispatch queued jobs until runtime readiness is restored", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     scheduler.setRuntimeReady(false);
     await scheduler.enqueue(job("s1", "j1"));
     await tick();
@@ -133,22 +148,22 @@ describe("SessionScheduler", () => {
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
   });
 
-  test("serializes a session while running distinct sessions up to the global cap", async () => {
+  test("serializes each session while distinct sessions run without a global cap", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await scheduler.enqueue(job("s2", "j3"));
     await scheduler.enqueue(job("s3", "j4"));
     await tick();
 
-    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3"]);
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3", "j4"]);
     expect(scheduler.activeRun("s1")?.jobId).toBe("j1");
     expect(scheduler.hasInflightWork("s1")).toBe(true);
 
     expect(scheduler.handleRuntimeEvent(completion("j1", "s1"))).toBe(true);
     await tick();
-    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3", "j4"]);
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3", "j4", "j2"]);
     expect(scheduler.handleRuntimeEvent(completion("j3", "s2"))).toBe(true);
     await tick();
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3", "j4", "j2"]);
@@ -156,7 +171,7 @@ describe("SessionScheduler", () => {
 
   test("does not release before completion and ignores stale or mismatched completions", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await tick();
@@ -183,7 +198,6 @@ describe("SessionScheduler", () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({
       runtime,
-      maxConcurrency: 1,
       id: () => "requeued-id",
     });
     const origin = job("s1", "j1", { diagnostics: [{
@@ -229,7 +243,7 @@ describe("SessionScheduler", () => {
 
   test("drops remaining steering for cancelled completions", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1, id: () => "must-not-run" });
+    const scheduler = new SessionScheduler({ runtime, id: () => "must-not-run" });
     await scheduler.enqueue(job("s1", "j1"));
     await tick();
     scheduler.handleRuntimeEvent(
@@ -246,7 +260,7 @@ describe("SessionScheduler", () => {
 
   test("stop clears pending jobs and cancels only the active matching run", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await tick();
@@ -262,7 +276,7 @@ describe("SessionScheduler", () => {
 
   test("steers only an active run through the runtime port", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await tick();
     expect(
@@ -283,7 +297,7 @@ describe("SessionScheduler", () => {
       runtime.steerTurn = async (): Promise<void> => {
         throw new RuntimeRequestError(code, "run closed");
       };
-      const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+      const scheduler = new SessionScheduler({ runtime });
       await scheduler.enqueue(job("s1", "j1"));
       await tick();
       expect(await scheduler.steerActive("s1", { text: "fallback" })).toBe(false);
@@ -297,7 +311,7 @@ describe("SessionScheduler", () => {
       runtime.cancelTurn = async (): Promise<void> => {
         throw new RuntimeRequestError(code, "run closed");
       };
-      const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1, id: () => "requeued" });
+      const scheduler = new SessionScheduler({ runtime, id: () => "requeued" });
       await scheduler.enqueue(job("s1", "j1"));
       await tick();
       expect(await scheduler.requestStop("s1")).toBe(false);
@@ -326,7 +340,7 @@ describe("SessionScheduler", () => {
       calls += 1;
       await cancelAccepted;
     };
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await tick();
     const first = scheduler.requestStop("s1");
@@ -344,7 +358,7 @@ describe("SessionScheduler", () => {
     runtime.cancelTurn = async (): Promise<void> => {
       throw new Error("transport bug");
     };
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("s1", "j1"));
     await tick();
     await expect(scheduler.requestStop("s1")).rejects.toThrow("transport bug");
@@ -355,7 +369,7 @@ describe("SessionScheduler", () => {
 describe("HeartbeatWakeQueue", () => {
   test("coalesces by session and creates scheduler jobs with compatible fields", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
+    const scheduler = new SessionScheduler({ runtime });
     const wakes = new HeartbeatWakeQueue({
       scheduler,
       hasPendingEvents: async () => true,
@@ -423,7 +437,7 @@ describe("HeartbeatWakeQueue", () => {
 
   test("drops suspended/no-event sessions and defers busy sessions as retry", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("busy", "active"));
     await tick();
     const wakes = new HeartbeatWakeQueue({
@@ -448,7 +462,7 @@ describe("HeartbeatWakeQueue", () => {
 
   test("drops a deferred heartbeat after the active turn consumes its last event", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const scheduler = new SessionScheduler({ runtime });
     await scheduler.enqueue(job("busy", "active"));
     await tick();
     let hasPendingEvent = true;
@@ -478,7 +492,7 @@ describe("HeartbeatWakeQueue", () => {
 
   test("drops an invalid source without aborting other wakes in the batch", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
+    const scheduler = new SessionScheduler({ runtime });
     const wakes = new HeartbeatWakeQueue({
       scheduler,
       hasPendingEvents: async () => true,
@@ -502,7 +516,7 @@ describe("HeartbeatWakeQueue", () => {
 
   test("signals reschedule when a wake arrives during a running batch", async () => {
     const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
+    const scheduler = new SessionScheduler({ runtime });
     let releaseFirst!: () => void;
     const firstBlocked = new Promise<void>((resolve) => {
       releaseFirst = resolve;

@@ -239,9 +239,13 @@ export class LocalConversationController {
     };
   }
 
-  async stop(sessionIdInput: string): Promise<DesktopConversationStopPayload> {
+  async stop(sessionIdInput: string, expectedTurnId?: string): Promise<DesktopConversationStopPayload> {
     const sessionId = clean(sessionIdInput);
     const activity = this.sessions.get(sessionId);
+    if (expectedTurnId !== undefined && (activity?.activeTurnId !== expectedTurnId
+      || this.options.scheduler.activeRun(sessionId)?.jobId !== expectedTurnId)) {
+      throw new Error("This task is no longer active; its question cannot stop another task");
+    }
     const localTurnIds = new Set([
       ...(activity?.activeTurnId ? [activity.activeTurnId] : []),
       ...(activity?.queuedTurnIds ?? []),

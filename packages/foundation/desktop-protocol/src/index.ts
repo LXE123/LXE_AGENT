@@ -37,7 +37,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 19 as const;
+export const AGENT_PROTOCOL_VERSION = 20 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
 export type ExecTaskSnapshotPayload = {
@@ -220,7 +220,7 @@ export type AgentSuccessResponse = JsonRpcSuccess;
 export type AgentErrorResponse = JsonRpcFailure;
 export type AgentResponse = JsonRpcResponse;
 
-export type AgentSessionChange = "messages" | "usage" | "artifacts" | "attachments";
+export type AgentSessionChange = "messages" | "usage" | "artifacts" | "attachments" | "questions";
 
 export type AgentSessionChangedPayload = {
   changes: AgentSessionChange[];
@@ -857,7 +857,7 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
       }
       const changes = [...new Set(payload.changes)];
       if (changes.some((change) => change !== "messages" && change !== "usage"
-        && change !== "artifacts" && change !== "attachments")) {
+        && change !== "artifacts" && change !== "attachments" && change !== "questions")) {
         throw new Error("agent protocol session.changed.changes contains an unsupported change type");
       }
       payload.changes = changes;

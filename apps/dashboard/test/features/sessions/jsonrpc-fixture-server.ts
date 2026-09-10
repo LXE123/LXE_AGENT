@@ -18,7 +18,7 @@ const runtime = new ProcessAgentRuntime({
   onDesktopStream: (batch) => { conversations.handleStreamBatch(batch); },
   onEvent: (event) => conversations.handleAgentEvent(event),
 });
-const scheduler = new SessionScheduler({ maxConcurrency: 1, runtime: {
+const scheduler = new SessionScheduler({ runtime: {
   startTurn: async (job, handle) => {
     void runtime.runTurn(job, handle).then((outcome) => {
       scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: handle.runId,

@@ -67,6 +67,7 @@ export async function applyDashboardInvalidation(
   const tasks: Array<Promise<unknown>> = [];
   for (const domain of new Set(invalidation.domains)) {
     if (domain === "sessions") {
+      tasks.push(queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.questions }));
       tasks.push(queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists }));
       if (invalidation.session_ids.length) {
         for (const sessionId of new Set(invalidation.session_ids)) {

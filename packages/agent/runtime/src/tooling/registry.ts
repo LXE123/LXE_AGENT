@@ -3,6 +3,8 @@ import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/t
 import type { WorkspaceSearchService } from "./workspace-search";
 
 export interface ToolDefinition extends ToolSchema {
+  /** Host-controlled per-turn availability; never supplied by the model. */
+  platforms?: readonly string[];
   source?: "native" | "mcp";
   exposure?: "direct" | "deferred";
   /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
@@ -25,11 +27,13 @@ export interface ToolDefinition extends ToolSchema {
     exposureState?: ToolExposureState;
     skill_names?: readonly string[];
     workspace: WorkspaceContext;
+    platform?: string;
     workspaceSearch?: WorkspaceSearchService;
   }): Promise<ToolExecutionResult>;
 }
 
 export interface ToolExposureOptions {
+  platform?: string;
   allowedSkills?: ReadonlySet<string>;
   disabledConnectors?: ReadonlySet<string>;
   onSkillActivated?: (skillName: string) => Promise<void> | void;
@@ -201,6 +205,7 @@ export class ToolExposureState {
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {
+    if (definition.platforms && !definition.platforms.includes(this.options.platform ?? "")) return false;
     if (definition.connectorName && this.options.disabledConnectors?.has(definition.connectorName)) return false;
     if (definition.ownerSkills.length > 0 && this.options.allowedSkills) {
       return definition.ownerSkills.some((skill) => this.options.allowedSkills?.has(skill));
@@ -266,11 +271,15 @@ export class ToolRegistry {
       exposureState?: ToolExposureState;
       skill_names?: readonly string[];
       workspace: WorkspaceContext;
+      platform?: string;
       workspaceSearch?: WorkspaceSearchService;
     },
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());
     if (!definition) throw new Error(`unknown tool: ${name}`);
+    if (definition.platforms && !definition.platforms.includes(context.platform ?? "")) {
+      throw new ToolExecutionError("unavailable", `tool is not available on this platform: ${name}`);
+    }
     if (context.exposureState && !context.exposureState.isExposed(name)) {
       throw new Error(`tool is not exposed for this turn: ${name}`);
     }

@@ -33,6 +33,8 @@ import {
   OneShotCliRunner,
   registerCodingTools,
   registerToolSearch,
+  registerUserQuestionTool,
+  UserQuestionService,
   setMcpServerEnabled,
   SkillCatalog,
   SqliteRuntimeStore,
@@ -122,6 +124,11 @@ export function createAgentRuntimeHost(
   );
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
+  const questions = new UserQuestionService(sessionId => {
+    void Promise.resolve().then(() => options.onSessionChanged?.(sessionId, "questions"))
+      .catch(error => logger.warn("question_notification_failed", { session_id: sessionId, error }));
+  });
+  registerUserQuestionTool(tools, questions);
   const skillCatalog = new SkillCatalog(options.dataRoot, options.userSkillsRoot, {
     ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     repositorySkillsRoot: options.skillsRoot,
@@ -208,6 +215,7 @@ export function createAgentRuntimeHost(
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
+    questions,
     stateRoot: options.dataRoot,
     llmConfigRoot: options.llmConfigRoot,
     skillsRoot: options.skillsRoot,
@@ -296,6 +304,7 @@ export function createAgentRuntimeHost(
       started = true;
     },
     stop: async () => {
+      await questions.stop();
       await runtime.stop();
       started = false;
     },

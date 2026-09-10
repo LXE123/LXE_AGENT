@@ -102,7 +102,6 @@ export interface RuntimeEvent {
 
 export interface SchedulerOptions {
   runtime: RuntimePort;
-  maxConcurrency: number;
   id?: () => string;
   now?: () => number;
   onJobState?: (event: SchedulerJobStateEvent) => void;
@@ -117,7 +116,6 @@ const objectValue = (value: JsonValue | undefined): JsonObject | undefined =>
 export class SessionScheduler {
   private readonly logger = createLogger("gateway.scheduler");
   private readonly runtime: RuntimePort;
-  private readonly maxConcurrency: number;
   private readonly id: () => string;
   private readonly now: () => number;
   private readonly onJobState: ((event: SchedulerJobStateEvent) => void) | undefined;
@@ -133,7 +131,6 @@ export class SessionScheduler {
 
   constructor(options: SchedulerOptions) {
     this.runtime = options.runtime;
-    this.maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency || 1));
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
     this.now = options.now ?? Date.now;
     this.onJobState = options.onJobState;
@@ -371,7 +368,7 @@ export class SessionScheduler {
     if (this.draining || !this.runtimeReady) return;
     this.draining = true;
     try {
-      while (this.activeBySession.size < this.maxConcurrency && this.ready.length > 0) {
+      while (this.ready.length > 0) {
         const sessionId = this.ready.shift()!;
         this.readySet.delete(sessionId);
         if (this.activeBySession.has(sessionId)) continue;

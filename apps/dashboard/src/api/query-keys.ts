@@ -1,5 +1,6 @@
 export const dashboardQueryKeys = {
   sessions: {
+    questions: ["sessions", "questions"] as const,
     all: ["sessions"] as const,
     lists: ["sessions", "list"] as const,
     list: (query: string) => ["sessions", "list", query.trim()] as const,

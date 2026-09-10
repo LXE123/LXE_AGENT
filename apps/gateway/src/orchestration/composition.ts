@@ -58,7 +58,6 @@ export interface DirectGatewayCompositionOptions {
   environment?: Record<string, string | undefined>;
   storage: DirectGatewayStorage;
   runtime: DirectAgentRuntime;
-  maxConcurrency?: number;
   bootId?: string;
   channels?: readonly ChannelAdapter[];
   feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
@@ -150,7 +149,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   };
   scheduler = new SessionScheduler({
     runtime: runtimePort,
-    maxConcurrency: options.maxConcurrency ?? 2,
     onJobState: (event) => {
       sessionStatus?.event(event);
       conversations?.handleSchedulerEvent(event);

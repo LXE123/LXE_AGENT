@@ -38,6 +38,7 @@ import {
   useConversationActivityQuery,
   useSessionConversationQuery,
   useSessionsInfiniteQuery,
+  useUserQuestionsQuery,
   useSkillsQuery,
   useToolsetsQuery,
 } from "./api/queries";
@@ -254,6 +255,9 @@ function App({
       && (capabilityView === "tools" || capabilityView === "connections"),
   );
   const sessions = useMemo(() => flattenSessionPages(sessionsQuery.data?.pages), [sessionsQuery.data?.pages]);
+  const questionsQuery = useUserQuestionsQuery(dashboardRuntimeReady, selectedSessionId);
+  const pendingQuestions = dashboardRuntimeReady ? questionsQuery.data?.items ?? [] : [];
+  const waitingSessionIds = new Set(pendingQuestions.map(q => q.session_id));
   const sessionStatuses=useSessionStatus(sessions.items.map(session=>session.session_id),dashboardRuntimeReady,sessionDetailQuery.display,activeSection==="sessions"&&!newConversation);
 
   useEffect(() => {
@@ -853,6 +857,7 @@ function App({
             <SessionsIndex
               sessions={sessions.items}
               statuses={sessionStatuses.items}
+              waitingSessionIds={waitingSessionIds}
               statusUnavailable={!sessionStatuses.ready}
               statusError={sessionStatuses.error}
               query={query}
@@ -913,6 +918,8 @@ function App({
               <section className="sessions-conversation-shell">
                 {selectedSessionId || newConversation ? (
                   <SessionDetailView
+                    question={newConversation ? undefined : pendingQuestions.find(q => q.session_id === selectedSessionId)}
+                    onQuestionAnswered={() => { void questionsQuery.refetch(); }}
                     fallbackSession={selectedSession}
                     detail={sessionDetail}
                     activity={conversationActivity}

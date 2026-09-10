@@ -31,12 +31,14 @@ import {
   type SkillManifest,
   type SqliteRuntimeStore,
   type ToolRegistry,
+  type UserQuestionService,
 } from "@lxe/runtime";
 
 type Environment = Record<string, string | undefined>;
 
 /** Agent-process dependencies required by the Dashboard query service. */
 interface DashboardServiceOptions {
+  questions?: UserQuestionService;
   /** Writable desktop/source state. */
   stateRoot: string;
   /** Read-only provider schemas and auth profile metadata. */
@@ -260,6 +262,11 @@ export class DashboardService {
   } | undefined;
 
   private readonly handlers: AgentDashboardRpcHandlers = {
+    "sessions.questions": () => ({ items: this.options.questions?.snapshot() ?? [] }),
+    "sessions.answer": input => {
+      if (!this.options.questions) return rpcError("unavailable", "User questions are unavailable");
+      return this.options.questions.submit(input);
+    },
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
     "sessions.pin": (input) => this.pinSession(input) as DashboardRpcResult<"sessions.pin">,
@@ -336,6 +343,7 @@ export class DashboardService {
       return rpcError("not_found", "session not found");
     }
     await this.options.terminateSession?.(input.session_id);
+    this.options.questions?.forgetSession(input.session_id);
     if (!await this.options.store.deleteSession(input.session_id)) {
       return rpcError("not_found", "session not found");
     }

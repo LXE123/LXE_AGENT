@@ -1,5 +1,8 @@
+import { UserQuestionGate, UserQuestionHistory, userQuestionHistory } from "./user-questions";
+import type { PendingUserQuestion } from "@lxe/desktop-protocol";
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { ConversationAttachmentDraft } from "./attachment-draft";
+import { useComposerDraft } from "./composer-draft";
 import { DraftImagePreview, SentAttachmentList } from "./sent-attachments";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1149,6 +1152,7 @@ function ConversationContextMeter({
 }
 
 export function ConversationComposer({
+  question, onQuestionAnswered,
   contextDetail,
   activity,
   conversationKey,
@@ -1164,6 +1168,8 @@ export function ConversationComposer({
   onSend,
   onStop,
 }: {
+  question?: PendingUserQuestion;
+  onQuestionAnswered?: () => void;
   contextDetail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
   conversationKey: string;
@@ -1180,7 +1186,7 @@ export function ConversationComposer({
   onStop: () => Promise<void>;
 }) {
   const t = useUiText();
-  const [text, setText] = useState("");
+  const [text, setText, clearSentDraft] = useComposerDraft(conversationKey);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
@@ -1212,19 +1218,18 @@ export function ConversationComposer({
     });
   };
   const stageDroppedFiles = useCallback((files: File[]) => {
-    if (!runtimeReady || sending) return;
+    if (!runtimeReady || question || sending) return;
     setError("");
     return attachmentDraft.stage(async () => {
       if (!window.lxe) throw new Error(t.conversation.unavailable);
       return window.lxe.desktop.stageDroppedConversationFiles(files);
     });
-  }, [attachmentDraft, runtimeReady, sending, t]);
+  }, [attachmentDraft, runtimeReady, question, sending, t]);
   const removeAttachment = (attachmentId: string) => attachmentDraft.remove(attachmentId);
   useEffect(() => {
     if (previousConversationKey.current === conversationKey) return;
     previousConversationKey.current = conversationKey;
     attachmentDraft.reset();
-    setText("");
     setError("");
   }, [attachmentDraft, conversationKey]);
   useEffect(() => () => attachmentDraft.reset(), [attachmentDraft]);
@@ -1232,7 +1237,7 @@ export function ConversationComposer({
     const dragOver = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
       event.preventDefault();
-      if (!runtimeReady) {
+      if (!runtimeReady || question) {
         event.dataTransfer.dropEffect = "none";
         return;
       }
@@ -1246,7 +1251,7 @@ export function ConversationComposer({
       if (!event.dataTransfer?.files.length) return;
       event.preventDefault();
       setDragActive(false);
-      if (!runtimeReady) return;
+      if (!runtimeReady || question) return;
       void stageDroppedFiles(Array.from(event.dataTransfer.files));
     };
     window.addEventListener("dragover", dragOver);
@@ -1257,10 +1262,10 @@ export function ConversationComposer({
       window.removeEventListener("dragleave", dragLeave);
       window.removeEventListener("drop", drop);
     };
-  }, [runtimeReady, stageDroppedFiles]);
+  }, [runtimeReady, question, stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
-    if (!runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
+    if (!runtimeReady || question || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
     const target = conversationKey;
@@ -1268,8 +1273,8 @@ export function ConversationComposer({
       const submitted = attachments.map(({ attachment_id, name, size_bytes, media_type }) => ({ attachment_id, name, size_bytes, media_type }));
       await onSend(message, submitted);
       attachmentDraft.sent(submitted.map((item) => item.attachment_id));
+      clearSentDraft(target, text);
       if (currentConversationKey.current !== target) return;
-      setText((current) => current === text ? "" : current);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (cause) {
       if (currentConversationKey.current === target) setError(cause instanceof Error ? cause.message : String(cause));
@@ -1291,6 +1296,8 @@ export function ConversationComposer({
     }
   };
   return (
+    <UserQuestionGate request={runtimeReady ? question : undefined} conversationKey={runtimeReady ? conversationKey : "offline"}
+      onAnswered={onQuestionAnswered}>
     <div className={`conversation-composer ${dragActive ? "drag-active" : ""}`}>
       {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
       <div className="conversation-compose-box">
@@ -1402,6 +1409,7 @@ export function ConversationComposer({
       ) : null}
       {error ? <div className="conversation-compose-error" role="alert">{error}</div> : null}
     </div>
+    </UserQuestionGate>
   );
 }
 
@@ -1435,10 +1443,11 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId, pendingQuestionId }: {
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
   attachmentSessionId?: string;
+  pendingQuestionId?: string;
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
@@ -1455,6 +1464,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "tool") {
     const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
     if (!operation) return null;
+    if (operation.name === "ask_user_question" && userQuestionHistory(operation)) return <UserQuestionHistory operation={operation} pending={operation.key === pendingQuestionId} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
     return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
@@ -1507,6 +1517,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
+  question, onQuestionAnswered,
   fallbackSession,
   detail,
   activity,
@@ -1534,6 +1545,8 @@ export function SessionDetailView({
   onOpenAttachment,
   pendingMessages, display, onFollowingChange,
 }: {
+  question?: PendingUserQuestion;
+  onQuestionAnswered?: () => void;
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
@@ -1662,10 +1675,12 @@ export function SessionDetailView({
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
           : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
           : newConversation ? <ConversationWelcome /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+        renderRow={(row) => <UnifiedConversationRow row={row} pendingQuestionId={question?.tool_call_id} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
           onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
       <div className="conversation-composer-dock">
         <ConversationComposer
+          question={question}
+          onQuestionAnswered={onQuestionAnswered}
           contextDetail={detail}
           activity={activity}
           conversationKey={sessionKey}
@@ -1846,6 +1861,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   visible = true,
   deleteBlockedSessionIds = [],
   statuses,
+  waitingSessionIds,
   statusUnavailable = false,
   statusError = "",
 }: {
@@ -1870,6 +1886,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   visible?: boolean;
   deleteBlockedSessionIds?: readonly string[];
   statuses?: ReadonlyMap<string,import("@lxe/protocol/session-status").SessionRunSummary>;
+  waitingSessionIds?: ReadonlySet<string>;
   statusUnavailable?: boolean;
   statusError?: string;
 }) {
@@ -1962,7 +1979,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     const menuOpen = menu?.session.session_id === session.session_id;
     const summary=statuses?.get(session.session_id);
     const failure=statusError||summary?.error;
-    const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state??"idle";
+    const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
     const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
     return (
       <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
@@ -1975,7 +1992,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           onClick={() => onOpen(session)}
         >
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
-          <span className="primary-cell">{sessionTitle}</span>
+          <span className="primary-cell">{sessionTitle}</span>{state === "waiting_input" ? <small className="session-waiting-label">{t.userQuestions.waiting}</small> : null}
         </button>
         <button
           aria-expanded={menuOpen}

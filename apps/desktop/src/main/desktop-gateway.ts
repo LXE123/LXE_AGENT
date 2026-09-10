@@ -253,7 +253,6 @@ export class DesktopGateway {
       environment,
       storage: splitStorage,
       runtime,
-      maxConcurrency: 2,
       ...(feishu.gatewayEnabled && feishu.missingRequired().length === 0
         ? { feishu: { config: feishu, imageProcessor: new ElectronInboundImageProcessor() } }
         : {}),
@@ -433,7 +432,7 @@ export class DesktopGateway {
       }
     }
     if (call.operation === "sessions.stop") {
-      return await this.composition.parts.conversations.stop(call.input.session_id) as DashboardRpcResult<O>;
+      return await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.activity") {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;

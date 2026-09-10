@@ -4,7 +4,7 @@
 
 ## 目的
 
-`SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行、跨 session 有界并发，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。
+`SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行，允许不同 session 同时执行，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。
 
 事实来源是 [`apps/gateway/src/orchestration/scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) 及其测试。
 
@@ -17,11 +17,11 @@ Scheduler 维护四类状态：
 - `activeBySession`：保证一个 session 最多一个 active run。
 - `activeByRun`：按 run id 校验 Runtime completion 与控制操作。
 
-全局 active session 数不得超过 2。该限制由 Gateway composition 固定传入 Scheduler，不再由环境变量配置。
+全局 active session 数没有数量门槛，也没有 `maxConcurrency` 配置。某个 session 等待用户回答时，只占用该 session 的执行位置，不妨碍其他 session 启动。这不改变工具调用自身的并发规则。
 
 ## Enqueue 与 dispatch
 
-普通 job 进入 session queue 后，只有 Runtime ready 且该 session 不 active 时才进入 ready queue。`drain()` 在全局并发额度内逐个创建 `RunHandle` 并调用进程内 Runtime port。
+普通 job 进入 session queue 后，只有 Runtime ready 且该 session 不 active 时才进入 ready queue。`drain()` 为所有 ready session 创建 `RunHandle` 并调用进程内 Runtime port。
 
 `startTurn()` 返回只表示 Runtime 接受了启动，不代表 turn 已完成。active slot 只能由匹配的 `runtime.turn.completed` 释放。这样即使 start acknowledgement 与 completion 并发到达，也不会提前运行同 session 的下一条消息。
 
