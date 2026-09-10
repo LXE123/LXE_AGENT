@@ -583,7 +583,7 @@ async def download_store_msku_excel(
         staged_path = Path(result.xlsx_path)
         try:
             async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
-                snapshot = await fetch_sku_catalog_snapshot(clean_store_name, read_source_local_skus(staged_path))
+                snapshot = await fetch_sku_catalog_snapshot(matches[0], read_source_local_skus(staged_path))
         except TimeoutError as exc:
             raise OfficialApiError(f"店铺={clean_store_name}", f"商品 SKU 类型官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
         metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)

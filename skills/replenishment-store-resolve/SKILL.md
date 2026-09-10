@@ -34,7 +34,7 @@ lxeskill replenish store resolve
 
 - 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务继续下载 MSKU。
 - `id_type` 是网页请求字段，仅有 `fbaWarehouseIds[]`、`shopId` 两种。二者不能混用；`fbaWarehouseIds[]` 也可能属于单站点，不能据此认定多站点整组。
-- 网页下载继续使用解析出的 ID 和 id_type；官方店铺身份由 CLI 独立确认，不由模型转换。
+- 网页下载及本轮源数据核验使用解析出的店铺、ID 和 id_type，不要求出现在官方店铺列表中；不由模型把网页仓库 ID 转成官方 sid。
 - 解析旧名称时使用 CLI 返回的规范结果，不删除名称里的国家文字来猜别名。
 - 失败有 `data.candidates`：展示候选供用户选择，不自动选第一个；候选文件从 terminal files 交付。
 - 成功列出全部店铺时交付文件，简述数量，不把列表成功当作目标店铺匹配成功。

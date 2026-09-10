@@ -36,7 +36,7 @@ def source(path, records, bindings=(binding(),)):
     workbook.save(path)
     workbook.close()
     if bindings is not None:
-        active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', bindings), requested_store_name='shop')
+        active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'shopId', bindings), requested_store_name='shop')
     return path
 
 
@@ -59,7 +59,7 @@ def test_sku_normalization_preserves_case():
     assert active.classify([row(sku='s')], (binding(sku='s', kind=None),))[0][1] is False
 
 
-@pytest.mark.parametrize('mutation', ['sales', 'flag', 'binding', 'store'])
+@pytest.mark.parametrize('mutation', ['sales', 'flag', 'binding', 'store', 'store_id', 'id_type'])
 def test_snapshot_rejects_tampering(tmp_path, mutation):
     path = source(tmp_path/'source.xlsx', [row(**{'7天销量': 7})])
     workbook = load_workbook(path)
@@ -71,6 +71,12 @@ def test_snapshot_rejects_tampering(tmp_path, mutation):
         sheet.cell(2, columns['是否通过绑定核验'], False)
     elif mutation == 'binding':
         workbook[active.SHEET].cell(3, 2, workbook[active.SHEET].cell(3, 2).value.replace('"S"', '"changed"'))
+    elif mutation in ('store_id', 'id_type'):
+        import json
+        cell = workbook[active.SHEET].cell(2, 2)
+        metadata = json.loads(cell.value)
+        metadata[mutation] = '999' if mutation == 'store_id' else 'fbaWarehouseIds[]'
+        cell.value = json.dumps(metadata)
     workbook.save(path); workbook.close()
     with pytest.raises(active.SourceVerificationError):
         active.load_verified_source(path, store_name='other' if mutation == 'store' else 'shop')
@@ -190,11 +196,12 @@ def test_source_shop_label_is_optional_and_does_not_override_download_identity(t
     workbook = Workbook(); workbook.active.append(['MSKU', 'ASIN', '本地SKU', *extra])
     workbook.active.append(['M', 'A', 'S', *extra.values()]); workbook.save(path); workbook.close()
     download.validate_store_msku_excel_headers(path)
-    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'de', (binding(),)), requested_store_name='shop')
+    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'shopId', (binding(),)), requested_store_name='shop')
     verified = active.load_verified_source(path, store_name='shop')
     assert verified.metadata['store_name'] == 'shop'
-    assert verified.metadata['shop_id'] == '10'
-    assert verified.metadata['site'] == 'de'
+    assert verified.metadata['store_id'] == '10'
+    assert verified.metadata['id_type'] == 'shopId'
+    assert 'shop_id' not in verified.metadata and 'site' not in verified.metadata
     assert verified.counts['binding_verified_row_count'] == 1
     assert {key: verified.records[0][key] for key in extra} == extra
     assert ('店铺名称' in verified.headers) == ('店铺名称' in labels)
@@ -202,8 +209,8 @@ def test_source_shop_label_is_optional_and_does_not_override_download_identity(t
         active.load_verified_source(path, store_name='other')
 
 
-@pytest.mark.parametrize('site,label', [('de', '欧洲站'), ('fr', '欧洲站'), ('gb', '欧洲站'), ('us', '美国站'), ('de', None)])
-def test_source_region_label_is_preserved_without_country_comparison(tmp_path, site, label):
+@pytest.mark.parametrize('label', ['欧洲站', '美国站', None])
+def test_source_region_label_is_preserved_without_country_comparison(tmp_path, label):
     path = tmp_path/'source.xlsx'
     original = {'店铺名称': 'shop', '站点': label, 'MSKU': 'Amazon.Found.B0BN5NRBP1',
                 'ASIN': 'B0BN5NRBP1', '本地SKU': 'S', '7天销量': 7, '可售': 5}
@@ -212,9 +219,9 @@ def test_source_region_label_is_preserved_without_country_comparison(tmp_path, s
     workbook.active.append(list(original.values()))
     workbook.save(path)
     workbook.close()
-    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', site, (binding(),)), requested_store_name='shop')
+    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'shopId', (binding(),)), requested_store_name='shop')
     verified = active.load_verified_source(path, store_name='shop')
-    assert verified.metadata['site'] == site
+    assert 'site' not in verified.metadata
     assert verified.counts['binding_verified_row_count'] == 1
     assert {key: verified.records[0][key] for key in original} == original
     # A display-only field is still part of the immutable source fingerprint.
@@ -258,7 +265,7 @@ def test_download_cli_business_error_does_not_request_cookie_refresh(monkeypatch
     assert 'actual-denial' in payload['exception']
 
 
-@pytest.mark.parametrize("field,value", [("version", 1), ("version", 2), ("verification_method", "listing"), ("binding_verified_row_count", -1), ("original_row_count", None), ("snapshot_id", ""), ("site", None)])
+@pytest.mark.parametrize("field,value", [("version", 1), ("version", 2), ("version", 5), ("verification_method", "listing"), ("binding_verified_row_count", -1), ("original_row_count", None), ("snapshot_id", ""), ("store_id", None), ("id_type", "sid"), ("id_type", None)])
 def test_invalid_metadata_is_rejected_before_calculation(tmp_path, field, value):
     import json
     path = source(tmp_path/'report.xlsx', [row()])
@@ -269,6 +276,36 @@ def test_invalid_metadata_is_rejected_before_calculation(tmp_path, field, value)
     workbook.save(path); workbook.close()
     with pytest.raises(active.SourceVerificationError, match="核验信息无效"):
         active.require_matching_reports(path, path, store_name="shop")
+
+
+def test_version_three_catalog_files_remain_readable_but_cannot_mix_with_new_round(tmp_path):
+    """The identity change does not invalidate already verified catalog inputs."""
+    import json
+    import shutil
+    path = source(tmp_path/'v3.xlsx', [row()])
+    new_path = tmp_path/'v4.xlsx'
+    shutil.copyfile(path, new_path)
+    new = active.load_verified_source(path, store_name='shop')
+    metadata = dict(new.metadata, version=3, shop_id='official-sid', site='us')
+    del metadata['store_id'], metadata['id_type'], metadata['snapshot_id']
+    metadata['snapshot_id'] = active._digest([metadata, [item.to_record() for item in new.skus]])
+    workbook = load_workbook(path)
+    workbook[active.SHEET].cell(2, 2, json.dumps(metadata))
+    workbook.save(path); workbook.close()
+    old = active.load_verified_source(path, store_name='shop')
+    assert old.records == new.records and old.skus == new.skus and old.counts == new.counts
+    assert active.require_matching_reports(path, path, store_name='shop') == metadata
+    with pytest.raises(active.SourceVerificationError, match='指纹不一致'):
+        active.require_matching_reports(path, new_path, store_name='shop')
+    with pytest.raises(active.SourceVerificationError, match='店铺不一致'):
+        active.load_verified_source(path, store_name='other')
+    for field in ('shop_id', 'site'):
+        invalid = dict(metadata, **{field: None})
+        report = tmp_path/f'{field}.xlsx'
+        shutil.copyfile(path, report)
+        active.stamp_report(report, invalid)
+        with pytest.raises(active.SourceVerificationError, match='核验字段无效'):
+            active.read_report_metadata(report)
 
 
 def test_unverified_marker_blocks_positive_inventory_and_preserves_full_key(tmp_path):

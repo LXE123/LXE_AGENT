@@ -235,8 +235,8 @@ def _mock_active_shop(monkeypatch):
     from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot
     async def stores():
         return [FbaStore("Amazon-Lerxiuer-FR", "697456821", "shopId")]
-    async def snapshot(name, skus):
-        return SkuCatalogSnapshot(name, "10", "fr", ())
+    async def snapshot(store, skus):
+        return SkuCatalogSnapshot(store.store_name, store.store_id, store.id_type, ())
     monkeypatch.setattr(msku, "fetch_fba_stores", stores)
     monkeypatch.setattr(msku, "fetch_sku_catalog_snapshot", snapshot)
 

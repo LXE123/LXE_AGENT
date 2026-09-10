@@ -106,7 +106,7 @@ def test_only_found_rows_do_not_query_warehouse_or_enter_replenishment(monkeypat
     path = tmp_path/'202609071111-shop_店铺MSKU数据.xlsx'
     path.write_bytes(_xlsx_bytes([{'MSKU': 'Amazon.Found.A', 'ASIN': 'A', '本地SKU': 'S'}], columns=list(inv.SOURCE_COLUMNS)))
     from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot, LocalSkuDefinition
-    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (LocalSkuDefinition('S', None),)), requested_store_name='shop')
+    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'shopId', (LocalSkuDefinition('S', None),)), requested_store_name='shop')
     async def unexpected(*args, **kwargs):
         pytest.fail('Unverified rows must not query stock or combo details')
     monkeypatch.setattr(combo, 'post_json', unexpected)
@@ -374,7 +374,7 @@ def test_snapshot_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch
     from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot
     path = tmp_path/'202609050900-shop_店铺MSKU数据.xlsx'
     path.write_bytes(_xlsx_bytes([{'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'C'}], columns=list(inv.SOURCE_COLUMNS)))
-    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (LocalSkuDefinition('C', 2, (combo.ComboComponent('S', Decimal(2)),)),)), requested_store_name='shop')
+    annotate_source(path, SkuCatalogSnapshot('shop', '10', 'shopId', (LocalSkuDefinition('C', 2, (combo.ComboComponent('S', Decimal(2)),)),)), requested_store_name='shop')
     calls = []
     async def forbidden(*a, **kw):
         pytest.fail('Inventory must not query Listing or product catalogs again')

@@ -140,20 +140,22 @@ def test_four_workers_failure_and_timeout_cancel_remaining(monkeypatch):
     asyncio.run(scenario(False))
 
 
-def test_source_snapshot_only_resolves_shop_not_listing(monkeypatch):
+@pytest.mark.parametrize("store_id,id_type", [("697618612", "shopId"), ("1039477", "fbaWarehouseIds[]")])
+@pytest.mark.parametrize("local_skus", [[], ["S", "S"]])
+def test_source_snapshot_uses_download_identity_without_official_shop_or_listing(monkeypatch, store_id, id_type, local_skus):
+    from services.mabang.amazon.fba.store_resolver import FbaStore
     calls = []
-    async def shops(endpoint, body, **kwargs):
-        calls.append(endpoint)
-        assert endpoint == "shops/list" and body == {}
-        return {"code": 200, "data": {"profile-key": {"sid": 10, "name": "shop", "amazonsite": "us"}}}
     async def stock(endpoint, body, **kwargs):
         calls.append(endpoint)
+        assert endpoint == "stock-skus/search"
+        assert body == {"stockSkuList": "S", "maxRows": 1000, "way": 2}
         return stock_page(["S"])
-    monkeypatch.setattr(combo, "post_json", shops)
+    monkeypatch.setattr(combo, "post_json", stock)
     monkeypatch.setattr(catalog, "post_json", stock)
-    snapshot = asyncio.run(catalog.fetch_sku_catalog_snapshot("shop", ["S"]))
-    assert snapshot.shop_id == "10" and snapshot.site == "us"
-    assert calls == ["shops/list", "stock-skus/search"]
+    store = FbaStore("Amazon-Lerxiuer-SE", store_id, id_type)
+    snapshot = asyncio.run(catalog.fetch_sku_catalog_snapshot(store, local_skus))
+    assert (snapshot.store_name, snapshot.store_id, snapshot.id_type) == (store.store_name, store_id, id_type)
+    assert calls == (["stock-skus/search"] if local_skus else [])
 
 
 def test_combo_miss_only_after_complete_pagination(monkeypatch):

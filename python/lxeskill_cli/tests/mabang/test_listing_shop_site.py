@@ -134,13 +134,15 @@ def mock_download(monkeypatch, tmp_path, *, local_sku="", store_label=STORE):
 
 
 @pytest.mark.parametrize('store_label', [STORE, f'{STORE},Amazon-Lerxiuer-FR,Amazon-Lerxiuer-IT', None])
-def test_download_publishes_country_metadata_and_keeps_missing_local_sku(monkeypatch, tmp_path, store_label):
-    mock_pages(monkeypatch)
+def test_download_preserves_web_identity_and_missing_local_sku_without_official_queries(monkeypatch, tmp_path, store_label):
+    calls = mock_pages(monkeypatch)
     target = mock_download(monkeypatch, tmp_path, store_label=store_label)
     result = asyncio.run(msku.download_store_msku_excel(SID, "shopId", store_name=STORE, output_dir=tmp_path))
     assert result.xlsx_path == str(target)
     verified = load_verified_source(target, store_name=STORE)
-    assert verified.metadata["site"] == "de"
+    assert verified.metadata["store_id"] == SID and verified.metadata["id_type"] == "shopId"
+    assert "site" not in verified.metadata and "shop_id" not in verified.metadata
+    assert calls == []
     assert verified.records[0]["站点"] == "欧洲站"
     assert verified.records[0]["店铺名称"] == store_label
     assert verified.metadata["binding_verified_row_count"] == 0
@@ -173,7 +175,7 @@ def test_catalog_later_page_failure_has_no_publication_or_auth_retry(monkeypatch
     result = cli.run({"store_id": SID, "id_type": "shopId", "store_name": STORE})
     assert not result["success"] and result["auth_refresh_required"] is False
     assert "page=2" in result["exception"] and "结构或分页数量异常" in result["exception"]
-    assert len(calls) == 3
+    assert [endpoint for endpoint, _ in calls] == ['stock-skus/search', 'stock-skus/search']
     assert list(tmp_path.iterdir()) == ([target] if existing else [])
     if existing:
         assert target.read_bytes() == original

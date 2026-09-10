@@ -77,10 +77,10 @@ def test_single_station_download_preserves_both_web_id_types(monkeypatch, tmp_pa
         path = spec.download_file.keywords['output_dir']/'202609071200-source.xlsx'
         path.write_bytes(_xlsx_bytes([{'店铺名称': single.store_name, 'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'S'}], columns=list(msku.CORE_STORE_MSKU_HEADERS)))
         return spec.transform_result(['1'], path)
-    async def snapshot(name, skus):
-        assert name == single.store_name
+    async def snapshot(store, skus):
+        assert store == single
         calls.append('catalog')
-        return SkuCatalogSnapshot(name, '99', 'de', (LocalSkuDefinition('S', 1),))
+        return SkuCatalogSnapshot(store.store_name, store.store_id, store.id_type, (LocalSkuDefinition('S', 1),))
     monkeypatch.setattr(msku, 'fetch_fba_stores', fetch)
     monkeypatch.setattr(msku, 'run_export_pipeline', pipeline)
     monkeypatch.setattr(msku, 'fetch_sku_catalog_snapshot', snapshot)
@@ -88,6 +88,10 @@ def test_single_station_download_preserves_both_web_id_types(monkeypatch, tmp_pa
     assert Path(result.xlsx_path).exists()
     assert result.binding_counts == {'original_row_count': 1, 'binding_verified_row_count': 1, 'binding_unverified_row_count': 0}
     assert calls == ['export', 'catalog']
+    from services.mabang.amazon.fba.source_verification import load_verified_source
+    metadata = load_verified_source(result.xlsx_path, store_name=single.store_name).metadata
+    assert (metadata['store_id'], metadata['id_type']) == (single.store_id, single.id_type)
+    assert 'shop_id' not in metadata and 'site' not in metadata
 
 
 def test_group_context_survives_cli_terminal_without_cookie_recovery(monkeypatch, capsys):
@@ -110,3 +114,45 @@ def test_group_context_survives_cli_terminal_without_cookie_recovery(monkeypatch
     assert len(terminal['data']['context']['candidates']) == 2
     assert '401403' in terminal['error']['message']
     assert 'recovery' not in terminal
+
+
+@pytest.mark.parametrize('legacy_name', [False, True])
+def test_se_download_without_official_profile_reuses_selected_web_shop(monkeypatch, tmp_path, legacy_name):
+    from services.mabang.amazon.fba import sku_catalog, combo_sku
+    from services.mabang.amazon.fba.source_verification import load_verified_source
+    store = FbaStore('Amazon-Lerxiuer-SE', '697618612', 'shopId',
+                     legacy_names=('Amazon-Lerxiuer-SE瑞典',))
+    name = store.legacy_names[0] if legacy_name else store.store_name
+    calls = []
+    async def stores():
+        calls.append('web-stores')
+        return [store]
+    async def pipeline(spec):
+        assert spec.fetch_args == (store.store_id, store.id_type)
+        path = spec.download_file.keywords['output_dir']/f'202609101800-{name}_店铺MSKU数据.xlsx'
+        path.write_bytes(_xlsx_bytes([
+            {'MSKU': 'M', 'ASIN': 'A', '本地SKU': 'S'},
+            {'MSKU': 'MC', 'ASIN': 'AC', '本地SKU': 'C'},
+        ], columns=list(msku.CORE_STORE_MSKU_HEADERS)))
+        return spec.transform_result(['1', '2'], path)
+    async def post(endpoint, body, **kwargs):
+        calls.append(endpoint)
+        if endpoint == 'stock-skus/search':
+            assert body == {'stockSkuList': 'S,C', 'maxRows': 1000, 'way': 2}
+            return {'code': 200, 'data': {'data': [{'stockSku': 'S'}], 'nextCursor': ''}}
+        assert endpoint == 'combo-skus/search', 'Download must not request official shops or Listings'
+        assert body == {'comboSku': 'C', 'page': 1, 'rowsPerPage': 20, 'showCost': 0}
+        return {'code': 200, 'data': {'page': 1, 'rowsPerPage': 20, 'total': 1, 'data': [
+            {'comboSku': 'C', 'comboProductDetail': [{'stockSku': 'S', 'quantity': 2}]}]}}
+    monkeypatch.setattr(msku, 'fetch_fba_stores', stores)
+    monkeypatch.setattr(msku, 'run_export_pipeline', pipeline)
+    monkeypatch.setattr(sku_catalog, 'post_json', post)
+    monkeypatch.setattr(combo_sku, 'post_json', post)
+    result = asyncio.run(msku.download_store_msku_excel(store.store_id, store.id_type, store_name=name, output_dir=tmp_path))
+    assert result.store_name == name and name in Path(result.xlsx_path).name
+    verified = load_verified_source(result.xlsx_path, store_name=name)
+    assert verified.metadata['store_name'] == store.store_name
+    assert verified.metadata['requested_store_name'] == name
+    assert verified.metadata['store_id'] == store.store_id and verified.metadata['id_type'] == 'shopId'
+    assert result.binding_counts['binding_verified_row_count'] == 2
+    assert calls == ['web-stores', 'stock-skus/search', 'combo-skus/search']

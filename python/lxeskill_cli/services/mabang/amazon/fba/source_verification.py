@@ -18,9 +18,10 @@ from .sku_catalog import (
     NOT_FOUND_REASON, VERIFICATION_METHOD, LocalSkuDefinition, SkuCatalogSnapshot,
     combo_map, definition_map,
 )
+from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP
 
 SHEET = "源数据核验信息"
-VERSION = 3
+VERSION = 4
 TAG_COLUMNS = ("绑定核验结果", "是否通过绑定核验", "未通过原因")
 
 
@@ -138,16 +139,21 @@ def _read_info(workbook: Any) -> tuple[dict[str, Any], tuple[LocalSkuDefinition,
         excluded = metadata["unverified_rows"]
         if not isinstance(excluded, list) or any(not isinstance(item, dict) or not isinstance(item.get("key"), list) or len(item["key"]) != 4 or any(not isinstance(value, str) for value in item["key"]) or not isinstance(item.get("reason"), str) or not item["reason"] for item in excluded):
             raise ValueError("未核验记录格式无效")
-        if type(metadata["version"]) is not int or metadata["version"] != VERSION:
+        if type(metadata["version"]) is not int or metadata["version"] not in (3, VERSION):
             raise ValueError(f"核验版本无效: {metadata['version']!r}，请重新下载 MSKU 并重跑销量和库存报表")
         if metadata.get("verification_method") != VERIFICATION_METHOD:
             raise ValueError("核验方式不是库存/组合商品接口，请重新下载")
         for key in ("source_fingerprint", "snapshot_id"):
             if not isinstance(metadata[key], str) or not re.fullmatch(r"[a-f0-9]{64}", metadata[key]):
                 raise ValueError(f"核验指纹无效: {key}={metadata[key]!r}")
-        for key in ("store_name", "requested_store_name", "shop_id", "site", "collected_at"):
+        # Version 3 records official identity. Version 4 records the web download
+        # ID together with its type, without treating warehouse IDs as official sid.
+        identity_fields = ("shop_id", "site") if metadata["version"] == 3 else ("store_id", "id_type")
+        for key in ("store_name", "requested_store_name", "collected_at", *identity_fields):
             if not isinstance(metadata[key], str) or not metadata[key].strip():
                 raise ValueError(f"核验字段无效: {key}={metadata[key]!r}")
+        if metadata["version"] == VERSION and metadata["id_type"] not in (ID_TYPE_SHOP, ID_TYPE_FBA_WAREHOUSE):
+            raise ValueError(f"下载店铺 ID 类型无效: {metadata['id_type']!r}")
         counts = [metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")]
         if any(type(value) is not int or value < 0 for value in counts) or counts[0] != counts[1] + counts[2]:
             raise ValueError(f"核验数量无效: {counts!r}")
@@ -172,8 +178,8 @@ def annotate_source(path: Path, snapshot: SkuCatalogSnapshot, *, requested_store
         metadata = {
             "version": VERSION, "scope": "xlsx_all", "verification_method": VERIFICATION_METHOD, "store_name": snapshot.store_name,
             "unverified_rows": [dict(key=list(product_key(record)), reason=tag[2]) for record, tag in zip(records, tags, strict=True) if not tag[1]],
-            "requested_store_name": requested_store_name, "shop_id": snapshot.shop_id,
-            "site": snapshot.site, "collected_at": datetime.now(timezone.utc).isoformat(),
+            "requested_store_name": requested_store_name, "store_id": snapshot.store_id,
+            "id_type": snapshot.id_type, "collected_at": datetime.now(timezone.utc).isoformat(),
             "source_fingerprint": _digest([headers, records]),
             "original_row_count": len(records), "binding_verified_row_count": sum(tag[1] for tag in tags),
             "binding_unverified_row_count": sum(not tag[1] for tag in tags),

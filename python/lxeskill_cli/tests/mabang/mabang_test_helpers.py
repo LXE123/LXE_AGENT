@@ -85,7 +85,7 @@ def _annotate_active_test_source(path: Path, *, requested_store_name: str | None
     skus = tuple(LocalSkuDefinition(sku, 2, (ComboComponent('STOCK-A', Decimal(1)), ComboComponent('STOCK-B', Decimal(2))))
                  if sku.startswith('COMBO') else LocalSkuDefinition(sku, 1)
                  for sku in dict.fromkeys(str(row.get('本地SKU') or '') for row in rows) if sku)
-    annotate_source(path, SkuCatalogSnapshot(name, '10', 'us', skus), requested_store_name=requested_store_name or name)
+    annotate_source(path, SkuCatalogSnapshot(name, '10', 'shopId', skus), requested_store_name=requested_store_name or name)
 
 
 

@@ -8,8 +8,9 @@ from typing import Any
 from services.mabang.official_api import invalid, post_json
 from .combo_sku import (
     COMBO_WORKERS, ComboComponent, ComboSku, _fetch_combo, _parse_combo, _progress,
-    clean_text, normalize_sku_key, resolve_official_shop,
+    clean_text, normalize_sku_key,
 )
+from .store_resolver import FbaStore
 
 STOCK_BATCH_SIZE = 50
 STOCK_PAGE_SIZE = 1000
@@ -50,8 +51,8 @@ class LocalSkuDefinition:
 @dataclass(frozen=True)
 class SkuCatalogSnapshot:
     store_name: str
-    shop_id: str
-    site: str
+    store_id: str
+    id_type: str
     skus: tuple[LocalSkuDefinition, ...]
 
 
@@ -139,6 +140,7 @@ async def fetch_local_sku_definitions(local_skus: list[str]) -> tuple[LocalSkuDe
     return ordered
 
 
-async def fetch_sku_catalog_snapshot(store_name: str, local_skus: list[str]) -> SkuCatalogSnapshot:
-    name, shop_id, site = await resolve_official_shop(store_name)
-    return SkuCatalogSnapshot(name, shop_id, site, await fetch_local_sku_definitions(local_skus))
+async def fetch_sku_catalog_snapshot(store: FbaStore, local_skus: list[str]) -> SkuCatalogSnapshot:
+    """Use the already resolved download identity; product queries are shop-independent."""
+    return SkuCatalogSnapshot(store.store_name, store.store_id, store.id_type,
+                              await fetch_local_sku_definitions(local_skus))

@@ -34,7 +34,8 @@ lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]
 - 返回字段沿用旧名，`binding_verified_row_count` 现在表示源表本地 SKU 的商品类型已确认，并不表示实时 Listing 绑定一致。
 - 记录 `original_row_count`、`binding_verified_row_count`、`binding_unverified_row_count`：原始行数＝商品类型核验通过行数＋未通过行数。全部原始行进入销量分析，核验通过不代表一定建议发货。
 - 库存和组合接口均完整查询成功但都未精确命中的本地 SKU，对应 MSKU 保留在源表和销量分析中，不进入备货计算。接口失败、分页异常或无效组件必须报错，不能当作未命中。`Amazon.Found.*` 遵循同一规则，不作名称特判。
-- 隐藏 `源数据核验信息` 使用版本 3，保存本轮本地 SKU 查询结果、组合组件、店铺站点和源指纹；MSKU 与本地 SKU 的绑定以原始 XLSX 为准。不能改标记、替换绑定或删除核验页；历史 Active/Listing 核验文件需重新下载并重跑销量和库存报表。
+- 下载不再调用官方店铺列表或 Listing，店铺不在 `fba-get-profiles-list` 中也可继续；库存 SKU 和组合接口直接按本地 SKU 查询。
+- 隐藏 `源数据核验信息` 使用版本 4，保存本轮本地 SKU 查询结果、组合组件、网页店铺名称、下载 ID 与 ID 类型及源指纹；不猜测官方 sid 或国家代码。MSKU 与本地 SKU 的绑定以原始 XLSX 为准。不能改标记、替换绑定或删除核验页；版本 3 的库存/组合核验文件仍可读取，历史 Active/Listing 核验文件需重新下载并重跑销量和库存报表。不同轮次报表仍不可混用。
 - `data.context.reason=multi_site_group` 时展示 `context.candidates` 的真实子站点，用户选择后再调用；不重试整组、不自动拆任务。
 - 完整任务下载成功后继续销量与库存；单步请求交付源表即可。没有可计算记录时结束并说明原因，不生成补货建议。
 - 官方数据服务依赖 `LXE_DATA_SERVER_URL`、`LXE_DATA_SERVER_API_KEY`（安装版由桌面注入，可能承载设备凭据）；不索取或展示密钥。网页仍依赖马帮登录态，官方错误不刷新 Cookie。
