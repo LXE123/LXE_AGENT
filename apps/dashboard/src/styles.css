@@ -11515,26 +11515,53 @@ pre {
 @keyframes session-status-breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .session-index-item .session-index-icon[data-session-state] { animation: none; } }
 /* Structured questions share the composer dock and remain usable in short windows. */
-.user-question-card { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 12px; max-height: min(65vh, 650px); }
-.user-question-heading { font-weight: 600; }
-.user-question-fields { overflow-y: auto; min-height: 0; display: grid; gap: 18px; }
-.user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
-.user-question-card legend { font-weight: 500; margin-bottom: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.user-question-card small { display: block; font-size: 0.75rem; opacity: .7; font-weight: 400; }
-.user-question-hint { display: block; font-size: 0.75rem; opacity: .7; margin-bottom: 6px; }
-.user-question-option { display: flex; gap: 8px; align-items: flex-start; padding: 7px 4px; cursor: pointer; overflow-wrap: anywhere; }
-.user-question-option input { margin-top: 4px; flex: 0 0 auto; }
-.user-question-custom { display: grid; gap: 5px; margin-top: 8px; font-size: 0.75rem; }
-.user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; background: transparent; color: inherit; font: inherit; min-height: 50px; max-height: 150px; }
-.user-question-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.user-question-actions button { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: inherit; cursor: pointer; }
-.user-question-actions button[type=submit] { background: var(--text); color: var(--surface); }
-.user-question-actions button:disabled { opacity: .45; cursor: default; }
-.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; }
+.user-question-card { width: min(var(--assistant-content-width, 780px), 100%); margin-inline: auto; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; max-height: min(65vh, 520px); }
+.user-question-header { display: flex; align-items: flex-start; gap: 8px; padding: 6px 6px 4px 10px; flex-shrink: 0; }
+.user-question-header h3 { flex: 1; min-width: 0; margin: 3px 8px 0 0; font-size: .9375rem; font-weight: 600; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(18vh, 8rem); overflow-y: auto; }
+.user-question-header h3:focus-visible { outline: none; }
+.user-question-card button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.user-question-pagination { display: flex; align-items: center; flex-shrink: 0; color: var(--text-soft); }
+.user-question-pagination span { min-width: 44px; text-align: center; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.user-question-pagination button, .user-question-stop { display: grid; place-items: center; width: 28px; height: 30px; padding: 0; border-radius: 8px; flex-shrink: 0; }
+.user-question-card .user-question-stop { color: var(--text-soft); margin-left: 2px; }
+.user-question-pagination button:hover:not(:disabled), .user-question-stop:hover:not(:disabled) { background: var(--surface-subtle); color: var(--text); }
+.user-question-fields { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; }
+.user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
+.user-question-hint { display: block; padding: 0 12px 4px; font-size: .75rem; color: var(--text-soft); }
+.user-question-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 14px; cursor: pointer; overflow-wrap: anywhere; transition: background 120ms ease; }
+.user-question-option:hover { background: var(--surface-muted); }
+.user-question-option[data-selected="true"] { background: var(--surface-subtle); }
+.user-question-option input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.user-question-number { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-muted); color: var(--text-soft); font-size: .8125rem; box-sizing: border-box; }
+.user-question-option[data-selected="true"] .user-question-number { color: var(--text); border-color: var(--text-soft); }
+.user-question-option-copy { min-width: 0; flex: 1; padding-top: 3px; line-height: 1.5; }
+.user-question-option-copy strong { display: block; font-size: .875rem; font-weight: 600; }
+.user-question-option-copy small { display: block; margin-top: 3px; font-size: .8125rem; color: var(--text-soft); white-space: pre-wrap; }
+.user-question-option-arrow { align-self: center; flex-shrink: 0; color: var(--text-soft); opacity: 0; }
+.user-question-option:hover .user-question-option-arrow, .user-question-option:has(input:focus-visible) .user-question-option-arrow, .user-question-option[data-selected="true"] .user-question-option-arrow { opacity: 1; }
+.user-question-option:has(input:focus-visible), .user-question-card button:focus-visible, .user-question-custom textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.user-question-card fieldset:disabled .user-question-option { cursor: default; opacity: .65; }
+.user-question-custom { display: grid; gap: 7px; margin: 6px 12px 4px; font-size: .75rem; color: var(--text-soft); }
+.user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; resize: vertical; background: var(--surface-muted); color: var(--text); font: inherit; font-size: .875rem; line-height: 1.5; min-height: 70px; max-height: 150px; }
+.user-question-custom textarea::placeholder { color: var(--text-soft); }
+.user-question-actions { display: flex; align-items: center; gap: 12px; padding: 2px 6px 2px 12px; flex-shrink: 0; }
+.user-question-card .user-question-custom-toggle { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border-radius: 8px; text-align: left; color: var(--text-soft); font-size: .8125rem; }
+.user-question-custom-toggle:hover:not(:disabled) { color: var(--text); }
+.user-question-custom-toggle > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-question-card .user-question-continue { display: flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; margin-left: auto; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 500; }
+.user-question-continue:hover:not(:disabled) { background: var(--surface-subtle); }
+.user-question-card button:disabled { opacity: .4; cursor: default; }
+.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; margin: 0 12px; max-height: 80px; overflow-y: auto; }
 .user-question-history { margin: 8px 0; padding: 12px; border-left: 2px solid var(--border); overflow-wrap: anywhere; }
 .user-question-history p { margin: 8px 0 4px; white-space: pre-wrap; }
 .user-question-history blockquote { margin: 0; opacity: .8; white-space: pre-wrap; }
 .user-question-history small { opacity: .65; }
 .user-question-history pre { white-space: pre-wrap; font-size: 0.75rem; }
-.session-index-icon[data-session-state="waiting_input"] { background: #d6a63e; border-color: #d6a63e; animation: none; }
-.session-waiting-label { color: var(--text-soft); font-size: 0.625rem; flex-shrink: 0; }
+.session-index-item .session-index-icon[data-session-state="waiting_input"] { color: #60a5fa; background: currentColor; border-color: currentColor; opacity: 1; animation: none; }
+@media (max-width: 700px) {
+  .user-question-card { padding: 8px; border-radius: 18px; }
+  .user-question-header { gap: 2px; padding-left: 8px; }
+  .user-question-header h3 { font-size: .875rem; margin-right: 4px; }
+  .user-question-option { padding: 10px 8px; gap: 10px; }
+  .user-question-actions { padding-left: 8px; gap: 8px; }
+}

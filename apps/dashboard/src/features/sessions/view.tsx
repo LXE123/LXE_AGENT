@@ -1992,7 +1992,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           onClick={() => onOpen(session)}
         >
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
-          <span className="primary-cell">{sessionTitle}</span>{state === "waiting_input" ? <small className="session-waiting-label">{t.userQuestions.waiting}</small> : null}
+          <span className="primary-cell">{sessionTitle}</span>
         </button>
         <button
           aria-expanded={menuOpen}

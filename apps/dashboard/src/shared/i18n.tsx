@@ -10,7 +10,7 @@ export type Language = "zh" | "en";
 export const ZH_TEXT = {
   skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
   sessionStatus: {waiting_input:"等待回答",running:"运行中",stopping:"正在停止",queued:"排队中",completed:"已完成，尚未查看",error:"执行失败，尚未查看",cancelled:"已停止",idle:"暂无未查看结果",unknown:"上次运行结果未确认",unavailable:"状态暂不可用",syncError:"状态同步失败"},
-  userQuestions: {waiting:"等待回答",received:"回答已接收",submit:"提交回答",submitting:"正在提交…",stop:"停止本次任务",stopping:"正在停止…",single:"单选，也可以填写自己的回答",multiple:"可多选，也可以补充文字",custom:"自己的回答",freeText:"回答",history:"提问与回答",answered:"已回答",inactive:"已结束，未收到回答"},
+  userQuestions: {waiting:"等待回答",received:"回答已接收",submit:"提交回答",submitting:"正在提交…",stop:"停止本次任务",stopping:"正在停止…",pagination:"问题分页",previous:"上一题",next:"下一题",multiple:"可多选，也可以补充文字",custom:"自己的回答",customPlaceholder:"填写自己的回答…",freeText:"回答",history:"提问与回答",answered:"已回答",inactive:"已结束，未收到回答"},
   language: {
     label: "语言",
     zh: "中文",
@@ -831,7 +831,7 @@ export const UI_TEXT: Record<Language, UiText> = {
   en: {
     skillDisplayName: (name: string) => skillDisplayName(name, "en"),
     sessionStatus: {waiting_input:"Waiting for answer",running:"Running",stopping:"Stopping",queued:"Queued",completed:"Completed, not viewed",error:"Failed, not viewed",cancelled:"Stopped",idle:"No unviewed results",unknown:"Previous run result unconfirmed",unavailable:"Status unavailable",syncError:"Status sync failed"},
-    userQuestions: {waiting:"Waiting for answer",received:"Answer received",submit:"Submit answer",submitting:"Submitting…",stop:"Stop this task",stopping:"Stopping…",single:"Choose one, or write your own answer",multiple:"Choose any and optionally add text",custom:"Your own answer",freeText:"Answer",history:"Questions and answers",answered:"Answered",inactive:"Ended without an answer"},
+    userQuestions: {waiting:"Waiting for answer",received:"Answer received",submit:"Submit answer",submitting:"Submitting…",stop:"Stop this task",stopping:"Stopping…",pagination:"Question pages",previous:"Previous question",next:"Next question",multiple:"Choose any and optionally add text",custom:"Your own answer",customPlaceholder:"Write your own answer…",freeText:"Answer",history:"Questions and answers",answered:"Answered",inactive:"Ended without an answer"},
     language: {
       label: "Language",
       zh: "中文",

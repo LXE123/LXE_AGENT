@@ -20,14 +20,16 @@
 
 ## 桌面与生命周期
 
-卡片暂时代替普通发送入口，原聊天文字与已选附件保留。回答在卡片里填写；只有收到提交确认后才解除提交状态。失败保留答案并展示实际错误。文字草稿存于 renderer 的 sessionStorage；选择会话、重新加载和每 5 秒兜底查询都能恢复仍有效的问题。附件沿用原有生命周期，刷新不恢复未发送附件。
+卡片暂时代替普通发送入口，原聊天文字与已选附件保留。每页只显示一道题，顶部页码和箭头可以前后浏览；单选点选后自动进入下一题，多选和文字回答点击“下一题”。自由回答入口在卡片底部展开，纯文字题直接显示输入框。最后一页统一提交全部答案，所有题目回答完整后才能提交。
 
-“停止本次任务”走原取消链路，同时携带该问题的 `turn_id`。Gateway 先确认还是同一回合，避免旧卡片停止随后启动的新任务。abort 解除等待，运行时写入错误工具结果并结束回合。删除 session 和关闭运行时会清理请求。进程异常退出后不恢复旧等待，下一次构建上下文时沿用现有 tool-call closure 修复。历史问题和答案只有只读展示，不能再次提交。
+只有收到提交确认后才解除提交状态。失败保留答案并展示实际错误。答案和当前页码按请求标识存于 renderer 的 sessionStorage；切换会话和重新加载会恢复草稿及页码，每 5 秒兜底查询恢复仍有效的问题。侧栏用实心蓝点表示等待回答，悬停可查看状态。附件沿用原有生命周期，刷新不恢复未发送附件。
+
+卡片右上角的关闭图标表示“停止本次任务”，走原取消链路，同时携带该问题的 `turn_id`。Gateway 先确认还是同一回合，避免旧卡片停止随后启动的新任务。abort 解除等待，运行时写入错误工具结果并结束回合。删除 session 和关闭运行时会清理请求。进程异常退出后不恢复旧等待，下一次构建上下文时沿用现有 tool-call closure 修复。历史问题和答案只有只读展示，不能再次提交。
 
 未来接其他渠道时，可替换 `UserQuestionInteraction`，并显式配置可用来源。等待归属与答案校验仍须留在运行时。
 
 ## 验证
 
-定向测试覆盖工具归属和校验、提交/停止竞态、来源控制、模型暂停与历史配对、RPC 协议、通知失效及无全局数量门槛的调度。Electron fixture 使用真实问题组件、preload IPC、Gateway scheduler、Agent 子进程、运行时和 SQLite；只有模型是固定回答，不连接外部服务。
+定向测试覆盖工具归属和校验、提交/停止竞态、来源控制、模型暂停与历史配对、RPC 协议、通知失效及无全局数量门槛的调度。Electron fixture 使用真实问题组件、会话列表、preload IPC、Gateway scheduler、Agent 子进程、运行时和 SQLite；只有模型是固定回答，不连接外部服务。它还验证分页、旧草稿兼容、页码恢复、键盘选择、蓝点优先级和窄窗口滚动，并保存明暗主题截图到系统临时目录。
 
-从仓库根启动 `bun apps/dashboard/test/features/sessions/user-questions-fixture-server.ts`。将 `apps/desktop/src/preload.ts` 和 `apps/desktop/test/fixtures/user-questions.electron.ts` 分别用 `bun build --target node --format cjs --external electron --outfile <临时路径>` 构建，再用本 checkout 的 Electron 可执行文件运行 `<验收脚本路径> <preload路径>`。退出时停止 fixture server，清理临时数据库。
+从仓库根启动 `bun apps/dashboard/test/features/sessions/user-questions-fixture-server.ts`。将 `apps/desktop/src/preload.ts` 和 `apps/desktop/test/fixtures/user-questions.electron.ts` 分别用 `bun build --target node --format cjs --external electron --outfile <临时路径>` 构建，再用本 checkout 的 Electron 可执行文件运行 `<验收脚本路径> <preload路径>`。默认端口为 5201；需要改端口时，为服务和 Electron 设置相同的 `LXE_QUESTION_FIXTURE_PORT`。每次验收使用新启动的 fixture server；退出时停止它，临时数据库随之清理。
