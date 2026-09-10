@@ -189,7 +189,8 @@ export class DesktopCloudService {
     if (typeof payload?.code !== "string" || !/^lxe_handoff_[A-Za-z0-9_-]{32,}$/u.test(payload.code)) {
       throw new Error("Invalid administrator handoff response");
     }
-    return `${target.dataServerUrl}/admin#handoff=${encodeURIComponent(payload.code)}`;
+    // Separate the identity login from browsers' cached legacy shared-key page.
+    return `${target.dataServerUrl}/admin?auth=identity-v1#handoff=${encodeURIComponent(payload.code)}`;
   }
 
   private validatePrincipal(payload: Record<string, unknown>, target: ManagedCloudProbeTarget): void {

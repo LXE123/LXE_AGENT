@@ -55,7 +55,7 @@ test("server role controls management while runtime credentials remain scoped in
   try {
     expect(await service.start()).toMatchObject({ connection: "connected", is_admin: true, permission_profile: "replenishment" });
     expect(service.allowedSkillTypes()).toEqual(["amazon_replenish", "default"]);
-    expect(await service.adminDashboardUrl()).toBe(`http://10.88.0.1:8000/admin#handoff=${code}`);
+    expect(await service.adminDashboardUrl()).toBe(`http://10.88.0.1:8000/admin?auth=identity-v1#handoff=${code}`);
     for (const packaged of [false, true]) {
       const environment = resolveDataServerRuntimeEnvironment({ packaged, sourceEnvironment: { LXE_DATA_SERVER_API_KEY: rootToken },
         managedEnvironment: config.environment(), machineIdentityPath: join(root, "db", "machine_identity.json") });
