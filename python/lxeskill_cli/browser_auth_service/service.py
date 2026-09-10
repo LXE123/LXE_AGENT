@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import time
 from collections.abc import Callable
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urljoin, urlparse, urlunparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from shared.logging import get_logger
 from shared.process_lock import interprocess_lock
 from shared.repository import state_root
-from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
+from services.mabang.auth_constants import MABANG_MEMCACHE_COOKIE_NAME, PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
 from services.mabang import config as mabang_settings
 
 from . import config as auth_settings
@@ -39,14 +41,70 @@ PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=st
 DINGTALK_STATE_DOMAIN = "dingtalk.com"
 KNOWN_LOGIN_HOSTS: set[str] = set()
 AUTH_REFRESH_LOCK_NAME = ".refresh.lock"
+LOGIN_WAIT_SECONDS = 40
+PRIVATE_AMZ_COOKIE_WAIT_SECONDS = 12
+AUTH_POLL_INTERVAL_MS = 250
+
+
+def _diagnostic_url(value: str) -> str:
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return re.sub(r"[?#].*", "?[REDACTED]", value)
+    query = urlencode([
+        (key, item if key in {"mod", "platform", "version", "searchStatus", "lang"} else "[REDACTED]")
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+    ])
+    # Redirect URLs can carry SSO credentials in their query, fragment or userinfo.
+    return urlunparse(parsed._replace(
+        netloc=parsed.netloc.rsplit("@", 1)[-1],
+        query=query,
+        fragment="[REDACTED]" if parsed.fragment else "",
+    ))
+
+
+def _diagnostic(value: Any) -> str:
+    text = str(value or "").strip()
+    sensitive = re.compile(
+        r"(?i)token|password|passwd|secret|ticket|signature|authorization|cookie|memcache|api.?key|mobile|username"
+    )
+
+    def redact_json(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {key: "[REDACTED]" if sensitive.search(key) else redact_json(val) for key, val in item.items()}
+        if isinstance(item, list):
+            return [redact_json(val) for val in item]
+        return item
+
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        pass
+    else:
+        if isinstance(parsed, (dict, list)):
+            text = json.dumps(redact_json(parsed), ensure_ascii=False)
+    for secret in (mabang_settings.MABANG_PASSWORD, mabang_settings.MABANG_ACCOUNT):
+        if secret:
+            for encoded in {secret, quote(secret, safe=""), quote_plus(secret)}:
+                text = text.replace(encoded, "[REDACTED]")
+    text = re.sub(r'https?://[^\s<>"\']+', lambda match: _diagnostic_url(match[0]), text)
+    text = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [REDACTED]", text)
+    text = re.sub(r"(?im)\b(?:set-cookie|cookie)\s*:\s*[^\r\n]+", "Cookie: [REDACTED]", text)
+    text = re.sub(
+        r'''(?i)((?:[\w-]*(?:token|password|passwd|secret|ticket|signature|authorization|cookie|memcache)[\w-]*|PHPSESSID|signed|route)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}&]+)''',
+        r"\1[REDACTED]", text,
+    )
+    if len(text) > 4000:
+        text = text[:3800] + f"... [truncated {len(text) - 3800} chars]"
+    return text
 
 
 class BrowserAuthRefreshError(RuntimeError):
     def __init__(self, *, stage: str, current_url: str, cause: Exception) -> None:
         self.stage = str(stage or "browser").strip()
-        self.current_url = str(current_url or "").strip()
+        self.current_url = _diagnostic(current_url)
         self.exception_type = type(cause).__name__
-        message = str(cause or "").strip() or self.exception_type
+        message = _diagnostic(cause) or self.exception_type
         super().__init__(message)
 
     def to_payload(self) -> dict[str, Any]:
@@ -59,14 +117,32 @@ class BrowserAuthRefreshError(RuntimeError):
         }
 
 
+@contextmanager
+def _timed_refresh():
+    started_at = time.monotonic()
+    _log_refresh_stage(stage="refresh", status="start", started_at=started_at)
+    try:
+        yield
+    except Exception as exc:
+        _log_refresh_stage(
+            stage="refresh", status="failed", started_at=started_at,
+            current_url=getattr(exc, "current_url", ""), cause=exc,
+        )
+        raise
+    else:
+        _log_refresh_stage(stage="refresh", status="success", started_at=started_at)
+
+
+@_timed_refresh()
 def refresh_auth(account: str = "") -> dict[str, Any]:
     stage = "credentials"
-    _log_refresh_stage(stage=stage, status="start")
+    started_at = time.monotonic()
+    _log_refresh_stage(stage=stage, status="start", started_at=started_at)
     try:
         resolved_account, password = _resolve_credentials(account)
     except Exception as exc:
-        raise _refresh_error(stage=stage, current_url="", cause=exc) from exc
-    _log_refresh_stage(stage=stage, status="success")
+        raise _refresh_error(stage=stage, current_url="", cause=exc, started_at=started_at) from exc
+    _log_refresh_stage(stage=stage, status="success", started_at=started_at)
 
     try:
         state_file = _state_file(resolved_account)
@@ -134,17 +210,19 @@ def ensure_auth(account: str = "") -> dict[str, Any]:
                     "state_written": False,
                 }
 
-            _log_refresh_stage(stage="credentials", status="start")
-            try:
-                password = _resolve_password()
-            except Exception as exc:
-                raise _refresh_error(stage="credentials", current_url="", cause=exc) from exc
-            _log_refresh_stage(stage="credentials", status="success")
-            return _refresh_auth(
-                account=resolved_account,
-                password=password,
-                state_file=state_file,
-            )
+            with _timed_refresh():
+                started_at = time.monotonic()
+                _log_refresh_stage(stage="credentials", status="start", started_at=started_at)
+                try:
+                    password = _resolve_password()
+                except Exception as exc:
+                    raise _refresh_error(stage="credentials", current_url="", cause=exc, started_at=started_at) from exc
+                _log_refresh_stage(stage="credentials", status="success", started_at=started_at)
+                return _refresh_auth(
+                    account=resolved_account,
+                    password=password,
+                    state_file=state_file,
+                )
     except BrowserAuthRefreshError:
         raise
     except Exception as exc:
@@ -192,25 +270,28 @@ def _log_refresh_stage(
     status: str,
     current_url: str = "",
     cause: Exception | None = None,
+    started_at: float | None = None,
 ) -> None:
+    elapsed_ms = int(max(0.0, time.monotonic() - started_at) * 1000) if started_at is not None else 0
     message = (
         f"[BrowserAuth] stage={stage} status={status} "
-        f"url={str(current_url or '').strip() or '-'}"
+        f"elapsed_ms={elapsed_ms} url={_diagnostic(current_url) or '-'}"
     )
     if cause is None:
         logger.info(message)
         return
     logger.error(
-        f"{message} exception_type={type(cause).__name__} error={str(cause or '').strip()}"
+        f"{message} exception_type={getattr(cause, 'exception_type', type(cause).__name__)} error={_diagnostic(cause)}"
     )
 
 
-def _refresh_error(*, stage: str, current_url: str, cause: Exception) -> BrowserAuthRefreshError:
+def _refresh_error(*, stage: str, current_url: str, cause: Exception, started_at: float | None = None) -> BrowserAuthRefreshError:
     _log_refresh_stage(
         stage=stage,
         status="failed",
         current_url=current_url,
         cause=cause,
+        started_at=started_at,
     )
     return BrowserAuthRefreshError(stage=stage, current_url=current_url, cause=cause)
 
@@ -767,21 +848,71 @@ def _is_login_page(page) -> bool:
 
 def _perform_login(page, account: str, password: str) -> None:
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
-    page.wait_for_timeout(1000)
     page.get_by_role("textbox", name="支持手机登陆").fill(account)
     page.get_by_role("textbox", name="请输入登入密码").fill(password)
-    page.locator("#login-but").click()
-
+    deadline = time.monotonic() + LOGIN_WAIT_SECONDS
+    # A PHP session can already exist on the login page. Require the real login
+    # response before considering the redirected page and its cookies ready.
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and urlparse(response.url).hostname == PHPSESSID_HOST
+            and dict(parse_qsl(urlparse(response.url).query)).get("mod") == "main.doLogin"
+        ),
+        timeout=LOGIN_WAIT_SECONDS * 1000,
+    ) as response_info:
+        page.locator("#login-but").click(timeout=LOGIN_WAIT_SECONDS * 1000)
+    response = response_info.value
+    response_body_unavailable = False
     try:
-        page.wait_for_timeout(1500)
-        page.wait_for_url(lambda value: "private.mabangerp.com/" in value, timeout=30000)
-    except PlaywrightTimeoutError:
-        page.wait_for_load_state("networkidle", timeout=10000)
-        if _is_login_page(page):
-            raise RuntimeError("登录失败")
+        body = response.text()
+    except PlaywrightError as exc:
+        if response.status >= 400 or "Protocol error (Network.getResponseBody): No resource with given identifier found" not in str(exc):
+            raise
+        # Observed during a real login. Chromium can no longer provide this body;
+        # retain the actual error and require the ERP member cookie as evidence.
+        logger.warning(f"[BrowserAuth] login response unavailable: status={response.status} error={_diagnostic(exc)}")
+        response_body_unavailable = True
+    else:
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise RuntimeError(f"马帮登录 HTTP {response.status}: {exc}; response={_diagnostic(body)}") from exc
+        if response.status >= 400 or not isinstance(payload, dict) or not payload.get("success"):
+            # Includes captcha / SMS challenges: report the response, never resubmit.
+            raise RuntimeError(f"马帮登录 HTTP {response.status}: {_diagnostic(body)}")
 
-    if _is_login_page(page):
-        raise RuntimeError("登录失败")
+    _wait_for_auth_material(
+        page, lambda: _login_auth_errors(page, require_member_cookie=response_body_unavailable),
+        deadline=deadline, label="马帮登录",
+    )
+
+
+def _login_auth_errors(page, *, require_member_cookie: bool = False) -> list[str]:
+    if urlparse(page.url).hostname != PHPSESSID_HOST or _is_login_page(page):
+        return ["尚未离开登录页面或跳转流程"]
+    payload = {"cookies": page.context.cookies()}
+    status = _get_phpsessid_status(payload)
+    if not status["valid"]:
+        return [f"PHPSESSID({status['reason']})"]
+    status = _get_cookie_validity_status(_select_cookie_for_host(payload, PHPSESSID_HOST, PHPSESSID_COOKIE_NAME))
+    errors = [] if status["valid"] else [f"PHPSESSID({status['reason']})"]
+    if require_member_cookie:
+        errors.extend(_invalid_cookie_status_labels_for_host(payload, PHPSESSID_HOST, (MABANG_MEMCACHE_COOKIE_NAME,)))
+    return errors
+
+
+def _wait_for_auth_material(page, check: Callable[[], list[str]], *, deadline: float, label: str) -> None:
+    while True:
+        errors = check()
+        if not errors:
+            return
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            raise PlaywrightTimeoutError(
+                f"等待{label}认证状态超时: {', '.join(errors)}; current_url={_diagnostic(page.url)}"
+            )
+        page.wait_for_timeout(min(AUTH_POLL_INTERVAL_MS, remaining_ms))
 
 
 def _open_context(browser):
@@ -800,11 +931,12 @@ def _close_browser_resource(resource, label: str) -> None:
 
 def _visit_private_amz_cookie_refresh_page(page) -> None:
     page.goto(PRIVATE_AMZ_COOKIE_REFRESH_URL, wait_until="domcontentloaded")
-    try:
-        page.wait_for_load_state("networkidle", timeout=10000)
-    except PlaywrightTimeoutError:
-        pass
-    page.wait_for_timeout(1500)
+    _wait_for_auth_material(
+        page,
+        lambda: _cookie_auth_errors({"cookies": page.context.cookies()}),
+        deadline=time.monotonic() + PRIVATE_AMZ_COOKIE_WAIT_SECONDS,
+        label="库存 SKU 页面",
+    )
 
 
 def _page_url(page) -> str:
@@ -827,48 +959,49 @@ def _refresh_auth(
     wms_host = FBA_LOGISTICS_WMS_HOST.strip().lower().lstrip(".")
     wms_entry_text = FBA_LOGISTICS_WMS_ENTRY_TEXT
     headless = bool(auth_settings.BROWSER_AUTH_HEADLESS)
-    _clear_state_file(state_file)
-
     stage = "browser"
+    stage_started_at = time.monotonic()
     page = None
     try:
+        _clear_state_file(state_file)
         with sync_playwright() as playwright, ExitStack() as browser_resources:
-            _log_refresh_stage(stage=stage, status="start")
+            _log_refresh_stage(stage=stage, status="start", started_at=stage_started_at)
             browser = _launch_chromium(playwright, headless=headless)
             browser_resources.callback(_close_browser_resource, browser, "browser")
             context = _open_context(browser)
             browser_resources.callback(_close_browser_resource, context, "context")
-            _log_refresh_stage(stage=stage, status="success")
             page = context.new_page()
+            _log_refresh_stage(stage=stage, status="success", started_at=stage_started_at)
 
             stage = "login"
-            _log_refresh_stage(stage=stage, status="start", current_url=LOGIN_URL)
+            stage_started_at = time.monotonic()
+            _log_refresh_stage(stage=stage, status="start", current_url=LOGIN_URL, started_at=stage_started_at)
             _perform_login(page, account, password)
-            page.wait_for_timeout(1000)
-            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page), started_at=stage_started_at)
 
             stage = "inventory_sku"
+            stage_started_at = time.monotonic()
             _log_refresh_stage(
                 stage=stage,
                 status="start",
                 current_url=PRIVATE_AMZ_COOKIE_REFRESH_URL,
+                started_at=stage_started_at,
             )
             _visit_private_amz_cookie_refresh_page(page)
-            cookie_errors = _cookie_auth_errors({"cookies": context.cookies()})
-            if cookie_errors:
-                raise RuntimeError(f"库存 SKU 页面认证状态不完整: {', '.join(cookie_errors)}")
-            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page), started_at=stage_started_at)
 
             stage = "fba_delivery"
-            _log_refresh_stage(stage=stage, status="start", current_url=target_url)
+            stage_started_at = time.monotonic()
+            _log_refresh_stage(stage=stage, status="start", current_url=target_url, started_at=stage_started_at)
             page.goto(target_url, wait_until="domcontentloaded")
             token = _extract_token(page, token_origin, token_key)
             if not token:
                 raise RuntimeError("FBA 发货单页面未获取到 freeToken")
-            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page), started_at=stage_started_at)
 
             stage = "wms"
-            _log_refresh_stage(stage=stage, status="start", current_url=FBA_HOME_URL)
+            stage_started_at = time.monotonic()
+            _log_refresh_stage(stage=stage, status="start", current_url=FBA_HOME_URL, started_at=stage_started_at)
             wms_cookie_header, final_url = _collect_wms_cookie_header(
                 page,
                 context,
@@ -877,19 +1010,20 @@ def _refresh_auth(
             )
             if not wms_cookie_header:
                 raise RuntimeError("WMS 页面未获取到 Cookie Header")
-            _log_refresh_stage(stage=stage, status="success", current_url=final_url)
+            _log_refresh_stage(stage=stage, status="success", current_url=final_url, started_at=stage_started_at)
 
             def validate_final_state(final_payload: dict[str, Any]) -> None:
                 _require_complete_auth_material(final_payload)
 
             stage = "persist"
-            _log_refresh_stage(stage=stage, status="start", current_url=final_url)
+            stage_started_at = time.monotonic()
+            _log_refresh_stage(stage=stage, status="start", current_url=final_url, started_at=stage_started_at)
             _save_storage_state(
                 context,
                 state_file,
                 validator=validate_final_state,
             )
-            _log_refresh_stage(stage=stage, status="success", current_url=final_url)
+            _log_refresh_stage(stage=stage, status="success", current_url=final_url, started_at=stage_started_at)
     except BrowserAuthRefreshError:
         raise
     except Exception as exc:
@@ -897,6 +1031,7 @@ def _refresh_auth(
             stage=stage,
             current_url=_page_url(page),
             cause=exc,
+            started_at=stage_started_at,
         ) from exc
 
     return {
@@ -978,12 +1113,14 @@ def _extract_token(
 
     logger.warning(
         "[BrowserAuth] 未在 FBA token 页面读取到 localStorage: "
-        f"token_host={token_host} page_url={str(getattr(page, 'url', '') or '')} frames={_page_frame_urls(page)}"
+        f"token_host={token_host} page_url={_diagnostic(_page_url(page))} "
+        f"frames={[_diagnostic(url) for url in _page_frame_urls(page)]}"
     )
     return ""
 
 
 def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> tuple[str, str]:
+    started_at = time.monotonic()
     monitor_page = page
     try:
         page.goto(FBA_HOME_URL, wait_until="domcontentloaded")
@@ -1013,7 +1150,7 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
         if not filtered:
             filtered = [item for item in context.cookies() if _is_cookie_domain_match(str(item.get("domain") or ""), wms_host)]
         logger.info(
-            f"[BrowserAuth] WMS cookie collected: final_url={monitor_page.url}, "
+            f"[BrowserAuth] WMS cookie collected: final_url={_diagnostic(monitor_page.url)}, "
             f"cookies={_cookie_name_domain_summary(filtered)}"
         )
         return _build_cookie_header(filtered), str(monitor_page.url or "")
@@ -1024,4 +1161,5 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
             stage="wms",
             current_url=_page_url(monitor_page),
             cause=exc,
+            started_at=started_at,
         ) from exc

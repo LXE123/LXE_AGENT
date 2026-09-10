@@ -80,7 +80,9 @@ class _FakeContext:
         self.storage_state_calls = 0
 
     def new_page(self) -> _FakePage:
-        return _FakePage(self.events)
+        page = _FakePage(self.events)
+        page.context = self
+        return page
 
     def cookies(self) -> list[dict]:
         return copy.deepcopy(_complete_payload()["cookies"])
@@ -587,7 +589,7 @@ def test_wms_stage_reports_redirect_timeout(monkeypatch) -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-    clock = iter([100.0, 131.0])
+    clock = iter([100.0, 100.0, 131.0, 131.0])
     monkeypatch.setattr(service.time, "monotonic", lambda: next(clock))
 
     with pytest.raises(service.BrowserAuthRefreshError) as captured:
