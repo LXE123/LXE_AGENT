@@ -23,9 +23,10 @@ def test_bind_probe_success_then_replace_and_unbind_preserves_state(tmp_path, mo
     state.write_text("cached state")
     result = binding.bind_browser(str(executable))
     assert result["browser_version"] == "152.0"
-    assert calls == [str(executable)]
-    assert json.loads(binding.binding_file().read_text()) == {"version": 1, "executable": str(executable)}
-    assert binding.bound_executable() == str(executable)
+    canonical_path = str(executable.resolve(strict=True))
+    assert calls == [canonical_path]
+    assert json.loads(binding.binding_file().read_text(encoding="utf-8")) == {"version": 1, "executable": canonical_path}
+    assert binding.bound_executable() == canonical_path
     assert binding.browser_status()["provider"] == "system"
     monkeypatch.setattr(binding, "_probe", lambda path: pytest.fail("status must not launch"))
     assert binding.browser_status()["executable_exists"]
