@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { PendingUserQuestion, UserQuestionAnswer } from "@lxe/desktop-protocol";
 import { parseUserQuestions, validateUserQuestionAnswers } from "@lxe/protocol/user-questions";
-import { callDashboard } from "../../api/client";
+import { useUserQuestionActions } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { isRecord } from "../../shared/content";
 import type { ToolOperation } from "./conversation";
@@ -37,6 +37,7 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
   onBusy?: (busy: boolean) => void;
 }) {
   const t = useUiText().userQuestions;
+  const actions = useUserQuestionActions();
   const [answers, setAnswers] = useState(() => initialAnswers(request));
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -55,10 +56,10 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
     busy.current = true;
     setSubmitting(true); setError(""); onBusy?.(true);
     try {
-      await callDashboard({ operation: "sessions.answer", input: {
+      await actions.answer({
         session_id: request.session_id, request_id: request.request_id,
         answers: answers.map(a => ({ id: a.id, selected: a.selected, ...(a.custom?.trim() ? { custom: a.custom.trim() } : {}) })),
-      } });
+      });
       setSubmitted(true);
       try { sessionStorage.removeItem(draftKey(request.request_id)); } catch { /* optional */ }
     } catch (cause) {
@@ -71,7 +72,7 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
     if (stopping) return;
     setStopping(true); setError("");
     try {
-      await callDashboard({ operation: "sessions.stop", input: { session_id: request.session_id, turn_id: request.turn_id } });
+      await actions.stop({ session_id: request.session_id, turn_id: request.turn_id });
       onAnswered?.();
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }

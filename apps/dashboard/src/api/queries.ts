@@ -1,8 +1,9 @@
 import { clearResetStreams } from "../features/sessions/context-display";
-import type { DesktopConversationActivityPayload } from "@lxe/desktop-protocol";
+import type { DesktopConversationActivityPayload, SubmitUserQuestionAnswer } from "@lxe/desktop-protocol";
 import {
   keepPreviousData,
   useInfiniteQuery,
+  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -62,6 +63,14 @@ export function useUserQuestionsQuery(enabled: boolean, selectedSessionId: strin
   const refetch = query.refetch;
   useEffect(() => { if (enabled) void refetch(); }, [enabled, selectedSessionId, refetch]);
   return query;
+}
+
+export function useUserQuestionActions() {
+  const answer = useMutation({ retry: false, mutationFn: (input: SubmitUserQuestionAnswer) =>
+    callDashboard({ operation: "sessions.answer", input }) });
+  const stop = useMutation({ retry: false, mutationFn: (input: { session_id: string; turn_id: string }) =>
+    callDashboard({ operation: "sessions.stop", input }) });
+  return { answer: answer.mutateAsync, stop: stop.mutateAsync };
 }
 
 export function useAttachmentPreviewQuery(

@@ -11520,21 +11520,21 @@ pre {
 .user-question-fields { overflow-y: auto; min-height: 0; display: grid; gap: 18px; }
 .user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
 .user-question-card legend { font-weight: 500; margin-bottom: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.user-question-card small { display: block; font-size: 12px; opacity: .7; font-weight: 400; }
-.user-question-hint { display: block; font-size: 12px; opacity: .7; margin-bottom: 6px; }
+.user-question-card small { display: block; font-size: 0.75rem; opacity: .7; font-weight: 400; }
+.user-question-hint { display: block; font-size: 0.75rem; opacity: .7; margin-bottom: 6px; }
 .user-question-option { display: flex; gap: 8px; align-items: flex-start; padding: 7px 4px; cursor: pointer; overflow-wrap: anywhere; }
 .user-question-option input { margin-top: 4px; flex: 0 0 auto; }
-.user-question-custom { display: grid; gap: 5px; margin-top: 8px; font-size: 12px; }
+.user-question-custom { display: grid; gap: 5px; margin-top: 8px; font-size: 0.75rem; }
 .user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; background: transparent; color: inherit; font: inherit; min-height: 50px; max-height: 150px; }
 .user-question-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .user-question-actions button { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: inherit; cursor: pointer; }
 .user-question-actions button[type=submit] { background: var(--text); color: var(--surface); }
 .user-question-actions button:disabled { opacity: .45; cursor: default; }
-.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; }
 .user-question-history { margin: 8px 0; padding: 12px; border-left: 2px solid var(--border); overflow-wrap: anywhere; }
 .user-question-history p { margin: 8px 0 4px; white-space: pre-wrap; }
 .user-question-history blockquote { margin: 0; opacity: .8; white-space: pre-wrap; }
 .user-question-history small { opacity: .65; }
-.user-question-history pre { white-space: pre-wrap; font-size: 12px; }
+.user-question-history pre { white-space: pre-wrap; font-size: 0.75rem; }
 .session-index-icon[data-session-state="waiting_input"] { background: #d6a63e; border-color: #d6a63e; animation: none; }
-.session-waiting-label { color: var(--text-soft); font-size: 10px; flex-shrink: 0; }
+.session-waiting-label { color: var(--text-soft); font-size: 0.625rem; flex-shrink: 0; }
