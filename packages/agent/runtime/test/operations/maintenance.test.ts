@@ -207,7 +207,8 @@ describe("MaintenanceScheduler", () => {
       store,
       gatewayId: "gateway-one",
       clock,
-      authRunner: { execute: async () => {
+      authRunner: { execute: async (arguments_) => {
+        expect(arguments_).toEqual(["auth", "refresh"]);
         authCalls += 1;
         return cliSuccess();
       } },

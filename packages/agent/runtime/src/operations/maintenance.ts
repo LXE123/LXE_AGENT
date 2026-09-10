@@ -353,11 +353,11 @@ export class MaintenanceScheduler {
     this.controllers.add(controller);
     try {
       const response = await this.options.authRunner.execute(
-        ["auth", "refresh", "--scope", "erp"],
+        ["auth", "refresh"],
         controller.signal,
       );
       if (!response.ok) throw new Error(response.error?.message ?? "browser auth refresh failed");
-      this.logger.info("auth_refresh_succeeded", { scope: "erp" });
+      this.logger.info("auth_refresh_succeeded");
     } finally {
       this.controllers.delete(controller);
     }
