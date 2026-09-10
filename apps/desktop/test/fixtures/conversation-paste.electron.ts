@@ -124,7 +124,7 @@ async function run() {
             const r=tile.getBoundingClientRect();
             return {width:r.width,height:r.height,text:tile.innerText,label:!!document.querySelector('.input-attachment-draft .turn-file-label')};
           })()`);
-          assert.equal(tile.width, 80); assert.equal(tile.height, 80);
+          assert.equal(tile.width, 54); assert.equal(tile.height, 54);
           assert.equal(tile.text, ""); assert.equal(tile.label, false);
           writeFileSync("/tmp/lxe-composer-paste.png", (await window!.webContents.capturePage()).toPNG());
           await window!.webContents.executeJavaScript("document.querySelector('.input-attachment-image .turn-file-chip').click()");
@@ -169,7 +169,7 @@ async function run() {
     assert.equal(ready[0]!.image_block?.type, "image");
     assert(!JSON.stringify(ready).includes("preview_data_url"));
     service.consume(ids); service.clear(); assert(existsSync(refs[0]!.path));
-    console.log("PASS: native macOS single/multi-file and image references, screenshot + text, PNG preview, 80px draft tile and expanded original with Escape dismissal, visual model block, accepted-file retention");
+    console.log("PASS: native macOS single/multi-file and image references, screenshot + text, PNG preview, 54px draft tile and expanded original with Escape dismissal, visual model block, accepted-file retention");
   } finally {
     writer?.kill();
     window?.destroy(); service.clear();
