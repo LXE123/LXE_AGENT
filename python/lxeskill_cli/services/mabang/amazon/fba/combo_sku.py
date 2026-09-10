@@ -5,6 +5,7 @@ import json
 import hashlib
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, Sequence
@@ -15,6 +16,11 @@ from .store_resolver import fetch_fba_stores, match_legacy_fba_store
 
 OFFICIAL_LOOKUP_TIMEOUT_SECONDS = 25 * 60
 COMBO_WORKERS = 4
+# Published hwc-get-listing request sites; uk is normalized to gb by _site.
+# Unknown response codes (for example o5) are not country aliases.
+LISTING_COUNTRY_SITES = frozenset(
+    "ca us mx br es gb fr be nl de it se pl eg tr sa ae in sg au jp".split()
+)
 
 
 def clean_text(value: Any) -> str:
@@ -65,6 +71,41 @@ def _integer(value: Any, context: str, payload: Any, *, minimum: int = 0) -> int
 def _site(value: Any) -> str:
     site = clean_text(value).lower()
     return "gb" if site == "uk" else site
+
+
+def _validate_listing_scope(row: dict[str, Any], shop_id: str, site: str, context: str) -> str | None:
+    """Validate a single shop/site; return an unresolved top-level code for diagnostics."""
+    row_shops = {s.strip() for s in clean_text(row.get("shopIds")).split(",") if s.strip()}
+    if row_shops != {shop_id}:
+        invalid(context, "Listing 店铺不符：shopIds 必须仅包含请求 sid", row)
+    raw_site = row.get("amazonsite")
+    if raw_site is not None and not isinstance(raw_site, str):
+        invalid(context, "Listing 站点结构异常：顶层 amazonsite 必须为字符串或 null", row)
+    top_site = _site(raw_site)
+    details = row.get("shopList")
+    if details is None or details == []:
+        if top_site not in LISTING_COUNTRY_SITES:
+            invalid(context, "Listing 站点信息不足：无店铺明细且顶层站点缺失或无法识别", row)
+        if top_site != site:
+            invalid(context, "Listing 明确站点冲突：顶层站点与请求不符", row)
+        return None
+    if not isinstance(details, list) or len(details) != 1 or not isinstance(details[0], dict):
+        invalid(context, "Listing shopList 结构异常：必须只有一个有效店铺条目", row)
+    detail = details[0]
+    detail_id = str(_integer(detail.get("shopId"), context, row, minimum=1))
+    if detail_id != shop_id:
+        invalid(context, "Listing 店铺不符：shopList 店铺与请求 sid 不符", row)
+    detail_site = detail.get("amazonsite")
+    if not isinstance(detail_site, str) or _site(detail_site) not in LISTING_COUNTRY_SITES:
+        invalid(context, "Listing 站点信息不足：对应店铺明细站点缺失或无法识别", row)
+    if _site(detail_site) != site:
+        invalid(context, "Listing 明确站点冲突：对应店铺明细站点与请求不符", row)
+    if top_site in LISTING_COUNTRY_SITES:
+        if top_site != site:
+            invalid(context, "Listing 明确站点冲突：顶层国家站点与店铺明细不符", row)
+        return None
+    # The scoped shop detail verifies the country; do not reinterpret the raw code.
+    return raw_site if clean_text(raw_site) else "<缺失>"
 
 
 def _progress(message: str) -> None:
@@ -132,19 +173,22 @@ async def fetch_listing_snapshot(store_name: str) -> ListingSnapshot:
         if fingerprint in seen:
             invalid(page_context, "重复分页", payload)
         seen.add(fingerprint)
+        detail_verified_codes: Counter[str] = Counter()
         for row in records:
             if not isinstance(row, dict):
                 invalid(page_context, "Listing 不是对象", row)
-            # Real responses contain comma-wrapped shopIds and empty shopList.
-            row_shops = {s.strip() for s in clean_text(row.get("shopIds")).split(",") if s.strip()}
-            if row_shops != {shop_id} or _site(row.get("amazonsite")) != site:
-                invalid(page_context, "返回了其他店铺或站点的 Listing", row)
+            unresolved_code = _validate_listing_scope(row, shop_id, site, page_context)
+            if unresolved_code is not None:
+                detail_verified_codes[unresolved_code] += 1
             local_sku = clean_text(row.get("stockSku"))
             stock_type = _integer(row.get("stockType"), page_context, row, minimum=1)
             if stock_type not in (1, 2) or not clean_text(row.get("platformSku")):
                 invalid(page_context, "无效 stockType 或缺少 MSKU", row)
             bindings.append(ListingSkuBinding(clean_text(row["platformSku"]), clean_text(row.get("asin")), local_sku, stock_type))
         count += len(records)
+        if detail_verified_codes:
+            _progress(f"{page_context}: 已按 shopList 核验站点；顶层未识别站点及记录数="
+                      + json.dumps(detail_verified_codes, ensure_ascii=False, sort_keys=True))
         _progress(f"{context}: Listing {count}/{total}，page={page}/{pages}")
         if count == total:
             return ListingSnapshot(clean_text(shop["name"]), shop_id, site, tuple(bindings))

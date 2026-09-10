@@ -1,0 +1,33 @@
+{
+  "capture_date": "2026-09-10",
+  "source": "Actual failed Listing response from MSKU download terminal; minimal field projection",
+  "request": {
+    "shop_id": [
+      "697456820"
+    ],
+    "amazonsite": [
+      "de"
+    ],
+    "page": "1",
+    "pageSize": "1000"
+  },
+  "listing": {
+    "id": 742854,
+    "platformSku": "0S-M98M-ZG2H",
+    "asin": "B0GHMN19YQ",
+    "amazonsite": "o5",
+    "shopIds": ",697456820",
+    "stockSku": null,
+    "stockType": 1,
+    "pStatus": "停售",
+    "isChange": "FBM",
+    "shopName": "Amazon-Lerxiuer-DE",
+    "shopList": [
+      {
+        "shopId": "697456820",
+        "shopName": "Amazon-Lerxiuer-DE",
+        "amazonsite": "de"
+      }
+    ]
+  }
+}
