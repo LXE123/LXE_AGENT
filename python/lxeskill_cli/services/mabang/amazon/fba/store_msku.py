@@ -57,7 +57,7 @@ DEFAULT_OUTPUT_DIR = dataset_dir("replenish_store_msku")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_store_msku_download"
 STORE_MSKU_FILE_SUFFIX = "店铺MSKU数据"
-CORE_STORE_MSKU_HEADERS = ("店铺名称", "MSKU", "ASIN", "本地SKU")
+CORE_STORE_MSKU_HEADERS = ("MSKU", "ASIN", "本地SKU")
 STORE_MSKU_FIELDLABELS = (
     "uq101",
     "uq102",

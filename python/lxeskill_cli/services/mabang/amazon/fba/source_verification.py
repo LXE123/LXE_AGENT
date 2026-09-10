@@ -166,12 +166,8 @@ def annotate_source(path: Path, snapshot: SkuCatalogSnapshot, *, requested_store
         if (SHEET in workbook.sheetnames or "Active核验信息" in workbook.sheetnames
                 or any(column in headers for column in (*TAG_COLUMNS, "在售核验结果", "是否参与计算"))):
             raise SourceVerificationError("下载原表包含保留的源数据核验字段，拒绝覆盖")
-        for record in records:
-            store = clean_text(record.get("店铺名称"))
-            # The XLSX site is a region label (e.g. 欧洲站), not a country code.
-            # Preserve it as source data; the selected shop supplies metadata.site.
-            if store and store not in (snapshot.store_name, requested_store_name):
-                invalid("MSKU 源表店铺核验", "源表店铺名称与所选店铺不一致", record)
+        # The selected download shop supplies identity. XLSX store/site labels
+        # are preserved for display, including regional and shared-store labels.
         tags = classify(records, snapshot.skus)
         metadata = {
             "version": VERSION, "scope": "xlsx_all", "verification_method": VERIFICATION_METHOD, "store_name": snapshot.store_name,

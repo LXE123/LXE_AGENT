@@ -177,13 +177,29 @@ def test_listing_accepts_all_statuses_without_filter(monkeypatch, status):
     assert asyncio.run(combo.fetch_listing_snapshot('shop')).bindings == (combo.ListingSkuBinding('M', 'A', 'S', 1),)
 
 
-def test_source_shop_is_not_inferred_from_matching_sku(tmp_path):
-    extra = {'店铺名称': 'other', '站点': '欧洲站'}
+@pytest.mark.parametrize('labels', [
+    {'店铺名称': 'shop'},
+    {'店铺名称': 'shop,other,third'},
+    {'店铺名称': 'other'},
+    {'店铺名称': None},
+    {},
+])
+def test_source_shop_label_is_optional_and_does_not_override_download_identity(tmp_path, labels):
+    extra = {**labels, '站点': '欧洲站'}
     path = tmp_path/'source.xlsx'
     workbook = Workbook(); workbook.active.append(['MSKU', 'ASIN', '本地SKU', *extra])
     workbook.active.append(['M', 'A', 'S', *extra.values()]); workbook.save(path); workbook.close()
-    with pytest.raises(OfficialApiError, match='源表店铺名称与所选店铺不一致'):
-        active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'us', (binding(),)), requested_store_name='shop')
+    download.validate_store_msku_excel_headers(path)
+    active.annotate_source(path, SkuCatalogSnapshot('shop', '10', 'de', (binding(),)), requested_store_name='shop')
+    verified = active.load_verified_source(path, store_name='shop')
+    assert verified.metadata['store_name'] == 'shop'
+    assert verified.metadata['shop_id'] == '10'
+    assert verified.metadata['site'] == 'de'
+    assert verified.counts['binding_verified_row_count'] == 1
+    assert {key: verified.records[0][key] for key in extra} == extra
+    assert ('店铺名称' in verified.headers) == ('店铺名称' in labels)
+    with pytest.raises(active.SourceVerificationError, match='店铺不一致'):
+        active.load_verified_source(path, store_name='other')
 
 
 @pytest.mark.parametrize('site,label', [('de', '欧洲站'), ('fr', '欧洲站'), ('gb', '欧洲站'), ('us', '美国站'), ('de', None)])

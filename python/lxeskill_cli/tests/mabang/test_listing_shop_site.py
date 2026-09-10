@@ -117,14 +117,14 @@ def test_real_response_full_pagination_and_aggregated_progress(monkeypatch, caps
     assert '"o5": 1000' in summaries[0] and '"o5": 1' in summaries[1]
 
 
-def mock_download(monkeypatch, tmp_path, *, local_sku=""):
+def mock_download(monkeypatch, tmp_path, *, local_sku="", store_label=STORE):
     async def stores():
         return [FbaStore(STORE, SID, "shopId")]
 
     async def pipeline(spec):
         staging = spec.download_file.keywords["output_dir"]
         path = staging / f"202609101600-{STORE}_店铺MSKU数据.xlsx"
-        path.write_bytes(_xlsx_bytes([{"店铺名称": STORE, "站点": "欧洲站", "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": local_sku}],
+        path.write_bytes(_xlsx_bytes([{"店铺名称": store_label, "站点": "欧洲站", "MSKU": "0S-M98M-ZG2H", "ASIN": "B0GHMN19YQ", "本地SKU": local_sku}],
                                     columns=["店铺名称", "站点", "MSKU", "ASIN", "本地SKU"]))
         return msku.StoreMskuExcelResult(STORE, SID, "shopId", 1, str(path), False, False)
 
@@ -133,14 +133,16 @@ def mock_download(monkeypatch, tmp_path, *, local_sku=""):
     return tmp_path / f"202609101600-{STORE}_店铺MSKU数据.xlsx"
 
 
-def test_download_publishes_country_metadata_and_keeps_missing_local_sku(monkeypatch, tmp_path):
+@pytest.mark.parametrize('store_label', [STORE, f'{STORE},Amazon-Lerxiuer-FR,Amazon-Lerxiuer-IT', None])
+def test_download_publishes_country_metadata_and_keeps_missing_local_sku(monkeypatch, tmp_path, store_label):
     mock_pages(monkeypatch)
-    target = mock_download(monkeypatch, tmp_path)
+    target = mock_download(monkeypatch, tmp_path, store_label=store_label)
     result = asyncio.run(msku.download_store_msku_excel(SID, "shopId", store_name=STORE, output_dir=tmp_path))
     assert result.xlsx_path == str(target)
     verified = load_verified_source(target, store_name=STORE)
     assert verified.metadata["site"] == "de"
     assert verified.records[0]["站点"] == "欧洲站"
+    assert verified.records[0]["店铺名称"] == store_label
     assert verified.metadata["binding_verified_row_count"] == 0
     assert verified.metadata["unverified_rows"][0]["reason"] == "源表无本地SKU，不参与备货计算"
     assert list(tmp_path.iterdir()) == [target]
