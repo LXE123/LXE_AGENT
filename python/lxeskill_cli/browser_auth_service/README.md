@@ -142,6 +142,12 @@ Mac 完成一次全量 `bun run verify`：Bun 1,482 项通过，Python 1,629 项
 56 项 Bun 定向测试及维护修正的 13 项测试通过；两端的真实 Electron 本地页面 fixture 均通过，
 涵盖目标域 Token、初始 Cookie 防误判、验证码不重试、失败不保存和客户端断开后的窗口回收。
 
+合并前 main 新增其他任务提交，因此又 rebase 到 `6d347093`，并重新完成组合版本全量验证：
+Bun 1,502 项、Python 1,629 项通过，2 项跳过。Windows 扩展桌面检查为 235 项通过、9 项跳过；
+唯一失败是已有 macOS WireGuard 测试在 Windows 上断言 POSIX `0600` 权限（实际为 `0666`），
+该项在 Mac 全量验证中通过。此平台测试限制不影响上述认证验收。
+组合版本的 Windows 成品重新构建并通过无凭据启动健康检查，体积 760.87 MiB，独立 Chromium 仍为 0 字节。
+
 Windows 解包产物从 1,157.81 MiB 降至 760.84 MiB，减少约 397 MiB（34.3%）。
 资源报告确认独立 Chromium 为 0 字节，Python Playwright 控制库保留，共享 Node 仍可用。
 首次重建运行时两次在 PowerShell 目录替换时报 `Move-Item: Access ... is denied`；随后独立复制和替换
