@@ -178,8 +178,12 @@ describe("MacOSWireGuardProvisioner", () => {
         expect(commands.map(({ action }) => action)).toEqual(["install"]);
         expect(readFileSync(commands[0]!.scriptPath, "utf8")).toContain("supervise");
         const configPath = commands[0]!.configPath;
-        expect(statSync(configPath).mode & 0o777).toBe(0o600);
-        expect(statSync(join(configPath, "..", "..")).mode & 0o777).toBe(0o700);
+        // The injected platform selects macOS behavior; real file modes still
+        // belong to the host filesystem, and Windows does not implement POSIX permissions.
+        if (process.platform !== "win32") {
+          expect(statSync(configPath).mode & 0o777).toBe(0o600);
+          expect(statSync(join(configPath, "..", "..")).mode & 0o777).toBe(0o700);
+        }
         const configuration = readFileSync(configPath, "utf8");
         expect(configuration).toContain(`PrivateKey = ${payload.wireguard.private_key}`);
         expect(configuration).toContain("AllowedIPs = 10.88.0.1/32");
