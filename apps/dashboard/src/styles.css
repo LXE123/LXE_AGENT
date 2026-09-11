@@ -11514,10 +11514,10 @@ pre {
 .session-index-item .session-index-icon[data-session-state="unavailable"] { border-style: dotted; opacity: .8; }
 @keyframes session-status-breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .session-index-item .session-index-icon[data-session-state] { animation: none; } }
-/* Structured questions share the composer dock and remain usable in short windows. */
-.user-question-card { width: min(var(--assistant-content-width, 780px), 100%); margin-inline: auto; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; max-height: min(65vh, 520px); }
+/* Keep questions to roughly a third of the window; extra choices scroll inside the card. */
+.user-question-card { width: min(var(--assistant-content-width, 780px), 100%); margin-inline: auto; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; max-height: min(35dvh, 300px); }
 .user-question-header { display: flex; align-items: flex-start; gap: 8px; padding: 6px 6px 4px 10px; flex-shrink: 0; }
-.user-question-header h3 { flex: 1; min-width: 0; margin: 3px 8px 0 0; font-size: .9375rem; font-weight: 600; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(18vh, 8rem); overflow-y: auto; }
+.user-question-header h3 { flex: 1; min-width: 0; margin: 3px 8px 0 0; font-size: .9375rem; font-weight: 600; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(8dvh, 3rem); overflow-y: auto; }
 .user-question-header h3:focus-visible { outline: none; }
 .user-question-card button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .user-question-pagination { display: flex; align-items: center; flex-shrink: 0; color: var(--text-soft); }
@@ -11528,7 +11528,7 @@ pre {
 .user-question-fields { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; }
 .user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
 .user-question-hint { display: block; padding: 0 12px 4px; font-size: .75rem; color: var(--text-soft); }
-.user-question-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 14px; cursor: pointer; overflow-wrap: anywhere; transition: background 120ms ease; }
+.user-question-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 8px 12px; border-radius: 14px; cursor: pointer; overflow-wrap: anywhere; transition: background 120ms ease; }
 .user-question-option:hover { background: var(--surface-muted); }
 .user-question-option[data-selected="true"] { background: var(--surface-subtle); }
 .user-question-option input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
@@ -11562,6 +11562,6 @@ pre {
   .user-question-card { padding: 8px; border-radius: 18px; }
   .user-question-header { gap: 2px; padding-left: 8px; }
   .user-question-header h3 { font-size: .875rem; margin-right: 4px; }
-  .user-question-option { padding: 10px 8px; gap: 10px; }
+  .user-question-option { padding: 8px; gap: 10px; }
   .user-question-actions { padding-left: 8px; gap: 8px; }
 }

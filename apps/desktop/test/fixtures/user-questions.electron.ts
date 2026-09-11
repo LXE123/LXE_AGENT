@@ -46,6 +46,24 @@ app.whenReady().then(async () => {
       await delay(200);
       writeFileSync(`/tmp/lxe-user-questions-${name}.png`, (await window!.webContents.capturePage()).toPNG());
     };
+    const assertCompactLayout = async () => {
+      const layout = await js(`(() => {
+        const card = document.querySelector('.user-question-card').getBoundingClientRect();
+        const fields = document.querySelector('.user-question-fields');
+        const footer = document.querySelector('.user-question-actions').getBoundingClientRect();
+        const header = document.querySelector('.user-question-header').getBoundingClientRect();
+        return {
+          scrolls: fields.scrollHeight > fields.clientHeight,
+          choicesVisible: fields.clientHeight >= 44,
+          footerVisible: footer.bottom <= Math.min(card.bottom, innerHeight),
+          headerVisible: header.top >= card.top && header.top >= 0,
+          cardFits: card.height <= Math.min(innerHeight * .35, 300) + 1,
+          noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+          oneQuestion: document.querySelectorAll('.user-question-card fieldset').length === 1,
+        };
+      })()`);
+      assert.deepEqual(layout, { scrolls: true, choicesVisible: true, footerVisible: true, headerVisible: true, cardFits: true, noHorizontalOverflow: true, oneQuestion: true });
+    };
     await request("fixture.restart");
     await window.loadURL(`${base}/test/features/sessions/user-questions-fixture.html`);
     await until("!!document.querySelector('.conversation-compose-box textarea')");
@@ -183,14 +201,23 @@ app.whenReady().then(async () => {
     await click('.user-question-card input[type=radio]');
     await page("1 / 1");
     assert.equal(submits, before + 1, "Final single choice never auto-submits");
+    window.setSize(1280, 1000);
+    await screenshot("overflow-desktop");
+    await assertCompactLayout();
     window.setSize(760, 600);
     await screenshot("narrow-light");
+    await assertCompactLayout();
     await js("document.documentElement.dataset.theme='dark'");
     await screenshot("narrow-dark");
     const darkContrast = await js("(()=>{const row=document.querySelector('.user-question-option[data-selected=true]');const luminance=color=>{const rgb=color.match(/[0-9]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722};const bg=luminance(getComputedStyle(row).backgroundColor),fg=luminance(getComputedStyle(row.querySelector('small')).color);return (Math.max(bg,fg)+.05)/(Math.min(bg,fg)+.05);})()");
     assert.ok(darkContrast >= 4.5, `Selected option description must remain readable in dark mode: ${darkContrast}`);
-    const layout = await js("(()=>{const card=document.querySelector('.user-question-card'),fields=document.querySelector('.user-question-fields'),footer=document.querySelector('.user-question-actions'),header=document.querySelector('.user-question-header');return {scrolls:fields.scrollHeight>fields.clientHeight,footerVisible:footer.getBoundingClientRect().bottom<=innerHeight,headerVisible:header.getBoundingClientRect().top>=0,cardFits:card.getBoundingClientRect().height<=innerHeight*.65+1,noHorizontalOverflow:document.documentElement.scrollWidth<=innerWidth};})()");
-    assert.deepEqual(layout, { scrolls: true, footerVisible: true, headerVisible: true, cardFits: true, noHorizontalOverflow: true });
+    await assertCompactLayout();
+    assert.equal(await js(`(() => {
+      const fields = document.querySelector('.user-question-fields');
+      fields.scrollTop = fields.scrollHeight;
+      const last = fields.querySelector('.user-question-option:last-child').getBoundingClientRect();
+      return last.bottom <= fields.getBoundingClientRect().bottom + 1;
+    })()`), true, "All eight choices remain reachable inside the compact card");
     // Native textarea Enter must add a line, not submit the task.
     await click('.user-question-custom-toggle');
     await setText(textarea, "自己的计划");
