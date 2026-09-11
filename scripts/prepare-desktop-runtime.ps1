@@ -151,6 +151,7 @@ function Invoke-LxeNative {
         [string[]]$Arguments = @(),
         [string]$WorkingDirectory = $script:RepositoryRoot,
         [int]$TimeoutSeconds = 0,
+        [int[]]$SuccessExitCodes = @(0),
         [switch]$Quiet
     )
 
@@ -196,7 +197,7 @@ function Invoke-LxeNative {
             if (-not [string]::IsNullOrWhiteSpace($stdout)) { Write-Host $stdout }
             if (-not [string]::IsNullOrWhiteSpace($stderr)) { Write-Host $stderr }
         }
-        if ($process.ExitCode -ne 0) {
+        if ($SuccessExitCodes -notcontains $process.ExitCode) {
             $detail = if (-not [string]::IsNullOrWhiteSpace($stderr)) { $stderr } else { $stdout }
             throw "$Label failed with exit code $($process.ExitCode): $detail"
         }
@@ -220,10 +221,13 @@ function Copy-LxeDirectoryContents {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
         throw "Directory to copy is missing: $Source"
     }
-    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    foreach ($entry in @(Get-ChildItem -LiteralPath $Source -Force)) {
-        Copy-Item -LiteralPath $entry.FullName -Destination $Destination -Recurse -Force
-    }
+    # Windows PowerShell Copy-Item cannot reliably copy dependency paths beyond
+    # MAX_PATH. Robocopy supports long paths and reports copy failures at code 8+.
+    # /E preserves empty directories without deleting anything in the destination.
+    Invoke-LxeNative -Label "Copy runtime directory" `
+        -FilePath (Join-Path $env:WINDIR "System32\robocopy.exe") `
+        -Arguments @($Source, $Destination, "/E", "/R:0", "/W:0", "/NFL", "/NDL", "/NJH", "/NJS", "/NP") `
+        -SuccessExitCodes @(0, 1, 2, 3, 4, 5, 6, 7) -TimeoutSeconds 900 -Quiet | Out-Null
 }
 
 function Assert-LxeZipArchive {
