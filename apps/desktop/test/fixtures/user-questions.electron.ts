@@ -46,6 +46,23 @@ app.whenReady().then(async () => {
       await delay(200);
       writeFileSync(`/tmp/lxe-user-questions-${name}.png`, (await window!.webContents.capturePage()).toPNG());
     };
+    const historySelector = (callId: string) => `[data-tool-call-id=${JSON.stringify(callId)}]`;
+    const assertCollapsedHistory = async (callId: string) => {
+      const selector = historySelector(callId);
+      await until(`!!document.querySelector(${JSON.stringify(`${selector} .tool-op-summary`)})`);
+      assert.equal(await js(`document.querySelector(${JSON.stringify(`${selector} .tool-op-summary`)}).getAttribute('aria-expanded')`), "false");
+      assert.equal(await js(`!!document.querySelector(${JSON.stringify(`${selector} .tool-op-body`)})`), false);
+      assert.equal(await js(`document.querySelector(${JSON.stringify(`${selector} .tool-op-summary`)}).textContent`), "调用工具ask_user_question");
+    };
+    const expandHistory = async (callId: string, resultText?: string) => {
+      const selector = historySelector(callId);
+      await assertCollapsedHistory(callId);
+      await click(`${selector} .tool-op-summary`);
+      await until(`!!document.querySelector(${JSON.stringify(`${selector} .tool-op-body`)})`);
+      assert.equal(await js(`document.querySelectorAll(${JSON.stringify(`${selector} input, ${selector} textarea, ${selector} form`)}).length`), 0);
+      if (resultText) await until(`document.querySelector(${JSON.stringify(`${selector} .result-block`)})?.textContent.includes(${JSON.stringify(resultText)})`);
+      return selector;
+    };
     const assertCompactLayout = async () => {
       const layout = await js(`(() => {
         const card = document.querySelector('.user-question-card').getBoundingClientRect();
@@ -72,6 +89,11 @@ app.whenReady().then(async () => {
     await request("fixture.start", { session_id: "b" });
     // No event subscription here: production polling must recover both questions.
     await until("questionFixture.pending()?.length===2 && !!document.querySelector('.user-question-card')");
+    const waiting = await js("questionFixture.pending().find(q=>q.session_id==='a')");
+    const waitingHistory = await expandHistory(waiting.tool_call_id);
+    assert.equal(await js(`!!document.querySelector(${JSON.stringify(`${waitingHistory} .result-block`)})`), false);
+    assert.equal(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${waitingHistory} .message-json`)}).textContent).questions.length`), 3);
+    await click(`${waitingHistory} .tool-op-summary`);
     await page("1 / 3");
     assert.equal(await js("document.querySelectorAll('.user-question-card fieldset').length"), 1);
     assert.equal(await js("!!document.querySelector('.conversation-send-button')"), false);
@@ -147,10 +169,17 @@ app.whenReady().then(async () => {
     assert.equal(await js("document.querySelector('.conversation-compose-box textarea').value"), "保留原来的聊天草稿");
     assert.equal(await js(`sessionStorage.getItem('lxe.question-draft.'+${JSON.stringify(saved.request_id)})`), null);
     assert.equal(await js(`sessionStorage.getItem('lxe.question-page.'+${JSON.stringify(saved.request_id)})`), null);
-    await until("document.querySelector('.user-question-history')?.textContent.includes('不要修改已经发布的内容')");
-    const history = await js("document.querySelector('.user-question-history').textContent");
+    const answeredHistory = await expandHistory(saved.tool_call_id, "不要修改已经发布的内容");
+    const history = await js(`document.querySelector(${JSON.stringify(`${answeredHistory} .result-block`)}).textContent`);
     assert.ok(history.includes("店铺 B") && history.includes("表格") && history.includes("摘要") && history.includes("附上来源链接"));
-    assert.equal(await js("document.querySelectorAll('.user-question-history button').length"), 0);
+    assert.equal(await js(`document.querySelector(${JSON.stringify(`${answeredHistory} .tool-status-icon`)}).dataset.toolStatus`), "success");
+    await screenshot("history-answered-light");
+    await js("document.documentElement.dataset.theme='dark'");
+    await screenshot("history-answered-dark");
+    await js("document.documentElement.dataset.theme='light'");
+    await click(`${answeredHistory} .tool-op-summary`);
+    await assertCollapsedHistory(saved.tool_call_id);
+    await screenshot("history-collapsed");
     await until(`document.querySelector(${JSON.stringify(activeDot)})?.dataset.sessionState==='running'`);
     await click('.conversation-send-button');
     await until("document.querySelector('.conversation-compose-box textarea').value===''");
@@ -182,6 +211,10 @@ app.whenReady().then(async () => {
     await page("2 / 3");
     await click('.user-question-stop');
     await refresh(); await until("!document.querySelector('.user-question-card')");
+    const cancelledHistory = await expandHistory(oldB.tool_call_id, "User question cancelled before an answer was accepted");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(`${cancelledHistory} .tool-status-icon`)}).dataset.toolStatus`), "error");
+    await screenshot("history-cancelled");
+    await click(`${cancelledHistory} .tool-op-summary`);
     const answer = { session_id: "b", request_id: oldB.request_id, answers: legacy };
     await assert.rejects(request("sessions.answer", answer), /no longer pending/);
     await request("fixture.start", { session_id: "b" });
@@ -197,6 +230,7 @@ app.whenReady().then(async () => {
     await js("questionFixture.select('c')");
     await request("fixture.start", { session_id: "c", variant: "single" });
     await refresh(); await page("1 / 1");
+    const single = await js("questionFixture.pending().find(q=>q.session_id==='c')");
     assert.equal(await js(`document.querySelector(${JSON.stringify(previous)}).disabled && document.querySelector(${JSON.stringify(next)}).disabled`), true);
     await click('.user-question-card input[type=radio]');
     await page("1 / 1");
@@ -220,7 +254,8 @@ app.whenReady().then(async () => {
     })()`), true, "All eight choices remain reachable inside the compact card");
     // Native textarea Enter must add a line, not submit the task.
     await click('.user-question-custom-toggle');
-    await setText(textarea, "自己的计划");
+    const longAnswer = "自己的计划\n" + ("保留全部细节，逐项检查并说明每个选择。".repeat(12) + "\n").repeat(8) + "ANSWER_END";
+    await setText(textarea, longAnswer);
     await js("document.querySelector('.user-question-card textarea').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
@@ -229,7 +264,18 @@ app.whenReady().then(async () => {
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
     await click(primary);
     await until("!document.querySelector('.user-question-card')");
-    await until("document.querySelector('.user-question-history')?.textContent.includes('自己的计划')");
+    const longHistory = await expandHistory(single.tool_call_id, "ANSWER_END");
+    const parameters = await js(`JSON.parse(document.querySelector(${JSON.stringify(`${longHistory} .message-json`)}).textContent)`);
+    assert.equal(parameters.questions[0].options.length, 8, "Expanded history keeps all question options");
+    const result = await js(`JSON.parse(document.querySelector(${JSON.stringify(`${longHistory} .tool-result-full code`)}).textContent)`);
+    assert.equal(result.answers[0].custom.trim(), longAnswer, "Expanded history keeps the full long answer");
+    assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true);
+    await screenshot("history-long-dark");
+    await js("document.documentElement.dataset.theme='light'");
+    await screenshot("history-long-light");
+    await js(`document.querySelector(${JSON.stringify(`${longHistory} .result-block`)}).scrollIntoView()`);
+    await screenshot("history-long-result");
+    await click(`${longHistory} .tool-op-summary`);
     console.log("PASS: single-question explicit submit, free text, textarea Enter, long content scrolling, narrow light/dark layout");
     await request("fixture.start", { session_id: "c", variant: "single" });
     await refresh(); await page("1 / 1");

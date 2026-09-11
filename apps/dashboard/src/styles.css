@@ -11552,11 +11552,6 @@ pre {
 .user-question-continue:hover:not(:disabled) { background: var(--surface-subtle); }
 .user-question-card button:disabled { opacity: .4; cursor: default; }
 .user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; margin: 0 12px; max-height: 80px; overflow-y: auto; }
-.user-question-history { margin: 8px 0; padding: 12px; border-left: 2px solid var(--border); overflow-wrap: anywhere; }
-.user-question-history p { margin: 8px 0 4px; white-space: pre-wrap; }
-.user-question-history blockquote { margin: 0; opacity: .8; white-space: pre-wrap; }
-.user-question-history small { opacity: .65; }
-.user-question-history pre { white-space: pre-wrap; font-size: 0.75rem; }
 .session-index-item .session-index-icon[data-session-state="waiting_input"] { color: #60a5fa; background: currentColor; border-color: currentColor; opacity: 1; animation: none; }
 @media (max-width: 700px) {
   .user-question-card { padding: 8px; border-radius: 18px; }

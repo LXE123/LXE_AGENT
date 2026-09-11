@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
 import type { PendingUserQuestion, UserQuestionAnswer } from "@lxe/desktop-protocol";
-import { parseUserQuestions, validateUserQuestionAnswers } from "@lxe/protocol/user-questions";
+import { validateUserQuestionAnswers } from "@lxe/protocol/user-questions";
 import { useUserQuestionActions } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { isRecord } from "../../shared/content";
-import type { ToolOperation } from "./conversation";
 
 const draftKey = (id: string) => `lxe.question-draft.${id}`;
 const pageKey = (id: string) => `lxe.question-page.${id}`;
@@ -179,39 +178,4 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
       </button>
     </footer>
   </form>;
-}
-
-export function userQuestionHistory(operation: ToolOperation) {
-  try {
-    const call = isRecord(operation.call) ? operation.call : {};
-    const input = call.input ?? call.arguments;
-    const questions = parseUserQuestions(isRecord(input) ? input.questions : undefined);
-    const result = isRecord(operation.result) ? operation.result : {};
-    const content = result.content;
-    const text = typeof content === "string" ? content : Array.isArray(content)
-      ? content.filter(isRecord).filter(b => b.type === "text").map(b => String(b.text ?? "")).join("\n") : "";
-    let answers: UserQuestionAnswer[] = [];
-    if (!result.is_error && text) {
-      try { answers = validateUserQuestionAnswers(questions, JSON.parse(text).answers); } catch { /* failed or incomplete call */ }
-    }
-    return { questions, answers, error: result.is_error ? text : "", unparsedAnswer: !result.is_error && !answers.length ? text : "" };
-  } catch { return undefined; }
-}
-
-/** Read-only transcript. No history row can submit or recreate a request. */
-export function UserQuestionHistory({ operation, pending = false }: { operation: ToolOperation; pending?: boolean }) {
-  const t = useUiText().userQuestions;
-  const data = userQuestionHistory(operation);
-  if (!data) return null;
-  return <section className="user-question-history" aria-label={t.history}>
-    <strong>{data.answers.length || data.unparsedAnswer ? t.answered : pending || operation.status === "running" || operation.status === "pending" ? t.waiting : t.inactive}</strong>
-    {data.questions.map(q => {
-      const answer = data.answers.find(a => a.id === q.id);
-      return <div key={q.id}><p>{q.question}</p>{answer
-        ? <blockquote>{[...answer.selected, ...(answer.custom ? [answer.custom] : [])].join(" · ")}</blockquote>
-        : <small>{q.options?.map(o => o.label).join(" / ")}</small>}</div>;
-    })}
-    {data.error ? <pre>{data.error}</pre> : null}
-    {data.unparsedAnswer ? <pre>{data.unparsedAnswer}</pre> : null}
-  </section>;
 }

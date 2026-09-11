@@ -1,4 +1,4 @@
-import { UserQuestionGate, UserQuestionHistory, userQuestionHistory } from "./user-questions";
+import { UserQuestionGate } from "./user-questions";
 import type { PendingUserQuestion } from "@lxe/desktop-protocol";
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { ConversationAttachmentDraft } from "./attachment-draft";
@@ -1443,11 +1443,10 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId, pendingQuestionId }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
   attachmentSessionId?: string;
-  pendingQuestionId?: string;
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
@@ -1464,7 +1463,6 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "tool") {
     const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
     if (!operation) return null;
-    if (operation.name === "ask_user_question" && userQuestionHistory(operation)) return <UserQuestionHistory operation={operation} pending={operation.key === pendingQuestionId} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
     return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
@@ -1675,7 +1673,7 @@ export function SessionDetailView({
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
           : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
           : newConversation ? <ConversationWelcome /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-        renderRow={(row) => <UnifiedConversationRow row={row} pendingQuestionId={question?.tool_call_id} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
           onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
       <div className="conversation-composer-dock">
         <ConversationComposer

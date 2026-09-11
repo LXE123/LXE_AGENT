@@ -3,9 +3,10 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useUserQuestionsQuery } from "../../../src/api/queries";
 import { callDashboard } from "../../../src/api/client";
-import { ConversationComposer, SessionsIndex } from "../../../src/features/sessions/view";
+import { ConversationComposer, SessionsIndex, UnifiedConversationRow } from "../../../src/features/sessions/view";
 import { toolOperations } from "../../../src/features/sessions/conversation";
-import { UserQuestionHistory } from "../../../src/features/sessions/user-questions";
+import { conversationRows } from "../../../src/features/sessions/presentation";
+import { isRecord } from "../../../src/shared/content";
 import type { SessionDetailPayload, SessionPayload } from "../../../src/api/payloads";
 import type { SessionRunSummary } from "@lxe/protocol/session-status";
 import "../../../src/styles.css";
@@ -19,7 +20,14 @@ function Fixture() {
   const [unavailable, setUnavailable] = useState(false);
   const questions = useUserQuestionsQuery(true, id);
   const [detail, setDetail] = useState<SessionDetailPayload>();
-  useEffect(() => { void callDashboard({ operation: "sessions.detail", input: { session_id: id } }).then(setDetail).catch(() => setDetail(undefined)); }, [id, questions.data]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  useEffect(() => { setExpanded({}); setDetail(undefined); }, [id]);
+  useEffect(() => {
+    let active = true;
+    void callDashboard({ operation: "sessions.detail", input: { session_id: id } })
+      .then(value => { if (active) setDetail(value); }).catch(() => { if (active) setDetail(undefined); });
+    return () => { active = false; };
+  }, [id, questions.data]);
   Object.assign(window, { questionFixture: { select, setStatus, setUnavailable, refetch: questions.refetch, pending: () => questions.data?.items,
     operations: () => detail && toolOperations(detail.messages) } });
   return <div style={{ display: "flex", height: "100vh" }}>
@@ -31,8 +39,14 @@ function Fixture() {
     </aside>
     <main style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", padding: 24, gap: 20 }}>
     <p>当前会话：{id.toUpperCase()}</p>
-    <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>{detail && toolOperations(detail.messages).map(operation => operation.name === "ask_user_question"
-      ? <UserQuestionHistory key={operation.key} operation={operation} pending={questions.data?.items.some(q => q.tool_call_id === operation.key)} /> : null)}</div>
+    <div data-testid="tool-history" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+      {detail && conversationRows(detail.messages, [], []).filter(row => row.kind === "tool").map(row => (
+        <div key={row.id} data-tool-call-id={isRecord(row.operation?.call) ? String(row.operation.call.id) : undefined}>
+          <UnifiedConversationRow row={row} expanded={!!expanded[row.id]} onToggle={key => setExpanded(value => ({ ...value, [key]: !value[key] }))}
+            onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop} />
+        </div>
+      ))}
+    </div>
     <ConversationComposer question={questions.data?.items.find(q => q.session_id === id)} onQuestionAnswered={() => { void questions.refetch(); }}
       contextDetail={null} activity={null} conversationKey={id} currentModel={null} modelLoading={false} models={[]}
       modelSaving={false} thinkingSaving={false} runtimeReady runtimeUnavailableMessage="" onModelChange={() => {}} onThinkingLevelChange={() => {}}
