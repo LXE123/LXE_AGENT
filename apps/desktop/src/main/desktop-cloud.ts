@@ -154,7 +154,7 @@ export class DesktopCloudService {
     const cloud = this.options.config.cloudConfiguration();
     const switching = cloud.switch_in_progress;
     return {
-      configured: cloud.managed && cloud.api_key_configured && !switching,
+      configured: cloud.managed && !switching,
       is_admin: this.isAdmin,
       device_name: switching ? "" : cloud.device_name,
       device_id: switching ? "" : cloud.device_id,
@@ -309,11 +309,24 @@ export class DesktopCloudService {
   private checkConnection(showProgress: boolean): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
     if (this.probe) return this.probe;
+    const legacy = this.options.config.cloudLegacyIdentityCredential();
+    if (legacy) {
+      // Defer execution until this.probe is assigned, including synchronous status callbacks.
+      let tracked: Promise<DesktopCloudState>;
+      tracked = Promise.resolve().then(() => this.migrateIdentity(legacy)).finally(() => {
+        if (this.probe === tracked) this.probe = undefined;
+      });
+      this.probe = tracked;
+      return tracked;
+    }
     if (!this.options.supported && !this.options.config.cloudConfiguration().managed) {
       return Promise.resolve(this.setConnection("unsupported", ""));
     }
     const target = this.probeTarget();
     if (!target) {
+      if (this.options.config.cloudConfiguration().managed) {
+        return Promise.resolve(this.setConnection("error", "设备身份凭据缺失或格式不受支持，请联系管理员恢复身份"));
+      }
       return Promise.resolve(this.setConnection("not_configured", ""));
     }
     if (showProgress) this.setConnection("connecting", "");
@@ -330,6 +343,49 @@ export class DesktopCloudService {
     });
     this.probe = tracked;
     return tracked;
+  }
+
+  private async migrateIdentity(legacy: string): Promise<DesktopCloudState> {
+    this.setConnection("migrating", "");
+    try {
+      const cloud = this.options.config.cloudConfiguration();
+      const candidate = this.options.config.cloudMigrationCandidate(legacy);
+      const machine = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
+      const base = `${cloud.data_server_url.replace(/\/+$/u, "")}/api/v1/agent-data/identity/migration`;
+      const post = (action: string, token: string, extra: Record<string, string> = {}) => this.request(`${base}/${action}`, {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ machine_id: machine.machine_id, ...extra }), cache: "no-store",
+      });
+      const result = async (response: Response): Promise<string> => {
+        if (!response.ok) {
+          const prefix = response.status === 404 ? "公司云端尚未支持自动身份迁移" : "设备身份迁移失败";
+          throw new Error(`${prefix}（HTTP ${response.status}）：${this.diagnosticError(new Error(await response.text()))}`);
+        }
+        const body = objectValue(await response.json());
+        if (!body || body.device_id !== cloud.device_id || body.machine_id !== machine.machine_id
+          || !["pending", "prepared", "completed", "error"].includes(String(body.state))) {
+          throw new Error("身份迁移响应与当前设备不一致");
+        }
+        if (body.state === "error") throw new Error(`设备身份迁移异常：${String(body.error_code)}`);
+        return String(body.state);
+      };
+      // A persisted candidate may already be active when the last confirmation response was lost.
+      const status = await post("status", candidate);
+      let state = status.status === 401
+        ? await result(await post("prepare", legacy, { candidate_token: candidate }))
+        : await result(status);
+      if (state === "prepared") state = await result(await post("confirm", candidate));
+      if (state !== "completed") throw new Error("身份迁移尚未完成，将自动重试");
+      this.options.config.completeCloudIdentityMigration(legacy, candidate);
+      this.options.logger.info("cloud_identity_migration_completed", { device_id: cloud.device_id });
+      const target = this.probeTarget();
+      if (!target) throw new Error("迁移后的设备身份未能读取");
+      return await this.probeStatus(target, this.options.logger);
+    } catch (error) {
+      const message = this.diagnosticError(error);
+      this.options.logger.warn("cloud_identity_migration_failed", { observed_error: message });
+      return this.setConnection("error", `身份迁移未完成，将自动重试。${message}`, true);
+    }
   }
 
   private async activateOnce(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {

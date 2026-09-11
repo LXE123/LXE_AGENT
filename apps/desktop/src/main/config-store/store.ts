@@ -114,6 +114,11 @@ export class DesktopConfigStore {
   }
 
   cloudIdentityCredential(): string { return this.cloud.identityCredential(); }
+  cloudLegacyIdentityCredential(): string { return this.cloud.legacyIdentityCredential(); }
+  cloudMigrationCandidate(legacyToken: string): string { return this.cloud.migrationCandidate(legacyToken); }
+  completeCloudIdentityMigration(legacyToken: string, candidate: string): void {
+    this.cloud.completeIdentityMigration(legacyToken, candidate);
+  }
   cloudBusinessCredential() { return this.cloud.businessCredential(); }
   saveCloudBusinessCredential(value: { token: string; erp_token: string; expires_at: number }): void {
     this.cloud.saveBusinessCredential(value);

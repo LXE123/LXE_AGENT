@@ -85,6 +85,7 @@ export const ZH_TEXT = {
     },
     cloudStates: {
       not_configured: "未配置",
+      migrating: "身份迁移中",
       provisioning: "正在配置",
       connecting: "连接中",
       connected: "已连接",
@@ -603,7 +604,8 @@ export const ZH_TEXT = {
       offline: "离线",
       error: "需处理",
       unsupported: "仅 Windows",
-      not_configured: "未配置"
+      not_configured: "未配置",
+      migrating: "身份迁移中"
     },
     sectionStatus: {
       complete: "已完成",
@@ -906,6 +908,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       },
       cloudStates: {
         not_configured: "Not configured",
+        migrating: "Migrating device identity",
         provisioning: "Provisioning",
         connecting: "Connecting",
         connected: "Connected",
@@ -1424,7 +1427,8 @@ export const UI_TEXT: Record<Language, UiText> = {
         offline: "Offline",
         error: "Needs attention",
         unsupported: "Windows only",
-        not_configured: "Not configured"
+        not_configured: "Not configured",
+        migrating: "Migrating device identity"
       },
       sectionStatus: {
         complete: "Complete",

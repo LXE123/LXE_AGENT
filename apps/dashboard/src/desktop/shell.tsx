@@ -302,7 +302,7 @@ function DesktopCloudPanel({
         <div className={`desktop-cloud-overview ${cloud.connection}`}>
           <span className="desktop-cloud-overview-icon"><Cloud aria-hidden size={18} /></span>
           <div aria-live="polite" className="desktop-cloud-overview-copy">
-            <strong>{connected ? t.desktop.cloud.connected : cloud.last_error || t.desktop.cloud.checking}</strong>
+            <strong>{connected ? t.desktop.cloud.connected : cloud.connection === "migrating" ? t.desktop.cloudStates.migrating : cloud.last_error || t.desktop.cloud.checking}</strong>
             {deviceIdentity ? <span>{deviceIdentity}</span> : null}
           </div>
           <div className="desktop-cloud-overview-actions">

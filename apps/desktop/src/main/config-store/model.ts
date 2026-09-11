@@ -89,6 +89,7 @@ export interface DesktopSecrets {
   mabang_password: string;
   feishu_app_secret: string;
   data_server_api_key: string;
+  cloud_identity_candidate: string;
   cloud_business_token: string;
   cloud_business_erp_token: string;
   cloud_business_expires_at: number;
@@ -161,6 +162,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   mabang_password: "",
   feishu_app_secret: "",
   data_server_api_key: "",
+  cloud_identity_candidate: "",
   cloud_business_token: "",
   cloud_business_erp_token: "",
   cloud_business_expires_at: 0,
@@ -474,6 +476,7 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     mabang_password: text(value.mabang_password),
     feishu_app_secret: text(value.feishu_app_secret),
     data_server_api_key: text(value.data_server_api_key),
+    cloud_identity_candidate: text(value.cloud_identity_candidate),
     cloud_business_token: text(value.cloud_business_token),
     cloud_business_erp_token: text(value.cloud_business_erp_token),
     cloud_business_expires_at: Number(value.cloud_business_expires_at) || 0,

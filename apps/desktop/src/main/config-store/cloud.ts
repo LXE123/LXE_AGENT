@@ -1,4 +1,5 @@
 import { text } from "./model";
+import { randomBytes } from "node:crypto";
 import type {
   DesktopCloudConfiguration,
   DesktopCloudEnrollmentConfig,
@@ -43,6 +44,7 @@ export class DesktopCloudConfigService {
       throw new Error("Cloud enrollment metadata is incomplete");
     }
     secrets.data_server_api_key = apiKey;
+    secrets.cloud_identity_candidate = "";
     secrets.cloud_business_token = "";
     secrets.cloud_business_erp_token = "";
     secrets.cloud_business_expires_at = 0;
@@ -89,6 +91,7 @@ export class DesktopCloudConfigService {
       switch_in_progress: false,
     };
     secrets.data_server_api_key = "";
+    secrets.cloud_identity_candidate = "";
     secrets.cloud_business_token = "";
     secrets.cloud_business_erp_token = "";
     secrets.cloud_business_expires_at = 0;
@@ -115,6 +118,44 @@ export class DesktopCloudConfigService {
   identityCredential(): string {
     const token = this.repository.readSecrets().data_server_api_key;
     return /^lxe_(?:client|identity)_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$/u.test(token) ? token : "";
+  }
+
+  legacyIdentityCredential(): string {
+    const cloud = this.repository.readConfig().cloud;
+    const token = this.repository.readSecrets().data_server_api_key;
+    const match = /^lxe_dev_([A-Za-z0-9]{1,64})\.[A-Za-z0-9_-]{32,128}$/u.exec(token);
+    return cloud.managed && !cloud.switch_in_progress && match?.[1] === cloud.device_id ? token : "";
+  }
+
+  migrationCandidate(legacyToken: string): string {
+    this.repository.requireSafeStorage();
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    if (!legacyToken || this.legacyIdentityCredential() !== legacyToken) throw new Error("设备身份已变更，请重新检查公司云端");
+    if (!secrets.cloud_identity_candidate) {
+      secrets.cloud_identity_candidate = `lxe_client_${config.cloud.device_id}.${randomBytes(32).toString("base64url")}`;
+      this.repository.commit(config, secrets); // Persist before any request can register this candidate.
+    }
+    const candidate = this.repository.readSecrets().cloud_identity_candidate;
+    if (!candidate.startsWith(`lxe_client_${config.cloud.device_id}.`)
+      || !/^lxe_client_[A-Za-z0-9]{1,64}\.[A-Za-z0-9_-]{43}$/u.test(candidate)) {
+      throw new Error("待迁移身份存储无效，请联系管理员恢复身份");
+    }
+    return candidate;
+  }
+
+  completeIdentityMigration(legacyToken: string, candidate: string): void {
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    if (this.legacyIdentityCredential() !== legacyToken || secrets.cloud_identity_candidate !== candidate) {
+      throw new Error("迁移期间设备身份已变更，请重新检查公司云端");
+    }
+    secrets.data_server_api_key = candidate;
+    secrets.cloud_identity_candidate = "";
+    secrets.cloud_business_token = "";
+    secrets.cloud_business_erp_token = "";
+    secrets.cloud_business_expires_at = 0;
+    this.repository.commit(config, secrets);
   }
 
   businessCredential(): { token: string; erp_token: string; expires_at: number } {

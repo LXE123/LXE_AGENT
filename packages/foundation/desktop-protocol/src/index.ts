@@ -323,6 +323,7 @@ export type DesktopZiniaoVersion = "v5" | "v6";
 
 export type DesktopCloudConnectionState =
   | "not_configured"
+  | "migrating"
   | "provisioning"
   | "connecting"
   | "connected"
