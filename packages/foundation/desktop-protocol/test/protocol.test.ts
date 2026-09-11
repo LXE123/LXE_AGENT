@@ -299,6 +299,17 @@ describe("desktop agent protocol", () => {
     }))).toThrow("worktree must be a non-empty string");
   });
 
+  test("cancel_turn accepts only an optional explicit user-stop reason", () => {
+    const request = { jsonrpc: "2.0", id: "stop", method: "cancel_turn", params: { run_id: "turn" } } as const;
+    expect(parseAgentWireMessage(JSON.stringify(request))).toEqual(request);
+    const userStop = { ...request, params: { ...request.params, reason: "user_stop" } } as const;
+    expect(parseAgentWireMessage(JSON.stringify(userStop))).toEqual(userStop);
+    for (const reason of [null, "restart", "", true, 1]) {
+      expect(() => parseAgentWireMessage(JSON.stringify({ ...request, params: { ...request.params, reason } })))
+        .toThrow("cancel_turn.reason is invalid");
+    }
+  });
+
   test("rejects unknown commands and incomplete command payloads", () => {
     expect(() => parseAgentWireMessage(JSON.stringify({
       jsonrpc: "2.0",

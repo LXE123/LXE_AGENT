@@ -33,7 +33,7 @@ export interface DirectAgentRuntime {
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome>;
-  cancelTurn?(handle: RunHandle): Promise<void>;
+  cancelTurn?(handle: RunHandle, reason?: "user_stop"): Promise<void>;
   steerTurn?(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
 }
 
@@ -139,9 +139,9 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       ).finally(() => active.delete(handle.runId));
       active.set(handle.runId, { handle, promise });
     },
-    cancelTurn: async (handle) => {
-      if (options.runtime.cancelTurn) await options.runtime.cancelTurn(handle);
-      await handle.abort();
+    cancelTurn: async (handle, reason) => {
+      if (options.runtime.cancelTurn) await options.runtime.cancelTurn(handle, reason);
+      await handle.abort(reason);
     },
     steerTurn: async (handle, message: Required<SteeringMessage>) => {
       await options.runtime.steerTurn?.(handle, message);

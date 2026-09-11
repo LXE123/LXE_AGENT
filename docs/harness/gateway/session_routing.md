@@ -58,7 +58,7 @@ pending events 不经过 Router 或 `AgentJob.raw_data`；Runtime 在 turn 开�
 
 ### `/stop`
 
-停止命令清除该 session 的 pending queue，取消 active run，并设置 autonomy suspended。被中断 run 的用户停止事件先持久化，等下一条用户消息再汇报；heartbeat 在 suspended 状态下丢弃自主唤醒。
+停止命令清除该 session 的 pending queue，以 `user_stop` 原因取消 active run，并设置 autonomy suspended；heartbeat 在 suspended 状态下丢弃自主唤醒。停止说明由 Runtime 独立写入历史，不拼到下一条用户消息，详见 [取消与失败](../runtime/runtime_flow.md#cancel-与失败)。
 
 ### `/clear`
 
@@ -82,4 +82,4 @@ Desktop Cloud 读取并验证设备权限，Gateway 只传递允许的 Skill 类
 
 ## 失败语义
 
-Adapter 对单条坏消息记录稳定拒绝原因，不终止 ingress。保存 pending event 或 feedback 失败时仍继续执行 stop/cancel 主动作。任何异常都必须保留 session 串行不变量，不能绕过 scheduler 直接重试 turn。
+Adapter 对单条坏消息记录稳定拒绝原因，不终止 ingress。停止说明或 feedback 写入失败不撤销已经执行的取消，实际错误仍需记录。任何异常都必须保留 session 串行不变量，不能绕过 scheduler 直接重试 turn。

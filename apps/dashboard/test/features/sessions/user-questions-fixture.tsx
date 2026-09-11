@@ -29,7 +29,7 @@ function Fixture() {
     return () => { active = false; };
   }, [id, questions.data]);
   Object.assign(window, { questionFixture: { select, setStatus, setUnavailable, refetch: questions.refetch, pending: () => questions.data?.items,
-    operations: () => detail && toolOperations(detail.messages) } });
+    messages: () => detail?.messages, operations: () => detail && toolOperations(detail.messages) } });
   return <div style={{ display: "flex", height: "100vh" }}>
     <aside className="app-sidebar sidebar-session-section" style={{ width: 240, minWidth: 240, maxWidth: 240, flexShrink: 0 }}>
       <SessionsIndex sessions={sessions} query="" searchOpen={false} initialLoading={false} loadingMore={false} error="" hasMore={false} loadMoreError="" selectedSessionId={id}
@@ -40,8 +40,8 @@ function Fixture() {
     <main style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", padding: 24, gap: 20 }}>
     <p>当前会话：{id.toUpperCase()}</p>
     <div data-testid="tool-history" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-      {detail && conversationRows(detail.messages, [], []).filter(row => row.kind === "tool").map(row => (
-        <div key={row.id} data-tool-call-id={isRecord(row.operation?.call) ? String(row.operation.call.id) : undefined}>
+      {detail && conversationRows(detail.messages, [], []).map(row => (
+        <div key={row.id} data-row-kind={row.kind} data-tool-call-id={isRecord(row.operation?.call) ? String(row.operation.call.id) : undefined}>
           <UnifiedConversationRow row={row} expanded={!!expanded[row.id]} onToggle={key => setExpanded(value => ({ ...value, [key]: !value[key] }))}
             onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop} />
         </div>

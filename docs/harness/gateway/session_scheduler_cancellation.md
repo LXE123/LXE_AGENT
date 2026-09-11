@@ -49,16 +49,18 @@ Scheduler 只接受 run id、session id 和 job id 与 active handle 完全一�
 
 ## Cancel 与 `/stop`
 
-`cancel()` 只作用于当前匹配 handle，并具有幂等语义：
+`requestStop()` 只作用于当前匹配 handle，并具有幂等语义。入口与调度器协作完成：
 
-1. 清理该 session 尚未开始的 pending jobs。
-2. 标记 cancel requested。
-3. abort 当前 handle。
-4. 等待 Runtime 写入闭合 transcript 并报告 cancelled/error completion。
+1. 入口清理尚未开始的 pending jobs：渠道 `/stop` 清空该 session 队列，桌面只清理本地提交的任务。
+2. 调度器向 Runtime 发送携带 `user_stop` 原因的取消请求，Runtime abort 对应 handle。
+3. 收到取消确认后标记 cancel requested；仍保留 active slot 等待实际终态。
+4. Runtime 闭合工具调用，必要时写入独立停止说明，然后报告 completion。与自然完成竞态时以实际 outcome 为准。
 
 重复或并发 stop 会合并到同一个 cancel 操作。`run_not_found`、`run_closing` 等预期边界不会伪装成成功接受新的 cancel；意外错误会向调用方传播，但不能污染 handle 状态。
 
 取消发生在多个 tool use 中间时，Runtime 会为尚未 dispatch 的 tool 写 cancelled result stub，使 provider history 和 transcript 保持 tool-use closure。
+
+主动停止说明的写入条件、技术取消的区分及桌面隐藏规则统一见 [Runtime 取消与失败](../runtime/runtime_flow.md#cancel-与失败)。Gateway 不再为停止追加 pending event。
 
 ## Steering
 

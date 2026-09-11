@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 21;
+const protocolVersion = 22;
 const event = ({ type, ...params }) => write({ jsonrpc: "2.0", method: type, params });
 let activeRunRequest;
 let steered = [];
@@ -153,7 +153,7 @@ for await (const line of input) {
         id: active.id,
           result: {
           status: "cancelled",
-          reply: "",
+          reply: request.params.reason ?? "",
           input_tokens: 0,
           output_tokens: 0,
           tool_calls: cancelCount,

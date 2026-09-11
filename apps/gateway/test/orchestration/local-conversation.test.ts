@@ -306,7 +306,7 @@ describe("LocalConversationController", () => {
       cleared_turn_ids: [],
     });
     expect(h.runtime.cancelled).toEqual(["turn-1"]);
-    expect(h.storage.pending).toHaveLength(1);
+    expect(h.storage.pending).toHaveLength(0);
 
     expect(h.scheduler.handleRuntimeEvent({
       kind: "runtime.turn.completed",

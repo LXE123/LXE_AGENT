@@ -180,7 +180,7 @@ export class AgentProtocolServer {
       case "cancel_turn": {
         const handle = this.activeRuns.get(request.params.run_id);
         if (!handle) return { cancelled: false };
-        await handle.abort();
+        await handle.abort(false, request.params.reason);
         return { cancelled: true };
       }
       case "steer_turn": {

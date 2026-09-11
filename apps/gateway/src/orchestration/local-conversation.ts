@@ -264,18 +264,6 @@ export class LocalConversationController {
         if (await this.options.scheduler.requestStop(sessionId, activeTurnId)) {
           stoppedTurnId = activeTurnId;
           this.options.runtimeState.suspendAutonomy(sessionId);
-          try {
-            await this.options.storage.appendPendingEvent(sessionId, {
-              event_id: this.id(),
-              job_id: `desktop-stop-${this.id().slice(0, 8)}`,
-              created_at: Math.trunc(Date.now() / 1_000),
-              text: "用户已从桌面停止当前任务。之前未完成的计划已作废，不要继续执行或重试，除非用户重新明确要求。",
-              response_route_id: turn?.responseRouteId ?? "",
-            });
-          } catch (error) {
-            // The advisory context write must not undo a successful cancel.
-            this.logger.warn("stop_pending_event_failed", { session_id: sessionId, error });
-          }
         } else if (turn && this.sessions.get(sessionId)?.activeTurnId === activeTurnId) {
           turn.payload.state = "running";
           this.publish(sessionId);

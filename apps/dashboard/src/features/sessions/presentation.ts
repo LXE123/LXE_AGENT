@@ -20,13 +20,13 @@ export interface ConversationRow {
 export const userDisplayId = (message: { client_message_id?: string; message_id?: string; display_id?: string }): string =>
   `user:${message.client_message_id || message.message_id || message.display_id}`;
 export const isInternalMessage = (message: SessionMessage): boolean =>
-  message.source_reason === "environment_context" || (message.role === "user" && isRecord(message.environmentContext));
+  message.source_reason === "turn_aborted" || message.source_reason === "environment_context" || (message.role === "user" && isRecord(message.environmentContext));
 const toolDisplayId = (turnId: string, groupId: string, callId: string): string =>
   `tool:${encodeURIComponent(turnId || groupId)}:${encodeURIComponent(callId)}`;
 
 /** One projection for both streaming and stored data. Source IDs never depend on the loaded page index. */
 export function conversationRows(messages: SessionMessage[], turns: DesktopConversationTurnPayload[], pending: PendingMessage[], preferLive: boolean | ReadonlySet<string> = false): ConversationRow[] {
-  messages = messages.map((message) => {
+  messages = messages.filter(message => !isInternalMessage(message)).map((message) => {
     if (!message.tool_calls) return message;
     const content = Array.isArray(message.content) ? message.content : message.content ? [{type:"text",text:String(message.content)}] : [];
     return {...message, tool_calls: undefined, content: [...content, ...fallbackToolCallBlocks(message.tool_calls)]};

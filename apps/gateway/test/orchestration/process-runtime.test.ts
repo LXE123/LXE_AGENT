@@ -313,7 +313,7 @@ describe("ProcessAgentRuntime", () => {
     }
   });
 
-  test("forwards steering and deduplicates cancellation for an active turn", async () => {
+  test.each([undefined, "user_stop"] as const)("forwards steering and cancellation cause %s once for an active turn", async reason => {
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
     const runtime = new ProcessAgentRuntime({
       command: process.execPath,
@@ -336,7 +336,7 @@ describe("ProcessAgentRuntime", () => {
       response_route_id: "route-1",
       message_id: "message-2",
     });
-    await runtime.cancelTurn(handle);
+    await runtime.cancelTurn(handle, reason);
     await handle.abort();
 
     expect(await turn).toMatchObject({
@@ -344,6 +344,7 @@ describe("ProcessAgentRuntime", () => {
       // The fixture echoes its cancel-turn request count; 1 proves the
       // handle.abort() kill callback was deduplicated against cancelTurn().
       tool_calls: 1,
+      reply: reason ?? "",
       remaining_steering: [
         { text: "steer", response_route_id: "route-1", message_id: "message-2" },
       ],

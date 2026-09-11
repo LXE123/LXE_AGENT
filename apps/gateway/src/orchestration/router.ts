@@ -54,7 +54,6 @@ interface RouterOptions {
   channels: ChannelRegistry;
   state?: SessionRuntimeState;
   id?: () => string;
-  nowSeconds?: () => number;
 }
 
 const CONTROL_COMMANDS: Readonly<Record<string, "stop" | "clear" | "steer">> = {
@@ -109,12 +108,10 @@ export class SessionRouter {
   private readonly logger = createLogger("gateway.router");
   private readonly state: SessionRuntimeState;
   private readonly id: () => string;
-  private readonly nowSeconds: () => number;
 
   constructor(private readonly options: RouterOptions) {
     this.state = options.state ?? new SessionRuntimeState();
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
-    this.nowSeconds = options.nowSeconds ?? (() => Math.trunc(Date.now() / 1000));
   }
 
   async routeMessage(event: InboundEvent): Promise<RouteDecision> {
@@ -277,19 +274,6 @@ export class SessionRouter {
     const stopped = await this.options.scheduler.requestStop(entry.session_id);
     this.state.suspendAutonomy(entry.session_id);
     if (stopped || cleared > 0) {
-      try {
-        await this.options.storage.appendPendingEvent(entry.session_id, {
-          event_id: this.id(),
-          job_id: `user-stop-${this.id().slice(0, 8)}`,
-          created_at: this.nowSeconds(),
-          text: "用户已通过 /stop 叫停当前任务。之前未完成的计划已作废，不要继续执行或重试，除非用户重新明确要求。",
-          response_route_id: context.response_route_id,
-        });
-      } catch (error) {
-        // Cancellation feedback must not depend on the advisory pending-event
-        // write succeeding.
-        this.logger.warn("stop_pending_event_failed", { session_id: entry.session_id, error });
-      }
       await this.sendFeedback(
         context,
         entry.session_id,

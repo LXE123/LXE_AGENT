@@ -57,6 +57,7 @@ class MemoryStore implements RuntimeStore {
   turnErrors: Array<{ turn_id: string; message: string }> = [];
   operations: string[] = [];
   messageTurnIds: string[] = [];
+  messageReasons: string[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject; workspace: typeof workspace }> {
@@ -98,6 +99,7 @@ class MemoryStore implements RuntimeStore {
   ): Promise<void> {
     this.messages.push(message);
     this.messageTurnIds.push(turnId ?? "");
+    this.messageReasons.push(_reason ?? "");
     this.operations.push("message");
   }
   async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
@@ -139,6 +141,111 @@ const lxeSkillInvocationError = (details: JsonObject = {
 );
 
 describe("TypeScriptAgentRuntime", () => {
+  test.each(["model", "tool", "question"] as const)("user stop during %s writes separate context after tool closure and replays it next turn", async phase => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    const ready = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const questions = new UserQuestionService(() => {
+      if (questions.snapshot().length) ready.resolve();
+    });
+    registerUserQuestionTool(tools, questions);
+    tools.register({
+      name: "slow_tool", description: "Wait until stopped", input_schema: { type: "object", properties: {} },
+      execute: async () => {
+        ready.resolve();
+        await new Promise<void>((_resolve, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }));
+        return { content: [] };
+      },
+    });
+    let subsequentTurn = false;
+    let nextRequest: RuntimeMessage[] = [];
+    const runtime = new TypeScriptAgentRuntime({ store, tools, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => {
+        if (subsequentTurn) {
+          nextRequest = structuredClone(request.messages);
+          return messageFixture({ content: [{ type: "text", text: "New task" }] });
+        }
+        if (phase === "model") {
+          ready.resolve();
+          await new Promise<void>((_resolve, reject) => request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true }));
+        }
+        return messageFixture({ stopReason: "toolUse", content: [{
+          type: "tool_call", id: "stopped-call", name: phase === "question" ? "ask_user_question" : "slow_tool",
+          arguments: phase === "question" ? { questions: [{ id: "q", question: "Which store?" }] } : {},
+        }] });
+      } },
+    });
+    await runtime.start();
+    try {
+      const turn = runtime.runTurn(job({ source: { platform: "desktop" } }), {
+        ...handle(), signal: controller.signal, cancelReason: "user_stop",
+      });
+      await ready.promise;
+      controller.abort();
+      controller.abort();
+      expect((await turn).status).toBe("cancelled");
+      expect(store.messageReasons.filter(reason => reason === "turn_aborted")).toHaveLength(1);
+      expect(store.messageReasons.at(-1)).toBe("turn_aborted");
+      expect(store.messageTurnIds.at(-1)).toBe("j1");
+      const marker = store.messages.at(-1)!;
+      expect(marker.role).toBe("user");
+      expect(marker.content).toBe("<turn_aborted>\n用户主动中断了上一回合。被中断的工具或命令可能已部分执行；后续继续时请先核实实际状态。\n</turn_aborted>");
+      if (phase !== "model") {
+        const results = store.messages.flatMap(m => Array.isArray(m.content) ? m.content : [])
+          .filter(block => block.type === "tool_result" && block.tool_call_id === "stopped-call");
+        expect(results).toHaveLength(1);
+        expect(results[0]!.is_error).toBe(true);
+        expect(store.messages.at(-2)?.role).toBe("tool");
+      }
+      expect(questions.snapshot()).toEqual([]);
+      subsequentTurn = true;
+      await runtime.runTurn(job({ job_id: "j2", message_id: "m2", user_input: "再提问一下，我看看新 UI" }), handle());
+      const users = nextRequest.filter(m => m.role === "user" && !m.environmentContext);
+      expect(users.at(-2)?.content).toEqual(marker.content);
+      expect(users.at(-1)?.content).toBe("再提问一下，我看看新 UI");
+      expect(store.messageReasons.filter(reason => reason === "turn_aborted")).toHaveLength(1);
+    } finally { await runtime.stop(); }
+  });
+
+  test.each(["technical", "completed", "write_failure"] as const)("stop context respects %s outcome and preserves actual persistence errors", async scenario => {
+    const store = new MemoryStore();
+    const controller = new AbortController();
+    const logs: string[] = [];
+    if (scenario === "write_failure") {
+      const append = store.appendMessage.bind(store);
+      store.appendMessage = async (sessionId, message, reason, turnId) => {
+        if (reason === "turn_aborted") throw new Error("SQLITE_IOERR: fixture stop-context write failed");
+        await append(sessionId, message, reason, turnId);
+      };
+    }
+    if (scenario === "completed") {
+      // Stop arrives after the completed outcome has been chosen, during final bookkeeping.
+      const record = store.recordTurn.bind(store);
+      store.recordTurn = async (sessionId, metrics) => { controller.abort(); await record(sessionId, metrics); };
+    }
+    const runtime = new TypeScriptAgentRuntime({ store, tools: new ToolRegistry(), systemPrompt: "test",
+      logger: createLogger("test.runtime", { write: line => logs.push(line) }),
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async () => {
+        if (scenario !== "completed") { controller.abort(); throw controller.signal.reason; }
+        return messageFixture({ content: [{ type: "text", text: "Already finished" }] });
+      } },
+    });
+    await runtime.start();
+    try {
+      const result = await runtime.runTurn(job(), { ...handle(), signal: controller.signal,
+        ...(scenario === "technical" ? {} : { cancelReason: "user_stop" as const }) });
+      expect(result.status).toBe(scenario === "completed" ? "completed" : "cancelled");
+      expect(store.messageReasons).not.toContain("turn_aborted");
+      if (scenario === "write_failure") {
+        expect(logs.join("\n")).toContain("turn_aborted_context_persist_failed");
+        expect(logs.join("\n")).toContain("SQLITE_IOERR: fixture stop-context write failed");
+      }
+    } finally { await runtime.stop(); }
+  });
+
   test("repairs an abandoned question call after restart without reviving its wait", async () => {
     const store = new MemoryStore();
     store.messages = [

@@ -16,6 +16,36 @@ afterEach(async () => {
 });
 
 describe("SqliteRuntimeStore", () => {
+  test("new stop context preserves provenance, turn ownership and user title across cold reload", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-stop-replay-"));
+    roots.push(root);
+    const path = join(root, "agent.sqlite3");
+    const marker = { role: "user" as const, content: "<turn_aborted>用户主动中断了上一回合。</turn_aborted>" };
+    const store = new SqliteRuntimeStore(path);
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "desktop" } });
+    await store.appendMessage("s1", { role: "user", content: "Actual question" }, "turn_input", "j1");
+    await store.appendMessage("s1", marker, "turn_aborted", "j1");
+    const events = readFileSync(join(root, "session_transcripts", "s1.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(events.filter(event => event.reason === "turn_aborted")).toEqual([
+      expect.objectContaining({ kind: "message", turn_id: "j1", message: marker }),
+    ]);
+    expect(store.listSessions({ limit: 10, offset: 0 }).items[0]?.title).toBe("Actual question");
+    await store.stop();
+    const resumed = new SqliteRuntimeStore(path);
+    await resumed.start();
+    try {
+      expect((await resumed.loadMessages("s1")).at(-1)).toEqual(marker);
+      const detail = await resumed.sessionDetail("s1", { limit: 10 }) as { messages: Array<{ source_reason: string; content: string; turn: { turn_id: string } }> };
+      expect(detail.messages.at(-1)).toMatchObject({ source_reason: "turn_aborted", content: marker.content, turn: { turn_id: "j1" } });
+      expect(resumed.listSessions({ limit: 10, offset: 0 }).items[0]?.title).toBe("Actual question");
+      // Identical user text gets ordinary provenance, never the runtime-only reason.
+      await resumed.appendMessage("s1", marker, "turn_input", "j2");
+      const next = await resumed.sessionDetail("s1", { limit: 10 }) as typeof detail;
+      expect(next.messages.at(-1)?.source_reason).toBe("turn_input");
+    } finally { await resumed.stop(); }
+  });
+
   test("replays environment baselines after restart and replacement without changing the title", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-environment-replay-"));
     roots.push(root);

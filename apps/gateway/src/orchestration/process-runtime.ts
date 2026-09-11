@@ -281,8 +281,8 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     }
   }
 
-  async cancelTurn(handle: RunHandle): Promise<void> {
-    await this.cancelRun(handle.runId);
+  async cancelTurn(handle: RunHandle, reason?: "user_stop"): Promise<void> {
+    await this.cancelRun(handle.runId, reason);
   }
 
   async steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void> {
@@ -389,10 +389,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];
   }
 
-  private async cancelRun(runId: string): Promise<void> {
+  private async cancelRun(runId: string, reason?: "user_stop"): Promise<void> {
     if (!this.isReady) return;
     if (this.cancelledRuns.has(runId)) return;
-    const result = objectValue(await this.request("cancel_turn", { run_id: runId }, 5_000));
+    const result = objectValue(await this.request("cancel_turn", { run_id: runId, ...(reason ? { reason } : {}) }, 5_000));
     if (result.cancelled !== true) {
       throw new RuntimeRequestError("run_not_found", "agent-cli could not find the active run");
     }

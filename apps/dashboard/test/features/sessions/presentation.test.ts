@@ -26,6 +26,18 @@ describe("unified conversation identity", () => {
     expect(conversationRows([{...stored,environmentContext:{cwd:"/tmp"}}],[],[])).toHaveLength(0);
     expect(conversationRows([{...stored,content:"<environment_context>example</environment_context>"}],[],[]).filter(row=>row.kind === "message")).toHaveLength(1);
   });
+  test("only trusted stop records are hidden before grouping; legacy and user text remain visible", () => {
+    const content = "<turn_aborted>用户主动中断了上一回合。</turn_aborted>";
+    const hidden = { ...stored, display_group_id: "internal", display_id: "internal:0", source_reason: "turn_aborted", content };
+    expect(conversationRows([hidden], [], [])).toEqual([]);
+    expect(conversationRows([stored, hidden], [], [])).toEqual(conversationRows([stored], [], []));
+    for (const userContent of [content, "System: 用户已从桌面停止当前任务。\n再提问一下"]) {
+      const user = { ...stored, content: userContent, source_reason: "turn_input" };
+      expect(conversationRows([user, hidden], [], []).find(row => row.kind === "message")?.message?.content).toBe(userContent);
+    }
+    const old = { ...hidden, source_reason: undefined };
+    expect(conversationRows([old], [], []).some(row => row.message?.content === content)).toBe(true);
+  });
   test("streaming and persisted block identity and failed attempt order survive handoff", () => {
     const streaming = {...turn,stream:{display_metrics:{phase:"generating_answer"},process_parts:[
       {type:"text",part_id:"failed:0",sequence:1,text:"partial failure",status:"error",presentation:"process"},

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { AGENT_PROTOCOL_VERSION, type AgentServerOutput, type AgentResponse } from "@lxe/desktop-protocol";
 import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/server";
+import { AgentRunHandle } from "../src/run-handle";
+import jobFixture from "../../../packages/foundation/protocol/fixtures/valid-agent-job.json";
+import type { AgentJob } from "@lxe/protocol";
 
 const initialize = {
   protocol_version: AGENT_PROTOCOL_VERSION,
@@ -28,6 +31,25 @@ const setup = (host: Record<string, unknown> = {}) => {
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });
 
 describe("JSON-RPC server semantics", () => {
+  test.each([undefined, "user_stop"] as const)("cancel reason %s targets only the matching active turn", async reason => {
+    const ready = Promise.withResolvers<AgentRunHandle>();
+    const { call, responses } = setup({ runTurn: async (_job: AgentJob, handle: AgentRunHandle) => {
+      ready.resolve(handle);
+      await new Promise<void>(resolve => handle.signal.addEventListener("abort", () => resolve(), { once: true }));
+      return { status: "cancelled", reply: "", input_tokens: 0, output_tokens: 0, tool_calls: 0 };
+    } });
+    await call("initialize", initialize);
+    const turn = call("run_turn", { job: { ...jobFixture, job_id: "current" } }, "turn");
+    const handle = await ready.promise;
+    await call("cancel_turn", { run_id: "old", reason: "user_stop" }, "old");
+    expect(responses().find(r => r.id === "old")).toMatchObject({ result: { cancelled: false } });
+    expect(handle.cancelled).toBe(false);
+    await call("cancel_turn", { run_id: "current", ...(reason ? { reason } : {}) }, "stop");
+    await turn;
+    expect(handle.cancelReason).toBe(reason);
+    await call("cancel_turn", { run_id: "current", reason: "user_stop" }, "settled");
+    expect(responses().find(r => r.id === "settled")).toMatchObject({ result: { cancelled: false } });
+  });
   test("session status uses the Runtime host and rejects invalid acknowledgement versions", async () => {
     const requests: unknown[] = [];
     const { call, responses } = setup({ sessionStatus: (request: unknown) => {
@@ -56,7 +78,7 @@ describe("JSON-RPC server semantics", () => {
     await call("missing_method", {}, "missing");
     await call("cancel_turn", {}, "params");
     await call("cancel_turn", { run_id: "run" }, "not-ready");
-    await call("initialize", { ...initialize, protocol_version: 20 }, "version");
+    await call("initialize", { ...initialize, protocol_version: 21 }, "version");
     const { protocol_version: _version, ...missingVersion } = initialize;
     await call("initialize", missingVersion, "missing-version");
     expect(responses().map((response) => [response.id, "error" in response ? response.error.code : 0])).toEqual([
@@ -76,7 +98,7 @@ describe("JSON-RPC server semantics", () => {
     started();
     await Promise.all([first, second]);
     await call("initialize", initialize, "repeat");
-    await call("initialize", { ...initialize, protocol_version: 20 }, "wrong-version");
+    await call("initialize", { ...initialize, protocol_version: 21 }, "wrong-version");
     expect(creates()).toBe(1);
     expect(responses().find((r) => r.id === "early")).toMatchObject({ error: { code: -32001 } });
     for (const id of ["first", "second", "repeat"]) expect(responses().find((r) => r.id === id)).toMatchObject({ result: { protocol_version: AGENT_PROTOCOL_VERSION } });

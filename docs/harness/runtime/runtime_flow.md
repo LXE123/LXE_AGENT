@@ -79,6 +79,16 @@ RunHandle 的 signal 同时中断 provider、summary、MCP 和当前 exec/wait �
 
 Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slot。平台发送是独立 delivery 边界：发送失败不回滚已持久化 outcome，也不重放工具。
 
+桌面停止按钮、提问卡片 × 和渠道 `/stop` 通过协议 22 的 `cancel_turn.reason: "user_stop"` 标记主动停止。Runtime 确认结果为 `cancelled` 后，在完成通知之前追加一次独立 user 消息，绑定原 turn，transcript 的 `reason` 为 `turn_aborted`：
+
+```text
+<turn_aborted>
+用户主动中断了上一回合。被中断的工具或命令可能已部分执行；后续继续时请先核实实际状态。
+</turn_aborted>
+```
+
+这条说明保留在模型历史和原始 transcript 中，桌面依据可信的 `source_reason` 隐藏它，只显示原有“已停止”状态；不按用户文字或标签过滤。下一条用户消息保持原文。旧历史不改写。重复停止、旧回合请求、已完成回合和仅清空队列不新增说明；重启、关闭、凭据更新等技术取消也不生成。写入失败记录实际错误，取消仍然有效。Gateway 继续清理队列、暂停自动继续，但不再排入停止说明 pending event。
+
 ## 可观测性
 
 turn_start/end、provider attempt、stream event、tool start/end、context checkpoint、usage 和 delivery failure 写入结构化日志或 trace。日志中的 token、authorization、cookie、base64、绝对敏感路径和 encrypted thinking data会被脱敏。

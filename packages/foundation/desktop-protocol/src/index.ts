@@ -37,7 +37,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 21 as const;
+export const AGENT_PROTOCOL_VERSION = 22 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
 export type ExecTaskSnapshotPayload = {
@@ -112,7 +112,7 @@ export type AgentCommandPayloads = {
     state?: ManagedLlmState;
   };
   run_turn: { job: AgentJob };
-  cancel_turn: { run_id: string };
+  cancel_turn: { run_id: string; reason?: "user_stop" };
   steer_turn: {
     run_id: string;
     text: string;
@@ -762,6 +762,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       break;
     case "cancel_turn":
       requireText("run_id");
+      if (payload.reason !== undefined && payload.reason !== "user_stop") throw new Error("agent protocol cancel_turn.reason is invalid");
       break;
     case "steer_turn":
       for (const name of ["run_id", "text", "response_route_id", "message_id"]) requireText(name);

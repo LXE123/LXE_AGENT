@@ -26,7 +26,7 @@ const scheduler = new SessionScheduler({ runtime: {
     }, (error) => scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: handle.runId,
       payload: { session_id: handle.sessionId, job_id: handle.jobId, status: "error", error: String(error) } }));
   },
-  cancelTurn: (handle) => runtime.cancelTurn(handle),
+  cancelTurn: (handle, reason) => runtime.cancelTurn(handle, reason),
   steerTurn: (handle, message) => runtime.steerTurn(handle, message),
 }, onJobState: (event) => conversations.handleSchedulerEvent(event) });
 conversations = new LocalConversationController({ scheduler, runtimeState: new SessionRuntimeState(), defaultWorkspace: () => workspace,

@@ -24,7 +24,7 @@ const scheduler = new SessionScheduler({ runtime: {
     scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: handle.runId,
       payload: { session_id: job.session_id, job_id: job.job_id, status: outcome.status } });
   },
-  cancelTurn: handle => runtime.cancelTurn(handle), steerTurn: (handle, message) => runtime.steerTurn(handle, message),
+  cancelTurn: (handle, reason) => runtime.cancelTurn(handle, reason), steerTurn: (handle, message) => runtime.steerTurn(handle, message),
 }, onJobState: event => states.set(event.job.session_id, event.state) });
 await runtime.start();
 for (const id of ["a", "b", "c"]) await runtime.ensureSession({ session_id: id, source: { platform: "desktop" }, workspace });

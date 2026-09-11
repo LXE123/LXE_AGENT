@@ -138,7 +138,6 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
     state,
     id,
     defaultWorkspace,
-    nowSeconds: () => 1_700_000_000,
   });
   return { router, bindings, storage, scheduler, channel, state };
 };
@@ -326,7 +325,7 @@ describe("SessionRouter controls and steering", () => {
     expect(channel.outbound[0]?.payload).toEqual({ markdown: "当前没有正在执行的回复。" });
   });
 
-  test("stop clears pending work, cancels active run, suspends autonomy, and appends event", async () => {
+  test("stop clears pending work, cancels active run and suspends autonomy without queuing context", async () => {
     const { router, bindings, scheduler, storage, state, channel } = setup();
     await router.routeMessage(event());
     const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
@@ -337,22 +336,23 @@ describe("SessionRouter controls and steering", () => {
     expect(scheduler.stopped).toEqual([sessionId]);
     expect(scheduler.pending.has(sessionId)).toBe(false);
     expect(state.isAutonomySuspended(sessionId)).toBe(true);
-    expect(storage.appended).toHaveLength(1);
-    expect(storage.appended[0]?.event.job_id).toStartWith("user-stop-");
-    expect(storage.appended[0]?.event.text).toContain("叫停");
+    expect(storage.appended).toEqual([]);
     expect(channel.outbound.at(-1)?.payload).toEqual({
       markdown: "已停止当前回复，并暂停自动继续。后台任务结果会在你下次发消息时一并汇报。",
     });
   });
 
-  test("stop feedback survives a pending-event append failure", async () => {
+  test("clearing only queued work does not create a stop advisory", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
     const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
-    setupValue.scheduler.active.add(sessionId);
+    setupValue.scheduler.pending.set(sessionId, 2);
     setupValue.storage.appendFails = true;
     await expect(setupValue.router.routeMessage(event({ user_input: "/stop" }))).resolves.toBeDefined();
     expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toContain("已停止当前回复");
+    expect(setupValue.scheduler.stopped).toEqual([]);
+    expect(setupValue.scheduler.pending.has(sessionId)).toBe(false);
+    expect(setupValue.storage.appended).toEqual([]);
   });
 
   test("clear refuses inflight work then rotates and ensures a new session", async () => {

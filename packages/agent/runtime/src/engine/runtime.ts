@@ -1,4 +1,5 @@
 import { contextFingerprint } from "./context-meter";
+import { turnAbortedMessage } from "./turn-aborted";
 import { captureEnvironment, environmentChanged, environmentMessage } from "./environment-context";
 import { randomUUID } from "node:crypto";
 import { basename, isAbsolute } from "node:path";
@@ -210,7 +211,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       turn_id: job.job_id,
       response_route_id: job.response_route_id,
       message_id: job.message_id,
-    }, () => this.runTurnInContext(job, handle));
+    }, async () => {
+      const outcome = await this.runTurnInContext(job, handle);
+      if (outcome.status === "cancelled" && handle.cancelReason === "user_stop") {
+        try {
+          await this.appendMessage(job.session_id, turnAbortedMessage(), "turn_aborted", job.job_id);
+        } catch (error) {
+          this.logger.warn("turn_aborted_context_persist_failed", { error });
+        }
+      }
+      return outcome;
+    });
   }
 
   private async runTurnInContext(job: AgentJob, handle: RuntimeHandle): Promise<TurnOutcome> {

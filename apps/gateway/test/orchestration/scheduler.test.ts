@@ -38,13 +38,15 @@ const job = (sessionId: string, jobId: string, overrides: Partial<AgentJob> = {}
 class RecordingRuntime implements RuntimePort {
   readonly started: AgentJob[] = [];
   readonly cancelled: string[] = [];
+  readonly cancellationReasons: Array<"user_stop" | undefined> = [];
   readonly steered: Array<{ runId: string; text: string }> = [];
 
   async startTurn(value: AgentJob): Promise<void> {
     this.started.push(value);
   }
-  async cancelTurn(handle: RunHandle): Promise<void> {
+  async cancelTurn(handle: RunHandle, reason?: "user_stop"): Promise<void> {
     this.cancelled.push(handle.runId);
+    this.cancellationReasons.push(reason);
   }
   async steerTurn(handle: RunHandle, message: { text: string }): Promise<void> {
     this.steered.push({ runId: handle.runId, text: message.text });
@@ -77,6 +79,18 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
+  test("a repeated user stop forwards one explicit cause and ignores a completed run", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime });
+    await scheduler.enqueue(job("s1", "j1"));
+    await tick();
+    await Promise.all([scheduler.requestStop("s1"), scheduler.requestStop("s1")]);
+    expect(runtime.cancelled).toEqual(["j1"]);
+    expect(runtime.cancellationReasons).toEqual(["user_stop"]);
+    scheduler.handleRuntimeEvent(completion("j1", "s1", { status: "cancelled", session_id: "s1", job_id: "j1" }));
+    expect(await scheduler.requestStop("s1")).toBe(false);
+    expect(runtime.cancelled).toEqual(["j1"]);
+  });
   test("many sessions waiting on a tool do not block new sessions, but each session remains ordered", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({ runtime });

@@ -231,6 +231,29 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.querySelector(${JSON.stringify(`${cancelledHistory} .tool-status-icon`)}).dataset.toolStatus`), "error");
     await screenshot("history-cancelled");
     await click(`${cancelledHistory} .tool-op-summary`);
+    const assertHiddenStop = async () => {
+      await until("questionFixture.messages()?.filter(m=>m.source_reason==='turn_aborted').length === 1");
+      const marker = await js("questionFixture.messages().find(m=>m.source_reason==='turn_aborted')");
+      assert.equal(marker.turn.turn_id, oldB.turn_id, "Stop context belongs to the cancelled turn");
+      assert.ok(marker.content.includes("<turn_aborted>"));
+      assert.equal(await js("document.body.innerText.includes('用户主动中断了上一回合') || document.body.innerText.includes('<turn_aborted>')"), false);
+      assert.equal(await js("document.querySelectorAll('[data-row-kind=message]').length"), 1, "Only the original user bubble is shown");
+      assert.equal(await js("document.body.innerText.includes('已停止')"), true);
+    };
+    await assertHiddenStop();
+    // A second stop cannot append context for an already settled turn.
+    await request("sessions.stop", { session_id: "b", turn_id: oldB.turn_id });
+    await refresh(); await assertHiddenStop();
+    await screenshot("stop-hidden-light");
+    await js("questionFixture.select('a')");
+    await until("document.body.innerText.includes('当前会话：A')");
+    await js("questionFixture.select('b')"); await assertHiddenStop();
+    await window.loadURL(`${base}/test/features/sessions/user-questions-fixture.html`);
+    await until("!!window.questionFixture");
+    await js("questionFixture.select('b')"); await assertHiddenStop();
+    await js("document.documentElement.dataset.theme='dark'");
+    await screenshot("stop-hidden-dark");
+    await js("document.documentElement.dataset.theme='light'");
     const answer = { session_id: "b", request_id: oldB.request_id, answers: legacy };
     await assert.rejects(request("sessions.answer", answer), /no longer pending/);
     await request("fixture.start", { session_id: "b" });
@@ -240,6 +263,8 @@ app.whenReady().then(async () => {
     await request("fixture.restart");
     await assert.rejects(request("sessions.answer", { ...answer, request_id: beforeRestart.request_id }), /no longer pending/);
     await refresh(); await until("!document.querySelector('.user-question-card')");
+    await until("questionFixture.messages()?.some(m=>m.turn?.turn_id === " + JSON.stringify(beforeRestart.turn_id) + ")");
+    assert.equal(await js("questionFixture.messages().filter(m=>m.source_reason==='turn_aborted').length"), 1, "Technical restart does not create user-stop context");
     console.log("PASS: legacy drafts, page bounds, exclusive single/custom answers, keyboard selection, cancellation and restart invalidation");
 
     // A failed automatic single-choice submission retains its choice for retry and visual inspection.

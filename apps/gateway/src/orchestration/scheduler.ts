@@ -47,6 +47,8 @@ export class RunHandle {
   closing = false;
   cancelRequest: Promise<boolean> | undefined;
   private readonly abortController = new AbortController();
+  private reason: "user_stop" | undefined;
+  get cancelReason(): "user_stop" | undefined { return this.reason; }
   private readonly processes = new Set<ManagedProcess>();
 
   constructor(readonly originJob: AgentJob, now: () => number = Date.now) {
@@ -70,8 +72,11 @@ export class RunHandle {
     return () => this.processes.delete(process);
   }
 
-  async abort(): Promise<void> {
-    if (!this.signal.aborted) this.abortController.abort();
+  async abort(reason?: "user_stop"): Promise<void> {
+    if (!this.signal.aborted) {
+      this.reason = reason;
+      this.abortController.abort();
+    }
     await Promise.allSettled([...this.processes].map((process) => Promise.resolve(process.kill())));
   }
 
@@ -83,7 +88,7 @@ export class RunHandle {
 
 export interface RuntimePort {
   startTurn(job: AgentJob, handle: RunHandle): Promise<void>;
-  cancelTurn(handle: RunHandle): Promise<void>;
+  cancelTurn(handle: RunHandle, reason?: "user_stop"): Promise<void>;
   steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
 }
 
@@ -241,7 +246,7 @@ export class SessionScheduler {
     if (handle.cancelRequest) return handle.cancelRequest;
     this.publishJobState("stopping",handle.originJob);
     const request = Promise.resolve()
-      .then(() => this.runtime.cancelTurn(handle))
+      .then(() => this.runtime.cancelTurn(handle, "user_stop"))
       .then(() => {
         handle.cancelRequested = true;
         this.logger.info("scheduler_stop_requested", { session_id: handle.sessionId, turn_id: handle.jobId });

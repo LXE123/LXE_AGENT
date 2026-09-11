@@ -2,6 +2,9 @@ import type { RuntimeHandle } from "@lxe/runtime";
 
 export class AgentRunHandle implements RuntimeHandle {
   private readonly abortController = new AbortController();
+  private reason: RuntimeHandle["cancelReason"];
+
+  get cancelReason(): RuntimeHandle["cancelReason"] { return this.reason; }
   private readonly processes = new Set<{
     kill(): void | Promise<void>;
     forceKill(): void | Promise<void>;
@@ -38,8 +41,11 @@ export class AgentRunHandle implements RuntimeHandle {
     return () => this.processes.delete(process);
   }
 
-  async abort(force = false): Promise<void> {
-    if (!this.signal.aborted) this.abortController.abort();
+  async abort(force = false, reason?: RuntimeHandle["cancelReason"]): Promise<void> {
+    if (!this.signal.aborted) {
+      this.reason = reason;
+      this.abortController.abort();
+    }
     await Promise.allSettled([...this.processes].map((process) =>
       Promise.resolve(force ? process.forceKill() : process.kill())));
   }

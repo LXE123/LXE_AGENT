@@ -117,6 +117,7 @@ export interface RuntimeProvider {
 export interface RuntimeHandle {
   readonly signal: AbortSignal;
   readonly cancelled: boolean;
+  readonly cancelReason?: "user_stop" | undefined;
   drainSteering(): Array<{ text: string; response_route_id?: string; message_id?: string }>;
   registerProcess(process: { kill(): void | Promise<void>; forceKill(): void | Promise<void> }): () => void;
 }
