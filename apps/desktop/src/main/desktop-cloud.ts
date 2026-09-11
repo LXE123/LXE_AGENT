@@ -19,6 +19,7 @@ import {
   type WireGuardDependencyStatus,
   type WireGuardProvisionerPort,
 } from "./wireguard-provisioner";
+import { resolveCloudDestinationUrl } from "./cloud-destinations";
 import { wireGuardTunnelFromEnrollment } from "./wireguard-types";
 import {
   legacySnapshotCanUpgrade,
@@ -171,26 +172,38 @@ export class DesktopCloudService {
     return [...(this.permissionSnapshot?.allowed_skill_types ?? [])];
   }
 
-  async adminDashboardUrl(): Promise<string> {
+  async erpDashboardUrl(): Promise<string> {
+    const state = this.state();
+    const url = resolveCloudDestinationUrl({
+      configured: state.configured, connection: state.connection,
+      dataServerUrl: this.options.config.cloudConfiguration().data_server_url,
+      destination: "erp_dashboard", desktopFeatures: state.desktop_features,
+    });
+    return state.is_admin ? this.adminDashboardUrl("erp") : url;
+  }
+
+  async adminDashboardUrl(destination: "admin" | "erp" = "admin"): Promise<string> {
     const target = this.probeTarget();
     if (!target || this.connection !== "connected" || !this.isAdmin) {
       throw new Error("请先连接并验证管理员身份");
     }
     const response = await this.request(`${target.dataServerUrl}/api/v1/agent-data/identity/admin-handoff`, {
-      method: "POST", headers: { authorization: `Bearer ${target.apiToken}` }, cache: "no-store",
+      method: "POST", headers: { authorization: `Bearer ${target.apiToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ target: destination }), cache: "no-store",
     });
     if (!response.ok) {
       const body = await response.text();
-      if (response.status === 401 || response.status === 403) this.isAdmin = false;
+      if (response.status === 401 || (response.status === 403 && !body.includes("erp_device_access_denied"))) this.isAdmin = false;
       this.publishState();
       throw new Error(this.diagnosticError(new Error(`Administrator handoff HTTP ${response.status}: ${body}`), target));
     }
     const payload = objectValue(await response.json());
-    if (typeof payload?.code !== "string" || !/^lxe_handoff_[A-Za-z0-9_-]{32,}$/u.test(payload.code)) {
+    const codePattern = destination === "erp" ? /^lxe_erp_handoff_[A-Za-z0-9_-]{32,}$/u : /^lxe_handoff_[A-Za-z0-9_-]{32,}$/u;
+    if (typeof payload?.code !== "string" || !codePattern.test(payload.code)) {
       throw new Error("Invalid administrator handoff response");
     }
     // Separate the identity login from browsers' cached legacy shared-key page.
-    return `${target.dataServerUrl}/admin?auth=identity-v1#handoff=${encodeURIComponent(payload.code)}`;
+    return `${target.dataServerUrl}/${destination}?auth=identity-v1#handoff=${encodeURIComponent(payload.code)}`;
   }
 
   private validatePrincipal(payload: Record<string, unknown>, target: ManagedCloudProbeTarget): void {
@@ -974,7 +987,7 @@ export class DesktopCloudService {
 
   private diagnosticError(error: unknown, target?: CloudProbeTarget): string {
     const message = error instanceof Error ? error.message : String(error);
-    const sanitized = message.replace(/\blxe_(?:(?:dev|client|identity)_[A-Za-z0-9]+\.|(?:erp_run|run|handoff|session)_)[A-Za-z0-9_-]+\b/gu, "[redacted]");
+    const sanitized = message.replace(/\blxe_(?:(?:dev|client|identity)_[A-Za-z0-9]+\.|(?:erp_run|erp_handoff|erp_session|run|handoff|session)_)[A-Za-z0-9_-]+\b/gu, "[redacted]");
     return target ? this.redactSensitiveText(sanitized, target) : sanitized.trim().slice(0, 500);
   }
 

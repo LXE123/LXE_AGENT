@@ -28,7 +28,7 @@ function setup() {
     activation_required: false, registration_status: "active", management_role: "administrator", management_version: 1,
     permission_v2: { response_schema: "lxe.device-permission.v2", assignment_version: 1,
       profile: { id: "replenishment", revision: 2, labels: { "zh-CN": "备货", "en-US": "Replenishment" } },
-      grants: { skill_types: ["amazon_replenish", "default"], desktop_features: [] } } };
+      grants: { skill_types: ["amazon_replenish", "default"], desktop_features: [] as string[] } } };
   return { root, config, identity };
 }
 function enroll(config: DesktopConfigStore) {
@@ -108,5 +108,52 @@ test("an encrypted v4 identity file binds an existing tunnel without provisionin
     expect(config.cloudIdentityCredential()).toBe(rootToken);
     expect(config.cloudWireGuardConfiguration()).toBeNull();
     expect(configured).toBe(1);
+  } finally { await service.stop(); }
+});
+
+test("existing ERP shortcut hands administrators into ERP while members retain ordinary navigation", async () => {
+  const { root, config, identity } = setup(); enroll(config);
+  identity.permission_v2.grants.desktop_features = ["erp_dashboard"];
+  identity.permission_v2.profile = { id: "fba", revision: 2, labels: { "zh-CN": "FBA", "en-US": "FBA" } };
+  const erpCode = `lxe_erp_handoff_${"x".repeat(43)}`;
+  const requests: string[] = [];
+  let fail = false;
+  let wrongScope = false;
+  const service = new DesktopCloudService({ dataRoot: root, config, supported: false, logger,
+    enrollments: new DesktopCloudEnrollmentManager(), onConfigured: async () => {},
+    provisioner: { provision: async () => { throw new Error("must not provision"); } },
+    fetch: async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/identity")) return Response.json(identity);
+      if (url.endsWith("/business-credential")) return Response.json(business);
+      if (url.endsWith("/admin-handoff")) {
+        requests.push(String(init?.body));
+        expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${rootToken}`);
+        if (fail) return Response.json({ detail: { code: "erp_device_access_denied", message: erpCode } }, { status: 403 });
+        return Response.json({ code: wrongScope ? `lxe_handoff_${"x".repeat(43)}` : erpCode, expires_at: 4_000_000_000 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+  });
+  try {
+    await service.start();
+    expect(await service.erpDashboardUrl()).toBe(`http://10.88.0.1:8000/erp?auth=identity-v1#handoff=${erpCode}`);
+    expect(requests).toEqual([JSON.stringify({ target: "erp" })]);
+    wrongScope = true;
+    await expect(service.erpDashboardUrl()).rejects.toThrow("Invalid administrator handoff response");
+    wrongScope = false; fail = true;
+    try { await service.erpDashboardUrl(); throw new Error("Expected failure"); }
+    catch (error) { expect(String(error)).toContain("403"); expect(String(error)).not.toContain(erpCode); }
+    expect(service.state().is_admin).toBe(true); // ERP business permission does not define the administrator role.
+    fail = false;
+    identity.management_role = "member"; identity.management_version += 1;
+    await service.check();
+    const before = requests.length;
+    expect(await service.erpDashboardUrl()).toBe("http://10.88.0.1:8000/erp");
+    expect(requests.length).toBe(before);
+    identity.permission_v2.grants.desktop_features = [];
+    identity.permission_v2.assignment_version += 1;
+    await service.check();
+    await expect(service.erpDashboardUrl()).rejects.toThrow("没有 FBA ERP 访问权限");
   } finally { await service.stop(); }
 });

@@ -444,6 +444,10 @@ async function bootstrap(): Promise<void> {
         await shell.openExternal(await cloud.adminDashboardUrl());
         return;
       }
+      if (destination === "erp_dashboard") {
+        await shell.openExternal(await cloud.erpDashboardUrl());
+        return;
+      }
       await shell.openExternal(resolveCloudDestinationUrl({
         configured: state.configured,
         connection: state.connection,
