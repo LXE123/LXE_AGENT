@@ -9,10 +9,11 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 const windowsTest = process.platform === "win32" ? test : test.skip;
 const quoted = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
-function copy(source: string, destination: string) {
+function copy(source: string, destination: string, lockedFile?: string) {
   // Load only the production helpers; do not run downloads or alter a real runtime.
   const script = `
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $script:RepositoryRoot = ${quoted(resolve(import.meta.dir, ".."))}
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(${quoted(join(import.meta.dir, "prepare-desktop-runtime.ps1"))}, [ref]$null, [ref]$null)
@@ -20,7 +21,9 @@ $names = @('Format-LxeNativeArgument', 'Invoke-LxeNative', 'Copy-LxeDirectoryCon
 $functions = @($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $names}, $false))
 if ($functions.Count -ne 3) { throw 'Expected exactly three production copy helpers' }
 foreach ($function in $functions) { Invoke-Expression $function.Extent.Text }
-Copy-LxeDirectoryContents -Source ${quoted(source)} -Destination ${quoted(destination)}
+$held = ${lockedFile ? `[System.IO.File]::Open(${quoted(lockedFile)}, 'Open', 'ReadWrite', 'None')` : "$null"}
+try { Copy-LxeDirectoryContents -Source ${quoted(source)} -Destination ${quoted(destination)} }
+finally { if ($null -ne $held) { $held.Dispose() } }
 `;
   return spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
     encoding: "utf8", timeout: 30_000, windowsHide: true,
@@ -55,11 +58,11 @@ windowsTest("runtime copy preserves long Unicode paths, empty directories and ex
 
 windowsTest("runtime copy preserves native copy failures and rejects a missing source", () => {
   const base = root(), source = join(base, "source"), destination = join(base, "destination");
-  mkdirSync(join(source, "blocked"), { recursive: true });
+  mkdirSync(source, { recursive: true });
   mkdirSync(destination);
-  writeFileSync(join(source, "blocked", "payload.txt"), "runtime payload");
-  writeFileSync(join(destination, "blocked"), "existing file");
-  const failed = copy(source, destination);
+  writeFileSync(join(source, "blocked.txt"), "new runtime payload");
+  writeFileSync(join(destination, "blocked.txt"), "old");
+  const failed = copy(source, destination, join(destination, "blocked.txt"));
   expect(failed.status).not.toBe(0);
   expect(failed.stderr).toMatch(/Copy runtime directory failed with exit code (8|9|1[0-6])/u);
   expect(failed.stderr).toContain("blocked");
