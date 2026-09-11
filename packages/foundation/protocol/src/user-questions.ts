@@ -9,6 +9,7 @@ export interface UserQuestion {
 
 export interface UserQuestionAnswer {
   id: string;
+  /** An empty selection without custom text means the user explicitly skipped the question. */
   selected: string[];
   custom?: string;
 }
@@ -100,7 +101,7 @@ export function validateUserQuestionAnswers(questions: readonly UserQuestion[], 
     if (new Set(answer.selected).size !== answer.selected.length || answer.selected.some(label => !choices.has(label))) {
       throw new Error(`Invalid selected options for question: ${question.id}`);
     }
-    if (!answer.selected.length && !answer.custom?.trim()) throw new Error(`An answer is required for question: ${question.id}`);
+    if (answer.custom !== undefined) text(answer.custom, "custom answer");
     if (!question.multi_select && answer.selected.length + (answer.custom ? 1 : 0) > 1) {
       throw new Error(`Question ${question.id} accepts one selection or a custom answer`);
     }

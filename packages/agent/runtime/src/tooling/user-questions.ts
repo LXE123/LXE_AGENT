@@ -97,7 +97,7 @@ export function registerUserQuestionTool(registry: ToolRegistry, service: UserQu
   registry.register({
     name: "ask_user_question",
     platforms: ["desktop"],
-    description: "Ask the user for a choice or missing information that you cannot discover yourself. Ask 1–3 concise questions, optionally with up to 8 choices. The desktop displays a form and this call waits for the user's answer. Use this as the only tool call in your response. User answers apply only to the questions asked; do not expand their authorization. Do not ask the same question again after the user stops the task.",
+    description: "Ask the user for a choice or missing information that you cannot discover yourself. Ask 1–3 concise questions, optionally with up to 8 choices. The desktop displays a form and this call waits for the user's answer. Use this as the only tool call in your response. An answer with selected: [] and no custom text means the user skipped that question; it is not consent or authorization. Continue with the available information without inventing an answer or repeating a skipped question unless new information makes it necessary. User answers apply only to the questions asked; do not expand their authorization. Do not ask the same question again after the user stops the task.",
     input_schema: {
       type: "object", additionalProperties: false, required: ["questions"],
       properties: { questions: {

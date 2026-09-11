@@ -38,6 +38,7 @@ app.whenReady().then(async () => {
     const next = '.user-question-pagination button:last-child';
     const previous = '.user-question-pagination button:first-child';
     const primary = '.user-question-continue';
+    const skip = '.user-question-skip';
     const textarea = '.user-question-card textarea';
     const activeDot = '.session-index-item.active .session-index-icon';
     const screenshot = async (name: string) => {
@@ -69,6 +70,9 @@ app.whenReady().then(async () => {
         const fields = document.querySelector('.user-question-fields');
         const footer = document.querySelector('.user-question-actions').getBoundingClientRect();
         const header = document.querySelector('.user-question-header').getBoundingClientRect();
+        const error = document.querySelector('.user-question-error');
+        const errorRect = error?.getBoundingClientRect();
+        const fieldsRect = fields.getBoundingClientRect();
         return {
           scrolls: fields.scrollHeight > fields.clientHeight,
           choicesVisible: fields.clientHeight >= 44,
@@ -77,9 +81,11 @@ app.whenReady().then(async () => {
           cardFits: card.height <= Math.min(innerHeight * .35, 300) + 1,
           noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
           oneQuestion: document.querySelectorAll('.user-question-card fieldset').length === 1,
+          errorReadable: !error || (errorRect.top >= fieldsRect.top &&
+            Math.min(errorRect.bottom, fieldsRect.bottom) - errorRect.top >= parseFloat(getComputedStyle(error).lineHeight)),
         };
       })()`);
-      assert.deepEqual(layout, { scrolls: true, choicesVisible: true, footerVisible: true, headerVisible: true, cardFits: true, noHorizontalOverflow: true, oneQuestion: true });
+      assert.deepEqual(layout, { scrolls: true, choicesVisible: true, footerVisible: true, headerVisible: true, cardFits: true, noHorizontalOverflow: true, oneQuestion: true, errorReadable: true });
     };
     await request("fixture.restart");
     await window.loadURL(`${base}/test/features/sessions/user-questions-fixture.html`);
@@ -116,12 +122,13 @@ app.whenReady().then(async () => {
     await js("document.documentElement.dataset.theme='dark'");
     await screenshot("dark");
     await js("document.documentElement.dataset.theme='light'");
-    // Pager can preview unanswered questions, but cannot submit incomplete answers.
+    // Pager can preview questions, but edited multi/text drafts still require confirmation.
     await click(next); await page("2 / 3");
     await click(next); await page("3 / 3");
     assert.equal(await js(`document.querySelector(${JSON.stringify(next)}).disabled`), true);
     await setText(textarea, "已经回答最后一题");
-    assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).disabled`), true);
+    assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).disabled`), false);
+    assert.equal(submits, 0);
     await click(previous); await page("2 / 3");
     await click(previous); await page("1 / 3");
     await click('.user-question-card input[type=radio]'); await page("2 / 3");
@@ -148,14 +155,16 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.querySelector(${JSON.stringify(textarea)}).value`), "附上来源链接");
     await click(previous); await page("1 / 3");
     assert.equal(await js("document.querySelector('.user-question-card input[type=radio]').checked"), true);
-    await click('.user-question-card input[type=radio]'); await page("2 / 3");
+    await click('.user-question-card input[type=radio]'); await page("3 / 3");
+    await click(previous); await page("2 / 3");
     await click(previous); await page("1 / 3");
     // Returning to a selected radio still allows changing the choice and auto-advances.
-    await click('.user-question-option:nth-child(2) input'); await page("2 / 3");
-    await click(primary); await page("3 / 3");
+    await click('.user-question-option:nth-of-type(2) input'); await page("3 / 3");
+    assert.equal(submits, 0, "A valid text draft must not be sent without its confirmation");
     await request("fixture.fail-answer");
     await click(primary);
     await until("document.querySelector('.user-question-error')?.textContent.includes('Fixture transport disconnected before submit')");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).textContent`), "重试提交");
     assert.equal(await js(`document.querySelector(${JSON.stringify(textarea)}).value`), "不要修改已经发布的内容");
     await request("fixture.delay-answer");
     const before = submits;
@@ -164,6 +173,7 @@ app.whenReady().then(async () => {
     assert.equal(await js("!!document.querySelector('.user-question-card')"), true, "Card stays until answer acknowledgement");
     assert.equal(await js("document.querySelector('.user-question-card fieldset').disabled"), true);
     assert.equal(await js(`document.querySelector(${JSON.stringify(previous)}).disabled`), true);
+    assert.equal(await js(`document.querySelector(${JSON.stringify(skip)}).disabled`), true);
     await until("!!document.querySelector('.conversation-compose-box textarea')");
     assert.equal(submits - before, 1, "Double submission must send one RPC");
     assert.equal(await js("document.querySelector('.conversation-compose-box textarea').value"), "保留原来的聊天草稿");
@@ -191,7 +201,7 @@ app.whenReady().then(async () => {
     await js(`sessionStorage.setItem('lxe.question-draft.'+${JSON.stringify(oldB.request_id)},${JSON.stringify(JSON.stringify(legacy))});sessionStorage.removeItem('lxe.question-page.'+${JSON.stringify(oldB.request_id)});questionFixture.select('a')`);
     await until("!document.querySelector('.user-question-card')");
     await js("questionFixture.select('b')"); await page("1 / 3");
-    assert.equal(await js("document.querySelector('.user-question-option:nth-child(2) input').checked"), true, "Old array drafts are preserved");
+    assert.equal(await js("document.querySelector('.user-question-option:nth-of-type(2) input').checked"), true, "Old array drafts are preserved");
     // Page indices from storage cannot render an invalid question.
     for (const [stored, expected] of [["99", "3 / 3"], ["-1", "1 / 3"], ["invalid", "1 / 3"]]) {
       await js(`sessionStorage.setItem('lxe.question-page.'+${JSON.stringify(oldB.request_id)},${JSON.stringify(stored)});questionFixture.select('a')`);
@@ -205,10 +215,16 @@ app.whenReady().then(async () => {
     await click(previous); await page("1 / 3");
     assert.equal(await js(`document.querySelector(${JSON.stringify(textarea)}).value`), "", "Selecting a radio clears custom text");
     // Native keyboard selection remains operable even though inputs are visually replaced.
-    await js("document.querySelector('.user-question-option:nth-child(2) input').focus()");
+    await js("document.querySelector('.user-question-option:nth-of-type(2) input').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
     await page("2 / 3");
+    await click(skip); await page("3 / 3");
+    await click(previous); await page("2 / 3");
+    assert.equal(await js("document.querySelector('.user-question-card fieldset [role=status]')?.textContent"), "已跳过");
+    assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
+    await click('.user-question-card input[type=checkbox]');
+    assert.equal(await js("!!document.querySelector('.user-question-card fieldset [role=status]')"), false);
     await click('.user-question-stop');
     await refresh(); await until("!document.querySelector('.user-question-card')");
     const cancelledHistory = await expandHistory(oldB.tool_call_id, "User question cancelled before an answer was accepted");
@@ -226,15 +242,18 @@ app.whenReady().then(async () => {
     await refresh(); await until("!document.querySelector('.user-question-card')");
     console.log("PASS: legacy drafts, page bounds, exclusive single/custom answers, keyboard selection, cancellation and restart invalidation");
 
-    // One long question with all eight options exercises constrained layout and explicit final submit.
+    // A failed automatic single-choice submission retains its choice for retry and visual inspection.
     await js("questionFixture.select('c')");
     await request("fixture.start", { session_id: "c", variant: "single" });
     await refresh(); await page("1 / 1");
     const single = await js("questionFixture.pending().find(q=>q.session_id==='c')");
     assert.equal(await js(`document.querySelector(${JSON.stringify(previous)}).disabled && document.querySelector(${JSON.stringify(next)}).disabled`), true);
+    const beforeSingle = submits;
+    await request("fixture.fail-answer");
     await click('.user-question-card input[type=radio]');
+    await until("document.querySelector('.user-question-error')?.textContent.includes('Fixture transport disconnected before submit')");
     await page("1 / 1");
-    assert.equal(submits, before + 1, "Final single choice never auto-submits");
+    assert.equal(submits, beforeSingle + 1, "A single choice submits immediately without confirmation");
     window.setSize(1280, 1000);
     await screenshot("overflow-desktop");
     await assertCompactLayout();
@@ -260,7 +279,7 @@ app.whenReady().then(async () => {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
     await delay(100);
-    assert.equal(submits, before + 1);
+    assert.equal(submits, beforeSingle + 1);
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
     await click(primary);
     await until("!document.querySelector('.user-question-card')");
@@ -276,19 +295,104 @@ app.whenReady().then(async () => {
     await js(`document.querySelector(${JSON.stringify(`${longHistory} .result-block`)}).scrollIntoView()`);
     await screenshot("history-long-result");
     await click(`${longHistory} .tool-op-summary`);
-    console.log("PASS: single-question explicit submit, free text, textarea Enter, long content scrolling, narrow light/dark layout");
+    console.log("PASS: automatic single-choice submit, failure retention, free text confirmation, textarea Enter, long content scrolling, narrow light/dark layout");
     await request("fixture.start", { session_id: "c", variant: "single" });
     await refresh(); await page("1 / 1");
     const raced = await js("questionFixture.pending().find(q=>q.session_id==='c')");
-    await click('.user-question-card input[type=radio]');
     await request("fixture.delay-answer");
     const beforeRace = submits;
-    await js("document.querySelector('.user-question-card').requestSubmit();document.querySelector('.user-question-stop').click()");
+    await js("document.querySelector('.user-question-card input[type=radio]').click();document.querySelector('.user-question-stop').click()");
     await refresh(); await until("!document.querySelector('.user-question-card')");
     assert.equal(submits - beforeRace, 1);
     await until(`questionFixture.operations()?.some(o=>o.key===${JSON.stringify(raced.tool_call_id)} && !!o.result)`);
     assert.equal(await js(`questionFixture.operations().filter(o=>o.key===${JSON.stringify(raced.tool_call_id)}).length`), 1);
     assert.equal(await js(`questionFixture.pending().some(q=>q.request_id===${JSON.stringify(raced.request_id)})`), false);
+    // Three single choices submit on the last click, including the latest changed selection.
+    window.setSize(1050, 850);
+    await js("questionFixture.select('a')");
+    await request("fixture.start", { session_id: "a", variant: "all-single" });
+    await refresh(); await page("1 / 3");
+    const singles = await js("questionFixture.pending().find(q=>q.session_id==='a')");
+    const beforeSingles = submits;
+    await click('.user-question-option:nth-of-type(2) input'); await page("2 / 3");
+    await click(previous); await page("1 / 3");
+    await click('.user-question-option:first-of-type input'); await page("2 / 3");
+    await click('.user-question-option:nth-of-type(2) input'); await page("3 / 3");
+    assert.equal(submits, beforeSingles);
+    await request("fixture.delay-answer");
+    await js("const option=document.querySelector('.user-question-option:nth-of-type(2) input');option.click();option.click()");
+    await delay(150); await refresh();
+    assert.equal(await js("!!document.querySelector('.user-question-card')"), true);
+    assert.equal(submits, beforeSingles + 1);
+    await until("!document.querySelector('.user-question-card')");
+    const singlesHistory = await expandHistory(singles.tool_call_id, "answers");
+    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${singlesHistory} .tool-result-full code`)}).textContent).answers`), [
+      { id: "one", selected: ["店铺 A"] }, { id: "two", selected: ["店铺 B"] }, { id: "three", selected: ["店铺 B"] },
+    ]);
+    console.log("PASS: single choices confirm immediately, returning to edit preserves the newest choice, final double click submits once and waits for acknowledgement");
+
+    // Explicit skips survive session changes and reload; the question and options stay editable.
+    await js("questionFixture.select('b')");
+    await request("fixture.start", { session_id: "b" });
+    await refresh(); await page("1 / 3");
+    const skipped = await js("questionFixture.pending().find(q=>q.session_id==='b')");
+    const beforeSkips = submits;
+    await click(skip); await page("2 / 3");
+    await js("document.querySelectorAll('.user-question-card input[type=checkbox]').forEach(e=>e.click())");
+    await click('.user-question-custom-toggle'); await setText(textarea, "这份草稿会被跳过清除");
+    await click(skip); await page("3 / 3");
+    assert.equal(submits, beforeSkips);
+    await js("questionFixture.select('a')"); await until("!document.querySelector('.user-question-card')");
+    await js("questionFixture.select('b')"); await page("3 / 3");
+    window.reload(); await until("!!document.querySelector('.conversation-compose-box textarea')");
+    await js("questionFixture.select('b')"); await page("3 / 3");
+    await click(previous); await page("2 / 3");
+    assert.equal(await js("document.querySelector('.user-question-card fieldset [role=status]')?.textContent"), "已跳过");
+    assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
+    assert.equal(await js("!!document.querySelector('.user-question-card textarea')"), false);
+    assert.equal(await js("document.querySelectorAll('.user-question-card input[type=checkbox]').length"), 2);
+    await screenshot("skipped-light");
+    await js("document.documentElement.dataset.theme='dark'"); await screenshot("skipped-dark");
+    await js("document.documentElement.dataset.theme='light'");
+    await click('.user-question-card input[type=checkbox]');
+    assert.equal(await js("!!document.querySelector('.user-question-card fieldset [role=status]')"), false);
+    await click(skip); await page("3 / 3");
+    await setText(textarea, "未确认的文字不能被单选自动提交");
+    await click(previous); await page("2 / 3");
+    await click(previous); await page("1 / 3");
+    assert.equal(await js("document.querySelectorAll('.user-question-card input[type=radio]').length"), 2);
+    await click('.user-question-option:nth-of-type(2) input'); await page("3 / 3");
+    assert.equal(submits, beforeSkips);
+    await click(skip);
+    await until("!document.querySelector('.user-question-card')");
+    const skippedHistory = await expandHistory(skipped.tool_call_id, "answers");
+    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${skippedHistory} .tool-result-full code`)}).textContent).answers`), [
+      { id: "one", selected: ["店铺 B"] }, { id: "many", selected: [] }, { id: "text", selected: [] },
+    ]);
+    assert.equal(submits, beforeSkips + 1);
+
+    // Skipping the last page first wraps to the missed first question; all-skipped is a normal result.
+    await request("fixture.start", { session_id: "b" }); await refresh(); await page("1 / 3");
+    const allSkipped = await js("questionFixture.pending().find(q=>q.session_id==='b')");
+    const beforeAllSkipped = submits;
+    await click(next); await page("2 / 3");
+    await click(next); await page("3 / 3");
+    await click(skip); await page("1 / 3");
+    await click(skip); await page("2 / 3");
+    await request("fixture.fail-answer");
+    await click(skip);
+    await until("document.querySelector('.user-question-error')?.textContent.includes('Fixture transport disconnected before submit')");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).textContent`), "重试提交");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).disabled`), false);
+    assert.equal(submits, beforeAllSkipped + 1);
+    await click(primary); await until("!document.querySelector('.user-question-card')");
+    const allSkippedHistory = await expandHistory(allSkipped.tool_call_id, "answers");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(`${allSkippedHistory} .tool-status-icon`)}).dataset.toolStatus`), "success");
+    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${allSkippedHistory} .tool-result-full code`)}).textContent).answers`), [
+      { id: "one", selected: [] }, { id: "many", selected: [] }, { id: "text", selected: [] },
+    ]);
+    assert.equal(submits, beforeAllSkipped + 2);
+    console.log("PASS: skip single/multi/text, clear only drafted answers, restore skips across session switch/reload, revise skipped choices, wrap missed questions, all-skipped result and failed-submit retry");
     console.log("PASS: simultaneous submit/stop settles the owned call and leaves one completed history operation");
     window.destroy(); app.exit(0);
   } catch (error) { console.error(error); window?.destroy(); app.exit(1); }

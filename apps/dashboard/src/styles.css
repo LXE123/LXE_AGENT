@@ -11548,10 +11548,12 @@ pre {
 .user-question-card .user-question-custom-toggle { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border-radius: 8px; text-align: left; color: var(--text-soft); font-size: .8125rem; }
 .user-question-custom-toggle:hover:not(:disabled) { color: var(--text); }
 .user-question-custom-toggle > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-question-card .user-question-continue { display: flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; margin-left: auto; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 500; }
-.user-question-continue:hover:not(:disabled) { background: var(--surface-subtle); }
+.user-question-buttons { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.user-question-card .user-question-continue, .user-question-card .user-question-skip { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 500; white-space: nowrap; }
+.user-question-card .user-question-skip { color: var(--text-soft); border-color: transparent; }
+.user-question-continue:hover:not(:disabled), .user-question-skip:hover:not(:disabled) { background: var(--surface-subtle); }
 .user-question-card button:disabled { opacity: .4; cursor: default; }
-.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; margin: 0 12px; max-height: 80px; overflow-y: auto; }
+.user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; line-height: 1.5; margin: 0 12px 8px; }
 .session-index-item .session-index-icon[data-session-state="waiting_input"] { color: #60a5fa; background: currentColor; border-color: currentColor; opacity: 1; animation: none; }
 @media (max-width: 700px) {
   .user-question-card { padding: 8px; border-radius: 18px; }

@@ -15,6 +15,22 @@ function context(session_id = "s", controller = new AbortController(), platform 
 }
 
 describe("runtime user question ownership", () => {
+  test.each(["mixed", "all-skipped"])("explicit skips are normal answers, scoped and idempotent: %s", async kind => {
+    const service = new UserQuestionService(() => {});
+    const a = service.ask(input, context("a"));
+    const b = service.ask(input, context("b"));
+    const [qa, qb] = service.snapshot();
+    const skipped = input.questions.map(question => ({ id: question.id, selected: [] }));
+    const value = kind === "mixed" ? [answers[0]!, skipped[1]!, answers[2]!] : skipped;
+    const submission = { session_id: "a", request_id: qa!.request_id, answers: value };
+    const ack = service.submit(submission);
+    expect(service.submit(submission)).toEqual(ack);
+    expect(await a).toEqual({ answers: value });
+    expect(service.snapshot().map(q => q.request_id)).toEqual([qb!.request_id]);
+    service.submit({ session_id: "b", request_id: qb!.request_id, answers: skipped });
+    expect(await b).toEqual({ answers: skipped });
+  });
+
   test("answers only the matching call; snapshots are independent, retries settle once", async () => {
     const changes: string[] = [];
     const service = new UserQuestionService(id => changes.push(id));

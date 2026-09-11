@@ -166,7 +166,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test.each(["answer", "cancel"])("desktop questions pause the model and close transcript calls on %s", async action => {
+  test.each(["answer", "skip", "cancel"])("desktop questions pause the model and close transcript calls on %s", async action => {
     const store = new MemoryStore(); // Its persisted source is feishu: the desktop turn must take precedence.
     const tools = new ToolRegistry();
     const questions = new UserQuestionService(() => {});
@@ -197,15 +197,17 @@ describe("TypeScriptAgentRuntime", () => {
     expect(modelCalls).toBe(1);
     if (action === "answer") questions.submit({ session_id: "s1", request_id: pending.request_id,
       answers: [{ id: "choice", selected: [], custom: "Use my draft" }] });
+    else if (action === "skip") questions.submit({ session_id: "s1", request_id: pending.request_id,
+      answers: [{ id: "choice", selected: [] }] });
     else controller.abort();
-    expect((await turn).status).toBe(action === "answer" ? "completed" : "cancelled");
-    expect(modelCalls).toBe(action === "answer" ? 2 : 1);
+    expect((await turn).status).toBe(action === "cancel" ? "cancelled" : "completed");
+    expect(modelCalls).toBe(action === "cancel" ? 1 : 2);
     expect(questions.snapshot()).toEqual([]);
     const blocks = store.messages.flatMap(m => Array.isArray(m.content) ? m.content : []);
     const results = blocks.filter(b => b.type === "tool_result" && b.tool_call_id === "question-call");
     expect(results).toHaveLength(1);
     expect(results[0]!.is_error ?? false).toBe(action === "cancel");
-    expect(JSON.stringify(results)).toContain(action === "answer" ? "Use my draft" : "cancelled");
+    expect(JSON.stringify(results)).toContain(action === "answer" ? "Use my draft" : action === "skip" ? "choice" : "cancelled");
     await runtime.stop();
   });
 

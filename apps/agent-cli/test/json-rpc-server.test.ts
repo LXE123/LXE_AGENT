@@ -56,7 +56,7 @@ describe("JSON-RPC server semantics", () => {
     await call("missing_method", {}, "missing");
     await call("cancel_turn", {}, "params");
     await call("cancel_turn", { run_id: "run" }, "not-ready");
-    await call("initialize", { ...initialize, protocol_version: 17 }, "version");
+    await call("initialize", { ...initialize, protocol_version: 20 }, "version");
     const { protocol_version: _version, ...missingVersion } = initialize;
     await call("initialize", missingVersion, "missing-version");
     expect(responses().map((response) => [response.id, "error" in response ? response.error.code : 0])).toEqual([
@@ -76,7 +76,7 @@ describe("JSON-RPC server semantics", () => {
     started();
     await Promise.all([first, second]);
     await call("initialize", initialize, "repeat");
-    await call("initialize", { ...initialize, protocol_version: 17 }, "wrong-version");
+    await call("initialize", { ...initialize, protocol_version: 20 }, "wrong-version");
     expect(creates()).toBe(1);
     expect(responses().find((r) => r.id === "early")).toMatchObject({ error: { code: -32001 } });
     for (const id of ["first", "second", "repeat"]) expect(responses().find((r) => r.id === id)).toMatchObject({ result: { protocol_version: AGENT_PROTOCOL_VERSION } });

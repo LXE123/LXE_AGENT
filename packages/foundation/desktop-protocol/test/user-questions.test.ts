@@ -5,6 +5,7 @@ test("question reads, answers and change notifications cross the shared IPC/JSON
   const calls = [
     { operation: "sessions.questions" as const, input: {} },
     { operation: "sessions.answer" as const, input: { session_id: "s", request_id: "request", answers: [{ id: "q", selected: ["a"] }] } },
+    { operation: "sessions.answer" as const, input: { session_id: "s", request_id: "request", answers: [{ id: "q", selected: [] }] } },
   ];
   for (const call of calls) {
     expect(parseDashboardRpcCall(call)).toEqual(call);

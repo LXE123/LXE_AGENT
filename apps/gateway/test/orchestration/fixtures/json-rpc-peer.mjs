@@ -10,9 +10,9 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   const request = JSON.parse(line);
   if (request.jsonrpc !== "2.0" || "command" in request || "version" in request) process.exit(91);
   if (request.method === "initialize") {
-    if (request.params.protocol_version !== 20) process.exit(92);
+    if (request.params.protocol_version !== 21) process.exit(92);
     if (mode === "version-error") { write({ jsonrpc: "2.0", id: request.id, error: { code: -32002, message: "expected version 20", data: { code: "version_mismatch" } } }); continue; }
-    write({ jsonrpc: "2.0", id: request.id, result: { ready: true, protocol_version: mode === "version-result" ? 17 : 20 } });
+    write({ jsonrpc: "2.0", id: request.id, result: { ready: true, protocol_version: mode === "version-result" ? 17 : 21 } });
     continue;
   }
   if (request.method === "shutdown") {

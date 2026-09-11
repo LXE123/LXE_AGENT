@@ -38,7 +38,7 @@ const vite = await createServer({ root: resolve("apps/dashboard"), server: { por
         let result: unknown;
         if (raw.operation === "fixture.start") {
           const id = raw.input.session_id;
-          const userInput = raw.input.variant === "single" ? "fixture:single" : "请帮我处理店铺";
+          const userInput = ["single", "all-single"].includes(raw.input.variant) ? `fixture:${raw.input.variant}` : "请帮我处理店铺";
           await runtime.ensureSession({ session_id: id, source: { platform: "desktop" }, workspace });
           await scheduler.enqueue({ ...jobFixture, job_id: crypto.randomUUID(), session_id: id, message_id: crypto.randomUUID(),
             user_input: userInput, user_content_blocks: [{ type: "text", text: userInput }], source: { platform: "desktop" }, response_route_id: "", workspace });

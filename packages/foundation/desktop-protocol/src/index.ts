@@ -37,7 +37,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 20 as const;
+export const AGENT_PROTOCOL_VERSION = 21 as const;
 
 /** Session-owned exec snapshot used only for completion events and card refresh. */
 export type ExecTaskSnapshotPayload = {

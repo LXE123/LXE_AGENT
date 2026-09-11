@@ -20,13 +20,17 @@ const server = new AgentProtocolServer({
         summarize: async () => ({ text: "Fixture summary", usage: { input_tokens: 0, output_tokens: 0 } }),
         turn: async request => {
           const ask = request.messages.at(-1)?.role !== "tool";
-          const single = request.messages.some(message => message.role === "user" && (typeof message.content === "string"
-            ? message.content.includes("fixture:single") : message.content.some(block => block.type === "text" && typeof block.text === "string" && block.text.includes("fixture:single"))));
+          const user = [...request.messages].reverse().find(message => message.role === "user" && !message.environmentContext);
+          const prompt = typeof user?.content === "string" ? user.content : JSON.stringify(user?.content);
+          const single = prompt?.includes("fixture:single");
+          const allSingle = prompt?.includes("fixture:all-single");
           return { id: crypto.randomUUID(), role: "assistant", timestamp: Date.now(), api: "anthropic_messages", provider: "fixture", model: "fixture",
             stopReason: ask ? "toolUse" : "stop", usage: { input_tokens: 1, output_tokens: 1, status: "complete" },
             content: ask ? [{ type: "tool_call", id: crypto.randomUUID(), name: "ask_user_question", arguments: { questions: single ? [
               { id: "single", question: "这次需要优先处理哪一项？请结合店铺目前的运营情况、资料准备进度和已安排的工作，选择最适合的一项；也可以填写自己的处理建议。", options: Array.from({ length: 8 }, (_, i) => ({ label: `方案 ${i + 1}`, description: "整理本周需要处理的商品资料，核对库存与订单，并保留已发布内容。".repeat(3) })) },
-            ] : [
+            ] : allSingle ? ["one", "two", "three"].map(id => ({
+              id, question: `问题 ${id}：选择哪个店铺？`, options: [{ label: "店铺 A" }, { label: "店铺 B" }],
+            })) : [
               { id: "one", header: "运行范围", question: "先处理哪个店铺？", options: [{ label: "店铺 A", description: "先完成一间店铺" }, { label: "店铺 B" }] },
               { id: "many", question: "需要哪些输出？", multi_select: true, options: [{ label: "表格" }, { label: "摘要" }] },
               { id: "text", question: "还有什么需要注意？" },
