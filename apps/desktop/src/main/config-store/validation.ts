@@ -61,6 +61,16 @@ export class DesktopConfigValidation {
     ].filter((value): value is string => Boolean(value));
   }
 
+  yacangIssues(
+    yacang: DesktopConfig["integrations"]["yacang"],
+    secrets: DesktopSecrets,
+  ): string[] {
+    return [
+      !yacang.mobile && "缺少账号",
+      !secrets.yacang_password && "缺少密码",
+    ].filter((value): value is string => Boolean(value));
+  }
+
   feishuIssues(
     feishu: DesktopConfig["integrations"]["feishu"],
     secrets: DesktopSecrets,

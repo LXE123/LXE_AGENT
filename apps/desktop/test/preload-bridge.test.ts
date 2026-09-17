@@ -28,6 +28,7 @@ describe("preload bridge", () => {
       "cancelSyntheticPerformerTask",
       "deleteLocalModelCredential",
       "discardConversationFiles",
+      "executeYacangExport",
       "getCloudState",
       "getHealth",
       "getSetupState",
@@ -46,6 +47,7 @@ describe("preload bridge", () => {
       "platform",
       "prepareCloudDependencies",
       "previewDraftConversationFile",
+      "previewYacangExport",
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
@@ -66,6 +68,8 @@ describe("preload bridge", () => {
     await bridge.dashboard.call({ operation: "models.list", input: {} });
     await bridge.desktop.saveLocalModelCredential({ provider: "deepseek", api_key: "local-key" });
     await bridge.desktop.deleteLocalModelCredential("deepseek");
+    await bridge.desktop.previewYacangExport({ request_text: "导出 MY8801 的月度销量" });
+    await bridge.desktop.executeYacangExport({ preview_id: "preview-1", confirmed: true });
     await bridge.desktop.selectCloudEnrollment();
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
     await bridge.desktop.prepareCloudDependencies();
@@ -177,6 +181,8 @@ describe("preload bridge", () => {
       IPC_CHANNELS.dashboardCall,
       IPC_CHANNELS.saveLocalModelCredential,
       IPC_CHANNELS.deleteLocalModelCredential,
+      IPC_CHANNELS.previewYacangExport,
+      IPC_CHANNELS.executeYacangExport,
       IPC_CHANNELS.selectCloudEnrollment,
       IPC_CHANNELS.activateCloudEnrollment,
       IPC_CHANNELS.prepareCloudDependencies,
@@ -199,18 +205,18 @@ describe("preload bridge", () => {
       IPC_CHANNELS.discardConversationFiles,
       IPC_CHANNELS.previewDraftConversationFile,
     ]);
-    expect(invocations[21]?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[22]?.arguments).toEqual([["attachment-1"]]);
-    expect(invocations[23]?.arguments).toEqual(["attachment-1"]);
+    expect(invocations[23]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[24]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[25]?.arguments).toEqual(["attachment-1"]);
     expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
     expect(invocations[2]?.arguments).toEqual(["deepseek"]);
-    expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[8]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[16]?.arguments).toEqual([{
+    expect(invocations[6]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
+    expect(invocations[10]?.arguments).toEqual(["erp_dashboard"]);
+    expect(invocations[18]?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,
     }]);
-    expect(invocations[12]?.arguments).toEqual(["dark"]);
+    expect(invocations[14]?.arguments).toEqual(["dark"]);
   });
 });

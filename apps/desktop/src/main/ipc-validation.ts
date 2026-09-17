@@ -7,6 +7,8 @@ import type {
   DesktopSetupInput,
   DesktopSyntheticPerformerSourceKind,
   DesktopSyntheticPerformerTaskInput,
+  DesktopYacangExecuteInput,
+  DesktopYacangPreviewInput,
 } from "@lxe/desktop-protocol";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
 
@@ -36,6 +38,22 @@ export function validateSyntheticPerformerId(value: unknown): string {
     throw new Error("Synthetic performer identifier is invalid");
   }
   return identifier;
+}
+
+export function validateYacangPreviewInput(value: unknown): DesktopYacangPreviewInput {
+  const input = objectValue(value, "Yacang preview input");
+  if (Object.keys(input).some((key) => key !== "request_text")) throw new Error("Yacang preview input has unsupported fields");
+  const requestText = boundedText(input.request_text, "Yacang request text", 8_192);
+  if (!requestText) throw new Error("Yacang request text is required");
+  return { request_text: requestText };
+}
+
+export function validateYacangExecuteInput(value: unknown): DesktopYacangExecuteInput {
+  const input = objectValue(value, "Yacang execution input");
+  if (Object.keys(input).some((key) => key !== "preview_id" && key !== "confirmed")) throw new Error("Yacang execution input has unsupported fields");
+  const previewId = boundedText(input.preview_id, "Yacang preview identifier", 128);
+  if (!/^[A-Za-z0-9-]+$/u.test(previewId) || input.confirmed !== true) throw new Error("Yacang execution confirmation is invalid");
+  return { preview_id: previewId, confirmed: true };
 }
 
 export function validateSyntheticPerformerSourceKind(
@@ -108,6 +126,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
   };
   const ziniao = input.ziniao === undefined ? undefined : integrationAction(input.ziniao, "Ziniao setup");
   const mabang = input.mabang === undefined ? undefined : integrationAction(input.mabang, "Mabang setup");
+  const yacang = input.yacang === undefined ? undefined : integrationAction(input.yacang, "Yacang setup");
   const feishu = input.feishu === undefined ? undefined : integrationAction(input.feishu, "Feishu setup");
   const logging = input.logging === undefined ? undefined : objectValue(input.logging, "Logging setup");
   const rawZiniaoVersion = ziniao?.action === "save"
@@ -135,6 +154,14 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     account: boundedText(mabang.account, "Mabang account", 1_024),
     ...(mabangPassword ? { password: mabangPassword } : {}),
   } : mabang?.action === "clear" ? { action: "clear" as const } : undefined;
+  const yacangPassword = yacang?.action === "save"
+    ? boundedText(yacang.password, "Yacang password", 16_384)
+    : "";
+  const yacangInput = yacang?.action === "save" ? {
+    action: "save" as const,
+    mobile: boundedText(yacang.mobile, "Yacang mobile", 1_024),
+    ...(yacangPassword ? { password: yacangPassword } : {}),
+  } : yacang?.action === "clear" ? { action: "clear" as const } : undefined;
   const feishuSecret = feishu?.action === "save"
     ? boundedText(feishu.app_secret, "Feishu App Secret", 16_384)
     : "";
@@ -160,6 +187,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     workspace_root: workspaceRoot,
     ...(ziniaoInput ? { ziniao: ziniaoInput } : {}),
     ...(mabangInput ? { mabang: mabangInput } : {}),
+    ...(yacangInput ? { yacang: yacangInput } : {}),
     ...(feishuInput ? { feishu: feishuInput } : {}),
     ...(loggingInput ? { logging: loggingInput } : {}),
   };

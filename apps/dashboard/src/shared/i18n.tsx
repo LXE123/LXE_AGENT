@@ -577,6 +577,7 @@ export const ZH_TEXT = {
     amazon_fba: "Amazon FBA",
     amazon_replenish: "Amazon Replenish",
     amazon_operations: "Amazon Operations",
+    yacang_operations: "雅仓运营",
     uncategorized: "未分类"
   },
   mermaid: {
@@ -641,6 +642,7 @@ export const ZH_TEXT = {
     integrationNames: {
       ziniao: "紫鸟",
       mabang: "马帮",
+      yacang: "雅仓",
       feishu: "飞书"
     },
     sectionTitles: {
@@ -650,6 +652,7 @@ export const ZH_TEXT = {
       base: "模型设置",
       ziniao: "紫鸟自动化",
       mabang: "马帮",
+      yacang: "雅仓",
       feishu: "飞书",
       logging: "日志与排障"
     },
@@ -783,6 +786,12 @@ export const ZH_TEXT = {
       account: "马帮账号",
       password: "马帮密码",
       passwordPlaceholder: "输入马帮密码"
+    },
+    yacang: {
+      description: "账号与密码使用系统安全存储；配置后可供已注册的雅仓数据导出流程自动登录。",
+      mobile: "雅仓账号",
+      password: "雅仓密码",
+      passwordPlaceholder: "输入雅仓密码"
     },
     feishu: {
       description: "App ID 与 App Secret 必须成对填写；整组留空即可跳过。",
@@ -1411,6 +1420,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       amazon_fba: "Amazon FBA",
       amazon_replenish: "Amazon Replenish",
       amazon_operations: "Amazon Operations",
+      yacang_operations: "Yacang Operations",
       uncategorized: "Uncategorized"
     },
     mermaid: {
@@ -1475,6 +1485,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       integrationNames: {
         ziniao: "ZiNiao",
         mabang: "Mabang",
+        yacang: "Yacang",
         feishu: "Feishu"
       },
       sectionTitles: {
@@ -1484,6 +1495,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         base: "Model settings",
         ziniao: "ZiNiao automation",
         mabang: "Mabang",
+        yacang: "Yacang data export",
         feishu: "Feishu",
         logging: "Logs & diagnostics"
       },
@@ -1617,6 +1629,12 @@ export const UI_TEXT: Record<Language, UiText> = {
         account: "Mabang account",
         password: "Mabang password",
         passwordPlaceholder: "Enter the Mabang password"
+      },
+      yacang: {
+        description: "The account and password use system secure storage for registered Yacang data export workflows.",
+        mobile: "Yacang account",
+        password: "Yacang password",
+        passwordPlaceholder: "Enter the Yacang password"
       },
       feishu: {
         description: "App ID and App Secret must be filled in together; leave the whole group blank to skip.",

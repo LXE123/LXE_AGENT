@@ -4,7 +4,7 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 29 top-level workflow and default runtime skills:
+The repository currently contains 32 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
@@ -13,10 +13,11 @@ The repository currently contains 29 top-level workflow and default runtime skil
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
 | `default` | 3 | general connector, workbook and custom Skill creation capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
+| `yacang_operations` | 6 | Yacang export routing, fixed 7/15/30 and 90-day sales exports, current inventory lists, warehouse-product creation times, and the first-version compatibility export |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
 bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
-discovery sees 56 repository manifests in total.
+discovery sees 59 repository manifests in total.
 
 ## Amazon FBA
 
@@ -68,6 +69,13 @@ LXE formally maintains these modules' command and failure contracts. Their resul
 
 - `ziniao-browser`: controlled store lifecycle, snapshots, navigation, and page interaction.
 
+## Yacang Operations
+
+- `yacang-export-workflow-map` is the only Agent-discoverable Yacang Skill. Its unified command plans three canonical types: `inventory-sales`, `inventory-current-snapshot`, and `inbound-listing-time`.
+- `inventory-sales` publishes one complete inventory-sales XLSX artifact. The source workbook retains all 16 original columns: SKU, product name, warehouse, cumulative 3/7/15/30/60/90-day sales, stock, occupied, in transit, frozen, available, stockout quantity, and creation date. One warehouse keeps the validated source workbook byte-for-byte; multiple warehouses merge complete rows into one sheet in fixed warehouse order. The source has no daily sales detail.
+- Current inventory remains a per-warehouse snapshot; historical snapshot dates are unsupported because the remote endpoint has no date parameter. Inbound/listing time remains one global warehouse-product export.
+- Legacy type-level `sales-monthly`, `sales-90d`, `inventory-month-end`, and inventory-sales commands remain internal compatibility entries, not additional Agent-discoverable natural-language Skills or separate formal sales projections.
+
 ## Runtime Visibility
 
 The visible catalog for one turn can be smaller than this page because runtime applies:
@@ -84,7 +92,7 @@ Dashboard skill APIs and the runtime prompt must use the same filtered catalog. 
 ### UI 中文名
 
 `config/skill-labels.json` 是本地与服务器前端共用的官方中文名源，首次覆盖本页的
-FBA、备货、亚马逊运营和紫鸟 26 个技能。只用于 UI 展示，不参与 AI 提示词、命令或权限判断。
+FBA、备货、亚马逊运营、紫鸟和雅仓 27 个技能。只用于 UI 展示，不参与 AI 提示词、命令或权限判断。
 中文界面按英文 `name` 查名称；英文界面及未知技能保留原名。
 
 新增上述类型的技能时追加中文名，删除技能时保留映射，让历史统计继续可读。

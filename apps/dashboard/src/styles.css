@@ -11566,6 +11566,14 @@ pre {
 /* Personal skill management uses the existing catalog and modal surfaces. */
 .user-skills-section { margin-bottom: 24px; padding: 20px; }
 .user-skills-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.yacang-test-page textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 120px; margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text); background: var(--surface-muted); font: inherit; }
+.yacang-test-label { display: block; font-weight: 700; }
+.yacang-test-examples { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+.yacang-test-examples button { border: 1px solid var(--border); background: transparent; color: var(--text-soft); border-radius: 999px; padding: 6px 9px; font: inherit; font-size: 12px; }
+.yacang-test-json { max-height: 360px; overflow: auto; padding: 12px; border-radius: 10px; background: var(--surface-muted); font-size: 12px; white-space: pre-wrap; }
+.yacang-test-details { margin-top: 12px; }
+.yacang-test-details > summary { cursor: pointer; color: var(--text-soft); font-weight: 700; }
+.yacang-test-details[open] > summary { margin-bottom: 8px; }
 .user-skills-header h2 { margin: 0 0 8px; }
 .user-skills-header p { margin: 0; color: var(--text-soft); }
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }

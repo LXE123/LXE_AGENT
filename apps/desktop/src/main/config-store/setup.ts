@@ -71,12 +71,15 @@ export class DesktopSetupService {
     const workspaceAvailable = this.validation.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
     const mabang = config.integrations.mabang;
+    const yacang = config.integrations.yacang;
     const feishu = config.integrations.feishu;
     const ziniaoIssues = ziniao.managed ? this.validation.ziniaoIssues(ziniao, secrets) : [];
     const mabangIssues = mabang.managed ? this.validation.mabangIssues(mabang, secrets) : [];
+    const yacangIssues = yacang.managed ? this.validation.yacangIssues(yacang, secrets) : [];
     const feishuIssues = feishu.managed ? this.validation.feishuIssues(feishu, secrets) : [];
     const ziniaoConfigured = ziniao.managed && ziniaoIssues.length === 0;
     const mabangConfigured = mabang.managed && mabangIssues.length === 0;
+    const yacangConfigured = yacang.managed && yacangIssues.length === 0;
     const feishuConfigured = feishu.managed && feishuIssues.length === 0;
     return {
       complete: Boolean(
@@ -112,6 +115,13 @@ export class DesktopSetupService {
         issues: mabangIssues,
         account: mabang.account,
         password_configured: Boolean(secrets.mabang_password),
+      },
+      yacang: {
+        managed: yacang.managed,
+        configured: yacangConfigured,
+        issues: yacangIssues,
+        mobile: yacang.mobile,
+        password_configured: Boolean(secrets.yacang_password),
       },
       feishu: {
         managed: feishu.managed,
@@ -175,6 +185,18 @@ export class DesktopSetupService {
       if (!account || !password) throw new Error("马帮账号和密码必须同时填写");
       config.integrations.mabang = { managed: true, account };
       if (inputPassword) secrets.mabang_password = inputPassword;
+    }
+
+    if (input.yacang?.action === "clear") {
+      config.integrations.yacang = { managed: true, mobile: "" };
+      secrets.yacang_password = "";
+    } else if (input.yacang?.action === "save") {
+      const mobile = text(input.yacang.mobile);
+      const inputPassword = text(input.yacang.password);
+      const password = inputPassword || effectiveSecrets.yacang_password;
+      if (!mobile || !password) throw new Error("雅仓账号和密码必须同时填写");
+      config.integrations.yacang = { managed: true, mobile };
+      if (inputPassword) secrets.yacang_password = inputPassword;
     }
 
     if (input.feishu?.action === "clear") {
@@ -482,9 +504,11 @@ export class DesktopSetupService {
     const activeThinkingLevel = activePreference?.thinking_level ?? "off";
     const ziniao = config.integrations.ziniao;
     const mabang = config.integrations.mabang;
+    const yacang = config.integrations.yacang;
     const feishu = config.integrations.feishu;
     const ziniaoConfigured = ziniao.managed && this.validation.ziniaoIssues(ziniao, secrets).length === 0;
     const mabangConfigured = mabang.managed && this.validation.mabangIssues(mabang, secrets).length === 0;
+    const yacangConfigured = yacang.managed && this.validation.yacangIssues(yacang, secrets).length === 0;
     const feishuConfigured = feishu.managed && this.validation.feishuIssues(feishu, secrets).length === 0;
     const diagnostic = config.logging.profile === "diagnostic";
     const logsEnabled = config.logging.profile !== "off";
@@ -514,6 +538,8 @@ export class DesktopSetupService {
       ZINIAO_WEBDRIVER_PATH: ziniaoConfigured ? ziniao.webdriver_path : "",
       MABANG_ACCOUNT: mabangConfigured ? mabang.account : "",
       MABANG_PASSWORD: mabangConfigured ? secrets.mabang_password : "",
+      LXE_YACANG_MOBILE: yacangConfigured ? yacang.mobile : "",
+      LXE_YACANG_PASSWORD: yacangConfigured ? secrets.yacang_password : "",
       LXE_FEISHU_GATEWAY_ENABLED: feishuConfigured ? "1" : "0",
       FEISHU_APP_ID: feishuConfigured ? feishu.app_id : "",
       FEISHU_APP_SECRET: feishuConfigured ? secrets.feishu_app_secret : "",

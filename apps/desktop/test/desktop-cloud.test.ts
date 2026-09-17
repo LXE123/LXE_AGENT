@@ -382,7 +382,7 @@ describe("DesktopCloudService", () => {
       LXE_MANAGED_LLM_API_KEY: "",
     });
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       llm: { managed_target: { provider: "future_vendor", model: "future-model" } },
     });
     expect(readFileSync(join(root, "config", "settings.json"), "utf8"))

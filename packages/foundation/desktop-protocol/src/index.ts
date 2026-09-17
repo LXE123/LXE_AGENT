@@ -455,6 +455,13 @@ export interface DesktopSetupState {
     account: string;
     password_configured: boolean;
   };
+  yacang: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    mobile: string;
+    password_configured: boolean;
+  };
   feishu: {
     managed: boolean;
     configured: boolean;
@@ -485,6 +492,10 @@ export type DesktopMabangSetupInput =
   | { action: "clear" }
   | { action: "save"; account: string; password?: string };
 
+export type DesktopYacangSetupInput =
+  | { action: "clear" }
+  | { action: "save"; mobile: string; password?: string };
+
 export type DesktopFeishuSetupInput =
   | { action: "clear" }
   | { action: "save"; app_id: string; app_secret?: string };
@@ -493,6 +504,7 @@ export interface DesktopSetupInput {
   workspace_root: string;
   ziniao?: DesktopZiniaoSetupInput;
   mabang?: DesktopMabangSetupInput;
+  yacang?: DesktopYacangSetupInput;
   feishu?: DesktopFeishuSetupInput;
   logging?: {
     profile: DesktopLogProfile;
@@ -584,6 +596,11 @@ export interface DesktopInputAssetSlot {
   previous: DesktopInputAssetVersion | null;
 }
 
+export interface DesktopYacangPreviewInput { request_text: string; }
+export interface DesktopYacangExecuteInput { preview_id: string; confirmed: true; }
+export interface DesktopYacangPreview { preview_id: string; plan: Record<string, unknown>; production_enabled: boolean; }
+export interface DesktopYacangExecution { result: Record<string, unknown>; }
+
 export interface LxeDesktopBridge {
   dashboard: DashboardTransport;
   desktop: {
@@ -626,6 +643,8 @@ export interface LxeDesktopBridge {
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;
+    previewYacangExport(input: DesktopYacangPreviewInput): Promise<DesktopYacangPreview>;
+    executeYacangExport(input: DesktopYacangExecuteInput): Promise<DesktopYacangExecution>;
     onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
     onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
     onSessionStatus(listener: (snapshot: SessionStatusSnapshot) => void): () => void;

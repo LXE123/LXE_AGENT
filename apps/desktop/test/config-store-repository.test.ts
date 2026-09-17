@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,12 +107,12 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       cloud: { switch_in_progress: false },
     });
   });
 
-  test("migrates schema 7 profiles to schema 8 without losing provider preferences", () => {
+  test("migrates schema 7 profiles to the current schema without losing provider preferences", () => {
     const root = createRoot();
     const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
     legacy.schema_version = 7;
@@ -128,7 +128,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       llm: {
         provider: "kimi_coding",
         last_local_provider: "kimi_coding",
@@ -137,6 +137,21 @@ describe("DesktopConfigRepository", () => {
           kimi_coding: { model: "k3", thinking_level: "high" },
         },
       },
+    });
+  });
+
+  test("migrates schema 8 settings with an unconfigured Yacang integration", () => {
+    const root = createRoot();
+    const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    legacy.schema_version = 8;
+    delete (legacy.integrations as Record<string, unknown>).yacang;
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config", "settings.json"), JSON.stringify(legacy));
+
+    const repository = new DesktopConfigRepository(root, safeStorage, "win32");
+    expect(repository.readConfig()).toMatchObject({
+      schema_version: 9,
+      integrations: { yacang: { managed: false, mobile: "" } },
     });
   });
 
@@ -153,6 +168,7 @@ describe("DesktopConfigRepository", () => {
     secrets.managed_llm_credential = managedCredential("provider-secret");
     secrets.ziniao_password = "ziniao-secret";
     secrets.mabang_password = "mabang-secret";
+    secrets.yacang_password = "yacang-secret";
     secrets.feishu_app_secret = "feishu-secret";
     secrets.data_server_api_key = "upload-secret";
     secrets.erp_api_key = "erp-secret";
@@ -165,6 +181,7 @@ describe("DesktopConfigRepository", () => {
       "provider-secret",
       "ziniao-secret",
       "mabang-secret",
+      "yacang-secret",
       "feishu-secret",
       "upload-secret",
       "erp-secret",

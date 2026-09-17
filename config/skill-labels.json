@@ -24,5 +24,11 @@
   "replenishment-store-resolve": "马帮店铺名称解析",
   "replenishment-unlinked-shipment-download": "未关联货件下载",
   "replenishment-workflow-map": "备货流程导览",
+  "yacang-export-workflow-map": "雅仓数据导出路由",
+  "yacang-inbound-listing-time-export": "雅仓入库上架时间导出",
+  "yacang-inventory-month-end-export": "雅仓库存列表导出",
+  "yacang-inventory-sales-export": "雅仓库存动销导出",
+  "yacang-sales-90d-export": "雅仓日度 90 天销量导出",
+  "yacang-sales-monthly-export": "雅仓库存动销 7/15/30 导出",
   "ziniao-browser": "紫鸟浏览器"
 }

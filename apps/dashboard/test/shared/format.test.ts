@@ -59,6 +59,7 @@ describe("Amazon Operations skill group", () => {
       { name: "replenish", type: "amazon_replenish" },
       { name: "fba", type: "amazon_fba" },
       { name: "default", type: "default" },
+      { name: "yacang", type: "yacang_operations" },
     ] as never, UI_TEXT.zh);
 
     expect(groups.map((group) => group.type)).toEqual([
@@ -66,6 +67,7 @@ describe("Amazon Operations skill group", () => {
       "amazon_fba",
       "amazon_replenish",
       "amazon_operations",
+      "yacang_operations",
     ]);
   });
 });

@@ -20,6 +20,9 @@ describe("wt-claim shell entrypoint", () => {
 
     expect(script).toContain('if ($Command -eq "status")');
     expect(script).toContain('if ($Command -eq "release")');
+    expect(script).toContain('[string]$BaseRef = "main"');
+    expect(script).toContain('"$BaseRef^{commit}"');
+    expect(script).toContain('"checkout", "--quiet", "-b", $branchName, $baseCommit');
     expect(script).toContain('"codex/$slug"');
     expect(script).toContain("bun install --frozen-lockfile");
     expect(script).toContain("uv sync --frozen");

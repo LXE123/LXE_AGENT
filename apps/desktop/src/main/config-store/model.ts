@@ -41,7 +41,7 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 8;
+  schema_version: 9;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
@@ -65,6 +65,7 @@ export interface DesktopConfig {
       webdriver_path: string;
     };
     mabang: { managed: boolean; account: string };
+    yacang: { managed: boolean; mobile: string };
     feishu: { managed: boolean; app_id: string };
   };
   logging: {
@@ -87,6 +88,7 @@ export interface DesktopConfig {
 export interface DesktopSecrets {
   ziniao_password: string;
   mabang_password: string;
+  yacang_password: string;
   feishu_app_secret: string;
   data_server_api_key: string;
   cloud_identity_candidate: string;
@@ -105,7 +107,7 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 5;
 
-export const SETTINGS_SCHEMA_VERSION = 8 as const;
+export const SETTINGS_SCHEMA_VERSION = 9 as const;
 
 const developmentCatalog = (): LlmProviderCatalog => loadLlmProviderCatalog(
   join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
@@ -140,6 +142,7 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
         webdriver_path: "",
       },
       mabang: { managed: false, account: "" },
+      yacang: { managed: false, mobile: "" },
       feishu: { managed: false, app_id: "" },
     },
     logging: { profile: "standard", retention_days: 7 },
@@ -160,6 +163,7 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
 const DEFAULT_SECRETS: DesktopSecrets = {
   ziniao_password: "",
   mabang_password: "",
+  yacang_password: "",
   feishu_app_secret: "",
   data_server_api_key: "",
   cloud_identity_candidate: "",
@@ -246,7 +250,7 @@ export const parseSettings = (
 ): DesktopConfig => {
   const value = objectValue(raw);
   if (value.schema_version !== 4 && value.schema_version !== 5
-    && value.schema_version !== 6 && value.schema_version !== 7
+    && value.schema_version !== 6 && value.schema_version !== 7 && value.schema_version !== 8
     && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
@@ -272,7 +276,7 @@ export const parseSettings = (
   if (value.schema_version !== 4) {
     assertFieldTypes(llm, { credential_source: "string", last_local_provider: "string" }, "settings.llm");
   }
-  if (value.schema_version === 7 || value.schema_version === SETTINGS_SCHEMA_VERSION) {
+  if (Number(value.schema_version) >= 7) {
     const managedTarget = objectValue(llm.managed_target);
     assertOnlyFields(managedTarget, ["provider", "model"], "settings.llm.managed_target");
     assertFieldTypes(managedTarget, { provider: "string", model: "string" }, "settings.llm.managed_target");
@@ -303,18 +307,23 @@ export const parseSettings = (
   const integrations = objectValue(value.integrations);
   const ziniao = objectValue(integrations.ziniao);
   const mabang = objectValue(integrations.mabang);
+  const yacang = objectValue(integrations.yacang);
   const feishu = objectValue(integrations.feishu);
-  assertOnlyFields(integrations, ["ziniao", "mabang", "feishu"], "settings.integrations");
+  assertOnlyFields(integrations, ["ziniao", "mabang", "yacang", "feishu"], "settings.integrations");
   assertOnlyFields(ziniao, [
     "managed", "company", "username", "app_version", "app_path", "webdriver_path",
   ], "settings.integrations.ziniao");
   assertOnlyFields(mabang, ["managed", "account"], "settings.integrations.mabang");
+  assertOnlyFields(yacang, ["managed", "mobile"], "settings.integrations.yacang");
   assertOnlyFields(feishu, ["managed", "app_id"], "settings.integrations.feishu");
   assertFieldTypes(ziniao, {
     managed: "boolean", company: "string", username: "string", app_version: "string",
     app_path: "string", webdriver_path: "string",
   }, "settings.integrations.ziniao");
   assertFieldTypes(mabang, { managed: "boolean", account: "string" }, "settings.integrations.mabang");
+  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+    assertFieldTypes(yacang, { managed: "boolean", mobile: "string" }, "settings.integrations.yacang");
+  }
   assertFieldTypes(feishu, { managed: "boolean", app_id: "string" }, "settings.integrations.feishu");
   const logging = objectValue(value.logging);
   const cloud = objectValue(value.cloud);
@@ -348,6 +357,7 @@ export const parseConfig = (
   const integrations = objectValue(value.integrations);
   const rawZiniao = objectValue(integrations.ziniao);
   const rawMabang = objectValue(integrations.mabang);
+  const rawYacang = objectValue(integrations.yacang);
   const rawFeishu = objectValue(integrations.feishu);
   const rawLogging = objectValue(value.logging);
   const rawCloud = objectValue(value.cloud);
@@ -425,6 +435,10 @@ export const parseConfig = (
         managed: Boolean(rawMabang.managed),
         account: text(rawMabang.account),
       },
+      yacang: {
+        managed: Boolean(rawYacang.managed),
+        mobile: text(rawYacang.mobile),
+      },
       feishu: {
         managed: Boolean(rawFeishu.managed) || Boolean(legacyFeishuAppId),
         app_id: text(rawFeishu.app_id) || legacyFeishuAppId,
@@ -474,6 +488,7 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
   return {
     ziniao_password: text(value.ziniao_password),
     mabang_password: text(value.mabang_password),
+    yacang_password: text(value.yacang_password),
     feishu_app_secret: text(value.feishu_app_secret),
     data_server_api_key: text(value.data_server_api_key),
     cloud_identity_candidate: text(value.cloud_identity_candidate),

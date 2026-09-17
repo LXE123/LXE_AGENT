@@ -378,6 +378,62 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_workflow", "module": "services.agent_cli.yacang.export_workflow",
+      "command_path": ["yacang", "export", "run"],
+      "legacy_aliases": ["yacang_export_workflow"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["yacang-export-workflow-map"], "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 7200000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"request_text": {"type": "string", "minLength": 1, "description": "用户关于雅仓导出的完整原始自然语言；不得改写为 URL、headers、task_type、param_where 或 OSS 地址"}, "data_type_intent": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["inventory-sales", "sales-monthly", "sales-90d", "inventory-current-snapshot", "inbound-listing-time"]}}}, "required": ["state", "values"], "additionalProperties": false}]}, "warehouse_intent": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}}, "required": ["state", "values"], "additionalProperties": false}]}, "created_date_filter": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "default"}}, "required": ["state", "mode"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "relative_days"}, "days": {"type": "integer", "minimum": 1}}, "required": ["state", "mode", "days"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "explicit_range"}}, "required": ["state", "mode"], "additionalProperties": false}]}, "inventory_snapshot_intent": {"type": "object", "properties": {"state": {"enum": ["current", "historical", "omitted", "ambiguous"]}}, "required": ["state"], "additionalProperties": false}}, "required": ["request_text"], "additionalProperties": false}
+      },
+      {
+        "name": "yacang_preview_workflow", "module": "services.agent_cli.yacang.preview_workflow",
+        "command_path": ["yacang", "export", "preview"],
+        "legacy_aliases": ["yacang_preview_workflow"],
+        "visibility": "internal", "session_mode": "none",
+        "owner_skills": [], "artifact_paths": [], "timeout_ms": 30000, "exposed": false,
+        "input_schema": {"type": "object", "properties": {"request_text": {"type": "string", "minLength": 1, "description": "用于测试页预览的完整雅仓自然语言请求"}}, "required": ["request_text"], "additionalProperties": false}
+      },
+      {
+      "name": "yacang_export_inventory_sales", "module": "services.agent_cli.yacang.export_inventory_sales",
+      "command_path": ["yacang", "inventory-sales", "export"],
+      "legacy_aliases": ["yacang_export_inventory_sales"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 900000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"start_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "创建日期起始日，YYYY-MM-DD"}, "end_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "创建日期结束日，YYYY-MM-DD"}, "timeout_seconds": {"type": "number", "minimum": 30, "maximum": 600}, "poll_interval_seconds": {"type": "number", "minimum": 2, "maximum": 30}, "cache_max_age_seconds": {"type": "number", "minimum": 0, "maximum": 3600}}, "required": ["start_date", "end_date"], "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_sales_monthly", "module": "services.agent_cli.yacang.export_sales_monthly",
+      "command_path": ["yacang", "export", "sales-monthly"],
+      "legacy_aliases": ["yacang_export_sales_monthly"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "文件日期，默认今天，YYYY-MM-DD"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_sales_90d", "module": "services.agent_cli.yacang.export_sales_90d",
+      "command_path": ["yacang", "export", "sales-90d"],
+      "legacy_aliases": ["yacang_export_sales_90d"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "文件日期，默认今天，YYYY-MM-DD"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_inventory_month_end", "module": "services.agent_cli.yacang.export_inventory_month_end",
+      "command_path": ["yacang", "export", "inventory-month-end"],
+      "legacy_aliases": ["yacang_export_inventory_month_end"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "执行日，默认今天；接口不支持历史快照"}, "warehouse": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"], "description": "可选；省略时导出全部四仓"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_inbound_listing_time", "module": "services.agent_cli.yacang.export_inbound_listing_time",
+      "command_path": ["yacang", "export", "inbound-listing-time"],
+      "legacy_aliases": ["yacang_export_inbound_listing_time"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 900000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "执行日，默认今天；接口不支持历史快照"}}, "additionalProperties": false}
     }
   ],
   "datasets": {
@@ -406,7 +462,9 @@
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
     "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
-    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
+    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []},
+    "yacang_inventory_sales": {"dir": "yacang/inventory_sales", "holds": "雅仓四个指定仓库的兼容库存动销 XLSX；文件按仓库和创建日期范围命名。", "legacy_dirs": []},
+    "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓业务导出 XLSX；按统一业务名称、仓库（适用时）和日期命名。", "legacy_dirs": []}
   },
   "input_assets": {
     "export_tax_master": {"display_name": "出口退税总表", "used_by": ["采购汇总", "备货工作簿"], "dir": "fba/export_tax_master", "holds": "SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},

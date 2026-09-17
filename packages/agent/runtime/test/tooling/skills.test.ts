@@ -15,6 +15,19 @@ afterEach(() => {
 });
 
 describe("skill context", () => {
+  test("discovers the Yacang skill only with the replenishment permission type", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-yacang-skill-permission-"));
+    roots.push(root);
+    const source = join(repositoryRoot(import.meta.dir), "skills", "yacang-export-workflow-map");
+    cpSync(source, join(root, "skills", "yacang-export-workflow-map"), { recursive: true });
+    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
+
+    expect(catalog.snapshot({ allowedTypes: new Set(["amazon_replenish"]) }).names)
+      .toEqual(["yacang-export-workflow-map"]);
+    expect(catalog.snapshot({ allowedTypes: new Set(["default"]) }).names).toEqual([]);
+    expect(catalog.snapshot({ allowedTypes: new Set() }).names).toEqual([]);
+  });
+
   test("loads the nine bundled replenishment skills and their local references outside the source checkout", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-replenishment-skills-"));
     roots.push(root);

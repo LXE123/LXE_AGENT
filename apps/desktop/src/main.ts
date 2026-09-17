@@ -71,6 +71,7 @@ import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./mai
 import { reportDesktopStartupFailure } from "./main/startup-failure";
 import { DesktopInputAssetsService } from "./main/input-assets";
 import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
+import { DesktopYacangTestPageService } from "./main/yacang-test-page";
 import {
   DESKTOP_TITLEBAR_COLOURS,
   DESKTOP_TITLEBAR_HEIGHT,
@@ -367,6 +368,16 @@ async function bootstrap(): Promise<void> {
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
   });
+  const yacangTestPage = new DesktopYacangTestPageService({
+    pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot,
+    managedPath: paths.managedPath,
+    environment: () => config.environment(),
+    skillScope: async () => {
+      const skills = await gateway.dashboardCall({ operation: "skills.list", input: {} });
+      return skills.items.map((skill) => skill.name);
+    },
+  });
   const checkCloudAfterResume = (): void => { void cloud.check(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
@@ -464,6 +475,8 @@ async function bootstrap(): Promise<void> {
     getSyntheticPerformerTask: () => syntheticPerformer.current(),
     cancelSyntheticPerformerTask: (taskId) => syntheticPerformer.cancel(taskId),
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
+    previewYacangExport: (input) => yacangTestPage.preview(input),
+    executeYacangExport: (input) => yacangTestPage.execute(input),
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),

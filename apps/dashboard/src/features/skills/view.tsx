@@ -25,6 +25,8 @@ function skillGroupIcon(type: string) {
       return PackagePlus;
     case "amazon_operations":
       return Store;
+    case "yacang_operations":
+      return PackagePlus;
     case "default":
       return Sparkles;
     default:

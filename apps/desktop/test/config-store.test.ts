@@ -59,6 +59,7 @@ describe("DesktopConfigStore", () => {
         webdriver_path: join(root, "drivers"),
       },
       mabang: { action: "save", account: "mabang-user", password: "mabang-secret" },
+      yacang: { action: "save", mobile: "yacang-user", password: "yacang-secret" },
       feishu: { action: "save", app_id: "cli_1234567890", app_secret: "feishu-secret" },
       logging: { profile: "diagnostic", retention_days: 14 },
     });
@@ -72,12 +73,13 @@ describe("DesktopConfigStore", () => {
       ]),
       ziniao: { configured: true, password_configured: true },
       mabang: { configured: true, password_configured: true },
+      yacang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
       logging: { profile: "diagnostic", retention_days: 14 },
     });
     expect(state.logging.directory).toBe(join(root, "logs"));
     const serializedState = JSON.stringify(state);
-    for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
+    for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "yacang-secret", "feishu-secret"]) {
       expect(serializedState).not.toContain(secret);
       expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain(secret);
     }
@@ -86,6 +88,8 @@ describe("DesktopConfigStore", () => {
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
+      LXE_YACANG_MOBILE: "yacang-user",
+      LXE_YACANG_PASSWORD: "yacang-secret",
       LXE_FEISHU_GATEWAY_ENABLED: "1",
       FEISHU_APP_SECRET: "feishu-secret",
       LOCAL_LOGS_ENABLED: "1",
@@ -106,6 +110,7 @@ describe("DesktopConfigStore", () => {
         KIMI_CODE_API_KEY: "source-model-secret",
         DEEPSEEK_API: "source-deepseek-secret",
         MABANG_PASSWORD: "source-mabang-secret",
+        LXE_YACANG_PASSWORD: "source-yacang-secret",
         FEISHU_APP_SECRET: "source-feishu-secret",
         LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
       },
@@ -123,14 +128,17 @@ describe("DesktopConfigStore", () => {
     expect(store.save({
       workspace_root: join(root, "workspace"),
       mabang: { action: "save", account: "source-account" },
+      yacang: { action: "save", mobile: "source-yacang-account" },
       feishu: { action: "save", app_id: "source-app-id" },
     })).toMatchObject({
       complete: true,
       mabang: { configured: true, password_configured: true },
+      yacang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
     });
     expect(store.environment()).toMatchObject({
       MABANG_PASSWORD: "source-mabang-secret",
+      LXE_YACANG_PASSWORD: "source-yacang-secret",
       FEISHU_APP_SECRET: "source-feishu-secret",
       LXE_SAIHU_MCP_API_KEY: "",
     });
@@ -139,6 +147,7 @@ describe("DesktopConfigStore", () => {
     const persistedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(readFileSync(join(root, "config", "auth.json"), "utf8")).toContain("local-model-secret");
     expect(persistedSecrets).not.toContain("source-mabang-secret");
+    expect(persistedSecrets).not.toContain("source-yacang-secret");
     expect(persistedSecrets).not.toContain("source-feishu-secret");
     expect(persistedSecrets).not.toContain("source-saihu-secret");
   });
@@ -367,7 +376,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 8,
+      schema_version: 9,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },

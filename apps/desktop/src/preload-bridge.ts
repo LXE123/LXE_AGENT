@@ -53,6 +53,8 @@ export function createDesktopBridge(
       saveSetup: (input) => ipc.invoke(IPC_CHANNELS.saveSetup, input),
       saveLocalModelCredential: (input) => ipc.invoke(IPC_CHANNELS.saveLocalModelCredential, input),
       deleteLocalModelCredential: (provider) => ipc.invoke(IPC_CHANNELS.deleteLocalModelCredential, provider),
+      previewYacangExport: (input) => ipc.invoke(IPC_CHANNELS.previewYacangExport, input),
+      executeYacangExport: (input) => ipc.invoke(IPC_CHANNELS.executeYacangExport, input),
       selectSyntheticPerformerSources: (kind) =>
         ipc.invoke(IPC_CHANNELS.selectSyntheticPerformerSources, kind),
       selectSyntheticPerformerOutput: () =>

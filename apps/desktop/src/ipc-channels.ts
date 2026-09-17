@@ -17,6 +17,8 @@ export const IPC_CHANNELS = {
   saveSetup: "lxe:desktop:save-setup",
   saveLocalModelCredential: "lxe:desktop:model-credential:save",
   deleteLocalModelCredential: "lxe:desktop:model-credential:delete",
+  previewYacangExport: "lxe:desktop:yacang:preview",
+  executeYacangExport: "lxe:desktop:yacang:execute",
   selectSyntheticPerformerSources: "lxe:desktop:synthetic-performer:select-sources",
   selectSyntheticPerformerOutput: "lxe:desktop:synthetic-performer:select-output",
   selectConversationFiles: "lxe:desktop:conversation-files:select",

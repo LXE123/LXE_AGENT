@@ -8,6 +8,7 @@ export function effectiveDesktopSecrets(
   const values = {
     ziniao_password: text(environment.ZINIAO_PASSWORD),
     mabang_password: text(environment.MABANG_PASSWORD),
+    yacang_password: text(environment.LXE_YACANG_PASSWORD),
     feishu_app_secret: text(environment.FEISHU_APP_SECRET),
     data_server_api_key: text(environment.LXE_DATA_SERVER_API_KEY),
     data_server_fallback_api_key: text(environment.LXE_DATA_SERVER_FALLBACK_API_KEY),

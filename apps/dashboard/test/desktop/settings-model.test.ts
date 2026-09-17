@@ -65,6 +65,13 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
     account: "seller",
     password_configured: false,
   },
+  yacang: {
+    managed: true,
+    configured: true,
+    issues: [],
+    mobile: "yacang-user",
+    password_configured: true,
+  },
   feishu: {
     managed: true,
     configured: true,
@@ -126,6 +133,7 @@ describe("desktop settings navigation model", () => {
     expect(form.workspaceRoot).toBe("/workspace");
     expect(form.localApiKey).toBe("");
     expect(form.mabangPassword).toBe("");
+    expect(form.yacangPassword).toBe("");
     expect(form.feishuAppSecret).toBe("");
   });
 
@@ -135,6 +143,7 @@ describe("desktop settings navigation model", () => {
     expect(desktopSettingsSectionStatus(text, "base", setup)).toBe(text.sectionStatus.complete);
     expect(desktopSettingsSectionStatus(text, "ziniao", setup)).toBe(text.sectionStatus.optional);
     expect(desktopSettingsSectionStatus(text, "mabang", setup)).toBe(text.sectionStatus.incomplete);
+    expect(desktopSettingsSectionStatus(text, "yacang", setup)).toBe(text.sectionStatus.configured);
     expect(desktopSettingsSectionStatus(text, "feishu", setup)).toBe(text.sectionStatus.configured);
     expect(desktopSettingsSectionStatus(text, "logging", setup)).toBe(text.logProfiles.standard);
   });
@@ -147,6 +156,7 @@ describe("desktop settings navigation model", () => {
     expect(desktopSettingsSectionIsDirty("appearance", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("base", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("mabang", form, baseline)).toBe(true);
+    expect(desktopSettingsSectionIsDirty("yacang", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("feishu", form, baseline)).toBe(false);
   });
 

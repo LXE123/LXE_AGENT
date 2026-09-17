@@ -3,7 +3,7 @@ const desktopEnvironment: Record<string, string | undefined> = { ...process.env 
 delete desktopEnvironment.LXE_DATA_ROOT;
 desktopEnvironment.LXE_SOURCE_ROOT = root;
 desktopEnvironment.LXE_DASHBOARD_DEV_URL = "http://127.0.0.1:5173";
-const dashboard = Bun.spawn(["bun", "run", "--cwd", "apps/dashboard", "dev"], {
+const dashboard = Bun.spawn([process.execPath, "run", "--cwd", "apps/dashboard", "dev"], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",
@@ -21,7 +21,7 @@ while (Date.now() < deadline) {
   await Bun.sleep(100);
 }
 
-const electron = Bun.spawn(["bunx", "electron", "."], {
+const electron = Bun.spawn([process.execPath, "x", "electron", "."], {
   cwd: new URL("..", import.meta.url).pathname,
   stdout: "inherit",
   stderr: "inherit",

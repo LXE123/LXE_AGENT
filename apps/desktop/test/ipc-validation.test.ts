@@ -11,6 +11,8 @@ import {
   validateSyntheticPerformerId,
   validateSyntheticPerformerSourceKind,
   validateSyntheticPerformerTaskInput,
+  validateYacangExecuteInput,
+  validateYacangPreviewInput,
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
@@ -57,6 +59,14 @@ describe("desktop IPC validation", () => {
       selection_id: "selection-1",
       recursive: true,
     })).toThrow("identifier");
+  });
+  test("validates the narrow Yacang test-page boundary", () => {
+    expect(validateYacangPreviewInput({ request_text: " 导出 MY8801 的月度销量 " }))
+      .toEqual({ request_text: "导出 MY8801 的月度销量" });
+    expect(() => validateYacangPreviewInput({ request_text: "x", command: "shell" })).toThrow("unsupported");
+    expect(validateYacangExecuteInput({ preview_id: "preview-1", confirmed: true }))
+      .toEqual({ preview_id: "preview-1", confirmed: true });
+    expect(() => validateYacangExecuteInput({ preview_id: "preview-1", confirmed: false })).toThrow("invalid");
   });
   test("accepts only opaque enrollment ids and bounded passwords", () => {
     expect(validateCloudActivationInput({
@@ -117,6 +127,11 @@ describe("desktop IPC validation", () => {
         app_path: " C:\\Ziniao.exe ",
         webdriver_path: " C:\\drivers ",
       },
+      yacang: {
+        action: "save",
+        mobile: " 13800138000 ",
+        password: " yacang-secret ",
+      },
       logging: { profile: "standard", retention_days: 7 },
     })).toEqual({
       workspace_root: "C:\\workspace",
@@ -128,6 +143,11 @@ describe("desktop IPC validation", () => {
         app_version: "v6",
         app_path: "C:\\Ziniao.exe",
         webdriver_path: "C:\\drivers",
+      },
+      yacang: {
+        action: "save",
+        mobile: "13800138000",
+        password: "yacang-secret",
       },
       logging: { profile: "standard", retention_days: 7 },
     });

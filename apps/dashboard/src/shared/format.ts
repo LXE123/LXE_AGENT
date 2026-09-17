@@ -2,7 +2,7 @@
 import type { UiText } from "./i18n";
 import type { SkillPayload } from "../api/payloads";
 
-const SKILL_TYPE_ORDER = ["default", "amazon_fba", "amazon_replenish", "amazon_operations"];
+const SKILL_TYPE_ORDER = ["default", "amazon_fba", "amazon_replenish", "amazon_operations", "yacang_operations"];
 
 export function formatDate(value: number): string {
   if (!value) {
@@ -71,7 +71,8 @@ export function skillTypeLabel(type: string, t: UiText): string {
     default: t.skillTypes.default,
     amazon_fba: t.skillTypes.amazon_fba,
     amazon_replenish: t.skillTypes.amazon_replenish,
-    amazon_operations: t.skillTypes.amazon_operations
+    amazon_operations: t.skillTypes.amazon_operations,
+    yacang_operations: t.skillTypes.yacang_operations
   };
   return labels[normalized] || normalized || t.skillTypes.uncategorized;
 }
