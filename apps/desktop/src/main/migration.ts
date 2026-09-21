@@ -1,3 +1,4 @@
+import { createLogger } from "@lxe/core";
 import {
   constants,
   copyFileSync,
@@ -15,7 +16,7 @@ import { migrateSaihuMcpDefault } from "@lxe/gateway/desktop";
 const migrateMcpDefaults = (path: string): void => {
   if (!existsSync(path) || !statSync(path).isFile()) return;
   const source = readFileSync(path, "utf8");
-  const migrated = migrateSaihuMcpDefault(source);
+  const migrated = migrateSaihuMcpDefault(source, message => createLogger("desktop.mcp").warn("saihu_native_migration_review_required", { message }));
   if (!migrated || migrated === source) return;
   const temporary = `${path}.${process.pid}.tmp`;
   try {

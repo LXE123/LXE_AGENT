@@ -31,6 +31,12 @@ function setup() {
       grants: { skill_types: ["amazon_replenish", "default"], desktop_features: [] as string[] } } };
   return { root, config, identity };
 }
+const contextPort = (identity: ReturnType<typeof setup>["identity"]) => ({ query: async () => ({
+  response_schema: "lxe.device-context.v1",
+  device: { kind: identity.principal_kind, id: identity.device_id, display_name: identity.display_name, wireguard_ip: identity.wireguard_ip },
+  permission: { ...identity.permission_v2, grants: { ...identity.permission_v2.grants, server_capabilities: [], erp_actions: [] } },
+}) });
+
 function enroll(config: DesktopConfigStore) {
   config.saveCloudEnrollment({ deviceId: adminId, deviceName: "Mac administrator", vpnIp: "10.88.0.2",
     dataServerUrl: "http://10.88.0.1:8000", tunnelName: "", apiKey: rootToken });
@@ -40,7 +46,7 @@ test("server role controls management while runtime credentials remain scoped in
   const { root, config, identity } = setup(); enroll(config);
   const requests: string[] = [];
   const code = `lxe_handoff_${"h".repeat(43)}`;
-  const service = new DesktopCloudService({ dataRoot: root, config, supported: false,
+  const service = new DesktopCloudService({ contextClient: contextPort(identity), dataRoot: root, config, supported: false,
     logger, enrollments: new DesktopCloudEnrollmentManager(), onConfigured: async () => {},
     provisioner: { provision: async () => { throw new Error("must not provision"); } },
     fetch: async (input, init) => {
@@ -119,7 +125,7 @@ test("ERP shortcut hands both administrators and members into a device session",
   const requests: string[] = [];
   let fail = false;
   let wrongScope = false;
-  const service = new DesktopCloudService({ dataRoot: root, config, supported: false, logger,
+  const service = new DesktopCloudService({ contextClient: contextPort(identity), dataRoot: root, config, supported: false, logger,
     enrollments: new DesktopCloudEnrollmentManager(), onConfigured: async () => {},
     provisioner: { provision: async () => { throw new Error("must not provision"); } },
     fetch: async (input, init) => {

@@ -36,7 +36,7 @@ test("media workbench keeps filesystem paths behind the desktop bridge", () => {
 });
 
 test("capabilities use compact child navigation while activity opens statistics directly", () => {
-  assert.match(main, /const capabilityItems:[\s\S]*"models"[\s\S]*"skills"[\s\S]*"tools"[\s\S]*"connections"/);
+  assert.match(main, /const capabilityItems:[\s\S]*"skills"[\s\S]*"tools"[\s\S]*"connections"[\s\S]*"models"/);
   assert.doesNotMatch(main, /const activityItems/);
   assert.doesNotMatch(main, /BackgroundTasksView|useBackgroundTasksQuery/);
   assert.match(main, /activeSection === "activity"[\s\S]*<StatsView/);

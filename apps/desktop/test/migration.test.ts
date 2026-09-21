@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrapDesktopState } from "../src/main/migration";
+import { migrateSaihuMcpDefault } from "@lxe/gateway/desktop";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -22,6 +23,25 @@ const fixture = (localSource: string) => {
 };
 
 describe("desktop MCP default migration", () => {
+  test("migrates the current cloud template once without enabling it or changing tool settings", () => {
+    const source = "mcpServers:\n  lxe-saihu:\n    enabled: false\n    type: streamable-http\n    url: http://10.88.0.1:8000/mcp/\n    bearer_token_env_var: LXE_SAIHU_MCP_API_KEY\n    startup_timeout_s: 17\n    disabled_tools: [write]\n";
+    const migrated = migrateSaihuMcpDefault(source)!;
+    expect(migrated).toContain("enabled: false");
+    expect(migrated).toContain("startup_timeout_s: 17");
+    expect(migrated).toContain("disabled_tools: [ write ]");
+    expect(migrated).not.toContain("bearer_token_env_var");
+    expect(migrated).toContain("X-LXE-Client: cli");
+    expect(migrateSaihuMcpDefault(migrated)).toBeUndefined();
+  });
+
+  test("custom auth gets an explicit credential-free warning and no rewrite", () => {
+    const warnings: string[] = [];
+    const source = "mcpServers:\n  lxe-saihu:\n    url: http://10.88.0.1:8000/mcp/\n    headers: {Authorization: Bearer private-secret}\n";
+    expect(migrateSaihuMcpDefault(source, message => warnings.push(message))).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("原配置已保留");
+    expect(warnings[0]).not.toContain("private-secret");
+  });
   test("updates only the old localhost and Data Server bearer defaults", () => {
     const { dataRoot, defaultPath, localPath } = fixture([
       "mcpServers:",
@@ -41,7 +61,8 @@ describe("desktop MCP default migration", () => {
 
     const migrated = readFileSync(localPath, "utf8");
     expect(migrated).toContain("url: http://10.88.0.1:8000/mcp/");
-    expect(migrated).toContain("bearer_token_env_var: LXE_SAIHU_MCP_API_KEY");
+    expect(migrated).not.toContain("bearer_token_env_var");
+    expect(migrated).toContain("X-LXE-Client: cli");
     expect(migrated).toContain("enabled: true");
     expect(migrated).toContain("exposure: direct");
     expect(migrated).toContain("enabled_tools: [ get_shop_page_list ]");
@@ -66,7 +87,8 @@ describe("desktop MCP default migration", () => {
 
     const migrated = readFileSync(localPath, "utf8");
     expect(migrated).toContain("url: http://10.88.0.1:8000/mcp/");
-    expect(migrated).toContain("bearer_token_env_var: LXE_SAIHU_MCP_API_KEY");
+    expect(migrated).not.toContain("bearer_token_env_var");
+    expect(migrated).toContain("X-LXE-Client: cli");
     expect(migrated).toContain("X-Environment: development");
     expect(migrated).not.toContain("Authorization:");
     expect(migrated).not.toContain("LXE_DATA_SERVER_API_KEY");

@@ -7,7 +7,8 @@ mcpServers:
     enabled: false
     type: streamable-http
     url: "http://10.88.0.1:8000/mcp/"
-    bearer_token_env_var: LXE_SAIHU_MCP_API_KEY
+    headers:
+      X-LXE-Client: cli
     startup_timeout_s: 10
     tool_timeout_s: 60
     exposure: deferred

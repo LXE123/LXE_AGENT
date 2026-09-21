@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("MCP manager", () => {
-  test("ships the disabled cloud Saihu connector with its independent bearer key", () => {
+  test("ships the disabled cloud Saihu connector with native device authentication", () => {
     const path = join(process.cwd(), "config", "mcp_servers.default.yaml");
     const environment = { LXE_SAIHU_MCP_API_KEY: "developer-secret" };
     const server = loadMcpConfig(path, environment).servers.find(
@@ -29,11 +29,11 @@ describe("MCP manager", () => {
       enabled: false,
       transport: "streamable-http",
       url: "http://10.88.0.1:8000/mcp/",
-      bearerTokenEnvVar: "LXE_SAIHU_MCP_API_KEY",
+      bearerTokenEnvVar: "",
       connectorId: "lxe-saihu",
     });
     expect(resolveMcpHttpHeaders(server!, environment)).toEqual({
-      Authorization: "Bearer developer-secret",
+      "X-LXE-Client": "cli",
     });
   });
 

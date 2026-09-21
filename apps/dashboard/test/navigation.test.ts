@@ -46,7 +46,7 @@ describe("Dashboard information architecture", () => {
     expect(dashboardRouteFromHistory({
       section: "capabilities",
       capabilityView: "unknown",
-    }, "skills").capabilityView).toBe("models");
+    }, "skills").capabilityView).toBe("skills");
     expect(dashboardRouteFromHistory({
       section: "activity",
       activityView: "unknown",
@@ -64,13 +64,17 @@ describe("Dashboard information architecture", () => {
       setItem: (key: string, value: string) => values.set(key, value),
     };
 
+    expect(readStoredCapabilityView()).toBe("skills");
+    expect(readStoredCapabilityView(storage)).toBe("skills");
+    storeCapabilityView("models", storage);
+    expect(readStoredCapabilityView(storage)).toBe("models");
     storeCapabilityView("connections", storage);
     expect(values.get(CAPABILITY_VIEW_STORAGE_KEY)).toBe("connections");
     expect(readStoredCapabilityView(storage)).toBe("connections");
     values.set(CAPABILITY_VIEW_STORAGE_KEY, "invalid");
-    expect(readStoredCapabilityView(storage)).toBe("models");
+    expect(readStoredCapabilityView(storage)).toBe("skills");
 
-    expect(readStoredCapabilityView({ getItem: () => { throw new Error("blocked"); } })).toBe("models");
+    expect(readStoredCapabilityView({ getItem: () => { throw new Error("blocked"); } })).toBe("skills");
     expect(() => storeCapabilityView("tools", { setItem: () => { throw new Error("full"); } })).not.toThrow();
   });
 

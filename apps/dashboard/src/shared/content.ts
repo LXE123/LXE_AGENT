@@ -74,7 +74,7 @@ export async function copyTextToClipboard(text: string): Promise<void> {
   document.body.appendChild(textArea);
   textArea.select();
   try {
-    document.execCommand("copy");
+    if (!document.execCommand("copy")) throw new Error('document.execCommand("copy") returned false');
   } finally {
     document.body.removeChild(textArea);
   }

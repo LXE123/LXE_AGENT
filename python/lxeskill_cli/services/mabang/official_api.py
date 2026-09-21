@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-import aiohttp
 
-from shared.infra.net import data_service_http_session
+from shared.infra.cloud_async import AsyncCloudClient
+from shared.infra.cloud_client import CloudConnectionError
 from .errors import MabangRequestError
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -80,39 +80,32 @@ def _business_failure(payload: Any) -> bool:
 
 async def post_json(endpoint: str, body: dict[str, Any], *, context: str) -> dict[str, Any]:
     base = os.getenv("LXE_DATA_SERVER_URL", "").strip().rstrip("/")
-    key = os.getenv("LXE_DATA_SERVER_API_KEY", "").strip()
-    if not base or not key:
-        raise OfficialApiError(context, "LXE_DATA_SERVER_URL / LXE_DATA_SERVER_API_KEY 未配置")
-    for attempt in range(MAX_ATTEMPTS):
-        try:
-            async with data_service_http_session.post(
-                base + ROOT + endpoint,
-                json=body,
-                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS),
-                allow_redirects=False,
-            ) as response:
-                status = response.status
-                raw = await response.text()
-                retry_after = response.headers.get("Retry-After")
-        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
-            if attempt + 1 < MAX_ATTEMPTS:
-                await asyncio.sleep(2 ** attempt)
+    if not base:
+        raise OfficialApiError(context, "LXE_DATA_SERVER_URL 未配置")
+    try:
+        client = AsyncCloudClient(base, timeout=REQUEST_TIMEOUT_SECONDS, max_response_bytes=None)
+    except ValueError as exc:
+        raise OfficialApiError(context, str(exc)) from exc
+    async with client:
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                response = await client.request_json("POST", ROOT + endpoint, json_body=body)
+            except CloudConnectionError as exc:
+                if exc.retryable and attempt + 1 < MAX_ATTEMPTS:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                raise OfficialApiError(context, str(exc)) from exc
+            except ValueError as exc:
+                raise OfficialApiError(context, str(exc)) from exc
+            status, payload = response.status_code, response.payload
+            retry_after = response.headers.get("Retry-After")
+            retryable = status in (429, 502, 503, 504) and not _business_failure(payload)
+            if retryable and attempt + 1 < MAX_ATTEMPTS:
+                await asyncio.sleep(retry_delay(retry_after, 2 ** attempt) if status == 429 else 2 ** attempt)
                 continue
-            raise OfficialApiError(context, f"{type(exc).__name__}: {exc}") from exc
-        except aiohttp.ClientError as exc:
-            raise OfficialApiError(context, f"{type(exc).__name__}: {exc}") from exc
-        try:
-            payload = json.loads(raw)
-        except ValueError:
-            payload = raw
-        retryable = status == 429 or (status in (502, 503, 504) and not _business_failure(payload))
-        if retryable and attempt + 1 < MAX_ATTEMPTS:
-            await asyncio.sleep(retry_delay(retry_after, 2 ** attempt) if status == 429 else 2 ** attempt)
-            continue
-        if not 200 <= status < 300:
-            raise OfficialApiError(context, f"HTTP {status}", payload)
-        if not isinstance(payload, dict) or str(payload.get("code")) != "200":
-            raise OfficialApiError(context, f"HTTP {status}: 无效 JSON 或业务失败", payload)
-        return payload
+            if not 200 <= status < 300:
+                raise OfficialApiError(context, f"HTTP {status}", payload)
+            if not isinstance(payload, dict) or str(payload.get("code")) != "200":
+                raise OfficialApiError(context, f"HTTP {status}: 无效 JSON 或业务失败", payload)
+            return payload
     raise AssertionError("unreachable")

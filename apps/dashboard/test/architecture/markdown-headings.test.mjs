@@ -30,12 +30,8 @@ const rem = (value) => {
 
 const LEVELS = [1, 2, 3, 4, 5, 6];
 
-const SCOPES = [
-  // The conversation feed overrides the base size upward, so that is the body
-  // text a heading there actually has to hold its own against.
-  { name: ".message-markdown", bodySelectors: [".message-markdown", ".conversation-feed .message-markdown"] },
-  { name: ".skill-markdown", bodySelectors: [".skill-markdown"] },
-];
+// Conversations and skill previews now share the same typography selector.
+const SCOPES = [{ name: ".message-markdown", bodySelectors: [".message-markdown"] }];
 
 for (const scope of SCOPES) {
   // Left to the browser, h4 and below carry default margins set in em, which
@@ -67,3 +63,13 @@ for (const scope of SCOPES) {
     assert.ok(sizes[0] > body, "h1 has to outrank body text");
   });
 }
+
+
+test("skills reuse Markdown typography and keep only viewport-specific styles", () => {
+  const skillView = readFileSync(path.join(sourceDir, "shared/ui/skill-detail-dialog.tsx"), "utf8");
+  assert.match(skillView, /className="message-markdown skill-markdown"/);
+  const layout = rules.find(rule => rule.selectors.includes(".skill-markdown"));
+  assert.ok(layout);
+  assert.doesNotMatch(layout.body, /font-|line-height|color/);
+  assert.ok(!rules.some(rule => rule.selectors.some(selector => /^\.skill-markdown\s+/.test(selector))));
+});

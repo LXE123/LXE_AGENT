@@ -1,178 +1,22 @@
-import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import { CheckCircle2, Copy, X } from "lucide-react";
-
-import {
-  queryError,
-  useSkillContentQuery,
-  useSkillReferenceQuery,
-} from "../../api/queries";
-import { skillTypeLabel } from "../../shared/format";
-import { copyTextToClipboard } from "../../shared/content";
-import { markdownWithoutFrontMatter } from "../../shared/markdown";
+import { useState } from "react";
+import { X } from "lucide-react";
+import { queryError, useSkillContentQuery, useSkillReferenceQuery } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
-import type {
-  SkillContentMode,
-  SkillContentView,
-  SkillPayload
-} from "../../api/payloads";
-import {
-  markdownComponents,
-  markdownRehypePlugins,
-  markdownRemarkPlugins,
-} from "../../shared/ui/markdown";
+import type { SkillPayload } from "../../api/payloads";
 import type { DetailTarget } from "../../shared/ui/detail-target";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { SkillDetailDialog } from "../../shared/ui/skill-detail-dialog";
 
-function SkillDetailContent({ enabled, skill }: { enabled: boolean; skill: SkillPayload }) {
+function SkillDetail({ enabled, skill, close }: { enabled: boolean; skill: SkillPayload; close: () => void }) {
   const t = useUiText();
-  const [selectedReferencePath, setSelectedReferencePath] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [contentMode, setContentMode] = useState<SkillContentMode>("preview");
+  const [file, setFile] = useState("SKILL.md");
   const contentQuery = useSkillContentQuery(skill.name, enabled);
-  const referenceQuery = useSkillReferenceQuery(
-    skill.name,
-    selectedReferencePath,
-    enabled && Boolean(selectedReferencePath),
-  );
-  const payload = contentQuery.data;
-  const contentView: SkillContentView | null = selectedReferencePath
-    ? referenceQuery.data
-      ? {
-          title: referenceQuery.data.path,
-          subtitle: referenceQuery.data.description,
-          content: referenceQuery.data.content || "",
-        }
-      : null
-    : payload
-      ? {
-          title: "SKILL.md",
-          subtitle: payload.description || skill.description,
-          content: payload.content || "",
-        }
-      : null;
-  const loading = contentQuery.isPending;
-  const referenceLoading = referenceQuery.isFetching ? selectedReferencePath : "";
-  const error = queryError(contentQuery.error || referenceQuery.error);
-  const references = payload?.references || skill.references;
-  const copyDisabled = !contentView?.content || loading || Boolean(referenceLoading);
-  const previewContent = contentView?.title === "SKILL.md"
-    ? markdownWithoutFrontMatter(contentView.content)
-    : contentView?.content || "";
-
-  useEffect(() => {
-    setSelectedReferencePath("");
-    setCopied(false);
-    setContentMode("preview");
-  }, [skill.name]);
-
-  async function copyCurrentContent() {
-    if (!contentView?.content) {
-      return;
-    }
-    try {
-      await copyTextToClipboard(contentView.content);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  return (
-    <div className="modal-content">
-      {skill.commands.length ? (
-        <div className="schema-block">
-          <div className="schema-title">{t.skillModal.commands}</div>
-          <div className="reference-list">
-            {skill.commands.map((command) => (
-              <div className="reference-button" key={command}>
-                <span className="mono">{command}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="schema-block skill-content-block">
-        <div className="schema-title skill-content-title">
-          {references.length ? (
-            <select
-              aria-label={t.skillModal.references}
-              className="skill-file-select"
-              disabled={Boolean(referenceLoading)}
-              onChange={(event) => {
-                setCopied(false);
-                setSelectedReferencePath(event.target.value);
-              }}
-              value={selectedReferencePath}
-            >
-              <option value="">SKILL.md</option>
-              {references.map((reference) => (
-                <option key={reference.path} value={reference.path}>
-                  {reference.path}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div>
-              <span>{contentView?.title || "SKILL.md"}</span>
-            </div>
-          )}
-          <div className="skill-content-actions">
-            {!loading && contentView ? (
-              <div className="skill-content-mode-row" role="group" aria-label={t.skillModal.modeAria}>
-                <button
-                  className={contentMode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
-                  onClick={() => setContentMode("preview")}
-                  type="button"
-                >
-                  {t.skillModal.preview}
-                </button>
-                <button
-                  className={contentMode === "source" ? "skill-mode-button active" : "skill-mode-button"}
-                  onClick={() => setContentMode("source")}
-                  type="button"
-                >
-                  {t.skillModal.source}
-                </button>
-              </div>
-            ) : null}
-            <button
-              className="skill-copy-button"
-              disabled={copyDisabled}
-              onClick={copyCurrentContent}
-              type="button"
-            >
-              {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-              <span>{copied ? t.common.copied : t.skillModal.copySource}</span>
-            </button>
-          </div>
-        </div>
-        {selectedReferencePath ? (
-          <p className="skill-file-subtitle">
-            {referenceLoading ? t.skillModal.loadingReference : contentView?.subtitle}
-          </p>
-        ) : null}
-        {error ? <div className="skill-content-status error">{error}</div> : null}
-        {loading ? <div className="skill-content-status">{t.skillModal.loadingContent}</div> : null}
-        {!loading && contentView ? (
-          contentMode === "preview" ? (
-            <div className="skill-markdown">
-              <ReactMarkdown
-                components={markdownComponents}
-                rehypePlugins={markdownRehypePlugins}
-                remarkPlugins={markdownRemarkPlugins}
-              >
-                {previewContent}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            <pre className="skill-content-pre">{contentView.content}</pre>
-          )
-        ) : null}
-      </div>
-    </div>
-  );
+  const referenceQuery = useSkillReferenceQuery(skill.name, file, enabled && file !== "SKILL.md");
+  const selected = file === "SKILL.md" ? contentQuery : referenceQuery;
+  const references = contentQuery.data?.references ?? skill.references;
+  return <SkillDetailDialog skill={contentQuery.data ?? skill} title={t.skillDisplayName(skill.name)} close={close}
+    files={["SKILL.md", ...references.map(reference => reference.path)]} selectedFile={file} onSelectFile={setFile}
+    content={selected.data?.content} loading={selected.isPending} error={queryError(contentQuery.error || referenceQuery.error)} />;
 }
 
 function ToolParameters({ parameters }: { parameters: Record<string, unknown> }) {
@@ -214,41 +58,30 @@ function ToolParameters({ parameters }: { parameters: Record<string, unknown> })
   );
 }
 
-export function DetailModal({
-  enabled,
-  target,
-  onClose,
-}: {
-  enabled: boolean;
-  target: DetailTarget;
-  onClose: () => void;
+export function DetailModal({ enabled, target, onClose }: {
+  enabled: boolean; target: DetailTarget; onClose: () => void;
+}) {
+  if (!target) return null;
+  return target.type === "skill"
+    ? <SkillDetail key={target.item.location} enabled={enabled} skill={target.item} close={onClose} />
+    : <ToolDetail target={target} onClose={onClose} />;
+}
+
+function ToolDetail({ target, onClose }: {
+  target: Extract<NonNullable<DetailTarget>, { type: "tool" }>; onClose: () => void;
 }) {
   const t = useUiText();
-  const dialogRef = useDialogFocus<HTMLElement>(Boolean(target), onClose);
-  if (!target) {
-    return null;
-  }
-  const modalType =
-    target.type === "tool" ? t.detailModal.tool
-    : skillTypeLabel(target.item.type, t);
-  const title = target.type === "skill" ? t.skillDisplayName(target.item.name) : target.title;
+  const dialogRef = useDialogFocus<HTMLElement>(true, onClose);
+  const title = target.title;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <section
-        aria-label={title}
-        aria-modal="true"
-        className="modal"
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
+      <section aria-label={title} aria-modal="true" className="modal" ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="modal-header">
           <div>
-            <div className="modal-kicker">{modalType}</div>
+            <div className="modal-kicker">{t.detailModal.tool}</div>
             <h2>{title}</h2>
-            {target.type === "skill" ? <div className="mono">{target.item.name}</div> : null}
             {target.item.description ? (
               <div className="modal-subtitle">
                 <p>{target.item.description}</p>
@@ -262,16 +95,10 @@ export function DetailModal({
             <X size={18} />
           </button>
         </div>
-        {target.type === "tool" ? (
-          <div className="modal-content">
-            <div className="schema-block">
-              <div className="schema-title">{t.detailModal.inputSchema}</div>
-              <ToolParameters parameters={target.item.parameters} />
-            </div>
-          </div>
-        ) : (
-          <SkillDetailContent enabled={enabled} skill={target.item} />
-        )}
+        <div className="modal-content"><div className="schema-block">
+          <div className="schema-title">{t.detailModal.inputSchema}</div>
+          <ToolParameters parameters={target.item.parameters} />
+        </div></div>
       </section>
     </div>
   );

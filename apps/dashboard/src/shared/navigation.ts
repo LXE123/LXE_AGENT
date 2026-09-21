@@ -43,13 +43,13 @@ function objectRecord(value: unknown): Record<string, unknown> {
 export function normalizeCapabilityView(value: unknown): CapabilityView {
   return typeof value === "string" && CAPABILITY_VIEWS.has(value as CapabilityView)
     ? value as CapabilityView
-    : "models";
+    : "skills";
 }
 
 export function readStoredCapabilityView(
   storage?: Pick<Storage, "getItem"> & Partial<Pick<Storage, "setItem">>,
 ): CapabilityView {
-  if (!storage) return "models";
+  if (!storage) return "skills";
   try {
     const current = storage.getItem(CAPABILITY_VIEW_STORAGE_KEY);
     if (current !== null) return normalizeCapabilityView(current);
@@ -58,7 +58,7 @@ export function readStoredCapabilityView(
     if (legacy !== null && storage.setItem) storage.setItem(CAPABILITY_VIEW_STORAGE_KEY, migrated);
     return migrated;
   } catch {
-    return "models";
+    return "skills";
   }
 }
 

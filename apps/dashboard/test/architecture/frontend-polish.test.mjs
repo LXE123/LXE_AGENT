@@ -120,7 +120,11 @@ test("dialogs trap focus, close with Escape, and avoid native confirmations", ()
   assert.match(dialogFocus, /event\.key !== "Tab"/);
   assert.match(dialogFocus, /previouslyFocused\?\.focus\(\)/);
   assert.match(shell, /useDialogFocus<HTMLFormElement>\(settingsOpen, closeSettings\)/);
-  assert.match(details, /useDialogFocus<HTMLElement>\(Boolean\(target\), onClose\)/);
+  assert.match(details, /useDialogFocus<HTMLElement>\(true, onClose\)/);
+  assert.match(details, /if \(!target\) return null/);
+  const skillDialog = readSource("shared/ui/skill-detail-dialog.tsx");
+  assert.match(skillDialog, /useDialogFocus<HTMLElement>\(true, close\)/);
+  assert.match(skillDialog, /role="dialog" aria-modal="true"/);
   assert.match(shell, /role="dialog"/);
   assert.doesNotMatch(shell, /window\.confirm/);
   assert.match(shell, /aria-live="polite"/);

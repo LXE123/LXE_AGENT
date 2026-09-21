@@ -156,7 +156,7 @@ def test_upload_is_refused_when_actual_matches_plan_exactly(
     _configure(monkeypatch, tmp_path)
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -175,7 +175,7 @@ def test_confirm_identical_lets_a_genuinely_exact_shipment_through(
     _configure(monkeypatch, tmp_path)
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001", "confirm_identical": True})
 
@@ -194,7 +194,7 @@ def test_offsetting_differences_are_not_treated_as_identical(
     _configure(monkeypatch, tmp_path)
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "30", "SKU-A × 30")])
     session = FakeSession([_identical_preview(carryover_quantity=176)])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -241,7 +241,7 @@ def test_delivery_source_sends_the_same_shape_as_the_wms_source(
         )
     )
     session = FakeSession([_preview_response()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -267,7 +267,7 @@ def test_mapped_packing_sp_is_exposed_without_changing_canonical_ship_identity(
     )
     monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda sp_no: path)
     session = FakeSession([_preview_response(submitted_sp_no=packing_sp_no)])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": packing_sp_no})
 
@@ -285,7 +285,7 @@ def test_unmapped_packing_result_does_not_repeat_purchase_sp_as_alias(
     _configure(monkeypatch, tmp_path)
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession([_preview_response(submitted_sp_no="SP260710001")])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -314,7 +314,7 @@ def test_purchase_sp_rejection_preserves_required_packing_sp_detail(
             )
         ]
     )
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -337,7 +337,7 @@ def test_delivery_source_skips_mskus_that_were_not_shipped(
     )
     monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda sp_no: path)
     session = FakeSession([_preview_response()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
@@ -353,7 +353,7 @@ def test_request_id_is_deterministic_for_same_source(monkeypatch, tmp_path: Path
     _configure(monkeypatch, tmp_path)
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession([_preview_response(), _preview_response()])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     first = cli.run({"ship_no": "SP260710001"})
     second = cli.run({"ship_no": "SP260710001"})
@@ -367,7 +367,7 @@ def test_confirmation_only_sends_quote_id(monkeypatch, tmp_path: Path) -> None:
     session = FakeSession(
         [_created_response(), FakeResponse(200, {"lines": []})]
     )
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
     quote_id = "00000000-0000-0000-0000-000000000010"
 
     result = cli.run({"confirm_packing_quote_id": quote_id})
@@ -382,7 +382,7 @@ def test_confirmation_only_sends_quote_id(monkeypatch, tmp_path: Path) -> None:
 def test_stale_confirmation_returns_latest_preview(monkeypatch, tmp_path: Path) -> None:
     _configure(monkeypatch, tmp_path)
     session = FakeSession([_preview_response(status="quote_stale")])
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run(
         {"confirm_packing_quote_id": "00000000-0000-0000-0000-000000000009"}
@@ -395,16 +395,14 @@ def test_stale_confirmation_returns_latest_preview(monkeypatch, tmp_path: Path) 
 
 
 
-def test_missing_erp_credentials_is_explicit(monkeypatch, tmp_path: Path) -> None:
+def test_missing_erp_credentials_does_not_block_request(monkeypatch, tmp_path: Path) -> None:
     _configure(monkeypatch, tmp_path, api_key="")
-    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
-    session = FakeSession()
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
-
-    result = cli.run({"ship_no": "SP260710001"})
-
-    assert result["error"]["code"] == "erp_credentials_not_configured"
-    assert session.calls == []
+    _use_delivery(monkeypatch, tmp_path, [("M1", "2", "S1 × 2")])
+    session = FakeSession([_preview_response()])
+    _mock_cloud(monkeypatch, session)
+    result = cli.run({"source": "delivery", "ship_no": "SP260710001"})
+    assert len(session.calls) == 1
+    assert result.get("error", {}).get("code") != "erp_credentials_not_configured"
 
 
 def test_transport_error_keeps_real_exception(monkeypatch, tmp_path: Path) -> None:
@@ -412,9 +410,27 @@ def test_transport_error_keeps_real_exception(monkeypatch, tmp_path: Path) -> No
     _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "8", "SKU-A × 8")])
     session = FakeSession()
     session.error = requests.Timeout("private ERP timed out after 12 seconds")
-    monkeypatch.setattr(cli, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     result = cli.run({"ship_no": "SP260710001"})
 
     assert result["error"]["code"] == "erp_transport_error"
     assert "private ERP timed out after 12 seconds" in result["error"]["message"]
+
+
+def _mock_cloud(monkeypatch, session):
+    from shared.infra.cloud_client import CloudConnectionError
+    class Client:
+        def __init__(self, base, *, timeout, max_response_bytes):
+            self.base, self.timeout = base, timeout
+            assert max_response_bytes is None
+        def call(self, method, path, **kwargs):
+            try:
+                return session.request(method, self.base + path, timeout=self.timeout, **kwargs)
+            except Exception as exc:
+                raise CloudConnectionError(exc, 0) from exc
+        def request_json(self, method, path, *, json_body=None):
+            return self.call(method, path, json=json_body)
+        def request_bytes(self, method, path):
+            return self.call(method, path)
+    monkeypatch.setattr(cli, 'CloudClient', Client)

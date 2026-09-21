@@ -152,6 +152,8 @@ export class DesktopConfigStore {
     return this.cloud.wireGuardConfiguration();
   }
 
+  clearCloudPermissionSnapshot(): void { this.cloud.clearPermissionSnapshot(); }
+
   saveCloudPermissionSnapshot(
     snapshot: DesktopCloudPermissionSnapshot,
   ): DesktopCloudPermissionSnapshot {

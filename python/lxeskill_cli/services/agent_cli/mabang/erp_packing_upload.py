@@ -9,7 +9,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping
 
-import requests
 
 from services.agent_cli._shared.json_cli import exception_text
 from services.agent_cli.mabang.erp_http import ERP_REQUEST_TIMEOUT_SECONDS
@@ -17,7 +16,7 @@ from services.agent_cli.mabang.shipment_quantity_validation import (
     read_delivery_msku_infos,
     resolve_delivery_csv_path,
 )
-from shared.infra.net import local_service_requests_session
+from shared.infra.cloud_client import CloudClient, CloudConnectionError, diagnostic, redact
 
 
 MAX_RECONCILIATION_LINES = 200
@@ -141,24 +140,18 @@ def _request_id(payload: Mapping[str, Any]) -> str:
     return f"packing-{payload['sp_no']}-{digest}"
 
 
-def _connection_settings() -> tuple[str, str, float]:
+def _connection_settings() -> tuple[str, float]:
     base_url = str(os.getenv("LXE_DATA_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise PackingUploadError(
             "erp_server_not_configured",
             "LXE_DATA_SERVER_URL 未配置，无法连接 ERP",
         )
-    api_key = str(os.getenv("LXE_ERP_API_KEY") or "").strip()
-    if not api_key:
-        raise PackingUploadError(
-            "erp_credentials_not_configured",
-            "LXE_ERP_API_KEY 未配置，无法上传真实发货量",
-        )
-    return base_url, api_key, ERP_REQUEST_TIMEOUT_SECONDS
+    return base_url, ERP_REQUEST_TIMEOUT_SECONDS
 
 
 def _safe_remote_body(response: Any) -> str:
-    body = str(getattr(response, "text", "") or "")
+    body = diagnostic(str(getattr(response, "text", "") or ""))
     if len(body) <= MAX_REMOTE_BODY_CHARS:
         return body
     omitted = len(body) - MAX_REMOTE_BODY_CHARS
@@ -181,7 +174,7 @@ def _response_json(response: Any) -> dict[str, Any]:
             f"ERP 返回 JSON 不是对象: HTTP {response.status_code}",
             http_status=int(response.status_code),
         )
-    return dict(payload)
+    return redact(dict(payload))
 
 
 def _raise_remote_error(response: Any, payload: Mapping[str, Any]) -> None:
@@ -204,31 +197,19 @@ def _raise_remote_error(response: Any, payload: Mapping[str, Any]) -> None:
 
 def _request_json(
     method: str,
-    url: str,
+    path: str,
     *,
-    api_key: str,
+    base_url: str,
     timeout: float,
     json_payload: Mapping[str, Any] | None = None,
     accepted_statuses: set[int] | None = None,
 ) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
     try:
-        response = local_service_requests_session.request(
-            method,
-            url,
-            headers=headers,
-            json=dict(json_payload) if json_payload is not None else None,
-            timeout=timeout,
+        response = CloudClient(base_url, timeout=timeout, max_response_bytes=None).request_json(
+            method, path, json_body=dict(json_payload) if json_payload is not None else None,
         )
-    except requests.RequestException as exc:
-        raise PackingUploadError(
-            "erp_transport_error",
-            f"连接 ERP 失败: {exception_text(exc)}",
-        ) from exc
+    except (CloudConnectionError, ValueError) as exc:
+        raise PackingUploadError("erp_transport_error", f"连接 ERP 失败: {diagnostic(exception_text(exc))}") from exc
     payload = _response_json(response)
     status_code = int(response.status_code)
     accepted = (
@@ -338,7 +319,6 @@ def _result_with_lines(
     ship_no: str,
     request_id: str,
     base_url: str,
-    api_key: str,
     timeout: float,
     source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -359,8 +339,8 @@ def _result_with_lines(
         try:
             detail = _request_json(
                 "GET",
-                f"{base_url}/api/v1/erp/reconciliations/{reconciliation_id}",
-                api_key=api_key,
+                f"/api/v1/erp/reconciliations/{reconciliation_id}",
+                base_url=base_url,
                 timeout=timeout,
             )
             detail_lines = detail.get("lines")
@@ -414,7 +394,7 @@ def _result_with_lines(
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     ship_no = ""
     try:
-        base_url, api_key, timeout = _connection_settings()
+        base_url, timeout = _connection_settings()
         confirm_quote_id = str(
             arguments.get("confirm_packing_quote_id") or ""
         ).strip()
@@ -422,8 +402,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             request_id = _confirmation_request_id(confirm_quote_id)
             response = _request_json(
                 "POST",
-                f"{base_url}/api/v1/erp/packing-snapshots/confirm",
-                api_key=api_key,
+                f"/api/v1/erp/packing-snapshots/confirm",
+                base_url=base_url,
                 timeout=timeout,
                 json_payload={
                     "request_id": request_id,
@@ -436,7 +416,6 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 ship_no="",
                 request_id=request_id,
                 base_url=base_url,
-                api_key=api_key,
                 timeout=timeout,
             )
 
@@ -458,8 +437,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         request_body["request_id"] = _request_id(request_body)
         response = _request_json(
             "POST",
-            f"{base_url}/api/v1/erp/packing-snapshots/preview",
-            api_key=api_key,
+            f"/api/v1/erp/packing-snapshots/preview",
+            base_url=base_url,
             timeout=timeout,
             json_payload=request_body,
             accepted_statuses={200, 409},
@@ -470,7 +449,6 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             ship_no=ship_no,
             request_id=request_body["request_id"],
             base_url=base_url,
-            api_key=api_key,
             timeout=timeout,
             source={
                 "source_file_path": str(source_path),

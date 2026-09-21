@@ -8,13 +8,20 @@ bun apps/dashboard/test/features/skills/user-skills-fixture-server.ts
 
 Open the printed local URL. This fixture uses the real user-skill file service and UI components with disposable files. It has no model connection and counts attempted message sends.
 
-Checked on macOS in the browser:
+Checked on macOS in a standalone Chromium browser (2026-09-17):
 
-- Valid, broken YAML and shadowed entries appear together with actual diagnostics.
-- An existing Chinese draft survives navigation. Use appends one prompt; refresh and remount do not duplicate it. Send count stays zero.
-- Edit appends the name and actual manifest path while preserving the draft and send count.
-- Markdown and assets/template.md render in the preview. The narrow viewport remains usable.
-- Disable immediately blocks Use. Recycle removes the entry and reports its recovery path.
+- Official, shared, valid user, disabled user, broken YAML and shadowed entries remain distinguishable. The two `official-demo` entries open different content. No detail exposes an enable switch; existing disabled state remains unchanged and blocks Use.
+- Tabs appear as Skills, Tools, Connections, Models in both languages. The + menu still appends Add skill to a draft; Use preserves that draft and never sends automatically.
+- Source/status badges stay compact and left-aligned. Skill preview typography matches conversation Markdown for headings, paragraphs, quotes, lists, code, links and tables; only the preview viewport and opening-title suppression differ.
+- Skill categories and cards use neutral backgrounds without gradients or left accent bars; detail bodies share the dialog background. Icon colors and Markdown reading aids remain. Verify both light and dark themes.
+- All skill sources share the same detail layout. Markdown is shown first, omitting only the opening H1 of SKILL.md; source and copy retain the full document and attached-file headings remain visible; source, copy and skill information are in More. Technical identity, category, source, path and commands are hidden until information is expanded. Official/shared entries have no recycle or Use action.
+- More supports arrow keys, Home/End, Tab, outside click and Escape. Escape closes the menu before the dialog; closing the dialog returns focus to its card.
+- Copy uses the selected file, including attached templates; clipboard rejection displays its actual message. Official references and user attachments render correctly; binary resources disable copy, and oversized content shows the truncation notice.
+- English details remain usable at 390px and 320px, including wrapped descriptions, More and footer actions.
+- External manifest edits cause stale-version deletion to show the actual error, refresh the content, and allow retry. Recycle closes the detail, removes the card and reports its recovery path.
+- The browser run issued no `skills.user.setEnabled` calls and left the fixture's persisted disabled configuration byte-for-byte unchanged.
+
+The fixture's `disabled-demo` is deliberately disabled through the file service during setup to check compatibility with existing installations; the Dashboard has no enable/disable operation. All fixture skills and recycle contents are disposable.
 
 Automated coverage additionally checks stale mutation rejection, restart persistence, shared sources, canonical path activation, native file/exec creation and editing, and shared Python/Bun format fixtures.
 

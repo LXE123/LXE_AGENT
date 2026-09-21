@@ -627,7 +627,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(store.environment()).toMatchObject({
       LXE_DATA_SERVER_ENABLED: "0",
-      LXE_DATA_SERVER_URL: "",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
       LXE_DATA_SERVER_API_KEY: "",
       LXE_ERP_API_KEY: "",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",

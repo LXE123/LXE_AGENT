@@ -85,7 +85,7 @@ def test_json_error_redacts_secrets_and_explicitly_truncates_nested_values(
         "echoed_authorization": "Bearer payload-danger",
     }
     session = FakeSession([FakeResponse(503, payload)])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     with pytest.raises(erp_http.ErpHttpError) as captured:
         erp_http.request_json("POST", "/api/v1/erp/test", operation="测试 ERP")
@@ -120,7 +120,7 @@ def test_invalid_json_body_and_transport_exception_are_redacted(
         json_error=ValueError("not json"),
     )
     session = FakeSession([response])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     with pytest.raises(erp_http.ErpHttpError) as invalid_json:
         erp_http.request_json("GET", "/api/v1/erp/test", operation="读取 ERP")
@@ -158,7 +158,7 @@ def test_success_payload_is_sanitized_without_truncating_business_collections(
         },
     }
     session = FakeSession([FakeResponse(200, payload)])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     status, result = erp_http.request_json(
         "GET",
@@ -185,7 +185,7 @@ def test_error_payload_collections_remain_explicitly_bounded(
         }
     }
     session = FakeSession([FakeResponse(503, payload)])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     with pytest.raises(erp_http.ErpHttpError) as captured:
         erp_http.request_json("GET", "/api/v1/erp/test", operation="读取 ERP")
@@ -204,7 +204,7 @@ def test_accepted_business_conflict_preserves_complete_payload(
         "lines": ["safe"] * (erp_http.MAX_REMOTE_SEQUENCE_ITEMS + 3),
     }
     session = FakeSession([FakeResponse(409, payload)])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     status, result = erp_http.request_json(
         "POST",
@@ -239,7 +239,7 @@ def test_request_bytes_returns_exact_file_and_sanitized_headers(
             )
         ]
     )
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     status, content, headers = erp_http.request_bytes(
         "GET",
@@ -252,9 +252,7 @@ def test_request_bytes_returns_exact_file_and_sanitized_headers(
     assert headers["Content-Disposition"].endswith("%E5%90%8C.xlsx")
     assert "header-token" not in headers["X-Debug"]
     assert "[REDACTED]" in headers["X-Debug"]
-    assert session.calls[0]["headers"]["Authorization"] == (
-        "Bearer current-exact-api-key"
-    )
+    assert "headers" not in session.calls[0]
     assert session.calls[0]["timeout"] == 30
 
 
@@ -271,7 +269,7 @@ def test_request_bytes_preserves_truthful_sanitized_json_error(
         }
     }
     session = FakeSession([FakeResponse(404, payload)])
-    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+    _mock_cloud(monkeypatch, session)
 
     with pytest.raises(erp_http.ErpHttpError) as captured:
         erp_http.request_bytes(
@@ -285,3 +283,21 @@ def test_request_bytes_preserves_truthful_sanitized_json_error(
     assert "server-password" not in _serialized_error(captured.value)
     assert "current-exact-api-key" not in _serialized_error(captured.value)
     assert "contract missing" in str(captured.value)
+
+
+def _mock_cloud(monkeypatch, session):
+    from shared.infra.cloud_client import CloudConnectionError
+    class Client:
+        def __init__(self, base, *, timeout, max_response_bytes):
+            self.base, self.timeout = base, timeout
+            assert max_response_bytes is None
+        def call(self, method, path, **kwargs):
+            try:
+                return session.request(method, self.base + path, timeout=self.timeout, **kwargs)
+            except Exception as exc:
+                raise CloudConnectionError(exc, 0) from exc
+        def request_json(self, method, path, *, json_body=None):
+            return self.call(method, path, json=json_body)
+        def request_bytes(self, method, path):
+            return self.call(method, path)
+    monkeypatch.setattr(erp_http, 'CloudClient', Client)

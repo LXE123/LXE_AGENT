@@ -177,6 +177,12 @@ export class DesktopCloudConfigService {
     return structuredClone(this.repository.readSecrets().cloud_wireguard);
   }
 
+  clearPermissionSnapshot(): void {
+    const secrets = this.repository.readSecrets();
+    secrets.cloud_permission_snapshot = null;
+    this.repository.commit(this.repository.readConfig(), secrets);
+  }
+
   savePermissionSnapshot(
     snapshot: DesktopCloudPermissionSnapshot,
   ): DesktopCloudPermissionSnapshot {

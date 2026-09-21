@@ -740,7 +740,10 @@ button {
 .desktop-cloud-permission span { color: var(--muted); font-size: 0.6875rem; }
 .desktop-cloud-permission.cached { border-color: #dfc99d; }
 .desktop-cloud-permission.pending_verification,
-.desktop-cloud-permission.unassigned { border-color: #e7b8b0; }
+.desktop-cloud-permission.unassigned,
+.desktop-cloud-permission.denied,
+.desktop-cloud-permission.error { border-color: #e7b8b0; }
+.desktop-cloud-permission p { margin: 6px 0; overflow-wrap: anywhere; font-size: 0.75rem; }
 .desktop-cloud-permission dl { display: flex; gap: 18px; margin: 0; }
 .desktop-cloud-permission dl div { display: grid; gap: 3px; }
 .desktop-cloud-permission dt { color: var(--muted); font-size: 0.625rem; }
@@ -4797,6 +4800,37 @@ h1 {
     transform 0.16s ease;
 }
 
+/* Skill surfaces stay neutral; the tool catalog retains its own decoration. */
+.skills-catalog .catalog-grid,
+.skills-catalog .catalog-section-toggle,
+.skills-catalog .catalog-section-toggle[aria-expanded="true"],
+.skills-catalog .catalog-section-toggle:hover,
+.skills-catalog .catalog-section-toggle:focus-visible,
+.skills-catalog .catalog-item,
+.skills-catalog .catalog-item.item-button:hover,
+.skills-catalog .catalog-item.item-button:focus-visible {
+  background: var(--surface);
+}
+
+.skills-catalog .catalog-item::before {
+  content: none;
+}
+
+.skills-catalog .catalog-item.item-button:hover,
+.skills-catalog .catalog-item.item-button:focus-visible {
+  border-color: var(--border-strong);
+}
+
+.skills-catalog .catalog-item .pill {
+  background: var(--surface-muted);
+}
+
+/* Direct status/source badges are flex children too: don't stretch them across the card. */
+.skills-catalog .catalog-item > .pill {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
 .catalog-item .item-icon {
   width: 38px;
   height: 38px;
@@ -5948,10 +5982,12 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* Shared Markdown typography for conversations and skill previews. */
 .message-markdown {
   color: var(--text);
-  font-size: 0.8125rem;
-  line-height: 1.62;
+  font-size: 0.875rem;
+  font-weight: 370;
+  line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
@@ -6011,7 +6047,7 @@ h1 {
 .message-markdown .markdown-table-scroll,
 .message-markdown pre,
 .message-markdown hr {
-  margin: 0 0 8px;
+  margin: 0 0 7px;
 }
 
 .message-markdown ul,
@@ -6842,135 +6878,11 @@ pre {
   max-height: min(520px, 58vh);
 }
 
+/* Skill previews reuse .message-markdown typography; only their viewport differs. */
 .skill-markdown {
   max-height: min(520px, 58vh);
   overflow: auto;
   padding: 12px;
-  color: var(--text);
-  font-size: 0.8125rem;
-  line-height: 1.62;
-}
-
-.skill-markdown > :first-child {
-  margin-top: 0;
-}
-
-.skill-markdown > :last-child {
-  margin-bottom: 0;
-}
-
-.skill-markdown h1,
-.skill-markdown h2,
-.skill-markdown h3,
-.skill-markdown h4,
-.skill-markdown h5,
-.skill-markdown h6 {
-  margin: 18px 0 8px;
-  color: var(--text-strong);
-  line-height: 1.25;
-}
-
-.skill-markdown h1 {
-  font-size: 1.25rem;
-}
-
-.skill-markdown h2 {
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--border);
-  font-size: 1.0625rem;
-}
-
-.skill-markdown h3 {
-  font-size: 0.9375rem;
-}
-
-.skill-markdown h4,
-.skill-markdown h5,
-.skill-markdown h6 {
-  font-size: 0.8125rem;
-}
-
-.skill-markdown p,
-.skill-markdown ul,
-.skill-markdown ol,
-.skill-markdown blockquote,
-.skill-markdown table,
-.skill-markdown pre {
-  margin: 0 0 12px;
-}
-
-.skill-markdown ul,
-.skill-markdown ol {
-  padding-left: 22px;
-}
-
-.skill-markdown li + li {
-  margin-top: 4px;
-}
-
-.skill-markdown a {
-  color: var(--info);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-/* This quote keeps its filled panel, so it keeps vertical padding too — but the
-   inner margins still have to be reset or the fill sits lopsided on the text. */
-.skill-markdown blockquote {
-  padding: 8px 12px;
-  border-left: 3px solid var(--accent-muted);
-  background: var(--surface-subtle);
-  color: var(--text-soft);
-}
-
-.skill-markdown blockquote > :first-child {
-  margin-top: 0;
-}
-
-.skill-markdown blockquote > :last-child {
-  margin-bottom: 0;
-}
-
-.skill-markdown code {
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: var(--surface-muted);
-  color: var(--text-soft);
-  font-size: 0.75rem;
-}
-
-.skill-markdown pre {
-  max-height: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
-}
-
-.skill-markdown pre code {
-  padding: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.skill-markdown table {
-  display: block;
-  width: 100%;
-  overflow: auto;
-  border-collapse: collapse;
-}
-
-.skill-markdown th,
-.skill-markdown td {
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.skill-markdown th {
-  background: var(--surface-subtle);
-  color: var(--text-soft);
-  font-size: 0.75rem;
 }
 
 .mermaid-block {
@@ -9557,21 +9469,10 @@ pre {
   background: var(--surface-subtle);
 }
 
-.conversation-feed .message-text,
-.conversation-feed .message-markdown {
+.conversation-feed .message-text {
   font-size: 0.875rem;
   font-weight: 370;
   line-height: 1.7;
-}
-
-.conversation-feed .message-markdown p,
-.conversation-feed .message-markdown ul,
-.conversation-feed .message-markdown ol,
-.conversation-feed .message-markdown blockquote,
-.conversation-feed .message-markdown .markdown-table-scroll,
-.conversation-feed .message-markdown pre,
-.conversation-feed .message-markdown hr {
-  margin-bottom: 7px;
 }
 
 .process-step {
@@ -11783,8 +11684,50 @@ pre {
 }
 .user-skills-header h2 { margin: 0 0 8px; }
 .user-skills-header p { margin: 0; color: var(--text-soft); }
+/* Skill management uses the existing catalog and modal surfaces. */
+.workspace-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; }
+.workspace-header-actions .workspace-subnav { overflow-x: auto; }
+.workspace-header-actions .workspace-subnav-item { flex-shrink: 0; }
+.skill-add-menu { position: relative; flex-shrink: 0; }
+.skill-add-menu-popup { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 9rem; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow-soft); }
+.skill-add-menu-popup button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
+.skill-add-menu-popup button:hover, .skill-add-menu-popup button:focus-visible { background: var(--surface-muted); }
+.skill-detail-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.skill-detail-footer.user-skill-actions { justify-content: space-between; flex-shrink: 0; margin: 0; padding: 16px 20px; border-top: 1px solid var(--border); }
+.skill-detail-footer .skill-recycle-button { color: var(--text-soft); }
+.skill-detail-footer > button:last-child { margin-left: auto; }
+@media (max-width: 600px) {
+  .workspace-view-header { flex-wrap: wrap; gap: 10px; }
+  .workspace-header-actions { gap: 8px; }
+  .workspace-header-actions .workspace-subnav-item { padding-inline: 8px; }
+}
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-.user-skill-actions button, .user-skills-header button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
+.user-skill-actions button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
 .user-skill-actions button:disabled { opacity: .5; cursor: default; }
 .user-skill-location, .user-skill-error { overflow-wrap: anywhere; white-space: pre-wrap; font-size: .75rem; }
 .user-skill-error { color: var(--text-soft); }
+
+/* Skill-only detail layout; tool parameter dialogs keep their existing presentation. */
+.skill-detail-modal { display: flex; flex-direction: column; max-height: calc(100dvh - 40px); }
+.skill-detail-modal .modal-header { flex-shrink: 0; padding: 24px; border-bottom: 0; }
+.skill-detail-heading { max-height: 30dvh; overflow: auto; }
+.skill-detail-description { margin: 10px 0 0; color: var(--muted); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-detail-modal .modal-content { display: flex; flex-direction: column; min-height: 0; padding: 0 24px 24px; }
+.skill-detail-body { padding: 20px; border-radius: 12px; background: transparent; }
+.skill-detail-body .skill-content-pre { margin: 0; }
+.skill-more-menu { position: relative; }
+.skill-more-menu .skill-add-menu-popup { z-index: 30; }
+.skill-detail-info { padding: 16px; border: 1px solid var(--border); border-radius: 10px; overflow-wrap: anywhere; }
+.skill-detail-info h3, .skill-detail-info h4 { margin: 0 0 10px; }
+.skill-detail-info dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 0 0 12px; }
+.skill-detail-info dt { color: var(--muted); }
+.skill-detail-info dd { margin: 0; }
+.skill-detail-info ul { padding-left: 20px; margin: 0; }
+@media (max-width: 600px) {
+  .skill-detail-modal .modal-header { padding: 16px; }
+  .skill-detail-modal .modal-content { padding: 0 16px 16px; }
+  .skill-detail-body { padding: 14px; }
+  .skill-detail-header-actions { gap: 6px; }
+}
+
+.skill-add-menu-popup button:disabled { opacity: .5; cursor: default; }

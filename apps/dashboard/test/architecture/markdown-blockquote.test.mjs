@@ -17,7 +17,7 @@ const rule = (selector) => {
 // document-level margin reset is scoped to direct children, so it cannot reach
 // that paragraph. Without a matching reset the quote pads one side and not the
 // other, which reads as the quote sinking away from the text around it.
-for (const scope of [".message-markdown", ".skill-markdown"]) {
+for (const scope of [".message-markdown"]) {
   test(`${scope} resets the margins of a blockquote's first and last child`, () => {
     assert.match(rule(`${scope} blockquote > :first-child`), /margin-top:\s*0/);
     assert.match(rule(`${scope} blockquote > :last-child`), /margin-bottom:\s*0/);

@@ -5,10 +5,9 @@ import re
 from collections.abc import Sequence
 from typing import Any, Mapping
 
-import requests
 
 from services.agent_cli._shared.json_cli import exception_text
-from shared.infra.net import local_service_requests_session
+from shared.infra.cloud_client import CloudClient, CloudConnectionError, SENSITIVE
 
 
 ERP_REQUEST_TIMEOUT_SECONDS = 30.0
@@ -56,8 +55,7 @@ class ErpHttpError(RuntimeError):
 
 
 def _configured_secrets() -> tuple[str, ...]:
-    api_key = str(os.getenv("LXE_ERP_API_KEY") or "").strip()
-    return (api_key,) if api_key else ()
+    return tuple(value for name, value in os.environ.items() if SENSITIVE.search(name) and value)
 
 
 def _truncate_text(value: str, *, max_chars: int) -> str:
@@ -182,20 +180,14 @@ def _sanitize_value(
     )
 
 
-def connection_settings(*, operation: str) -> tuple[str, str, float]:
+def connection_settings(*, operation: str) -> tuple[str, float]:
     base_url = str(os.getenv("LXE_DATA_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
         raise ErpHttpError(
             "erp_server_not_configured",
             f"LXE_DATA_SERVER_URL 未配置，无法{operation}",
         )
-    api_key = str(os.getenv("LXE_ERP_API_KEY") or "").strip()
-    if not api_key:
-        raise ErpHttpError(
-            "erp_credentials_not_configured",
-            f"LXE_ERP_API_KEY 未配置，无法{operation}",
-        )
-    return base_url, api_key, ERP_REQUEST_TIMEOUT_SECONDS
+    return base_url, ERP_REQUEST_TIMEOUT_SECONDS
 
 
 def _safe_remote_body(response: Any, *, secrets: Sequence[str]) -> str:
@@ -275,36 +267,24 @@ def request_json(
     json_payload: Mapping[str, Any] | None = None,
     accepted_error_codes: frozenset[str] = frozenset(),
 ) -> tuple[int, dict[str, Any]]:
-    base_url, api_key, timeout = connection_settings(operation=operation)
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    base_url, timeout = connection_settings(operation=operation)
     try:
-        response = local_service_requests_session.request(
-            method,
-            f"{base_url}{path}",
-            headers=headers,
-            json=dict(json_payload) if json_payload is not None else None,
-            timeout=timeout,
+        response = CloudClient(base_url, timeout=timeout, max_response_bytes=None).request_json(
+            method, path, json_body=dict(json_payload) if json_payload is not None else None,
         )
-    except requests.RequestException as exc:
-        raise ErpHttpError(
-            "erp_transport_error",
-            f"连接 ERP 失败: {_safe_text(exception_text(exc), secrets=(api_key,))}",
-        ) from exc
+    except (CloudConnectionError, ValueError) as exc:
+        raise ErpHttpError("erp_transport_error", f"连接 ERP 失败: {exception_text(exc)}") from exc
 
     status_code = int(response.status_code)
     if 200 <= status_code < 300:
-        payload = _response_json(response, secrets=(api_key,), bounded=False)
+        payload = _response_json(response, secrets=_configured_secrets(), bounded=False)
         return status_code, payload
-    payload = _response_json(response, secrets=(api_key,), bounded=True)
-    error = _remote_error(response, payload, secrets=(api_key,))
+    payload = _response_json(response, secrets=_configured_secrets(), bounded=True)
+    error = _remote_error(response, payload, secrets=_configured_secrets())
     if error.code in accepted_error_codes:
         return status_code, _response_json(
             response,
-            secrets=(api_key,),
+            secrets=_configured_secrets(),
             bounded=False,
         )
     raise error
@@ -317,38 +297,23 @@ def request_bytes(
     operation: str,
     accepted_status_codes: frozenset[int] = frozenset({200}),
 ) -> tuple[int, bytes, Mapping[str, str]]:
-    base_url, api_key, timeout = connection_settings(operation=operation)
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, "
-            "application/octet-stream, application/json"
-        ),
-    }
+    base_url, timeout = connection_settings(operation=operation)
     try:
-        response = local_service_requests_session.request(
-            method,
-            f"{base_url}{path}",
-            headers=headers,
-            timeout=timeout,
-        )
-    except requests.RequestException as exc:
-        raise ErpHttpError(
-            "erp_transport_error",
-            f"连接 ERP 失败: {_safe_text(exception_text(exc), secrets=(api_key,))}",
-        ) from exc
+        response = CloudClient(base_url, timeout=timeout, max_response_bytes=None).request_bytes(method, path)
+    except (CloudConnectionError, ValueError) as exc:
+        raise ErpHttpError("erp_transport_error", f"连接 ERP 失败: {exception_text(exc)}") from exc
 
     status_code = int(response.status_code)
     if status_code not in accepted_status_codes:
-        payload = _response_json(response, secrets=(api_key,))
-        raise _remote_error(response, payload, secrets=(api_key,))
+        payload = _response_json(response, secrets=_configured_secrets())
+        raise _remote_error(response, payload, secrets=_configured_secrets())
 
     content = bytes(getattr(response, "content", b"") or b"")
     raw_headers = getattr(response, "headers", {}) or {}
     safe_headers = {
-        _safe_text(key, secrets=(api_key,), max_chars=256): _safe_text(
+        _safe_text(key, secrets=_configured_secrets(), max_chars=256): _safe_text(
             value,
-            secrets=(api_key,),
+            secrets=_configured_secrets(),
         )
         for key, value in raw_headers.items()
     }

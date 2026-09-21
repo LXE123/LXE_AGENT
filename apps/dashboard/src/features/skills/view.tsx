@@ -14,6 +14,8 @@ import { useUiText } from "../../shared/i18n";
 import type { CliCommandPayload, SkillPayload } from "../../api/payloads";
 import type { DetailTarget } from "../../shared/ui/detail-target";
 import { useStoredExpanded } from "../../shared/ui/use-stored-expanded";
+import type { UserSkillPayload } from "@lxe/desktop-protocol";
+import { isManagedSkill, mergeSkillCatalog } from "./catalog";
 
 const SKILLS_EXPANDED_STORAGE_KEY = "lxe.window.main.catalog-skills.v1";
 
@@ -36,21 +38,26 @@ function skillGroupIcon(type: string) {
 
 export function SkillsView({
   skills,
+  userSkills = [],
   commands,
-  onOpen
+  onOpen,
+  onOpenUser,
 }: {
   skills: SkillPayload[];
+  userSkills?: UserSkillPayload[];
   commands: CliCommandPayload[];
   onOpen: (target: DetailTarget) => void;
+  onOpenUser?: (skill: UserSkillPayload) => void;
 }) {
   const t = useUiText();
   const [expandedSections, setSectionExpanded] = useStoredExpanded(SKILLS_EXPANDED_STORAGE_KEY);
   const maintenanceExpanded = expandedSections.maintenance ?? false;
 
-  if (!skills.length) {
+  const catalog = mergeSkillCatalog(skills, userSkills);
+  if (!catalog.length && !commands.some(command => command.visibility === "maintenance")) {
     return <EmptyState label={t.skills.empty} />;
   }
-  const groups = groupSkillsByType(skills, t);
+  const groups = groupSkillsByType(catalog, t, skill => isManagedSkill(skill) ? "default" : skill.type);
   const maintenanceCommands = commands.filter((command) => command.visibility === "maintenance");
   return (
     <div className="catalog-page skills-catalog">
@@ -123,14 +130,17 @@ export function SkillsView({
                       return (
                         <button
                           className="item-card item-button catalog-item"
-                          key={skill.name}
+                          key={isManagedSkill(skill) ? skill.id : skill.location}
                           type="button"
-                          onClick={() => onOpen({ type: "skill", item: skill, title: skill.name })}
+                          onClick={() => isManagedSkill(skill) ? onOpenUser?.(skill) : onOpen({ type: "skill", item: skill, title: skill.name })}
                         >
                           <div className="item-heading">
-                            <h3 title={skill.name}>{t.skillDisplayName(skill.name)}</h3>
+                            <h3 title={skill.name}>{isManagedSkill(skill) ? skill.name : t.skillDisplayName(skill.name)}</h3>
                           </div>
                           <p className="description">{skill.description}</p>
+                          {isManagedSkill(skill) && !skill.available ? <span className="pill">{
+                            !skill.enabled ? t.userSkills.disabled : t.userSkills.unavailable
+                          }</span> : null}
                           {skill.source === "shared" ? <span className="pill">{t.userSkills.shared}</span> : null}
                           {skill.commands.length || skill.references.length ? (
                             <div className="pill-row">

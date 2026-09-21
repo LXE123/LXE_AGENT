@@ -29,6 +29,7 @@ const expectedModules = [
   "features/tools/view.tsx",
   "features/integrations/view.tsx",
   "features/skills/view.tsx",
+  "features/skills/user-view.tsx",
   "features/details/view.tsx"
 ];
 const expectedEntryImports = [
@@ -37,7 +38,7 @@ const expectedEntryImports = [
   "./features/models/view",
   "./features/runtime-status/view",
   "./features/sessions/view",
-  "./features/skills/view",
+  "./features/skills/user-view",
   "./features/tools/view"
 ];
 

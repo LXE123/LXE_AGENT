@@ -94,11 +94,3 @@ export type ConversationRenderItem =
   | { type: "tool_group"; group: ConversationToolGroup }
   | { type: "response_group"; group: ConversationResponseGroup }
   | { type: "artifact_group"; group: ConversationArtifactGroup };
-
-export type SkillContentView = {
-  title: string;
-  subtitle: string;
-  content: string;
-};
-
-export type SkillContentMode = "preview" | "source";

@@ -45,6 +45,7 @@ import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
 import { attachmentThumbnail } from "./main/attachment-thumbnail";
+import { DesktopCloudContextClient } from "./main/cloud-context";
 import { DesktopCloudService } from "./main/desktop-cloud";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
@@ -330,6 +331,7 @@ async function bootstrap(): Promise<void> {
     enrollments: new DesktopCloudEnrollmentManager(),
     logger: cloudLogger,
     provisioner: cloudProvisioner,
+    contextClient: new DesktopCloudContextClient({ pythonPath: paths.managedPythonPath, cwd: paths.dataRoot }),
     onRuntimeCredentialChanged: async () => {
       if (gateway.health().gateway !== "stopped") await gateway.restart();
     },

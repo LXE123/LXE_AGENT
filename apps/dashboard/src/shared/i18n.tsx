@@ -9,15 +9,13 @@ export type Language = "zh" | "en";
 
 export const ZH_TEXT = {
   userSkills: {
-    title: "我的技能", hint: "通过对话创建和修改，保存后供后续任务使用。", create: "创建技能",
-    empty: "还没有自己的技能。描述你想复用的工作方法，即可开始创建。", view: "查看", use: "在对话中使用", edit: "通过对话修改",
-    enable: "启用", disable: "禁用", delete: "移至回收目录", available: "可用", disabled: "已禁用", unavailable: "不可用",
+    add: "添加技能", userDirectory: "用户目录", use: "在对话中使用",
+    delete: "移至回收目录", disabled: "已禁用", unavailable: "不可用",
     permission: "当前设备权限或连接器状态不允许使用。", files: "技能文件", binary: "此文件为二进制资源，请在本地查看。",
     truncated: "预览已截断，仅显示前 256 KiB。", recycled: "已移至回收目录，可通过对话恢复：",
     shared: "共享技能", official: "官方技能",
     createPrompt: "请帮我创建一个可复用的技能。我的需求是：",
     usePrompt: (name: string) => `请使用 ${name} 技能。我的任务是：`,
-    editPrompt: (name: string, path: string) => `请修改 ${name} 技能（${path}），保留原有启停状态。我要调整的是：`,
   },
 
   skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
@@ -554,6 +552,8 @@ export const ZH_TEXT = {
     lastError: "最近错误"
   },
   skillModal: {
+    more: "更多", info: "技能信息", hideInfo: "收起技能信息",
+    technicalName: "技能标识", category: "分类", origin: "来源",
     location: "位置",
     references: "引用文件",
     commands: "业务命令",
@@ -687,7 +687,8 @@ export const ZH_TEXT = {
       passwordPlaceholder: "输入管理员单独发送的密码",
       activating: "正在配置…",
       activate: "激活",
-      connected: "公司云端连接正常",
+      connected: "设备身份验证正常",
+      businessCredentialError: "旧业务凭据刷新失败",
       checking: "正在检查公司网络",
       retry: "重试连接",
       reconnect: "重新连接",
@@ -732,6 +733,8 @@ export const ZH_TEXT = {
         labelLocale: "zh-CN",
         status: {
           pending_verification: "待服务器验证，当前不开放仓库 Skill",
+          denied: "设备权限查询被拒绝",
+          error: "Skill 权限查询失败",
           verified: "已由服务器验证",
           cached: "正在沿用最近一次验证快照",
           unassigned: "服务器尚未分配权限，当前不开放仓库 Skill"
@@ -877,15 +880,13 @@ export const UI_TEXT: Record<Language, UiText> = {
   zh: ZH_TEXT,
   en: {
     userSkills: {
-      title: "My skills", hint: "Create and edit in a conversation, then reuse in later tasks.", create: "Create skill",
-      empty: "No personal skills yet. Describe a workflow you want to reuse to get started.", view: "View", use: "Use in conversation", edit: "Edit in conversation",
-      enable: "Enable", disable: "Disable", delete: "Move to recycle folder", available: "Available", disabled: "Disabled", unavailable: "Unavailable",
+      add: "Add skill", userDirectory: "User directory", use: "Use in conversation",
+      delete: "Move to recycle folder", disabled: "Disabled", unavailable: "Unavailable",
       permission: "Unavailable under the current device permissions or connector settings.", files: "Skill files", binary: "This is a binary resource. View it locally.",
       truncated: "Preview truncated to the first 256 KiB.", recycled: "Moved to the recycle folder. Ask in a conversation to restore:",
       shared: "Shared skill", official: "Official skill",
       createPrompt: "Help me create a reusable skill. My requirements are:",
       usePrompt: (name: string) => `Use the ${name} skill. My task is:`,
-      editPrompt: (name: string, path: string) => `Edit the ${name} skill (${path}), preserving its enabled state. My changes are:`,
     },
     skillDisplayName: (name: string) => skillDisplayName(name, "en"),
     sessionStatus: {waiting_input:"Waiting for answer",running:"Running",stopping:"Stopping",queued:"Queued",completed:"Completed, not viewed",error:"Failed, not viewed",cancelled:"Stopped",idle:"No unviewed results",unknown:"Previous run result unconfirmed",unavailable:"Status unavailable",syncError:"Status sync failed"},
@@ -1421,6 +1422,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       lastError: "Last error"
     },
     skillModal: {
+      more: "More", info: "Skill information", hideInfo: "Hide skill information",
+      technicalName: "Skill identifier", category: "Category", origin: "Source",
       location: "Location",
       references: "References",
       commands: "Business commands",
@@ -1554,7 +1557,8 @@ export const UI_TEXT: Record<Language, UiText> = {
         passwordPlaceholder: "Enter the password sent separately by your admin",
         activating: "Provisioning…",
         activate: "Activate",
-        connected: "Company cloud connection is healthy",
+        connected: "Device identity verified",
+        businessCredentialError: "Legacy business credential refresh failed",
         checking: "Checking the company network",
         retry: "Retry connection",
         reconnect: "Reconnect",
@@ -1599,6 +1603,8 @@ export const UI_TEXT: Record<Language, UiText> = {
           labelLocale: "en-US",
           status: {
             pending_verification: "Awaiting server verification; repository Skills are unavailable",
+            denied: "Device permission query denied",
+            error: "Skill permission query failed",
             verified: "Verified by the server",
             cached: "Using the most recently verified snapshot",
             unassigned: "No server profile is assigned; repository Skills are unavailable"

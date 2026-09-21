@@ -143,14 +143,14 @@ export function parseServerDevicePermissionV2(
   const skillTypes = genericNames(grants.skill_types, "skill_types");
   const desktopFeatures = genericNames(grants.desktop_features, "desktop_features");
   if (object.profile === null) {
-    if (assignmentVersion !== 0 || skillTypes.length || desktopFeatures.length) {
+    if (skillTypes.length || desktopFeatures.length) {
       throw new Error("unassigned device permission v2 response is inconsistent");
     }
     return {
       device_id: deviceId,
       permission_schema: 2,
       permission_profile: null,
-      permission_version: 0,
+      permission_version: assignmentVersion,
       profile_revision: 0,
       profile_labels: {},
       allowed_skill_types: [],
@@ -238,4 +238,25 @@ export function legacySnapshotCanUpgrade(
     && previous.permission_profile === next.permission_profile
     && previous.permission_version === next.permission_version
     && sameStrings(previous.allowed_skill_types, next.allowed_skill_types);
+}
+
+
+export function parseDeviceContext(value: unknown, deviceId: string, vpnIp: string, verifiedAt: number): DesktopCloudPermissionSnapshot {
+  const context = objectValue(value);
+  const device = objectValue(context?.device);
+  if (context?.response_schema !== "lxe.device-context.v1" || !device
+    || !["managed_device", "system_administrator"].includes(String(device.kind))
+    || typeof device.display_name !== "string" || !device.display_name.trim()) {
+    throw new Error("Invalid device context schema or device fields");
+  }
+  if (device.id !== deviceId || device.wireguard_ip !== vpnIp) {
+    throw new Error("Device context identity mismatch");
+  }
+  const permission = objectValue(context.permission);
+  const grants = objectValue(permission?.grants);
+  if (!permission || !grants) throw new Error("Invalid device context permission");
+  const capabilities = genericNames(grants.server_capabilities, "server_capabilities");
+  const actions = genericNames(grants.erp_actions, "erp_actions");
+  if (permission.profile === null && (capabilities.length || actions.length)) throw new Error("Unassigned device has grants");
+  return parseServerDevicePermissionV2({ ...permission, response_schema: PERMISSION_RESPONSE_SCHEMA_V2 }, deviceId, verifiedAt);
 }

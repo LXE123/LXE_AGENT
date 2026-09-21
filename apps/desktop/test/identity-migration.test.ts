@@ -41,6 +41,7 @@ function fixture(platform: "win32" | "darwin" = "win32") {
   let candidate = "";
   let loseResponse: "prepare" | "confirm" | "" = "";
   let failHttp = 0;
+  let userMessage: string | undefined;
   let wrongIdentity = false;
   const requests: string[] = [];
   const logs: string[] = [];
@@ -50,7 +51,7 @@ function fixture(platform: "win32" | "darwin" = "win32") {
     const url = String(input); requests.push(url);
     const token = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
     if (url.includes("/migration/")) {
-      if (failHttp) return Response.json({ detail: { code: "migration_not_authorized", message: `${legacy} ${candidate}` } }, { status: failHttp });
+      if (failHttp) return Response.json({ detail: { code: "migration_not_authorized", user_message: userMessage, message: `${legacy} ${candidate}` } }, { status: failHttp });
       const body = JSON.parse(String(init?.body));
       expect(body.machine_id).toBe(machine.machine_id);
       const action = url.split("/").at(-1);
@@ -82,6 +83,7 @@ function fixture(platform: "win32" | "darwin" = "win32") {
     candidate: () => candidate, business, requests, logs, identity,
     loseResponse: (action: typeof loseResponse) => { loseResponse = action; },
     failSave: (value: boolean) => { failSave = value; }, failPromotion: (value: boolean) => { failPromotion = value; },
+    userMessage: (value: string) => { userMessage = value; },
     failHttp: (value: number) => { failHttp = value; }, wrongIdentity: () => { wrongIdentity = true; } };
 }
 
@@ -163,5 +165,23 @@ test("wrong response identity never promotes a candidate", async () => {
     expect(f.config().cloudIdentityCredential()).toBe("");
     expect(f.config().cloudLegacyIdentityCredential()).toBe(legacy);
     expect(f.state()).toBe("prepared");
+  } finally { await service.stop(); }
+});
+
+
+test.each([401, 409, 503])("migration HTTP %i hints preserve retries, credentials and diagnostics", async status => {
+  const f = fixture(); f.failHttp(status); f.userMessage("Custom migration hint");
+  const service = f.serviceFactory();
+  try {
+    const before = f.config().cloudLegacyIdentityCredential();
+    const result = await service.start();
+    expect(result.connection).toBe("error");
+    expect(result.last_error).toContain("Custom migration hint");
+    expect(f.config().cloudLegacyIdentityCredential()).toBe(before);
+    expect(f.state()).toBe("pending");
+    expect(f.logs.join("\n")).toContain("migration_not_authorized");
+    expect(f.logs.join("\n")).not.toContain(legacy);
+    f.failHttp(0);
+    expect((await service.check()).connection).toBe("connected");
   } finally { await service.stop(); }
 });

@@ -82,10 +82,10 @@ function skillTypeRank(type: string): number {
   return index >= 0 ? index : SKILL_TYPE_ORDER.length;
 }
 
-export function groupSkillsByType(skills: SkillPayload[], t: UiText): Array<{ type: string; label: string; skills: SkillPayload[] }> {
-  const groups = new Map<string, SkillPayload[]>();
+export function groupSkillsByType<T extends SkillPayload>(skills: T[], t: UiText, groupType: (skill: T) => string = skill => skill.type): Array<{ type: string; label: string; skills: T[] }> {
+  const groups = new Map<string, T[]>();
   for (const skill of skills) {
-    const type = String(skill.type || "").trim() || "uncategorized";
+    const type = String(groupType(skill) || "").trim() || "uncategorized";
     groups.set(type, [...(groups.get(type) || []), skill]);
   }
   return Array.from(groups.entries())

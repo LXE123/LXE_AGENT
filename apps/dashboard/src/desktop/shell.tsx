@@ -332,6 +332,7 @@ function DesktopCloudPanel({
             <strong>{t.desktop.cloud.permission.title}</strong>
             <span>{t.desktop.cloud.permission.status[cloud.permission_status]}</span>
           </div>
+          {cloud.permission_error ? <p role="alert">{cloud.permission_error}</p> : null}
           <dl>
             <div>
               <dt>{t.desktop.cloud.permission.profile}</dt>
@@ -347,6 +348,7 @@ function DesktopCloudPanel({
           </dl>
         </div>
       ) : null}
+      {cloud.business_credential_error ? <p className="desktop-form-error" role="alert">{t.desktop.cloud.businessCredentialError}: {cloud.business_credential_error}</p> : null}
       {!supported ? (
         <p className="desktop-form-hint">{t.desktop.cloud.unsupportedHint}</p>
       ) : !cloud.configured && dependenciesReady ? (

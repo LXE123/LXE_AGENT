@@ -333,7 +333,23 @@ def transport(monkeypatch):
 
     def setup(responses):
         session = Session(responses)
-        monkeypatch.setattr(http, 'data_service_http_session', session)
+        class Client:
+            def __init__(self, base, *, timeout, max_response_bytes):
+                assert timeout == 60 and max_response_bytes is None
+                self.base = base
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def request_json(self, method, path, *, json_body=None):
+                from shared.infra.cloud_client import CloudResponse, CloudConnectionError
+                try:
+                    response = session.post(self.base + path, json=json_body)
+                except aiohttp.ClientError as exc:
+                    raise CloudConnectionError(exc, 0, retryable=isinstance(exc, aiohttp.ClientConnectionError)) from exc
+                raw = await response.text()
+                try: payload = json.loads(raw)
+                except ValueError: payload = raw
+                return CloudResponse(response.status, 0, payload, True, False, response.headers)
+        monkeypatch.setattr(http, 'AsyncCloudClient', Client)
         return (session, sleeps)
     return setup
 
@@ -343,9 +359,7 @@ def test_transport_auth_and_retries(transport):
     assert sleeps == [3, 2] and len(session.calls) == 3
     url, kw = session.calls[0]
     assert url == 'http://data.test/api/v1/data-sources/mabang/shops/list'
-    assert kw['headers']['Authorization'] == 'Bearer data-secret'
-    assert kw['timeout'].total == 60 and kw['allow_redirects'] is False
-    assert 'Cookie' not in kw['headers']
+    assert kw == {'json': {}}
 
 @pytest.mark.parametrize('status,payload', [(401, {'detail': 'denied'}), (403, {}), (422, {}), (502, {'detail': {'upstream': {'code': 500, 'message': 'real business failure'}}}), (200, {'code': 500, 'message': 'failed'}), (200, [])])
 def test_transport_no_retry_and_actual_error(transport, status, payload):
@@ -457,12 +471,20 @@ def test_retry_after_validation(value, expected):
     assert http.retry_delay(value, 2) == expected
 
 
-def test_missing_credentials_do_not_call_network(monkeypatch, transport):
+def test_missing_server_does_not_call_network(monkeypatch, transport):
     session, _ = transport([])
-    monkeypatch.delenv('LXE_DATA_SERVER_API_KEY')
+    monkeypatch.delenv('LXE_DATA_SERVER_URL')
     with pytest.raises(http.OfficialApiError, match='未配置'):
         asyncio.run(http.post_json('shops/list', {}, context='shop'))
     assert session.calls == []
+
+
+def test_native_transport_needs_no_desktop_credential(monkeypatch, transport):
+    session, _ = transport([Response(payload={'code': 200, 'data': {}})])
+    monkeypatch.delenv('LXE_DATA_SERVER_API_KEY')
+    monkeypatch.delenv('LXE_ERP_API_KEY')
+    assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
+    assert session.calls[0][1] == {'json': {}}  # Wire headers are verified in test_cloud_business_transport.
 
 
 def test_quoted_secret_with_spaces_is_fully_redacted():

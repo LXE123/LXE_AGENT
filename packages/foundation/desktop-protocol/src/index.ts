@@ -355,7 +355,9 @@ export type DesktopCloudPermissionStatus =
   | "pending_verification"
   | "verified"
   | "cached"
-  | "unassigned";
+  | "unassigned"
+  | "denied"
+  | "error";
 
 export type DesktopCloudDependencyState =
   | "not_required"
@@ -390,6 +392,8 @@ export interface DesktopCloudState {
   dependency_state: DesktopCloudDependencyState;
   dependency_error: string;
   permission_status: DesktopCloudPermissionStatus;
+  permission_error?: string;
+  business_credential_error?: string;
   permission_profile: DesktopPermissionProfile | null;
   permission_version: number;
   profile_revision: number;

@@ -1,4 +1,5 @@
 import { parseManagedManifest, managedTargetKey, type ManagedLlmState } from "@lxe/core";
+import { CloudHttpError, cloudErrorMessage, limitCloudText, parseCloudError } from "./cloud-errors";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -23,10 +24,10 @@ import { resolveCloudDestinationUrl } from "./cloud-destinations";
 import { wireGuardTunnelFromEnrollment } from "./wireguard-types";
 import {
   legacySnapshotCanUpgrade,
-  parseServerDevicePermission,
-  parseServerDevicePermissionV2,
+  parseDeviceContext,
   permissionSnapshotsEqual,
 } from "./cloud-permissions";
+import { CloudContextError, contextDiagnostic, type CloudContextQuery } from "./cloud-context";
 import {
   managedLlmTargetSupported,
   parseManagedLlmCredential,
@@ -56,6 +57,7 @@ const systemClock: DesktopCloudClock = {
 };
 
 interface DesktopCloudServiceOptions {
+  contextClient?: CloudContextQuery;
   dataRoot: string;
   llmConfigRoot?: string;
   supported: boolean;
@@ -108,6 +110,12 @@ export class DesktopCloudService {
   private lastCheckedAt = 0;
   private permissionSnapshot: DesktopCloudPermissionSnapshot | null;
   private permissionFresh = false;
+  private permissionError = "";
+  private permissionFailure: "denied" | "error" | undefined;
+  private businessCredentialError = "";
+  private contextController: AbortController | undefined;
+  private contextGeneration = 0;
+  private round: Promise<DesktopCloudState> | undefined;
   private readonly fetch: typeof globalThis.fetch;
   private readonly now: () => number;
   private readonly clock: DesktopCloudClock;
@@ -165,6 +173,8 @@ export class DesktopCloudService {
       dependency_state: this.dependencyState,
       dependency_error: this.dependencyError,
       ...permission,
+      permission_error: this.permissionError,
+      business_credential_error: this.businessCredentialError,
     };
   }
 
@@ -217,6 +227,16 @@ export class DesktopCloudService {
   }
 
   private async syncBusinessCredential(target: ManagedCloudProbeTarget): Promise<void> {
+    try {
+      await this.refreshBusinessCredential(target);
+      this.businessCredentialError = "";
+    } catch (error) {
+      this.businessCredentialError = contextDiagnostic(error instanceof Error ? error.message : String(error));
+      this.options.logger.warn("cloud_business_credential_refresh_failed", { observed_error: this.businessCredentialError });
+    }
+  }
+
+  private async refreshBusinessCredential(target: ManagedCloudProbeTarget): Promise<void> {
     const previous = this.options.config.cloudBusinessCredential();
     if (previous.token && previous.erp_token && previous.expires_at > this.now() / 1_000 + 3_600) return;
     const response = await this.request(`${target.dataServerUrl}/api/v1/agent-data/identity/business-credential`, {
@@ -254,11 +274,12 @@ export class DesktopCloudService {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.cancelContext();
     if (this.probeTimer !== undefined) this.clock.clearInterval(this.probeTimer);
     this.probeTimer = undefined;
     for (const controller of this.controllers) controller.abort(new Error("cloud service stopped"));
     const probe = this.probe;
-    if (probe) await Promise.allSettled([probe]);
+    await Promise.allSettled([probe, this.round].filter(Boolean));
   }
 
   check(): Promise<DesktopCloudState> {
@@ -294,11 +315,13 @@ export class DesktopCloudService {
 
   activate(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
-    const previousProbe = this.probe;
+    this.cancelContext();
+    const previousProbe = this.round ?? this.probe;
     let tracked: Promise<DesktopCloudState>;
     tracked = Promise.resolve().then(async () => {
       if (previousProbe) await previousProbe.catch(() => undefined);
-      return this.activateOnce(input);
+      await this.activateOnce(input);
+      return this.state();
     }).finally(() => {
       if (this.activation === tracked) this.activation = undefined;
     });
@@ -306,7 +329,68 @@ export class DesktopCloudService {
     return tracked;
   }
 
+  private cancelContext(): void {
+    this.contextGeneration += 1;
+    this.contextController?.abort();
+    this.contextController = undefined;
+  }
+
   private checkConnection(showProgress: boolean): Promise<DesktopCloudState> {
+    if (this.activation) return this.activation;
+    if (this.round) return this.round;
+    const tracked = Promise.allSettled([this.checkIdentityConnection(showProgress), this.syncSkillPermission()])
+      .then(() => this.state()).finally(() => { if (this.round === tracked) this.round = undefined; });
+    this.round = tracked;
+    return tracked;
+  }
+
+  private async syncSkillPermission(): Promise<void> {
+    const cloud = this.options.config.cloudConfiguration();
+    if (this.stopped || !cloud.managed || cloud.switch_in_progress) return;
+    this.cancelContext();
+    const generation = this.contextGeneration;
+    const controller = new AbortController();
+    this.contextController = controller;
+    const current = () => {
+      const latest = this.options.config.cloudConfiguration();
+      return !this.stopped && generation === this.contextGeneration && !latest.switch_in_progress
+        && latest.managed && latest.device_id === cloud.device_id && latest.vpn_ip === cloud.vpn_ip
+        && latest.data_server_url === cloud.data_server_url;
+    };
+    try {
+      if (!this.options.contextClient) throw new CloudContextError("Device permission CLI is not configured", "cloud_context_unavailable");
+      const value = await this.options.contextClient.query(cloud.data_server_url, controller.signal);
+      if (!current()) return;
+      const next = parseDeviceContext(value, cloud.device_id, cloud.vpn_ip, Math.floor(this.now() / 1_000));
+      await this.acceptPermission(next);
+      if (!current()) return;
+      this.permissionError = "";
+      this.permissionFailure = undefined;
+    } catch (error) {
+      if (!current()) return;
+      this.permissionFresh = false;
+      this.permissionError = contextDiagnostic(error instanceof Error ? error.message : String(error));
+      const denied = (error instanceof CloudContextError && [401, 403].includes(error.httpStatus ?? 0))
+        || (error instanceof Error && error.message === "Device context identity mismatch");
+      const temporary = error instanceof CloudContextError && (
+        error.code === "cloud_connection_failed" || error.code === "cloud_context_timeout"
+        || (error.httpStatus !== undefined && error.httpStatus >= 500));
+      this.permissionFailure = denied ? "denied" : temporary ? undefined : "error";
+      if (denied) {
+        this.permissionSnapshot = null;
+        this.options.config.clearCloudPermissionSnapshot();
+        await this.options.onPermissionChanged?.([]);
+      }
+      this.options.logger.warn("cloud_skill_permission_failed", { observed_error: this.permissionError });
+    } finally {
+      if (current()) {
+        this.contextController = undefined;
+        this.publishState();
+      }
+    }
+  }
+
+  private checkIdentityConnection(showProgress: boolean): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
     if (this.probe) return this.probe;
     const legacy = this.options.config.cloudLegacyIdentityCredential();
@@ -359,7 +443,8 @@ export class DesktopCloudService {
       const result = async (response: Response): Promise<string> => {
         if (!response.ok) {
           const prefix = response.status === 404 ? "公司云端尚未支持自动身份迁移" : "设备身份迁移失败";
-          throw new Error(`${prefix}（HTTP ${response.status}）：${this.diagnosticError(new Error(await response.text()))}`);
+          const parsed = parseCloudError(await response.text().catch(() => ""), [legacy, candidate, cloud.data_server_url]);
+          throw new CloudHttpError(parsed, response.status, `${prefix}（HTTP ${response.status}）：${parsed.diagnostic}`);
         }
         const body = objectValue(await response.json());
         if (!body || body.device_id !== cloud.device_id || body.machine_id !== machine.machine_id
@@ -382,9 +467,12 @@ export class DesktopCloudService {
       if (!target) throw new Error("迁移后的设备身份未能读取");
       return await this.probeStatus(target, this.options.logger);
     } catch (error) {
-      const message = this.diagnosticError(error);
-      this.options.logger.warn("cloud_identity_migration_failed", { observed_error: message });
-      return this.setConnection("error", `身份迁移未完成，将自动重试。${message}`, true);
+      const message = error instanceof CloudHttpError ? error.message : this.diagnosticError(error);
+      this.options.logger.warn("cloud_identity_migration_failed", {
+        observed_error: error instanceof CloudHttpError ? error.detail.diagnostic : message,
+        ...(error instanceof CloudHttpError ? { http_status: error.httpStatus, error_code: error.detail.code } : {}),
+      });
+      return this.setConnection("error", limitCloudText(`身份迁移未完成，将自动重试。${message}`, 300), true);
     }
   }
 
@@ -505,7 +593,10 @@ export class DesktopCloudService {
       );
       throw new Error(this.lastError);
     } finally {
-      if (configured && !this.stopped) await this.options.onConfigured();
+      if (configured && !this.stopped) {
+        await this.syncSkillPermission();
+        await this.options.onConfigured();
+      }
     }
   }
 
@@ -529,7 +620,6 @@ export class DesktopCloudService {
       vpnIp: target.vpnIp, dataServerUrl: target.dataServerUrl, apiKey: target.apiToken,
       tunnelName: tunnel?.tunnel_name ?? "", ...(tunnel ? { wireGuard: tunnel } : {}) });
     this.permissionSnapshot = null;
-    await this.acceptPermission(result.permission_v2, result.permission, target.deviceId);
     await this.syncBusinessCredential(target);
     await this.syncManagedLlmCredential(result.managed_llm, target, this.options.logger, result.managed_llm_v3 ?? result.managed_llm_v2);
     return this.setConnection("connected", "", true, result.management_role === "administrator");
@@ -597,7 +687,6 @@ export class DesktopCloudService {
     }
     try {
       this.validatePrincipal(payload, target);
-      await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
       await this.syncBusinessCredential(target);
     } catch (error) {
       return this.invalidCloudResponse(
@@ -667,7 +756,6 @@ export class DesktopCloudService {
     }
     try {
       this.validatePrincipal(payload, target);
-      await this.acceptPermission(payload.permission_v2, payload.permission, target.deviceId);
       await this.syncBusinessCredential(target);
     } catch (error) {
       return this.invalidCloudResponse(
@@ -728,12 +816,10 @@ export class DesktopCloudService {
     startedAt: number,
     target: CloudProbeTarget,
   ): Promise<DesktopCloudState> {
-    const observedError = this.redactSensitiveText(
-      await response.text().catch(() => ""),
-      target,
-    );
+    const parsed = parseCloudError(await response.text().catch(() => ""), [target.apiToken, target.dataServerUrl]);
+    const observedError = parsed.diagnostic;
     const offline = response.status >= 500;
-    const lastError = offline
+    const fallback = offline
       ? "公司云端暂时不可用"
       : operation === "status" && response.status === 404
         ? "公司云端版本不兼容，请联系管理员升级服务"
@@ -744,8 +830,10 @@ export class DesktopCloudService {
             : operation === "status"
               ? `公司云端状态检查失败（HTTP ${response.status}）`
               : `公司云端拒绝激活（HTTP ${response.status}）`;
+    const lastError = cloudErrorMessage(parsed, response.status, fallback);
     logger.warn(operation === "status" ? "cloud_status_check_failed" : "cloud_device_activation_failed", {
       ...(operation === "activation" ? { failed_stage: "activate_device" } : {}),
+      ...(parsed.code ? { error_code: parsed.code } : {}),
       duration_ms: Math.max(0, this.now() - startedAt),
       http_status: response.status,
       connection: offline ? "offline" : "error",
@@ -773,15 +861,8 @@ export class DesktopCloudService {
     );
   }
 
-  private async acceptPermission(
-    v2Value: unknown,
-    legacyValue: unknown,
-    deviceId: string,
-  ): Promise<void> {
-    const verifiedAt = Math.floor(this.now() / 1_000);
-    const next = v2Value === undefined
-      ? parseServerDevicePermission(legacyValue, deviceId, verifiedAt)
-      : parseServerDevicePermissionV2(v2Value, deviceId, verifiedAt);
+  private async acceptPermission(next: DesktopCloudPermissionSnapshot): Promise<void> {
+    const deviceId = next.device_id;
     const previous = this.permissionSnapshot;
     if (previous?.device_id === deviceId) {
       if (next.permission_version < previous.permission_version) {
@@ -810,6 +891,8 @@ export class DesktopCloudService {
       }
       if (next.permission_version === previous.permission_version
         && permissionSnapshotsEqual(previous, next)) {
+        this.options.config.saveCloudPermissionSnapshot(next);
+        this.permissionSnapshot = next;
         this.permissionFresh = true;
         return;
       }
@@ -959,7 +1042,7 @@ export class DesktopCloudService {
     const snapshot = this.permissionSnapshot;
     return {
       permission_status: !snapshot
-        ? "pending_verification"
+        ? this.permissionFailure ?? "pending_verification"
         : this.permissionFresh
           ? snapshot.permission_profile === null ? "unassigned" : "verified"
           : "cached",
@@ -993,7 +1076,6 @@ export class DesktopCloudService {
     checked = false,
     isAdmin = false,
   ): DesktopCloudState {
-    if (connection !== "connected") this.permissionFresh = false;
     this.connection = connection;
     this.isAdmin = isAdmin;
     this.lastError = lastError;
