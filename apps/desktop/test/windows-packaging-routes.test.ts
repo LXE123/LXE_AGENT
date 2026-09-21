@@ -242,6 +242,12 @@ describe("Windows desktop packaging routes", () => {
     expect(cachedArchive.indexOf("Assert-LxeZipArchive -Label $Label -Archive $temporary")).toBeLessThan(
       cachedArchive.indexOf("Move-Item -LiteralPath $temporary -Destination $destination -Force"),
     );
+    const archiveExtraction = runtimePreparation.slice(
+      runtimePreparation.indexOf("function Expand-LxeArchiveFresh"),
+      runtimePreparation.indexOf("function Get-LxeJsonProperty"),
+    );
+    expect(archiveExtraction).toContain("Get-Command tar.exe -CommandType Application");
+    expect(archiveExtraction).toContain('-Arguments @("-xf", $Archive, "-C", $Destination)');
   });
 
   test("resource preparation selects files without semantic scope or Skill validation", () => {
