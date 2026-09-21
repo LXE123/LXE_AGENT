@@ -77,6 +77,7 @@ describe("Windows desktop packaging routes", () => {
     );
     expect(wrapper).toContain('"Build NSIS installer"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
+    expect(wrapper).toContain('New-Item -ItemType Directory -Path (Join-Path $repositoryRoot "dist\\agent-cli") -Force');
     expect(wrapper.match(/"Build current LXE project wheel"/gu)).toHaveLength(1);
     expect(wrapper.match(/"Compile private agent-cli"/gu)).toHaveLength(1);
     expect(wrapper.match(/"Build Dashboard and Electron"/gu)).toHaveLength(1);
