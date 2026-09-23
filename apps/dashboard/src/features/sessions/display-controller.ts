@@ -1,4 +1,5 @@
 import type { DesktopConversationActivityPayload, DesktopConversationSendPayload, DesktopConversationTurnPayload, DesktopInputAttachmentPayload } from "@lxe/desktop-protocol";
+import type { BackgroundTaskChangedPayload } from "@lxe/desktop-protocol";
 import type { SessionDetailPayload, SessionMessage } from "../../api/payloads";
 import { acknowledgeConversationSend, conversationRows, composeConversationRows, projectConversationHistory, type ConversationHistoryProjection, type ConversationRow, type PendingMessage } from "./presentation";
 import { appendConversationWindow, boundConversationWindow, CONVERSATION_BYTE_BUDGET, CONVERSATION_GROUP_BUDGET, mergeLatestConversationWindow, prependConversationWindow } from "./model";
@@ -38,6 +39,7 @@ export class ConversationDisplayController {
   private historyProjection?: ConversationHistoryProjection;
   // References to terminal rows in the current window, discarded on eviction/selection.
   private toolEvidence = new Map<string, ConversationRow>();
+  private execUpdates = new Map<string, { update: BackgroundTaskChangedPayload; received: number }>();
   private visible: string[] = [];
   private selection = 0;
   private revision = 0;
@@ -62,12 +64,39 @@ export class ConversationDisplayController {
     if (sessionId === this.state.sessionId && !newDraft) return;
     this.selection += 1;
     this.turns.clear(); this.touched.clear(); this.visible = []; this.historyRevisions.clear(); this.toolEvidence.clear();
+    this.execUpdates.clear();
     this.historyProjection = undefined;
     this.state = { sessionId, viewKey: sessionId || draftKey || `draft:${this.selection}`, rows: [], pending: [], connection: "attached",
       following: true, loadState: sessionId ? "loading" : "ready", error: "", jump: 0 };
     this.publish();
   }
   setVisibleGroups = (ids: string[]) => { this.visible = ids; };
+  receiveExecUpdate(update: BackgroundTaskChangedPayload): void {
+    if (this.mergeExecUpdate(update)) this.publish();
+  }
+  receiveExecSnapshot(items: BackgroundTaskChangedPayload[], requestRevision: number): void {
+    const present = new Set(items.map(item => this.execKey(item)));
+    for (const [key, cached] of this.execUpdates) {
+      if (!present.has(key) && cached.received <= requestRevision) this.execUpdates.delete(key);
+    }
+    for (const item of items) this.mergeExecUpdate(item);
+    this.publish();
+  }
+  private execKey(update: BackgroundTaskChangedPayload): string {
+    const task = update.task;
+    return JSON.stringify([task.session_id, task.origin_turn_id, update.tool_call_id, task.exec_id]);
+  }
+  private mergeExecUpdate(update: BackgroundTaskChangedPayload): boolean {
+    if (update.task.session_id !== this.state.sessionId) return false;
+    const key = this.execKey(update);
+    const previous = this.execUpdates.get(key)?.update;
+    if (previous && (previous.task.revision >= update.task.revision
+      || previous.task.status !== "running" && update.task.status === "running")) return false;
+    this.execUpdates.set(key, { update, received: ++this.revision });
+    // The runtime retains at most 64 records per session. Keep the renderer bounded too.
+    while (this.execUpdates.size > 64) this.execUpdates.delete(this.execUpdates.keys().next().value!);
+    return true;
+  }
   setFollowing = (following: boolean) => {
     if (this.state.following === following) return;
     this.state = { ...this.state, following }; this.notify();
@@ -261,6 +290,15 @@ export class ConversationDisplayController {
       if (isToolTerminal(current.operation?.status ?? current.liveTool?.status)) evidence.set(key, current);
     }
     this.toolEvidence = evidence;
+    // Apply after stream/history reconciliation: model sequence numbers do not version process output.
+    const byRow = new Map([...this.execUpdates.values()].map(({ update }) => [
+      `tool:${encodeURIComponent(update.task.origin_turn_id)}:${encodeURIComponent(update.tool_call_id)}`, update.step,
+    ]));
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]!;
+      const step = row.kind === "tool" ? byRow.get(row.id) : undefined;
+      if (step) rows[index] = { ...row, operation: undefined, liveTool: step };
+    }
     this.state = { ...this.state, pending, rows };
     this.notify();
   }

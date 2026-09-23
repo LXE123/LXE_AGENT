@@ -1,3 +1,4 @@
+import { execDisplayUpdate } from "./exec-display";
 import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
 import {
   configureLogging,
@@ -17,7 +18,6 @@ import {
   type AgentCall,
   type AgentServerOutput,
   type AgentEvent,
-  type ExecTaskSnapshotPayload,
   type AgentRequest,
   type AgentResponse,
 } from "@lxe/desktop-protocol";
@@ -39,27 +39,6 @@ const loggingStatusPayload = (status: LoggingStatus): JsonObject => ({
   console_level: status.consoleLevel,
   file_level: status.fileLevel,
 });
-
-const execTaskSnapshotPayload = (snapshot: JsonObject): ExecTaskSnapshotPayload | undefined => {
-  const status = String(snapshot.status ?? "");
-  if (status !== "completed" && status !== "failed" && status !== "killed") return undefined;
-  return {
-    exec_id: String(snapshot.exec_id ?? ""),
-    session_id: String(snapshot.session_id ?? ""),
-    origin_turn_id: String(snapshot.origin_turn_id ?? ""),
-    status,
-    pid: typeof snapshot.pid === "number" ? snapshot.pid : null,
-    command: String(snapshot.command ?? ""),
-    cwd: String(snapshot.cwd ?? ""),
-    started_at: Number(snapshot.started_at ?? 0),
-    ended_at: typeof snapshot.ended_at === "number" ? snapshot.ended_at : null,
-    duration_sec: Number(snapshot.duration_sec ?? 0),
-    exit_code: typeof snapshot.exit_code === "number" ? snapshot.exit_code : null,
-    truncated: snapshot.truncated === true,
-    ...(String(snapshot.output_path ?? "").trim() ? { output_path: String(snapshot.output_path) } : {}),
-    output_tail: String(snapshot.output_tail ?? ""),
-  };
-};
 
 export interface AgentProtocolServerOptions {
   environment?: Environment;
@@ -305,14 +284,14 @@ export class AgentProtocolServer {
           ? { allowedSkillTypes: new Set(payload.allowed_skill_types) }
           : {}),
         onBackgroundTaskChanged: (snapshot) => {
-          const task = execTaskSnapshotPayload(snapshot);
-          const toolCallId = String(snapshot.tool_call_id ?? "").trim();
-          if (!task || !task.session_id.trim() || !task.origin_turn_id.trim() || !toolCallId) return;
+          const update = execDisplayUpdate(snapshot);
+          if (!update) return;
+          const { task } = update;
           return this.publish({
             type: "background_task.changed",
             thread_id: task.session_id,
             turn_id: task.origin_turn_id,
-            payload: { tool_call_id: toolCallId, task },
+            payload: update,
           });
         },
         onSkillsChanged: revision => this.publish({ type: "skills.changed", payload: { revision } }),

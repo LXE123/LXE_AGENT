@@ -5,9 +5,12 @@ import commonSchema from "../schemas/common.schema.json";
 import desktopStreamBatchSchema from "../schemas/desktop-stream-batch.schema.json";
 import emitRequestSchema from "../schemas/emit-request.schema.json";
 import type { AgentJob, DesktopStreamBatchRequest, EmitRequest } from "./types";
+import type { ToolStep } from "./generated/contracts";
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 ajv.addSchema(commonSchema);
+export const validateToolStep: ValidateFunction<ToolStep> =
+  ajv.compile<ToolStep>({ $ref: `${commonSchema.$id}#/$defs/ToolStep` });
 
 export const validateAgentJob: ValidateFunction<AgentJob> =
   ajv.compile<AgentJob>(agentJobSchema);

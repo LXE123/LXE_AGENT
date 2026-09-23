@@ -24,6 +24,7 @@ export type {
 } from "./types";
 export {
   desktopStreamBatchValidationError,
+  validateToolStep,
   validateAgentJob,
   validateDesktopStreamBatchRequest,
   validateEmitRequest,

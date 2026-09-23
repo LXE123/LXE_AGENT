@@ -343,9 +343,14 @@ export class LocalConversationController {
 
   handleAgentEvent(event: AgentEvent): void {
     if (event.type === "background_task.changed") {
+      // Running previews use the dedicated desktop event, never a full activity refresh.
+      if (event.payload.task.status === "running") return;
       const turn = this.turns.get(clean(event.turn_id));
       if (!turn || turn.sessionId !== clean(event.thread_id)) return;
-      this.backgroundCompletions.set(backgroundCompletionKey(event), event);
+      const key = backgroundCompletionKey(event);
+      const previous = this.backgroundCompletions.get(key);
+      if (previous && previous.payload.task.revision >= event.payload.task.revision) return;
+      this.backgroundCompletions.set(key, event);
       if (this.applyBackgroundCompletions(turn)) {
         this.publish(event.thread_id);
       }
@@ -551,14 +556,9 @@ export class LocalConversationController {
     let changed = false;
     for (const event of this.backgroundCompletions.values()) {
       if (clean(event.thread_id) !== turn.sessionId || clean(event.turn_id) !== turn.payload.turn_id) continue;
-      const displayStatus: ToolStep["status"] = event.payload.task.status === "completed" ? "success" : "error";
-      const content = [
-        `status: ${event.payload.task.status}`,
-        `exec_id: ${event.payload.task.exec_id}`,
-        event.payload.task.exit_code === null ? "" : `exit_code: ${event.payload.task.exit_code}`,
-        `duration_sec: ${event.payload.task.duration_sec}`,
-        event.payload.task.output_tail ? `output:\n${event.payload.task.output_tail}` : "output: (no output)",
-      ].filter(Boolean).join("\n").slice(0, 4_000);
+      const displayStatus = event.payload.step.status;
+      const block = event.payload.step.error_block ?? event.payload.step.result_block;
+      const content = block?.content;
       const update = (step: ToolStep): boolean => {
         if (step.id !== event.payload.tool_call_id) return false;
         const durationMs = Math.max(step.duration_ms, Math.trunc(event.payload.task.duration_sec * 1_000));
@@ -570,9 +570,8 @@ export class LocalConversationController {
         step.duration_ms = durationMs;
         delete step.result_block;
         delete step.error_block;
-        const block: ToolDisplayBlock = { language: "text", content };
-        if (displayStatus === "success") step.result_block = block;
-        else step.error_block = block;
+        if (block && displayStatus === "success") step.result_block = block;
+        else if (block) step.error_block = block;
         return true;
       };
       for (const step of stream.tool_steps) changed = update(step) || changed;
@@ -592,7 +591,7 @@ export class LocalConversationController {
 }
 
 function backgroundCompletionKey(event: BackgroundTaskChangedEvent): string {
-  return `${clean(event.thread_id)}\u0000${clean(event.turn_id)}\u0000${event.payload.tool_call_id}`;
+  return `${clean(event.thread_id)}\u0000${clean(event.turn_id)}\u0000${event.payload.tool_call_id}\u0000${event.payload.task.exec_id}`;
 }
 
 function publicAttachment(attachment: LocalConversationAttachment): DesktopInputAttachmentPayload {

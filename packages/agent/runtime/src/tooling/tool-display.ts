@@ -14,7 +14,7 @@ const scalar = (value: unknown): string =>
 const truncate = (value: string, limit = DETAIL_LIMIT): string =>
   value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
 
-const sanitize = (value: unknown, limit = DETAIL_LIMIT, preserveLines = false): string => {
+export const sanitizeToolDisplayText = (value: unknown, limit = DETAIL_LIMIT, preserveLines = false): string => {
   let text = String(value ?? "").replace(/\r\n/g, "\n").trim();
   if (!preserveLines) text = text.replace(/\s+/g, " ");
   text = text.replace(/(https?:\/\/)[^/@\s]+:[^/@\s]+@/gi, "$1[redacted]@");
@@ -27,6 +27,7 @@ const sanitize = (value: unknown, limit = DETAIL_LIMIT, preserveLines = false): 
     SECRET_NAME.test(String(flag)) ? `${prefix}${flag}${separator}[redacted]` : match);
   return truncate(text, limit);
 };
+const sanitize = sanitizeToolDisplayText;
 
 const humanize = (name: string): string =>
   name.split(/[_\-\s]+/).filter(Boolean).map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ") || "Tool";
@@ -94,6 +95,25 @@ const stringifyDisplay = (value: unknown, limit: number): ToolDisplayBlock | und
 export interface ToolDisplayOutput {
   content?: unknown;
   image_view?: ToolStep["image_view"];
+}
+
+/** Desktop process previews do not change the ordinary tool/Feishu display contract. */
+export function buildExecOutputStep(snapshot: JsonObject, showResultDetails = true): ToolStep {
+  const status = snapshot.status === "running" ? "running" : snapshot.status === "completed" ? "success" : "error";
+  const output = String(snapshot.output_tail ?? "");
+  const content = output || status !== "running" ? [
+    `status: ${String(snapshot.status)}`,
+    `exec_id: ${String(snapshot.exec_id)}`,
+    snapshot.exit_code == null ? "" : `exit_code: ${String(snapshot.exit_code)}`,
+    `duration_sec: ${String(snapshot.duration_sec ?? 0)}`,
+    snapshot.preview_truncated || snapshot.truncated ? "[Output preview truncated; showing the captured tail.]" : "",
+    snapshot.output_incomplete ? `output_incomplete: ${String(snapshot.output_incomplete_reason)}` : "",
+    output ? `output:\n${output}` : "output: (no output)",
+  ].filter(Boolean).join("\n") : undefined;
+  const step = buildToolDisplayStep(String(snapshot.tool_call_id), "exec", { command: snapshot.command ?? "" },
+    status === "running" ? "success" : status, Number(snapshot.duration_sec ?? 0) * 1_000,
+    { content, showResultDetails: status === "running" || showResultDetails });
+  return { ...step, status };
 }
 
 export function buildToolDisplayStep(

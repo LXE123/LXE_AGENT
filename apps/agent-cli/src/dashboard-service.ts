@@ -1,3 +1,4 @@
+import { execDisplayUpdate } from "./exec-display";
 import { withManagedModels, managedCredentialFor, type ManagedLlmState, type ManagedTarget } from "@lxe/core";
 import {
   existsSync,
@@ -185,12 +186,16 @@ export const dashboardSessionDetailPreview = (
   const preview = structuredClone(detail);
   const messages = Array.isArray(preview.messages) ? preview.messages : [];
   const results: Array<Record<string, unknown>> = [];
+  const resultTurns = new Map<Record<string, unknown>, string>();
   for (const message of messages) {
     const record = object(message);
     if (!Array.isArray(record.content)) continue;
     for (const candidate of record.content) {
       const block = object(candidate);
-      if (block.type === "tool_result") results.push(block);
+      if (block.type === "tool_result") {
+        results.push(block);
+        resultTurns.set(block, text(object(record.turn).turn_id));
+      }
     }
   }
   let remainingBytes = DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES;
@@ -211,27 +216,17 @@ export const dashboardSessionDetailPreview = (
       preview_bytes: result.previewBytes,
     };
   }
-  const taskByToolCall = new Map(execSnapshots.map((task) => [text(task.tool_call_id), task] as const)
-    .filter(([toolCallId]) => Boolean(toolCallId)));
+  const taskKey = (turnId: string, callId: string) => JSON.stringify([turnId, callId]);
+  const updates = new Map(execSnapshots.map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .map(update => [taskKey(update.task.origin_turn_id, update.tool_call_id), update]));
   for (const block of results) {
-    const task = taskByToolCall.get(text(block.tool_call_id));
-    if (!task) continue;
-    const status = text(task.status);
-    if (status === "running") {
-      block.display_status = "running";
-      continue;
-    }
-    if (status !== "completed" && status !== "failed" && status !== "killed") continue;
-    block.display_status = status === "completed" ? "success" : "error";
-    block.content = [
-      `status: ${status}`,
-      `exec_id: ${text(task.exec_id)}`,
-      task.exit_code === null || task.exit_code === undefined ? "" : `exit_code: ${String(task.exit_code)}`,
-      `duration_sec: ${String(task.duration_sec ?? 0)}`,
-      text(task.output_tail) ? `output:\n${String(task.output_tail)}` : "output: (no output)",
-    ].filter(Boolean).join("\n");
-    if (status === "completed") delete block.is_error;
-    else block.is_error = true;
+    const update = updates.get(taskKey(resultTurns.get(block) ?? "", text(block.tool_call_id)));
+    if (!update) continue;
+    block.display_status = update.step.status;
+    block.content = (update.step.error_block ?? update.step.result_block)?.content ?? "";
+    if (update.step.status === "error") block.is_error = true;
+    else delete block.is_error;
+    delete block.dashboard_truncation;
   }
   return preview;
 };
@@ -270,6 +265,8 @@ export class DashboardService {
       if (!this.options.questions) return rpcError("unavailable", "User questions are unavailable");
       return this.options.questions.submit(input);
     },
+    "sessions.execTasks": input => ({ items: (this.options.execSnapshots?.(input.session_id) ?? [])
+      .map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item)) }),
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
     "sessions.pin": (input) => this.pinSession(input) as DashboardRpcResult<"sessions.pin">,

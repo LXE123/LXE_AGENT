@@ -33,6 +33,7 @@ export function registerCodingTools(
     shell: execShell,
   });
   processes.onComplete = options.onExecComplete;
+  processes.onUpdate = options.onExecUpdate;
 
   for (const tool of createFileTools({
     paths,

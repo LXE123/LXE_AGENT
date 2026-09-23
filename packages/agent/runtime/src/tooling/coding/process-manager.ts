@@ -24,6 +24,11 @@ interface ProcessEntry {
   exitCode: number | null;
   output: ProcessOutputStore;
   outputCursor: number;
+  revision: number;
+  updateDirty: boolean;
+  updateSending: boolean;
+  updateLastSent: number;
+  updateTimer?: ReturnType<typeof setTimeout>;
   acceptingOutput: boolean;
   outputIncomplete: boolean;
   outputIncompleteReason?: "stream_drain_timeout" | "stream_read_error";
@@ -221,6 +226,10 @@ export class CodingProcessManager {
         spillPath: join(spillDirectory, `${id}.log`),
       }),
       outputCursor: 0,
+      revision: 0,
+      updateDirty: false,
+      updateSending: false,
+      updateLastSent: 0,
       acceptingOutput: true,
       outputIncomplete: false,
       completion: Promise.resolve(),
@@ -245,7 +254,11 @@ export class CodingProcessManager {
         while (true) {
           const chunk = await reader.read();
           if (chunk.done) break;
-          if (entry.acceptingOutput) entry.output.append(source, chunk.value);
+          if (entry.acceptingOutput && chunk.value.byteLength > 0) {
+            entry.output.append(source, chunk.value);
+            entry.revision += 1;
+            this.queueUpdate(entry);
+          }
         }
       })();
       return { reader, task };
@@ -263,6 +276,8 @@ export class CodingProcessManager {
       entry.status = entry.terminalCause === "terminated"
         ? "killed"
         : exitCode === 0 ? "completed" : "failed";
+      entry.revision += 1;
+      this.queueUpdate(entry);
       this.logger.info("process_completed", this.processFields(entry));
       await this.notifyCompletion(entry);
     });
@@ -458,6 +473,7 @@ export class CodingProcessManager {
       tool_call_id: entry.toolCallId,
       session_id: entry.sessionId,
       origin_turn_id: entry.turnId,
+      revision: entry.revision,
       status: entry.status,
       pid: entry.process.pid,
       command: entry.command,
@@ -467,6 +483,7 @@ export class CodingProcessManager {
       duration_sec: this.duration(entry),
       exit_code: entry.exitCode,
       truncated: entry.output.truncated,
+      preview_truncated: entry.output.totalBytes > this.options.tailBytes,
       output_incomplete: entry.outputIncomplete,
       output_incomplete_reason: entry.outputIncompleteReason ?? "",
       output_path: entry.output.spillPath,
@@ -493,6 +510,43 @@ export class CodingProcessManager {
       });
     }
     return entry.notification;
+  }
+
+  /** One in-flight notification and one dirty bit, independent of model observations. */
+  private queueUpdate(entry: ProcessEntry): void {
+    if (!this.onUpdate) return;
+    entry.updateDirty = true;
+    if (entry.endedAt !== undefined && entry.updateTimer) {
+      clearTimeout(entry.updateTimer);
+      delete entry.updateTimer;
+    }
+    this.flushUpdate(entry);
+  }
+
+  private flushUpdate(entry: ProcessEntry): void {
+    if (!entry.updateDirty || entry.updateSending || entry.updateTimer || !this.onUpdate) return;
+    const delay = entry.endedAt === undefined ? Math.max(0, 100 - (performance.now() - entry.updateLastSent)) : 0;
+    if (entry.updateLastSent > 0 && delay > 0) {
+      entry.updateTimer = setTimeout(() => {
+        delete entry.updateTimer;
+        this.flushUpdate(entry);
+      }, delay);
+      return;
+    }
+    entry.updateDirty = false;
+    entry.updateSending = true;
+    entry.updateLastSent = performance.now();
+    const snapshot = this.snapshot(entry);
+    void (async () => {
+      try {
+        await this.onUpdate?.(snapshot);
+      } catch (error) {
+        this.logger.warn("process_update_failed", { ...this.processFields(entry), error });
+      } finally {
+        entry.updateSending = false;
+        this.flushUpdate(entry);
+      }
+    })();
   }
 
   private async drainOutput(
@@ -617,4 +671,5 @@ export class CodingProcessManager {
   }
 
   onComplete: ((snapshot: JsonObject) => Promise<void> | void) | undefined;
+  onUpdate: ((snapshot: JsonObject) => Promise<void> | void) | undefined;
 }

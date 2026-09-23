@@ -69,6 +69,13 @@ const itemCompleted = (
 } as AgentEvent);
 
 describe("Dashboard invalidation bridge", () => {
+  test("running output does not invalidate or refetch history", () => {
+    expect(dashboardInvalidationForAgentEvent({ type: "background_task.changed", thread_id: "s", turn_id: "t",
+      payload: { tool_call_id: "call", task: { revision: 1, exec_id: "exec", session_id: "s", origin_turn_id: "t", status: "running",
+        pid: 1, command: "run", cwd: "/", started_at: 1, ended_at: null, duration_sec: 1, exit_code: null, truncated: false, output_tail: "first" },
+        step: { id: "call", name: "exec", title: "Run command", detail: "run", icon_token: "setting_outlined", status: "running", duration_ms: 1000 } },
+    })).toBeUndefined();
+  });
   test("question changes and answer acknowledgements invalidate session snapshots", () => {
     expect(dashboardInvalidationForAgentEvent(sessionChanged(["questions"]))).toEqual({ domains: ["sessions"], sessionIds: ["session-1"] });
     expect(dashboardDomainsForMutation("sessions.answer")).toEqual(["sessions"]);
@@ -96,10 +103,11 @@ describe("Dashboard invalidation bridge", () => {
       payload: {
         tool_call_id: "tool-1",
         task: {
-          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          revision: 1, exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
           status: "completed", pid: 1, command: "echo ok", cwd: "/work", started_at: 1,
           ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "ok",
         },
+        step: { id: "tool-1", name: "exec", title: "Run command", detail: "command", icon_token: "setting_outlined", status: "success", duration_ms: 1000, result_block: { language: "text", content: "ok" } },
       },
     })).toEqual({ domains: ["sessions"], sessionIds: ["session-1"] });
   });

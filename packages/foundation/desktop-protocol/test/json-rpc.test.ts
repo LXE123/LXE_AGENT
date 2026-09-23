@@ -75,10 +75,10 @@ describe("JSON-RPC boundary", () => {
       { type: "typing.changed", ...scope, payload: { session_id: "s", turn_id: "t", response_route_id: "r", operation: "start", emit_id: "e" } },
       { type: "agent.wake", payload: {} },
       { type: "background_task.changed", ...scope, payload: { tool_call_id: "tool", task: {
-        exec_id: "exec-1", session_id: "s", origin_turn_id: "t", status: "completed", pid: null,
+        revision: 1, exec_id: "exec-1", session_id: "s", origin_turn_id: "t", status: "completed", pid: null,
         command: "echo ok", cwd: "/work", started_at: 1, ended_at: 2, duration_sec: 1,
         exit_code: 0, truncated: false, output_tail: "ok",
-      } } },
+      }, step: { id: "tool", name: "exec", title: "Run command", detail: "echo ok", icon_token: "setting_outlined", status: "success", duration_ms: 1000 } } },
       { type: "managed_llm.authentication_failed", payload: { provider: "test", model: "model", credential_revision: "a".repeat(64) } },
       { type: "session.changed", thread_id: "s", payload: { changes: ["messages"] } },
       { type: "system.ready", payload: { state: "ready" } },

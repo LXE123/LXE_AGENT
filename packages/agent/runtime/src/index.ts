@@ -1,6 +1,7 @@
 export * from "./tooling/user-questions";
 export * from "./engine/context";
 export * from "./tooling/coding-tools";
+export { buildExecOutputStep, sanitizeToolDisplayText } from "./tooling/tool-display";
 export * from "./tooling/exec-shell";
 export * from "./tooling/mcp";
 export * from "./operations/maintenance";

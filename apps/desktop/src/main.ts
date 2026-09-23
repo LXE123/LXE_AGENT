@@ -306,6 +306,11 @@ async function bootstrap(): Promise<void> {
       }
     },
     onConversationStreamBatch: broadcastConversationStream,
+    onExecUpdate: update => {
+      for (const browserWindow of applicationWindows()) {
+        if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.execUpdate, update);
+      }
+    },
     onManagedLlmAuthenticationFailure: async (revision) => {
       config.invalidateManagedLlmCredential(revision);
       const credential = config.managedLlmCredential();

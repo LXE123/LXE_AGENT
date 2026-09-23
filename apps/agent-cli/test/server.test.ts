@@ -72,7 +72,7 @@ const fakeHost: CreateHost = (() => ({
 })) as unknown as CreateHost;
 
 describe("AgentProtocolServer", () => {
-  test("emits async exec completion as UI state without an agent wake", async () => {
+  test("emits versioned running and completed exec display without an agent wake", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     let notify: NonNullable<Parameters<CreateHost>[0]["onBackgroundTaskChanged"]> | undefined;
     const createHost = ((options: Parameters<CreateHost>[0]) => {
@@ -91,7 +91,8 @@ describe("AgentProtocolServer", () => {
       method: "initialize",
       params: initializePayload(root),
     }));
-    await notify?.({
+    const snapshot = {
+      revision: 2,
       exec_id: "exec_1234abcd",
       tool_call_id: "tool-1",
       session_id: "session-1",
@@ -106,7 +107,9 @@ describe("AgentProtocolServer", () => {
       exit_code: 0,
       truncated: false,
       output_tail: "ok",
-    });
+    };
+    await notify?.({ ...snapshot, revision: 1, status: "running", ended_at: null, exit_code: null, output_tail: "first" });
+    await notify?.(snapshot);
     expect(output).toContainEqual(expect.objectContaining({
       type: "background_task.changed",
       thread_id: "session-1",
@@ -114,6 +117,11 @@ describe("AgentProtocolServer", () => {
       payload: expect.objectContaining({ tool_call_id: "tool-1" }),
     }));
     expect(output.some((message) => "type" in message && message.type === "agent.wake")).toBe(false);
+    const events = output.filter((message): message is Extract<AgentEvent, { type: "background_task.changed" }> =>
+      "type" in message && message.type === "background_task.changed");
+    expect(events.map(event => event.payload.task.revision)).toEqual([1, 2]);
+    expect(events[0]?.payload.step).toMatchObject({ status: "running", result_block: { content: expect.stringContaining("first") } });
+    expect(events[1]?.payload.step).toMatchObject({ status: "success", result_block: { content: expect.stringContaining("ok") } });
     await server.shutdown();
   });
 

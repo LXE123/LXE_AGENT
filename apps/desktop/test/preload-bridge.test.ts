@@ -38,6 +38,7 @@ describe("preload bridge", () => {
       "onCloudStateChanged",
       "onConversationEvent",
       "onConversationStreamEvent",
+      "onExecUpdate",
       "onDashboardInvalidated",
       "onSessionStatus",
       "onStatusChanged",
@@ -140,6 +141,12 @@ describe("preload bridge", () => {
     expect(streamSequence).toBe(3);
     unsubscribeStream();
     expect(listeners.has(IPC_CHANNELS.conversationStreamEvent)).toBe(false);
+    let outputRevision = 0;
+    const unsubscribeExec = bridge.desktop.onExecUpdate(update => { outputRevision = update.task.revision; });
+    listeners.get(IPC_CHANNELS.execUpdate)?.({}, { task: { revision: 3 } });
+    expect(outputRevision).toBe(3);
+    unsubscribeExec();
+    expect(listeners.has(IPC_CHANNELS.execUpdate)).toBe(false);
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(true);
     unsubscribe();

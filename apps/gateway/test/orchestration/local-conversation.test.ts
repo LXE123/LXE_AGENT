@@ -548,10 +548,11 @@ describe("LocalConversationController", () => {
       payload: {
         tool_call_id: "tool-exec-1",
         task: {
-          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          revision: 1, exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
           status: "completed", pid: 1, command: "sleep", cwd: "/work", started_at: 1,
           ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "finished",
         },
+        step: { id: "tool-exec-1", name: "exec", title: "Run command", detail: "command", icon_token: "setting_outlined", status: "success", duration_ms: 1000, result_block: { language: "text", content: "finished" } },
       },
     });
     const stream = h.controller.activity("session-1").active?.stream;
@@ -584,10 +585,11 @@ describe("LocalConversationController", () => {
       payload: {
         tool_call_id: "tool-exec-1",
         task: {
-          exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
+          revision: 1, exec_id: "exec_1234abcd", session_id: "session-1", origin_turn_id: "turn-1",
           status: "completed", pid: 1, command: "true", cwd: "/work", started_at: 1,
           ended_at: 2, duration_sec: 1, exit_code: 0, truncated: false, output_tail: "early",
         },
+        step: { id: "tool-exec-1", name: "exec", title: "Run command", detail: "command", icon_token: "setting_outlined", status: "success", duration_ms: 1000, result_block: { language: "text", content: "early" } },
       },
     });
     h.controller.handleOutbound({

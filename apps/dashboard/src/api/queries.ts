@@ -12,6 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { ConversationDisplayController, type ConversationDisplaySnapshot } from "../features/sessions/display-controller";
 
 import { canReadSessionResult, SessionStatusCache } from "../features/sessions/session-status";
+import { connectExecLiveOutput } from "../features/sessions/exec-live-output";
 
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
@@ -208,6 +209,20 @@ export function useSessionConversationQuery(sessionId: string, enabled = true, s
       queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(sessionId), type: "inactive" });
     };
   }, [controller, sessionId, queryClient]);
+  useLayoutEffect(() => {
+    const desktop = window.lxe?.desktop;
+    if (!enabled || !sessionId || !desktop?.onExecUpdate) return;
+    const connection = connectExecLiveOutput(controller, receive => desktop.onExecUpdate(receive),
+      () => callDashboard({ operation: "sessions.execTasks", input: { session_id: sessionId } }),
+      error => controller.failHistory(error));
+    void connection.refresh();
+    const refresh = () => { void connection.refresh(); };
+    const unsubscribe = desktop.onDashboardInvalidated(event => {
+      if (event.domains.includes("sessions") && event.session_ids.length === 0) refresh();
+    });
+    window.addEventListener("focus", refresh);
+    return () => { connection.dispose(); unsubscribe(); window.removeEventListener("focus", refresh); };
+  }, [controller, sessionId, enabled]);
   const latestQuery = useQuery({
     queryKey: dashboardQueryKeys.sessions.detail(sessionId, "latest"),
     queryFn: async ({ signal }) => {

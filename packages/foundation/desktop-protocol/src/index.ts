@@ -8,6 +8,8 @@ import {
   validateAgentJob,
   validateEmitRequest,
   validateDesktopStreamBatchRequest,
+  validateToolStep,
+  type ToolStep,
   type AgentJob,
   type DesktopStreamBatchRequest,
   type EmitRequest,
@@ -38,14 +40,15 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 23 as const;
+export const AGENT_PROTOCOL_VERSION = 24 as const;
 
-/** Session-owned exec snapshot used only for completion events and card refresh. */
+/** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
+  revision: number;
   exec_id: string;
   session_id: string;
   origin_turn_id: string;
-  status: "completed" | "failed" | "killed";
+  status: "running" | "completed" | "failed" | "killed";
   pid: number | null;
   command: string;
   cwd: string;
@@ -236,6 +239,7 @@ export type AgentSessionChangedPayload = {
 export type BackgroundTaskChangedPayload = {
   tool_call_id: string;
   task: ExecTaskSnapshotPayload;
+  step: ToolStep;
 };
 
 export type AgentEvent =
@@ -676,6 +680,7 @@ export interface LxeDesktopBridge {
     onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
     onSessionStatus(listener: (snapshot: SessionStatusSnapshot) => void): () => void;
     onConversationStreamEvent(listener: (event: DesktopConversationStreamEvent) => void): () => void;
+    onExecUpdate(listener: (update: BackgroundTaskChangedPayload) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
@@ -951,10 +956,10 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
       const payload = objectValue(object.payload)!;
       const task = objectValue(payload.task);
       const status = task?.status;
-      const payloadFields = Object.keys(payload).filter((name) => name !== "tool_call_id" && name !== "task");
+      const payloadFields = Object.keys(payload).filter((name) => !["tool_call_id", "task", "step"].includes(name));
       const taskFields = task ? Object.keys(task).filter((name) => ![
         "exec_id", "session_id", "origin_turn_id", "status", "pid", "command", "cwd", "started_at",
-        "ended_at", "duration_sec", "exit_code", "truncated", "output_path", "output_tail",
+        "ended_at", "duration_sec", "exit_code", "truncated", "output_path", "output_tail", "revision",
       ].includes(name)) : [];
       if (payloadFields.length > 0 || taskFields.length > 0
         || typeof payload.tool_call_id !== "string" || !payload.tool_call_id.trim()
@@ -962,7 +967,11 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
         || typeof task.exec_id !== "string" || !task.exec_id.trim()
         || task.session_id !== object.thread_id
         || task.origin_turn_id !== object.turn_id
-        || (status !== "completed" && status !== "failed" && status !== "killed")
+        || !["running", "completed", "failed", "killed"].includes(String(status))
+        || !Number.isSafeInteger(task.revision) || Number(task.revision) < 0
+        || !validateToolStep(payload.step) || payload.step.id !== payload.tool_call_id
+        || payload.step.name !== "exec"
+        || payload.step.status !== (status === "running" ? "running" : status === "completed" ? "success" : "error")
         || (task.pid !== null && (typeof task.pid !== "number" || !Number.isSafeInteger(task.pid) || task.pid <= 0))
         || typeof task.command !== "string" || typeof task.cwd !== "string"
         || typeof task.started_at !== "number" || !Number.isFinite(task.started_at)

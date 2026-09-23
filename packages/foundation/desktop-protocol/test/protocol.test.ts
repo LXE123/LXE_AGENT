@@ -59,9 +59,9 @@ describe("desktop agent protocol", () => {
     }
   });
 
-  test("strictly parses terminal exec UI events", () => {
+  test("strictly parses versioned exec UI events", () => {
     const task = {
-      exec_id: "exec_1234abcd",
+      revision: 1, exec_id: "exec_1234abcd",
       session_id: "session-1",
       origin_turn_id: "turn-1",
       status: "completed",
@@ -79,9 +79,18 @@ describe("desktop agent protocol", () => {
       type: "background_task.changed",
       thread_id: "session-1",
       turn_id: "turn-1",
-      payload: { tool_call_id: "tool-1", task },
+      payload: { tool_call_id: "tool-1", task, step: { id: "tool-1", name: "exec", title: "Run command", detail: "echo ok", icon_token: "setting_outlined", status: "success", duration_ms: 1000 } },
     } as const;
     expect(roundTripEvent(event)).toEqual(event);
+    const running = { ...event, payload: { ...event.payload,
+      task: { ...task, status: "running" as const, ended_at: null, exit_code: null },
+      step: { ...event.payload.step, status: "running" as const, result_block: { language: "text" as const, content: "first output" } },
+    } };
+    expect(roundTripEvent(running)).toEqual(running);
+    for (const revision of [-1, 1.5, NaN, undefined]) {
+      expect(() => roundTripEvent({ ...running, payload: { ...running.payload, task: { ...running.payload.task, revision } } }))
+        .toThrow("payload is invalid");
+    }
     expect(() => roundTripEvent({ ...event, thread_id: "session-2" }))
       .toThrow("payload is invalid");
     expect(() => roundTripEvent({

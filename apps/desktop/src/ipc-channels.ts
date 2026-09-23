@@ -41,6 +41,7 @@ export const IPC_CHANNELS = {
   conversationEvent: "lxe:desktop:conversation-event",
   sessionStatus: "lxe:desktop:session-status",
   conversationStreamEvent: "lxe:desktop:conversation-stream-event",
+  execUpdate: "lxe:desktop:exec-update",
   dashboardInvalidated: "lxe:desktop:dashboard-invalidated",
   statusChanged: "lxe:desktop:status-changed",
 } as const;

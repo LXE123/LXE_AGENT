@@ -1,4 +1,5 @@
 import type {
+  BackgroundTaskChangedPayload,
   DesktopCloudState,
   DesktopConversationEvent,
   DesktopConversationStreamEvent,
@@ -114,6 +115,11 @@ export function createDesktopBridge(
           listener(conversationEvent as DesktopConversationStreamEvent);
         ipc.on(IPC_CHANNELS.conversationStreamEvent, handler);
         return () => ipc.removeListener(IPC_CHANNELS.conversationStreamEvent, handler);
+      },
+      onExecUpdate: listener => {
+        const handler: IpcListener = (_event, update) => listener(update as BackgroundTaskChangedPayload);
+        ipc.on(IPC_CHANNELS.execUpdate, handler);
+        return () => ipc.removeListener(IPC_CHANNELS.execUpdate, handler);
       },
       onDashboardInvalidated: (listener) => {
         const handler: IpcListener = (_event, invalidation) =>

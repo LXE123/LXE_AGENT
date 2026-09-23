@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { shell } from "electron";
 import { DashboardRpcError } from "@lxe/desktop-protocol";
 import type {
+  BackgroundTaskChangedPayload,
   AgentDashboardRpcCall,
   DashboardRpcCall,
   DashboardRpcOperation,
@@ -115,6 +116,7 @@ export interface DesktopGatewayOptions {
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
   onSessionStatus?: (snapshot: import("@lxe/desktop-protocol").SessionStatusSnapshot) => void;
   onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
+  onExecUpdate?: (update: BackgroundTaskChangedPayload) => void;
   onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
 
@@ -224,6 +226,7 @@ export class DesktopGateway {
             event.payload.credential_revision,
           );
         }
+        if (event.type === "background_task.changed") this.options.onExecUpdate?.(event.payload);
         composition?.parts.conversations.handleAgentEvent(event);
         const invalidation = dashboardInvalidationForAgentEvent(event);
         if (invalidation) {

@@ -36,7 +36,7 @@ export function dashboardInvalidationForAgentEvent(
       sessionIds: [],
     };
   }
-  if (event.type === "background_task.changed") {
+  if (event.type === "background_task.changed" && event.payload.task.status !== "running") {
     return {
       domains: ["sessions"],
       sessionIds: [event.thread_id],

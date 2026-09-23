@@ -1,4 +1,5 @@
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
+import type { BackgroundTaskChangedPayload } from "./index";
 import { parseUserQuestionSubmission, type PendingUserQuestion, type SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
 export type { PendingUserQuestion, UserQuestion, UserQuestionAnswer, SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
 import { validateSessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
@@ -481,6 +482,10 @@ export interface DashboardRpcSpec {
     input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string };
     result: SessionDetailPayload;
   };
+  "sessions.execTasks": {
+    input: { session_id: string };
+    result: { items: BackgroundTaskChangedPayload[] };
+  };
   "sessions.pin": {
     input: { session_id: string; pinned: boolean };
     result: SessionPayload;
@@ -748,6 +753,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(input.turn_id === undefined ? {} : { turn_id: textValue(input.turn_id, `${operation}.turn_id`)! }),
       } };
     case "sessions.activity":
+    case "sessions.execTasks":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.status.list":

@@ -2,6 +2,12 @@ import { messageFixture, eventFixture } from "../message-fixtures";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import { join } from "node:path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { registerCodingTools } from "../../src/tooling/coding-tools";
+import { ExecShellAdapter } from "../../src/tooling/exec-shell";
+import { buildExecOutputStep } from "../../src/tooling/tool-display";
+import { removeTemporaryRoot } from "../temp-directory";
 import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject, ToolStep } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
@@ -1721,6 +1727,61 @@ describe("TypeScriptAgentRuntime", () => {
     }));
     await runtime.stop();
   });
+
+  test("exec preview precedes tool completion and continues after the model turn without extra transcript results", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-live-exec-"));
+    const gate = join(root, "finish");
+    writeFileSync(join(root, "child.js"), `
+      console.log('first output');
+      while (!require('node:fs').existsSync(${JSON.stringify(gate)})) await Bun.sleep(10);
+      console.error('after turn failure'); process.exit(4);
+    `);
+    const tools = new ToolRegistry(), store = new MemoryStore();
+    store.getSession = async () => ({ session_id: "s1", source: { platform: "desktop" }, workspace: resolveWorkspaceContext(root) });
+    const shell = new ExecShellAdapter();
+    shell.spawnSpec = () => ({ argv: [process.execPath, join(root, "child.js")], detached: process.platform !== "win32" });
+    const first = Promise.withResolvers<ToolStep>(), last = Promise.withResolvers<ToolStep>();
+    const processes = registerCodingTools(tools, { execShell: shell, onExecUpdate: snapshot => {
+      const step = buildExecOutputStep(snapshot);
+      if (snapshot.status === "running" && String(snapshot.output_tail).includes("first output")) first.resolve(step);
+      if (snapshot.status === "failed") last.resolve(step);
+    } });
+    let modelCalls = 0, finished = false;
+    const frames: EmitRequest[] = [];
+    const runtime = new TypeScriptAgentRuntime({ store, tools, systemPrompt: "test",
+      provider: { summarize, turn: async () => modelCalls++ === 0
+        ? messageFixture({ content: [{ type: "tool_call", id: "live-exec", name: "exec", arguments: { command: "fixture", "yield-time-ms": 1_000 } }], stopReason: "toolUse" })
+        : messageFixture({ content: [{ type: "text", text: "done" }], stopReason: "stop" }) },
+      emitter: { emit: async frame => { frames.push(frame); }, desktopStream: async () => {}, typing: async () => {} },
+    });
+    await runtime.start();
+    const turn = runtime.runTurn(job({ source: { platform: "desktop" }, workspace: resolveWorkspaceContext(root) }), handle())
+      .then(result => { finished = true; return result; });
+    void turn.catch(error => first.reject(error));
+    const deadline = setTimeout(() => { first.reject(new Error("missing live output")); last.reject(new Error("missing final output")); }, 10_000);
+    // Attach handlers even if an earlier assertion fails and cleanup terminates the process.
+    void last.promise.catch(() => {});
+    try {
+      const step = await first.promise;
+      expect(step.id).toBe("live-exec");
+      expect(step.result_block?.content).toContain("first output");
+      expect(finished).toBe(false);
+      expect(frames.some(frame => frame.state === "final")).toBe(false);
+      await turn;
+      expect(finished).toBe(true);
+      const savedBefore = JSON.stringify(store.messages);
+      writeFileSync(gate, "");
+      const final = await last.promise;
+      expect(final.id).toBe(step.id);
+      expect(final.error_block?.content).toContain("after turn failure");
+      expect(JSON.stringify(store.messages)).toBe(savedBefore);
+      expect(modelCalls).toBe(2);
+    } finally {
+      clearTimeout(deadline);
+      writeFileSync(gate, "");
+      await processes.stop(); await turn; await runtime.stop(); await removeTemporaryRoot(root);
+    }
+  }, 15_000);
 
   for (const outcome of ["returned-error", "thrown-error", "success"] as const) {
     test(`streams ${outcome} tool content before the desktop turn finishes`, async () => {

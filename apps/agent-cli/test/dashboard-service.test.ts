@@ -66,6 +66,7 @@ describe("DashboardService", () => {
       session: { session_id: "session-1" },
       messages: [{
         role: "tool",
+        turn: { turn_id: "turn-1" },
         content: [{
           type: "tool_result", tool_call_id: "tool-exec-1", content: "status: running",
           display_status: "running",
@@ -74,7 +75,7 @@ describe("DashboardService", () => {
       messages_page: {},
     };
     const preview = dashboardSessionDetailPreview(detail, [{
-      exec_id: "exec_1234abcd", tool_call_id: "tool-exec-1",
+      exec_id: "exec_1234abcd", tool_call_id: "tool-exec-1", session_id: "s", origin_turn_id: "turn-1", revision: 1,
       status: "failed", exit_code: 3, duration_sec: 2, output_tail: "real failure",
     }]) as { messages: Array<{ content: Array<Record<string, unknown>> }> };
     expect(preview.messages[0]?.content[0]).toMatchObject({
@@ -294,6 +295,8 @@ describe("DashboardService", () => {
       mcpStatus: () => ({ connected: true, error: "", toolCount: 7, tools: [{ rawName: "read", modelName: "mcp__inventory__read" }] }),
       connectorStatePath: join(root, "config", "connectors.json"),
       terminateSession: async (sessionId) => { terminatedSessions.push(sessionId); },
+      execSnapshots: sessionId => [{ exec_id: "live-exec", tool_call_id: "live-call", session_id: sessionId,
+        origin_turn_id: "live-turn", revision: 3, status: "running", output_tail: "recovered preview" }],
       cliCommands: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       providerManager,
       reloadWorkspace: async (sessionId) => {
@@ -302,6 +305,10 @@ describe("DashboardService", () => {
       },
     });
     const call = (request: AgentDashboardRpcCall): Promise<unknown> => service.call(request);
+    expect(await call({ operation: "sessions.execTasks", input: { session_id: "session-one" } })).toMatchObject({
+      items: [{ tool_call_id: "live-call", task: { session_id: "session-one", revision: 3 },
+        step: { status: "running", result_block: { content: expect.stringContaining("recovered preview") } } }],
+    });
 
     expect(await call({ operation: "sessions.list", input: { query: "session-one" } })).toMatchObject({
       total: 1,
