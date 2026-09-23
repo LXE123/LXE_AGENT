@@ -108,7 +108,7 @@ def test_repeated_downloads_use_live_sessions(monkeypatch, tmp_path, fail_first,
                     with pytest.raises(ValueError, match="delivery export failed after HTTP response"):
                         customs_erp._download(sp)
                 else:
-                    assert customs_erp._download(sp).read_text() == "MSKU,MSKU发货量\nSKU-A,1\n"
+                    assert customs_erp._download(sp).read_text(encoding="utf-8") == "MSKU,MSKU发货量\nSKU-A,1\n"
             else:
                 result = cli.run({"delivery_no": sp})
                 if fail_first and index == 0:

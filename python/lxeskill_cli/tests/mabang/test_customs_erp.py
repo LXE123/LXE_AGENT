@@ -101,7 +101,7 @@ def test_preview_then_fill_uses_erp_quantities_and_frozen_prices(setup):
     assert preview["model_summary"][0]["shortage_quantity"] == "4"
     assert not list(Path(preview["preview_path"]).parent.glob("*documents.xlsx"))
     # Original downloads/uploads may change after review; captured files remain authoritative.
-    csv.write_text("MSKU,MSKU发货量\nMSKU-A,99\n")
+    csv.write_text("MSKU,MSKU发货量\nMSKU-A,99\n", encoding="utf-8")
     Path(args["input_xlsx"][0]).write_bytes(b"replaced upload")
     result = cli.fill(preview["preview_path"])
     assert result["row_count"] == 2
@@ -121,7 +121,7 @@ def test_changed_review_cannot_generate(setup, damage):
     preview = cli.preview(args)
     path = Path(preview["preview_path"])
     if damage == "manifest":
-        path.write_text(path.read_text() + " ")
+        path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
     elif damage == "prices":
         (path.parent / "prices-0.xlsx").write_bytes(b"changed")
     else:
@@ -134,7 +134,7 @@ def test_changed_review_cannot_generate(setup, damage):
 def test_zero_shipment_is_previewable_without_empty_declaration(setup):
     args, erp, _, _, csv = setup
     erp.update(response(actual=0))
-    csv.write_text("MSKU,MSKU发货量\nMSKU-A,0\n")
+    csv.write_text("MSKU,MSKU发货量\nMSKU-A,0\n", encoding="utf-8")
     preview = cli.preview(args)
     assert preview["status"] == "no_shipment"
     assert preview["model_summary"][0]["shortage_quantity"] == "10"
@@ -164,14 +164,14 @@ def test_unresolved_inputs_are_blocked(setup, reason):
 @pytest.mark.parametrize("text", ["M,", "M,-1", "M,NaN", "M,1.5", ",2", "M,1\nM,"])
 def test_csv_rejects_partial_and_invalid_quantities(tmp_path, text):
     path = tmp_path / "delivery.csv"
-    path.write_text("MSKU,MSKU发货量\n" + text)
+    path.write_text("MSKU,MSKU发货量\n" + text, encoding="utf-8")
     with pytest.raises(ValueError):
         cli.read_actual_lines(path)
 
 
 def test_csv_aggregates_case_and_keeps_full_data(tmp_path):
     path = tmp_path / "delivery.csv"
-    path.write_text("MSKU,MSKU发货量\n" + "\n".join(f"M{i},1" for i in range(250)) + "\nm0,2\nZERO,0\n")
+    path.write_text("MSKU,MSKU发货量\n" + "\n".join(f"M{i},1" for i in range(250)) + "\nm0,2\nZERO,0\n", encoding="utf-8")
     lines = cli.read_actual_lines(path)
     assert len(lines) == 250
     assert lines[0] == {"msku": "M0", "actual_quantity": "3"}
