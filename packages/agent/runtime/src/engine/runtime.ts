@@ -3,7 +3,8 @@ import { contextFingerprint } from "./context-meter";
 import { turnAbortedMessage } from "./turn-aborted";
 import { captureEnvironment, environmentChanged, environmentMessage } from "./environment-context";
 import { randomUUID } from "node:crypto";
-import { basename, isAbsolute } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, isAbsolute, relative, sep } from "node:path";
 import type { AgentJob, EmitRequest, JsonObject, WorkspaceContext } from "@lxe/protocol";
 import {
   assertWorkspaceAvailable,
@@ -17,6 +18,7 @@ import {
 import {
   ToolExecutionError,
   ToolRegistry,
+  safeToolFailureObservation,
   unknownToolFailureDetails,
   type ToolExposureOptions,
 } from "../tooling/registry";
@@ -292,9 +294,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let cacheCreationTokens = 0;
     let apiCalls = 0;
     let toolCalls = 0;
+    let firstSelectedSkill = "";
+    let timeToExecMs: number | null = null;
+    let toolResultSizeBytes = 0;
+    let timeToFileDeliveryMs: number | null = null;
     let typingStarted = false;
     let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
     const startedAt = Date.now() / 1_000;
+    const startedAtMs = startedAt * 1_000;
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
     const emittedArtifactPaths = new Set<string>();
     const toolRecoveryAttempts = new Map<string, number>();
@@ -346,6 +353,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       usageRecorded = true;
       await saveDisplay();
       const elapsedMs = Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000));
+      const executedSkills = new Set(skillExecutions.map(execution => execution.skill));
+      const wrongSkillReads = executedSkills.size === 0 ? 0
+        : [...skillActivations.keys()].filter(skill => !executedSkills.has(skill)).length;
       try {
         await this.options.store.recordTurn(job.session_id, {
           turn_id: job.job_id,
@@ -358,12 +368,19 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           model: descriptor?.model ?? this.options.display?.model ?? "",
           status,
           elapsed_ms: elapsedMs,
+          total_turn_ms: elapsedMs,
+          first_selected_skill: firstSelectedSkill,
+          wrong_skill_reads: wrongSkillReads,
+          time_to_exec_ms: timeToExecMs,
+          tool_result_size_bytes: toolResultSizeBytes,
+          time_to_file_delivery_ms: timeToFileDeliveryMs,
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           cache_read_input_tokens: cacheReadTokens,
           cache_creation_input_tokens: cacheCreationTokens,
           tool_calls: toolCalls,
           api_calls: apiCalls,
+          llm_calls: apiCalls,
           tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
           activations: [...skillActivations.values()],
           executions: skillExecutions,
@@ -372,7 +389,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       } catch (cause) {
         this.logger.warn("turn_usage_persist_failed", { error: cause });
       }
-      observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
+      observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls,
+        firstSelectedSkill, wrongSkillReads, timeToExecMs, toolResultSizeBytes, timeToFileDeliveryMs,
+        ...(error === undefined ? {} : { error }) });
     };
     try {
       if (job.job_kind !== "heartbeat") {
@@ -440,6 +459,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           ? { disabledConnectors: new Set(skillSnapshot.disabledConnectorIds) }
           : {}),
         onSkillActivated: async (name) => {
+          firstSelectedSkill ||= name;
           skillActivations.set(name, { skill: name, module: skillModule(name) });
           await exposureOptions?.onSkillActivated?.(name);
         },
@@ -744,12 +764,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const executeToolCall = async (call: ToolCallBlock, callIndex: number): Promise<void> => {
           toolCalls += 1;
           const startedToolAt = Date.now();
+          if (call.name === "exec" && timeToExecMs === null) timeToExecMs = Math.max(0, startedToolAt - startedAtMs);
           const definition = this.options.tools.definition(call.name);
           const invocation = definition?.classifyInvocation?.(call.arguments);
           const usageName = invocation?.usageName || call.name;
           const commandId = invocation?.commandId?.trim() ?? "";
           const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
           const executionSkill = commandId ? String(invocation?.attributionSkill ?? "").trim() : "";
+          if (executionSkill) firstSelectedSkill ||= executionSkill;
           usage.calls += 1;
           toolUsage.set(usageName, usage);
           observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
@@ -801,6 +823,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                   state: "",
                   seq: 0,
                 });
+                timeToFileDeliveryMs ??= Math.max(0, Date.now() - startedAtMs);
                 await this.options.store.appendArtifact(job.session_id, {
                   artifact_id: randomUUID().replaceAll("-", ""),
                   turn_id: job.job_id,
@@ -859,6 +882,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               is_error: true,
             };
           } finally {
+            const resultBlock = resultSlots[callIndex];
+            if (resultBlock) toolResultSizeBytes += Buffer.byteLength(JSON.stringify(resultBlock.content), "utf8");
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
             if (executionSkill) {

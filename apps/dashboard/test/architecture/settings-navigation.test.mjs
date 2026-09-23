@@ -12,7 +12,7 @@ const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
 const i18n = readFileSync(path.join(sourceDir, "shared/i18n.tsx"), "utf8");
 
 test("desktop settings render one navigable panel instead of stacked integrations", () => {
-  for (const key of ["status", "appearance", "base", "ziniao", "mabang", "feishu", "logging"]) {
+  for (const key of ["status", "appearance", "base", "ziniao", "mabang", "zhihui_tms", "feishu", "logging"]) {
     assert.match(shell, new RegExp(`sectionTitles\\.${key}`));
   }
   assert.match(shell, /aria-current=\{active \? "page" : undefined\}/);
@@ -57,4 +57,18 @@ test("company cloud shows the server-verified device Skill permission state", ()
   assert.match(i18n, /pending_verification/);
   assert.match(styles, /\.device-permission-status\.cached/);
   assert.match(contextPanel, /device-permission-details/);
+});
+
+test("yacang production switch follows the shared integration layout and remains interactive", () => {
+  const yacangBlock = shell.slice(shell.indexOf('if (activeSection === "yacang")'), shell.indexOf('if (activeSection === "zhihui_tms")'));
+  assert.match(yacangBlock, /className="desktop-integration-production-toggle"/);
+  assert.match(yacangBlock, /role="switch"/);
+  assert.match(yacangBlock, /onClick=\{\(\) => onChange\(\{ yacangProductionEnabled:/);
+  assert.doesNotMatch(yacangBlock, /disabled=\{!setup\.yacang\.configured\}/);
+  const zhihuiBlock = shell.slice(shell.indexOf('if (activeSection === "zhihui_tms")'), shell.indexOf('if (activeSection === "feishu")'));
+  assert.match(zhihuiBlock, /className="desktop-integration-production-toggle"/);
+  assert.match(zhihuiBlock, /role="switch"/);
+  assert.match(styles, /\.desktop-switch\s*\{[^}]*flex:\s*0 0 38px;[^}]*width:\s*38px;[^}]*height:\s*22px;/s);
+  assert.match(styles, /\.desktop-integration-production-toggle strong\s*\{[^}]*font-size:\s*1rem;/s);
+  assert.match(styles, /\.desktop-integration-production-toggle small\s*\{[^}]*font-size:\s*0\.75rem;/s);
 });

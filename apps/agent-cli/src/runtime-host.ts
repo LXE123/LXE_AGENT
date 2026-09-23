@@ -45,6 +45,7 @@ import {
   type RuntimeEmitter,
   type RuntimeHandle,
   type TurnOutcome,
+  type ToolProgressEvent,
 } from "@lxe/runtime";
 import { DashboardService } from "./dashboard-service";
 import { loadAgentFeishuConfig } from "./feishu-runtime-config";
@@ -64,6 +65,7 @@ export interface AgentRuntimeHostOptions {
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
+  onToolProgress?: (event: ToolProgressEvent) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
   onManagedLlmAuthenticationFailure?: (
@@ -177,14 +179,15 @@ export function createAgentRuntimeHost(
     LXE_USER_SKILLS_ROOT: _userSkillsRoot,
     ...lxeSkillEnvironment
   } = environment;
-  const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
+  const lxeSkillRunnerConfig = lxeSkillArgv ? {
     command: lxeSkillArgv,
     cwd: options.dataRoot,
     timeoutMs: 3 * 60_000,
     maxOutputBytes: 10 * 1024 * 1024,
     env: lxeSkillEnvironment,
-    onStderr: (line) => logger.info("lxeskill", { line }),
-  }) : undefined;
+    onStderr: (line: string) => logger.info("lxeskill", { line }),
+  } : undefined;
+  const lxeSkillRunner = lxeSkillRunnerConfig ? new OneShotCliRunner(lxeSkillRunnerConfig) : undefined;
   const maintenance = lxeSkillRunner ? new MaintenanceScheduler({
     environment: lxeSkillEnvironment,
     store,
@@ -209,8 +212,24 @@ export function createAgentRuntimeHost(
     businessCommandCatalog: cliCommands,
     execShell,
     lxeSkillStatus: () => lxeSkillRuntime.snapshot(),
+    confirmLxeSkillCommand: async ({ confirmation, sessionId, turnId, toolCallId, platform, signal }) => {
+      if (platform !== "desktop" || !turnId || !toolCallId) {
+        throw new DashboardRpcError("unavailable", "This business command requires an active desktop confirmation");
+      }
+      const answers = await questions.askForTurn([{
+        id: "execute_confirmation",
+        header: confirmation.header,
+        question: confirmation.question,
+        options: [
+          { label: confirmation.confirmLabel },
+          { label: confirmation.cancelLabel },
+        ],
+      }], { sessionId, turnId, toolCallId, signal });
+      return answers[0]?.selected[0] === confirmation.confirmLabel;
+    },
     execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
     ...(options.onBackgroundTaskChanged ? { onExecComplete: options.onBackgroundTaskChanged } : {}),
+    ...(options.onToolProgress ? { onToolProgress: options.onToolProgress } : {}),
   });
   let skillRefreshTimer: ReturnType<typeof setInterval> | undefined;
   const runtimeServices: Array<{

@@ -20,11 +20,25 @@ def _records(capsys) -> list[dict]:
     return [json.loads(line) for line in lines]
 
 
+def test_coerce_parses_one_of_object_schema_as_json_object() -> None:
+    schema = {
+        "oneOf": [
+            {"type": "object", "required": ["state"]},
+            {"type": "object", "required": ["state", "values"]},
+        ]
+    }
+
+    assert lxeskill._coerce(
+        '{"state":"resolved","values":["inventory-sales"]}',
+        schema,
+    ) == {"state": "resolved", "values": ["inventory-sales"]}
+
+
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 42
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 36
+    assert len(catalog) == 53
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 47
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -34,11 +48,25 @@ def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
         "properties": {"account": {"type": "string"}},
         "additionalProperties": False,
     }
-    assert all(
-        entry["legacy_aliases"] == [name]
-        for name, entry in catalog.items()
-        if not name.startswith(("browser_auth_", "shangman_"))
-    )
+
+
+def test_yacang_catalog_exposes_only_the_unified_natural_language_command() -> None:
+    catalog = load_catalog()
+    public_yacang = [
+        entry
+        for entry in catalog.values()
+        if list(entry.get("command_path") or [])[:1] == ["yacang"]
+        and entry.get("exposed") is True
+    ]
+    assert [entry["command_path"] for entry in public_yacang] == [["yacang", "export", "run"]]
+    entries_without_legacy_aliases = {
+        name for name, entry in catalog.items()
+        if not name.startswith("browser_auth_") and entry.get("legacy_aliases", []) != [name]
+    }
+    assert entries_without_legacy_aliases == {
+        "zhihui_preview_products", "zhihui_execute_products",
+        "shangman_login_prepare", "shangman_login_submit", "shangman_login_status", "shangman_login_clear",
+    }
 
 
 @pytest.mark.parametrize(
@@ -109,7 +137,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 40
+    assert len(records[0]["data"]["commands"]) == 45
 
     assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
     records = _records(capsys)
@@ -122,6 +150,94 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
         records[0]["data"]["input_schema"]["properties"]["template_xlsx"]["x-lxe-asset-slot"]
         == "customs_template"
     )
+
+
+def test_yacang_unified_cli_returns_canonical_clarification_envelope(capsys) -> None:
+    assert lxeskill.main([
+        "yacang",
+        "export",
+        "run",
+        "--data-type-intent",
+        '{"state":"ambiguous"}',
+        "--warehouse-intent",
+        '{"state":"omitted"}',
+        "--created-date-filter",
+        '{"state":"omitted"}',
+        "--inventory-snapshot-intent",
+        '{"state":"omitted"}',
+    ]) == lxeskill.EXIT_BUSINESS
+
+    (record,) = _records(capsys)
+    assert record["ok"] is False
+    assert record["files"] == []
+    assert record["data"] == {
+        "platform": "yacang",
+        "business_type": "export",
+        "status": "needs_clarification",
+        "partial": False,
+        "file_count": 0,
+        "questions": [{
+            "code": "DATA_TYPE_REQUIRED",
+            "dimension": "data_type",
+            "message": "请确认需要导出哪类雅仓数据。",
+        }],
+    }
+    assert record["error"] == {
+        "code": "yacang_needs_clarification",
+        "message": "雅仓导出需要澄清业务意图",
+    }
+
+
+def test_yacang_public_schema_rejects_request_text(capsys) -> None:
+    assert lxeskill.main([
+        "yacang", "export", "run", "--request-text", "导出当前库存",
+    ]) == lxeskill.EXIT_USAGE
+
+    records = _records(capsys)
+    assert records[0]["command"] == "yacang export run --request-text 导出当前库存"
+    assert records[0]["ok"] is False
+    assert records[0]["data"] == {}
+    assert records[0]["files"] == []
+    assert records[0]["error"] == {
+        "code": "invalid_arguments",
+        "message": "unknown option: --request-text",
+    }
+
+
+def test_yacang_unified_cli_forwards_only_approved_high_level_candidates(monkeypatch) -> None:
+    import services.agent_cli.yacang.export_workflow as adapter
+
+    captured = {}
+
+    def fake_run(request_text, **candidates):
+        captured["request_text"] = request_text
+        captured.update(candidates)
+        return {
+            "schema_version": "yacang.export.v1",
+            "overall_status": "needs_clarification",
+            "tasks": [],
+            "artifacts": [],
+            "questions": [],
+            "diagnostics": [],
+        }
+
+    monkeypatch.setattr(adapter, "run_export_workflow", fake_run)
+    result = adapter.run({
+        "request_text": "导出 MY8801 的月度销量",
+        "data_type_intent": {"state": "resolved", "values": ["sales-monthly"]},
+        "warehouse_intent": {"state": "resolved", "values": ["MY8801"]},
+        "created_date_filter": {"state": "resolved", "mode": "default"},
+        "inventory_snapshot_intent": {"state": "omitted"},
+    })
+
+    assert result["overall_status"] == "needs_clarification"
+    assert captured == {
+        "request_text": "导出 MY8801 的月度销量",
+        "data_type_intent": {"state": "resolved", "values": ["sales-monthly"]},
+        "warehouse_intent": {"state": "resolved", "values": ["MY8801"]},
+        "created_date_filter": {"state": "resolved", "mode": "default"},
+        "inventory_snapshot_intent": {"state": "omitted"},
+    }
 
 
 def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatch, capsys) -> None:
@@ -162,11 +278,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 42,
-                "business_commands": 36,
-                "skill_files": 59,
-                "owner_skills": 26,
-                "command_declarations": 36,
+                    "catalog_commands": 53,
+                    "business_commands": 41,
+                    "skill_files": 61,
+                    "owner_skills": 29,
+                    "command_declarations": 41,
             },
             "files": [],
         }
@@ -509,6 +625,30 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
     assert records[0]["error"] == {"code": "business_cli_failed", "message": "login expired"}
     assert records[0]["files"] == ["/safe/partial.xlsx"]
     assert records[0]["recovery"] == {"command": "lxeskill auth refresh"}
+
+
+def test_business_terminal_projection_controls_only_the_exposed_terminal(monkeypatch, capsys) -> None:
+    def fake_execute(entry, arguments, session, *, on_event, on_text):
+        return (
+            False,
+            [{"type": "text", "text": json.dumps({"platform": "zhihui_tms", "partial": True})}],
+            ["/safe/partial.xlsx"],
+            {"code": "tms_export_partial", "message": "download failed"},
+        )
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main(["fba", "shipment", "delivery-csv-download", "--delivery-no", "SP1"]) == lxeskill.EXIT_BUSINESS
+    records = _records(capsys)
+    assert records == [{
+        "protocol_version": "1",
+        "type": "result",
+        "command": "fba shipment delivery-csv-download",
+        "ok": False,
+        "data": {"platform": "zhihui_tms", "partial": True},
+        "files": ["/safe/partial.xlsx"],
+        "error": {"code": "tms_export_partial", "message": "download failed"},
+    }]
 
 
 @pytest.mark.parametrize('required', [False, True])

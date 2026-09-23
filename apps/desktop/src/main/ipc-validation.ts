@@ -107,9 +107,11 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     return integration;
   };
   const ziniao = input.ziniao === undefined ? undefined : integrationAction(input.ziniao, "Ziniao setup");
-  const shangman = input.shangman === undefined ? undefined : integrationAction(input.shangman, "Shangman setup");
   const mabang = input.mabang === undefined ? undefined : integrationAction(input.mabang, "Mabang setup");
+  const yacang = input.yacang === undefined ? undefined : integrationAction(input.yacang, "Yacang setup");
+  const zhihuiTms = input.zhihui_tms === undefined ? undefined : integrationAction(input.zhihui_tms, "Zhihui TMS setup");
   const feishu = input.feishu === undefined ? undefined : integrationAction(input.feishu, "Feishu setup");
+  const shangman = input.shangman === undefined ? undefined : integrationAction(input.shangman, "Shangman setup");
   const logging = input.logging === undefined ? undefined : objectValue(input.logging, "Logging setup");
   const rawZiniaoVersion = ziniao?.action === "save"
     ? boundedText(ziniao.app_version, "Ziniao app version", 16)
@@ -128,11 +130,6 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
       ? { password: boundedText(ziniao.password, "Ziniao password", 16_384) }
       : {}),
   } : ziniao?.action === "clear" ? { action: "clear" as const } : undefined;
-  const shangmanInput = shangman?.action === "save" ? {
-    action: "save" as const, tenant_id: boundedText(shangman.tenant_id, "Shangman tenant ID", 1024),
-    username: boundedText(shangman.username, "Shangman username", 1024),
-    password: boundedText(shangman.password, "Shangman password", 16384),
-  } : shangman?.action === "clear" ? { action: "clear" as const } : undefined;
   const mabangPassword = mabang?.action === "save"
     ? boundedText(mabang.password, "Mabang password", 16_384)
     : "";
@@ -141,6 +138,29 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     account: boundedText(mabang.account, "Mabang account", 1_024),
     ...(mabangPassword ? { password: mabangPassword } : {}),
   } : mabang?.action === "clear" ? { action: "clear" as const } : undefined;
+  const yacangPassword = yacang?.action === "save"
+    ? boundedText(yacang.password, "Yacang password", 16_384)
+    : "";
+  const yacangInput = yacang?.action === "save" ? {
+    action: "save" as const,
+    mobile: boundedText(yacang.mobile, "Yacang mobile", 1_024),
+    ...(yacangPassword ? { password: yacangPassword } : {}),
+    ...(yacang.production_enabled === undefined
+      ? {}
+      : { production_enabled: yacang.production_enabled === true }),
+  } : yacang?.action === "clear" ? { action: "clear" as const } : undefined;
+  const zhihuiTmsPassword = zhihuiTms?.action === "save"
+    ? boundedText(zhihuiTms.password, "Zhihui TMS password", 16_384)
+    : "";
+  if (zhihuiTms?.action === "save" && typeof zhihuiTms.production_enabled !== "boolean") {
+    throw new Error("Zhihui TMS production switch must be a boolean");
+  }
+  const zhihuiTmsInput = zhihuiTms?.action === "save" ? {
+    action: "save" as const,
+    account: boundedText(zhihuiTms.account, "Zhihui TMS account", 1_024),
+    production_enabled: zhihuiTms.production_enabled as boolean,
+    ...(zhihuiTmsPassword ? { password: zhihuiTmsPassword } : {}),
+  } : zhihuiTms?.action === "clear" ? { action: "clear" as const } : undefined;
   const feishuSecret = feishu?.action === "save"
     ? boundedText(feishu.app_secret, "Feishu App Secret", 16_384)
     : "";
@@ -149,6 +169,23 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     app_id: boundedText(feishu.app_id, "Feishu App ID", 1_024),
     ...(feishuSecret ? { app_secret: feishuSecret } : {}),
   } : feishu?.action === "clear" ? { action: "clear" as const } : undefined;
+  const shangmanPassword = shangman?.action === "save"
+    ? boundedText(shangman.password ?? shangman.processed_password, "Shangman password", 16_384)
+    : "";
+  if (shangman?.action === "save" && shangman.production_enabled !== undefined
+    && typeof shangman.production_enabled !== "boolean") {
+    throw new Error("Shangman production_enabled must be a boolean");
+  }
+  const shangmanProductionEnabled = shangman?.action === "save" && typeof shangman.production_enabled === "boolean"
+    ? shangman.production_enabled
+    : undefined;
+  const shangmanInput = shangman?.action === "save" ? {
+    action: "save" as const,
+    tenant_id: boundedText(shangman.tenant_id, "Shangman Tenant ID", 1_024),
+    username: boundedText(shangman.username, "Shangman username", 1_024),
+    ...(shangmanPassword ? { password: shangmanPassword } : {}),
+    ...(shangmanProductionEnabled !== undefined ? { production_enabled: shangmanProductionEnabled } : {}),
+  } : shangman?.action === "clear" ? { action: "clear" as const } : undefined;
   let loggingInput: DesktopSetupInput["logging"];
   if (logging) {
     const profile = boundedText(logging.profile, "Log profile", 32);
@@ -165,9 +202,11 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
   return {
     workspace_root: workspaceRoot,
     ...(ziniaoInput ? { ziniao: ziniaoInput } : {}),
-    ...(shangmanInput ? { shangman: shangmanInput } : {}),
     ...(mabangInput ? { mabang: mabangInput } : {}),
+    ...(yacangInput ? { yacang: yacangInput } : {}),
+    ...(zhihuiTmsInput ? { zhihui_tms: zhihuiTmsInput } : {}),
     ...(feishuInput ? { feishu: feishuInput } : {}),
+    ...(shangmanInput ? { shangman: shangmanInput } : {}),
     ...(loggingInput ? { logging: loggingInput } : {}),
   };
 }

@@ -4,6 +4,7 @@ import { parseDashboardRpcCall, parseAgentCall, decodeAgentEvent, encodeAgentEve
 test("question reads, answers and change notifications cross the shared IPC/JSON-RPC contract", () => {
   const calls = [
     { operation: "sessions.questions" as const, input: {} },
+    { operation: "sessions.questions" as const, input: { session_id: "s" } },
     { operation: "sessions.answer" as const, input: { session_id: "s", request_id: "request", answers: [{ id: "q", selected: ["a"] }] } },
     { operation: "sessions.answer" as const, input: { session_id: "s", request_id: "request", answers: [{ id: "q", selected: [] }] } },
   ];
@@ -13,6 +14,17 @@ test("question reads, answers and change notifications cross the shared IPC/JSON
   }
   const event = { type: "session.changed" as const, thread_id: "s", payload: { changes: ["questions" as const] } };
   expect(decodeAgentEvent(encodeAgentEvent(event))).toEqual(event);
+});
+
+test("retired sensitive input operations are unavailable", () => {
+  expect(() => parseDashboardRpcCall({
+    operation: "sessions.pending_input.answer" as never,
+    input: { session_id: "s", request_id: "opaque", value: "A7x9" },
+  })).toThrow();
+  expect(() => parseDashboardRpcCall({
+    operation: "sessions.shangman_captcha.answer" as never,
+    input: { session_id: "s", challenge_id: "legacy", code: "A7x9" },
+  })).toThrow();
 });
 
 test("malformed answer payloads are rejected at the boundary", () => {

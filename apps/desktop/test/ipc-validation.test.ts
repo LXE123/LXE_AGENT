@@ -15,6 +15,18 @@ import {
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("requires an explicit boolean for Zhihui production access", () => {
+    expect(validateSetupInput({
+      workspace_root: "/workspace",
+      zhihui_tms: { action: "save", account: "fixture", password: "fixture-secret", production_enabled: false },
+    })).toMatchObject({
+      zhihui_tms: { action: "save", account: "fixture", password: "fixture-secret", production_enabled: false },
+    });
+    expect(() => validateSetupInput({
+      workspace_root: "/workspace",
+      zhihui_tms: { action: "save", account: "fixture", production_enabled: "true" },
+    })).toThrow("production switch");
+  });
   test("accepts only resolved desktop appearances", () => {
     expect(validateDesktopAppearance("light")).toBe("light");
     expect(validateDesktopAppearance("dark")).toBe("dark");
@@ -118,6 +130,11 @@ describe("desktop IPC validation", () => {
         app_path: " C:\\Ziniao.exe ",
         webdriver_path: " C:\\drivers ",
       },
+      yacang: {
+        action: "save",
+        mobile: " 13800138000 ",
+        password: " yacang-secret ",
+      },
       logging: { profile: "standard", retention_days: 7 },
     })).toEqual({
       workspace_root: "C:\\workspace",
@@ -129,6 +146,11 @@ describe("desktop IPC validation", () => {
         app_version: "v6",
         app_path: "C:\\Ziniao.exe",
         webdriver_path: "C:\\drivers",
+      },
+      yacang: {
+        action: "save",
+        mobile: "13800138000",
+        password: "yacang-secret",
       },
       logging: { profile: "standard", retention_days: 7 },
     });
@@ -142,6 +164,23 @@ describe("desktop IPC validation", () => {
       workspace_root: "C:\\workspace",
       logging: { profile: "verbose", retention_days: 7 },
     })).toThrow("Log profile is unsupported");
+    expect(validateSetupInput({
+      workspace_root: "C:\\workspace",
+      shangman: {
+        action: "save",
+        tenant_id: " tenant-1 ",
+        username: " user ",
+        processed_password: " processed-password ",
+      },
+    })).toEqual({
+      workspace_root: "C:\\workspace",
+      shangman: {
+        action: "save",
+        tenant_id: "tenant-1",
+        username: "user",
+        password: "processed-password",
+      },
+    });
   });
 
   test("validates local model credentials independently from setup", () => {

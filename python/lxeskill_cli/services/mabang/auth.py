@@ -114,6 +114,20 @@ async def get_auth_context(
         raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
 
 
+async def get_existing_auth_context(
+    account: str = "",
+    purpose: str = "",
+) -> MabangAuthContext:
+    """Read the current browser-auth state without recovering or refreshing it."""
+    resolved_account = _resolve_account(account)
+    try:
+        return await _read_auth_context(account=resolved_account, purpose=purpose)
+    except MabangAuthError:
+        raise
+    except Exception as exc:
+        raise MabangAuthError(f"读取现有 Mabang 登录态失败: {exc}") from exc
+
+
 async def get_fba_free_token(purpose: str = "") -> str:
     context = await get_auth_context(purpose=purpose)
     token = str(context.free_token or "").strip()

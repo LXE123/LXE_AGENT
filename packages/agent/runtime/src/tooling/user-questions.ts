@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   parseUserQuestions, parseUserQuestionSubmission, validateUserQuestionAnswers,
-  type JsonObject, type PendingUserQuestion, type SubmitUserQuestionAnswer, type UserQuestionAnswer,
+  type JsonObject, type PendingUserQuestion, type SubmitUserQuestionAnswer, type UserQuestion, type UserQuestionAnswer,
 } from "@lxe/protocol";
 import { ToolExecutionError, type ToolDefinition, type ToolRegistry } from "./registry";
 
@@ -31,15 +31,26 @@ export class UserQuestionService {
 
   async ask(input: JsonObject, context: CallContext): Promise<{ answers: UserQuestionAnswer[] }> {
     if (context.platform !== "desktop") throw failure("User questions are only available for desktop turns");
-    context.handle.signal.throwIfAborted();
     if (!context.turn_id || !context.tool_call_id) throw failure("User questions require a live turn and tool call");
-    if (this.pending.has(context.session_id)) throw failure("This session already has a pending question");
+    return { answers: await this.askForTurn(parseUserQuestions(input.questions), {
+      sessionId: context.session_id, turnId: context.turn_id, toolCallId: context.tool_call_id,
+      signal: context.handle.signal,
+    }) };
+  }
+
+  async askForTurn(questions: UserQuestion[], context: {
+    sessionId: string; turnId: string; toolCallId: string; signal: AbortSignal;
+  }): Promise<UserQuestionAnswer[]> {
+    context.signal.throwIfAborted();
+    if (this.pending.has(context.sessionId)) {
+      throw failure("This session already has a pending interaction");
+    }
     const request: PendingUserQuestion = {
-      request_id: randomUUID(), session_id: context.session_id,
-      turn_id: context.turn_id, tool_call_id: context.tool_call_id,
-      questions: parseUserQuestions(input.questions),
+      request_id: randomUUID(), session_id: context.sessionId,
+      turn_id: context.turnId, tool_call_id: context.toolCallId,
+      questions: parseUserQuestions(questions),
     };
-    const signal = context.handle.signal;
+    const signal = context.signal;
     const answers = await new Promise<UserQuestionAnswer[]>((resolve, reject) => {
       const abort = () => {
         this.pending.delete(request.session_id);
@@ -51,7 +62,7 @@ export class UserQuestionService {
       signal.addEventListener("abort", abort, { once: true });
       this.changed(request.session_id);
     });
-    return { answers };
+    return answers;
   }
 
   submit(raw: SubmitUserQuestionAnswer): { accepted: true; request_id: string } {

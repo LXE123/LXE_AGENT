@@ -22,6 +22,11 @@ export interface TurnCompletionObservation {
   outputTokens: number;
   toolCalls: number;
   apiCalls: number;
+  firstSelectedSkill?: string;
+  wrongSkillReads?: number;
+  timeToExecMs?: number | null;
+  toolResultSizeBytes?: number;
+  timeToFileDeliveryMs?: number | null;
   error?: unknown;
 }
 
@@ -229,6 +234,12 @@ export class RuntimeTurnObserver {
     const fields = {
       status: observation.status,
       elapsed_ms: Math.max(0, this.now() - this.startedAt),
+      total_turn_ms: Math.max(0, this.now() - this.startedAt),
+      first_selected_skill: observation.firstSelectedSkill ?? "",
+      wrong_skill_reads: observation.wrongSkillReads ?? 0,
+      time_to_exec_ms: observation.timeToExecMs ?? null,
+      tool_result_size_bytes: observation.toolResultSizeBytes ?? 0,
+      time_to_file_delivery_ms: observation.timeToFileDeliveryMs ?? null,
       steps: this.steps,
       llm_calls: observation.apiCalls,
       tool_calls: observation.toolCalls,

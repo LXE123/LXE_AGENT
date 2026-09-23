@@ -56,7 +56,10 @@ import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
 } from "./data-server-policy";
-import { withoutRetiredAgentTraceEnvironment } from "./runtime-environment-policy";
+import {
+  withoutRetiredAgentTraceEnvironment,
+  withoutRetiredShangmanEnvironment,
+} from "./runtime-environment-policy";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -100,6 +103,7 @@ class SplitGatewayStorage implements DirectGatewayStorage {
 
 export interface DesktopGatewayOptions {
   authBrowserEnvironment?: () => Record<string, string>;
+  zhihuiTmsSessionEnvironment?: () => Record<string, string>;
   paths: DesktopPaths;
   config: DesktopConfigStore;
   version: string;
@@ -137,10 +141,12 @@ export class DesktopGateway {
     this.publishHealth();
     const setup = this.options.config.state();
     const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
-    const configuredEnvironment = withoutRetiredAgentTraceEnvironment(
-      this.options.config.environment(),
+    const configuredEnvironment = withoutRetiredShangmanEnvironment(
+      withoutRetiredAgentTraceEnvironment(this.options.config.environment()),
     );
-    const processEnvironment = withoutRetiredAgentTraceEnvironment(process.env);
+    const processEnvironment = withoutRetiredShangmanEnvironment(
+      withoutRetiredAgentTraceEnvironment(process.env),
+    );
     delete configuredEnvironment.LXE_WORKSPACE_ROOT;
     delete processEnvironment.LXE_WORKSPACE_ROOT;
     for (const target of [configuredEnvironment, processEnvironment]) {
@@ -170,6 +176,7 @@ export class DesktopGateway {
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONNOUSERSITE: "1",
       ...this.options.authBrowserEnvironment?.(),
+      ...this.options.zhihuiTmsSessionEnvironment?.(),
       ...(this.options.packaged ? {
         PLAYWRIGHT_NODEJS_PATH: join(process.resourcesPath, "runtime", "node", "node.exe"),
         NODE_PATH: join(process.resourcesPath, "runtime", "node", "node_modules"),

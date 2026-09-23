@@ -3,6 +3,7 @@ import {
   buildConversationItems,
   buildLiveTimeline,
   hasLiveToolOperationDetails,
+  liveZhihuiProgress,
   hasReaderFacingText,
   hasToolError,
   readerFacingMessageText,
@@ -26,6 +27,15 @@ describe("session conversation projection", () => {
     expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "" } })).toBe(false);
     expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "ok" } })).toBe(true);
     expect(hasLiveToolOperationDetails({ status: "error", error_block: { content: "failed" } })).toBe(true);
+  });
+
+  test("shows only bounded Zhihui progress on a running exec", () => {
+    const result_block = { language: "text", content: "智汇 TMS：第1页读取20条，累计20条" };
+    expect(liveZhihuiProgress({ name: "exec", status: "running", result_block })).toBe(result_block.content);
+    expect(liveZhihuiProgress({ name: "exec", status: "success", result_block })).toBe("");
+    expect(liveZhihuiProgress({ name: "read_file", status: "running", result_block })).toBe("");
+    expect(liveZhihuiProgress({ name: "exec", status: "running", result_block: { language: "text", content: "智汇 TMS：" + "x".repeat(121) } })).toBe("");
+    expect(liveZhihuiProgress({ name: "exec", status: "running", result_block: { language: "text", content: "token=secret" } })).toBe("");
   });
 
   test("uses the live detail as the expandable primary argument without rewriting it", () => {

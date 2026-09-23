@@ -58,6 +58,7 @@ import {
 import { DesktopGateway } from "./main/desktop-gateway";
 import { AuthBrowserHost } from "./main/auth-browser-host";
 import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
+import { ZhihuiTmsSessionHost } from "./main/zhihui-tms-session-host";
 import { editableContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
@@ -138,6 +139,7 @@ let shutdownPromise: Promise<void> | undefined;
 let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
 let activeAuthBrowserHost: AuthBrowserHost | undefined;
+let activeZhihuiTmsSessionHost: ZhihuiTmsSessionHost | undefined;
 const applicationWindows = (): BrowserWindow[] => window && !window.isDestroyed() ? [window] : [];
 let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
@@ -177,6 +179,12 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     }
     await activeAuthBrowserHost?.stop();
     activeAuthBrowserHost = undefined;
+    try {
+      await activeZhihuiTmsSessionHost?.stop();
+    } catch (error) {
+      logger.error("zhihui_tms_session_host_stop_failed", { error });
+    }
+    activeZhihuiTmsSessionHost = undefined;
     removeIpcHandlers?.();
     removeIpcHandlers = undefined;
     tray?.destroy();
@@ -286,6 +294,13 @@ async function bootstrap(): Promise<void> {
   const authBrowserHost = new AuthBrowserHost(async headless => new ElectronAuthBrowserSession(headless));
   await authBrowserHost.start();
   activeAuthBrowserHost = authBrowserHost;
+  const zhihuiTmsSessionHost = new ZhihuiTmsSessionHost({
+    read: accountFingerprint => config.readZhihuiTmsSession(accountFingerprint),
+    save: (accountFingerprint, apiToken) => config.saveZhihuiTmsSession(accountFingerprint, apiToken),
+    clear: accountFingerprint => config.clearZhihuiTmsSession(accountFingerprint),
+  });
+  await zhihuiTmsSessionHost.start();
+  activeZhihuiTmsSessionHost = zhihuiTmsSessionHost;
   gateway = new DesktopGateway({
     paths,
     config,
@@ -294,6 +309,7 @@ async function bootstrap(): Promise<void> {
     desktopLoggingStatus: () => logging.status(),
     attachments: conversationAttachments,
     authBrowserEnvironment: () => authBrowserHost.environment(),
+    zhihuiTmsSessionEnvironment: () => zhihuiTmsSessionHost.environment(),
     allowedSkillTypes: () => cloud?.allowedSkillTypes()
       ?? config.cloudPermissionSnapshot()?.allowed_skill_types
       ?? [],

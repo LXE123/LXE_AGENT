@@ -76,6 +76,7 @@ interface InternalActivity {
 }
 
 type BackgroundTaskChangedEvent = Extract<AgentEvent, { type: "background_task.changed" }>;
+type ToolProgressEvent = Extract<AgentEvent, { type: "tool.progress" }>;
 
 export interface LocalConversationControllerOptions {
   storage: LocalConversationStorage;
@@ -105,6 +106,7 @@ export class LocalConversationController {
   private readonly turns = new Map<string, InternalTurn>();
   private readonly sessions = new Map<string, InternalActivity>();
   private readonly backgroundCompletions = new Map<string, BackgroundTaskChangedEvent>();
+  private readonly toolProgress = new Map<string, ToolProgressEvent>();
 
   constructor(private readonly options: LocalConversationControllerOptions) {
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
@@ -342,10 +344,21 @@ export class LocalConversationController {
   }
 
   handleAgentEvent(event: AgentEvent): void {
+    if (event.type === "tool.progress") {
+      const turn = this.turns.get(clean(event.turn_id));
+      if (!turn || turn.sessionId !== clean(event.thread_id)) return;
+      const key = `${clean(event.thread_id)}\u0000${clean(event.turn_id)}\u0000${event.payload.tool_call_id}`;
+      if (this.backgroundCompletions.has(key)) return;
+      this.toolProgress.set(key, event);
+      if (this.applyToolProgress(turn)) this.publish(event.thread_id);
+      return;
+    }
     if (event.type === "background_task.changed") {
       const turn = this.turns.get(clean(event.turn_id));
       if (!turn || turn.sessionId !== clean(event.thread_id)) return;
-      this.backgroundCompletions.set(backgroundCompletionKey(event), event);
+      const key = backgroundCompletionKey(event);
+      this.toolProgress.delete(key);
+      this.backgroundCompletions.set(key, event);
       if (this.applyBackgroundCompletions(turn)) {
         this.publish(event.thread_id);
       }
@@ -379,6 +392,7 @@ export class LocalConversationController {
     } else {
       return;
     }
+    this.applyToolProgress(turn);
     this.applyBackgroundCompletions(turn);
     this.publish(request.session_id);
   }
@@ -445,6 +459,7 @@ export class LocalConversationController {
       display_metrics: metrics,
     };
     turn.streamEmitId = emitId;
+    const progressChanged = this.applyToolProgress(turn);
     const completionChanged = this.applyBackgroundCompletions(turn);
     this.options.onStreamBatch?.({
       session_id: sessionId,
@@ -453,7 +468,7 @@ export class LocalConversationController {
       seq: request.seq,
       mutations: request.mutations.map(cloneStreamMutation),
     });
-    if (completionChanged) this.publish(sessionId);
+    if (progressChanged || completionChanged) this.publish(sessionId);
     return true;
   }
 
@@ -461,6 +476,7 @@ export class LocalConversationController {
     this.sessions.clear();
     this.turns.clear();
     this.backgroundCompletions.clear();
+    this.toolProgress.clear();
   }
 
   forgetSession(sessionId: string): void {
@@ -545,6 +561,26 @@ export class LocalConversationController {
     activity.latestTurnId = undefined;
   }
 
+  private applyToolProgress(turn: InternalTurn): boolean {
+    const stream = turn.payload.stream;
+    if (!stream) return false;
+    let changed = false;
+    for (const event of this.toolProgress.values()) {
+      if (clean(event.thread_id) !== turn.sessionId || clean(event.turn_id) !== turn.payload.turn_id) continue;
+      const update = (step: ToolStep): boolean => {
+        if (step.id !== event.payload.tool_call_id || step.name !== "exec" || step.status !== "running") return false;
+        if (step.result_block?.content === event.payload.message) return false;
+        step.result_block = { language: "text", content: event.payload.message };
+        return true;
+      };
+      for (const step of stream.tool_steps) changed = update(step) || changed;
+      for (const part of stream.process_parts) {
+        if (part.type === "tool") changed = update(part.tool_step) || changed;
+      }
+    }
+    return changed;
+  }
+
   private applyBackgroundCompletions(turn: InternalTurn): boolean {
     const stream = turn.payload.stream;
     if (!stream) return false;
@@ -587,6 +623,9 @@ export class LocalConversationController {
     const prefix = `${sessionId}\u0000${turnId}\u0000`;
     for (const key of this.backgroundCompletions.keys()) {
       if (key.startsWith(prefix)) this.backgroundCompletions.delete(key);
+    }
+    for (const key of this.toolProgress.keys()) {
+      if (key.startsWith(prefix)) this.toolProgress.delete(key);
     }
   }
 }

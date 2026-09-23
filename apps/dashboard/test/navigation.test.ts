@@ -51,6 +51,10 @@ describe("Dashboard information architecture", () => {
       section: "activity",
       activityView: "unknown",
     }, "tools").activityView).toBe("stats");
+    expect(dashboardRouteFromHistory({
+      section: "workbench",
+      workbenchView: "yacang-natural-language-test",
+    }, "tools").workbenchView).toBe("index");
   });
 
   test("persists only valid capability views and fails safely without storage", () => {

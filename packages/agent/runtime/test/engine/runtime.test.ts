@@ -2,6 +2,8 @@ import { messageFixture, eventFixture } from "../message-fixtures";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import { join } from "node:path";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
@@ -853,12 +855,15 @@ describe("TypeScriptAgentRuntime", () => {
       module: "replenishment",
     }]);
     expect(store.metrics[0]?.executions).toEqual([]);
+    expect(store.metrics[0]?.first_selected_skill).toBe("replenishment-store-resolve");
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "lxeskill:replenish store resolve",
       calls: 2,
       errors: 1,
     }));
     expect(store.metrics[1]?.activations).toEqual([]);
+    expect(store.metrics[1]).toMatchObject({ first_selected_skill: "replenishment-store-resolve", wrong_skill_reads: 0 });
+    expect(Number(store.metrics[1]?.time_to_exec_ms)).toBeGreaterThanOrEqual(0);
     expect(store.metrics[1]?.executions).toEqual([
       expect.objectContaining({
         skill: "replenishment-store-resolve",
@@ -1871,6 +1876,13 @@ describe("TypeScriptAgentRuntime", () => {
         name: "report.xlsx",
       }),
     ]);
+    expect(store.metrics[0]).toMatchObject({
+      first_selected_skill: "", wrong_skill_reads: 0, time_to_exec_ms: null,
+      llm_calls: 2, tool_calls: 1,
+    });
+    expect(Number(store.metrics[0]?.tool_result_size_bytes)).toBeGreaterThan(0);
+    expect(Number(store.metrics[0]?.time_to_file_delivery_ms)).toBeGreaterThanOrEqual(0);
+    expect(store.metrics[0]?.total_turn_ms).toBe(store.metrics[0]?.elapsed_ms);
     expect(changes).toContain("artifacts");
     await runtime.stop();
   });
@@ -2391,6 +2403,67 @@ describe("TypeScriptAgentRuntime", () => {
         expect.objectContaining({ type: "text", text: "原回答", presentation: "process", status: "completed" }),
         expect.objectContaining({ type: "text", text: "已处理补充指令", presentation: "final", status: "completed" }),
       ] });
+      expect(queue).toEqual([]);
+    } finally { await runtime.stop(); }
+  });
+
+  test("delivers a terminal export once before processing steering without rerunning it", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    const queue: ReturnType<RuntimeHandle["drainSteering"]> = [];
+    const emitted: EmitRequest[] = [];
+    let exportCalls = 0;
+    let providerCalls = 0;
+    let followUp: RuntimeMessage[] = [];
+    tools.register({
+      name: "business_export",
+      description: "Creates the completed export deliverable",
+      input_schema: { type: "object", properties: {} },
+      execute: async () => {
+        exportCalls += 1;
+        queue.push({ text: "请说明刚交付文件的字段" });
+        return {
+          content: [{ type: "text", text: "terminal export completed" }],
+          files: ["/tmp/terminal-export.xlsx"],
+        };
+      },
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      systemPrompt: "test",
+      provider: { summarize, turn: async request => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return messageFixture({
+            content: [{ type: "tool_call", id: "export-1", name: "business_export", arguments: {} }],
+            stopReason: "toolUse",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          });
+        }
+        followUp = structuredClone(request.messages);
+        return messageFixture({
+          content: [{ type: "text", text: "文件已交付，字段说明如下。" }],
+          stopReason: "stop",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        });
+      } },
+      emitter: { emit: async request => { emitted.push(structuredClone(request)); }, typing: async () => undefined },
+    });
+
+    await runtime.start();
+    try {
+      const outcome = await runtime.runTurn(job({ source: { platform: "desktop" } }), {
+        ...handle(),
+        drainSteering: () => queue.splice(0),
+      });
+      expect(outcome).toMatchObject({ status: "completed", reply: "文件已交付，字段说明如下。" });
+      expect(exportCalls).toBe(1);
+      expect(providerCalls).toBe(2);
+      expect(followUp).toContainEqual({ role: "user", content: "请说明刚交付文件的字段" });
+      expect(emitted.filter(request => request.emit_kind === "tool" && request.files?.includes("/tmp/terminal-export.xlsx")))
+        .toHaveLength(1);
+      expect(store.artifacts.filter(artifact => artifact.path === "/tmp/terminal-export.xlsx")).toHaveLength(1);
       expect(queue).toEqual([]);
     } finally { await runtime.stop(); }
   });

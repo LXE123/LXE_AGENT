@@ -1025,6 +1025,53 @@ button {
   grid-column: 1 / -1;
 }
 
+.desktop-production-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.desktop-production-switch-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.desktop-production-switch-row small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.desktop-switch {
+  box-sizing: border-box;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 22px;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+}
+
+.desktop-switch span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 120ms ease;
+}
+
+.desktop-switch.is-on {
+  background: var(--accent);
+}
+
+.desktop-switch.is-on span {
+  transform: translateX(16px);
+}
+
 .desktop-local-model-card {
   display: grid;
   gap: 14px;
@@ -1199,6 +1246,70 @@ button {
 .desktop-integration-fields {
   display: grid;
   gap: 20px;
+}
+
+.desktop-integration-production-toggle {
+  display: flex !important;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.desktop-integration-production-toggle > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.desktop-integration-production-toggle strong {
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.desktop-integration-production-toggle small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.desktop-settings-content .desktop-integration-production-toggle input {
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.desktop-settings-content .desktop-integration-production-toggle input::before {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--muted-light);
+  content: "";
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+
+.desktop-settings-content .desktop-integration-production-toggle input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.desktop-settings-content .desktop-integration-production-toggle input:checked::before {
+  transform: translateX(16px);
+  background: var(--surface);
 }
 
 .desktop-integration-issues {
@@ -5701,6 +5812,16 @@ h1 {
   min-width: 0;
   color: var(--muted);
   font-family: var(--font-mono, monospace);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-op-progress {
+  flex: 0 1 45%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11419,6 +11540,7 @@ pre {
 .user-question-option-arrow { align-self: center; flex-shrink: 0; color: var(--text-soft); opacity: 0; }
 .user-question-option:hover .user-question-option-arrow, .user-question-option:has(input:focus-visible) .user-question-option-arrow, .user-question-option[data-selected="true"] .user-question-option-arrow { opacity: 1; }
 .user-question-option:has(input:focus-visible), .user-question-card button:focus-visible, .user-question-custom textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 .user-question-card fieldset:disabled .user-question-option { cursor: default; opacity: .65; }
 .user-question-custom { display: grid; gap: 7px; margin: 6px 12px 4px; font-size: .75rem; color: var(--text-soft); }
 .user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; resize: vertical; background: var(--surface-muted); color: var(--text); font: inherit; font-size: .875rem; line-height: 1.5; min-height: 70px; max-height: 150px; }
@@ -11442,23 +11564,80 @@ pre {
   .user-question-actions { padding-left: 8px; gap: 8px; }
 }
 
-/* Skill management uses the existing catalog and modal surfaces. */
-.workspace-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; }
-.workspace-header-actions .workspace-subnav { overflow-x: auto; }
-.workspace-header-actions .workspace-subnav-item { flex-shrink: 0; }
-.skill-add-menu { position: relative; flex-shrink: 0; }
-.skill-add-menu-popup { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 9rem; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow-soft); }
-.skill-add-menu-popup button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
-.skill-add-menu-popup button:hover, .skill-add-menu-popup button:focus-visible { background: var(--surface-muted); }
-.skill-detail-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.skill-detail-footer.user-skill-actions { justify-content: space-between; flex-shrink: 0; margin: 0; padding: 16px 20px; border-top: 1px solid var(--border); }
-.skill-detail-footer .skill-recycle-button { color: var(--text-soft); }
-.skill-detail-footer > button:last-child { margin-left: auto; }
-@media (max-width: 600px) {
-  .workspace-view-header { flex-wrap: wrap; gap: 10px; }
-  .workspace-header-actions { gap: 8px; }
-  .workspace-header-actions .workspace-subnav-item { padding-inline: 8px; }
+/* Personal skill management uses the existing catalog and modal surfaces. */
+.user-skills-section { margin-bottom: 24px; padding: 20px; }
+.user-skills-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+
+.desktop-production-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
 }
+
+.desktop-production-toggle input {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  margin: 2px 0 0;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: #d9d0c4;
+  position: relative;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.desktop-production-toggle input::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+  transition: transform 160ms ease;
+}
+
+.desktop-production-toggle input:checked {
+  background: var(--accent);
+}
+
+.desktop-production-toggle input:checked::before {
+  transform: translateX(16px);
+}
+
+.desktop-production-toggle input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.desktop-production-toggle input:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.desktop-production-toggle span {
+  order: -1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.desktop-production-toggle small {
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+.user-skills-header h2 { margin: 0 0 8px; }
+.user-skills-header p { margin: 0; color: var(--text-soft); }
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .user-skill-actions button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
 .user-skill-actions button:disabled { opacity: .5; cursor: default; }

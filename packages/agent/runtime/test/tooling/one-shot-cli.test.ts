@@ -24,6 +24,23 @@ const runnerFor = (source: string, options: { stderr?: string[]; timeoutMs?: num
 };
 
 describe("OneShotCliRunner", () => {
+  test("forwards progress while the CLI is still running", async () => {
+    const runner = runnerFor(`
+      console.log(JSON.stringify({protocol_version:"1",type:"progress",command:"tms philippines products-export",stage:"login_started"}));
+      await Bun.sleep(40);
+      console.log(JSON.stringify({protocol_version:"1",type:"result",command:"tms philippines products-export",ok:true,data:{action:"execute"},files:[]}));
+    `);
+    const seen: string[] = [];
+    let finished = false;
+    const result = await runner.execute([], new AbortController().signal, undefined, record => {
+      seen.push(String(record.stage));
+      expect(finished).toBe(false);
+    });
+    finished = true;
+    expect(seen).toEqual(["login_started"]);
+    expect(result.ok).toBe(true);
+  });
+
   test("accepts progress JSONL followed by exactly one terminal result", async () => {
     const stderr: string[] = [];
     const runner = runnerFor(`
@@ -37,6 +54,18 @@ describe("OneShotCliRunner", () => {
     expect(result.ok).toBe(true);
     expect(result.data).toEqual({ source: "refresh" });
     expect(stderr).toEqual(["diagnostic"]);
+  });
+
+  test("applies a per-invocation scope from the active workspace", async () => {
+    const runner = runnerFor(`
+      console.log(JSON.stringify({protocol_version:"1",type:"result",command:"scope",ok:true,data:{scope:process.env.LXESKILL_SKILL_SCOPE},files:[]}));
+    `);
+
+    const result = await runner.execute([], new AbortController().signal, undefined, undefined, {
+      LXESKILL_SKILL_SCOPE: "zhihui-tms-product-export,replenishment-store-resolve",
+    });
+
+    expect(result.data.scope).toBe("zhihui-tms-product-export,replenishment-store-resolve");
   });
 
   test("returns a failed terminal result with a stable nonzero CLI exit", async () => {

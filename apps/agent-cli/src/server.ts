@@ -315,6 +315,20 @@ export class AgentProtocolServer {
             payload: { tool_call_id: toolCallId, task },
           });
         },
+        onToolProgress: (progress) => {
+          if (!progress.sessionId || !progress.turnId || !progress.toolCallId) return;
+          return this.publish({
+            type: "tool.progress",
+            thread_id: progress.sessionId,
+            turn_id: progress.turnId,
+            payload: {
+              exec_id: progress.execId,
+              tool_call_id: progress.toolCallId,
+              stage: progress.stage,
+              message: progress.message,
+            },
+          });
+        },
         onSkillsChanged: revision => this.publish({ type: "skills.changed", payload: { revision } }),
         onSessionChanged: (sessionId, change) => this.publish({
           type: "session.changed",

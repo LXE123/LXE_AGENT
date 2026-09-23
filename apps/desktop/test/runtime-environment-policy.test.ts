@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { withoutRetiredAgentTraceEnvironment } from "../src/main/runtime-environment-policy";
+import {
+  withoutRetiredAgentTraceEnvironment,
+  withoutRetiredShangmanEnvironment,
+} from "../src/main/runtime-environment-policy";
 
 describe("desktop runtime environment policy", () => {
   test("removes retired agent trace variables without changing unrelated settings", () => {
@@ -15,5 +18,21 @@ describe("desktop runtime environment policy", () => {
       KEEP: "value",
     });
     expect(source.AGENT_STREAM_TRACE_ENABLED).toBe("1");
+  });
+
+  test("removes retired Shangman credentials while preserving the persisted-auth contract", () => {
+    const source = {
+      LXE_SHANGMAN_PASSWORD: "old-password",
+      LXE_SHANGMAN_BASIC_USERNAME: "old-user",
+      LXE_SHANGMAN_BASIC_PASSWORD: "old-basic-password",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "processed-password",
+      LXE_SHANGMAN_BASIC_AUTH: "Basic ZHVtbXk6cGFzcw==",
+      LXE_SHANGMAN_PROD_ENABLED: "false",
+    };
+    expect(withoutRetiredShangmanEnvironment(source)).toEqual({
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "processed-password",
+      LXE_SHANGMAN_PROD_ENABLED: "false",
+    });
+    expect(source.LXE_SHANGMAN_PASSWORD).toBe("old-password");
   });
 });

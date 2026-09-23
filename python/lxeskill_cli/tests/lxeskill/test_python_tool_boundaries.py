@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 
 import pytest
@@ -140,3 +141,70 @@ def test_business_adapter_can_deliver_declared_artifacts_on_failure(monkeypatch)
         "code": "business_cli_failed",
         "message": "contract generation failed",
     }
+
+
+def test_business_adapter_projects_only_an_explicit_terminal_projection(monkeypatch) -> None:
+    module_name = "tests.projected_success_business_cli"
+    module = ModuleType(module_name)
+    module.run = lambda _arguments: {  # type: ignore[attr-defined]
+        "success": True,
+        "artifacts": [{"path": "/safe/final.xlsx"}],
+        "terminal_projection": {
+            "data": {"platform": "zhihui_tms", "row_count": 2},
+        },
+    }
+    monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(
+        "lxeskill.business.collect_declared_artifacts",
+        lambda _entry, _payload: ["/safe/final.xlsx"],
+    )
+
+    ok, content, files, error = execute_module_json(
+        {"module": module_name}, {}, {"session_id": "session"},
+    )
+
+    assert ok is True
+    assert json.loads(content[0]["text"]) == {"platform": "zhihui_tms", "row_count": 2}
+    assert files == ["/safe/final.xlsx"]
+    assert error is None
+
+
+def test_business_adapter_projects_an_explicit_partial_error(monkeypatch) -> None:
+    module_name = "tests.projected_partial_business_cli"
+    module = ModuleType(module_name)
+    module.run = lambda _arguments: {  # type: ignore[attr-defined]
+        "success": False,
+        "exception": "download failed",
+        "terminal_projection": {
+            "data": {"platform": "zhihui_tms", "partial": True},
+            "error": {"code": "tms_export_partial", "message": "download failed"},
+        },
+    }
+    monkeypatch.setitem(sys.modules, module_name, module)
+
+    ok, content, files, error = execute_module_json(
+        {"module": module_name}, {}, {"session_id": "session"},
+    )
+
+    assert ok is False
+    assert json.loads(content[0]["text"]) == {"platform": "zhihui_tms", "partial": True}
+    assert files == []
+    assert error == {"code": "tms_export_partial", "message": "download failed"}
+
+
+@pytest.mark.parametrize("platform", ["yacang", "shangman", "mabang"])
+def test_business_adapter_keeps_unprojected_legacy_payloads_unchanged(platform, monkeypatch) -> None:
+    module_name = f"tests.legacy_{platform}_business_cli"
+    module = ModuleType(module_name)
+    payload = {"success": False, "platform": platform, "exception": f"{platform} failed"}
+    module.run = lambda _arguments: payload  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module_name, module)
+
+    ok, content, files, error = execute_module_json(
+        {"module": module_name}, {}, {"session_id": "session"},
+    )
+
+    assert ok is False
+    assert json.loads(content[0]["text"]) == payload
+    assert files == []
+    assert error == {"code": "business_cli_failed", "message": f"{platform} failed"}

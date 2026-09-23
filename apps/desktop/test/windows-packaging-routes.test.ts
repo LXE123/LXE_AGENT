@@ -77,6 +77,7 @@ describe("Windows desktop packaging routes", () => {
     );
     expect(wrapper).toContain('"Build NSIS installer"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
+    expect(wrapper).toContain('New-Item -ItemType Directory -Path (Join-Path $repositoryRoot "dist\\agent-cli") -Force');
     expect(wrapper.match(/"Build current LXE project wheel"/gu)).toHaveLength(1);
     expect(wrapper.match(/"Compile private agent-cli"/gu)).toHaveLength(1);
     expect(wrapper.match(/"Build Dashboard and Electron"/gu)).toHaveLength(1);
@@ -242,6 +243,12 @@ describe("Windows desktop packaging routes", () => {
     expect(cachedArchive.indexOf("Assert-LxeZipArchive -Label $Label -Archive $temporary")).toBeLessThan(
       cachedArchive.indexOf("Move-Item -LiteralPath $temporary -Destination $destination -Force"),
     );
+    const archiveExtraction = runtimePreparation.slice(
+      runtimePreparation.indexOf("function Expand-LxeArchiveFresh"),
+      runtimePreparation.indexOf("function Get-LxeJsonProperty"),
+    );
+    expect(archiveExtraction).toContain("Get-Command tar.exe -CommandType Application");
+    expect(archiveExtraction).toContain('-Arguments @("-xf", $Archive, "-C", $Destination)');
   });
 
   test("resource preparation selects files without semantic scope or Skill validation", () => {

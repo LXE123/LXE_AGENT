@@ -28,6 +28,7 @@ def _payload(cookie_value: str = "fresh") -> dict:
 def test_public_auth_api_has_only_the_unified_parameters() -> None:
     assert list(inspect.signature(auth.refresh_mabang_auth).parameters) == ["account", "purpose"]
     assert list(inspect.signature(auth.get_auth_context).parameters) == ["account", "purpose"]
+    assert list(inspect.signature(auth.get_existing_auth_context).parameters) == ["account", "purpose"]
     assert list(inspect.signature(auth.get_fba_free_token).parameters) == ["purpose"]
     assert list(inspect.signature(auth.get_fba_wms_cookie_header).parameters) == ["purpose"]
     assert list(auth.MabangAuthContext.__dataclass_fields__) == [
@@ -63,6 +64,27 @@ def test_existing_auth_state_is_read_without_refresh(monkeypatch) -> None:
     assert result.free_token == "free-token"
     assert not hasattr(result, "scope")
     assert not hasattr(result, "raw")
+    assert calls == ["read"]
+
+
+def test_existing_auth_only_stops_when_state_is_missing_without_ensuring(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def missing_read(**kwargs):
+        calls.append("read")
+        raise BrowserAuthClientError("本地认证状态不存在")
+
+    async def fail_ensure_auth(**kwargs):
+        calls.append("ensure")
+        raise AssertionError("只读认证不得自动登录")
+
+    monkeypatch.setattr(auth, "read_auth", missing_read)
+    monkeypatch.setattr(auth, "ensure_auth", fail_ensure_auth)
+    monkeypatch.setattr(auth.mabang_settings, "MABANG_ACCOUNT", "account-a")
+
+    with pytest.raises(MabangAuthError, match="读取现有 Mabang 登录态失败"):
+        asyncio.run(auth.get_existing_auth_context(purpose="brazil_overseas_inventory_export"))
+
     assert calls == ["read"]
 
 

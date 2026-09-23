@@ -11,7 +11,13 @@ export interface CliTerminalResult {
 }
 
 export interface OneShotCliRunnerPort {
-  execute(arguments_: string[], signal: AbortSignal, timeoutMs?: number): Promise<CliTerminalResult>;
+  execute(
+    arguments_: string[],
+    signal: AbortSignal,
+    timeoutMs?: number,
+    onProgress?: (record: Record<string, unknown>) => void | Promise<void>,
+    environment?: Record<string, string | undefined>,
+  ): Promise<CliTerminalResult>;
 }
 
 export interface OneShotCliRunnerOptions {
@@ -29,7 +35,7 @@ const failureSuffix = (exitCode: number, stderr: string): string => {
   return ` (exit ${exitCode})${detail ? `: ${detail}` : ""}`;
 };
 
-const readLimited = async (stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> => {
+const readLimited = async (stream: ReadableStream<Uint8Array>, limit: number, onChunk?: (chunk: Uint8Array) => Promise<void>): Promise<Uint8Array> => {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -41,6 +47,7 @@ const readLimited = async (stream: ReadableStream<Uint8Array>, limit: number): P
       await reader.cancel();
       throw new Error(`CLI output exceeds ${limit} bytes`);
     }
+    await onChunk?.(value);
     chunks.push(value);
   }
   const output = new Uint8Array(size);
@@ -67,13 +74,20 @@ const terminateTree = async (pid: number): Promise<void> => {
 export class OneShotCliRunner implements OneShotCliRunnerPort {
   constructor(private readonly options: OneShotCliRunnerOptions) {}
 
-  async execute(arguments_: string[], signal: AbortSignal, timeoutMs?: number): Promise<CliTerminalResult> {
+  async execute(
+    arguments_: string[],
+    signal: AbortSignal,
+    timeoutMs?: number,
+    onProgress?: (record: Record<string, unknown>) => void | Promise<void>,
+    environment?: Record<string, string | undefined>,
+  ): Promise<CliTerminalResult> {
     if (signal.aborted) throw new DOMException("CLI cancelled", "AbortError");
     const child = Bun.spawn([...this.options.command, ...arguments_], {
       cwd: this.options.cwd,
       env: {
         ...globalThis.process.env,
         ...this.options.env,
+        ...environment,
         PYTHONIOENCODING: "utf-8",
         PYTHONUTF8: "1",
       },
@@ -101,13 +115,31 @@ export class OneShotCliRunner implements OneShotCliRunnerPort {
     const onAbort = (): void => { void terminate(); };
     signal.addEventListener("abort", onAbort, { once: true });
     const effectiveTimeoutMs = Math.max(1, Math.trunc(timeoutMs ?? this.options.timeoutMs));
+    const decoder = new TextDecoder();
+    let pendingLine = "";
+    const observeProgress = async (chunk: Uint8Array): Promise<void> => {
+      if (!onProgress) return;
+      pendingLine += decoder.decode(chunk, { stream: true });
+      if (pendingLine.length > 100_000) pendingLine = "";
+      for (;;) {
+        const newline = pendingLine.indexOf("\n");
+        if (newline < 0) break;
+        const line = pendingLine.slice(0, newline).trim();
+        pendingLine = pendingLine.slice(newline + 1);
+        if (!line || line.length > 2_048) continue;
+        try {
+          const record = JSON.parse(line) as Record<string, unknown>;
+          if (record.type === "progress") await onProgress(record);
+        } catch { /* The final stdout validation reports malformed records. */ }
+      }
+    };
     const timeout = setTimeout(() => {
       timedOut = true;
       void terminate();
     }, effectiveTimeoutMs);
     try {
       const [stdoutBytes, stderrBytes, exitCode] = await Promise.all([
-        readLimited(child.stdout, this.options.maxOutputBytes),
+        readLimited(child.stdout, this.options.maxOutputBytes, observeProgress),
         readLimited(child.stderr, this.options.maxOutputBytes),
         child.exited,
       ]);

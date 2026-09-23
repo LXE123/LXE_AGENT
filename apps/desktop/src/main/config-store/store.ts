@@ -109,6 +109,18 @@ export class DesktopConfigStore {
     this.setup.clearManagedLlmCredential();
   }
 
+  readZhihuiTmsSession(accountFingerprint: string): string | null {
+    return this.setup.readZhihuiTmsSession(accountFingerprint);
+  }
+
+  saveZhihuiTmsSession(accountFingerprint: string, apiToken: string): void {
+    this.setup.saveZhihuiTmsSession(accountFingerprint, apiToken);
+  }
+
+  clearZhihuiTmsSession(accountFingerprint?: string): void {
+    this.setup.clearZhihuiTmsSession(accountFingerprint);
+  }
+
   cloudConfiguration(): DesktopCloudConfiguration {
     return this.cloud.configuration();
   }

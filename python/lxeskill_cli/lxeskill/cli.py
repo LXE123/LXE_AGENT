@@ -88,6 +88,11 @@ def _resolve_entry(argv: list[str], catalog: dict[str, dict[str, Any]]) -> tuple
 def _coerce(value: str, schema: dict[str, Any]) -> Any:
     kind = schema.get("type")
     kinds = list(kind) if isinstance(kind, list) else [kind]
+    if not kind and isinstance(schema.get("oneOf"), list):
+        variants = [variant for variant in schema["oneOf"] if isinstance(variant, dict)]
+        if variants and all(variant.get("type") == "object" for variant in variants):
+            kind = "object"
+            kinds = [kind]
     if "integer" in kinds:
         return int(value)
     if "number" in kinds:
@@ -176,6 +181,37 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
     if not isinstance(payload, dict):
         raise LxeSkillError("invalid_arguments", "command input must be a JSON object", exit_code=EXIT_USAGE)
     return dict(payload), str(session_id or os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
+
+
+def _validate_schema_arguments(entry: dict[str, Any], arguments: dict[str, Any]) -> None:
+    """Enforce the closed top-level catalog contract before a business module runs."""
+    schema = dict(entry.get("input_schema") or {})
+    if schema.get("type") != "object":
+        return
+    properties = dict(schema.get("properties") or {})
+    if schema.get("additionalProperties") is False:
+        extras = sorted(set(arguments) - set(properties))
+        if extras:
+            raise LxeSkillError(
+                "invalid_arguments",
+                f"unexpected arguments: {', '.join(extras)}",
+                exit_code=EXIT_USAGE,
+            )
+    for name, value in arguments.items():
+        field_schema = dict(properties.get(name) or {})
+        if "const" in field_schema and value != field_schema["const"]:
+            raise LxeSkillError(
+                "invalid_arguments",
+                f"{name} must be {field_schema['const']!r}",
+                exit_code=EXIT_USAGE,
+            )
+        allowed = field_schema.get("enum")
+        if isinstance(allowed, list) and value not in allowed:
+            raise LxeSkillError(
+                "invalid_arguments",
+                f"{name} must be one of: {', '.join(repr(item) for item in allowed)}",
+                exit_code=EXIT_USAGE,
+            )
 
 
 def _is_missing(value: Any) -> bool:
@@ -361,6 +397,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     command = _command_text(entry)
     _require_in_scope(entry)
     arguments, session_id = _input_arguments(entry, argv)
+    _validate_schema_arguments(entry, arguments)
     asset_sources = _apply_stored_assets(entry, arguments)
     _require_uploaded_file_inputs(entry, arguments)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:

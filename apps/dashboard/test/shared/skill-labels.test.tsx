@@ -16,6 +16,13 @@ const skill: SkillPayload = {
 };
 
 describe("official skill labels", () => {
+  test("uses unique JSON keys instead of duplicate compatibility labels", () => {
+    const raw = readFileSync(new URL("../../../../config/skill-labels.json", import.meta.url), "utf8");
+    const keys = [...raw.matchAll(/^\s*"([^"]+)"\s*:/gm)].map((match) => match[1]);
+    expect(keys.length).toBeGreaterThan(0);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   test("covers all current owned skills while permitting historical entries", () => {
     const checkedLabels = JSON.parse(readFileSync(new URL("../../../../config/skill-labels.json", import.meta.url), "utf8"));
     const types = new Set(["amazon_fba", "replenishment", "amazon_operations", "ziniao_browser"]);

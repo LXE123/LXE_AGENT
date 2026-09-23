@@ -524,6 +524,31 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
+  test("exec exposes flushed business JSONL progress before the terminal result", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    try {
+      const command = evalCommand(
+        "console.log(JSON.stringify({protocol_version:'1',type:'progress',stage:'login_started'}));" +
+        "setTimeout(() => console.log(JSON.stringify({protocol_version:'1',type:'result',ok:true})), 800)",
+      );
+      const started = await registry.execute("exec", { command, "yield-time-ms": 300 }, context());
+      const startedText = String(started.content[0]?.text);
+      expect(startedText).toContain("status: running");
+      expect(startedText).toContain("stage: login_started");
+      expect(startedText).not.toContain("type: result");
+      const execId = startedText.match(/^exec_id: (exec_[a-z0-9]+)/mu)?.[1];
+      if (!execId) throw new Error(`missing exec id in: ${startedText}`);
+
+      const finished = String((await registry.execute("wait", { exec_id: execId }, context())).content[0]?.text);
+      expect(finished).toContain("status: completed");
+      expect(finished).toContain("type: result");
+      expect(finished).not.toContain("stage: login_started");
+    } finally {
+      await processes.stop();
+    }
+  });
+
   test("token-budget omission is recovered on disk without replaying the wait cursor", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
@@ -784,10 +809,15 @@ describe("native coding tools", () => {
   test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
-    const receivedSkillNames: Array<readonly string[]> = [];
+    const received: Array<{ skillNames: readonly string[] }> = [];
     const processes = registerCodingTools(registry, {
+      businessCommands: new Map([["lxeskill list", []]]),
+      businessCommandCatalog: [{
+        command: "lxeskill list",
+        ownerSkills: [],
+      }],
       execEnv: ({ skillNames }) => {
-        receivedSkillNames.push(skillNames);
+        received.push({ skillNames });
         return { LXESKILL_SKILL_SCOPE: skillNames.join(",") };
       },
     });
@@ -797,7 +827,9 @@ describe("native coding tools", () => {
     expect(listed).toContain("replenish store resolve");
     expect(listed).not.toContain("fba customs fill");
     expect(listed).toContain("auth refresh");
-    expect(receivedSkillNames).toEqual([["replenishment-store-resolve"]]);
+    expect(received).toEqual([{
+      skillNames: ["replenishment-store-resolve"],
+    }]);
     await processes.stop();
   });
 
@@ -1271,6 +1303,31 @@ describe("native coding tools", () => {
     const found = await registry.execute("tool_search", { query: "stock sku" }, context(root));
     expect(JSON.parse(String(found.content[0]?.text)).tools).toEqual([expect.objectContaining({ name: "inventory_lookup" })]);
   });
+});
+
+test("catalog confirmation gates an execute command before a process can start", async () => {
+  const registry = new ToolRegistry();
+  const confirmations: unknown[] = [];
+  const processes = registerCodingTools(registry, {
+    businessCommands: new Map([["lxeskill tms philippines products-export execute", ["zhihui-tms-product-export"]]]),
+    businessCommandCatalog: [{
+      command: "lxeskill tms philippines products-export execute",
+      ownerSkills: ["zhihui-tms-product-export"],
+      confirmation: { header: "确认执行", question: "将导出文件，是否继续？", confirmLabel: "确认执行导出", cancelLabel: "取消" },
+    }],
+    confirmLxeSkillCommand: async input => { confirmations.push(input); return false; },
+  });
+  try {
+    const result = await registry.execute("exec", {
+      command: "lxeskill tms philippines products-export execute --platform zhihui_tms",
+    }, { ...context(projectRoot), platform: "desktop" });
+    expect(JSON.parse(String(result.content[0]?.text))).toEqual({
+      status: "cancelled", command: "lxeskill tms philippines products-export execute",
+    });
+    expect(confirmations).toEqual([expect.objectContaining({
+      commandId: "tms philippines products-export execute", sessionId: "s1", turnId: "turn-1", toolCallId: "tool-exec-1",
+    })]);
+  } finally { await processes.stop(); }
 });
 
 

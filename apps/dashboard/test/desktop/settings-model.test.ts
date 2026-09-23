@@ -66,12 +66,37 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
     account: "seller",
     password_configured: false,
   },
+  yacang: {
+    managed: true,
+    configured: true,
+    issues: [],
+    mobile: "yacang-user",
+    password_configured: true,
+  },
+  zhihui_tms: {
+    managed: false,
+    configured: false,
+    issues: [],
+    account: "",
+    password_configured: false,
+    production_enabled: false,
+  },
   feishu: {
     managed: true,
     configured: true,
     issues: [],
     app_id: "cli_test",
     app_secret_configured: true,
+  },
+  shangman: {
+    managed: false,
+    configured: false,
+    issues: [],
+    tenant_id: "",
+    username: "",
+    password_configured: false,
+    basic_auth_configured: false,
+    production_enabled: false,
   },
   logging: {
     profile: "standard",
@@ -127,6 +152,9 @@ describe("desktop settings navigation model", () => {
     expect(form.workspaceRoot).toBe("/workspace");
     expect(form.localApiKey).toBe("");
     expect(form.mabangPassword).toBe("");
+    expect(form.yacangPassword).toBe("");
+    expect(form.zhihuiTmsPassword).toBe("");
+    expect(form.zhihuiTmsProductionEnabled).toBe(false);
     expect(form.feishuAppSecret).toBe("");
   });
 
@@ -136,6 +164,8 @@ describe("desktop settings navigation model", () => {
     expect(desktopSettingsSectionStatus(text, "base", setup)).toBe(text.sectionStatus.complete);
     expect(desktopSettingsSectionStatus(text, "ziniao", setup)).toBe(text.sectionStatus.optional);
     expect(desktopSettingsSectionStatus(text, "mabang", setup)).toBe(text.sectionStatus.incomplete);
+    expect(desktopSettingsSectionStatus(text, "yacang", setup)).toBe(text.sectionStatus.configured);
+    expect(desktopSettingsSectionStatus(text, "zhihui_tms", setup)).toBe(text.sectionStatus.optional);
     expect(desktopSettingsSectionStatus(text, "feishu", setup)).toBe(text.sectionStatus.configured);
     expect(desktopSettingsSectionStatus(text, "logging", setup)).toBe(text.logProfiles.standard);
   });
@@ -148,6 +178,7 @@ describe("desktop settings navigation model", () => {
     expect(desktopSettingsSectionIsDirty("appearance", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("base", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("mabang", form, baseline)).toBe(true);
+    expect(desktopSettingsSectionIsDirty("yacang", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("feishu", form, baseline)).toBe(false);
   });
 

@@ -1,0 +1,8 @@
+{
+  "code": "AUTH_FAILED",
+  "msg": "账号授权失败，请联系管理员",
+  "data": {
+    "apiToken": "fixture-token-echo",
+    "password": "fixture-password"
+  }
+}

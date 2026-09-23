@@ -4,19 +4,19 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 32 top-level workflow and default runtime skills:
+The repository currently contains 33 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
-| `replenishment` | 12 | Amazon replenishment workflows and Southeast Asia data preparation with Shangman ERP |
+| `amazon_replenish` | 13 | inventory snapshots, sales analysis, parameters, replenishment calculation, Yacang exports, Shangman Indonesia goods export, Brazil overseas source exports, and Zhihui TMS product export |
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
 | `default` | 3 | general connector, workbook and custom Skill creation capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
 bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
-discovery sees 59 repository manifests in total.
+discovery sees 60 repository manifests in total.
 
 ## Amazon FBA
 
@@ -40,6 +40,7 @@ Start with `fba-workflow-map` for routing. The individual skills own exact input
 ## Amazon Replenishment
 
 - `replenishment-workflow-map`
+- `replenishment-brazil-overseas-export`
 - `replenishment-store-resolve`
 - `replenishment-msku-download`
 - `replenishment-unlinked-shipment-download`
@@ -49,19 +50,9 @@ Start with `fba-workflow-map` for routing. The individual skills own exact input
 - `replenishment-algorithm-config-manage`
 - `replenishment-calculate`
 
+`yacang-export-workflow-map`, `shangman-goods-export-workflow-map`, and `zhihui-tms-product-export` also use the `amazon_replenish` permission type.
+
 Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare explicit artifacts; calculation consumes those artifacts and the selected algorithm configuration.
-
-## 东南亚备货
-
-- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP 原始数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
-- 上马 ERP 是当前数据来源；商品导出负责采集，登录负责认证。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
-- Amazon 与东南亚拥有各自流程入口，当前共同使用 `replenishment` 权限域，没有新增权限类型。
-
-- `shangman-login`（`replenishment` 权限）：通过真实验证码登录上马 ERP，保存本地登录态，并支持状态查询与清除。由普通 Agent Loop 使用 `exec`、`read` 和已有问答工具编排，不执行商品导出。
-- 在桌面“上马”设置填写 ID、账号和密码。密码加密保存；Token 按马帮方式保存在应用状态目录，过期或凭据变更后重新登录。
-- `status` 只检查本地状态，`clear` 只清除本地状态；两者都不代表平台在线验证或远程注销。
-- `shangman-goods-export`（`replenishment` 权限）：调用 `lxeskill shangman export run`，复用现有登录态下载一份上马 ERP 当前配置账号可见的商品全量原始 XLSX；没有登录态时先完成登录再继续。库存和销量共用同一份原始商品报表，不新增筛选、历史数据或补货计算。
-- 成功结果只交付校验后的原始文件；失败保留实际脱敏诊断，不自动重复提交导出。文件保存在注册的 `shangman/indonesia` 产物目录下，每次执行独立子目录。
 
 ## Amazon Operations
 
@@ -80,6 +71,17 @@ LXE formally maintains these modules' command and failure contracts. Their resul
 
 - `ziniao-browser`: controlled store lifecycle, snapshots, navigation, and page interaction.
 
+## Yacang Operations
+
+- `yacang-export-workflow-map` is the only Agent-discoverable Yacang Skill. Its unified command plans three canonical types: `inventory-sales`, `inventory-current-snapshot`, and `inbound-listing-time`.
+- `inventory-sales` publishes one complete inventory-sales XLSX artifact. The source workbook retains all 16 original columns: SKU, product name, warehouse, cumulative 3/7/15/30/60/90-day sales, stock, occupied, in transit, frozen, available, stockout quantity, and creation date. One warehouse keeps the validated source workbook byte-for-byte; multiple warehouses merge complete rows into one sheet in fixed warehouse order. The source has no daily sales detail.
+- Current inventory remains a per-warehouse snapshot; historical snapshot dates are unsupported because the remote endpoint has no date parameter. Inbound/listing time remains one global warehouse-product export.
+- Legacy type-level `sales-monthly`, `sales-90d`, `inventory-month-end`, and inventory-sales commands remain internal compatibility entries, not additional Agent-discoverable natural-language Skills or separate formal sales projections.
+
+## Zhihui TMS
+
+- `zhihui-tms-product-export` owns the Philippines product-export preview and confirmed execution through `lxeskill tms philippines products-export`. Production execution needs the explicitly enabled Desktop integration and valid credentials; preview does not contact the remote service.
+
 ## Runtime Visibility
 
 The visible catalog for one turn can be smaller than this page because runtime applies:
@@ -96,8 +98,8 @@ Dashboard skill APIs and the runtime prompt must use the same filtered catalog. 
 ### UI 中文名
 
 `config/skill-labels.json` 是本地与服务器前端共用的官方中文名源，首次覆盖本页的
-FBA、备货、亚马逊运营和紫鸟 26 个技能。只用于 UI 展示，不参与 AI 提示词、命令或权限判断。
-中文界面按英文 `name` 查名称；英文界面及未知技能保留原名。当前备货名称区分 Amazon 流程与东南亚流程，上马登录和商品导出服务于东南亚数据采集。
+FBA、备货、亚马逊运营、紫鸟、雅仓和智汇 28 个技能。只用于 UI 展示，不参与 AI 提示词、命令或权限判断。
+中文界面按英文 `name` 查名称；英文界面及未知技能保留原名。
 
 新增上述类型的技能时追加中文名，删除技能时保留映射，让历史统计继续可读。
 同一 `name` 始终代表同一技能；业务含义改变时使用新标识。更新中文名称会统一影响

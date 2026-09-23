@@ -6,6 +6,13 @@ export interface ArtifactPathDeclaration {
   role: "deliverable" | "model_input" | "diagnostic";
 }
 
+export interface LxeSkillCommandConfirmation {
+  header: string;
+  question: string;
+  confirmLabel: string;
+  cancelLabel: string;
+}
+
 export interface LxeSkillCommandDefinition {
   command: string;
   name: string;
@@ -14,6 +21,7 @@ export interface LxeSkillCommandDefinition {
   ownerSkills: string[];
   attributionSkill?: string;
   artifactPaths?: ArtifactPathDeclaration[];
+  confirmation?: LxeSkillCommandConfirmation;
 }
 
 interface LxeSkillCatalogEntry {
@@ -84,6 +92,19 @@ const artifactPathsOf = (
   });
 };
 
+const confirmationOf = (raw: Record<string, unknown>, entryName: string): LxeSkillCommandConfirmation | undefined => {
+  if (raw.confirmation === undefined) return undefined;
+  const source = raw.confirmation;
+  if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error(`invalid confirmation declaration: ${entryName}`);
+  const value = source as Record<string, unknown>;
+  const header = String(value.header ?? "").trim();
+  const question = String(value.question ?? "").trim();
+  const confirmLabel = String(value.confirm_label ?? "").trim();
+  const cancelLabel = String(value.cancel_label ?? "").trim();
+  if (!header || !question || !confirmLabel || !cancelLabel) throw new Error(`invalid confirmation declaration: ${entryName}`);
+  return { header, question, confirmLabel, cancelLabel };
+};
+
 export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinition[] {
   const document = JSON.parse(readFileSync(path, "utf8")) as LxeSkillCatalogDocument;
   if (document.protocol_version !== "1" || !Array.isArray(document.entries)) {
@@ -99,6 +120,10 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
       throw new Error(`invalid lxeskill catalog entry: ${entry.name}`);
     }
     const artifactPaths = artifactPathsOf(raw, entry.name);
+    const confirmation = confirmationOf(raw, entry.name);
+    if (raw.runtime_requirements !== undefined) {
+      throw new Error(`unsupported runtime requirement: ${entry.name}`);
+    }
     const ownerSkills = Array.isArray(raw.owner_skills)
       ? raw.owner_skills.map((item) => String(item).trim()).filter(Boolean)
       : [];
@@ -118,6 +143,7 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
       ownerSkills,
       ...(attributionSkill ? { attributionSkill } : {}),
       ...(artifactPaths.length ? { artifactPaths } : {}),
+      ...(confirmation ? { confirmation } : {}),
     };
   });
 }
@@ -127,6 +153,7 @@ export interface LxeSkillInvocation {
   commandId: string;
   ownerSkills?: string[];
   attributionSkill?: string;
+  confirmation?: LxeSkillCommandConfirmation;
 }
 
 const normalize = (value: string): string => value.trim().replaceAll(/\s+/gu, " ");

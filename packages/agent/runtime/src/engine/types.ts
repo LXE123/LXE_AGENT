@@ -160,6 +160,14 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
   model?: string;
   status: string;
   elapsed_ms: number;
+  /** First Skill document activated in this turn; empty if none. */
+  first_selected_skill?: string;
+  /** Activated Skill documents outside the set used by an executed business command. */
+  wrong_skill_reads?: number;
+  time_to_exec_ms?: number | null;
+  tool_result_size_bytes?: number;
+  time_to_file_delivery_ms?: number | null;
+  total_turn_ms?: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens?: number;

@@ -71,6 +71,7 @@ describe("DesktopConfigValidation", () => {
       "缺少浏览器驱动安装目录",
     ]);
     expect(validation.mabangIssues(config.integrations.mabang, secrets)).toEqual(["缺少账号", "缺少密码"]);
+    expect(validation.yacangIssues(config.integrations.yacang, secrets)).toEqual(["缺少账号", "缺少密码"]);
     expect(validation.feishuIssues(config.integrations.feishu, secrets)).toEqual(["缺少 App ID", "缺少 App Secret"]);
     expect(validation.validateWorkspaceRoot(workspace)).toBe(realpathSync.native(workspace));
     expect(validation.workspaceAvailable(workspace)).toBeTrue();

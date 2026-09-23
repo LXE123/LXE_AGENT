@@ -4,4 +4,5 @@ export type {
   CodingToolOptions,
   LxeSkillRecoveryCommand,
   ProcessStatus,
+  ToolProgressEvent,
 } from "./coding/public-types";

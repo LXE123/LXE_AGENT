@@ -15,29 +15,113 @@ afterEach(() => {
 });
 
 describe("skill context", () => {
-  test("loads Amazon and Southeast Asia replenishment skills under the existing permission outside the source checkout", () => {
+  test("discovers all four platform entries with main replenishment permissions", () => {
+    const source = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(source, join(source, "missing-user"), { sharedSkillsRoot: false });
+    const snapshot = catalog.snapshot({
+      allowedTypes: new Set(["replenishment", "amazon_operations"]),
+    });
+
+    for (const name of [
+      "yacang-export-workflow-map",
+      "zhihui-tms-product-export",
+      "replenishment-workflow-map",
+      "shangman-goods-export-workflow-map",
+    ]) {
+      expect(snapshot.names).toContain(name);
+      expect(snapshot.prompt).toContain(name);
+      expect(snapshot.modules[name]).toBe("replenishment");
+    }
+  });
+
+  test("does not reinterpret a live legacy amazon_replenish grant as replenishment", () => {
+    const source = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(source, join(source, "missing-user"), { sharedSkillsRoot: false });
+    const snapshot = catalog.snapshot({
+      allowedTypes: new Set(["amazon_replenish", "amazon_operations"]),
+    });
+
+    for (const name of [
+      "yacang-export-workflow-map",
+      "zhihui-tms-product-export",
+      "replenishment-workflow-map",
+      "shangman-goods-export-workflow-map",
+    ]) {
+      expect(snapshot.names).not.toContain(name);
+    }
+  });
+
+  test("discovers the Shangman export skill under its production permission type", () => {
+    const source = repositoryRoot(import.meta.dir);
+    const skills = new SkillCatalog(source, join(source, "missing-user"), { sharedSkillsRoot: false }).list();
+    const skill = skills.find((entry) => entry.name === "shangman-goods-export-workflow-map");
+    expect(skill).toBeDefined();
+    expect(skill?.type).toBe("replenishment");
+    expect(skill?.commands).toEqual([
+      "lxeskill shangman export preview",
+      "lxeskill shangman export run",
+    ]);
+    const description = skill?.description ?? "";
+    for (const phrase of [
+      "上马印尼",
+      "库存",
+      "销量",
+      "入库时间",
+      "上架时间",
+      "月末快照",
+      "7/14/30/90 天销量",
+      "90 天日度销量",
+      "最近一个月销量",
+    ]) {
+      expect(description).toContain(phrase);
+    }
+    expect(description).toContain("一次 goods_export");
+    expect(description).toContain("一个原始 XLSX");
+  });
+
+  test("discovers the Yacang skill only with the replenishment permission type", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-yacang-skill-permission-"));
+    roots.push(root);
+    const source = join(repositoryRoot(import.meta.dir), "skills", "yacang-export-workflow-map");
+    cpSync(source, join(root, "skills", "yacang-export-workflow-map"), { recursive: true });
+    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
+
+    expect(catalog.snapshot({ allowedTypes: new Set(["replenishment"]) }).names)
+      .toEqual(["yacang-export-workflow-map"]);
+    expect(catalog.snapshot({ allowedTypes: new Set(["default"]) }).names).toEqual([]);
+    expect(catalog.snapshot({ allowedTypes: new Set() }).names).toEqual([]);
+  });
+
+  test("loads the bundled replenishment skills and their local references outside the source checkout", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-replenishment-skills-"));
     roots.push(root);
     const source = join(repositoryRoot(import.meta.dir), "skills");
-    const names = readdirSync(source).filter((name) => name.startsWith("replenishment-")
-      || name.startsWith("shangman-") || name === "southeast-asia-replenishment-workflow-map");
-    expect(names).toHaveLength(12);
+    const names = readdirSync(source).filter((name) => name.startsWith("replenishment-"));
+    expect(names).toHaveLength(9);
     for (const name of names) cpSync(join(source, name), join(root, "skills", name), { recursive: true });
-    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
-    const skills = catalog.list({ allowedTypes: new Set(["replenishment"]) });
-    expect(skills).toHaveLength(12);
-    expect(skills.every(skill => skill.type === "replenishment")).toBe(true);
-    expect(catalog.list({ allowedTypes: new Set(["amazon_replenish"]) })).toHaveLength(0);
-    expect(catalog.list({ allowedTypes: new Set() })).toHaveLength(0);
+    const skills = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false }).list();
+    expect(skills).toHaveLength(9);
     const references = skills.flatMap((skill) => skill.references.map((reference) => {
       expect(readFileSync(join(skill.root, reference.path), "utf8").length).toBeGreaterThan(100);
       return reference;
     }));
     expect(references).toHaveLength(5);
-    expect(skills.find((skill) => skill.name === "replenishment-workflow-map")?.commands).toEqual([]);
-    expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
-    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.commands).toEqual(["lxeskill shangman export run"]);
-    expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
+    expect(skills.find((skill) => skill.name === "replenishment-workflow-map")?.commands)
+      .toEqual(["lxeskill replenish brazil-overseas export"]);
+  });
+
+  test("keeps Brazil Overseas aliases and entry phrases visible for skill selection", () => {
+    const source = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(source, join(source, "missing-user"), { sharedSkillsRoot: false });
+    const skill = catalog.get("replenishment-workflow-map");
+    const description = skill?.description ?? "";
+
+    expect(description).toContain("巴西海外仓");
+    expect(description).toContain("马帮巴西海外仓");
+    expect(description).toContain("不需要额外补充“马帮”");
+    for (const phrase of ["查巴西海外仓库存", "导出巴西海外仓待签收", "巴西海外仓单据"]) {
+      expect(description).toContain(phrase);
+    }
   });
 
   test("indexes allowed skill manifests and points the agent to their source", () => {

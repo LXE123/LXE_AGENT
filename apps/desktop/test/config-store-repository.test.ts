@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,12 +107,12 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       cloud: { switch_in_progress: false },
     });
   });
 
-  test("migrates schema 7 profiles to schema 9 without losing provider preferences", () => {
+  test("migrates schema 7 profiles to the current schema without losing provider preferences", () => {
     const root = createRoot();
     const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
     legacy.schema_version = 7;
@@ -128,7 +128,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "kimi_coding",
         last_local_provider: "kimi_coding",
@@ -137,6 +137,38 @@ describe("DesktopConfigRepository", () => {
           kimi_coding: { model: "k3", thinking_level: "high" },
         },
       },
+    });
+  });
+
+  test("migrates schema 8 settings with an unconfigured Shangman integration", () => {
+    const root = createRoot();
+    const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    legacy.schema_version = 8;
+    delete (legacy.integrations as Record<string, unknown>).shangman;
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config", "settings.json"), JSON.stringify(legacy));
+
+    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(repository.readConfig()).toMatchObject({
+      schema_version: 10,
+      integrations: {
+        shangman: { managed: false, tenant_id: "", username: "", production_enabled: false },
+      },
+    });
+  });
+
+  test("migrates schema 8 settings with an unconfigured Yacang integration", () => {
+    const root = createRoot();
+    const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    legacy.schema_version = 8;
+    delete (legacy.integrations as Record<string, unknown>).yacang;
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config", "settings.json"), JSON.stringify(legacy));
+
+    const repository = new DesktopConfigRepository(root, safeStorage, "win32");
+    expect(repository.readConfig()).toMatchObject({
+      schema_version: 10,
+      integrations: { yacang: { managed: false, mobile: "", production_enabled: false } },
     });
   });
 
@@ -153,8 +185,11 @@ describe("DesktopConfigRepository", () => {
     secrets.managed_llm_credential = managedCredential("provider-secret");
     secrets.ziniao_password = "ziniao-secret";
     secrets.mabang_password = "mabang-secret";
+    secrets.yacang_password = "yacang-secret";
     secrets.feishu_app_secret = "feishu-secret";
-    secrets.data_server_api_key = "device-identity-secret";
+    secrets.data_server_api_key = "upload-secret";
+    secrets.erp_api_key = "erp-secret";
+    secrets.saihu_mcp_api_key = "saihu-mcp-secret";
     repository.commit(config, secrets);
 
     const publicConfig = readFileSync(join(root, "config", "settings.json"), "utf8");
@@ -163,8 +198,11 @@ describe("DesktopConfigRepository", () => {
       "provider-secret",
       "ziniao-secret",
       "mabang-secret",
+      "yacang-secret",
       "feishu-secret",
-      "device-identity-secret",
+      "upload-secret",
+      "erp-secret",
+      "saihu-mcp-secret",
     ]) {
       expect(publicConfig).not.toContain(secret);
       expect(encryptedSecrets).not.toContain(`\"${secret}\"`);
@@ -282,27 +320,3 @@ describe("DesktopConfigRepository", () => {
       .toBe("");
   });
 });
-
-for (const expiresAt of [1, 4_000_000_000]) {
-  test(`discards obsolete business secrets without reenrollment (expiry ${expiresAt})`, () => {
-    const root = createRoot();
-    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
-    const config = cloneConfig();
-    config.cloud.managed = true;
-    config.cloud.device_id = "existing-device";
-    repository.commit(config, cloneSecrets());
-    const path = join(root, "config/secrets.bin");
-    const legacy = { ...cloneSecrets(), data_server_api_key: "device-identity",
-      cloud_business_token: "obsolete-business", cloud_business_erp_token: "obsolete-erp",
-      cloud_business_expires_at: expiresAt, erp_api_key: "obsolete-erp-key", saihu_mcp_api_key: "obsolete-mcp-key" };
-    writeFileSync(path, safeStorage.encryptString(JSON.stringify(legacy)));
-    const current = repository.readSecrets();
-    expect(current.data_server_api_key).toBe("device-identity");
-    expect(JSON.stringify(current)).not.toContain("obsolete-");
-    repository.commit(repository.readConfig(), current);
-    expect(safeStorage.decryptString(readFileSync(path))).not.toContain("cloud_business_");
-    expect(safeStorage.decryptString(readFileSync(path))).not.toContain("obsolete-");
-    expect(repository.readConfig().cloud.device_id).toBe("existing-device");
-    expect(repository.readConfig().schema_version).toBe(9);
-  });
-}

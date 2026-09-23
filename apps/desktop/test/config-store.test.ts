@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,23 +37,157 @@ const legacyPermission = (
     : { "zh-CN": "备货", "en-US": "Replenishment" },
   allowed_skill_types: profile === "fba"
     ? ["amazon_fba", "ziniao_browser", "default"]
-    : ["replenishment", "default"],
+    : ["amazon_replenish", "default"],
   desktop_features: profile === "fba" ? ["erp_dashboard"] : [],
 });
 
 describe("DesktopConfigStore", () => {
-  test("discards obsolete fallback settings while retaining enrollment configuration", () => {
+  test("does not enable Yacang production without a saved account and password", () => {
     const root = createRoot();
-    const configRoot = join(root, "config");
-    mkdirSync(configRoot, { recursive: true });
-    const old = cloneConfig();
-    Object.assign(old.cloud, { local_fallback_enabled: true, local_fallback_url: "http://obsolete.example", device_id: "fixture" });
-    writeFileSync(join(configRoot, "settings.json"), JSON.stringify(old));
-    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
-    expect(store.cloudConfiguration().device_id).toBe("fixture");
-    expect(store.cloudConfiguration()).not.toHaveProperty("local_fallback_enabled");
-    expect(store.environment()).not.toHaveProperty("LXE_DATA_SERVER_FALLBACK_URL");
-    expect(readFileSync(join(configRoot, "settings.json"), "utf8")).not.toContain("local_fallback");
+    const workspaceRoot = join(root, "workspace");
+    const store = new DesktopConfigStore(root, workspaceRoot, safeStorage, { platform: "darwin" });
+
+    expect(() => store.save({
+      workspace_root: workspaceRoot,
+      yacang: { action: "save", mobile: "yacang-user", production_enabled: true },
+    })).toThrow("雅仓账号和密码必须同时填写");
+    expect(store.environment().LXE_YACANG_PROD_ENABLED).toBe("false");
+  });
+
+  test("keeps all four platform configurations after saving one integration and restarting", () => {
+    const root = createRoot();
+    const workspaceRoot = join(root, "workspace");
+    const store = new DesktopConfigStore(root, workspaceRoot, safeStorage, { platform: "darwin" });
+    store.save({
+      workspace_root: workspaceRoot,
+      mabang: { action: "save", account: "pool4-account", password: "pool4-secret" },
+      shangman: {
+        action: "save", tenant_id: "pool2-tenant", username: "pool2-user",
+        processed_password: "pool2-secret", production_enabled: true,
+      },
+      yacang: { action: "save", mobile: "pool3-mobile", password: "pool3-secret", production_enabled: true },
+      zhihui_tms: { action: "save", account: "pool1-account", password: "pool1-secret", production_enabled: true },
+    });
+    store.save({ workspace_root: workspaceRoot, zhihui_tms: { action: "save", account: "pool1-updated", production_enabled: true } });
+
+    const restarted = new DesktopConfigStore(root, workspaceRoot, safeStorage, { platform: "darwin" });
+    expect(restarted.state()).toMatchObject({
+      mabang: { configured: true, account: "pool4-account" },
+      shangman: { configured: true, tenant_id: "pool2-tenant", username: "pool2-user" },
+      yacang: { configured: true, mobile: "pool3-mobile" },
+      zhihui_tms: { configured: true, account: "pool1-updated" },
+    });
+    expect(restarted.environment()).toMatchObject({
+      MABANG_PASSWORD: "pool4-secret",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "pool2-secret",
+      LXE_YACANG_PASSWORD: "pool3-secret",
+      ZHIHUI_TMS_PASSWORD: "pool1-secret",
+    });
+    for (const secret of ["pool4-secret", "pool2-secret", "pool3-secret", "pool1-secret"]) {
+      expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain(secret);
+      expect(JSON.stringify(restarted.state())).not.toContain(secret);
+    }
+
+    const afterClearingYacang = restarted.save({ workspace_root: workspaceRoot, yacang: { action: "clear" } });
+    expect(afterClearingYacang).toMatchObject({
+      yacang: { configured: false, password_configured: false, production_enabled: false },
+      mabang: { configured: true, account: "pool4-account" },
+      shangman: { configured: true, tenant_id: "pool2-tenant" },
+      zhihui_tms: { configured: true, account: "pool1-updated" },
+    });
+    expect(restarted.environment()).toMatchObject({
+      LXE_YACANG_MOBILE: "",
+      LXE_YACANG_PASSWORD: "",
+      LXE_YACANG_PROD_ENABLED: "false",
+      MABANG_PASSWORD: "pool4-secret",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "pool2-secret",
+      ZHIHUI_TMS_PASSWORD: "pool1-secret",
+    });
+  });
+
+  test("stores Zhihui password encrypted and injects production access only when enabled", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const saved = store.save({
+      workspace_root: join(root, "workspace"),
+      zhihui_tms: { action: "save", account: "fixture-tms-account", password: "fixture-tms-secret", production_enabled: false },
+    });
+    expect(saved.zhihui_tms).toMatchObject({ managed: true, configured: false, password_configured: true, production_enabled: false });
+    expect(JSON.stringify(saved)).not.toContain("fixture-tms-secret");
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain("fixture-tms-secret");
+    expect(store.environment()).toMatchObject({
+      ZHIHUI_TMS_ACCOUNT: "",
+      ZHIHUI_TMS_PASSWORD: "",
+      ZHIHUI_TMS_PRODUCTION_ENABLED: "0",
+    });
+    const enabled = store.save({
+      workspace_root: join(root, "workspace"),
+      zhihui_tms: { action: "save", account: "fixture-tms-account", production_enabled: true },
+    });
+    expect(enabled.zhihui_tms).toMatchObject({ configured: true, password_configured: true, production_enabled: true });
+    expect(store.environment()).toMatchObject({
+      ZHIHUI_TMS_ACCOUNT: "fixture-tms-account",
+      ZHIHUI_TMS_PASSWORD: "fixture-tms-secret",
+      ZHIHUI_TMS_PRODUCTION_ENABLED: "1",
+    });
+    const cleared = store.save({ workspace_root: join(root, "workspace"), zhihui_tms: { action: "clear" } });
+    expect(cleared.zhihui_tms).toMatchObject({ configured: false, password_configured: false, production_enabled: false });
+    expect(store.environment().ZHIHUI_TMS_PRODUCTION_ENABLED).toBe("0");
+  });
+
+  test("persists a matching encrypted Zhihui session and clears it when credentials or production access change", () => {
+    const root = createRoot();
+    const workspaceRoot = join(root, "workspace");
+    const fingerprint = createHash("sha256").update("fixture-tms-account", "utf8").digest("hex");
+    const store = new DesktopConfigStore(root, workspaceRoot, safeStorage, { platform: "darwin" });
+    store.save({
+      workspace_root: workspaceRoot,
+      zhihui_tms: {
+        action: "save",
+        account: "fixture-tms-account",
+        password: "fixture-tms-secret",
+        production_enabled: true,
+      },
+    });
+
+    store.saveZhihuiTmsSession(fingerprint, "fixture-api-token");
+    const restarted = new DesktopConfigStore(root, workspaceRoot, safeStorage, { platform: "darwin" });
+    expect(restarted.readZhihuiTmsSession(fingerprint)).toBe("fixture-api-token");
+    expect(restarted.readZhihuiTmsSession("b".repeat(64))).toBeNull();
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain("fixture-api-token");
+    expect(JSON.stringify(restarted.state())).not.toContain("fixture-api-token");
+
+    restarted.save({
+      workspace_root: workspaceRoot,
+      zhihui_tms: { action: "save", account: "fixture-tms-account", production_enabled: true },
+    });
+    expect(restarted.readZhihuiTmsSession(fingerprint)).toBe("fixture-api-token");
+
+    restarted.save({
+      workspace_root: workspaceRoot,
+      zhihui_tms: {
+        action: "save",
+        account: "fixture-tms-account",
+        password: "fixture-new-secret",
+        production_enabled: true,
+      },
+    });
+    expect(restarted.readZhihuiTmsSession(fingerprint)).toBeNull();
+
+    restarted.saveZhihuiTmsSession(fingerprint, "fixture-api-token-2");
+    restarted.save({
+      workspace_root: workspaceRoot,
+      zhihui_tms: { action: "save", account: "fixture-tms-account-2", production_enabled: true },
+    });
+    expect(restarted.readZhihuiTmsSession(fingerprint)).toBeNull();
+
+    const secondFingerprint = createHash("sha256").update("fixture-tms-account-2", "utf8").digest("hex");
+    restarted.saveZhihuiTmsSession(secondFingerprint, "fixture-api-token-3");
+    restarted.save({
+      workspace_root: workspaceRoot,
+      zhihui_tms: { action: "save", account: "fixture-tms-account-2", production_enabled: false },
+    });
+    expect(restarted.readZhihuiTmsSession(secondFingerprint)).toBeNull();
   });
 
   test("keeps every secret encrypted and maps complete integrations and diagnostic logs", () => {
@@ -73,6 +208,12 @@ describe("DesktopConfigStore", () => {
         webdriver_path: join(root, "drivers"),
       },
       mabang: { action: "save", account: "mabang-user", password: "mabang-secret" },
+      yacang: {
+        action: "save",
+        mobile: "yacang-user",
+        password: "yacang-secret",
+        production_enabled: true,
+      },
       feishu: { action: "save", app_id: "cli_1234567890", app_secret: "feishu-secret" },
       logging: { profile: "diagnostic", retention_days: 14 },
     });
@@ -86,12 +227,13 @@ describe("DesktopConfigStore", () => {
       ]),
       ziniao: { configured: true, password_configured: true },
       mabang: { configured: true, password_configured: true },
+      yacang: { configured: true, password_configured: true, production_enabled: true },
       feishu: { configured: true, app_secret_configured: true },
       logging: { profile: "diagnostic", retention_days: 14 },
     });
     expect(state.logging.directory).toBe(join(root, "logs"));
     const serializedState = JSON.stringify(state);
-    for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
+    for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "yacang-secret", "feishu-secret"]) {
       expect(serializedState).not.toContain(secret);
       expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain(secret);
     }
@@ -100,6 +242,9 @@ describe("DesktopConfigStore", () => {
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
+      LXE_YACANG_MOBILE: "yacang-user",
+      LXE_YACANG_PASSWORD: "yacang-secret",
+      LXE_YACANG_PROD_ENABLED: "true",
       LXE_FEISHU_GATEWAY_ENABLED: "1",
       FEISHU_APP_SECRET: "feishu-secret",
       LOCAL_LOGS_ENABLED: "1",
@@ -112,7 +257,7 @@ describe("DesktopConfigStore", () => {
     expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_DIR");
   });
 
-  test("uses source-development integration secrets without accepting model keys from the environment", () => {
+  test("uses source-development platform credentials without accepting model or cloud business keys from the environment", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, {
       platform: "darwin",
@@ -120,14 +265,14 @@ describe("DesktopConfigStore", () => {
         KIMI_CODE_API_KEY: "source-model-secret",
         DEEPSEEK_API: "source-deepseek-secret",
         MABANG_PASSWORD: "source-mabang-secret",
+        LXE_YACANG_PASSWORD: "source-yacang-secret",
         FEISHU_APP_SECRET: "source-feishu-secret",
-        LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
+      LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
       },
     });
 
     expect(store.state()).toMatchObject({ complete: false, managed_model_configured: false });
     expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
-    expect(store.environment()).not.toHaveProperty("LXE_SAIHU_MCP_API_KEY");
     expect(store.environment()).not.toHaveProperty("DEEPSEEK_API");
     store.saveLocalModelCredential({ provider: "kimi_coding", api_key: "local-model-secret" });
     expect(store.environment()).toMatchObject({
@@ -138,22 +283,27 @@ describe("DesktopConfigStore", () => {
     expect(store.save({
       workspace_root: join(root, "workspace"),
       mabang: { action: "save", account: "source-account" },
+      yacang: { action: "save", mobile: "source-yacang-account" },
       feishu: { action: "save", app_id: "source-app-id" },
     })).toMatchObject({
       complete: true,
       mabang: { configured: true, password_configured: true },
+      yacang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
     });
     expect(store.environment()).toMatchObject({
       MABANG_PASSWORD: "source-mabang-secret",
+      LXE_YACANG_PASSWORD: "source-yacang-secret",
+      LXE_YACANG_PROD_ENABLED: "false",
       FEISHU_APP_SECRET: "source-feishu-secret",
     });
-    expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
     expect(store.environment()).not.toHaveProperty("LXE_SAIHU_MCP_API_KEY");
+    expect(store.environment()).not.toHaveProperty("KIMI_CODE_API_KEY");
     store.saveRuntimePreference("kimi_coding", "k3", "high");
     const persistedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(readFileSync(join(root, "config", "auth.json"), "utf8")).toContain("local-model-secret");
     expect(persistedSecrets).not.toContain("source-mabang-secret");
+    expect(persistedSecrets).not.toContain("source-yacang-secret");
     expect(persistedSecrets).not.toContain("source-feishu-secret");
     expect(persistedSecrets).not.toContain("source-saihu-secret");
   });
@@ -189,6 +339,99 @@ describe("DesktopConfigStore", () => {
         webdriver_path: join(root, "drivers"),
       },
     })).toThrow("紫鸟配置缺少");
+  });
+
+  test("persists Shangman non-secrets separately and emits only the new runtime contract", () => {
+    const root = createRoot();
+    const processedPassword = "processed-password";
+    const configuredStore = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    const state = configuredStore.save({
+      workspace_root: join(root, "workspace"),
+      shangman: {
+        action: "save",
+        tenant_id: "tenant-1",
+        username: "processed-user",
+        processed_password: processedPassword,
+        production_enabled: true,
+      },
+    });
+
+    expect(state.shangman).toMatchObject({
+      managed: true,
+      configured: true,
+      tenant_id: "tenant-1",
+      username: "processed-user",
+      password_configured: true,
+      production_enabled: true,
+      issues: [],
+    });
+    const settings = readFileSync(join(root, "config", "settings.json"), "utf8");
+    expect(settings).toContain("tenant-1");
+    expect(settings).not.toContain(processedPassword);
+    expect(JSON.stringify(state)).not.toContain(processedPassword);
+    expect(configuredStore.environment()).toMatchObject({
+      LXE_SHANGMAN_TENANT_ID: "tenant-1",
+      LXE_SHANGMAN_USERNAME: "processed-user",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: processedPassword,
+      LXE_SHANGMAN_PROD_ENABLED: "true",
+    });
+    const firstRevision = configuredStore.environment().LXE_SHANGMAN_CONFIG_REVISION;
+    expect(firstRevision).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(configuredStore.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_AUTH");
+    expect(configuredStore.environment()).not.toHaveProperty("LXE_SHANGMAN_PASSWORD");
+    expect(configuredStore.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_USERNAME");
+    expect(configuredStore.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_PASSWORD");
+
+    const patched = configuredStore.save({
+      workspace_root: join(root, "workspace"),
+      shangman: {
+        action: "save",
+        tenant_id: "tenant-2",
+        username: "next-user",
+        password: "next-password",
+      },
+    });
+    expect(patched.shangman.configured).toBeTrue();
+    expect(configuredStore.environment()).toMatchObject({
+      LXE_SHANGMAN_TENANT_ID: "tenant-2",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "next-password",
+    });
+    expect(configuredStore.environment().LXE_SHANGMAN_CONFIG_REVISION).not.toBe(firstRevision);
+
+    const cleared = configuredStore.save({
+      workspace_root: join(root, "workspace"),
+      shangman: { action: "clear" },
+    });
+    expect(cleared.shangman).toMatchObject({ managed: true, configured: false });
+    expect(configuredStore.environment()).toMatchObject({
+      LXE_SHANGMAN_TENANT_ID: "",
+      LXE_SHANGMAN_USERNAME: "",
+      LXE_SHANGMAN_PROCESSED_PASSWORD: "",
+    });
+  });
+
+  test("does not let legacy environment client authorization override persisted Shangman credentials", () => {
+    const root = createRoot();
+    const configuredStore = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    const state = configuredStore.save({
+      workspace_root: join(root, "workspace"),
+      shangman: {
+        action: "save",
+        tenant_id: "tenant-1",
+        username: "user-1",
+        processed_password: "processed-password",
+      },
+    });
+    expect(state.shangman).toMatchObject({ configured: true, issues: [] });
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, {
+      secretEnvironment: {
+        LXE_SHANGMAN_PROCESSED_PASSWORD: "processed-password",
+        LXE_SHANGMAN_BASIC_AUTH: "Bearer token",
+      },
+    });
+
+    expect(store.state().shangman.issues).toEqual([]);
+    expect(store.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_AUTH");
   });
 
   test("retires legacy model credentials and dotenv files before startup", () => {
@@ -382,7 +625,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -390,7 +633,7 @@ describe("DesktopConfigStore", () => {
     });
   });
 
-  test("stores cloud metadata separately from the encrypted device identity", () => {
+  test("stores cloud metadata separately from the encrypted upload token", () => {
     const root = createRoot();
     const opaqueStorage = {
       isEncryptionAvailable: () => true,
@@ -406,6 +649,7 @@ describe("DesktopConfigStore", () => {
       dataServerUrl: "http://10.88.0.1:8000",
       tunnelName: "lxe-agent",
       apiKey: "lxe_client_0123456789abcdef0123456789abcdef.secret-value",
+      erpApiKey: "erp-dedicated-secret",
       wireGuard: {
         tunnel_name: "lxe-agent",
         private_key: wireGuardPrivateKey,
@@ -435,6 +679,9 @@ describe("DesktopConfigStore", () => {
       LXE_DATA_SERVER_ENABLED: "1",
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
     });
+    for (const name of ["LXE_DATA_SERVER_API_KEY", "LXE_ERP_API_KEY", "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED"]) {
+      expect(store.environment()).not.toHaveProperty(name);
+    }
 
     store.saveCloudPermissionSnapshot({
       device_id: "0123456789abcdef0123456789abcdef",
@@ -476,6 +723,7 @@ describe("DesktopConfigStore", () => {
       dataServerUrl: "http://10.88.0.1:8000",
       tunnelName: "lxe-agent",
       apiKey: "old-data-token",
+      erpApiKey: "old-erp-token",
     });
     store.saveCloudPermissionSnapshot({
       device_id: "0123456789abcdef0123456789abcdef",
@@ -500,6 +748,8 @@ describe("DesktopConfigStore", () => {
       LXE_DATA_SERVER_ENABLED: "0",
       LXE_MANAGED_LLM_API_KEY: "",
     });
+    expect(store.environment()).not.toHaveProperty("LXE_DATA_SERVER_API_KEY");
+    expect(store.environment()).not.toHaveProperty("LXE_ERP_API_KEY");
     expect(store.state()).toMatchObject({ complete: false, managed_model_configured: false });
 
     expect(store.abortCloudEnrollmentSwitch()).toMatchObject({
@@ -508,8 +758,11 @@ describe("DesktopConfigStore", () => {
     });
     expect(store.environment()).toMatchObject({
       LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
       LXE_MANAGED_LLM_API_KEY: "old-managed-model-token",
     });
+    expect(store.environment()).not.toHaveProperty("LXE_DATA_SERVER_API_KEY");
+    expect(store.environment()).not.toHaveProperty("LXE_ERP_API_KEY");
     expect(store.cloudPermissionSnapshot()).toMatchObject({ permission_profile: "fba" });
 
     store.beginCloudEnrollmentSwitch();
@@ -520,6 +773,7 @@ describe("DesktopConfigStore", () => {
       dataServerUrl: "http://10.88.0.2:8000",
       tunnelName: "lxe-agent",
       apiKey: "new-data-token",
+      erpApiKey: "new-erp-token",
     })).toMatchObject({
       device_name: "New device",
       switch_in_progress: false,
@@ -567,6 +821,8 @@ describe("DesktopConfigStore", () => {
       LXE_DATA_SERVER_ENABLED: "0",
       LXE_MANAGED_LLM_API_KEY: "",
     });
+    expect(store.environment()).not.toHaveProperty("LXE_DATA_SERVER_API_KEY");
+    expect(store.environment()).not.toHaveProperty("LXE_ERP_API_KEY");
     encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     expect(encryptedSecrets).not.toContain("new-data-token");
     expect(encryptedSecrets).not.toContain("new-erp-token");
@@ -807,93 +1063,4 @@ describe("DesktopConfigStore", () => {
       ]),
     });
   });
-});
-
-test("Shangman saves encrypted credentials, preserves revisions and invalidates changed configuration", () => {
-  const root = createRoot();
-  const workspace = join(root, "workspace");
-  const store = new DesktopConfigStore(root, workspace, safeStorage);
-  expect(store.state().shangman).not.toHaveProperty("production_enabled");
-  const input = { workspace_root: workspace, shangman: { action: "save" as const, tenant_id: "tenant", username: "user", password: "shangman-password" } };
-  const state = store.save(input);
-  expect(state.shangman).toMatchObject({ configured: true, password_configured: true });
-  expect(JSON.stringify(state)).not.toContain("shangman-password");
-  expect(JSON.stringify(state)).not.toContain("shangman-secret");
-  const settings = readFileSync(join(root, "config", "settings.json"), "utf8");
-  expect(settings).not.toContain("shangman-password");
-  expect(settings).not.toContain("shangman-secret");
-  const env = store.environment();
-  expect(env.LXE_SHANGMAN_PROCESSED_PASSWORD).toBe("shangman-password");
-  expect(env).not.toHaveProperty("LXE_SHANGMAN_BASIC_AUTH");
-  expect(env).not.toHaveProperty("LXE_SHANGMAN_PROD_ENABLED");
-  const revision = env.LXE_SHANGMAN_CONFIG_REVISION;
-  expect(revision).toBeTruthy();
-  store.save({ ...input, shangman: { ...input.shangman, password: "" } });
-  expect(store.environment().LXE_SHANGMAN_CONFIG_REVISION).toBe(revision);
-  const restarted = new DesktopConfigStore(root, workspace, safeStorage);
-  expect(restarted.environment().LXE_SHANGMAN_CONFIG_REVISION).toBe(revision);
-  expect(restarted.environment().LXE_SHANGMAN_PROCESSED_PASSWORD).toBe("shangman-password");
-  restarted.save({ ...input, shangman: { ...input.shangman, password: "new-password" } });
-  expect(restarted.environment().LXE_SHANGMAN_CONFIG_REVISION).not.toBe(revision);
-  expect(() => restarted.save({ ...input, shangman: { ...input.shangman, username: "other", password: "" } })).toThrow("更换账号");
-  const changedRevision = restarted.environment().LXE_SHANGMAN_CONFIG_REVISION;
-  restarted.save({ workspace_root: workspace, shangman: { action: "clear" } });
-  expect(restarted.environment()).not.toHaveProperty("LXE_SHANGMAN_PROD_ENABLED");
-  expect(restarted.environment().LXE_SHANGMAN_PROCESSED_PASSWORD).toBe("");
-  expect(restarted.environment().LXE_SHANGMAN_CONFIG_REVISION).not.toBe(changedRevision);
-  expect(restarted.state().shangman.password_configured).toBe(false);
-});
-
-test("schema 8 migration retains dynamic model profiles and leaves Shangman unconfigured", () => {
-  const root = createRoot();
-  const old = JSON.parse(JSON.stringify(cloneConfig()));
-  old.schema_version = 8;
-  old.llm.profiles.openrouter = { model: "openai/gpt-5", thinking_level: "high" };
-  delete old.integrations.shangman;
-  mkdirSync(join(root, "config"), { recursive: true });
-  writeFileSync(join(root, "config", "settings.json"), JSON.stringify(old));
-  const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
-  expect(store.state().shangman).toMatchObject({ managed: false, configured: false });
-  const migrated = JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"));
-  expect(migrated.schema_version).toBe(9);
-  expect(migrated.llm.profiles.openrouter).toEqual(old.llm.profiles.openrouter);
-});
-
-test("legacy Shangman switch is ignored and removed when settings are saved", () => {
-  const root = createRoot();
-  const workspace = join(root, "workspace");
-  const store = new DesktopConfigStore(root, workspace, safeStorage);
-  store.save({ workspace_root: workspace, shangman: { action: "save", tenant_id: "tenant", username: "user", password: "password" } });
-  const settingsPath = join(root, "config", "settings.json");
-  const legacy = JSON.parse(readFileSync(settingsPath, "utf8"));
-  legacy.integrations.shangman.production_enabled = false;
-  writeFileSync(settingsPath, JSON.stringify(legacy));
-  const restarted = new DesktopConfigStore(root, workspace, safeStorage);
-  expect(restarted.state().shangman.configured).toBe(true);
-  expect(restarted.state().shangman).not.toHaveProperty("production_enabled");
-  expect(restarted.environment().LXE_SHANGMAN_PROCESSED_PASSWORD).toBe("password");
-  restarted.save({ workspace_root: workspace });
-  const saved = JSON.parse(readFileSync(settingsPath, "utf8"));
-  expect(saved.integrations.shangman).not.toHaveProperty("production_enabled");
-  expect(saved.integrations.shangman.revision).toBe(legacy.integrations.shangman.revision);
-});
-
-
-test("retired Shangman Basic credential is dropped without losing the account password", () => {
-  const root = createRoot();
-  const workspace = join(root, "workspace");
-  const store = new DesktopConfigStore(root, workspace, safeStorage);
-  store.save({ workspace_root: workspace, shangman: { action: "save", tenant_id: "tenant", username: "user", password: "kept-password" } });
-  const secretsPath = join(root, "config", "secrets.bin");
-  const legacy = JSON.parse(safeStorage.decryptString(readFileSync(secretsPath)));
-  legacy.shangman_basic_auth = "Basic obsolete-client";
-  writeFileSync(secretsPath, safeStorage.encryptString(JSON.stringify(legacy)));
-  const restarted = new DesktopConfigStore(root, workspace, safeStorage);
-  expect(restarted.state().shangman.configured).toBe(true);
-  expect(restarted.state().shangman).not.toHaveProperty("basic_auth_configured");
-  restarted.save({ workspace_root: workspace });
-  const saved = JSON.parse(safeStorage.decryptString(readFileSync(secretsPath)));
-  expect(saved).not.toHaveProperty("shangman_basic_auth");
-  expect(saved.shangman_processed_password).toBe("kept-password");
-  expect(restarted.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_AUTH");
 });

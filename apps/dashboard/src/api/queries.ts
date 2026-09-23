@@ -49,9 +49,11 @@ export function queryError(error: unknown): string {
 
 export function useUserQuestionsQuery(enabled: boolean, selectedSessionId: string) {
   const query = useQuery({
-    queryKey: dashboardQueryKeys.sessions.questions,
+    queryKey: dashboardQueryKeys.sessions.questionsFor(selectedSessionId),
     queryFn: async ({ signal }) => {
-      const result = await callDashboard({ operation: "sessions.questions", input: {} });
+      const result = await callDashboard({ operation: "sessions.questions", input: selectedSessionId
+        ? { session_id: selectedSessionId }
+        : {} });
       signal.throwIfAborted();
       return result;
     },

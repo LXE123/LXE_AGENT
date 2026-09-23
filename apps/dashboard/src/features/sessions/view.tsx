@@ -50,6 +50,7 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText, splitContentBlocks } from "../../shared/content";
 import {
   hasLiveToolOperationDetails,
+  liveZhihuiProgress,
   readerFacingMessageText,
   roleLabel,
   toolOperationArguments,
@@ -1466,11 +1467,13 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "tool") {
     const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
     if (!operation) return null;
+    const progress = row.liveTool ? liveZhihuiProgress(row.liveTool) : "";
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
     return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
       <button className="tool-op-summary" type="button" aria-expanded={expanded} onClick={() => onToggle(row.id)}>
         <span className="tool-op-name">{t.message.toolActions[operation.action]}</span><span className="tool-op-argument">{operation.target}</span>
+        {progress ? <span className="tool-op-progress" role="status">{progress}</span> : null}
         <span className="tool-status-icon" role="img" aria-label={statusLabel} title={statusLabel} data-tool-status={operation.status}>
           <StatusIcon aria-hidden="true" className={operation.status === "running" ? "conversation-spinner" : undefined} size={13} />
         </span>

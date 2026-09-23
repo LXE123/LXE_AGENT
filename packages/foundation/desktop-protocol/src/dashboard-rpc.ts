@@ -1,6 +1,7 @@
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
 import { parseUserQuestionSubmission, type PendingUserQuestion, type SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
 export type { PendingUserQuestion, UserQuestion, UserQuestionAnswer, SubmitUserQuestionAnswer } from "@lxe/protocol/user-questions";
+
 import { validateSessionStatusRequest, type SessionStatusSnapshot } from "@lxe/protocol/session-status";
 export type { TurnProcessPart } from "@lxe/protocol";
 
@@ -471,7 +472,7 @@ export type StatsOverviewPayload = {
 export type DashboardRpcEmptyInput = Record<string, never>;
 
 export interface DashboardRpcSpec {
-  "sessions.questions": { input: DashboardRpcEmptyInput; result: { items: PendingUserQuestion[] } };
+  "sessions.questions": { input: { session_id?: string }; result: { items: PendingUserQuestion[] } };
   "sessions.answer": { input: SubmitUserQuestionAnswer; result: { accepted: true; request_id: string } };
   "sessions.list": {
     input: { query?: string; limit?: number; offset?: number };
@@ -694,8 +695,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
   switch (operation) {
     case "sessions.questions":
-      exactKeys(input, [], `${operation}.input`);
-      return { operation, input: {} };
+      exactKeys(input, ["session_id"], `${operation}.input`);
+      return { operation, input: input.session_id === undefined
+        ? {}
+        : { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.answer":
       exactKeys(input, ["session_id", "request_id", "answers"], `${operation}.input`);
       try { return { operation, input: parseUserQuestionSubmission(input) }; }

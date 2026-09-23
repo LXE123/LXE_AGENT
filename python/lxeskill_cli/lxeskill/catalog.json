@@ -1,11 +1,10 @@
 {
   "protocol_version": "1",
   "entries": [
-    {"name": "shangman_goods_export", "command_path": ["shangman", "export", "run"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.goods_export", "owner_skills": ["shangman-goods-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}]},
-    {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}]},
-    {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}},
-    {"name": "shangman_login_status", "command_path": ["shangman", "login", "status"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_status", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
-    {"name": "shangman_login_clear", "command_path": ["shangman", "login", "clear"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_clear", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
+    {"name":"shangman_login_prepare","command_path":["shangman","login","prepare"],"visibility":"business","session_mode":"none","module":"services.agent_cli.shangman.login_prepare","owner_skills":["shangman-login"],"timeout_ms":60000,"exposed":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false},"artifact_paths":[{"field":"image_path","role":"model_input"}]},
+    {"name":"shangman_login_submit","command_path":["shangman","login","submit"],"visibility":"business","session_mode":"none","module":"services.agent_cli.shangman.login_submit","owner_skills":["shangman-login"],"timeout_ms":60000,"exposed":true,"input_schema":{"type":"object","properties":{"challenge_id":{"type":"string","minLength":1},"captcha_code":{"type":"string","minLength":1,"maxLength":128}},"additionalProperties":false,"required":["challenge_id","captcha_code"]}},
+    {"name":"shangman_login_status","command_path":["shangman","login","status"],"visibility":"business","session_mode":"none","module":"services.agent_cli.shangman.login_status","owner_skills":["shangman-login"],"timeout_ms":60000,"exposed":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false}},
+    {"name":"shangman_login_clear","command_path":["shangman","login","clear"],"visibility":"business","session_mode":"none","module":"services.agent_cli.shangman.login_clear","owner_skills":["shangman-login"],"timeout_ms":60000,"exposed":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false}},
     {
       "name": "ziniao_browser",
       "command_path": ["browser", "store"],
@@ -358,6 +357,14 @@
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
     },
     {
+      "name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export",
+      "command_path": ["replenish", "brazil-overseas", "export"],
+      "legacy_aliases": ["mabang_brazil_overseas_export"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-workflow-map"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["brazil_overseas"], "description": "模型解析后的仓库参数，必须是巴西海外仓。"}, "export_kind": {"type": "string", "enum": ["inventory_sales_snapshot", "allocation_both", "allocation_signed_before_3m", "allocation_pending_default_3m"], "description": "模型解析后的导出类型：inventory_sales_snapshot=库存/库存列表/库存动销/销量原始快照；allocation_both=Brazil Overseas 上下文明确时，单据/调拨单据，一次返回三个月内待签收和三个月前已签收两个文件；allocation_pending_default_3m=待签、未签、待签收、未签收、还没签收、尚未签收的三个月内待签收调拨单；allocation_signed_before_3m=已签、已签收、已经签收、签收完成的三个月前已签收调拨单。"}}, "required": ["warehouse", "export_kind"], "additionalProperties": false}
+    },
+    {
       "name": "mabang_analyze_store_msku_sales", "module": "services.agent_cli.mabang.analyze_store_msku_sales",
       "command_path": ["replenish", "sales", "analyze"],
       "legacy_aliases": ["mabang_analyze_store_msku_sales"],
@@ -383,6 +390,107 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "shangman_goods_export_preview", "module": "services.agent_cli.shangman.goods_export_preview",
+      "command_path": ["shangman", "export", "preview"],
+      "legacy_aliases": ["shangman_goods_export_preview"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["shangman-goods-export-workflow-map"],
+      "timeout_ms": 30000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"params": {"type": "object", "properties": {"platform": {"const": "上马印尼"}, "country": {"const": "印尼"}, "operation": {"const": "goods_export"}}, "required": ["platform", "country", "operation"], "additionalProperties": false}}, "required": ["params"], "additionalProperties": false}
+    },
+    {
+      "name": "shangman_goods_export_run", "module": "services.agent_cli.shangman.goods_export_run",
+      "command_path": ["shangman", "export", "run"],
+      "legacy_aliases": ["shangman_goods_export_run"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["shangman-goods-export-workflow-map"],
+      "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}],
+      "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"params": {"type": "object", "properties": {"platform": {"const": "上马印尼"}, "country": {"const": "印尼"}, "operation": {"const": "goods_export"}}, "required": ["platform", "country", "operation"], "additionalProperties": false}}, "required": ["params"], "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_workflow", "module": "services.agent_cli.yacang.export_workflow",
+      "command_path": ["yacang", "export", "run"],
+      "legacy_aliases": ["yacang_export_workflow"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["yacang-export-workflow-map"], "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 7200000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"data_type_intent": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "values": {"type": "array", "minItems": 1, "uniqueItems": true, "description": "resolved 时必须使用 values 数组，即使只选一种数据类型也不得改用单数 value；用户同时要求库存和销量时必须同时传 inventory-sales 与 inventory-current-snapshot，系统分别产出两类文件，不增加第四种类型。", "items": {"enum": ["inventory-sales", "inventory-current-snapshot", "inbound-listing-time"], "description": "inventory-sales=完整库存动销报表（销量、库存动销，不等于单独当前库存，含 3/7/15/30/60/90 天累计销量、库存、占用、在途、冻结、可用、缺货数量、创建日期共 16 列）；inventory-current-snapshot=当前库存列表/当前库存快照（不支持历史日期）；inbound-listing-time=入库/上架时间（全局任务，只运行一次并生成一份覆盖四仓的全局文件）。"}}}, "required": ["state", "values"], "additionalProperties": false}]}, "warehouse_intent": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "values": {"type": "array", "minItems": 1, "uniqueItems": true, "description": "resolved 时必须使用 values 数组，单仓也必须是单元素数组；该范围仅约束库存/销量，入库/上架始终是 global/all 四仓全局文件。", "items": {"enum": ["MY8801", "PH8805", "TH8802", "VN8806"], "description": "雅仓支持的仓库编码：MY8801=马来西亚仓、PH8805=菲律宾仓、TH8802=泰国仓、VN8806=越南仓；省略仓库时库存/销量默认四仓。"}}}, "required": ["state", "values"], "additionalProperties": false}]}, "created_date_filter": {"oneOf": [{"type": "object", "properties": {"state": {"const": "omitted"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "ambiguous"}}, "required": ["state"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "default"}}, "required": ["state", "mode"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "relative_days"}, "days": {"type": "integer", "minimum": 1}}, "required": ["state", "mode", "days"], "additionalProperties": false}, {"type": "object", "properties": {"state": {"const": "resolved"}, "mode": {"const": "explicit_range"}, "start_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, "end_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}}, "required": ["state", "mode", "start_date", "end_date"], "additionalProperties": false}]}, "inventory_snapshot_intent": {"type": "object", "properties": {"state": {"enum": ["current", "historical", "omitted", "ambiguous"], "description": "库存快照时间意图：current=当前库存快照；historical=历史日期或历史月末库存快照（当前雅仓能力不支持，会返回不支持，不得用当前库存冒充）；omitted=未指定；ambiguous=需澄清是当前库存还是历史月末库存。"}}, "required": ["state"], "additionalProperties": false}}, "required": ["data_type_intent", "warehouse_intent", "created_date_filter", "inventory_snapshot_intent"], "additionalProperties": false}
+      },
+      {
+        "name": "yacang_preview_workflow", "module": "services.agent_cli.yacang.preview_workflow",
+        "command_path": ["yacang", "export", "preview"],
+        "legacy_aliases": ["yacang_preview_workflow"],
+        "visibility": "internal", "session_mode": "none",
+        "owner_skills": [], "artifact_paths": [], "timeout_ms": 30000, "exposed": false,
+        "input_schema": {"type": "object", "properties": {"request_text": {"type": "string", "minLength": 1, "description": "用于测试页预览的完整雅仓自然语言请求"}}, "required": ["request_text"], "additionalProperties": false}
+      },
+      {
+      "name": "yacang_export_inventory_sales", "module": "services.agent_cli.yacang.export_inventory_sales",
+      "command_path": ["yacang", "inventory-sales", "export"],
+      "legacy_aliases": ["yacang_export_inventory_sales"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 900000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"start_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "创建日期起始日，YYYY-MM-DD"}, "end_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "创建日期结束日，YYYY-MM-DD"}, "timeout_seconds": {"type": "number", "minimum": 30, "maximum": 600}, "poll_interval_seconds": {"type": "number", "minimum": 2, "maximum": 30}, "cache_max_age_seconds": {"type": "number", "minimum": 0, "maximum": 3600}}, "required": ["start_date", "end_date"], "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_sales_monthly", "module": "services.agent_cli.yacang.export_sales_monthly",
+      "command_path": ["yacang", "export", "sales-monthly"],
+      "legacy_aliases": ["yacang_export_sales_monthly"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "文件日期，默认今天，YYYY-MM-DD"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_sales_90d", "module": "services.agent_cli.yacang.export_sales_90d",
+      "command_path": ["yacang", "export", "sales-90d"],
+      "legacy_aliases": ["yacang_export_sales_90d"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "文件日期，默认今天，YYYY-MM-DD"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_inventory_month_end", "module": "services.agent_cli.yacang.export_inventory_month_end",
+      "command_path": ["yacang", "export", "inventory-month-end"],
+      "legacy_aliases": ["yacang_export_inventory_month_end"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 2700000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "执行日，默认今天；接口不支持历史快照"}, "warehouse": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"], "description": "可选；省略时导出全部四仓"}}, "additionalProperties": false}
+    },
+    {
+      "name": "yacang_export_inbound_listing_time", "module": "services.agent_cli.yacang.export_inbound_listing_time",
+      "command_path": ["yacang", "export", "inbound-listing-time"],
+      "legacy_aliases": ["yacang_export_inbound_listing_time"],
+      "visibility": "internal", "session_mode": "none",
+      "owner_skills": [], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 900000, "exposed": false,
+      "input_schema": {"type": "object", "properties": {"as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "执行日，默认今天；接口不支持历史快照"}}, "additionalProperties": false}
+    },
+    {
+      "name": "zhihui_preview_products", "module": "services.agent_cli.zhihui.preview_products",
+      "command_path": ["tms", "philippines", "products-export", "preview"],
+      "legacy_aliases": [],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["zhihui-tms-product-export"],
+      "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}],
+      "deliver_artifacts_on_failure": true, "timeout_ms": 1200000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {
+        "platform": {"const": "zhihui_tms"}, "warehouse": {"const": "PH"},
+        "intent": {"const": "product_export"}
+      }, "required": ["platform", "warehouse", "intent"], "additionalProperties": false}
+    },
+    {
+      "name": "zhihui_execute_products", "module": "services.agent_cli.zhihui.execute_products",
+      "command_path": ["tms", "philippines", "products-export", "execute"],
+      "legacy_aliases": [],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["zhihui-tms-product-export"],
+      "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}],
+      "deliver_artifacts_on_failure": true, "timeout_ms": 1200000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {
+        "platform": {"const": "zhihui_tms"}, "warehouse": {"const": "PH"},
+        "intent": {"const": "product_export"}
+      }, "required": ["platform", "warehouse", "intent"], "additionalProperties": false}
     }
   ],
   "datasets": {
@@ -410,9 +518,12 @@
     "replenish_unlinked_shipments": {"dir": "replenish/unlinked_shipments", "holds": "未关联货件原始下载文件。", "legacy_dirs": ["mabang_fba_unlinked_shipments"]},
     "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
+    "replenish_brazil_overseas": {"dir": "replenish/brazil_overseas", "holds": "马帮巴西海外仓库存、销量原始导出 XLSX，以及三个月前已签收/三个月内待签收分仓调拨原始导出 XLS。", "legacy_dirs": []},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
     "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
-    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
+    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []},
+    "yacang_inventory_sales": {"dir": "yacang/inventory_sales", "holds": "雅仓四个指定仓库的兼容库存动销 XLSX；文件按仓库和创建日期范围命名。", "legacy_dirs": []},
+    "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓业务导出 XLSX；按统一业务名称、仓库（适用时）和日期命名。", "legacy_dirs": []}
   },
   "input_assets": {
     "export_tax_master": {"display_name": "出口退税总表", "used_by": ["采购汇总", "备货工作簿"], "dir": "fba/export_tax_master", "holds": "SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},

@@ -224,23 +224,6 @@ def test_error_diagnostics_redact_token_credentials_and_signed_query(context, se
         assert secret not in message
 
 
-def test_cli_delivers_exactly_one_original_workbook(context, server, capsys, monkeypatch):
-    from lxeskill import cli
-    from lxeskill.business import load_catalog
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "shangman-goods-export")
-    entry = load_catalog()["shangman_goods_export"]
-    assert entry["input_schema"] == {"type": "object", "properties": {}, "additionalProperties": False}
-    assert cli.main(["shangman", "export", "run"]) == 0
-    terminal = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert terminal["ok"]
-    assert terminal["files"] == [terminal["data"]["artifact_path"]]
-    assert Path(terminal["files"][0]).read_bytes() == server["xlsx"]
-    server["post_status"] = 403
-    assert cli.main(["shangman", "export", "run"]) != 0
-    failed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert not failed["ok"] and failed["files"] == []
-
-
 def test_network_timeout_preserves_exception_and_does_not_retry(context, monkeypatch):
     calls = []
     def timeout(*args, **kwargs):

@@ -51,6 +51,8 @@ export type DesktopSettingsSection =
   | "ziniao"
   | "shangman"
   | "mabang"
+  | "yacang"
+  | "zhihui_tms"
   | "feishu"
   | "logging";
 
@@ -66,13 +68,20 @@ export interface DesktopSettingsFormValue {
   ziniaoVersion: DesktopZiniaoVersion;
   ziniaoAppPath: string;
   ziniaoWebDriverPath: string;
-  shangmanTenantId: string;
-  shangmanUsername: string;
-  shangmanPassword: string;
   mabangAccount: string;
   mabangPassword: string;
+  yacangMobile: string;
+  yacangPassword: string;
+  yacangProductionEnabled: boolean;
+  zhihuiTmsAccount: string;
+  zhihuiTmsPassword: string;
+  zhihuiTmsProductionEnabled: boolean;
   feishuAppId: string;
   feishuAppSecret: string;
+  shangmanTenantId: string;
+  shangmanUsername: string;
+  shangmanProcessedPassword: string;
+  shangmanProductionEnabled: boolean;
   logProfile: DesktopLogProfile;
   logRetentionDays: DesktopLogRetentionDays;
 }
@@ -87,13 +96,20 @@ export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFo
   ziniaoVersion: state.ziniao.app_version,
   ziniaoAppPath: state.ziniao.app_path,
   ziniaoWebDriverPath: state.ziniao.webdriver_path,
-  shangmanTenantId: state.shangman.tenant_id,
-  shangmanUsername: state.shangman.username,
-  shangmanPassword: "",
   mabangAccount: state.mabang.account,
   mabangPassword: "",
+  yacangMobile: state.yacang.mobile,
+  yacangPassword: "",
+  yacangProductionEnabled: state.yacang.production_enabled,
+  zhihuiTmsAccount: state.zhihui_tms.account,
+  zhihuiTmsPassword: "",
+  zhihuiTmsProductionEnabled: state.zhihui_tms.production_enabled,
   feishuAppId: state.feishu.app_id,
   feishuAppSecret: "",
+  shangmanTenantId: state.shangman.tenant_id,
+  shangmanUsername: state.shangman.username,
+  shangmanProcessedPassword: "",
+  shangmanProductionEnabled: state.shangman.production_enabled,
   logProfile: state.logging.profile,
   logRetentionDays: state.logging.retention_days,
 });
@@ -108,9 +124,11 @@ const SECTION_FIELDS: Record<EditableDesktopSettingsSection, readonly (keyof Des
     "ziniaoAppPath",
     "ziniaoWebDriverPath",
   ],
-  shangman: ["shangmanTenantId", "shangmanUsername", "shangmanPassword"],
   mabang: ["mabangAccount", "mabangPassword"],
+  yacang: ["yacangMobile", "yacangPassword", "yacangProductionEnabled"],
+  zhihui_tms: ["zhihuiTmsAccount", "zhihuiTmsPassword", "zhihuiTmsProductionEnabled"],
   feishu: ["feishuAppId", "feishuAppSecret"],
+  shangman: ["shangmanTenantId", "shangmanUsername", "shangmanProcessedPassword", "shangmanProductionEnabled"],
   logging: ["logProfile", "logRetentionDays"],
 };
 

@@ -1,6 +1,6 @@
 import { companyServerUrl } from "../company-server";
 import { withManagedModels, managedTargetKey, managedCredentialFor, parseManagedState, singleManagedState, type ManagedLlmState } from "@lxe/core";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
@@ -15,6 +15,7 @@ import type {
 import type { LlmProviderCatalog } from "@lxe/core";
 import {
   cloneConfig,
+  flag,
   logProfile,
   logRetention,
   MODEL_AUTH_MIGRATION_VERSION,
@@ -31,6 +32,12 @@ const sameManagedTarget = (
   left: ManagedLlmTarget,
   right: ManagedLlmTarget,
 ): boolean => left.provider === right.provider && left.model === right.model;
+
+const ZHIHUI_TMS_SESSION_FINGERPRINT = /^[a-f0-9]{64}$/u;
+const MAX_ZHIHUI_TMS_SESSION_TOKEN_CHARS = 8_192;
+
+const zhihuiTmsAccountFingerprint = (account: string): string =>
+  createHash("sha256").update(account, "utf8").digest("hex");
 
 export class DesktopSetupService {
   constructor(
@@ -56,7 +63,7 @@ export class DesktopSetupService {
 
   state(): DesktopSetupState {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed);
+    const secrets = this.effectiveSecrets();
     const localAuth = this.auth.snapshot();
     const providerKeyConfigured = Boolean(localAuth.configured[config.llm.provider]);
     const localProvider = this.catalog.provider(config.llm.last_local_provider)?.name ?? this.catalog.defaultProvider;
@@ -72,17 +79,23 @@ export class DesktopSetupService {
     const workspaceRoot = config.workspace_root || this.defaultWorkspaceRoot;
     const workspaceAvailable = this.validation.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
-    const shangman = config.integrations.shangman;
-    const shangmanIssues = this.validation.shangmanIssues(shangman, secrets);
-    const shangmanConfigured = shangman.managed && shangmanIssues.length === 0;
     const mabang = config.integrations.mabang;
+    const yacang = config.integrations.yacang;
+    const zhihuiTms = config.integrations.zhihui_tms;
     const feishu = config.integrations.feishu;
+    const shangman = config.integrations.shangman;
     const ziniaoIssues = ziniao.managed ? this.validation.ziniaoIssues(ziniao, secrets) : [];
     const mabangIssues = mabang.managed ? this.validation.mabangIssues(mabang, secrets) : [];
+    const yacangIssues = yacang.managed ? this.validation.yacangIssues(yacang, secrets) : [];
+    const zhihuiTmsIssues = zhihuiTms.managed ? this.validation.zhihuiTmsIssues(zhihuiTms, secrets) : [];
     const feishuIssues = feishu.managed ? this.validation.feishuIssues(feishu, secrets) : [];
+    const shangmanIssues = shangman.managed ? this.validation.shangmanIssues(shangman, secrets) : [];
     const ziniaoConfigured = ziniao.managed && ziniaoIssues.length === 0;
     const mabangConfigured = mabang.managed && mabangIssues.length === 0;
+    const yacangConfigured = yacang.managed && yacangIssues.length === 0;
+    const zhihuiTmsConfigured = zhihuiTms.managed && zhihuiTmsIssues.length === 0 && zhihuiTms.production_enabled;
     const feishuConfigured = feishu.managed && feishuIssues.length === 0;
+    const shangmanConfigured = shangman.managed && shangmanIssues.length === 0;
     return {
       complete: Boolean(
         workspaceAvailable
@@ -111,12 +124,6 @@ export class DesktopSetupService {
         app_path: ziniao.app_path,
         webdriver_path: ziniao.webdriver_path,
       },
-      shangman: {
-        managed: shangman.managed, configured: shangmanConfigured,
-        issues: shangman.managed ? shangmanIssues : [], tenant_id: shangman.tenant_id,
-        username: shangman.username,
-        password_configured: Boolean(secrets.shangman_processed_password),
-      },
       mabang: {
         managed: mabang.managed,
         configured: mabangConfigured,
@@ -124,12 +131,37 @@ export class DesktopSetupService {
         account: mabang.account,
         password_configured: Boolean(secrets.mabang_password),
       },
+      yacang: {
+        managed: yacang.managed,
+        configured: yacangConfigured,
+        issues: yacangIssues,
+        mobile: yacang.mobile,
+        password_configured: Boolean(secrets.yacang_password),
+        production_enabled: yacang.production_enabled,
+      },
+      zhihui_tms: {
+        managed: zhihuiTms.managed,
+        configured: zhihuiTmsConfigured,
+        issues: zhihuiTmsIssues,
+        account: zhihuiTms.account,
+        password_configured: Boolean(secrets.zhihui_tms_password),
+        production_enabled: zhihuiTms.production_enabled,
+      },
       feishu: {
         managed: feishu.managed,
         configured: feishuConfigured,
         issues: feishuIssues,
         app_id: feishu.app_id,
         app_secret_configured: Boolean(secrets.feishu_app_secret),
+      },
+      shangman: {
+        managed: shangman.managed,
+        configured: shangmanConfigured,
+        issues: shangmanIssues,
+        tenant_id: shangman.tenant_id,
+        username: shangman.username,
+        password_configured: Boolean(secrets.shangman_processed_password),
+        production_enabled: shangman.production_enabled,
       },
       logging: {
         ...config.logging,
@@ -143,7 +175,7 @@ export class DesktopSetupService {
     const workspaceRoot = this.validation.validateWorkspaceRoot(text(input.workspace_root) || this.defaultWorkspaceRoot);
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    const effectiveSecrets = this.effectiveSecrets(secrets, config.integrations.shangman.managed);
+    const effectiveSecrets = this.effectiveSecrets(secrets);
     config.workspace_root = workspaceRoot;
 
     if (input.ziniao?.action === "clear") {
@@ -176,22 +208,6 @@ export class DesktopSetupService {
       if (inputPassword) secrets.ziniao_password = inputPassword;
     }
 
-    if (input.shangman?.action === "clear") {
-      config.integrations.shangman = { managed: true, tenant_id: "", username: "", revision: randomUUID() };
-      secrets.shangman_processed_password = "";
-    } else if (input.shangman?.action === "save") {
-      const previous = config.integrations.shangman;
-      const tenant_id = text(input.shangman.tenant_id);
-      const username = text(input.shangman.username);
-      const accountChanged = tenant_id !== previous.tenant_id || username !== previous.username;
-      const password = text(input.shangman.password) || (accountChanged ? "" : effectiveSecrets.shangman_processed_password);
-      if (!tenant_id || !username || !password) throw new Error("上马 ERP 配置需要 ID、账号和密码；更换账号时请重新填写密码");
-      const changed = accountChanged || password !== effectiveSecrets.shangman_processed_password;
-      config.integrations.shangman = { managed: true, tenant_id, username,
-        revision: changed || !previous.revision ? randomUUID() : previous.revision };
-      secrets.shangman_processed_password = password;
-    }
-
     if (input.mabang?.action === "clear") {
       config.integrations.mabang = { managed: true, account: "" };
       secrets.mabang_password = "";
@@ -204,6 +220,47 @@ export class DesktopSetupService {
       if (inputPassword) secrets.mabang_password = inputPassword;
     }
 
+    if (input.yacang?.action === "clear") {
+      config.integrations.yacang = { managed: true, mobile: "", production_enabled: false };
+      secrets.yacang_password = "";
+    } else if (input.yacang?.action === "save") {
+      const mobile = text(input.yacang.mobile);
+      const inputPassword = text(input.yacang.password);
+      const password = inputPassword || effectiveSecrets.yacang_password;
+      if (!mobile || !password) throw new Error("雅仓账号和密码必须同时填写");
+      config.integrations.yacang = {
+        managed: true,
+        mobile,
+        production_enabled: input.yacang.production_enabled === true,
+      };
+      if (inputPassword) secrets.yacang_password = inputPassword;
+    }
+
+    if (input.zhihui_tms?.action === "clear") {
+      config.integrations.zhihui_tms = { managed: true, account: "", production_enabled: false };
+      secrets.zhihui_tms_password = "";
+      secrets.zhihui_tms_session = null;
+    } else if (input.zhihui_tms?.action === "save") {
+      const previous = config.integrations.zhihui_tms;
+      const account = text(input.zhihui_tms.account);
+      const inputPassword = text(input.zhihui_tms.password);
+      const password = inputPassword || effectiveSecrets.zhihui_tms_password;
+      if (!account || !password) throw new Error("智汇 TMS 账号和密码必须同时填写");
+      config.integrations.zhihui_tms = {
+        managed: true,
+        account,
+        production_enabled: input.zhihui_tms.production_enabled === true,
+      };
+      if (inputPassword) secrets.zhihui_tms_password = inputPassword;
+      if (
+        previous.account !== account
+        || Boolean(inputPassword)
+        || input.zhihui_tms.production_enabled !== true
+      ) {
+        secrets.zhihui_tms_session = null;
+      }
+    }
+
     if (input.feishu?.action === "clear") {
       config.integrations.feishu = { managed: true, app_id: "" };
       secrets.feishu_app_secret = "";
@@ -214,6 +271,36 @@ export class DesktopSetupService {
       if (!appId || !appSecret) throw new Error("飞书 App ID 和 App Secret 必须同时填写");
       config.integrations.feishu = { managed: true, app_id: appId };
       if (inputSecret) secrets.feishu_app_secret = inputSecret;
+    }
+
+    if (input.shangman?.action === "clear") {
+      config.integrations.shangman = {
+        managed: true,
+        tenant_id: "",
+        username: "",
+        revision: randomUUID(),
+        production_enabled: false,
+      };
+      secrets.shangman_processed_password = "";
+    } else if (input.shangman?.action === "save") {
+      const previous = config.integrations.shangman;
+      const tenantId = text(input.shangman.tenant_id);
+      const username = text(input.shangman.username);
+      const inputPassword = text(input.shangman.password ?? input.shangman.processed_password);
+      const accountChanged = tenantId !== previous.tenant_id || username !== previous.username;
+      const password = inputPassword || (accountChanged ? "" : effectiveSecrets.shangman_processed_password);
+      if (!tenantId || !username || !password) {
+        throw new Error("上马印尼 ID、账号和密码必须完整配置；更换账号时请重新填写密码");
+      }
+      const changed = accountChanged || password !== effectiveSecrets.shangman_processed_password;
+      config.integrations.shangman = {
+        managed: true,
+        tenant_id: tenantId,
+        username,
+        revision: changed || !previous.revision ? randomUUID() : previous.revision,
+        production_enabled: input.shangman.production_enabled ?? config.integrations.shangman.production_enabled,
+      };
+      if (inputPassword) secrets.shangman_processed_password = inputPassword;
     }
 
     if (input.logging) {
@@ -485,9 +572,58 @@ export class DesktopSetupService {
     this.repository.commit(config, secrets);
   }
 
+  readZhihuiTmsSession(accountFingerprint: string): string | null {
+    if (!ZHIHUI_TMS_SESSION_FINGERPRINT.test(accountFingerprint)) return null;
+    const config = this.repository.readConfig();
+    const secrets = this.effectiveSecrets();
+    const zhihuiTms = config.integrations.zhihui_tms;
+    const configured = zhihuiTms.managed
+      && zhihuiTms.production_enabled
+      && this.validation.zhihuiTmsIssues(zhihuiTms, secrets).length === 0;
+    if (!configured || zhihuiTmsAccountFingerprint(zhihuiTms.account) !== accountFingerprint) return null;
+    const record = secrets.zhihui_tms_session;
+    return record?.account_fingerprint === accountFingerprint ? record.api_token : null;
+  }
+
+  saveZhihuiTmsSession(accountFingerprint: string, apiToken: string): void {
+    if (!ZHIHUI_TMS_SESSION_FINGERPRINT.test(accountFingerprint)) {
+      throw new Error("智汇 TMS 会话账号指纹无效");
+    }
+    const token = text(apiToken);
+    if (!token || token.length > MAX_ZHIHUI_TMS_SESSION_TOKEN_CHARS) {
+      throw new Error("智汇 TMS 会话 token 无效");
+    }
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    const effectiveSecrets = this.effectiveSecrets(secrets);
+    const zhihuiTms = config.integrations.zhihui_tms;
+    const configured = zhihuiTms.managed
+      && zhihuiTms.production_enabled
+      && this.validation.zhihuiTmsIssues(zhihuiTms, effectiveSecrets).length === 0;
+    if (!configured || zhihuiTmsAccountFingerprint(zhihuiTms.account) !== accountFingerprint) return;
+    secrets.zhihui_tms_session = {
+      account_fingerprint: accountFingerprint,
+      api_token: token,
+      saved_at: Date.now(),
+    };
+    this.repository.commit(config, secrets);
+  }
+
+  clearZhihuiTmsSession(accountFingerprint?: string): void {
+    if (accountFingerprint !== undefined && !ZHIHUI_TMS_SESSION_FINGERPRINT.test(accountFingerprint)) return;
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    if (
+      secrets.zhihui_tms_session === null
+      || (accountFingerprint !== undefined && secrets.zhihui_tms_session.account_fingerprint !== accountFingerprint)
+    ) return;
+    secrets.zhihui_tms_session = null;
+    this.repository.commit(config, secrets);
+  }
+
   environment(): Record<string, string> {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed);
+    const secrets = this.effectiveSecrets();
     const provider = config.llm.provider;
     const storedManagedCredential = config.cloud.switch_in_progress
       ? null
@@ -508,14 +644,19 @@ export class DesktopSetupService {
     const activePreference = config.llm.profiles[provider];
     const activeThinkingLevel = activePreference?.thinking_level ?? "off";
     const ziniao = config.integrations.ziniao;
-    const shangman = config.integrations.shangman;
-    const shangmanIssues = this.validation.shangmanIssues(shangman, secrets);
-    const shangmanConfigured = shangman.managed && shangmanIssues.length === 0;
     const mabang = config.integrations.mabang;
+    const yacang = config.integrations.yacang;
+    const zhihuiTms = config.integrations.zhihui_tms;
     const feishu = config.integrations.feishu;
+    const shangman = config.integrations.shangman;
     const ziniaoConfigured = ziniao.managed && this.validation.ziniaoIssues(ziniao, secrets).length === 0;
     const mabangConfigured = mabang.managed && this.validation.mabangIssues(mabang, secrets).length === 0;
+    const yacangConfigured = yacang.managed && this.validation.yacangIssues(yacang, secrets).length === 0;
+    const zhihuiTmsConfigured = zhihuiTms.managed
+      && zhihuiTms.production_enabled
+      && this.validation.zhihuiTmsIssues(zhihuiTms, secrets).length === 0;
     const feishuConfigured = feishu.managed && this.validation.feishuIssues(feishu, secrets).length === 0;
+    const shangmanConfigured = shangman.managed && this.validation.shangmanIssues(shangman, secrets).length === 0;
     const diagnostic = config.logging.profile === "diagnostic";
     const logsEnabled = config.logging.profile !== "off";
     return {
@@ -538,15 +679,22 @@ export class DesktopSetupService {
       ZINIAO_BROWSER_VERSION: ziniao.app_version,
       ZINIAO_CLIENT_PATH: ziniaoConfigured ? ziniao.app_path : "",
       ZINIAO_WEBDRIVER_PATH: ziniaoConfigured ? ziniao.webdriver_path : "",
+      MABANG_ACCOUNT: mabangConfigured ? mabang.account : "",
+      MABANG_PASSWORD: mabangConfigured ? secrets.mabang_password : "",
+      LXE_YACANG_MOBILE: yacangConfigured ? yacang.mobile : "",
+      LXE_YACANG_PASSWORD: yacangConfigured ? secrets.yacang_password : "",
+      LXE_YACANG_PROD_ENABLED: yacangConfigured && yacang.production_enabled ? "true" : "false",
+      ZHIHUI_TMS_PRODUCTION_ENABLED: zhihuiTmsConfigured ? "1" : "0",
+      ZHIHUI_TMS_ACCOUNT: zhihuiTmsConfigured ? zhihuiTms.account : "",
+      ZHIHUI_TMS_PASSWORD: zhihuiTmsConfigured ? secrets.zhihui_tms_password : "",
+      LXE_FEISHU_GATEWAY_ENABLED: feishuConfigured ? "1" : "0",
+      FEISHU_APP_ID: feishuConfigured ? feishu.app_id : "",
+      FEISHU_APP_SECRET: feishuConfigured ? secrets.feishu_app_secret : "",
       LXE_SHANGMAN_TENANT_ID: shangmanConfigured ? shangman.tenant_id : "",
       LXE_SHANGMAN_USERNAME: shangmanConfigured ? shangman.username : "",
       LXE_SHANGMAN_PROCESSED_PASSWORD: shangmanConfigured ? secrets.shangman_processed_password : "",
       LXE_SHANGMAN_CONFIG_REVISION: shangman.revision,
-      MABANG_ACCOUNT: mabangConfigured ? mabang.account : "",
-      MABANG_PASSWORD: mabangConfigured ? secrets.mabang_password : "",
-      LXE_FEISHU_GATEWAY_ENABLED: feishuConfigured ? "1" : "0",
-      FEISHU_APP_ID: feishuConfigured ? feishu.app_id : "",
-      FEISHU_APP_SECRET: feishuConfigured ? secrets.feishu_app_secret : "",
+      LXE_SHANGMAN_PROD_ENABLED: shangman.production_enabled ? "true" : "false",
       LOCAL_LOGS_ENABLED: logsEnabled ? "1" : "0",
       LOCAL_LOG_RETENTION_DAYS: String(config.logging.retention_days),
       LOG_LEVEL: diagnostic ? "DEBUG" : "INFO",
@@ -561,11 +709,7 @@ export class DesktopSetupService {
     };
   }
 
-  private effectiveSecrets(persisted = this.repository.readSecrets(), shangmanManaged = false) {
-    const effective = effectiveDesktopSecrets(persisted, this.secretEnvironment);
-    if (shangmanManaged) {
-      effective.shangman_processed_password = persisted.shangman_processed_password;
-    }
-    return effective;
+  private effectiveSecrets(persisted = this.repository.readSecrets()) {
+    return effectiveDesktopSecrets(persisted, this.secretEnvironment);
   }
 }

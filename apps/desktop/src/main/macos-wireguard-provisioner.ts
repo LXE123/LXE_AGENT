@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
@@ -6,6 +6,7 @@ import {
   accessSync,
   mkdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -30,6 +31,7 @@ const WIREGUARD_GO_PATH = "/opt/homebrew/bin/wireguard-go";
 const OSASCRIPT_PATH = "/usr/bin/osascript";
 const HOMEBREW_COMMAND_PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 const HOMEBREW_INSTALL_COMMAND = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
+export const MACOS_WIREGUARD_STAGING_ROOT = "/tmp/lxe-wireguard";
 
 export interface MacOSWireGuardCommand {
   action: "install";
@@ -57,6 +59,7 @@ export interface MacOSWireGuardProvisionerOptions {
   pollIntervalMs?: number;
   homebrewWaitMs?: number;
   now?: () => number;
+  stagingRoot?: string;
 }
 
 const executable = (path: string): boolean => {
@@ -101,7 +104,21 @@ const appleScriptString = (value: string): string =>
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
-const defaultRunElevated = async (commands: readonly MacOSWireGuardCommand[]): Promise<void> => {
+const extendedAttributeNames = (path: string): string[] => {
+  try {
+    return execFileSync("/usr/bin/xattr", [path], { encoding: "utf8" })
+      .split(/\r?\n/u)
+      .map((value) => value.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const defaultRunElevated = async (
+  commands: readonly MacOSWireGuardCommand[],
+  execute: typeof runProcess = runProcess,
+): Promise<void> => {
   const command = [
     `PATH=${shellQuote(HOMEBREW_COMMAND_PATH)}`,
     "export PATH",
@@ -111,15 +128,16 @@ const defaultRunElevated = async (commands: readonly MacOSWireGuardCommand[]): P
     }),
   ].join("\n");
   try {
-    await runProcess(
+    await execute(
       OSASCRIPT_PATH,
       ["-e", `do shell script ${appleScriptString(command)} with administrator privileges`],
       180_000,
     );
   } catch (error) {
-    const detail = error instanceof Error
-      ? `${error.message} ${(error as Error & { stderr?: string }).stderr ?? ""}`.trim()
-      : String(error);
+    const stderr = error instanceof Error
+      ? String((error as Error & { stderr?: string }).stderr ?? "").trim()
+      : "";
+    const detail = stderr || (error instanceof Error ? error.message : String(error));
     if (/cancel|取消|-128/iu.test(detail)) throw new Error("管理员授权已取消");
     const stdout = error instanceof Error ? (error as Error & { stdout?: string }).stdout ?? "" : "";
     throw new WireGuardProvisioningError(detail || "WireGuard 管理员命令失败",
@@ -171,7 +189,8 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
   constructor(private readonly options: MacOSWireGuardProvisionerOptions) {
     this.pathIsExecutable = options.pathIsExecutable ?? executable;
     this.execute = options.runProcess ?? runProcess;
-    this.runElevated = options.runElevated ?? defaultRunElevated;
+    this.runElevated = options.runElevated
+      ?? ((commands) => defaultRunElevated(commands, this.execute));
     this.openHomebrewInstaller = options.openHomebrewInstaller ?? defaultOpenHomebrewInstaller;
     this.wait = options.wait ?? delay;
     this.now = options.now ?? Date.now;
@@ -292,11 +311,14 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
       packaged: this.options.packaged,
       reconnect: fields.reconnect === true,
     });
-    const stagingRoot = join(this.options.dataRoot, "config", ".cloud-wireguard");
+    const stagingRoot = this.options.stagingRoot ?? MACOS_WIREGUARD_STAGING_ROOT;
     const operationRoot = join(stagingRoot, randomUUID());
     mkdirSync(operationRoot, { recursive: true, mode: 0o700 });
-    chmodSync(stagingRoot, 0o700);
-    chmodSync(operationRoot, 0o700);
+    // The elevated root process must be able to traverse this user-created
+    // temporary directory, while directory listing remains unavailable to
+    // other users. The staged files remain 0600/0700.
+    chmodSync(stagingRoot, 0o711);
+    chmodSync(operationRoot, 0o711);
     try {
       const targetPath = this.stageConfiguration(operationRoot, "target", target);
       const previousPath = previous
@@ -304,6 +326,15 @@ export class MacOSWireGuardProvisioner implements WireGuardProvisionerPort {
         : undefined;
       const scriptPath = join(operationRoot, "service.sh");
       writeFileSync(scriptPath, serviceScript, { encoding: "utf8", mode: 0o700 });
+      chmodSync(scriptPath, 0o700);
+      const scriptMode = statSync(scriptPath).mode & 0o777;
+      logger.debug("wireguard_staging_ready", {
+        staging_root: stagingRoot,
+        script_path: scriptPath,
+        script_mode: scriptMode.toString(8),
+        script_executable: (scriptMode & 0o111) !== 0,
+        script_xattrs: extendedAttributeNames(scriptPath),
+      });
       try {
         await this.runElevated([{
           action: "install", configPath: targetPath, ...(previousPath ? { previousConfigPath: previousPath } : {}), scriptPath,

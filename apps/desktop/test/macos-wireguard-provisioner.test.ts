@@ -6,6 +6,7 @@ import type { Logger } from "@lxe/core";
 import type { CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
 import {
   MACOS_WIREGUARD_PATHS,
+  MACOS_WIREGUARD_STAGING_ROOT,
   MacOSWireGuardProvisioner,
   type MacOSWireGuardCommand,
 } from "../src/main/macos-wireguard-provisioner";
@@ -50,9 +51,85 @@ const createRoot = (): string => {
   return root;
 };
 
+const createQuotedRoot = (): string => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-macos-中文 path 'quote'-"));
+  roots.push(root);
+  return root;
+};
+
 const allTools = (): Set<string> => new Set(Object.values(MACOS_WIREGUARD_PATHS));
 
 describe("MacOSWireGuardProvisioner", () => {
+  test("passes one AppleScript argv value to osascript and prioritizes its stderr", async () => {
+    const root = createQuotedRoot();
+    const events: LogEvent[] = [];
+    const processCalls: Array<{ path: string; arguments_: readonly string[] }> = [];
+    const provisioner = new MacOSWireGuardProvisioner({
+      platform: "darwin",
+      arch: "arm64",
+      packaged: false,
+      dataRoot: root,
+      stagingRoot: root,
+      logger: testLogger(events),
+      pathIsExecutable: (path) => allTools().has(path),
+      runProcess: async (path, arguments_) => {
+        processCalls.push({ path, arguments_ });
+        const failure = new Error(`Command failed: ${"x".repeat(1_000)}`) as Error & { stderr?: string };
+        failure.stderr = "service install diagnostic";
+        throw failure;
+      },
+    });
+
+    await expect(provisioner.provision(payload, "argv-boundary")).rejects
+      .toThrow("WireGuard 配置失败：service install diagnostic");
+
+    expect(processCalls).toHaveLength(1);
+    expect(processCalls[0]).toMatchObject({ path: "/usr/bin/osascript" });
+    const arguments_ = processCalls[0]!.arguments_;
+    expect(arguments_).toHaveLength(2);
+    expect(arguments_[0]).toBe("-e");
+    expect(arguments_[1]).toStartWith("do shell script ");
+    expect(arguments_[1]).toContain("中文 path");
+    expect(arguments_[1]).toContain("\\\"");
+    expect(arguments_.slice(2)).toEqual([]);
+    const stagingEvent = events.find((event) => event.message === "wireguard_staging_ready");
+    expect(stagingEvent?.fields).toMatchObject({ script_mode: "700", script_executable: true });
+    expect(stagingEvent?.fields.script_xattrs).toBeArray();
+  });
+
+  test("stages the script and configuration outside protected project paths", async () => {
+    for (const dataRoot of [
+      "/Users/test/workspace/LXE_AGENT",
+      "/Users/test/Documents/项目测试/LXE_AGENT",
+      "/Users/test/Desktop/test project/LXE_AGENT",
+    ]) {
+      const root = createRoot();
+      const commands: MacOSWireGuardCommand[][] = [];
+      const provisioner = new MacOSWireGuardProvisioner({
+        platform: "darwin",
+        arch: "arm64",
+        packaged: false,
+        dataRoot,
+        logger: testLogger([]),
+        pathIsExecutable: (path) => allTools().has(path),
+        runElevated: async (next) => {
+          commands.push([...next]);
+          const command = next[0]!;
+          expect(command.scriptPath).toStartWith(`${MACOS_WIREGUARD_STAGING_ROOT}/`);
+          expect(command.configPath).toStartWith(`${MACOS_WIREGUARD_STAGING_ROOT}/`);
+          expect(command.scriptPath).not.toContain(dataRoot);
+          expect(command.configPath).not.toContain(dataRoot);
+          expect(statSync(command.scriptPath).mode & 0o777).toBe(0o700);
+          expect(statSync(command.configPath).mode & 0o777).toBe(0o600);
+        },
+      });
+
+      await provisioner.provision(payload, `path-${commands.length}`);
+      expect(commands).toHaveLength(1);
+    }
+    expect(readdirSync(MACOS_WIREGUARD_STAGING_ROOT)).toEqual([]);
+  });
+
   test("supports only unpackaged Apple Silicon and reports dependency state", () => {
     const root = createRoot();
     const events: LogEvent[] = [];
@@ -182,7 +259,7 @@ describe("MacOSWireGuardProvisioner", () => {
         // belong to the host filesystem, and Windows does not implement POSIX permissions.
         if (process.platform !== "win32") {
           expect(statSync(configPath).mode & 0o777).toBe(0o600);
-          expect(statSync(join(configPath, "..", "..")).mode & 0o777).toBe(0o700);
+          expect(statSync(join(configPath, "..", "..")).mode & 0o777).toBe(0o711);
         }
         const configuration = readFileSync(configPath, "utf8");
         expect(configuration).toContain(`PrivateKey = ${payload.wireguard.private_key}`);
@@ -193,7 +270,7 @@ describe("MacOSWireGuardProvisioner", () => {
     await provisioner.provision(payload, "mac-activation");
 
     expect(calls).toHaveLength(1);
-    expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
+    expect(readdirSync(MACOS_WIREGUARD_STAGING_ROOT)).toEqual([]);
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain(payload.wireguard.private_key);
     expect(serialized).not.toContain(payload.data_server.api_token);
@@ -216,7 +293,7 @@ describe("MacOSWireGuardProvisioner", () => {
 
     expect(commands).toHaveLength(1);
     expect(commands[0]?.map(({ action }) => action)).toEqual(["install"]);
-    expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
+    expect(readdirSync(MACOS_WIREGUARD_STAGING_ROOT)).toEqual([]);
   });
 
   test("passes previous configuration into the single elevated transaction and preserves rollback result", async () => {
@@ -259,7 +336,7 @@ describe("MacOSWireGuardProvisioner", () => {
       expect(failure).toMatchObject({ previousRemoved: rollbackFails });
       expect(call).toBe(1);
       expect(JSON.stringify(events)).not.toContain(payload.wireguard.private_key);
-      expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
+      expect(readdirSync(MACOS_WIREGUARD_STAGING_ROOT)).toEqual([]);
     }
   });
 
@@ -294,6 +371,6 @@ describe("MacOSWireGuardProvisioner", () => {
     }
     expect(failure).toMatchObject({ message: "管理员授权已取消", previousRemoved: false });
     expect(calls).toBe(1);
-    expect(readdirSync(join(root, "config", ".cloud-wireguard"))).toEqual([]);
+    expect(readdirSync(MACOS_WIREGUARD_STAGING_ROOT)).toEqual([]);
   });
 });

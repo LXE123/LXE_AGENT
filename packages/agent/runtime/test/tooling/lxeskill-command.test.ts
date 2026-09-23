@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   loadLxeSkillCommandCatalog,
@@ -8,6 +10,27 @@ import {
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 describe("lxeskill command recognition", () => {
+  test("rejects retired runtime requirements", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-command-catalog-"));
+    const validPath = join(root, "valid.json");
+    const invalidPath = join(root, "invalid.json");
+    try {
+      writeFileSync(validPath, JSON.stringify({ protocol_version: "1", entries: [
+        { name: "ordinary", command_path: ["demo", "preview"], visibility: "business", owner_skills: [] },
+      ] }), "utf8");
+      writeFileSync(invalidPath, JSON.stringify({ protocol_version: "1", entries: [
+        { name: "invalid", command_path: ["demo", "run"], visibility: "business", owner_skills: [], runtime_requirements: ["pending_sensitive_input"] },
+      ] }), "utf8");
+
+      expect(loadLxeSkillCommandCatalog(validPath)).toEqual([
+        expect.objectContaining({ name: "ordinary" }),
+      ]);
+      expect(() => loadLxeSkillCommandCatalog(invalidPath)).toThrow("unsupported runtime requirement");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("matches only a leading known command and chooses the longest path", () => {
     const known = new Map([
       ["lxeskill replenish inventory actual-export", ["inventory"]],
@@ -49,7 +72,7 @@ describe("lxeskill command recognition", () => {
     // Every directory is owned by exactly one business module — the property the
     // <module>/<data-type> layout depends on.
     const modules = new Set(datasets.map((entry) => entry.dir.split("/")[0]));
-    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "replenish", "shangman"]);
+    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "replenish", "shangman", "yacang"]);
     expect(new Set(datasets.map((entry) => entry.dir)).size).toBe(datasets.length);
     expect(datasets.every((entry) => entry.holds.length > 0)).toBe(true);
   });
@@ -72,6 +95,17 @@ describe("lxeskill command recognition", () => {
         ownerSkills: ["fba-shipment-delivery-csv-download"],
         attributionSkill: "fba-shipment-delivery-csv-download",
       });
+    expect(entries.find((entry) => entry.name === "mabang_brazil_overseas_export"))
+      .toMatchObject({
+        command: "lxeskill replenish brazil-overseas export",
+        module: "services.agent_cli.mabang.brazil_overseas_export",
+        ownerSkills: ["replenishment-workflow-map"],
+        attributionSkill: "replenishment-workflow-map",
+        artifactPaths: [
+          { field: "xlsx_path", role: "deliverable" },
+          { field: "xlsx_paths[]", role: "deliverable" },
+        ],
+      });
     expect(entries.find((entry) => entry.name === "mabang_regenerate_purchase_files"))
       .toMatchObject({
         command: "lxeskill fba purchase files-regenerate",
@@ -84,11 +118,77 @@ describe("lxeskill command recognition", () => {
           { field: "contract_xlsx_paths[]", role: "deliverable" },
         ],
       });
+    expect(entries.find((entry) => entry.name === "yacang_export_inventory_sales"))
+      .toMatchObject({
+        command: "lxeskill yacang inventory-sales export",
+        module: "services.agent_cli.yacang.export_inventory_sales",
+        visibility: "internal",
+        ownerSkills: [],
+        artifactPaths: [{ field: "xlsx_paths[]", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "yacang_export_workflow"))
+      .toMatchObject({
+        command: "lxeskill yacang export run",
+        module: "services.agent_cli.yacang.export_workflow",
+        ownerSkills: ["yacang-export-workflow-map"],
+        attributionSkill: "yacang-export-workflow-map",
+        artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "yacang_export_sales_monthly"))
+      .toMatchObject({
+        command: "lxeskill yacang export sales-monthly",
+        module: "services.agent_cli.yacang.export_sales_monthly",
+        visibility: "internal",
+        ownerSkills: [],
+        artifactPaths: [{ field: "xlsx_paths[]", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "yacang_export_sales_90d"))
+      .toMatchObject({
+        command: "lxeskill yacang export sales-90d",
+        module: "services.agent_cli.yacang.export_sales_90d",
+        visibility: "internal",
+        ownerSkills: [],
+        artifactPaths: [{ field: "xlsx_paths[]", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "yacang_export_inventory_month_end"))
+      .toMatchObject({
+        command: "lxeskill yacang export inventory-month-end",
+        module: "services.agent_cli.yacang.export_inventory_month_end",
+        visibility: "internal",
+        ownerSkills: [],
+        artifactPaths: [{ field: "xlsx_paths[]", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "yacang_export_inbound_listing_time"))
+      .toMatchObject({
+        command: "lxeskill yacang export inbound-listing-time",
+        module: "services.agent_cli.yacang.export_inbound_listing_time",
+        visibility: "internal",
+        ownerSkills: [],
+        artifactPaths: [{ field: "xlsx_paths[]", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "zhihui_preview_products"))
+      .toMatchObject({
+        command: "lxeskill tms philippines products-export preview",
+        module: "services.agent_cli.zhihui.preview_products",
+        ownerSkills: ["zhihui-tms-product-export"],
+        artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
+      });
+    expect(entries.find((entry) => entry.name === "zhihui_execute_products"))
+      .toMatchObject({
+        command: "lxeskill tms philippines products-export execute",
+        module: "services.agent_cli.zhihui.execute_products",
+      });
+    expect(entries.find((entry) => entry.name === "zhihui_execute_products")?.confirmation).toBeUndefined();
     expect(entries.find((entry) => entry.name === "ziniao_page")).toMatchObject({
       ownerSkills: ["ziniao-browser"],
       artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
       attributionSkill: "ziniao-browser",
     });
+
+    expect(entries
+      .filter((entry) => entry.command.startsWith("lxeskill yacang ") && entry.visibility !== "internal")
+      .map((entry) => entry.command))
+      .toEqual(["lxeskill yacang export run"]);
     expect(entries.find((entry) => entry.name === "mabang_resolve_fba_store"))
       .toMatchObject({
         attributionSkill: "replenishment-store-resolve",
@@ -97,27 +197,21 @@ describe("lxeskill command recognition", () => {
           "replenishment-unlinked-shipment-download",
         ]),
       });
+    expect(entries.find((entry) => entry.name === "shangman_goods_export_preview")).toMatchObject({
+      command: "lxeskill shangman export preview",
+      module: "services.agent_cli.shangman.goods_export_preview",
+      ownerSkills: ["shangman-goods-export-workflow-map"],
+      attributionSkill: "shangman-goods-export-workflow-map",
+    });
+    expect(entries.find((entry) => entry.name === "shangman_goods_export_run")).toMatchObject({
+      command: "lxeskill shangman export run",
+      module: "services.agent_cli.shangman.goods_export_run",
+      ownerSkills: ["shangman-goods-export-workflow-map"],
+      artifactPaths: [{ field: "artifact_path", role: "deliverable" }],
+    });
+    const shangmanEntries = entries.filter((entry) => entry.command.startsWith("lxeskill shangman export "));
+    expect(shangmanEntries).toHaveLength(2);
+    expect(shangmanEntries.every((entry) => entry.ownerSkills.length === 1
+      && entry.ownerSkills[0] === "shangman-goods-export-workflow-map")).toBe(true);
   });
-});
-
-test("Shangman login commands belong to the login skill and expose only the captcha as model input", () => {
-  const entries = loadLxeSkillCommandCatalog(join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json"));
-  const commands = entries.filter(entry => entry.name.startsWith("shangman_login_"));
-  expect(commands).toHaveLength(4);
-  for (const entry of commands) expect(entry.ownerSkills).toEqual(["shangman-login"]);
-  expect(commands.find(entry => entry.name === "shangman_login_prepare")?.artifactPaths).toEqual([{ field: "image_path", role: "model_input" }]);
-});
-
-test("Shangman export is a separate command delivering one workbook", () => {
-  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
-  const entries = loadLxeSkillCommandCatalog(path);
-  const entry = entries.find(entry => entry.name === "shangman_goods_export");
-  expect(entry).toMatchObject({
-    command: "lxeskill shangman export run",
-    module: "services.agent_cli.shangman.goods_export",
-    ownerSkills: ["shangman-goods-export"],
-    artifactPaths: [{ field: "artifact_path", role: "deliverable" }],
-  });
-  expect(loadLxeSkillDatasets(path).find(entry => entry.id === "shangman_goods_export")?.dir)
-    .toBe("shangman/indonesia");
 });

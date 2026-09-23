@@ -9,7 +9,7 @@ delete environment.LXE_DATA_ROOT;
 environment.LXE_SOURCE_ROOT = sourceRoot;
 environment.LXE_DESKTOP_PREVIEW = "1";
 
-const electron = Bun.spawn(["bunx", "electron", "."], {
+const electron = Bun.spawn([process.execPath, "x", "electron", "."], {
   cwd: desktopRoot,
   stdout: "inherit",
   stderr: "inherit",

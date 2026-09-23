@@ -238,6 +238,13 @@ export type BackgroundTaskChangedPayload = {
   task: ExecTaskSnapshotPayload;
 };
 
+export type ToolProgressPayload = {
+  exec_id: string;
+  tool_call_id: string;
+  stage: string;
+  message: string;
+};
+
 export type AgentEvent =
   | { type: "skills.changed"; payload: { revision: number } }
   | {
@@ -273,6 +280,12 @@ export type AgentEvent =
       thread_id: string;
       turn_id: string;
       payload: BackgroundTaskChangedPayload;
+    }
+  | {
+      type: "tool.progress";
+      thread_id: string;
+      turn_id: string;
+      payload: ToolProgressPayload;
     }
   | {
       type: "managed_llm.authentication_failed";
@@ -479,11 +492,6 @@ export interface DesktopSetupState {
     app_path: string;
     webdriver_path: string;
   };
-  shangman: {
-    managed: boolean; configured: boolean; issues: string[];
-    tenant_id: string; username: string;
-    password_configured: boolean;
-  };
   mabang: {
     managed: boolean;
     configured: boolean;
@@ -491,12 +499,37 @@ export interface DesktopSetupState {
     account: string;
     password_configured: boolean;
   };
+  yacang: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    mobile: string;
+    password_configured: boolean;
+    production_enabled: boolean;
+  };
+  zhihui_tms: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    account: string;
+    password_configured: boolean;
+    production_enabled: boolean;
+  };
   feishu: {
     managed: boolean;
     configured: boolean;
     issues: string[];
     app_id: string;
     app_secret_configured: boolean;
+  };
+  shangman: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    tenant_id: string;
+    username: string;
+    password_configured: boolean;
+    production_enabled: boolean;
   };
   logging: {
     profile: DesktopLogProfile;
@@ -517,23 +550,41 @@ export type DesktopZiniaoSetupInput =
       webdriver_path: string;
     };
 
-export type DesktopShangmanSetupInput =
-  | { action: "clear" }
-  | { action: "save"; tenant_id: string; username: string; password?: string };
-
 export type DesktopMabangSetupInput =
   | { action: "clear" }
   | { action: "save"; account: string; password?: string };
 
+export type DesktopYacangSetupInput =
+  | { action: "clear" }
+  | { action: "save"; mobile: string; password?: string; production_enabled?: boolean };
+
+export type DesktopZhihuiTmsSetupInput =
+  | { action: "clear" }
+  | { action: "save"; account: string; password?: string; production_enabled: boolean };
+
 export type DesktopFeishuSetupInput =
   | { action: "clear" }
   | { action: "save"; app_id: string; app_secret?: string };
+
+export type DesktopShangmanSetupInput =
+  | { action: "clear" }
+  | {
+      action: "save";
+      tenant_id: string;
+      username: string;
+      /** Preferred field; `processed_password` remains IPC compatibility only. */
+      password?: string;
+      processed_password?: string;
+      production_enabled?: boolean;
+    };
 
 export interface DesktopSetupInput {
   workspace_root: string;
   ziniao?: DesktopZiniaoSetupInput;
   shangman?: DesktopShangmanSetupInput;
   mabang?: DesktopMabangSetupInput;
+  yacang?: DesktopYacangSetupInput;
+  zhihui_tms?: DesktopZhihuiTmsSetupInput;
   feishu?: DesktopFeishuSetupInput;
   logging?: {
     profile: DesktopLogProfile;
@@ -711,6 +762,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "typing.changed",
   "agent.wake",
   "background_task.changed",
+  "tool.progress",
   "managed_llm.authentication_failed",
   "session.changed",
   "system.ready",
@@ -720,6 +772,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "turn.completed",
   "turn.failed",
 ]);
+const unsafeProgressText = /[\u0000-\u001f\u007f]|https?:\/\/|\b(?:bearer|token|password|cookie|authorization|secret|api[_ -]?key)\b|[A-Za-z0-9_-]{40,}/iu;
 
 const isAgentCommand = (value: string): value is AgentCommand =>
   agentCommands.has(value as AgentCommand);
@@ -888,7 +941,7 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
       throw new JsonRpcError(-32602, "skills.changed.revision must be a positive integer");
     }
   }
-  const scoped = ["item.completed", "conversation.stream.delta", "typing.changed", "background_task.changed", "thread.started", "turn.started", "turn.completed", "turn.failed", "session.changed"];
+  const scoped = ["item.completed", "conversation.stream.delta", "typing.changed", "background_task.changed", "tool.progress", "thread.started", "turn.started", "turn.completed", "turn.failed", "session.changed"];
   if (scoped.includes(String(object.type))) {
     for (const field of object.type === "thread.started" || object.type === "session.changed" ? ["thread_id"] : ["thread_id", "turn_id"]) {
       if (typeof object[field] !== "string" || !String(object[field]).trim()) {
@@ -973,6 +1026,19 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
         || (task.output_path !== undefined && typeof task.output_path !== "string")
         || typeof task.output_tail !== "string") {
         throw new Error("agent protocol background_task.changed payload is invalid");
+      }
+    }
+    if (object.type === "tool.progress") {
+      const payload = objectValue(object.payload)!;
+      if (typeof object.thread_id !== "string" || !object.thread_id.trim()
+        || typeof object.turn_id !== "string" || !object.turn_id.trim()
+        || Object.keys(payload).sort().join("\0") !== ["exec_id", "message", "stage", "tool_call_id"].join("\0")
+        || typeof payload.exec_id !== "string" || !/^exec_[a-f0-9]{32}$/u.test(payload.exec_id)
+        || typeof payload.tool_call_id !== "string" || !payload.tool_call_id.trim()
+        || typeof payload.stage !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(payload.stage)
+        || typeof payload.message !== "string" || !payload.message.trim() || payload.message.length > 120
+        || unsafeProgressText.test(payload.message)) {
+        throw new Error("agent protocol tool.progress payload is invalid");
       }
     }
     if (object.type === "conversation.stream.delta") {

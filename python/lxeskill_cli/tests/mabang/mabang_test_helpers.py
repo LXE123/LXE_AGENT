@@ -67,6 +67,11 @@ def _xlsx_bytes(rows: list[dict], *, columns: list[str]) -> bytes:
     return buffer.getvalue()
 
 
+def _xls_bytes() -> bytes:
+    """Minimal legacy Excel compound-file header for download validation tests."""
+    return b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"test-xls-payload"
+
+
 def _annotate_active_test_source(path: Path, *, requested_store_name: str | None = None) -> None:
     """Existing report fixtures represent verified product catalog records."""
     from openpyxl import load_workbook

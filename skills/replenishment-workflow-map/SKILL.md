@@ -1,10 +1,12 @@
 ---
 name: replenishment-workflow-map
-description: Amazon 备货流程介绍与完整任务编排入口。用户要求为 Amazon 店铺完成备货、生成完整补货建议，或询问该流程的步骤与缺失数据时使用；按业务 Skill 完成本轮采集、核验、计算和交付。单步请求路由到对应技能；东南亚备货使用 southeast-asia-replenishment-workflow-map。
+description: 现有 Mabang/马帮体系的备货编排与子流程入口。用户要求马帮店铺备货、补货建议，或当前轮明确查询巴西海外仓/马帮巴西海外仓的库存、库存列表、库存动销、销量、单据、调拨单据、待签或已签数据时使用（例如“查巴西海外仓库存”“导出巴西海外仓待签收”“巴西海外仓单据”）；巴西海外仓天然指马帮巴西海外仓，不需要额外补充“马帮”。不用于雅仓、上马印尼或智汇/TMS；当前轮平台高于历史 Context。
 type: replenishment
+commands:
+  - lxeskill replenish brazil-overseas export
 ---
 
-# Amazon 备货流程介绍与完整任务编排
+# 备货流程介绍与完整任务编排
 
 ## 执行与错误
 
@@ -19,11 +21,28 @@ type: replenishment
 
 ## 入口与范围
 
-- 本入口及下面的业务步骤用于 Amazon 备货。东南亚备货读取 `southeast-asia-replenishment-workflow-map`；不将上马原始报表接入本流程。用户只说“备货”且上下文无法判断业务模块时，先询问是 Amazon 还是东南亚，不凭国家名称推断。
 - 用户询问流程时解释关系，不执行命令。
+- 用户当前轮明确查询“巴西海外仓”或“马帮巴西海外仓”的库存、库存列表、库存动销、销量、单据、调拨单据、待签或已签数据时，直接进入本 Skill 的 Brazil Overseas 子工作流；不解析 Amazon 店铺、不进入店铺 MSKU 全流程，也不生成补货建议。
 - 用户说“帮某店铺做备货/生成补货建议”且未限制只做单步时，承担完整任务，默认重新采集本轮数据；用户明确要求复用时才使用已有合格数据。
 - 仅下载、仅销量分析、仅查库存、仅管理参数或明确基于指定输入计算，属于单步任务。读取对应业务 Skill 后执行，不把单步请求扩大为完整流程。
-- 本入口不重复声明业务命令；每个步骤先读对应 Skill，使用它声明的 CLI。不要为了完整任务一次性加载所有参考文档。
+- 除 frontmatter 中的 Brazil Overseas 子工作流命令外，其他单步业务仍先读对应 Skill，使用它声明的 CLI。不要为了完整任务一次性加载所有参考文档。
+
+## Brazil Overseas 子工作流
+
+本子工作流属于现有 Mabang Skill，不是与马帮并列的全局平台 Skill。“巴西海外仓”天然就是马帮巴西海外仓，不再要求补充马帮名称。当前轮明确给出的 platform、warehouse、intent 或 status 永远优先；历史 transcript/context 只在用户明确说“刚才”“同上”“还是那个”等指代词时补齐当前轮缺失参数，绝不覆盖当前轮已有参数。Runtime 不得翻旧 transcript/context 来决定 Brazil 参数。
+
+```text
+lxeskill replenish brazil-overseas export --warehouse brazil_overseas --export-kind <枚举值>
+```
+
+- 库存、库存列表、库存快照、库存动销或任意销量类表述 → `inventory_sales_snapshot` → 一个马帮原始库存 XLSX。
+- Brazil Overseas 上下文明确时，单据/调拨单据 → `allocation_both` → 固定导出三个月内待签收和三个月前已签收两个 XLS。
+- 待签、未签、待签收、未签收、还没签收、尚未签收 → `allocation_pending_default_3m` → 三个月内待签收 XLS。
+- 已签、已签收、已经签收、签收完成 → `allocation_signed_before_3m` → 三个月前已签收 XLS。
+- 仅“签收”或仅“调拨”且无法判断具体业务对象或状态时，必须返回 `clarification_required`；不得把澄清优先级留给模型猜测。
+- 唯一 command 是 `lxeskill replenish brazil-overseas export`；唯一参数形状是 `warehouse=brazil_overseas` 加一个 `export_kind`：`inventory_sales_snapshot`、`allocation_both`、`allocation_pending_default_3m` 或 `allocation_signed_before_3m`。不手工拼接仓库 ID、Cookie、Token 或下载地址。
+- 成功 terminal 必须是最后一条 `type="result"`，满足 `ok=true` 且 `files` 非空时立刻 `send_files` 并结束：不再读取其他 Skill、fixture、parser 或 transcript，不再启动额外 Provider Turn。成功 terminal 不得同时带 `pending`、`processing`、`next_action=continue` 或 `retry_required=true`。
+- 失败 terminal 必须 `ok=false`，不伪造 files；保留真实、脱敏错误并只说明允许的 recovery。只有 terminal 明确返回 `data.auth_refresh_required=true` 时，才允许 `lxeskill auth refresh` 刷新一次，并仅重试当前失败步骤一次。为 false 或缺失时不得根据 401、403 或错误文本猜认证失效；403、429、风控或导出状态不确定时一律停止，不得重复创建导出任务或重新启动下载。
 
 ## 完整任务
 

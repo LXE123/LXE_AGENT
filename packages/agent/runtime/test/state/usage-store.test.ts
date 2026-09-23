@@ -18,6 +18,8 @@ describe("UsageStore", () => {
       const store = new UsageStore(database);
       store.recordTurn("s1", {
         turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
+        first_selected_skill: "demo-export", wrong_skill_reads: 1, time_to_exec_ms: 2,
+        tool_result_size_bytes: 123, time_to_file_delivery_ms: 4,
         input_tokens: 3, output_tokens: 4, tool_calls: 1, api_calls: 1,
         tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 7 }],
         activations: [], executions: [],
@@ -25,6 +27,11 @@ describe("UsageStore", () => {
       expect(store.toolUsageStats(30)).toEqual([
         expect.objectContaining({ name: "read", calls: 1, errors: 0, duration_ms: 7, turns: 1 }),
       ]);
+      expect(store.exportTurnUsage(30)[0]).toMatchObject({
+        first_selected_skill: "demo-export", wrong_skill_reads: 1, time_to_exec_ms: 2,
+        tool_result_size_bytes: 123, time_to_file_delivery_ms: 4,
+        llm_calls: 1, tool_calls: 1, total_turn_ms: 5,
+      });
     } finally {
       database.close(true);
     }

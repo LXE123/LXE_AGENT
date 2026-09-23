@@ -64,7 +64,7 @@ describe("JSON-RPC boundary", () => {
     expect(() => parseAgentWireMessage("{" )).toThrow(JsonRpcError);
   });
 
-  test("all 13 domain events round trip as notifications without wire IDs or versions", () => {
+  test("all 14 domain events round trip as notifications without wire IDs or versions", () => {
     const scope = { thread_id: "s", turn_id: "t" };
     const events: AgentEvent[] = [
       { type: "item.completed", thread_id: emit.session_id, turn_id: emit.turn_id, payload: emit as unknown as Extract<AgentEvent, { type: "item.completed" }>["payload"] },
@@ -79,6 +79,9 @@ describe("JSON-RPC boundary", () => {
         command: "echo ok", cwd: "/work", started_at: 1, ended_at: 2, duration_sec: 1,
         exit_code: 0, truncated: false, output_tail: "ok",
       } } },
+      { type: "tool.progress", ...scope, payload: {
+        exec_id: `exec_${"a".repeat(32)}`, tool_call_id: "tool", stage: "login_started", message: "正在登录",
+      } },
       { type: "managed_llm.authentication_failed", payload: { provider: "test", model: "model", credential_revision: "a".repeat(64) } },
       { type: "session.changed", thread_id: "s", payload: { changes: ["messages"] } },
       { type: "system.ready", payload: { state: "ready" } },
@@ -88,7 +91,7 @@ describe("JSON-RPC boundary", () => {
       { type: "turn.completed", ...scope, payload: {} },
       { type: "turn.failed", ...scope, payload: { error: "actual failure" } },
     ];
-    expect(new Set(events.map((event) => event.type)).size).toBe(13);
+    expect(new Set(events.map((event) => event.type)).size).toBe(14);
     for (const event of events) {
       const wire = encodeAgentEvent(event);
       expect(Object.keys(wire).sort()).toEqual(["jsonrpc", "method", "params"]);

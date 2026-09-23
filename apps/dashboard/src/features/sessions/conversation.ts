@@ -165,6 +165,14 @@ export function hasLiveToolOperationDetails(step: unknown): boolean {
   return Boolean(detail || result || error);
 }
 
+/** Only display the bounded, nonsecret TMS status while its exec is running. */
+export function liveZhihuiProgress(step: unknown): string {
+  if (!isRecord(step) || step.name !== "exec" || step.status !== "running") return "";
+  const block = step.result_block;
+  if (!isRecord(block) || block.language !== "text" || typeof block.content !== "string") return "";
+  return block.content.startsWith("智汇 TMS：") && block.content.length <= 120 ? block.content : "";
+}
+
 export type ToolAction =
   | "read"
   | "edit"

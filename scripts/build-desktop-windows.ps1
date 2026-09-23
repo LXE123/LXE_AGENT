@@ -234,6 +234,7 @@ try {
     Invoke-LxeDesktopTimedAction -Label "Build current LXE project wheel" -Action {
         Build-LxeDesktopProjectWheel
     }
+    New-Item -ItemType Directory -Path (Join-Path $repositoryRoot "dist\agent-cli") -Force | Out-Null
     Invoke-LxeDesktopBuildStep -Label "Compile private agent-cli" -Arguments @("run", "agent-cli:compile")
     Invoke-LxeDesktopBuildStep -Label "Build Dashboard and Electron" -Arguments @("run", "desktop:build")
     Invoke-LxeDesktopBuildStep -Label "Prepare direct desktop publish inputs" -Arguments @("run", "desktop:resources")

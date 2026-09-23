@@ -42,7 +42,7 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 9;
+  schema_version: 10;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
@@ -65,9 +65,17 @@ export interface DesktopConfig {
       app_path: string;
       webdriver_path: string;
     };
-    shangman: { managed: boolean; tenant_id: string; username: string; revision: string };
     mabang: { managed: boolean; account: string };
+    yacang: { managed: boolean; mobile: string; production_enabled: boolean };
+    zhihui_tms: { managed: boolean; account: string; production_enabled: boolean };
     feishu: { managed: boolean; app_id: string };
+    shangman: {
+      managed: boolean;
+      tenant_id: string;
+      username: string;
+      revision: string;
+      production_enabled: boolean;
+    };
   };
   logging: {
     profile: DesktopLogProfile;
@@ -79,18 +87,35 @@ export interface DesktopConfig {
     device_name: string;
     vpn_ip: string;
     data_server_url: string;
+    local_fallback_enabled: boolean;
+    local_fallback_url: string;
     tunnel_name: string;
     switch_in_progress: boolean;
   };
 }
 
+export interface ZhihuiTmsSessionRecord {
+  account_fingerprint: string;
+  api_token: string;
+  saved_at: number;
+}
+
 export interface DesktopSecrets {
   ziniao_password: string;
-  shangman_processed_password: string;
   mabang_password: string;
+  yacang_password: string;
+  zhihui_tms_password: string;
+  zhihui_tms_session: ZhihuiTmsSessionRecord | null;
   feishu_app_secret: string;
+  shangman_processed_password: string;
   data_server_api_key: string;
   cloud_identity_candidate: string;
+  cloud_business_token: string;
+  cloud_business_erp_token: string;
+  cloud_business_expires_at: number;
+  data_server_fallback_api_key: string;
+  erp_api_key: string;
+  saihu_mcp_api_key: string;
   cloud_permission_snapshot: DesktopCloudPermissionSnapshot | null;
   cloud_observed_device: DesktopObservedDevice | null;
   cloud_wireguard: WireGuardTunnelConfiguration | null;
@@ -101,7 +126,7 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 5;
 
-export const SETTINGS_SCHEMA_VERSION = 9 as const;
+export const SETTINGS_SCHEMA_VERSION = 10 as const;
 
 const developmentCatalog = (): LlmProviderCatalog => loadLlmProviderCatalog(
   join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
@@ -135,9 +160,11 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
         app_path: "",
         webdriver_path: "",
       },
-      shangman: { managed: false, tenant_id: "", username: "", revision: "" },
       mabang: { managed: false, account: "" },
+      yacang: { managed: false, mobile: "", production_enabled: false },
+      zhihui_tms: { managed: false, account: "", production_enabled: false },
       feishu: { managed: false, app_id: "" },
+      shangman: { managed: false, tenant_id: "", username: "", revision: "", production_enabled: false },
     },
     logging: { profile: "standard", retention_days: 7 },
     cloud: {
@@ -146,6 +173,8 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
       device_name: "",
       vpn_ip: "",
       data_server_url: "",
+      local_fallback_enabled: false,
+      local_fallback_url: "",
       tunnel_name: "lxe-agent",
       switch_in_progress: false,
     },
@@ -154,11 +183,20 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
 
 const DEFAULT_SECRETS: DesktopSecrets = {
   ziniao_password: "",
-  shangman_processed_password: "",
   mabang_password: "",
+  yacang_password: "",
+  zhihui_tms_password: "",
+  zhihui_tms_session: null,
   feishu_app_secret: "",
+  shangman_processed_password: "",
   data_server_api_key: "",
   cloud_identity_candidate: "",
+  cloud_business_token: "",
+  cloud_business_erp_token: "",
+  cloud_business_expires_at: 0,
+  data_server_fallback_api_key: "",
+  erp_api_key: "",
+  saihu_mcp_api_key: "",
   cloud_permission_snapshot: null,
   cloud_observed_device: null,
   cloud_wireguard: null,
@@ -194,7 +232,7 @@ export const cloneConfig = (catalog: LlmProviderCatalog = developmentCatalog()):
   structuredClone(defaultConfig(catalog));
 export const cloneSecrets = (): DesktopSecrets => structuredClone(DEFAULT_SECRETS);
 
-const secretFieldPattern = /(?:secret|password|api[_-]?key|token)/iu;
+const secretFieldPattern = /(?:secret|password|api[_-]?key|token|basic[_-]?auth)/iu;
 
 const assertNoSecretFields = (value: unknown, path = "settings"): void => {
   if (value === null || typeof value !== "object") return;
@@ -237,7 +275,8 @@ export const parseSettings = (
 ): DesktopConfig => {
   const value = objectValue(raw);
   if (value.schema_version !== 4 && value.schema_version !== 5
-    && value.schema_version !== 6 && value.schema_version !== 7 && value.schema_version !== 8
+    && value.schema_version !== 6 && value.schema_version !== 7
+    && value.schema_version !== 8 && value.schema_version !== 9
     && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
@@ -276,8 +315,9 @@ export const parseSettings = (
       ? ["kimi_coding", "deepseek"]
       : ["kimi_coding", "deepseek", "glm"];
     const validProviderName = /^[A-Za-z0-9_-]{1,128}$/u.test(name);
-    if ((Number(value.schema_version) >= 8 && !validProviderName)
-      || (Number(value.schema_version) < 8 && !acceptedLegacyProviders.includes(name))) {
+    if (value.schema_version >= 8
+      ? !validProviderName
+      : !acceptedLegacyProviders.includes(name)) {
       throw new Error(`settings.llm.profiles.${name} is not a supported setting`);
     }
     const profileValue = objectValue(profile);
@@ -293,26 +333,43 @@ export const parseSettings = (
   }
   const integrations = objectValue(value.integrations);
   const ziniao = objectValue(integrations.ziniao);
-  const shangman = objectValue(integrations.shangman);
-  // Accept the retired switch in existing v9 files; normalization drops it on save.
-  assertOnlyFields(shangman, ["managed", "tenant_id", "username", "production_enabled", "revision"], "settings.integrations.shangman");
-  if (Number(value.schema_version) >= 9 || Object.keys(shangman).length > 0) {
-    assertFieldTypes(shangman, { managed: "boolean", tenant_id: "string", username: "string", revision: "string" }, "settings.integrations.shangman");
-  }
   const mabang = objectValue(integrations.mabang);
+  const yacang = objectValue(integrations.yacang);
+  const zhihuiTms = objectValue(integrations.zhihui_tms);
   const feishu = objectValue(integrations.feishu);
-  assertOnlyFields(integrations, ["ziniao", "mabang", "feishu", "shangman"], "settings.integrations");
+  const shangman = objectValue(integrations.shangman);
+  assertOnlyFields(integrations, ["ziniao", "mabang", "yacang", "zhihui_tms", "feishu", "shangman"], "settings.integrations");
   assertOnlyFields(ziniao, [
     "managed", "company", "username", "app_version", "app_path", "webdriver_path",
   ], "settings.integrations.ziniao");
   assertOnlyFields(mabang, ["managed", "account"], "settings.integrations.mabang");
+  assertOnlyFields(yacang, ["managed", "mobile", "production_enabled"], "settings.integrations.yacang");
+  assertOnlyFields(zhihuiTms, ["managed", "account", "production_enabled"], "settings.integrations.zhihui_tms");
   assertOnlyFields(feishu, ["managed", "app_id"], "settings.integrations.feishu");
+  assertOnlyFields(shangman, ["managed", "tenant_id", "username", "revision", "production_enabled"], "settings.integrations.shangman");
   assertFieldTypes(ziniao, {
     managed: "boolean", company: "string", username: "string", app_version: "string",
     app_path: "string", webdriver_path: "string",
   }, "settings.integrations.ziniao");
   assertFieldTypes(mabang, { managed: "boolean", account: "string" }, "settings.integrations.mabang");
+  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+    assertFieldTypes(yacang, { managed: "boolean", mobile: "string" }, "settings.integrations.yacang");
+  }
+  if (yacang.production_enabled !== undefined && typeof yacang.production_enabled !== "boolean") {
+    throw new Error("settings.integrations.yacang.production_enabled must be a boolean");
+  }
+  if (integrations.zhihui_tms !== undefined) {
+    assertFieldTypes(zhihuiTms, {
+      managed: "boolean", account: "string", production_enabled: "boolean",
+    }, "settings.integrations.zhihui_tms");
+  }
   assertFieldTypes(feishu, { managed: "boolean", app_id: "string" }, "settings.integrations.feishu");
+  if (value.schema_version >= SETTINGS_SCHEMA_VERSION || Object.keys(shangman).length > 0) {
+    assertFieldTypes(shangman, {
+      managed: "boolean", tenant_id: "string", username: "string",
+      ...(value.schema_version >= SETTINGS_SCHEMA_VERSION ? { production_enabled: "boolean" as const } : {}),
+    }, "settings.integrations.shangman");
+  }
   const logging = objectValue(value.logging);
   const cloud = objectValue(value.cloud);
   assertOnlyFields(logging, ["profile", "retention_days"], "settings.logging");
@@ -323,7 +380,8 @@ export const parseSettings = (
   assertFieldTypes(logging, { profile: "string", retention_days: "number" }, "settings.logging");
   assertFieldTypes(cloud, {
     managed: "boolean", device_id: "string", device_name: "string", vpn_ip: "string",
-    data_server_url: "string", tunnel_name: "string",
+    data_server_url: "string", local_fallback_enabled: "boolean", local_fallback_url: "string",
+    tunnel_name: "string",
   }, "settings.cloud");
   if (Number(value.schema_version) >= 7) {
     assertFieldTypes(cloud, { switch_in_progress: "boolean" }, "settings.cloud");
@@ -343,9 +401,11 @@ export const parseConfig = (
   const rawProfiles = objectValue(rawLlm.profiles);
   const integrations = objectValue(value.integrations);
   const rawZiniao = objectValue(integrations.ziniao);
-  const rawShangman = objectValue(integrations.shangman);
   const rawMabang = objectValue(integrations.mabang);
+  const rawYacang = objectValue(integrations.yacang);
+  const rawZhihuiTms = objectValue(integrations.zhihui_tms);
   const rawFeishu = objectValue(integrations.feishu);
+  const rawShangman = objectValue(integrations.shangman);
   const rawLogging = objectValue(value.logging);
   const rawCloud = objectValue(value.cloud);
   const rawOutputDirectories = objectValue(value.output_directories);
@@ -418,18 +478,30 @@ export const parseConfig = (
         app_path: text(rawZiniao.app_path),
         webdriver_path: text(rawZiniao.webdriver_path),
       },
-      shangman: {
-        managed: Boolean(rawShangman.managed), tenant_id: text(rawShangman.tenant_id),
-        username: text(rawShangman.username),
-        revision: text(rawShangman.revision),
-      },
       mabang: {
         managed: Boolean(rawMabang.managed),
         account: text(rawMabang.account),
       },
+      yacang: {
+        managed: Boolean(rawYacang.managed),
+        mobile: text(rawYacang.mobile),
+        production_enabled: Boolean(rawYacang.production_enabled),
+      },
+      zhihui_tms: {
+        managed: Boolean(rawZhihuiTms.managed),
+        account: text(rawZhihuiTms.account),
+        production_enabled: rawZhihuiTms.production_enabled === true,
+      },
       feishu: {
         managed: Boolean(rawFeishu.managed) || Boolean(legacyFeishuAppId),
         app_id: text(rawFeishu.app_id) || legacyFeishuAppId,
+      },
+      shangman: {
+        managed: Boolean(rawShangman.managed),
+        tenant_id: text(rawShangman.tenant_id),
+        username: text(rawShangman.username),
+        revision: text(rawShangman.revision),
+        production_enabled: rawShangman.production_enabled === true,
       },
     },
     logging: {
@@ -442,6 +514,8 @@ export const parseConfig = (
       device_name: text(rawCloud.device_name),
       vpn_ip: text(rawCloud.vpn_ip),
       data_server_url: text(rawCloud.data_server_url),
+      local_fallback_enabled: Boolean(rawCloud.local_fallback_enabled),
+      local_fallback_url: text(rawCloud.local_fallback_url),
       tunnel_name: text(rawCloud.tunnel_name) || "lxe-agent",
       switch_in_progress: Boolean(rawCloud.switch_in_progress),
     },
@@ -450,6 +524,22 @@ export const parseConfig = (
 
 export const parseSecrets = (raw: unknown): DesktopSecrets => {
   const value = objectValue(raw);
+  const zhihuiSession = objectValue(value.zhihui_tms_session);
+  const zhihuiSessionFingerprint = text(zhihuiSession.account_fingerprint);
+  const zhihuiSessionToken = text(zhihuiSession.api_token);
+  const zhihuiSessionSavedAt = Number(zhihuiSession.saved_at);
+  const parsedZhihuiSession: ZhihuiTmsSessionRecord | null =
+    /^[a-f0-9]{64}$/u.test(zhihuiSessionFingerprint)
+      && zhihuiSessionToken.length > 0
+      && zhihuiSessionToken.length <= 8_192
+      && Number.isSafeInteger(zhihuiSessionSavedAt)
+      && zhihuiSessionSavedAt > 0
+      ? {
+          account_fingerprint: zhihuiSessionFingerprint,
+          api_token: zhihuiSessionToken,
+          saved_at: zhihuiSessionSavedAt,
+        }
+      : null;
   const managedCredential = objectValue(value.managed_llm_credential);
   const revision = text(managedCredential.credential_revision).toLowerCase();
   const invalidRevision = text(managedCredential.invalid_revision).toLowerCase();
@@ -473,11 +563,20 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
       : null;
   return {
     ziniao_password: text(value.ziniao_password),
-    shangman_processed_password: text(value.shangman_processed_password),
     mabang_password: text(value.mabang_password),
+    yacang_password: text(value.yacang_password),
+    zhihui_tms_password: text(value.zhihui_tms_password),
+    zhihui_tms_session: parsedZhihuiSession,
     feishu_app_secret: text(value.feishu_app_secret),
+    shangman_processed_password: text(value.shangman_processed_password),
     data_server_api_key: text(value.data_server_api_key),
     cloud_identity_candidate: text(value.cloud_identity_candidate),
+    cloud_business_token: text(value.cloud_business_token),
+    cloud_business_erp_token: text(value.cloud_business_erp_token),
+    cloud_business_expires_at: Number(value.cloud_business_expires_at) || 0,
+    data_server_fallback_api_key: text(value.data_server_fallback_api_key),
+    erp_api_key: text(value.erp_api_key),
+    saihu_mcp_api_key: text(value.saihu_mcp_api_key),
     cloud_permission_snapshot: parseStoredDevicePermission(
       value.cloud_permission_snapshot,
     ),

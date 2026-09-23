@@ -1,0 +1,11 @@
+{
+  "code": "200",
+  "msg": "成功",
+  "data": {
+    "id": 12,
+    "supplierId": 34,
+    "customerId": 56,
+    "roleId": 78,
+    "apiToken": "fixture-api-token"
+  }
+}

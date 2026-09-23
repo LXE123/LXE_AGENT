@@ -205,19 +205,26 @@ describe("preload bridge", () => {
       IPC_CHANNELS.confirmCloudDevice,
       IPC_CHANNELS.refreshCloudContext,
     ]);
-    expect(invocations.find(call => call.channel === IPC_CHANNELS.stageDroppedConversationFiles)?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[22]?.arguments).toEqual([["attachment-1"]]);
-    expect(invocations[23]?.arguments).toEqual(["attachment-1"]);
-    expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
-    expect(invocations[2]?.arguments).toEqual(["deepseek"]);
-    expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[8]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[16]?.arguments).toEqual([{
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.stageDroppedConversationFiles)?.arguments)
+      .toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.discardConversationFiles)?.arguments)
+      .toEqual([["attachment-1"]]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.previewDraftConversationFile)?.arguments)
+      .toEqual(["attachment-1"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.saveLocalModelCredential)?.arguments)
+      .toEqual([{ provider: "deepseek", api_key: "local-key" }]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.deleteLocalModelCredential)?.arguments)
+      .toEqual(["deepseek"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.activateCloudEnrollment)?.arguments)
+      .toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.openCloudDestination)?.arguments)
+      .toEqual(["erp_dashboard"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.startSyntheticPerformerTask)?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,
     }]);
-    expect(invocations[12]?.arguments).toEqual(["dark"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.applyAppearance)?.arguments).toEqual(["dark"]);
   });
 });
 

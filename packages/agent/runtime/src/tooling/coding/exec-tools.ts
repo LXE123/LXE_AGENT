@@ -142,7 +142,7 @@ export interface ExecToolDependencies {
   maxOutputBytes: number;
   options: Pick<
     CodingToolOptions,
-    "businessCommands" | "businessCommandCatalog" | "execEnv" | "lxeSkillStatus"
+    "businessCommands" | "businessCommandCatalog" | "execEnv" | "lxeSkillStatus" | "confirmLxeSkillCommand"
   >;
 }
 
@@ -239,6 +239,26 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           throw new Error(`yield-time-ms must be between ${MIN_EXEC_YIELD_MS} and ${MAX_EXEC_YIELD_MS} milliseconds`);
         }
         const maxOutputTokens = outputTokenBudget(input);
+        const invocation = classifyLxeSkillInput(input, businessCommands, businessAttributions);
+        const commandDefinition = invocation
+          ? commandCatalog.find(entry => entry.command === invocation.command)
+          : undefined;
+        if (invocation && commandDefinition?.confirmation) {
+          if (!options.confirmLxeSkillCommand) throw new ToolExecutionError(
+            "failed_precondition", "This business command requires a desktop confirmation gate",
+          );
+          const accepted = await options.confirmLxeSkillCommand({
+            confirmation: commandDefinition.confirmation,
+            command: rawCommand.trim().replaceAll(/\s+/gu, " "),
+            commandId: invocation.commandId,
+            sessionId: context.session_id,
+            turnId: context.turn_id ?? "",
+            toolCallId: context.tool_call_id ?? "",
+            ...(context.platform === undefined ? {} : { platform: context.platform }),
+            signal: context.handle.signal,
+          });
+          if (!accepted) return { content: [{ type: "text", text: JSON.stringify({ status: "cancelled", command: invocation.command }) }] };
+        }
         const command = execShell.normalizeCommand(context.workspace.worktree, rawCommand);
         const payload = await processes.execute({
           command,
@@ -249,8 +269,15 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           yieldMs,
           signal: context.handle.signal,
           toolCallId: context.tool_call_id ?? "",
+          ...(invocation ? { progressCommand: invocation.commandId } : {}),
           ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
-          ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [] }) } : {}),
+          ...(options.execEnv ? {
+            env: options.execEnv({
+              skillNames: context.skill_names ?? [],
+              sessionId: context.session_id,
+              turnId: context.turn_id ?? "",
+            }),
+          } : {}),
         });
         return await commandResult(
           payload,

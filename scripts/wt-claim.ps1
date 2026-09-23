@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)][string]$Command,
-    [Parameter(Position = 1)][string]$TaskSlug
+    [Parameter(Position = 1)][string]$TaskSlug,
+    [Parameter()][string]$BaseRef = "main"
 )
 
 Set-StrictMode -Version Latest
@@ -102,9 +103,12 @@ try {
     }
 
     $slug = $Command
-    if ([string]::IsNullOrWhiteSpace($slug)) { throw "usage: wt-claim <task-slug> | release <task-slug> | status" }
+    if ([string]::IsNullOrWhiteSpace($slug)) { throw "usage: wt-claim <task-slug> [-BaseRef <ref>] | release <task-slug> | status" }
     if ($slug -notmatch "^[a-z0-9][a-z0-9-]*$") { throw "task slug must be kebab-case: $slug" }
     $branchName = "codex/$slug"
+    $baseResult = Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("rev-parse", "--verify", "$BaseRef^{commit}") -AllowFailure
+    if ($baseResult.ExitCode -ne 0) { throw "base ref does not resolve to a commit: $BaseRef" }
+    $baseCommit = ([string]($baseResult.Output -join "")).Trim()
 
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
@@ -125,7 +129,7 @@ try {
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
-            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--detach", $directory, "main") | Out-Null
+            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--detach", $directory, $baseCommit) | Out-Null
         }
         elseif (Get-LxeSlotSlug $directory) {
             continue
@@ -138,7 +142,7 @@ try {
             Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", $branchName) | Out-Null
         }
         else {
-            Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "-b", $branchName, "main") | Out-Null
+            Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "-b", $branchName, $baseCommit) | Out-Null
         }
         [System.IO.File]::WriteAllText("$directory.claim", "$slug`n", [System.Text.UTF8Encoding]::new($false))
         Sync-LxeWorktreeDependencies $directory

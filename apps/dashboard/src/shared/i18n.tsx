@@ -580,7 +580,9 @@ export const ZH_TEXT = {
     default: "默认",
     amazon_fba: "Amazon FBA",
     replenishment: "备货",
+    amazon_replenish: "Amazon Replenish",
     amazon_operations: "Amazon Operations",
+    yacang_operations: "雅仓运营",
     uncategorized: "未分类"
   },
   mermaid: {
@@ -645,8 +647,10 @@ export const ZH_TEXT = {
     integrationNames: {
       ziniao: "紫鸟",
       mabang: "马帮",
-      shangman: "上马",
-      feishu: "飞书"
+      yacang: "雅仓",
+      zhihui_tms: "智汇 TMS",
+      feishu: "飞书",
+      shangman: "上马印尼"
     },
     sectionTitles: {
       status: "运行状态",
@@ -655,8 +659,10 @@ export const ZH_TEXT = {
       base: "模型设置",
       ziniao: "紫鸟自动化",
       mabang: "马帮",
-      shangman: "上马 ERP",
+      yacang: "雅仓",
+      zhihui_tms: "智汇 TMS",
       feishu: "飞书",
+      shangman: "上马印尼",
       logging: "日志与排障"
     },
     status: {
@@ -806,20 +812,41 @@ export const ZH_TEXT = {
       webdriverPlaceholder: "驱动可以在首次运行时自动下载",
       selectWebdriver: "选择驱动目录"
     },
-    shangman: {
-      description: "配置上马 ERP 登录。验证码由 AI 读取；登录态保存在本机，供后续任务复用。",
-      tenantId: "ID", username: "上马账号", password: "上马密码",
-    },
     mabang: {
       description: "账号与密码必须成对填写；整组留空即可跳过。",
       account: "马帮账号",
       password: "马帮密码",
       passwordPlaceholder: "输入马帮密码"
     },
+    yacang: {
+      description: "填写账号和密码，用于导出雅仓数据。",
+      mobile: "雅仓账号",
+      password: "雅仓密码",
+      passwordPlaceholder: "输入雅仓密码",
+      productionEnabled: "启用雅仓生产 API 调用",
+      productionEnabledDescription: "仅在账号配置完成且确认要访问生产接口时开启。"
+    },
+    zhihui_tms: {
+      description: "用于导出智汇 TMS 菲律宾商品数据。",
+      account: "智汇 TMS 账号",
+      password: "智汇 TMS 密码",
+      passwordPlaceholder: "输入智汇 TMS 密码",
+      productionEnable: "启用智汇 TMS 生产 API 调用",
+      productionEnableHint: "仅在账号配置完成且确认需要访问生产接口时开启"
+    },
     feishu: {
       description: "App ID 与 App Secret 必须成对填写；整组留空即可跳过。",
       appSecret: "App Secret",
       appSecretPlaceholder: "输入 App Secret"
+    },
+    shangman: {
+      description: "填写 ID、账号和密码，用于导出上马印尼商品数据。",
+      tenantId: "ID",
+      username: "账号",
+      processedPassword: "密码",
+      processedPasswordPlaceholder: "输入密码",
+      productionLabel: "启用上马印尼生产 API 调用",
+      productionDescription: "仅在账号配置完成且确认要访问生产接口时开启。"
     },
     logging: {
       description: "标准日志适合长期运行，排障日志仅建议在复现问题时开启。",
@@ -1446,7 +1473,9 @@ export const UI_TEXT: Record<Language, UiText> = {
       default: "Default",
       amazon_fba: "Amazon FBA",
       replenishment: "Replenishment",
+      amazon_replenish: "Amazon Replenish",
       amazon_operations: "Amazon Operations",
+      yacang_operations: "Yacang Operations",
       uncategorized: "Uncategorized"
     },
     mermaid: {
@@ -1511,8 +1540,10 @@ export const UI_TEXT: Record<Language, UiText> = {
       integrationNames: {
         ziniao: "ZiNiao",
         mabang: "Mabang",
-        shangman: "Shangman ERP",
-        feishu: "Feishu"
+        yacang: "Yacang",
+        zhihui_tms: "Zhihui TMS",
+        feishu: "Feishu",
+        shangman: "Shangman Indonesia"
       },
       sectionTitles: {
         status: "Runtime status",
@@ -1521,8 +1552,10 @@ export const UI_TEXT: Record<Language, UiText> = {
         base: "Model settings",
         ziniao: "ZiNiao automation",
         mabang: "Mabang",
-        shangman: "Shangman ERP",
+        yacang: "Yacang data export",
+        zhihui_tms: "Zhihui TMS",
         feishu: "Feishu",
+        shangman: "Shangman Indonesia",
         logging: "Logs & diagnostics"
       },
       status: {
@@ -1672,20 +1705,41 @@ export const UI_TEXT: Record<Language, UiText> = {
         webdriverPlaceholder: "The driver can be downloaded automatically on first run",
         selectWebdriver: "Choose the driver directory"
       },
-      shangman: {
-        description: "Configure Shangman ERP login. AI reads the captcha; login state is saved locally for later tasks.",
-        tenantId: "Tenant ID", username: "Shangman ERP account", password: "Shangman ERP password",
-      },
       mabang: {
         description: "Account and password must be filled in together; leave the whole group blank to skip.",
         account: "Mabang account",
         password: "Mabang password",
         passwordPlaceholder: "Enter the Mabang password"
       },
+      yacang: {
+        description: "Enter the account and password to export Yacang data.",
+        mobile: "Yacang account",
+        password: "Yacang password",
+        passwordPlaceholder: "Enter the Yacang password",
+        productionEnabled: "Enable Yacang production API calls",
+        productionEnabledDescription: "Enable only after the account is configured and production access is confirmed."
+      },
+      zhihui_tms: {
+        description: "Used to export Zhihui TMS Philippines product data.",
+        account: "Zhihui TMS account",
+        password: "Zhihui TMS password",
+        passwordPlaceholder: "Enter the Zhihui TMS password",
+        productionEnable: "Enable Zhihui TMS production API calls",
+        productionEnableHint: "Enable only after the account is configured and production access is confirmed"
+      },
       feishu: {
         description: "App ID and App Secret must be filled in together; leave the whole group blank to skip.",
         appSecret: "App Secret",
         appSecretPlaceholder: "Enter the App Secret"
+      },
+      shangman: {
+        description: "Enter the ID, username, and password to export Shangman Indonesia data.",
+        tenantId: "ID",
+        username: "Username",
+        processedPassword: "Password",
+        processedPasswordPlaceholder: "Enter the password",
+        productionLabel: "Enable Shangman production API calls",
+        productionDescription: "Enable only after credentials are configured and production access is intended."
       },
       logging: {
         description: "Standard logs suit long-term use; enable diagnostic logs only while reproducing an issue.",

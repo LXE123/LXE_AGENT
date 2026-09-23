@@ -1,6 +1,6 @@
 ---
 name: southeast-asia-replenishment-workflow-map
-description: 东南亚备货流程与数据准备入口。用户要求准备东南亚备货数据、完成东南亚备货或了解其步骤与缺失数据时使用；当前接通上马 ERP 原始商品、库存及销量报表采集，尚未接通数据整理和备货计算。明确只导出上马报表时使用 shangman-goods-export。
+description: 东南亚备货流程与数据准备入口。用户要求准备东南亚备货数据、完成东南亚备货或了解其步骤与缺失数据时使用；当前接通上马 ERP 原始商品、库存及销量报表采集，尚未接通数据整理和备货计算。明确只导出上马报表时使用 shangman-goods-export-workflow-map。
 type: replenishment
 ---
 
@@ -11,17 +11,17 @@ type: replenishment
 - 用户只询问流程时解释当前能力，不执行采集。
 - 用户要求准备东南亚备货数据时，完成下面的数据采集与交付。要求完整东南亚备货时，先说明目前只能完成数据采集，再完成已授权的这一阶段；不把原始报表称为备货建议。
 - 按用户明确的业务模块和已有上下文选择流程。只说“备货”且无法判断业务范围时，询问是 Amazon 还是东南亚，不凭国家名称推断所属模块。Amazon 备货使用 `replenishment-workflow-map`。
-- 用户只要求上马导出或登录时，分别读取 `shangman-goods-export` 或 `shangman-login`，不扩大为完整备货任务。
+- 用户只要求上马导出或登录时，分别读取 `shangman-goods-export-workflow-map` 或 `shangman-login`，不扩大为完整备货任务。
 
 ## 当前数据源与衔接
 
 | 数据来源 | 用途 | 采集 Skill | 实际产出 | 后续使用 |
 |---|---|---|---|---|
-| 上马 ERP | 当前配置账号可见的商品、库存和销量数据 | `shangman-goods-export` | 一份平台原始 XLSX，以及文件路径、工作表和数据行数 | 本入口交付采集结果；整理与备货计算尚未接通 |
+| 上马 ERP | 当前配置账号可见的商品、库存和销量数据 | `shangman-goods-export-workflow-map` | 一份平台原始 XLSX | 本入口交付采集结果；整理与备货计算尚未接通 |
 
 `shangman-login` 为上马数据采集提供认证支持；需要登录时由导出 Skill 衔接，成功后回到导出步骤。登录本身不产生业务数据。
 
-1. 读取 `shangman-goods-export`，按其声明的 CLI 获取本轮原始报表。平台返回当前账号可见的全量数据，不承诺指定国家、店铺、仓库或日期的筛选；用户有筛选要求时遵守导出 Skill 的范围确认规则。
+1. 读取 `shangman-goods-export-workflow-map`，按其固定 Contract 获取本轮原始报表。平台返回当前账号可见的商品全量数据，不承诺指定日期、仓库或历史快照筛选。
 2. 已有有效登录态可以直接复用，不先重复登录。认证恢复、运行等待及错误处理都遵守对应 Skill，不套用马帮的 `lxeskill auth refresh`。
 3. 接收最后一条 terminal 的 `ok`、`data` 和 `files`，保留实际文件路径、工作表、行数及本轮来源。不猜路径，不将导出时间声称为平台数据更新时间。
 4. 当前流程到原始数据采集为止。由本入口调用一次 `send_files(paths=<terminal.files>)`，只交付该次导出的原始 XLSX；导出步骤已经交付时不重复发送。

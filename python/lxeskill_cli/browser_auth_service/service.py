@@ -34,7 +34,7 @@ FBA_HOME_URL = "https://private.mabangerp.com/"
 FBA_LOGISTICS_TOKEN_TARGET_URL = "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
 FBA_LOGISTICS_TOKEN_ORIGIN = "https://amz1-private.mabangerp.com"
 FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY = "freeToken"
-FBA_LOGISTICS_TOKEN_WAIT_SECONDS = 10
+FBA_LOGISTICS_TOKEN_WAIT_SECONDS = 30
 FBA_LOGISTICS_TOKEN_POLL_INTERVAL_MS = 250
 FBA_LOGISTICS_WMS_HOST = "wms.private.mabangerp.com"
 FBA_LOGISTICS_WMS_ENTRY_TEXT = "马帮WMS系统"
@@ -799,6 +799,41 @@ def _clear_state_file(state_file: Path) -> None:
     state_file.unlink(missing_ok=True)
 
 
+def _refresh_backup_path(state_file: Path) -> Path:
+    return state_file.with_name(f".{state_file.name}.refresh-backup")
+
+
+def _preserve_state_for_refresh(state_file: Path) -> Path:
+    """Move the last known-good state aside before a clean refresh.
+
+    A leftover backup means a previous refresh stopped before it could be
+    reconciled, so it still holds the newest usable state and must be kept.
+    """
+    backup_path = _refresh_backup_path(state_file)
+    if state_file.exists():
+        os.replace(state_file, backup_path)
+    return backup_path
+
+
+def _restore_state_after_failed_refresh(state_file: Path, backup_path: Path) -> None:
+    """Restore the previous state without exposing it to the refresh browser."""
+    if not backup_path.exists():
+        return
+    try:
+        state_file.unlink(missing_ok=True)
+        os.replace(backup_path, state_file)
+    except Exception as exc:
+        logger.error(
+            f"[BrowserAuth] 刷新失败后恢复认证状态失败: file={state_file}, error={_diagnostic(exc)}"
+        )
+        return
+    logger.warning(f"[BrowserAuth] 刷新失败，已恢复上一份认证状态: file={state_file}")
+
+
+def _discard_refresh_backup(backup_path: Path) -> None:
+    backup_path.unlink(missing_ok=True)
+
+
 def _launch_chromium(playwright, *, headless: bool):
     """Launch the explicitly bound browser in an independent temporary profile."""
     return playwright.chromium.launch(executable_path=bound_executable(), headless=headless)
@@ -966,6 +1001,7 @@ def _refresh_auth(
     stage = "browser"
     stage_started_at = time.monotonic()
     page = None
+    backup_path = _preserve_state_for_refresh(state_file)
     try:
         _clear_state_file(state_file)
         with ExitStack() as browser_resources:
@@ -1036,14 +1072,18 @@ def _refresh_auth(
             )
             _log_refresh_stage(stage=stage, status="success", current_url=final_url, started_at=stage_started_at)
     except BrowserAuthRefreshError:
+        _restore_state_after_failed_refresh(state_file, backup_path)
         raise
     except Exception as exc:
+        _restore_state_after_failed_refresh(state_file, backup_path)
         raise _refresh_error(
             stage=stage,
             current_url=_page_url(page),
             cause=exc,
             started_at=stage_started_at,
         ) from exc
+    else:
+        _discard_refresh_backup(backup_path)
 
     return {
         "success": True,

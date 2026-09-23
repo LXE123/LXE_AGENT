@@ -357,6 +357,21 @@ function Expand-LxeArchiveFresh {
         Remove-Item -LiteralPath $Destination -Recurse -Force
     }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    # Windows PowerShell's Expand-Archive can fail while cleaning a valid
+    # Node ZIP's extracted entries (for example CHANGELOG.md). The managed
+    # fd preparation already requires the Windows tar.exe, so use the same
+    # extractor for every runtime ZIP and keep the fallback only for hosts
+    # where tar.exe is unavailable.
+    $tarCommand = Get-Command tar.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -ne $tarCommand) {
+        Invoke-LxeNative `
+            -Label "Extract archive" `
+            -FilePath $tarCommand.Source `
+            -Arguments @("-xf", $Archive, "-C", $Destination) `
+            -TimeoutSeconds 300 `
+            -Quiet | Out-Null
+        return
+    }
     Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
 }
 

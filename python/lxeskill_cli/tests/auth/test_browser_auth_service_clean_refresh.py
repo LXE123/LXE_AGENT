@@ -190,6 +190,7 @@ def test_refresh_always_runs_one_complete_clean_route(tmp_path: Path, monkeypatc
     assert "storage_state" not in context_calls[0]
     saved_payload = json.loads(state_file.read_text(encoding="utf-8"))
     assert service._require_complete_auth_material(saved_payload)
+    assert not service._refresh_backup_path(state_file).exists()
     assert result == {
         "success": True,
         "account": "account-a",
@@ -319,7 +320,8 @@ def test_wms_failure_reports_stage_and_leaves_no_state(tmp_path: Path, monkeypat
         "playwright-exit",
     ]
     assert context.storage_state_calls == 0
-    assert not state_file.exists()
+    assert json.loads(state_file.read_text(encoding="utf-8"))["origins"][0]["localStorage"][0]["value"] == "old-token"
+    assert not service._refresh_backup_path(state_file).exists()
 
 
 def test_final_state_is_validated_before_atomic_write(tmp_path: Path, monkeypatch) -> None:
@@ -339,7 +341,28 @@ def test_final_state_is_validated_before_atomic_write(tmp_path: Path, monkeypatc
     assert captured.value.stage == "persist"
     assert "freeToken(missing)" in str(captured.value)
     assert context.storage_state_calls == 1
-    assert not state_file.exists()
+    assert json.loads(state_file.read_text(encoding="utf-8"))["origins"][0]["localStorage"][0]["value"] == "old-token"
+    assert not service._refresh_backup_path(state_file).exists()
+
+
+def test_leftover_backup_is_restored_when_a_previous_refresh_died(tmp_path: Path, monkeypatch) -> None:
+    state_file = tmp_path / "state.json"
+    service._refresh_backup_path(state_file).write_text(
+        json.dumps(_complete_payload("recovered-token")), encoding="utf-8"
+    )
+    _, context, _ = _install_refresh_route(
+        monkeypatch,
+        state_file,
+        wms_error=RuntimeError("element is not visible"),
+    )
+
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service.refresh_auth()
+
+    assert captured.value.stage == "wms"
+    assert context.storage_state_calls == 0
+    assert json.loads(state_file.read_text(encoding="utf-8"))["origins"][0]["localStorage"][0]["value"] == "recovered-token"
+    assert not service._refresh_backup_path(state_file).exists()
 
 
 def test_credentials_failure_is_structured(monkeypatch) -> None:
