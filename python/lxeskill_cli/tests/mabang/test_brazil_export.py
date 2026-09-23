@@ -272,6 +272,7 @@ def test_cli_partial_result_preserves_successful_attachments(monkeypatch,tmp_pat
         assert terminal['files']==[str(path.resolve())], terminal
         assert 'actual missing 2 batches' in terminal['error']['message']
     finally:
+        monkeypatch.undo()
         activate_project_workspace()
 
 
