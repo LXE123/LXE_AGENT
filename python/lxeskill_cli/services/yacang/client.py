@@ -156,8 +156,6 @@ class YacangClient:
                 if expected and expected != base64.b64encode(digest.digest()).decode():
                     raise YacangError("下载", "Content-MD5 校验失败", code="checksum_mismatch")
         except requests.RequestException as exc:
-            destination.unlink(missing_ok=True)
+            # The workflow owns temporary files and reports cleanup errors
+            # separately, so a failed unlink cannot mask the download failure.
             raise YacangError("下载", self.diagnostic(f"{type(exc).__name__}: {exc}"), code="network_error") from None
-        except Exception:
-            destination.unlink(missing_ok=True)
-            raise

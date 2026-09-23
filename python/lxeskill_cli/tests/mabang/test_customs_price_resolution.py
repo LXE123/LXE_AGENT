@@ -88,7 +88,7 @@ def test_real_failure_shapes_preview_fill_and_provenance(setup, case):
     preview = cli.preview(args)
     assert preview["can_generate"], preview["issues"]
     assert preview["row_count"] == (1 if case == "us" else 2)
-    data = json.loads(Path(preview["preview_path"]).read_text())
+    data = json.loads(Path(preview["preview_path"]).read_text(encoding="utf-8"))
     rows = [row for row in data["bundles"][0]["rows"] if row["model"] == model]
     assert len(rows) == 1
     assert (Decimal(rows[0]["quantity"]), Decimal(rows[0]["sale_price"]), Decimal(rows[0]["total_price"])) == (quantity, price, amount)
@@ -137,7 +137,7 @@ def test_different_prices_without_source_mapping_block_with_actual_diagnostics(s
     for token in (erp["shipments"][0]["sp_no"], model, "SKU=", "ERP来源采购价=", "售价来源不唯一",
                   f"汇总表第{specs[0][0]}行", f"汇总表第{specs[1][0]}行", "原价=", "售价=", "备货单候选行="):
         assert token in message
-    data = json.loads(Path(result["preview_path"]).read_text())
+    data = json.loads(Path(result["preview_path"]).read_text(encoding="utf-8"))
     failed = next(item for item in data["price_diagnostics"] if item["status"] == "blocked")
     assert len(failed["candidates"]) == 2
     assert failed["error"] in result["issues"]
@@ -252,7 +252,7 @@ def test_legacy_confirmed_preview_keeps_frozen_split_rows(setup):
     args, _, _, _, _ = setup
     result = cli.preview(args)
     path = Path(result["preview_path"])
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data.pop("price_diagnostics")
     # A pre-upgrade preview may have separate rows whose prices are identical.
     row = data["bundles"][0]["rows"][0]
@@ -266,6 +266,6 @@ def test_legacy_confirmed_preview_keeps_frozen_split_rows(setup):
     next(item for item in data["files"] if item["name"] == data["template_name"])["sha256"] = cli._sha(path.parent / data["template_name"])
     serialized = cli._json(data)
     legacy_path = path.with_name(hashlib.sha256(serialized.encode()).hexdigest() + ".json")
-    legacy_path.write_text(serialized)
+    legacy_path.write_text(serialized, encoding="utf-8")
     final = cli.fill(legacy_path)
     assert final["row_count"] == 3 and final["total_amount"] == 48

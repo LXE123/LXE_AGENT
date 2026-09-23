@@ -7,6 +7,7 @@ import os
 from zoneinfo import ZoneInfo
 from openpyxl import load_workbook
 from shared.datasets import dataset_dir
+from shared.filesystem import display_path, filesystem_path
 from .client import YacangClient
 from .contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key, export_parameters
 from .errors import YacangError, safe_remote_detail
@@ -22,11 +23,12 @@ def validate(path, task, diagnostic):
         count = validate_inventory_list_workbook(path, warehouse_code=task['warehouse'], diagnostic=diagnostic)
     else:
         count = validate_warehouse_products_workbook(path, diagnostic=diagnostic)
-    wb = load_workbook(path, read_only=True)
-    try:
-        return {'row_count': count, 'sheet_names': wb.sheetnames}
-    finally:
-        wb.close()
+    with filesystem_path(path).open("rb") as source:
+        wb = load_workbook(source, read_only=True)
+        try:
+            return {'row_count': count, 'sheet_names': wb.sheetnames}
+        finally:
+            wb.close()
 
 
 def run(arguments):
@@ -43,7 +45,7 @@ def run(arguments):
         locks.enter_context(state.run_lock())
         client = YacangClient(credentials, state)
         client.login()
-        folder = dataset_dir("yacang_exports", credentials.account_id, uuid.uuid4().hex)
+        folder = filesystem_path(dataset_dir("yacang_exports", credentials.account_id, uuid.uuid4().hex))
         folder.mkdir(parents=True, exist_ok=False)
         for task in tasks:
             spec = {k: task[k] for k in ('report', 'warehouse', 'created_date')}
@@ -73,14 +75,17 @@ def run(arguments):
                     client.download(url, temporary)
                     metadata = validate(temporary, spec, client.diagnostic)
                     temporary.replace(target)
-                    artifact = {**spec, **metadata, 'filters': export_parameters(spec), 'path': str(target.resolve()), 'filename': filename,
+                    artifact = {**spec, **metadata, 'filters': export_parameters(spec), 'path': str(display_path(target.resolve())), 'filename': filename,
                                 'source': 'yacang', 'notice': '没有数据行' if metadata['row_count'] == 0 else ''}
                     artifacts.append(artifact)
                     task.update(status='completed', artifact_path=artifact['path'], row_count=metadata['row_count'])
             except Exception as exc:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
                 error = {'code': getattr(exc, 'code', 'export_failed'), 'message': client.diagnostic(f'{type(exc).__name__}: {exc}')}
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError as cleanup:
+                        error['cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 task.update(status='failed', error=error)
                 if getattr(exc, 'scope', 'global') == 'global':
                     break

@@ -38,11 +38,11 @@ def xlsx(rows,headers=None):
 
 def test_captured_pagination_and_id_code_mapping():
     for name,total in [('pending',7),('signed',15)]:
-        payload=json.loads((FIXTURES/(name+'.json')).read_text())
+        payload=json.loads((FIXTURES/(name+'.json')).read_text(encoding="utf-8"))
         assert parsing.pagination(payload,page=1,size=20).total==total
         records=parsing.allocation_records(payload)
         assert len(records)==total and records['100001']=='TEST-BATCH-001'
-    payload=json.loads((FIXTURES/'inventory-pages.json').read_text())
+    payload=json.loads((FIXTURES/'inventory-pages.json').read_text(encoding="utf-8"))
     assert parsing.pagination(payload,page=1,size=50).total==2334
 
 

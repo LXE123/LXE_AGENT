@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
+from shared.filesystem import filesystem_path
 
 from services.yacang.errors import YacangError, safe_remote_detail
 
@@ -22,17 +24,27 @@ WAREHOUSE_PRODUCTS_HEADERS = (
 )
 
 
-def validate_inventory_sales_workbook(path: Path, *, warehouse_code: str, diagnostic=safe_remote_detail) -> int:
-    try:
-        workbook = load_workbook(path, read_only=True, data_only=True)
-    except Exception as exc:  # noqa: BLE001 - expose the real parser failure
-        raise YacangError("校验 XLSX", f"{type(exc).__name__}: {diagnostic(exc)}") from exc
-    try:
+@contextmanager
+def _workbook_rows(path: Path, stage: str, diagnostic):
+    # Own the file stream as well as the workbook: a suspended read-only row
+    # iterator can otherwise retain a ZipExtFile after workbook.close().
+    with ExitStack() as stack:
+        try:
+            source = stack.enter_context(filesystem_path(path).open("rb"))
+            workbook = load_workbook(source, read_only=True, data_only=True)
+        except Exception as exc:
+            raise YacangError(stage, f"{type(exc).__name__}: {diagnostic(exc)}") from exc
+        stack.callback(workbook.close)
         if len(workbook.sheetnames) != 1:
-            raise YacangError("校验 XLSX", f"工作表数量应为 1，实际为 {len(workbook.sheetnames)}")
+            raise YacangError(stage, f"工作表数量应为 1，实际为 {len(workbook.sheetnames)}")
         sheet = workbook[workbook.sheetnames[0]]
         sheet.reset_dimensions()
-        rows = sheet.iter_rows(values_only=True)
+        with closing(sheet.iter_rows(values_only=True)) as rows:
+            yield rows
+
+
+def validate_inventory_sales_workbook(path: Path, *, warehouse_code: str, diagnostic=safe_remote_detail) -> int:
+    with _workbook_rows(path, "校验 XLSX", diagnostic) as rows:
         headers = tuple(str(value or "").strip() for value in next(rows, ()))
         if headers != INVENTORY_SALES_HEADERS:
             raise YacangError("校验 XLSX", f"表头不匹配: {diagnostic(headers)}")
@@ -51,24 +63,10 @@ def validate_inventory_sales_workbook(path: Path, *, warehouse_code: str, diagno
                 f"期望仓库 {warehouse_code}，文件包含其他仓库: {sorted(wrong_warehouses)}",
             )
         return row_count
-    finally:
-        workbook.close()
 
 
 def validate_inventory_list_workbook(path: Path, *, warehouse_code: str, diagnostic=safe_remote_detail) -> int:
-    try:
-        workbook = load_workbook(path, read_only=True, data_only=True)
-    except Exception as exc:  # noqa: BLE001 - expose the real parser failure
-        raise YacangError("校验库存列表 XLSX", f"{type(exc).__name__}: {diagnostic(exc)}") from exc
-    try:
-        if len(workbook.sheetnames) != 1:
-            raise YacangError(
-                "校验库存列表 XLSX",
-                f"工作表数量应为 1，实际为 {len(workbook.sheetnames)}",
-            )
-        sheet = workbook[workbook.sheetnames[0]]
-        sheet.reset_dimensions()
-        rows = sheet.iter_rows(values_only=True)
+    with _workbook_rows(path, "校验库存列表 XLSX", diagnostic) as rows:
         headers = tuple(str(value or "").strip() for value in next(rows, ()))
         if headers != INVENTORY_LIST_HEADERS:
             raise YacangError("校验库存列表 XLSX", f"表头不匹配: {diagnostic(headers)}")
@@ -87,24 +85,10 @@ def validate_inventory_list_workbook(path: Path, *, warehouse_code: str, diagnos
                 f"期望仓库 {warehouse_code}，文件包含其他仓库: {sorted(wrong_warehouses)}",
             )
         return row_count
-    finally:
-        workbook.close()
 
 
 def validate_warehouse_products_workbook(path: Path, *, diagnostic=safe_remote_detail) -> int:
-    try:
-        workbook = load_workbook(path, read_only=True, data_only=True)
-    except Exception as exc:  # noqa: BLE001 - expose the real parser failure
-        raise YacangError("校验仓库产品 XLSX", f"{type(exc).__name__}: {diagnostic(exc)}") from exc
-    try:
-        if len(workbook.sheetnames) != 1:
-            raise YacangError(
-                "校验仓库产品 XLSX",
-                f"工作表数量应为 1，实际为 {len(workbook.sheetnames)}",
-            )
-        sheet = workbook[workbook.sheetnames[0]]
-        sheet.reset_dimensions()
-        rows = sheet.iter_rows(values_only=True)
+    with _workbook_rows(path, "校验仓库产品 XLSX", diagnostic) as rows:
         headers = tuple(str(value or "").strip() for value in next(rows, ()))
         if headers != WAREHOUSE_PRODUCTS_HEADERS:
             raise YacangError("校验仓库产品 XLSX", f"表头不匹配: {diagnostic(headers)}")
@@ -125,8 +109,6 @@ def validate_warehouse_products_workbook(path: Path, *, diagnostic=safe_remote_d
                 f"创建时间必须为 YYYY-MM-DD HH:MM 文本，异常行数: {invalid_times}",
             )
         return row_count
-    finally:
-        workbook.close()
 
 
 __all__ = [

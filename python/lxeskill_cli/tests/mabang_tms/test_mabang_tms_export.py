@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -277,7 +278,7 @@ def test_account_directories_isolated_and_busy_lock_prevents_login(monkeypatch, 
         result, client = execute(monkeypatch, tmp_path, [page([], 0)])
     assert not result['success'] and client.login_count == 0
     result, _ = execute(monkeypatch, tmp_path, [page([record(1)], 1)])
-    assert str(account_root) in result['artifacts'][0]['path']
+    assert Path(result['artifacts'][0]['path']).is_relative_to(account_root)
 
 
 def test_download_no_retry_and_no_auth_forwarding(monkeypatch):

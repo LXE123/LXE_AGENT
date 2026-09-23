@@ -9,6 +9,7 @@ import re
 from typing import Any, Callable
 
 from shared.datasets import load_datasets
+from shared.filesystem import display_path, filesystem_path
 from shared.logging import get_logger
 from shared.repository import skills_root
 from shared.workspace import artifact_root, resolve_workspace_input
@@ -122,16 +123,16 @@ def allowed_output_file(raw_path: str, *, owner_skills: list[str] | tuple[str, .
     if not path.is_absolute():
         path = resolve_workspace_input(path)
     try:
-        resolved = path.resolve(strict=True)
+        resolved = filesystem_path(path).resolve(strict=True)
     except FileNotFoundError as exc:
         raise ArtifactPathError(f"business CLI returned a missing file: {raw_path}") from exc
     if not resolved.is_file():
         raise ArtifactPathError(f"business CLI returned a path that is not a regular file: {raw_path}")
-    roots = [artifact_root().resolve()]
-    roots.extend((skills_root() / skill / "assets").resolve() for skill in owner_skills)
+    roots = [filesystem_path(artifact_root()).resolve()]
+    roots.extend(filesystem_path(skills_root() / skill / "assets").resolve() for skill in owner_skills)
     if not any(_is_within(resolved, root) for root in roots):
         raise ArtifactPathError(f"business CLI returned a file outside allowed artifact roots: {raw_path}")
-    return resolved
+    return display_path(resolved)
 
 
 def _select_artifact_values(payload: Any, selector: str) -> list[Any]:

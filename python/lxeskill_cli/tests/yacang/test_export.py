@@ -21,6 +21,7 @@ from services.yacang.contracts import Credentials, REPORTS, WAREHOUSES, normaliz
 from services.yacang.errors import YacangError
 from services.yacang.state import ExportState
 from services.yacang.validation import INVENTORY_SALES_HEADERS, INVENTORY_LIST_HEADERS, WAREHOUSE_PRODUCTS_HEADERS
+from shared.filesystem import filesystem_path
 
 
 def xlsx(report, warehouse, empty=False):
@@ -341,6 +342,51 @@ def test_invalid_header_redacts_known_secrets_before_truncation(platform, monkey
     assert not result['success'] and not result['artifacts']
     assert '表头不匹配' in result['error']['message']
     assert 'p' * 10 not in json.dumps(result)
+
+
+def test_long_chinese_path_delivered_by_cli(platform, env, monkeypatch, capsys):
+    from lxeskill import cli
+    from shared import workspace
+    root = env / ('中文 输出目录' * 10) / ('nested' * 10)
+    original_activate = cli.activate_project_workspace
+    def activate():
+        result = original_activate()
+        workspace._artifact_root = root
+        return result
+    monkeypatch.setattr(cli, 'activate_project_workspace', activate)
+    params = request(warehouses=['MY8801'])['params']
+    assert cli.main(['yacang', 'export', 'run', '--params', json.dumps(params)]) == 0
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert result['ok'], result
+    artifact = result['data']['artifacts'][0]
+    assert len(artifact['path']) > 260
+    assert not artifact['path'].startswith('\\\\?\\')
+    assert Path(artifact['path']).is_relative_to(root)
+    assert filesystem_path(artifact['path']).read_bytes().startswith(b'PK')
+    assert result['files'] == [artifact['path']]
+    assert not list(filesystem_path(root).rglob('.*.xlsx'))
+
+
+def test_cleanup_failure_retains_original_error_and_partial_files(platform, monkeypatch, capsys):
+    from lxeskill import cli
+    platform['reject']['/file2.xlsx'] = (500, 'actual download failure test-password')
+    original_unlink = Path.unlink
+    def fail_cleanup(path, *args, **kwargs):
+        if path.name.startswith('.') and '菲律宾' in path.name:
+            raise PermissionError('actual cleanup failure test-password')
+        return original_unlink(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'unlink', fail_cleanup)
+    params = request(warehouses=['MY8801', 'PH8805'])['params']
+    assert cli.main(['yacang', 'export', 'run', '--params', json.dumps(params)]) != 0
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert result['data']['status'] == 'partial_success'
+    error = result['data']['error']
+    assert error['code'] == 'http_error'
+    assert 'actual download failure' in error['message']
+    assert 'actual cleanup failure' in error['cleanup_error']
+    assert 'test-password' not in json.dumps(result)
+    assert len(result['files']) == 1
+    assert filesystem_path(result['files'][0]).is_file()
 
 
 def test_state_rate_limit_is_account_scoped_and_contains_no_auth_material(env, monkeypatch):
