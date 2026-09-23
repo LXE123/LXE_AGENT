@@ -15,7 +15,8 @@ commands:
 - “仓库产品资料”选择 `warehouse-products`。按平台默认产品状态导出，实际范围见结果 `filters`。实际原表包含创建时间，没有独立的入库或上架时间列；用户要求这些业务时间时先说明限制并确认是否接受产品资料，不直接将创建时间当成入库/上架时间。
 - 未指定仓库默认全部四仓：`MY8801` 马来西亚、`PH8805` 菲律宾、`TH8802` 泰国、`VN8806` 越南。指定时仅选择对应仓库；不确定或范围矛盾时先问，不自行扩大。
 - 仓库产品资料是一次全局导出，不能按仓筛选；用户明确限制它的仓库时，先确认是否接受全局文件。混合请求中的仓库范围只约束库存动销和当前库存。
-- 库存动销未指定商品创建日期时省略 `created_date`，表示不限制；“7天销量”不是创建日期筛选，也不裁剪源表的其他累计字段。
+- 库存动销未指定源表“创建日期”范围时省略 `created_date`，表示不限制；“7天销量”不是创建日期筛选，也不裁剪源表的其他累计字段。
+- 库存动销的“创建日期”与仓库产品资料的“创建时间”是不同口径，同一 SKU 的值可不同。`created_date` 只筛选前者。用户要求商品建档、入库或上架日期时，先说明不能据此确认这些业务时间，再确认是否接受源表范围；不将两个字段混用。
 - 历史库存、逐日销量、报表没有的销量窗口和不支持的筛选，先说明实际能力并询问可接受的替代范围，不静默替换。
 
 ## 执行
@@ -29,7 +30,7 @@ lxeskill yacang export run --params '{"reports":["inventory-sales"],"warehouses"
 参数仅包含：
 - `reports`：必需的非空数组，从 `inventory-sales`、`inventory-current-snapshot`、`warehouse-products` 中选择。
 - `warehouses`：可选非空仓库编码数组，省略为四仓。单独导出全局产品资料时省略此字段。
-- `created_date`：仅在包含库存动销且用户明确筛选商品创建日期时传 `{"start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD"}`，不得只传一端。
+- `created_date`：仅在包含库存动销且用户明确筛选该表“创建日期”时传 `{"start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD"}`，不得只传一端；它不筛选仓库产品资料的“创建时间”。
 
 明确的三类全部请求：`{"reports":["inventory-sales","inventory-current-snapshot","warehouse-products"]}`，最多九份文件。每仓每类一份原始文件；全局资料仅一份。脚本本次登录一次，Token 仅在该进程内存中复用，不要求先运行独立登录或预览命令。
 
@@ -41,6 +42,6 @@ lxeskill yacang export run --params '{"reports":["inventory-sales"],"warehouses"
 - 独立导出将 terminal `files` 一次交给 `send_files`；作为东南亚流程步骤时返回调用入口，由入口统一交付。发送成功才称已交付，发送失败只重试附件发送。
 - `ok=false` 且 `data.status=partial_success` 仍可交付 `files` 中已成功文件，同时说明失败和未执行的仓库/报表及实际原因；不声称全部成功，不自动重跑整单。
 - 零行明确说明该范围没有数据，不推断零备货需求。不合并、重写或补列，不生成备货建议。
-- 错误保留 `data.error`、任务内 `error` 及顶层 `error.message` 的实际脱敏诊断。`date_range_required` 时说明平台限制并询问商品创建日期范围；不得自动退为当天。
+- 错误保留 `data.error`、任务内 `error` 及顶层 `error.message` 的实际脱敏诊断。`date_range_required` 时说明平台限制并询问库存动销表“创建日期”范围；不得自动退为当天。
 - 登录、限流、网络、提交或队列状态不确定时报告失败和已完成阶段，不自行重试。用户要求再试时才调用；脚本会保留并核对未确认提交，不盲目重新创建任务。
 - 不执行马帮的认证刷新，不输出 Token、验证码、密码或签名下载地址。
