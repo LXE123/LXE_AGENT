@@ -1,3 +1,4 @@
+import { ErpSettingsTabs } from "./erp-settings-tabs";
 import { DeviceContextPanel } from "./device-context-panel";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,6 +51,9 @@ import {
 } from "./onboarding-preference";
 import {
   desktopSettingsForm,
+  desktopSettingsFormAfterClear,
+  type DesktopIntegrationName,
+  type ErpIntegrationName,
   desktopCloudBindingSwitchAvailable,
   desktopCloudShortcutAvailable,
   desktopLoggingSinkView,
@@ -57,11 +61,11 @@ import {
   desktopSettingsSectionStatus,
   type DesktopSettingsFormValue,
   type DesktopSettingsSection,
-  type EditableDesktopSettingsSection,
+  type DesktopSettingsFormSection,
 } from "./settings-model";
 
 type Provider = DesktopModelProvider;
-type IntegrationName = "ziniao" | "mabang" | "shangman" | "yacang" | "mabangTms" | "feishu";
+type IntegrationName = DesktopIntegrationName;
 type SetupForm = DesktopSettingsFormValue;
 type DesktopConfirmation =
   | { kind: "diagnostic" }
@@ -168,10 +172,7 @@ function DesktopSettingsNavigation({
         {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2)}
         <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
         {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
-        {item("mabangTms", t.desktop.integrationNames.mabangTms, desktopSettingsSectionStatus(t.desktop, "mabangTms", setup), Store)}
-        {item("yacang", t.desktop.integrationNames.yacang, desktopSettingsSectionStatus(t.desktop, "yacang", setup), Store)}
-        {item("shangman", t.desktop.integrationNames.shangman, desktopSettingsSectionStatus(t.desktop, "shangman", setup), Store)}
-        {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup), Store)}
+        {item("erp", t.desktop.sectionTitles.erp, desktopSettingsSectionStatus(t.desktop, "erp", setup), Store)}
         {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather)}
         {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup), ScrollText)}
       </div>
@@ -581,7 +582,7 @@ function DesktopSettingsForm({
   onOpenLogsDirectory,
   onClearIntegration,
 }: {
-  activeSection: EditableDesktopSettingsSection;
+  activeSection: DesktopSettingsFormSection;
   credentialBusy: boolean;
   form: SetupForm;
   health: DesktopHealth;
@@ -1171,6 +1172,7 @@ export function DesktopShell({
   const [health, setHealth] = useState<DesktopHealth | null>(null);
   const [cloud, setCloud] = useState<DesktopCloudState | null>(null);
   const [form, setForm] = useState<SetupForm | null>(null);
+  const [activeErp, setActiveErp] = useState<ErpIntegrationName>("mabangTms");
   const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("cloud");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1272,11 +1274,13 @@ export function DesktopShell({
   }
 
   const updateForm = (patch: Partial<SetupForm>): void => setForm((current) => current ? { ...current, ...patch } : current);
-  const refreshSetup = async (next: DesktopSetupState): Promise<void> => {
+  const refreshSetup = async (next: DesktopSetupState, clearedIntegration?: IntegrationName): Promise<void> => {
     queryClient.clear();
     setupComplete.current = next.complete;
     setSetup(next);
-    setForm(setupForm(next));
+    setForm((current) => current && clearedIntegration
+      ? desktopSettingsFormAfterClear(current, next, clearedIntegration)
+      : setupForm(next));
     setHealth(await desktop.getHealth());
     setAppGeneration((value) => value + 1);
   };
@@ -1526,7 +1530,7 @@ export function DesktopShell({
         }),
         [name]: { action: "clear" },
       };
-      await refreshSetup(await desktop.saveSetup(input));
+      await refreshSetup(await desktop.saveSetup(input), name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1567,11 +1571,11 @@ export function DesktopShell({
     }
   };
   const baseline = setupForm(setup);
-  const editableSection: EditableDesktopSettingsSection = activeSettingsSection === "status"
+  const editableSection: DesktopSettingsFormSection = activeSettingsSection === "status"
     || activeSettingsSection === "appearance"
     || activeSettingsSection === "cloud"
     ? "base"
-    : activeSettingsSection;
+    : activeSettingsSection === "erp" ? activeErp : activeSettingsSection;
   const selectSettingsSection = (section: DesktopSettingsSection): void => {
     setActiveSettingsSection(section);
     window.requestAnimationFrame(() => sectionHeadingRef.current?.focus());
@@ -1623,6 +1627,10 @@ export function DesktopShell({
       onThemeChange={onThemeChange}
       theme={theme}
     />
+  ) : activeSettingsSection === "erp" ? (
+    <ErpSettingsTabs active={activeErp} baseline={baseline} form={form} onSelect={setActiveErp}>
+      {settingsFields}
+    </ErpSettingsTabs>
   ) : settingsFields;
   const settingsBody = (
     <fieldset className="desktop-settings-fieldset" disabled={saving}>

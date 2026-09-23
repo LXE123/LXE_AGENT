@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { DesktopCloudState, DesktopSetupState } from "@lxe/desktop-protocol";
+import { setupState, cloudState } from "./settings-fixture-data";
 import {
   desktopCloudBindingSwitchAvailable,
   desktopCloudShortcutAvailable,
   desktopSettingsForm,
+  desktopSettingsFormAfterClear,
+  ERP_INTEGRATIONS,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
@@ -11,77 +13,6 @@ import {
 import { ZH_TEXT } from "../../src/shared/i18n";
 
 const text = ZH_TEXT.desktop;
-
-const cloudState = (patch: Partial<DesktopCloudState> = {}): DesktopCloudState => ({
-  configured: true,
-  is_admin: false,
-  device_name: "Finance-PC-01",
-  device_id: "0123456789abcdef0123456789abcdef",
-  vpn_ip: "10.88.0.8",
-  connection: "connected",
-  last_error: "",
-  last_checked_at: 0,
-  dependency_state: "not_required",
-  dependency_error: "",
-  permission_status: "verified",
-  permission_profile: "fba",
-  permission_version: 1,
-  profile_revision: 1,
-  profile_labels: { "zh-CN": "FBA", "en-US": "FBA" },
-  desktop_features: ["erp_dashboard"],
-  permission_verified_at: 0,
-  ...patch,
-});
-
-const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState => ({
-  complete: true,
-  provider: "kimi_coding",
-  local_provider: "kimi_coding",
-  credential_source: "local",
-  managed_model_configured: false,
-  local_model_providers: [
-    { provider: "deepseek", label: "DeepSeek", configured: false },
-    { provider: "kimi_coding", label: "Kimi Coding", configured: true },
-    { provider: "openrouter", label: "OpenRouter", configured: false },
-  ],
-  local_auth_path: "/data/var/config/auth.json",
-  local_auth_error: "",
-  workspace_root: "/workspace",
-  ziniao: {
-    managed: false,
-    configured: false,
-    issues: [],
-    company: "",
-    username: "",
-    password_configured: false,
-    app_version: "v6",
-    app_path: "",
-    webdriver_path: "",
-  },
-  mabangTms: { managed: false, configured: false, issues: [], account: "", password_configured: false },
-  yacang: { managed: false, configured: false, issues: [], mobile: "", password_configured: false },
-  shangman: { managed: false, configured: false, issues: [], tenant_id: "", username: "", password_configured: false },
-  mabang: {
-    managed: true,
-    configured: false,
-    issues: ["缺少马帮密码"],
-    account: "seller",
-    password_configured: false,
-  },
-  feishu: {
-    managed: true,
-    configured: true,
-    issues: [],
-    app_id: "cli_test",
-    app_secret_configured: true,
-  },
-  logging: {
-    profile: "standard",
-    retention_days: 7,
-    directory: "/data/var/logs",
-  },
-  ...patch,
-});
 
 describe("desktop settings navigation model", () => {
   test("shows the FBA ERP shortcut only when granted by the server", () => {
@@ -197,4 +128,26 @@ describe("desktop settings navigation model", () => {
       file_level: "debug",
     })).toEqual({ label: text.sinkStates.failed, tone: "error" });
   });
+});
+
+
+test("ERP navigation aggregates configured platforms and drafts independently", () => {
+  const setup = setupState();
+  for (const name of ERP_INTEGRATIONS.slice(0, 3)) setup[name].configured = true;
+  const baseline = desktopSettingsForm(setup);
+  expect(desktopSettingsSectionStatus(text, "erp", setup)).toBe("已配置 3/4");
+  expect(desktopSettingsSectionIsDirty("erp", baseline, baseline)).toBe(false);
+  for (const field of ["mabangTmsAccount", "yacangPassword", "shangmanTenantId", "mabangPassword"] as const) {
+    expect(desktopSettingsSectionIsDirty("erp", { ...baseline, [field]: "draft" }, baseline)).toBe(true);
+  }
+});
+
+test("clearing one platform preserves all other unsaved credentials and settings", () => {
+  const next = setupState();
+  const current = { ...desktopSettingsForm(next), mabangTmsAccount: "draft-tms", mabangTmsPassword: "secret-tms",
+    yacangPassword: "secret-yacang", shangmanTenantId: "draft-id", mabangPassword: "secret-mabang",
+    localApiKey: "draft-key", workspaceRoot: "/draft-workspace" };
+  const result = desktopSettingsFormAfterClear(current, next, "mabangTms");
+  expect(result).toEqual({ ...current, mabangTmsAccount: "", mabangTmsPassword: "" });
+  expect(current.mabangTmsPassword).toBe("secret-tms");
 });

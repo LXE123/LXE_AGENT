@@ -650,7 +650,9 @@ export const ZH_TEXT = {
       yacang: "雅仓",
       feishu: "飞书"
     },
+    erpConfiguredCount: (count: number, total: number) => `已配置 ${count}/${total}`,
     sectionTitles: {
+      erp: "ERP 账号",
       status: "运行状态",
       appearance: "外观",
       cloud: "公司云端",
@@ -1522,7 +1524,9 @@ export const UI_TEXT: Record<Language, UiText> = {
         yacang: "Yacang",
         feishu: "Feishu"
       },
+      erpConfiguredCount: (count: number, total: number) => `Configured ${count}/${total}`,
       sectionTitles: {
+        erp: "ERP accounts",
         status: "Runtime status",
         appearance: "Appearance",
         cloud: "Company cloud",

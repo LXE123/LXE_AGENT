@@ -11548,3 +11548,26 @@ pre {
   .desktop-device-context .device-permission-refresh { margin-left: 50px; }
   .device-permission-details dl > div { grid-template-columns: 1fr; gap: 2px; }
 }
+
+.desktop-erp-settings {
+  min-width: 0;
+}
+
+.desktop-erp-settings .desktop-integration-status {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.desktop-erp-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-bottom: 20px;
+}
+
+.desktop-erp-tabs .workspace-subnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}

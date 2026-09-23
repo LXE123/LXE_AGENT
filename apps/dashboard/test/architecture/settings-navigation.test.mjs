@@ -12,7 +12,7 @@ const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
 const i18n = readFileSync(path.join(sourceDir, "shared/i18n.tsx"), "utf8");
 
 test("desktop settings render one navigable panel instead of stacked integrations", () => {
-  for (const key of ["status", "appearance", "base", "ziniao", "mabang", "feishu", "logging"]) {
+  for (const key of ["status", "appearance", "base", "ziniao", "erp", "feishu", "logging"]) {
     assert.match(shell, new RegExp(`sectionTitles\\.${key}`));
   }
   assert.match(shell, /aria-current=\{active \? "page" : undefined\}/);

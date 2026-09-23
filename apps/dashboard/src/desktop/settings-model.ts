@@ -43,16 +43,17 @@ export const desktopLoggingSinkView = (
   return { label: text.sinkStates.disabled, tone: "neutral" };
 };
 
+export const ERP_INTEGRATIONS = ["mabangTms", "yacang", "shangman", "mabang"] as const;
+export type ErpIntegrationName = typeof ERP_INTEGRATIONS[number];
+export type DesktopIntegrationName = ErpIntegrationName | "ziniao" | "feishu";
+
 export type DesktopSettingsSection =
   | "status"
   | "appearance"
   | "cloud"
   | "base"
   | "ziniao"
-  | "shangman"
-  | "mabangTms"
-  | "yacang"
-  | "mabang"
+  | "erp"
   | "feishu"
   | "logging";
 
@@ -108,7 +109,9 @@ export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFo
   logRetentionDays: state.logging.retention_days,
 });
 
-const SECTION_FIELDS: Record<EditableDesktopSettingsSection, readonly (keyof DesktopSettingsFormValue)[]> = {
+export type DesktopSettingsFormSection = Exclude<EditableDesktopSettingsSection, "erp"> | ErpIntegrationName;
+
+const SECTION_FIELDS: Record<DesktopSettingsFormSection, readonly (keyof DesktopSettingsFormValue)[]> = {
   base: ["workspaceRoot"],
   ziniao: [
     "ziniaoCompany",
@@ -127,18 +130,21 @@ const SECTION_FIELDS: Record<EditableDesktopSettingsSection, readonly (keyof Des
 };
 
 export const desktopSettingsSectionIsDirty = (
-  section: DesktopSettingsSection,
+  section: DesktopSettingsSection | ErpIntegrationName,
   form: DesktopSettingsFormValue,
   baseline: DesktopSettingsFormValue,
 ): boolean => section !== "status" && section !== "cloud"
   && section !== "appearance"
-  && SECTION_FIELDS[section].some((field) => form[field] !== baseline[field]);
+  && (section === "erp"
+    ? ERP_INTEGRATIONS.some((name) => desktopSettingsSectionIsDirty(name, form, baseline))
+    : SECTION_FIELDS[section].some((field) => form[field] !== baseline[field]));
 
 export const desktopSettingsSectionStatus = (
   text: UiText["desktop"],
-  section: EditableDesktopSettingsSection,
+  section: EditableDesktopSettingsSection | ErpIntegrationName,
   setup: DesktopSetupState,
 ): string => {
+  if (section === "erp") return text.erpConfiguredCount(ERP_INTEGRATIONS.filter((name) => setup[name].configured).length, ERP_INTEGRATIONS.length);
   if (section === "base") return setup.complete ? text.sectionStatus.complete : text.sectionStatus.required;
   if (section === "logging") return text.logProfiles[setup.logging.profile];
   const integration = setup[section];
@@ -147,4 +153,14 @@ export const desktopSettingsSectionStatus = (
     : integration.managed
       ? text.sectionStatus.incomplete
       : text.sectionStatus.optional;
+};
+
+// Clearing a platform must leave every other draft (including secrets) untouched.
+export const desktopSettingsFormAfterClear = (
+  current: DesktopSettingsFormValue,
+  next: DesktopSetupState,
+  integration: DesktopIntegrationName,
+): DesktopSettingsFormValue => {
+  const saved = desktopSettingsForm(next);
+  return { ...current, ...Object.fromEntries(SECTION_FIELDS[integration].map((field) => [field, saved[field]])) };
 };
