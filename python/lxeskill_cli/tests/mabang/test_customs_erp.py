@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -72,14 +73,15 @@ def test_summary_prices_and_sku_coverage(tmp_path):
     assert rows[0].sale_price == 12
     assert rows[1].sale_price == 6
     assert rows[0].skus == {"SKU-A", "SKU-B"}
-    assert match_price(rows, "sku-b", {"source_kind": "current_purchase", "purchase_price": 3}) == rows[0]
-    assert match_price(rows, "SKU-A", {"source_kind": "carryover", "purchase_price": 2}) == rows[1]
+    assert match_price(rows, "sku-b", {"source_kind": "current_purchase", "purchase_price": 3}).matched_rows == (rows[0],)
+    assert match_price(rows, "SKU-A", {"source_kind": "carryover", "purchase_price": 2}).matched_rows == (rows[1],)
 
 
-def test_price_ambiguity_is_not_first_match(tmp_path):
+def test_price_conflict_is_not_first_match(tmp_path):
     rows = read_prices(prices_file(tmp_path / "prices.xlsx"))
     with pytest.raises(ValueError, match="不唯一"):
-        match_price(rows + [rows[0]], "SKU-A", {"source_kind": "current_purchase", "purchase_price": 3})
+        match_price(rows + [replace(rows[0], row_number=4, sale_price=Decimal(13))],
+                    "SKU-A", {"source_kind": "current_purchase", "purchase_price": 3})
 
 
 def test_plain_sku_ending_in_x_digits_is_not_a_quantity(tmp_path):

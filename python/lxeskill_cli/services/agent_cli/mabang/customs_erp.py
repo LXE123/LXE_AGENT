@@ -15,7 +15,7 @@ from openpyxl import Workbook
 
 from services.agent_cli.mabang import fill_customs_declaration as template
 from services.agent_cli.mabang import download_fba_delivery_csv as delivery
-from services.agent_cli.mabang.customs_prices import key, match_price, number, read_prices
+from services.agent_cli.mabang.customs_prices import PriceMatchError, candidate_details, key, match_price, number, read_prices
 from services.agent_cli.mabang.erp_http import ErpHttpError, request_json
 from services.agent_cli.mabang.shipment_quantity_validation import _read_delivery_rows
 
@@ -89,8 +89,9 @@ def model_summary(erp):
     return json.loads(_json(list(groups.values())))
 
 
-def declaration_rows(prices, shipment):
+def declaration_rows(prices, shipment, *, price_diagnostics=None):
     groups = OrderedDict()
+    matches = []
     for line in shipment["lines"]:
         actual = number(line["actual_quantity"], "ERP SKU 实发量")
         sources = line["sources"]
@@ -100,19 +101,57 @@ def declaration_rows(prices, shipment):
             quantity = number(source["actual_quantity"], "ERP 来源实发量")
             if quantity == 0:
                 continue
-            price = match_price(prices, line["stock_sku"], source)
-            group = (price.row_number, line["supplier_name"], line["model"], line["commodity_name"], line["unit"])
-            row = groups.setdefault(group, {
-                "row_number": price.row_number, "source_name": line["product_name"], "model": line["model"],
+            source_cost = number(source["purchase_price"], f"ERP SKU={line['stock_sku']} 来源采购价")
+            diagnostic = {
+                "sp_no": shipment["sp_no"], "supplier_name": line["supplier_name"],
+                "model": line["model"], "stock_sku": line["stock_sku"], "product_name": line["product_name"],
+                "source_id": source.get("source_id"), "source_kind": source["source_kind"],
+                "source_contract_no": source.get("source_contract_no"), "source_sp_no": source.get("source_sp_no"),
+                "purchase_price": source_cost, "planned_quantity": source["planned_quantity"],
+                "actual_quantity": quantity,
+            }
+            if price_diagnostics is not None:
+                price_diagnostics.append(diagnostic)
+            try:
+                price = match_price(prices, line["stock_sku"], source,
+                                    sp_no=shipment["sp_no"], model=line["model"])
+            except PriceMatchError as exc:
+                diagnostic.update(status="blocked", candidates=candidate_details(exc.candidates), error=str(exc))
+                raise
+            diagnostic.update(status="matched", sale_price=price.sale_price, method=price.method,
+                              candidates=candidate_details(price.candidates),
+                              matched_summary_rows=sorted({item.row_number for item in price.matched_rows}))
+            display_row = min(item.row_number for item in price.matched_rows)
+            values = {
+                "row_number": display_row, "source_name": line["product_name"], "model": line["model"],
                 "quantity": Decimal(0), "commodity_name": line["commodity_name"],
-                "sale_price": price.sale_price, "unit": line["unit"], "sku": price.representative,
-                "purchase_price": source["purchase_price"], "source_kind": source["source_kind"],
-            })
+                "sale_price": price.sale_price, "unit": line["unit"], "sku": line["stock_sku"],
+                "purchase_price": source_cost,
+                "source_kind": source["source_kind"],
+            }
+            classification = template.classify_declaration(template.SourceDeclarationRow(**values, total_price=0))
+            group = (line["supplier_name"], line["model"], line["commodity_name"], line["unit"],
+                     price.sale_price, classification.hs_code, classification.declaration_element)
+            row = groups.setdefault(group, values)
+            # These fields describe a rendered row, not a fictitious single lot.
+            # Complete lot and Excel provenance stays in price_diagnostics.
+            row["row_number"] = min(row["row_number"], display_row)
+            if row["sku"] != line["stock_sku"]:
+                row["sku"] = ""
+            if row["purchase_price"] != values["purchase_price"]:
+                row["purchase_price"] = None
+            if row["source_kind"] != source["source_kind"]:
+                row["source_kind"] = "mixed"
             row["quantity"] += quantity
+            matches.append((group, diagnostic))
     rows = []
-    for _, row in sorted(groups.items()):
+    output_indices = {}
+    for group, row in sorted(groups.items(), key=lambda item: (item[1]["row_number"], item[0])):
         row["total_price"] = template._actual_total(row["quantity"], row["sale_price"])
         rows.append(row)
+        output_indices[group] = len(rows)
+    for group, diagnostic in matches:
+        diagnostic["declaration_row_number"] = output_indices[group]
     return rows
 
 
@@ -124,7 +163,7 @@ def _freeze(path, directory, label, files):
     return target
 
 
-def _report(directory, erp, summary, errors):
+def _report(directory, erp, summary, errors, price_diagnostics=()):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "型号缺货预览"
@@ -144,6 +183,23 @@ def _report(directory, erp, summary, errors):
                                float(source["planned_quantity"]), float(source["actual_quantity"])])
         for line in shipment["excluded_lines"]:
             excluded.append([shipment["sp_no"], line["msku"], line["stock_sku"], line["tracking_mode"], float(line["actual_quantity"])])
+    pricing = workbook.create_sheet("售价匹配")
+    pricing.append(["SP", "厂家", "型号", "SKU", "ERP来源ID", "来源", "合同", "来源SP", "来源原价",
+                    "来源实发量", "采用售价", "匹配方式", "候选汇总表及备货单行", "采用的汇总表候选行",
+                    "本SP报关明细序号", "状态", "实际错误"])
+    for item in price_diagnostics:
+        candidates = "\n".join(
+            f"汇总表{row['summary_row']}: 原价={row['purchase_price']}, 售价={row['sale_price']}; "
+            f"备货单候选行={','.join(str(scope['row_number']) for scope in row['restock_candidates'])}"
+            for row in item.get("candidates", [])
+        )
+        pricing.append([item["sp_no"], item["supplier_name"], item["model"], item["stock_sku"],
+                        item["source_id"], item["source_kind"], item["source_contract_no"], item["source_sp_no"],
+                        float(item["purchase_price"]), float(item["actual_quantity"]),
+                        float(item["sale_price"]) if "sale_price" in item else None,
+                        {"same_price": "候选售价一致", "purchase_price": "原价区分售价"}.get(item.get("method"), ""),
+                        candidates, ",".join(str(row) for row in item.get("matched_summary_rows", [])),
+                        item.get("declaration_row_number"), item["status"], item.get("error", "")])
     issues = workbook.create_sheet("问题")
     issues.append(["问题说明"])
     for error in errors:
@@ -201,14 +257,14 @@ def preview(arguments):
     countries = {s["country"] for s in erp["shipments"]}
     if len(countries) != 1 or not countries.issubset(template.SUPPORTED_DESTINATION_COUNTRIES):
         raise ValueError(f"ERP 目的国不一致或不支持: {sorted(countries)}")
-    errors, bundles = [], []
+    errors, bundles, price_diagnostics = [], [], []
     for index, (source, shipment, original) in enumerate(zip(sources, erp["shipments"], paths)):
         errors.extend(str(issue["message"]) for issue in shipment["issues"] if issue["status"] == "incomplete")
         try:
             if template.extract_destination_country_from_filename(original) != shipment["country"]:
                 raise ValueError(f"{original.name} 目的国与 ERP 不一致")
             prices = read_prices(directory / source["input_name"])
-            rows = declaration_rows(prices, shipment)
+            rows = declaration_rows(prices, shipment, price_diagnostics=price_diagnostics)
             weight_path = template._resolve_consignment_excel_path(shipment["packing_sp_no"], arguments.get("consignment_excel"))
             weight_path = _freeze(weight_path, directory, f"weight-{index}", files)
             source["weight_name"] = weight_path.name
@@ -238,11 +294,12 @@ def preview(arguments):
     finally:
         workbook.close()
     summary = model_summary(erp)
-    report = _report(directory, erp, summary, errors)
+    report = _report(directory, erp, summary, errors, price_diagnostics)
     files.append({"name": report.name, "sha256": _sha(report), "original_path": str(report)})
     data = {"schema": PREVIEW_SCHEMA, "request": request, "erp": erp, "files": files,
             "bundles": bundles, "template_name": template_path.name, "model_summary": summary,
-            "errors": errors, "can_generate": not errors and row_count > 0}
+            "errors": errors, "can_generate": not errors and row_count > 0,
+            "price_diagnostics": price_diagnostics}
     serialized = _json(data)
     digest = hashlib.sha256(serialized.encode()).hexdigest()
     preview_path = directory / f"{digest}.json"

@@ -24,13 +24,49 @@ def key(value) -> str:
 
 
 @dataclass(frozen=True)
+class SkuRange:
+    row_number: int
+    purchase_price: Decimal | None
+    skus: frozenset[str]
+
+
+@dataclass(frozen=True)
 class PriceRow:
     row_number: int
     representative: str
     source_kind: str
     purchase_price: Decimal | None
     sale_price: Decimal
-    skus: frozenset[str]
+    coverage: tuple[SkuRange, ...]
+
+    @property
+    def skus(self) -> frozenset[str]:
+        return frozenset(sku for item in self.coverage for sku in item.skus)
+
+
+@dataclass(frozen=True)
+class ResolvedPrice:
+    sale_price: Decimal
+    candidates: tuple[PriceRow, ...]
+    matched_rows: tuple[PriceRow, ...]
+    method: str
+
+
+class PriceMatchError(ValueError):
+    def __init__(self, message: str, candidates: tuple[PriceRow, ...]):
+        super().__init__(message)
+        self.candidates = candidates
+
+
+def candidate_details(rows: tuple[PriceRow, ...]) -> list[dict]:
+    return [{
+        "summary_row": row.row_number, "representative": row.representative,
+        "source_kind": row.source_kind, "purchase_price": row.purchase_price,
+        "sale_price": row.sale_price,
+        "restock_candidates": [{"row_number": item.row_number,
+                                "purchase_price": item.purchase_price,
+                                "skus": sorted(item.skus)} for item in row.coverage],
+    } for row in rows]
 
 
 def _rows(sheet, required):
@@ -67,17 +103,19 @@ def read_prices(path: Path) -> list[PriceRow]:
                 raw = re.sub(r"\s*×\s*\d+(?:\.\d+)?\s*$", "", raw.strip())
                 if raw:
                     skus.add(key(raw))
-            coverage.append((sku, kind, cost, frozenset(skus), index))
+            coverage.append((sku, kind, SkuRange(index, cost, frozenset(skus))))
         result = []
         for index, sku, kind, cost, values, headers in _rows(workbook["汇总表"], (*required, "售价")):
             cell = workbook["汇总表"].cell(index, headers["售价"]).coordinate
             price = number(values["售价"], f"{path.name} 汇总表!{cell}", positive=True)
             candidates = [item for item in coverage if item[0:2] == (sku, kind)]
             if len(candidates) > 1 and cost is not None:
-                candidates = [item for item in candidates if item[2] == cost]
-            if len(candidates) != 1:
-                raise ValueError(f"{path.name} 汇总表第{index}行无法唯一关联备货单 SKU 范围: {sku}, {kind}")
-            result.append(PriceRow(index, sku, kind, cost, price, candidates[0][3]))
+                candidates = [item for item in candidates if item[2].purchase_price == cost]
+            if not candidates:
+                raise ValueError(f"{path.name} 汇总表第{index}行未找到备货单 SKU 范围: {sku}, {kind}, 原价={cost}")
+            # A representative SKU may describe several inventory lots. Keep all
+            # possible ranges; a price is resolved only for an actual ERP source.
+            result.append(PriceRow(index, sku, kind, cost, price, tuple(item[2] for item in candidates)))
         if not result:
             raise ValueError(f"{path.name} 汇总表没有售价行")
         return result
@@ -85,16 +123,26 @@ def read_prices(path: Path) -> list[PriceRow]:
         workbook.close()
 
 
-def match_price(rows: list[PriceRow], stock_sku: str, source: dict) -> PriceRow:
-    candidates = [row for row in rows if key(stock_sku) in row.skus and row.source_kind == source["source_kind"]]
-    if len(candidates) > 1:
+def match_price(rows: list[PriceRow], stock_sku: str, source: dict, *, sp_no: str = "", model: str = "") -> ResolvedPrice:
+    candidates = tuple(row for row in rows if key(stock_sku) in row.skus and row.source_kind == source["source_kind"])
+    matched = candidates
+    method = "same_price"
+    if len({row.sale_price for row in matched}) > 1:
         cost = number(source["purchase_price"], f"ERP SKU={stock_sku} 来源价格")
-        exact = [row for row in candidates if row.purchase_price == cost]
+        exact = tuple(row for row in matched if row.purchase_price == cost)
         if exact:
-            candidates = exact
+            matched = exact
+            method = "purchase_price"
+    prices = {row.sale_price for row in matched}
+    if len(prices) == 1:
+        return ResolvedPrice(prices.pop(), candidates, matched, method)
+    context = (f"SP={sp_no}, 型号={model}, SKU={stock_sku}, 来源={source['source_kind']}, "
+               f"ERP来源采购价={source.get('purchase_price')}")
     if not candidates:
-        raise ValueError(f"SKU={stock_sku}, 来源={source['source_kind']} 未找到汇总表售价")
-    if len(candidates) > 1:
-        lines = ', '.join(str(row.row_number) for row in candidates)
-        raise ValueError(f"SKU={stock_sku} 售价来源不唯一: 汇总表行={lines}")
-    return candidates[0]
+        raise PriceMatchError(f"{context} 未找到汇总表售价", candidates)
+    detail = "; ".join(
+        f"汇总表第{row.row_number}行 原价={row.purchase_price}, 售价={row.sale_price}, "
+        f"备货单候选行={','.join(str(item.row_number) for item in row.coverage)}"
+        for row in candidates
+    )
+    raise PriceMatchError(f"{context} 售价来源不唯一: {detail}", candidates)
