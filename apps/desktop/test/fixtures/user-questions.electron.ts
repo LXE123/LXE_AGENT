@@ -81,8 +81,9 @@ app.whenReady().then(async () => {
           cardFits: card.height <= Math.min(innerHeight * .35, 300) + 1,
           noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
           oneQuestion: document.querySelectorAll('.user-question-card fieldset').length === 1,
+          // Fractional line heights round to device pixels in Electron.
           errorReadable: !error || (errorRect.top >= fieldsRect.top &&
-            Math.min(errorRect.bottom, fieldsRect.bottom) - errorRect.top >= parseFloat(getComputedStyle(error).lineHeight)),
+            Math.min(errorRect.bottom, fieldsRect.bottom) - errorRect.top >= parseFloat(getComputedStyle(error).lineHeight) - 1),
         };
       })()`);
       assert.deepEqual(layout, { scrolls: true, choicesVisible: true, footerVisible: true, headerVisible: true, cardFits: true, noHorizontalOverflow: true, oneQuestion: true, errorReadable: true });
