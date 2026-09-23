@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,12 +107,12 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       cloud: { switch_in_progress: false },
     });
   });
 
-  test("migrates schema 7 profiles to schema 9 without losing provider preferences", () => {
+  test("migrates schema 7 profiles to schema 10 without losing provider preferences", () => {
     const root = createRoot();
     const legacy = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
     legacy.schema_version = 7;
@@ -128,7 +128,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "kimi_coding",
         last_local_provider: "kimi_coding",
@@ -303,6 +303,6 @@ for (const expiresAt of [1, 4_000_000_000]) {
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("cloud_business_");
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("obsolete-");
     expect(repository.readConfig().cloud.device_id).toBe("existing-device");
-    expect(repository.readConfig().schema_version).toBe(9);
+    expect(repository.readConfig().schema_version).toBe(10);
   });
 }

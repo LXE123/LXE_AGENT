@@ -1,0 +1,1 @@
+"""Yacang CLI adapters."""

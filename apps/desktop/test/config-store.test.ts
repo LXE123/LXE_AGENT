@@ -382,7 +382,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 9,
+      schema_version: 10,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -855,7 +855,7 @@ test("schema 8 migration retains dynamic model profiles and leaves Shangman unco
   const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
   expect(store.state().shangman).toMatchObject({ managed: false, configured: false });
   const migrated = JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"));
-  expect(migrated.schema_version).toBe(9);
+  expect(migrated.schema_version).toBe(10);
   expect(migrated.llm.profiles.openrouter).toEqual(old.llm.profiles.openrouter);
 });
 
@@ -896,4 +896,48 @@ test("retired Shangman Basic credential is dropped without losing the account pa
   expect(saved).not.toHaveProperty("shangman_basic_auth");
   expect(saved.shangman_processed_password).toBe("kept-password");
   expect(restarted.environment()).not.toHaveProperty("LXE_SHANGMAN_BASIC_AUTH");
+});
+
+test("Yacang migrates v9 and encrypts credentials without a production switch", () => {
+  const root = createRoot();
+  const workspace = join(root, "workspace");
+  const old = JSON.parse(JSON.stringify(cloneConfig()));
+  old.schema_version = 9;
+  delete old.integrations.yacang;
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(root, "config", "settings.json"), JSON.stringify(old));
+  const store = new DesktopConfigStore(root, workspace, safeStorage);
+  expect(store.state().yacang).toMatchObject({ managed: false, configured: false });
+  const input = { workspace_root: workspace, yacang: { action: "save" as const, mobile: "phone", password: "yacang-secret" } };
+  const state = store.save(input);
+  expect(state.yacang).toMatchObject({ configured: true, password_configured: true });
+  expect(JSON.stringify(state)).not.toContain("yacang-secret");
+  expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain("yacang-secret");
+  expect(store.environment().LXE_YACANG_PASSWORD).toBe("yacang-secret");
+  expect(store.environment()).not.toHaveProperty("LXE_YACANG_PROD_ENABLED");
+  store.save({ ...input, yacang: { ...input.yacang, password: "" } });
+  const restarted = new DesktopConfigStore(root, workspace, safeStorage);
+  expect(restarted.environment().LXE_YACANG_PASSWORD).toBe("yacang-secret");
+  expect(() => restarted.save({ ...input, yacang: { ...input.yacang, mobile: "other", password: "" } })).toThrow("更换手机号");
+  restarted.save({ workspace_root: workspace, yacang: { action: "clear" } });
+  expect(restarted.environment().LXE_YACANG_PASSWORD).toBe("");
+  expect(restarted.state().yacang.password_configured).toBe(false);
+});
+
+test("Yacang supports development secrets while saved passwords win and clear stays cleared", () => {
+  const root = createRoot();
+  const workspace = join(root, "workspace");
+  const settings = cloneConfig();
+  settings.integrations.yacang = { managed: true, mobile: "dev-phone" };
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(root, "config", "settings.json"), JSON.stringify(settings));
+  const store = new DesktopConfigStore(root, workspace, safeStorage, { secretEnvironment: { LXE_YACANG_PASSWORD: "env-secret" } });
+  expect(store.environment()).toMatchObject({ LXE_YACANG_MOBILE: "dev-phone", LXE_YACANG_PASSWORD: "env-secret" });
+  store.save({ workspace_root: workspace, yacang: { action: "save", mobile: "dev-phone", password: " saved secret " } });
+  expect(store.environment().LXE_YACANG_PASSWORD).toBe(" saved secret ");
+  const restarted = new DesktopConfigStore(root, workspace, safeStorage, { secretEnvironment: { LXE_YACANG_PASSWORD: "env-secret" } });
+  expect(restarted.environment().LXE_YACANG_PASSWORD).toBe(" saved secret ");
+  restarted.save({ workspace_root: workspace, yacang: { action: "clear" } });
+  expect(restarted.state().yacang.password_configured).toBe(false);
+  expect(restarted.environment()).toMatchObject({ LXE_YACANG_MOBILE: "", LXE_YACANG_PASSWORD: "" });
 });

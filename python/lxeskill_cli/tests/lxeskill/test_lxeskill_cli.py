@@ -23,8 +23,8 @@ def _records(capsys) -> list[dict]:
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 42
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 36
+    assert len(catalog) == 43
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 37
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -37,7 +37,7 @@ def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     assert all(
         entry["legacy_aliases"] == [name]
         for name, entry in catalog.items()
-        if not name.startswith(("browser_auth_", "shangman_"))
+        if not name.startswith(("browser_auth_", "shangman_", "yacang_"))
     )
 
 
@@ -109,7 +109,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 40
+    assert len(records[0]["data"]["commands"]) == 41
 
     assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
     records = _records(capsys)
@@ -162,11 +162,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 42,
-                "business_commands": 36,
-                "skill_files": 59,
-                "owner_skills": 26,
-                "command_declarations": 36,
+                "catalog_commands": 43,
+                "business_commands": 37,
+                "skill_files": 60,
+                "owner_skills": 27,
+                "command_declarations": 37,
             },
             "files": [],
         }

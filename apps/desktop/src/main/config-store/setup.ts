@@ -56,7 +56,7 @@ export class DesktopSetupService {
 
   state(): DesktopSetupState {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed);
+    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
     const localAuth = this.auth.snapshot();
     const providerKeyConfigured = Boolean(localAuth.configured[config.llm.provider]);
     const localProvider = this.catalog.provider(config.llm.last_local_provider)?.name ?? this.catalog.defaultProvider;
@@ -72,6 +72,9 @@ export class DesktopSetupService {
     const workspaceRoot = config.workspace_root || this.defaultWorkspaceRoot;
     const workspaceAvailable = this.validation.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
+    const yacang = config.integrations.yacang;
+    const yacangIssues = this.validation.yacangIssues(yacang, secrets);
+    const yacangConfigured = yacang.managed && yacangIssues.length === 0;
     const shangman = config.integrations.shangman;
     const shangmanIssues = this.validation.shangmanIssues(shangman, secrets);
     const shangmanConfigured = shangman.managed && shangmanIssues.length === 0;
@@ -111,6 +114,9 @@ export class DesktopSetupService {
         app_path: ziniao.app_path,
         webdriver_path: ziniao.webdriver_path,
       },
+      yacang: { managed: yacang.managed, configured: yacangConfigured,
+        mobile: yacang.mobile, issues: yacang.managed ? yacangIssues : [],
+        password_configured: Boolean(secrets.yacang_password) },
       shangman: {
         managed: shangman.managed, configured: shangmanConfigured,
         issues: shangman.managed ? shangmanIssues : [], tenant_id: shangman.tenant_id,
@@ -143,7 +149,7 @@ export class DesktopSetupService {
     const workspaceRoot = this.validation.validateWorkspaceRoot(text(input.workspace_root) || this.defaultWorkspaceRoot);
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    const effectiveSecrets = this.effectiveSecrets(secrets, config.integrations.shangman.managed);
+    const effectiveSecrets = this.effectiveSecrets(secrets, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
     config.workspace_root = workspaceRoot;
 
     if (input.ziniao?.action === "clear") {
@@ -176,6 +182,17 @@ export class DesktopSetupService {
       if (inputPassword) secrets.ziniao_password = inputPassword;
     }
 
+    if (input.yacang?.action === "clear") {
+      config.integrations.yacang = { managed: true, mobile: "" };
+      secrets.yacang_password = "";
+    } else if (input.yacang?.action === "save") {
+      const mobile = text(input.yacang.mobile);
+      const changedAccount = mobile !== config.integrations.yacang.mobile;
+      const password = input.yacang.password || (changedAccount ? "" : effectiveSecrets.yacang_password);
+      if (!mobile || !password) throw new Error("雅仓需要手机号和密码；更换手机号时请重新填写密码");
+      config.integrations.yacang = { managed: true, mobile };
+      secrets.yacang_password = password;
+    }
     if (input.shangman?.action === "clear") {
       config.integrations.shangman = { managed: true, tenant_id: "", username: "", revision: randomUUID() };
       secrets.shangman_processed_password = "";
@@ -487,7 +504,7 @@ export class DesktopSetupService {
 
   environment(): Record<string, string> {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed);
+    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
     const provider = config.llm.provider;
     const storedManagedCredential = config.cloud.switch_in_progress
       ? null
@@ -508,6 +525,9 @@ export class DesktopSetupService {
     const activePreference = config.llm.profiles[provider];
     const activeThinkingLevel = activePreference?.thinking_level ?? "off";
     const ziniao = config.integrations.ziniao;
+    const yacang = config.integrations.yacang;
+    const yacangIssues = this.validation.yacangIssues(yacang, secrets);
+    const yacangConfigured = yacang.managed && yacangIssues.length === 0;
     const shangman = config.integrations.shangman;
     const shangmanIssues = this.validation.shangmanIssues(shangman, secrets);
     const shangmanConfigured = shangman.managed && shangmanIssues.length === 0;
@@ -538,6 +558,8 @@ export class DesktopSetupService {
       ZINIAO_BROWSER_VERSION: ziniao.app_version,
       ZINIAO_CLIENT_PATH: ziniaoConfigured ? ziniao.app_path : "",
       ZINIAO_WEBDRIVER_PATH: ziniaoConfigured ? ziniao.webdriver_path : "",
+      LXE_YACANG_MOBILE: yacangConfigured ? yacang.mobile : "",
+      LXE_YACANG_PASSWORD: yacangConfigured ? secrets.yacang_password : "",
       LXE_SHANGMAN_TENANT_ID: shangmanConfigured ? shangman.tenant_id : "",
       LXE_SHANGMAN_USERNAME: shangmanConfigured ? shangman.username : "",
       LXE_SHANGMAN_PROCESSED_PASSWORD: shangmanConfigured ? secrets.shangman_processed_password : "",
@@ -561,10 +583,13 @@ export class DesktopSetupService {
     };
   }
 
-  private effectiveSecrets(persisted = this.repository.readSecrets(), shangmanManaged = false) {
+  private effectiveSecrets(persisted = this.repository.readSecrets(), shangmanManaged = false, yacangCleared = false) {
     const effective = effectiveDesktopSecrets(persisted, this.secretEnvironment);
     if (shangmanManaged) {
       effective.shangman_processed_password = persisted.shangman_processed_password;
+    }
+    if (yacangCleared) {
+      effective.yacang_password = persisted.yacang_password;
     }
     return effective;
   }

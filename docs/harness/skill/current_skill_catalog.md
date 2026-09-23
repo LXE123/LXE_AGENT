@@ -53,8 +53,9 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 
 ## 东南亚备货
 
-- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP 原始数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
-- 上马 ERP 是当前数据来源；商品导出负责采集，登录负责认证。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
+- `yacang-export`（雅仓数据导出）：三类原始报表，默认四仓、库存动销不限制商品创建日期；多仓不合并。全局产品资料仅有创建时间，不冒称入库／上架时间。登录态仅单次任务复用，账号密码由桌面加密配置。部分成功保留成功文件；数据源与上马独立选择，不自动合并。
+- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP 与雅仓原始数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
+- 上马 ERP 与雅仓是当前数据来源，按用户选择独立采集；上马登录负责上马认证，雅仓在单次任务内登录。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
 - Amazon 与东南亚拥有各自流程入口，当前共同使用 `replenishment` 权限域，没有新增权限类型。
 
 - `shangman-login`（`replenishment` 权限）：通过真实验证码登录上马 ERP，保存本地登录态，并支持状态查询与清除。由普通 Agent Loop 使用 `exec`、`read` 和已有问答工具编排，不执行商品导出。

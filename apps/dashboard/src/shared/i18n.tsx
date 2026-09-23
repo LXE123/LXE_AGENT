@@ -646,6 +646,7 @@ export const ZH_TEXT = {
       ziniao: "紫鸟",
       mabang: "马帮",
       shangman: "上马",
+      yacang: "雅仓",
       feishu: "飞书"
     },
     sectionTitles: {
@@ -656,6 +657,7 @@ export const ZH_TEXT = {
       ziniao: "紫鸟自动化",
       mabang: "马帮",
       shangman: "上马 ERP",
+      yacang: "雅仓",
       feishu: "飞书",
       logging: "日志与排障"
     },
@@ -806,6 +808,7 @@ export const ZH_TEXT = {
       webdriverPlaceholder: "驱动可以在首次运行时自动下载",
       selectWebdriver: "选择驱动目录"
     },
+    yacang: { description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。", mobile: "手机号", password: "雅仓密码" },
     shangman: {
       description: "配置上马 ERP 登录。验证码由 AI 读取；登录态保存在本机，供后续任务复用。",
       tenantId: "ID", username: "上马账号", password: "上马密码",
@@ -1512,6 +1515,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         ziniao: "ZiNiao",
         mabang: "Mabang",
         shangman: "Shangman ERP",
+        yacang: "Yacang",
         feishu: "Feishu"
       },
       sectionTitles: {
@@ -1522,6 +1526,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         ziniao: "ZiNiao automation",
         mabang: "Mabang",
         shangman: "Shangman ERP",
+        yacang: "Yacang",
         feishu: "Feishu",
         logging: "Logs & diagnostics"
       },
@@ -1672,6 +1677,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         webdriverPlaceholder: "The driver can be downloaded automatically on first run",
         selectWebdriver: "Choose the driver directory"
       },
+      yacang: { description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.", mobile: "Mobile", password: "Yacang password" },
       shangman: {
         description: "Configure Shangman ERP login. AI reads the captcha; login state is saved locally for later tasks.",
         tenantId: "Tenant ID", username: "Shangman ERP account", password: "Shangman ERP password",

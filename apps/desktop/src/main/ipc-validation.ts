@@ -107,6 +107,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     return integration;
   };
   const ziniao = input.ziniao === undefined ? undefined : integrationAction(input.ziniao, "Ziniao setup");
+  const yacang = input.yacang === undefined ? undefined : integrationAction(input.yacang, "Yacang setup");
   const shangman = input.shangman === undefined ? undefined : integrationAction(input.shangman, "Shangman setup");
   const mabang = input.mabang === undefined ? undefined : integrationAction(input.mabang, "Mabang setup");
   const feishu = input.feishu === undefined ? undefined : integrationAction(input.feishu, "Feishu setup");
@@ -128,6 +129,10 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
       ? { password: boundedText(ziniao.password, "Ziniao password", 16_384) }
       : {}),
   } : ziniao?.action === "clear" ? { action: "clear" as const } : undefined;
+  const yacangInput = yacang?.action === "save" ? {
+    action: "save" as const, mobile: boundedText(yacang.mobile, "Yacang mobile", 1024),
+    password: boundedText(yacang.password, "Yacang password", 16384),
+  } : yacang?.action === "clear" ? { action: "clear" as const } : undefined;
   const shangmanInput = shangman?.action === "save" ? {
     action: "save" as const, tenant_id: boundedText(shangman.tenant_id, "Shangman tenant ID", 1024),
     username: boundedText(shangman.username, "Shangman username", 1024),
@@ -165,6 +170,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
   return {
     workspace_root: workspaceRoot,
     ...(ziniaoInput ? { ziniao: ziniaoInput } : {}),
+    ...(yacangInput ? { yacang: yacangInput } : {}),
     ...(shangmanInput ? { shangman: shangmanInput } : {}),
     ...(mabangInput ? { mabang: mabangInput } : {}),
     ...(feishuInput ? { feishu: feishuInput } : {}),

@@ -51,6 +51,10 @@ export class DesktopConfigValidation {
     return issues;
   }
 
+  yacangIssues(yacang: DesktopConfig["integrations"]["yacang"], secrets: DesktopSecrets): string[] {
+    return [!yacang.mobile && "缺少手机号", !secrets.yacang_password && "缺少密码"].filter(Boolean) as string[];
+  }
+
   shangmanIssues(shangman: DesktopConfig["integrations"]["shangman"], secrets: DesktopSecrets): string[] {
     return [!shangman.tenant_id && "缺少租户 ID", !shangman.username && "缺少账号",
       !secrets.shangman_processed_password && "缺少密码",

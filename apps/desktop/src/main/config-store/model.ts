@@ -42,7 +42,7 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 9;
+  schema_version: 10;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
@@ -65,6 +65,7 @@ export interface DesktopConfig {
       app_path: string;
       webdriver_path: string;
     };
+    yacang: { managed: boolean; mobile: string };
     shangman: { managed: boolean; tenant_id: string; username: string; revision: string };
     mabang: { managed: boolean; account: string };
     feishu: { managed: boolean; app_id: string };
@@ -86,6 +87,7 @@ export interface DesktopConfig {
 
 export interface DesktopSecrets {
   ziniao_password: string;
+  yacang_password: string;
   shangman_processed_password: string;
   mabang_password: string;
   feishu_app_secret: string;
@@ -101,7 +103,7 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 5;
 
-export const SETTINGS_SCHEMA_VERSION = 9 as const;
+export const SETTINGS_SCHEMA_VERSION = 10 as const;
 
 const developmentCatalog = (): LlmProviderCatalog => loadLlmProviderCatalog(
   join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
@@ -135,6 +137,7 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
         app_path: "",
         webdriver_path: "",
       },
+      yacang: { managed: false, mobile: "" },
       shangman: { managed: false, tenant_id: "", username: "", revision: "" },
       mabang: { managed: false, account: "" },
       feishu: { managed: false, app_id: "" },
@@ -154,6 +157,7 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
 
 const DEFAULT_SECRETS: DesktopSecrets = {
   ziniao_password: "",
+  yacang_password: "",
   shangman_processed_password: "",
   mabang_password: "",
   feishu_app_secret: "",
@@ -238,7 +242,7 @@ export const parseSettings = (
   const value = objectValue(raw);
   if (value.schema_version !== 4 && value.schema_version !== 5
     && value.schema_version !== 6 && value.schema_version !== 7 && value.schema_version !== 8
-    && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+    && value.schema_version !== 9 && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
   assertNoSecretFields(value);
@@ -293,6 +297,11 @@ export const parseSettings = (
   }
   const integrations = objectValue(value.integrations);
   const ziniao = objectValue(integrations.ziniao);
+  const yacang = objectValue(integrations.yacang);
+  assertOnlyFields(yacang, ["managed", "mobile"], "settings.integrations.yacang");
+  if (Number(value.schema_version) >= 10 || Object.keys(yacang).length > 0) {
+    assertFieldTypes(yacang, { managed: "boolean", mobile: "string" }, "settings.integrations.yacang");
+  }
   const shangman = objectValue(integrations.shangman);
   // Accept the retired switch in existing v9 files; normalization drops it on save.
   assertOnlyFields(shangman, ["managed", "tenant_id", "username", "production_enabled", "revision"], "settings.integrations.shangman");
@@ -301,7 +310,7 @@ export const parseSettings = (
   }
   const mabang = objectValue(integrations.mabang);
   const feishu = objectValue(integrations.feishu);
-  assertOnlyFields(integrations, ["ziniao", "mabang", "feishu", "shangman"], "settings.integrations");
+  assertOnlyFields(integrations, ["ziniao", "mabang", "feishu", "shangman", "yacang"], "settings.integrations");
   assertOnlyFields(ziniao, [
     "managed", "company", "username", "app_version", "app_path", "webdriver_path",
   ], "settings.integrations.ziniao");
@@ -343,6 +352,7 @@ export const parseConfig = (
   const rawProfiles = objectValue(rawLlm.profiles);
   const integrations = objectValue(value.integrations);
   const rawZiniao = objectValue(integrations.ziniao);
+  const rawYacang = objectValue(integrations.yacang);
   const rawShangman = objectValue(integrations.shangman);
   const rawMabang = objectValue(integrations.mabang);
   const rawFeishu = objectValue(integrations.feishu);
@@ -418,6 +428,7 @@ export const parseConfig = (
         app_path: text(rawZiniao.app_path),
         webdriver_path: text(rawZiniao.webdriver_path),
       },
+      yacang: { managed: Boolean(rawYacang.managed), mobile: text(rawYacang.mobile) },
       shangman: {
         managed: Boolean(rawShangman.managed), tenant_id: text(rawShangman.tenant_id),
         username: text(rawShangman.username),
@@ -473,6 +484,7 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
       : null;
   return {
     ziniao_password: text(value.ziniao_password),
+    yacang_password: typeof value.yacang_password === "string" ? value.yacang_password : "",
     shangman_processed_password: text(value.shangman_processed_password),
     mabang_password: text(value.mabang_password),
     feishu_app_secret: text(value.feishu_app_secret),

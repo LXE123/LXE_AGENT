@@ -61,7 +61,7 @@ import {
 } from "./settings-model";
 
 type Provider = DesktopModelProvider;
-type IntegrationName = "ziniao" | "mabang" | "shangman" | "feishu";
+type IntegrationName = "ziniao" | "mabang" | "shangman" | "yacang" | "feishu";
 type SetupForm = DesktopSettingsFormValue;
 type DesktopConfirmation =
   | { kind: "diagnostic" }
@@ -168,6 +168,7 @@ function DesktopSettingsNavigation({
         {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2)}
         <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
         {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
+        {item("yacang", t.desktop.integrationNames.yacang, desktopSettingsSectionStatus(t.desktop, "yacang", setup), Store)}
         {item("shangman", t.desktop.integrationNames.shangman, desktopSettingsSectionStatus(t.desktop, "shangman", setup), Store)}
         {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup), Store)}
         {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather)}
@@ -776,6 +777,28 @@ function DesktopSettingsForm({
     );
   }
 
+  if (activeSection === "yacang") {
+    const labels = t.desktop.yacang;
+    return (
+      <section className="desktop-settings-section">
+        <DesktopSectionHeading badge={desktopSettingsSectionStatus(t.desktop, "yacang", setup)}
+          badgeClassName={integrationStatusClass(setup.yacang.managed, setup.yacang.configured)}
+          description={labels.description} headingRef={headingRef} title={t.desktop.sectionTitles.yacang} />
+        <div className="desktop-integration-fields">
+          <IntegrationIssues issues={setup.yacang.issues} />
+          <div className="desktop-field-grid">
+            <label><span>{labels.mobile}</span><input autoComplete="username" value={form.yacangMobile} onChange={event => onChange({ yacangMobile: event.target.value })} /></label>
+            <label><span>{labels.password}{setup.yacang.password_configured ? t.desktop.keepBlankSuffix : ""}</span>
+              <input type="password" autoComplete="new-password" value={form.yacangPassword}
+                placeholder={setup.yacang.password_configured ? t.desktop.storedPlaceholder : ""}
+                onChange={event => onChange({ yacangPassword: event.target.value })} /></label>
+          </div>
+          {setup.yacang.managed ? <button className="desktop-clear-integration" onClick={() => onClearIntegration("yacang")} type="button"><Trash2 size={14} />{t.desktop.clearIntegration}</button> : null}
+        </div>
+      </section>
+    );
+  }
+
   if (activeSection === "shangman") {
     const labels = t.desktop.shangman;
     return (
@@ -1358,6 +1381,7 @@ export function DesktopShell({
       form.ziniaoAppPath,
       form.ziniaoWebDriverPath,
     ) || setup.ziniao.configured;
+    const yacangTouched = hasText(form.yacangMobile, form.yacangPassword) || setup.yacang.configured;
     const shangmanTouched = hasText(form.shangmanTenantId, form.shangmanUsername, form.shangmanPassword) || setup.shangman.configured;
     const mabangTouched = hasText(form.mabangAccount, form.mabangPassword) || setup.mabang.configured;
     const feishuTouched = hasText(form.feishuAppId, form.feishuAppSecret) || setup.feishu.configured;
@@ -1373,6 +1397,10 @@ export function DesktopShell({
           app_path: form.ziniaoAppPath,
           webdriver_path: form.ziniaoWebDriverPath,
         },
+      } : {}),
+      ...(yacangTouched ? {
+        yacang: { action: "save" as const, mobile: form.yacangMobile,
+          ...(form.yacangPassword ? { password: form.yacangPassword } : {}) },
       } : {}),
       ...(shangmanTouched ? {
         shangman: { action: "save" as const, tenant_id: form.shangmanTenantId, username: form.shangmanUsername,

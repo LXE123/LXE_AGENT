@@ -1,6 +1,7 @@
 {
   "protocol_version": "1",
   "entries": [
+    {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "export", "run"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"params": {"type": "object", "properties": {"reports": {"type": "array", "minItems": 1, "items": {"enum": ["inventory-sales", "inventory-current-snapshot", "warehouse-products"]}}, "warehouses": {"type": "array", "minItems": 1, "items": {"enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_date": {"type": "object", "properties": {"start_date": {"type": "string"}, "end_date": {"type": "string"}}, "required": ["start_date", "end_date"], "additionalProperties": false}}, "required": ["reports"], "additionalProperties": false}}, "required": ["params"], "additionalProperties": false}},
     {"name": "shangman_goods_export", "command_path": ["shangman", "export", "run"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.goods_export", "owner_skills": ["shangman-goods-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}]},
     {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}]},
     {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}},
@@ -386,6 +387,7 @@
     }
   ],
   "datasets": {
+    "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类原始 XLSX，按账号摘要与本次运行隔离，每仓一份。"},
     "shangman_goods_export": {"dir": "shangman/indonesia", "holds": "上马 ERP 当前配置账号可见的商品全量原始 XLSX，每次导出保存于独立运行子目录。"},
     "fba_delivery_csv": {"dir": "fba/delivery_csv", "holds": "FBA 发货单 CSV，命名 <SP单号>_*.csv；报关、发票、采购、退税汇总都从这里读。", "legacy_dirs": ["mabang_fba_delivery"]},
     "fba_stock_sku": {"dir": "fba/stock_sku", "holds": "马帮库存 SKU Excel，按发货单 SKU发货量 列导出；SKU 多时分批成多个文件。", "legacy_dirs": ["mabang_stock_sku"]},

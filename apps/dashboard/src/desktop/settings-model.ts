@@ -50,6 +50,7 @@ export type DesktopSettingsSection =
   | "base"
   | "ziniao"
   | "shangman"
+  | "yacang"
   | "mabang"
   | "feishu"
   | "logging";
@@ -66,6 +67,8 @@ export interface DesktopSettingsFormValue {
   ziniaoVersion: DesktopZiniaoVersion;
   ziniaoAppPath: string;
   ziniaoWebDriverPath: string;
+  yacangMobile: string;
+  yacangPassword: string;
   shangmanTenantId: string;
   shangmanUsername: string;
   shangmanPassword: string;
@@ -87,6 +90,8 @@ export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFo
   ziniaoVersion: state.ziniao.app_version,
   ziniaoAppPath: state.ziniao.app_path,
   ziniaoWebDriverPath: state.ziniao.webdriver_path,
+  yacangMobile: state.yacang.mobile,
+  yacangPassword: "",
   shangmanTenantId: state.shangman.tenant_id,
   shangmanUsername: state.shangman.username,
   shangmanPassword: "",
@@ -108,6 +113,7 @@ const SECTION_FIELDS: Record<EditableDesktopSettingsSection, readonly (keyof Des
     "ziniaoAppPath",
     "ziniaoWebDriverPath",
   ],
+  yacang: ["yacangMobile", "yacangPassword"],
   shangman: ["shangmanTenantId", "shangmanUsername", "shangmanPassword"],
   mabang: ["mabangAccount", "mabangPassword"],
   feishu: ["feishuAppId", "feishuAppSecret"],

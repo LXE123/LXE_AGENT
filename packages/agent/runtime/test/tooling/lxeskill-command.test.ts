@@ -49,7 +49,7 @@ describe("lxeskill command recognition", () => {
     // Every directory is owned by exactly one business module — the property the
     // <module>/<data-type> layout depends on.
     const modules = new Set(datasets.map((entry) => entry.dir.split("/")[0]));
-    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "replenish", "shangman"]);
+    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "replenish", "shangman", "yacang"]);
     expect(new Set(datasets.map((entry) => entry.dir)).size).toBe(datasets.length);
     expect(datasets.every((entry) => entry.holds.length > 0)).toBe(true);
   });
@@ -120,4 +120,17 @@ test("Shangman export is a separate command delivering one workbook", () => {
   });
   expect(loadLxeSkillDatasets(path).find(entry => entry.id === "shangman_goods_export")?.dir)
     .toBe("shangman/indonesia");
+});
+
+test("Yacang exposes one export command with its own deliverable dataset", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path).filter(entry => entry.name.startsWith("yacang_"));
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    command: "lxeskill yacang export run",
+    module: "services.agent_cli.yacang.export_run",
+    ownerSkills: ["yacang-export"],
+    artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
+  });
+  expect(loadLxeSkillDatasets(path).find(entry => entry.id === "yacang_exports")?.dir).toBe("yacang/exports");
 });
