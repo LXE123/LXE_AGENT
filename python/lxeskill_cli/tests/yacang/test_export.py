@@ -142,7 +142,7 @@ def test_all_reports_nine_original_files_single_login_and_new_runs(platform):
     assert not any('create_time' in c[2] for c in submits(platform))
     assert result['params']['created_date'] is None
     for index, artifact in enumerate(result['artifacts'], 1):
-        assert Path(artifact['path']).read_bytes() == platform['files'][f'/file{index}.xlsx']
+        assert filesystem_path(artifact['path']).read_bytes() == platform['files'][f'/file{index}.xlsx']
         assert artifact['row_count'] == 1 and artifact['sheet_names']
     for call in platform['calls']:
         if call[1].startswith('/file'):
@@ -200,7 +200,7 @@ def test_local_download_failure_preserves_partial_cli_files(platform, capsys):
     assert cli.main(['yacang', 'export', 'run', '--params', json.dumps(request(warehouses=['MY8801', 'PH8805'])['params'])]) != 0
     result = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert not result['ok'] and result['data']['status'] == 'partial_success'
-    assert len(result['files']) == 1 and Path(result['files'][0]).is_file()
+    assert len(result['files']) == 1 and filesystem_path(result['files'][0]).is_file()
     assert 'recovery' not in result
     assert 'actual download failure' in result['error']['message']
 
