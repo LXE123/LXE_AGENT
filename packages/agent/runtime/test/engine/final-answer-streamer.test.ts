@@ -10,7 +10,7 @@ describe("FinalAnswerStreamer display contract", () => {
       const batches: DesktopStreamBatchRequest[] = [];
       const displayed = Promise.withResolvers<ToolStep>();
       const streamer = new FinalAnswerStreamer({
-        sessionId: "s1", turnId: "t1", responseRouteId: "r1", toolUseMode: "on", showFullPaths: true,
+        sessionId: "s1", turnId: "t1", responseRouteId: "r1", toolUseMode: "on",
         minIntervalMs: 0, desktopBatchIntervalMs: 0,
         emit: async request => {
           frames.push(request);
@@ -155,7 +155,6 @@ describe("FinalAnswerStreamer display contract", () => {
       model: "model-1",
       contextWindowTokens: 200_000,
       toolUseMode: "full",
-      showFullPaths: false,
       emit: async (request) => { emitted.push(request); return true; },
     });
 
@@ -222,9 +221,9 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(serialized).toContain(commandSecret);
     expect(serialized).toContain("second-command-secret");
     expect(terminal.tool_steps[0]?.result_block?.content).not.toContain(outputSecret);
-    expect(terminal.tool_steps[0]?.result_block?.content).not.toContain("C:\\Users\\Alice\\result.json");
+    expect(terminal.tool_steps[0]?.result_block?.content).toContain(JSON.stringify("C:\\Users\\Alice\\result.json"));
     expect(terminal.tool_steps[1]?.error_block?.content).not.toContain(outputSecret);
-    expect(terminal.tool_steps[1]?.error_block?.content).not.toContain("C:\\Users\\Alice\\private.log");
+    expect(terminal.tool_steps[1]?.error_block?.content).toContain("C:\\Users\\Alice\\private.log");
     expect(serialized).not.toContain("encrypted");
     expect(terminal.tool_steps[0]?.result_block?.content.length).toBeLessThanOrEqual(4_000);
     expect(terminal.tool_steps[1]?.error_block?.content.length).toBeLessThanOrEqual(2_000);

@@ -73,7 +73,7 @@ Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预�
 - 普通 detail 默认限制 240 chars；exec 的命令文本保留以便核对实际执行内容。
 - full mode 才展示 result detail，最大 4000 chars。
 - error detail 最大 2000 chars。
-- result/error 经脱敏和截断；路径显示由 showFullPaths 控制，桌面本机视图可显示完整路径。不能把工具卡当作任意输入的脱敏导出。
+- 内部展示正文统一使用 `content`，根据状态生成成功或错误正文块。桌面和飞书均保留原始路径，不再缩短目录；现有敏感信息脱敏和长度截断继续生效。不能把工具卡当作任意输入的脱敏导出。诊断日志的路径脱敏独立处理。
 
 Model-visible result、用户展示和运行日志是三个不同输出，不能互相直接复用。
 

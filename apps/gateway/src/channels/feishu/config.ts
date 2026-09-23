@@ -29,7 +29,6 @@ export type FeishuToolUseMode = "off" | "on" | "full";
 
 export interface FeishuCardDisplayConfig {
   toolUseMode: FeishuToolUseMode;
-  showFullPaths: boolean;
   footer: {
     status: boolean;
     elapsed: boolean;
@@ -83,7 +82,6 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
     : "on";
   const cardDisplay: FeishuCardDisplayConfig = {
     toolUseMode,
-    showFullPaths: envBoolean(env, "FEISHU_TOOL_USE_SHOW_FULL_PATHS", false),
     footer: {
       status: envBoolean(env, "FEISHU_CARD_FOOTER_STATUS", false),
       elapsed: envBoolean(env, "FEISHU_CARD_FOOTER_ELAPSED", false),

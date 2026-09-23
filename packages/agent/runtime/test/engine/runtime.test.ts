@@ -1799,7 +1799,7 @@ describe("TypeScriptAgentRuntime", () => {
     });
   }
 
-  test("keeps desktop tool paths local and includes successful live results", async () => {
+  test("preserves tool paths on every channel while honoring result detail settings", async () => {
     const artifact = "/private/var/artifacts/report.json";
     const streamFor = async (platform: string): Promise<{ detail: string; results: string[] }> => {
       const responses: AssistantMessage[] = [
@@ -1829,7 +1829,7 @@ describe("TypeScriptAgentRuntime", () => {
         emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
         systemPrompt: "test",
         // The Feishu-owned default, which used to decide this for every platform.
-        display: { model: "m", contextWindowTokens: 200_000, toolUseMode: "on", showFullPaths: false },
+        display: { model: "m", contextWindowTokens: 200_000, toolUseMode: "on" },
       });
       await runtime.start();
       await runtime.runTurn({
@@ -1852,9 +1852,9 @@ describe("TypeScriptAgentRuntime", () => {
       };
     };
 
-    // A card is read in a group chat by people who are not on this machine.
-    expect(await streamFor("feishu")).toEqual({ detail: ".../report.json", results: [] });
-    // The desktop window is this machine's own owner reading their own paths.
+    // Feishu keeps its configured result visibility without rewriting paths.
+    expect(await streamFor("feishu")).toEqual({ detail: artifact, results: [] });
+    // Desktop still includes results for its expandable tool cards.
     const desktop = await streamFor("desktop");
     expect(desktop.detail).toBe(artifact);
     expect(desktop.results).toHaveLength(1);
@@ -2836,7 +2836,7 @@ test("request anchors survive restart and power next-request display without sum
   const emitted: EmitRequest[] = [];
   const makeRuntime = () => new TypeScriptAgentRuntime({
     store, tools: new ToolRegistry(), systemPrompt:"stable",
-    display: { model:"", contextWindowTokens:256000, toolUseMode:"full", showFullPaths:false },
+    display: { model:"", contextWindowTokens:256000, toolUseMode:"full" },
     provider: {
       summarize,
       turn: async request => {

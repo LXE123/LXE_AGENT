@@ -2,6 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 describe("tool display", () => {
+  test("preserves paths and escaped newlines in plain and JSON tool content", () => {
+    const text = "output:\n缓存目录不存在\nC:\\Users\\Alice\\my reports\\report.txt\n/private/workspace/report.txt\nT:\\new\\test.txt";
+    const structured = [{ type: "text", text }];
+    for (const status of ["success", "error"] as const) {
+      for (const content of [text, structured, JSON.stringify(structured)]) {
+        const step = buildToolDisplayStep("call-1", "exec", {}, status, 1, { content, showResultDetails: true });
+        const block = (status === "success" ? step.result_block : step.error_block)!;
+        if (content === text) expect(block).toEqual({ language: "text", content: text });
+        else {
+          expect(block.language).toBe("json");
+          expect(JSON.parse(block.content)).toEqual(structured);
+        }
+      }
+    }
+  });
+
   test("uses the same content for success and failure while keeping detail controls", () => {
     const content = [{ type: "text", text: "command output: 缓存目录不存在" }];
     for (const status of ["running", "success", "error"] as const) {
@@ -35,17 +51,14 @@ describe("tool display", () => {
     const path = "/private/workspace/output.txt";
     const content = `failed at ${path} token=output-secret\n${"x".repeat(5_000)}`;
     for (const status of ["success", "error"] as const) {
-      for (const showFullPaths of [false, true]) {
-        const step = buildToolDisplayStep("call-1", "exec", {}, status, 1,
-          { content, showResultDetails: true, showFullPaths });
-        const block = (status === "success" ? step.result_block : step.error_block)!;
-        expect(block.content).toContain(showFullPaths ? path : ".../output.txt");
-        if (!showFullPaths) expect(block.content).not.toContain(path);
-        expect(block.content).not.toContain("output-secret");
-        expect(block.content).toContain("[redacted]\n");
-        expect(block.content.length).toBe(status === "success" ? 4_000 : 2_000);
-        expect(block.content.endsWith("...")).toBe(true);
-      }
+      const step = buildToolDisplayStep("call-1", "exec", {}, status, 1,
+        { content, showResultDetails: true });
+      const block = (status === "success" ? step.result_block : step.error_block)!;
+      expect(block.content).toContain(path);
+      expect(block.content).not.toContain("output-secret");
+      expect(block.content).toContain("[redacted]\n");
+      expect(block.content.length).toBe(status === "success" ? 4_000 : 2_000);
+      expect(block.content.endsWith("...")).toBe(true);
     }
   });
 
@@ -75,7 +88,7 @@ describe("tool display", () => {
     expect(step.detail).toBe("artifacts/first.xlsx artifacts/second.pdf");
   });
 
-  test("shortens every batched absolute path outside the desktop display", () => {
+  test("preserves every batched absolute path", () => {
     const step = buildToolDisplayStep(
       "tool-1",
       "send_files",
@@ -84,7 +97,7 @@ describe("tool display", () => {
       0,
     );
 
-    expect(step.detail).toBe(".../first.xlsx .../second.pdf");
+    expect(step.detail).toBe("/private/artifacts/first.xlsx /private/artifacts/second.pdf");
   });
 
   test("keeps the legacy send_file title for historical transcripts", () => {

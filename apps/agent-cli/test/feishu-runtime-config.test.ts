@@ -8,7 +8,6 @@ describe("Agent Feishu runtime config", () => {
       FEISHU_APP_SECRET: "secret",
       FEISHU_API_HOST: "https://open.larksuite.com/open-apis",
       FEISHU_TOOL_USE_MODE: "full",
-      FEISHU_TOOL_USE_SHOW_FULL_PATHS: "true",
     });
 
     expect(config).toMatchObject({
@@ -16,7 +15,7 @@ describe("Agent Feishu runtime config", () => {
       appSecret: "secret",
       apiHost: "https://open.larksuite.com/open-apis",
       domain: "lark",
-      cardDisplay: { toolUseMode: "full", showFullPaths: true },
+      cardDisplay: { toolUseMode: "full" },
     });
     expect(config.missingRequired()).toEqual([]);
   });
@@ -26,7 +25,7 @@ describe("Agent Feishu runtime config", () => {
 
     expect(config.apiHost).toBe("https://open.feishu.cn/open-apis");
     expect(config.domain).toBe("feishu");
-    expect(config.cardDisplay).toEqual({ toolUseMode: "on", showFullPaths: false });
+    expect(config.cardDisplay).toEqual({ toolUseMode: "on" });
     expect(config.missingRequired()).toEqual(["FEISHU_APP_ID", "FEISHU_APP_SECRET"]);
   });
 

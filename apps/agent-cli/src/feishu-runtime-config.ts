@@ -1,4 +1,4 @@
-import { envFlag, envText, type Environment } from "@lxe/core";
+import { envText, type Environment } from "@lxe/core";
 
 export type AgentFeishuDomain = "feishu" | "lark" | string;
 export type AgentFeishuToolUseMode = "off" | "on" | "full";
@@ -10,7 +10,6 @@ export interface AgentFeishuConfig {
   domain: AgentFeishuDomain;
   cardDisplay: {
     toolUseMode: AgentFeishuToolUseMode;
-    showFullPaths: boolean;
   };
   missingRequired(): string[];
 }
@@ -46,7 +45,6 @@ export function loadAgentFeishuConfig(env: Environment = process.env): AgentFeis
     domain: apiDomain(apiHost),
     cardDisplay: {
       toolUseMode,
-      showFullPaths: envFlag(env, "FEISHU_TOOL_USE_SHOW_FULL_PATHS", false),
     },
     missingRequired,
   };

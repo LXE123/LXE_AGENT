@@ -37,7 +37,6 @@ export interface FinalAnswerStreamerOptions {
   model?: string;
   contextWindowTokens?: number;
   toolUseMode?: "off" | "on" | "full";
-  showFullPaths?: boolean;
 }
 
 const cloneStep = (step: ToolStep): ToolStep => ({
@@ -267,9 +266,7 @@ export class FinalAnswerStreamer {
     this.toolPending = false;
     // Same path treatment as the finished step, or the path visibly changes
     // under the reader the moment the call completes.
-    const step = buildToolDisplayStep(call.id, call.name, call.arguments, "running", 0, {
-      ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
-    });
+    const step = buildToolDisplayStep(call.id, call.name, call.arguments, "running", 0);
     this.upsertTool(step);
     const partId = `tool:${call.id}`;
     this.toolPartIds.set(call.id, partId);
@@ -295,7 +292,6 @@ export class FinalAnswerStreamer {
     if (status === "running") this.detachedToolIds.add(call.id);
     else this.detachedToolIds.delete(call.id);
     const step = buildToolDisplayStep(call.id, call.name, call.arguments, status, durationMs, {
-      ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
       showResultDetails: this.options.toolUseMode === "full",
       ...(output?.image_view ? { image_view: output.image_view } : {}),
       content: output?.content,

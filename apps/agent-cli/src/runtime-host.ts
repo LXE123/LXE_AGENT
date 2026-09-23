@@ -295,7 +295,6 @@ export function createAgentRuntimeHost(
       model: providerDescriptor.model,
       contextWindowTokens: providerDescriptor.contextWindowTokens,
       toolUseMode: feishu.cardDisplay.toolUseMode,
-      showFullPaths: feishu.cardDisplay.showFullPaths,
     },
     emitter: options.emitter,
     ...(options.onSessionChanged ? { onSessionChanged: options.onSessionChanged } : {}),

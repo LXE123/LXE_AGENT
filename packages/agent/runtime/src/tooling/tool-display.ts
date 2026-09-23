@@ -1,4 +1,3 @@
-import { basename, isAbsolute } from "node:path";
 import type { JsonObject, ToolDisplayBlock, ToolStep } from "@lxe/protocol";
 import { matchLxeSkillInvocation } from "./lxeskill-command";
 
@@ -6,7 +5,6 @@ const DETAIL_LIMIT = 240;
 const RESULT_LIMIT = 4_000;
 const ERROR_LIMIT = 2_000;
 const SECRET_NAME = /token|secret|password|api[-_]?key|authorization|cookie|credential|bearer|session[-_]?id|client[-_]?secret|access[-_]?key/i;
-const ABSOLUTE_PATH = /(?:[A-Za-z]:\\|\/(?:Users|home|var|tmp|private|Volumes|opt|usr)\/)[^\s"'`,;:)]*/g;
 
 const scalar = (value: unknown): string =>
   typeof value === "string" || typeof value === "number" || typeof value === "boolean"
@@ -16,7 +14,7 @@ const scalar = (value: unknown): string =>
 const truncate = (value: string, limit = DETAIL_LIMIT): string =>
   value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
 
-const sanitize = (value: unknown, showFullPaths = false, limit = DETAIL_LIMIT, preserveLines = false): string => {
+const sanitize = (value: unknown, limit = DETAIL_LIMIT, preserveLines = false): string => {
   let text = String(value ?? "").replace(/\r\n/g, "\n").trim();
   if (!preserveLines) text = text.replace(/\s+/g, " ");
   text = text.replace(/(https?:\/\/)[^/@\s]+:[^/@\s]+@/gi, "$1[redacted]@");
@@ -27,7 +25,6 @@ const sanitize = (value: unknown, showFullPaths = false, limit = DETAIL_LIMIT, p
     SECRET_NAME.test(String(name)) ? `${prefix}${name}${separator}[redacted]` : match);
   text = text.replace(/(^|\s)(--?[A-Za-z0-9][A-Za-z0-9-]*)(=|\s+)([^\s]+)/g, (match, prefix, flag, separator) =>
     SECRET_NAME.test(String(flag)) ? `${prefix}${flag}${separator}[redacted]` : match);
-  if (!showFullPaths) text = text.replace(ABSOLUTE_PATH, (path) => `.../${basename(path.replaceAll("\\", "/")) || "path"}`);
   return truncate(text, limit);
 };
 
@@ -68,7 +65,7 @@ const withoutImageData = (value: unknown): unknown => {
   return typeof value === "string" && /^data:image\//iu.test(value) ? "[Image data omitted from tool details]" : value;
 };
 
-const stringifyDisplay = (value: unknown, limit: number, showFullPaths: boolean): ToolDisplayBlock | undefined => {
+const stringifyDisplay = (value: unknown, limit: number): ToolDisplayBlock | undefined => {
   if (value === undefined || value === null) return undefined;
   if (Array.isArray(value) && value.length === 0) return undefined;
   let language: ToolDisplayBlock["language"] = "text";
@@ -89,7 +86,7 @@ const stringifyDisplay = (value: unknown, limit: number, showFullPaths: boolean)
     language = "json";
     try { content = JSON.stringify(value, null, 2); } catch { content = String(value); }
   } else content = String(value);
-  content = sanitize(content, showFullPaths, limit, true);
+  content = sanitize(content, limit, true);
   return content ? { language, content } : undefined;
 };
 
@@ -106,7 +103,6 @@ export function buildToolDisplayStep(
   status: ToolStep["status"],
   durationMs: number,
   options: ToolDisplayOutput & {
-    showFullPaths?: boolean;
     showResultDetails?: boolean;
   } = {},
 ): ToolStep {
@@ -129,22 +125,15 @@ export function buildToolDisplayStep(
     }
     return scalar(value);
   }).filter(Boolean).join(" ");
-  const showFullPaths = options.showFullPaths === true;
   // The command is reader-visible execution state, just like the persisted
   // tool call shown after the turn. Keep it byte-for-byte apart from trimming
   // surrounding whitespace so live and historical views do not disagree.
-  const safeDetail = isExec
-    ? detail
-    : safeName.toLowerCase() === "send_files"
-    ? sanitize(detail, showFullPaths)
-    : isAbsolute(detail) && !showFullPaths
-      ? `.../${basename(detail) || "path"}`
-      : sanitize(detail, showFullPaths);
+  const safeDetail = isExec ? detail : sanitize(detail);
   const resultBlock = status === "success" && options.showResultDetails
-    ? stringifyDisplay(withoutImageData(options.content), RESULT_LIMIT, showFullPaths)
+    ? stringifyDisplay(withoutImageData(options.content), RESULT_LIMIT)
     : undefined;
   const errorBlock = status === "error"
-    ? stringifyDisplay(withoutImageData(options.content), ERROR_LIMIT, showFullPaths)
+    ? stringifyDisplay(withoutImageData(options.content), ERROR_LIMIT)
     : undefined;
   return {
     id: String(id ?? "").trim(),
