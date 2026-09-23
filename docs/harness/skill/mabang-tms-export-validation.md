@@ -1,6 +1,6 @@
 # 马帮 TMS 数据导出：实现与验收
 
-从 `main` 独立开发，参考 PR #65 的登录、列表和导出协议。产品名称统一为马帮 TMS，旧称智汇 TMS 仅用于理解请求；与马帮 ERP 配置、凭据和命令分开。
+从 `main` 独立开发，参考 PR #65（`49df456ffc3cbb90a331ba1a6af504378a15e1d5`）的登录、列表和导出协议。产品名称统一为马帮 TMS，旧称智汇 TMS 仅用于理解请求；与马帮 ERP 配置、凭据和命令分开。
 
 ## 使用和范围
 
@@ -21,7 +21,7 @@
 - 桌面配置、IPC、设置模型及 Skill 测试通过；新模块引起的目录清单断言已更新，Bun 命令契约 8 项通过，IPC 13 项通过。
 - TypeScript 各工作区类型检查、前端构建、`lxeskill doctor` 和 `git diff --check` 通过。
 
-最终 rebase 后的完整验证结果将在交付时补记。
+2026-09-23 最终 rebase 后运行一次 `bun run verify`：协议生成检查、生产边界检查、各工作区 TypeScript 类型检查通过；Bun 1789 项通过、5 项跳过。Python 收集阶段发现新测试与雅仓的 `test_export.py` 同名，仅将新增测试重命名为 `test_mabang_tms_export.py` 后继续执行 `bun run test:py-tools`：1960 项通过、2 项跳过、54 个子测试通过。未重复跑已通过的 Bun 全量。随后仅同步导航和验收文字，使用 doctor 与 diff 检查确认契约无变化。
 
 ## 真实验收和仍未确认事项
 

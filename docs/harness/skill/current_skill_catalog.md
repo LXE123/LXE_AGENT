@@ -4,19 +4,19 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 32 top-level workflow and default runtime skills:
+The repository currently contains 34 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
-| `replenishment` | 12 | Amazon replenishment workflows and Southeast Asia data preparation with Shangman ERP |
+| `replenishment` | 14 | Amazon replenishment workflows and Southeast Asia data preparation with Shangman ERP, Yacang and Mabang TMS |
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
 | `default` | 3 | general connector, workbook and custom Skill creation capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
 bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
-discovery sees 59 repository manifests in total.
+discovery sees 61 repository manifests in total.
 
 ## Amazon FBA
 
@@ -56,8 +56,8 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 - `mabang-tms-export`（马帮 TMS 数据导出）：当前账号全部仓库、正常商品、全部库存状态；按内部 ID 分批导出，校验接口总数并合并交付，不按 SKU 去重或汇总销量。单任务登录，原始分批文件保留，失败可交付已校验部分。
 
 - `yacang-export`（雅仓数据导出）：三类原始报表，默认四仓、库存动销不限制源表创建日期；多仓不合并。动销“创建日期”与全局产品资料“创建时间”口径不同，不冒称商品建档、入库／上架时间。登录态仅单次任务复用，账号密码由桌面加密配置。部分成功保留成功文件；数据源与上马独立选择，不自动合并。
-- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP 与雅仓原始数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
-- 上马 ERP 与雅仓是当前数据来源，按用户选择独立采集；上马登录负责上马认证，雅仓在单次任务内登录。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
+- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP、雅仓与马帮 TMS 数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
+- 上马 ERP、雅仓与马帮 TMS 是当前数据来源，按用户选择独立采集；上马登录负责上马认证，雅仓在单次任务内登录。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
 - Amazon 与东南亚拥有各自流程入口，当前共同使用 `replenishment` 权限域，没有新增权限类型。
 
 - `shangman-login`（`replenishment` 权限）：通过真实验证码登录上马 ERP，保存本地登录态，并支持状态查询与清除。由普通 Agent Loop 使用 `exec`、`read` 和已有问答工具编排，不执行商品导出。
