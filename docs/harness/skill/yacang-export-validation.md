@@ -31,7 +31,9 @@ bun test apps/desktop/test/config-store.test.ts apps/desktop/test/config-store-r
 bun run dashboard:build
 ```
 
-最终 rebase 后运行仓库完整验证 `bun run verify`，结果以任务交付记录为准。
+2026-09-23 最终 rebase 后执行一次 `bun run verify`：协议生成检查、TypeScript 生产边界与全部类型检查通过。Bun 全量结果为 1,784 通过、5 跳过、1 失败，唯一失败是 `desktop-cloud.test.ts` 仍断言 schema v9。仅把断言更新为 v10 后，该文件 40 项测试复验通过，未重复跑 Bun 全量。
+
+随后继续执行被上一步中断的 `bun run test:py-tools`：1,905 通过、2 跳过、54 个子测试通过。雅仓定向最终 44 项通过，前端构建通过。既有 aiohttp 弃用警告与前端包体积提示不影响退出码。
 
 ## 真实验收：未完成
 
