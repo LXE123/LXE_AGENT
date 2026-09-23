@@ -4,6 +4,7 @@ import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { ConversationAttachmentDraft } from "./attachment-draft";
 import { useComposerDraft } from "./composer-draft";
 import { SentAttachmentList } from "./sent-attachments";
+import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-attachment-display";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -20,7 +21,6 @@ import {
   CircleHelp,
   Clock,
   Copy,
-  File as FileIcon,
   FileText,
   FolderOpen,
   Info,
@@ -40,11 +40,6 @@ import {
   Wrench,
   X
 } from "lucide-react";
-
-import csvIcon from "../../assets/file-types/csv.png";
-import htmlIcon from "../../assets/file-types/html.png";
-import xlsIcon from "../../assets/file-types/xls.png";
-import xlsxIcon from "../../assets/file-types/xlsx.png";
 
 import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText, splitContentBlocks } from "../../shared/content";
@@ -629,23 +624,9 @@ function TurnFileList({
 
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]{1,8})$/i;
 
-/* The icon names the exact type, so an extension without one keeps the text
-   badge - TSV is not CSV, and a cousin's icon would mislabel the file. */
-const FILE_TYPE_ICONS: Record<string, string> = {
-  CSV: csvIcon,
-  HTML: htmlIcon,
-  XLS: xlsIcon,
-  XLSX: xlsxIcon,
-};
-
 function fileExtensionLabel(name: string): string {
   const match = FILE_EXTENSION_PATTERN.exec(name.trim());
   return match?.[1] ? match[1].slice(0, 5).toUpperCase() : "FILE";
-}
-
-function attachmentSuffix(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : "";
 }
 
 function InputAttachmentList({
@@ -684,17 +665,8 @@ function InputAttachmentList({
             title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
             type="button"
           >
-            {draft ? (
-              <span className="input-attachment-file-icon" aria-hidden="true">
-                {FILE_TYPE_ICONS[attachmentSuffix(attachment.name)]
-                  ? <img src={FILE_TYPE_ICONS[attachmentSuffix(attachment.name)]} alt="" draggable={false} />
-                  : <FileIcon size={28} />}
-              </span>
-            ) : <Paperclip size={14} />}
-            <span className="input-attachment-info">
-              <span>{attachment.name}</span>
-              {attachmentSuffix(attachment.name) ? <span className="input-attachment-suffix">{attachmentSuffix(attachment.name)}</span> : null}
-            </span>
+            {draft ? <FileAttachmentIcon name={attachment.name} /> : <Paperclip size={14} />}
+            <FileAttachmentInfo name={attachment.name} />
           </button>
           {onRemove ? (
             <button

@@ -7,7 +7,7 @@ import "../../../src/styles.css";
 const images = ["image-one", "image-two", "image-3", "image-4", "image-5", "image-6"].map((id) => ({
   attachment_id: id, name: `${id}.png`, media_type: "image/png", size_bytes: 100,
 }));
-const files = ["为全人类.S02E05.mp4", "为全人类.S02E03.mp4", "为全人类.S02E01.mp4", "DEV-mac-1-2f50da62.lxe-enroll", "report.zip", "notes.txt"]
+const files = ["旧版报关模板.xls", "新报关资料模板-正式版-副本.xlsx", "为全人类.S02E05.mp4", "为全人类.S02E03.mp4", "为全人类.S02E01.mp4", "DEV-mac-1-2f50da62.lxe-enroll", "report.zip", "notes.txt"]
   .map((name, index) => ({ attachment_id: `file-${index}`, name, media_type: "application/octet-stream", size_bytes: 100 }));
 function Fixture() {
   const [session, setSession] = useState("fixture");

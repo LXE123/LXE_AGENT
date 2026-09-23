@@ -11154,6 +11154,12 @@ pre {
   text-align: left;
 }
 
+.input-attachment-info > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .input-attachment-suffix {
   color: var(--muted);
   font-size: 0.6875rem;
@@ -11213,13 +11219,15 @@ pre {
   height: 20px;
 }
 
-.input-attachment-file .input-attachment-info {
+.input-attachment-file .input-attachment-info,
+.sent-file-card .input-attachment-info {
   flex: 1;
   gap: 2px;
   font-size: 0.8125rem;
 }
 
-.input-attachment-file .input-attachment-suffix {
+.input-attachment-file .input-attachment-suffix,
+.sent-file-card .input-attachment-suffix {
   font-size: 0.75rem;
 }
 
@@ -11314,20 +11322,21 @@ pre {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  width: 224px;
+  height: 54px;
   min-width: 0;
-  max-width: min(320px, 100%);
-  padding: 9px 13px;
+  max-width: 100%;
+  padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--conversation-muted-fill);
+  border-radius: 10px;
+  background: var(--surface-subtle);
   color: var(--text);
   cursor: pointer;
   text-align: left;
 }
-.sent-file-card > svg { flex-shrink: 0; color: var(--muted); }
-.sent-file-info { display: grid; min-width: 0; gap: 2px; }
-.sent-file-info > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sent-file-card:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+.sent-file-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sent-attachment-error { display: block; font-size: 0.75rem; overflow-wrap: anywhere; color: var(--muted); }
 .sent-image-backdrop {
   position: fixed;

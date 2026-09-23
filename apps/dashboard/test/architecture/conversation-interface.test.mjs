@@ -5,6 +5,7 @@ import test from "node:test";
 
 const sourceDir = path.resolve(import.meta.dirname, "../../src");
 const view = readFileSync(path.join(sourceDir, "features/sessions/view.tsx"), "utf8");
+const fileAttachmentDisplay = readFileSync(path.join(sourceDir, "features/sessions/file-attachment-display.tsx"), "utf8");
 const main = readFileSync(path.join(sourceDir, "main.tsx"), "utf8");
 const queries = readFileSync(path.join(sourceDir, "api/queries.ts"), "utf8");
 const conversation = readFileSync(path.join(sourceDir, "features/sessions/conversation.ts"), "utf8");
@@ -176,7 +177,7 @@ test("the file list spends its width on what differs between the files", () => {
   // the text badge so the slot never renders empty - and never borrows a
   // cousin's icon (TSV is not CSV).
   assert.match(view, /<span aria-hidden="true" className="turn-file-extension">\s*\{FILE_TYPE_ICONS\[extension\]\s*\?\s*<img alt="" draggable=\{false\} src=\{FILE_TYPE_ICONS\[extension\]\} \/>\s*:\s*extension\}\s*<\/span>/);
-  assert.match(view, /const FILE_TYPE_ICONS: Record<string, string> = \{\s*CSV: csvIcon,\s*HTML: htmlIcon,\s*XLS: xlsIcon,\s*XLSX: xlsxIcon,\s*\};/);
+  assert.match(fileAttachmentDisplay, /FILE_TYPE_ICONS: Record<string, string> = \{\s*CSV: csvIcon,\s*HTML: htmlIcon,\s*XLS: xlsIcon,\s*XLSX: xlsxIcon,\s*\};/);
   assert.doesNotMatch(view, /SPREADSHEET_EXTENSIONS|\bSheet\b/);
   assert.doesNotMatch(styles, /\.turn-file-extension \{[^}]*background:/s);
   assert.match(styles, /\.turn-file-extension \{[^}]*color:\s*var\(--muted-light\)/s);

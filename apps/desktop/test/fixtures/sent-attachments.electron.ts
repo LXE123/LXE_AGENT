@@ -64,7 +64,12 @@ app.whenReady().then(async () => {
         new Set([...document.querySelectorAll('.sent-file-card')].map(e=>e.getBoundingClientRect().top)).size===1,
         document.documentElement.scrollWidth<=innerWidth];
     })()`), [true, true, true, true]);
+    assert.deepEqual(await js(`[...document.querySelectorAll('.sent-file-card')].slice(0,2).map(card=>{
+      const box=card.getBoundingClientRect(),icon=card.querySelector('.input-attachment-file-icon'),image=icon.querySelector('img');
+      return [box.width,box.height,getComputedStyle(card).borderRadius,icon.getBoundingClientRect().width,image?.naturalWidth>0];
+    })`), [[224,54,"10px",40,true],[224,54,"10px",40,true]]);
     assert.equal(await js(`(()=>{const list=document.querySelector('.sent-file-list');list.scrollLeft=100;return list.scrollWidth>list.clientWidth && list.scrollLeft>0})()`), true);
+    await js("document.querySelector('.sent-file-list').scrollLeft=0");
     await js("window.fixtureImageCount(4)");
     await waitFor("document.querySelectorAll('.sent-image-tile img').length===4 && [...document.querySelectorAll('.sent-image-tile img')].every(image=>image.complete&&image.naturalWidth>0)");
     assert.deepEqual(await js(`[...document.querySelectorAll('.sent-image-tile')].map(tile=>{

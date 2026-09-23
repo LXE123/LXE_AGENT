@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { File, Image as ImageIcon, LoaderCircle, X } from "lucide-react";
+import { Image as ImageIcon, LoaderCircle, X } from "lucide-react";
 import type { DesktopDraftAttachmentPayload, DesktopInputAttachmentPayload } from "@lxe/desktop-protocol";
 import { queryError, useAttachmentPreviewQuery, useDraftImagePreviewQuery } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { FileAttachmentIcon, FileAttachmentInfo } from "./file-attachment-display";
 
 export function partitionSentAttachments(items: readonly DesktopInputAttachmentPayload[]) {
   return {
@@ -97,15 +98,12 @@ export function SentAttachmentList({ attachments, sessionId, ready = true, onOpe
     {images.length ? <div className="sent-image-list">{images.map((attachment) =>
       <ImageAttachment key={attachment.attachment_id} attachment={attachment} sessionId={sessionId}
         ready={ready && !!sessionId} />)}</div> : null}
-    {files.length ? <div className="sent-file-list">{files.map((attachment) => {
-      const dot = attachment.name.lastIndexOf(".");
-      const suffix = dot > 0 ? attachment.name.slice(dot + 1).toUpperCase() : "";
-      return <button className="sent-file-card" type="button" key={attachment.attachment_id}
+    {files.length ? <div className="sent-file-list">{files.map((attachment) =>
+      <button className="sent-file-card" type="button" key={attachment.attachment_id}
         title={t.conversation.openFile(attachment.name)} onClick={() => void open(attachment.attachment_id)}>
-        <File size={19} /><span className="sent-file-info"><span>{attachment.name}</span>
-          {suffix ? <span className="input-attachment-suffix">{suffix}</span> : null}</span>
-      </button>;
-    })}</div> : null}
+        <FileAttachmentIcon name={attachment.name} />
+        <FileAttachmentInfo name={attachment.name} />
+      </button>)}</div> : null}
     {error ? <div className="sent-attachment-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
   </div>;
 }
