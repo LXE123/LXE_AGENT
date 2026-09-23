@@ -92,15 +92,24 @@ interface OutputRun {
 
 const coalesceRuns = (chunks: readonly OutputChunk[]): OutputRun[] => {
   const runs: OutputRun[] = [];
+  let stream: OutputStream | undefined;
+  let parts: Uint8Array[] = [];
+  let byteLength = 0;
+  const flush = (): void => {
+    if (stream === undefined) return;
+    // Concatenate each run once instead of recopying its prefix for every chunk.
+    runs.push({ stream, bytes: parts.length === 1 ? parts[0]! : Buffer.concat(parts, byteLength) });
+    parts = [];
+    byteLength = 0;
+  };
   for (const chunk of chunks) {
     if (chunk.bytes.byteLength === 0) continue;
-    const last = runs.at(-1);
-    if (last && last.stream === chunk.stream) {
-      last.bytes = Buffer.concat([last.bytes, chunk.bytes]);
-      continue;
-    }
-    runs.push({ stream: chunk.stream, bytes: chunk.bytes });
+    if (stream !== chunk.stream) flush();
+    stream = chunk.stream;
+    parts.push(chunk.bytes);
+    byteLength += chunk.bytes.byteLength;
   }
+  flush();
   return runs;
 };
 

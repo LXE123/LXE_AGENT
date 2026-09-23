@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
   formatCommandPayloadWithBudget,
   renderProcessChunks,
   trimPartialUtf8,
+  type OutputChunk,
 } from "../../src/tooling/process-output";
 
 const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
@@ -47,6 +48,60 @@ describe("process output decoding", () => {
 });
 
 describe("process output rendering", () => {
+  test("ignores empty chunks without introducing stream boundaries", () => {
+    expect(renderProcessChunks([])).toBe("");
+    expect(renderProcessChunks([
+      { seq: 0, stream: "stderr", bytes: new Uint8Array() },
+    ])).toBe("");
+    expect(renderProcessChunks([
+      { seq: 0, stream: "stdout", bytes: utf8("first ") },
+      { seq: 1, stream: "stderr", bytes: new Uint8Array() },
+      { seq: 2, stream: "stdout", bytes: utf8("second\n") },
+    ])).toBe("first second\n");
+  });
+
+  test("does not concatenate single-chunk runs", () => {
+    const concat = spyOn(Buffer, "concat");
+    try {
+      expect(renderProcessChunks([
+        { seq: 0, stream: "stdout", bytes: utf8("one\n") },
+        { seq: 1, stream: "stderr", bytes: utf8("two\n") },
+      ])).toBe("[stdout]\none\n[stderr]\ntwo");
+      expect(concat).not.toHaveBeenCalled();
+    } finally {
+      concat.mockRestore();
+    }
+  });
+
+  test("copies fragmented output only once per contiguous stream run", () => {
+    const chunks: OutputChunk[] = Array.from({ length: 1_000 }, (_, seq) => ({
+      seq, stream: "stdout", bytes: Buffer.alloc(128, 65),
+    }));
+    const originalConcat = Buffer.concat;
+    let copiedBytes = 0;
+    const concat = spyOn(Buffer, "concat").mockImplementation((list, totalLength) => {
+      copiedBytes += totalLength ?? list.reduce((sum, bytes) => sum + bytes.byteLength, 0);
+      return originalConcat(list, totalLength);
+    });
+    try {
+      expect(renderProcessChunks(chunks)).toBe("A".repeat(128_000));
+      expect(concat).toHaveBeenCalledTimes(1);
+      expect(copiedBytes).toBe(128_000);
+      concat.mockClear();
+      copiedBytes = 0;
+      expect(renderProcessChunks([
+        ...chunks,
+        { seq: 1_000, stream: "stderr", bytes: utf8("warn") },
+        { seq: 1_001, stream: "stderr", bytes: utf8("ing\n") },
+        { seq: 1_002, stream: "stdout", bytes: utf8("done\n") },
+      ])).toBe(`[stdout]\n${"A".repeat(128_000)}\n[stderr]\nwarning\n[stdout]\ndone`);
+      expect(concat).toHaveBeenCalledTimes(2);
+      expect(copiedBytes).toBe(128_008);
+    } finally {
+      concat.mockRestore();
+    }
+  });
+
   test("renders stdout-only output without stream markers", () => {
     expect(renderProcessChunks([
       { seq: 0, stream: "stdout", bytes: utf8("line one\n") },
@@ -68,6 +123,16 @@ describe("process output rendering", () => {
       { seq: 0, stream: "stdout", bytes: full.subarray(0, 2) },
       { seq: 1, stream: "stdout", bytes: full.subarray(2) },
     ])).toBe("模块");
+  });
+
+  test("reassembles GBK characters split across reads without changing stream order", () => {
+    expect(renderProcessChunks([
+      { seq: 0, stream: "stdout", bytes: new Uint8Array([0xc4]) },
+      { seq: 1, stream: "stdout", bytes: new Uint8Array([0xe3, 0xba]) },
+      { seq: 2, stream: "stdout", bytes: new Uint8Array([0xc3, 0x0a]) },
+      { seq: 3, stream: "stderr", bytes: utf8("错误\n") },
+      { seq: 4, stream: "stdout", bytes: utf8("结束\n") },
+    ])).toBe("[stdout]\n你好\n[stderr]\n错误\n[stdout]\n结束");
   });
 });
 
