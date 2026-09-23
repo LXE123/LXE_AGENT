@@ -1,4 +1,5 @@
 import { normalizeToolResultImages } from "../tooling/tool-result-images";
+import type { ToolDisplayOutput } from "../tooling/tool-display";
 import { contextFingerprint } from "./context-meter";
 import { turnAbortedMessage } from "./turn-aborted";
 import { captureEnvironment, environmentChanged, environmentMessage } from "./environment-context";
@@ -756,7 +757,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
           let toolDisplayStatus: import("@lxe/protocol").ToolStepStatus = "success";
-          let toolDisplayOutput: { result?: unknown; error?: unknown; image_view?: import("@lxe/protocol").ToolStep["image_view"] } | undefined;
+          let toolDisplayOutput: ToolDisplayOutput | undefined;
           try {
             const executed = await this.options.tools.execute(call.name, call.arguments, {
               handle,
@@ -819,7 +820,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               content: result.content,
             };
             toolDisplayStatus = result.display_status ?? toolStatus;
-            toolDisplayOutput = { result: result.content };
+            toolDisplayOutput = { content: result.content };
             if (call.name === "read" && definition?.source !== "mcp" && result.image_view
               && !isCancelled(handle) && toolDisplayStatus === "success"
               && result.content.some((block) => block.type === "image")) {
@@ -851,7 +852,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 modelMessage = cause.modelContent();
               }
             }
-            toolDisplayOutput = { error: displayMessage };
+            toolDisplayOutput = { content: displayMessage };
             resultSlots[callIndex] = {
               type: "tool_result",
               tool_call_id: call.id,

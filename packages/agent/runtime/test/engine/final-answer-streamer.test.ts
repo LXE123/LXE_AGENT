@@ -1,9 +1,54 @@
 import { messageFixture, eventFixture } from "../message-fixtures";
 import { describe, expect, test } from "bun:test";
-import type { DesktopStreamBatchRequest, EmitRequest } from "@lxe/protocol";
+import type { DesktopStreamBatchRequest, EmitRequest, ToolStep } from "@lxe/protocol";
 import { FinalAnswerStreamer } from "../../src/engine/final-answer-streamer";
 
 describe("FinalAnswerStreamer display contract", () => {
+  for (const desktop of [false, true]) {
+    test(`emits failed content before finish through ${desktop ? "desktop batches" : "stream frames"}`, async () => {
+      const frames: EmitRequest[] = [];
+      const batches: DesktopStreamBatchRequest[] = [];
+      const displayed = Promise.withResolvers<ToolStep>();
+      const streamer = new FinalAnswerStreamer({
+        sessionId: "s1", turnId: "t1", responseRouteId: "r1", toolUseMode: "on", showFullPaths: true,
+        minIntervalMs: 0, desktopBatchIntervalMs: 0,
+        emit: async request => {
+          frames.push(request);
+          const step = request.tool_steps.find(step => step.status === "error");
+          if (step) displayed.resolve(step);
+          return true;
+        },
+        ...(desktop ? { emitDesktopBatch: async (batch: DesktopStreamBatchRequest) => {
+          batches.push(batch);
+          for (const mutation of batch.mutations) {
+            if (mutation.kind === "part_updated"
+              && mutation.part.type === "tool" && mutation.part.tool_step.status === "error") {
+              displayed.resolve(mutation.part.tool_step);
+            }
+          }
+          return true;
+        } } : {}),
+      });
+      const call = { type: "tool_call" as const, id: "failed-exec", name: "exec", arguments: { command: "fixture" } };
+      const content = [{ type: "text", text: "status: failed\nexit_code: 4\noutput:\n缓存目录不存在" }];
+      const timeout = setTimeout(() => displayed.reject(new Error("missing live failure update")), 3_000);
+      try {
+        await streamer.pushToolStart(call);
+        await streamer.pushToolFinish(call, "error", 10, { content });
+        const step = await displayed.promise;
+        expect(JSON.parse(step.error_block!.content)).toEqual(content);
+        expect(step.result_block).toBeUndefined();
+        expect(frames.every(frame => frame.state === "delta")).toBe(true);
+        expect(batches.flatMap(batch => batch.mutations).filter(mutation => mutation.kind === "stream_updated")
+          .every(mutation => mutation.state === "delta")).toBe(true);
+        expect(desktop ? batches.length : frames.length).toBeGreaterThan(0);
+      } finally {
+        clearTimeout(timeout);
+        await streamer.finish("done");
+      }
+    });
+  }
+
   test("coalesces desktop text deltas into one lightweight frame and reconciles at terminal", async () => {
     const emitted: EmitRequest[] = [];
     const batches: DesktopStreamBatchRequest[] = [];
@@ -135,7 +180,7 @@ describe("FinalAnswerStreamer display contract", () => {
     };
     await streamer.pushToolStart(call);
     await streamer.pushToolFinish(call, "success", 1_400, {
-      result: { path: "C:\\Users\\Alice\\result.json", token: outputSecret, output: "x".repeat(5_000) },
+      content: { path: "C:\\Users\\Alice\\result.json", token: outputSecret, output: "x".repeat(5_000) },
     });
     const failedCall = {
       ...call,
@@ -144,7 +189,7 @@ describe("FinalAnswerStreamer display contract", () => {
     };
     await streamer.pushToolStart(failedCall);
     await streamer.pushToolFinish(failedCall, "error", 600, {
-      error: `failed at C:\\Users\\Alice\\private.log token=${outputSecret} ${"e".repeat(2_500)}`,
+      content: `failed at C:\\Users\\Alice\\private.log token=${outputSecret} ${"e".repeat(2_500)}`,
     });
     clock += 1_400;
     expect(await streamer.finish("done")).toBe(true);
@@ -237,7 +282,7 @@ describe("FinalAnswerStreamer display contract", () => {
     await streamer.pushEvent(eventFixture("thinking_end", "thinking-1", ""));
     streamer.completeModelResponse("", false);
     await streamer.pushToolStart(firstTool);
-    await streamer.pushToolFinish(firstTool, "success", 10, { result: "read ok" });
+    await streamer.pushToolFinish(firstTool, "success", 10, { content: "read ok" });
 
     await streamer.startWaitingModel();
     await streamer.pushEvent(eventFixture("text_start", "narration-1", ""));
@@ -245,7 +290,7 @@ describe("FinalAnswerStreamer display contract", () => {
     await streamer.pushEvent(eventFixture("text_end", "narration-1", ""));
     streamer.completeModelResponse("run tests", false);
     await streamer.pushToolStart(secondTool);
-    await streamer.pushToolFinish(secondTool, "error", 20, { error: "test failed" });
+    await streamer.pushToolFinish(secondTool, "error", 20, { content: "test failed" });
 
     await streamer.startWaitingModel();
     await streamer.pushEvent(eventFixture("thinking_start", "thinking-2", ""));

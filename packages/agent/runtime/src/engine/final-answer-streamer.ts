@@ -8,7 +8,7 @@ import type {
   TurnDisplayPhase,
   TurnProcessPart,
 } from "@lxe/protocol";
-import { buildToolDisplayStep } from "../tooling/tool-display";
+import { buildToolDisplayStep, type ToolDisplayOutput } from "../tooling/tool-display";
 import type { AssistantMessageEvent, ToolCallBlock } from "./types";
 
 interface StreamSnapshot {
@@ -286,7 +286,7 @@ export class FinalAnswerStreamer {
     call: ToolCallBlock,
     status: ToolStep["status"],
     durationMs: number,
-    output?: { result?: unknown; error?: unknown; image_view?: ToolStep["image_view"] },
+    output?: ToolDisplayOutput,
   ): Promise<void> {
     if (this.terminal || this.options.toolUseMode === "off") return;
     this.toolPending = false;
@@ -298,8 +298,7 @@ export class FinalAnswerStreamer {
       ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
       showResultDetails: this.options.toolUseMode === "full",
       ...(output?.image_view ? { image_view: output.image_view } : {}),
-      result: output?.result,
-      error: output?.error,
+      content: output?.content,
     });
     this.upsertTool(step);
     const part = this.processPart(this.toolPartIds.get(call.id) ?? "");

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import { join } from "node:path";
 import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
-import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject } from "@lxe/protocol";
+import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject, ToolStep } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
   RuntimeProviderError,
@@ -1721,6 +1721,83 @@ describe("TypeScriptAgentRuntime", () => {
     }));
     await runtime.stop();
   });
+
+  for (const outcome of ["returned-error", "thrown-error", "success"] as const) {
+    test(`streams ${outcome} tool content before the desktop turn finishes`, async () => {
+      const text = outcome === "success" ? "fixture command completed" : "fixture command failed: 缓存目录不存在";
+      const content = [{ type: "text", text }];
+      const status = outcome === "success" ? "success" : "error";
+      const awaitingModel = Promise.withResolvers<void>();
+      const releaseModel = Promise.withResolvers<void>();
+      const displayed = Promise.withResolvers<ToolStep>();
+      const store = new MemoryStore();
+      const tools = new ToolRegistry();
+      tools.register({
+        name: "exec", description: "fixture exec", input_schema: { type: "object" },
+        execute: async () => {
+          if (outcome === "thrown-error") throw new Error(text);
+          return { content, ...(outcome === "returned-error" ? { display_status: "error" as const } : {}) };
+        },
+      });
+      const frames: EmitRequest[] = [];
+      const batches: DesktopStreamBatchRequest[] = [];
+      let modelCalls = 0;
+      const runtime = new TypeScriptAgentRuntime({
+        store, tools, systemPrompt: "test",
+        provider: {
+          summarize,
+          turn: async () => {
+            if (modelCalls++ === 0) return messageFixture({
+              content: [{ type: "tool_call", id: "live-result", name: "exec", arguments: { command: "fixture" } }],
+              stopReason: "toolUse",
+            });
+            awaitingModel.resolve();
+            await releaseModel.promise;
+            return messageFixture({ content: [{ type: "text", text: "done" }], stopReason: "stop" });
+          },
+        },
+        emitter: {
+          emit: async request => { frames.push(request); },
+          desktopStream: async batch => {
+            batches.push(batch);
+            for (const mutation of batch.mutations) {
+              if (mutation.kind === "part_updated"
+                && mutation.part.type === "tool" && mutation.part.tool_step.status === status) {
+                displayed.resolve(mutation.part.tool_step);
+              }
+            }
+          },
+          typing: async () => undefined,
+        },
+      });
+      await runtime.start();
+      const turn = runtime.runTurn(job({ source: { platform: "desktop" } }), handle());
+      const timeout = setTimeout(() => displayed.reject(new Error("missing live tool result before turn completion")), 3_000);
+      try {
+        const [, step] = await Promise.all([awaitingModel.promise, displayed.promise]);
+        const block = status === "success" ? step.result_block : step.error_block;
+        expect(block?.content).toContain(text);
+        expect(status === "success" ? step.error_block : step.result_block).toBeUndefined();
+        expect(frames.some(frame => frame.state === "final")).toBe(false);
+        expect(batches.flatMap(batch => batch.mutations).filter(mutation => mutation.kind === "stream_updated")
+          .every(mutation => mutation.state === "delta")).toBe(true);
+        const saved = store.messages.flatMap(message => message.role === "tool" && Array.isArray(message.content)
+          ? message.content.filter(block => block.type === "tool_result" && block.tool_call_id === "live-result") : [])[0];
+        if (outcome === "thrown-error") {
+          expect(saved?.is_error).toBe(true);
+          expect(JSON.parse(String(saved?.content)).observed_message).toBe(text);
+        } else {
+          expect(saved?.content).toEqual(content);
+          expect(saved?.is_error).toBeUndefined();
+        }
+      } finally {
+        clearTimeout(timeout);
+        releaseModel.resolve();
+        await turn;
+        await runtime.stop();
+      }
+    });
+  }
 
   test("keeps desktop tool paths local and includes successful live results", async () => {
     const artifact = "/private/var/artifacts/report.json";

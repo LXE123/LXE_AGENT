@@ -70,6 +70,7 @@ const withoutImageData = (value: unknown): unknown => {
 
 const stringifyDisplay = (value: unknown, limit: number, showFullPaths: boolean): ToolDisplayBlock | undefined => {
   if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value) && value.length === 0) return undefined;
   let language: ToolDisplayBlock["language"] = "text";
   let content = "";
   if (typeof value === "string") {
@@ -92,17 +93,20 @@ const stringifyDisplay = (value: unknown, limit: number, showFullPaths: boolean)
   return content ? { language, content } : undefined;
 };
 
+/** Display content is independent of whether a tool returned or threw. */
+export interface ToolDisplayOutput {
+  content?: unknown;
+  image_view?: ToolStep["image_view"];
+}
+
 export function buildToolDisplayStep(
   id: string,
   name: string,
   input: JsonObject,
   status: ToolStep["status"],
   durationMs: number,
-  options: {
-    image_view?: ToolStep["image_view"];
+  options: ToolDisplayOutput & {
     showFullPaths?: boolean;
-    result?: unknown;
-    error?: unknown;
     showResultDetails?: boolean;
   } = {},
 ): ToolStep {
@@ -137,10 +141,10 @@ export function buildToolDisplayStep(
       ? `.../${basename(detail) || "path"}`
       : sanitize(detail, showFullPaths);
   const resultBlock = status === "success" && options.showResultDetails
-    ? stringifyDisplay(withoutImageData(options.result), RESULT_LIMIT, showFullPaths)
+    ? stringifyDisplay(withoutImageData(options.content), RESULT_LIMIT, showFullPaths)
     : undefined;
   const errorBlock = status === "error"
-    ? stringifyDisplay(options.error, ERROR_LIMIT, showFullPaths)
+    ? stringifyDisplay(withoutImageData(options.content), ERROR_LIMIT, showFullPaths)
     : undefined;
   return {
     id: String(id ?? "").trim(),
