@@ -49,7 +49,7 @@ describe("lxeskill command recognition", () => {
     // Every directory is owned by exactly one business module — the property the
     // <module>/<data-type> layout depends on.
     const modules = new Set(datasets.map((entry) => entry.dir.split("/")[0]));
-    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "mabang_tms", "replenish", "shangman", "yacang"]);
+    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "mabang", "mabang_tms", "replenish", "shangman", "yacang"]);
     expect(new Set(datasets.map((entry) => entry.dir)).size).toBe(datasets.length);
     expect(datasets.every((entry) => entry.holds.length > 0)).toBe(true);
   });
@@ -146,4 +146,17 @@ test("Mabang TMS exposes one export command with its own deliverable dataset", (
     artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
   });
   expect(loadLxeSkillDatasets(path).find(entry => entry.id === "mabang_tms_exports")?.dir).toBe("mabang_tms/exports");
+});
+
+test("Mabang Brazil delivers original batches through a separate ERP skill", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path).filter(entry => entry.name === "mabang_brazil_overseas_export");
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    command: "lxeskill mabang brazil-overseas export run",
+    module: "services.agent_cli.mabang.brazil_overseas_export",
+    ownerSkills: ["mabang-brazil-export"],
+    artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
+  });
+  expect(loadLxeSkillDatasets(path).find(entry => entry.id === "mabang_brazil_exports")?.dir).toBe("mabang/brazil/exports");
 });

@@ -112,3 +112,5 @@ FBA、备货、亚马逊运营和紫鸟 26 个技能。只用于 UI 展示，不
 两端独立发布，不要求客户端同时升级；服务器未更新的新技能暂时显示英文。
 
 Update this page when a repository skill is added, removed, renamed, or changes type. Do not copy operational instructions, CLI schemas, selectors, or workbook column contracts here; link readers to the corresponding `skills/<name>/SKILL.md` instead.
+
+- `mabang-brazil-export`（马帮巴西海外仓导出）：复用现有马帮 ERP 登录态，导出当前库存动销、三个月内待签收、三个月前已签收调拨；完整分页并保留平台原始 XLSX／分批 XLS，不执行备货计算。

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from services.mabang.export_lock import warehouse_export_lock
+
 import json
 import re
 from collections import OrderedDict
@@ -853,11 +855,12 @@ async def _export_store_msku_actual_inventory_once(
     async def warehouse_once() -> dict[str, Decimal]:
         if not stock_skus:
             return {}
-        await search_warehouse_stock(stock_skus)
-        stock_xlsx_path = await download_warehouse_stock_xlsx(
-            store_name=clean_store_name, output_dir=output_directory,
-        )
-        return parse_stock_inventory_xlsx(stock_xlsx_path)
+        with warehouse_export_lock():
+            await search_warehouse_stock(stock_skus)
+            stock_xlsx_path = await download_warehouse_stock_xlsx(
+                store_name=clean_store_name, output_dir=output_directory,
+            )
+            return parse_stock_inventory_xlsx(stock_xlsx_path)
 
     try:
         stock_quantities = await warehouse_once()
