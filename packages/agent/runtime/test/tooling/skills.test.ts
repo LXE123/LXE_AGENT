@@ -20,12 +20,12 @@ describe("skill context", () => {
     roots.push(root);
     const source = join(repositoryRoot(import.meta.dir), "skills");
     const names = readdirSync(source).filter((name) => name.startsWith("replenishment-")
-      || name === "yacang-export" || name.startsWith("shangman-") || name === "southeast-asia-replenishment-workflow-map");
-    expect(names).toHaveLength(13);
+      || name === "mabang-tms-export" || name === "yacang-export" || name.startsWith("shangman-") || name === "southeast-asia-replenishment-workflow-map");
+    expect(names).toHaveLength(14);
     for (const name of names) cpSync(join(source, name), join(root, "skills", name), { recursive: true });
     const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
     const skills = catalog.list({ allowedTypes: new Set(["replenishment"]) });
-    expect(skills).toHaveLength(13);
+    expect(skills).toHaveLength(14);
     expect(skills.every(skill => skill.type === "replenishment")).toBe(true);
     expect(catalog.list({ allowedTypes: new Set(["amazon_replenish"]) })).toHaveLength(0);
     expect(catalog.list({ allowedTypes: new Set() })).toHaveLength(0);

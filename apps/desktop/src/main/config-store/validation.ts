@@ -51,6 +51,10 @@ export class DesktopConfigValidation {
     return issues;
   }
 
+  mabangTmsIssues(mabangTms: DesktopConfig["integrations"]["mabangTms"], secrets: DesktopSecrets): string[] {
+    return [!mabangTms.account && "缺少账号", !secrets.mabang_tms_password && "缺少密码"].filter(Boolean) as string[];
+  }
+
   yacangIssues(yacang: DesktopConfig["integrations"]["yacang"], secrets: DesktopSecrets): string[] {
     return [!yacang.mobile && "缺少手机号", !secrets.yacang_password && "缺少密码"].filter(Boolean) as string[];
   }

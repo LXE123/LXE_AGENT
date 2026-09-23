@@ -483,6 +483,7 @@ export interface DesktopSetupState {
     app_path: string;
     webdriver_path: string;
   };
+  mabangTms: { managed: boolean; configured: boolean; issues: string[]; account: string; password_configured: boolean };
   yacang: { managed: boolean; configured: boolean; issues: string[]; mobile: string; password_configured: boolean };
   shangman: {
     managed: boolean; configured: boolean; issues: string[];
@@ -522,6 +523,10 @@ export type DesktopZiniaoSetupInput =
       webdriver_path: string;
     };
 
+export type DesktopMabangTmsSetupInput =
+  | { action: "clear" }
+  | { action: "save"; account: string; password?: string };
+
 export type DesktopYacangSetupInput =
   | { action: "clear" }
   | { action: "save"; mobile: string; password?: string };
@@ -541,6 +546,7 @@ export type DesktopFeishuSetupInput =
 export interface DesktopSetupInput {
   workspace_root: string;
   ziniao?: DesktopZiniaoSetupInput;
+  mabangTms?: DesktopMabangTmsSetupInput;
   yacang?: DesktopYacangSetupInput;
   shangman?: DesktopShangmanSetupInput;
   mabang?: DesktopMabangSetupInput;

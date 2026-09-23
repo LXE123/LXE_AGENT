@@ -646,6 +646,7 @@ export const ZH_TEXT = {
       ziniao: "紫鸟",
       mabang: "马帮",
       shangman: "上马",
+      mabangTms: "马帮 TMS",
       yacang: "雅仓",
       feishu: "飞书"
     },
@@ -657,6 +658,7 @@ export const ZH_TEXT = {
       ziniao: "紫鸟自动化",
       mabang: "马帮",
       shangman: "上马 ERP",
+      mabangTms: "马帮 TMS",
       yacang: "雅仓",
       feishu: "飞书",
       logging: "日志与排障"
@@ -808,6 +810,7 @@ export const ZH_TEXT = {
       webdriverPlaceholder: "驱动可以在首次运行时自动下载",
       selectWebdriver: "选择驱动目录"
     },
+    mabangTms: { description: "配置马帮 TMS数据导出。密码加密保存，每次任务自动登录。", account: "账号", password: "马帮 TMS密码" },
     yacang: { description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。", mobile: "手机号", password: "雅仓密码" },
     shangman: {
       description: "配置上马 ERP 登录。验证码由 AI 读取；登录态保存在本机，供后续任务复用。",
@@ -1515,6 +1518,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         ziniao: "ZiNiao",
         mabang: "Mabang",
         shangman: "Shangman ERP",
+        mabangTms: "Mabang TMS",
         yacang: "Yacang",
         feishu: "Feishu"
       },
@@ -1526,6 +1530,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         ziniao: "ZiNiao automation",
         mabang: "Mabang",
         shangman: "Shangman ERP",
+        mabangTms: "Mabang TMS",
         yacang: "Yacang",
         feishu: "Feishu",
         logging: "Logs & diagnostics"
@@ -1677,6 +1682,7 @@ export const UI_TEXT: Record<Language, UiText> = {
         webdriverPlaceholder: "The driver can be downloaded automatically on first run",
         selectWebdriver: "Choose the driver directory"
       },
+      mabangTms: { description: "Configure Mabang TMS exports. Passwords are stored encrypted; each task signs in automatically.", account: "Account", password: "Mabang TMS password" },
       yacang: { description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.", mobile: "Mobile", password: "Yacang password" },
       shangman: {
         description: "Configure Shangman ERP login. AI reads the captcha; login state is saved locally for later tasks.",

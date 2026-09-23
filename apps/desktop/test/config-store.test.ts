@@ -382,7 +382,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -855,7 +855,7 @@ test("schema 8 migration retains dynamic model profiles and leaves Shangman unco
   const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
   expect(store.state().shangman).toMatchObject({ managed: false, configured: false });
   const migrated = JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"));
-  expect(migrated.schema_version).toBe(10);
+  expect(migrated.schema_version).toBe(11);
   expect(migrated.llm.profiles.openrouter).toEqual(old.llm.profiles.openrouter);
 });
 
@@ -940,4 +940,48 @@ test("Yacang supports development secrets while saved passwords win and clear st
   restarted.save({ workspace_root: workspace, yacang: { action: "clear" } });
   expect(restarted.state().yacang.password_configured).toBe(false);
   expect(restarted.environment()).toMatchObject({ LXE_YACANG_MOBILE: "", LXE_YACANG_PASSWORD: "" });
+});
+
+test("MabangTms migrates v10 and encrypts credentials without a production switch", () => {
+  const root = createRoot();
+  const workspace = join(root, "workspace");
+  const old = JSON.parse(JSON.stringify(cloneConfig()));
+  old.schema_version = 10;
+  delete old.integrations.mabangTms;
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(root, "config", "settings.json"), JSON.stringify(old));
+  const store = new DesktopConfigStore(root, workspace, safeStorage);
+  expect(store.state().mabangTms).toMatchObject({ managed: false, configured: false });
+  const input = { workspace_root: workspace, mabangTms: { action: "save" as const, account: "phone", password: "mabangTms-secret" } };
+  const state = store.save(input);
+  expect(state.mabangTms).toMatchObject({ configured: true, password_configured: true });
+  expect(JSON.stringify(state)).not.toContain("mabangTms-secret");
+  expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain("mabangTms-secret");
+  expect(store.environment().LXE_MABANG_TMS_PASSWORD).toBe("mabangTms-secret");
+  expect(store.environment()).not.toHaveProperty("LXE_MABANG_TMS_PROD_ENABLED");
+  store.save({ ...input, mabangTms: { ...input.mabangTms, password: "" } });
+  const restarted = new DesktopConfigStore(root, workspace, safeStorage);
+  expect(restarted.environment().LXE_MABANG_TMS_PASSWORD).toBe("mabangTms-secret");
+  expect(() => restarted.save({ ...input, mabangTms: { ...input.mabangTms, account: "other", password: "" } })).toThrow("更换账号");
+  restarted.save({ workspace_root: workspace, mabangTms: { action: "clear" } });
+  expect(restarted.environment().LXE_MABANG_TMS_PASSWORD).toBe("");
+  expect(restarted.state().mabangTms.password_configured).toBe(false);
+});
+
+test("MabangTms supports development secrets while saved passwords win and clear stays cleared", () => {
+  const root = createRoot();
+  const workspace = join(root, "workspace");
+  const settings = cloneConfig();
+  settings.integrations.mabangTms = { managed: true, account: "dev-phone" };
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(root, "config", "settings.json"), JSON.stringify(settings));
+  const store = new DesktopConfigStore(root, workspace, safeStorage, { secretEnvironment: { LXE_MABANG_TMS_PASSWORD: "env-secret" } });
+  expect(store.environment()).toMatchObject({ LXE_MABANG_TMS_ACCOUNT: "dev-phone", LXE_MABANG_TMS_PASSWORD: "env-secret" });
+  store.save({ workspace_root: workspace, mabangTms: { action: "save", account: "dev-phone", password: " saved secret " } });
+  expect(store.environment().LXE_MABANG_TMS_PASSWORD).toBe(" saved secret ");
+  const restarted = new DesktopConfigStore(root, workspace, safeStorage, { secretEnvironment: { LXE_MABANG_TMS_PASSWORD: "env-secret" } });
+  expect(restarted.environment().LXE_MABANG_TMS_PASSWORD).toBe(" saved secret ");
+  restarted.save({ workspace_root: workspace, mabangTms: { action: "clear" } });
+  expect(restarted.state().mabangTms.password_configured).toBe(false);
+  expect(restarted.environment()).toMatchObject({ LXE_MABANG_TMS_ACCOUNT: "", LXE_MABANG_TMS_PASSWORD: "" });
 });

@@ -14,6 +14,7 @@ export function effectiveDesktopSecrets(
     if (value) effective[name as keyof typeof values] = value;
   }
   if (!persisted.shangman_processed_password) effective.shangman_processed_password = text(environment.LXE_SHANGMAN_PROCESSED_PASSWORD);
+  if (!persisted.mabang_tms_password) effective.mabang_tms_password = (environment.LXE_MABANG_TMS_PASSWORD ?? "");
   if (!persisted.yacang_password) effective.yacang_password = (environment.LXE_YACANG_PASSWORD ?? "");
   return effective;
 }

@@ -87,6 +87,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
             expected = (
                 f"mabang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.mabang.")
+                else f"mabang_tms_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.agent_cli.mabang_tms.")
                 else f"yacang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.yacang.")
                 else f"shangman_{module.rsplit('.', 1)[-1]}"

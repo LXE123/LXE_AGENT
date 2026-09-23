@@ -179,3 +179,10 @@ test("Yacang IPC accepts only public account setup and bounds passwords", () => 
   expect(() => validateSetupInput({ ...input, yacang: { ...input.yacang, password: "x".repeat(16385) } })).toThrow();
   expect(validateSetupInput({ workspace_root: "/workspace", yacang: { action: "clear" } }).yacang).toEqual({ action: "clear" });
 });
+
+test("Mabang TMS IPC accepts only public account setup and bounds passwords", () => {
+  const input = { workspace_root: "/workspace", mabangTms: { action: "save", account: "phone", password: "secret" } };
+  expect(validateSetupInput(input).mabangTms).toEqual(input.mabangTms);
+  expect(() => validateSetupInput({ ...input, mabangTms: { ...input.mabangTms, password: "x".repeat(16385) } })).toThrow();
+  expect(validateSetupInput({ workspace_root: "/workspace", mabangTms: { action: "clear" } }).mabangTms).toEqual({ action: "clear" });
+});

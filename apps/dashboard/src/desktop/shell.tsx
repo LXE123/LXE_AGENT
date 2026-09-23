@@ -61,7 +61,7 @@ import {
 } from "./settings-model";
 
 type Provider = DesktopModelProvider;
-type IntegrationName = "ziniao" | "mabang" | "shangman" | "yacang" | "feishu";
+type IntegrationName = "ziniao" | "mabang" | "shangman" | "yacang" | "mabangTms" | "feishu";
 type SetupForm = DesktopSettingsFormValue;
 type DesktopConfirmation =
   | { kind: "diagnostic" }
@@ -168,6 +168,7 @@ function DesktopSettingsNavigation({
         {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2)}
         <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
         {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
+        {item("mabangTms", t.desktop.integrationNames.mabangTms, desktopSettingsSectionStatus(t.desktop, "mabangTms", setup), Store)}
         {item("yacang", t.desktop.integrationNames.yacang, desktopSettingsSectionStatus(t.desktop, "yacang", setup), Store)}
         {item("shangman", t.desktop.integrationNames.shangman, desktopSettingsSectionStatus(t.desktop, "shangman", setup), Store)}
         {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup), Store)}
@@ -777,6 +778,28 @@ function DesktopSettingsForm({
     );
   }
 
+  if (activeSection === "mabangTms") {
+    const labels = t.desktop.mabangTms;
+    return (
+      <section className="desktop-settings-section">
+        <DesktopSectionHeading badge={desktopSettingsSectionStatus(t.desktop, "mabangTms", setup)}
+          badgeClassName={integrationStatusClass(setup.mabangTms.managed, setup.mabangTms.configured)}
+          description={labels.description} headingRef={headingRef} title={t.desktop.sectionTitles.mabangTms} />
+        <div className="desktop-integration-fields">
+          <IntegrationIssues issues={setup.mabangTms.issues} />
+          <div className="desktop-field-grid">
+            <label><span>{labels.account}</span><input autoComplete="username" value={form.mabangTmsAccount} onChange={event => onChange({ mabangTmsAccount: event.target.value })} /></label>
+            <label><span>{labels.password}{setup.mabangTms.password_configured ? t.desktop.keepBlankSuffix : ""}</span>
+              <input type="password" autoComplete="new-password" value={form.mabangTmsPassword}
+                placeholder={setup.mabangTms.password_configured ? t.desktop.storedPlaceholder : ""}
+                onChange={event => onChange({ mabangTmsPassword: event.target.value })} /></label>
+          </div>
+          {setup.mabangTms.managed ? <button className="desktop-clear-integration" onClick={() => onClearIntegration("mabangTms")} type="button"><Trash2 size={14} />{t.desktop.clearIntegration}</button> : null}
+        </div>
+      </section>
+    );
+  }
+
   if (activeSection === "yacang") {
     const labels = t.desktop.yacang;
     return (
@@ -1381,6 +1404,7 @@ export function DesktopShell({
       form.ziniaoAppPath,
       form.ziniaoWebDriverPath,
     ) || setup.ziniao.configured;
+    const mabangTmsTouched = hasText(form.mabangTmsAccount, form.mabangTmsPassword) || setup.mabangTms.configured;
     const yacangTouched = hasText(form.yacangMobile, form.yacangPassword) || setup.yacang.configured;
     const shangmanTouched = hasText(form.shangmanTenantId, form.shangmanUsername, form.shangmanPassword) || setup.shangman.configured;
     const mabangTouched = hasText(form.mabangAccount, form.mabangPassword) || setup.mabang.configured;
@@ -1397,6 +1421,10 @@ export function DesktopShell({
           app_path: form.ziniaoAppPath,
           webdriver_path: form.ziniaoWebDriverPath,
         },
+      } : {}),
+      ...(mabangTmsTouched ? {
+        mabangTms: { action: "save" as const, account: form.mabangTmsAccount,
+          ...(form.mabangTmsPassword ? { password: form.mabangTmsPassword } : {}) },
       } : {}),
       ...(yacangTouched ? {
         yacang: { action: "save" as const, mobile: form.yacangMobile,

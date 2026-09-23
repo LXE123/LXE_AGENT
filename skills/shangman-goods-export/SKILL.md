@@ -1,6 +1,6 @@
 ---
 name: shangman-goods-export
-description: 为东南亚备货采集上马 ERP（Shangman ERP）商品、库存及销量原始数据，也用于独立下载上马报表。复用上马登录态，产出一份平台原始 XLSX；只负责采集与校验，不执行备货计算。不用于智汇 TMS、雅仓或马帮。
+description: 为东南亚备货采集上马 ERP（Shangman ERP）商品、库存及销量原始数据，也用于独立下载上马报表。复用上马登录态，产出一份平台原始 XLSX；只负责采集与校验，不执行备货计算。不用于马帮 TMS（旧称智汇 TMS）、雅仓或马帮 ERP。
 type: replenishment
 commands:
   - lxeskill shangman export run

@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,7 +107,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       cloud: { switch_in_progress: false },
     });
   });
@@ -128,7 +128,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 10,
+      schema_version: 11,
       llm: {
         provider: "kimi_coding",
         last_local_provider: "kimi_coding",
@@ -303,6 +303,6 @@ for (const expiresAt of [1, 4_000_000_000]) {
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("cloud_business_");
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("obsolete-");
     expect(repository.readConfig().cloud.device_id).toBe("existing-device");
-    expect(repository.readConfig().schema_version).toBe(10);
+    expect(repository.readConfig().schema_version).toBe(11);
   });
 }

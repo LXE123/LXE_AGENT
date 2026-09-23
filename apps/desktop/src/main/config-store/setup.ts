@@ -56,7 +56,7 @@ export class DesktopSetupService {
 
   state(): DesktopSetupState {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
+    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile, config.integrations.mabangTms.managed && !config.integrations.mabangTms.account);
     const localAuth = this.auth.snapshot();
     const providerKeyConfigured = Boolean(localAuth.configured[config.llm.provider]);
     const localProvider = this.catalog.provider(config.llm.last_local_provider)?.name ?? this.catalog.defaultProvider;
@@ -72,6 +72,9 @@ export class DesktopSetupService {
     const workspaceRoot = config.workspace_root || this.defaultWorkspaceRoot;
     const workspaceAvailable = this.validation.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
+    const mabangTms = config.integrations.mabangTms;
+    const mabangTmsIssues = this.validation.mabangTmsIssues(mabangTms, secrets);
+    const mabangTmsConfigured = mabangTms.managed && mabangTmsIssues.length === 0;
     const yacang = config.integrations.yacang;
     const yacangIssues = this.validation.yacangIssues(yacang, secrets);
     const yacangConfigured = yacang.managed && yacangIssues.length === 0;
@@ -114,6 +117,9 @@ export class DesktopSetupService {
         app_path: ziniao.app_path,
         webdriver_path: ziniao.webdriver_path,
       },
+      mabangTms: { managed: mabangTms.managed, configured: mabangTmsConfigured,
+        account: mabangTms.account, issues: mabangTms.managed ? mabangTmsIssues : [],
+        password_configured: Boolean(secrets.mabang_tms_password) },
       yacang: { managed: yacang.managed, configured: yacangConfigured,
         mobile: yacang.mobile, issues: yacang.managed ? yacangIssues : [],
         password_configured: Boolean(secrets.yacang_password) },
@@ -149,7 +155,7 @@ export class DesktopSetupService {
     const workspaceRoot = this.validation.validateWorkspaceRoot(text(input.workspace_root) || this.defaultWorkspaceRoot);
     const config = this.repository.readConfig();
     const secrets = this.repository.readSecrets();
-    const effectiveSecrets = this.effectiveSecrets(secrets, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
+    const effectiveSecrets = this.effectiveSecrets(secrets, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile, config.integrations.mabangTms.managed && !config.integrations.mabangTms.account);
     config.workspace_root = workspaceRoot;
 
     if (input.ziniao?.action === "clear") {
@@ -182,6 +188,17 @@ export class DesktopSetupService {
       if (inputPassword) secrets.ziniao_password = inputPassword;
     }
 
+    if (input.mabangTms?.action === "clear") {
+      config.integrations.mabangTms = { managed: true, account: "" };
+      secrets.mabang_tms_password = "";
+    } else if (input.mabangTms?.action === "save") {
+      const account = text(input.mabangTms.account);
+      const changedAccount = account !== config.integrations.mabangTms.account;
+      const password = input.mabangTms.password || (changedAccount ? "" : effectiveSecrets.mabang_tms_password);
+      if (!account || !password) throw new Error("马帮 TMS 需要账号和密码；更换账号时请重新填写密码");
+      config.integrations.mabangTms = { managed: true, account };
+      secrets.mabang_tms_password = password;
+    }
     if (input.yacang?.action === "clear") {
       config.integrations.yacang = { managed: true, mobile: "" };
       secrets.yacang_password = "";
@@ -504,7 +521,7 @@ export class DesktopSetupService {
 
   environment(): Record<string, string> {
     const config = this.repository.readConfig();
-    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile);
+    const secrets = this.effectiveSecrets(undefined, config.integrations.shangman.managed, config.integrations.yacang.managed && !config.integrations.yacang.mobile, config.integrations.mabangTms.managed && !config.integrations.mabangTms.account);
     const provider = config.llm.provider;
     const storedManagedCredential = config.cloud.switch_in_progress
       ? null
@@ -525,6 +542,9 @@ export class DesktopSetupService {
     const activePreference = config.llm.profiles[provider];
     const activeThinkingLevel = activePreference?.thinking_level ?? "off";
     const ziniao = config.integrations.ziniao;
+    const mabangTms = config.integrations.mabangTms;
+    const mabangTmsIssues = this.validation.mabangTmsIssues(mabangTms, secrets);
+    const mabangTmsConfigured = mabangTms.managed && mabangTmsIssues.length === 0;
     const yacang = config.integrations.yacang;
     const yacangIssues = this.validation.yacangIssues(yacang, secrets);
     const yacangConfigured = yacang.managed && yacangIssues.length === 0;
@@ -558,7 +578,9 @@ export class DesktopSetupService {
       ZINIAO_BROWSER_VERSION: ziniao.app_version,
       ZINIAO_CLIENT_PATH: ziniaoConfigured ? ziniao.app_path : "",
       ZINIAO_WEBDRIVER_PATH: ziniaoConfigured ? ziniao.webdriver_path : "",
+      LXE_MABANG_TMS_ACCOUNT: mabangTmsConfigured ? mabangTms.account : "",
       LXE_YACANG_MOBILE: yacangConfigured ? yacang.mobile : "",
+      LXE_MABANG_TMS_PASSWORD: mabangTmsConfigured ? secrets.mabang_tms_password : "",
       LXE_YACANG_PASSWORD: yacangConfigured ? secrets.yacang_password : "",
       LXE_SHANGMAN_TENANT_ID: shangmanConfigured ? shangman.tenant_id : "",
       LXE_SHANGMAN_USERNAME: shangmanConfigured ? shangman.username : "",
@@ -583,11 +605,12 @@ export class DesktopSetupService {
     };
   }
 
-  private effectiveSecrets(persisted = this.repository.readSecrets(), shangmanManaged = false, yacangCleared = false) {
+  private effectiveSecrets(persisted = this.repository.readSecrets(), shangmanManaged = false, yacangCleared = false, mabangTmsCleared = false) {
     const effective = effectiveDesktopSecrets(persisted, this.secretEnvironment);
     if (shangmanManaged) {
       effective.shangman_processed_password = persisted.shangman_processed_password;
     }
+    if (mabangTmsCleared) effective.mabang_tms_password = persisted.mabang_tms_password;
     if (yacangCleared) {
       effective.yacang_password = persisted.yacang_password;
     }
