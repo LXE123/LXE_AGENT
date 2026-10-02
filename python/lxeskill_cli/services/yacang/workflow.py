@@ -4,6 +4,8 @@ from datetime import datetime
 from contextlib import ExitStack
 import uuid
 import os
+from xml.etree import ElementTree
+from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 from openpyxl import load_workbook
 from shared.datasets import dataset_dir
@@ -13,7 +15,7 @@ from .contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, t
 from .errors import YacangError, safe_remote_detail
 from .queue import wait_for_file
 from .state import ExportState
-from .validation import validate_inventory_sales_workbook, validate_inventory_list_workbook, validate_warehouse_products_workbook
+from .validation import INVENTORY_SALES_HEADERS, validate_inventory_sales_workbook, validate_inventory_list_workbook, validate_warehouse_products_workbook
 
 
 def validate(path, task, diagnostic):
@@ -29,6 +31,49 @@ def validate(path, task, diagnostic):
             return {'row_count': count, 'sheet_names': wb.sheetnames}
         finally:
             wb.close()
+
+
+def publish_inventory_sales_without_snapshot_date(original, temporary, target):
+    with filesystem_path(original).open("rb") as source:
+        workbook = load_workbook(source, read_only=True, data_only=True)
+        try:
+            if len(workbook.sheetnames) != 1 or workbook.active.cell(1, len(INVENTORY_SALES_HEADERS)).value != "创建日期":
+                raise YacangError("处理库存动销 XLSX", "原始报表缺少预期的创建日期末列")
+        finally:
+            workbook.close()
+
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    prefix = f"{{{namespace}}}"
+    ElementTree.register_namespace("", namespace)
+    with filesystem_path(original).open("rb") as source, ZipFile(source) as package:
+        sheets = [name for name in package.namelist() if name.startswith("xl/worksheets/") and name.endswith(".xml")]
+        if len(sheets) != 1:
+            raise YacangError("处理库存动销 XLSX", f"工作表 XML 数量异常: {len(sheets)}")
+        sheet_name = sheets[0]
+        sheet = ElementTree.fromstring(package.read(sheet_name))
+        dimension = sheet.find(prefix + "dimension")
+        if dimension is None or not (dimension.get("ref") or "").startswith("A1:P"):
+            raise YacangError("处理库存动销 XLSX", "原始报表列范围不是预期的 A1:P")
+        dimension.set("ref", "A1:O" + dimension.get("ref")[4:])
+        sheet_data = sheet.find(prefix + "sheetData")
+        if sheet_data is None:
+            raise YacangError("处理库存动销 XLSX", "原始报表缺少工作表数据")
+        removed_header = False
+        for row in sheet_data.findall(prefix + "row"):
+            for cell in list(row):
+                reference = cell.get("r", "")
+                if cell.tag == prefix + "c" and reference == f"P{row.get('r')}":
+                    removed_header |= reference == "P1"
+                    row.remove(cell)
+            if row.get("spans") == "1:16":
+                row.set("spans", "1:15")
+        if not removed_header:
+            raise YacangError("处理库存动销 XLSX", "原始报表缺少创建日期表头单元格")
+        modified_sheet = ElementTree.tostring(sheet, encoding="utf-8", xml_declaration=True)
+        with filesystem_path(temporary).open("xb") as output, ZipFile(output, "w") as published:
+            for member in package.infolist():
+                published.writestr(member, modified_sheet if member.filename == sheet_name else package.read(member.filename))
+    temporary.replace(target)
 
 
 def run(arguments):
@@ -74,7 +119,13 @@ def run(arguments):
                     temporary = folder / ('.' + filename)
                     client.download(url, temporary)
                     metadata = validate(temporary, spec, client.diagnostic)
-                    temporary.replace(target)
+                    if spec['report'] == 'inventory-sales':
+                        original = folder / 'original' / filename
+                        original.parent.mkdir(exist_ok=True)
+                        temporary.replace(original)
+                        publish_inventory_sales_without_snapshot_date(original, temporary, target)
+                    else:
+                        temporary.replace(target)
                     artifact = {**spec, **metadata, 'filters': export_parameters(spec), 'path': str(display_path(target.resolve())), 'filename': filename,
                                 'source': 'yacang', 'notice': '没有数据行' if metadata['row_count'] == 0 else ''}
                     artifacts.append(artifact)

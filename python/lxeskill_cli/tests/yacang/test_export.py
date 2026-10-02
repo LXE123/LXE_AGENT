@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import date, datetime, time as daytime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
@@ -11,10 +11,12 @@ import subprocess
 import sys
 import threading
 from urllib.parse import parse_qs, urlsplit
+from xml.etree import ElementTree
+from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from services.yacang import client, workflow, queue
 from services.yacang.contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key
@@ -36,11 +38,56 @@ def xlsx(report, warehouse, empty=False):
             row[headers.index('仓库')] = warehouse
         if '创建时间' in headers:
             row[headers.index('创建时间')] = '2026-09-23 10:00'
+        if '创建日期' in headers:
+            row[headers.index('创建日期')] = '2026-09-28 06:38:58'
         ws.append(row)
     stream = io.BytesIO()
     wb.save(stream)
     wb.close()
     return stream.getvalue()
+
+
+def shared_strings_xlsx(data):
+    """Use the same shared-string package shape as the captured Yacang export."""
+    spreadsheet = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+    content_types = 'http://schemas.openxmlformats.org/package/2006/content-types'
+    relationships = 'http://schemas.openxmlformats.org/package/2006/relationships'
+    with ZipFile(io.BytesIO(data)) as source:
+        sheet = ElementTree.fromstring(source.read('xl/worksheets/sheet1.xml'))
+        strings = []
+        for cell in sheet.iter(f'{{{spreadsheet}}}c'):
+            if cell.get('t') != 'inlineStr':
+                continue
+            inline = cell.find(f'{{{spreadsheet}}}is')
+            assert inline is not None
+            strings.append(''.join(inline.itertext()))
+            cell.remove(inline)
+            cell.set('t', 's')
+            ElementTree.SubElement(cell, f'{{{spreadsheet}}}v').text = str(len(strings) - 1)
+        shared = ElementTree.Element(f'{{{spreadsheet}}}sst', {'count': str(len(strings)), 'uniqueCount': str(len(strings))})
+        for value in strings:
+            ElementTree.SubElement(ElementTree.SubElement(shared, f'{{{spreadsheet}}}si'), f'{{{spreadsheet}}}t').text = value
+        types = ElementTree.fromstring(source.read('[Content_Types].xml'))
+        ElementTree.SubElement(types, f'{{{content_types}}}Override', {
+            'PartName': '/xl/sharedStrings.xml',
+            'ContentType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml',
+        })
+        rels = ElementTree.fromstring(source.read('xl/_rels/workbook.xml.rels'))
+        ElementTree.SubElement(rels, f'{{{relationships}}}Relationship', {
+            'Type': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings',
+            'Target': 'sharedStrings.xml', 'Id': 'rId99',
+        })
+        changed = {
+            'xl/worksheets/sheet1.xml': ElementTree.tostring(sheet, encoding='utf-8'),
+            '[Content_Types].xml': ElementTree.tostring(types, encoding='utf-8'),
+            'xl/_rels/workbook.xml.rels': ElementTree.tostring(rels, encoding='utf-8'),
+        }
+        output = io.BytesIO()
+        with ZipFile(output, 'w') as target:
+            for member in source.infolist():
+                target.writestr(member, changed.get(member.filename, source.read(member.filename)))
+            target.writestr('xl/sharedStrings.xml', ElementTree.tostring(shared, encoding='utf-8'))
+    return output.getvalue()
 
 
 @pytest.fixture
@@ -133,7 +180,7 @@ def submits(platform):
     return [call for call in platform['calls'] if call[1] in {r[1] for r in REPORTS.values()}]
 
 
-def test_all_reports_nine_original_files_single_login_and_new_runs(platform):
+def test_all_reports_nine_files_sales_omit_snapshot_date_and_keep_original(platform):
     result = workflow.run(request(list(REPORTS)))
     assert result['success'], result
     assert len(result['artifacts']) == 9
@@ -142,7 +189,17 @@ def test_all_reports_nine_original_files_single_login_and_new_runs(platform):
     assert not any('create_time' in c[2] for c in submits(platform))
     assert result['params']['created_date'] is None
     for index, artifact in enumerate(result['artifacts'], 1):
-        assert filesystem_path(artifact['path']).read_bytes() == platform['files'][f'/file{index}.xlsx']
+        delivered = filesystem_path(artifact['path'])
+        original_bytes = platform['files'][f'/file{index}.xlsx']
+        if artifact['report'] == 'inventory-sales':
+            assert delivered.read_bytes() != original_bytes
+            assert (delivered.parent / 'original' / delivered.name).read_bytes() == original_bytes
+            with closing(load_workbook(io.BytesIO(original_bytes), read_only=True, data_only=True)) as original:
+                original_rows = list(original.active.values)
+            with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
+                assert list(output.active.values) == [row[:-1] for row in original_rows]
+        else:
+            assert delivered.read_bytes() == original_bytes
         assert artifact['row_count'] == 1 and artifact['sheet_names']
     for call in platform['calls']:
         if call[1].startswith('/file'):
@@ -153,6 +210,20 @@ def test_all_reports_nine_original_files_single_login_and_new_runs(platform):
     assert Path(again['artifacts'][0]['path']).parent != Path(result['artifacts'][0]['path']).parent
 
 
+def test_sales_delivery_preserves_platform_xlsx_package(platform):
+    platform['bad_file'] = shared_strings_xlsx(xlsx('inventory-sales', 'VN8806'))
+    result = workflow.run(request(warehouses=['VN8806']))
+    assert result['success'], result
+    delivered = filesystem_path(result['artifacts'][0]['path'])
+    with ZipFile(io.BytesIO(platform['bad_file'])) as original, ZipFile(delivered) as output:
+        assert set(output.namelist()) == set(original.namelist())
+        for name in original.namelist():
+            if name != 'xl/worksheets/sheet1.xml':
+                assert output.read(name) == original.read(name)
+    with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
+        assert tuple(next(output.active.values)) == INVENTORY_SALES_HEADERS[:-1]
+
+
 def test_explicit_creation_dates_and_empty_file(platform):
     platform['empty'] = True
     result = workflow.run(request(warehouses=['VN8806'], created={'start_date': '2026-01-01', 'end_date': '2026-09-23'}))
@@ -160,6 +231,10 @@ def test_explicit_creation_dates_and_empty_file(platform):
     assert submits(platform)[0][2]['create_time'] == '2026-01-01 - 2026-09-23'
     assert result['artifacts'][0]['row_count'] == 0
     assert result['artifacts'][0]['notice']
+    delivered = filesystem_path(result['artifacts'][0]['path'])
+    with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
+        assert list(output.active.values) == [INVENTORY_SALES_HEADERS[:-1]]
+    assert (delivered.parent / 'original' / delivered.name).read_bytes() == platform['files']['/file1.xlsx']
 
 
 def test_platform_hidden_date_filter_is_not_reported_as_all_goods(platform):
@@ -201,6 +276,8 @@ def test_local_download_failure_preserves_partial_cli_files(platform, capsys):
     result = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert not result['ok'] and result['data']['status'] == 'partial_success'
     assert len(result['files']) == 1 and filesystem_path(result['files'][0]).is_file()
+    with closing(load_workbook(filesystem_path(result['files'][0]), read_only=True, data_only=True)) as output:
+        assert tuple(next(output.active.values)) == INVENTORY_SALES_HEADERS[:-1]
     assert 'recovery' not in result
     assert 'actual download failure' in result['error']['message']
 
@@ -364,6 +441,7 @@ def test_long_chinese_path_delivered_by_cli(platform, env, monkeypatch, capsys):
     assert Path(artifact['path']).is_relative_to(root)
     assert filesystem_path(artifact['path']).read_bytes().startswith(b'PK')
     assert result['files'] == [artifact['path']]
+    assert (filesystem_path(artifact['path']).parent / 'original' / Path(artifact['path']).name).is_file()
     assert not list(filesystem_path(root).rglob('.*.xlsx'))
 
 

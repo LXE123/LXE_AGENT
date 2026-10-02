@@ -71,6 +71,19 @@ describe("skill context", () => {
     expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
     expect(skills.find((skill) => skill.name === "shangman-goods-export")?.commands).toEqual(["lxeskill shangman export run"]);
     expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
+    for (const skill of skills) {
+      expect(skill.description).not.toMatch(/\u667a\u6c47|\u667a\u6167|\x7a\x68\x69\x68\x75\x69/i);
+      expect(readFileSync(join(skill.root, "SKILL.md"), "utf8")).not.toMatch(/\u667a\u6c47|\u667a\u6167|\x7a\x68\x69\x68\x75\x69/i);
+    }
+    expect(skills.find((skill) => skill.name === "mabang-tms-export")?.description).toContain("不支持按仓库筛选");
+    expect(skills.find((skill) => skill.name === "mabang-tms-export")?.description).toContain("菲律宾");
+    expect(skills.find((skill) => skill.name === "mabang-tms-export")?.description).toContain("不用于其他国家");
+    expect(skills.find((skill) => skill.name === "yacang-export")?.description).toContain("马来西亚");
+    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.description).toContain("印尼");
+    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.description).toContain("用户只说上马也指印尼");
+    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.description).toContain("不用于其他国家");
+    expect(skills.find((skill) => skill.name === "shangman-login")?.description).toContain("印尼");
+    expect(readFileSync(join(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")!.root, "SKILL.md"), "utf8")).toContain("不能提供“马帮 TMS 马来西亚仓”之类选项");
   });
 
   test("indexes allowed skill manifests and points the agent to their source", () => {
