@@ -45,6 +45,7 @@ class InputAsset(NamedTuple):
     used_by: tuple[str, ...]
     dir: str
     holds: str
+    management: str
 
 
 class AssetVersion(NamedTuple):
@@ -80,6 +81,7 @@ def load_input_assets() -> dict[str, InputAsset]:
         )
         directory = str(item.get("dir") or "").strip()
         holds = str(item.get("holds") or "").strip()
+        management = item.get("management", "command")
         if not display_name:
             raise InputAssetError(f"input asset has no display name: {slot_id}")
         if not used_by:
@@ -88,6 +90,8 @@ def load_input_assets() -> dict[str, InputAsset]:
             raise InputAssetError(f"invalid input asset dir for {slot_id}: {directory}")
         if not holds:
             raise InputAssetError(f"input asset has no holds description: {slot_id}")
+        if management not in ("command", "desktop"):
+            raise InputAssetError(f"invalid input asset management for {slot_id}: {management}")
         if directory in seen_dirs:
             raise InputAssetError(
                 f"duplicate input asset dir {directory}: {seen_dirs[directory]} and {slot_id}"
@@ -99,6 +103,7 @@ def load_input_assets() -> dict[str, InputAsset]:
             used_by=used_by,
             dir=directory,
             holds=holds,
+            management=management,
         )
     return assets
 
@@ -149,6 +154,9 @@ def promote_asset(slot_id: str, source: str | os.PathLike[str]) -> AssetVersion:
     Re-promoting identical content is a no-op, so retrying a command or sending
     the same file twice does not burn the single rollback slot.
     """
+    if asset(slot_id).management != "command":
+        raise InputAssetError(f"desktop-managed input asset cannot be promoted by command: {slot_id}")
+
     incoming = Path(source).expanduser()
     if not incoming.is_file():
         raise InputAssetError(f"input asset is not a file: {incoming}")
