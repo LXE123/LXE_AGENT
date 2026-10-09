@@ -10,6 +10,7 @@ import type {
   CredentialSource,
   ManagedLlmCredential,
   ManagedLlmTarget,
+  DesktopVietnamRecommendationSettings,
 } from "@lxe/desktop-protocol";
 import {
   createLogger,
@@ -24,6 +25,10 @@ import {
   parseWireGuardTunnelConfiguration,
   type WireGuardTunnelConfiguration,
 } from "../wireguard-types";
+import {
+  DEFAULT_VIETNAM_RECOMMENDATION,
+  validateVietnamRecommendationSettings,
+} from "./vietnam-recommendation";
 
 const logger = createLogger("desktop.config.model");
 
@@ -42,7 +47,7 @@ export const OUTPUT_DIRECTORY_ENV_NAMES = [
 export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
 
 export interface DesktopConfig {
-  schema_version: 11;
+  schema_version: 12;
   migration_version: number;
   llm: {
     provider: DesktopModelProvider;
@@ -55,6 +60,7 @@ export interface DesktopConfig {
     }>;
   };
   workspace_root: string;
+  vietnam_recommendation: DesktopVietnamRecommendationSettings;
   output_directories: Record<OutputDirectoryEnvironmentName, string>;
   integrations: {
     ziniao: {
@@ -107,7 +113,7 @@ export interface DesktopSecrets {
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
 export const MODEL_AUTH_MIGRATION_VERSION = 5;
 
-export const SETTINGS_SCHEMA_VERSION = 11 as const;
+export const SETTINGS_SCHEMA_VERSION = 12 as const;
 
 const developmentCatalog = (): LlmProviderCatalog => loadLlmProviderCatalog(
   join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
@@ -129,6 +135,7 @@ const defaultConfig = (catalog: LlmProviderCatalog): DesktopConfig => {
       },
     },
     workspace_root: "",
+    vietnam_recommendation: { ...DEFAULT_VIETNAM_RECOMMENDATION },
     output_directories: Object.fromEntries(
       OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, ""]),
     ) as DesktopConfig["output_directories"],
@@ -248,7 +255,8 @@ export const parseSettings = (
   const value = objectValue(raw);
   if (value.schema_version !== 4 && value.schema_version !== 5
     && value.schema_version !== 6 && value.schema_version !== 7 && value.schema_version !== 8
-    && value.schema_version !== 9 && value.schema_version !== 10 && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+    && value.schema_version !== 9 && value.schema_version !== 10 && value.schema_version !== 11
+    && value.schema_version !== SETTINGS_SCHEMA_VERSION) {
     throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
   }
   assertNoSecretFields(value);
@@ -257,12 +265,16 @@ export const parseSettings = (
     "migration_version",
     "llm",
     "workspace_root",
+    "vietnam_recommendation",
     "output_directories",
     "integrations",
     "logging",
     "cloud",
   ], "settings");
   assertFieldTypes(value, { migration_version: "number", workspace_root: "string" }, "settings");
+  if (value.schema_version === SETTINGS_SCHEMA_VERSION) {
+    validateVietnamRecommendationSettings(value.vietnam_recommendation);
+  }
   const llm = objectValue(value.llm);
   assertOnlyFields(
     llm,
@@ -428,6 +440,9 @@ export const parseConfig = (
       profiles,
     },
     workspace_root: text(value.workspace_root),
+    vietnam_recommendation: value.schema_version === SETTINGS_SCHEMA_VERSION
+      ? validateVietnamRecommendationSettings(value.vietnam_recommendation)
+      : { ...DEFAULT_VIETNAM_RECOMMENDATION },
     output_directories: Object.fromEntries(
       OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, text(rawOutputDirectories[name])]),
     ) as DesktopConfig["output_directories"],

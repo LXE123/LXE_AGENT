@@ -24,6 +24,7 @@ import {
   parseSecrets,
   parseSettings,
 } from "./model";
+import { validateVietnamRecommendationSettings } from "./vietnam-recommendation";
 
 export interface SafeStoragePort {
   isEncryptionAvailable(): boolean;
@@ -88,6 +89,7 @@ export class DesktopConfigRepository {
   }
 
   commit(config: DesktopConfig, secrets: DesktopSecrets): void {
+    config.vietnam_recommendation = validateVietnamRecommendationSettings(config.vietnam_recommendation);
     this.withFileLock(() => {
       this.assertConfigUnchanged();
       const previousConfig = this.readRaw(this.configPath);

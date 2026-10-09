@@ -12,9 +12,25 @@ import {
   validateSyntheticPerformerId,
   validateSyntheticPerformerSourceKind,
   validateSyntheticPerformerTaskInput,
+  validateVietnamSkuMapRevision,
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("accepts an independent exact Vietnam parameter quartet", () => {
+    const values = { weight_30d: "0.7", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" };
+    expect(validateSetupInput({ workspace_root: "/workspace", vietnam_recommendation: values }))
+      .toEqual({ workspace_root: "/workspace", vietnam_recommendation: values });
+    expect(() => validateSetupInput({ workspace_root: "/workspace", vietnam_recommendation: { ...values, exchange_rate: "0" } }))
+      .toThrow("exchange_rate");
+    expect(() => validateSetupInput({ workspace_root: "/workspace", vietnam_recommendation: { ...values, weight_7d: 0 } }))
+      .toThrow("weight_7d");
+  });
+  test("accepts only a manifest revision for Vietnam SKU rollback", () => {
+    expect(validateVietnamSkuMapRevision("a".repeat(32))).toBe("a".repeat(32));
+    for (const invalid of [null, "", "A".repeat(32), "../manifest.json", {}, 12]) {
+      expect(() => validateVietnamSkuMapRevision(invalid)).toThrow("revision");
+    }
+  });
   test("accepts only resolved desktop appearances", () => {
     expect(validateDesktopAppearance("light")).toBe("light");
     expect(validateDesktopAppearance("dark")).toBe("dark");

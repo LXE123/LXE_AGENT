@@ -4,12 +4,12 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 36 top-level workflow and default runtime skills:
+The repository currently contains 37 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
-| `replenishment` | 15 | Amazon replenishment workflows and Southeast Asia data preparation with Shangman ERP, Yacang and Mabang TMS |
+| `replenishment` | 16 | Amazon replenishment, Vietnam stock recommendation, and Southeast Asia data preparation with Shangman ERP, Yacang and Mabang TMS |
 | `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
 | `default` | 4 | Office files and custom Skill creation capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
@@ -57,8 +57,9 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 
 - `mabang-tms-export`（马帮 TMS 数据导出）：当前账号全部仓库、正常商品、全部库存状态；按内部 ID 分批导出，校验接口总数并合并交付，不按 SKU 去重或汇总销量。单任务登录，原始分批文件保留，失败可交付已校验部分。
 
-- `yacang-export`（雅仓数据导出）：三类原始报表，默认四仓、库存动销不限制源表创建日期；多仓不合并。动销“创建日期”与全局产品资料“创建时间”口径不同，不冒称商品建档、入库／上架时间。登录态仅单次任务复用，账号密码由桌面加密配置。部分成功保留成功文件；数据源与上马独立选择，不自动合并。
-- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口，当前衔接上马 ERP、雅仓与马帮 TMS 数据采集与交付；数据整理和备货计算尚未接通，不使用 Amazon 备货计算代替。
+- `yacang-export`（雅仓数据导出）：三类原始报表，默认四仓、库存动销不限制源表创建日期；多仓不合并。动销“创建日期”与全局产品资料“创建时间”口径不同。独立导出只交付原始报表，登录态仅单次任务复用，账号密码由桌面加密配置；部分成功保留成功文件。
+- `vietnam-stock-recommendation`（越南备货清单生成）：运营在 Desktop“工作台 → 模板与数据源 → 越南 SKU 参数表”上传一张映射表；Skill 从受信 current 和同轮雅仓 VN8806 数据生成五表 XLSX，成功只交付最终工作簿。缺映射表或坏表时在雅仓调用前报错；本轮 SKU 缺映射行或已有行的个别价格为空时，保留 SKU 与雅仓数据，只留空对应输入及依赖结果。仓库产品“创建时间”是真实上架时间，总在途取当前库存列表；四参数使用 Desktop 长期设置，四项均未提供时才使用系统默认值，聊天单次覆盖尚未开放。
+- `southeast-asia-replenishment-workflow-map`：东南亚备货流程入口；越南生成转专用 Skill，上马 ERP、雅仓独立导出与马帮 TMS 的其他请求按数据采集与交付处理。其他来源尚未接入备货计算，不使用 Amazon 备货计算代替。
 - 上马 ERP、雅仓与马帮 TMS 是当前数据来源，按用户选择独立采集；上马登录负责上马认证，雅仓在单次任务内登录。新增数据源的用途、产出和后续消费者在流程入口维护，平台操作规则保留在对应业务 Skill 中。
 - Amazon 与东南亚拥有各自流程入口，当前共同使用 `replenishment` 权限域，没有新增权限类型。
 

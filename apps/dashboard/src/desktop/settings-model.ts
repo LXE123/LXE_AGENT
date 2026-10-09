@@ -5,6 +5,7 @@ import type {
   DesktopLogRetentionDays,
   DesktopLoggingSinkStatus,
   DesktopModelProvider,
+  DesktopSetupInput,
   DesktopSetupState,
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
@@ -74,6 +75,10 @@ export interface DesktopSettingsFormValue {
   yacangMobile: string;
   mabangTmsPassword: string;
   yacangPassword: string;
+  vietnamWeight30d: string;
+  vietnamWeight15d: string;
+  vietnamWeight7d: string;
+  vietnamExchangeRate: string;
   shangmanTenantId: string;
   shangmanUsername: string;
   shangmanPassword: string;
@@ -99,6 +104,10 @@ export const desktopSettingsForm = (state: DesktopSetupState): DesktopSettingsFo
   yacangMobile: state.yacang.mobile,
   mabangTmsPassword: "",
   yacangPassword: "",
+  vietnamWeight30d: state.vietnam_recommendation.weight_30d,
+  vietnamWeight15d: state.vietnam_recommendation.weight_15d,
+  vietnamWeight7d: state.vietnam_recommendation.weight_7d,
+  vietnamExchangeRate: state.vietnam_recommendation.exchange_rate,
   shangmanTenantId: state.shangman.tenant_id,
   shangmanUsername: state.shangman.username,
   shangmanPassword: "",
@@ -123,7 +132,7 @@ const SECTION_FIELDS: Record<DesktopSettingsFormSection, readonly (keyof Desktop
     "ziniaoWebDriverPath",
   ],
   mabangTms: ["mabangTmsAccount", "mabangTmsPassword"],
-  yacang: ["yacangMobile", "yacangPassword"],
+  yacang: ["yacangMobile", "yacangPassword", "vietnamWeight30d", "vietnamWeight15d", "vietnamWeight7d", "vietnamExchangeRate"],
   shangman: ["shangmanTenantId", "shangmanUsername", "shangmanPassword"],
   mabang: ["mabangAccount", "mabangPassword"],
   feishu: ["feishuAppId", "feishuAppSecret"],
@@ -163,5 +172,36 @@ export const desktopSettingsFormAfterClear = (
   integration: DesktopIntegrationName,
 ): DesktopSettingsFormValue => {
   const saved = desktopSettingsForm(next);
-  return { ...current, ...Object.fromEntries(SECTION_FIELDS[integration].map((field) => [field, saved[field]])) };
+  const fields = integration === "yacang" ? ["yacangMobile", "yacangPassword"] as const : SECTION_FIELDS[integration];
+  return { ...current, ...Object.fromEntries(fields.map((field) => [field, saved[field]])) };
 };
+
+export const desktopYacangCredentialsChanged = (
+  form: DesktopSettingsFormValue,
+  setup: DesktopSetupState,
+): boolean => form.yacangMobile !== setup.yacang.mobile || form.yacangPassword.length > 0;
+
+export const desktopVietnamRecommendationInput = (
+  form: DesktopSettingsFormValue,
+  workspaceRoot: string,
+): DesktopSetupInput => ({
+  workspace_root: workspaceRoot,
+  vietnam_recommendation: {
+    weight_30d: form.vietnamWeight30d,
+    weight_15d: form.vietnamWeight15d,
+    weight_7d: form.vietnamWeight7d,
+    exchange_rate: form.vietnamExchangeRate,
+  },
+});
+
+// A focused parameter save must preserve credentials and drafts in all other sections.
+export const desktopSettingsFormAfterVietnamSave = (
+  current: DesktopSettingsFormValue,
+  next: DesktopSetupState,
+): DesktopSettingsFormValue => ({
+  ...current,
+  vietnamWeight30d: next.vietnam_recommendation.weight_30d,
+  vietnamWeight15d: next.vietnam_recommendation.weight_15d,
+  vietnamWeight7d: next.vietnam_recommendation.weight_7d,
+  vietnamExchangeRate: next.vietnam_recommendation.exchange_rate,
+});

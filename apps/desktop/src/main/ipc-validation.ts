@@ -9,6 +9,7 @@ import type {
   DesktopSyntheticPerformerTaskInput,
 } from "@lxe/desktop-protocol";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
+import { validateVietnamRecommendationSettings } from "./config-store/vietnam-recommendation";
 
 const objectValue = (value: unknown, label: string): Record<string, unknown> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -28,6 +29,13 @@ export function validateEnrollmentId(value: unknown): string {
   const enrollmentId = boundedText(value, "Enrollment ID", 128);
   if (!/^[A-Za-z0-9-]+$/u.test(enrollmentId)) throw new Error("Enrollment ID is invalid");
   return enrollmentId;
+}
+
+export function validateVietnamSkuMapRevision(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{32}$/u.test(value)) {
+    throw new Error("Vietnam SKU map revision is invalid");
+  }
+  return value;
 }
 
 export function validateSyntheticPerformerId(value: unknown): string {
@@ -113,6 +121,8 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
   const mabang = input.mabang === undefined ? undefined : integrationAction(input.mabang, "Mabang setup");
   const feishu = input.feishu === undefined ? undefined : integrationAction(input.feishu, "Feishu setup");
   const logging = input.logging === undefined ? undefined : objectValue(input.logging, "Logging setup");
+  const vietnamRecommendation = input.vietnam_recommendation === undefined
+    ? undefined : validateVietnamRecommendationSettings(input.vietnam_recommendation);
   const rawZiniaoVersion = ziniao?.action === "save"
     ? boundedText(ziniao.app_version, "Ziniao app version", 16)
     : "";
@@ -181,6 +191,7 @@ export function validateSetupInput(value: unknown): DesktopSetupInput {
     ...(mabangInput ? { mabang: mabangInput } : {}),
     ...(feishuInput ? { feishu: feishuInput } : {}),
     ...(loggingInput ? { logging: loggingInput } : {}),
+    ...(vietnamRecommendation ? { vietnam_recommendation: vietnamRecommendation } : {}),
   };
 }
 

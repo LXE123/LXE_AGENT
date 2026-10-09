@@ -48,6 +48,7 @@ export const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetup
   },
   mabangTms: { managed: false, configured: false, issues: [], account: "", password_configured: false },
   yacang: { managed: false, configured: false, issues: [], mobile: "", password_configured: false },
+  vietnam_recommendation: { weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" },
   shangman: { managed: false, configured: false, issues: [], tenant_id: "", username: "", password_configured: false },
   mabang: {
     managed: true,

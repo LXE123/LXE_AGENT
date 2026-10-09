@@ -631,6 +631,8 @@ async function bootstrap(): Promise<void> {
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
+    installVietnamSkuMap: (sourcePath, expectedRevision) => inputAssets.installVietnamSkuMap(sourcePath, expectedRevision),
+    rollbackVietnamSkuMap: expectedRevision => inputAssets.rollbackVietnamSkuMap(expectedRevision),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     isTrustedFileSender: event => !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,

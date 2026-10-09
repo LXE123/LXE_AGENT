@@ -41,7 +41,7 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -62,7 +62,7 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       migration_version: 0,
       llm: {
         provider: "deepseek",
@@ -88,7 +88,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       llm: {
         provider: "deepseek",
         credential_source: "local",
@@ -107,7 +107,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "win32");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       cloud: { switch_in_progress: false },
     });
   });
@@ -128,7 +128,7 @@ describe("DesktopConfigRepository", () => {
 
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       llm: {
         provider: "kimi_coding",
         last_local_provider: "kimi_coding",
@@ -138,6 +138,64 @@ describe("DesktopConfigRepository", () => {
         },
       },
     });
+  });
+
+  test("migrates schema 11 without Vietnam settings and rejects malformed schema 12 without rewriting", () => {
+    const root = createRoot();
+    const configRoot = join(root, "config");
+    mkdirSync(configRoot, { recursive: true });
+    const settingsPath = join(configRoot, "settings.json");
+    const old = structuredClone(cloneConfig()) as unknown as Record<string, unknown>;
+    old.schema_version = 11;
+    delete old.vietnam_recommendation;
+    writeFileSync(settingsPath, JSON.stringify(old), "utf8");
+    const migrated = new DesktopConfigRepository(root, safeStorage, "darwin").readConfig();
+    expect(migrated.schema_version).toBe(12);
+    expect(migrated.vietnam_recommendation).toEqual({
+      weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900",
+    });
+
+    const cases: [string, unknown][] = [
+      ["missing object", undefined],
+      ["missing field", { weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0" }],
+      ["extra field", { weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900", note: "x" }],
+      ["number field", { weight_30d: 0.8, weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["not a number", { weight_30d: "NaN", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["infinite", { weight_30d: "Infinity", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["negative weight", { weight_30d: "-0.1", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["zero exchange", { weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "0" }],
+      ["too precise", { weight_30d: "0.1234567890123456", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["float round trip", { weight_30d: "1.23456789012345e-310", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["underflow", { weight_30d: "1e-10000", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+      ["overflow", { weight_30d: "1e10000", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900" }],
+    ];
+    for (const [label, candidate] of cases) {
+      const raw = { ...cloneConfig() } as Record<string, unknown>;
+      if (candidate === undefined) delete raw.vietnam_recommendation;
+      else raw.vietnam_recommendation = candidate;
+      const content = JSON.stringify(raw);
+      writeFileSync(settingsPath, content, "utf8");
+      const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+      expect(() => repository.readConfig(), label).toThrow();
+      expect(readFileSync(settingsPath, "utf8"), label).toBe(content);
+    }
+  });
+
+  test("rejects invalid Vietnam settings before writing either config file", () => {
+    const root = createRoot();
+    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+    repository.commit(cloneConfig(), cloneSecrets());
+    const configPath = join(root, "config", "settings.json");
+    const secretsPath = join(root, "config", "secrets.bin");
+    const beforeConfig = readFileSync(configPath);
+    const beforeSecrets = readFileSync(secretsPath);
+    const invalid = cloneConfig() as unknown as Record<string, unknown>;
+    invalid.vietnam_recommendation = {
+      weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "0",
+    };
+    expect(() => repository.commit(invalid as unknown as ReturnType<typeof cloneConfig>, cloneSecrets())).toThrow();
+    expect(readFileSync(configPath)).toEqual(beforeConfig);
+    expect(readFileSync(secretsPath)).toEqual(beforeSecrets);
   });
 
   test("keeps every secret encrypted and fails closed without secure storage", () => {
@@ -303,6 +361,6 @@ for (const expiresAt of [1, 4_000_000_000]) {
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("cloud_business_");
     expect(safeStorage.decryptString(readFileSync(path))).not.toContain("obsolete-");
     expect(repository.readConfig().cloud.device_id).toBe("existing-device");
-    expect(repository.readConfig().schema_version).toBe(11);
+    expect(repository.readConfig().schema_version).toBe(12);
   });
 }

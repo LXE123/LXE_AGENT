@@ -1037,6 +1037,67 @@ button {
   background: var(--surface-subtle);
 }
 
+.desktop-vietnam-settings {
+  display: block;
+  margin-bottom: 0;
+}
+
+.desktop-vietnam-settings-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.desktop-vietnam-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.desktop-vietnam-settings-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.desktop-vietnam-settings-heading {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.desktop-vietnam-settings-heading strong {
+  color: var(--text-strong);
+  font-size: 0.8125rem;
+}
+
+.desktop-vietnam-settings-heading > span {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.desktop-vietnam-settings-summary > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.desktop-vietnam-settings[open] > summary > svg {
+  transform: rotate(0);
+}
+
+.desktop-vietnam-settings-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.desktop-vietnam-settings:not([open]) > .desktop-vietnam-settings-body {
+  display: none;
+}
+
 .desktop-local-model-heading {
   display: flex;
   align-items: flex-start;
@@ -10848,6 +10909,8 @@ pre {
 }
 
 .asset-slot-title code {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -10944,6 +11007,44 @@ pre {
 }
 
 .asset-slot-empty span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.asset-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+}
+
+.asset-slot-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 7px 12px;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.asset-slot-actions button:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+.asset-slot-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.asset-slot-history {
+  margin: 0;
   color: var(--muted);
   font-size: 0.75rem;
 }

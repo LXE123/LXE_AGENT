@@ -31,6 +31,9 @@ Object.assign(window, { erpFixture: fixture, lxe: { desktop: {
   saveSetup: async (input: DesktopSetupInput) => {
     fixture.calls.push(structuredClone(input));
     if (fixture.failSave) throw new Error("Mock ERP storage failure: EACCES");
+    if (input.vietnam_recommendation) {
+      saved.vietnam_recommendation = { ...input.vietnam_recommendation };
+    }
     for (const name of ERP_INTEGRATIONS) {
       const change = input[name];
       if (!change) continue;

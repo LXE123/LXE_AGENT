@@ -92,6 +92,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.mabang_tms.")
                 else f"yacang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.yacang.")
+                else f"vietnam_replenishment_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.agent_cli.vietnam_replenishment.")
                 else f"shangman_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.shangman.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"
