@@ -282,7 +282,7 @@ export class DesktopSyntheticPerformerService {
         env: {
           ...process.env,
           LXE_DATA_ROOT: this.options.dataRoot,
-          LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
+          LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill", "lxeskill.sqlite3"),
           LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"),
           LXE_EXIFTOOL_PATH: this.options.exifToolPath,
           LXE_MANAGED_PATH: this.options.managedPath,

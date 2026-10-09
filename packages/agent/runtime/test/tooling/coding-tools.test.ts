@@ -12,6 +12,7 @@ import { registerCodingTools } from "../../src/tooling/coding-tools";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
 import type { WorkspaceSearchService } from "../../src/tooling/workspace-search";
+import { managedPythonStateAccessFor } from "../../src/tooling/lxeskill-command";
 import { removeTemporaryRoot } from "../temp-directory";
 import { policyFor, workspaceFor } from "../workspace";
 
@@ -96,6 +97,24 @@ const onePixelPng = (): Uint8Array => {
 };
 
 describe("native coding tools", () => {
+  test("grants managed Python state only to an exact registered business CLI command", () => {
+    const catalog = [
+      { command: "lxeskill test business-probe", visibility: "business" as const, ownerSkills: ["probe-business"] },
+      { command: "lxeskill test browser-probe", visibility: "browser" as const, ownerSkills: ["probe-browser"] },
+      { command: "lxeskill test maintenance-probe", visibility: "maintenance" as const, ownerSkills: [] },
+    ];
+    expect(managedPythonStateAccessFor("lxeskill test business-probe --limit 1", catalog)).toBe(true);
+    expect(managedPythonStateAccessFor("lxeskill test browser-probe", catalog)).toBe(false);
+    expect(managedPythonStateAccessFor("lxeskill test maintenance-probe", catalog)).toBe(false);
+    expect(managedPythonStateAccessFor("lxeskill test unknown-probe", catalog)).toBe(false);
+    expect(managedPythonStateAccessFor("lxeskill test business-probe && echo bypass", catalog)).toBe(false);
+    for (const command of ["lxeskill test business-probe & echo bypass", "lxeskill test business-probe; echo bypass", "lxeskill test business-probe | echo bypass", "lxeskill test business-probe $(echo bypass)", "lxeskill test business-probe\necho bypass"]) {
+      expect(managedPythonStateAccessFor(command, catalog), command).toBe(false);
+    }
+    expect(managedPythonStateAccessFor("node ordinary-probe", catalog)).toBe(false);
+    expect(managedPythonStateAccessFor("lxeskill test business-probe (Remove-Item state.txt)", catalog)).toBe(false);
+  }, 30_000);
+
   test("isolates two session workspaces and yielded execs from the process cwd", async () => {
     const rootA = mkdtempSync(join(tmpdir(), "lxe-workspace-a-"));
     const rootB = mkdtempSync(join(tmpdir(), "lxe-workspace-b-"));
@@ -1150,12 +1169,14 @@ describe("native coding tools", () => {
         {
           command: "lxeskill replenish store resolve",
           module: "services.agent_cli.mabang.resolve_fba_store",
+          visibility: "business",
           ownerSkills: ["replenishment-store-resolve"],
           attributionSkill: "replenishment-store-resolve",
         },
         {
           command: "lxeskill fba shipment delivery-csv-download",
           module: "services.agent_cli.mabang.download_fba_delivery_csv",
+          visibility: "business",
           ownerSkills: ["fba-shipment-delivery-csv-download"],
           attributionSkill: "fba-shipment-delivery-csv-download",
         },

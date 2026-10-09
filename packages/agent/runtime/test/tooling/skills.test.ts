@@ -60,6 +60,10 @@ describe("skill context", () => {
     const skills = catalog.list({ allowedTypes: new Set(["replenishment"]) });
     expect(skills).toHaveLength(15);
     expect(skills.every(skill => skill.type === "replenishment")).toBe(true);
+    const mainPermissionSkills = catalog.list({ allowedTypes: new Set(["replenishment", "amazon_operations"]) });
+    expect(mainPermissionSkills.map(skill => skill.name)).toEqual(expect.arrayContaining([
+      "mabang-tms-export", "shangman-goods-export", "yacang-export", "mabang-brazil-export",
+    ]));
     expect(catalog.list({ allowedTypes: new Set(["amazon_replenish"]) })).toHaveLength(0);
     expect(catalog.list({ allowedTypes: new Set() })).toHaveLength(0);
     const references = skills.flatMap((skill) => skill.references.map((reference) => {
@@ -71,6 +75,22 @@ describe("skill context", () => {
     expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
     expect(skills.find((skill) => skill.name === "shangman-goods-export")?.commands).toEqual(["lxeskill shangman export run"]);
     expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
+    const tms = skills.find((skill) => skill.name === "mabang-tms-export")!;
+    expect(tms.commands).toEqual(["lxeskill mabang-tms export run"]);
+    expect(tms.description).toMatch(/仅.*菲律宾/);
+    expect(tms.description).toContain("不用于其他国家");
+    expect(tms.description).not.toMatch(/智汇\s*TMS/i);
+    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.description).not.toMatch(/智汇\s*TMS/i);
+    const shangman = skills.find((skill) => skill.name === "shangman-goods-export")!;
+    expect(shangman.description).toMatch(/仅.*印尼/);
+    expect(shangman.description).toContain("用户只说上马也指印尼");
+    expect(shangman.description).toContain("不用于其他国家");
+    expect(skills.find((skill) => skill.name === "shangman-login")?.description).toMatch(/仅.*印尼/);
+    const workflowMap = readFileSync(join(root, "skills", "southeast-asia-replenishment-workflow-map", "SKILL.md"), "utf8");
+    expect(workflowMap).toContain("上马只对应印尼");
+    expect(workflowMap).toContain("马帮 TMS 只对应菲律宾业务");
+    expect(workflowMap).toContain("不能提供“马帮 TMS 马来西亚仓”选项");
+    expect(skills.every(skill => !/智汇\s*TMS|智慧/i.test(readFileSync(join(skill.root, "SKILL.md"), "utf8")))).toBe(true);
   });
 
   test("indexes allowed skill manifests and points the agent to their source", () => {

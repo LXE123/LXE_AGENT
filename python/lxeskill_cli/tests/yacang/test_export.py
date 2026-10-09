@@ -46,7 +46,7 @@ def xlsx(report, warehouse, empty=False):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv('LXE_DATA_ROOT', str(tmp_path))
-    monkeypatch.setenv('LXE_SQLITE_DB_PATH', str(tmp_path / 'db/lxeskill.sqlite3'))
+    monkeypatch.setenv('LXE_SQLITE_DB_PATH', str(tmp_path / 'db/lxeskill/lxeskill.sqlite3'))
     monkeypatch.setenv('LXE_YACANG_MOBILE', 'test-mobile')
     monkeypatch.setenv('LXE_YACANG_PASSWORD', 'test-password')
     from shared import workspace

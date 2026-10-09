@@ -55,6 +55,7 @@ export function prepareDesktopRuntimeState(
     paths.dataRoot,
     join(paths.dataRoot, "config"),
     join(paths.dataRoot, "db"),
+    join(paths.dataRoot, "db", "lxeskill"),
     join(paths.dataRoot, "logs"),
     join(paths.dataRoot, "lxeskill"),
     join(paths.dataRoot, "migrations"),

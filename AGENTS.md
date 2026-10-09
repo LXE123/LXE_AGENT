@@ -4,7 +4,7 @@
 
 - `packages/agent/runtime`：Bun Agent 运行时——会话状态的唯一属主（`db/agent.sqlite3`）。
 - `apps/gateway`、`apps/desktop`：编排层与桌面壳；desktop 负责注入各进程的环境变量与 DB 路径。
-- `python/lxeskill_cli`：一次性 Python CLI（`lxeskill` 命令）——无状态执行器，自己的表在 `db/lxeskill.sqlite3`。
+- `python/lxeskill_cli`：一次性 Python CLI（`lxeskill` 命令）——无状态执行器，自己的表在 `db/lxeskill/lxeskill.sqlite3`（独立 Python 状态目录）。
 - `skills/`：模型可见的技能定义；`python/lxeskill_cli/lxeskill/catalog.json` 是模型工具契约，改动必须过测试。
 - `docs/harness/`：内部技术文档（紫鸟 API 参考、选型约束、真实响应样本都在这里）。
 

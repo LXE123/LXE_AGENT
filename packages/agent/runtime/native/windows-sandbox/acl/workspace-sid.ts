@@ -52,3 +52,11 @@ export function tempWriteSid(tempDir: string): string {
   const second = (digest.readUInt32LE(4) % (2 ** 30 - 1)) + 1
   return `S-1-4-${first}-${second}-1`
 }
+
+/** Derive the separate, business-child-only capability for Python-owned state. */
+export function managedStateWriteSid(dataRoot: string): string {
+  const digest = createHash('sha256').update('managed-python-state\0', 'utf8').update(dataRoot, 'utf8').digest()
+  const first = (digest.readUInt32LE(0) % (2 ** 30 - 1)) + 1
+  const second = (digest.readUInt32LE(4) % (2 ** 30 - 1)) + 1
+  return `S-1-4-${first}-${second}-2`
+}

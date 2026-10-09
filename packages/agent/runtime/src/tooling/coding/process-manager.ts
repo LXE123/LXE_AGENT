@@ -116,7 +116,9 @@ export class CodingProcessManager {
     return payload;
   }
 
-  boundary(policy: ExecutionPolicy): ExecutionBoundary { return this.sandbox.boundary(policy); }
+  boundary(policy: ExecutionPolicy, managedStateAccess = false): ExecutionBoundary {
+    return this.sandbox.boundary(policy, managedStateAccess);
+  }
 
   async execute(request: {
     boundary?: ExecutionBoundary;
