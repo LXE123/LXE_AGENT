@@ -1,7 +1,7 @@
 import { PermissionApprovalService } from "../../src/permissions/approvals";
 import { registerCodingTools } from "../../src/tooling/coding/register";
 import { ToolRegistry } from "../../src/tooling/registry";
-import { executionBoundary, recheckExecutionBoundary } from "../../src/permissions/boundaries";
+import { executionBoundary, recheckExecutionBoundary, type ExecutionBoundary } from "../../src/permissions/boundaries";
 import { ExecutionPaths } from "../../src/permissions/execution-paths";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -12,6 +12,7 @@ import { PermissionPolicyService } from "../../src/permissions/policy";
 import { ExecSandbox, seatbeltProfile } from "../../src/permissions/exec-sandbox";
 import { CodingProcessManager } from "../../src/tooling/coding/process-manager";
 import { ExecShellAdapter } from "../../src/tooling/exec-shell";
+import { loadLxeSkillCommandCatalog } from "../../src/tooling/lxeskill-command";
 import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
@@ -57,6 +58,90 @@ test("unrelated artifact links do not affect execution boundaries", () => {
   expect(() => recheckExecutionBoundary(p, paths, initial)).not.toThrow();
 });
 
+test("ordinary commands do not resolve unused application-private state paths", () => {
+  if (process.platform === "win32") return;
+  const { root, policy } = fixture();
+  const unused = join(root, "unused-private-state");
+  symlinkSync(unused, unused);
+  const paths = new ExecutionPaths(unused);
+  expect(() => executionBoundary(policy("workspace-write"), paths)).not.toThrow();
+  expect(() => executionBoundary(policy("read-only"), paths)).not.toThrow();
+  expect(() => executionBoundary(policy("workspace-write"), paths, true)).toThrow("Too many symbolic links");
+});
+
+test("managed Python state is a separate fixed capability and never includes Bun state", () => {
+  const root = realpathSync(mkdtempSync(join(process.cwd(), ".lxe-python-state-boundary-")));
+  roots.push(root);
+  const workspace = join(root, "workspace"); mkdirSync(workspace);
+  const dataRoot = join(root, "private-data"); mkdirSync(dataRoot);
+  const p = new PermissionPolicyService().resolve({
+    session_id: "python-state-boundary",
+    workspace: workspaceFor(workspace, root),
+    permission_mode: "workspace-write",
+  });
+  const paths = new ExecutionPaths(dataRoot, { platform: "darwin", temporaryRoot: tmpdir() });
+  const ordinary = executionBoundary(p, paths);
+  expect(ordinary.managedStateAccess).toBe(false);
+  expect(ordinary.managedStateRoots).toEqual([]);
+
+  const business = executionBoundary(p, paths, true);
+  expect(business.managedStateAccess).toBe(true);
+  expect(business.managedStateRoots.map((path) => path.replaceAll("\\", "/"))).toEqual([
+    `${dataRoot}/lxeskill`,
+    `${dataRoot}/db/lxeskill`,
+    `${dataRoot}/logs`,
+  ]);
+  expect(business.managedStateRoots).not.toContain(join(dataRoot, "db"));
+  expect(business.managedStateRoots).not.toContain(join(dataRoot, "db", "agent.sqlite3"));
+  expect(executionBoundary({ ...p, mode: "read-only" }, paths, true).managedStateRoots).toEqual([]);
+  expect(executionBoundary({ ...p, mode: "danger-full-access" }, paths, true).managedStateRoots).toEqual([]);
+});
+
+test("managed Python state does not conflict with the Desktop application temp root", () => {
+  const { policy, paths } = fixture();
+  const p = policy("workspace-write");
+  const desktopPaths = new ExecutionPaths(paths.dataRoot, {
+    platform: "darwin",
+    temporaryRoot: join(paths.dataRoot, "tmp"),
+  });
+
+  const boundary = executionBoundary(p, desktopPaths, true);
+
+  expect(boundary.roots).toContain(join(paths.dataRoot, "tmp"));
+  expect(boundary.managedStateRoots.map((path) => path.replaceAll("\\", "/"))).toEqual([
+    `${paths.dataRoot}/lxeskill`,
+    `${paths.dataRoot}/db/lxeskill`,
+    `${paths.dataRoot}/logs`,
+  ]);
+});
+
+test("managed Python state roots cannot escape the trusted data root through a symlink", () => {
+  if (process.platform === "win32") return;
+  const root = realpathSync(mkdtempSync(join(process.cwd(), ".lxe-python-state-link-")));
+  roots.push(root);
+  const workspace = join(root, "workspace"), dataRoot = join(root, "private-data"), outside = join(root, "outside");
+  mkdirSync(workspace); mkdirSync(dataRoot); mkdirSync(outside);
+  mkdirSync(join(dataRoot, "db"));
+  symlinkSync(outside, join(dataRoot, "db", "lxeskill"));
+  const p = new PermissionPolicyService().resolve({
+    session_id: "python-state-link",
+    workspace: workspaceFor(workspace, root),
+    permission_mode: "workspace-write",
+  });
+  const paths = new ExecutionPaths(dataRoot, { platform: "darwin", temporaryRoot: tmpdir() });
+  expect(() => executionBoundary(p, paths, true)).toThrow("escaped its data root");
+});
+
+test("business CLI reuses an already writable project or temporary boundary", () => {
+  const { root, policy, paths } = fixture();
+  const projectPolicy = { ...policy("workspace-write"), workspaceRoot: root };
+  const covered = executionBoundary(projectPolicy, paths, true);
+  expect(covered.managedStateRoots).toEqual([]);
+  expect(covered.roots).toContain(root);
+  const temporaryPaths = new ExecutionPaths(join(tmpdir(), "lxe-already-covered-state"), { platform: "darwin" });
+  expect(executionBoundary(policy("workspace-write"), temporaryPaths, true).managedStateRoots).toEqual([]);
+});
+
 const native = process.platform === "darwin" || (process.platform === "win32" && process.env.LXE_EXEC_SANDBOX_NATIVE_TEST === "1");
 const nativeTest = native ? test : test.skip;
 const quote = (text: string) => process.platform === "win32" ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", `'"'"'`)}'`;
@@ -70,8 +155,8 @@ function manager(paths?: ExecutionPaths) {
   return value;
 }
 
-function execute(m: CodingProcessManager, p: ReturnType<ReturnType<typeof fixture>["policy"]>, command: string, cwd = p.workspaceRoot, yieldMs = 10_000) {
-  return m.execute({ executionPolicy: p, workspace: workspaceFor(p.workspaceRoot), command, cwd, sessionId: p.sessionId,
+function execute(m: CodingProcessManager, p: ReturnType<ReturnType<typeof fixture>["policy"]>, command: string, cwd = p.workspaceRoot, yieldMs = 10_000, boundary?: ExecutionBoundary) {
+  return m.execute({ ...(boundary ? { boundary } : {}), executionPolicy: p, workspace: workspaceFor(p.workspaceRoot), command, cwd, sessionId: p.sessionId,
     responseRouteId: "test", toolCallId: "test", turnId: "test", yieldMs, signal: new AbortController().signal });
 }
 
@@ -96,6 +181,51 @@ nativeTest.each(["read-only", "workspace-write"] as const)("native %s enforces w
   expect(output).toContain("real-stderr");
   expect(readFileSync(outside, "utf8")).toBe("original");
   expect(result.sandbox).toMatchObject({ mode, backend: process.platform === "win32" ? "windows-acl" : "seatbelt" });
+}, 30_000);
+
+const macNativeTest = process.platform === "darwin" ? test : test.skip;
+macNativeTest("business-only Seatbelt boundary writes Python state but not Bun or unrelated state", async () => {
+  const { root, workspace, policy, paths } = fixture();
+  const [pythonState, pythonDb, logs] = paths.managedPythonStateRoots();
+  for (const directory of [pythonState!, pythonDb!, logs!, join(root, "outside")]) mkdirSync(directory, { recursive: true });
+  const bunDatabase = join(root, "var", "db", "agent.sqlite3");
+  const execState = join(root, "var", "db", "exec-sessions", "outside.txt");
+  mkdirSync(join(root, "var", "db", "exec-sessions"), { recursive: true });
+  writeFileSync(bunDatabase, "bun-state");
+  const outside = join(root, "outside", "outside.txt");
+  const script = join(workspace, "managed-state-probe.py");
+  writeFileSync(script, `import json\nfrom pathlib import Path\nitems = ${JSON.stringify({
+    state: join(pythonState!, "probe.txt"),
+    database: join(pythonDb!, "probe.txt"),
+    logs: join(logs!, "probe.txt"),
+    bun: bunDatabase,
+    execState,
+    outside,
+  })}\nresult = {}\nfor name, raw in items.items():\n    try:\n        Path(raw).write_text('changed', encoding='utf-8')\n        result[name] = True\n    except OSError:\n        result[name] = False\nprint(json.dumps(result, sort_keys=True))\n`);
+  const python = join(process.cwd(), ".venv", "bin", "python");
+  const command = `${quote(python)} -I -B ${quote(script)}`;
+  const managerWithStateRoot = manager(paths);
+  try {
+    const business = await execute(managerWithStateRoot, policy("workspace-write"), command, workspace, 10_000,
+      executionBoundary(policy("workspace-write"), paths, true));
+    expect(business.status, JSON.stringify(business)).toBe("completed");
+    expect(String(business.output)).toContain('"state": true');
+    expect(String(business.output)).toContain('"database": true');
+    expect(String(business.output)).toContain('"logs": true');
+    expect(String(business.output)).toContain('"bun": false');
+    expect(String(business.output)).toContain('"execState": false');
+    expect(String(business.output)).toContain('"outside": false');
+    expect(readFileSync(bunDatabase, "utf8")).toBe("bun-state");
+
+    const ordinary = await execute(managerWithStateRoot, policy("workspace-write"), command, workspace);
+    expect(ordinary.status, JSON.stringify(ordinary)).toBe("completed");
+    expect(String(ordinary.output)).toContain('"state": false');
+    expect(String(ordinary.output)).toContain('"database": false');
+    expect(String(ordinary.output)).toContain('"logs": false');
+    expect(readFileSync(bunDatabase, "utf8")).toBe("bun-state");
+  } finally {
+    await managerWithStateRoot.stop();
+  }
 }, 30_000);
 
 nativeTest("native sandbox blocks junction/symlink targets outside the workspace", async () => {
@@ -226,7 +356,40 @@ nativeTest("project Python writes artifacts and private temp but cannot write th
   expect(existsSync(join(paths.outputDirectory(p), "escaped"))).toBe(false);
 }, 30_000);
 
-nativeTest("lxeskill preserves its real outside-state error and runs only after explicit full-access approval", async () => {
+macNativeTest("registered business CLI bootstrap needs no full-access approval and makes no ERP request", async () => {
+  const { workspace, policy, paths } = fixture();
+  const dataRoot = paths.dataRoot;
+  // Match trusted Desktop startup; no private input or configuration write grant.
+  for (const directory of ["inputs", "logs", "lxeskill", "db/lxeskill"]) mkdirSync(join(dataRoot, directory), { recursive: true });
+  const approvals = new PermissionApprovalService({ changed() {}, audit: async () => {} });
+  const catalog = loadLxeSkillCommandCatalog(join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json"));
+  const registry = new ToolRegistry();
+  const processes = registerCodingTools(registry, {
+    executionPaths: new ExecutionPaths(dataRoot, { temporaryRoot: join(dataRoot, "tmp") }),
+    approvals,
+    businessCommandCatalog: catalog,
+    execShell: new ExecShellAdapter({ environment: { ...process.env, LXE_DATA_ROOT: dataRoot, LOCAL_LOGS_ENABLED: "1", LXE_SQLITE_DB_PATH: join(dataRoot, "db/lxeskill/lxeskill.sqlite3") } }),
+  });
+  managers.push(processes);
+  const context = { session_id: policy("workspace-write").sessionId, turn_id: "turn", tool_call_id: "cli", platform: "desktop",
+    executionPolicy: policy("workspace-write"), workspace: workspaceFor(workspace, process.cwd()),
+    handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} } };
+  try {
+    for (const command of ["lxeskill yacang export run", "lxeskill mabang-tms export run", "lxeskill mabang brazil-overseas export run", "lxeskill shangman export run", "lxeskill shangman login prepare", "lxeskill shangman login submit"]) {
+      expect(catalog.some(entry => entry.command === command && entry.visibility === "business"), command).toBe(true);
+      // This unknown flag is rejected before handler dispatch: real CLI bootstrap,
+      // zero network/exporter requests, no mocked sandbox or approval service.
+      const result = await registry.execute("exec", { command: `${command} --sandbox-probe-invalid-option`, "yield-time-ms": 10000 }, context);
+      const output = String(result.content[0]?.text);
+      expect(output, command).toContain("code: invalid_arguments");
+      expect(output).not.toMatch(/PermissionError|Operation not permitted|migration_failed/);
+      expect(approvals.snapshot()).toEqual([]);
+    }
+    expect(existsSync(join(dataRoot, "logs/runtime"))).toBe(true);
+  } finally { await approvals.stop(); }
+}, 30000);
+
+nativeTest("unregistered CLI preserves its outside-state error and needs explicit full-access approval", async () => {
   const { root, workspace, policy, paths } = fixture();
   const dataRoot = join(root, "cli-state");
   const approvals = new PermissionApprovalService({ changed() {}, audit: async () => {} });

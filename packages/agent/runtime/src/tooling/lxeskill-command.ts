@@ -131,6 +131,28 @@ export interface LxeSkillInvocation {
 
 const normalize = (value: string): string => value.trim().replaceAll(/\s+/gu, " ");
 
+// Conservatively exclude shell operators/expressions; do not authorize a
+// PowerShell argument expression merely because its prefix is a business CLI.
+const SHELL_COMPOSITION_PATTERN = /[\r\n&;|`<>$()]/u;
+
+/** Whether a standalone invocation is an exact catalog-owned business command. */
+export function managedPythonStateAccessFor(
+  rawCommand: unknown,
+  catalog: readonly {
+    readonly command: string;
+    readonly visibility: LxeSkillCommandDefinition["visibility"];
+    readonly ownerSkills: readonly string[];
+  }[],
+): boolean {
+  const command = String(rawCommand ?? "").trim();
+  if (!command || SHELL_COMPOSITION_PATTERN.test(command)) return false;
+  const knownCommands = new Map(catalog.map((entry) => [entry.command, entry.ownerSkills] as const));
+  const invocation = matchLxeSkillInvocation(command, knownCommands);
+  if (!invocation) return false;
+  return catalog.some((entry) => entry.visibility === "business"
+    && normalize(entry.command).toLowerCase() === invocation.command.toLowerCase());
+}
+
 export function matchLxeSkillInvocation(
   rawCommand: unknown,
   knownCommands?: ReadonlyMap<string, readonly string[]>,

@@ -199,7 +199,7 @@ export class DesktopGateway {
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
-      LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
+      LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill", "lxeskill.sqlite3"),
       TMP: join(this.options.paths.dataRoot, "tmp"),
       TEMP: join(this.options.paths.dataRoot, "tmp"),
       TMPDIR: join(this.options.paths.dataRoot, "tmp"),

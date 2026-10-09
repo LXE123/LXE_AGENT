@@ -44,13 +44,14 @@
  * @module @deepseek-ai/dsh-sandbox-windows-acl/runner
  */
 
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { join, resolve, win32 as winPaths } from 'node:path'
 
 import { win32 } from './acl/ffi.ts'
 import { AclSandbox, assertTempRootOutsideWorkspace } from './acl/index.ts'
 import { AclWriteGrant } from './acl/grant.ts'
-import { tempWriteSid, workspaceWriteSid } from './acl/workspace-sid.ts'
+import { managedStateWriteSid, tempWriteSid, workspaceWriteSid } from './acl/workspace-sid.ts'
+import { managedPythonStateRoots } from '../../src/permissions/managed-python-state.ts'
 
 const RUNNER_SIGNATURE = 'lxe-windows-acl-run'
 const RUNNER_FAILURE_EXIT = 127
@@ -66,9 +67,11 @@ function fail(detail: string): never {
 interface ParsedArgs {
   workspace: string
   temp: string
+  dataRoot: string
   mode: 'read-only' | 'workspace-write'
   writeSid: string | undefined
   tempWriteSid: string | undefined
+  stateWriteSid: string | undefined
   command: string
   args: string[]
 }
@@ -76,9 +79,11 @@ interface ParsedArgs {
 function parseArgs(raw: string[]): ParsedArgs {
   let workspace: string | undefined
   let temp: string | undefined
+  let dataRoot: string | undefined
   let mode: string | undefined
   let writeSid: string | undefined
   let parsedTempWriteSid: string | undefined
+  let stateWriteSid: string | undefined
   let index = 0
   for (; index < raw.length; index++) {
     const token = raw[index]
@@ -92,19 +97,35 @@ function parseArgs(raw: string[]): ParsedArgs {
     switch (token) {
       case '--workspace': workspace = value; break
       case '--temp': temp = value; break
+      case '--data-root': dataRoot = value; break
       case '--mode': mode = value; break
       case '--write-sid': writeSid = value; break
       case '--temp-write-sid': parsedTempWriteSid = value; break
+      case '--state-write-sid': stateWriteSid = value; break
       default: fail(`unknown argument: ${token}`)
     }
   }
   if (workspace === undefined) fail('missing --workspace')
   if (temp === undefined) fail('missing --temp')
+  if (dataRoot === undefined) fail('missing --data-root')
   if (mode !== 'read-only' && mode !== 'workspace-write') fail(`unknown mode: ${String(mode)}`)
   const argv = raw.slice(index)
   const command = argv[0]
   if (command === undefined) fail('missing command after --')
-  return { workspace, temp, mode, writeSid, tempWriteSid: parsedTempWriteSid, command, args: argv.slice(1) }
+  return { workspace, temp, dataRoot, mode, writeSid, tempWriteSid: parsedTempWriteSid, stateWriteSid, command, args: argv.slice(1) }
+}
+
+function managedStateDirectories(dataRoot: string): string[] {
+  const root = realpathSync.native(resolve(dataRoot))
+  return managedPythonStateRoots(root).map((candidate) => {
+    const path = realpathSync.native(candidate)
+    const relative = winPaths.relative(root.toLowerCase(), path.toLowerCase())
+    if (!relative || winPaths.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${winPaths.sep}`)) {
+      fail(`managed state path escaped --data-root: ${path}`)
+    }
+    requireDirectory('managed state directory', path)
+    return path
+  })
 }
 
 function requireDirectory(label: string, path: string): void {
@@ -116,23 +137,29 @@ function requireDirectory(label: string, path: string): void {
 async function main(): Promise<number> {
   const action = process.argv[2]
   if (action === '--prepare-session' || action === '--release-session') {
-    const workspace = process.argv[3], temp = process.argv[4]
-    if (!workspace || !temp || process.argv.length !== 5) fail('session operation requires workspace and temporary directory')
+    const workspace = process.argv[3], temp = process.argv[4], dataRoot = process.argv[5]
+    if (!workspace || !temp || !dataRoot || process.argv.length !== 6) fail('session operation requires workspace, temporary directory, and data root')
     requireDirectory('workspace', workspace)
     requireDirectory('temporary directory', temp)
+    requireDirectory('data root', dataRoot)
+    const stateDirs = managedStateDirectories(dataRoot)
     assertTempRootOutsideWorkspace(workspace, temp)
     await win32()
-    const writeSid = workspaceWriteSid(workspace), privateSid = tempWriteSid(temp)
+    const writeSid = workspaceWriteSid(workspace), privateSid = tempWriteSid(temp), stateSid = managedStateWriteSid(dataRoot)
     const workspaceGrant = AclWriteGrant.create(writeSid)
     try {
       const temporaryGrant = AclWriteGrant.create(privateSid)
       try {
+        const stateGrant = AclWriteGrant.create(stateSid)
+        try {
         if (action === '--prepare-session') {
           workspaceGrant.add(workspace, true)
           // The Bun host owns revocation, including failure cleanup.
           temporaryGrant.add(temp, true)
-          process.stdout.write(JSON.stringify({ writeSid, tempWriteSid: privateSid }))
+          for (const path of stateDirs) stateGrant.add(path, true)
+          process.stdout.write(JSON.stringify({ writeSid, tempWriteSid: privateSid, managedStateWriteSid: stateSid }))
         } else temporaryGrant.revoke(temp)
+        } finally { stateGrant.dispose() }
       } finally { temporaryGrant.dispose() }
     } finally { workspaceGrant.dispose() }
     return 0
@@ -142,10 +169,15 @@ async function main(): Promise<number> {
   // a bogus root must fail loudly at the runner boundary, never mid-child.
   requireDirectory('--workspace', parsed.workspace)
   requireDirectory('--temp', parsed.temp)
+  requireDirectory('--data-root', parsed.dataRoot)
 
   const seamManaged = parsed.writeSid !== undefined || parsed.tempWriteSid !== undefined
   if (parsed.mode === 'read-only' && seamManaged) {
     fail('read-only does not accept --write-sid or --temp-write-sid')
+  }
+  if (parsed.mode === 'read-only' && parsed.stateWriteSid !== undefined) fail('read-only does not accept --state-write-sid')
+  if (parsed.stateWriteSid !== undefined && parsed.stateWriteSid !== managedStateWriteSid(parsed.dataRoot)) {
+    fail('--state-write-sid does not match --data-root')
   }
   if (parsed.mode === 'workspace-write' && (parsed.writeSid === undefined) !== (parsed.tempWriteSid === undefined)) {
     fail('workspace-write requires --write-sid and --temp-write-sid together')
@@ -169,6 +201,7 @@ async function main(): Promise<number> {
     let privateTempDir: string | null = null
     let writeSid: string | undefined
     let privateTempSid: string | undefined
+    let stateDirs: string[] | undefined
     if (parsed.mode === 'workspace-write') {
       writeSid = workspaceWriteSid(parsed.workspace)
       if (seamManaged) {
@@ -182,12 +215,17 @@ async function main(): Promise<number> {
         privateTempSid = tempWriteSid(privateTempDir)
       }
     }
+    if (parsed.stateWriteSid !== undefined) stateDirs = managedStateDirectories(parsed.dataRoot)
     sandbox = new AclSandbox({
       writableDirs: parsed.mode === 'workspace-write' ? [parsed.workspace] : [],
       tempDir: privateTempDir,
       mode: parsed.mode,
       ...writeSid === undefined ? {} : { writeSid },
       ...privateTempSid === undefined ? {} : { tempWriteSid: privateTempSid },
+      ...parsed.stateWriteSid === undefined ? {} : {
+        managedStateWriteSid: parsed.stateWriteSid,
+        managedStateDirs: stateDirs,
+      },
       manageDacls: !seamManaged,
     })
     await sandbox.init()

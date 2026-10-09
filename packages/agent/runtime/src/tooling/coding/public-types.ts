@@ -7,6 +7,7 @@ import type { LxeSkillRuntimeStatus } from "../../operations/lxeskill-runtime";
 export interface LxeSkillRecoveryCommand {
   command: string;
   module?: string;
+  visibility: "business" | "browser" | "maintenance" | "internal";
   ownerSkills: readonly string[];
   attributionSkill?: string;
 }

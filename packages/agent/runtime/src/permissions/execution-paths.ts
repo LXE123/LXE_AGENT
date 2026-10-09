@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceArtifactRoot } from "@lxe/core";
 import type { ExecutionPolicy } from "./policy";
+import { managedPythonStateRoots } from "./managed-python-state";
 
 const sessionKey = (id: string) => createHash("sha256").update(id).digest("hex");
 
@@ -18,6 +19,9 @@ export class ExecutionPaths {
   }
   artifactRoot(policy: ExecutionPolicy): string { return workspaceArtifactRoot(policy.workspaceRoot); }
   outputDirectory(policy: ExecutionPolicy): string { return join(this.dataRoot, "tmp", "exec", sessionKey(policy.sessionId)); }
+  managedPythonStateRoots(): string[] {
+    return managedPythonStateRoots(this.dataRoot);
+  }
   temporaryDirectory(policy: ExecutionPolicy): string {
     if (this.platform !== "win32" || policy.mode !== "workspace-write") return this.systemTemporaryDirectory;
     const path = join(this.systemTemporaryDirectory, `lxe-${this.runtimeId}-${sessionKey(policy.sessionId)}`);

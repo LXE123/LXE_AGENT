@@ -15,6 +15,10 @@ describe("desktop runtime state", () => {
       const dataRoot = join(root, "var");
       const paths = prepareDesktopRuntimeState(dataRoot);
       for (const path of Object.values(paths)) expect(existsSync(path)).toBeTrue();
+      for (const path of [join(dataRoot, "lxeskill"), join(dataRoot, "db", "lxeskill"), join(dataRoot, "logs")]) {
+        expect(existsSync(path)).toBeTrue();
+      }
+      expect(existsSync(join(dataRoot, "tmp", "lxeskill"))).toBeFalse();
       expect(existsSync(join(dataRoot, "artifacts"))).toBeFalse();
       expect(readdirSync(dataRoot).some((name) => name.startsWith(".lxe-write-probe-"))).toBeFalse();
     } finally {

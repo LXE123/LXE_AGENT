@@ -9,7 +9,7 @@ import {
   MIN_EXEC_YIELD_MS,
   MIN_WAIT_YIELD_MS,
 } from "../exec-shell";
-import { classifyLxeSkillInput, matchLxeSkillInvocation } from "../lxeskill-command";
+import { classifyLxeSkillInput, managedPythonStateAccessFor, matchLxeSkillInvocation } from "../lxeskill-command";
 import {
   DEFAULT_COMMAND_OUTPUT_TOKENS,
   formatCommandPayloadWithBudget,
@@ -246,7 +246,8 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
         const maxOutputTokens = outputTokenBudget(input);
         const command = execShell.normalizeCommand(context.workspace.worktree, rawCommand);
         const cwd = paths.resolveExecutableCwd(context.workspace, input.cwd ?? ".");
-        const boundary = processes.boundary(policy);
+        const managedStateAccess = managedPythonStateAccessFor(rawCommand, recoveryCatalog);
+        const boundary = processes.boundary(policy, managedStateAccess);
         if (policy.mode !== context.executionPolicy.mode) await approveIfNeeded(options.approvals, "exec", input, context, policy, { command, cwd, ...(command === rawCommand ? {} : { requested_command: rawCommand }) });
         const payload = await processes.execute({
           executionPolicy: policy, boundary,

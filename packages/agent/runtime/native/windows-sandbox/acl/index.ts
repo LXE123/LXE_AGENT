@@ -58,6 +58,7 @@ import * as abi from './win32-abi.ts'
 export { AclWriteGrant } from './grant.ts'
 export { assertTempRootOutsideWorkspace } from './path-boundary.ts'
 export { tempWriteSid, workspaceWriteSid } from './workspace-sid.ts'
+export { managedStateWriteSid } from './workspace-sid.ts'
 /** Construction options: the workspace/temp allowlists and their distinct SID identities. */
 export interface AclSandboxOptions {
   /** Directories the confined child may write into (must exist and be caller-owned). */
@@ -83,6 +84,10 @@ export interface AclSandboxOptions {
    * cannot use the standing workspace capability in one another's temp tree.
    */
   tempWriteSid?: string
+  /** Separate capability included only in approved managed-state child tokens. */
+  managedStateWriteSid?: string
+  /** Fixed roots granted to the managed-state capability. */
+  managedStateDirs?: readonly string[]
   /**
    * The file-effect mode this instance confines under — selects the
    * restricted token's restricting-SID list (I for read-only, J for
@@ -166,6 +171,8 @@ export class AclSandbox {
   readonly writeSid: string | undefined
   /** The private temp directory's write SID (workspace-write with temp only). */
   readonly tempWriteSid: string | undefined
+  readonly managedStateWriteSid: string | undefined
+  readonly managedStateDirs: string[]
   /** The file-effect mode — the restricted token's restricting-SID list selection. */
   readonly mode: 'read-only' | 'workspace-write'
   private readonly tempDirOption: string | null | undefined
@@ -175,6 +182,7 @@ export class AclSandbox {
   private token: NativePtr | undefined
   private writeSidPtr: NativePtr | undefined
   private tempWriteSidPtr: NativePtr | undefined
+  private managedStateWriteSidPtr: NativePtr | undefined
   /** The well-known/logon SID allocations init() makes; freed by dispose() alongside the write SIDs. */
   private sidAllocations: NativePtr[] = []
   private grantedPaths: Array<{ path: string; sidPtr: NativePtr }> = []
@@ -192,6 +200,14 @@ export class AclSandbox {
     this.tempDirOption = options.tempDir
     this.writeSid = options.writeSid
     this.tempWriteSid = options.tempWriteSid
+    this.managedStateWriteSid = options.managedStateWriteSid
+    this.managedStateDirs = (options.managedStateDirs ?? []).map((directory) => {
+      const absolute = resolve(directory)
+      if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
+        throw new Error(`AclSandbox managed state dir does not exist or is not a directory: ${absolute}`)
+      }
+      return absolute
+    })
     if (this.mode === 'workspace-write' && this.writeSid === undefined) {
       throw new Error('AclSandbox workspace-write requires a write SID — derive it from the workspace via workspaceWriteSid()')
     }
@@ -201,7 +217,8 @@ export class AclSandbox {
     if (this.mode === 'read-only' && this.tempDirOption !== undefined && this.tempDirOption !== null) {
       throw new Error('AclSandbox read-only does not accept a temp directory')
     }
-    if (this.mode === 'read-only' && (this.writeSid !== undefined || this.tempWriteSid !== undefined)) {
+    if (this.mode === 'read-only' && (this.writeSid !== undefined || this.tempWriteSid !== undefined
+      || this.managedStateWriteSid !== undefined || this.managedStateDirs.length > 0)) {
       throw new Error('AclSandbox read-only does not accept write SIDs')
     }
     if (this.mode === 'workspace-write' && this.tempDirOption !== null && this.tempWriteSid === undefined) {
@@ -212,6 +229,12 @@ export class AclSandbox {
     }
     if (this.writeSid !== undefined && this.tempWriteSid === this.writeSid) {
       throw new Error('AclSandbox workspace and temp write SIDs must be distinct')
+    }
+    if ((this.managedStateWriteSid === undefined) !== (this.managedStateDirs.length === 0)) {
+      throw new Error('AclSandbox managed state requires both a dedicated SID and fixed state roots')
+    }
+    if (this.managedStateWriteSid !== undefined && [this.writeSid, this.tempWriteSid].includes(this.managedStateWriteSid)) {
+      throw new Error('AclSandbox managed-state SID must be distinct from workspace and temp SIDs')
     }
   }
 
@@ -239,6 +262,7 @@ export class AclSandbox {
       }
       this.writeSidPtr = this.writeSid === undefined ? undefined : parseSid(this.writeSid)
       this.tempWriteSidPtr = this.tempWriteSid === undefined ? undefined : parseSid(this.tempWriteSid)
+      this.managedStateWriteSidPtr = this.managedStateWriteSid === undefined ? undefined : parseSid(this.managedStateWriteSid)
 
       const tempDir = this.mode === 'read-only' || this.tempDirOption === null ? null : this.tempDirOption
       /* v8 ignore next -- constructor validation requires workspace-write to supply
@@ -277,10 +301,13 @@ export class AclSandbox {
             grantWrite(api, tempDir, this.tempWriteSidPtr, lowLabelSid, worldSid)
           }
         }
+        if (this.managedStateWriteSidPtr !== undefined) {
+          for (const path of this.managedStateDirs) grantWrite(api, path, this.managedStateWriteSidPtr, lowLabelSid, worldSid)
+        }
       }
       const logonSid = findLogonSid(api, currentToken)
       this.sidAllocations.push(logonSid)
-      const writeSids = [this.writeSidPtr, this.tempWriteSidPtr].filter((sid): sid is NativePtr => sid !== undefined)
+      const writeSids = [this.writeSidPtr, this.tempWriteSidPtr, this.managedStateWriteSidPtr].filter((sid): sid is NativePtr => sid !== undefined)
       restrictedToken = createRestrictedToken(
         api, currentToken, logonSid, writeSids,
         { world: worldSid },
@@ -323,7 +350,7 @@ export class AclSandbox {
           cleanupFailures.push(cleanupError)
         }
       }
-      for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr]] as const) {
+      for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr], ['managed state SID', this.managedStateWriteSidPtr]] as const) {
         freeSidBestEffort(api, sidPtr, label, cleanupFailures)
       }
       for (const sidPtr of this.sidAllocations.splice(0)) {
@@ -332,6 +359,7 @@ export class AclSandbox {
       this.token = undefined
       this.writeSidPtr = undefined
       this.tempWriteSidPtr = undefined
+      this.managedStateWriteSidPtr = undefined
       this.tempDirResolved = undefined
       this.grantedPaths = []
       if (cleanupFailures.length > 0) {
@@ -418,7 +446,7 @@ export class AclSandbox {
         }
       }
     }
-    for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr]] as const) {
+    for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr], ['managed state SID', this.managedStateWriteSidPtr]] as const) {
       freeSidBestEffort(api, sidPtr, label, failures)
     }
     const token = this.token
@@ -438,6 +466,7 @@ export class AclSandbox {
     this.token = undefined
     this.writeSidPtr = undefined
     this.tempWriteSidPtr = undefined
+    this.managedStateWriteSidPtr = undefined
     this.grantedPaths = []
     if (failures.length > 0) {
       throw new AggregateError(failures, `AclSandbox dispose completed with ${failures.length} cleanup failure(s)`)

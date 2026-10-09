@@ -32,7 +32,8 @@ var/db/     ← 源码模式数据库、sessions.json、machine_identity.json、
 Desktop dev/preview 固定使用 `<checkout>/var`；Windows 安装包固定使用 `LXE Agent.exe` 同级的 `<install-root>/var`。Desktop 解析完成后再把该绝对路径作为 `LXE_DATA_ROOT` 下发：
 
 ```
-<data-root>/db/         ← gateway.sqlite3、agent.sqlite3、lxeskill.sqlite3、sessions.json、transcript
+<data-root>/db/         ← gateway.sqlite3、agent.sqlite3、sessions.json、transcript
+<data-root>/db/lxeskill/← Python CLI 独立数据库；不包含 Bun agent.sqlite3
 <data-root>/logs/       ← Runtime、Gateway、Python 和 trace 日志
 <data-root>/artifacts/  ← Runtime 生成的可发送产物
 <data-root>/config/     ← 桌面配置、凭据、本地 MCP 与 connector 状态

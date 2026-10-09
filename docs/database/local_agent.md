@@ -13,14 +13,14 @@ Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main�
 | `db/gateway.sqlite3` | Electron Main / Gateway | Gateway session、平台来源和 response route |
 | `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session（含独立的 `permission_mode`）、pending event、usage、模型信息和 transcript 索引 |
 | `db/exec-sessions/<thread-id>/agent.sqlite3` | 一次性 `agent-cli exec` / Runtime | 单个 CLI thread 的 session、usage、模型信息和 transcript 索引 |
-| `db/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态与可丢弃的紫鸟会话缓存；浏览器真实状态以紫鸟客户端实时接口为准 |
+| `db/lxeskill/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态与可丢弃的紫鸟会话缓存；浏览器真实状态以紫鸟客户端实时接口为准 |
 | `db/sessions.json` | Gateway | 平台 source 到 session id 的稳定绑定 |
 | `db/session_transcripts/<session>.jsonl` | Runtime | 原始消息、turn metadata 和 `context_patch` |
 | `db/machine_identity.json` | Desktop 与 Runtime maintenance（共用 Core 实现） | Cloud、WireGuard 和可选 Data Server 共用的本机身份 |
 
 这些路径都位于规范 `var` 根。每个持久化的 CLI thread 还在自己的目录内使用 `session_transcripts/`，并用独占锁保证同一时刻只有一个 `exec resume` 写该数据库。`--ephemeral` 改用系统临时目录并在结束时删除。Desktop dev/preview 使用仓库或 worktree 的 `var/`，Windows 安装包使用安装目录的 `var/`；`LXE_DATA_ROOT` 下发的就是这个目录本身。
 
-测试 fixture 或旧源码环境里仍可能出现 `local_agent.sqlite3` 这个文件名；它不是 Desktop 当前默认的单库布局。
+访问默认 Python 数据库时，才按当前目标从旧 `db/lxeskill.sqlite3` 或 `db/local_agent.sqlite3` 迁移 `ziniao_store_sessions`、`yacang_submissions`、`yacang_cooldown` 三张 Python 自有表到 `db/lxeskill/`。只读事务包含已提交 WAL，目标完整性检查后原子发布，不覆盖已有目标，旧文件保留。混合旧库的 Bun/未知表不复制，Python 不打开 `db/agent.sqlite3`。自定义 `LXE_SQLITE_DB_PATH` 和 list/describe/doctor/help 不扫描无关旧库；实际所需旧库损坏时保留真实错误。
 
 ## 为什么要拆开
 
@@ -59,13 +59,13 @@ Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立�
 1. Gateway 能找到原 session 和 response route。
 2. Agent 能 replay transcript，且最近消息与 Dashboard 一致。
 3. pending event、usage 和 transcript 索引可以正常读取。
-4. 三个 SQLite 都没有 integrity 或 lock 错误。
+4. 各所有者 SQLite 都没有 integrity 或 lock 错误。
 
 优先使用带备份和完整性检查的迁移脚本，不直接手改数据库行或 JSONL。
 
 ## 排障顺序
 
-消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`；模型历史错误看 transcript 与 `context_patch`；后台任务或 usage 错误看 `agent.sqlite3`；紫鸟会话状态错误再看 `lxeskill.sqlite3`。
+消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`；模型历史错误看 transcript 与 `context_patch`；后台任务或 usage 错误看 `agent.sqlite3`；Python 业务状态错误再看 `db/lxeskill/lxeskill.sqlite3`。
 
 当前路径装配见 [Desktop Gateway](/apps/desktop/src/main/desktop-gateway.ts)，Transcript 实现见 [Runtime storage](/packages/agent/runtime/src/state/storage.ts)。
 Machine identity 的唯一实现见 [Core machine identity](/packages/foundation/core/src/machine-identity.ts)；移动代码不会迁移或重写现有 JSON 文件。
