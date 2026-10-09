@@ -7,17 +7,19 @@ from pathlib import Path
 from typing import Iterator
 
 from shared.repository import state_root
+from .migrate import migrate_legacy_database
 
 
 def database_path() -> Path:
     configured = str(os.getenv("LXE_SQLITE_DB_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return state_root() / "db" / "local_agent.sqlite3"
+    return state_root() / "db" / "lxeskill" / "local_agent.sqlite3"
 
 
 def connect() -> sqlite3.Connection:
     path = database_path()
+    migrate_legacy_database(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=5.0)
     conn.row_factory = sqlite3.Row

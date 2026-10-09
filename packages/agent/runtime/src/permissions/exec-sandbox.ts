@@ -4,6 +4,7 @@ import { executionBoundary, recheckExecutionBoundary, type ExecutionBoundary } f
 import { ExecutionPaths } from "./execution-paths";
 import type { ExecSpawnSpec } from "../tooling/exec-shell";
 import type { ExecutionPolicy } from "./policy";
+import { managedStateWriteSid } from "../../native/windows-sandbox/acl/workspace-sid";
 
 export interface ExecSandboxInfo {
   backend: "none" | "seatbelt" | "windows-acl";
@@ -11,7 +12,7 @@ export interface ExecSandboxInfo {
   enforcement: "none" | "file-write" | "partial";
 }
 export interface SandboxedExecSpec extends ExecSpawnSpec { sandbox: ExecSandboxInfo; temporaryDirectory: string }
-interface WindowsGrant { workspace: string; temporary: string; writeSid: string; tempWriteSid: string }
+interface WindowsGrant { workspace: string; temporary: string; writeSid: string; tempWriteSid: string; managedStateWriteSid: string }
 
 export function seatbeltProfile(policy: ExecutionPolicy, roots: readonly string[]): string {
   const forms = ['(version 1)', '(allow default)', '(deny file-write*)', '(allow file-write* (literal "/dev/null"))'];
@@ -31,7 +32,9 @@ export class ExecSandbox {
     this.paths = options.paths ?? new ExecutionPaths(join(process.cwd(), "var"), options.platform ? { platform: options.platform } : {});
   }
 
-  boundary(policy: ExecutionPolicy): ExecutionBoundary { return executionBoundary(policy, this.paths); }
+  boundary(policy: ExecutionPolicy, managedStateAccess = false): ExecutionBoundary {
+    return executionBoundary(policy, this.paths, managedStateAccess);
+  }
 
   async prepare(policy: ExecutionPolicy, command: ExecSpawnSpec, expected = this.boundary(policy)): Promise<SandboxedExecSpec> {
     // This check precedes creation and grant application, including after queue admission.
@@ -41,7 +44,7 @@ export class ExecSandbox {
     if (!statSync(boundary.workspace).isDirectory()) throw new Error(`Sandbox workspace is not a directory: ${boundary.workspace}`);
     if (this.paths.platform === "darwin") {
       if (!existsSync("/usr/bin/sandbox-exec")) throw new Error("Seatbelt sandbox launcher is unavailable: /usr/bin/sandbox-exec");
-      return { argv: ["/usr/bin/sandbox-exec", "-p", seatbeltProfile(policy, boundary.roots), ...command.argv], detached: command.detached,
+      return { argv: ["/usr/bin/sandbox-exec", "-p", seatbeltProfile(policy, [...boundary.roots, ...boundary.managedStateRoots]), ...command.argv], detached: command.detached,
         temporaryDirectory, sandbox: { backend: "seatbelt", mode: policy.mode, enforcement: "file-write" } };
     }
     if (this.paths.platform === "win32") {
@@ -59,7 +62,11 @@ export class ExecSandbox {
       }
       recheckExecutionBoundary(policy, this.paths, boundary);
       return { argv: [node, runner, "--workspace", boundary.workspace, "--temp", temporaryDirectory,
-        "--mode", policy.mode, ...(grant ? ["--write-sid", grant.writeSid, "--temp-write-sid", grant.tempWriteSid] : []), "--", ...command.argv],
+        "--data-root", this.paths.dataRoot,
+        "--mode", policy.mode,
+        ...(grant ? ["--write-sid", grant.writeSid, "--temp-write-sid", grant.tempWriteSid] : []),
+        ...(boundary.managedStateAccess && grant ? ["--state-write-sid", grant.managedStateWriteSid] : []),
+        "--", ...command.argv],
         detached: false, temporaryDirectory, sandbox: { backend: "windows-acl", mode: policy.mode, enforcement: "partial" } };
     }
     throw new Error(`Exec sandbox is not implemented on ${this.paths.platform}`);
@@ -73,7 +80,7 @@ export class ExecSandbox {
   }
 
   private async native(action: "prepare" | "release", workspace: string, temporary: string): Promise<string> {
-    const process = Bun.spawn([...this.launcher(), `--${action}-session`, workspace, temporary], { stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
+    const process = Bun.spawn([...this.launcher(), `--${action}-session`, workspace, temporary, this.paths.dataRoot], { stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
     const [stdout, stderr, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
     if (code !== 0) throw new Error(`Windows sandbox ${action} failed (${code}): ${stderr || stdout}`);
     return stdout;
@@ -84,8 +91,10 @@ export class ExecSandbox {
     mkdirSync(temporary, { recursive: true });
     try {
       recheckExecutionBoundary(policy, this.paths, boundary);
-      const value = JSON.parse(await this.native("prepare", boundary.workspace, temporary)) as { writeSid: string; tempWriteSid: string };
-      if (typeof value.writeSid !== "string" || typeof value.tempWriteSid !== "string") throw new Error("Invalid Windows sandbox grant response");
+      for (const root of this.paths.managedPythonStateRoots()) mkdirSync(root, { recursive: true });
+      const value = JSON.parse(await this.native("prepare", boundary.workspace, temporary)) as { writeSid: string; tempWriteSid: string; managedStateWriteSid: string };
+      if (typeof value.writeSid !== "string" || typeof value.tempWriteSid !== "string" || typeof value.managedStateWriteSid !== "string") throw new Error("Invalid Windows sandbox grant response");
+      if (value.managedStateWriteSid !== managedStateWriteSid(this.paths.dataRoot)) throw new Error("Invalid Windows managed-state capability identity");
       recheckExecutionBoundary(policy, this.paths, boundary);
       return { workspace: boundary.workspace, temporary, ...value };
     } catch (error) {

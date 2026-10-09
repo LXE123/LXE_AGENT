@@ -71,6 +71,12 @@ describe("skill context", () => {
     expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
     expect(skills.find((skill) => skill.name === "shangman-goods-export")?.commands).toEqual(["lxeskill shangman export run"]);
     expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
+    const tms = skills.find((skill) => skill.name === "mabang-tms-export")!;
+    expect(tms.commands).toEqual(["lxeskill mabang-tms export run"]);
+    expect(tms.description).toMatch(/仅.*菲律宾/);
+    expect(tms.description).toContain("不用于其他国家");
+    expect(tms.description).not.toMatch(/智汇\s*TMS/i);
+    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.description).not.toMatch(/智汇\s*TMS/i);
   });
 
   test("indexes allowed skill manifests and points the agent to their source", () => {

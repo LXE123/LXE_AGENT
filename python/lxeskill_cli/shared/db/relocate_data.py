@@ -13,15 +13,15 @@ def relocate_data(copy: Path, source: Path, target: Path) -> None:
         except ValueError:
             return value
 
-    for name in ("lxeskill.sqlite3",):
-        path = copy / "db" / name
+    for relative in (Path("db/lxeskill/lxeskill.sqlite3"), Path("db/lxeskill.sqlite3")):
+        path = copy / relative
         if not path.exists():
             continue
         conn = sqlite3.connect(path)
         try:
             result = conn.execute("PRAGMA integrity_check").fetchall()
             if result != [("ok",)]:
-                raise RuntimeError(f"{name} integrity_check: {result!r}")
+                raise RuntimeError(f"{relative.as_posix()} integrity_check: {result!r}")
             columns = {row[1] for row in conn.execute("PRAGMA table_info(ziniao_store_sessions)")}
             for column in ("download_path", "browser_path"):
                 if column in columns:

@@ -1,5 +1,5 @@
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
   EmitRequest,
@@ -124,6 +124,8 @@ export function createAgentRuntimeHost(
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
   const permissionPolicy = new PermissionPolicyService();
   const executionPaths = new ExecutionPaths(options.dataRoot);
+  // Host prepares long-lived inputs; business children do not receive a write grant there.
+  for (const path of [...executionPaths.managedPythonStateRoots(), join(options.dataRoot, "inputs")]) mkdirSync(path, { recursive: true });
   const providerManager = new AtomicRuntimeProviderManager(
     options.dataRoot,
     environment,

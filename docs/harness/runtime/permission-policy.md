@@ -67,7 +67,11 @@ Windows 仍有 DSH 机制本身的限制：工作区硬链接别名、Everyone �
 
 ## CLI 的实际写入依赖
 
-CLI 初始化可能创建内部状态、产物、输入目录；日志会写入并清理文件；业务命令可能访问 Python DB、认证缓存和锁文件。同目录的原子替换文件也不受 `TMPDIR` 重定向影响。这些写入不获得隐藏白名单。受限运行遇到工作区外状态写入时保留真实异常，需要时由模型显式申请本次更宽权限。
+CLI 初始化可能创建内部状态、产物、输入目录；日志会写入并清理文件；业务命令可能访问 Python DB、认证缓存和锁文件。同目录的原子替换文件也不受 `TMPDIR` 重定向影响。
+
+宿主从当前可见 catalog 判定独立的 `visibility=business` 命令，在 Workspace Write 下仅为该子进程提供固定的 Python 状态能力：`var/lxeskill/`、`var/db/lxeskill/`、`var/logs/`。shell 组合、普通命令、browser/maintenance/internal 命令和 Read Only 不获得此能力。模型不能指定额外目录；会话权限模式不变，也不会自动改为 Full access。macOS 通过该进程的 Seatbelt 根目录实现，Windows 使用与 workspace/temp SID 不同的 managed-state SID；普通受限令牌不包含该 SID。
+
+此能力不开放整个 `var/` 或 `var/db/`，不开放 Bun `agent.sqlite3`、exec-session 状态、配置、凭据或长期输入素材目录。Python DB 改到 `db/lxeskill/`；旧 Python 文件通过 SQLite backup、完整性检查和不覆盖发布迁移，旧文件保留，Bun DB 不读取。超出固定能力的真实异常仍保留，需要时显式申请单次更宽权限。
 
 ## 历史数据
 

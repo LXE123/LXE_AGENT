@@ -10,6 +10,7 @@ import time
 from shared.process_lock import interprocess_lock
 from shared.filesystem import filesystem_path
 from shared.repository import state_root
+from shared.db.sqlite.migrate import migrate_legacy_database
 from .errors import YacangError
 
 
@@ -18,10 +19,11 @@ class ExportState:
         self.account_id = account_id
         self.root = filesystem_path(state_root() / "db" / "lxeskill" / "yacang")
         # Desktop injects its Python-owned database; never touch the Agent database.
-        self.db = filesystem_path(Path(os.getenv("LXE_SQLITE_DB_PATH") or state_root() / "db" / "lxeskill.sqlite3"))
+        self.db = filesystem_path(Path(os.getenv("LXE_SQLITE_DB_PATH") or state_root() / "db" / "lxeskill" / "lxeskill.sqlite3"))
 
     @contextmanager
     def connection(self):
+        migrate_legacy_database(self.db)
         self.db.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db, timeout=10)
         try:

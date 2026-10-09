@@ -114,7 +114,7 @@ if (mode === "run-and-quit") {
   for(const table of ["transcript_attachments","transcript_artifacts"]){assert.equal((db.query(`SELECT path FROM ${table} LIMIT 1`).get() as any).path,join(target,"workspace/中文 file.txt"));}db.close();
   const gateway=checkedDatabase(join(target,"db/gateway.sqlite3"));
   assert.equal((gateway.query("SELECT workspace_directory FROM gateway_sessions").get() as any).workspace_directory,join(target,"workspace"));gateway.close();
-  const python=checkedDatabase(join(target,"db/lxeskill.sqlite3"));
+  const python=checkedDatabase(join(target,"db/lxeskill/lxeskill.sqlite3"));
   assert.equal((python.query("SELECT download_path FROM ziniao_store_sessions").get() as any).download_path,join(target,"downloads"));python.close();
   const store=new SqliteRuntimeStore(join(target,"db/agent.sqlite3"));await store.start();
   try {
