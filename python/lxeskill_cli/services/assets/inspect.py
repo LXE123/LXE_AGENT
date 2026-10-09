@@ -39,6 +39,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             {
                 "slot": entry.id,
                 "display_name": entry.display_name,
+                "management": entry.management,
                 "used_by": list(entry.used_by),
                 "holds": entry.holds,
                 "directory": str(slot_dir(entry.id)),
