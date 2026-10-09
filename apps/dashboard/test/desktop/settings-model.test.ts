@@ -5,6 +5,9 @@ import {
   desktopCloudShortcutAvailable,
   desktopSettingsForm,
   desktopSettingsFormAfterClear,
+  desktopSettingsFormAfterVietnamSave,
+  desktopVietnamRecommendationInput,
+  desktopYacangCredentialsChanged,
   ERP_INTEGRATIONS,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
@@ -152,4 +155,65 @@ test("clearing one platform preserves all other unsaved credentials and settings
   const result = desktopSettingsFormAfterClear(current, next, "mabangTms");
   expect(result).toEqual({ ...current, mabangTmsAccount: "", mabangTmsPassword: "" });
   expect(current.mabangTmsPassword).toBe("secret-tms");
+});
+
+test("Vietnam recommendation drafts stay in the Yacang section", () => {
+  const baseline = desktopSettingsForm(setupState());
+  expect(baseline.vietnamWeight30d).toBe("0.8");
+  expect(baseline.vietnamWeight15d).toBe("0.8");
+  expect(baseline.vietnamWeight7d).toBe("0");
+  expect(baseline.vietnamExchangeRate).toBe("3900");
+  const edited = { ...baseline, vietnamWeight30d: "0.7" };
+  expect(desktopSettingsSectionIsDirty("yacang", edited, baseline)).toBe(true);
+  expect(desktopSettingsSectionIsDirty("erp", edited, baseline)).toBe(true);
+  expect(desktopSettingsSectionIsDirty("mabang", edited, baseline)).toBe(false);
+});
+
+test("focused Vietnam save sends only workspace and four decimals", () => {
+  const form = { ...desktopSettingsForm(setupState()), vietnamWeight30d: "0.7",
+    yacangMobile: "unfinished phone", yacangPassword: "secret", mabangPassword: "another draft" };
+  expect(desktopVietnamRecommendationInput(form, "/workspace")).toEqual({
+    workspace_root: "/workspace",
+    vietnam_recommendation: {
+      weight_30d: "0.7", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900",
+    },
+  });
+});
+
+test("focused Vietnam save refreshes values without discarding credentials or other drafts", () => {
+  const current = { ...desktopSettingsForm(setupState()), vietnamWeight30d: "0.7",
+    yacangMobile: "unfinished phone", yacangPassword: "secret", mabangPassword: "another draft",
+    workspaceRoot: "/draft-workspace" };
+  const next = setupState({ vietnam_recommendation: {
+    weight_30d: "0.75", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900",
+  } });
+  const result = desktopSettingsFormAfterVietnamSave(current, next);
+  expect(result).toEqual({ ...current, vietnamWeight30d: "0.75" });
+  expect(result.yacangMobile).toBe("unfinished phone");
+  expect(result.yacangPassword).toBe("secret");
+  expect(desktopSettingsSectionIsDirty("yacang", result, desktopSettingsForm(next))).toBe(true);
+});
+
+
+test("clearing Yacang credentials keeps unsaved Vietnam parameters", () => {
+  const current = { ...desktopSettingsForm(setupState()), yacangMobile: "draft phone",
+    yacangPassword: "secret", vietnamWeight30d: "0.7" };
+  const next = setupState();
+  expect(desktopSettingsFormAfterClear(current, next, "yacang")).toEqual({
+    ...current, yacangMobile: "", yacangPassword: "",
+  });
+});
+
+
+test("global save skips unchanged Yacang credentials when only Vietnam parameters change", () => {
+  const setup = setupState({ yacang: { managed: true, configured: true, issues: [],
+    mobile: "saved mobile", password_configured: true } });
+  const baseline = desktopSettingsForm(setup);
+  const form = { ...baseline, vietnamWeight30d: "0.7" };
+  expect(desktopYacangCredentialsChanged(form, setup)).toBe(false);
+  expect(desktopVietnamRecommendationInput(form, form.workspaceRoot).vietnam_recommendation).toEqual({
+    weight_30d: "0.7", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900",
+  });
+  expect(desktopYacangCredentialsChanged({ ...form, yacangMobile: "new mobile" }, setup)).toBe(true);
+  expect(desktopYacangCredentialsChanged({ ...form, yacangPassword: "new password" }, setup)).toBe(true);
 });

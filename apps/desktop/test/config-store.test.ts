@@ -180,6 +180,39 @@ describe("DesktopConfigStore", () => {
     expect(persistedSecrets).not.toContain("source-saihu-secret");
   });
 
+  test("saves Vietnam settings without Yacang credentials and injects all four values", () => {
+    const root = createRoot();
+    const workspace = join(root, "workspace");
+    const store = new DesktopConfigStore(root, workspace, safeStorage, { platform: "win32" });
+    expect(store.state().vietnam_recommendation).toEqual({
+      weight_30d: "0.8", weight_15d: "0.8", weight_7d: "0", exchange_rate: "3900",
+    });
+    const previousEnvironment = store.environment();
+    const saved = store.save({
+      workspace_root: workspace,
+      vietnam_recommendation: {
+        weight_30d: " 0.70 ", weight_15d: "0.65", weight_7d: "1e-1", exchange_rate: "4000",
+      },
+    });
+    expect(saved.yacang).toMatchObject({ configured: false, password_configured: false });
+    expect(saved.vietnam_recommendation).toEqual({
+      weight_30d: "0.70", weight_15d: "0.65", weight_7d: "1e-1", exchange_rate: "4000",
+    });
+    expect(JSON.stringify(store.environment())).not.toBe(JSON.stringify(previousEnvironment));
+    expect(store.environment()).toMatchObject({
+      LXE_VIETNAM_WEIGHT_30D: "0.70",
+      LXE_VIETNAM_WEIGHT_15D: "0.65",
+      LXE_VIETNAM_WEIGHT_7D: "1e-1",
+      LXE_VIETNAM_EXCHANGE_RATE: "4000",
+    });
+    const stableEnvironment = store.environment();
+    store.save({ workspace_root: workspace, vietnam_recommendation: saved.vietnam_recommendation });
+    expect(store.environment()).toEqual(stableEnvironment);
+    const reloaded = new DesktopConfigStore(root, workspace, safeStorage, { platform: "win32" });
+    expect(reloaded.state().vietnam_recommendation).toEqual(saved.vietnam_recommendation);
+    expect(reloaded.environment().LXE_VIETNAM_WEIGHT_30D).toBe("0.70");
+  });
+
   test("preserves blank secret patches and explicitly clears an integration", () => {
     const root = createRoot();
     const appPath = join(root, "ziniao.exe");
@@ -404,7 +437,7 @@ describe("DesktopConfigStore", () => {
     });
     expect(existsSync(join(root, ".env.local"))).toBeFalse();
     expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
-      schema_version: 11,
+      schema_version: 12,
       llm: {
         provider: "kimi_coding",
         profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
@@ -878,7 +911,7 @@ test("schema 8 migration retains dynamic model profiles and leaves Shangman unco
   const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
   expect(store.state().shangman).toMatchObject({ managed: false, configured: false });
   const migrated = JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"));
-  expect(migrated.schema_version).toBe(11);
+  expect(migrated.schema_version).toBe(12);
   expect(migrated.llm.profiles.openrouter).toEqual(old.llm.profiles.openrouter);
 });
 

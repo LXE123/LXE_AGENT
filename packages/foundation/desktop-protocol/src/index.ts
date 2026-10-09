@@ -473,6 +473,13 @@ export interface DesktopHealth {
   };
 }
 
+export interface DesktopVietnamRecommendationSettings {
+  weight_30d: string;
+  weight_15d: string;
+  weight_7d: string;
+  exchange_rate: string;
+}
+
 export interface DesktopSetupState {
   complete: boolean;
   provider: DesktopModelProvider;
@@ -496,6 +503,7 @@ export interface DesktopSetupState {
   };
   mabangTms: { managed: boolean; configured: boolean; issues: string[]; account: string; password_configured: boolean };
   yacang: { managed: boolean; configured: boolean; issues: string[]; mobile: string; password_configured: boolean };
+  vietnam_recommendation: DesktopVietnamRecommendationSettings;
   shangman: {
     managed: boolean; configured: boolean; issues: string[];
     tenant_id: string; username: string;
@@ -559,6 +567,7 @@ export interface DesktopSetupInput {
   ziniao?: DesktopZiniaoSetupInput;
   mabangTms?: DesktopMabangTmsSetupInput;
   yacang?: DesktopYacangSetupInput;
+  vietnam_recommendation?: DesktopVietnamRecommendationSettings;
   shangman?: DesktopShangmanSetupInput;
   mabang?: DesktopMabangSetupInput;
   feishu?: DesktopFeishuSetupInput;
@@ -642,6 +651,11 @@ export interface DesktopInputAssetVersion {
 
 export interface DesktopInputAssetSlot {
   slot: string;
+  management: "command" | "desktop";
+  manifest_revision: string | null;
+  current_error?: string;
+  previous_error?: string;
+  manifest_error?: string;
   display_name: string;
   used_by: string[];
   holds: string;
@@ -650,6 +664,11 @@ export interface DesktopInputAssetSlot {
   current: DesktopInputAssetVersion | null;
   /** Retained rollback copy. Shown to the user, never to the model. */
   previous: DesktopInputAssetVersion | null;
+}
+
+export interface DesktopVietnamSkuMapMutation {
+  status: "installed" | "unchanged" | "rolled_back";
+  manifest_revision: string;
 }
 
 export interface DesktopUsageBalance {
@@ -716,6 +735,8 @@ export interface LxeDesktopBridge {
     openSyntheticPerformerOutput(taskId: string): Promise<void>;
     listInputAssets(): Promise<DesktopInputAssetSlot[]>;
     revealInputAssetSlot(slot: string): Promise<void>;
+    uploadVietnamSkuMap(): Promise<DesktopVietnamSkuMapMutation | null>;
+    rollbackVietnamSkuMap(expectedRevision: string): Promise<DesktopVietnamSkuMapMutation>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;

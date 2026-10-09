@@ -54,6 +54,8 @@ describe("preload bridge", () => {
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
+      "uploadVietnamSkuMap",
+      "rollbackVietnamSkuMap",
       "saveLocalModelCredential",
       "saveSetup",
       "selectCloudEnrollment",
@@ -278,5 +280,19 @@ test("workspace bridge forwards the directory and optional catalog ID without ch
     [IPC_CHANNELS.getWorkspaceApplications, { refresh: true }],
     [IPC_CHANNELS.openWorkspace, "/工作目录 & spaces", undefined],
     [IPC_CHANNELS.openWorkspace, "/工作目录 & spaces", "vscode"],
+  ]);
+});
+
+test("Vietnam map bridge sends no renderer source path or slot", async () => {
+  const calls: unknown[][] = [];
+  const bridge = createDesktopBridge({
+    invoke: async <T>(...args: unknown[]) => { calls.push(args); return null as T; },
+    on: () => {}, removeListener: () => {},
+  }, "darwin");
+  await bridge.desktop.uploadVietnamSkuMap();
+  await bridge.desktop.rollbackVietnamSkuMap("a".repeat(32));
+  expect(calls).toEqual([
+    [IPC_CHANNELS.uploadVietnamSkuMap],
+    [IPC_CHANNELS.rollbackVietnamSkuMap, "a".repeat(32)],
   ]);
 });

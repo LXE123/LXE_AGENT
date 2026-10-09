@@ -204,7 +204,16 @@ export const ZH_TEXT = {
     loading: "正在读取…",
     loadError: "读取失败",
     neverUsed: "尚未使用",
-    note: "这里只做查看。要更换版本，在对话里上传新文件即可。"
+    note: "其他模板和数据源仍通过对应技能维护。",
+    managedEmptyHint: "请在这里上传越南 SKU 参数表。",
+    upload: "上传映射表",
+    rollback: "回滚上一版",
+    busy: "正在处理…",
+    installed: "映射表已上传",
+    unchanged: "内容未变化，继续使用当前版本",
+    rolledBack: "已回滚到上一版",
+    integrityError: "文件校验失败",
+    historical: "旧版模板仅供历史参考；越南备货生成使用应用内置骨架。"
   },
   stats: {
     sessions: "会话",
@@ -817,7 +826,19 @@ export const ZH_TEXT = {
       selectWebdriver: "选择驱动目录"
     },
     mabangTms: { description: "配置马帮 TMS数据导出。密码加密保存，每次任务自动登录。", account: "账号", password: "马帮 TMS密码" },
-    yacang: { description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。", mobile: "手机号", password: "雅仓密码" },
+    yacang: {
+      description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。",
+      mobile: "手机号", password: "雅仓密码",
+      vietnamTitle: "越南备货",
+      vietnamDescription: "长期计算参数。保存后在下一次生成时生效。",
+      weight30d: "30 天销量权重",
+      weight15d: "15 天销量权重",
+      weight7d: "7 天销量权重",
+      exchangeRate: "汇率",
+      vietnamSave: "保存越南参数",
+      vietnamSaving: "正在保存…",
+      vietnamSaved: "越南备货参数已保存，下次生成时生效。",
+    },
     shangman: {
       description: "配置上马 ERP 登录。验证码由 AI 读取；登录态保存在本机，供后续任务复用。",
       tenantId: "ID", username: "上马账号", password: "上马密码",
@@ -1082,7 +1103,16 @@ export const UI_TEXT: Record<Language, UiText> = {
       loading: "Loading…",
       loadError: "Could not load",
       neverUsed: "Not used yet",
-      note: "This view is read-only. To change a version, upload a new file in a conversation."
+      note: "Other templates and data sources are maintained through their skills.",
+      managedEmptyHint: "Upload the Vietnam SKU map here.",
+      upload: "Upload SKU map",
+      rollback: "Roll back to previous",
+      busy: "Working…",
+      installed: "SKU map uploaded",
+      unchanged: "The content is unchanged; the current version remains in use",
+      rolledBack: "Rolled back to the previous version",
+      integrityError: "File integrity check failed",
+      historical: "This legacy template is for reference only; Vietnam recommendations use the built-in workbook."
     },
     stats: {
       sessions: "Sessions",
@@ -1695,7 +1725,19 @@ export const UI_TEXT: Record<Language, UiText> = {
         selectWebdriver: "Choose the driver directory"
       },
       mabangTms: { description: "Configure Mabang TMS exports. Passwords are stored encrypted; each task signs in automatically.", account: "Account", password: "Mabang TMS password" },
-      yacang: { description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.", mobile: "Mobile", password: "Yacang password" },
+      yacang: {
+        description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.",
+        mobile: "Mobile", password: "Yacang password",
+        vietnamTitle: "Vietnam replenishment",
+        vietnamDescription: "Saved calculation values take effect for the next generated workbook.",
+        weight30d: "30-day sales weight",
+        weight15d: "15-day sales weight",
+        weight7d: "7-day sales weight",
+        exchangeRate: "Exchange rate",
+        vietnamSave: "Save Vietnam parameters",
+        vietnamSaving: "Saving…",
+        vietnamSaved: "Vietnam replenishment parameters saved for the next generation.",
+      },
       shangman: {
         description: "Configure Shangman ERP login. AI reads the captcha; login state is saved locally for later tasks.",
         tenantId: "Tenant ID", username: "Shangman ERP account", password: "Shangman ERP password",

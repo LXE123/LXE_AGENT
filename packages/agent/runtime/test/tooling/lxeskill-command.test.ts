@@ -49,7 +49,7 @@ describe("lxeskill command recognition", () => {
     // Every directory is owned by exactly one business module — the property the
     // <module>/<data-type> layout depends on.
     const modules = new Set(datasets.map((entry) => entry.dir.split("/")[0]));
-    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "mabang", "mabang_tms", "replenish", "shangman", "yacang"]);
+    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "mabang", "mabang_tms", "replenish", "shangman", "vietnam", "yacang"]);
     expect(new Set(datasets.map((entry) => entry.dir)).size).toBe(datasets.length);
     expect(datasets.every((entry) => entry.holds.length > 0)).toBe(true);
   });
@@ -133,6 +133,20 @@ test("Yacang exposes one export command with its own deliverable dataset", () =>
     artifactPaths: [{ field: "artifacts[].path", role: "deliverable" }],
   });
   expect(loadLxeSkillDatasets(path).find(entry => entry.id === "yacang_exports")?.dir).toBe("yacang/exports");
+});
+
+test("Vietnam recommendation accepts no inputs and delivers only the final workbook", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path);
+  const entry = entries.find(entry => entry.name === "vietnam_replenishment_generate");
+  expect(entry).toMatchObject({
+    command: "lxeskill vietnam stock recommend",
+    module: "services.agent_cli.vietnam_replenishment.generate",
+    ownerSkills: ["vietnam-stock-recommendation"],
+    artifactPaths: [{ field: "output_xlsx", role: "deliverable" }],
+  });
+  expect(loadLxeSkillDatasets(path).find(entry => entry.id === "vietnam_recommendations")?.dir)
+    .toBe("vietnam/recommendations");
 });
 
 test("Mabang TMS exposes one export command with its own deliverable dataset", () => {
