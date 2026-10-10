@@ -913,7 +913,19 @@ def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     assert result["success"] is True and result["finished"] is True
     assert result["data"]["shipment_count"] == 3
     assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert result["data"]["page_editable_shipment_ids"] == [SHIPMENT]
     assert result["data"]["ineligible_shipment_ids"] == []
+    assert [item["label"] for item in result["data"]["operator_options"]] == [
+        "货件编号 1",
+        "货件编号 2",
+        "货件编号 3",
+    ]
+    assert [item["selection_number"] for item in result["data"]["operator_options"]] == [
+        1,
+        2,
+        3,
+    ]
+    assert result["data"]["operator_options"][0]["selectable"] is True
     assert [item["status"] for item in result["data"]["shipments"]] == [
         "editable",
         "unavailable",
@@ -927,7 +939,7 @@ def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     assert artifact.exists()
 
 
-def test_discovery_reports_receiving_child_without_inspecting_its_tab(tmp_path):
+def test_discovery_inspects_receiving_child_but_keeps_it_ineligible(tmp_path):
     driver = _ScriptedDriver(
         hub_cells=_hub_cells(
             [
@@ -951,15 +963,20 @@ def test_discovery_reports_receiving_child_without_inspecting_its_tab(tmp_path):
 
     assert result["success"] is True and result["finished"] is True
     assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert result["data"]["page_editable_shipment_ids"] == [SHIPMENT, SHIPMENT_B]
     assert result["data"]["ineligible_shipment_ids"] == [SHIPMENT_B]
     receiving = result["data"]["shipments"][1]
+    assert receiving["operator_label"] == "货件编号 2"
     assert receiving["status"] == "ineligible"
     assert receiving["editable"] is False
+    assert receiving["page_editable"] is True
+    assert receiving["business_eligible"] is False
+    assert receiving["selectable"] is False
     assert receiving["order_status"] == "正在接收"
     assert receiving["unit_status"]["received"] == 285
     assert receiving["unit_status"]["expected"] == 285
     assert "当前仅允许: 已发货" in receiving["reason"]
-    assert (dwa.TRACKING_TAB_SELECTOR, 1) not in driver.clicks
+    assert (dwa.TRACKING_TAB_SELECTOR, 1) in driver.clicks
 
 
 def test_discovery_fails_closed_when_child_has_no_hub_status(tmp_path):
@@ -985,8 +1002,11 @@ def test_discovery_fails_closed_when_child_has_no_hub_status(tmp_path):
     missing = result["data"]["shipments"][1]
     assert missing["failure_code"] == "E1"
     assert missing["editable"] is None
+    assert missing["page_editable"] is True
+    assert missing["business_eligible"] is None
+    assert missing["selectable"] is False
     assert "无法确认 orderStatus" in missing["reason"]
-    assert (dwa.TRACKING_TAB_SELECTOR, 1) not in driver.clicks
+    assert (dwa.TRACKING_TAB_SELECTOR, 1) in driver.clicks
 
 
 def test_already_target_week_short_circuits_without_touching_the_modal(tmp_path):

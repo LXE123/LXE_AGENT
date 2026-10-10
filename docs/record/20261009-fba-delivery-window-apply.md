@@ -91,7 +91,7 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 1. E1 先读取列表中的 `orderStatus`；只有精确为 `已发货` 才能成为修改候选。`正在接收`、`已完成`、`在途`及未知状态均不得进入修改流程。
 2. `unitStatus`（例如 `0/172`、`516/516`）只作数量诊断，不参与候选判断；`已发货 + 0/172` 仍应继续检查。
 3. 通过 E1 后，还必须同时通过追踪详情的真实页面事实：正确货件分页、当前送达时段、grace 截止时间、编辑入口和弹窗（E2–E4）。
-4. `action=discover` 会动态返回全部子货件，但只对 `已发货` 子货件检查页面可编辑性；其他状态返回 `ineligible`，不会切换到对应分页。列表中找不到对应子货件或读不到状态则返回未知，禁止猜测。
+4. `action=discover` 会动态返回全部子货件，并只读切换每个分页检查页面编辑能力；同时独立返回列表业务状态。`page_editable` 只描述页面入口，`business_eligible` 只描述 `orderStatus` 是否允许，只有两者同时成立的 `selectable` 才能进入修改。列表中找不到对应子货件或读不到状态时，页面能力仍可读取，但实际写入资格保持未知，禁止猜测。
 5. 操作下拉存在“追踪货件”只证明追踪入口存在，不等于送达时段仍可编辑。
 
 **三个反直觉的坑（已证伪的错误假设）**
@@ -664,7 +664,7 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 
 - 销售部门确认：修改日期依据列表前部的货件生命周期状态，不依据后部的 `0/172` 等入库数量；正式业务一般只允许 `已发货`。
 - 代码把“读取状态”和“允许修改”拆开：`apply` 仅接受 `orderStatus="已发货"`；`正在接收`、`已完成`、`在途`等状态在打开货件详情前以 E1 停止。
-- `discover` 仍可用一个种子编号定位并动态枚举整个 STA 工作流程，但逐个回查列表状态：`已发货` 才继续检查时段与编辑入口；`正在接收` 等返回 `status="ineligible"`、`editable=false`，不切换其分页；列表缺行或状态不可读则返回未知。
+- `discover` 仍可用一个种子编号定位并动态枚举整个 STA 工作流程，并逐个回查列表状态。为避免把“业务不允许”误报成“页面没有编辑入口”，只读 discovery 会检查所有分页并分别返回 `page_editable`、`business_eligible`、`selectable`；真正 apply 仍只接受 `orderStatus="已发货"`。列表缺行或状态不可读时，写入资格返回未知。
 - `unitStatus` 保持纯诊断：新增回归证明 `已发货 + 0/172` 可以继续，而 `正在接收 + 0/172`、`已完成`、`在途`均会停止。
 - 定向测试：`uv run pytest python/lxeskill_cli/tests/amazon/test_delivery_window_apply.py -q`，结果 **101 passed**。本轮仅更新代码、测试和文档，没有连接店铺或执行 Amazon 页面操作。
 
@@ -794,3 +794,15 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 - 0 行错误只陈述已经观测到的事实和未确认的可能性，不再把登录失效写成既定诊断。
 - 回归测试覆盖“首读为空、随后 SPA 行出现”以及“失败结果不包含 auth refresh 恢复命令”。
 - 修复后的 canonical `plan_only` 已验证能接收 `--timeout-sec 60`。真实只读复测时目标店铺仍报告运行中，但 Selenium 附着只看到 `about:blank`，因此在导航前按真实错误停止；该结果已正确带 `auth_refresh_required=false` 且没有马帮恢复命令。需在紫鸟窗口恢复正常 Amazon 标签页后再做页面级复测，不能把这次外部状态阻塞写成“实页验证通过”。
+
+### 15.16 运营选择层与页面可编辑性拆分（2026-10-10）
+
+首轮 Agent 交互虽然成功通过 `delivery-window-list` 读到种子 FBA 行，却直接向运营显示完整 FBA 号并结束，没有进入 STA 工作流程枚举目的地子货件。根因不是分页识别器失效，而是 skill 把“明确要求查看全部子货件”才路由到 `action=discover`；普通修改请求错误地停留在只读列表命令。列表命令本来就只读传入行，无法给出“货件编号 1…N”的选择。
+
+修复后：
+
+- 任何修改请求必须先执行 `action=discover`，不得用列表单行结果替代。
+- discovery 按真实分页顺序生成 `operator_options`，提供 `selection_number` 与 `label="货件编号 N"`；完整 FBA 号继续作为内部稳定键，但默认不向运营展示。
+- 多个选项必须先询问运营选择哪个“货件编号”，选择后才从同一次 discovery 结果映射回内部 FBA 号并进入 plan-only / dry-run。
+- discovery 会只读检查全部分页，不再因为列表业务状态不符合就跳过页面检查；返回 `page_editable`（页面能力）、`business_eligible`（业务规则）和 `selectable`（两者同时满足）三个独立事实。这样即使页面上的 5 个分页都能点击编辑，也不会被错误描述成“模块没有识别到入口”；真正 apply 仍保留 `orderStatus="已发货"` 的硬门槛。
+- 本轮尝试对 `Amazon-Yunjian-US` 做真实只读 discovery 时，紫鸟状态仍显示店铺运行，但官方 Selenium 附着只看到 `about:blank`，因此未取得该工作流程的新页面证据，也未执行任何写入。

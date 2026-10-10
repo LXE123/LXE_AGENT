@@ -1930,42 +1930,59 @@ def _run_discovery(
         )
 
     shipments: list[dict[str, Any]] = []
-    for shipment_id in tab_ids:
+    for selection_number, shipment_id in enumerate(tab_ids, start=1):
         item_trail = _Trail()
+        operator_identity = {
+            "selection_number": selection_number,
+            "operator_label": f"货件编号 {selection_number}",
+            "fba_shipment_id": shipment_id,
+            "tab_index": selection_number - 1,
+        }
+        child_evidence: dict[str, Any] = {
+            "order_status": "",
+            "unit_status": parse_unit_status(""),
+            "hub_window_text": "",
+            "hub_order_status_cell_text": "",
+            "hub_unit_status_cell_text": "",
+        }
+        business_eligible: bool | None = None
+        business_reason = ""
         try:
             child_row = hub["by_id"].get(shipment_id)
             if child_row is None:
-                _fail(
-                    "E1",
+                business_reason = (
                     f"{shipment_id} 出现在工作流程分页中，但不在当前货件列表页，"
-                    "无法确认 orderStatus；按状态未知处理",
+                    "无法确认 orderStatus；实际写入按状态未知处理"
                 )
-            child_status = _read_hub_status(child_row, shipment_id, item_trail)
-            child_evidence = {
-                "order_status": child_status["order_status"],
-                "unit_status": child_status["unit_status"],
-                "hub_window_text": child_row.get("delivery_window_text"),
-                "hub_order_status_cell_text": child_row.get("order_status_cell_text"),
-                "hub_unit_status_cell_text": child_row.get("unit_status_cell_text"),
-            }
-            if child_status["order_status"] not in EDITABLE_ORDER_STATUSES:
-                reason = (
-                    f"orderStatus='{child_status['order_status']}' 不属于允许修改送达时段的状态"
-                    f"（当前仅允许: {', '.join(sorted(EDITABLE_ORDER_STATUSES))}）"
-                )
-                item_trail.note("E1 业务状态排除", reason)
-                shipments.append(
-                    {
-                        "fba_shipment_id": shipment_id,
-                        "status": "ineligible",
-                        "editable": False,
-                        "reason": reason,
-                        "failure_code": "",
-                        **child_evidence,
-                        "steps": item_trail.entries,
-                    }
-                )
-                continue
+                item_trail.note("E1 列表状态未知", business_reason)
+            else:
+                child_evidence = {
+                    "order_status": _clean(child_row.get("order_status_text")),
+                    "unit_status": parse_unit_status(child_row.get("unit_status_text")),
+                    "hub_window_text": child_row.get("delivery_window_text"),
+                    "hub_order_status_cell_text": child_row.get("order_status_cell_text"),
+                    "hub_unit_status_cell_text": child_row.get("unit_status_cell_text"),
+                }
+                try:
+                    child_status = _read_hub_status(child_row, shipment_id, item_trail)
+                    child_evidence["order_status"] = child_status["order_status"]
+                    child_evidence["unit_status"] = child_status["unit_status"]
+                    business_eligible = (
+                        child_status["order_status"] in EDITABLE_ORDER_STATUSES
+                    )
+                    if not business_eligible:
+                        business_reason = (
+                            f"orderStatus='{child_status['order_status']}' 不属于允许修改送达时段的状态"
+                            f"（当前仅允许: {', '.join(sorted(EDITABLE_ORDER_STATUSES))}）"
+                        )
+                        item_trail.note("E1 业务状态排除", business_reason)
+                except _HardFailure as exc:
+                    business_reason = f"{exc.code}: {exc.message}"
+                    item_trail.note("E1 列表状态未知", business_reason)
+
+            # Discovery is read-only, so inspect every workflow tab even when
+            # the list status would block a later apply.  Page capability and
+            # business eligibility are separate facts and must not be conflated.
             selected = _select_shipment_tab(
                 driver,
                 shipment_id,
@@ -1973,29 +1990,61 @@ def _run_discovery(
                 trail=item_trail,
             )
             inspection = inspect_selected_shipment(_read_page(driver), now=moment)
+            page_editable = inspection.get("editable")
+            selectable = business_eligible is True and page_editable is True
+            if business_eligible is False:
+                status = "ineligible"
+                editable: bool | None = False
+                reason = business_reason
+            elif business_eligible is None:
+                status = "unknown"
+                editable = None
+                reason = business_reason
+            else:
+                status = str(inspection.get("status") or "unknown")
+                editable = page_editable if isinstance(page_editable, bool) else None
+                reason = str(inspection.get("reason") or "")
             shipments.append(
                 {
-                    "fba_shipment_id": shipment_id,
+                    **operator_identity,
                     "tab_index": selected["index"],
                     **child_evidence,
                     **inspection,
+                    "status": status,
+                    "editable": editable,
+                    "reason": reason,
+                    "failure_code": "E1" if business_eligible is None else "",
+                    "page_editability_status": inspection.get("status"),
+                    "page_editable": page_editable,
+                    "page_editability_reason": inspection.get("reason"),
+                    "business_eligible": business_eligible,
+                    "selectable": selectable,
                     "steps": item_trail.entries,
                 }
             )
         except _HardFailure as exc:
             shipments.append(
                 {
-                    "fba_shipment_id": shipment_id,
+                    **operator_identity,
+                    **child_evidence,
                     "status": "unknown",
                     "editable": None,
                     "reason": f"{exc.code}: {exc.message}",
                     "failure_code": exc.code,
+                    "page_editability_status": "unknown",
+                    "page_editable": None,
+                    "page_editability_reason": f"{exc.code}: {exc.message}",
+                    "business_eligible": business_eligible,
+                    "selectable": False,
                     "steps": item_trail.entries,
                 }
             )
 
     editable_ids = [
-        item["fba_shipment_id"] for item in shipments if item.get("editable") is True
+        item["fba_shipment_id"] for item in shipments if item.get("selectable") is True
+    ]
+    page_editable_ids = [
+        item["fba_shipment_id"] for item in shipments if item.get("page_editable") is True
     ]
     unknown_ids = [
         item["fba_shipment_id"] for item in shipments if item.get("editable") is None
@@ -2003,7 +2052,22 @@ def _run_discovery(
     ineligible_ids = [
         item["fba_shipment_id"]
         for item in shipments
-        if item.get("status") == "ineligible"
+        if item.get("business_eligible") is False
+    ]
+    operator_options = [
+        {
+            "selection_number": item["selection_number"],
+            "label": item["operator_label"],
+            "fba_shipment_id": item["fba_shipment_id"],
+            "order_status": item.get("order_status"),
+            "current_window": item.get("current_window"),
+            "page_editable": item.get("page_editable"),
+            "business_eligible": item.get("business_eligible"),
+            "selectable": item.get("selectable"),
+            "status": item.get("status"),
+            "reason": item.get("reason"),
+        }
+        for item in shipments
     ]
     workflow_id = _workflow_id_from_url(getattr(driver, "current_url", ""))
     payload = {
@@ -2013,7 +2077,9 @@ def _run_discovery(
         "seed_shipment_id": seed,
         "workflow_id": workflow_id,
         "shipment_count": len(shipments),
+        "operator_options": operator_options,
         "editable_shipment_ids": editable_ids,
+        "page_editable_shipment_ids": page_editable_ids,
         "ineligible_shipment_ids": ineligible_ids,
         "unknown_shipment_ids": unknown_ids,
         "shipments": shipments,
@@ -2036,7 +2102,8 @@ def _run_discovery(
         "exception": "",
         "notice": (
             f"只读发现完成：工作流程 {workflow_id or '(未解析)'} 共 {len(shipments)} 个货件，"
-            f"可修改 {len(editable_ids)} 个，业务状态排除 {len(ineligible_ids)} 个，"
+            f"页面可编辑 {len(page_editable_ids)} 个，符合业务状态且可选 {len(editable_ids)} 个，"
+            f"业务状态排除 {len(ineligible_ids)} 个，"
             f"状态未知 {len(unknown_ids)} 个；"
             "未打开编辑弹窗、未点击日历、未点击确认按钮"
         ),

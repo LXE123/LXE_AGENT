@@ -60,6 +60,10 @@ def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() 
     assert "批准后只执行一次同参数 `apply=true`" in skill
     assert 'status="applied"' in skill
     assert "`applied_window` 精确等于目标周" in skill
+    assert "任何修改请求都必须先执行 discovery" in skill
+    assert "货件编号 1" in skill
+    assert "默认不展示 `fba_shipment_id`" in skill
+    assert "请选择要修改的货件编号（可多选）" in skill
     assert "不主动调用 `send_files`" in skill
 
 
