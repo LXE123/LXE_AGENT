@@ -48,6 +48,9 @@ was open).
 
 Argument contract (the catalog ``input_schema`` is the source of truth):
 
+- ``action`` (optional, default ``apply``) — ``discover`` scans every shipment
+  tab in the seed shipment's STA workflow without opening the edit modal;
+  ``apply`` keeps the existing verified write path
 - ``store_id`` (required) — the Ziniao store to drive
 - ``page_url`` (required) — absolute http(s) Amazon shipment **hub** URL; the
   site (US/UK/DE/AU/CA/JP) is carried by the URL, so there is no ``site`` key
@@ -74,7 +77,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
@@ -110,6 +113,7 @@ STA_LINK_SELECTOR = (
 )
 STA_LINK_ANY_SELECTOR = f'kat-link[href*="{STA_HREF_MARKER}"], a[href*="{STA_HREF_MARKER}"]'
 TRACKING_TAB_SELECTOR = '[data-testid="shipment-tracking-tab"]'
+STEP_VIEW_LINK_SELECTOR = '[data-testid="step-view-link"]'
 EDIT_LINK_SELECTOR = '[data-testid="edit-delivery-window-link"]'
 GRACE_SELECTOR = '[data-testid="edit-delivery-window-grace-period"]'
 MODAL_BODY_SELECTOR = '[data-testid="edit-delivery-window-modal-body"]'
@@ -136,6 +140,9 @@ MAX_MONTH_STEPS = 24
 DEFAULT_TIMEOUT_SECONDS = 60
 MAX_TIMEOUT_SECONDS = 600
 _WAIT_INTERVAL_SECONDS = 0.5
+
+ACTION_APPLY = "apply"
+ACTION_DISCOVER = "discover"
 
 #: Sleep indirection so tests can drive the timeout branches instantly.
 _SLEEP: Callable[[float], None] = time.sleep
@@ -509,6 +516,49 @@ def verify_tab_selection(tabs: Sequence[Mapping[str, Any]], index: int) -> dict[
     }
 
 
+def _parse_timeout(args: Mapping[str, Any]) -> int:
+    raw_timeout = args.get("timeout_sec", DEFAULT_TIMEOUT_SECONDS)
+    try:
+        timeout_sec = int(raw_timeout)
+    except (TypeError, ValueError) as exc:
+        raise DeliveryWindowApplyArgumentError(
+            f"timeout_sec 必须是整数秒，收到: {raw_timeout!r}"
+        ) from exc
+    if not 1 <= timeout_sec <= MAX_TIMEOUT_SECONDS:
+        raise DeliveryWindowApplyArgumentError(
+            f"timeout_sec 必须在 1-{MAX_TIMEOUT_SECONDS} 秒之间，收到: {timeout_sec}"
+        )
+    return timeout_sec
+
+
+def plan_discover(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a read-only workflow discovery request.
+
+    One FBA shipment id is the seed used to locate its STA workflow.  The live
+    page, not an assumed count, is authoritative for the sibling shipments.
+    """
+    args = dict(arguments or {})
+    base = dwl.plan_read(args)
+    shipment_ids = list(base["shipment_ids"])
+    if len(shipment_ids) != 1:
+        raise DeliveryWindowApplyArgumentError(
+            "action=discover 时 shipment_ids 必须且只能提供 1 个 FBA 货件编号，"
+            "程序会用它定位工作流程并动态读取全部子货件"
+        )
+    if bool(args.get("apply", False)):
+        raise DeliveryWindowApplyArgumentError("action=discover 是只读操作，不能同时传 apply=true")
+    return {
+        "action": ACTION_DISCOVER,
+        "store_id": base["store_id"],
+        "page_url": base["page_url"],
+        "shipment_ids": shipment_ids,
+        "seed_shipment_id": shipment_ids[0],
+        "apply": False,
+        "timeout_sec": _parse_timeout(args),
+        "plan_only": bool(base["plan_only"]),
+    }
+
+
 def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None) -> dict[str, Any]:
     """Validate and normalize the argument contract.  Pure; no side effects.
 
@@ -538,19 +588,10 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
             f"若你指的是下一年，请写成带年份的 {end.year + 1}-{target_date.month:02d}-{target_date.day:02d}"
         )
 
-    raw_timeout = args.get("timeout_sec", DEFAULT_TIMEOUT_SECONDS)
-    try:
-        timeout_sec = int(raw_timeout)
-    except (TypeError, ValueError) as exc:
-        raise DeliveryWindowApplyArgumentError(
-            f"timeout_sec 必须是整数秒，收到: {raw_timeout!r}"
-        ) from exc
-    if not 1 <= timeout_sec <= MAX_TIMEOUT_SECONDS:
-        raise DeliveryWindowApplyArgumentError(
-            f"timeout_sec 必须在 1-{MAX_TIMEOUT_SECONDS} 秒之间，收到: {timeout_sec}"
-        )
+    timeout_sec = _parse_timeout(args)
 
     return {
+        "action": ACTION_APPLY,
         "store_id": base["store_id"],
         "page_url": base["page_url"],
         "shipment_ids": shipment_ids,
@@ -866,6 +907,53 @@ def read_tracking_tabs(html: object) -> list[dict[str, Any]]:
     return tabs
 
 
+def inspect_selected_shipment(html: object, *, now: _dt.datetime) -> dict[str, Any]:
+    """Describe whether the currently selected shipment tab is editable.
+
+    This is deliberately a read-only, conservative check.  ``editable=true``
+    requires all three live facts: a parsed current window, an unexpired grace
+    deadline, and the edit entry being present.  Missing or unparseable facts
+    are reported as ``unknown`` instead of being guessed.
+    """
+    source = str(html or "")
+    current = read_current_window_text(source)
+    grace_text = read_grace_text(source)
+    grace = parse_grace_period(grace_text["text"], now=now)
+    edit_link_present = _first(_soup(source), EDIT_LINK_SELECTOR) is not None
+
+    if current["status"] != WINDOW_PARSED:
+        status = "unknown"
+        editable: bool | None = None
+        reason = f"当前送达时段无法读取（{current['status']}）"
+    elif grace["status"] != WINDOW_PARSED:
+        status = "unknown"
+        editable = None
+        reason = f"可编辑截止时间无法读取（{grace['reason']}）"
+    elif not grace["editable"]:
+        status = "locked"
+        editable = False
+        reason = f"可编辑截止时间 {grace['deadline']} 已过"
+    elif not edit_link_present:
+        status = "unavailable"
+        editable = False
+        reason = f"页面没有编辑时段入口（{EDIT_LINK_SELECTOR}）"
+    else:
+        status = "editable"
+        editable = True
+        reason = "页面存在编辑入口，且可编辑截止时间尚未到"
+
+    return {
+        "status": status,
+        "editable": editable,
+        "reason": reason,
+        "current_window": current.get("window"),
+        "current_window_read": current,
+        "grace": grace,
+        "grace_text": grace_text,
+        "edit_link_present": edit_link_present,
+    }
+
+
 def read_sta_link(html: object) -> dict[str, Any]:
     """Read the STA (``/fba/sendtoamazon?wf=``) link of the detail page."""
     soup = _soup(html)
@@ -1073,6 +1161,41 @@ const nodes = Array.from(deepQuerySelectorAll(selector) || []);
 return dispatchClick(nodes[index] || null);
 """
 
+_CLICK_TRACKING_STEP_VIEW_SCRIPT = _CLICK_SEQUENCE_JS + r"""
+const selector = String(arguments[0] || '');
+const links = Array.from(deepQuerySelectorAll(selector) || []);
+
+function cleanText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function composedParent(node) {
+  if (!node) return null;
+  if (node.parentElement) return node.parentElement;
+  const root = (typeof node.getRootNode === 'function') ? node.getRootNode() : null;
+  return root && root.host ? root.host : null;
+}
+
+function isTrackingFinalStep(text) {
+  const chinese = text.indexOf('最后一步') !== -1 && text.indexOf('追踪详情') !== -1;
+  const english = text.indexOf('final step') !== -1 && text.indexOf('tracking detail') !== -1;
+  return chinese || english;
+}
+
+let best = null;
+for (const link of links) {
+  let node = link;
+  for (let depth = 0; node && depth < 10; depth += 1) {
+    if (isTrackingFinalStep(cleanText(node.innerText || node.textContent || ''))) {
+      if (!best || depth < best.depth) best = { link, depth };
+      break;
+    }
+    node = composedParent(node);
+  }
+}
+return best ? dispatchClick(best.link) : false;
+"""
+
 _SELECTOR_PRESENT_SCRIPT = r"""
 const selector = String(arguments[0] || '');
 return Boolean(deepQuerySelector(selector));
@@ -1184,6 +1307,16 @@ def _click_selector(driver: Any, selector: str) -> bool:
 
 def _click_nth(driver: Any, selector: str, index: int) -> bool:
     return bool(driver.execute_script(SHADOW_DOM_HELPERS_JS + _CLICK_NTH_SCRIPT, selector, int(index)))
+
+
+def _click_tracking_step_view(driver: Any) -> bool:
+    """Expand the final Tracking details step without relying on link order."""
+    return bool(
+        driver.execute_script(
+            SHADOW_DOM_HELPERS_JS + _CLICK_TRACKING_STEP_VIEW_SCRIPT,
+            STEP_VIEW_LINK_SELECTOR,
+        )
+    )
 
 
 def _selector_present(driver: Any, selector: str) -> bool:
@@ -1299,6 +1432,32 @@ def _open_tracking_detail(
     timeout_seconds: float,
     trail: _Trail,
 ) -> None:
+    def reveal_tabs() -> bool:
+        _wait_until(
+            lambda: (
+                _selector_count(driver, TRACKING_TAB_SELECTOR) > 0
+                or _selector_count(driver, STEP_VIEW_LINK_SELECTOR) > 0
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        if _selector_count(driver, TRACKING_TAB_SELECTOR) > 0:
+            return True
+        if _selector_count(driver, STEP_VIEW_LINK_SELECTOR) <= 0:
+            return False
+        clicked = _click_tracking_step_view(driver)
+        trail.note(
+            "E2a 展开最后一步",
+            f"selector={STEP_VIEW_LINK_SELECTOR} click={clicked}",
+        )
+        if not clicked:
+            return False
+        return bool(
+            _wait_until(
+                lambda: _selector_count(driver, TRACKING_TAB_SELECTOR) > 0,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
     driver.get(detail_url)
     _wait_until(
         lambda: bool(read_sta_link(_read_page(driver))["href"]),
@@ -1314,12 +1473,12 @@ def _open_tracking_detail(
     trail.note("E2a 打开追踪详情", f"detail={detail_url} sta={link['href']} via={link['source']}")
 
     driver.get(urljoin(detail_url, link["href"]))
-    opened = _wait_until(
-        lambda: _selector_count(driver, TRACKING_TAB_SELECTOR) > 0,
-        timeout_seconds=timeout_seconds,
-    )
+    opened = reveal_tabs()
     if not opened:
-        trail.note("E2a 回退", "直开 STA URL 未出现分页，改为在详情页点击追踪详情链接")
+        trail.note(
+            "E2a 回退",
+            "直开 STA URL 未出现分页且无法展开最后一步，改为在详情页点击追踪详情链接",
+        )
         driver.get(detail_url)
         _wait_until(
             lambda: _selector_present(driver, SHIPMENT_INFO_DETAILS_SELECTOR),
@@ -1327,14 +1486,12 @@ def _open_tracking_detail(
         )
         if not _click_selector(driver, STA_LINK_SELECTOR):
             _fail("E2", f"点击 STA 追踪链接失败（{STA_LINK_SELECTOR}）；详情页原文: {_read_page(driver)[:400]}")
-        opened = _wait_until(
-            lambda: _selector_count(driver, TRACKING_TAB_SELECTOR) > 0,
-            timeout_seconds=timeout_seconds,
-        )
+        opened = reveal_tabs()
     if not opened:
         _fail(
             "E2",
-            f"追踪详情页没有出现货件分页（{TRACKING_TAB_SELECTOR}）；"
+            f"追踪详情页没有出现货件分页（{TRACKING_TAB_SELECTOR}），"
+            f"也无法通过最后一步的查看链接（{STEP_VIEW_LINK_SELECTOR}）展开；"
             f"当前 URL: {getattr(driver, 'current_url', '')}",
         )
 
@@ -1604,17 +1761,166 @@ def _run_one_shipment(
     return entry
 
 
-def _write_artifact(output_dir: str | Path, payload: Mapping[str, Any]) -> str:
+def _workflow_id_from_url(url: object) -> str:
+    values = parse_qs(urlsplit(str(url or "")).query).get("wf") or []
+    return _clean(values[0]) if values else ""
+
+
+def _run_discovery(
+    driver: Any,
+    plan: Mapping[str, Any],
+    *,
+    output_dir: str | Path,
+    now: _dt.datetime | None = None,
+) -> dict[str, Any]:
+    """Read every child shipment in one STA workflow; never open a modal."""
+    moment = now or _dt.datetime.now(_dt.timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+
+    seed = str(plan["seed_shipment_id"])
+    trail = _Trail()
+    origin = _origin(str(plan["page_url"]))
+    detail_url = DETAIL_URL_TEMPLATE.format(origin=origin, shipment_id=seed)
+
+    driver.get(str(plan["page_url"]))
+    _wait_until(
+        lambda: len(read_hub_cells(driver)) > 0,
+        timeout_seconds=float(plan["timeout_sec"]),
+    )
+    hub = build_hub_rows(read_hub_cells(driver))
+    row = hub["by_id"].get(seed)
+    if row is None:
+        _fail(
+            "E1",
+            f"用于定位工作流程的 {seed} 不在当前列表页；"
+            f"页面上的行: {sorted(hub['by_id'])[:10]}",
+        )
+    hub_status = _require_hub_status(row, seed, trail)
+
+    _open_tracking_detail(
+        driver,
+        detail_url=detail_url,
+        timeout_seconds=float(plan["timeout_sec"]),
+        trail=trail,
+    )
+    initial_tabs = read_tracking_tabs(_read_page(driver))
+    if not initial_tabs:
+        _fail("E2", f"工作流程中没有读到任何货件分页（{TRACKING_TAB_SELECTOR}）")
+
+    tab_ids: list[str] = []
+    malformed: list[dict[str, Any]] = []
+    for tab in initial_tabs:
+        ids = list(tab.get("fba_ids") or [])
+        if len(ids) != 1:
+            malformed.append(
+                {"index": tab.get("index"), "fba_ids": ids, "text": tab.get("text")}
+            )
+        else:
+            tab_ids.append(ids[0])
+    duplicates = sorted({item for item in tab_ids if tab_ids.count(item) > 1})
+    if malformed or duplicates:
+        _fail(
+            "E2",
+            f"无法把工作流程分页唯一映射为 FBA 货件编号；"
+            f"malformed={malformed} duplicates={duplicates}",
+        )
+
+    shipments: list[dict[str, Any]] = []
+    for shipment_id in tab_ids:
+        item_trail = _Trail()
+        try:
+            selected = _select_shipment_tab(
+                driver,
+                shipment_id,
+                timeout_seconds=float(plan["timeout_sec"]),
+                trail=item_trail,
+            )
+            inspection = inspect_selected_shipment(_read_page(driver), now=moment)
+            shipments.append(
+                {
+                    "fba_shipment_id": shipment_id,
+                    "tab_index": selected["index"],
+                    **inspection,
+                    "steps": item_trail.entries,
+                }
+            )
+        except _HardFailure as exc:
+            shipments.append(
+                {
+                    "fba_shipment_id": shipment_id,
+                    "status": "unknown",
+                    "editable": None,
+                    "reason": f"{exc.code}: {exc.message}",
+                    "failure_code": exc.code,
+                    "steps": item_trail.entries,
+                }
+            )
+
+    editable_ids = [
+        item["fba_shipment_id"] for item in shipments if item.get("editable") is True
+    ]
+    unknown_ids = [
+        item["fba_shipment_id"] for item in shipments if item.get("editable") is None
+    ]
+    workflow_id = _workflow_id_from_url(getattr(driver, "current_url", ""))
+    payload = {
+        "action": ACTION_DISCOVER,
+        "store_id": plan["store_id"],
+        "page_url": plan["page_url"],
+        "seed_shipment_id": seed,
+        "workflow_id": workflow_id,
+        "shipment_count": len(shipments),
+        "editable_shipment_ids": editable_ids,
+        "unknown_shipment_ids": unknown_ids,
+        "shipments": shipments,
+        "hub_seed": {
+            "order_status": hub_status["order_status"],
+            "unit_status": hub_status["unit_status"],
+        },
+        "steps": trail.entries,
+        "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+    }
+    artifact_path = _write_artifact(
+        output_dir,
+        payload,
+        prefix="amazon-delivery-window-discover",
+    )
+    finished = not unknown_ids
+    return {
+        "success": True,
+        "finished": finished,
+        "exception": "",
+        "notice": (
+            f"只读发现完成：工作流程 {workflow_id or '(未解析)'} 共 {len(shipments)} 个货件，"
+            f"可修改 {len(editable_ids)} 个，状态未知 {len(unknown_ids)} 个；"
+            "未打开编辑弹窗、未点击日历、未点击确认按钮"
+        ),
+        "file_path": _artifact_entries(artifact_path, key="delivery_window_discover"),
+        "data": payload,
+    }
+
+
+def _write_artifact(
+    output_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    prefix: str = "amazon-delivery-window-apply",
+) -> str:
     target_dir = Path(output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"amazon-delivery-window-apply-{int(time.time())}.json"
+    target = target_dir / f"{prefix}-{int(time.time())}.json"
     serialized = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     target.write_text(serialized, encoding="utf-8")
     return str(target.resolve())
 
 
-def _artifact_entries(artifact_path: str) -> list[dict[str, str]]:
-    return [{"key": "delivery_window_apply", "value": artifact_path}]
+def _artifact_entries(
+    artifact_path: str,
+    *,
+    key: str = "delivery_window_apply",
+) -> list[dict[str, str]]:
+    return [{"key": key, "value": artifact_path}]
 
 
 def _run_shipments(
@@ -1782,8 +2088,15 @@ def _payload(
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog ``input_schema`` is the argument contract."""
+    action = _clean((arguments or {}).get("action") or ACTION_APPLY).lower()
+    if action not in {ACTION_APPLY, ACTION_DISCOVER}:
+        return _payload(
+            success=False,
+            finished=False,
+            exception=f"action 必须是 {ACTION_DISCOVER} 或 {ACTION_APPLY}，收到: {action or '(空)'}",
+        )
     try:
-        plan = plan_apply(arguments)
+        plan = plan_discover(arguments) if action == ACTION_DISCOVER else plan_apply(arguments)
     except dwl.DeliveryWindowArgumentError as exc:
         return _payload(success=False, finished=False, exception=str(exc))
 
@@ -1814,7 +2127,17 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             driver = getattr(session, "driver", None)
             if driver is None:
                 raise RuntimeError("browser_session 没有提供 driver")
-            result = _run_shipments(driver, plan, output_dir=output_dir)
+            if action == ACTION_DISCOVER:
+                result = _run_discovery(driver, plan, output_dir=output_dir)
+            else:
+                result = _run_shipments(driver, plan, output_dir=output_dir)
+    except _HardFailure as exc:
+        return _payload(
+            success=False,
+            finished=False,
+            exception=f"{exc.code}: {exc.message}",
+            data={"plan": plan},
+        )
     except Exception as exc:  # noqa: BLE001 - the payload must carry the real error
         return _payload(
             success=False,
@@ -1846,6 +2169,7 @@ __all__ = [
     "ORDER_STATUS_COLUMN",
     "SHIPMENT_INFO_DETAILS_SELECTOR",
     "STA_LINK_SELECTOR",
+    "STEP_VIEW_LINK_SELECTOR",
     "TRACKING_TAB_SELECTOR",
     "UNIT_STATUS_COLUMN",
     "UPDATE_BUTTON_SELECTOR",
@@ -1853,11 +2177,13 @@ __all__ = [
     "calendar_week_span",
     "direct_text",
     "format_cn_window",
+    "inspect_selected_shipment",
     "parse_calendar_month_label",
     "parse_grace_period",
     "parse_target_date",
     "parse_unit_status",
     "plan_apply",
+    "plan_discover",
     "read_current_window_text",
     "read_grace_text",
     "read_hub_cells",

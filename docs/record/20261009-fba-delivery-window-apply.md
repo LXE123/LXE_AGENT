@@ -1,6 +1,6 @@
 # FBA 货件送达时段「改期」方案（浏览器路径）
 
-- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 84 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；**修正后尚未重跑真实 dry-run、尚未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
+- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 91 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。代码已补 `action=discover` 只读发现和精确展开逻辑；**新逻辑尚未重跑真实 discovery/dry-run、尚未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
 - 日期：2026-10-09（2026-10-10 按真机结果回写 §10 / §12 / §13 / §14，并新增 §15）
 - 结论先行：**要改的确实是 Amazon 侧的送达时段**，但**不需要 SP-API**（写路径也不止 SP-API 一条）。因为业务直接给目标日期，整条「去货代后台查转单号 → 到尾程派送商查实际时间」的链路被砍掉。真正要做的是：**读 Amazon 页面确认货件还没接收完 → 在「追踪详情」的弹窗日历上选目标日 → 确认**，全程走官方配对 Selenium。
 
@@ -114,6 +114,7 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
+| `action` | ➖ | 默认 `apply`。`discover` = 用一个种子 FBA 号定位 STA 工作流程，动态读取其中全部目的地子货件及可编辑状态，全程不打开编辑弹窗；`apply` = 对明确选择的货件走既有 dry-run/写入路径。 |
 | `store_id` | ✅ | 紫鸟店铺 oauth（来自用户或 `lxeskill browser store --action get_status`） |
 | `page_url` | ✅ | **货件列表页的绝对 http(s) 地址**（就是平常打开「货件一览」那个页面）。站点 origin 和列表页都由它承载：② 的 `orderStatus` / `unitStatus` 要在这个页面读，③④ 的详情页 URL 要用它的 origin 拼。 |
 | `shipment_ids` | ✅ | FBA 货件号数组，形如 `FBA19PKKBQ4N`（`^FBA[A-Z0-9]{7,}$`）。**逐个独立处理** |
@@ -121,6 +122,10 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 | `apply` | ➖ | 默认 `false`。`false` = dry-run：只读到「准备从 X 改到 Y」并返回，不点任何东西 |
 | `timeout_sec` | ➖ | 默认 `60`，允许 `1–600`。页面等待（列表页出行、STA 分页出现）用这个上限 |
 | `plan_only` | ➖ | 默认 `false`。`true` = 只校验参数就返回，完全不碰浏览器（快速自检用） |
+
+`action=discover` 时，`shipment_ids` 必须且只能提供一个种子 FBA 货件号，`target_date` 不需要提供，且禁止 `apply=true`。程序从该货件详情进入所属 STA 工作流程，读取页面实际存在的全部 `[data-testid="shipment-tracking-tab"]`；数量不写死为 5。每个分页必须唯一解析出一个完整 FBA 号，随后逐页只读当前时段、grace 截止时间和编辑入口，返回 `editable / locked / unavailable / unknown`。其中 `editable=true` 必须同时满足：当前时段可解析、grace 未过期、页面存在编辑入口。
+
+对话层在 discovery 结果上接受自然语言选择，但真正调用 `action=apply` 前必须把选择标准化为完整 FBA 号和目标日期清单，再向用户确认一次；不能把“页面可编辑”直接当成用户授权。
 
 对应业务原话「帮我把未配送的商品 FBA号：XXXXXX 配送时间修改为10.28」——`shipment_id` + `target_date` 就是全部输入，**业务不需要算周**。`10.28` 是星期三 ⇒ 目标周 = `10月25日(周日) – 10月31日(周六)`。
 
@@ -135,9 +140,12 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 ②  列表状态校验      用入口参数 page_url 打开货件列表页，确认目标行存在并读取 orderStatus（E1）
                        unitStatus 只记入诊断，不作为进入下一步的门槛
 ③  进详情页          URL: /fba/inbound-shipment/summary/<FBA_ID>/contents
-④  进 STA 追踪详情    URL: /fba/sendtoamazon?wf=<wf>   ← 待实测
+④  进 STA 追踪详情    URL: /fba/sendtoamazon?wf=<wf>
                        回退：[data-testid="shipment-info-details"]
                              kat-link[href*="/fba/sendtoamazon?wf="]
+                       若分页未出现：在多个 [data-testid="step-view-link"] 中，
+                       按最近祖先文本精确定位「最后一步：追踪详情」的「查看」并展开；
+                       禁止按第几个链接盲点
 ⑤  选中该货件分页     [data-testid="shipment-tracking-tab"]，按分页内 FBA 号文本匹配
                        还必须能确认「目标分页确实选中了」，确认不了就停（E2）
 ⑥  读当前时段与截止   grace 优先 [data-testid="edit-delivery-window-grace-period"]；
@@ -246,7 +254,7 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 **新增（已落地）**
 
 - `python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` —— 写路径命令入口
-- `python/lxeskill_cli/tests/amazon/test_delivery_window_apply.py` —— 84 条定向单测
+- `python/lxeskill_cli/tests/amazon/test_delivery_window_apply.py` —— 91 条定向单测
 
 **已存在（复用，不改）**
 
@@ -580,6 +588,7 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 | R0 | 选定 1 个目标店铺，执行一次 `open_store` | 否 | 返回指定店铺、`core_version`、`debuggingPort` 等真实启动信息 | 原样记录错误并停止，不重复 `get_status` |
 | R1 | 通过项目的官方配对 Selenium 附着并做一次只读页面快照 | 否 | 能读到 Amazon 页面 URL / title；若落在登录页，交给人工登录后再继续 | 不用 Playwright、Puppeteer 或裸 CDP 绕过 |
 | R2 | `plan_only=true` 校验参数 | 否，且不接触页面 | 返回目标周、标准化后的 FBA 号与参数计划 | 修正输入后再进入 R3 |
+| R2.5 | `action=discover` 动态发现工作流程子货件 | 否；只切换追踪详情分页 | 返回实际分页数量、每个完整 FBA 号、当前时段、截止时间和 `editable/locked/unavailable/unknown`；明确显示未打开弹窗 | 任一分页不能唯一识别时停止写入计划；不把 `unknown` 当成可修改 |
 | R3 | 单票 `apply=false` dry-run | 否；允许打开编辑弹窗，随后尽力取消 | 返回货件号、当前时段、目标时段、可编辑截止；明确显示未点日历、未点确认 | 任一 E1–E9 立即停止，保留实际页面读数 |
 | R4 | 人工核对 R3 的四项结果，并明确批准该票写入 | 否 | 人、店铺、FBA 号、目标日期四者再次一致 | 未明确批准就不执行 R5 |
 | R5 | 同一票执行一次 `apply=true` | **是** | 确认按钮可用；提交后页面回读时段等于目标周；产物记录实际回读值 | 不自动补点、不换票；原样报告失败和页面实际值 |
@@ -596,7 +605,7 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 ### 15.5 当前执行边界
 
 - R0、R1、R2 已通过：目标店铺已启动、官方配对 Selenium 已附着、参数计划已生成。
-- 首次 R3 在列表页被旧 E1 误拦截；修正后尚未重跑 R3。下一动作应是同一票 `apply=false` dry-run，读取追踪详情里的真实截止时间。
+- 首次 R3 在列表页被旧 E1 误拦截；修正后第二次只读测试到达 STA 工作流程，但因「最后一步：追踪详情」折叠而停在 E2。代码已补精确展开和动态 discovery；下一动作应先用 `FBA19QP2RBT8` 执行一次 `action=discover`，确认实际 5 个分页及各自可编辑状态，再由用户选择后做单票 `apply=false` dry-run。
 - `delivery_window_apply.py` 尚未注册到 `catalog.json` / SKILL，因此 R2–R5 还不能当作正式模型工具调用。下一轮可先用受控的开发入口验证；要进入正式 Agent 流程，必须单独完成注册并按 AGENTS.md 同时跑 Python 与 Bun 的契约测试。
 - 在 R3 成功并由人工核对前，绝不执行 `apply=true`。
 
@@ -609,3 +618,11 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - 修正：E1 改为确认行存在并读取 `orderStatus`；`unitStatus` 只保留为诊断。最终可编辑性继续由 E3/E4 的 grace 文案、编辑入口与弹窗决定。
 - 回归测试：新增 `orderStatus=正在接收 + unitStatus=602/602` 仍进入追踪详情，以及 `orderStatus` 缺失才在 E1 停止；定向结果 **84 passed**。
 - 安全边界：修正后未自动重跑真实 R3；仍禁止点击日历、翻月和“确认新的送达时段”。
+
+### 15.7 STA 折叠步骤与动态子货件发现（2026-10-10）
+
+- 真实页面显示同一个 STA 工作流程的「目的地：5」，最终追踪步骤下有 5 个独立 FBA 子货件分页；5 是这次页面事实，不是固定数量。
+- 直接打开 `/fba/sendtoamazon?wf=...` 时，追踪详情可能仍折叠。页面有多个同名 `data-testid="step-view-link"`，必须选最近祖先同时包含「最后一步」和「追踪详情」的链接，不能按索引盲点。
+- 新增 `action=discover`：以用户提供的一个 FBA 号作为种子，动态枚举全部分页，逐页验证选中标记并只读当前时段、grace 和编辑入口；不打开编辑弹窗，不碰日历和确认按钮。
+- 对话层把 discovery 结果展示给用户，接受自然语言选择；在真正写入前回显完整 FBA 号与目标日期，并只确认一次。
+- 回归测试覆盖折叠展开、动态 3 分页、可编辑/锁定/无入口、发现参数和入口分发；当前定向结果 **91 passed**。

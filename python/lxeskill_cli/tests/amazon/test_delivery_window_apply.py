@@ -216,6 +216,41 @@ def test_plan_apply_rejects_a_bad_timeout(raw):
         )
 
 
+def test_plan_discover_uses_one_seed_and_does_not_require_a_target_date():
+    plan = dwa.plan_discover(
+        {
+            "action": "discover",
+            "store_id": "store-1",
+            "page_url": PAGE_URL,
+            "shipment_ids": SHIPMENT,
+        }
+    )
+    assert plan["action"] == "discover"
+    assert plan["seed_shipment_id"] == SHIPMENT
+    assert plan["apply"] is False
+    assert "target_date" not in plan
+
+
+def test_plan_discover_rejects_multiple_seeds_and_apply_true():
+    with pytest.raises(dwa.DeliveryWindowApplyArgumentError):
+        dwa.plan_discover(
+            {
+                "store_id": "store-1",
+                "page_url": PAGE_URL,
+                "shipment_ids": [SHIPMENT, SHIPMENT_B],
+            }
+        )
+    with pytest.raises(dwa.DeliveryWindowApplyArgumentError):
+        dwa.plan_discover(
+            {
+                "store_id": "store-1",
+                "page_url": PAGE_URL,
+                "shipment_ids": SHIPMENT,
+                "apply": True,
+            }
+        )
+
+
 # --------------------------------------------------------------------------
 # HTML reads — the same code the live run uses, over the real fixture.
 # --------------------------------------------------------------------------
@@ -246,6 +281,43 @@ def test_read_legend_selected_text_reads_the_marked_week(modal_html):
     # The swatch class sits on a grandchild, the label on a sibling span.
     assert "item-text" in legend["matched_by"]
     assert "descendant-class" in legend["matched_by"]
+
+
+def test_inspect_selected_shipment_requires_window_grace_and_edit_link():
+    editable = dwa.inspect_selected_shipment(
+        _tracking_html(
+            shipment_ids=[SHIPMENT],
+            selected_index=0,
+            window_display=CURRENT_WINDOW,
+        ),
+        now=NOW,
+    )
+    assert editable["status"] == "editable"
+    assert editable["editable"] is True
+
+    locked = dwa.inspect_selected_shipment(
+        _tracking_html(
+            shipment_ids=[SHIPMENT],
+            selected_index=0,
+            window_display=CURRENT_WINDOW,
+            grace="在 2026年9月27日, 00:00 UTC 之前",
+        ),
+        now=NOW,
+    )
+    assert locked["status"] == "locked"
+    assert locked["editable"] is False
+
+    unavailable = dwa.inspect_selected_shipment(
+        _tracking_html(
+            shipment_ids=[SHIPMENT],
+            selected_index=0,
+            window_display=CURRENT_WINDOW,
+            with_edit_link=False,
+        ),
+        now=NOW,
+    )
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["editable"] is False
 
 
 def test_read_update_button_state_sees_the_disabled_flag(modal_html):
@@ -442,6 +514,15 @@ def _tracking_html(
     )
 
 
+def _collapsed_tracking_html() -> str:
+    return (
+        '<section><h3>第 1 步：已确认要发送的库存</h3>'
+        '<kat-link data-testid="step-view-link">查看</kat-link></section>'
+        '<section><h3>最后一步：追踪详情</h3>'
+        '<kat-link data-testid="step-view-link">查看</kat-link></section>'
+    )
+
+
 def _modal_html(*, current_display, legend_display, button_disabled=True) -> str:
     disabled = ' disabled="true"' if button_disabled else ""
     return (
@@ -503,7 +584,9 @@ class _ScriptedDriver:
             "grace": "在 2026年10月11日, 00:00 UTC 之前",
             "current_window": CURRENT_WINDOW,
             "with_edit_link": True,
+            "tracking_expanded": True,
         }
+        self.shipment_states = {}
         self.opened: list[str] = []
         self.clicks: list[tuple] = []
         self.scripts: list[tuple] = []
@@ -524,14 +607,19 @@ class _ScriptedDriver:
         if "/contents" in url:
             return _detail_html(url.split("/summary/")[1].split("/")[0])
         if "sendtoamazon" in url:
-            window = self.target_window if self.state["applied"] else self.state["current_window"]
+            if not self.state["tracking_expanded"]:
+                return _collapsed_tracking_html()
+            selected_id = self.shipment_ids[self.state["selected_index"]]
+            selected_state = self.shipment_states.get(selected_id, {})
+            current_window = selected_state.get("current_window", self.state["current_window"])
+            window = self.target_window if self.state["applied"] else current_window
             html = _tracking_html(
                 shipment_ids=self.shipment_ids,
                 selected_index=self.state["selected_index"],
                 window_display=window,
                 markers=self.markers,
-                grace=self.state["grace"],
-                with_edit_link=self.state["with_edit_link"],
+                grace=selected_state.get("grace", self.state["grace"]),
+                with_edit_link=selected_state.get("with_edit_link", self.state["with_edit_link"]),
             )
             if self.state["modal_open"]:
                 legend = self.target_window if self.state["day_clicked"] else self.state["current_window"]
@@ -593,6 +681,9 @@ class _ScriptedDriver:
                     self.state["applied"] = True
                     self.state["modal_open"] = False
                 return True
+            if selector == dwa.STEP_VIEW_LINK_SELECTOR:
+                self.state["tracking_expanded"] = True
+                return True
             if selector == dwa.TRACKING_TAB_SELECTOR:
                 if self.state["tab_click_confirms"]:
                     self.state["selected_index"] = int(args[1])
@@ -600,7 +691,17 @@ class _ScriptedDriver:
             return True
         if "Array.from" in script:
             if selector == dwa.TRACKING_TAB_SELECTOR:
-                return len(self.shipment_ids) if "sendtoamazon" in self.state["url"] else 0
+                return (
+                    len(self.shipment_ids)
+                    if "sendtoamazon" in self.state["url"] and self.state["tracking_expanded"]
+                    else 0
+                )
+            if selector == dwa.STEP_VIEW_LINK_SELECTOR:
+                return (
+                    2
+                    if "sendtoamazon" in self.state["url"] and not self.state["tracking_expanded"]
+                    else 0
+                )
             return 0
         return None
 
@@ -670,6 +771,59 @@ def test_dry_run_stops_before_the_calendar_and_never_confirms(tmp_path):
     assert all(click[0] != dwa.CALENDAR_SELECTOR for click in driver.clicks)
     assert not any("labelPrefix" in script for script, _ in driver.scripts)
     assert driver.clicked(dwa.CANCEL_BUTTON_SELECTOR)
+
+
+def test_tracking_page_expands_the_final_step_before_selecting_the_tab(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT],
+    )
+    driver.state["tracking_expanded"] = False
+
+    result = _run(driver, _plan(apply=False), tmp_path)
+
+    assert result["success"] is True
+    assert _entry(result)["status"] == "dry_run_ready"
+    assert driver.clicked(dwa.STEP_VIEW_LINK_SELECTOR)
+    steps = [item["step"] for item in _entry(result)["steps"]]
+    assert "E2a 展开最后一步" in steps
+
+
+def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT, SHIPMENT_B, SHIPMENT_C],
+    )
+    driver.shipment_states = {
+        SHIPMENT_B: {"with_edit_link": False},
+        SHIPMENT_C: {"grace": "在 2026年9月27日, 00:00 UTC 之前"},
+    }
+    plan = dwa.plan_discover(
+        {
+            "action": "discover",
+            "store_id": "store-1",
+            "page_url": PAGE_URL,
+            "shipment_ids": SHIPMENT,
+            "timeout_sec": 1,
+        }
+    )
+
+    result = dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert result["success"] is True and result["finished"] is True
+    assert result["data"]["shipment_count"] == 3
+    assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert [item["status"] for item in result["data"]["shipments"]] == [
+        "editable",
+        "unavailable",
+        "locked",
+    ]
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+    assert all(click[0] != dwa.CALENDAR_SELECTOR for click in driver.clicks)
+    artifact = Path(result["file_path"][0]["value"])
+    assert result["file_path"][0]["key"] == "delivery_window_discover"
+    assert artifact.exists()
 
 
 def test_already_target_week_short_circuits_without_touching_the_modal(tmp_path):
@@ -959,6 +1113,27 @@ def test_calendar_paging_walks_forward_to_the_target_month(tmp_path):
 # --------------------------------------------------------------------------
 # run() — the lxeskill entrypoint.
 # --------------------------------------------------------------------------
+
+
+def test_run_dispatches_read_only_discovery_plan_without_a_target_date():
+    payload = dwa.run(
+        {
+            "action": "discover",
+            "store_id": "store-1",
+            "page_url": PAGE_URL,
+            "shipment_ids": SHIPMENT,
+            "plan_only": True,
+        }
+    )
+    assert payload["success"] is True
+    assert payload["data"]["plan"]["action"] == "discover"
+    assert "target_date" not in payload["data"]["plan"]
+
+
+def test_run_rejects_an_unknown_action():
+    payload = dwa.run({"action": "guess"})
+    assert payload["success"] is False
+    assert "action 必须是" in payload["exception"]
 
 
 def test_run_without_a_session_reports_it_before_touching_a_browser(monkeypatch):
