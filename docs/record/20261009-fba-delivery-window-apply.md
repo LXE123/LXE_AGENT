@@ -1,6 +1,6 @@
 # FBA 货件送达时段「改期」方案（浏览器路径）
 
-- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 96 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。`action=discover` 已完成真实只读验证并正确识别 5 个可修改子货件；**尚未进入 `apply=false` dry-run、未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
+- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 96 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。`action=discover` 已完成真实只读验证并正确识别 5 个可修改子货件；货件编号 2 已完成 `apply=false` 安全测试并正常取消。**未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
 - 日期：2026-10-09（2026-10-10 按真机结果回写 §10 / §12 / §13 / §14，并新增 §15）
 - 结论先行：**要改的确实是 Amazon 侧的送达时段**，但**不需要 SP-API**（写路径也不止 SP-API 一条）。因为业务直接给目标日期，整条「去货代后台查转单号 → 到尾程派送商查实际时间」的链路被砍掉。真正要做的是：**读 Amazon 页面确认货件还没接收完 → 在「追踪详情」的弹窗日历上选目标日 → 确认**，全程走官方配对 Selenium。
 
@@ -635,3 +635,11 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - 最终真实重跑：工作流程 `wf9b69e020-9688-4560-b668-0f7dc431af0c` 共 5 个子货件，`FBA19QP2RBT8`、`FBA19QP60G99`、`FBA19QPC6XSM`、`FBA19QP5R398`、`FBA19QP8GW5S` 均为 `editable`，可修改 5 个、未知项 0 个；每个分页都留有独立的唯一选中证据。
 - 5 个子货件当前时段均为 `2026-10-04`–`2026-10-10`，页面 grace 截止均为 `2026-10-11T00:00:00+00:00`，编辑链接均存在且没有禁用属性。tooltip 文案仍记录在结果中，但不再覆盖真实链接状态。
 - 最终证据文件：`.lxeagent/artifacts/browser/workflows/fba-delivery-window-discover-20261010/amazon-delivery-window-discover-1791614552.json`。本次 discovery 未打开编辑弹窗、未点击日历、未点击“确认新的送达时段”。
+
+### 15.9 货件编号 2 的真实 `apply=false` 测试（2026-10-10）
+
+- 输入：`FBA19QP60G99`，目标日期 `2026-10-15`，目标周 `2026-10-11`–`2026-10-17`，`apply=false`。
+- 结果：`success=true`、`finished=true`、`status=dry_run_ready`。列表页状态为“正在接收”，分页唯一确认 `index=1`。
+- 编辑弹窗成功打开；页面与弹窗中的当前送达时段交叉校验一致，均为 `2026-10-04`–`2026-10-10`。
+- dry-run 最后成功点击“取消”。没有点击日历日期，也没有点击“确认新的送达时段”，Amazon 数据未改变。
+- 证据文件：`.lxeagent/artifacts/browser/workflows/fba-delivery-window-dry-run-20261010/amazon-delivery-window-apply-1791614764.json`。
