@@ -96,7 +96,7 @@ Office uses `exec` → `shared.office`, plus existing `read` and `send_files`. I
 
 - `ziniao-browser`: controlled store lifecycle, snapshots, navigation, and page interaction.
 
-命令名称与选项规范见 [ERP 导出与越南计算命令](erp-command-names.md)。
+ERP 导出命令采用「数据源 + 数据对象 + export」，越南计算采用 `vietnam replenishment calculate`，均以 `lxeskill` 开头。实际参数和输入方式见 [CLI 契约](../../../python/lxeskill_cli/lxeskill/catalog.json) 或 `lxeskill describe <命令>`；操作步骤由对应 Skill 维护。
 
 ## Runtime Visibility
 
