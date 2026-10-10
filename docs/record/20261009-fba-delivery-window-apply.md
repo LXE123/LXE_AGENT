@@ -667,3 +667,106 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - `discover` 仍可用一个种子编号定位并动态枚举整个 STA 工作流程，但逐个回查列表状态：`已发货` 才继续检查时段与编辑入口；`正在接收` 等返回 `status="ineligible"`、`editable=false`，不切换其分页；列表缺行或状态不可读则返回未知。
 - `unitStatus` 保持纯诊断：新增回归证明 `已发货 + 0/172` 可以继续，而 `正在接收 + 0/172`、`已完成`、`在途`均会停止。
 - 定向测试：`uv run pytest python/lxeskill_cli/tests/amazon/test_delivery_window_apply.py -q`，结果 **101 passed**。本轮仅更新代码、测试和文档，没有连接店铺或执行 Amazon 页面操作。
+
+### 15.13 下一轮实际修改测试：必须先附着浏览器（2026-10-10）
+
+本节是下一次真实 `apply=true` 测试的执行清单。**“紫鸟店铺窗口已经打开”不等于脚本已经附着浏览器**；正式运行前必须执行下面的 `browser_snapshot` 命令，确认项目能够通过当前 Agent 会话找到店铺会话，并使用官方配对的 `SeleniumRunner + chromedriver` 附着。禁止改用 Playwright、Puppeteer、系统 ChromeDriver 或裸 CDP。
+
+#### A. 先锁定变量
+
+以下 5 项必须使用当次真实值，不得沿用旧店铺或猜测：
+
+```bash
+cd /Users/lxe-3/LXE_AGENT/.worktrees/pool-1 || exit 1
+
+export LXE_AGENT_SESSION_ID="<当前 LXE_Agent 会话 ID>"
+export LXE_FBA_STORE_ID="<Amazon-Yunjian-US 对应的 store_id>"
+export LXE_FBA_PAGE_URL="https://sellercentral.amazon.com/manage/shipments?ref=sc_shipments"
+export LXE_FBA_SHIPMENT_ID="<本次选定且列表状态为“已发货”的完整 FBA 号>"
+export LXE_FBA_TARGET_DATE="<YYYY-MM-DD>"
+```
+
+- `store_id` 必须来自当次 `get_status`，不能仅凭店铺名称构造。
+- `shipment_id` 必须逐字匹配列表中的完整 FBA 号，且 `orderStatus` 必须为 `已发货`。
+- `target_date` 由业务方提供；脚本计算出的周日到周六目标周必须在写入前再次回显确认。
+
+#### B. 确认店铺运行状态；仅在未运行时启动
+
+```bash
+UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen lxeskill browser store \
+  --session-id "$LXE_AGENT_SESSION_ID" \
+  --action get_status
+```
+
+如果 `Amazon-Yunjian-US` 已在运行，直接复用，**不要再次 `open_store`**。只有未运行时才执行一次：
+
+```bash
+UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen lxeskill browser store \
+  --session-id "$LXE_AGENT_SESSION_ID" \
+  --action open_store \
+  --store-id "$LXE_FBA_STORE_ID"
+```
+
+#### C. 必须执行的“附着浏览器”命令
+
+```bash
+UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen lxeskill browser page \
+  --session-id "$LXE_AGENT_SESSION_ID" \
+  --action browser_snapshot \
+  --store-id "$LXE_FBA_STORE_ID"
+```
+
+成功判据：命令 `ok=true`，并返回当前 Amazon 页面 URL / title / snapshot 内容。该命令内部按 `store_id` 读取运行中的紫鸟会话，取得 `debugging_port`、`core_version` 和 `browser_path`，再由项目的 `SeleniumRunner` 选择匹配的 chromedriver 并附着；**不得手工填写调试端口，也不得直接启动另一个浏览器**。如果这里失败，原样记录实际错误并停止，不运行后面的改期命令。
+
+#### D. 先做同参数 dry-run
+
+`delivery_window_apply.py` 尚未注册到 `catalog.json`，所以暂时使用下面的受控开发入口。它不是独立浏览器脚本：模块内部仍会根据 `LXE_AGENT_SESSION_ID + store_id` 调用 `browser_session`，附着 C 步已经验证的同一个紫鸟店铺。
+
+```bash
+UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen python -c '
+import json
+import os
+from services.agent_cli.browser.amazon_fba import delivery_window_apply as command
+
+result = command.run({
+    "action": "apply",
+    "store_id": os.environ["LXE_FBA_STORE_ID"],
+    "page_url": os.environ["LXE_FBA_PAGE_URL"],
+    "shipment_ids": [os.environ["LXE_FBA_SHIPMENT_ID"]],
+    "target_date": os.environ["LXE_FBA_TARGET_DATE"],
+    "apply": False,
+})
+print(json.dumps(result, ensure_ascii=False, indent=2))
+'
+```
+
+只有以下结果全部成立才能准备真写：
+
+1. E1 回读 `order_status="已发货"`；`unitStatus` 数量只记录、不参与放行。
+2. 完整 FBA 号、当前送达时段、目标日期和目标周与人工确认一致。
+3. 编辑弹窗能打开并安全取消，结果为 `dry_run_ready`；没有点击“确认新的送达时段”。
+4. 当次操作者再次明确批准这一个店铺、一个 FBA 号和一个目标日期的真实写入。
+
+#### E. 实际修改命令（有写操作，只执行一次）
+
+得到 D 步之后的明确人工批准，才允许把同一份参数的 `apply` 改成 `True`：
+
+```bash
+UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen python -c '
+import json
+import os
+from services.agent_cli.browser.amazon_fba import delivery_window_apply as command
+
+result = command.run({
+    "action": "apply",
+    "store_id": os.environ["LXE_FBA_STORE_ID"],
+    "page_url": os.environ["LXE_FBA_PAGE_URL"],
+    "shipment_ids": [os.environ["LXE_FBA_SHIPMENT_ID"]],
+    "target_date": os.environ["LXE_FBA_TARGET_DATE"],
+    "apply": True,
+})
+print(json.dumps(result, ensure_ascii=False, indent=2))
+'
+```
+
+真实写入的成功判据不是“点击没有报错”，而是返回 `status="applied"`，并且 E8 从页面回读到的 `applied_window` 精确等于目标周。若失败，不自动重试、不换另一票、不补点确认按钮；保留实际响应与证据文件后停止。
