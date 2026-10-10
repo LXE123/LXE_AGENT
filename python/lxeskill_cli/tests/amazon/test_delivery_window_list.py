@@ -284,6 +284,15 @@ def test_plan_read_accepts_a_comma_separated_string_and_deduplicates() -> None:
     assert plan["shipment_ids"] == ["FBA19AAAAAAA", "FBA19BBBBBBB"]
 
 
+def test_plan_read_defaults_and_validates_the_page_wait_timeout() -> None:
+    assert dwl.plan_read(_arguments())["timeout_sec"] == dwl.DEFAULT_TIMEOUT_SECONDS
+    assert dwl.plan_read(_arguments(timeout_sec="5"))["timeout_sec"] == 5
+
+    for invalid in (0, 601, "later"):
+        with pytest.raises(dwl.DeliveryWindowArgumentError, match="timeout_sec"):
+            dwl.plan_read(_arguments(timeout_sec=invalid))
+
+
 # --------------------------------------------------------------------------
 # run() wiring.
 # --------------------------------------------------------------------------
@@ -327,6 +336,26 @@ def test_read_hub_cells_passes_the_hub_selector_and_the_two_columns() -> None:
     assert "deepQuerySelectorAll" in script
 
 
+def test_wait_for_hub_cells_retries_until_the_spa_rows_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _hub_cells([("FBA19AAAAAAA", "9月6日 - 2026年9月12日")])
+    other = _hub_cells([("FBA19BBBBBBB", "9月13日 - 2026年9月19日")])
+    reads = iter([other, expected])
+    clock = iter([0.0, 0.1])
+    sleeps: list[float] = []
+    monkeypatch.setattr(dwl, "read_hub_cells", lambda _driver: next(reads))
+    monkeypatch.setattr(dwl.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(dwl.time, "sleep", sleeps.append)
+
+    cells = dwl.wait_for_hub_cells(
+        object(), timeout_seconds=1, shipment_ids=["FBA19AAAAAAA"]
+    )
+
+    assert cells == expected
+    assert sleeps == [0.2]
+
+
 def test_run_reads_the_hub_and_writes_the_artifact(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -366,12 +395,15 @@ def test_run_fails_loudly_when_the_page_yields_no_rows(
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-1")
     monkeypatch.setattr(dwl, "workflow_output_dir", lambda _session_id: tmp_path)
     monkeypatch.setattr(dwl, "browser_session", _fake_browser_session(driver, tmp_path))
+    monkeypatch.setattr(dwl, "wait_for_hub_cells", lambda *_args, **_kwargs: [])
 
     payload = dwl.run(_arguments())
 
     assert payload["success"] is False
     assert payload["finished"] is False
-    assert "一行货件都没读到" in payload["exception"]
+    assert "等待 60 秒后仍未读到货件行" in payload["exception"]
+    assert "马帮认证" in payload["exception"]
+    assert payload["auth_refresh_required"] is False
 
 
 def test_run_fails_loudly_when_the_window_format_is_unknown(
@@ -396,6 +428,11 @@ def test_run_fails_loudly_when_a_requested_shipment_is_not_on_the_page(
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-1")
     monkeypatch.setattr(dwl, "workflow_output_dir", lambda _session_id: tmp_path)
     monkeypatch.setattr(dwl, "browser_session", _fake_browser_session(driver, tmp_path))
+    monkeypatch.setattr(
+        dwl,
+        "wait_for_hub_cells",
+        lambda active_driver, **_kwargs: dwl.read_hub_cells(active_driver),
+    )
 
     payload = dwl.run(_arguments(shipment_ids=["FBA19AAAAAAA", "FBA19ZZZZZZZ"]))
 

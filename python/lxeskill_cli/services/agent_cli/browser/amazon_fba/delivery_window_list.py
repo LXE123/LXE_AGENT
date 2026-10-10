@@ -37,13 +37,10 @@ Argument contract (the catalog ``input_schema`` is the source of truth):
 - ``page_url`` (required) — absolute http(s) Amazon shipment hub URL; the site
   (US/UK/DE/AU/CA/JP) is carried by the URL, so there is no separate ``site``
 - ``shipment_ids`` (optional) — restrict the result to these FBA shipment ids
+- ``timeout_sec`` (optional, default 60) — wait for the SPA shipment rows to
+  render after navigation, from 1 to 600 seconds
 - ``plan_only`` (optional, default false) — validate and return the plan without
   touching any browser
-
-The module is deliberately *not* wired into ``catalog.json`` yet: the catalog is
-a two-sided contract that needs its own test pass on both sides, and that should
-happen together with the write half — see
-docs/record/20261007-fba-delivery-window.md §3.1 and §3.2.
 """
 
 from __future__ import annotations
@@ -127,6 +124,10 @@ _CN_DATE = re.compile(r"^(?:(\d{4})\s*年)?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日$
 _WINDOW_SEPARATOR = re.compile(r"\s*(?:-|–|—|~|～|至|to)\s*", re.IGNORECASE)
 _FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
 _WHITESPACE = re.compile(r"\s+")
+
+DEFAULT_TIMEOUT_SECONDS = 60
+MAX_TIMEOUT_SECONDS = 600
+POLL_INTERVAL_SECONDS = 0.2
 
 
 class DeliveryWindowArgumentError(ValueError):
@@ -345,10 +346,23 @@ def plan_read(arguments: Mapping[str, Any]) -> dict[str, Any]:
             + "（正确形如 FBA19S7JLCB5；不要传买家订单号 123-1234567-1234567）"
         )
 
+    raw_timeout = args.get("timeout_sec", DEFAULT_TIMEOUT_SECONDS)
+    try:
+        timeout_sec = int(raw_timeout)
+    except (TypeError, ValueError) as exc:
+        raise DeliveryWindowArgumentError(
+            f"timeout_sec 必须是整数秒，收到: {raw_timeout!r}"
+        ) from exc
+    if not 1 <= timeout_sec <= MAX_TIMEOUT_SECONDS:
+        raise DeliveryWindowArgumentError(
+            f"timeout_sec 必须在 1-{MAX_TIMEOUT_SECONDS} 秒之间，收到: {timeout_sec}"
+        )
+
     return {
         "store_id": store_id,
         "page_url": page_url,
         "shipment_ids": shipment_ids,
+        "timeout_sec": timeout_sec,
         "plan_only": bool(args.get("plan_only", False)),
     }
 
@@ -378,6 +392,30 @@ def read_hub_cells(driver: Any) -> list[dict[str, Any]]:
         if isinstance(item, Mapping):
             cells.append(dict(item))
     return cells
+
+
+def wait_for_hub_cells(
+    driver: Any,
+    *,
+    timeout_seconds: float,
+    shipment_ids: Sequence[str] = (),
+    poll_interval_seconds: float = POLL_INTERVAL_SECONDS,
+) -> list[dict[str, Any]]:
+    """Wait for rows, and for every requested shipment when a filter is given."""
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    wanted = {str(item or "").strip() for item in shipment_ids if str(item or "").strip()}
+    last_cells: list[dict[str, Any]] = []
+    while True:
+        cells = read_hub_cells(driver)
+        if cells:
+            last_cells = cells
+            present = {str(item.get("rowId") or "").strip() for item in cells}
+            if not wanted or wanted.issubset(present):
+                return cells
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return last_cells
+        time.sleep(min(max(0.01, float(poll_interval_seconds)), remaining))
 
 
 def _write_read_artifact(
@@ -417,6 +455,9 @@ def _payload(
     return {
         "success": bool(success),
         "finished": bool(finished),
+        # This Amazon/Ziniao workflow does not use Mabang credentials.  The
+        # generic CLI must not suggest `lxeskill auth refresh` for its errors.
+        "auth_refresh_required": False,
         "exception": str(exception or "").strip(),
         "notice": str(notice or "").strip(),
         "file_path": [dict(item) for item in list(file_path or [])],
@@ -470,7 +511,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             output_dir=workflow_output_dir(session_id),
         ) as session:
             session.driver.get(plan["page_url"])
-            built = build_rows(read_hub_cells(session.driver))
+            cells = wait_for_hub_cells(
+                session.driver,
+                timeout_seconds=float(plan["timeout_sec"]),
+                shipment_ids=plan["shipment_ids"],
+            )
+            built = build_rows(cells)
             selection = select_rows(built["rows"], plan["shipment_ids"])
             artifact_path = _write_read_artifact(
                 session.output_dir,
@@ -499,9 +545,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             success=False,
             finished=False,
             exception=(
-                "页面一行货件都没读到（0 行）。可能是 page_url 不是货件列表页、"
-                f"登录态失效，或表格结构已变（选择器 {SHIPMENT_HUB_CELL_SELECTOR} 未命中）。"
-                "不做任何猜测，请人工确认页面后再试。"
+                f"页面等待 {plan['timeout_sec']} 秒后仍未读到货件行（0 行）；"
+                f"选择器 {SHIPMENT_HUB_CELL_SELECTOR} 未命中。"
+                "实际原因尚未确认，可能是页面未就绪、URL 不正确或页面结构已变；"
+                "本命令不使用马帮认证，未执行任何修改。"
             ),
             file_path=files,
             data={**base_data, "rows": [], "problems": [], "unmatched": []},
@@ -559,6 +606,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "DELIVERY_WINDOW_COLUMN",
+    "DEFAULT_TIMEOUT_SECONDS",
     "DeliveryWindowArgumentError",
     "FBA_SHIPMENT_ID_PATTERN",
     "PRIMARY_ATOM_SELECTOR",
@@ -577,4 +625,5 @@ __all__ = [
     "read_hub_cells",
     "run",
     "select_rows",
+    "wait_for_hub_cells",
 ]

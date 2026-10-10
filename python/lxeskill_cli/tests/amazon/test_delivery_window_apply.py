@@ -1355,6 +1355,7 @@ def test_run_reports_argument_errors_in_the_payload():
     assert payload == {
         "success": False,
         "finished": False,
+        "auth_refresh_required": False,
         "exception": "page_url 必须是绝对 http(s) 地址（Amazon 货件列表页），收到: not-a-url",
         "notice": "",
         "file_path": [],

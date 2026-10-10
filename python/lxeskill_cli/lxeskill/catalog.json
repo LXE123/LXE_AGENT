@@ -288,7 +288,7 @@
       "visibility": "business", "session_mode": "lxe_session",
       "owner_skills": ["fba-shipment-delivery-window"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "diagnostic"}],
-      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "plan_only": {"type": "boolean"}}, "required": ["store_id", "page_url"], "additionalProperties": false},
+      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600}, "plan_only": {"type": "boolean"}}, "required": ["store_id", "page_url"], "additionalProperties": false},
       "input_modes": ["flags"]
     },
     {

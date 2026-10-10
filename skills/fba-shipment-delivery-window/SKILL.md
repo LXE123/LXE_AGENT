@@ -39,16 +39,16 @@ commands:
 用户要求查看当前页货件送达时段时执行：
 
 ```text
-lxeskill fba shipment delivery-window-list --store-id <store_id> --page-url <page_url>
+lxeskill fba shipment delivery-window-list --store-id <store_id> --page-url <page_url> --timeout-sec 60
 ```
 
 只查指定货件时，每个编号使用一个 `--shipment-ids`：
 
 ```text
-lxeskill fba shipment delivery-window-list --store-id <store_id> --page-url <page_url> --shipment-ids <FBA_ID>
+lxeskill fba shipment delivery-window-list --store-id <store_id> --page-url <page_url> --shipment-ids <FBA_ID> --timeout-sec 60
 ```
 
-结果读取 `terminal.data.data.rows`。命令只处理当前页；未找到、重复或无法可信解析时停止，不翻页、不猜测。
+命令导航后会等待 Amazon SPA 的货件行出现，默认最多 60 秒；结果读取 `terminal.data.data.rows`。命令只处理当前页；未找到、重复或无法可信解析时停止，不翻页、不猜测。本 skill 的两个命令都使用紫鸟 Amazon 会话，不使用马帮账号；失败时若 `auth_refresh_required=false`，禁止执行 `lxeskill auth refresh`。
 
 ## 发现同一工作流程的子货件
 

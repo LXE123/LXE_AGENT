@@ -523,6 +523,33 @@ def test_structured_auth_recovery_overrides_error_text(monkeypatch, capsys, requ
     assert '1403401' in record['error']['message']
 
 
+def test_delivery_window_list_failure_never_offers_mabang_auth_refresh(monkeypatch, capsys) -> None:
+    def fake_execute(*args, **kwargs):
+        payload = {
+            "success": False,
+            "auth_refresh_required": False,
+            "exception": "页面等待 60 秒后仍未读到货件行（0 行）",
+        }
+        return (
+            False,
+            [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+            [],
+            {"code": "business_cli_failed", "message": payload["exception"]},
+        )
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main([
+        "fba", "shipment", "delivery-window-list",
+        "--session-id", "session-1",
+        "--store-id", "store-1",
+        "--page-url", "https://sellercentral.amazon.com/manage/shipments",
+    ]) == lxeskill.EXIT_BUSINESS
+    record = _records(capsys)[0]
+    assert "recovery" not in record
+    assert record["data"]["auth_refresh_required"] is False
+
+
 def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:
     monkeypatch.setattr(lxeskill, "load_catalog", lambda: (_ for _ in ()).throw(RuntimeError("broken catalog")))
 

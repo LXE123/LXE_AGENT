@@ -543,6 +543,7 @@ def plan_discover(arguments: Mapping[str, Any]) -> dict[str, Any]:
     page, not an assumed count, is authoritative for the sibling shipments.
     """
     args = dict(arguments or {})
+    timeout_sec = _parse_timeout(args)
     base = dwl.plan_read(args)
     shipment_ids = list(base["shipment_ids"])
     if len(shipment_ids) != 1:
@@ -559,7 +560,7 @@ def plan_discover(arguments: Mapping[str, Any]) -> dict[str, Any]:
         "shipment_ids": shipment_ids,
         "seed_shipment_id": shipment_ids[0],
         "apply": False,
-        "timeout_sec": _parse_timeout(args),
+        "timeout_sec": timeout_sec,
         "plan_only": bool(base["plan_only"]),
     }
 
@@ -571,6 +572,7 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
     ``delivery_window_list.plan_read`` so both commands share one contract.
     """
     args = dict(arguments or {})
+    timeout_sec = _parse_timeout(args)
     base = dwl.plan_read(args)
 
     shipment_ids = list(base["shipment_ids"])
@@ -592,8 +594,6 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
             f"{format_cn_window(start, end)} 已经过去（今天 {today.isoformat()}，按 UTC）；"
             f"若你指的是下一年，请写成带年份的 {end.year + 1}-{target_date.month:02d}-{target_date.day:02d}"
         )
-
-    timeout_sec = _parse_timeout(args)
 
     return {
         "action": ACTION_APPLY,
@@ -2223,6 +2223,7 @@ def _payload(
     return {
         "success": bool(success),
         "finished": bool(finished),
+        "auth_refresh_required": False,
         "exception": str(exception or "").strip(),
         "notice": str(notice or "").strip(),
         "file_path": [dict(item) for item in list(file_path or [])],

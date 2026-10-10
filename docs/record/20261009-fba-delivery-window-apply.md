@@ -782,3 +782,15 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
   - `lxeskill fba shipment delivery-window-list`
   - `lxeskill fba shipment delivery-window`
 - 正式 skill：`skills/fba-shipment-delivery-window/SKILL.md`。它固化“真实店铺附着 → plan-only → dry-run → 回显人工批准 → 同参数单次 apply → E8 页面回读”的写入闸门，并明确禁止直接 Python 入口和非 Selenium 页面自动化。
+
+### 15.15 正式列表命令的首轮 Agent 回归与修复（2026-10-10）
+
+首次通过 LXE Agent 调用 `delivery-window-list` 时，浏览器快照已经显示 Amazon「管理货件」页，但命令在 `driver.get(page_url)` 后立即读取 React/SPA 表格，货件行尚未渲染便返回 0 行。错误文案又包含“登录态失效”，被 CLI 的通用关键字恢复逻辑误判成马帮认证故障，因而错误建议执行 `lxeskill auth refresh`；随后出现的“Mabang 账号为空”与 Amazon 会话无关。
+
+修复约束：
+
+- 列表命令导航后轮询语义选择器，默认等待 60 秒，允许通过 `--timeout-sec 1..600` 调整；只有超时后仍为 0 行才失败。
+- 列表与改期命令的返回结构都显式设置 `auth_refresh_required=false`，阻止 CLI 为 Amazon/紫鸟工作流推荐马帮认证恢复。
+- 0 行错误只陈述已经观测到的事实和未确认的可能性，不再把登录失效写成既定诊断。
+- 回归测试覆盖“首读为空、随后 SPA 行出现”以及“失败结果不包含 auth refresh 恢复命令”。
+- 修复后的 canonical `plan_only` 已验证能接收 `--timeout-sec 60`。真实只读复测时目标店铺仍报告运行中，但 Selenium 附着只看到 `about:blank`，因此在导航前按真实错误停止；该结果已正确带 `auth_refresh_required=false` 且没有马帮恢复命令。需在紫鸟窗口恢复正常 Amazon 标签页后再做页面级复测，不能把这次外部状态阻塞写成“实页验证通过”。
