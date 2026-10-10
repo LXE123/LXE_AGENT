@@ -115,6 +115,7 @@ STA_LINK_ANY_SELECTOR = f'kat-link[href*="{STA_HREF_MARKER}"], a[href*="{STA_HRE
 TRACKING_TAB_SELECTOR = '[data-testid="shipment-tracking-tab"]'
 STEP_VIEW_LINK_SELECTOR = '[data-testid="step-view-link"]'
 EDIT_LINK_SELECTOR = '[data-testid="edit-delivery-window-link"]'
+EDIT_TOOLTIP_SELECTOR = '[data-testid="edit-delivery-window-tooltip"]'
 GRACE_SELECTOR = '[data-testid="edit-delivery-window-grace-period"]'
 MODAL_BODY_SELECTOR = '[data-testid="edit-delivery-window-modal-body"]'
 CALENDAR_SELECTOR = 'kat-calendar[data-testid="edit-delivery-window-calendar"]'
@@ -680,6 +681,24 @@ def _window_candidates(element: Tag) -> list[dict[str, str]]:
     return candidates
 
 
+def _inline_window_candidates(
+    root: Tag | BeautifulSoup, labels: Sequence[str]
+) -> list[dict[str, str]]:
+    """Read ``label: value`` when Amazon renders both in one text node."""
+    wanted = sorted({_label_key(label) for label in labels}, key=len, reverse=True)
+    candidates: list[dict[str, str]] = []
+    for text_node in root.find_all(string=True):
+        text = _clean(text_node)
+        for label in wanted:
+            match = re.fullmatch(rf"{re.escape(label)}\s*[:：]\s*(.+)", text)
+            if match is not None:
+                candidates.append(
+                    {"source": "inline-direct", "text": _clean(match.group(1))}
+                )
+                break
+    return candidates
+
+
 def read_current_window_text(html: object) -> dict[str, Any]:
     """Read the live delivery window, preferring the modal over the page.
 
@@ -696,7 +715,10 @@ def read_current_window_text(html: object) -> dict[str, Any]:
     for root, scope, labels in scopes:
         if root is None:
             continue
-        candidates: list[dict[str, str]] = []
+        candidates = [
+            {"source": f"{scope}:{candidate['source']}", "text": candidate["text"]}
+            for candidate in _inline_window_candidates(root, labels)
+        ]
         for element in _label_elements(root, labels):
             for candidate in _window_candidates(element):
                 candidates.append(
@@ -753,6 +775,29 @@ def read_grace_text(html: object) -> dict[str, Any]:
             if match is not None:
                 return {"text": _clean(match.group(0)), "source": f"{scope}-text"}
     return {"text": "", "source": ""}
+
+
+def read_edit_link_state(html: object) -> dict[str, Any]:
+    """Read the edit entry state; tooltip copy is diagnostic, not a disabled flag."""
+    soup = _soup(html)
+    link = _first(soup, EDIT_LINK_SELECTOR)
+    tooltip = _first(soup, EDIT_TOOLTIP_SELECTOR)
+    tooltip_text = _clean(tooltip.get_text(" ")) if tooltip is not None else ""
+    disabled = False
+    if link is not None:
+        disabled = link.has_attr("disabled") or _clean(link.get("aria-disabled")).lower() == "true"
+    blocked = disabled
+    if disabled:
+        block_reason = "编辑入口为 disabled"
+    else:
+        block_reason = ""
+    return {
+        "present": link is not None,
+        "disabled": disabled,
+        "blocked": blocked,
+        "block_reason": block_reason,
+        "tooltip_text": tooltip_text,
+    }
 
 
 def read_legend_selected_text(html: object) -> dict[str, Any]:
@@ -857,11 +902,13 @@ def _tab_selected(tab: Tag) -> tuple[bool | None, list[str]]:
             negatives.append(f"aria-current={lowered}")
 
     def check_classes(node: Tag, prefix: str) -> None:
-        joined = " ".join(str(item) for item in (node.get("class") or [])).lower()
-        tokens = set(joined.replace("-", " ").replace("_", " ").split())
-        for name in ("selected", "active", "current"):
-            if name in tokens:
-                positives.append(f"{prefix}-class={name}")
+        classes = {str(item).strip().lower() for item in (node.get("class") or [])}
+        for negative in ("not-selected", "non-selected", "inactive"):
+            if negative in classes:
+                negatives.append(f"{prefix}-class={negative}")
+        for positive in ("selected", "active", "current", "kat-tab-active"):
+            if positive in classes:
+                positives.append(f"{prefix}-class={positive}")
                 return
 
     check_classes(tab, "self")
@@ -919,12 +966,16 @@ def inspect_selected_shipment(html: object, *, now: _dt.datetime) -> dict[str, A
     current = read_current_window_text(source)
     grace_text = read_grace_text(source)
     grace = parse_grace_period(grace_text["text"], now=now)
-    edit_link_present = _first(_soup(source), EDIT_LINK_SELECTOR) is not None
+    edit_link = read_edit_link_state(source)
 
     if current["status"] != WINDOW_PARSED:
         status = "unknown"
         editable: bool | None = None
         reason = f"当前送达时段无法读取（{current['status']}）"
+    elif edit_link["blocked"]:
+        status = "locked"
+        editable = False
+        reason = f"Amazon 明确禁止编辑：{edit_link['block_reason']}"
     elif grace["status"] != WINDOW_PARSED:
         status = "unknown"
         editable = None
@@ -933,7 +984,7 @@ def inspect_selected_shipment(html: object, *, now: _dt.datetime) -> dict[str, A
         status = "locked"
         editable = False
         reason = f"可编辑截止时间 {grace['deadline']} 已过"
-    elif not edit_link_present:
+    elif not edit_link["present"]:
         status = "unavailable"
         editable = False
         reason = f"页面没有编辑时段入口（{EDIT_LINK_SELECTOR}）"
@@ -950,7 +1001,8 @@ def inspect_selected_shipment(html: object, *, now: _dt.datetime) -> dict[str, A
         "current_window_read": current,
         "grace": grace,
         "grace_text": grace_text,
-        "edit_link_present": edit_link_present,
+        "edit_link_present": edit_link["present"],
+        "edit_link": edit_link,
     }
 
 
@@ -1495,6 +1547,29 @@ def _open_tracking_detail(
             f"当前 URL: {getattr(driver, 'current_url', '')}",
         )
 
+    readiness: dict[str, Any] = {}
+
+    def tracking_details_ready() -> bool:
+        html = _read_page(driver)
+        readiness["current_window"] = read_current_window_text(html)
+        readiness["grace_text"] = read_grace_text(html)
+        return (
+            readiness["current_window"]["status"] != WINDOW_MISSING
+            and bool(readiness["grace_text"]["text"])
+        )
+
+    ready = bool(
+        _wait_until(
+            tracking_details_ready,
+            timeout_seconds=min(timeout_seconds, LEGEND_TIMEOUT_SECONDS),
+        )
+    )
+    trail.note(
+        "E2a 追踪详情加载",
+        f"ready={ready} currentWindow={readiness.get('current_window', {}).get('status', '')} "
+        f"gracePresent={bool(readiness.get('grace_text', {}).get('text'))}",
+    )
+
 
 def _select_shipment_tab(
     driver: Any,
@@ -1528,6 +1603,12 @@ def _select_shipment_tab(
 
     confirmed = verify_tab_selection(read_tracking_tabs(_read_page(driver)), index)
     trail.note("E2b 分页已确认", f"index={index} verdict={confirmed}")
+    if confirmed["status"] != "ok":
+        _fail(
+            "E2",
+            f"{shipment_id}: 分页切换后无法唯一确认目标分页（{confirmed['reason']}）；"
+            f"标记: {confirmed.get('marked_tabs')}",
+        )
     return {"tabs": tabs, "index": index, "verdict": confirmed}
 
 

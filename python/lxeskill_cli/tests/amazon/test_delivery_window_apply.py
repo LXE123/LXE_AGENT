@@ -320,6 +320,46 @@ def test_inspect_selected_shipment_requires_window_grace_and_edit_link():
     assert unavailable["editable"] is False
 
 
+def test_inspect_selected_shipment_does_not_treat_tooltip_copy_as_disabled():
+    html = _tracking_html(
+        shipment_ids=[SHIPMENT],
+        selected_index=0,
+        window_display=CURRENT_WINDOW,
+    ).replace(
+        '<kat-link data-testid="edit-delivery-window-link" label="(编辑时段)"></kat-link>',
+        '<kat-tooltip><kat-link data-testid="edit-delivery-window-link" '
+        'label="(编辑时段)" slot="trigger"></kat-link>'
+        '<span data-testid="edit-delivery-window-tooltip">'
+        "送达时段的开始日期不再是未来的日期。因此，无法再编辑该送达时段。"
+        "</span></kat-tooltip>",
+    )
+
+    inspection = dwa.inspect_selected_shipment(html, now=NOW)
+
+    assert inspection["status"] == "editable"
+    assert inspection["editable"] is True
+    assert inspection["edit_link_present"] is True
+    assert inspection["edit_link"]["blocked"] is False
+    assert "无法再编辑" in inspection["edit_link"]["tooltip_text"]
+
+
+def test_inspect_selected_shipment_honors_real_disabled_attributes():
+    html = _tracking_html(
+        shipment_ids=[SHIPMENT],
+        selected_index=0,
+        window_display=CURRENT_WINDOW,
+    ).replace(
+        'data-testid="edit-delivery-window-link"',
+        'data-testid="edit-delivery-window-link" aria-disabled="true"',
+    )
+
+    inspection = dwa.inspect_selected_shipment(html, now=NOW)
+
+    assert inspection["status"] == "locked"
+    assert inspection["editable"] is False
+    assert inspection["edit_link"]["disabled"] is True
+
+
 def test_read_update_button_state_sees_the_disabled_flag(modal_html):
     button = dwa.read_update_button_state(modal_html)
     assert button == {
@@ -376,6 +416,21 @@ def test_page_level_window_label_accepts_a_colon_and_a_child_value():
     assert read["scope"] == "page"
 
 
+def test_page_level_window_accepts_inline_label_and_value_from_live_dom():
+    html = """
+    <div>
+      送达时段: 2026年10月4日 - 2026年10月10日
+      <span data-testid="edit-delivery-window-tooltip">
+        送达时段的开始日期不再是未来的日期。因此，无法再编辑该送达时段。
+      </span>
+    </div>
+    """
+    read = dwa.read_current_window_text(html)
+    assert read["status"] == dwa.WINDOW_PARSED
+    assert read["raw"] == "2026年10月4日 - 2026年10月10日"
+    assert read["source"] == "page:inline-direct"
+
+
 def test_read_tracking_tabs_and_tab_selection_markers():
     html = (
         '<div data-testid="shipment-tracking-tab" aria-selected="true">货件 ' + SHIPMENT + "</div>"
@@ -389,6 +444,18 @@ def test_read_tracking_tabs_and_tab_selection_markers():
     selection = dwa.select_tracking_tab(tabs, SHIPMENT)
     assert selection == {"status": "ok", "reason": "", "index": 0, "tab_count": 2}
     assert dwa.verify_tab_selection(tabs, 0)["status"] == "mismatch"
+
+
+def test_tracking_tab_classes_distinguish_selected_from_not_selected():
+    html = (
+        f'<div data-testid="shipment-tracking-tab" class="decision-switch-item selected">{SHIPMENT}</div>'
+        f'<div data-testid="shipment-tracking-tab" class="decision-switch-item not-selected clickable">{SHIPMENT_B}</div>'
+    )
+
+    tabs = dwa.read_tracking_tabs(html)
+
+    assert [tab["selected"] for tab in tabs] == [True, False]
+    assert dwa.verify_tab_selection(tabs, 0)["status"] == "ok"
 
 
 def test_verify_tab_selection_reports_unknown_when_the_page_says_nothing():
@@ -585,6 +652,7 @@ class _ScriptedDriver:
             "current_window": CURRENT_WINDOW,
             "with_edit_link": True,
             "tracking_expanded": True,
+            "tracking_detail_delay_reads": 0,
         }
         self.shipment_states = {}
         self.opened: list[str] = []
@@ -609,6 +677,16 @@ class _ScriptedDriver:
         if "sendtoamazon" in url:
             if not self.state["tracking_expanded"]:
                 return _collapsed_tracking_html()
+            if self.state["tracking_detail_delay_reads"] > 0:
+                self.state["tracking_detail_delay_reads"] -= 1
+                return _tracking_html(
+                    shipment_ids=self.shipment_ids,
+                    selected_index=self.state["selected_index"],
+                    window_display="",
+                    markers=self.markers,
+                    grace="",
+                    with_edit_link=False,
+                )
             selected_id = self.shipment_ids[self.state["selected_index"]]
             selected_state = self.shipment_states.get(selected_id, {})
             current_window = selected_state.get("current_window", self.state["current_window"])
@@ -787,6 +865,22 @@ def test_tracking_page_expands_the_final_step_before_selecting_the_tab(tmp_path)
     assert driver.clicked(dwa.STEP_VIEW_LINK_SELECTOR)
     steps = [item["step"] for item in _entry(result)["steps"]]
     assert "E2a 展开最后一步" in steps
+
+
+def test_tracking_page_waits_for_detail_fields_after_tabs_appear(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT],
+    )
+    driver.state["tracking_detail_delay_reads"] = 2
+    monkeypatch.setattr(dwa, "LEGEND_TIMEOUT_SECONDS", 1)
+
+    result = _run(driver, _plan(apply=False), tmp_path)
+
+    assert result["success"] is True
+    assert _entry(result)["status"] == "dry_run_ready"
+    steps = {item["step"]: item["detail"] for item in _entry(result)["steps"]}
+    assert "ready=True" in steps["E2a 追踪详情加载"]
 
 
 def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):

@@ -1,6 +1,6 @@
 # FBA 货件送达时段「改期」方案（浏览器路径）
 
-- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 91 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。代码已补 `action=discover` 只读发现和精确展开逻辑；**新逻辑尚未重跑真实 discovery/dry-run、尚未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
+- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 96 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。`action=discover` 已完成真实只读验证并正确识别 5 个可修改子货件；**尚未进入 `apply=false` dry-run、未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
 - 日期：2026-10-09（2026-10-10 按真机结果回写 §10 / §12 / §13 / §14，并新增 §15）
 - 结论先行：**要改的确实是 Amazon 侧的送达时段**，但**不需要 SP-API**（写路径也不止 SP-API 一条）。因为业务直接给目标日期，整条「去货代后台查转单号 → 到尾程派送商查实际时间」的链路被砍掉。真正要做的是：**读 Amazon 页面确认货件还没接收完 → 在「追踪详情」的弹窗日历上选目标日 → 确认**，全程走官方配对 Selenium。
 
@@ -123,7 +123,7 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 | `timeout_sec` | ➖ | 默认 `60`，允许 `1–600`。页面等待（列表页出行、STA 分页出现）用这个上限 |
 | `plan_only` | ➖ | 默认 `false`。`true` = 只校验参数就返回，完全不碰浏览器（快速自检用） |
 
-`action=discover` 时，`shipment_ids` 必须且只能提供一个种子 FBA 货件号，`target_date` 不需要提供，且禁止 `apply=true`。程序从该货件详情进入所属 STA 工作流程，读取页面实际存在的全部 `[data-testid="shipment-tracking-tab"]`；数量不写死为 5。每个分页必须唯一解析出一个完整 FBA 号，随后逐页只读当前时段、grace 截止时间和编辑入口，返回 `editable / locked / unavailable / unknown`。其中 `editable=true` 必须同时满足：当前时段可解析、grace 未过期、页面存在编辑入口。
+`action=discover` 时，`shipment_ids` 必须且只能提供一个种子 FBA 货件号，`target_date` 不需要提供，且禁止 `apply=true`。程序从该货件详情进入所属 STA 工作流程，读取页面实际存在的全部 `[data-testid="shipment-tracking-tab"]`；数量不写死为 5。每个分页必须唯一解析出一个完整 FBA 号，随后逐页只读当前时段、grace 截止时间和编辑入口，返回 `editable / locked / unavailable / unknown`。其中 `editable=true` 必须同时满足：当前时段可解析、grace 未过期、页面存在且没有 `disabled/aria-disabled=true` 的编辑入口。
 
 对话层在 discovery 结果上接受自然语言选择，但真正调用 `action=apply` 前必须把选择标准化为完整 FBA 号和目标日期清单，再向用户确认一次；不能把“页面可编辑”直接当成用户授权。
 
@@ -605,9 +605,9 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 ### 15.5 当前执行边界
 
 - R0、R1、R2 已通过：目标店铺已启动、官方配对 Selenium 已附着、参数计划已生成。
-- 首次 R3 在列表页被旧 E1 误拦截；修正后第二次只读测试到达 STA 工作流程，但因「最后一步：追踪详情」折叠而停在 E2。代码已补精确展开和动态 discovery；下一动作应先用 `FBA19QP2RBT8` 执行一次 `action=discover`，确认实际 5 个分页及各自可编辑状态，再由用户选择后做单票 `apply=false` dry-run。
+- 首次 R3 在列表页被旧 E1 误拦截；修正后第二次只读测试到达 STA 工作流程，但因「最后一步：追踪详情」折叠而停在 E2。精确展开和动态 discovery 已补齐，且已用 `FBA19QP2RBT8` 完成真实验证：实际 5 个分页均为 `editable`、未知项为 0。下一动作是由用户选择具体 FBA 号后做单票 `apply=false` dry-run。
 - `delivery_window_apply.py` 尚未注册到 `catalog.json` / SKILL，因此 R2–R5 还不能当作正式模型工具调用。下一轮可先用受控的开发入口验证；要进入正式 Agent 流程，必须单独完成注册并按 AGENTS.md 同时跑 Python 与 Bun 的契约测试。
-- 在 R3 成功并由人工核对前，绝不执行 `apply=true`。
+- 在单票 `apply=false` dry-run 成功并由人工核对前，绝不执行 `apply=true`。
 
 ### 15.6 首次 R3 暴露的 E1 误判与修正（2026-10-10）
 
@@ -625,4 +625,13 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - 直接打开 `/fba/sendtoamazon?wf=...` 时，追踪详情可能仍折叠。页面有多个同名 `data-testid="step-view-link"`，必须选最近祖先同时包含「最后一步」和「追踪详情」的链接，不能按索引盲点。
 - 新增 `action=discover`：以用户提供的一个 FBA 号作为种子，动态枚举全部分页，逐页验证选中标记并只读当前时段、grace 和编辑入口；不打开编辑弹窗，不碰日历和确认按钮。
 - 对话层把 discovery 结果展示给用户，接受自然语言选择；在真正写入前回显完整 FBA 号与目标日期，并只确认一次。
-- 回归测试覆盖折叠展开、动态 3 分页、可编辑/锁定/无入口、发现参数和入口分发；当前定向结果 **91 passed**。
+- 回归测试覆盖折叠展开、动态 3 分页、可编辑/锁定/无入口、发现参数和入口分发；当前定向结果 **96 passed**。
+
+### 15.8 真实动态 discovery 结果（2026-10-10）
+
+- 首次运行成功枚举 5 个分页，但全部误报 `当前送达时段无法读取（missing）`。真实 DOM 显示 Amazon 把标签和值放在同一个文本节点：`送达时段: 2026年10月4日 - 2026年10月10日`；旧解析器只支持标签和值分离。追踪区域还存在“分页先出现、详情稍后加载”的短暂状态。
+- 修正：兼容 `标签: 值` 同节点，并在追踪分页出现后等待当前时段与 grace 文案就绪。用户实际打开第一个编辑弹窗证明 tooltip 中“无法再编辑”的文字不是链接禁用状态；tooltip 仅保留为诊断，硬禁用只认链接的 `disabled/aria-disabled=true`。
+- 另一个根因是旧逻辑把 `not-selected` 拆词后误命中 `selected`，导致 5 个分页都被当作选中并重复读取第一个分页。现改为精确 class 匹配，并强制验证切换后只有目标分页为 `selected`；无法唯一确认时停止。定向结果 **96 passed**。
+- 最终真实重跑：工作流程 `wf9b69e020-9688-4560-b668-0f7dc431af0c` 共 5 个子货件，`FBA19QP2RBT8`、`FBA19QP60G99`、`FBA19QPC6XSM`、`FBA19QP5R398`、`FBA19QP8GW5S` 均为 `editable`，可修改 5 个、未知项 0 个；每个分页都留有独立的唯一选中证据。
+- 5 个子货件当前时段均为 `2026-10-04`–`2026-10-10`，页面 grace 截止均为 `2026-10-11T00:00:00+00:00`，编辑链接均存在且没有禁用属性。tooltip 文案仍记录在结果中，但不再覆盖真实链接状态。
+- 最终证据文件：`.lxeagent/artifacts/browser/workflows/fba-delivery-window-discover-20261010/amazon-delivery-window-discover-1791614552.json`。本次 discovery 未打开编辑弹窗、未点击日历、未点击“确认新的送达时段”。
