@@ -536,7 +536,7 @@ def _hub_cells(rows):
     cells = []
     for item in rows:
         row_id, unit, window, *status_values = item
-        order_status = status_values[0] if status_values else "正在接收"
+        order_status = status_values[0] if status_values else "已发货"
         cells.append({"rowId": row_id, "column": "shipmentId", "text": row_id, "cellText": row_id, "cellType": "Text", "cellVariant": ""})
         if order_status is not None:
             cells.append({"rowId": row_id, "column": "orderStatus", "text": order_status, "cellText": order_status, "cellType": "Status", "cellVariant": "default"})
@@ -885,7 +885,13 @@ def test_tracking_page_waits_for_detail_fields_after_tabs_appear(tmp_path, monke
 
 def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     driver = _ScriptedDriver(
-        hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]),
+        hub_cells=_hub_cells(
+            [
+                (SHIPMENT, "600/602", CURRENT_WINDOW),
+                (SHIPMENT_B, "0/285", CURRENT_WINDOW),
+                (SHIPMENT_C, "0/477", CURRENT_WINDOW),
+            ]
+        ),
         shipment_ids=[SHIPMENT, SHIPMENT_B, SHIPMENT_C],
     )
     driver.shipment_states = {
@@ -907,6 +913,7 @@ def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     assert result["success"] is True and result["finished"] is True
     assert result["data"]["shipment_count"] == 3
     assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert result["data"]["ineligible_shipment_ids"] == []
     assert [item["status"] for item in result["data"]["shipments"]] == [
         "editable",
         "unavailable",
@@ -918,6 +925,68 @@ def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     artifact = Path(result["file_path"][0]["value"])
     assert result["file_path"][0]["key"] == "delivery_window_discover"
     assert artifact.exists()
+
+
+def test_discovery_reports_receiving_child_without_inspecting_its_tab(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells(
+            [
+                (SHIPMENT, "0/285", CURRENT_WINDOW, "已发货"),
+                (SHIPMENT_B, "285/285", CURRENT_WINDOW, "正在接收"),
+            ]
+        ),
+        shipment_ids=[SHIPMENT, SHIPMENT_B],
+    )
+    plan = dwa.plan_discover(
+        {
+            "action": "discover",
+            "store_id": "store-1",
+            "page_url": PAGE_URL,
+            "shipment_ids": SHIPMENT,
+            "timeout_sec": 1,
+        }
+    )
+
+    result = dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert result["success"] is True and result["finished"] is True
+    assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert result["data"]["ineligible_shipment_ids"] == [SHIPMENT_B]
+    receiving = result["data"]["shipments"][1]
+    assert receiving["status"] == "ineligible"
+    assert receiving["editable"] is False
+    assert receiving["order_status"] == "正在接收"
+    assert receiving["unit_status"]["received"] == 285
+    assert receiving["unit_status"]["expected"] == 285
+    assert "当前仅允许: 已发货" in receiving["reason"]
+    assert (dwa.TRACKING_TAB_SELECTOR, 1) not in driver.clicks
+
+
+def test_discovery_fails_closed_when_child_has_no_hub_status(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "0/285", CURRENT_WINDOW, "已发货")]),
+        shipment_ids=[SHIPMENT, SHIPMENT_B],
+    )
+    plan = dwa.plan_discover(
+        {
+            "action": "discover",
+            "store_id": "store-1",
+            "page_url": PAGE_URL,
+            "shipment_ids": SHIPMENT,
+            "timeout_sec": 1,
+        }
+    )
+
+    result = dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert result["success"] is True and result["finished"] is False
+    assert result["data"]["editable_shipment_ids"] == [SHIPMENT]
+    assert result["data"]["unknown_shipment_ids"] == [SHIPMENT_B]
+    missing = result["data"]["shipments"][1]
+    assert missing["failure_code"] == "E1"
+    assert missing["editable"] is None
+    assert "无法确认 orderStatus" in missing["reason"]
+    assert (dwa.TRACKING_TAB_SELECTOR, 1) not in driver.clicks
 
 
 def test_already_target_week_short_circuits_without_touching_the_modal(tmp_path):
@@ -941,7 +1010,7 @@ def test_the_artifact_records_the_steps_and_the_windows(tmp_path):
     assert payload["target_window"]["display"] == TARGET_WINDOW
     assert payload["shipments"][0]["status"] == "applied"
     assert payload["hub"]["rows"][0]["unit_status_text"] == "600/602"
-    assert payload["hub"]["rows"][0]["order_status_text"] == "正在接收"
+    assert payload["hub"]["rows"][0]["order_status_text"] == "已发货"
     steps = [item["step"] for item in payload["shipments"][0]["steps"]]
     assert "E1 列表状态校验" in steps
     assert "E7 已点目标日" in steps
@@ -952,15 +1021,39 @@ def test_the_artifact_records_the_steps_and_the_windows(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_equal_unit_status_in_receiving_shipment_continues_to_tracking_page(tmp_path):
-    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "602/602", CURRENT_WINDOW, "正在接收")]), shipment_ids=[SHIPMENT])
+@pytest.mark.parametrize("order_status", ["正在接收", "已完成", "在途"])
+def test_non_shipped_status_fails_e1_without_touching_the_detail_page(
+    tmp_path, order_status
+):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells(
+            [(SHIPMENT, "0/172", CURRENT_WINDOW, order_status)]
+        ),
+        shipment_ids=[SHIPMENT],
+    )
     result = _run(driver, _plan(apply=False), tmp_path)
 
-    assert result["success"] is True and result["finished"] is True
+    entry = _entry(result)
+    assert entry["failure_code"] == "E1"
+    assert f"orderStatus='{order_status}'" in entry["failure_detail"]
+    assert "当前仅允许: 已发货" in entry["failure_detail"]
+    assert driver.opened == [PAGE_URL]
+
+
+def test_shipped_status_allows_zero_received_units_to_continue(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells(
+            [(SHIPMENT, "0/172", CURRENT_WINDOW, "已发货")]
+        ),
+        shipment_ids=[SHIPMENT],
+    )
+    result = _run(driver, _plan(apply=False), tmp_path)
+
     entry = _entry(result)
     assert entry["status"] == "dry_run_ready"
-    assert entry["order_status"] == "正在接收"
-    assert entry["unit_status"]["unreceived"] is False
+    assert entry["order_status"] == "已发货"
+    assert entry["unit_status"]["received"] == 0
+    assert entry["unit_status"]["expected"] == 172
     assert any("/fba/inbound-shipment/summary/" in url for url in driver.opened)
 
 

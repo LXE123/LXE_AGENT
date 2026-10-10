@@ -93,6 +93,10 @@ from services.browser.workflows.amazon_fba_common import workflow_output_dir
 #: Lifecycle status shown in the visible 状态 column (for example 正在接收).
 ORDER_STATUS_COLUMN = "orderStatus"
 
+#: Business-approved lifecycle status for delivery-window changes.  Inventory
+#: progress (``unitStatus``) is deliberately not part of this gate.
+EDITABLE_ORDER_STATUSES = frozenset({"已发货"})
+
 #: Inventory-pipeline fraction (已入库/预计上架).  This is diagnostic only:
 #: a live row can be ``orderStatus=正在接收`` while this value is ``516/516``.
 UNIT_STATUS_COLUMN = "unitStatus"
@@ -1455,7 +1459,9 @@ def _fail(code: str, message: str) -> None:
     raise _HardFailure(code, message)
 
 
-def _require_hub_status(row: Mapping[str, Any], shipment_id: str, trail: _Trail) -> dict[str, Any]:
+def _read_hub_status(
+    row: Mapping[str, Any], shipment_id: str, trail: _Trail
+) -> dict[str, Any]:
     order_status = _clean(row.get("order_status_text"))
     unit = parse_unit_status(row.get("unit_status_text"))
     trail.note(
@@ -1470,11 +1476,25 @@ def _require_hub_status(row: Mapping[str, Any], shipment_id: str, trail: _Trail)
             f"{shipment_id} 的 orderStatus 读不出来；"
             f"状态单元格原文: '{row.get('order_status_cell_text') or row.get('order_status_text')}'",
         )
+    return {"order_status": order_status, "unit_status": unit}
+
+
+def _require_hub_status(
+    row: Mapping[str, Any], shipment_id: str, trail: _Trail
+) -> dict[str, Any]:
+    status = _read_hub_status(row, shipment_id, trail)
+    order_status = status["order_status"]
+    if order_status not in EDITABLE_ORDER_STATUSES:
+        _fail(
+            "E1",
+            f"{shipment_id} 的 orderStatus='{order_status}'，不属于允许修改送达时段的状态"
+            f"（当前仅允许: {', '.join(sorted(EDITABLE_ORDER_STATUSES))}）；未进入货件详情",
+        )
     # ``unitStatus`` is the inventory pipeline, not the shipment lifecycle.
     # Keep it in the artifact for diagnosis, but never infer editability from
-    # X/Y equality.  The tracking page's grace period and edit modal are the
-    # authoritative E3/E4 gates.
-    return {"order_status": order_status, "unit_status": unit}
+    # X/Y equality.  The tracking page's grace period and edit modal remain the
+    # authoritative downstream E3/E4 gates after this business gate passes.
+    return status
 
 
 def _open_tracking_detail(
@@ -1877,7 +1897,9 @@ def _run_discovery(
             f"用于定位工作流程的 {seed} 不在当前列表页；"
             f"页面上的行: {sorted(hub['by_id'])[:10]}",
         )
-    hub_status = _require_hub_status(row, seed, trail)
+    # The seed locates the STA workflow.  It need not itself be eligible: a
+    # workflow can contain child shipments at different lifecycle stages.
+    hub_status = _read_hub_status(row, seed, trail)
 
     _open_tracking_detail(
         driver,
@@ -1911,6 +1933,39 @@ def _run_discovery(
     for shipment_id in tab_ids:
         item_trail = _Trail()
         try:
+            child_row = hub["by_id"].get(shipment_id)
+            if child_row is None:
+                _fail(
+                    "E1",
+                    f"{shipment_id} 出现在工作流程分页中，但不在当前货件列表页，"
+                    "无法确认 orderStatus；按状态未知处理",
+                )
+            child_status = _read_hub_status(child_row, shipment_id, item_trail)
+            child_evidence = {
+                "order_status": child_status["order_status"],
+                "unit_status": child_status["unit_status"],
+                "hub_window_text": child_row.get("delivery_window_text"),
+                "hub_order_status_cell_text": child_row.get("order_status_cell_text"),
+                "hub_unit_status_cell_text": child_row.get("unit_status_cell_text"),
+            }
+            if child_status["order_status"] not in EDITABLE_ORDER_STATUSES:
+                reason = (
+                    f"orderStatus='{child_status['order_status']}' 不属于允许修改送达时段的状态"
+                    f"（当前仅允许: {', '.join(sorted(EDITABLE_ORDER_STATUSES))}）"
+                )
+                item_trail.note("E1 业务状态排除", reason)
+                shipments.append(
+                    {
+                        "fba_shipment_id": shipment_id,
+                        "status": "ineligible",
+                        "editable": False,
+                        "reason": reason,
+                        "failure_code": "",
+                        **child_evidence,
+                        "steps": item_trail.entries,
+                    }
+                )
+                continue
             selected = _select_shipment_tab(
                 driver,
                 shipment_id,
@@ -1922,6 +1977,7 @@ def _run_discovery(
                 {
                     "fba_shipment_id": shipment_id,
                     "tab_index": selected["index"],
+                    **child_evidence,
                     **inspection,
                     "steps": item_trail.entries,
                 }
@@ -1944,6 +2000,11 @@ def _run_discovery(
     unknown_ids = [
         item["fba_shipment_id"] for item in shipments if item.get("editable") is None
     ]
+    ineligible_ids = [
+        item["fba_shipment_id"]
+        for item in shipments
+        if item.get("status") == "ineligible"
+    ]
     workflow_id = _workflow_id_from_url(getattr(driver, "current_url", ""))
     payload = {
         "action": ACTION_DISCOVER,
@@ -1953,6 +2014,7 @@ def _run_discovery(
         "workflow_id": workflow_id,
         "shipment_count": len(shipments),
         "editable_shipment_ids": editable_ids,
+        "ineligible_shipment_ids": ineligible_ids,
         "unknown_shipment_ids": unknown_ids,
         "shipments": shipments,
         "hub_seed": {
@@ -1974,7 +2036,8 @@ def _run_discovery(
         "exception": "",
         "notice": (
             f"只读发现完成：工作流程 {workflow_id or '(未解析)'} 共 {len(shipments)} 个货件，"
-            f"可修改 {len(editable_ids)} 个，状态未知 {len(unknown_ids)} 个；"
+            f"可修改 {len(editable_ids)} 个，业务状态排除 {len(ineligible_ids)} 个，"
+            f"状态未知 {len(unknown_ids)} 个；"
             "未打开编辑弹窗、未点击日历、未点击确认按钮"
         ),
         "file_path": _artifact_entries(artifact_path, key="delivery_window_discover"),
