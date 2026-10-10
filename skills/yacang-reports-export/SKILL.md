@@ -1,6 +1,6 @@
 ---
 name: yacang-reports-export
-description: 导出雅仓（Yacang）ERP 的库存动销、当前库存及全局产品资料 XLSX。用于雅仓数据导出和越南备货数据准备，业务涉及 Shopee 与 TikTok Shop；不计算备货量。
+description: 导出雅仓（Yacang）ERP 的库存动销、当前库存及全局产品资料 XLSX。用于雅仓数据导出和越南备货数据准备，业务涉及 Shopee 与 TikTok Shop。
 type: replenishment
 commands:
   - lxeskill yacang reports export
