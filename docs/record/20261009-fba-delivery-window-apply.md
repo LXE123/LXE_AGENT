@@ -643,3 +643,10 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - 编辑弹窗成功打开；页面与弹窗中的当前送达时段交叉校验一致，均为 `2026-10-04`–`2026-10-10`。
 - dry-run 最后成功点击“取消”。没有点击日历日期，也没有点击“确认新的送达时段”，Amazon 数据未改变。
 - 证据文件：`.lxeagent/artifacts/browser/workflows/fba-delivery-window-dry-run-20261010/amazon-delivery-window-apply-1791614764.json`。
+
+### 15.10 修改后能否恢复原时段（2026-10-10）
+
+- Amazon 官方论坛员工引用帮助页 FAQ 的口径：送达时段只能修改到“当前时段开始日”与“货件实际送达日”两者中较早者；当前时段开始后原则上不能再修改。
+- 对 `FBA19QP60G99` 的真实日历做了只读探针：原时段 `2026-10-04`–`2026-10-10` 的 7 个日期全部为 `aria-disabled=true`，对应单元格 class 均包含 `disabled`；目标时段 `2026-10-11`–`2026-10-17` 的日期均为 `aria-disabled=false`。
+- 结论：现在可以从旧周改到目标周，但修改后无法保证再选回已经开始的旧周。因此不执行“真实修改后再回改”，避免留下不可恢复的 Amazon 数据变更。
+- 探针只打开弹窗并读取日历属性，随后成功点击“取消”并确认弹窗关闭；未点击日期、未点击“确认新的送达时段”。
