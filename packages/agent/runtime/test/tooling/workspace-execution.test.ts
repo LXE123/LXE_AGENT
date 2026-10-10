@@ -12,7 +12,8 @@ import { workspaceFor } from "../workspace";
 import { removeTemporaryRoot } from "../temp-directory";
 
 test("real Python children keep session artifacts, venv, temporary files and output paths when cwd changes", async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "lxe-workspace-exec-")));
+  // Python resolves Windows 8.3 aliases to their long names in derived paths.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe-workspace-exec-")));
   const worktree = repositoryRoot(import.meta.dir), dataRoot = join(root, "host");
   const cwd = join(root, "command-cwd");
   mkdirSync(cwd);

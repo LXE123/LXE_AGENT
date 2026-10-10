@@ -1144,7 +1144,7 @@ describe("native coding tools", () => {
     const processes = registerCodingTools(registry, {
       businessCommands: new Map([
         ["lxeskill replenish store resolve", ["replenishment-store-resolve"]],
-        ["lxeskill fba shipment delivery-csv-download", ["fba-shipment-delivery-csv-download"]],
+        ["lxeskill mabang delivery export", ["mabang-delivery-export"]],
       ]),
       businessCommandCatalog: [
         {
@@ -1154,10 +1154,10 @@ describe("native coding tools", () => {
           attributionSkill: "replenishment-store-resolve",
         },
         {
-          command: "lxeskill fba shipment delivery-csv-download",
+          command: "lxeskill mabang delivery export",
           module: "services.agent_cli.mabang.download_fba_delivery_csv",
-          ownerSkills: ["fba-shipment-delivery-csv-download"],
-          attributionSkill: "fba-shipment-delivery-csv-download",
+          ownerSkills: ["mabang-delivery-export"],
+          attributionSkill: "mabang-delivery-export",
         },
       ],
     });
@@ -1194,9 +1194,9 @@ describe("native coding tools", () => {
     });
     const deliveryModule = await rejected("python -m services.agent_cli.mabang.download_fba_delivery_csv");
     expect(deliveryModule.details).toMatchObject({
-      canonical_command_path: "lxeskill fba shipment delivery-csv-download",
-      owner_skills: ["fba-shipment-delivery-csv-download"],
-      describe_command: "lxeskill describe fba shipment delivery-csv-download",
+      canonical_command_path: "lxeskill mabang delivery export",
+      owner_skills: ["mabang-delivery-export"],
+      describe_command: "lxeskill describe mabang delivery export",
     });
     const pythonWrapper = await rejected("python -m lxeskill replenish store resolve");
     expect(pythonWrapper.code).toBe("permission_denied");
@@ -1229,7 +1229,7 @@ describe("native coding tools", () => {
       { ...context(root), exposureState: hiddenSkills },
     );
     expect(hiddenCommand.details).toMatchObject({ discovery_command: "lxeskill list" });
-    expect(hiddenCommand.modelContent(1)).not.toContain("fba-shipment-delivery-csv-download");
+    expect(hiddenCommand.modelContent(1)).not.toContain("mabang-delivery-export");
     // Unknown commands pass through: authorization belongs to the CLI, which
     // rejects them with a structured error. Here the temp root has neither a
     // managed Python nor .venv, so normalization fails before any spawn.

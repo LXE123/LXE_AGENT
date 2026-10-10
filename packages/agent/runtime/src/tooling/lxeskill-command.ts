@@ -99,6 +99,10 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
       throw new Error(`invalid lxeskill catalog entry: ${entry.name}`);
     }
     const artifactPaths = artifactPathsOf(raw, entry.name);
+    if (raw.input_modes !== undefined
+      && (!Array.isArray(raw.input_modes) || raw.input_modes.length !== 1 || raw.input_modes[0] !== "flags")) {
+      throw new Error(`invalid lxeskill input modes: ${entry.name}`);
+    }
     const ownerSkills = Array.isArray(raw.owner_skills)
       ? raw.owner_skills.map((item) => String(item).trim()).filter(Boolean)
       : [];

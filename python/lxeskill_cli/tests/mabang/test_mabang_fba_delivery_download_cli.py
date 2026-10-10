@@ -62,7 +62,7 @@ def test_success_preserves_explicit_poll_interval(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "download_fba_delivery_csv", fake_download)
 
-    payload = cli.run({"delivery_no": 'sp260508022', "poll_interval_sec": '15'})
+    payload = cli.run({"delivery_no": 'sp260508022', "poll_interval_seconds": '15'})
     assert payload["success"] is True
 
 

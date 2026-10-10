@@ -20,6 +20,11 @@ bun run --cwd apps/dashboard typecheck
 
 测试覆盖以下场景：
 
+- **模型与 MCP 操作（5）**：成功提交、提前更新界面、按凭据来源更新缓存、失败回滚；保存期间禁止重复操作和发送，保留实际错误。
+- **会话事件（4）**：按会话和动画帧合并流式事件；重复事件不重复追加，缺失事件补查；完成时刷新列表和历史；卸载取消待处理帧与监听，重新挂载只有一份订阅。
+- **会话流程（9）**：真实挂载 `useSessionWorkspace` 和导航 hook，验证创建响应乱序、页面和会话切换、文字与截图合并超限时保留草稿、Runtime 延后创建、发送失败和晚到响应、停止与置顶、删除后的缓存和本地资源清理、技能入口、浏览器前进后退和能力页偏好恢复。
+
+- **越南备货设置（8）**：参数读取、保存、映射表上传；空白模板下载、当前表导出、取消和错误、操作期间禁用按钮；导出保留参数草稿和文件状态，中英文及窄窗口换行，配置损坏或读取失败时仍可下载模板。通过 `--test-name-pattern vietnam-settings` 定向运行；`LXE_VIETNAM_SCREENSHOT=/tmp/vietnam.png` 可保存宽屏及中英文窄屏截图。系统保存对话框与文件写入由桌面桥接、Python 定向测试覆盖。
 - **弹窗（3）**：首次聚焦跳过隐藏及禁用控件，Tab 双向循环；嵌套弹窗只关闭最上层，
   并逐层恢复焦点；没有控件时焦点留在弹窗内。
 - **输入框（5）**：中文合成期间 Enter 不发送，Shift+Enter 换行，Enter 正常发送；
@@ -30,7 +35,7 @@ bun run --cwd apps/dashboard typecheck
 - **双层侧栏（6）**：常驻图标导航与独立会话列表；折叠后导航与设置可用；悬停展开与搜索；
   原生拖宽、键盘调宽及刷新恢复；窄窗口抽屉；深浅主题下 macOS/Windows 标题栏的 CSS 布局避让。
   可设置 `LXE_SIDEBAR_SCREENSHOT` 保存预览。标题栏布局模拟不替代 Windows 原生窗口验收。
-- **Windows 标题栏（4）**：各列统一从 40px 以下开始，深浅主题与侧栏折叠，菜单的键盘／鼠标焦点和选区恢复，设置及更新入口（不自动安装、不重复检查），中英文及扩展预览。此组使用可聚焦的真实窗口，因为离屏模式不会发送真实焦点事件。可设置 `LXE_TITLEBAR_SCREENSHOT` 保存预览；原生 Windows 窗口按钮仍需实机验证。
+- **Windows 标题栏（2）与菜单（2）**：各列统一从实际标题栏下边界开始，深浅主题与侧栏折叠，菜单的键盘／鼠标焦点和选区恢复，设置及更新入口（不自动安装、不重复检查），中英文及扩展预览。布局组使用离屏窗口；菜单组使用可聚焦的真实窗口，因为离屏模式不会发送真实焦点事件。全选走原生键盘，保持编辑器与 DOM 选区一致。可设置 `LXE_TITLEBAR_SCREENSHOT` 保存预览；原生 Windows 窗口按钮仍需实机验证。
 - **Mermaid（3）**：深浅主题下流程图和时序图的节点、文字、箭头及备注对比度；已挂载图表跟随主题与字号变化；保留图表明确指定的颜色。可用 `--test-name-pattern mermaid` 定向运行，设置 `LXE_MERMAID_SCREENSHOT=/tmp/mermaid.png` 保存深浅色预览。
 - **工作区（15）**：全量目录分组与分页；从目录创建或复用空会话；取消、打开目录及发送失败；发送期间锁定目录与晚到响应；跨目录搜索与已有会话目录只读；空目录登记及刷新保留；改名失败、重试与所有名称显示位置；默认名称、重名及默认目录切换；折叠偏好跨刷新、搜索、数据更新保留，主动进入时展开；登记失败与重试保留草稿；登记期间切换草稿或页面；文字与附件在工作区间合并，侧栏新建不搬运草稿；创建失败保留输入；创建响应晚到及重复点击；损坏或禁用本机存储时仍可切换折叠。支持设置 `LXE_WORKSPACE_SCREENSHOT` 保存界面验收截图。工作区 fixture 用 sessionStorage 模拟外部数据在页面刷新后仍存在，数据库跨进程持久性由 Runtime 存储测试验证。桥接平台按 Electron 实际平台报告。
 
@@ -38,10 +43,13 @@ Tab、Enter、Shift+Enter 通过 Electron 原生输入进入 Chromium；中文�
 CompositionEvent 和带 `isComposing` 的 KeyboardEvent，覆盖 React 事件处理分支。
 这不替代操作系统输入法的人工验收。拖放使用浏览器 DataTransfer/File 和 DragEvent。
 
-生产的焦点 hook、ConversationComposer、完整 App 及 Query hooks 都直接执行。
+生产的焦点 hook、ConversationComposer、完整 App、拆出的页面与流程 hooks 及 Query hooks 都直接执行。
+桌面会话事件 fixture 使用可触发、可取消的监听集合，流式用例经过生产订阅模块。
 断言检查焦点、输入内容、回调参数、请求记录与可见结果。测试 runner 只在完整执行预期
 场景后报告成功；构建、加载、断言、超时、Renderer 退出或页面错误均以失败退出。
 
 重写时已验证五个反例会失败：恢复隐藏按钮首次聚焦、去掉最上层弹窗限制、去掉
 `isComposing`、绕过当前模型查询的运行时开关、去掉欢迎页的 `enabled` 传递。
 这些临时变更已还原。
+
+新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（3）和 Markdown（6）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。

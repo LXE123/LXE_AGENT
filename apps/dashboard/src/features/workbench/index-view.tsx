@@ -1,4 +1,4 @@
-import { ChevronRight, FolderTree, Tag } from "lucide-react";
+import { ChevronRight, FolderTree, Tag, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import type { WorkbenchView } from "../../shared/navigation";
 import { useUiText } from "../../shared/i18n";
@@ -24,6 +24,7 @@ export function WorkbenchIndex({
   const t = useUiText();
   const copy = t.workbenchIndex;
   const tools: WorkbenchTool[] = [
+    { id: "vietnam-settings", icon: <SlidersHorizontal size={18} />, name: t.vietnamSettings.title, summary: t.vietnamSettings.subtitle, status: "" },
     {
       id: "synthetic-performer",
       icon: <Tag size={18} />,

@@ -25,7 +25,7 @@ def test_success_returns_downloaded_msku_detail_path(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "download_msku_detail_excel", fake_download)
 
-    payload = cli.run({"ship_no": 'sp260414001'})
+    payload = cli.run({"delivery_no": 'sp260414001'})
     assert payload == {
         "success": True,
         "ship_no": "SP260414001",
@@ -44,7 +44,7 @@ def test_success_returns_downloaded_msku_detail_path(monkeypatch, capsys):
     }
 
 
-def test_success_accepts_delivery_no_alias(monkeypatch, capsys):
+def test_success_uses_delivery_no(monkeypatch, capsys):
 
     async def fake_download(ship_no: str):
         assert ship_no == "SP260414001"

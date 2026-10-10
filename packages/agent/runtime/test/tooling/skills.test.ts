@@ -51,14 +51,14 @@ describe("skill context", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-replenishment-skills-"));
     roots.push(root);
     const source = join(repositoryRoot(import.meta.dir), "skills");
-    const names = readdirSync(source).filter((name) => name.startsWith("replenishment-")
-      || name === "mabang-brazil-export" || name === "mabang-tms-export" || name === "yacang-export" || name.startsWith("shangman-") || name === "southeast-asia-replenishment-workflow-map");
-    expect(names).toHaveLength(15);
+    const names = readdirSync(source).filter((name) => name.startsWith("replenishment-") || name.startsWith("mabang-store-")
+      || name === "mabang-brazil-reports-export" || name === "mabang-tms-products-export" || name === "yacang-reports-export" || name.startsWith("shangman-") || name === "southeast-asia-replenishment-workflow-map" || name === "vietnam-replenishment");
+    expect(names).toHaveLength(16);
     for (const name of names) cpSync(join(source, name), join(root, "skills", name), { recursive: true });
     const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
     catalog.forceRefresh();
     const skills = catalog.list({ allowedTypes: new Set(["replenishment"]) });
-    expect(skills).toHaveLength(15);
+    expect(skills).toHaveLength(16);
     expect(skills.every(skill => skill.type === "replenishment")).toBe(true);
     expect(catalog.list({ allowedTypes: new Set(["amazon_replenish"]) })).toHaveLength(0);
     expect(catalog.list({ allowedTypes: new Set() })).toHaveLength(0);
@@ -69,7 +69,17 @@ describe("skill context", () => {
     expect(references).toHaveLength(5);
     expect(skills.find((skill) => skill.name === "replenishment-workflow-map")?.commands).toEqual([]);
     expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
-    expect(skills.find((skill) => skill.name === "shangman-goods-export")?.commands).toEqual(["lxeskill shangman export run"]);
+    expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.commands).toEqual([
+      "lxeskill vietnam replenishment calculate",
+    ]);
+    expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.description).toContain("生成越南备货清单");
+    const vietnamPolicy = skills.find((skill) => skill.name === "vietnam-replenishment")?.content ?? "";
+    expect(vietnamPolicy).toContain("--sku-map");
+    expect(vietnamPolicy).toContain("parameters.json");
+    expect(vietnamPolicy).toContain("sandbox_permissions");
+    expect(vietnamPolicy).not.toContain("managed_lxeskill");
+    expect(vietnamPolicy).not.toContain("lxeskill vietnam sku bind");
+    expect(skills.find((skill) => skill.name === "shangman-products-export")?.commands).toEqual(["lxeskill shangman products export"]);
     expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
   });
 
@@ -92,6 +102,7 @@ describe("skill context", () => {
     expect(prompt).toContain("Commands: lxeskill demo run");
     expect(prompt).toContain("## lxeskill invocation contract");
     expect(prompt).toContain("exec.cwd instead");
+    expect(prompt).not.toContain("managed_lxeskill");
     expect(prompt).not.toContain("blocked");
     expect(prompt).not.toContain("lxeskill hidden run");
   });

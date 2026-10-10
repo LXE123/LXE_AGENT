@@ -125,7 +125,7 @@ def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path, c
     monkeypatch.setattr(cli, "download_store_unlinked_shipments", fake_download)
 
     monkeypatch.setenv("MABANG_FBA_UNLINKED_SHIPMENTS_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
-    payload = cli.run({"store_name": "Amazon-Test-US", "timeout_sec": "60", "poll_interval_sec": "15", "output_dir": str(tmp_path)})
+    payload = cli.run({"store_name": "Amazon-Test-US", "timeout_seconds": "60", "poll_interval_seconds": "15", "output_dir": str(tmp_path)})
     assert payload["success"] is True
     assert payload["snapshot"]["confirmed_empty"] is True
     assert payload["snapshot"]["total_unlinked_quantity"] == 0

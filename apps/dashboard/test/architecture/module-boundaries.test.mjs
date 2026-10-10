@@ -1,83 +1,63 @@
-import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
-import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
+import { readModuleGraph, dashboardBoundaryViolations } from "./module-graph.mjs";
 
-const testDir = path.dirname(fileURLToPath(import.meta.url));
-const sourceDir = path.resolve(testDir, "../../src");
-const expectedModules = [
-  "api/client.ts",
-  "api/payloads.ts",
-  "api/queries.ts",
-  "api/query-client.tsx",
-  "api/query-keys.ts",
-  "shared/markdown.ts",
-  "features/models/model.ts",
-  "features/runtime-status/model.ts",
-  "features/sessions/conversation.ts",
-  "features/sessions/model.ts",
-  "shared/content.ts",
-  "shared/navigation.ts",
-  "shared/ui/markdown.tsx",
-  "shared/ui/language-switch.tsx",
-  "shared/ui/detail-target.ts",
-  "shared/ui/provider-brand-mark.tsx",
-  "features/sessions/view.tsx",
-  "features/models/view.tsx",
-  "features/runtime-status/view.tsx",
-  "features/tools/view.tsx",
-  "features/integrations/view.tsx",
-  "features/skills/view.tsx",
-  "features/skills/user-view.tsx",
-  "features/details/view.tsx"
-];
-const expectedEntryImports = [
-  "./features/details/view",
-  "./features/integrations/view",
-  "./features/models/view",
-  "./features/runtime-status/view",
-  "./features/sessions/view",
-  "./features/skills/user-view",
-  "./features/tools/view"
-];
-
-function sourceFiles(directory) {
-  return readdirSync(directory, { recursive: true })
-    .filter((entry) => /\.(ts|tsx)$/.test(String(entry)))
-    .map((entry) => path.join(directory, String(entry)));
+async function fixture(files, run) {
+  const root = mkdtempSync(resolve(tmpdir(), "lxe-boundary-test-"));
+  try {
+    writeFileSync(resolve(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { noEmit: true, module: "esnext", moduleResolution: "bundler", jsx: "react-jsx" }, include: ["src"] }));
+    mkdirSync(resolve(root, "src"));
+    for (const [path, text] of Object.entries(files)) {
+      const target = resolve(root, "src", path); mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, text);
+    }
+    await run(() => readModuleGraph(resolve(root, "tsconfig.json"), resolve(root, "src")));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-function sourceRelativePath(file) {
-  return path.relative(sourceDir, file).split(path.sep).join("/");
-}
+test("Dashboard dependencies preserve transport and state ownership", async () => {
+  const graph = await readModuleGraph(resolve(import.meta.dirname, "../../tsconfig.json"), resolve(import.meta.dirname, "../../src"));
+  expect(graph.size).toBeGreaterThan(0);
+  for (const path of ["main.tsx", "api/client.ts", "api/session-actions.ts", "features/sessions/ConversationPage.tsx"]) expect(graph.has(path)).toBe(true);
+  expect(dashboardBoundaryViolations(graph)).toEqual([]);
+});
 
-test("dashboard entry delegates feature views to dedicated modules", () => {
-  expectedModules.forEach((relativePath) => {
-    assert.equal(existsSync(path.join(sourceDir, relativePath)), true, `${relativePath} should exist`);
-  });
-
-  const main = readFileSync(path.join(sourceDir, "main.tsx"), "utf8");
-  assert.ok(main.split("\n").length <= 1200, "main.tsx should remain an App orchestration entrypoint");
-  expectedEntryImports.forEach((modulePath) => {
-    assert.match(main, new RegExp(`from "${modulePath.replace(".", "\\.")}"`));
-  });
-  assert.doesNotMatch(
-    main,
-    /^function (SessionDetailView|ModelsView|ToolsView|ConnectionsView|SkillsView|DetailModal)\(/m
-  );
-  assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson|patchJson/);
-  sourceFiles(sourceDir)
-    .filter((file) => path.basename(file) !== "main.tsx")
-    .forEach((file) => {
-      const source = readFileSync(file, "utf8");
-      assert.doesNotMatch(source, /from ["'][^"']*main["']/);
-    });
-
-  sourceFiles(sourceDir)
-    .filter((file) => !["main.tsx", "api/client.ts", "api/queries.ts"].includes(sourceRelativePath(file)))
-    .forEach((file) => {
-      const source = readFileSync(file, "utf8");
-      assert.doesNotMatch(source, /\bcallDashboard\b/, `${file} must read server state through Query hooks`);
+test("boundary scanner tolerates names, whitespace, comments and type-only page interfaces", async () => {
+  await fixture({ "api/client.ts": "export const callDashboard = () => {};",
+    "api/session-actions.ts": "import { callDashboard as send } from './client'; export { send };",
+    "features/sessions/use-session-workspace.ts": "export interface Selection { id: string }",
+    "features/sessions/ConversationPage.tsx": "import { type Selection as Choice } from './use-session-workspace';\n// callDashboard useQueryClient\nexport const message = 'callDashboard';",
+    "main.tsx": "export const RenamedApp = () => null;" }, async read => {
+      expect(dashboardBoundaryViolations(await read())).toEqual([]);
     });
 });
+
+for (const statement of ["import { callDashboard as rpc } from '../api/client';", "import * as rpc from '../api/client';",
+  "export { callDashboard as rpc } from '../api/client';", "const rpc = import('../api/client');", "const rpc = require('../api/client');",
+  "import rpc = require('../api/client');"]) {
+  test(`raw transport is protected across syntax: ${statement}`, async () => {
+    await fixture({ "api/client.ts": "export const callDashboard = () => {};", "view/index.ts": statement }, async read => {
+      expect(dashboardBoundaryViolations(await read()).some(e => e.includes("raw transport"))).toBe(true);
+    });
+  });
+}
+
+test("barrels cannot hide cache ownership and type imports cannot depend on App", async () => {
+  await fixture({ "main.tsx": "import { cache as renamed } from './barrel'; export type AppState = {};",
+    "barrel.ts": "export * as cache from '@tanstack/react-query';", "reverse.ts": "type App = import('./main').AppState;" }, async read => {
+      const errors = dashboardBoundaryViolations(await read());
+      expect(errors.some(e => e.includes("cache ownership"))).toBe(true);
+      expect(errors.some(e => e.includes("must not depend on App"))).toBe(true);
+    });
+});
+
+for (const files of [{}, { "a.ts": "import './missing';" }, { "a.ts": "export const = ;" }]) {
+  test(`invalid scans fail explicitly: ${JSON.stringify(files)}`, async () => {
+    await fixture(files, async read => {
+      let failure;
+      try { await read(); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(Error);
+    });
+  });
+}

@@ -1,4 +1,5 @@
 import { captureEnvironment, environmentMessage, environmentChanged } from "../../src/engine/environment-context";
+import { turnAbortedMessage } from "../../src/engine/turn-aborted";
 import { messageFixture } from "../message-fixtures";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -59,7 +60,8 @@ describe("SqliteRuntimeStore", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-stop-replay-"));
     roots.push(root);
     const path = join(root, "agent.sqlite3");
-    const marker = { role: "user" as const, content: "<turn_aborted>用户主动中断了上一回合。</turn_aborted>" };
+    const marker = turnAbortedMessage();
+    expect(marker).toMatchObject({ runtimeContextKind: "turn_aborted" });
     const store = new SqliteRuntimeStore(path);
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "desktop" } });
@@ -79,7 +81,7 @@ describe("SqliteRuntimeStore", () => {
       expect(detail.messages.at(-1)).toMatchObject({ source_reason: "turn_aborted", content: marker.content, turn: { turn_id: "j1" } });
       expect(resumed.listSessions({ limit: 10, offset: 0 }).items[0]?.title).toBe("Actual question");
       // Identical user text gets ordinary provenance, never the runtime-only reason.
-      await resumed.appendMessage("s1", marker, "turn_input", "j2");
+      await resumed.appendMessage("s1", { role: "user", content: marker.content }, "turn_input", "j2");
       const next = await resumed.sessionDetail("s1", { limit: 10 }) as typeof detail;
       expect(next.messages.at(-1)?.source_reason).toBe("turn_input");
     } finally { await resumed.stop(); }

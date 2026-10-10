@@ -5,6 +5,7 @@ import type {
   DesktopLogRetentionDays,
   DesktopLoggingSinkStatus,
   DesktopModelProvider,
+  DesktopSetupInput,
   DesktopSetupState,
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
@@ -163,5 +164,11 @@ export const desktopSettingsFormAfterClear = (
   integration: DesktopIntegrationName,
 ): DesktopSettingsFormValue => {
   const saved = desktopSettingsForm(next);
-  return { ...current, ...Object.fromEntries(SECTION_FIELDS[integration].map((field) => [field, saved[field]])) };
+  const fields = integration === "yacang" ? ["yacangMobile", "yacangPassword"] as const : SECTION_FIELDS[integration];
+  return { ...current, ...Object.fromEntries(fields.map((field) => [field, saved[field]])) };
 };
+
+export const desktopYacangCredentialsChanged = (
+  form: DesktopSettingsFormValue,
+  setup: DesktopSetupState,
+): boolean => form.yacangMobile !== setup.yacang.mobile || form.yacangPassword.length > 0;

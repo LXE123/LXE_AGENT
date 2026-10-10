@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from shared import input_assets
+from services.assets.inspect import run as inspect_assets
 from shared.input_assets import (
     InputAssetError,
     current_asset,
@@ -100,7 +101,32 @@ def test_registered_slots_describe_business_name_and_usage() -> None:
     master = ASSETS["export_tax_master"]
     assert master.display_name == "出口退税总表"
     assert master.used_by == ("采购汇总", "备货工作簿")
+    assert master.management == "command"
     assert all(asset.display_name and asset.used_by for asset in ASSETS.values())
+
+
+def test_retired_vietnam_slots_are_not_registered_or_inspected(slot_root: Path) -> None:
+    retired = {"vietnam_replenishment_template", "vietnam_sku_parameter_map"}
+    assert ASSETS and retired.isdisjoint(ASSETS)
+    inspected = inspect_assets({})
+    assert inspected["success"] is True
+    assert {item["slot"] for item in inspected["slots"]} == set(ASSETS)
+    for slot in retired:
+        with pytest.raises(InputAssetError, match="unknown input asset slot"):
+            current_asset(slot)
+    assert not slot_root.exists()
+
+
+def test_generic_promotion_rejects_desktop_slots_before_file_access(
+    slot_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slot = "desktop_fixture"
+    desktop = input_assets.InputAsset(slot, "Desktop fixture", ("Test",), "test/desktop", "Test data", "desktop")
+    monkeypatch.setattr(input_assets, "load_input_assets", lambda: {slot: desktop})
+    with pytest.raises(InputAssetError, match="desktop-managed"):
+        promote_asset(slot, tmp_path / "not-read.xlsx")
+    assert current_asset(slot) is None
+    assert not slot_root.exists()
 
 
 def test_unknown_slot_and_missing_file_fail_loudly(slot_root: Path, tmp_path: Path) -> None:
@@ -120,6 +146,9 @@ def test_every_declared_slot_binding_is_registered_and_optional() -> None:
             if not slot:
                 continue
             assert slot in ASSETS, f"{entry['name']}.{field} -> unknown slot {slot}"
+            assert ASSETS[slot].management == "command", (
+                f"{entry['name']}.{field} binds desktop-managed slot {slot}"
+            )
             assert field not in required, (
                 f"{entry['name']}.{field} is slot-backed but still required; "
                 "omitting it must fall back to the stored version"
@@ -136,7 +165,10 @@ def test_every_registered_slot_is_bound_to_at_least_one_field() -> None:
         for entry in CATALOG["entries"]
         for definition in ((entry.get("input_schema") or {}).get("properties") or {}).values()
     }
-    assert not set(ASSETS) - bound, f"registered but unused slots: {sorted(set(ASSETS) - bound)}"
+    command_slots = {slot for slot, entry in ASSETS.items() if entry.management == "command"}
+    desktop_slots = {slot for slot, entry in ASSETS.items() if entry.management == "desktop"}
+    assert not command_slots - bound, f"registered but unused command slots: {sorted(command_slots - bound)}"
+    assert not desktop_slots & bound, f"desktop-managed slots bound to commands: {sorted(desktop_slots & bound)}"
 
 
 def test_input_slots_never_collide_with_artifact_dirs() -> None:

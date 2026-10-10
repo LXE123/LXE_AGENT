@@ -12,6 +12,7 @@ import type {
 } from "@lxe/protocol";
 import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
 import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
+import type { SkillCatalogSnapshot } from "../tooling/skills";
 
 export interface TextBlock extends JsonObject {
   type: "text";
@@ -55,6 +56,7 @@ export interface RuntimeEnvironmentSnapshot {
 
 export interface RuntimeConversationMessage {
   invoked_skills?: string[];
+  runtimeContextKind?: "turn_aborted";
   contextTokenAnchor?: import("./context-meter").ContextTokenAnchor;
   message_id?: string;
   client_message_id?: string;
@@ -219,12 +221,7 @@ export interface RuntimeAttachmentRecord extends JsonObject {
   ts: number;
 }
 
-export interface RuntimeSkillSnapshot {
-  readonly names: readonly string[];
-  readonly prompt: string;
-  readonly modules: Readonly<Record<string, string>>;
-  readonly locations?: Readonly<Record<string, string>>;
-}
+export type RuntimeSkillSnapshot = SkillCatalogSnapshot;
 
 export interface RuntimeStore {
   start(): Promise<void>;

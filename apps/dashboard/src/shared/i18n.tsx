@@ -171,6 +171,18 @@ export const ZH_TEXT = {
     openOutput: "打开输出目录",
     disclaimer: "这个工具只负责添加并验证元数据，不会判断媒体是否真的包含 AI 生成人物，也不会检查视频分辨率、时长等其他亚马逊上传要求。"
   },
+  vietnamSettings: {
+    title: "越南备货设置", subtitle: "管理 SKU 映射表、销量权重和人民币兑越南盾汇率。所有工作目录共用。",
+    skuMap: "SKU 映射表", skuHint: "热销标记必填 1 或 2。成本、跨境价和折扣价可留空，填写时须大于 0；缺少金额时，对应价格和利润结果留空，备货量正常计算。聊天中指定的文件仅用于当次计算。",
+    upload: "上传映射表", replace: "替换映射表", uploaded: "SKU 映射表已保存。", noMap: "尚未上传映射表", updated: "更新于",
+    downloadTemplate: "下载空白模板", exportCurrent: "导出当前映射表", exported: (path: string) => `文件已保存至：${path}`,
+    weights: "销量权重", weightsHint: "将各周期日均销量合并，三个权重合计为 100%。", days: (day: number) => `${day} 天`,
+    weightNonNegative: "销量权重必须是非负数字。", weightOutOfRange: "销量权重超出数值范围。", weightTotal: "销量权重合计必须为 100%。",
+    exchange: "人民币 → 越南盾汇率", cny: "1 元人民币 =", vnd: "越南盾", advanced: "高级设置 · 天数修正",
+    adjustment: (day: number) => `${day} 天天数修正`, adjustmentHint: "日均销量 = 该周期销量 ÷（周期天数 + 修正值）。默认 7、15、30 天分别为 0、0.8、0.8。",
+    save: "保存参数", saving: "正在保存…", saved: "参数已保存，下一次计算生效。", appliesNextRun: "保存后下一次计算生效，正在进行的计算不受影响。",
+    loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用中打开越南备货设置。",
+  },
   workbenchIndex: {
     eyebrow: "工作台",
     title: "工具",
@@ -204,7 +216,14 @@ export const ZH_TEXT = {
     loading: "正在读取…",
     loadError: "读取失败",
     neverUsed: "尚未使用",
-    note: "这里只做查看。要更换版本，在对话里上传新文件即可。"
+    note: "其他模板和数据源仍通过对应技能维护。",
+    managedEmptyHint: "请在聊天中上传并绑定越南 SKU 参数表。",
+    rollback: "回滚上一版",
+    busy: "正在处理…",
+    installed: "映射表已上传",
+    unchanged: "内容未变化，继续使用当前版本",
+    rolledBack: "已回滚到上一版",
+    integrityError: "文件校验失败"
   },
   stats: {
     sessions: "会话",
@@ -817,7 +836,10 @@ export const ZH_TEXT = {
       selectWebdriver: "选择驱动目录"
     },
     mabangTms: { description: "配置马帮 TMS数据导出。密码加密保存，每次任务自动登录。", account: "账号", password: "马帮 TMS密码" },
-    yacang: { description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。", mobile: "手机号", password: "雅仓密码" },
+    yacang: {
+      description: "配置雅仓数据导出。密码加密保存，每次任务自动登录。",
+      mobile: "手机号", password: "雅仓密码",
+    },
     shangman: {
       description: "配置上马 ERP 登录。验证码由 AI 读取；登录态保存在本机，供后续任务复用。",
       tenantId: "ID", username: "上马账号", password: "上马密码",
@@ -1049,6 +1071,18 @@ export const UI_TEXT: Record<Language, UiText> = {
       openOutput: "Open output folder",
       disclaimer: "This tool only adds and verifies metadata. It does not decide whether media contains an AI-generated performer, and it does not check resolution, duration, or other Amazon upload requirements."
     },
+    vietnamSettings: {
+      title: "Vietnam replenishment settings", subtitle: "Manage the SKU map, sales weights and CNY to VND exchange rate. Shared across workspaces.",
+      skuMap: "SKU map", skuHint: "Each listed SKU requires a hot-selling flag of 1 or 2. Cost, cross-border price and discount price may be blank; provided amounts must be greater than 0. Missing amounts leave dependent price and profit results blank without affecting replenishment quantities. Files specified in chat apply to that run only.",
+      upload: "Upload map", replace: "Replace map", uploaded: "SKU map saved.", noMap: "No SKU map uploaded", updated: "Updated",
+      downloadTemplate: "Download blank template", exportCurrent: "Export current map", exported: (path: string) => `File saved to: ${path}`,
+      weights: "Sales weights", weightsHint: "Combine daily sales across the three periods. Weights must total 100%.", days: (day: number) => `${day} days`,
+      weightNonNegative: "Sales weights must be non-negative numbers.", weightOutOfRange: "Sales weight is out of range.", weightTotal: "Sales weights must total 100%.",
+      exchange: "CNY → VND exchange rate", cny: "1 CNY =", vnd: "VND", advanced: "Advanced · Day adjustments",
+      adjustment: (day: number) => `${day}-day adjustment`, adjustmentHint: "Daily sales = period sales ÷ (period days + adjustment). Defaults for 7, 15 and 30 days: 0, 0.8 and 0.8.",
+      save: "Save parameters", saving: "Saving…", saved: "Parameters saved for the next run.", appliesNextRun: "Changes apply to the next calculation. Running calculations keep their original inputs.",
+      loading: "Loading settings…", retry: "Retry", unavailable: "Open these settings in the desktop app.",
+    },
     workbenchIndex: {
       eyebrow: "Workbench",
       title: "Tools",
@@ -1082,7 +1116,14 @@ export const UI_TEXT: Record<Language, UiText> = {
       loading: "Loading…",
       loadError: "Could not load",
       neverUsed: "Not used yet",
-      note: "This view is read-only. To change a version, upload a new file in a conversation."
+      note: "Other templates and data sources are maintained through their skills.",
+      managedEmptyHint: "Upload and bind the Vietnam SKU map in chat.",
+      rollback: "Roll back to previous",
+      busy: "Working…",
+      installed: "SKU map uploaded",
+      unchanged: "The content is unchanged; the current version remains in use",
+      rolledBack: "Rolled back to the previous version",
+      integrityError: "File integrity check failed"
     },
     stats: {
       sessions: "Sessions",
@@ -1695,7 +1736,10 @@ export const UI_TEXT: Record<Language, UiText> = {
         selectWebdriver: "Choose the driver directory"
       },
       mabangTms: { description: "Configure Mabang TMS exports. Passwords are stored encrypted; each task signs in automatically.", account: "Account", password: "Mabang TMS password" },
-      yacang: { description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.", mobile: "Mobile", password: "Yacang password" },
+      yacang: {
+        description: "Configure Yacang exports. Passwords are stored encrypted; each task signs in automatically.",
+        mobile: "Mobile", password: "Yacang password",
+      },
       shangman: {
         description: "Configure Shangman ERP login. AI reads the captcha; login state is saved locally for later tasks.",
         tenantId: "Tenant ID", username: "Shangman ERP account", password: "Shangman ERP password",

@@ -14,6 +14,7 @@ INVENTORY_SALES_HEADERS = (
     "SKU", "商品名", "仓库", "3天销量", "7天销量", "15天销量", "30天销量", "60天销量",
     "90天销量", "库存", "占用", "在途", "冻结", "可用", "缺货数量", "创建日期",
 )
+INVENTORY_SALES_DELIVERY_HEADERS = INVENTORY_SALES_HEADERS[:-1]
 INVENTORY_LIST_HEADERS = (
     "条码", "SKU", "商品标签", "映射条码", "仓库", "规格", "尺寸(cm)", "重量(g)",
     "库存数量", "占用数量", "在途数量", "冻结库存", "可用库存", "中文标题", "英文标题",
@@ -43,10 +44,16 @@ def _workbook_rows(path: Path, stage: str, diagnostic):
             yield rows
 
 
-def validate_inventory_sales_workbook(path: Path, *, warehouse_code: str, diagnostic=safe_remote_detail) -> int:
+def validate_inventory_sales_workbook(
+    path: Path, *, warehouse_code: str, diagnostic=safe_remote_detail, allow_delivery: bool = False,
+) -> int:
+    # Platform downloads must keep their full schema. Downstream calculation
+    # can also consume the delivered copy without the trailing snapshot date.
     with _workbook_rows(path, "校验 XLSX", diagnostic) as rows:
         headers = tuple(str(value or "").strip() for value in next(rows, ()))
-        if headers != INVENTORY_SALES_HEADERS:
+        if headers != INVENTORY_SALES_HEADERS and not (
+            allow_delivery and headers == INVENTORY_SALES_DELIVERY_HEADERS
+        ):
             raise YacangError("校验 XLSX", f"表头不匹配: {diagnostic(headers)}")
         row_count = 0
         wrong_warehouses: set[str] = set()
@@ -115,6 +122,7 @@ __all__ = [
     "WAREHOUSE_PRODUCTS_HEADERS",
     "INVENTORY_LIST_HEADERS",
     "INVENTORY_SALES_HEADERS",
+    "INVENTORY_SALES_DELIVERY_HEADERS",
     "validate_warehouse_products_workbook",
     "validate_inventory_list_workbook",
     "validate_inventory_sales_workbook",

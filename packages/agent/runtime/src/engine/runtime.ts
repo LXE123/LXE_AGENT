@@ -484,9 +484,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ? heartbeatPrompt(pendingEvents)
         : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
       const userMessage: RuntimeMessage = { role: "user", content: withTurnContext(userContent, job.diagnostics), message_id: job.message_id, ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}) };
-      const loadInvokedSkills = async (text: string, seen = new Set<string>()): Promise<RuntimeMessage[]> => {
+      const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
         const injected: RuntimeMessage[] = [];
-        for (const name of invokedSkillNames(text)) {
+        for (const name of names) {
           if (seen.has(name) || !toolExposure.allowsSkill(name)) continue;
           const skill = await this.options.resolveInvokedSkill?.(name, workspace);
           handle.signal.throwIfAborted();
@@ -497,8 +497,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         return injected;
       };
-      const instructions = heartbeat ? [] : await loadInvokedSkills(job.user_input).catch(async error => {
-        // Keep the submitted input in history even if an explicit skill cannot be read.
+      const instructions = heartbeat ? [] : await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
+        // Keep the submitted input in history when skill selection or loading fails.
         await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id);
         throw error;
       });
@@ -532,7 +532,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         for (const steering of steeringMessages) {
           const text = String(steering.text ?? "").trim();
           if (!text) continue;
-          const instructions = await loadInvokedSkills(text, seen);
+          const instructions = await loadInvokedSkills(invokedSkillNames(text), seen);
           const message: RuntimeMessage = { role: "user", content: text, ...(instructions.length ? { invoked_skills: instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []) } : {}) };
           messages.push(message, ...instructions);
           await this.appendMessage(job.session_id, message, "steering", job.job_id);

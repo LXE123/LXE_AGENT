@@ -1,10 +1,11 @@
 {
   "protocol_version": "1",
   "entries": [
-    {"name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil-overseas", "export", "run"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"params": {"type": "object", "properties": {"reports": {"type": "array", "minItems": 1, "items": {"enum": ["inventory_sales_snapshot", "allocation_pending_default_3m", "allocation_signed_before_3m"]}}}, "required": ["reports"], "additionalProperties": false}}, "required": ["params"], "additionalProperties": false}},
-    {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "export", "run"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
-    {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "export", "run"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"params": {"type": "object", "properties": {"reports": {"type": "array", "minItems": 1, "items": {"enum": ["inventory-sales", "inventory-current-snapshot", "warehouse-products"]}}, "warehouses": {"type": "array", "minItems": 1, "items": {"enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_date": {"type": "object", "properties": {"start_date": {"type": "string"}, "end_date": {"type": "string"}}, "required": ["start_date", "end_date"], "additionalProperties": false}}, "required": ["reports"], "additionalProperties": false}}, "required": ["params"], "additionalProperties": false}},
-    {"name": "shangman_goods_export", "command_path": ["shangman", "export", "run"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.goods_export", "owner_skills": ["shangman-goods-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}]},
+    {"name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "vietnam_replenishment_generate", "module": "services.agent_cli.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "sku_map_file": {"type": "string", "minLength": 1}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "shangman_goods_export", "command_path": ["shangman", "products", "export"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.goods_export", "owner_skills": ["shangman-products-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}], "input_modes": ["flags"]},
     {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}]},
     {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}},
     {"name": "shangman_login_status", "command_path": ["shangman", "login", "status"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_status", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
@@ -220,14 +221,7 @@
       "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "invoice_template"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
     },
-    {
-      "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",
-      "command_path": ["fba", "msku", "detail-download"],
-      "legacy_aliases": ["mabang_download_msku_detail_excel"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-msku-detail-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "delivery_no": {"type": "string"}}, "additionalProperties": false}
-    },
+    {"name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"]},
     {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.agent_cli.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
@@ -288,22 +282,8 @@
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
     },
-    {
-      "name": "mabang_download_fba_delivery_csv", "module": "services.agent_cli.mabang.download_fba_delivery_csv",
-      "command_path": ["fba", "shipment", "delivery-csv-download"],
-      "legacy_aliases": ["mabang_download_fba_delivery_csv"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-shipment-delivery-csv-download"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}
-    },
-    {
-      "name": "mabang_download_wms_consignment_excel", "module": "services.agent_cli.mabang.download_wms_consignment_excel",
-      "command_path": ["fba", "shipment", "wms-box-download"],
-      "legacy_aliases": ["mabang_download_wms_consignment_excel"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-shipment-wms-box-download"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "split_mode": {"type": "string", "enum": ["auto", "original"]}}, "required": ["ship_no"], "additionalProperties": false}
-    },
+    {"name": "mabang_download_fba_delivery_csv", "module": "services.agent_cli.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "mabang_download_wms_consignment_excel", "module": "services.agent_cli.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
     {
       "name": "mabang_erp_packing_upload", "module": "services.agent_cli.mabang.erp_packing_upload",
       "command_path": ["fba", "erp", "packing-upload"],
@@ -312,14 +292,7 @@
       "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
     },
-    {
-      "name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel",
-      "command_path": ["fba", "stock-sku", "download"],
-      "legacy_aliases": ["mabang_download_stock_sku_excel"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-stock-sku-download"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}
-    },
+    {"name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-inventory-sku-export"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
     {
       "name": "mabang_replenishment_template", "module": "services.agent_cli.mabang.replenishment_template", "positional": ["action"],
       "command_path": ["replenish", "template"],
@@ -344,22 +317,8 @@
       "owner_skills": ["replenishment-calculate"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "template": {"type": "string"}, "unlinked_shipments_snapshot": {"type": "string"}, "amazon_restock_inventory_snapshot": {"type": "string"}, "amazon_fba_inventory_snapshot": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
     },
-    {
-      "name": "mabang_download_store_msku_excel", "module": "services.agent_cli.mabang.download_store_msku_excel",
-      "command_path": ["replenish", "msku", "download"],
-      "legacy_aliases": ["mabang_download_store_msku_excel"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-msku-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}
-    },
-    {
-      "name": "mabang_export_store_msku_actual_inventory", "module": "services.agent_cli.mabang.export_store_msku_actual_inventory",
-      "command_path": ["replenish", "inventory", "actual-export"],
-      "legacy_aliases": ["mabang_export_store_msku_actual_inventory"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-real-inventory-report"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
-    },
+    {"name": "mabang_download_store_msku_excel", "module": "services.agent_cli.mabang.download_store_msku_excel", "command_path": ["mabang", "store", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.agent_cli.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]},
     {
       "name": "mabang_analyze_store_msku_sales", "module": "services.agent_cli.mabang.analyze_store_msku_sales",
       "command_path": ["replenish", "sales", "analyze"],
@@ -373,25 +332,19 @@
       "command_path": ["replenish", "store", "resolve"],
       "legacy_aliases": ["mabang_resolve_fba_store"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-store-resolve", "replenishment-unlinked-shipment-download", "replenishment-sales-analyze", "replenishment-real-inventory-report", "replenishment-msku-download", "replenishment-calculate", "replenishment-amazon-restock-inventory-snapshot"],
+      "owner_skills": ["replenishment-store-resolve", "mabang-store-unlinked-shipments-export", "replenishment-sales-analyze", "mabang-store-shenzhen-inventory-export", "mabang-store-msku-export", "replenishment-calculate", "replenishment-amazon-restock-inventory-snapshot"],
       "attribution_skill": "replenishment-store-resolve",
       "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}],
       "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}
     },
-    {
-      "name": "mabang_download_store_unlinked_shipments", "module": "services.agent_cli.mabang.download_store_unlinked_shipments",
-      "command_path": ["replenish", "shipments", "unlinked-download"],
-      "legacy_aliases": ["mabang_download_store_unlinked_shipments"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
-    }
+    {"name": "mabang_download_store_unlinked_shipments", "module": "services.agent_cli.mabang.download_store_unlinked_shipments", "command_path": ["mabang", "store", "unlinked-shipments", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-unlinked-shipments-export"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]}
   ],
   "datasets": {
     "mabang_brazil_exports": {"dir": "mabang/brazil/exports", "holds": "巴西库存 XLSX 及调拨原始分批 XLS，按账号与运行隔离。"},
     "mabang_tms_exports": {"dir": "mabang_tms/exports", "holds": "马帮 TMS 原始分批文件及合并 XLSX，按账号与运行隔离。"},
-    "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类原始 XLSX，按账号摘要与本次运行隔离，每仓一份。"},
+    "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类 XLSX，按账号摘要与本次运行隔离。库存动销下载后去掉末列创建日期，只保存最终文件；另两类原样交付。"},
+    "vietnam_recommendations": {"dir": "vietnam/recommendations", "holds": "越南备货五表最终 XLSX；每次运行保存到独立目录，成功校验后交付。"},
     "shangman_goods_export": {"dir": "shangman/indonesia", "holds": "上马 ERP 当前配置账号可见的商品全量原始 XLSX，每次导出保存于独立运行子目录。"},
     "fba_delivery_csv": {"dir": "fba/delivery_csv", "holds": "FBA 发货单 CSV，命名 <SP单号>_*.csv；报关、发票、采购、退税汇总都从这里读。", "legacy_dirs": ["mabang_fba_delivery"]},
     "fba_stock_sku": {"dir": "fba/stock_sku", "holds": "马帮库存 SKU Excel，按发货单 SKU发货量 列导出；SKU 多时分批成多个文件。", "legacy_dirs": ["mabang_stock_sku"]},

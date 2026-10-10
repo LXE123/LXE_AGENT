@@ -39,19 +39,20 @@ export function InputAssetsWorkbench({
   error,
   loading,
   onBack,
+  onOpenVietnamSettings,
   refresh,
   slots,
 }: {
   error: string;
   loading: boolean;
   onBack: () => void;
+  onOpenVietnamSettings: () => void;
   refresh: () => Promise<void>;
   slots: DesktopInputAssetSlot[] | null;
 }) {
   const t = useUiText();
   const copy = t.inputAssets;
   const [revealError, setRevealError] = useState("");
-
   const reveal = async (slot: string) => {
     try {
       await window.lxe?.desktop?.revealInputAssetSlot(slot);
@@ -80,52 +81,60 @@ export function InputAssetsWorkbench({
       {error ? <p className="workbench-error">{copy.loadError}: {error}</p> : null}
       {revealError ? <p className="workbench-error">{revealError}</p> : null}
 
+      <button className="workbench-refresh" onClick={onOpenVietnamSettings} type="button">{t.vietnamSettings.title}</button>
       <div className="asset-slot-list">
-        {(slots ?? []).map((slot) => (
-          <article className="asset-slot" key={slot.slot}>
-            <header className="asset-slot-header">
-              <div className="asset-slot-title">
-                <h3>{slot.display_name}</h3>
-                <code>{slot.slot}</code>
-              </div>
-              <button onClick={() => void reveal(slot.slot)} type="button">
-                <FolderOpen size={14} />
-                {copy.reveal}
-              </button>
-            </header>
-            <p className="asset-slot-used-by">
-              <strong>{copy.usedBy}</strong>
-              {slot.used_by.join(copy.usedBySeparator)}
-            </p>
-            {slot.current ? (
-              <dl className="asset-slot-versions">
-                <div>
-                  <dt>{copy.current}</dt>
-                  <dd>
-                    <span className="asset-file-name">{slot.current.file_name}</span>
-                    <span className="asset-file-meta">
-                      {copy.uploadedOn(slot.current.updated_at)} · {formatBytes(slot.current.size_bytes)}
-                    </span>
-                  </dd>
+        {(slots ?? []).map((slot) => {
+          return (
+            <article className="asset-slot" key={slot.slot}>
+              <header className="asset-slot-header">
+                <div className="asset-slot-title">
+                  <h3>{slot.display_name}</h3>
+                  <code>{slot.slot}</code>
                 </div>
-                {slot.previous ? (
-                  <div className="asset-slot-previous">
-                    <dt>{copy.previous}</dt>
-                    <dd>
-                      <span className="asset-file-name">{slot.previous.file_name}</span>
-                      <span className="asset-file-meta">{copy.uploadedOn(slot.previous.updated_at)}</span>
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-            ) : (
-              <p className="asset-slot-empty">
-                <strong>{copy.empty}</strong>
-                <span>{copy.emptyHint}</span>
+                <button onClick={() => void reveal(slot.slot)} type="button">
+                  <FolderOpen size={14} />
+                  {copy.reveal}
+                </button>
+              </header>
+              <p className="asset-slot-used-by">
+                <strong>{copy.usedBy}</strong>
+                {slot.used_by.join(copy.usedBySeparator)}
               </p>
-            )}
-          </article>
-        ))}
+              {slot.manifest_error ? <p className="workbench-error">{copy.integrityError}: {slot.manifest_error}</p> : null}
+              {slot.current_error ? <p className="workbench-error">{copy.integrityError}: {slot.current_error}</p> : null}
+              {slot.previous_error ? <p className="workbench-error">{copy.integrityError}: {slot.previous_error}</p> : null}
+              {slot.current || slot.previous ? (
+                <dl className="asset-slot-versions">
+                  {slot.current ? (
+                    <div>
+                      <dt>{copy.current}</dt>
+                      <dd>
+                        <span className="asset-file-name">{slot.current.file_name}</span>
+                        <span className="asset-file-meta">
+                          {copy.uploadedOn(slot.current.updated_at)} · {formatBytes(slot.current.size_bytes)}
+                        </span>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {slot.previous ? (
+                    <div className="asset-slot-previous">
+                      <dt>{copy.previous}</dt>
+                      <dd>
+                        <span className="asset-file-name">{slot.previous.file_name}</span>
+                        <span className="asset-file-meta">{copy.uploadedOn(slot.previous.updated_at)}</span>
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : !slot.current_error && !slot.manifest_error ? (
+                <p className="asset-slot-empty">
+                  <strong>{copy.empty}</strong>
+                  <span>{copy.emptyHint}</span>
+                </p>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
 
       <p className="workbench-note">{copy.note}</p>

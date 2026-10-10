@@ -23,11 +23,11 @@ app.whenReady().then(async () => {
     await waitFor(`document.querySelectorAll('[role=tab]')[${index}].getAttribute('aria-selected')==='true'`);
   };
   const edit = async (index: number, value: string) => {
-    await js(`(()=>{const input=document.querySelectorAll('[role=tabpanel] input')[${index}];
+    await js(`(()=>{const input=[...document.querySelectorAll('[role=tabpanel] input')].filter(input=>input.getClientRects().length>0)[${index}];
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});
       input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   };
-  const inputs = () => js("[...document.querySelectorAll('[role=tabpanel] input')].map(input=>input.value)");
+  const inputs = () => js("[...document.querySelectorAll('[role=tabpanel] input')].filter(input=>input.getClientRects().length>0).map(input=>input.value)");
   const paint = () => js("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
   try {
     await window.loadFile(resolve(process.argv[2]!));
@@ -40,7 +40,10 @@ app.whenReady().then(async () => {
     assert((await js("document.querySelector('.desktop-settings-nav-item.active').textContent")).includes("3/4"));
     assert.deepEqual(await inputs(), ["mock-tms", ""]);
     await edit(0, "edited-tms");
-    await tab(1); await edit(1, "draft-yacang-password");
+    await tab(1);
+    assert.equal(await js("document.querySelector('.desktop-vietnam-settings')"), null);
+    assert.deepEqual(await inputs(), ["mock-mobile", ""]);
+    await edit(1, "draft-yacang-password");
     await tab(2); await edit(0, "edited-id");
     assert.equal((await inputs()).length, 3);
     await tab(0); assert.deepEqual(await inputs(), ["edited-tms", ""]);

@@ -333,7 +333,7 @@ def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    payload = cli.run({"ship_no": "sp260226004"})
+    payload = cli.run({"delivery_no": "sp260226004"})
     assert payload == {
         "success": True,
         "ship_no": "SP260226004",
@@ -414,7 +414,7 @@ def test_cli_success_returns_split_payload(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    payload = cli.run({"ship_no": "SP260226004"})
+    payload = cli.run({"delivery_no": "SP260226004"})
     assert payload["split_mode"] == "auto"
     assert payload["box_count"] == 6
     assert payload["split_required"] is True
@@ -434,7 +434,7 @@ def test_cli_auto_split_mode_returns_split_payload(monkeypatch, tmp_path, capsys
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    payload = cli.run({"ship_no": "SP260226004", "split_mode": "auto"})
+    payload = cli.run({"delivery_no": "SP260226004", "split_mode": "auto"})
     assert payload["split_mode"] == "auto"
     assert payload["box_count"] == 6
     assert payload["split_required"] is True
@@ -454,7 +454,7 @@ def test_cli_original_split_mode_skips_split_over_five_boxes(monkeypatch, tmp_pa
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    payload = cli.run({"ship_no": "SP260226004", "split_mode": "original"})
+    payload = cli.run({"delivery_no": "SP260226004", "split_mode": "original"})
     assert payload["split_mode"] == "original"
     assert payload["box_count"] == 6
     assert payload["split_required"] is False
@@ -474,7 +474,7 @@ def test_cli_original_split_mode_without_over_limit_has_no_skip_reason(monkeypat
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    payload = cli.run({"ship_no": "SP260226004", "split_mode": "original"})
+    payload = cli.run({"delivery_no": "SP260226004", "split_mode": "original"})
     assert payload["split_mode"] == "original"
     assert payload["box_count"] == 4
     assert payload["split_required"] is False

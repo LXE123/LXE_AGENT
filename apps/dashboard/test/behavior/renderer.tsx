@@ -1,3 +1,11 @@
+import { ConversationContentFixture } from "./conversation-content-fixture";
+import { RendererFailureView } from "../../src/root-error-boundary";
+import { SessionWorkspaceFixture, sessionFixture } from "./session-workspace-fixture";
+import { AppActionsFixture, actionFixture } from "./app-actions-fixture";
+import { MarkdownFixture, type MarkdownSurface } from "./markdown-fixture";
+import { createDashboardContractFixture } from "./dashboard-contract-fixture";
+import type { DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
+import { VietnamSettingsWorkbench } from "../../src/features/workbench/vietnam-settings-view";
 import { useApprovalsQuery } from "../../src/api/queries";
 import type { PendingApproval, PendingUserQuestion, PermissionMode } from "@lxe/desktop-protocol";
 import { FilePreviewLayout } from "../../src/features/file-preview/Sidebar";
@@ -21,6 +29,8 @@ import "../../src/styles.css";
 // Only external boundaries are substituted. App, Query hooks, composer and
 // dialog focus management are production code, running in Chromium.
 const calls: { operation: string; input?: unknown }[] = [];
+const contractMode = new URLSearchParams(location.search).has("contracts");
+const contractFixture = createDashboardContractFixture(calls);
 const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-build",file_name:"fixture.exe",size:100,sha512:"fixture",notes:"Renderer update"};
 let updateState: DesktopUpdateState = {phase:"unsupported"};
 let releaseUpdateDownload: (()=>void) | undefined;
@@ -30,6 +40,14 @@ let slowCandidates = false;
 let candidateOverride: { path: string; kind: "file" | "directory" }[] | undefined;
 const pendingCandidates: (() => void)[] = [];
 const referenceSkills = ["office-xlsx", "office-docx", "office-pptx"].map(name => ({ name, description: "Office fixture skill", type: "default", commands: [], references: [], location: "/skills/" + name + "/SKILL.md" }));
+let vietnamUploadError: boolean | string = false;
+let vietnamReadError = false;
+let vietnamExportMode: "success" | "cancel" | "error" | "hold" = "success";
+let releaseVietnamExport: (() => void) | undefined;
+let vietnamState: DesktopVietnamSettingsState = { directory: "/fixture/app/skill-data/vietnam-stock-recommendation",
+  parameters: { sales_weight_7d: "0.6", sales_weight_15d: "0.3", sales_weight_30d: "0.1",
+    day_adjustment_7d: "0", day_adjustment_15d: "0.8", day_adjustment_30d: "0.8", exchange_rate: "3900" },
+  sku_map: null, sku_map_error: null, parameters_error: null };
 let chosenFile = "";
 let chosenDirectory: string | null = "/fixture/chosen";
 let sendFailure = false;
@@ -81,7 +99,7 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       if (holdCreation) await new Promise<void>(resolve => pendingCreations.push(resolve));
       const directory = String(input.directory);
       let session = workspaceSessions.find(row => row.blank && row.workspace.directory === directory);
-      if (!session) { session = { ...workspaceSession(`Blank ${workspaceSessions.length}`, directory), blank: true }; workspaceSessions.push(session); }
+      if (!session) { session = { ...workspaceSession(`Blank ${crypto.randomUUID()}`, directory), blank: true }; workspaceSessions.push(session); }
       registerWorkspace(directory);
       return { ...session };
     })();
@@ -124,6 +142,7 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       persistWorkspaces();
       return { session_id: row.session_id, turn_id: "turn", message_id: "message", created: false, state: "queued" };
     })();
+    case "sessions.stop": return { session_id: input.session_id, stopped: true };
     case "sessions.pin": {
       const row = workspaceSessions.find(row => row.session_id === input.session_id)!;
       row.pinned_at = input.pinned ? 1 : 0; return row;
@@ -171,6 +190,27 @@ const desktop = {
   installUpdate: async target => { calls.push({operation:"update.install",input:target}); return updateState={phase:"ready",release:updateRelease}; },
   applyAppearance: async () => {},
   listInputAssets: async () => [],
+  getVietnamSettings: async () => {
+    if (vietnamReadError) throw new Error("PermissionError: fixture settings denied");
+    return structuredClone(vietnamState);
+  },
+  exportVietnamSkuMap: async kind => {
+    calls.push({ operation: "vietnam.export", input: kind });
+    if (vietnamExportMode === "hold") await new Promise<void>(resolve => { releaseVietnamExport = resolve; });
+    if (vietnamExportMode === "cancel") return null;
+    if (vietnamExportMode === "error") throw new Error("PermissionError: fixture export denied");
+    return { path: `/fixture/导出 文件/${kind}.xlsx` };
+  },
+  saveVietnamParameters: async input => {
+    calls.push({ operation: "vietnam.save", input });
+    vietnamState.parameters = structuredClone(input);
+    return structuredClone(vietnamState);
+  },
+  uploadVietnamSkuMap: async () => {
+    if (vietnamUploadError) throw new Error(typeof vietnamUploadError === "string" ? vietnamUploadError : "BadZipFile: synthetic selected workbook");
+    vietnamState.sku_map = { file_name: "sku-map.xlsx", path: "/fixture/app/sku-map.xlsx", size_bytes: 5000, updated_at: "2026-10-08T08:00:00Z" };
+    return structuredClone(vietnamState);
+  },
   onStatusChanged: (listener: (value: DesktopHealth) => void) => {
     notifyHealth = listener;
     return () => { notifyHealth = undefined; };
@@ -180,8 +220,8 @@ const desktop = {
     invalidateDashboard = () => listener({ revision: Date.now(), domains: ["sessions"], session_ids: [] });
     return () => { invalidateDashboard = undefined; };
   },
-  onConversationEvent: subscribe,
-  onConversationStreamEvent: subscribe,
+  onConversationEvent: actionFixture.onActivity,
+  onConversationStreamEvent: actionFixture.onStream,
   onExecUpdate: subscribe,
   onSessionStatus: subscribe,
   selectConversationFiles: async () => { calls.push({ operation: "selectFiles" }); return chosenFile ? [{ attachment_id: chosenFile, name: chosenFile, media_type: "text/plain", size_bytes: 1 }] : []; },
@@ -190,6 +230,7 @@ const desktop = {
   },
   stagePastedConversationFiles: async () => { calls.push({ operation: "pasteFiles" }); return []; },
   discardConversationFiles: async () => {},
+  ...(contractMode ? contractFixture.desktop : {}),
 } satisfies Partial<LxeDesktopBridge["desktop"]>;
 const permissionModes = new Map<string, PermissionMode>();
 let approvalRequests: PendingApproval[] = [];
@@ -201,6 +242,11 @@ let releaseApproval: (() => void) | undefined;
 let composerLanguage: "en" | "zh" = "en";
 const dashboard = {
   async call(call: { operation: string; input: Record<string, unknown> }) {
+    calls.push(structuredClone(call));
+    if (contractMode) {
+      const result = contractFixture.rpc(call);
+      if (result !== undefined) return result;
+    }
     if (call.operation === "skills.list") return { items: referenceMode ? referenceSkills : [], total: referenceMode ? 3 : 0 };
     if (call.operation === "sessions.files.candidates" && referenceMode) {
       if (slowCandidates) await new Promise<void>(resolve => pendingCandidates.push(resolve));
@@ -209,7 +255,7 @@ const dashboard = {
       const items = query.startsWith("报表/") ? [{ path: "报表/销售 统计.md", kind: "file" }] : [{ path: "报表", kind: "directory" }, { path: "销售.md", kind: "file" }, { path: "missing.txt", kind: "file" }].filter(f => !query || f.path.includes(query));
       return { items };
     }
-    calls.push(structuredClone(call));
+    if (actionFixture.active) return actionFixture.rpc(call);
     if (call.operation === "sessions.permission.set") {
       const id = String(call.input.session_id), mode = call.input.permission_mode as PermissionMode;
       if (holdPermission) await new Promise<void>(resolve => { releasePermission = resolve; });
@@ -324,7 +370,34 @@ function reset() {
   root = createRoot(document.getElementById("root")!);
   calls.length = 0; sends.length = 0; stops = 0; releaseSend = undefined;
 }
+function renderActions(subscribed = true) {
+  flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}><QueryClientProvider client={queryClient!}>
+    <AppActionsFixture subscribed={subscribed} />
+  </QueryClientProvider></I18nContext.Provider>));
+}
 const fixture = {
+  ui: contractFixture.controls,
+  mountContent() { reset(); flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}><ConversationContentFixture /></I18nContext.Provider>)); },
+  mountFailure() { reset(); flushSync(() => root!.render(<RendererFailureView />)); },
+  mountMarkdown(surface: MarkdownSurface, content: string) {
+    reset();
+    flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}>
+      <MarkdownFixture surface={surface} content={content} />
+    </I18nContext.Provider>));
+  },
+  session: sessionFixture,
+  mountSessionWorkspace() {
+    reset(); history.replaceState({ section: "sessions" }, "");
+    flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}><QueryClientProvider client={queryClient!}><SessionWorkspaceFixture /></QueryClientProvider></I18nContext.Provider>));
+  },
+  releaseCreation(index: number) { pendingCreations.splice(index, 1)[0]?.(); },
+  actions: actionFixture,
+  mountActions() { reset(); actionFixture.reset(); renderActions(); },
+  subscribeActions(value: boolean) { renderActions(value); },
+  invalidateActions() { void queryClient?.invalidateQueries({ queryKey: ["models"] }); },
+  seedEventCaches() { queryClient!.setQueryData(["sessions","list",""], {}); queryClient!.setQueryData(["sessions","detail","event-session","latest"], {}); },
+  eventCachesInvalidated() { return [["sessions","list",""],["sessions","detail","event-session","latest"]].map(key => queryClient!.getQueryState(key)?.isInvalidated); },
+  cachedActivity(id: string) { return queryClient?.getQueryData(["sessions", "activity", id]); },
   mountUpdates() { reset(); updateState={phase:"idle"}; flushSync(()=>root!.render(<I18nContext.Provider value={UI_TEXT.en}><UpdateControl manual /></I18nContext.Provider>)); },
   releaseUpdateDownload() { releaseUpdateDownload?.(); },
   updateError(operation: "download" | "install") { updateState={phase:"error",release:updateRelease,failedOperation:operation,message:"EACCES: fixture update failure"}; },
@@ -351,6 +424,22 @@ const fixture = {
         <MermaidBlock chart={chart} />
       </div>)}
     </div>));
+  },
+  vietnamUploadFailure(value: boolean | string) { vietnamUploadError = value; },
+  vietnamExportMode(value: typeof vietnamExportMode) { vietnamExportMode = value; },
+  releaseVietnamExport() { releaseVietnamExport?.(); },
+  vietnamReadFailure(value: boolean) { vietnamReadError = value; },
+  vietnamCorruptSettings() {
+    vietnamState.parameters = null;
+    vietnamState.parameters_error = "JSONDecodeError: fixture broken parameters";
+    vietnamState.sku_map = null;
+    vietnamState.sku_map_error = "BadZipFile: fixture broken map";
+  },
+  mountVietnam(language: "en" | "zh") {
+    reset();
+    flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT[language]}>
+      <div style={{ padding: 24, maxWidth: 900, margin: "auto" }}><VietnamSettingsWorkbench onBack={() => {}} /></div>
+    </I18nContext.Provider>));
   },
   chooseFile(value: string) { chosenFile = value; },
   failCreation(value: boolean) { creationFailure = value; },

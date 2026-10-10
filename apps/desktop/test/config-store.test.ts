@@ -180,6 +180,13 @@ describe("DesktopConfigStore", () => {
     expect(persistedSecrets).not.toContain("source-saihu-secret");
   });
 
+  test("keeps Vietnam parameters out of desktop setup and command environments", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    expect(Object.hasOwn(store.state(), "vietnam_recommendation")).toBe(false);
+    expect(Object.keys(store.environment()).filter(key => key.startsWith("LXE_VIETNAM_"))).toEqual([]);
+  });
+
   test("preserves blank secret patches and explicitly clears an integration", () => {
     const root = createRoot();
     const appPath = join(root, "ziniao.exe");

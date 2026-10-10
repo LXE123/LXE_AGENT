@@ -10,9 +10,10 @@ const passed = [];
 const errors = [];
 
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1200, height: 900, show: suite === "windows-titlebar",
-    // Hidden Windows windows throttle animation frames even with backgroundThrottling disabled.
-    webPreferences: { offscreen: suite !== "windows-titlebar", contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  // Native caption selection restoration depends on real document blur events.
+  const nativeFocus = suite === 'windows-menu';
+  const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
+    webPreferences: { offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
   // Do not permit accidental external requests from fixtures or production UI.
   win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     const local = details.url.startsWith(new URL(url).origin + "/") || /^(data:|blob:)/.test(details.url);
@@ -27,7 +28,7 @@ app.whenReady().then(async () => {
   });
   const js = code => win.webContents.executeJavaScript(code);
   const settle = () => js("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))))");
-  const state = () => js("behavior.state()");
+  const state = () => js("window.behavior?.state() ?? {}");
   const waitFor = async (code, label) => {
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
@@ -38,12 +39,13 @@ app.whenReady().then(async () => {
   };
   const load = async (query = "") => {
     await win.loadURL(url + query);
+    if (nativeFocus) { win.show(); win.focus(); win.webContents.focus(); await waitFor('document.hasFocus()', 'native test window focused'); }
     await waitFor("Boolean(window.behavior)", "fixture loaded");
     await settle();
   };
   const focus = async selector => {
-    await js(`document.querySelector(${JSON.stringify(selector)}).focus()`);
     win.webContents.focus();
+    await js(`document.querySelector(${JSON.stringify(selector)}).focus()`);
   };
   const click = async selector => {
     await focus(selector);
@@ -68,7 +70,122 @@ app.whenReady().then(async () => {
   };
   try {
     await load();
-    if (suite === "updates") {
+    if (suite === "markdown") {
+      await require("./markdown.cjs")({win, js, step, settle});
+    } else if (suite === "conversation-content" || suite === "conversation-window") {
+      await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "dashboard-pages") {
+      await require("./dashboard-pages.cjs")({win, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "session-workspace") {
+      await require("./session-workspace.cjs")({js, step, settle, load, state, waitFor});
+    } else if (suite === "app-actions" || suite === "conversation-events") {
+      await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
+    } else if (suite === "vietnam-settings") {
+      const openSettings = async () => {
+        await js("[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings')).click()");
+        await waitFor("document.querySelectorAll('.vietnam-settings-view input').length === 7", "Vietnam parameters loaded");
+      };
+      const input = async (index, value) => {
+        await js(`(() => { const element = document.querySelectorAll('.vietnam-settings-view input')[${index}]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(element, ${JSON.stringify(value)}); element.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await settle();
+      };
+      await step("tool page loads saved defaults and collapsed day adjustments", async () => {
+        await load("?app&section=workbench&complete=true"); await openSettings();
+        assert.deepEqual(await js("[...document.querySelectorAll('.vietnam-settings-view input')].map(el => el.value)"), ["60", "30", "10", "3900", "0", "0.8", "0.8"]);
+        assert.equal(await js("document.querySelector('.vietnam-settings-view details').open"), false);
+      });
+      await step("blank export works without a map and pending or cancelled saves do not report success", async () => {
+        assert.equal(await js("document.querySelector('.vietnam-map-export').disabled"), true);
+        await js("behavior.vietnamExportMode('hold')"); await click(".vietnam-template-download");
+        assert.equal(await js("document.querySelector('.vietnam-template-download').disabled"), true);
+        assert.equal(await js("document.querySelector('.vietnam-map-upload').disabled"), true);
+        assert.equal(await js("document.body.innerText.includes('File saved to:')"), false);
+        await js("behavior.releaseVietnamExport()");
+        await waitFor("document.body.innerText.includes('File saved to: /fixture/导出 文件/template.xlsx')", "template exported");
+        await js("behavior.vietnamExportMode('cancel')"); await click(".vietnam-template-download");
+        assert.equal(await js("document.body.innerText.includes('File saved to:')"), false);
+        assert.equal(await js("document.querySelector('.vietnam-template-download').disabled"), false);
+        await js("behavior.vietnamExportMode('success')");
+      });
+      await step("invalid totals stay local, valid percentages save proportions without restart", async () => {
+        await input(0, "70"); await click(".vietnam-save button");
+        assert.match(await js("document.querySelector('[role=alert]').textContent"), /100%/);
+        assert.equal((await state()).calls.filter(call => call.operation === "vietnam.save").length, 0);
+        await input(1, "20"); await click(".vietnam-save button");
+        await waitFor("document.body.innerText.includes('Parameters saved')", "parameter save completed");
+        const saves = (await state()).calls.filter(call => call.operation === "vietnam.save");
+        assert.equal(Number(saves[0].input.sales_weight_7d), 0.7);
+        assert.equal(Number(saves[0].input.sales_weight_15d), 0.2);
+        assert.equal((await state()).calls.filter(call => /restart|saveSetup/.test(call.operation)).length, 0);
+      });
+      await step("upload preserves parameter drafts and displays actual failures", async () => {
+        await input(3, "4200"); await js("behavior.vietnamUploadFailure(true)");
+        await click(".vietnam-map-upload");
+        assert.match(await js("document.querySelector('[role=alert]').textContent"), /BadZipFile/);
+        assert.equal(await js("document.querySelectorAll('.vietnam-settings-view input')[3].value"), "4200");
+        await js("behavior.vietnamUploadFailure(false)"); await click(".vietnam-map-upload");
+        await waitFor("document.body.innerText.includes('sku-map.xlsx')", "uploaded map shown");
+        assert.equal(await js("document.querySelectorAll('.vietnam-settings-view input')[3].value"), "4200");
+        const status = await js("document.querySelector('.vietnam-file-status').textContent");
+        const findings = "SKU 映射表共发现 3 个错误，涉及 2 行；整表校验未通过。\nSKU参数映射!C2 · SKU VN-A · 成本: 必须是有限正数\nSKU参数映射!B3 · SKU VN-B · 热销标记: 必填，且只能是 1 或 2\nSKU参数映射!E3 · SKU VN-B · 折扣价: 必须是有限正数";
+        await js(`behavior.vietnamUploadFailure(${JSON.stringify(findings)})`);
+        await click(".vietnam-map-upload");
+        assert.equal(await js("document.querySelector('[role=alert]').innerText"), findings);
+        assert.equal(await js("getComputedStyle(document.querySelector('[role=alert]')).whiteSpace"), "pre-wrap");
+        assert.equal(await js("document.querySelector('.vietnam-file-status').textContent"), status);
+        assert.equal(await js("document.body.innerText.includes('Map uploaded')"), false);
+        if (process.env.LXE_VIETNAM_SCREENSHOT) require('node:fs').writeFileSync(process.env.LXE_VIETNAM_SCREENSHOT.replace(/\.png$/, '-errors.png'), (await win.webContents.capturePage()).toPNG());
+        await js("behavior.vietnamUploadFailure(false)");
+      });
+      await step("reopening shows saved settings and the uploaded map", async () => {
+        await click(".vietnam-save button"); await click(".workbench-back"); await openSettings();
+        assert.equal(await js("document.querySelectorAll('.vietnam-settings-view input')[3].value"), "4200");
+        assert.match(await js("document.body.innerText"), /sku-map.xlsx/);
+        await settle(); await delay(300);
+        if (process.env.LXE_VIETNAM_SCREENSHOT) require('node:fs').writeFileSync(process.env.LXE_VIETNAM_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
+      });
+      await step("current export preserves parameter drafts, file status and actual errors", async () => {
+        await input(3, "4300");
+        const status = await js("document.querySelector('.vietnam-file-status').textContent");
+        assert.equal(await js("document.querySelector('.vietnam-map-export').disabled"), false);
+        await click(".vietnam-map-export");
+        await waitFor("document.body.innerText.includes('/fixture/导出 文件/current.xlsx')", "current map exported");
+        assert.equal((await state()).calls.filter(call => call.operation === "vietnam.export").at(-1).input, "current");
+        await js("behavior.vietnamExportMode('error')"); await click(".vietnam-map-export");
+        assert.match(await js("document.querySelector('[role=alert]').textContent"), /PermissionError: fixture export denied/);
+        assert.equal(await js("document.body.innerText.includes('File saved to:')"), false);
+        assert.equal(await js("document.querySelectorAll('.vietnam-settings-view input')[3].value"), "4300");
+        assert.equal(await js("document.querySelector('.vietnam-file-status').textContent"), status);
+        await js("behavior.vietnamExportMode('success')");
+      });
+      await step("export actions localize and wrap inside narrow cards", async () => {
+        await load();
+        await js("window.lxe.desktop.uploadVietnamSkuMap()");
+        win.setSize(500, 900);
+        for (const language of ['zh', 'en']) {
+          await js(`behavior.mountVietnam('${language}')`);
+          await waitFor("document.querySelectorAll('.vietnam-settings-view input').length === 7", "localized settings loaded");
+          await settle();
+          const labels = await js("[...document.querySelectorAll('.vietnam-map-actions button')].map(el => el.textContent)");
+          assert.deepEqual(labels, language === 'zh' ? ['下载空白模板', '导出当前映射表', '替换映射表'] : ['Download blank template', 'Export current map', 'Replace map']);
+          assert.equal(await js("(() => { const card=document.querySelector('.vietnam-map-card').getBoundingClientRect(); return [...document.querySelectorAll('.vietnam-map-actions button')].every(el => {const box=el.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right;}); })()"), true);
+          await click(".vietnam-template-download");
+          assert.equal(await js(`document.body.innerText.includes('${language === 'zh' ? '文件已保存至：' : 'File saved to:'}')`), true);
+          if (process.env.LXE_VIETNAM_SCREENSHOT) require('node:fs').writeFileSync(process.env.LXE_VIETNAM_SCREENSHOT.replace(/\.png$/, `-${language}-narrow.png`), (await win.webContents.capturePage()).toPNG());
+        }
+      });
+      await step("template remains available with broken settings or a failed settings read", async () => {
+        await js("behavior.vietnamCorruptSettings(); behavior.mountVietnam('en')");
+        await waitFor("document.body.innerText.includes('JSONDecodeError')", "invalid parameters reported");
+        assert.equal(await js("document.querySelector('.vietnam-map-export').disabled"), true);
+        await click(".vietnam-template-download");
+        await waitFor("document.body.innerText.includes('File saved to:')", "template independent of broken config");
+        await js("behavior.vietnamReadFailure(true); behavior.mountVietnam('en')");
+        await waitFor("document.body.innerText.includes('fixture settings denied')", "settings failure reported");
+        await click(".vietnam-template-download");
+        await waitFor("document.body.innerText.includes('File saved to:')", "template independent of read failure");
+      });
+    } else if (suite === "updates") {
       await js("behavior.mountUpdates()");
       await step("checking discovers an update without downloading", async () => {
         await waitFor("Boolean(document.querySelector('.lxe-update-manual-button'))", "update control");
@@ -406,7 +523,7 @@ app.whenReady().then(async () => {
         await js("behavior.updateComposer({runtimeReady:true})"); await focus(".reference-editor"); await key("Enter");
         assert.deepEqual((await state()).sends, [{ text: "offline draft", attachments: [] }]);
         await js("behavior.drop()"); await settle();
-        assert.deepEqual((await state()).calls.filter(call => !call.operation.startsWith("sessions.")), [{ operation: "dropFiles", input: ["fixture.txt"] }], "drop listener is exercised after recovery");
+        assert.deepEqual((await state()).calls.filter(call => !call.operation.includes(".")), [{ operation: "dropFiles", input: ["fixture.txt"] }], "drop listener is exercised after recovery");
       });
     } else if (suite === "references") {
       const draft = () => js("sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || ''");
@@ -717,6 +834,11 @@ app.whenReady().then(async () => {
               assert.ok(platform === "win32" ? title.top >= 40 : title.left >= toggle.right, `${platform} ${theme} ${open}: title avoids toggle`);
               assert.ok((await rect(".navigation-rail-button")).top >= 44);
               assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-toggle-button')).webkitAppRegion"), "no-drag");
+              if (platform === "darwin") {
+                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "no-drag");
+                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header-copy')).webkitAppRegion"), "drag");
+                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header button')).webkitAppRegion"), "no-drag");
+              }
               if (platform === "win32") {
                 assert.equal((await rect(".main-panel")).top, 40);
                 assert.equal((await rect(".app-navigation")).top, 40);
@@ -740,109 +862,8 @@ app.whenReady().then(async () => {
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed.png"), (await win.webContents.capturePage()).toPNG());
         }
       });
-    } else if (suite === "windows-titlebar") {
-      const rect = selector => js(`(() => { const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {top:r.top,left:r.left,right:r.right,bottom:r.bottom,width:r.width,height:r.height}; })()`);
-      const menu = '.windows-titlebar-menu [role="menuitem"]';
-      await load("?app=1&workspaces=1&section=sessions&platform=win32");
-      await waitFor("Boolean(document.querySelector('.windows-titlebar-menu'))", "caption mounted");
-      win.show(); win.focus(); await delay(100);
-      await step("all Windows columns begin below one caption in either theme and sidebar state", async () => {
-        for (const theme of ["light", "dark"]) {
-          await js(`document.documentElement.dataset.theme='${theme}'`);
-          for (let i=0;i<2;i++) {
-            assert.equal((await rect('.app-navigation')).top, 40);
-            assert.equal((await rect('.main-panel')).top, 40);
-            assert.equal((await rect('.sidebar-toggle-button')).left, 12);
-            assert.equal((await rect('.sidebar-toggle-button')).height, 28);
-            assert.equal((await rect(menu)).left, 48);
-            assert.equal(await js("getComputedStyle(document.querySelector('.windows-titlebar-menu')).webkitAppRegion"), "no-drag");
-            assert.equal(await js("document.documentElement.scrollHeight>innerHeight"), false);
-            assert.equal(
-              await js("getComputedStyle(document.querySelector('.desktop-platform-win32'), '::before').backgroundColor"),
-              await js("getComputedStyle(document.querySelector('.main-panel')).backgroundColor"),
-              'caption follows the content theme in either sidebar state',
-            );
-            if (i === 1) {
-              // Use a real pointer: DOM clicks alone do not exercise :hover or delayed peek.
-              await js("document.activeElement.blur()");
-              win.webContents.sendInputEvent({ type: 'mouseMove', x: 800, y: 400 });
-              await delay(220);
-              win.webContents.sendInputEvent({ type: 'mouseMove', x: 26, y: 20 });
-              await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", 'caption hover peek');
-              await delay(180);
-              const contrast = await js(`(() => {
-                const button = document.querySelector('.sidebar-toggle-button');
-                const rgb = value => value.match(/[\\d.]+/g).map(Number);
-                const ink = rgb(getComputedStyle(button.querySelector('svg')).stroke);
-                const fill = rgb(getComputedStyle(button).backgroundColor);
-                const caption = rgb(getComputedStyle(document.querySelector('.desktop-platform-win32'), '::before').backgroundColor);
-                const alpha = fill[3] ?? 1;
-                const luminance = color => color.slice(0, 3).map(v => v / 255)
-                  .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
-                  .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
-                const a = luminance(ink), b = luminance(fill.map((v, i) => v * alpha + caption[i] * (1 - alpha)));
-                return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
-              })()`);
-              if (process.env.LXE_TITLEBAR_SCREENSHOT) {
-                require('node:fs').writeFileSync(process.env.LXE_TITLEBAR_SCREENSHOT.replace(/\.png$/, '-hover-' + theme + '.png'), (await win.webContents.capturePage()).toPNG());
-              }
-              assert.ok(contrast >= 3, `${theme} caption icon must remain visible while peeking (contrast ${contrast})`);
-            }
-            await click('.sidebar-toggle-button'); await delay(220);
-          }
-        }
-        for (const tab of ['home','workbench','capabilities','activity','sessions']) {
-          const exists = await js(`Boolean(document.querySelector('.tab-${tab}'))`);
-          if (exists) { await click(`.tab-${tab}`); assert.equal((await rect('.main-panel')).top,40); }
-        }
-        await click('.tab-sessions');
-      });
-      await step("caption menus preserve input selection for pointer and keyboard activation", async () => {
-        await js(`window.lxe.desktop.showTitlebarMenu=async request=>{ window.captionRequest=request; window.captionFocus=document.activeElement.className; window.captionSelection=getSelection().toString(); return null; };undefined`);
-        await waitFor("Boolean(document.querySelector('.reference-editor'))", "composer mounted");
-        await waitFor("document.querySelector('.reference-editor')?.getAttribute('contenteditable')==='true'", 'composer enabled');
-        await focus('.reference-editor'); await win.webContents.insertText('Keep selected draft'); await settle();
-        await focus('.reference-editor');
-        await js(`(()=>{const e=document.querySelector('.reference-editor'); const r=document.createRange();r.selectNodeContents(e);getSelection().removeAllRanges();getSelection().addRange(r);})()`);
-        await js(`document.querySelectorAll('${menu}')[1].dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));document.querySelectorAll('${menu}')[1].click()`); await settle();
-        assert.match(await js('captionFocus'),/reference-editor/);
-        assert.equal(await js('captionSelection'),'Keep selected draft');
-        await focus(menu); await key('Right'); await key('Down');
-        assert.match(await js('captionFocus'),/reference-editor/);
-        assert.equal(await js('captionRequest.menu'),'edit');
-        assert.equal(await js('captionSelection'),'Keep selected draft');
-      });
-      await step("application actions reuse settings and updater without installing or repeating checks", async () => {
-        await js(`window.captionAction='settings';window.captionChecks=0;window.captionInstalls=0;window.lxe.desktop.showTitlebarMenu=async()=>captionAction;window.lxe.desktop.getUpdateState=async()=>({phase:'idle'});window.lxe.desktop.checkForUpdate=async()=>{captionChecks++;return {phase:'idle',message:'Already current'};};window.lxe.desktop.installUpdate=async()=>{captionInstalls++;return {phase:'ready'};};undefined`);
-        await click(menu);
-        await waitFor("Boolean(document.querySelector('.desktop-settings-modal'))", "settings via menu");
-        assert.equal((await rect('.desktop-settings-backdrop')).top,40);
-        assert.equal(await js('captionChecks'),0);
-        await js("window.captionAction='check-updates'"); await click(menu);
-        await waitFor('captionChecks===1', 'single manual update check');
-        await waitFor("document.querySelector('.lxe-update-manual')?.textContent.includes('No updates available')", "update feedback");
-        assert.equal(await js('captionInstalls'),0);
-        await key('Escape'); await js("window.captionAction='settings'"); await click(menu); await delay(150);
-        assert.equal(await js('captionChecks'),1);
-        await key('Escape');
-      });
-      await step("Chinese menus and full preview stay below caption", async () => {
-        await load("?app=1&workspaces=1&section=sessions&platform=win32&language=zh");
-        await waitFor("Boolean(document.querySelector('.windows-titlebar-menu'))", "Chinese caption");
-        assert.deepEqual(await js(`Array.from(document.querySelectorAll('${menu}')).map(e=>e.textContent)`),['应用','编辑']);
-        const preview = '.file-header-actions button';
-        await click(preview);
-        await waitFor("Boolean(document.querySelector('.file-sidebar'))", "preview opened");
-        assert.equal((await rect('.file-sidebar')).top,40);
-        await click('.file-tab-strip > button:nth-last-child(2)');
-        assert.equal((await rect('.file-sidebar')).top,40);
-        if(process.env.LXE_TITLEBAR_SCREENSHOT) {
-          for(const theme of ['dark','light']) {
-            await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
-            require('node:fs').writeFileSync(process.env.LXE_TITLEBAR_SCREENSHOT.replace(/\.png$/, '-'+theme+'.png'),(await win.webContents.capturePage()).toPNG());
-          }
-        }
-      });
+    } else if (suite === "windows-titlebar" || suite === "windows-menu") {
+      await require("./titlebar-contracts.cjs")({suite,win,js,step,load,waitFor,click,key,focus,settle,delay});
     } else if (suite === "workspaces") {
       await load("?app=1&workspaces=1&section=sessions");
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace groups");
@@ -1084,7 +1105,7 @@ app.whenReady().then(async () => {
     console.error(error.stack || error);
     console.error("Completed scenarios:", JSON.stringify(passed));
     console.error("Renderer errors:", JSON.stringify(errors));
-    console.error("State:", JSON.stringify(await state().catch(String)));
+    console.error("State:", JSON.stringify(await state().then(value => ({...value, sessions: undefined})).catch(String)));
     win.destroy(); app.exit(1);
   }
 }).catch(error => { console.error(error); app.exit(1); });

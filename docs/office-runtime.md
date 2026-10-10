@@ -16,6 +16,8 @@ uv run --frozen python -m shared.office convert --input "文件.pptx" --output "
 
 `check` 使用移植的 dsh 检查器，支持文本、数量断言；数量只适用于工作表和幻灯片。它不计算公式，也不判断外观。其他操作直接透传 Kit CLI 的参数、输出、错误和退出码，路径相对调用工作目录解析。可用 `--timeout-ms` 设置引擎超时；输出文件和预览目录必须是新路径。
 
+越南备货内部通过 `shared.office.execution` 调用重算，明确给 Kit 300 秒计算时间，再预留 5 秒退出时间。仍未退出时，macOS 先请求正常退出并最多等待 5 秒，然后结束本次任务的独立进程组；Windows 结束本次任务的 Job Object，包含仍存活的子进程。取消也清理本次任务，不按程序名结束其他 Office 进程。重算后的工作簿仍须通过原有校验才会交付，公式和业务规则不变。
+
 宿主通过 `LXE_OFFICE_NODE` 和 `LXE_OFFICE_CLI` 提供绝对路径。桌面和一次性 Agent CLI 都使用同样的资源布局；skill 不参与安装位置解析。打包后的 `exec` 会把 `uv run --frozen python` 映射到随包 Python，不要求用户安装 uv。
 
 最终文件位于当前 `artifact_root/office/<任务目录>/`，默认另存。数据检查、公式重算和视觉检查按任务需要分别执行；成功退出不能证明图片里有实际文档内容。

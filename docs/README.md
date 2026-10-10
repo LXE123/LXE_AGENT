@@ -32,6 +32,8 @@
 
 [平台参考资料](harness/skill/reference/README.md) 保存供应商 API、真实响应和紫鸟自动化约束；[Codex 工具载荷研究](study/codex-code-mode-tool-payload.md) 是外部项目资料。它们不定义 LXE 的当前实现，也不能替代运行时 Skill。
 
+[越南备货流程](harness/vietnam-stock-recommendation/calculation.md)说明 ERP 报表获取、独立计算和工作台设置；[SKU 映射表契约](harness/vietnam-stock-recommendation/asset-contract.md)说明填写要求、校验、保存和导出。
+
 ## 维护规则
 
 - 产品行为以当前代码及测试为准；文档说明稳定边界，易变版本和参数链接到对应契约。

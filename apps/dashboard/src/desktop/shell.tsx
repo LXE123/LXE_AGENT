@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
   Cloud,
   ExternalLink,
   Feather,
@@ -57,6 +58,7 @@ import {
 import {
   desktopSettingsForm,
   desktopSettingsFormAfterClear,
+  desktopYacangCredentialsChanged,
   type DesktopIntegrationName,
   type ErpIntegrationName,
   desktopCloudBindingSwitchAvailable,
@@ -580,6 +582,7 @@ function DesktopSettingsForm({
   form,
   health,
   headingRef,
+  saving,
   setup,
   platform,
   onChange,
@@ -596,6 +599,7 @@ function DesktopSettingsForm({
   form: SetupForm;
   health: DesktopHealth;
   headingRef: RefObject<HTMLHeadingElement | null>;
+  saving: boolean;
   setup: DesktopSetupState;
   platform: "win32" | "darwin" | "linux";
   onChange: (patch: Partial<SetupForm>) => void;
@@ -1403,7 +1407,7 @@ export function DesktopShell({
     }
   };
   const openCloudDestination = async (destination: DesktopCloudDestination): Promise<void> => {
-    if (cloud.connection !== "connected") return;
+    if (cloud.native_access?.status !== "connected") return;
     setError("");
     try {
       await desktop.openCloudDestination(destination);
@@ -1424,7 +1428,7 @@ export function DesktopShell({
       form.ziniaoWebDriverPath,
     ) || setup.ziniao.configured;
     const mabangTmsTouched = hasText(form.mabangTmsAccount, form.mabangTmsPassword) || setup.mabangTms.configured;
-    const yacangTouched = hasText(form.yacangMobile, form.yacangPassword) || setup.yacang.configured;
+    const yacangTouched = desktopYacangCredentialsChanged(form, setup);
     const shangmanTouched = hasText(form.shangmanTenantId, form.shangmanUsername, form.shangmanPassword) || setup.shangman.configured;
     const mabangTouched = hasText(form.mabangAccount, form.mabangPassword) || setup.mabang.configured;
     const feishuTouched = hasText(form.feishuAppId, form.feishuAppSecret) || setup.feishu.configured;
@@ -1602,6 +1606,7 @@ export function DesktopShell({
       form={form}
       health={health}
       headingRef={sectionHeadingRef}
+      saving={saving}
       onChange={updateForm}
       onClearIntegration={clearIntegration}
       onDeleteLocalCredential={deleteLocalCredential}

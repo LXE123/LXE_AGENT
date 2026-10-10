@@ -66,6 +66,7 @@ def _public_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "attribution_skill": str(entry.get("attribution_skill") or ""),
         "artifact_paths": list(entry.get("artifact_paths") or []),
         "input_schema": dict(entry.get("input_schema") or {}),
+        "input_modes": list(entry.get("input_modes") or ["flags", "input-json", "stdin-json"]),
         "usage": f"lxeskill {_command_text(entry)} [options]",
     }
 
@@ -152,6 +153,8 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
     index = 0
     while index < len(argv):
         value = argv[index]
+        if entry.get("input_modes") == ["flags"] and value.split("=", 1)[0] in {"--input-json", "--stdin-json"}:
+            raise LxeSkillError("invalid_arguments", f"{_command_text(entry)} accepts command-line options only; {value.split('=', 1)[0]} is not supported", exit_code=EXIT_USAGE)
         if value in {"--input-json", "--session-id"}:
             index += 1
             if index >= len(argv):
@@ -508,7 +511,8 @@ def _main(argv: list[str] | None = None) -> int:
                     "ok": True,
                     "data": {
                         "usage": "lxeskill <list|describe|doctor|cloud-status|cloud-context|command> [options]",
-                        "input_modes": ["flags", "--input-json <path>", "--stdin-json"],
+                        "input_modes": ["flags", "input-json", "stdin-json"],
+                        "input_modes_note": "Supported modes depend on the command; use describe or command --help.",
                     },
                     "files": [],
                 }

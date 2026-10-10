@@ -30,23 +30,29 @@ def _generation(version: AssetVersion | None) -> dict[str, Any] | None:
     }
 
 
+def _slot(entry) -> dict[str, Any]:
+    common = {
+        "slot": entry.id,
+        "display_name": entry.display_name,
+        "management": entry.management,
+        "used_by": list(entry.used_by),
+        "holds": entry.holds,
+        "directory": str(slot_dir(entry.id)),
+    }
+    return {
+        **common,
+        "manifest_revision": None,
+        "current": _generation(current_asset(entry.id)),
+        "previous": _generation(previous_asset(entry.id)),
+    }
+
+
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     action = str(arguments.get("action") or "list").strip()
     if action != "list":
         return {"success": False, "exception": f"ValueError: unknown action: {action}"}
     try:
-        slots = [
-            {
-                "slot": entry.id,
-                "display_name": entry.display_name,
-                "used_by": list(entry.used_by),
-                "holds": entry.holds,
-                "directory": str(slot_dir(entry.id)),
-                "current": _generation(current_asset(entry.id)),
-                "previous": _generation(previous_asset(entry.id)),
-            }
-            for entry in load_input_assets().values()
-        ]
+        slots = [_slot(entry) for entry in load_input_assets().values()]
     except Exception as exc:  # noqa: BLE001 - public modules return failure envelopes
         return {"success": False, "exception": f"{type(exc).__name__}: {exc}"}
     return {"success": True, "slots": slots}

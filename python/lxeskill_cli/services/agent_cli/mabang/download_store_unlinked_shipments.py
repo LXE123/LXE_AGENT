@@ -58,8 +58,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     store_name = str(arguments.get("store_name") or "").strip()
     try:
-        timeout_sec = arguments.get("timeout_sec")
-        poll_interval_sec = arguments.get("poll_interval_sec")
+        timeout_sec = arguments.get("timeout_seconds")
+        poll_interval_sec = arguments.get("poll_interval_seconds")
         return asyncio.run(_download_with_snapshot(
             normalize_store_name(arguments.get("store_name") or ""),
             timeout_sec=float(180 if timeout_sec is None else timeout_sec),

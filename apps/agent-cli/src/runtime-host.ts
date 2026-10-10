@@ -42,6 +42,7 @@ import {
   SkillCatalog,
   SqliteRuntimeStore,
   ToolRegistry,
+  ToolExecutionError,
   TypeScriptAgentRuntime,
   WorkspaceInstanceManager,
   WorkspaceSearchService,

@@ -9,7 +9,8 @@ import { executionBoundary, recheckExecutionBoundary } from "../../src/permissio
 import { workspaceFor } from "../workspace";
 const roots: string[] = [];
 const fixture = () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "lxe-permission-"))); roots.push(root);
+  // The native resolver expands Windows 8.3 aliases, as the path policy does.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe-permission-"))); roots.push(root);
   const dataRoot = join(root, "var"), directory = join(dataRoot, "workspace");
   const service = new PermissionPolicyService();
   const session = { session_id: "../session", workspace: workspaceFor(directory, root), permission_mode: "workspace-write" as const };

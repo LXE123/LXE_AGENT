@@ -78,7 +78,7 @@ lxeskill fba erp packing-upload --confirm-packing-quote-id <quote_id>
 
 1. 告诉用户本地缺少该 SP 的发货单 CSV。
 2. 询问是否下载；未取得同意前不要下载。
-3. 用户同意后切换到 `fba-shipment-delivery-csv-download` 下载，再重新预览。
+3. 用户同意后切换到 `mabang-delivery-export` 下载，再重新预览。
 
 ## Result Handling
 

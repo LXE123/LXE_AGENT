@@ -10,6 +10,7 @@ from shared.datasets import dataset_dir
 from shared.filesystem import display_path, filesystem_path
 from .client import YacangClient
 from .contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key, export_parameters
+from .delivery import remove_inventory_sales_creation_date
 from .errors import YacangError, safe_remote_detail
 from .queue import wait_for_file
 from .state import ExportState
@@ -74,6 +75,8 @@ def run(arguments):
                     temporary = folder / ('.' + filename)
                     client.download(url, temporary)
                     metadata = validate(temporary, spec, client.diagnostic)
+                    if spec['report'] == 'inventory-sales':
+                        remove_inventory_sales_creation_date(temporary)
                     temporary.replace(target)
                     artifact = {**spec, **metadata, 'filters': export_parameters(spec), 'path': str(display_path(target.resolve())), 'filename': filename,
                                 'source': 'yacang', 'notice': '没有数据行' if metadata['row_count'] == 0 else ''}

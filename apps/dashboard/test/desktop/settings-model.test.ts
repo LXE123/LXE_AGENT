@@ -5,6 +5,7 @@ import {
   desktopCloudShortcutAvailable,
   desktopSettingsForm,
   desktopSettingsFormAfterClear,
+  desktopYacangCredentialsChanged,
   ERP_INTEGRATIONS,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
@@ -152,4 +153,12 @@ test("clearing one platform preserves all other unsaved credentials and settings
   const result = desktopSettingsFormAfterClear(current, next, "mabangTms");
   expect(result).toEqual({ ...current, mabangTmsAccount: "", mabangTmsPassword: "" });
   expect(current.mabangTmsPassword).toBe("secret-tms");
+});
+
+test("ERP settings only track credentials after Vietnam parameters move to the tool page", () => {
+  const setup = setupState();
+  const form = desktopSettingsForm(setup);
+  expect(Object.keys(form).filter(key => key.startsWith("vietnam"))).toEqual([]);
+  expect(desktopYacangCredentialsChanged(form, setup)).toBe(false);
+  expect(desktopYacangCredentialsChanged({ ...form, yacangPassword: "new password" }, setup)).toBe(true);
 });

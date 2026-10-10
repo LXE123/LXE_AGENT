@@ -1,0 +1,95 @@
+.vietnam-settings-view {
+  max-width: 840px;
+  gap: 16px;
+  font-size: 14px;
+  container-type: inline-size;
+}
+
+.vietnam-settings-view .workbench-tool-header { gap: 8px; padding: 0 0 6px; }
+.vietnam-settings-view .workbench-back { margin-bottom: 6px; font-size: 12px; }
+.vietnam-settings-view .workbench-tool-header h2 { font-size: 24px; line-height: 1.35; }
+.vietnam-settings-view h3 { margin: 0; color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.vietnam-settings-view p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.vietnam-settings-view p.workbench-error {
+  color: var(--danger, #b4362f);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.vietnam-settings-view .workbench-tool-status { color: var(--accent-strong); overflow-wrap: anywhere; }
+.vietnam-settings-view fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.vietnam-settings-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 18px 20px;
+}
+.vietnam-map-card { display: grid; gap: 10px; }
+.vietnam-map-card .asset-slot-header { gap: 12px; flex-wrap: wrap; }
+.vietnam-map-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vietnam-map-card .asset-slot-header button {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vietnam-file-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  color: var(--text-strong);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.vietnam-file-status svg { color: var(--muted); flex-shrink: 0; }
+.vietnam-file-updated { margin-left: 4px; color: var(--muted); }
+
+.vietnam-parameters-card { padding-top: 0; padding-bottom: 0; }
+.vietnam-setting-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 1.65fr);
+  align-items: center;
+  gap: 24px;
+  padding: 20px 0;
+}
+.vietnam-setting-row + .vietnam-setting-row,
+.vietnam-advanced { border-top: 1px solid var(--border); }
+.vietnam-setting-copy { display: grid; gap: 6px; }
+.vietnam-parameter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.vietnam-parameter-grid label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.vietnam-settings-view input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.vietnam-settings-view input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.vietnam-exchange { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.vietnam-exchange input { width: 128px; }
+.vietnam-advanced summary { display: flex; align-items: center; gap: 7px; padding: 15px 0; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; }
+.vietnam-advanced summary::-webkit-details-marker { display: none; }
+.vietnam-advanced[open] > summary svg { transform: rotate(90deg); }
+.vietnam-advanced .vietnam-setting-row { padding-top: 0; }
+.vietnam-save { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
+.vietnam-save button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
+.vietnam-save span { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+@container (max-width: 620px) {
+  .vietnam-setting-row { grid-template-columns: 1fr; gap: 14px; padding: 16px 0; }
+  .vietnam-settings-card { padding-left: 16px; padding-right: 16px; }
+  .vietnam-file-updated { flex-basis: 100%; margin-left: 24px; }
+}

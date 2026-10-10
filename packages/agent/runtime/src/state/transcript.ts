@@ -51,6 +51,12 @@ const anchorMetadata = (value: unknown) => {
   return (source.role === "assistant" || source.role === "compactionSummary") && validContextAnchor(source.contextTokenAnchor)
     ? { contextTokenAnchor: source.contextTokenAnchor } : {};
 };
+const runtimeContextMetadata = (value: unknown) => {
+  const source = value as { role?: unknown; runtimeContextKind?: unknown; message_id?: unknown; client_message_id?: unknown };
+  return source.role === "user" && source.runtimeContextKind === "turn_aborted"
+    && !text(source.message_id) && !text(source.client_message_id)
+    ? { runtimeContextKind: "turn_aborted" as const } : {};
+};
 export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as { role?: unknown; content?: unknown; summary?: unknown; tokensBefore?: unknown; details?: unknown };
@@ -71,7 +77,7 @@ export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | und
   if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
   let role = legacyRole as RuntimeConversationMessage["role"];
   const identity = Object.fromEntries(["message_id", "client_message_id"].flatMap((key) => typeof (value as Record<string, unknown>)[key] === "string" ? [[key, (value as Record<string, unknown>)[key]]] : []));
-  if (!Array.isArray(candidate.content)) return { ...identity, ...environmentMetadata(value), ...anchorMetadata(value), role, content: String(candidate.content ?? "") };
+  if (!Array.isArray(candidate.content)) return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), role, content: String(candidate.content ?? "") };
   const content = candidate.content.map(normalizeLegacyBlock)
     .filter((block): block is JsonObject => Boolean(block));
   // Early Bun transcripts persisted Anthropic wire messages directly. Recover
@@ -86,7 +92,7 @@ export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | und
       if (source[key] !== undefined) metadata[key] = source[key];
     }
   }
-  return { ...identity, ...environmentMetadata(value), ...anchorMetadata(value), ...metadata, role, content } as RuntimeMessage;
+  return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), ...metadata, role, content } as RuntimeMessage;
 };
 
 export const normalizeTranscriptMessages = (values: unknown[]): RuntimeMessage[] =>

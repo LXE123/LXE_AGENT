@@ -105,7 +105,7 @@ def test_group_context_survives_cli_terminal_without_cookie_recovery(monkeypatch
         assert payload['success'] is False
         return False, [{'type': 'text', 'text': json.dumps(payload)}], [], {'code': 'business_cli_failed', 'message': payload['exception']}
     monkeypatch.setattr(entrypoint, 'execute_module_json', execute)
-    assert entrypoint.main(['replenish', 'msku', 'download', '--store-name', 'Shop-Group', '--store-id', '401403', '--id-type', 'fbaWarehouseIds[]']) == entrypoint.EXIT_BUSINESS
+    assert entrypoint.main(["mabang", "store", "msku", "export", '--store-name', 'Shop-Group', '--store-id', '401403', '--id-type', 'fbaWarehouseIds[]']) == entrypoint.EXIT_BUSINESS
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert len(records) == 1
     terminal = records[0]

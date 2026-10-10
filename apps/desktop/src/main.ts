@@ -1,3 +1,4 @@
+import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
@@ -433,6 +434,10 @@ async function bootstrap(): Promise<void> {
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
   });
+  const vietnamSettings = new DesktopVietnamSettingsService({
+    platform: process.platform, pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath,
+  });
   const checkCloudAfterResume = (): void => { void cloud.check(); activeUpdates?.wake(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
@@ -631,6 +636,10 @@ async function bootstrap(): Promise<void> {
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
+    getVietnamSettings: () => vietnamSettings.read(),
+    saveVietnamParameters: input => vietnamSettings.save(input),
+    installVietnamSkuMap: sourcePath => vietnamSettings.upload(sourcePath),
+    exportVietnamSkuMap: (kind, path) => vietnamSettings.exportMap(kind, path),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     isTrustedFileSender: event => !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,

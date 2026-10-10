@@ -313,7 +313,7 @@ def test_cli_retains_partial_artifact_without_auth_material(monkeypatch, tmp_pat
     payload = {'success': False, 'status': 'partial_success', 'error': {'code': 'early_empty_page', 'message': 'actual error'},
                'artifacts': [{'path': str(output)}], 'auth_refresh_required': False}
     monkeypatch.setattr(export_run, 'run_with_events', lambda *args, **kwargs: payload)
-    assert cli.main(['mabang-tms', 'export', 'run']) != 0
+    assert cli.main(["mabang-tms", "products", "export"]) != 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert result['ok'] is False and result['files']
     assert result['data']['status'] == 'partial_success'

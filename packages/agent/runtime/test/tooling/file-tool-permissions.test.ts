@@ -20,12 +20,13 @@ const edit = (path: string): JsonObject => ({ path, edits: [{ oldText: "before",
 const write = (path: string): JsonObject => ({ file_path: path, content: "after" });
 
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "lxe-file-permissions-")));
+  // Match the native path spelling used by filesystem permission diagnostics.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe-file-permissions-")));
   roots.push(root);
   const workspace = join(root, "repo", "work 中文 space"), dataRoot = join(root, "var");
   mkdirSync(workspace, { recursive: true });
   const service = new PermissionPolicyService();
-  const temporaryRoot = realpathSync(mkdtempSync(join(tmpdir(), "lxe-file-temp-"))); roots.push(temporaryRoot);
+  const temporaryRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe-file-temp-"))); roots.push(temporaryRoot);
   const executionPaths = new ExecutionPaths(dataRoot, { platform: "win32", temporaryRoot });
   const ledger = new FileVersionLedger();
   const registry = new ToolRegistry();

@@ -37,8 +37,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     try:
         raw = str(arguments.get("delivery_no") or "")
         delivery_no = normalize_delivery_no(raw)
-        timeout_sec = arguments.get("timeout_sec")
-        poll_interval_sec = arguments.get("poll_interval_sec")
+        timeout_sec = arguments.get("timeout_seconds")
+        poll_interval_sec = arguments.get("poll_interval_seconds")
         result = asyncio.run(_download_with_cleanup(
             _require_delivery_no(raw),
             timeout_sec=float(180 if timeout_sec is None else timeout_sec),

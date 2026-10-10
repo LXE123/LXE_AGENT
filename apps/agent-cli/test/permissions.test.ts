@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PermissionApprovalService, PermissionPolicyService, SqliteRuntimeStore, ToolRegistry, registerCodingTools } from "@lxe/runtime";
+import { OneShotCliRunner, PermissionApprovalService, PermissionPolicyService, SqliteRuntimeStore, ToolRegistry, registerCodingTools, type ToolDefinition } from "@lxe/runtime";
 import { DashboardService } from "../src/dashboard-service";
 import { repositoryRoot } from "@lxe/core";
 import { CodingProcessManager } from "../../../packages/agent/runtime/src/tooling/coding/process-manager";
@@ -75,5 +75,33 @@ test("host shutdown still stops processes and releases resources when approval a
   } finally {
     audit.mockRestore(); processes.mockRestore(); await host.stop();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Desktop host exposes exec without a managed lxeskill tool", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-exec-host-"));
+  const workspaceRoot = join(root, "workspace"), skills = join(root, "skills"), soul = join(root, "SOUL.md");
+  mkdirSync(workspaceRoot); mkdirSync(skills); writeFileSync(soul, "Synthetic test instructions");
+  let managed: ToolDefinition | undefined;
+  const original = ToolRegistry.prototype.register;
+  const registration = spyOn(ToolRegistry.prototype, "register").mockImplementation(function(this: ToolRegistry, definition) {
+    if (definition.name === "managed_lxeskill") managed = definition;
+    return original.call(this, definition);
+  });
+  const runner = spyOn(OneShotCliRunner.prototype, "execute");
+  const host = createAgentRuntimeHost({
+    dataRoot: root, legacyWorkspace: { directory: workspaceRoot, worktree: workspaceRoot },
+    agentSoulPath: soul, skillsRoot: skills, userSkillsRoot: join(root, "user"),
+    llmConfigRoot: join(repositoryRoot(import.meta.dir), "config", "llm"),
+    lxeskillCatalogPath: join(repositoryRoot(import.meta.dir), "python", "lxeskill_cli", "lxeskill", "catalog.json"),
+    environment: { LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0", LXE_MANAGED_PYTHON: process.execPath },
+    emitter: { emit: async () => {}, typing: async () => {} },
+  });
+  try {
+    expect(managed).toBeUndefined();
+    expect(registration.mock.calls.map(([definition]) => definition.name)).toContain("exec");
+    expect(runner).not.toHaveBeenCalled();
+  } finally {
+    registration.mockRestore(); runner.mockRestore(); await host.stop(); rmSync(root, { recursive: true, force: true });
   }
 });

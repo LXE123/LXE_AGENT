@@ -1,6 +1,6 @@
 ---
 name: replenishment-workflow-map
-description: Amazon 备货流程介绍与完整任务编排入口。用户要求为 Amazon 店铺完成备货、生成完整补货建议，或询问该流程的步骤与缺失数据时使用；按业务 Skill 完成本轮采集、核验、计算和交付。单步请求路由到对应技能；东南亚备货使用 southeast-asia-replenishment-workflow-map。
+description: Amazon 备货流程介绍与完整任务编排入口。用户要求为 Amazon 店铺完成备货、生成完整补货建议，或询问该流程的步骤与缺失数据时使用；按业务 Skill 完成本轮采集、核验、计算和交付。单步请求直接使用对应技能。明确的越南备货使用 vietnam-replenishment；东南亚整体流程与范围导航见 southeast-asia-replenishment-workflow-map。
 type: replenishment
 ---
 
@@ -19,7 +19,7 @@ type: replenishment
 
 ## 入口与范围
 
-- 本入口及下面的业务步骤用于 Amazon 备货。东南亚备货读取 `southeast-asia-replenishment-workflow-map`；不将上马原始报表接入本流程。用户只说“备货”且上下文无法判断业务模块时，先询问是 Amazon 还是东南亚，不凭国家名称推断。
+- 本入口及下面的业务步骤用于 Amazon 备货。明确的越南备货直接读取 `vietnam-replenishment`，明确的 ERP 导出直接读取对应导出 Skill；东南亚整体流程与范围导航见 `southeast-asia-replenishment-workflow-map`。不将上马原始报表接入本流程。用户只说“备货”且上下文无法判断业务模块时，先询问是 Amazon 还是东南亚，不凭国家名称推断。
 - 用户询问流程时解释关系，不执行命令。
 - 用户说“帮某店铺做备货/生成补货建议”且未限制只做单步时，承担完整任务，默认重新采集本轮数据；用户明确要求复用时才使用已有合格数据。
 - 仅下载、仅销量分析、仅查库存、仅管理参数或明确基于指定输入计算，属于单步任务。读取对应业务 Skill 后执行，不把单步请求扩大为完整流程。
@@ -30,10 +30,10 @@ type: replenishment
 | 顺序 | 业务 Skill | 本轮应保留的结果 |
 |---|---|---|
 | 1 | `replenishment-store-resolve` | 规范店铺名、网页 ID 和 id_type；候选需用户选择 |
-| 2 | `replenishment-msku-download` | 新 MSKU XLSX、源时间、原始/核验通过/未通过行数 |
+| 2 | `mabang-store-msku-export` | 新 MSKU XLSX、源时间、原始/核验通过/未通过行数 |
 | 3 | `replenishment-sales-analyze` | 基于本轮源表的销量报告及源时间 |
-| 4 | `replenishment-real-inventory-report` | 基于同一源表的深圳库存报告及源时间 |
-| 5 | `replenishment-unlinked-shipment-download` | 本轮完整查询成功的快照路径、confirmed_empty |
+| 4 | `mabang-store-shenzhen-inventory-export` | 基于同一源表的深圳库存报告及源时间 |
+| 5 | `mabang-store-unlinked-shipments-export` | 本轮完整查询成功的快照路径、confirmed_empty |
 | 6 | `replenishment-calculate` | 显式传本轮快照，生成最终报表 |
 | 7 | 交付 | 发送最后计算 terminal 的 files，并确认发送成功 |
 

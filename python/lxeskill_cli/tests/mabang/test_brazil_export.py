@@ -266,7 +266,7 @@ def test_cli_partial_result_preserves_successful_attachments(monkeypatch,tmp_pat
         path=artifact_root()/'brazil.xls';path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'validated-in-other-tests')
         monkeypatch.delenv('LXESKILL_SKILL_SCOPE',raising=False)
         monkeypatch.setattr(adapter,'run',lambda arguments:{'success':False,'status':'partial_success','artifacts':[{'path':str(path)}],'error':{'code':'coverage_mismatch','message':'actual missing 2 batches'}})
-        result=cli.main(['mabang','brazil-overseas','export','run','--params',json.dumps({'reports':[PENDING]})])
+        result=cli.main(["mabang", "brazil", "reports", "export",'--report','pending-transfers-within-3-months'])
         terminal=json.loads(capsys.readouterr().out.strip().splitlines()[-1])
         assert result!=0 and terminal['ok'] is False
         assert terminal['files']==[str(path.resolve())], terminal

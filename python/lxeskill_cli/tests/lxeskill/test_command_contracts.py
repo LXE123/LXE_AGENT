@@ -90,7 +90,7 @@ class FailureCase:
 
 
 FAILURE_CASES = {
-    "fba stock-sku download": (
+    "mabang delivery inventory-sku export": (
         FailureCase({}, {"delivery_no": ""}, "delivery_no 不能为空"),
         FailureCase(
             {"delivery_no": "FBA123"},
@@ -98,7 +98,7 @@ FAILURE_CASES = {
             "delivery_no 格式无效: FBA123",
         ),
     ),
-    "fba shipment delivery-csv-download": (
+    "mabang delivery export": (
         FailureCase({}, {"delivery_no": ""}, "delivery_no 不能为空"),
         FailureCase(
             {"delivery_no": "FBA123"},
@@ -121,30 +121,30 @@ FAILURE_CASES = {
             "delivery_no 格式无效: FBA123",
         ),
     ),
-    "fba msku detail-download": (
+    "mabang delivery msku export": (
         FailureCase({}, {"ship_no": ""}, "ship_no 不能为空"),
         FailureCase(
-            {"ship_no": "FBA123"},
+            {"delivery_no": "FBA123"},
             {"ship_no": "FBA123"},
             "ship_no 格式无效: FBA123",
         ),
         FailureCase(
-            {"ship_no": "SP260414001"},
+            {"delivery_no": "SP260414001"},
             {"ship_no": "SP260414001"},
             "download failed for SP260414001",
             "download_msku_detail_excel",
             "download failed for SP260414001",
         ),
     ),
-    "fba shipment wms-box-download": (
+    "mabang delivery packing-list export": (
         FailureCase({}, {"ship_no": ""}, "ship_no 不能为空"),
         FailureCase(
-            {"ship_no": "FBA123"},
+            {"delivery_no": "FBA123"},
             {"ship_no": "FBA123"},
             "ship_no 格式无效: FBA123",
         ),
         FailureCase(
-            {"ship_no": "SP260226004"},
+            {"delivery_no": "SP260226004"},
             {"ship_no": "SP260226004"},
             "WMS failed for SP260226004",
             "download_consignment_excel_from_wms",
@@ -154,7 +154,7 @@ FAILURE_CASES = {
     "replenish inventory restock-snapshot-build": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
     ),
-    "replenish msku download": (
+    "mabang store msku export": (
         FailureCase(
             {"store_id": "697456821", "id_type": "shopId"},
             {"store_name": "", "store_id": "697456821", "id_type": "shopId"},
@@ -182,10 +182,10 @@ FAILURE_CASES = {
     "replenish sales analyze": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
     ),
-    "replenish inventory actual-export": (
+    "mabang store shenzhen-inventory export": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
     ),
-    "replenish shipments unlinked-download": (
+    "mabang store unlinked-shipments export": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
         FailureCase(
             {"store_name": "Amazon-Test-US"},

@@ -10848,6 +10848,8 @@ pre {
 }
 
 .asset-slot-title code {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -10944,6 +10946,44 @@ pre {
 }
 
 .asset-slot-empty span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.asset-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+}
+
+.asset-slot-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 7px 12px;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.asset-slot-actions button:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+.asset-slot-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.asset-slot-history {
+  margin: 0;
   color: var(--muted);
   font-size: 0.75rem;
 }

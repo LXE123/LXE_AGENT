@@ -12,8 +12,8 @@ type: amazon_fba
 
 | Term | Meaning | Skill |
 |---|---|---|
-| FBA 发货单 / 发货单 SKU 数据 / 发货单表格 | 马帮 FBA 发货单导出的 SKU CSV | `fba-shipment-delivery-csv-download` |
-| WMS 装箱数据 / 托运单 Excel / 装箱 Excel | 马帮 WMS 托运单装箱数据 | `fba-shipment-wms-box-download` |
+| FBA 发货单 / 发货单 SKU 数据 / 发货单表格 | 马帮 FBA 发货单导出的 SKU CSV | `mabang-delivery-export` |
+| WMS 装箱数据 / 托运单 Excel / 装箱 Excel | 马帮 WMS 托运单装箱数据 | `mabang-delivery-packing-list-export` |
 | 出口退税总表 | 用户提供的库存 SKU、产品名称、型号、原价、厂家总表 | `fba-purchase-summary-create` / `fba-restock-workbook-create` |
 | 期初库存表 / 进销存表 | ERP 上线前人工维护的历史合同、单价和剩余量 | 后端服务器管理员使用 `lxe-erp-admin`（非 Skill） |
 | 历史库存增量表 | ERP 上线前合同中因当时缺少装箱数据而未进入期初库存的历史 SP 剩余量 | ERP“留存库存”页管理员使用“补录历史库存”（非 Skill） |
@@ -26,12 +26,12 @@ type: amazon_fba
 
 ```mermaid
 flowchart TD
-  A["fba-shipment-delivery-csv-download<br/>FBA 发货单 SKU CSV"] --> B["fba-stock-sku-download<br/>库存 SKU"]
-  A --> C["fba-msku-detail-download<br/>MSKU 明细"]
+  A["mabang-delivery-export<br/>FBA 发货单 SKU CSV"] --> B["mabang-delivery-inventory-sku-export<br/>库存 SKU"]
+  A --> C["mabang-delivery-msku-export<br/>MSKU 明细"]
   A --> D["fba-invoice-template-fill<br/>发票导入模板"]
   A -->|MSKU发货量| R["fba-erp-packing-upload<br/>ERP 真实发货量与库存 SKU 对账"]
 
-  E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
+  E["mabang-delivery-packing-list-export<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
   E --> D
   L["备货单 xlsx"] --> D
   A -->|重新下载 MSKU发货量| V["ERP 报关只读计算"]
@@ -57,14 +57,14 @@ flowchart TD
 
 | User need | Route to |
 |---|---|
-| 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `fba-shipment-delivery-csv-download` |
-| 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `fba-shipment-wms-box-download` |
+| 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `mabang-delivery-export` |
+| 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `mabang-delivery-packing-list-export` |
 | 上传真实发货量、同步发货数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
 | 将现有进销存表初始化为 ERP 历史库存 | 说明这是部署前的一次性管理操作；由后端服务器管理员执行 `lxe-erp-admin opening-inventory` |
 | 补录 ERP 上线前、尚未进入期初库存的历史 SP 剩余库存 | 说明这是 ERP“留存库存”页的管理员操作；使用“补录历史库存”，不执行 Agent Skill |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
-| 按发货单准备库存 SKU Excel | `fba-stock-sku-download` |
-| 下载 MSKU 明细、发票前准备 MSKU 数据 | `fba-msku-detail-download` |
+| 按发货单准备库存 SKU Excel | `mabang-delivery-inventory-sku-export` |
+| 下载 MSKU 明细、发票前准备 MSKU 数据 | `mabang-delivery-msku-export` |
 | 填写 invoice_Template、生成发票导入表 | `fba-invoice-template-fill` |
 | 填写报关资料、生成报关单/发票/箱单/合同 | `fba-customs-declaration-fill` |
 | 按一批发货单、出口退税总表和合同模板生成采购汇总表、批量备货单、正式合同 | `fba-purchase-summary-create` |
@@ -78,8 +78,8 @@ flowchart TD
 
 | Subflow | Skills |
 |---|---|
-| 发货单数据 | `fba-shipment-delivery-csv-download` |
-| 装箱与货件创建 | `fba-shipment-wms-box-download` -> `ziniao-browser` -> `fba-shipment-create` |
+| 发货单数据 | `mabang-delivery-export` |
+| 装箱与货件创建 | `mabang-delivery-packing-list-export` -> `ziniao-browser` -> `fba-shipment-create` |
 | ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
 | ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
 | ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |

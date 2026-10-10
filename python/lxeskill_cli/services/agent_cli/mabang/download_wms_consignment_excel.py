@@ -178,8 +178,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     ship_no = ""
     try:
-        ship_no = _normalize_ship_no(arguments.get("ship_no") or "")
-        return asyncio.run(_download_and_split(arguments.get("ship_no") or "", arguments.get("split_mode")))
+        ship_no = _normalize_ship_no(arguments.get("delivery_no") or "")
+        return asyncio.run(_download_and_split(arguments.get("delivery_no") or "", arguments.get("split_mode")))
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         return {
             "success": False,

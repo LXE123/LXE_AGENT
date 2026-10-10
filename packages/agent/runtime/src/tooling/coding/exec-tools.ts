@@ -224,6 +224,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
         const recoveryCatalog = commandCatalog.filter((entry) => ownerIsVisible(entry.ownerSkills));
         const invocationError = lxeSkillInvocationError(rawCommand, recoveryCommands, recoveryCatalog);
         if (invocationError) throw invocationError;
+
         if (/^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim())) {
           const status = options.lxeSkillStatus?.();
           if (status && !status.available) {

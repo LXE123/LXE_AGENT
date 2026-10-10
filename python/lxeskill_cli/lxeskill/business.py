@@ -58,6 +58,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         session_mode = str(entry.get("session_mode") or "").strip()
         if session_mode not in allowed_session_modes:
             raise RuntimeError(f"invalid lxeskill session mode for {name}: {session_mode}")
+        if "input_modes" in entry and entry["input_modes"] != ["flags"]:
+            raise RuntimeError(f"invalid lxeskill input modes for {name}: {entry['input_modes']}")
         owners = [str(owner).strip() for owner in list(entry.get("owner_skills") or []) if str(owner).strip()]
         entry["owner_skills"] = owners
         explicit_attribution = str(entry.get("attribution_skill") or "").strip()
@@ -92,6 +94,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.mabang_tms.")
                 else f"yacang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.yacang.")
+                else f"vietnam_replenishment_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.agent_cli.vietnam_replenishment.")
                 else f"shangman_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.shangman.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"

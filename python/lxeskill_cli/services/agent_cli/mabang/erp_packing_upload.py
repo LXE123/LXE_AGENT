@@ -107,9 +107,9 @@ def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
             str(exc),
             recovery={
                 "next_action": "ask_user_to_download_delivery_csv",
-                "skill": "fba-shipment-delivery-csv-download",
+                "skill": "mabang-delivery-export",
                 "command": (
-                    "lxeskill fba shipment delivery-csv-download "
+                    "lxeskill mabang delivery export "
                     f"--delivery-no {ship_no}"
                 ),
             },

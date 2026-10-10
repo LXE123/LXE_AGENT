@@ -12,14 +12,19 @@ const root = process.cwd();
 const input = JSON.parse(await Bun.stdin.text());
 const descriptor = loadProviderDescriptor(root, input.env ?? process.env, { managedLlmState: input.managedLlmState });
 const provider = createRuntimeProvider(descriptor);
-const system = `你是备货助手。按实际用户范围使用技能并完成交付。本测试的 exec、send_files 都是隔离工具，只返回固定结果，不访问业务服务或用户文件。不要猜工具结果。\n已读取完整流程入口：\n${readFileSync(resolve(root, "skills/replenishment-workflow-map/SKILL.md"), "utf8")}\n其他技能位于 skills/replenishment-*/SKILL.md，请按需 read。`;
+const system = `你是备货助手。按实际用户范围使用技能并完成交付。本测试的 exec、send_files 都是隔离工具，只返回固定结果，不访问业务服务或用户文件。不要猜工具结果。\n已读取完整流程入口：\n${readFileSync(resolve(root, "skills/replenishment-workflow-map/SKILL.md"), "utf8")}\n其他技能位于 skills/replenishment-*/SKILL.md 和 skills/mabang-store-*/SKILL.md，请按需 read。`;
 const tools: ToolSchema[] = [
   { name: "read", description: "读取技能文档", input_schema: {type:"object",properties:{path:{type:"string"}},required:["path"]} },
   { name: "exec", description: "执行 CLI，返回实际 terminal 或运行状态", input_schema: {type:"object",properties:{command:{type:"string"}},required:["command"]} },
   { name: "send_files", description: "将文件交付用户", input_schema: {type:"object",properties:{paths:{type:"array",items:{type:"string"}}},required:["paths"]} },
   { name: "ask_user", description: "请求用户选择候选或提供必要输入", input_schema: {type:"object",properties:{question:{type:"string"}},required:["question"]} },
 ];
-const names = ["store resolve", "msku download", "sales analyze", "inventory actual-export", "shipments unlinked-download", "calculate"];
+const commands: Record<string, string> = {
+  "store resolve": "replenish store resolve", "msku download": "mabang store msku export",
+  "sales analyze": "replenish sales analyze", "inventory actual-export": "mabang store shenzhen-inventory export",
+  "shipments unlinked-download": "mabang store unlinked-shipments export", calculate: "replenish calculate",
+};
+const names = Object.keys(commands);
 const sourceTime = "202609080101", snapshot = "C:/fixture/202609080102-Amazon-Test-US_未关联货件快照.xlsx";
 const source = "C:/fixture/202609080101-Amazon-Test-US_店铺MSKU数据.xlsx";
 const report = "C:/fixture/202609080101-Amazon-Test-US_备货建议.xlsx";
@@ -62,10 +67,10 @@ async function run(scenario: typeof cases[number]) {
       const args=call.arguments??{};let value:any;
       if(call.name==="read") {
         const path=resolve(root,String(args.path));const rel=relative(resolve(root,"skills"),path);
-        assert(!rel.startsWith("..") && rel.startsWith("replenishment-"),"read escaped fixture skills");
+        assert(!rel.startsWith("..") && (rel.startsWith("replenishment-") || rel.startsWith("mabang-store-")),"read escaped fixture skills");
         value=readFileSync(path,"utf8");
       } else if(call.name==="exec") {
-        const command=String(args.command);const action=command.includes("lxeskill auth refresh")?"auth refresh":names.find(n=>command.includes(`lxeskill replenish ${n}`));
+        const command=String(args.command);const action=command.includes("lxeskill auth refresh")?"auth refresh":names.find(n=>command.includes(`lxeskill ${commands[n]}`));
         assert(action,"unexpected command: "+command);calls.push(action!);
         const fail=(message:string,refresh=false,extra:any={})=>({type:"result",ok:false,data:{auth_refresh_required:refresh,...extra},files:[],error:{code:"business_cli_failed",message}});
         const count=calls.filter(c=>c===action).length;
