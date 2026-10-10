@@ -282,6 +282,24 @@
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
     },
+    {
+      "name": "amazon_fba_delivery_window_list", "module": "services.agent_cli.browser.amazon_fba.delivery_window_list",
+      "command_path": ["fba", "shipment", "delivery-window-list"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-delivery-window"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "diagnostic"}],
+      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "plan_only": {"type": "boolean"}}, "required": ["store_id", "page_url"], "additionalProperties": false},
+      "input_modes": ["flags"]
+    },
+    {
+      "name": "amazon_fba_delivery_window_apply", "module": "services.agent_cli.browser.amazon_fba.delivery_window_apply",
+      "command_path": ["fba", "shipment", "delivery-window"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-delivery-window"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "diagnostic"}],
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["discover", "apply"], "description": "默认 apply；discover 只读发现同一 STA 工作流程中的全部子货件。"}, "store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "target_date": {"type": "string", "minLength": 1, "description": "action=apply 时必填，推荐 YYYY-MM-DD；也接受 MM.DD。"}, "apply": {"type": "boolean", "description": "默认 false（dry-run）；只有人工核对 dry-run 并明确批准后才能传 true。"}, "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600}, "plan_only": {"type": "boolean"}}, "required": ["store_id", "page_url", "shipment_ids"], "additionalProperties": false},
+      "input_modes": ["flags"]
+    },
     {"name": "mabang_download_fba_delivery_csv", "module": "services.agent_cli.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "mabang_download_wms_consignment_excel", "module": "services.agent_cli.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
     {

@@ -91,6 +91,22 @@ describe("lxeskill command recognition", () => {
       artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
       attributionSkill: "ziniao-browser",
     });
+    expect(entries.find((entry) => entry.name === "amazon_fba_delivery_window_list"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-window-list",
+        module: "services.agent_cli.browser.amazon_fba.delivery_window_list",
+        ownerSkills: ["fba-shipment-delivery-window"],
+        attributionSkill: "fba-shipment-delivery-window",
+        artifactPaths: [{ field: "file_path[].value", role: "diagnostic" }],
+      });
+    expect(entries.find((entry) => entry.name === "amazon_fba_delivery_window_apply"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-window",
+        module: "services.agent_cli.browser.amazon_fba.delivery_window_apply",
+        ownerSkills: ["fba-shipment-delivery-window"],
+        attributionSkill: "fba-shipment-delivery-window",
+        artifactPaths: [{ field: "file_path[].value", role: "diagnostic" }],
+      });
     expect(entries.find((entry) => entry.name === "mabang_resolve_fba_store"))
       .toMatchObject({
         attributionSkill: "replenishment-store-resolve",
@@ -198,7 +214,7 @@ test("flags-only export contracts have matching skill ownership and reject inval
   const document = JSON.parse(readFileSync(path, "utf8"));
   const entries = loadLxeSkillCommandCatalog(path);
   const scoped = document.entries.filter((entry: any) => entry.input_modes !== undefined);
-  expect(scoped).toHaveLength(12);
+  expect(scoped).toHaveLength(14);
   const known = new Map(entries.map(entry => [entry.command, entry.ownerSkills]));
   for (const raw of scoped) {
     expect(raw.input_modes).toEqual(["flags"]);

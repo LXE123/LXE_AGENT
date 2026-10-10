@@ -27,6 +27,42 @@ def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
     assert "旧元素 `ref` 立即视为失效" in ziniao
 
 
+def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() -> None:
+    catalog = load_catalog()
+    list_entry = catalog["amazon_fba_delivery_window_list"]
+    apply_entry = catalog["amazon_fba_delivery_window_apply"]
+
+    assert list_entry["command_path"] == ["fba", "shipment", "delivery-window-list"]
+    assert apply_entry["command_path"] == ["fba", "shipment", "delivery-window"]
+    for entry in (list_entry, apply_entry):
+        assert entry["owner_skills"] == ["fba-shipment-delivery-window"]
+        assert entry["session_mode"] == "lxe_session"
+        assert entry["visibility"] == "business"
+        assert entry["artifact_paths"] == [
+            {"field": "file_path[].value", "role": "diagnostic"}
+        ]
+
+    schema = apply_entry["input_schema"]
+    assert schema["properties"]["action"]["enum"] == ["discover", "apply"]
+    assert schema["properties"]["apply"]["type"] == "boolean"
+    assert schema["properties"]["timeout_sec"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600,
+    }
+    assert schema["required"] == ["store_id", "page_url", "shipment_ids"]
+
+    skill = _skill_text("fba-shipment-delivery-window")
+    frontmatter = skill.split("---", 2)[1]
+    assert frontmatter.count("lxeskill fba shipment delivery-window") == 2
+    assert "禁止直接执行 Python 模块" in skill
+    assert "必须先用完全相同的店铺、页面 URL、货件号和目标日期" in skill
+    assert "批准后只执行一次同参数 `apply=true`" in skill
+    assert 'status="applied"' in skill
+    assert "`applied_window` 精确等于目标周" in skill
+    assert "不主动调用 `send_files`" in skill
+
+
 def test_fba_docs_send_only_declared_deliverables() -> None:
     catalog = load_catalog()
     deliverable_owners = {

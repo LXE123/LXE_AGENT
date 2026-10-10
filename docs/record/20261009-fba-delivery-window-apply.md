@@ -1,6 +1,6 @@
 # FBA 货件送达时段「改期」方案（浏览器路径）
 
-- 状态：**写路径已落地**（2026-10-09）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 101 条全绿；2026-10-10 已打通紫鸟本地控制、目标店铺启动与官方配对 Selenium 附着。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。根据销售部门最终口径，生产候选必须先满足 `orderStatus="已发货"`；`正在接收` 即使页面存在编辑入口也只作技术证据，不再进入修改流程。**未执行真实写入，catalog.json / SKILL.md 仍未注册**（见 §10、§15）。
+- 状态：**写路径、真实写入验证与正式命令注册均已完成**（2026-10-10）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 101 条全绿；紫鸟本地控制、目标店铺启动、官方配对 Selenium 附着、单票 dry-run、真实确认提交和 E8 页面回读均已打通。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。根据销售部门最终口径，生产候选必须先满足 `orderStatus="已发货"`；`正在接收` 即使页面存在编辑入口也只作技术证据，不再进入修改流程。正式入口为 `lxeskill fba shipment delivery-window-list` 与 `lxeskill fba shipment delivery-window`，模型说明位于 `skills/fba-shipment-delivery-window/SKILL.md`（见 §15.14）。
 - 日期：2026-10-09（2026-10-10 按真机结果回写 §10 / §12 / §13 / §14，并新增 §15）
 - 结论先行：**要改的确实是 Amazon 侧的送达时段**，但**不需要 SP-API**（写路径也不止 SP-API 一条）。因为业务直接给目标日期，整条「去货代后台查转单号 → 到尾程派送商查实际时间」的链路被砍掉。真正要做的是：**读 Amazon 列表确认货件状态为“已发货” → 在「追踪详情」继续验证可编辑性 → 在弹窗日历上选目标日 → 确认**，全程走官方配对 Selenium。
 
@@ -9,7 +9,7 @@
 | 20261007 方案 | 本文 | 原因 |
 | --- | --- | --- |
 | §3.1 可替换数据源适配器 `FbaShipmentSource`（A 浏览器 / B SP-API） | **只做浏览器路径，不引入适配器层** | 业务直接给日期，读+写都能在页面里完成；SP-API 要开发者身份 + 凭据 + 桌面配置，周期最长 |
-| §3.2 两条命令 `list` / `apply` | 保留（`list` 只有代码 + 测试，两条**都还没进 `catalog.json`**） | — |
+| §3.2 两条命令 `list` / `apply` | 保留，并于 2026-10-10 注册为 `delivery-window-list` / `delivery-window` | — |
 | §3.3 阶段表 P0 / P0.5 / P1 / P2 / P3 | **取消阶段表** | P3 货代段被「人直接给日期」取代；P1/P2 的 SP-API 不做了 |
 | §2.3 追踪编码 API 缺口是核心障碍 | **不再是障碍** | 不需要转单号 |
 | §2.1 用 `own_carrier.py:39` 的 `arrival-edit-delivery-window-link` | **该常量与真实页面不符，禁止使用** | 见 §6.4 |
@@ -303,9 +303,9 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 
 | # | 待定 | 影响 | 现状 |
 | --- | --- | --- | --- |
-| 1 | **本机验证路径**：(A) 设备接入内网/VPN 拿 FBA 权限快照；还是 (B) 走 `apps/agent-cli` | 决定能不能真跑 | **紫鸟控制链路已通过**：2026-10-10 同一套当前配置成功完成存活探测、`updateCore`、`getBrowserList` 并返回 8 个店铺，旧的“账号无 WebDriver 权限”归因已失效。尚未启动具体店铺或附着 Amazon 页面；下一步见 **§15**。云接入状态是独立问题，不再作为 16851 / WebDriver 可用性的判据。 |
-| 2 | `④` 的 URL 形态：`/fba/sendtoamazon?wf=` 与 `/fba/sendtoamazon/workflows?wf=` 哪个能直接落在「追踪详情」 | 决定走 URL 还是回退点击 | **仍未做**；代码两条都留了（URL 进不去就回退点 STA 链接） |
-| 3 | `catalog.json` 条目与 `skills/fba-shipment-delivery-window/SKILL.md` 的字段（命令名 / `command_path` / `visibility` / `session_mode` / `owner_skills` / `artifact_paths`） | 等本文定稿后再定 | **按裁决推迟**：本次不注册（`delivery_window_list` 也还没注册），命令暂时只能从模块直接调 |
+| 1 | **本机验证路径**：(A) 设备接入内网/VPN 拿 FBA 权限快照；还是 (B) 走 `apps/agent-cli` | 决定能不能真跑 | **已完成**：2026-10-10 同一套当前配置成功完成存活探测、`updateCore`、`getBrowserList`、目标店铺启动、官方配对 Selenium 附着、Amazon 登录态读取和真实单票写入。云接入状态是独立问题，不再作为 16851 / WebDriver 是否可用的判据。 |
+| 2 | `④` 的 URL 形态：`/fba/sendtoamazon?wf=` 与 `/fba/sendtoamazon/workflows?wf=` 哪个能直接落在「追踪详情」 | 决定走 URL 还是回退点击 | **已验证 `/fba/sendtoamazon?wf=`**：真实流程成功进入对应 STA 工作流；追踪详情折叠时再精确展开“最后一步：追踪详情” |
+| 3 | `catalog.json` 条目与 `skills/fba-shipment-delivery-window/SKILL.md` 的字段（命令名 / `command_path` / `visibility` / `session_mode` / `owner_skills` / `artifact_paths`） | 决定正式 Agent 入口 | **已完成**：两个命令均为 `business + lxe_session + amazon_fba`，owner 为 `fba-shipment-delivery-window`；JSON 证据声明为 `diagnostic`，不作为默认交付附件 |
 | 4 | 仓库卫生：新文件怎么切提交；`own_carrier.py:39` 与 `:1096` 修不修 | 提交前必办 | **已裁决**：**不改 `own_carrier.py`**，只在 §6.4 更正记录；提交只带新模块 + 新测试 + 本文 |
 
 **已定**：`delivery_window_modal.html` 夹具**不入库**，由 `.gitignore` 忽略；用它的测试在文件缺失时 `pytest.skip`（见 §8）。
@@ -332,7 +332,7 @@ article#sta-modal[data-testid="sta-modal"]         class: dialog-width-50-percen
 - `python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_list.py`
 - `python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py`、`python/lxeskill_cli/tests/amazon/test_delivery_window_apply.py`（本次新增）
 - `python/lxeskill_cli/tests/amazon/test_delivery_window_list.py`、`python/lxeskill_cli/tests/amazon/test_own_carrier_layouts.py`
-- `python/lxeskill_cli/lxeskill/catalog.json`、`skills/fba-shipment-create/SKILL.md`
+- `python/lxeskill_cli/lxeskill/catalog.json`、`skills/fba-shipment-delivery-window/SKILL.md`、`skills/fba-shipment-create/SKILL.md`
 - 真实页面 DOM 快照：`1.html`、`2.html`、`3.html`、`4.html`（2026-10-09 由业务方抓取，**同日已删除**——含真实店铺数据且未被 `.gitignore` 覆盖；选择器与判据已全部提炼进本文）
 - 弹窗夹具（脱敏，保留）：`python/lxeskill_cli/tests/amazon/fixtures/delivery_window_modal.html`（**3,113 字节**，单行；由 `.gitignore:85` 忽略，不入库）
 
@@ -575,12 +575,12 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 - ~~`startBrowser` 能否启动指定店铺并返回 `debuggingPort` / `core_version`。~~ 已验证：目标店铺启动成功，`debugging_port=11488`、`core_version=138.1.2.80`。
 - ~~项目能否按 `core_version` 选中官方配对 chromedriver，并由 `SeleniumRunner` 成功附着。~~ 已验证：官方配对链路成功附着。
 - ~~目标店铺的 Amazon 登录态是否仍有效。~~ 已验证：可读取 `sellercentral.amazon.com`，并进入“管理货件”列表。
-- 目标货件详情页、STA 链接和追踪分页是否与现有选择器一致。
-- dry-run 能否读取当前时段、截止时间并安全关闭弹窗。
-- 日历格子、翻月控件和确认按钮的运行时行为。
-- `apply=true` 后是否能从页面回读到准确的新时段。
+- ~~目标货件详情页、STA 链接和追踪分页是否与现有选择器一致。~~ 已验证。
+- ~~dry-run 能否读取当前时段、截止时间并安全关闭弹窗。~~ 已验证。
+- ~~日历格子、翻月控件和确认按钮的运行时行为。~~ 已验证本次同月选择、日期点击和确认按钮；跨月翻页仍由 E7 失败关闭保护，尚无真实跨月样本。
+- ~~`apply=true` 后是否能从页面回读到准确的新时段。~~ 已验证，见 §15.14。
 
-### 15.3 下一轮真实测试闸门
+### 15.3 首次真实测试闸门（已完成）
 
 按下面顺序逐级推进；上一层没有拿到明确成功结果，就不进入下一层。**不自动重试、不并行开多个店铺、不批量处理货件。**
 
@@ -605,9 +605,9 @@ python3 -c "import json;print(json.load(open('/Users/lxe-3/LXE_AGENT/.worktrees/
 
 ### 15.5 当前执行边界
 
-- R0、R1、R2 已通过：目标店铺已启动、官方配对 Selenium 已附着、参数计划已生成。
-- 首次 R3 在列表页被旧 E1 误拦截；修正后第二次只读测试到达 STA 工作流程，但因「最后一步：追踪详情」折叠而停在 E2。精确展开和动态 discovery 已补齐，且已用 `FBA19QP2RBT8` 完成真实验证：实际 5 个分页均为 `editable`、未知项为 0。下一动作是由用户选择具体 FBA 号后做单票 `apply=false` dry-run。
-- `delivery_window_apply.py` 尚未注册到 `catalog.json` / SKILL，因此 R2–R5 还不能当作正式模型工具调用。下一轮可先用受控的开发入口验证；要进入正式 Agent 流程，必须单独完成注册并按 AGENTS.md 同时跑 Python 与 Bun 的契约测试。
+- R0–R5 已通过：目标店铺已启动、官方配对 Selenium 已附着、参数计划与 dry-run 已生成、人工批准后完成单票真实提交，页面回读与目标周一致。
+- 首次 R3 在列表页被旧 E1 误拦截；修正后第二次只读测试到达 STA 工作流程，但因「最后一步：追踪详情」折叠而停在 E2。精确展开和动态 discovery 已补齐，并用 `FBA19QP2RBT8` 完成 5 个分页的真实 discovery；随后另选状态为“已发货”的 `FBA19SFNPGX1` 完成单票 dry-run 与真实写入（见 §15.14）。
+- `delivery_window_list.py` / `delivery_window_apply.py` 已注册到 `catalog.json`，并由 `skills/fba-shipment-delivery-window/SKILL.md` 约束正式 Agent 流程；加载新 catalog/skill 需要重启 LXE Agent 后台组件或桌面端。
 - 在单票 `apply=false` dry-run 成功并由人工核对前，绝不执行 `apply=true`。
 
 ### 15.6 首次 R3 暴露的 E1 误判与修正（2026-10-10）
@@ -720,7 +720,7 @@ UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen lxeskill browser page \
 
 #### D. 先做同参数 dry-run
 
-`delivery_window_apply.py` 尚未注册到 `catalog.json`，所以暂时使用下面的受控开发入口。它不是独立浏览器脚本：模块内部仍会根据 `LXE_AGENT_SESSION_ID + store_id` 调用 `browser_session`，附着 C 步已经验证的同一个紫鸟店铺。
+> 本节保留的是正式注册前的首次真实写入执行清单。当时 `delivery_window_apply.py` 尚未注册到 `catalog.json`，所以使用下面的受控开发入口；注册完成后的 Agent 必须改用 §15.14 的 canonical `lxeskill` 命令，禁止直接执行 Python 模块。
 
 ```bash
 UV_CACHE_DIR=/tmp/lxe-uv-cache uv run --frozen python -c '
@@ -770,3 +770,15 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 ```
 
 真实写入的成功判据不是“点击没有报错”，而是返回 `status="applied"`，并且 E8 从页面回读到的 `applied_window` 精确等于目标周。若失败，不自动重试、不换另一票、不补点确认按钮；保留实际响应与证据文件后停止。
+
+### 15.14 首次真实写入与正式 Agent 注册（2026-10-10）
+
+- 真实输入：店铺 `Amazon-Yunjian-US 深圳市久艺电子商务有限公司`（`store_id=VycOXC1cvUBC/rBIOnYXUg==`）、货件 `FBA19SFNPGX1`、目标日期 `2026-11-16`。
+- 写入前 dry-run：列表状态 `orderStatus="已发货"`、`unitStatus="0/172"`；当前时段 `2026-11-08`–`2026-11-14`，目标周 `2026-11-15`–`2026-11-21`，弹窗交叉校验一致并成功取消，未点日历或确认按钮。
+- 人工明确批准后只执行一次 `apply=true`：目标日点击成功，图例“已选择”精确显示目标周，确认按钮存在且可用。
+- 最终结果：`status="applied"`，E8 从页面直属文本回读 `applied_window=2026-11-15`–`2026-11-21`，无 `failure_code` / `failure_detail`；未修改同工作流程中的其它货件。
+- 证据：`.lxeagent/artifacts/browser/workflows/fba-delivery-window-yunjian-20261010/amazon-delivery-window-apply-1791619589.json`。
+- 正式命令：
+  - `lxeskill fba shipment delivery-window-list`
+  - `lxeskill fba shipment delivery-window`
+- 正式 skill：`skills/fba-shipment-delivery-window/SKILL.md`。它固化“真实店铺附着 → plan-only → dry-run → 回显人工批准 → 同参数单次 apply → E8 页面回读”的写入闸门，并明确禁止直接 Python 入口和非 Selenium 页面自动化。
