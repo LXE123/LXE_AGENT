@@ -1,5 +1,7 @@
 # FBA 货件送达时段「改期」方案（浏览器路径）
 
+> 2026-10-12 新增业务交接见 [美国 FBA 物流查询与送达时段更新交接](20261012-fba-logistics-delivery-window-handoff.md)。本文保留已有 Amazon 执行链与历史验证；新版增加表格入口及上游物流查询，仅限美国站。物流商自动化尚未实测通过，下一轮先测威飒单票，不直接改期。
+
 - 状态：**写路径、真实写入验证与正式命令注册均已完成**（2026-10-10）。`python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py` + 定向单测 101 条全绿；紫鸟本地控制、目标店铺启动、官方配对 Selenium 附着、单票 dry-run、真实确认提交和 E8 页面回读均已打通。首次 R3 暴露并修正了 `unitStatus=516/516` 误判“接收完成”的 E1 逻辑；后续真实页面又确认 STA 工作流程可能折叠「最后一步：追踪详情」，且一个工作流程下有动态数量的目的地子货件。根据销售部门最终口径，生产候选必须先满足 `orderStatus="已发货"`；`正在接收` 即使页面存在编辑入口也只作技术证据，不再进入修改流程。正式入口为 `lxeskill fba shipment delivery-window-list` 与 `lxeskill fba shipment delivery-window`，模型说明位于 `skills/fba-shipment-delivery-window/SKILL.md`（见 §15.14）。
 - 日期：2026-10-09（2026-10-10 按真机结果回写 §10 / §12 / §13 / §14，并新增 §15）
 - 结论先行：**要改的确实是 Amazon 侧的送达时段**，但**不需要 SP-API**（写路径也不止 SP-API 一条）。因为业务直接给目标日期，整条「去货代后台查转单号 → 到尾程派送商查实际时间」的链路被砍掉。真正要做的是：**读 Amazon 列表确认货件状态为“已发货” → 在「追踪详情」继续验证可编辑性 → 在弹窗日历上选目标日 → 确认**，全程走官方配对 Selenium。
