@@ -1,9 +1,9 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12。
-- 状态：业务流程与首轮测试范围已确认；物流商查询能力尚未实测通过，尚未新增实现。
+- 状态：业务流程与首轮测试范围已确认；严格附着和 frame-aware 快照已实现并通过定向测试，物流商单票查询尚未实测通过。续测结果见第 10 节。
 - 下一轮目标：在 LXE_agent 内测试威飒单票的登录态识别、页面定位、查询动作和转单号提取。不得修改 Amazon、物流订单或原始表格。
-- 当前代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`。本轮仅归档文档。
+- 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 
 ## 1 业务范围和已确认结论
 
@@ -121,7 +121,7 @@ uv run --frozen lxeskill browser store --action get_status
 
 ## 7 浏览器层的首轮前置检查
 
-代码已确认两个风险，尚未修复：
+原交接时确认两个风险。后续已添加可选的严格附着和精确域名定位；默认旧行为仍然存在，续测时必须显式带安全参数（见第 10 节）：
 
 1. `services/browser/store/store_driver_session.py` 每次附着调用 `select_first_normal_tab`；`services/browser/tools/driver_session.py` 会选择第一个普通 http(s) 标签页，不按当前任务的物流商域名、账户或指定标签页绑定。多站点下可能选错页面，但这不是此前跳回现象已经实测确认的唯一原因。
 2. `store_driver_session` 附着遇到 `RuntimeError` 会调用 `ensure_store_session(..., force_restart=True)` 再试。仅在提示词里写“不重启”不能阻止底层自动重启。
@@ -162,3 +162,32 @@ uv run --frozen lxeskill browser store --action get_status
 > 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以其中确认的业务范围和实际验证状态为准。先检查第 7 节浏览器页面定位与附着失败自动重启风险，提出或实施首轮所需的最小受控修复并做定向验证；不要直接扩大到完整物流功能。在 LXE_agent 真实执行会话中，复用用户指定的紫鸟环境，对威飒及 `FBA19PWM5L6T` 做单票登录态和查询测试。先确认公司账户、店铺及页面，再执行查询。未登录则等待用户完成登录。禁止物流下单、修改物流资料、写入 Amazon 或改写原表。报告各项真实结果与证据，明确区分动作成功、业务数据找到和转单号取得；遇到错误停止并保留实际错误，不自行重启或刷新马帮认证。
 
 旧的 [20261007 方案](20261007-fba-delivery-window.md) 保留为历史背景；其中多国家范围和 SP-API 阶段设计不是本期任务。20261009 的“上游物流链路被省略”描述的是当时只接收目标日期的执行范围，不否定本轮新增的查询后建议模式。
+
+## 10 续测：严格附着通过，页面内容提取待实页复验
+
+用户从 LXE_Agent 真实会话回传：`get_status` 成功，目标店铺 `VycOXC1cvUBC/rBIOnYXUg==` 运行中，名称为 `Amazon-Yunjian-US 深圳市久艺电子商务有限公司`，browser_id 为 `16547398293641`。这是用户回传的真实运行结果，当前 Codex 终端未自行执行该会话命令。
+
+安全修复 `a0e4d217 fix: add strict browser page attachment` 已提供 `--strict-attach --target-host wsaexp.nextsls.com`：仅复用已运行店铺，附着失败即停，不启动或重启店铺；域名匹配零个或多个标签页时停止。
+
+用户随后回传普通及 `--full` 严格快照均成功，URL 为 `http://wsaexp.nextsls.com/tms/wos/home`，标题为 `控制台-深圳市威飒国际物流有限公司-全球一体化跨境物流综合服务专家`。完整快照只有 ParcelOS 页脚，refs 为零。此证据支持正文可能在 frame 中，但尚未取得实际 frame 列表，也未确认公司账户或执行 FBA 查询。
+
+本次已实现 frame-aware 快照及动作：
+
+- 通过现有 Selenium 链路遍历顶层及最多 10 个子 frame（含嵌套 frame 和开放 Shadow DOM 中的 frame），所有 document 共用元素和正文预算。
+- frame 中的 ref 包含路径和 document 身份；每个元素带 `frame_path`。click/type 进入原 frame 后核验身份，frame 被重排、替换或导航后拒绝旧 ref；成功或失败都回到顶层。
+- 快照返回 frame 列表、读取失败的实际错误和截断标记。frame 诊断 URL 去除凭据、查询参数和片段，长错误显式截断。单个 frame 读取失败保留错误并继续兄弟 frame；批量动作失败仍停止，不执行余下步骤。
+- 修正正文过滤误删纯中文行，以及重新提取时编号可能复用的问题。无需增加 CLI 参数，`catalog.json` 未修改。
+
+定向验证从仓库根执行，退出码 0，`106 passed`：
+
+```text
+uv run --frozen pytest python/lxeskill_cli/tests/browser python/lxeskill_cli/tests/lxeskill/test_lxeskill_browser_session.py python/lxeskill_cli/tests/lxeskill/test_python_tool_boundaries.py python/lxeskill_cli/tests/lxeskill/test_fba_skill_docs.py
+```
+
+其中新增 17 个 frame/提取测试，使用 fake Selenium driver 验证上下文和动作隔离，并用 Bun 对本次实际提取 JS 执行 DOM fixture 验证。它们不代表威飒真实页面已经识别成功。
+
+下一步在同一 LXE_Agent 会话只执行以下完整快照，返回全部 `Frames`、`Visible text`、refs 和错误；未核验公司账户前不查询 FBA：
+
+```text
+lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host wsaexp.nextsls.com --full
+```

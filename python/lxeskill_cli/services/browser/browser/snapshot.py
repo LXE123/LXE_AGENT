@@ -7,6 +7,9 @@ from selenium.webdriver.remote.webdriver import WebDriver
 
 from services.browser.browser.seller_central_adapters import SELLER_CENTRAL_EXTRACTION_JS
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
+from services.browser.browser.frames import (
+    diagnostic_url, enter_ref_frame, frame_document_id, frame_error, frame_ref, list_frames, parse_frame_ref,
+)
 
 
 def _safe_text(value: Any, limit: int = 400) -> str:
@@ -81,7 +84,7 @@ def _combined_interactive_elements(
     for key in ("sendtoamazon_controls", "interactive_elements"):
         for raw_item in list(snapshot.get(key) or []):
             item = dict(raw_item or {})
-            aid = _safe_text(item.get("aid"), 64)
+            aid = _safe_text(item.get("aid"), 120)
             if not aid or aid in seen_aids:
                 continue
             if key == "sendtoamazon_controls" and not _safe_text(item.get("region"), 24):
@@ -103,7 +106,7 @@ def _ordered_indexed_elements(
     safe_limit = max(1, int(element_limit or 80))
     for item in _combined_interactive_elements(snapshot, element_limit=safe_limit):
         element = dict(item or {})
-        aid = _safe_text(element.get("aid"), 64)
+        aid = _safe_text(element.get("aid"), 120)
         if not aid:
             continue
         grouped[_normalized_region(element.get("region"))].append(element)
@@ -203,7 +206,10 @@ function findAid(el) {{
 function ensureAid(el) {{
   const existing = findAid(el);
   if (existing) return existing;
-  const aid = `aid-${{index++}}`;
+  let aid;
+  do {{ aid = `aid-${{index++}}`; }} while (usedAids.has(aid));
+  usedAids.add(aid);
+  document.__lxeAidCounter = index;
   el.setAttribute('data-aid', aid);
   return aid;
 }}
@@ -234,7 +240,8 @@ function regionOf(el) {{
 const seen = new Set();
 const interactive = [];
 const collectLimit = Math.max(limit * 3, limit);
-let index = 0;
+let index = Number(document.__lxeAidCounter || 0);
+const usedAids = new Set(deepQuerySelectorAll('[data-aid]').map(el => el.getAttribute('data-aid')));
 for (const el of deepQuerySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]')) {{
   const visible = isVisible(el);
   const fileInput = isFileInput(el);
@@ -322,7 +329,7 @@ const textLines = [];
 const lineSeen = new Set();
 for (const rawLine of rawBodyText.split(/\\n+/)) {{
   const line = compactValue(rawLine, 140);
-  if (!line || lineSeen.has(line) || line.length < 2 || /^[\\d\\W]+$/.test(line)) continue;
+  if (!line || lineSeen.has(line) || line.length < 2 || !/[\\p{{L}}]/u.test(line)) continue;
   lineSeen.add(line);
   textLines.push(line);
   if (textLines.length >= 12) break;
@@ -441,8 +448,107 @@ return {{
     return dict(driver.execute_script(script, int(element_limit), int(text_limit)) or {})
 
 
-def build_page_snapshot(driver: WebDriver, *, element_limit: int = 80, text_limit: int = 2000) -> dict[str, Any]:
-    return _execute_page_snapshot(driver, element_limit=int(element_limit), text_limit=int(text_limit))
+def build_page_snapshot(
+    driver: WebDriver,
+    *,
+    element_limit: int = 80,
+    text_limit: int = 2000,
+    frame_limit: int = 10,
+) -> dict[str, Any]:
+    """Collect bounded document snapshots through Selenium browsing contexts."""
+    element_limit = max(0, int(element_limit))
+    text_limit = max(0, int(text_limit))
+    frame_limit = max(0, min(10, int(frame_limit)))
+    combined: dict[str, Any] = {}
+    frames: list[dict[str, Any]] = []
+    known_refs: set[str] = set()
+    visible_text: list[str] = []
+    text_remaining = text_limit
+    lines_remaining = text_limit
+    visited = 0
+    truncated = False
+
+    def qualify(value: Any, path: list[int], document_id: str) -> Any:
+        if isinstance(value, list):
+            return [item for raw in value if (item := qualify(raw, path, document_id)) is not None]
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        if item.get("aid"):
+            local_aid = str(item["aid"])
+            ref = frame_ref(path, document_id, local_aid)
+            if ref not in known_refs and len(known_refs) >= element_limit:
+                return None
+            known_refs.add(ref)
+            item.update(aid=ref, local_aid=local_aid, frame_path=list(path), frame_document_id=document_id)
+        return {key: result for key, raw in item.items() if (result := qualify(raw, path, document_id)) is not None}
+
+    def visit(path: list[int], ancestors: list[Any], metadata: dict[str, Any]) -> None:
+        nonlocal combined, text_remaining, lines_remaining, visited, truncated
+        entry = {key: value for key, value in metadata.items() if key != "element"}
+        if "src" in entry:
+            entry["src"] = diagnostic_url(entry["src"])
+        entry["path"] = list(path)
+        if path:
+            visited += 1
+            frames.append(entry)
+        driver.switch_to.default_content()
+        try:
+            for element in ancestors:
+                driver.switch_to.frame(element)
+            document_id = frame_document_id(driver, create=True) if path else ""
+            current = _execute_page_snapshot(
+                driver,
+                element_limit=max(0, element_limit - len(known_refs)),
+                text_limit=text_remaining,
+            )
+            if path:
+                entry.update(
+                    url=diagnostic_url(current.get("url", "")), title=current.get("title", ""),
+                    document_id=document_id, viewport_y=current.get("viewport_y", 0),
+                )
+            # Prioritize canonical controls; adapter duplicates share the same budget.
+            for key in ("sendtoamazon_controls", "interactive_elements"):
+                current[key] = qualify(current.get(key, []), path, document_id)
+            for key in list(current):
+                if key not in {"sendtoamazon_controls", "interactive_elements"}:
+                    current[key] = qualify(current[key], path, document_id)
+            text = str(current.get("visible_text") or "")[:text_remaining]
+            visible_text.append(text)
+            text_remaining -= len(text)
+            lines: list[str] = []
+            for raw in current.get("text_lines", []):
+                line = str(raw)[:lines_remaining]
+                if line:
+                    lines.append(line)
+                    lines_remaining -= len(line)
+            current["text_lines"] = lines
+            if not path:
+                combined = current
+            else:
+                for key, value in current.items():
+                    if isinstance(value, list):
+                        combined.setdefault(key, []).extend(value)
+            children = list_frames(driver)
+        except Exception as exc:
+            if not path:
+                raise
+            entry["error"] = frame_error(exc)
+            return
+        for child in children:
+            if visited >= frame_limit:
+                truncated = True
+                break
+            visit([*path, int(child["index"])], [*ancestors, child["element"]], child)
+
+    try:
+        visit([], [], {})
+        combined["visible_text"] = "".join(visible_text)
+        combined["frames"] = frames
+        combined["frames_truncated"] = truncated
+        return combined
+    finally:
+        driver.switch_to.default_content()
 
 
 def get_element_index_map(
@@ -451,7 +557,7 @@ def get_element_index_map(
     element_limit: int = 80,
 ) -> dict[int, str]:
     return {
-        index: _safe_text(item.get("aid"), 64)
+        index: _safe_text(item.get("aid"), 120)
         for index, item in _ordered_indexed_elements(page_snapshot, element_limit=element_limit)
     }
 
@@ -472,7 +578,7 @@ def format_dom_snapshot(
     index_map = get_element_index_map(snapshot, element_limit=element_limit)
     ordered_aids = [aid for _, aid in sorted(index_map.items(), key=lambda item: int(item[0]))]
     aid_to_element = {
-        _safe_text(item.get("aid"), 64): dict(item or {})
+        _safe_text(item.get("aid"), 120): dict(item or {})
         for item in _combined_interactive_elements(snapshot)
     }
 
@@ -551,6 +657,18 @@ def format_element_details(element_details: dict[str, Any]) -> str:
 
 
 def get_element_details(driver: WebDriver, aid: str) -> dict[str, Any]:
+    try:
+        local_aid = enter_ref_frame(driver, aid)
+        details = _current_element_details(driver, local_aid)
+        if details:
+            path, document_id, _ = parse_frame_ref(aid)
+            details.update(aid=aid, local_aid=local_aid, frame_path=path, frame_document_id=document_id)
+        return details
+    finally:
+        driver.switch_to.default_content()
+
+
+def _current_element_details(driver: WebDriver, aid: str) -> dict[str, Any]:
     return dict(
         driver.execute_script(
             SHADOW_DOM_HELPERS_JS + """
