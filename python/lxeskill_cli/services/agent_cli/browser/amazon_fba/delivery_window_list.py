@@ -52,6 +52,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import parse_qsl, urlsplit
 
 from services.agent_cli._shared.browser_session import browser_session
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
@@ -394,6 +395,59 @@ def read_hub_cells(driver: Any) -> list[dict[str, Any]]:
     return cells
 
 
+def same_page_path(current_url: object, target_url: object) -> bool:
+    """Compare the document route while ignoring tracking query parameters."""
+    try:
+        current = urlsplit(str(current_url or "").strip())
+        target = urlsplit(str(target_url or "").strip())
+    except ValueError:
+        return False
+    if current.scheme.lower() not in {"http", "https"} or target.scheme.lower() not in {
+        "http",
+        "https",
+    }:
+        return False
+    current_path = current.path.rstrip("/") or "/"
+    target_path = target.path.rstrip("/") or "/"
+
+    def meaningful_query(parts: Any) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            sorted(
+                (key, value)
+                for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                if key.lower() != "ref" and not key.lower().startswith("ref_")
+            )
+        )
+
+    return (
+        current.scheme.lower(),
+        current.netloc.lower(),
+        current_path,
+        meaningful_query(current),
+    ) == (
+        target.scheme.lower(),
+        target.netloc.lower(),
+        target_path,
+        meaningful_query(target),
+    )
+
+
+def navigate_to_page_if_needed(driver: Any, target_url: str) -> dict[str, Any]:
+    """Navigate only when the browser is not already on the target route."""
+    try:
+        current_url = str(getattr(driver, "current_url", "") or "").strip()
+    except Exception:  # noqa: BLE001 - current_url diagnostics must not hide the real read
+        current_url = ""
+    reused = same_page_path(current_url, target_url)
+    if not reused:
+        driver.get(target_url)
+    return {
+        "action": "reused" if reused else "navigated",
+        "from_url": current_url,
+        "target_url": target_url,
+    }
+
+
 def wait_for_hub_cells(
     driver: Any,
     *,
@@ -510,7 +564,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             context={"store_id": plan["store_id"]},
             output_dir=workflow_output_dir(session_id),
         ) as session:
-            session.driver.get(plan["page_url"])
+            navigation = navigate_to_page_if_needed(session.driver, plan["page_url"])
             cells = wait_for_hub_cells(
                 session.driver,
                 timeout_seconds=float(plan["timeout_sec"]),
@@ -536,6 +590,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     files = _artifact_entries(artifact_path)
     base_data = {
         "plan": plan,
+        "page_navigation": navigation,
         "page_row_count": len(built["rows"]),
         "duplicate_pairs": built["duplicate_pairs"],
     }
@@ -623,7 +678,9 @@ __all__ = [
     "parse_delivery_window",
     "plan_read",
     "read_hub_cells",
+    "navigate_to_page_if_needed",
     "run",
+    "same_page_path",
     "select_rows",
     "wait_for_hub_cells",
 ]

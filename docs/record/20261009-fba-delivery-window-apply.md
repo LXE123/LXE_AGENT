@@ -806,3 +806,12 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 - 多个选项必须先询问运营选择哪个“货件编号”，选择后才从同一次 discovery 结果映射回内部 FBA 号并进入 plan-only / dry-run。
 - discovery 会只读检查全部分页，不再因为列表业务状态不符合就跳过页面检查；返回 `page_editable`（页面能力）、`business_eligible`（业务规则）和 `selectable`（两者同时满足）三个独立事实。这样即使页面上的 5 个分页都能点击编辑，也不会被错误描述成“模块没有识别到入口”；真正 apply 仍保留 `orderStatus="已发货"` 的硬门槛。
 - 本轮尝试对 `Amazon-Yunjian-US` 做真实只读 discovery 时，紫鸟状态仍显示店铺运行，但官方 Selenium 附着只看到 `about:blank`，因此未取得该工作流程的新页面证据，也未执行任何写入。
+
+### 15.17 消除读取阶段的同页重复导航（2026-10-12）
+
+Agent 操作中又发现：浏览器已经停在管理货件页时，列表读取、discovery 和后续校验仍会无条件执行 `driver.get(page_url)`，表现为页面反复跳回或刷新。这里要区分两类导航：
+
+- **冗余导航**：当前 URL 与目标管理货件页的 scheme、host、path 已相同，仅 `ref` 等 query 不同。此时直接复用当前 DOM 并等待货件行，禁止再次 `get`。
+- **必要导航**：discovery 结束后浏览器位于 STA 追踪详情；用户选定编号后，dry-run 必须回管理货件页重新读取实时 `orderStatus`，然后再进入目标货件。这是写入前的一次安全复核，不得删除，但也不得在它前后重复执行 list/discovery。
+
+实现新增同路径判断并忽略追踪 query；`delivery-window-list`、discovery、dry-run/apply 的列表页入口统一使用“已在目标路径则复用，否则导航”。结果和步骤证据记录 `action=reused|navigated`，回归测试覆盖同页 query 不同但不刷新，以及不同 STA 路径仍正常导航。

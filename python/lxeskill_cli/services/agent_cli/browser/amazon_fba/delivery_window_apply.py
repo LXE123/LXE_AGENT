@@ -1884,7 +1884,12 @@ def _run_discovery(
     origin = _origin(str(plan["page_url"]))
     detail_url = DETAIL_URL_TEMPLATE.format(origin=origin, shipment_id=seed)
 
-    driver.get(str(plan["page_url"]))
+    navigation = dwl.navigate_to_page_if_needed(driver, str(plan["page_url"]))
+    trail.note(
+        "列表页定位",
+        f"action={navigation['action']} from={navigation['from_url']} "
+        f"target={navigation['target_url']}",
+    )
     _wait_until(
         lambda: len(read_hub_cells(driver)) > 0,
         timeout_seconds=float(plan["timeout_sec"]),
@@ -2150,7 +2155,12 @@ def _run_shipments(
     hub: dict[str, Any] | None = None
     failure: _HardFailure | None = None
     try:
-        driver.get(str(plan["page_url"]))
+        navigation = dwl.navigate_to_page_if_needed(driver, str(plan["page_url"]))
+        hub_trail.note(
+            "列表页定位",
+            f"action={navigation['action']} from={navigation['from_url']} "
+            f"target={navigation['target_url']}",
+        )
         _wait_until(
             lambda: len(read_hub_cells(driver)) > 0,
             timeout_seconds=float(plan["timeout_sec"]),

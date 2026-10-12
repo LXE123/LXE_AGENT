@@ -34,13 +34,15 @@ REAL_WINDOW_SAMPLES = [
 
 
 class _FakeDriver:
-    def __init__(self, cells: list[dict[str, str]]) -> None:
+    def __init__(self, cells: list[dict[str, str]], *, current_url: str = "") -> None:
         self.cells = list(cells)
+        self.current_url = current_url
         self.opened: list[str] = []
         self.scripts: list[tuple[str, tuple[object, ...]]] = []
 
     def get(self, url: str) -> None:
         self.opened.append(str(url))
+        self.current_url = str(url)
 
     def execute_script(self, script: str, *args: object) -> list[dict[str, str]]:
         self.scripts.append((script, args))
@@ -336,6 +338,21 @@ def test_read_hub_cells_passes_the_hub_selector_and_the_two_columns() -> None:
     assert "deepQuerySelectorAll" in script
 
 
+def test_same_page_path_ignores_tracking_query_but_not_the_route() -> None:
+    assert dwl.same_page_path(
+        "https://sellercentral.amazon.com/manage/shipments?ref=sc_shipments",
+        "https://sellercentral.amazon.com/manage/shipments",
+    )
+    assert not dwl.same_page_path(
+        "https://sellercentral.amazon.com/fba/sendtoamazon?wf=abc",
+        "https://sellercentral.amazon.com/manage/shipments",
+    )
+    assert not dwl.same_page_path(
+        "https://sellercentral.amazon.com/fba/sendtoamazon?wf=abc",
+        "https://sellercentral.amazon.com/fba/sendtoamazon?wf=def",
+    )
+
+
 def test_wait_for_hub_cells_retries_until_the_spa_rows_render(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -385,6 +402,24 @@ def test_run_reads_the_hub_and_writes_the_artifact(
     assert artifact["page_url"] == PAGE_URL
     assert artifact["page_row_count"] == 2
     assert len(artifact["rows"]) == 2
+
+
+def test_run_reuses_an_already_open_hub_route_without_reloading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    driver = _FakeDriver(
+        _hub_cells([("FBA19AAAAAAA", "9月6日 - 2026年9月12日")]),
+        current_url=f"{PAGE_URL}?ref=sc_shipments",
+    )
+    monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-1")
+    monkeypatch.setattr(dwl, "workflow_output_dir", lambda _session_id: tmp_path)
+    monkeypatch.setattr(dwl, "browser_session", _fake_browser_session(driver, tmp_path))
+
+    payload = dwl.run(_arguments(shipment_ids=["FBA19AAAAAAA"]))
+
+    assert payload["success"] is True
+    assert driver.opened == []
+    assert payload["data"]["page_navigation"]["action"] == "reused"
 
 
 def test_run_fails_loudly_when_the_page_yields_no_rows(

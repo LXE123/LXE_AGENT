@@ -836,6 +836,22 @@ def test_apply_walks_the_page_and_reads_the_new_window_back(tmp_path):
     assert driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
 
 
+def test_apply_reuses_an_already_open_hub_route_before_revalidation(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT],
+    )
+    driver.state["url"] = f"{PAGE_URL}&ref=sc_shipments"
+
+    result = _run(driver, _plan(apply=False), tmp_path)
+
+    assert result["success"] is True
+    assert PAGE_URL not in driver.opened
+    assert driver.opened[0].endswith(f"/{SHIPMENT}/contents")
+    hub_steps = {item["step"]: item["detail"] for item in result["data"]["steps"]}
+    assert "action=reused" in hub_steps["列表页定位"]
+
+
 def test_dry_run_stops_before_the_calendar_and_never_confirms(tmp_path):
     driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
     result = _run(driver, _plan(apply=False), tmp_path)

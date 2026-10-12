@@ -67,6 +67,8 @@ lxeskill fba shipment delivery-window --action discover --store-id <store_id> --
 - 有多个选项时必须停下来询问“请选择要修改的货件编号（可多选）”，不得直接选种子货件，也不得直接输出种子货件当前时段后结束流程。
 - `page_editable=true` 表示 Amazon 页面确实存在可用编辑入口；`business_eligible=true` 表示列表状态符合当前业务规则；只有 `selectable=true` 才能进入改期。页面可编辑但业务状态不符合时，两项事实都要如实展示，不能说模块没有识别到入口。
 - 用户回复“货件编号 N”后，只能使用本次 discovery 的同一条 `operator_options` 映射为内部完整 FBA 号；编号越界、映射缺失或 `selectable!=true` 时停止。
+- 同一修改流程只执行一次 discovery，禁止在 discovery 前后额外调用 `delivery-window-list`。若浏览器已经位于同一路径的管理货件页，命令会直接复用当前 DOM，不得为了“刷新”重复导航。
+- discovery 结束时浏览器位于追踪详情；随后 `plan_only` 不接触浏览器。只有 dry-run 会为写入前的实时 `orderStatus` 安全校验返回列表页一次，再进入选定货件；不得把这次必要复核扩展成循环读取或重复跳转。
 
 ## 改期流程
 
