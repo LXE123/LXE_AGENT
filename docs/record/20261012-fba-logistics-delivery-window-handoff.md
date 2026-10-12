@@ -1,8 +1,8 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12。
-- 状态：严格附着、frame-aware 快照和 DOM onclick 识别已实现；用户真实会话已返回 42 个 ref，元素识别通过。点击、单票查询和转单号提取尚未实测通过。最新交接以第 14 节为准，第 10—13 节保留排查过程。
-- 下一轮目标：在 LXE_Agent 真实会话重新快照，展开“发货”并进入“运单”，只查询 `FBA19PWM5L6T`，核对并提取真实转单信息。不得修改 Amazon、物流订单或原始表格。
+- 状态：威飒单票查询、精确货件匹配、转单号提取及最终独立回读已通过；`FBA19PWM5L6T` 对应 `PSP3`、UPS `1ZK1013D0321365378`，威飒显示已签收。最新交接以第 15 节为准；第 10—14 节保留历史排查和当时的待办，不代表当前仍未完成查询。
+- 下一轮入口：威飒首轮单票已收尾，不重复从零排查元素。用户明确继续第二阶段后，可对上述 UPS 转单号做尾程只读核验；这票已签收，不能直接生成改期建议。此前跳回首页及页签变化的原因仍未确定。不得修改 Amazon、物流订单或原始表格。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 本轮代码基线：`25efb1c2 fix: recognize DOM onclick handlers in browser snapshots`；129 项定向测试通过，未合并到 `main`。
 
@@ -160,7 +160,7 @@ uv run --frozen lxeskill browser store --action get_status
 
 可将下面内容作为下一轮提示词：
 
-> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，优先按第 14 节继续。DOM onclick 识别修复已在用户真实会话返回 42 个 ref，不要重复实现或重复探针排查；点击与业务查询尚未验证。在 LXE_Agent 真实执行会话中按紫鸟浏览器技能，先 get_status，再对目标店铺执行带 `--strict-attach --target-host wsaexp.nextsls.com --full` 的新快照，不能直接复用本次归档的 aid。确认店铺、网站和当前公司账户后，使用最新 ref 展开“发货”，重新快照进入“运单”，只查询 `FBA19PWM5L6T`。用户允许先在“深圳市新棱镜贸易有限公司”账户试查，但店铺归属尚未确认，查无结果不能证明账户错误。精确核对货件和目的仓 PSP3，提取页面实际存在的转单号及承运人。禁止物流下单、修改物流资料、写入 Amazon 或改写原表；不自动启动或重启店铺、不复制或伪造会话、不刷新马帮认证。报告动作是否成功、数据是否找到及转单号是否取得，遇到实际错误停止并保留错误。
+> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以第 15 节为最新交接。威飒单票查询已经完成：当前账户“深圳市新棱镜贸易有限公司”精确查到 `FBA19PWM5L6T`，威飒运单 `WS10026638`，目的仓 `PSP3`，尾程 UPS，转单号 `1ZK1013D0321365378`，状态已签收；截图与最终独立文本回读一致。不要重复 DOM onclick 修复或将历史 aid 当成当前 ref。当前阶段已收尾；若用户要求继续尾程核验，只读查询该 UPS 单号，区分物流商已签收、尾程实际签收时间和预计送达时间，不直接生成或执行改期建议。若用户要求排查稳定性，优先记录实际店铺、标签页身份及动作前后 URL，再定位此前跳回首页和页签变化，不能凭推测归因。真实页面操作仍须在 LXE_Agent 实际会话中走官方配对 Selenium 链路；威飒页面命令带 `--strict-attach --target-host wsaexp.nextsls.com`，新一轮重新核对状态与页面。`browser_snapshot` 可带 `--full`，`browser_vision` 不可带 `--full`。禁止物流下单、修改物流资料、写入 Amazon、改写原表、自动启动或重启、复制或伪造会话、读取 Bun agent DB 或刷新马帮认证。
 
 旧的 [20261007 方案](20261007-fba-delivery-window.md) 保留为历史背景；其中多国家范围和 SP-API 阶段设计不是本期任务。20261009 的“上游物流链路被省略”描述的是当时只接收目标日期的执行范围，不否定本轮新增的查询后建议模式。
 
@@ -234,7 +234,7 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 
 从仓库根执行第 10 节同一组浏览器及相关 CLI 定向回归，结果 `129 passed`、退出码 0；`git diff --check` 通过。未执行合并前全量验证，未合并到 `main`。
 
-## 14 本轮归档：实页已有 42 个 ref，下一轮验证查询
+## 14 历史归档：实页已有 42 个 ref，查询当时待验证
 
 用户在 `25efb1c2` 构建的 LXE_Agent 真实会话回传一次完整快照：`ok=true`、exit_code 0、无 error、`files=[]`。URL 为 `http://wsaexp.nextsls.com/tms/wos/home`，标题仍为威飒控制台，`Frames: (none found)`。返回 42 个 ref（`aid-0` 至 `aid-41`），全部 `frame=[]`、`detected_by=onclick_property`，未出现 refs 截断提示。
 
@@ -264,3 +264,70 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 ```
 
 本轮代码验证已完成：129 项定向测试通过。此次归档只更新交接文档，不重复运行代码未变化的测试；未运行合并前全量验证。下一轮先完成威飒单票，不扩展批量、其他物流商、尾程 ETA 或 Amazon 改期。
+
+## 15 最新归档：威飒单票查询与转单提取通过
+
+测试日期：2026-10-12。本轮浏览器命令由用户在 LXE_Agent 真实执行会话中运行并回传结果；Codex 读取本机生成的两张截图，与最终文本回读交叉核对。当前 Codex 终端仍不能直接执行页面命令：状态检查实际返回 `session_required` / `browser store requires an LXE session`，没有绕过会话限制。
+
+### 已核实的唯一货件
+
+| 字段 | 真实页面结果 |
+| --- | --- |
+| 紫鸟店铺 | `Amazon-Yunjian-US 深圳市久艺电子商务有限公司`，store_id `VycOXC1cvUBC/rBIOnYXUg==` |
+| 威飒公司账户 | 深圳市新棱镜贸易有限公司 |
+| 来源 | `测试.xlsx / Sheet1!A2:P2`，发货单 `SP260911003`，箱号 `1号箱` |
+| FBA | `FBA19PWM5L6T`，精确匹配 |
+| 威飒运单号 | `WS10026638` |
+| 目的仓 | `PSP3`，与样表一致 |
+| 渠道 | 空运-美国带电包税 |
+| 平台、国家及邮编 | AMAZON、美国、92240 |
+| 件数 | 页面原文 `1/1` |
+| 尾程承运人 | UPS，来自页面“承运”列，不是按号码格式推断 |
+| 转单号 | `1ZK1013D0321365378`，截图与文本一致 |
+| 威飒状态 | 已签收 |
+| 结果数量 | 共 1 条；已签收(1)、全部(1)，其余状态均为 0 |
+
+该账户确实能查询到本票，但不能由此扩展为全部店铺与公司账户的长期归属映射。列表只展示一个转单号；尚未打开详情核验是否还有其他包裹或历史转单。页面没有提供已核实的尾程签收日期或 ETA，本轮未取得 CLI 精确查询时间，不把下单时间当作送达时间。
+
+最终独立文本快照返回 `ok=true`、exit_code 0、无 error，未出现 refs 截断，约 68 个 ref，`Frames: (none found)`。输入框仍保留完整 FBA，唯一结果行包含上述运单、目的仓和 UPS 转单号。最终 URL：
+
+```text
+http://wsaexp.nextsls.com/tms/wos/shipment?page=1&pageSize=30&activeTab=delivered&keywords=FBA19PWM5L6T&isActiveTab=all
+```
+
+### 实测过程及验收边界
+
+1. “发货”点击成功并展开菜单；跨调用点击历史“运单”ref 曾返回 `invalid ref: aid-42`，失败时菜单已收起。随后同一次 `--steps` 中展开“发货”并点击已观察过的“运单”链接，2/2 步通过，进入 `/tms/wos/shipment`。这一结果证明该批次导航成功，不证明菜单只能在同一次附着期间展开，也不授权预先编造新 ref。
+2. 刚导航后的快照只见 6 个导航 ref，后续独立快照取得业务控件和列表。等待页面加载并回读是必要的，不能仅凭点击成功验收。
+3. 点击查询类型时曾返回 `invalid ref: aid-50`，失败恢复快照已在 `/tms/wos/home`。用户说明两次调用之间只有快照与该点击命令。重新导航到已验证的运单地址后，独立快照及“关键字”点击成功，未复现跳回首页；原因未确定。
+4. 切换“全部”成功，URL 显示 `activeTab=all`。使用最新快照确认的输入框写入 `FBA19PWM5L6T`，点击“搜索”，3/3 步通过，URL 出现 `keywords=FBA19PWM5L6T&isActiveTab=all`。
+5. 搜索后的首份快照仍见非目标行，且存在截断；后续独立截图及最终独立文本快照均精确命中 1 条。初始非目标行的确切原因未证明，不能将其固定归因于异步渲染或截断。
+6. 最终截图和文本均显示“已签收”选中，`activeTab=delivered`；用户没有报告两次调用间切换页签的动作。页签变化原因仍未确定，不能声称是已证实的网站自动行为。
+
+连接、菜单导航、查询提交、精确业务匹配和转单号提取已有真实证据；最终独立回读保持同一账户、查询条件和结果。此前页面漂移未查明，因此不能宣布浏览器整体稳定性全部通过。本轮没有取得新的 `get_status` 成功结果或实时核对 browser_id；用户说明店铺一直未关闭，页面命令均严格附着成功，先前的 browser_id 不冒充本轮实时结果。
+
+### 工具使用中已确认的问题
+
+- ref 随 DOM 节点重建或导航变化；同一页面不变时也曾跨调用保持一致。只能使用最新观察且明确匹配目标的 ref，不能宣称“跨调用一定失效”，也不能依赖历史编号。已授权查询范围内，按新快照明确匹配的字段更新 ref 无需重复征求同意。
+- `browser_snapshot --full` 采集上限为 200 个 ref，文字摘要最多展示 80 个，正文也会截断。看不到目标不等于不存在；不能构造尚未支持的“只看表格区域”参数。
+- `browser_vision --full` 实测返回 exit_code 4、`invalid_arguments`、`browser_vision only accepts store_id`。去掉 `--full` 并保留严格附着参数后截图成功。已只读核对 schema：`strict_attach`、`target_host` 是允许的会话参数，`full` 不在截图参数中。`skills/ziniao-browser/SKILL.md` 声称截图可带 `--full`，与实现不一致；本轮只归档，未修正文档或代码。
+- 当前 DeepSeek 会话读取 PNG 返回 `[image omitted: the selected model does not support image content]`，无法视觉判断；Codex 已实际查看本机图片。无需把“允许截图”或“允许读取已生成截图”再次作为用户审批项。
+- 批处理以 `browser_vision` 收尾时，本次返回没有保留前一步完整 refs 正文。截图后需要 refs 或文字证据时，单独执行 `browser_snapshot --full`；成功退出不代表所有中间快照均完整返回。
+- 批内步骤失败时曾出现 exit_code 0，但正文明确报告停止和 `invalid ref`。验收必须检查每步结果及业务回读，不能只检查进程退出码或顶层 `ok`。
+
+本轮实际成功的截图命令为：
+
+```text
+lxeskill browser page --action browser_vision --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host wsaexp.nextsls.com
+```
+
+### 页面证据及下一轮边界
+
+已实际读取的本地截图路径如下；文件在忽略的运行时产物目录，未加入 Git，后续清理运行时目录可能移除它们。关键结果已记录在本节，不依赖截图长期存在：
+
+- 查询前页面：`/Users/lxe-3/LXE_AGENT/.worktrees/pool-1/var/workspace/.lxeagent/artifacts/browser/amazon_store_agent/8d7d3cbb69c74af18e907d82859d5083/agent-1791795163.png`。
+- 唯一命中结果：`/Users/lxe-3/LXE_AGENT/.worktrees/pool-1/var/workspace/.lxeagent/artifacts/browser/amazon_store_agent/8d7d3cbb69c74af18e907d82859d5083/agent-1791795685.png`。
+
+威飒首轮单票阶段已收尾。本轮未查询 UPS、未取得尾程实际签收日期或 ETA、未修改物流订单或 Amazon、未改写原始表格，未启动、重启或退出店铺。下一轮按用户要求选择尾程只读核验或浏览器稳定性排查；这票威飒状态已签收，不直接生成改期建议，不扩展批量或其他物流商。所有实际页面命令继续走 LXE_Agent 真实会话及官方配对 Selenium 链路，禁止复制或伪造会话。
+
+此次归档只修改本交接文档，代码及 `catalog.json` 不变；129 项定向测试是此前代码验证结果，本轮不重复运行。未运行合并前全量验证、未合并 `main`，保留当前任务分支和 worktree。
