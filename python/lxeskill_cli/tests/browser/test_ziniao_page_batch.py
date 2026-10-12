@@ -39,6 +39,37 @@ def test_batch_normalizes_steps_and_propagates_store_id() -> None:
     assert "action" not in call.arguments
 
 
+def test_page_session_options_are_normalized_at_top_level() -> None:
+    call = build_browser_tool_call(
+        name="ziniao_page",
+        arguments={
+            "store_id": STORE_ID,
+            "strict_attach": True,
+            "target_host": "WSAEXP.NEXTSLS.COM.",
+            "steps": [{"action": "browser_snapshot"}],
+        },
+    )
+
+    assert call.arguments["strict_attach"] is True
+    assert call.arguments["target_host"] == "wsaexp.nextsls.com"
+    assert "strict_attach" not in call.arguments["steps"][0]
+    assert "target_host" not in call.arguments["steps"][0]
+
+
+@pytest.mark.parametrize("target_host", ["http://wsaexp.nextsls.com", "wsaexp.nextsls.com/wos", "wsaexp.nextsls.com:80"])
+def test_page_rejects_target_host_with_url_parts(target_host: str) -> None:
+    with pytest.raises(ValueError, match="hostname without scheme, port or path"):
+        build_browser_tool_call(
+            name="ziniao_page",
+            arguments={
+                "store_id": STORE_ID,
+                "strict_attach": True,
+                "target_host": target_host,
+                "action": "browser_snapshot",
+            },
+        )
+
+
 def test_batch_rejects_action_alongside_steps() -> None:
     with pytest.raises(ValueError, match="either action or steps"):
         build_browser_tool_call(
@@ -150,7 +181,8 @@ def _patch_batch_session(monkeypatch, session: _FakeSession, attach_calls: list[
     from contextlib import contextmanager
 
     @contextmanager
-    def fake_workflow_session(runtime, *, store_id, output_dir):
+    def fake_workflow_session(runtime, *, store_id, output_dir, **kwargs):
+        _ = kwargs
         attach_calls.append(store_id)
         yield session
 

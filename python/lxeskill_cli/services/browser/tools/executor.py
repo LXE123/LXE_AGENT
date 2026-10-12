@@ -33,8 +33,19 @@ def _tool_target_text(tool_call) -> str:
 
 
 @contextmanager
-def _page_workflow_session(runtime: Any, *, store_id: str, output_dir: Path) -> Iterator[WorkflowBrowserSession]:
-    with store_driver_session(store_id) as (store_session, driver):
+def _page_workflow_session(
+    runtime: Any,
+    *,
+    store_id: str,
+    output_dir: Path,
+    strict_attach: bool = False,
+    target_host: str = "",
+) -> Iterator[WorkflowBrowserSession]:
+    with store_driver_session(
+        store_id,
+        strict_attach=strict_attach,
+        target_host=target_host,
+    ) as (store_session, driver):
         yield WorkflowBrowserSession(
             driver=driver,
             output_dir=output_dir,
@@ -167,7 +178,13 @@ def _execute_page_batch(
     last_action = ""
 
     try:
-        with _page_workflow_session(runtime, store_id=store_id, output_dir=output_dir) as session:
+        with _page_workflow_session(
+            runtime,
+            store_id=store_id,
+            output_dir=output_dir,
+            strict_attach=bool(arguments.get("strict_attach")),
+            target_host=str(arguments.get("target_host") or "").strip(),
+        ) as session:
             previous_after: dict[str, Any] = {}
             for index, step in enumerate(steps, start=1):
                 last_action = str(step.get("action") or "").strip().lower()
@@ -320,7 +337,13 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
         )
 
     try:
-        with _page_workflow_session(runtime, store_id=store_id, output_dir=output_dir) as session:
+        with _page_workflow_session(
+            runtime,
+            store_id=store_id,
+            output_dir=output_dir,
+            strict_attach=bool(tool_call.arguments.get("strict_attach")),
+            target_host=str(tool_call.arguments.get("target_host") or "").strip(),
+        ) as session:
             before_snapshot = session.snapshot()
             payload = dispatch_ziniao_page(
                 session,

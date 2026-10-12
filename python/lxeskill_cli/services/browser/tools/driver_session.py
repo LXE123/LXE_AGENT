@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 from typing import Any, Iterator
+from urllib.parse import urlsplit
 
 from selenium.common.exceptions import WebDriverException
 
@@ -132,6 +133,31 @@ def select_first_normal_tab(driver: Any, *, allow_blank: bool = False) -> dict[s
     raise RuntimeError(f"未找到可操作的普通页面。当前标签页: {_format_tab_summary(tabs)}")
 
 
+def select_unique_host_tab(driver: Any, target_host: str) -> dict[str, str]:
+    safe_target_host = str(target_host or "").strip().lower().rstrip(".")
+    if not safe_target_host:
+        raise RuntimeError("target_host missing")
+    tabs = list_browser_tabs(driver)
+    matches = [
+        tab
+        for tab in tabs
+        if is_normal_tab_url(str(tab.get("url") or ""))
+        and str(urlsplit(str(tab.get("url") or "")).hostname or "").strip().lower().rstrip(".")
+        == safe_target_host
+    ]
+    if not matches:
+        raise RuntimeError(
+            f"未找到域名为 {safe_target_host} 的可操作页面。当前标签页: {_format_tab_summary(tabs)}"
+        )
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"域名 {safe_target_host} 匹配到 {len(matches)} 个标签页，无法唯一定位。当前标签页: {_format_tab_summary(tabs)}"
+        )
+    selected = matches[0]
+    driver.switch_to.window(selected["handle"])
+    return dict(selected)
+
+
 @contextmanager
 def attached_driver(
     *,
@@ -183,6 +209,7 @@ __all__ = [
     "check_ip",
     "create_driver",
     "detach_driver",
+    "select_unique_host_tab",
     "is_normal_tab_url",
     "list_browser_tabs",
     "open_launcher_page",

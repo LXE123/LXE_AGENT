@@ -91,6 +91,14 @@ _BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
                     "type": "string",
                     "description": "Target store oauth.",
                 },
+                "strict_attach": {
+                    "type": "boolean",
+                    "description": "Reuse an already-running store and stop on attach failure without starting or restarting it.",
+                },
+                "target_host": {
+                    "type": "string",
+                    "description": "Exact hostname of the single browser tab to select.",
+                },
                 "full": {
                     "type": "boolean",
                     "description": "Return a more complete page snapshot. Used by browser_snapshot.",
@@ -158,12 +166,24 @@ def _normalize_ziniao_browser_arguments(arguments: dict[str, Any]) -> dict[str, 
 
 
 _MAX_PAGE_BATCH_STEPS = 20
+_PAGE_SESSION_KEYS = {"strict_attach", "target_host"}
+
+
+def _normalize_page_session_options(arguments: dict[str, Any], normalized: dict[str, Any]) -> None:
+    strict_attach = _coerce_bool(arguments.get("strict_attach"))
+    if strict_attach is not None:
+        normalized["strict_attach"] = strict_attach
+    target_host = _clean_text(arguments.get("target_host"), 253).lower().rstrip(".")
+    if target_host:
+        if "://" in target_host or any(char in target_host for char in "/@?#:"):
+            raise ValueError("target_host must be a hostname without scheme, port or path")
+        normalized["target_host"] = target_host
 
 
 def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
     if "action" in arguments:
         raise ValueError("ziniao_page accepts either action or steps, not both")
-    extra_keys = sorted(set(arguments) - {"steps", "store_id"})
+    extra_keys = sorted(set(arguments) - {"steps", "store_id", *_PAGE_SESSION_KEYS})
     if extra_keys:
         raise ValueError("batch mode only accepts store_id and steps; per-step options go inside each step")
     store_id = _clean_text(arguments.get("store_id"), 120)
@@ -188,7 +208,9 @@ def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
         step_action = str(normalized_steps[-1].get("action") or "")
         if step_action == "browser_vision" and position != len(raw_steps):
             raise ValueError("browser_vision is only allowed as the final step")
-    return {"store_id": store_id, "steps": normalized_steps}
+    normalized: dict[str, Any] = {"store_id": store_id, "steps": normalized_steps}
+    _normalize_page_session_options(arguments, normalized)
+    return normalized
 
 
 def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -206,9 +228,10 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         "action": action,
         "store_id": store_id,
     }
+    _normalize_page_session_options(arguments, normalized)
 
     if action == "browser_snapshot":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "full"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", "full", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_snapshot only accepts store_id and full")
         full = _coerce_bool(arguments.get("full"))
@@ -217,13 +240,13 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         return normalized
 
     if action == "browser_vision":
-        extra_keys = sorted(set(arguments) - {"action", "store_id"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_vision only accepts store_id")
         return normalized
 
     if action == "browser_navigate":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "url"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", "url", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_navigate only accepts store_id and url")
         url = _clean_text(arguments.get("url"), 600)
@@ -233,7 +256,7 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         return normalized
 
     if action == "browser_click":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_click only accepts store_id and ref")
         ref = _clean_text(arguments.get("ref"), 120)
@@ -243,7 +266,7 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         return normalized
 
     if action == "browser_type":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref", "text"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref", "text", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_type only accepts store_id, ref and text")
         ref = _clean_text(arguments.get("ref"), 120)
@@ -256,7 +279,7 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         return normalized
 
     if action == "browser_scroll":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "direction", "pixels"})
+        extra_keys = sorted(set(arguments) - {"action", "store_id", "direction", "pixels", *_PAGE_SESSION_KEYS})
         if extra_keys:
             raise ValueError("browser_scroll only accepts store_id, direction and pixels")
         direction = _clean_text(arguments.get("direction") or "down", 20)

@@ -15,6 +15,7 @@ commands:
 - 每次先检查 terminal 的 `ok`。成功时读取 `data`；失败时停止并原样转述 `error.message`，不要凭空补救。
 - `store_id` 必须来自用户输入或 `get_status` 的真实结果，禁止猜测。
 - 优先复用已运行店铺；只有状态明确为未运行时才 `open_store`。
+- 复用指定站点页面且不允许启动或重启店铺时，每次页面命令都带 `--strict-attach --target-host <hostname>`；域名匹配为零或多个标签页时停止。
 - 页面发生导航、点击、输入或滚动后，旧元素 `ref` 立即视为失效，下一次交互前重新执行 `browser_snapshot`。批量 `--steps` 内部按同一次附着执行，批尾会自动返回最新快照。
 - 连续多步交互（如 click→type→click）必须合并为一次 `--steps` 批量调用，不要逐步单发。
 - 除非用户明确要求结束店铺进程，否则不要执行 `exit_store`。
@@ -58,6 +59,7 @@ lxeskill browser store --action exit_store --store-id <store_id>
 
 ```text
 lxeskill browser page --action browser_snapshot --store-id <store_id>
+lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host <hostname>
 lxeskill browser page --action browser_click --store-id <store_id> --ref <ref>
 lxeskill browser page --action browser_type --store-id <store_id> --ref <ref> --text "<text>"
 lxeskill browser page --action browser_scroll --store-id <store_id> --direction down --pixels 800

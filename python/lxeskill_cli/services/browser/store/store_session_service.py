@@ -316,7 +316,13 @@ class StoreSessionService:
             "inactive_stores": inactive_stores,
         }
 
-    def ensure_store_session(self, browser_oauth: str, *, force_restart: bool = False) -> ZiniaoStoreSessionState:
+    def ensure_store_session(
+        self,
+        browser_oauth: str,
+        *,
+        force_restart: bool = False,
+        start_if_missing: bool = True,
+    ) -> ZiniaoStoreSessionState:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
         trace_event("session.ensure.request", store_id=safe_browser_oauth, force_restart=force_restart)
         _, catalog_by_id, catalog_by_oauth = self._browser_catalog()
@@ -355,6 +361,10 @@ class StoreSessionService:
             )
             if rebuilt is not None:
                 return rebuilt
+
+        if not start_if_missing:
+            trace_event("session.ensure.not_running", level="error", store_id=safe_browser_oauth)
+            raise RuntimeError(f"目标店铺未运行，严格附着已停止: {safe_browser_oauth}")
 
         record = self._record_from_start(
             browser_oauth=safe_browser_oauth,
