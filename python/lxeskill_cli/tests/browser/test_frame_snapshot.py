@@ -267,14 +267,14 @@ def test_verification_never_falls_back_to_sibling_frame():
     assert parse_frame_ref(ref) == ([0], "a" * 32, "aid-1")
 
 
-def _run_extraction_js(nodes: list[dict], *, replace_first: bool = False):
+def _run_extraction_js(nodes: list[dict], *, replace_first: bool = False, element_limit: int = 80):
     class Capture:
         def execute_script(self, script, *args):
             self.script = script
             return {}
 
     capture = Capture()
-    snapshot._execute_page_snapshot(capture, element_limit=80, text_limit=4000)
+    snapshot._execute_page_snapshot(capture, element_limit=element_limit, text_limit=4000)
     # Execute the actual shipped extraction JS against a small DOM fixture.
     # No browser automation framework, network or production page is involved.
     harness = """
@@ -299,6 +299,7 @@ class Element {
     this.style = config.style || {};
     this.children = [];
     if (config.dom_handler) this.onclick = () => { throw new Error('handler must not execute'); };
+    else if ('onclick_value' in config) this.onclick = config.onclick_value;
     if (config.vue_handler) this._vei = {onClick: () => { throw new Error('handler must not execute'); }};
     if (config.react_handler) this.__reactProps$test = {onClick: () => { throw new Error('handler must not execute'); }, privateState: 'SECRET'};
     if (config.registry_getter) Object.defineProperty(this, '_vei', {get() { throw new Error('getter must not execute'); }});
@@ -336,14 +337,14 @@ input.nodes.forEach((config, index) => {
     nodes[config.parent].children.push(nodes[index]);
   }
 });
-const first = run(80, 4000);
+const first = run(input.element_limit, 4000);
 if (input.replace_first) nodes[0] = new Element(input.nodes[0]);
-const second = run(80, 4000);
+const second = run(input.element_limit, 4000);
 console.log(JSON.stringify({first, second}));
 """
     bun = shutil.which("bun")
     assert bun, "bun is required for the browser extraction JS regression test"
-    process = subprocess.run([bun, "-e", harness], input=json.dumps({"script": capture.script, "nodes": nodes, "replace_first": replace_first}), text=True, capture_output=True, timeout=10)
+    process = subprocess.run([bun, "-e", harness], input=json.dumps({"script": capture.script, "nodes": nodes, "replace_first": replace_first, "element_limit": element_limit}), text=True, capture_output=True, timeout=10)
     assert process.returncode == 0, process.stderr
     return json.loads(process.stdout)
 
@@ -382,6 +383,72 @@ def test_pointer_styling_is_diagnostic_not_an_actionable_ref():
     assert "DOM diagnostics" not in dispatcher._format_snapshot_summary(result, full=False)
 
 
+@pytest.mark.parametrize("tag", ["li", "div", "span", "tr"])
+def test_dom_onclick_function_generates_ref_without_attribute_or_pointer(tag):
+    result = _run_extraction_js([
+        {"tag": tag, "text": "发货", "dom_handler": True},
+    ])["first"]
+    elements = result["interactive_elements"]
+    assert len(elements) == 1
+    assert elements[0]["tag"] == tag
+    assert elements[0]["text"] == "发货"
+    assert elements[0]["matched_by"] == "onclick_property"
+    assert "detected_by=onclick_property" in dispatcher._format_snapshot_summary(result, full=True)
+
+
+@pytest.mark.parametrize("value", [None, "not a function", True, {}])
+def test_non_callable_onclick_property_does_not_generate_ref(value):
+    result = _run_extraction_js([
+        {"tag": "li", "onclick_value": value, "cursor": "pointer"},
+    ])["first"]
+    assert result["interactive_elements"] == []
+    diagnostic = result["dom_diagnostics"][0]
+    assert diagnostic["dom_property_candidates"] == 0
+
+
+@pytest.mark.parametrize("config", [
+    {"visible": False},
+    {"style": {"display": "none"}},
+    {"style": {"visibility": "hidden"}},
+    {"style": {"opacity": "0"}},
+])
+def test_hidden_dom_onclick_controls_do_not_generate_refs(config):
+    result = _run_extraction_js([
+        {"tag": "li", "dom_handler": True, **config},
+    ])["first"]
+    assert result["interactive_elements"] == []
+    diagnostic = result["dom_diagnostics"][0]
+    assert diagnostic["selector_candidates"] == 0
+    assert diagnostic["dom_property_candidates"] == 1
+    assert diagnostic["visible_dom_property_candidates"] == 0
+
+
+def test_native_and_property_candidates_are_deduplicated_and_keep_native_detection():
+    result = _run_extraction_js([
+        {"tag": "button", "dom_handler": True},
+    ])["first"]
+    assert len(result["interactive_elements"]) == 1
+    assert result["interactive_elements"][0]["matched_by"] == "native_or_existing_role"
+
+
+def test_shipping_menu_parent_gets_ref_but_child_label_and_collapsed_link_do_not():
+    nodes = [
+        {"tag": "li", "text": "发货", "attrs": {"class": "pod-subitem"}, "dom_handler": True},
+        {"tag": "span", "text": "发货", "attrs": {"class": "pod-subitem-label"}, "parent": 0},
+        {"tag": "a", "text": "运单", "attrs": {"class": "submenu-item-div", "href": "/tms/wos/shipment"}, "visible": False},
+    ]
+    collapsed = _run_extraction_js(nodes)["first"]
+    assert [(el["tag"], el["text"], el["matched_by"]) for el in collapsed["interactive_elements"]] == [
+        ("li", "发货", "onclick_property"),
+    ]
+    nodes[-1]["visible"] = True
+    expanded = _run_extraction_js(nodes)["first"]
+    assert {(el["tag"], el["text"], el["matched_by"]) for el in expanded["interactive_elements"]} == {
+        ("li", "发货", "onclick_property"),
+        ("a", "运单", "native_or_existing_role"),
+    }
+
+
 def test_negative_tabindex_and_hidden_widgets_do_not_become_refs():
     result = _run_extraction_js([
         {"tag": "div", "attrs": {"tabindex": "-1"}},
@@ -398,7 +465,7 @@ def test_structure_probe_reports_parent_handlers_without_invoking_them():
         {"tag": "span", "text": "发货", "cursor": "pointer", "parent": 0},
         {"tag": "div", "text": "财务", "react_handler": True, "cursor": "pointer"},
         {"tag": "div", "text": "工具", "registry_getter": True, "cursor": "pointer"},
-    ])["first"]
+    ], element_limit=0)["first"]
     assert result["interactive_elements"] == []
     probe = result["dom_diagnostics"][0]["structure_probe"]
     target = probe["targets"][0]

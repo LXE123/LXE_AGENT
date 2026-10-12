@@ -246,19 +246,27 @@ let index = Number(document.__lxeAidCounter || 0);
 const usedAids = new Set(deepQuerySelectorAll('[data-aid]').map(el => el.getAttribute('data-aid')));
 const nativeSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]';
 const widgetSelector = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="option"]';
-const candidates = deepQuerySelectorAll(nativeSelector + ', ' + widgetSelector + ', [onclick], [tabindex]');
+const selectorCandidates = deepQuerySelectorAll(nativeSelector + ', ' + widgetSelector + ', [onclick], [tabindex]');
+// A JS-assigned onclick function is not an HTML [onclick] attribute.
+// Inspect every document/shadow-root element, not only CSS candidates or pointer-styled nodes.
+const propertyCandidates = deepQuerySelectorAll('*').filter(el => typeof el.onclick === 'function');
+const selectorCandidateSet = new Set(selectorCandidates);
+const candidates = [...new Set([...selectorCandidates, ...propertyCandidates])];
 let visibleCandidates = 0;
+let visiblePropertyCandidates = 0;
 for (const el of candidates) {{
   const visible = isVisible(el);
   const fileInput = isFileInput(el);
   if (!visible && !fileInput) continue;
-  if (visible) visibleCandidates++;
+  if (visible && selectorCandidateSet.has(el)) visibleCandidates++;
   const nativeMatch = el.matches(nativeSelector);
   const widgetMatch = el.matches(widgetSelector);
   const inlineClick = el.hasAttribute('onclick');
+  const propertyClick = typeof el.onclick === 'function';
+  if (visible && propertyClick) visiblePropertyCandidates++;
   const tabindex = el.getAttribute('tabindex');
   const focusable = tabindex !== null && tabindex.trim() !== '' && Number(tabindex) >= 0;
-  if (!nativeMatch && !widgetMatch && !inlineClick && !focusable) continue;
+  if (!nativeMatch && !widgetMatch && !inlineClick && !propertyClick && !focusable) continue;
   const rect = el.getBoundingClientRect();
   const key = [
     el.tagName,
@@ -285,7 +293,7 @@ for (const el of candidates) {{
     aria_label: el.getAttribute('aria-label') || '',
     data_testid: el.getAttribute('data-testid') || '',
     role: el.getAttribute('role') || '',
-    matched_by: nativeMatch ? 'native_or_existing_role' : widgetMatch ? 'interactive_role' : inlineClick ? 'onclick_attribute' : 'focusable_tabindex',
+    matched_by: nativeMatch ? 'native_or_existing_role' : widgetMatch ? 'interactive_role' : inlineClick ? 'onclick_attribute' : propertyClick ? 'onclick_property' : 'focusable_tabindex',
     value: ('value' in el ? String(el.value || '').trim() : ''),
     options: (el.tagName || '').toLowerCase() === 'select'
       ? Array.from(el.options || []).slice(0, 20).map(opt => (opt.textContent || opt.label || opt.value || '').trim()).filter(Boolean)
@@ -363,13 +371,15 @@ if (!filteredInteractive.length) {{
   }}
   domDiagnostics.push({{
     ready_state: document.readyState || '',
-    selector_candidates: candidates.length,
+    selector_candidates: selectorCandidates.length,
     visible_selector_candidates: visibleCandidates,
+    dom_property_candidates: propertyCandidates.length,
+    visible_dom_property_candidates: visiblePropertyCandidates,
     scanned_nodes: Math.min(nodes.length, scanLimit),
     nodes_truncated: nodes.length > scanLimit,
     visible_nodes: visibleNodes, pointer_nodes: pointerNodes,
     samples,
-    structure_probe: probeStructure([...probeTargets, ...probeLeaves], candidates),
+    structure_probe: probeStructure([...probeTargets, ...probeLeaves], selectorCandidates),
   }});
 }}
 

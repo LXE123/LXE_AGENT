@@ -220,3 +220,15 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 本次 Codex 终端只检查了环境变量是否存在，结果 `LXE_AGENT_SESSION_ID absent`；没有复制或伪造会话，没有直接读取威飒页面。需要 LXE_Agent 的真实会话运行第 10 节同一条严格完整快照，并完整返回 `structure_probe`。真实页面探针结果尚未取得，不能声称已经找到导航事件绑定或查询成功。
 
 定向验证从仓库根运行第 10 节同一组浏览器和相关 CLI 测试，结果 `115 passed`、退出码 0；其中 3 个新增测试执行真实提取 JS，验证父级事件线索、隐藏原因、优先级及截断，且不调用事件函数或框架 registry getter。
+
+## 13 续测：识别 DOM onclick 函数
+
+已只读核对用户提供的完整执行日志。诊断节点 42 是可见的 `li.pod-subitem`“发货”，矩形 `[120,0,80,50]`，存在 `dom_property:onclick`；节点 126 是 `a.submenu-item-div`“运单”，矩形及所列父级矩形均为零。用户提供的 HTML 明确了该链接为 `/tms/wos/shipment`。因此两个问题要分开：可见父菜单的 DOM onclick 函数漏进候选集，子菜单链接虽然命中原生选择器，却在该次快照时没有可见矩形。
+
+用户明确要求修复。采集器现将原 CSS 候选与所有 document/开放 Shadow DOM 中 `typeof el.onclick === 'function'` 的节点合并去重，交互判定同步接纳该函数属性，输出 `detected_by=onclick_property`。只读取函数存在性，不执行它；仍过滤不可见控件，不把纯手形样式或子节点继承的手形样式视为交互证据，也不将非函数 onclick 值视为处理器。CSS 候选诊断计数保留原含义，并单独增加 DOM 属性候选计数。CLI 参数及 `catalog.json` 不变。
+
+新增 14 项提取 JS 测试覆盖：非原生标签、无 onclick 属性/手形样式时的函数属性识别、非函数值拒绝、隐藏控件过滤、重复候选去重，以及模拟“发货”父节点和隐藏/显示的“运单”链接。用于探针本身的既有测试显式将元素预算设为零，以继续验证诊断输出，不依赖此次已修复的漏识别。
+
+本轮没有操作真实页面。下一步由 LXE_Agent 在真实会话执行第 10 节的严格完整快照，核对“发货”的 `onclick_property` ref；菜单展开后必须重新快照取得“运单”的新 ref，不能拿诊断节点编号点击，也不能声称当前已完成展开或货件查询。
+
+从仓库根执行第 10 节同一组浏览器及相关 CLI 定向回归，结果 `129 passed`、退出码 0；`git diff --check` 通过。未执行合并前全量验证，未合并到 `main`。
