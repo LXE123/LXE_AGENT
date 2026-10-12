@@ -191,3 +191,17 @@ uv run --frozen pytest python/lxeskill_cli/tests/browser python/lxeskill_cli/tes
 ```text
 lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host wsaexp.nextsls.com --full
 ```
+
+## 11 续测：顶层正文可读，非标准导航控件待确认
+
+用户回传更新后的完整快照成功，实际 URL、标题与前次一致，`Frames: (none found)`。正文包含“发货、财务、更多、工具”“深圳市新棱镜贸易有限公司、总控平台”“余额、待核销欠款、待付账单、待出账单”“运单、已下单”，refs 仍为零。
+
+这次结果没有支持 iframe 假设。正文从版权行增加到中文导航及账户名称，也可以由纯中文行过滤修复解释，不能仅凭此差异断定网站发生了动态更新。
+
+用户明确答复不确定该公司账户是否对应测试货件，但允许先在当前账户查询 `FBA19PWM5L6T`，若不对应再核对另一个账户。当前账户名称必须保留在结果中；查无数据本身不能证明账户错误，也不能算业务查询通过。
+
+下一次完整快照已补充：识别原生元素之外的 `menuitem`、`tab` 等交互角色，以及显式 `onclick` 属性和非负 `tabindex`；每个 ref 显示 `detected_by`。若仍为零 refs，返回有界的 `DOM diagnostics`，包含实际 selector 命中数、可见节点数、节点标签、class、role、tabindex 和 cursor。只诊断鼠标手形样式，不将其样本自动当作可点击 ref，不执行事件处理代码。
+
+下一步仍由 LXE_Agent 执行同一条 `--full --strict-attach --target-host wsaexp.nextsls.com` 快照，完整返回 refs 及 `DOM diagnostics`。取得实际导航控件证据后再进入运单查询。当前尚未点击导航，也未执行 FBA 查询。
+
+浏览器模块及第 10 节列出的相关 CLI 定向回归结果为 `112 passed`，退出码 0。新增控件测试直接执行实际提取 JS，覆盖非原生交互角色、onclick 属性、tabindex、隐藏节点和仅有 cursor 样式的诊断节点；威飒真实导航仍待复验。

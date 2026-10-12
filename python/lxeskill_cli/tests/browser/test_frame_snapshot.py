@@ -267,7 +267,7 @@ def test_verification_never_falls_back_to_sibling_frame():
     assert parse_frame_ref(ref) == ([0], "a" * 32, "aid-1")
 
 
-def test_real_extraction_js_preserves_chinese_text_and_never_reuses_aids():
+def _run_extraction_js(nodes: list[dict], *, replace_first: bool = False):
     class Capture:
         def execute_script(self, script, *args):
             self.script = script
@@ -282,20 +282,37 @@ const input = JSON.parse(await Bun.stdin.text());
 const nodes = [];
 const document = {
   title: '威飒', body: {innerText: '订单查询\\n转单号\\n1234'},
+  readyState: 'complete',
   querySelectorAll(selector) {
-    if (selector === '*') return nodes;
-    if (selector === '[data-aid]') return nodes.filter(el => el.getAttribute('data-aid'));
-    if (selector.startsWith('button, a, input, select, textarea,')) return nodes;
-    return [];
+    return nodes.filter(el => el.matches(selector));
   }, querySelector() { return null; }
 };
 class Element {
   tagName = 'BUTTON'; innerText = '订单查询'; textContent = '订单查询'; id = '';
-  attrs = {};
-  getAttribute(key) { return this.attrs[key] || ''; }
+  children = [];
+  constructor(config = {}) {
+    this.tagName = (config.tag || 'button').toUpperCase();
+    this.innerText = this.textContent = config.text || '订单查询';
+    this.attrs = {...config.attrs};
+    this.cursor = config.cursor || 'default';
+    this.visible = config.visible !== false;
+  }
+  getAttribute(key) { return this.hasAttribute(key) ? this.attrs[key] : null; }
   setAttribute(key, value) { this.attrs[key] = value; }
   hasAttribute(key) { return key in this.attrs; }
-  getBoundingClientRect() { return {width: 10, height: 10, top: 0, left: 0}; }
+  getBoundingClientRect() { return {width: this.visible ? 10 : 0, height: 10, top: 0, left: 0}; }
+  matches(selector) {
+    return selector.split(',').some(part => {
+      part = part.trim();
+      if (part === '*') return true;
+      const match = /^(?:([a-zA-Z][\\w-]*))?(?:\\[([\\w-]+)(?:="([^"]*)")?\\])?$/.exec(part);
+      if (!match) return false;
+      if (match[1] && match[1].toUpperCase() !== this.tagName) return false;
+      if (match[2] && !this.hasAttribute(match[2])) return false;
+      if (match[3] !== undefined && this.getAttribute(match[2]) !== match[3]) return false;
+      return true;
+    });
+  }
   closest() { return null; }
   getRootNode() { return document; }
   querySelectorAll() { return []; }
@@ -303,19 +320,61 @@ class Element {
 }
 const window = {
   location: {href: 'http://wsaexp.nextsls.com/wos'},
-  getComputedStyle() { return {display: 'block', visibility: 'visible', opacity: '1'}; }
+  getComputedStyle(el) { return {display: 'block', visibility: 'visible', opacity: '1', cursor: el.cursor}; }
 };
 const run = new Function('document', 'window', 'Element', 'ShadowRoot', 'return function(){' + input.script + '}')(document, window, Element, class {});
-nodes.push(new Element());
+nodes.push(...input.nodes.map(config => new Element(config)));
 const first = run(80, 4000);
-nodes[0] = new Element();
+if (input.replace_first) nodes[0] = new Element(input.nodes[0]);
 const second = run(80, 4000);
 console.log(JSON.stringify({first, second}));
 """
     bun = shutil.which("bun")
     assert bun, "bun is required for the browser extraction JS regression test"
-    process = subprocess.run([bun, "-e", harness], input=json.dumps({"script": capture.script}), text=True, capture_output=True, timeout=10)
+    process = subprocess.run([bun, "-e", harness], input=json.dumps({"script": capture.script, "nodes": nodes, "replace_first": replace_first}), text=True, capture_output=True, timeout=10)
     assert process.returncode == 0, process.stderr
-    result = json.loads(process.stdout)
+    return json.loads(process.stdout)
+
+
+def test_real_extraction_js_preserves_chinese_text_and_never_reuses_aids():
+    result = _run_extraction_js([{"tag": "button"}], replace_first=True)
     assert result["first"]["text_lines"] == ["订单查询", "转单号"]
     assert result["first"]["interactive_elements"][0]["aid"] != result["second"]["interactive_elements"][0]["aid"]
+
+
+@pytest.mark.parametrize("tag,attrs,matched_by", [
+    ("li", {"role": "menuitem"}, "interactive_role"),
+    ("div", {"role": "tab"}, "interactive_role"),
+    ("span", {"onclick": "doNotExecute()"}, "onclick_attribute"),
+    ("div", {"tabindex": "0"}, "focusable_tabindex"),
+])
+def test_real_extraction_js_recognizes_non_native_widgets(tag, attrs, matched_by):
+    result = _run_extraction_js([{"tag": tag, "attrs": attrs}])["first"]
+    assert len(result["interactive_elements"]) == 1
+    assert result["interactive_elements"][0]["tag"] == tag
+    assert result["interactive_elements"][0]["matched_by"] == matched_by
+    assert result["dom_diagnostics"] == []
+
+
+def test_pointer_styling_is_diagnostic_not_an_actionable_ref():
+    result = _run_extraction_js([{"tag": "div", "cursor": "pointer", "attrs": {"class": "menu-title"}}])["first"]
+    assert result["interactive_elements"] == []
+    diagnostic = result["dom_diagnostics"][0]
+    assert diagnostic["pointer_nodes"] == 1
+    assert diagnostic["selector_candidates"] == 0
+    assert diagnostic["samples"][0]["classes"] == "menu-title"
+    assert "aid" not in diagnostic["samples"][0]
+    summary = dispatcher._format_snapshot_summary(result, full=True)
+    assert "DOM diagnostics" in summary
+    assert "menu-title" in summary
+    assert "DOM diagnostics" not in dispatcher._format_snapshot_summary(result, full=False)
+
+
+def test_negative_tabindex_and_hidden_widgets_do_not_become_refs():
+    result = _run_extraction_js([
+        {"tag": "div", "attrs": {"tabindex": "-1"}},
+        {"tag": "li", "attrs": {"role": "menuitem"}, "visible": False},
+    ])["first"]
+    assert result["interactive_elements"] == []
+    assert result["dom_diagnostics"][0]["selector_candidates"] == 2
+    assert result["dom_diagnostics"][0]["visible_selector_candidates"] == 1

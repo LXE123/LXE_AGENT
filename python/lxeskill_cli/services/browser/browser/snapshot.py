@@ -242,10 +242,21 @@ const interactive = [];
 const collectLimit = Math.max(limit * 3, limit);
 let index = Number(document.__lxeAidCounter || 0);
 const usedAids = new Set(deepQuerySelectorAll('[data-aid]').map(el => el.getAttribute('data-aid')));
-for (const el of deepQuerySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]')) {{
+const nativeSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]';
+const widgetSelector = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="option"]';
+const candidates = deepQuerySelectorAll(nativeSelector + ', ' + widgetSelector + ', [onclick], [tabindex]');
+let visibleCandidates = 0;
+for (const el of candidates) {{
   const visible = isVisible(el);
   const fileInput = isFileInput(el);
   if (!visible && !fileInput) continue;
+  if (visible) visibleCandidates++;
+  const nativeMatch = el.matches(nativeSelector);
+  const widgetMatch = el.matches(widgetSelector);
+  const inlineClick = el.hasAttribute('onclick');
+  const tabindex = el.getAttribute('tabindex');
+  const focusable = tabindex !== null && tabindex.trim() !== '' && Number(tabindex) >= 0;
+  if (!nativeMatch && !widgetMatch && !inlineClick && !focusable) continue;
   const rect = el.getBoundingClientRect();
   const key = [
     el.tagName,
@@ -271,6 +282,8 @@ for (const el of deepQuerySelectorAll('button, a, input, select, textarea, [role
     placeholder: el.getAttribute('placeholder') || '',
     aria_label: el.getAttribute('aria-label') || '',
     data_testid: el.getAttribute('data-testid') || '',
+    role: el.getAttribute('role') || '',
+    matched_by: nativeMatch ? 'native_or_existing_role' : widgetMatch ? 'interactive_role' : inlineClick ? 'onclick_attribute' : 'focusable_tabindex',
     value: ('value' in el ? String(el.value || '').trim() : ''),
     options: (el.tagName || '').toLowerCase() === 'select'
       ? Array.from(el.options || []).slice(0, 20).map(opt => (opt.textContent || opt.label || opt.value || '').trim()).filter(Boolean)
@@ -312,6 +325,46 @@ for (const item of interactive) {{
 const filteredInteractive = interactive
   .filter(item => !(isCustomElementTag(item.tag) && nativePositions.has(positionKey(item))))
   .slice(0, limit);
+
+// Keep zero-ref pages diagnosable without promoting cursor styling to actions.
+const domDiagnostics = [];
+if (!filteredInteractive.length) {{
+  const nodes = deepQuerySelectorAll('*');
+  const scanLimit = 2000;
+  let visibleNodes = 0;
+  let pointerNodes = 0;
+  const samples = [];
+  for (const el of nodes.slice(0, scanLimit)) {{
+    if (!isVisible(el)) continue;
+    visibleNodes++;
+    const style = window.getComputedStyle(el);
+    const pointer = style.cursor === 'pointer';
+    if (pointer) pointerNodes++;
+    const text = compactText(el);
+    if (!text || samples.length >= 20) continue;
+    // Prefer short leaf-like text, rather than dumping whole layout containers.
+    if (!pointer && text.length > 40) continue;
+    if (!pointer && el.children && el.children.length > 0) continue;
+    samples.push({{
+      tag: (el.tagName || '').toLowerCase(), text,
+      id: compactValue(el.id || '', 80),
+      classes: compactValue(el.getAttribute('class') || '', 160),
+      role: el.getAttribute('role') || '',
+      tabindex: el.getAttribute('tabindex'),
+      cursor: style.cursor || '',
+      onclick_present: el.hasAttribute('onclick'),
+    }});
+  }}
+  domDiagnostics.push({{
+    ready_state: document.readyState || '',
+    selector_candidates: candidates.length,
+    visible_selector_candidates: visibleCandidates,
+    scanned_nodes: Math.min(nodes.length, scanLimit),
+    nodes_truncated: nodes.length > scanLimit,
+    visible_nodes: visibleNodes, pointer_nodes: pointerNodes,
+    samples,
+  }});
+}}
 
 const headingSeen = new Set();
 const headings = [];
@@ -443,6 +496,7 @@ return {{
   text_lines: textLines,
   visible_text: bodyText.slice(0, textLimit),
   interactive_elements: filteredInteractive,
+  dom_diagnostics: domDiagnostics,
 }};
 """
     return dict(driver.execute_script(script, int(element_limit), int(text_limit)) or {})
@@ -507,6 +561,8 @@ def build_page_snapshot(
                     url=diagnostic_url(current.get("url", "")), title=current.get("title", ""),
                     document_id=document_id, viewport_y=current.get("viewport_y", 0),
                 )
+            for diagnostic in current.get("dom_diagnostics", []):
+                diagnostic["frame_path"] = list(path)
             # Prioritize canonical controls; adapter duplicates share the same budget.
             for key in ("sendtoamazon_controls", "interactive_elements"):
                 current[key] = qualify(current.get(key, []), path, document_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from services.browser.tools.driver_session import (
@@ -46,6 +47,7 @@ def _snapshot_ref_entries(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "ref": ref,
                 "frame_path": list(item.get("frame_path") or []),
+                "matched_by": str(item.get("matched_by") or ""),
                 "tag": str(item.get("tag") or "").strip().lower(),
                 "label": " ".join(label.split())[:160],
             }
@@ -71,7 +73,8 @@ def _format_snapshot_summary(snapshot: dict[str, Any], *, full: bool) -> str:
         for item in refs[:limit]:
             tag = str(item.get("tag") or "").strip() or "element"
             label = str(item.get("label") or "").strip() or "unnamed"
-            lines.append(f"- ref={item['ref']} frame={item['frame_path']} | {tag} | {label}")
+            evidence = f" | detected_by={item['matched_by']}" if item["matched_by"] else ""
+            lines.append(f"- ref={item['ref']} frame={item['frame_path']} | {tag} | {label}{evidence}")
         if len(refs) > limit:
             lines.append(f"- ... truncated, total refs={len(refs)}")
 
@@ -86,6 +89,11 @@ def _format_snapshot_summary(snapshot: dict[str, Any], *, full: bool) -> str:
             lines.extend(f"- {item}" for item in text_lines[:20])
             if len(text_lines) > 20:
                 lines.append(f"- ... truncated, total text lines={len(text_lines)}")
+        diagnostics = list(safe_snapshot.get("dom_diagnostics") or [])
+        if diagnostics:
+            lines.extend(["", "DOM diagnostics (samples are not actionable refs):"])
+            for diagnostic in diagnostics:
+                lines.append(json.dumps(diagnostic, ensure_ascii=False))
 
     frames = list(safe_snapshot.get("frames") or [])
     if frames:
