@@ -1,9 +1,10 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12。
-- 状态：业务流程与首轮测试范围已确认；严格附着和 frame-aware 快照已实现并通过定向测试，物流商单票查询尚未实测通过。续测结果见第 10 节。
-- 下一轮目标：在 LXE_agent 内测试威飒单票的登录态识别、页面定位、查询动作和转单号提取。不得修改 Amazon、物流订单或原始表格。
+- 状态：严格附着、frame-aware 快照和 DOM onclick 识别已实现；用户真实会话已返回 42 个 ref，元素识别通过。点击、单票查询和转单号提取尚未实测通过。最新交接以第 14 节为准，第 10—13 节保留排查过程。
+- 下一轮目标：在 LXE_Agent 真实会话重新快照，展开“发货”并进入“运单”，只查询 `FBA19PWM5L6T`，核对并提取真实转单信息。不得修改 Amazon、物流订单或原始表格。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
+- 本轮代码基线：`25efb1c2 fix: recognize DOM onclick handlers in browser snapshots`；129 项定向测试通过，未合并到 `main`。
 
 ## 1 业务范围和已确认结论
 
@@ -159,7 +160,7 @@ uv run --frozen lxeskill browser store --action get_status
 
 可将下面内容作为下一轮提示词：
 
-> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以其中确认的业务范围和实际验证状态为准。先检查第 7 节浏览器页面定位与附着失败自动重启风险，提出或实施首轮所需的最小受控修复并做定向验证；不要直接扩大到完整物流功能。在 LXE_agent 真实执行会话中，复用用户指定的紫鸟环境，对威飒及 `FBA19PWM5L6T` 做单票登录态和查询测试。先确认公司账户、店铺及页面，再执行查询。未登录则等待用户完成登录。禁止物流下单、修改物流资料、写入 Amazon 或改写原表。报告各项真实结果与证据，明确区分动作成功、业务数据找到和转单号取得；遇到错误停止并保留实际错误，不自行重启或刷新马帮认证。
+> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，优先按第 14 节继续。DOM onclick 识别修复已在用户真实会话返回 42 个 ref，不要重复实现或重复探针排查；点击与业务查询尚未验证。在 LXE_Agent 真实执行会话中按紫鸟浏览器技能，先 get_status，再对目标店铺执行带 `--strict-attach --target-host wsaexp.nextsls.com --full` 的新快照，不能直接复用本次归档的 aid。确认店铺、网站和当前公司账户后，使用最新 ref 展开“发货”，重新快照进入“运单”，只查询 `FBA19PWM5L6T`。用户允许先在“深圳市新棱镜贸易有限公司”账户试查，但店铺归属尚未确认，查无结果不能证明账户错误。精确核对货件和目的仓 PSP3，提取页面实际存在的转单号及承运人。禁止物流下单、修改物流资料、写入 Amazon 或改写原表；不自动启动或重启店铺、不复制或伪造会话、不刷新马帮认证。报告动作是否成功、数据是否找到及转单号是否取得，遇到实际错误停止并保留错误。
 
 旧的 [20261007 方案](20261007-fba-delivery-window.md) 保留为历史背景；其中多国家范围和 SP-API 阶段设计不是本期任务。20261009 的“上游物流链路被省略”描述的是当时只接收目标日期的执行范围，不否定本轮新增的查询后建议模式。
 
@@ -232,3 +233,34 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 本轮没有操作真实页面。下一步由 LXE_Agent 在真实会话执行第 10 节的严格完整快照，核对“发货”的 `onclick_property` ref；菜单展开后必须重新快照取得“运单”的新 ref，不能拿诊断节点编号点击，也不能声称当前已完成展开或货件查询。
 
 从仓库根执行第 10 节同一组浏览器及相关 CLI 定向回归，结果 `129 passed`、退出码 0；`git diff --check` 通过。未执行合并前全量验证，未合并到 `main`。
+
+## 14 本轮归档：实页已有 42 个 ref，下一轮验证查询
+
+用户在 `25efb1c2` 构建的 LXE_Agent 真实会话回传一次完整快照：`ok=true`、exit_code 0、无 error、`files=[]`。URL 为 `http://wsaexp.nextsls.com/tms/wos/home`，标题仍为威飒控制台，`Frames: (none found)`。返回 42 个 ref（`aid-0` 至 `aid-41`），全部 `frame=[]`、`detected_by=onclick_property`，未出现 refs 截断提示。
+
+refs 覆盖顶部“发货/财务/更多/工具”、公司账户、账户卡片、运单进度和账单表行。历史快照中的“发货”为 `aid-1`，仅作证据记录，下一轮不得直接使用该旧 ref。此次仅证明修复后可见节点进入了交互候选；onclick 函数可能是框架代理或占位函数，是否实际展开菜单仍须动作后回读验证，不能将 ref 数量当作业务流程通过。
+
+本轮没有 navigate/click/type/open_store/exit_store，没有展开菜单、输入 FBA、查询物流、改写订单或修改 Amazon。不存在已经取得的转单号或预计送达日期。已读取的账单不是目标货件查询结果。
+
+### 下一轮固定上下文
+
+- worktree：`/Users/lxe-3/LXE_AGENT/.worktrees/pool-1`；任务分支：`codex/fba-delivery-window`。代码及此前交接均已提交，尚未合并，不要释放此 worktree 或重新领取其他任务的 slot。
+- 复用店铺：`VycOXC1cvUBC/rBIOnYXUg==`，`Amazon-Yunjian-US 深圳市久艺电子商务有限公司`；此前运行 browser_id 为 `16547398293641`，新一轮仍须实时核对。
+- 威飒当前显示账户：`深圳市新棱镜贸易有限公司`。用户不确定对应关系，但已允许先在此账户查目标货件；若明确不对应，再核对另外账户。零结果本身不构成账户错误的证据。
+- 目标：`FBA19PWM5L6T`，目的仓 `PSP3`，来源 `测试.xlsx / Sheet1!A2:P2`，发货单 `SP260911003`。
+- 当前 Codex 终端此前没有 `LXE_AGENT_SESSION_ID`。真实页面命令必须在 LXE_Agent 实际会话执行，不得通过复制/伪造会话或读取 Bun agent DB 绕过。
+
+### 下一轮步骤及停止条件
+
+1. 按 `skills/ziniao-browser/SKILL.md` 先执行 `lxeskill browser store --action get_status`，核对指定店铺真实运行状态。页面命令始终带 `--strict-attach --target-host wsaexp.nextsls.com`，不允许启动/重启；实际错误即停。
+2. 执行下面的新快照，核对当前 URL、标题、公司账户与最新“发货”ref。登录态失效时等用户完成登录，不索取密码或复制认证信息。
+3. 用最新 ref 测试“发货”菜单是否展开，读取动作后的新快照，取得当前可见“运单”链接 ref 再进入。不猜 ref，不点击诊断编号，不把菜单展开成功当作货件查询成功。
+4. 在运单页新快照中确认搜索字段含义，再输入完整 `FBA19PWM5L6T` 并查询。连续交互在已知 refs 范围内按技能合并为 `--steps`；未知的新页面 ref 必须先读取，不能跨页面预先编造。
+5. 只有精确匹配货件后，才提取页面原文中的目的仓、转单号、承运人及查询时间。目的仓冲突、多个包裹、缺字段或零结果分别报告，不用 FBA 箱标或发货单替代转单号。
+6. 再做一次独立读取，确认仍是同店铺、威飒标签和查询上下文。分别报告连接、登录账户、菜单/查询动作、业务匹配、转单号取得及重复读取稳定性。
+
+```text
+lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host wsaexp.nextsls.com --full
+```
+
+本轮代码验证已完成：129 项定向测试通过。此次归档只更新交接文档，不重复运行代码未变化的测试；未运行合并前全量验证。下一轮先完成威飒单票，不扩展批量、其他物流商、尾程 ETA 或 Amazon 改期。
