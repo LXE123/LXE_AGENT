@@ -18,6 +18,7 @@ commands:
 - 复用指定站点页面且不允许启动或重启店铺时，每次页面命令都带 `--strict-attach --target-host <hostname>`；域名匹配为零或多个标签页时停止。
 - snapshot 自动读取顶层及最多 10 个子 frame，返回 `Frames`、读取失败的实际错误和截断提示。frame 中的 ref 包含路径和 document 身份，必须完整原样传入 click/type；frame 变化时报错后重新 snapshot，不手工拼接或截短 ref。
 - 页面有文字但没有 refs 时使用 `--full`，读取 `DOM diagnostics` 中的节点类型、role、class 和 cursor 等结构证据。诊断样本不是可操作 ref；仅有鼠标手形样式不证明节点绑定了点击行为。
+- 零 refs 时 `structure_probe` 会优先列出手形节点，返回隐藏 selector 候选、计算样式、矩形、最多 4 层父级，以及页面暴露的 DOM/Vue/React 事件线索。`diagnostic_node` 只索引该 frame 的探针 `nodes` 表，不是 ref。探针不执行事件函数、不读取函数正文或组件状态；没有线索不排除事件委托或 `addEventListener`。读取并保留截断标记，不把截断或观察不到解释为不存在。
 - 页面发生导航、点击、输入或滚动后，旧元素 `ref` 立即视为失效，下一次交互前重新执行 `browser_snapshot`。批量 `--steps` 内部按同一次附着执行，批尾会自动返回最新快照。
 - 连续多步交互（如 click→type→click）必须合并为一次 `--steps` 批量调用，不要逐步单发。
 - 除非用户明确要求结束店铺进程，否则不要执行 `exit_store`。

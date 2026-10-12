@@ -7,6 +7,7 @@ from selenium.webdriver.remote.webdriver import WebDriver
 
 from services.browser.browser.seller_central_adapters import SELLER_CENTRAL_EXTRACTION_JS
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
+from services.browser.browser.dom_probe import DOM_PROBE_JS
 from services.browser.browser.frames import (
     diagnostic_url, enter_ref_frame, frame_document_id, frame_error, frame_ref, list_frames, parse_frame_ref,
 )
@@ -165,6 +166,7 @@ def _format_element_line(index: int, item: dict[str, Any]) -> str:
 def _execute_page_snapshot(driver: WebDriver, *, element_limit: int, text_limit: int) -> dict[str, Any]:
     script = f"""
 {SHADOW_DOM_HELPERS_JS}
+{DOM_PROBE_JS}
 const limit = arguments[0];
 const textLimit = arguments[1];
 
@@ -334,6 +336,8 @@ if (!filteredInteractive.length) {{
   let visibleNodes = 0;
   let pointerNodes = 0;
   const samples = [];
+  const probeTargets = [];
+  const probeLeaves = [];
   for (const el of nodes.slice(0, scanLimit)) {{
     if (!isVisible(el)) continue;
     visibleNodes++;
@@ -341,6 +345,8 @@ if (!filteredInteractive.length) {{
     const pointer = style.cursor === 'pointer';
     if (pointer) pointerNodes++;
     const text = compactText(el);
+    if (pointer) probeTargets.push(el);
+    else if (text && text.length <= 40 && (!el.children || !el.children.length)) probeLeaves.push(el);
     if (!text || samples.length >= 20) continue;
     // Prefer short leaf-like text, rather than dumping whole layout containers.
     if (!pointer && text.length > 40) continue;
@@ -363,6 +369,7 @@ if (!filteredInteractive.length) {{
     nodes_truncated: nodes.length > scanLimit,
     visible_nodes: visibleNodes, pointer_nodes: pointerNodes,
     samples,
+    structure_probe: probeStructure([...probeTargets, ...probeLeaves], candidates),
   }});
 }}
 

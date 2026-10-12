@@ -205,3 +205,18 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 下一步仍由 LXE_Agent 执行同一条 `--full --strict-attach --target-host wsaexp.nextsls.com` 快照，完整返回 refs 及 `DOM diagnostics`。取得实际导航控件证据后再进入运单查询。当前尚未点击导航，也未执行 FBA 查询。
 
 浏览器模块及第 10 节列出的相关 CLI 定向回归结果为 `112 passed`，退出码 0。新增控件测试直接执行实际提取 JS，覆盖非原生交互角色、onclick 属性、tabindex、隐藏节点和仅有 cursor 样式的诊断节点；威飒真实导航仍待复验。
+
+## 12 续测：只读结构探针
+
+用户回传零 refs 的 DOM 诊断：`ready_state=complete`、`scanned_nodes=716`、`visible_nodes=322`、`pointer_nodes=27`、`selector_candidates=14`、`visible_selector_candidates=0`。样本包括 `span.pod-subitem-label` 的“发货/财务”和 `div.pod-subbox-data` 等。这确认当前选择器没有命中可见候选，但不能证明这些普通节点实际绑定了事件，也不能证明 14 个候选的隐藏原因。
+
+用户要求直接使用探针获取元素。已在零 refs 快照的 `DOM diagnostics.structure_probe` 中接入有界只读结构探针，仍走官方 Selenium 和原有 canonical 快照命令，不增加 CLI 契约或执行点击：
+
+- 优先读取手形节点，补充短文本叶节点，最多 64 个目标；读取最多 40 个 selector 候选，包括隐藏候选。
+- 对目标和最多 4 层父级输出共享 `nodes` 表，最多 160 个节点。返回标签、class、role、tabindex、计算样式、矩形、可见性阻碍，以及 DOM 事件属性和页面暴露的 Vue/React 事件函数存在性。
+- 不执行事件函数，不读取函数正文、输入值、组件状态或认证信息。不能枚举任意事件委托和 `addEventListener`；没有线索不能推断没有事件。各预算有显式截断字段。
+- `diagnostic_node` 和 `ancestors` 是当前 frame 内诊断表的索引，不是可点击 ref，不能传给 click/type。
+
+本次 Codex 终端只检查了环境变量是否存在，结果 `LXE_AGENT_SESSION_ID absent`；没有复制或伪造会话，没有直接读取威飒页面。需要 LXE_Agent 的真实会话运行第 10 节同一条严格完整快照，并完整返回 `structure_probe`。真实页面探针结果尚未取得，不能声称已经找到导航事件绑定或查询成功。
+
+定向验证从仓库根运行第 10 节同一组浏览器和相关 CLI 测试，结果 `115 passed`、退出码 0；其中 3 个新增测试执行真实提取 JS，验证父级事件线索、隐藏原因、优先级及截断，且不调用事件函数或框架 registry getter。

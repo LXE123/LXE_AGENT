@@ -296,6 +296,12 @@ class Element {
     this.attrs = {...config.attrs};
     this.cursor = config.cursor || 'default';
     this.visible = config.visible !== false;
+    this.style = config.style || {};
+    this.children = [];
+    if (config.dom_handler) this.onclick = () => { throw new Error('handler must not execute'); };
+    if (config.vue_handler) this._vei = {onClick: () => { throw new Error('handler must not execute'); }};
+    if (config.react_handler) this.__reactProps$test = {onClick: () => { throw new Error('handler must not execute'); }, privateState: 'SECRET'};
+    if (config.registry_getter) Object.defineProperty(this, '_vei', {get() { throw new Error('getter must not execute'); }});
   }
   getAttribute(key) { return this.hasAttribute(key) ? this.attrs[key] : null; }
   setAttribute(key, value) { this.attrs[key] = value; }
@@ -320,10 +326,16 @@ class Element {
 }
 const window = {
   location: {href: 'http://wsaexp.nextsls.com/wos'},
-  getComputedStyle(el) { return {display: 'block', visibility: 'visible', opacity: '1', cursor: el.cursor}; }
+  getComputedStyle(el) { return {display: 'block', visibility: 'visible', opacity: '1', cursor: el.cursor, pointerEvents: 'auto', ...el.style}; }
 };
 const run = new Function('document', 'window', 'Element', 'ShadowRoot', 'return function(){' + input.script + '}')(document, window, Element, class {});
 nodes.push(...input.nodes.map(config => new Element(config)));
+input.nodes.forEach((config, index) => {
+  if (config.parent !== undefined) {
+    nodes[index].parentElement = nodes[config.parent];
+    nodes[config.parent].children.push(nodes[index]);
+  }
+});
 const first = run(80, 4000);
 if (input.replace_first) nodes[0] = new Element(input.nodes[0]);
 const second = run(80, 4000);
@@ -378,3 +390,49 @@ def test_negative_tabindex_and_hidden_widgets_do_not_become_refs():
     assert result["interactive_elements"] == []
     assert result["dom_diagnostics"][0]["selector_candidates"] == 2
     assert result["dom_diagnostics"][0]["visible_selector_candidates"] == 1
+
+
+def test_structure_probe_reports_parent_handlers_without_invoking_them():
+    result = _run_extraction_js([
+        {"tag": "div", "text": "导航容器", "vue_handler": True, "dom_handler": True},
+        {"tag": "span", "text": "发货", "cursor": "pointer", "parent": 0},
+        {"tag": "div", "text": "财务", "react_handler": True, "cursor": "pointer"},
+        {"tag": "div", "text": "工具", "registry_getter": True, "cursor": "pointer"},
+    ])["first"]
+    assert result["interactive_elements"] == []
+    probe = result["dom_diagnostics"][0]["structure_probe"]
+    target = probe["targets"][0]
+    assert probe["nodes"][target["diagnostic_node"]]["text"] == "发货"
+    parent = probe["nodes"][target["ancestors"][0]]
+    assert parent["event_hints"] == ["dom_property:onclick", "vue_invoker:onClick"]
+    assert any(node["event_hints"] == ["react_prop:onClick"] for node in probe["nodes"])
+    assert not any("error" in node for node in probe["nodes"])
+    assert "SECRET" not in json.dumps(probe)
+    assert "aid" not in json.dumps(probe)
+    assert "absence does not exclude" in probe["event_observation"]
+
+
+def test_structure_probe_explains_hidden_candidates_and_ancestor_styles():
+    result = _run_extraction_js([
+        {"tag": "div", "text": "隐藏容器", "style": {"display": "none"}},
+        {"tag": "button", "text": "隐藏按钮", "visible": False, "parent": 0},
+    ])["first"]
+    probe = result["dom_diagnostics"][0]["structure_probe"]
+    candidate = probe["selector_candidates"][0]
+    assert probe["nodes"][candidate["diagnostic_node"]]["visibility_reasons"] == ["zero_rect"]
+    assert probe["nodes"][candidate["ancestors"][0]]["visibility_reasons"] == ["display:none"]
+
+
+def test_structure_probe_prioritizes_pointer_nodes_and_marks_budgets():
+    result = _run_extraction_js([
+        *[{"tag": "span", "text": "普通文字"} for _ in range(70)],
+        *[{"tag": "div", "text": f"导航{i}", "cursor": "pointer"} for i in range(65)],
+        *[{"tag": "button", "visible": False} for _ in range(41)],
+    ])["first"]
+    probe = result["dom_diagnostics"][0]["structure_probe"]
+    assert len(probe["targets"]) == 64
+    assert probe["targets_truncated"] is True
+    assert len(probe["selector_candidates"]) == 40
+    assert probe["selector_candidates_truncated"] is True
+    assert all(probe["nodes"][target["diagnostic_node"]]["style"]["cursor"] == "pointer" for target in probe["targets"])
+    assert len(probe["nodes"]) <= 160
