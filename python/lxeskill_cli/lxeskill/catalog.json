@@ -1,6 +1,30 @@
 {
   "protocol_version": "1",
   "entries": [
+    {
+      "name": "logistics_wesa_query",
+      "module": "services.agent_cli.logistics.wesa_query",
+      "command_path": ["logistics", "wesa", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；仅严格附着，不启动或重启。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "本次快照核对的威飒公司账户全名；页面可见文本必须包含它。"},
+          "expected_warehouse": {"type": "string", "description": "原表中的目的仓代码；不作为请求过滤条件，只核对结果。"},
+          "query_mode": {"type": "string", "enum": ["all", "delivered"], "description": "默认 all；分别复现已抓取的全部/已签收完整 Payload，不混合参数。"},
+          "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "默认 1；只读取明确指定的一页，不自动遍历。"}
+        },
+        "required": ["store_id", "fba", "account_name"],
+        "additionalProperties": false
+      }
+    },
     {"name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},

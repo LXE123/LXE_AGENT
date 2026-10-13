@@ -1,0 +1,37 @@
+{
+  "success": 1,
+  "info": "操作成功!",
+  "data": {
+    "components": {
+      "gridView": {
+        "tabs": {
+          "activeTab": "all",
+          "items": [
+            {"value": "ready", "label": "已下单(0)"},
+            {"value": "picked", "label": "已收货(0)"},
+            {"value": "in_transit", "label": "转运中(0)"},
+            {"value": "delivered", "label": "已签收(1)"},
+            {"value": "returned", "label": "退件(0)"},
+            {"value": "cancelled", "label": "已取消(0)"},
+            {"value": "all", "label": "全部 (1)"}
+          ]
+        },
+        "table": {
+          "dataSource": [
+            {
+              "shipment_id": "<span  class=\"primary btn-slidepanel-open\" >WS10026638</span><br/><span style=\"color: #777777;\">FBA19PWM5L6T</span><br/><i class=\"fa fa-paperclip\" style=\"color: red;\"></i>",
+              "shipment_number": "WS10026638",
+              "service": "空运-美国带电包税",
+              "to_warehouse_code": "PSP3",
+              "parcel_count": "<strong><font style=\"color:green\">1/1</font></strong>",
+              "outer_carrier": "UPS<br/><span style=\"color: #0a6aa1\">1ZK1013D0321365378</span>"
+            }
+          ],
+          "pagination": {"page": 1, "pageSize": 30, "total": 1}
+        }
+      }
+    }
+  },
+  "errorCode": "",
+  "errors": []
+}

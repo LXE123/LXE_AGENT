@@ -1,11 +1,11 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12；最新续档：2026-10-13。
-- 状态：威飒单票的真实 POST 查询及响应解析已由用户在已登录的紫鸟页面 Console 中验证；`FBA19PWM5L6T` 唯一对应 `WS10026638`、`PSP3`、UPS `1ZK1013D0321365378`。最新交接以第 16 节为准；第 6—15 节中的执行状态和待办保留各轮当时的含义，不是当前启动指令。
+- 状态：威飒单票的真实 POST 查询及响应解析已由用户在已登录的紫鸟页面 Console 中验证；`FBA19PWM5L6T` 唯一对应 `WS10026638`、`PSP3`、UPS `1ZK1013D0321365378`。现已实现受控查询命令，实页执行待验收。最新交接以第 17 节为准；第 6—16 节中的执行状态和待办保留各轮当时的含义，不是当前启动指令。
 - 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析，复用原浏览器有效登录态；自动化接入仍必须走官方配对 Selenium，不维护逐物流商固定 ref 点击模板。Amazon 专用适配器、业务判断和依赖的通用浏览器能力保留。
-- 下一轮入口：先将已验证的威飒单票查询接入 LXE_Agent 真实执行链并回读，再验证真实在途样本和小范围复用。目前尚无物流 API CLI，不能把 Console 验证写成自动化接入已完成。UPS 已显示 Delivered，但签收日期、时间和 ETA 未核实；这票不生成改期建议。不得修改 Amazon、物流订单或原始表格。
+- 下一轮入口：在加载当前分支代码的 LXE_Agent 真实会话中，核对运行店铺、唯一威飒页面和当前账户后，执行 `lxeskill logistics wesa query` 并独立重查。命令实现及 fixture 测试不等于实页接入验收。UPS 已显示 Delivered，但签收日期、时间和 ETA 未核实；这票不生成改期建议。不得修改 Amazon、物流订单或原始表格。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
-- 代码基线仍为：`25efb1c2 fix: recognize DOM onclick handlers in browser snapshots`；129 项定向测试是此前代码验证结果。本次归档前 HEAD 为 `4fa197e3`，本次仅更新文档，不重跑代码测试、不合并或释放 worktree。
+- 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
 ## 1 业务范围和已确认结论
 
@@ -161,7 +161,7 @@ uv run --frozen lxeskill browser store --action get_status
 
 可将下面内容作为下一轮提示词：
 
-> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以第 16 节为最新交接。当前方向是物流接口取数，不重做固定 ref 点击流程。威飒真实接口为 `POST http://wsaexp.nextsls.com/rest/tms/wos/shipment/lists`，Content-Type 为 `application/json;charset=utf-8`；第 16 节保留两份真实请求参数和响应解析路径。用户已在已登录的原紫鸟页面 Console 中成功查询、精确匹配并解析 `FBA19PWM5L6T` → `WS10026638`、`PSP3`、UPS `1ZK1013D0321365378`，但当前尚无物流 API CLI，也没有 LXE_Agent 自动调用的实测。下一轮先做受控单票接入：在 LXE_Agent 真实会话复用指定运行店铺和已登录威飒账户，通过官方配对 Selenium 执行同源查询，限定已验证的域名、方法和路径，不开放任意脚本或任意请求；独立重读并保留原始错误。复现“全部”点击时必须使用已抓到的 `activeTab: "all"`、`init: 1` 等完整请求，不能仅修改 `isActiveTab`；返回页签不单独充当查询成功或筛选生效的证明。然后使用一票已知在途货件验证，未提供时只暂停这项验收。不要默认扩展到其他物流商，飞沃、天泰只在各自真实接口核实后评估复用。不要删除 Amazon 专用适配器、业务判断或共用浏览器能力；当前没有独立物流点击模板可删。UPS 已显示 Delivered，但实际签收日期和时间仍未核实；此前 `aid-72` 误点聊天输入框的 ref 身份问题未修复，不用旧 ref 继续点击，也不凭 frame 顺序变化归因。保留当前分支 `codex/fba-delivery-window` 和 worktree，不合并或释放。禁止物流下单、修改订单或 Amazon、改写原表、自动启动或重启店铺、导出 Cookie/token、复制或伪造会话、读取 Bun agent DB 或刷新马帮认证。现有威飒页面命令显式带 `--strict-attach --target-host wsaexp.nextsls.com`；新一轮先核对真实运行状态和实际标签页，域名匹配零个或多个时停止，不改用默认首标签页。`browser_snapshot` 可带 `--full`，`browser_vision` 不可带 `--full`。
+> 阅读本文件，以第 17 节为最新交接，第 16 节保留真实请求契约。`lxeskill logistics wesa query` 已实现，但尚未完成 LXE_Agent 实页验收。先核对加载当前分支的真实执行会话、指定店铺状态、唯一威飒标签页和当前公司账户，再按第 17 节命令查询历史票并独立重复。用户提供的最新真实响应已显示 `tabs.activeTab="all"`，但在途货件覆盖仍未通过；没有在途样本时只暂停这一项。保留当前分支和 worktree，不合并或释放，不启动/重启/退出店铺，不导出认证材料、不复制会话、不读 Bun agent DB，也不修改物流订单、原表或 Amazon。UPS 签收时间和 ref 身份问题仍是独立待办。页面快照显式使用 `--strict-attach --target-host wsaexp.nextsls.com`；域名匹配零个或多个时停止。截图不带 `--full`。账号密码配置及自动登录尚未实现。
 
 旧的 [20261007 方案](20261007-fba-delivery-window.md) 保留为历史背景；其中多国家范围和 SP-API 阶段设计不是本期任务。20261009 的“上游物流链路被省略”描述的是当时只接收目标日期的执行范围，不否定本轮新增的查询后建议模式。
 
@@ -333,7 +333,7 @@ lxeskill browser page --action browser_vision --store-id 'VycOXC1cvUBC/rBIOnYXUg
 
 此次归档只修改本交接文档，代码及 `catalog.json` 不变；129 项定向测试是此前代码验证结果，本轮不重复运行。未运行合并前全量验证、未合并 `main`，保留当前任务分支和 worktree。
 
-## 16 最新归档：确定物流接口取数方向（2026-10-13）
+## 16 历史归档：确定物流接口取数方向（2026-10-13）
 
 本节记录 2026-10-12 至 2026-10-13 的续测。页面命令由用户在 LXE_Agent 真实会话执行并回传；接口请求由用户在原紫鸟已登录威飒页面的开发者工具 Console 手动执行。Codex 读取用户提供的响应文本，并核对用户回传的执行结果；没有在当前终端冒用 LXE 会话执行页面命令。本轮没有新的运行状态、browser_id 或精确查询时刻证据，不沿用旧值冒充实时结果。
 
@@ -465,3 +465,46 @@ Content-Type: application/json;charset=utf-8
 UPS 实际签收时间核验及 ref 身份问题作为独立待办保留，不与物流接口已通过的单票混为一谈。该票已签收，不能据此生成改期建议；Amazon 真实写入仍需具体项目批准、执行前复核和逐票回读。本次归档不授权任何物流或 Amazon 业务写入。
 
 本次仅更新交接文档，未新增接口命令、修改 `catalog.json`、删除模板、修改 Amazon 或通用浏览器代码，也未修改原表。129 项定向测试属于此前代码基线，本次不重复运行；不执行合并前全量验证、不合并 `main`、不释放 worktree。
+
+## 17 最新交接：威飒受控查询命令已实现，待实页验收（2026-10-13）
+
+用户明确要求先实现查询命令，并提供完整成功响应。本次新证据包含 `gridView.tabs.activeTab="all"`、唯一目标行和 `pagination={page:1,pageSize:30,total:1}`；这补齐了此前未回传的页签读数，仍不证明在途覆盖。
+
+新增命令和对应技能：
+
+- `lxeskill logistics wesa query`，实现为 `services.agent_cli.logistics.wesa_query`。
+- `skills/fba-logistics-query/SKILL.md`，沿用 `ziniao_browser` 权限类型。
+- `tests/browser/fixtures/wesa_shipment_list.json` 是用户本轮真实响应的最小投影，保留原始业务 HTML、成功/错误字段、分页和页签；旁边的 `.md` 说明省略了哪些无关字段。没有伪造在途 fixture。
+
+命令只在 LXE 会话运行。内部强制 `strict_attach=True` 和唯一域名定位，通过现有官方配对 Selenium，在固定 HTTP origin 内 POST 固定列表路径。保留第 16 节两份独立 Payload；默认 `all`，可用 `--query-mode delivered`。没有开放任意 URL、脚本、方法、认证头或 Cookie 输入；通用 DOM 脚本限制、Amazon 和浏览器代码保持不变。
+
+只读取明确的一页（默认第 1 页，可显式 `--page N`），不自动扫描。返回 HTTP/业务状态、完整 FBA 精确匹配、全部匹配行及转单号、目的仓核对、原文、UTC 查询时刻、页签和分页。零结果、部分页、缺字段、多匹配和目的仓冲突分别报告。响应上限 2 MiB、最多投影 100 行，单业务字段上限 8000 字符；截断有显式标记，业务字段截断时失败，不用不完整标识匹配。
+
+`--account-name` 必填，必须由本轮页面核对取得。适配器确认这个完整名称存在于可见页面文本；`account_visible=true` 只代表文本命中，不是权威登录身份或长期账户归属证明，仍须先核对真实快照。
+
+认证与异常保持真实：不导出浏览器 Cookie/token、不持久化登录状态；失败返回脱敏后的实际 provider/JSON/网络/Selenium 错误，保留已有异常的 cause，诊断显式截断。`auth_refresh_required=false` 防止 CLI 提示错误的马帮认证恢复。没有自动登录、自动重试、账号切换或店铺生命周期操作。
+
+### 真实会话测试
+
+须使用加载本轮代码的 LXE_Agent。在同一真实执行会话中先运行状态与快照：
+
+```text
+lxeskill browser store --action get_status
+lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host wsaexp.nextsls.com --full
+```
+
+只有店铺运行、唯一页面正确、当前账户确认仍为“深圳市新棱镜贸易有限公司”时，执行：
+
+```text
+lxeskill logistics wesa query --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --account-name '深圳市新棱镜贸易有限公司' --fba FBA19PWM5L6T --expected-warehouse PSP3
+```
+
+验收 `ok=true`、`request_succeeded=true`、`found=true`、`matched_count=1`、`complete=true`，以及 `matches` 中运单 `WS10026638`、仓库 `PSP3`、承运人 UPS、转单号 `1ZK1013D0321365378`。缺项和 warnings 原样报告，不能只看退出码。之后独立调用一次相同命令，比较身份、业务字段和新查询时间。失败时停止并返回完整脱敏结果，不伪造会话，不用旧 ref 补点。
+
+已完成本地验证（均从仓库根）：
+
+- 第一轮：`uv run --frozen pytest python/lxeskill_cli/tests/browser/test_wesa_query.py python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra`，529 passed、4 skipped；随后只针对新增异常/脱敏检查与相关契约做回归。
+- 最终定向回归：上述威飒测试、`test_lxeskill_cli.py` 和 `test_command_contracts.py`，205 passed，其中威飒 47 项。测试包括以 Bun 执行实际 adapter JS，fetch 使用本地 mock 和用户真实响应 fixture，不访问生产网站。
+- Bun 命令及技能定向测试：26 passed；`lxeskill doctor` 返回 `ok=true`（49 commands、43 business commands、39 skill files）；新命令 `--help` 正常。
+
+当前 Codex 终端本轮检查仍为 `LXE_AGENT_SESSION_ID absent`。没有实页请求或实时店铺状态证据，不能将本地验证写成实页通过。后续缺一票用户明确提供的在途威飒 FBA 及目的仓；没有时只暂停在途验收。账号密码配置与自动登录留待后续，不需要用户把密码发送到聊天。本轮不执行合并前全量测试、不合并或释放 worktree。
