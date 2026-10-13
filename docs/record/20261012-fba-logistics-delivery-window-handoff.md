@@ -1,10 +1,11 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
-- 日期：2026-10-12。
-- 状态：威飒单票查询、精确货件匹配、转单号提取及最终独立回读已通过；`FBA19PWM5L6T` 对应 `PSP3`、UPS `1ZK1013D0321365378`，威飒显示已签收。最新交接以第 15 节为准；第 10—14 节保留历史排查和当时的待办，不代表当前仍未完成查询。
-- 下一轮入口：威飒首轮单票已收尾，不重复从零排查元素。用户明确继续第二阶段后，可对上述 UPS 转单号做尾程只读核验；这票已签收，不能直接生成改期建议。此前跳回首页及页签变化的原因仍未确定。不得修改 Amazon、物流订单或原始表格。
+- 日期：2026-10-12；最新续档：2026-10-13。
+- 状态：威飒单票的真实 POST 查询及响应解析已由用户在已登录的紫鸟页面 Console 中验证；`FBA19PWM5L6T` 唯一对应 `WS10026638`、`PSP3`、UPS `1ZK1013D0321365378`。最新交接以第 16 节为准；第 6—15 节中的执行状态和待办保留各轮当时的含义，不是当前启动指令。
+- 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析，复用原浏览器有效登录态；自动化接入仍必须走官方配对 Selenium，不维护逐物流商固定 ref 点击模板。Amazon 专用适配器、业务判断和依赖的通用浏览器能力保留。
+- 下一轮入口：先将已验证的威飒单票查询接入 LXE_Agent 真实执行链并回读，再验证真实在途样本和小范围复用。目前尚无物流 API CLI，不能把 Console 验证写成自动化接入已完成。UPS 已显示 Delivered，但签收日期、时间和 ETA 未核实；这票不生成改期建议。不得修改 Amazon、物流订单或原始表格。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
-- 本轮代码基线：`25efb1c2 fix: recognize DOM onclick handlers in browser snapshots`；129 项定向测试通过，未合并到 `main`。
+- 代码基线仍为：`25efb1c2 fix: recognize DOM onclick handlers in browser snapshots`；129 项定向测试是此前代码验证结果。本次归档前 HEAD 为 `4fa197e3`，本次仅更新文档，不重跑代码测试、不合并或释放 worktree。
 
 ## 1 业务范围和已确认结论
 
@@ -160,7 +161,7 @@ uv run --frozen lxeskill browser store --action get_status
 
 可将下面内容作为下一轮提示词：
 
-> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以第 15 节为最新交接。威飒单票查询已经完成：当前账户“深圳市新棱镜贸易有限公司”精确查到 `FBA19PWM5L6T`，威飒运单 `WS10026638`，目的仓 `PSP3`，尾程 UPS，转单号 `1ZK1013D0321365378`，状态已签收；截图与最终独立文本回读一致。不要重复 DOM onclick 修复或将历史 aid 当成当前 ref。当前阶段已收尾；若用户要求继续尾程核验，只读查询该 UPS 单号，区分物流商已签收、尾程实际签收时间和预计送达时间，不直接生成或执行改期建议。若用户要求排查稳定性，优先记录实际店铺、标签页身份及动作前后 URL，再定位此前跳回首页和页签变化，不能凭推测归因。真实页面操作仍须在 LXE_Agent 实际会话中走官方配对 Selenium 链路；威飒页面命令带 `--strict-attach --target-host wsaexp.nextsls.com`，新一轮重新核对状态与页面。`browser_snapshot` 可带 `--full`，`browser_vision` 不可带 `--full`。禁止物流下单、修改物流资料、写入 Amazon、改写原表、自动启动或重启、复制或伪造会话、读取 Bun agent DB 或刷新马帮认证。
+> 阅读 `docs/record/20261012-fba-logistics-delivery-window-handoff.md`，以第 16 节为最新交接。当前方向是物流接口取数，不重做固定 ref 点击流程。威飒真实接口为 `POST http://wsaexp.nextsls.com/rest/tms/wos/shipment/lists`，Content-Type 为 `application/json;charset=utf-8`；第 16 节保留两份真实请求参数和响应解析路径。用户已在已登录的原紫鸟页面 Console 中成功查询、精确匹配并解析 `FBA19PWM5L6T` → `WS10026638`、`PSP3`、UPS `1ZK1013D0321365378`，但当前尚无物流 API CLI，也没有 LXE_Agent 自动调用的实测。下一轮先做受控单票接入：在 LXE_Agent 真实会话复用指定运行店铺和已登录威飒账户，通过官方配对 Selenium 执行同源查询，限定已验证的域名、方法和路径，不开放任意脚本或任意请求；独立重读并保留原始错误。复现“全部”点击时必须使用已抓到的 `activeTab: "all"`、`init: 1` 等完整请求，不能仅修改 `isActiveTab`；返回页签不单独充当查询成功或筛选生效的证明。然后使用一票已知在途货件验证，未提供时只暂停这项验收。不要默认扩展到其他物流商，飞沃、天泰只在各自真实接口核实后评估复用。不要删除 Amazon 专用适配器、业务判断或共用浏览器能力；当前没有独立物流点击模板可删。UPS 已显示 Delivered，但实际签收日期和时间仍未核实；此前 `aid-72` 误点聊天输入框的 ref 身份问题未修复，不用旧 ref 继续点击，也不凭 frame 顺序变化归因。保留当前分支 `codex/fba-delivery-window` 和 worktree，不合并或释放。禁止物流下单、修改订单或 Amazon、改写原表、自动启动或重启店铺、导出 Cookie/token、复制或伪造会话、读取 Bun agent DB 或刷新马帮认证。现有威飒页面命令显式带 `--strict-attach --target-host wsaexp.nextsls.com`；新一轮先核对真实运行状态和实际标签页，域名匹配零个或多个时停止，不改用默认首标签页。`browser_snapshot` 可带 `--full`，`browser_vision` 不可带 `--full`。
 
 旧的 [20261007 方案](20261007-fba-delivery-window.md) 保留为历史背景；其中多国家范围和 SP-API 阶段设计不是本期任务。20261009 的“上游物流链路被省略”描述的是当时只接收目标日期的执行范围，不否定本轮新增的查询后建议模式。
 
@@ -265,7 +266,7 @@ lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYX
 
 本轮代码验证已完成：129 项定向测试通过。此次归档只更新交接文档，不重复运行代码未变化的测试；未运行合并前全量验证。下一轮先完成威飒单票，不扩展批量、其他物流商、尾程 ETA 或 Amazon 改期。
 
-## 15 最新归档：威飒单票查询与转单提取通过
+## 15 历史归档：威飒单票查询与转单提取通过（2026-10-12）
 
 测试日期：2026-10-12。本轮浏览器命令由用户在 LXE_Agent 真实执行会话中运行并回传结果；Codex 读取本机生成的两张截图，与最终文本回读交叉核对。当前 Codex 终端仍不能直接执行页面命令：状态检查实际返回 `session_required` / `browser store requires an LXE session`，没有绕过会话限制。
 
@@ -331,3 +332,136 @@ lxeskill browser page --action browser_vision --store-id 'VycOXC1cvUBC/rBIOnYXUg
 威飒首轮单票阶段已收尾。本轮未查询 UPS、未取得尾程实际签收日期或 ETA、未修改物流订单或 Amazon、未改写原始表格，未启动、重启或退出店铺。下一轮按用户要求选择尾程只读核验或浏览器稳定性排查；这票威飒状态已签收，不直接生成改期建议，不扩展批量或其他物流商。所有实际页面命令继续走 LXE_Agent 真实会话及官方配对 Selenium 链路，禁止复制或伪造会话。
 
 此次归档只修改本交接文档，代码及 `catalog.json` 不变；129 项定向测试是此前代码验证结果，本轮不重复运行。未运行合并前全量验证、未合并 `main`，保留当前任务分支和 worktree。
+
+## 16 最新归档：确定物流接口取数方向（2026-10-13）
+
+本节记录 2026-10-12 至 2026-10-13 的续测。页面命令由用户在 LXE_Agent 真实会话执行并回传；接口请求由用户在原紫鸟已登录威飒页面的开发者工具 Console 手动执行。Codex 读取用户提供的响应文本，并核对用户回传的执行结果；没有在当前终端冒用 LXE 会话执行页面命令。本轮没有新的运行状态、browser_id 或精确查询时刻证据，不沿用旧值冒充实时结果。
+
+### 已确定的方向与保留边界
+
+- 物流取数优先使用已确认的查询接口，解析返回的业务数据；按后台平台评估共享适配，按物流公司和账户分别配置，不建设 11 套固定页面点击模板。
+- 自动化继续复用原紫鸟运行环境及有效登录态，通过官方配对的 `SeleniumRunner` 和 chromedriver 接入。Console 的手动验证不等于现有 CLI 已支持网络查询。
+- 本轮成功脚本使用 `credentials: "same-origin"`，没有手动填写或导出 Cookie/token。现有浏览器上下文足以完成这次认证，不代表接口无认证，也没有证明独立 Python/curl 请求可用。登录过期、退出或需要重新验证时，仍需用户处理；不能承诺首次登录后永久免登录。
+- Amazon 的页面适配器、业务门槛、授权和逐票提交回读继续保留，不把物流查询改造扩展成 Amazon 接口直写。原有 `orderStatus="已发货"` 门槛未取消。
+- 仓库与当前运行时工作区未发现独立威飒/UPS 点击模板，未删除任何文件。此前修改的是共用快照、frame 和 DOM 探针；Amazon 也依赖这套代码，不能当物流模板删除。
+
+### 威飒真实请求契约
+
+目标仍为店铺 `VycOXC1cvUBC/rBIOnYXUg==`，名称 `Amazon-Yunjian-US 深圳市久艺电子商务有限公司`。此前威飒显示账户为“深圳市新棱镜贸易有限公司”，本票可查不等于所有货件的长期账户映射已经确认。
+
+用户从成功请求中提供：
+
+```http
+POST http://wsaexp.nextsls.com/rest/tms/wos/shipment/lists
+Content-Type: application/json;charset=utf-8
+```
+
+最初“已签收”查询的完整 Payload：
+
+```json
+{
+  "timeLimit": 0,
+  "page": 1,
+  "pageSize": 30,
+  "keywords": "FBA19PWM5L6T",
+  "isActiveTab": "delivered",
+  "service": "",
+  "btnType": "",
+  "config": "",
+  "country": "",
+  "created_daterange": "",
+  "def_fields": "",
+  "delivered_daterange": "",
+  "depot_id": "",
+  "name": "",
+  "picking_daterange": "",
+  "pickup_depot_id": "",
+  "postcode": "",
+  "restart": 0,
+  "scenes": 0,
+  "store_id": "",
+  "to_warehouse_code": ""
+}
+```
+
+用户随后点击页面“全部”，抓到同一 URL 的完整 Payload：
+
+```json
+{
+  "timeLimit": 0,
+  "page": 1,
+  "activeTab": "all",
+  "keywords": "FBA19PWM5L6T",
+  "isActiveTab": "delivered",
+  "init": 1,
+  "scenes": 0
+}
+```
+
+这是两份分别观察到的请求，不随意合并、精简或替换参数。请求里的 `store_id` 是物流系统字段，不能填入紫鸟店铺 ID。响应虽然回读 `pageSize: 30`，第二份请求没有显式发送该字段。
+
+历史试验只把第一份请求的 `isActiveTab` 改成 `all`：HTTP 200、`success=1`、唯一命中目标，但 `returnedActiveTab="delivered"`。因此 `allTabConfirmed=false`；这只证明回读页签没有保持 all，不能单独判定查询失败。真正页面“全部”请求还包含 `activeTab` 和 `init`，其参数含义不能由字段名称猜测。后续最终解析脚本使用第二份真实 Payload 并成功返回本票，但没有回传选中页签，也没有在途样本；不能宣布跨状态查询已验收。
+
+### 业务数据定位、解析及真实结果
+
+用户提供的完整响应为 JSON，同时含页面组件配置和业务行。提取位置：
+
+```text
+业务行：data.components.gridView.table.dataSource
+分页：  data.components.gridView.table.pagination
+页签：  data.components.gridView.tabs
+```
+
+| 来源字段 | 解析规则 |
+| --- | --- |
+| `shipment_number` | 直接读取威飒运单号 |
+| `shipment_id` | HTML 转纯文本后提取完整 FBA，并对输入 FBA 做精确匹配；不只取第一条，不盲目截掉箱级后缀 |
+| `to_warehouse_code` | 直接读取目的仓，与输入核对 |
+| `outer_carrier` | 本次原文为 `UPS<br/><span ...>1ZK1013D0321365378</span>`；转换换行和纯文本后解析承运人及转单号，保留原文；不根据号码格式猜承运人 |
+| `parcel_count` | HTML 转纯文本，保留 `1/1`；不据此证明所有包裹/历史转单均已核实 |
+| `created` | 列配置明确是下单时间，不当作 ETA 或签收时间 |
+
+手动脚本使用未挂载到当前页面的 `template` 解析 HTML 字段，将 `<br>` 转换为换行再读取 `textContent`；没有执行响应 HTML 或将它写入业务页面。这是当前威飒响应形状的解析验证，不是所有物流平台的通用契约。
+
+用户最后回传：`httpStatus=200`、`success=1`、`info="操作成功!"`、`errorCode=""`、`errors=[]`、`requestSucceeded=true`、`listPresent=true`、`found=true`、`matchedCount=1`、`total=1`。业务字段如下：
+
+```json
+{
+  "fbaNumbers": ["FBA19PWM5L6T"],
+  "shipmentNumber": "WS10026638",
+  "warehouse": "PSP3",
+  "carrier": "UPS",
+  "trackingNumbers": ["1ZK1013D0321365378"],
+  "parcelCount": "1/1",
+  "carrierSourceText": "UPS\n1ZK1013D0321365378"
+}
+```
+
+这证明原登录浏览器内“真实 POST 查询 → 精确匹配 → 字段解析”对该单票通过，并与第 15 节页面证据一致。Promise 的 fulfilled 状态本身不作为成功依据；验收看 HTTP、业务响应、列表形状、精确匹配及实际字段。不能将这个样本扩展为全部在途货件、所有账号、其他平台或所有包裹已通过。
+
+响应还提供 `/tms/wos/shipment/view`（运单详情）和 `/tms/wos/csos/shipment/show_traces`（物流轨迹）的页面入口配置。它们不是已验证的 REST 查询契约，方法、参数和完整接口地址尚未确认；不得直接猜 REST 前缀或调用列表配置里的刷新、下单、打印等其他动作。
+
+### UPS 核验与 ref 误点：未完成项
+
+用户回传 UPS 页面 URL 为 `https://www.ups.com/track?loc=en_US&tracknum=1ZK1013D0321365378&requester=ST/trackdetails`，标题 `Tracking | UPS - United States`。页面结果为 `Delivered`、`Delivered To DESERT HOT SPRINGS, CA US`、`Received By HERNANDEZ`、`UPS Ground`、`Shipment Category: Package`。这些是用户在 LXE_Agent 会话中的回传，签收日期、具体时间、时区和 ETA 仍未取得。Codex 终端此前访问官方网页/接口收到 Access Denied，不将其解释为无物流结果；本轮没有使用第三方聚合查询。
+
+第一次按 `--target-host www.ups.com` 附着时没有匹配标签页，批次未执行任何动作。随后精确附着原威飒标签页并导航至 UPS，查询成功，原威飒标签页被替换，另一个 Amazon 标签页未受影响。用户之后在威飒登录页面完成接口验证；新一轮仍需实时确认现有标签页，不能假定它一直留在 UPS 或威飒。
+
+用户随后按旧 `aid-72` 执行点击，工具返回成功，但实际命中 UPS 聊天输入框，Show Details 没有展开。新快照中 Show Details 为 `aid-19`，不把这个新编号固化成下一轮命令。
+
+代码只读核对发现：普通 `aid-*` 为顶层 ref；子 frame 的完整 ref 包含 frame 路径和 document 身份。当前 `_validate_ref` 检查编号是否存在，不核对它是否仍为预期的 button/文本；批量 `--steps` 也不会把一个固定编号自动绑定为业务按钮。同一批次和重新取快照都不能据此承诺绝不误点。frame 顺序变化不足以解释本次顶层编号复用，根因未定位。本轮未修复代码，不能宣称 Amazon 已受到实际影响或天然不受影响。
+
+通用页面命令与 Amazon 复用 `WorkflowBrowserSession`、快照和 `execute_browser_action` 等底层函数；该类虽位于 `amazon_fba_common.py`，本身是动作封装。显式传入 ref 的点击不是按 Amazon 业务语义重新定位。Amazon 专用页面识别位于 `seller_central_adapters.py` 等适配器中，业务判断在原有流程中。本轮没有删除或更改这些代码。
+
+### 下一轮测试顺序与验收
+
+1. 保留本 worktree `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 与分支 `codex/fba-delivery-window`。先检查工作区、LXE_Agent 真实会话及指定店铺运行状态；只复用，不启动、重启或退出店铺。当前 Codex 终端没有可用会话的历史事实不能冒充新一轮状态，也不能通过复制会话或读取 Bun DB 绕过。
+2. 核对唯一威飒标签页、当前登录账户。只确认登录态是否足够完成本次查询，不导出认证数据或创建影子登录状态。登录失效时保留实际 HTTP/响应/异常并让用户完成验证；HTTP 200 也可能是非预期页面，必须核对 JSON 结构及业务结果。
+3. 先将已验证请求接入受控的 LXE_Agent 单票执行链：通过官方配对 Selenium 在原站点上下文中查询，限制域名 `wsaexp.nextsls.com`、方法 POST、路径 `/rest/tms/wos/shipment/lists`，接受明确 FBA 输入，复现已抓到的 Payload。具体 CLI 名称尚未实现，不写伪命令。现有 `browser page` schema 没有网络请求动作，也未开放任意脚本；现有内部 DOM 脚本校验阻止 fetch，不能当作已有 API 入口或直接解除通用限制。
+4. 同一历史样本首先验收 HTTP/业务成功、真实列表结构、完整 FBA 精确匹配、目的仓和承运人/转单号，并做独立重复调用。记录来源、查询时间、账户和分页；分别报告连接、登录、数据找到、匹配、缺项及异常，不只看退出码或 Promise 状态。未找到与请求失败分开，多条结果、多个号码、跨页和截断显式报告。
+5. 使用用户明确提供的一票已知在途威飒货件验证“全部”查询，保留原始请求及响应；如无样本，只暂停该项，不宣布在途能力通过，也不为凑样本扩大扫描范围。之后再测用户指定的小批量和多包裹。
+6. 飞沃、天泰虽同属 nextsls 域名体系，尚未验证接口相同。分别取得各平台/账户真实请求证据后再决定共享平台适配；公司账户独立配置。天美通继续走本次消息文本/截图提取，其他国家不扩入本期。
+
+UPS 实际签收时间核验及 ref 身份问题作为独立待办保留，不与物流接口已通过的单票混为一谈。该票已签收，不能据此生成改期建议；Amazon 真实写入仍需具体项目批准、执行前复核和逐票回读。本次归档不授权任何物流或 Amazon 业务写入。
+
+本次仅更新交接文档，未新增接口命令、修改 `catalog.json`、删除模板、修改 Amazon 或通用浏览器代码，也未修改原表。129 项定向测试属于此前代码基线，本次不重复运行；不执行合并前全量验证、不合并 `main`、不释放 worktree。
