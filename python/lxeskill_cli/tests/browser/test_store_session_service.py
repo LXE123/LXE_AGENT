@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import pytest
+
 from shared.db.shared_state_dto import ZiniaoStoreSessionState
 from services.browser.store.store_session_service import StoreSessionService
 
@@ -203,6 +205,20 @@ def test_ensure_store_session_falls_back_to_start_when_running_info_is_incomplet
 
     assert ("start_browser", OPAQUE_STORE_ID) in browser.calls
     assert record.debugging_port == 9300
+
+
+def test_ensure_store_session_reuse_only_stops_when_running_info_is_incomplete() -> None:
+    session_map = FakeStoreSessionMap()
+    browser = FakeBrowserClient(
+        browser_list=[_catalog_entry()],
+        running_info=[{"browserOauth": OPAQUE_STORE_ID}],
+    )
+    service = StoreSessionService(session_map=session_map, browser_client=browser)
+
+    with pytest.raises(RuntimeError, match="严格附着已停止"):
+        service.ensure_store_session(OPAQUE_STORE_ID, start_if_missing=False)
+
+    assert ("start_browser", OPAQUE_STORE_ID) not in browser.calls
 
 
 def test_list_store_status_still_matches_running_store_by_numeric_browser_id() -> None:

@@ -10,7 +10,7 @@ from shared.repository import state_root
 
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_trace import trace_event
-from services.browser.tools.driver_session import attached_driver, select_first_normal_tab
+from services.browser.tools.driver_session import attached_driver, select_first_normal_tab, select_unique_host_tab
 
 
 def _store_lock_path(store_id: str) -> Path:
@@ -39,28 +39,40 @@ def store_driver_session(
     store_id: str,
     *,
     lock_timeout_seconds: float = 180.0,
+    strict_attach: bool = False,
+    target_host: str = "",
 ) -> Iterator[tuple[Any, Any]]:
     """Attach a Selenium driver to the store browser, holding the store lock.
 
     Yields ``(store_session, driver)``. When attaching to a supposedly running
-    browser fails, the store browser is restarted once before giving up.
+    browser fails, the store browser is restarted once before giving up unless
+    ``strict_attach`` requires reuse-only, fail-fast behavior. ``target_host``
+    selects exactly one matching tab instead of the first normal page.
     """
     safe_store_id = str(store_id or "").strip()
     if not safe_store_id:
         raise RuntimeError("store_driver_session requires store_id")
     with store_lock(safe_store_id, timeout_seconds=lock_timeout_seconds):
         service = StoreSessionService()
-        store_session = service.ensure_store_session(safe_store_id)
+        if strict_attach:
+            store_session = service.ensure_store_session(safe_store_id, start_if_missing=False)
+        else:
+            store_session = service.ensure_store_session(safe_store_id)
         try:
             driver_context = _attach(store_session)
             driver = driver_context.__enter__()
         except RuntimeError:
+            if strict_attach:
+                raise
             trace_event("store_driver.restart", store_id=safe_store_id)
             store_session = service.ensure_store_session(safe_store_id, force_restart=True)
             driver_context = _attach(store_session)
             driver = driver_context.__enter__()
         try:
-            select_first_normal_tab(driver)
+            if target_host:
+                select_unique_host_tab(driver, target_host)
+            else:
+                select_first_normal_tab(driver)
             yield store_session, driver
         finally:
             driver_context.__exit__(None, None, None)

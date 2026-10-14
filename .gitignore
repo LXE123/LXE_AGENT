@@ -82,3 +82,4 @@ Thumbs.db
 
 # Per-workspace agent output (standalone CLI defaults to cwd).
 /.lxeagent/
+python/lxeskill_cli/tests/amazon/fixtures/delivery_window_modal.html

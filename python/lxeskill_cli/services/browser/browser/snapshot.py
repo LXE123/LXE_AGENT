@@ -7,6 +7,10 @@ from selenium.webdriver.remote.webdriver import WebDriver
 
 from services.browser.browser.seller_central_adapters import SELLER_CENTRAL_EXTRACTION_JS
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
+from services.browser.browser.dom_probe import DOM_PROBE_JS
+from services.browser.browser.frames import (
+    diagnostic_url, enter_ref_frame, frame_document_id, frame_error, frame_ref, list_frames, parse_frame_ref,
+)
 
 
 def _safe_text(value: Any, limit: int = 400) -> str:
@@ -81,7 +85,7 @@ def _combined_interactive_elements(
     for key in ("sendtoamazon_controls", "interactive_elements"):
         for raw_item in list(snapshot.get(key) or []):
             item = dict(raw_item or {})
-            aid = _safe_text(item.get("aid"), 64)
+            aid = _safe_text(item.get("aid"), 120)
             if not aid or aid in seen_aids:
                 continue
             if key == "sendtoamazon_controls" and not _safe_text(item.get("region"), 24):
@@ -103,7 +107,7 @@ def _ordered_indexed_elements(
     safe_limit = max(1, int(element_limit or 80))
     for item in _combined_interactive_elements(snapshot, element_limit=safe_limit):
         element = dict(item or {})
-        aid = _safe_text(element.get("aid"), 64)
+        aid = _safe_text(element.get("aid"), 120)
         if not aid:
             continue
         grouped[_normalized_region(element.get("region"))].append(element)
@@ -162,6 +166,7 @@ def _format_element_line(index: int, item: dict[str, Any]) -> str:
 def _execute_page_snapshot(driver: WebDriver, *, element_limit: int, text_limit: int) -> dict[str, Any]:
     script = f"""
 {SHADOW_DOM_HELPERS_JS}
+{DOM_PROBE_JS}
 const limit = arguments[0];
 const textLimit = arguments[1];
 
@@ -203,7 +208,10 @@ function findAid(el) {{
 function ensureAid(el) {{
   const existing = findAid(el);
   if (existing) return existing;
-  const aid = `aid-${{index++}}`;
+  let aid;
+  do {{ aid = `aid-${{index++}}`; }} while (usedAids.has(aid));
+  usedAids.add(aid);
+  document.__lxeAidCounter = index;
   el.setAttribute('data-aid', aid);
   return aid;
 }}
@@ -234,11 +242,31 @@ function regionOf(el) {{
 const seen = new Set();
 const interactive = [];
 const collectLimit = Math.max(limit * 3, limit);
-let index = 0;
-for (const el of deepQuerySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]')) {{
+let index = Number(document.__lxeAidCounter || 0);
+const usedAids = new Set(deepQuerySelectorAll('[data-aid]').map(el => el.getAttribute('data-aid')));
+const nativeSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [data-testid]';
+const widgetSelector = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="option"]';
+const selectorCandidates = deepQuerySelectorAll(nativeSelector + ', ' + widgetSelector + ', [onclick], [tabindex]');
+// A JS-assigned onclick function is not an HTML [onclick] attribute.
+// Inspect every document/shadow-root element, not only CSS candidates or pointer-styled nodes.
+const propertyCandidates = deepQuerySelectorAll('*').filter(el => typeof el.onclick === 'function');
+const selectorCandidateSet = new Set(selectorCandidates);
+const candidates = [...new Set([...selectorCandidates, ...propertyCandidates])];
+let visibleCandidates = 0;
+let visiblePropertyCandidates = 0;
+for (const el of candidates) {{
   const visible = isVisible(el);
   const fileInput = isFileInput(el);
   if (!visible && !fileInput) continue;
+  if (visible && selectorCandidateSet.has(el)) visibleCandidates++;
+  const nativeMatch = el.matches(nativeSelector);
+  const widgetMatch = el.matches(widgetSelector);
+  const inlineClick = el.hasAttribute('onclick');
+  const propertyClick = typeof el.onclick === 'function';
+  if (visible && propertyClick) visiblePropertyCandidates++;
+  const tabindex = el.getAttribute('tabindex');
+  const focusable = tabindex !== null && tabindex.trim() !== '' && Number(tabindex) >= 0;
+  if (!nativeMatch && !widgetMatch && !inlineClick && !propertyClick && !focusable) continue;
   const rect = el.getBoundingClientRect();
   const key = [
     el.tagName,
@@ -264,6 +292,8 @@ for (const el of deepQuerySelectorAll('button, a, input, select, textarea, [role
     placeholder: el.getAttribute('placeholder') || '',
     aria_label: el.getAttribute('aria-label') || '',
     data_testid: el.getAttribute('data-testid') || '',
+    role: el.getAttribute('role') || '',
+    matched_by: nativeMatch ? 'native_or_existing_role' : widgetMatch ? 'interactive_role' : inlineClick ? 'onclick_attribute' : propertyClick ? 'onclick_property' : 'focusable_tabindex',
     value: ('value' in el ? String(el.value || '').trim() : ''),
     options: (el.tagName || '').toLowerCase() === 'select'
       ? Array.from(el.options || []).slice(0, 20).map(opt => (opt.textContent || opt.label || opt.value || '').trim()).filter(Boolean)
@@ -306,6 +336,53 @@ const filteredInteractive = interactive
   .filter(item => !(isCustomElementTag(item.tag) && nativePositions.has(positionKey(item))))
   .slice(0, limit);
 
+// Keep zero-ref pages diagnosable without promoting cursor styling to actions.
+const domDiagnostics = [];
+if (!filteredInteractive.length) {{
+  const nodes = deepQuerySelectorAll('*');
+  const scanLimit = 2000;
+  let visibleNodes = 0;
+  let pointerNodes = 0;
+  const samples = [];
+  const probeTargets = [];
+  const probeLeaves = [];
+  for (const el of nodes.slice(0, scanLimit)) {{
+    if (!isVisible(el)) continue;
+    visibleNodes++;
+    const style = window.getComputedStyle(el);
+    const pointer = style.cursor === 'pointer';
+    if (pointer) pointerNodes++;
+    const text = compactText(el);
+    if (pointer) probeTargets.push(el);
+    else if (text && text.length <= 40 && (!el.children || !el.children.length)) probeLeaves.push(el);
+    if (!text || samples.length >= 20) continue;
+    // Prefer short leaf-like text, rather than dumping whole layout containers.
+    if (!pointer && text.length > 40) continue;
+    if (!pointer && el.children && el.children.length > 0) continue;
+    samples.push({{
+      tag: (el.tagName || '').toLowerCase(), text,
+      id: compactValue(el.id || '', 80),
+      classes: compactValue(el.getAttribute('class') || '', 160),
+      role: el.getAttribute('role') || '',
+      tabindex: el.getAttribute('tabindex'),
+      cursor: style.cursor || '',
+      onclick_present: el.hasAttribute('onclick'),
+    }});
+  }}
+  domDiagnostics.push({{
+    ready_state: document.readyState || '',
+    selector_candidates: selectorCandidates.length,
+    visible_selector_candidates: visibleCandidates,
+    dom_property_candidates: propertyCandidates.length,
+    visible_dom_property_candidates: visiblePropertyCandidates,
+    scanned_nodes: Math.min(nodes.length, scanLimit),
+    nodes_truncated: nodes.length > scanLimit,
+    visible_nodes: visibleNodes, pointer_nodes: pointerNodes,
+    samples,
+    structure_probe: probeStructure([...probeTargets, ...probeLeaves], selectorCandidates),
+  }});
+}}
+
 const headingSeen = new Set();
 const headings = [];
 for (const el of deepQuerySelectorAll('h1, h2, h3, [role="heading"], legend')) {{
@@ -322,7 +399,7 @@ const textLines = [];
 const lineSeen = new Set();
 for (const rawLine of rawBodyText.split(/\\n+/)) {{
   const line = compactValue(rawLine, 140);
-  if (!line || lineSeen.has(line) || line.length < 2 || /^[\\d\\W]+$/.test(line)) continue;
+  if (!line || lineSeen.has(line) || line.length < 2 || !/[\\p{{L}}]/u.test(line)) continue;
   lineSeen.add(line);
   textLines.push(line);
   if (textLines.length >= 12) break;
@@ -436,13 +513,115 @@ return {{
   text_lines: textLines,
   visible_text: bodyText.slice(0, textLimit),
   interactive_elements: filteredInteractive,
+  dom_diagnostics: domDiagnostics,
 }};
 """
     return dict(driver.execute_script(script, int(element_limit), int(text_limit)) or {})
 
 
-def build_page_snapshot(driver: WebDriver, *, element_limit: int = 80, text_limit: int = 2000) -> dict[str, Any]:
-    return _execute_page_snapshot(driver, element_limit=int(element_limit), text_limit=int(text_limit))
+def build_page_snapshot(
+    driver: WebDriver,
+    *,
+    element_limit: int = 80,
+    text_limit: int = 2000,
+    frame_limit: int = 10,
+) -> dict[str, Any]:
+    """Collect bounded document snapshots through Selenium browsing contexts."""
+    element_limit = max(0, int(element_limit))
+    text_limit = max(0, int(text_limit))
+    frame_limit = max(0, min(10, int(frame_limit)))
+    combined: dict[str, Any] = {}
+    frames: list[dict[str, Any]] = []
+    known_refs: set[str] = set()
+    visible_text: list[str] = []
+    text_remaining = text_limit
+    lines_remaining = text_limit
+    visited = 0
+    truncated = False
+
+    def qualify(value: Any, path: list[int], document_id: str) -> Any:
+        if isinstance(value, list):
+            return [item for raw in value if (item := qualify(raw, path, document_id)) is not None]
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        if item.get("aid"):
+            local_aid = str(item["aid"])
+            ref = frame_ref(path, document_id, local_aid)
+            if ref not in known_refs and len(known_refs) >= element_limit:
+                return None
+            known_refs.add(ref)
+            item.update(aid=ref, local_aid=local_aid, frame_path=list(path), frame_document_id=document_id)
+        return {key: result for key, raw in item.items() if (result := qualify(raw, path, document_id)) is not None}
+
+    def visit(path: list[int], ancestors: list[Any], metadata: dict[str, Any]) -> None:
+        nonlocal combined, text_remaining, lines_remaining, visited, truncated
+        entry = {key: value for key, value in metadata.items() if key != "element"}
+        if "src" in entry:
+            entry["src"] = diagnostic_url(entry["src"])
+        entry["path"] = list(path)
+        if path:
+            visited += 1
+            frames.append(entry)
+        driver.switch_to.default_content()
+        try:
+            for element in ancestors:
+                driver.switch_to.frame(element)
+            document_id = frame_document_id(driver, create=True) if path else ""
+            current = _execute_page_snapshot(
+                driver,
+                element_limit=max(0, element_limit - len(known_refs)),
+                text_limit=text_remaining,
+            )
+            if path:
+                entry.update(
+                    url=diagnostic_url(current.get("url", "")), title=current.get("title", ""),
+                    document_id=document_id, viewport_y=current.get("viewport_y", 0),
+                )
+            for diagnostic in current.get("dom_diagnostics", []):
+                diagnostic["frame_path"] = list(path)
+            # Prioritize canonical controls; adapter duplicates share the same budget.
+            for key in ("sendtoamazon_controls", "interactive_elements"):
+                current[key] = qualify(current.get(key, []), path, document_id)
+            for key in list(current):
+                if key not in {"sendtoamazon_controls", "interactive_elements"}:
+                    current[key] = qualify(current[key], path, document_id)
+            text = str(current.get("visible_text") or "")[:text_remaining]
+            visible_text.append(text)
+            text_remaining -= len(text)
+            lines: list[str] = []
+            for raw in current.get("text_lines", []):
+                line = str(raw)[:lines_remaining]
+                if line:
+                    lines.append(line)
+                    lines_remaining -= len(line)
+            current["text_lines"] = lines
+            if not path:
+                combined = current
+            else:
+                for key, value in current.items():
+                    if isinstance(value, list):
+                        combined.setdefault(key, []).extend(value)
+            children = list_frames(driver)
+        except Exception as exc:
+            if not path:
+                raise
+            entry["error"] = frame_error(exc)
+            return
+        for child in children:
+            if visited >= frame_limit:
+                truncated = True
+                break
+            visit([*path, int(child["index"])], [*ancestors, child["element"]], child)
+
+    try:
+        visit([], [], {})
+        combined["visible_text"] = "".join(visible_text)
+        combined["frames"] = frames
+        combined["frames_truncated"] = truncated
+        return combined
+    finally:
+        driver.switch_to.default_content()
 
 
 def get_element_index_map(
@@ -451,7 +630,7 @@ def get_element_index_map(
     element_limit: int = 80,
 ) -> dict[int, str]:
     return {
-        index: _safe_text(item.get("aid"), 64)
+        index: _safe_text(item.get("aid"), 120)
         for index, item in _ordered_indexed_elements(page_snapshot, element_limit=element_limit)
     }
 
@@ -472,7 +651,7 @@ def format_dom_snapshot(
     index_map = get_element_index_map(snapshot, element_limit=element_limit)
     ordered_aids = [aid for _, aid in sorted(index_map.items(), key=lambda item: int(item[0]))]
     aid_to_element = {
-        _safe_text(item.get("aid"), 64): dict(item or {})
+        _safe_text(item.get("aid"), 120): dict(item or {})
         for item in _combined_interactive_elements(snapshot)
     }
 
@@ -551,6 +730,18 @@ def format_element_details(element_details: dict[str, Any]) -> str:
 
 
 def get_element_details(driver: WebDriver, aid: str) -> dict[str, Any]:
+    try:
+        local_aid = enter_ref_frame(driver, aid)
+        details = _current_element_details(driver, local_aid)
+        if details:
+            path, document_id, _ = parse_frame_ref(aid)
+            details.update(aid=aid, local_aid=local_aid, frame_path=path, frame_document_id=document_id)
+        return details
+    finally:
+        driver.switch_to.default_content()
+
+
+def _current_element_details(driver: WebDriver, aid: str) -> dict[str, Any]:
     return dict(
         driver.execute_script(
             SHADOW_DOM_HELPERS_JS + """

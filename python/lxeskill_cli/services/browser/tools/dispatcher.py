@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from services.browser.tools.driver_session import (
@@ -24,8 +25,8 @@ def _client_running() -> bool:
     return ZiniaoLifecycleManager.resolve_client_pid(client.control_port) > 0
 
 
-def _snapshot_ref_entries(snapshot: dict[str, Any]) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
+def _snapshot_ref_entries(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
     seen_refs: set[str] = set()
     for raw_item in list(snapshot.get("sendtoamazon_controls") or []) + list(snapshot.get("interactive_elements") or []):
         item = dict(raw_item or {})
@@ -45,6 +46,8 @@ def _snapshot_ref_entries(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         entries.append(
             {
                 "ref": ref,
+                "frame_path": list(item.get("frame_path") or []),
+                "matched_by": str(item.get("matched_by") or ""),
                 "tag": str(item.get("tag") or "").strip().lower(),
                 "label": " ".join(label.split())[:160],
             }
@@ -70,7 +73,8 @@ def _format_snapshot_summary(snapshot: dict[str, Any], *, full: bool) -> str:
         for item in refs[:limit]:
             tag = str(item.get("tag") or "").strip() or "element"
             label = str(item.get("label") or "").strip() or "unnamed"
-            lines.append(f"- ref={item['ref']} | {tag} | {label}")
+            evidence = f" | detected_by={item['matched_by']}" if item["matched_by"] else ""
+            lines.append(f"- ref={item['ref']} frame={item['frame_path']} | {tag} | {label}{evidence}")
         if len(refs) > limit:
             lines.append(f"- ... truncated, total refs={len(refs)}")
 
@@ -83,6 +87,29 @@ def _format_snapshot_summary(snapshot: dict[str, Any], *, full: bool) -> str:
         if text_lines:
             lines.extend(["", "Visible text:"])
             lines.extend(f"- {item}" for item in text_lines[:20])
+            if len(text_lines) > 20:
+                lines.append(f"- ... truncated, total text lines={len(text_lines)}")
+        diagnostics = list(safe_snapshot.get("dom_diagnostics") or [])
+        if diagnostics:
+            lines.extend(["", "DOM diagnostics (samples are not actionable refs):"])
+            for diagnostic in diagnostics:
+                lines.append(json.dumps(diagnostic, ensure_ascii=False))
+
+    frames = list(safe_snapshot.get("frames") or [])
+    if frames:
+        lines.extend(["", "Frames:"])
+        for frame in frames:
+            entry = dict(frame)
+            lines.append(
+                f"- frame={entry.get('path', [])} | "
+                f"{str(entry.get('title') or '')[:160]} | {str(entry.get('url') or entry.get('src') or '')[:300]}"
+            )
+            if entry.get("error"):
+                lines.append(f"  error: {entry['error']}")
+    else:
+        lines.extend(["", "Frames: (none found)"])
+    if safe_snapshot.get("frames_truncated"):
+        lines.append("- ... frame traversal truncated")
 
     return "\n".join(lines).strip()
 

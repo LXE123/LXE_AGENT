@@ -19,6 +19,7 @@ from services.browser.browser.seller_central_adapters import (
     resolve_upload_aid as resolve_seller_upload_aid,
 )
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
+from services.browser.browser.frames import enter_ref_frame
 from services.browser.browser.snapshot import (
     build_page_snapshot,
     format_dom_snapshot,
@@ -396,7 +397,7 @@ def _resolve_upload_aid(page_snapshot: dict[str, Any], action: dict[str, Any]) -
 
 
 def _find_by_aid(driver: WebDriver, aid: str):
-    safe_aid = str(aid or "").strip()
+    safe_aid = enter_ref_frame(driver, str(aid or "").strip())
     if not safe_aid:
         raise RuntimeError("missing aid")
     try:
@@ -579,6 +580,24 @@ try {
 
 
 def execute_browser_action(
+    driver: WebDriver,
+    action: dict[str, Any],
+    *,
+    download_path: str = "",
+    output_dir: Path,
+    before_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    driver.switch_to.default_content()
+    try:
+        return _execute_browser_action(
+            driver, action, download_path=download_path,
+            output_dir=output_dir, before_snapshot=before_snapshot,
+        )
+    finally:
+        driver.switch_to.default_content()
+
+
+def _execute_browser_action(
     driver: WebDriver,
     action: dict[str, Any],
     *,

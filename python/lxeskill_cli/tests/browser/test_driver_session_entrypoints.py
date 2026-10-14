@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from services.agent_cli._shared import browser_session as browser_session_module
 from services.browser.store import store_driver_session as store_driver_session_module
 from services.browser.tools import dispatcher, driver_session, executor
@@ -27,8 +29,17 @@ class _FakeStoreSessionService:
         self._store_session = store_session
         self._calls = calls
 
-    def ensure_store_session(self, store_id: str, *, force_restart: bool = False):
-        self._calls.append(("ensure_store_session", store_id, force_restart))
+    def ensure_store_session(
+        self,
+        store_id: str,
+        *,
+        force_restart: bool = False,
+        start_if_missing: bool = True,
+    ):
+        if start_if_missing:
+            self._calls.append(("ensure_store_session", store_id, force_restart))
+        else:
+            self._calls.append(("ensure_store_session", store_id, force_restart, start_if_missing))
         return self._store_session
 
     def start_store_session(self, store_id: str):
@@ -88,6 +99,37 @@ def test_ziniao_page_session_selects_first_normal_tab(monkeypatch, tmp_path) -> 
         assert session.driver is driver
 
     assert ("select_first_normal_tab", driver, {}) in calls
+
+
+def test_ziniao_page_session_forwards_strict_attach_and_target_host(monkeypatch, tmp_path) -> None:
+    calls: list[tuple] = []
+    driver = object()
+
+    class FakeDriverSession:
+        def __enter__(self):
+            return _store_session(), driver
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_store_driver_session(store_id: str, **kwargs):
+        calls.append((store_id, kwargs))
+        return FakeDriverSession()
+
+    monkeypatch.setattr(executor, "store_driver_session", fake_store_driver_session)
+
+    with executor._page_workflow_session(
+        SimpleNamespace(session_id="session-1"),
+        store_id="store-1",
+        output_dir=tmp_path,
+        strict_attach=True,
+        target_host="wsaexp.nextsls.com",
+    ) as session:
+        assert session.driver is driver
+
+    assert calls == [
+        ("store-1", {"strict_attach": True, "target_host": "wsaexp.nextsls.com"})
+    ]
 
 
 def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
@@ -155,6 +197,26 @@ def test_store_driver_session_restarts_store_when_attach_fails(monkeypatch, tmp_
 
     assert ("ensure_store_session", "store-1", False) in calls
     assert ("ensure_store_session", "store-1", True) in calls
+
+
+def test_store_driver_session_strict_attach_fails_without_start_or_restart(monkeypatch, tmp_path) -> None:
+    calls: list[tuple] = []
+    service = _FakeStoreSessionService(_store_session(), calls)
+
+    def failing_attached_driver(**kwargs):
+        calls.append(("attached_driver", kwargs))
+        raise RuntimeError("配对 chromedriver 附着失败")
+
+    monkeypatch.setattr(store_driver_session_module, "state_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "StoreSessionService", lambda: service)
+    monkeypatch.setattr(store_driver_session_module, "attached_driver", failing_attached_driver)
+
+    with pytest.raises(RuntimeError, match="配对 chromedriver 附着失败"):
+        with store_driver_session_module.store_driver_session("store-1", strict_attach=True):
+            pass
+
+    assert calls[0] == ("ensure_store_session", "store-1", False, False)
+    assert not any(call[:3] == ("ensure_store_session", "store-1", True) for call in calls)
 
 
 def test_executor_reports_store_busy_when_store_lock_times_out(monkeypatch, tmp_path) -> None:

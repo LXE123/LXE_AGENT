@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from services.browser.browser.snapshot import _element_label, _safe_text, _short_url
+from services.browser.browser.frames import parse_frame_ref
 
 
 def _snapshot_digest(page_snapshot: dict[str, Any]) -> str:
@@ -14,6 +15,15 @@ def _snapshot_digest(page_snapshot: dict[str, Any]) -> str:
         "url": _safe_text(snapshot.get("url"), 300),
         "title": _safe_text(snapshot.get("title"), 120),
         "viewport_y": int(snapshot.get("viewport_y") or 0),
+        "frames": [
+            {
+                "path": item.get("path"),
+                "url": _short_url(item.get("url")),
+                "title": _safe_text(item.get("title"), 120),
+                "viewport_y": item.get("viewport_y", 0),
+            }
+            for item in list(snapshot.get("frames") or [])
+        ],
         "headings": [_safe_text(item, 80) for item in list(snapshot.get("headings") or [])[:6]],
         "breadcrumbs": [_safe_text(item, 80) for item in list(snapshot.get("breadcrumbs") or [])[:6]],
         "text_lines": [_safe_text(item, 80) for item in list(snapshot.get("text_lines") or [])[:8]],
@@ -30,6 +40,7 @@ def _snapshot_digest(page_snapshot: dict[str, Any]) -> str:
                 "label": _element_label(dict(item or {})),
                 "href": _short_url(dict(item or {}).get("href")),
                 "type": _safe_text(dict(item or {}).get("type"), 24),
+                "frame_path": dict(item or {}).get("frame_path", []),
             }
             for item in list(snapshot.get("interactive_elements") or [])[:12]
         ],
@@ -128,6 +139,13 @@ def matching_element_from_snapshot(page_snapshot: dict[str, Any], aid: str, befo
             return item
 
     reference = dict(before_details or {})
+    path, document_id, _ = parse_frame_ref(safe_aid)
+    # Never infer that a lookalike in a sibling/replaced frame is the target.
+    interactive = [
+        item for item in interactive
+        if list(item.get("frame_path") or []) == path
+        and (not document_id or item.get("frame_document_id") == document_id)
+    ]
     reference_keys = (
         ("data_testid", 6),
         ("id", 5),

@@ -16,6 +16,11 @@ from .ziniao_process import download_driver, kill_process, normalize_browser_ver
 
 logger = get_logger(__name__)
 
+_CLIENT_STARTUP_TIMEOUT_SEC = 20
+_CLIENT_STARTUP_POLL_SEC = 1
+_CORE_UPDATE_TIMEOUT_SEC = 300
+_CORE_UPDATE_POLL_SEC = 2
+
 
 def _user_info() -> dict[str, str]:
     return {
@@ -106,6 +111,7 @@ class ZiniaoBrowserClient:
         self._client = ZiniaoClient(self.control_port, self.user_info)
         self._client_pid = 0
         self._client_ready = False
+        self._core_ready = False
 
     @property
     def client(self) -> ZiniaoClient:
@@ -118,6 +124,8 @@ class ZiniaoBrowserClient:
         )
         download_driver(str(ziniao_settings.ZINIAO_WEBDRIVER_PATH or "").strip())
         kill_process(browser_version)
+        self._client_ready = False
+        self._core_ready = False
 
     def _mark_client_ready(self, *, client_pid: int = 0) -> None:
         resolved_pid = ZiniaoLifecycleManager.resolve_client_pid(
@@ -132,12 +140,31 @@ class ZiniaoBrowserClient:
 
     def _probe_client(self) -> bool:
         try:
-            self._client.get_browser_list()
+            self._client.get_running_info()
             self._mark_client_ready()
             return True
         except Exception:
             self._client_ready = False
             return False
+
+    def _ensure_core_ready(self) -> None:
+        if self._core_ready:
+            return
+
+        deadline = time.monotonic() + _CORE_UPDATE_TIMEOUT_SEC
+        last_result: dict[str, Any] = {}
+        while True:
+            result = dict(self._client.update_core() or {})
+            last_result = result
+            status_code = str(result.get("statusCode"))
+            if status_code == "0":
+                self._core_ready = True
+                return
+            if status_code != "-10000":
+                raise RuntimeError(f"紫鸟内核更新失败: {result}")
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"紫鸟内核更新超时: {last_result}")
+            time.sleep(_CORE_UPDATE_POLL_SEC)
 
     def open_client(self, *, allow_start: bool = True) -> bool:
         if self._client_ready:
@@ -157,16 +184,16 @@ class ZiniaoBrowserClient:
             creationflags=creationflags,
         )
         launched_pid = int(getattr(process, "pid", 0) or 0)
-        deadline = time.time() + 20
+        deadline = time.monotonic() + _CLIENT_STARTUP_TIMEOUT_SEC
         last_error = ""
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
-                self._client.get_browser_list()
+                self._client.get_running_info()
                 self._mark_client_ready(client_pid=launched_pid)
                 return True
             except Exception as exc:
                 last_error = str(exc).strip()
-                time.sleep(1)
+                time.sleep(_CLIENT_STARTUP_POLL_SEC)
         raise RuntimeError(last_error or "紫鸟客户端启动失败")
 
     def close_client(self) -> None:
@@ -181,6 +208,7 @@ class ZiniaoBrowserClient:
 
     def start_browser(self, browser_oauth: str) -> dict[str, Any]:
         self.open_client()
+        self._ensure_core_ready()
         result = self._client.start_browser(str(browser_oauth or "").strip())
         return dict(result or {})
 
@@ -199,6 +227,7 @@ class ZiniaoBrowserClient:
 
     def get_browser_list(self) -> list[dict[str, Any]]:
         self.open_client()
+        self._ensure_core_ready()
         return [dict(item or {}) for item in list(self._client.get_browser_list() or [])]
 
     def get_running_info(self) -> list[dict[str, Any]]:

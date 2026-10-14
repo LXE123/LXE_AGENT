@@ -91,6 +91,22 @@ describe("lxeskill command recognition", () => {
       artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
       attributionSkill: "ziniao-browser",
     });
+    expect(entries.find((entry) => entry.name === "amazon_fba_delivery_window_list"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-window-list",
+        module: "services.agent_cli.browser.amazon_fba.delivery_window_list",
+        ownerSkills: ["fba-shipment-delivery-window"],
+        attributionSkill: "fba-shipment-delivery-window",
+        artifactPaths: [{ field: "file_path[].value", role: "diagnostic" }],
+      });
+    expect(entries.find((entry) => entry.name === "amazon_fba_delivery_window_apply"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-window",
+        module: "services.agent_cli.browser.amazon_fba.delivery_window_apply",
+        ownerSkills: ["fba-shipment-delivery-window"],
+        attributionSkill: "fba-shipment-delivery-window",
+        artifactPaths: [{ field: "file_path[].value", role: "diagnostic" }],
+      });
     expect(entries.find((entry) => entry.name === "mabang_resolve_fba_store"))
       .toMatchObject({
         attributionSkill: "replenishment-store-resolve",
@@ -108,6 +124,40 @@ test("Shangman login commands belong to the login skill and expose only the capt
   expect(commands).toHaveLength(4);
   for (const entry of commands) expect(entry.ownerSkills).toEqual(["shangman-login"]);
   expect(commands.find(entry => entry.name === "shangman_login_prepare")?.artifactPaths).toEqual([{ field: "image_path", role: "model_input" }]);
+});
+
+test("Feiwo query is session-bound and accepts one FBA without arbitrary requests or credentials", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path);
+  expect(entries.find(entry => entry.name === "logistics_feiwo_query")).toMatchObject({
+    command: "lxeskill logistics feiwo query",
+    module: "services.agent_cli.logistics.feiwo_query",
+    ownerSkills: ["fba-logistics-query"],
+    attributionSkill: "fba-logistics-query",
+  });
+  const raw = JSON.parse(readFileSync(path, "utf8")).entries.find((entry: { name: string }) => entry.name === "logistics_feiwo_query");
+  expect(raw.session_mode).toBe("lxe_session");
+  expect(raw.input_schema.required).toEqual(["store_id", "fba"]);
+  expect(Object.keys(raw.input_schema.properties).sort()).toEqual(["expected_warehouse", "fba", "store_id"]);
+  const known = new Map([["lxeskill logistics feiwo query", ["fba-logistics-query"]]]);
+  expect(matchLxeSkillInvocation("lxeskill logistics feiwo query --fba FBA191GB5WTM", known)?.ownerSkills).toEqual(["fba-logistics-query"]);
+});
+
+test("Wesa query is a session-bound dedicated command without arbitrary scripts or request destinations", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path);
+  expect(entries.find(entry => entry.name === "logistics_wesa_query")).toMatchObject({
+    command: "lxeskill logistics wesa query",
+    module: "services.agent_cli.logistics.wesa_query",
+    ownerSkills: ["fba-logistics-query"],
+    attributionSkill: "fba-logistics-query",
+  });
+  const raw = JSON.parse(readFileSync(path, "utf8")).entries.find((entry: { name: string }) => entry.name === "logistics_wesa_query");
+  expect(raw.session_mode).toBe("lxe_session");
+  expect(raw.input_schema.required).toEqual(["store_id", "fba", "account_name"]);
+  expect(Object.keys(raw.input_schema.properties).sort()).toEqual(["account_name", "expected_warehouse", "fba", "page", "query_mode", "store_id"]);
+  const known = new Map([["lxeskill logistics wesa query", ["fba-logistics-query"]]]);
+  expect(matchLxeSkillInvocation("lxeskill logistics wesa query --fba FBA19PWM5L6T", known)?.ownerSkills).toEqual(["fba-logistics-query"]);
 });
 
 test("Shangman export is a separate command delivering one workbook", () => {
@@ -198,7 +248,7 @@ test("flags-only export contracts have matching skill ownership and reject inval
   const document = JSON.parse(readFileSync(path, "utf8"));
   const entries = loadLxeSkillCommandCatalog(path);
   const scoped = document.entries.filter((entry: any) => entry.input_modes !== undefined);
-  expect(scoped).toHaveLength(12);
+  expect(scoped).toHaveLength(16);
   const known = new Map(entries.map(entry => [entry.command, entry.ownerSkills]));
   for (const raw of scoped) {
     expect(raw.input_modes).toEqual(["flags"]);

@@ -6,6 +6,7 @@ from services.browser.tools.driver_session import (
     is_normal_tab_url,
     list_browser_tabs,
     select_first_normal_tab,
+    select_unique_host_tab,
 )
 
 
@@ -136,3 +137,48 @@ def test_select_first_normal_tab_can_select_blank_for_open_store() -> None:
 
     assert selected["handle"] == "h2"
     assert driver.current_window_handle == "h2"
+
+
+def test_select_unique_host_tab_selects_exact_host() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "https://sellercentral.amazon.com/home", "Amazon"),
+            ("h2", "http://wsaexp.nextsls.com/wos", "威飒"),
+        ]
+    )
+
+    selected = select_unique_host_tab(driver, "WSAEXP.NEXTSLS.COM.")
+
+    assert selected["handle"] == "h2"
+    assert driver.current_window_handle == "h2"
+
+
+def test_select_unique_host_tab_rejects_missing_host_with_real_tab_summary() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "https://sellercentral.amazon.com/home", "Amazon"),
+            ("h2", "http://feichi.nextsls.com/tracking", "飞沃"),
+        ],
+        current_handle="h2",
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    message = str(exc_info.value)
+    assert "未找到域名为 wsaexp.nextsls.com" in message
+    assert "sellercentral.amazon.com" in message
+    assert "feichi.nextsls.com" in message
+    assert driver.current_window_handle == "h2"
+
+
+def test_select_unique_host_tab_rejects_ambiguous_matches() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "http://wsaexp.nextsls.com/wos", "威飒 1"),
+            ("h2", "http://wsaexp.nextsls.com/wos/orders", "威飒 2"),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="匹配到 2 个标签页"):
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")

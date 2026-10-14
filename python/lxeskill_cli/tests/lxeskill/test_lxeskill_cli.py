@@ -23,8 +23,8 @@ def _records(capsys) -> list[dict]:
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 46
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 40
+    assert len(catalog) == 50
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 44
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -109,7 +109,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 44
+    assert len(records[0]["data"]["commands"]) == 48
 
     assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
     records = _records(capsys)
@@ -162,11 +162,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 46,
-                "business_commands": 40,
-                "skill_files": 37,
-                "owner_skills": 30,
-                "command_declarations": 40,
+                "catalog_commands": 50,
+                "business_commands": 44,
+                "skill_files": 39,
+                "owner_skills": 32,
+                "command_declarations": 44,
             },
             "files": [],
         }
@@ -521,6 +521,33 @@ def test_structured_auth_recovery_overrides_error_text(monkeypatch, capsys, requ
     record = _records(capsys)[0]
     assert ('recovery' in record) is required
     assert '1403401' in record['error']['message']
+
+
+def test_delivery_window_list_failure_never_offers_mabang_auth_refresh(monkeypatch, capsys) -> None:
+    def fake_execute(*args, **kwargs):
+        payload = {
+            "success": False,
+            "auth_refresh_required": False,
+            "exception": "页面等待 60 秒后仍未读到货件行（0 行）",
+        }
+        return (
+            False,
+            [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+            [],
+            {"code": "business_cli_failed", "message": payload["exception"]},
+        )
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main([
+        "fba", "shipment", "delivery-window-list",
+        "--session-id", "session-1",
+        "--store-id", "store-1",
+        "--page-url", "https://sellercentral.amazon.com/manage/shipments",
+    ]) == lxeskill.EXIT_BUSINESS
+    record = _records(capsys)[0]
+    assert "recovery" not in record
+    assert record["data"]["auth_refresh_required"] is False
 
 
 def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:
