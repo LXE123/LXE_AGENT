@@ -3163,12 +3163,12 @@ describe("skill loading", () => {
     { scenario: "business phrase", text: "查询越南备货", currentFile: false, previousFile: false },
     { scenario: "calculation request with XLSX", text: "帮我计算一下越南备货", currentFile: true, previousFile: false },
     { scenario: "XLSX upload alone", text: "", currentFile: true, previousFile: false },
-    { scenario: "reply after an XLSX upload", text: "绑定并查询", currentFile: false, previousFile: true },
+    { scenario: "reply after an XLSX upload", text: "继续查询", currentFile: false, previousFile: true },
   ])("leaves $scenario to the model without loading a Skill or probing attachments", async ({ text, currentFile, previousFile }) => {
     const store = new MemoryStore(), tools = new ToolRegistry();
     let loads = 0, attachmentReads = 0, executions = 0, providerCalls = 0;
-    const attachment = { type: "local_file", attachment_id: "sku-map", turn_id: previousFile ? "previous-turn" : "j1",
-      path: "/uploads/越南 SKU 映射表.xlsx", name: "越南 SKU 映射表.xlsx", size_bytes: 100,
+    const attachment = { type: "local_file", attachment_id: "vietnam-template", turn_id: previousFile ? "previous-turn" : "j1",
+      path: "/uploads/东南亚越南备货清单.xlsx", name: "东南亚越南备货清单.xlsx", size_bytes: 100,
       media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ts: 1 };
     if (previousFile) store.messages = [{ role: "user", message_id: "previous-message", content: [attachment] }];
     store.resolveAttachment = async () => { attachmentReads++; return undefined; };

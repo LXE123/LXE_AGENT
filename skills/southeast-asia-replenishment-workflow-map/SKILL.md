@@ -10,7 +10,7 @@ type: replenishment
 
 | 需求 | Skill | 支持范围与产出 |
 |---|---|---|
-| 越南备货 | `vietnam-replenishment` | 使用雅仓报表和 SKU 映射表完成计算、校验，交付含五张工作表的备货清单 |
+| 越南备货 | `vietnam-replenishment` | 使用雅仓报表和完整九表业务模板，按 SKU 从模板提取参数并完成计算、校验，交付九表备货清单 |
 | 雅仓数据导出 | `yacang-reports-export` | 库存动销、当前库存及全局产品资料；可独立交付，也可提供越南计算输入 |
 | 上马 ERP 数据导出 | `shangman-products-export` | 当前账号可见的商品、库存和销量原始 XLSX；后续备货计算尚未接通 |
 | 马帮 TMS 数据导出 | `mabang-tms-products-export` | 当前账号可见仓库的商品、库存和销量合并 XLSX；后续备货计算尚未接通 |

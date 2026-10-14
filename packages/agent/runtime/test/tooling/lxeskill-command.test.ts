@@ -151,7 +151,7 @@ test("Vietnam recommendation and delivers only the final workbook", () => {
     .toBe("vietnam/recommendations");
 });
 
-test("Vietnam calculation requires three local reports and an optional map", () => {
+test("Vietnam calculation requires three local reports and a saved or supplied nine-sheet template", () => {
   const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
   const document = JSON.parse(readFileSync(path, "utf8"));
   expect(document.entries.filter((entry: any) => entry.managed_execution !== undefined)).toEqual([]);
@@ -160,7 +160,16 @@ test("Vietnam calculation requires three local reports and an optional map", () 
     type: "object",
     properties: {
       sales_file: { type: "string", minLength: 1 }, inventory_file: { type: "string", minLength: 1 },
-      products_file: { type: "string", minLength: 1 }, sku_map_file: { type: "string", minLength: 1 },
+      products_file: { type: "string", minLength: 1 },
+      template_file: {
+        type: "string", minLength: 1,
+        "x-lxe-file-input": {
+          accepted_extensions: [".xlsx"],
+          instruction: "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。",
+        },
+        "x-lxe-asset-slot": "vietnam_full_workbook",
+        "x-lxe-asset-promote-on-success": false,
+      },
     },
     required: ["sales_file", "inventory_file", "products_file"], additionalProperties: false,
   });

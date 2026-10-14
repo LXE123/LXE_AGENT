@@ -267,21 +267,12 @@ def test_mapped_skus_allow_missing_amounts_including_rows_outside_this_run(tmp_p
 
 
 def test_empty_parameter_table_and_bad_hot_flag_fail(tmp_path: Path) -> None:
-    with pytest.raises(writer.WorkbookInputError, match="映射表.*SKU"):
+    with pytest.raises(writer.WorkbookInputError, match="九表模板.*SKU"):
         writer.write_vietnam_workbook(tmp_path / "empty.xlsx", _sources(), {}, writer.RecommendationConfig())
     values = _parameters()
     values["VN-A"] = replace(_parameters()["VN-A"], hot_flag=3)
     with pytest.raises(writer.WorkbookInputError, match="VN-A.*热销标记"):
         writer.write_vietnam_workbook(tmp_path / "bad-hot.xlsx", _sources(), values, writer.RecommendationConfig())
-
-
-def test_old_map_listing_time_conflict_fails_and_date_only_match_passes(tmp_path: Path) -> None:
-    values = _parameters()
-    values["VN-A"] = replace(values["VN-A"], listed_at="2026-09-03")
-    with pytest.raises(writer.WorkbookInputError, match="VN-A.*上架时间.*创建时间"):
-        writer.write_vietnam_workbook(tmp_path / "conflict.xlsx", _sources(), values, writer.RecommendationConfig())
-    values["VN-A"] = replace(values["VN-A"], listed_at="2026-09-02")
-    writer.write_vietnam_workbook(tmp_path / "same-date.xlsx", _sources(), values, writer.RecommendationConfig())
 
 
 def test_price_over_excel_precision_limit_is_rejected(tmp_path: Path) -> None:

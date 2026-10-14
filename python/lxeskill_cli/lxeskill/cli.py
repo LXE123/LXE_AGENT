@@ -212,8 +212,8 @@ def _field_is_conditionally_optional(
 def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Fill slot-backed fields from storage, and report where each value came from.
 
-    A caller-supplied path always wins and is promoted after the command
-    succeeds; only an omitted field falls back to the stored current version.
+    A caller-supplied path always wins; only an omitted field falls back to
+    the stored current version. Promotion follows the field's contract.
     """
     sources: dict[str, dict[str, str]] = {}
     properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
@@ -243,10 +243,15 @@ def _promote_successful_assets(
     sources: dict[str, dict[str, str]],
     data: dict[str, Any],
 ) -> None:
-    """Keep a declared updated output, or otherwise the supplied input, as current."""
+    """Promote supplied or generated assets unless the field is one-run only."""
     properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
     for name, info in sources.items():
-        output_field = str(dict(properties.get(name) or {}).get("x-lxe-asset-output-field") or "")
+        property_schema = dict(properties.get(name) or {})
+        if property_schema.get("x-lxe-asset-promote-on-success", True) is False:
+            if info.get("from") == "upload":
+                info["file_name"] = os.path.basename(str(arguments[name]))
+            continue
+        output_field = str(property_schema.get("x-lxe-asset-output-field") or "")
         updated_path = str(data.get(output_field) or "") if output_field else ""
         if not updated_path and info.get("from") != "upload":
             continue

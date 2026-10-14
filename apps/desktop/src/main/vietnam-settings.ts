@@ -1,14 +1,14 @@
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { DesktopVietnamMapExportKind, DesktopVietnamMapExportResult, DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
+import type { DesktopVietnamSettingsState, DesktopVietnamTemplateExportResult } from "@lxe/desktop-protocol";
 import { redactAndBound, type DesktopInputAssetsOptions } from "./input-assets";
 
 /** Native settings bridge. Python owns validation and atomic storage. */
 export class DesktopVietnamSettingsService {
   constructor(private readonly options: DesktopInputAssetsOptions) {}
 
-  private async call<T = DesktopVietnamSettingsState>(action: "read" | "save" | "upload" | "export", ...values: string[]): Promise<T> {
+  private async call<T = DesktopVietnamSettingsState>(action: "read" | "save" | "upload-template" | "export-template", ...values: string[]): Promise<T> {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
     const args = ["-I", "-B", "-m", "services.vietnam_replenishment.settings", action, ...values];
@@ -37,8 +37,8 @@ export class DesktopVietnamSettingsService {
     if (serialized.length > 4096) throw new Error("越南备货参数过长");
     return this.call("save", serialized);
   }
-  upload(path: string): Promise<DesktopVietnamSettingsState> { return this.call("upload", path); }
-  exportMap(kind: DesktopVietnamMapExportKind, path: string): Promise<DesktopVietnamMapExportResult> {
-    return this.call<DesktopVietnamMapExportResult>("export", kind, path);
+  uploadTemplate(path: string): Promise<DesktopVietnamSettingsState> { return this.call("upload-template", path); }
+  exportTemplate(path: string): Promise<DesktopVietnamTemplateExportResult> {
+    return this.call<DesktopVietnamTemplateExportResult>("export-template", path);
   }
 }

@@ -657,8 +657,7 @@ export interface DesktopInputAssetSlot {
   previous: DesktopInputAssetVersion | null;
 }
 
-export type DesktopVietnamMapExportKind = "template" | "current";
-export interface DesktopVietnamMapExportResult { path: string; }
+export interface DesktopVietnamTemplateExportResult { path: string; }
 
 export interface DesktopVietnamParameters {
   day_adjustment_7d: string;
@@ -674,8 +673,8 @@ export interface DesktopVietnamSettingsState {
   directory: string;
   parameters: DesktopVietnamParameters | null;
   parameters_error: string | null;
-  sku_map: DesktopInputAssetVersion | null;
-  sku_map_error: string | null;
+  template: DesktopInputAssetVersion | null;
+  template_error: string | null;
 }
 
 export interface DesktopUsageBalance {
@@ -744,8 +743,8 @@ export interface LxeDesktopBridge {
     revealInputAssetSlot(slot: string): Promise<void>;
     getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
-    uploadVietnamSkuMap(): Promise<DesktopVietnamSettingsState | null>;
-    exportVietnamSkuMap(kind: DesktopVietnamMapExportKind): Promise<DesktopVietnamMapExportResult | null>;
+    uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
+    exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;

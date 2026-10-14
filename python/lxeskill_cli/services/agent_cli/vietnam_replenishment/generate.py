@@ -21,10 +21,10 @@ def _failure(code: str, message: str) -> dict[str, Any]:
 
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Calculate supplied reports with an optional map and saved parameters."""
+    """Calculate supplied reports in the complete business workbook."""
     required = {"sales_file", "inventory_file", "products_file"}
-    if set(arguments) - (required | {"sku_map_file"}):
-        return _failure("invalid_arguments", "仅接受 sales_file、inventory_file、products_file 和可选 sku_map_file 文件路径")
+    if set(arguments) - (required | {"template_file"}):
+        return _failure("invalid_arguments", "仅接受三份报表和可选 template_file 文件路径")
     if required - set(arguments):
         return _failure("invalid_arguments", f"缺少必填报表路径: {', '.join(sorted(required - set(arguments)))}")
     for name, value in arguments.items():
@@ -48,7 +48,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         "output_xlsx": str(display_path(output)),
         "config": config_json(result.config),
         "config_source": result.config_source,
-        "sku_map_source": result.sku_map_source,
+        "template_source": result.template_source,
         "source_files": public_reports(list(result.source_files), YACANG_REPORTS),
         "validation": result.validation,
     }

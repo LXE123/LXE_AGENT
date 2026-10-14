@@ -183,6 +183,7 @@ test("approved Vietnam exec uses the ordinary CLI and leaves the session permiss
   const [request] = await pending(f.approvals);
   await f.approvals.decide({ session_id: "s", request_id: request!.request_id, decision: "allow" });
   const result = await execution;
-  expect(JSON.stringify(result.content)).toContain("sku_map");
+  expect(JSON.stringify(result.content)).toContain("template_file");
+  expect(JSON.stringify(result.content)).not.toContain("sku_map_file");
   expect(context.executionPolicy.mode).toBe("workspace-write");
 });
