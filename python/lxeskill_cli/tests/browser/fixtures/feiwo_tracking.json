@@ -1,0 +1,41 @@
+{
+  "status": 1,
+  "info": "",
+  "action": "",
+  "show_time": 1,
+  "data": {
+    "shipment": {
+      "shipment_id": "WEB25098791",
+      "client_reference": "",
+      "ext_number": "FBA191GB5WTM",
+      "outer_carrier_code": "FEDEX",
+      "outer_carrier_tracking_number": "FEDEX 884661650703",
+      "status": "delivered",
+      "country": "美国",
+      "postcode": "77032",
+      "traces": [
+        {"time": "2025-10-18 19:51:00", "info": "Arrived at FedEx location CYPRESS, TX, US"},
+        {"time": "2025-10-18 13:00:00", "info": "Delivered Houston, TX, US"},
+        {"time": "2025-10-18 12:21:20", "info": "On the way SONORA, TX, US"},
+        {"time": "2025-10-17 22:14:04", "info": "On the way DRAGOON, AZ, US"},
+        {"time": "2025-10-17 10:10:24", "info": "Left FedEx origin facility CHINO, CA, US"},
+        {"time": "2025-10-17 01:18:00", "info": "Arrived at FedEx location CHINO, CA, US"},
+        {"time": "2025-10-16 00:00:00", "info": "Picked up CHINO, CA, US"},
+        {"time": "2025-10-13 10:49:36", "info": "已到港 已卸船"},
+        {"time": "2025-10-08 11:29:53", "info": "10\\/1已开船 预计当地10\\/12到港 以实际开船到港为准"},
+        {"time": "2025-09-27 10:07:23", "info": "预计10\\/1开船 预计当地10\\/12到港 以实际开船到港为准"},
+        {"time": "2025-09-27 10:06:45", "info": "深圳集散中心 已发出"},
+        {"time": "2025-09-25 06:02:00", "info": "Shipment information sent to FedEx US"},
+        {"time": "2025-09-19 11:44:07", "info": "深圳仓集散中心 已收货 , *,CN"},
+        {"time": "2025-09-18 17:39:14", "info": "已下单"}
+      ],
+      "parcel_count": 1,
+      "self_reference": "",
+      "to_address_name": false,
+      "pod": false
+    }
+  },
+  "cost_time": 0.113553,
+  "grid_view_reload": 0,
+  "request_time": "2026-10-14 09:23:21"
+}

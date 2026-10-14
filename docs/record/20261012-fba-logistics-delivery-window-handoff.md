@@ -1,9 +1,9 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
-- 日期：2026-10-12；最新续档：2026-10-13。
-- 状态：威飒受控查询命令已经过真实会话单票验收；Amazon 多子货件页面也已确认必须按完整 FBA 建立“货件编号 N”映射。当前没有同时满足“已发货、页面可编辑、截止未过、物流日期超出当前时段”的合格实票，因此真实改期暂缓，不绕过业务门槛。最新交接以第 18 节为准；第 6—17 节中的执行状态和待办保留各轮当时的含义，不是当前启动指令。
+- 日期：2026-10-12；最新续档：2026-10-14。
+- 状态：威飒受控查询命令已经过真实会话单票验收；Amazon 多子货件页面也已确认必须按完整 FBA 建立“货件编号 N”映射。当前缺少合格改期实票，用户选择先接飞沃运通。飞沃真实 GET 请求及单票响应已取得，受控查询命令已实现并通过本地定向测试，LXE_Agent 实页验收待做。最新交接以第 19 节为准；第 18 节保留 Amazon 门槛，第 6—17 节中的执行状态和待办保留各轮当时的含义，不是当前启动指令。
 - 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析，复用原浏览器有效登录态；自动化接入仍必须走官方配对 Selenium，不维护逐物流商固定 ref 点击模板。Amazon 专用适配器、业务判断和依赖的通用浏览器能力保留。
-- 下一轮入口：等待一票 `orderStatus="已发货"`、`page_editable=true`、可编辑截止未过且有可靠物流预计日期的货件。先用 discovery 建立完整 FBA 到“货件编号 N”的唯一映射，再补查物流日期；只有日期超出该 FBA 自己的当前时段时才依次执行 `plan-only`、dry-run、人工批准和单次 apply。不得用“正在接收”货件、已签收历史票或状态未知的同流程子货件绕过门槛。
+- 下一轮入口：先按第 19 节在加载当前代码的 LXE_Agent 中验收飞沃历史票查询，无需等待改期实票。Amazon 改期继续等待一票 `orderStatus="已发货"`、`page_editable=true`、可编辑截止未过且有可靠物流预计日期的货件；先用 discovery 映射核对，只有物流日期超出该票当前时段时才依次执行 `plan-only`、dry-run、人工批准和单次 apply。不得用“正在接收”货件、已签收历史票或状态未知的同流程子货件绕过门槛。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
@@ -599,3 +599,64 @@ get_status
 ```
 
 没有合格样本时，将真实改期标记为“缺少测试数据，暂缓”，不视为功能失败，也不放宽状态、截止时间、唯一映射或人工批准门槛。本节只归档真实证据和下一轮入口；没有修改代码、技能、测试、Amazon、物流订单或原始表格。
+
+## 19 最新交接：飞沃真实请求已确认，受控单票查询待实页验收（2026-10-14）
+
+### 接入范围与真实证据
+
+用户确认最近没有合格 Amazon 改期样本，选择先接飞沃运通。历史票可以用于物流查询验收，查询不要求满足 Amazon 改期条件；第 18 节的状态、截止和批准门槛继续生效。
+
+用户手动验证带 `#/tracking?numbers=<FBA1>,<FBA2>` 的页面能填入并自动查询多个 FBA。Network 截图显示每票独立请求，其中 `FBA191GDH1H3` 显示红色失败，尚未取得其状态码或实际错误，原因未知。Codex 浏览器插件两次超时，公开网页读取也失败，没有独立看到业务页面，不将用户手动证据写成自动化实测。
+
+用户提供一条成功请求的完整地址、方法、查询参数和响应：
+
+```text
+GET http://feichi.nextsls.com/tracking/app?inajax=1&tracking_number=FBA191GB5WTM
+HTTP 200
+```
+
+`inajax=1`、`tracking_number=FBA191GB5WTM` 是 URL 查询参数，不是 POST body。DevTools 的 Remote address `127.0.0.1:12334` 不是供应商 origin，不配置为服务地址。页面 hash 路由不是查询接口。本轮没有取得请求头或认证契约，不能声称接口无认证或直接 Python/curl 请求已通过。
+
+| 字段 | 用户真实响应 |
+| --- | --- |
+| 业务状态 | 顶层 `status=1`、`info=""` |
+| 货件位置 | `data.shipment`，不是威飒 gridView 列表 |
+| 完整 FBA | `ext_number=FBA191GB5WTM` |
+| 飞沃运单 | `shipment_id=WEB25098791` |
+| 承运人及原始转单字段 | `FEDEX` / `FEDEX 884661650703` |
+| 物流状态、件数 | `delivered` / `1` |
+| 国家、邮编 | 美国 / `77032`，不是 Amazon 仓库代码 |
+| 轨迹 | 14 条，保留原始顺序和时间文本 |
+| 签收轨迹 | `2025-10-18 13:00:00` / `Delivered Houston, TX, US` |
+| 供应商请求时间 | `2026-10-14 09:23:21`，时区未知 |
+
+第一条轨迹是 `2025-10-18 19:51:00` 到达 CYPRESS FedEx 站点，晚于第二条签收事件。不把第一条当作签收，不修改或推断轨迹异常的原因。响应没有最终送达 ETA、仓库代码或时区。历史“预计到港”文本不能用作最终送达预计日期；这些是飞沃转述的 FedEx 轨迹，不是独立访问 FedEx 官网的核验。
+
+从原 `测试.xlsx / Sheet1!A1:P16` 只读扫描 15 行，取得飞沃样本 3 票：第 12 行 `FBA19QH9DYT9 / SBD1`、第 13 行 `FBA19QHCBPQB / RDU2`、第 14 行 `FBA19QHC9HHS / PSP3`，均为 `SP260917001`、`Amazon-Yunjian-US`。这是表格字段，尚未在飞沃核验；用户新提供的历史票是独立接口验收样本，不能把这三个仓库套到它上面。
+
+### 本轮实现
+
+- 新命令 `lxeskill logistics feiwo query`，模块 `services.agent_cli.logistics.feiwo_query`，`store_id` 和完整 `fba` 必填；可用 `expected_warehouse` 保留待核对仓库，但接口缺少仓库字段时始终明确未核实。未要求或虚构公司账户参数。
+- 仍要求 LXE 真实会话及官方配对 Selenium，强制严格附着唯一 `feichi.nextsls.com` 标签页，并核对 HTTP origin 和 `/tracking/app` 页面路径。原站内固定 GET，只查一个明确 FBA，不导航、重试、启动/重启店铺、枚举账户或扫描其他票。
+- 精确核对 `ext_number`，保留完整后缀；返回其他 FBA 时失败。只解析已观察的承运人前缀加单号布局，原始转单字段同时保留。缺项、不明布局、多包裹风险分别报告，不推断数字的承运人。
+- 只投影明确业务字段及轨迹，响应预算 2 MiB、字段 8000 字符、轨迹 200 条；超限显式标记并失败。未知结构、非 JSON、HTTP、provider、网络和 Selenium 错误保留实际诊断并脱敏，不导出认证数据，不调用马帮认证刷新。
+- 飞沃空结果及失败响应契约尚未抓取。`status!=1` 不擅自标为“没有货”或“登录失效”；缺少 `data.shipment` 返回实际结构错误。
+- `complete=true` 仅表示本次投影完整且结构和身份检查通过，不等于所有包裹/历史转单/在途状态已覆盖。`queried_at` 是本次 UTC 时间，`provider_request_time` 是供应商原文，两者分开。
+- `fba-logistics-query` 技能增加飞沃说明；`catalog.json` 增加 session-bound 命令，Python 和 Bun 契约同步。原威飒脱敏及 HTML 纯文本辅助函数提取到 `logistics/common.py` 复用，威飒请求和解析行为不变。Amazon 代码、状态规则及通用浏览器能力未改动。
+- `tests/browser/fixtures/feiwo_tracking.json` 保存用户响应及全部轨迹；旁边说明记录了为得到有效 JSON 而去掉粘贴的 Markdown 星号转义及 JSON 外尾部反斜线，不宣称是原始字节抓包。没有伪造在途或空结果 fixture。
+
+### 本地验证与下一轮入口
+
+从仓库根运行查询、CLI/infra 契约定向测试：首轮 593 项中 586 passed、4 skipped，3 项失败均为新增命令后旧的目录数量断言；更新对应数量后，最终针对飞沃、威飒和 CLI 的回归为 147 passed（飞沃 52 项、威飒 47 项、CLI 48 项）。Bun 命令及技能定向测试最终 27 passed。真实 adapter JS 由 Bun 执行，fetch 使用本地 mock 和用户真实响应 fixture，没有访问生产网站。`lxeskill doctor` 返回 `ok=true`，50 commands、44 business commands、39 skill files、44 command declarations。
+
+当前 Codex 终端检查 `LXE_AGENT_SESSION_ID absent`。受控命令仍须在加载本轮代码的 LXE_Agent 中完成实页验收；先确认店铺运行、唯一飞沃查询页，然后执行：
+
+```text
+lxeskill browser store --action get_status
+lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host feichi.nextsls.com --full
+lxeskill logistics feiwo query --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --fba FBA191GB5WTM
+```
+
+验收 `ok=true`、`request_succeeded=true`、`found=true`、`matched_count=1`、`complete=true`，运单 `WEB25098791`、FEDEX 转单 `884661650703`、状态 `delivered` 及 14 条轨迹；预期存在仓库/ETA/时区缺失提示，这些提示不能藏掉。再独立执行相同查询，比较业务字段与新的 `queried_at`。失败就保留完整脱敏结果，不用旧 ref 补点或重启。
+
+此后补红色失败请求的真实状态码和响应/错误，以核实失败形状；再按用户指定范围验收其他历史票、原表样本或在途票。无需把同形状的全部成功响应都复制一遍；新结构、缺项、多号码、空结果或失败时再补具体证据。不做批量扫描或 Amazon 改期，不执行合并前全量测试，不合并或释放当前 worktree。
