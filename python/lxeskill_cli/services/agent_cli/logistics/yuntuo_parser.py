@@ -1,7 +1,7 @@
 """Parse the user-captured Yuntuo trace response; no requests or login access.
 
-The 2026-10-16 sample establishes the response shape, but not the request's
-authentication headers or the business meaning of refno. Keep those unknown.
+The 2026-10-16 response establishes its shape and the supplied getTrack source
+labels refno as the transfer number. Authentication generation remains unknown.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def parse_result(payload: Any, *, http_status: int, fba: str,
     """Project known fields, exact-match the full FBA, and preserve trace order.
 
     This parser has no authority to classify an unobserved empty/error response
-    as not-found/login-expired, or to interpret refno as a tail-carrier number.
+    as not-found/login-expired, or to infer the carrier from a transfer number.
     It does not read timestamps as destination-local delivery dates.
     """
     result: dict[str, Any] = {
@@ -111,10 +111,15 @@ def parse_result(payload: Any, *, http_status: int, fba: str,
                 return fail("invalid_traces", f"Expected scanTime/scanStatus/remark strings in trace[{trace_index}]; observed " + diagnostic(trace))
             traces.append(trace)
         carrier = fields.get("carrier") or None
+        raw_tracking = fields.get("refno") or ""
+        # getTrack explicitly labels refno as the transfer number. Only the
+        # captured single alphanumeric value is recognized; no splitting of
+        # unobserved multiple-number layouts, prefixes or URLs.
+        tracking = raw_tracking.strip()
+        numbers = [tracking] if re.fullmatch(r"(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{6,}", tracking) else []
         missing = [key for key, value in (("shipment_number", fields.get("jobno")),
-            ("carrier", carrier), ("warehouse", None), ("tracking_numbers", None)) if not value]
+            ("carrier", carrier), ("warehouse", None), ("tracking_numbers", numbers)) if not value]
         warnings = [
-            "refno_role_unverified; preserve raw reference, do not assert tail-carrier tracking",
             "warehouse_unavailable; destName/cities are not warehouse codes",
             "eta_unavailable; port ETA is not a final-delivery estimate",
             "trace_timezone_unspecified; preserve scanTime and raw scanDatetime separately",
@@ -123,6 +128,8 @@ def parse_result(payload: Any, *, http_status: int, fba: str,
         ]
         if carrier is None:
             warnings.append("carrier_unavailable; do not infer from refno format or trace mentions")
+        if raw_tracking and not numbers:
+            warnings.append("tracking_layout_unrecognized; preserve raw refno")
         if expected_warehouse:
             warnings.append("expected_warehouse_not_verified")
         matches.append({
@@ -130,7 +137,8 @@ def parse_result(payload: Any, *, http_status: int, fba: str,
             "carrier": carrier, "reference_number": fields.get("refno") or "",
             "transport_number": fields.get("transportno") or "",
             "destination": fields.get("destName") or "",
-            "tracking_numbers": [], "warehouse": None, "warehouse_matches": None,
+            "tracking_numbers": numbers, "tracking_number_source": "refno",
+            "warehouse": None, "warehouse_matches": None,
             "eta": None, "parcel_count": None, "trace_timezone": None,
             "traces": traces, "trace_count": len(traces), "source_fields": fields,
             "missing_fields": missing, "warnings": warnings,

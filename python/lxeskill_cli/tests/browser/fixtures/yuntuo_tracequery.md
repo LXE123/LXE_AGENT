@@ -13,8 +13,9 @@ are preserved. Employee names, createDatetime, attachment URLs, modifyVersion,
 shipPodKey and shipPodUrl are omitted. No attachment URLs are fetched.
 
 referenceno exactly matches the FBA; jobno is 999260910003548 and refno is
-1Z16HE510305235582. The meaning of refno as a tail-carrier tracking number
-has not yet been corroborated by a page field label. carrier is empty;
+1Z16HE510305235582. The subsequently supplied getTrack JavaScript explicitly
+maps jobno/refno/referenceno to labels 运单/zhuan单/参考. This confirms refno's
+transfer-number role without inferring it from its format. carrier is empty;
 neither the 1Z format nor UPS mentions in trace remarks confirm this field.
 No warehouse code, parcel count, final-delivery ETA, account identity or
 timezone is provided. The remark containing ETA refers to the destination
@@ -29,3 +30,11 @@ unverified; the request timezone is not proof of trace/destination timezone.
 No Cookie/token/Authorization values were supplied or are expected in fixtures. Empty-result,
 failure, other-FBA and multi-row cases in tests are synthetic robustness cases,
 not additional real supplier contracts or live automation evidence.
+
+The supplied getTrack calls this.$httpService.get("oms/tms/tracequery/list", n).
+It accepts an already-unwrapped array, renders trace remarks and may create
+placeholder rows for missing inputs. Those placeholders are client-side data,
+not rows captured in the supplier response. Its empty-array handling does not
+establish a real empty HTTP response or the service's unwrap/error behavior.
+The supplied function contains no token/sign injection or signing algorithm;
+the implementation of $httpService and its request interceptors is still needed.

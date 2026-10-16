@@ -736,7 +736,7 @@ HTTP 200
 | 业务列表 | 顶层 `body` 数组，当前 1 行 |
 | 完整 FBA | `referenceno=FBA19P9T04B2`，精确一致 |
 | 云驼运单 | `jobno=999260910003548` |
-| 原始参考编号 | `refno=1Z16HE510305235582`；尚缺页面字段标签确认其尾程转单含义 |
+| 转单号 | `refno=1Z16HE510305235582`；用户随后提供的 `getTrack` 源码明确标为“zhuan单”，不按号码格式推断含义 |
 | 承运人 | `carrier=""`，不按 1Z 格式或轨迹中的 UPS 文本补为 UPS |
 | 目的地 | `destName="US-美国"`，不是 Amazon 仓库代码 |
 | 其他编号 | `transportno=""` |
@@ -751,12 +751,14 @@ HTTP 200
 
 本轮不将 token 或捕获的 sign 写入代码、fixture、日志或文档，不猜 token 存储位置、签名算法、签名是否按请求变化或过期规则。现有威飒/飞沃的原站 `fetch(credentials="same-origin")` 不会自动复制前端自定义的 token/sign，不能声称照搬后已支持云驼认证。
 
-下一步由用户在该目标请求的 `Initiator/发起程序` 中定位实际脚本或调用栈，取得请求封装、认证头注入及签名生成的相关代码片段（隐藏实际认证值）。同时需要页面字段证据确认 `refno` 的业务含义及当前账户。无需发送完整 HAR、Cookie 或明文 token。未取得这些证据前，不开放猜测认证方式的查询命令。
+用户随后提供 Initiator 调用栈及完整 `getTrack` 函数：查询调用是 `this.$httpService.get("oms/tms/tracequery/list", n)`。函数明确将 `jobno/refno/referenceno` 分别标为“运单/zhuan单/参考”，补齐了 `refno` 的转单字段语义。函数负责轨迹展示和缺失票的客户端占位行，不包含 token/sign 生成；不能把其占位行或空数组展示逻辑当作实际 HTTP 空结果 fixture。
+
+下一步需要 `$httpService` 的定义、请求拦截器及签名生成相关代码（隐藏实际认证值），或承载这些代码的完整静态脚本 URL。当前账户身份仍待页面确认。无需发送完整 HAR、Cookie 或明文 token。未取得这些证据前，不开放猜测认证方式的查询命令。
 
 ### 本轮完成的代码及验证
 
 - 新增独立、无网络副作用的 `services.agent_cli.logistics.yuntuo_parser`，从真实响应投影已知字段，精确核对完整 `referenceno`，保留全部匹配行和原始轨迹；未知结构、身份不符、provider/HTTP 错误保留真实诊断，不改写为无货或登录失效。
-- 保留 `reference_number/refno`；`tracking_numbers=[]`，明确报告参考编号用途尚未核实。`carrier=null`、`warehouse=null`、`eta=null`，不补猜。`complete=true` 只表示解析投影完整，不代表认证、真实命令、全部包裹或在途能力验收。
+- 保留 `reference_number/refno` 原文；取得 `getTrack` 字段语义证据后，将已观察的单个字母数字转单号输出至 `tracking_numbers`，并标明来源 `refno`。未观察的多号、前缀或其他布局保留原文并报告缺项，不猜拆分。`carrier=null`、`warehouse=null`、`eta=null`，不补猜。`complete=true` 只表示解析投影完整，不代表认证、真实命令、全部包裹或在途能力验收。
 - 响应投影最多 100 行，每行最多 200 条轨迹，单业务字段最多 8000 字符；超限显式失败，不用截断身份匹配。空列表形状尚无真实样本，单独返回 `empty_result_unverified`，不宣称已证实查无货。
 - `tests/browser/fixtures/yuntuo_tracequery.json` 是本次真实响应的最小投影，保留全部 20 条业务轨迹；省略员工姓名、创建时间、附件 URL 及无关字段。旁边说明文件记录投影范围。测试里的异常、空列表、多行是合成健壮性用例，不冒充真实供应商响应契约。
 - 当前尚无 `lxeskill logistics yuntuo query` 命令，未修改 `catalog.json` 或模型技能契约。现有威飒、飞沃、Amazon 和通用浏览器实现不变。
@@ -768,6 +770,8 @@ uv run --frozen pytest python/lxeskill_cli/tests/browser/test_yuntuo_parser.py p
 ```
 
 首次因沙箱不能访问 uv 缓存而退出，获准放宽权限后真实执行完毕，退出码 0，`135 passed`（云驼 36、威飒 47、飞沃 52）。只使用本地 fixture，没有生产请求。当前终端检查 `LXE_AGENT_SESSION_ID absent`。未执行全量验证、未合并或释放 worktree，未更改 PR 远端分支。
+
+取得 `getTrack` 字段语义证据后更新转单解析，新增 6 个单号/未知布局用例；仅重跑受影响的 `test_yuntuo_parser.py`，退出码 0，`42 passed`。威飒、飞沃及共用代码没有变化，未重复运行其回归。查询命令仍待请求封装证据。
 
 ### 2026-10-14 驱动迁移补记
 

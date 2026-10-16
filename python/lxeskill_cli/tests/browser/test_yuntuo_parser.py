@@ -21,7 +21,7 @@ def parse(payload, **kwargs):
         fba=kwargs.pop("fba", FBA), **kwargs)
 
 
-def test_real_shipment_preserves_evidence_without_inventing_tracking_role_or_eta(payload):
+def test_real_shipment_preserves_source_verified_transfer_number_without_inventing_carrier_or_eta(payload):
     result = parse(payload, expected_warehouse="TEST1")
     assert result["success"] and result["request_succeeded"] and result["complete"]
     assert result["found"] and result["matched_count"] == result["returned_count"] == 1
@@ -30,12 +30,14 @@ def test_real_shipment_preserves_evidence_without_inventing_tracking_role_or_eta
     assert match["fba_numbers"] == [FBA]
     assert match["shipment_number"] == "999260910003548"
     assert match["reference_number"] == "1Z16HE510305235582"
-    assert match["carrier"] is None and match["tracking_numbers"] == []
+    assert match["carrier"] is None
+    assert match["tracking_numbers"] == ["1Z16HE510305235582"]
+    assert match["tracking_number_source"] == "refno"
     assert match["destination"] == "US-美国"
     assert match["transport_number"] == ""
     assert match["warehouse"] is match["warehouse_matches"] is match["eta"] is None
     assert match["trace_timezone"] is match["parcel_count"] is None
-    assert set(match["missing_fields"]) == {"carrier", "warehouse", "tracking_numbers"}
+    assert set(match["missing_fields"]) == {"carrier", "warehouse"}
     assert "expected_warehouse_not_verified" in match["warnings"]
     assert match["trace_count"] == 20
     assert match["traces"] == payload["body"][0]["podInfoDTOList"]
@@ -45,6 +47,24 @@ def test_real_shipment_preserves_evidence_without_inventing_tracking_role_or_eta
     assert "delivered_at" not in match and "shipment_status" not in match
     assert any("ETA:" in trace["remark"] for trace in match["traces"])
     assert any("UPS" in trace["remark"] for trace in match["traces"])
+
+
+@pytest.mark.parametrize("raw,numbers", [
+    ("1Z16HE510305235582", ["1Z16HE510305235582"]),
+    (" 1Z16HE510305235582 ", ["1Z16HE510305235582"]),
+    ("1Z16HE510305235582,1Z16HE510305235583", []),
+    ("UPS 1Z16HE510305235582", []),
+    ("---", []), ("", []),
+])
+def test_unknown_transfer_number_layouts_preserve_raw_field_without_guessing(payload, raw, numbers):
+    payload["body"][0]["refno"] = raw
+    match, = parse(payload)["matches"]
+    assert match["tracking_numbers"] == numbers
+    assert match["source_fields"]["refno"] == raw
+    assert match["reference_number"] == raw
+    assert match["carrier"] is None
+    assert ("tracking_numbers" in match["missing_fields"]) is (not bool(numbers))
+    assert ("tracking_layout_unrecognized; preserve raw refno" in match["warnings"]) is bool(raw and not numbers)
 
 
 @pytest.mark.parametrize("suffix", ["U000001", "9", "X"])
