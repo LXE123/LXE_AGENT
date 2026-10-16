@@ -20,12 +20,9 @@ from shared.repository import repository_root
 REPO_ROOT = repository_root()
 
 ALLOWED_TOP_LEVEL_DIRECTORIES = {
-    # TS world
     "apps",
     "packages",
-    # Python world
     "python",
-    # Assets and supporting material
     "skills",
     "config",
     "docs",

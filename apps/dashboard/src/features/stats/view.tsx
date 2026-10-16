@@ -1,4 +1,3 @@
-// Usage statistics view (turns / skills / tools aggregates).
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { CircleX, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";

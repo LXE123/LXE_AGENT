@@ -1,4 +1,3 @@
-// UI copy (zh/en) and the language context.
 import React from "react";
 import { skillDisplayName } from "./skill-labels";
 

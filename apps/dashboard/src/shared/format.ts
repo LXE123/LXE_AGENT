@@ -1,4 +1,3 @@
-// Pure formatting helpers.
 import type { UiText } from "./i18n";
 import type { SkillPayload } from "../api/payloads";
 
