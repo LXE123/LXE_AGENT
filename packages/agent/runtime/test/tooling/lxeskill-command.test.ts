@@ -126,6 +126,22 @@ test("Shangman login commands belong to the login skill and expose only the capt
   expect(commands.find(entry => entry.name === "shangman_login_prepare")?.artifactPaths).toEqual([{ field: "image_path", role: "model_input" }]);
 });
 
+test("Jiufang public query owns a non-browser, session-free FBA normalization contract", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const entries = loadLxeSkillCommandCatalog(path);
+  expect(entries.find(entry => entry.name === "logistics_jiufang_query")).toMatchObject({
+    command: "lxeskill logistics jiufang query",
+    module: "services.agent_cli.logistics.jiufang_query",
+    ownerSkills: ["jiufang-logistics-query"],
+  });
+  const raw = JSON.parse(readFileSync(path, "utf8")).entries.find((entry: any) => entry.name === "logistics_jiufang_query");
+  expect(raw.session_mode).toBe("none");
+  expect(raw.visibility).toBe("business");
+  expect(raw.input_schema.required).toEqual(["fba"]);
+  expect(raw.input_schema.properties.store_id).toBeUndefined();
+  expect(raw.input_schema.properties.identifier_kind.enum).toEqual(["auto", "shipment", "box"]);
+});
+
 test("Yuntuo query uses the logistics skill and a session-bound single-FBA contract", () => {
   const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
   const entries = loadLxeSkillCommandCatalog(path);
@@ -265,7 +281,7 @@ test("flags-only export contracts have matching skill ownership and reject inval
   const document = JSON.parse(readFileSync(path, "utf8"));
   const entries = loadLxeSkillCommandCatalog(path);
   const scoped = document.entries.filter((entry: any) => entry.input_modes !== undefined);
-  expect(scoped).toHaveLength(17);
+  expect(scoped).toHaveLength(18);
   const known = new Map(entries.map(entry => [entry.command, entry.ownerSkills]));
   for (const raw of scoped) {
     expect(raw.input_modes).toEqual(["flags"]);

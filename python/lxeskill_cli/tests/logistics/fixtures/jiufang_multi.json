@@ -1,0 +1,107 @@
+{
+  "code": 200,
+  "message": null,
+  "data": [
+    {
+      "volume": 0.2,
+      "referenceNo": "FBA15GJ013CQ-FBA15GJ1LNL0",
+      "trackNumber": "",
+      "loadingPort": 1,
+      "shipmentId": "FBA15GJ013CQ,FBA15GJ1LNL0",
+      "destination": "澳大利亚-FBA-XSY2",
+      "weight": 54.2,
+      "lines": [
+        {
+          "status": 2,
+          "content": "已提货",
+          "operationDateTime": null,
+          "remark": null,
+          "state": false
+        },
+        {
+          "status": 30,
+          "content": "已入库",
+          "operationDateTime": "2026-09-22 00:05",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 40,
+          "content": "已出库",
+          "operationDateTime": "2026-09-22 12:15",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 60,
+          "content": "已报关",
+          "operationDateTime": "2026-09-22",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 70,
+          "content": "已放行",
+          "operationDateTime": "2026-09-22",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 80,
+          "content": "已离港",
+          "operationDateTime": "2026-09-24 03:28",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 90,
+          "content": "已到港",
+          "operationDateTime": "2026-09-24 14:38",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 100,
+          "content": "已申报",
+          "operationDateTime": "2026-09-24 11:18",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 110,
+          "content": "已放行",
+          "operationDateTime": "2026-09-24 11:19",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 120,
+          "content": "已到仓",
+          "operationDateTime": "2026-09-25 14:58",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 130,
+          "content": "已转运",
+          "operationDateTime": "2026-09-27 21:00",
+          "remark": null,
+          "state": true
+        },
+        {
+          "status": 140,
+          "content": "已签收(结)",
+          "operationDateTime": "2026-09-27 21:00",
+          "remark": null,
+          "state": true
+        }
+      ],
+      "shippingWay": "空运",
+      "waybillNo": "ZX2609QG14",
+      "packageNum": 4
+    }
+  ],
+  "data2": [],
+  "data3": null,
+  "data4": null
+}

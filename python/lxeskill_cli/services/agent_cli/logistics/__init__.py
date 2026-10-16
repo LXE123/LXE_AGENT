@@ -1,1 +1,1 @@
-"""Read-only logistics commands executed in the original store browser."""
+"""Read-only logistics adapters using paired browsers or verified public HTTP."""

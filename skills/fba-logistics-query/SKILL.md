@@ -10,6 +10,8 @@ commands:
 
 # 威飒单票查询
 
+九方通逊使用独立技能 `jiufang-logistics-query` 和命令 `lxeskill logistics jiufang query`，已验证公开接口可匿名查询，不需要物流账号或紫鸟店铺；支持对已知箱号后缀拆分并精确核对返回的主号。不能把官网顶部搜索框的登录限制套用到公开接口。本技能下的威飒、飞沃和云驼仍沿用各自的浏览器查询约束。
+
 通过 `exec` 独立调用 canonical CLI。在 LXE_Agent 真实会话中，复用已运行紫鸟店铺和威飒登录态。按 `ziniao-browser` 技能先 `get_status`，核对指定店铺运行，再使用 `--strict-attach --target-host wsaexp.nextsls.com` 快照核对唯一威飒标签页及当前公司账户。`account_name` 使用本次快照实际显示的完整公司名，不能照抄历史账户。
 
 ```text

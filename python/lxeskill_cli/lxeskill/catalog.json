@@ -2,6 +2,27 @@
   "protocol_version": "1",
   "entries": [
     {
+      "name": "logistics_jiufang_query",
+      "module": "services.agent_cli.logistics.jiufang_query",
+      "command_path": ["logistics", "jiufang", "query"],
+      "visibility": "business",
+      "session_mode": "none",
+      "owner_skills": ["jiufang-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 90000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "一个完整 FBA 主号或箱级编号；保留原值，仅识别末尾 U+6位数字，返回 shipmentId 必须精确匹配主号。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "默认 auto，识别已验证箱号后缀；shipment 明确保留整个主号；box 要求 U+6位数字后缀。不按主号固定长度切分。"},
+          "expected_warehouse": {"type": "string", "description": "可选目的仓代码，仅核对返回目的仓，不参与请求筛选。"}
+        },
+        "required": ["fba"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "logistics_yuntuo_query",
       "module": "services.agent_cli.logistics.yuntuo_query",
       "command_path": ["logistics", "yuntuo", "query"],
