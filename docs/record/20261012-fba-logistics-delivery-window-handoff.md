@@ -1,9 +1,9 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
-- 日期：2026-10-12；最新续档：2026-10-14。
-- 状态：本轮开发与实测记录已归档，PR #91 已创建并等待管理员评审。威飒真实查询、飞沃单票两次独立查询、Amazon 完整 FBA 与子货件映射已取得真实证据；合格实票的当前完整改期闭环仍待样本。最新交接以第 20 节为准；第 18 节保留 Amazon 门槛，第 19 节保留飞沃实现与实测明细，较早各节保留历史执行状态。
+- 日期：2026-10-12；最新续档：2026-10-16。
+- 状态：此前成果已归档并提交 PR #91，归档时等待管理员评审，当前在线评审状态未重新核验。威飒真实查询、飞沃单票两次独立查询、Amazon 完整 FBA 与子货件映射已取得真实证据；合格实票的当前完整改期闭环仍待样本。用户现要求继续接入云驼，最新交接以第 21 节为准；第 20 节保留 PR 归档状态，第 18 节保留 Amazon 门槛，第 19 节保留飞沃实现与实测明细，较早各节保留历史执行状态。
 - 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析，复用原浏览器有效登录态；自动化接入仍必须走官方配对 Selenium，不维护逐物流商固定 ref 点击模板。Amazon 专用适配器、业务判断和依赖的通用浏览器能力保留。
-- 下一轮入口：等待 PR #91 的评审反馈，再按具体反馈修改当前任务分支。物流异常样本、在途 ETA 和合格实票改期作为后续验收项保留，不要求继续重复已通过的历史票。当前聊天转入 CI/CD 讲解；尚未实施 CI/CD 配置。
+- 下一轮入口：按第 21 节继续核实云驼页面请求封装和认证头生成逻辑，再接通受控查询命令。PR #91 的实际评审反馈、物流异常样本、在途 ETA 和合格实票改期作为独立待办保留，不要求继续重复已通过的历史票。尚未实施 CI/CD 配置。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
@@ -715,3 +715,62 @@ lxeskill logistics feiwo query --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --fba FBA19
 5. 当前保留分支和 worktree，不合并 main、不释放池 slot，不因“归档”结束店铺或改写物流订单、Amazon、原始表格。恢复真实页面工作前重新检查 LXE 会话、店铺状态和唯一目标页面，历史状态及 ref 不能替代实时核对。
 
 CI/CD 是接下来的讨论主题。已读当前分支及取回的 `origin/main`：仓库已有 `verify:source`、Windows `release:build` 和人工确认的 `release:publish`，未发现 `.github/workflows`；仓库外 CI 服务及 GitHub 设置尚未核实。尚未添加任何 CI/CD 文件或改变发布流程。
+
+## 21 云驼续接：真实响应解析通过，认证请求链待核实（2026-10-16）
+
+用户要求接入云驼，并提供历史票 `FBA19P9T04B2` 的 Network 截图、请求资料和完整响应文本。无需等待可改期样本即可验证物流查询，但该票不能直接用于未来改期建议。证据来自用户手动页面查询，不是当前 Codex 终端的生产访问。
+
+### 已取得的真实契约
+
+```text
+页面：https://vip.yjtms.com:11000/customer/trackquery/?jobno=FBA19P9T04B2
+GET https://vip.yjtms.com:11000/tms-saas-oms/oms/tms/tracequery/list?noList=FBA19P9T04B2&queryType=99
+HTTP 200
+```
+
+`noList` 和 `queryType` 是 URL 查询参数。Remote Address `127.0.0.1:33745` 不是供应商 origin，不配置为接口地址。用户确认截图中带目标 FBA 的 `list` 是本次业务查询；上方同名请求的用途尚未核实，不能统称为验证请求或一并调用。
+
+| 字段 | 真实响应及边界 |
+| --- | --- |
+| 业务状态 | `result_code=0`，`message/solution="请求成功"` |
+| 业务列表 | 顶层 `body` 数组，当前 1 行 |
+| 完整 FBA | `referenceno=FBA19P9T04B2`，精确一致 |
+| 云驼运单 | `jobno=999260910003548` |
+| 原始参考编号 | `refno=1Z16HE510305235582`；尚缺页面字段标签确认其尾程转单含义 |
+| 承运人 | `carrier=""`，不按 1Z 格式或轨迹中的 UPS 文本补为 UPS |
+| 目的地 | `destName="US-美国"`，不是 Amazon 仓库代码 |
+| 其他编号 | `transportno=""` |
+| 轨迹 | `podInfoDTOList` 20 条，保留数组原顺序及原始时间文本 |
+| 签收轨迹 | `scanStatus="货物已签收"`，`scanTime="2026/10/07 23:43"`，备注“10/7快递已签收”；不推定目的地时区或独立 UPS 官网核验 |
+
+响应没有仓库代码、件数、最终送达 ETA、公司账户身份或已确认时区。备注中的 `ETA:2026-09-27` 对应 LONG BEACH 到港，不能作为送达 Amazon 仓库的日期。`scanDatetime` 毫秒数与 `scanTime` 文本分别保留，不用浏览器或本机时区转换后覆盖原文。附件 URL 未访问。
+
+### 认证证据与当前阻点
+
+用户随后提供 Request Headers，确认存在 `token`（值已删除）、`sign`、`hyecurrentstatid`、`locale`、`timezone` 和 `version`。这些与截图中的 Response Headers/CORS 允许列表是两回事。请求时区配置不能证明轨迹或目的仓的业务时区。
+
+本轮不将 token 或捕获的 sign 写入代码、fixture、日志或文档，不猜 token 存储位置、签名算法、签名是否按请求变化或过期规则。现有威飒/飞沃的原站 `fetch(credentials="same-origin")` 不会自动复制前端自定义的 token/sign，不能声称照搬后已支持云驼认证。
+
+下一步由用户在该目标请求的 `Initiator/发起程序` 中定位实际脚本或调用栈，取得请求封装、认证头注入及签名生成的相关代码片段（隐藏实际认证值）。同时需要页面字段证据确认 `refno` 的业务含义及当前账户。无需发送完整 HAR、Cookie 或明文 token。未取得这些证据前，不开放猜测认证方式的查询命令。
+
+### 本轮完成的代码及验证
+
+- 新增独立、无网络副作用的 `services.agent_cli.logistics.yuntuo_parser`，从真实响应投影已知字段，精确核对完整 `referenceno`，保留全部匹配行和原始轨迹；未知结构、身份不符、provider/HTTP 错误保留真实诊断，不改写为无货或登录失效。
+- 保留 `reference_number/refno`；`tracking_numbers=[]`，明确报告参考编号用途尚未核实。`carrier=null`、`warehouse=null`、`eta=null`，不补猜。`complete=true` 只表示解析投影完整，不代表认证、真实命令、全部包裹或在途能力验收。
+- 响应投影最多 100 行，每行最多 200 条轨迹，单业务字段最多 8000 字符；超限显式失败，不用截断身份匹配。空列表形状尚无真实样本，单独返回 `empty_result_unverified`，不宣称已证实查无货。
+- `tests/browser/fixtures/yuntuo_tracequery.json` 是本次真实响应的最小投影，保留全部 20 条业务轨迹；省略员工姓名、创建时间、附件 URL 及无关字段。旁边说明文件记录投影范围。测试里的异常、空列表、多行是合成健壮性用例，不冒充真实供应商响应契约。
+- 当前尚无 `lxeskill logistics yuntuo query` 命令，未修改 `catalog.json` 或模型技能契约。现有威飒、飞沃、Amazon 和通用浏览器实现不变。
+
+从仓库根运行：
+
+```text
+uv run --frozen pytest python/lxeskill_cli/tests/browser/test_yuntuo_parser.py python/lxeskill_cli/tests/browser/test_wesa_query.py python/lxeskill_cli/tests/browser/test_feiwo_query.py
+```
+
+首次因沙箱不能访问 uv 缓存而退出，获准放宽权限后真实执行完毕，退出码 0，`135 passed`（云驼 36、威飒 47、飞沃 52）。只使用本地 fixture，没有生产请求。当前终端检查 `LXE_AGENT_SESSION_ID absent`。未执行全量验证、未合并或释放 worktree，未更改 PR 远端分支。
+
+### 2026-10-14 驱动迁移补记
+
+用户明确要求迁移桌面的驱动，自行修改 LXE_Agent 设置。12 个 `chromedriver数字` 文件已实际移动至 `/Users/lxe-3/ziniao-drivers`，移动后逐项确认文件存在且执行权限保留，桌面不再存在这些文件。用户随后回传店铺状态查询及威飒只读快照成功；这证明页面连接可用，但输出未展示实际加载的驱动路径，不能据此独立确认加载的是新目录里的二进制。
+
+用户本轮还提供了日志错误的完整路径：`PermissionError: [Errno 1] Operation not permitted: '/Users/lxe-3/LXE_AGENT/.worktrees/pool-1/var/logs/runtime/20261014/runtime-py.log'`；用户报告单次放宽权限后正常。此问题与驱动迁移独立，尚未修复，不将该次授权视为永久授权，也不绕过执行会话或修改日志配置。
