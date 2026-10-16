@@ -1,10 +1,11 @@
 ---
 name: fba-logistics-query
-description: 按完整 FBA 标识查询威飒或飞沃运通的运单、尾程承运人和转单号。威飒可核对目的仓，飞沃可读取物流轨迹；当前不提供已核实的尾程 ETA 或 Amazon 改期。
+description: 按完整 FBA 标识查询威飒、飞沃运通或云驼的运单、转单号和已有物流信息。威飒可核对目的仓，飞沃和云驼可读取轨迹；承运人缺失明确报告，当前不提供已核实的尾程 ETA 或 Amazon 改期。
 type: ziniao_browser
 commands:
   - lxeskill logistics wesa query
   - lxeskill logistics feiwo query
+  - lxeskill logistics yuntuo query
 ---
 
 # 威飒单票查询
@@ -53,3 +54,25 @@ lxeskill logistics feiwo query --store-id <store_id> --fba <完整FBA>
 - 未取得飞沃空结果/失败响应契约；`status!=1` 或缺少货件对象时保留真实状态、`info` 或结构错误，不能自行解释成查无货或登录过期。HTTP/JSON/网络/Selenium 错误同样原样脱敏保留，停止后让用户处理，不执行马帮认证刷新。
 
 2026-10-14 用户提供的 `FBA191GB5WTM` 是已签收历史票，可验收查询，不做改期。实现及真实响应 fixture 的本地测试不等于 LXE_Agent 实页验收；须独立重复查询并比较货件字段与新查询时间。其他 FBA、多包裹、空结果和在途数据分别验收后再扩大范围。
+
+# 云驼单票查询
+
+在 LXE_Agent 真实会话中，先按 `ziniao-browser` 查询店铺状态，再读取唯一云驼页面并核对当前公司账户：
+
+```text
+lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host vip.yjtms.com --full
+lxeskill logistics yuntuo query --store-id <store_id> --fba <完整FBA>
+```
+
+目标页面必须为 `https://vip.yjtms.com:11000/customer/trackquery/`，可带原有查询参数。页面未打开、域名匹配不唯一或账户不明时停止处理对应项；不替换其他标签页、不启动或重启店铺。`store_id` 沿用本次核实的真实值，不能照抄历史运行状态。
+
+命令通过官方配对 Selenium，在原页面中复用唯一 `$httpService.getRequestHeader`，为固定参数 `{noList: <完整FBA>, queryType: 99}` 生成认证头，再 GET 固定同源路径 `/tms-saas-oms/oms/tms/tracequery/list`。原生函数内部管理认证；适配器不自行枚举存储、提取原始 token 或导出 Cookie/token/sign，不复制签名算法、不持久化认证材料。不调用会丢失错误详情的页面通用 `.get`。调用方不能指定 URL、脚本、请求头或认证值。
+
+- 检查顶层 `ok`、`request_succeeded`、`found`、`matched_count` 和 `complete`，并报告 warnings/missing_fields。`body[].referenceno` 必须精确等于完整 FBA，不能截断后缀或使用第一个近似结果。
+- `jobno` 为云驼运单号，`refno` 为转单号（已有 `getTrack` 源码字段标签证据），`referenceno` 为参考编号。已观察单个字母数字转单布局才输出 `tracking_numbers`；原始 `source_fields/refno` 一并保留，未知多号或前缀布局不猜拆分。
+- 真实样本 `carrier=""`，因此 `carrier=null`；不按 `1Z` 格式或轨迹提到 UPS 就认定承运人。`destName=US-美国` 不是 Amazon 仓库；`warehouse/warehouse_matches/eta/parcel_count` 未提供时保留为空，不由城市、国家或参考编号补猜。`--expected-warehouse` 只保留核对需求。
+- `podInfoDTOList` 按原始数组顺序输出全部有界轨迹，保留 `scanTime`、`scanDatetime`、状态、站点和备注，不把第一条自动当作实际签收时间。时间文本与数值分别保留；请求头时区不能证明目的地业务时区。备注中 LONG BEACH 的 ETA 是到港日期，不能当最终送达 Amazon 仓库的日期。
+- 页内服务扫描上限 2000 个元素，匹配服务零个、多个或扫描截断时失败；未知生成头字段也失败。响应 2 MiB、最多 100 行、每行 200 条轨迹、单字段 8000 字符；超限显式失败。`complete=true` 只说明本次投影完整，不证明全部包裹、历史转单或在途能力。
+- HTTP/provider/网络/原生头生成/Selenium 异常保留实际脱敏诊断，失败即停；不自动重试、切换账户或刷新登录。空结果真实契约尚无样本，`empty_result_unverified` 不表示已经证实无货。登录失效时由用户完成验证，不调用马帮认证刷新。
+
+2026-10-16 `FBA19P9T04B2` 的手动响应及前端源码已经核实；本地测试不代表该新命令实页验收。先对这票执行单次真实查询，核对运单 `999260910003548`、转单 `1Z16HE510305235582`、20 条轨迹和承运人/仓库/ETA 等缺项；成功后独立重复一次并比较业务字段和新 `queried_at`。失败保留实际结果，不重启补救。查询不授权物流订单、原表或 Amazon 写入。

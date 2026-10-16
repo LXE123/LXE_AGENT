@@ -1,9 +1,9 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12；最新续档：2026-10-16。
-- 状态：此前成果已归档并提交 PR #91，归档时等待管理员评审，当前在线评审状态未重新核验。威飒真实查询、飞沃单票两次独立查询、Amazon 完整 FBA 与子货件映射已取得真实证据；合格实票的当前完整改期闭环仍待样本。用户现要求继续接入云驼，最新交接以第 21 节为准；第 20 节保留 PR 归档状态，第 18 节保留 Amazon 门槛，第 19 节保留飞沃实现与实测明细，较早各节保留历史执行状态。
+- 状态：此前成果已归档并提交 PR #91，归档时等待管理员评审，当前在线评审状态未重新核验。威飒真实查询、飞沃单票两次独立查询、Amazon 完整 FBA 与子货件映射已取得真实证据；合格实票的当前完整改期闭环仍待样本。云驼受控查询命令现已实现，最新交接以第 22 节为准；第 21 节保留云驼取证过程，第 20 节保留 PR 归档状态，第 18 节保留 Amazon 门槛，第 19 节保留飞沃实现与实测明细，较早各节保留历史执行状态。
 - 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析，复用原浏览器有效登录态；自动化接入仍必须走官方配对 Selenium，不维护逐物流商固定 ref 点击模板。Amazon 专用适配器、业务判断和依赖的通用浏览器能力保留。
-- 下一轮入口：按第 21 节继续核实云驼页面请求封装和认证头生成逻辑，再接通受控查询命令。PR #91 的实际评审反馈、物流异常样本、在途 ETA 和合格实票改期作为独立待办保留，不要求继续重复已通过的历史票。尚未实施 CI/CD 配置。
+- 下一轮入口：按第 22 节在真实 LXE_Agent 会话核对云驼页面和账户，再验收单票查询及独立重复调用。PR #91 的实际评审反馈、物流异常样本、在途 ETA 和合格实票改期作为独立待办保留，不要求继续重复已通过的历史票。尚未实施 CI/CD 配置。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
@@ -778,3 +778,42 @@ uv run --frozen pytest python/lxeskill_cli/tests/browser/test_yuntuo_parser.py p
 用户明确要求迁移桌面的驱动，自行修改 LXE_Agent 设置。12 个 `chromedriver数字` 文件已实际移动至 `/Users/lxe-3/ziniao-drivers`，移动后逐项确认文件存在且执行权限保留，桌面不再存在这些文件。用户随后回传店铺状态查询及威飒只读快照成功；这证明页面连接可用，但输出未展示实际加载的驱动路径，不能据此独立确认加载的是新目录里的二进制。
 
 用户本轮还提供了日志错误的完整路径：`PermissionError: [Errno 1] Operation not permitted: '/Users/lxe-3/LXE_AGENT/.worktrees/pool-1/var/logs/runtime/20261014/runtime-py.log'`；用户报告单次放宽权限后正常。此问题与驱动迁移独立，尚未修复，不将该次授权视为永久授权，也不绕过执行会话或修改日志配置。
+
+## 22 云驼受控查询命令已实现，待真实会话验收（2026-10-16）
+
+### 请求封装证据与实现选择
+
+用户提供完整静态脚本 [vendor.88f20a13bf63cefc60d8.1791808844334.js](https://vip.yjtms.com:11000/static/js/vendor.88f20a13bf63cefc60d8.1791808844334.js)。网页读取工具未取得内容，终端首次下载因沙箱 DNS 限制失败；获准后只下载此公开脚本，没有携带登录凭据或查询货件。实际文件 1,546,042 字节，SHA-256 为 `8c1cbc4e4d94ed68544723121ba7695ad7b6d0486b0ed1718504712dcaa6132f`。没有将整个第三方脚本加入仓库。
+
+静态源码的 `Mj9K` 模块导出 `$httpService` 的方法，`getRequestHeader(params)` 会使用页面当前认证状态，添加本次 timestamp、nonce、version 和查询参数，再通过 `jOZb` 模块的 getSign/getToken 生成头；同时添加页面管理的 timeZone、locale 和当前站点 ID。这补齐第 21 节的生成逻辑证据，但不等于新命令已在生产运行。
+
+原页面通用 `.get` 在部分业务失败时 `reject()` 不带响应，在 HTTP/网络错误时也会改写消息，直接调用会丢失原始错误。新命令因此只复用原生 `getRequestHeader({noList: fba, queryType: 99})`，随后 GET 已验证的固定同源路径，自行保留原始状态和业务诊断。适配器不复制签名算法、不读取或持久化原始 token、不导出生成头，不干预原生函数内部的认证管理。
+
+### 本轮代码范围
+
+- 新命令 `lxeskill logistics yuntuo query`，模块 `services.agent_cli.logistics.yuntuo_query`，必填 `store_id/fba`，可选 `expected_warehouse`。只在真实 LXE 会话执行，通过官方配对 Selenium 严格附着唯一 `vip.yjtms.com` 标签页，并二次核对 HTTPS、端口 11000 和 `/customer/trackquery/` 路径。
+- 在最多 2000 个 DOM 元素上读取 Vue 挂载的命名服务能力，按服务实例去重；零个、多个或扫描截断时失败。不枚举组件状态或 webpack registry。只调用明确的原生头生成函数，不接受调用方 URL、脚本、请求头或认证值。
+- 原生生成头只接受已观察的 version/sign/token/timeZone/hyeCurrentStatId/locale 名称；生成的 token/sign 仅在页面脚本闭包和本次同源请求内使用，响应及异常里回显这些值时会脱敏。没有账户枚举、自动重试、页面导航或店铺生命周期操作。
+- 固定 GET `/tms-saas-oms/oms/tms/tracequery/list?noList=<完整FBA>&queryType=99`，禁跨源重定向，30 秒请求超时、2 MiB 响应上限；只投影第 21 节明确业务字段，100 行、每行 200 轨迹、字段 8000 字符上限，超限显式失败。员工姓名、附件和认证字段不输出。
+- 复用已验证的解析器，精确核对完整 FBA 和全部返回行；转单号可读，但承运人、目的仓、件数、最终送达 ETA 仍缺失。`complete=true` 只指本次投影完整，不扩展到全部包裹或在途能力。
+- `catalog.json`、`fba-logistics-query` 技能及 Python/Bun 契约同步更新。威飒、飞沃、Amazon、状态门槛和通用浏览器实现不变。当前分支本地提交，不推送、合并或释放 worktree。
+
+### 本地验证
+
+从仓库根完成新解析器/查询器、威飒、飞沃及 Python CLI/infra 定向回归，共收集 662 项，初轮 `657 passed / 4 skipped / 1 failed`；失败是新增命令后旧 CLI 列表数量断言。Bun 命令及技能初轮 `27 passed / 1 failed`，失败同样是 flags-only 命令数量断言。两处数量已按新增命令更新。
+
+最终只重跑受影响的云驼解析、云驼查询和 CLI 文件，退出码 0，`114 passed`（云驼解析 42、云驼查询 24、CLI 48）；Bun 命令契约退出码 0，`15 passed`。初轮已通过的技能及其他 CLI/infra 不重复运行。实际 adapter JS 由 Bun 执行，模拟原生头生成服务、fetch 和 DOM，真实业务数据用用户响应 fixture；未访问生产查询接口。`doctor`、新命令 help 和 `git diff --check` 通过；doctor 为 51 commands、45 business commands、39 skill files、45 declarations。未执行合并前全量测试。
+
+### 下一轮真实验收入口
+
+在加载当前分支代码的 LXE_Agent 真实会话运行，先只读核对店铺、唯一云驼查询页和当前账户；不能把历史 browser_id、登录态或旧 ref 当实时证据：
+
+```text
+lxeskill browser store --action get_status
+lxeskill browser page --action browser_snapshot --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --strict-attach --target-host vip.yjtms.com --full
+lxeskill logistics yuntuo query --store-id 'VycOXC1cvUBC/rBIOnYXUg==' --fba FBA19P9T04B2
+```
+
+验收顶层 `ok=true`、HTTP 200、`result_code=0`、`request_succeeded=true`、完整 FBA 精确匹配 1 行、`complete=true`，运单 `999260910003548`、转单 `1Z16HE510305235582` 和 20 条轨迹与原响应一致。承运人、仓库、件数、ETA 和时区缺失必须报告，不能因此生成改期建议。成功后才独立再执行一次同样查询，比较业务字段与新 `queried_at`。
+
+失败返回完整脱敏 terminal 结果，尤其 `error`、HTTP/provider 状态和 `request_attempted`；原生服务不可见或头字段变化时不猜补、不复制 token、不注入 webpack registry、不重启店铺。当前 Codex 终端没有真实 LXE 会话，此命令尚未取得实页验收证据。

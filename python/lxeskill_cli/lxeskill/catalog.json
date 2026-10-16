@@ -2,6 +2,27 @@
   "protocol_version": "1",
   "entries": [
     {
+      "name": "logistics_yuntuo_query",
+      "module": "services.agent_cli.logistics.yuntuo_query",
+      "command_path": ["logistics", "yuntuo", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；严格附着唯一云驼查询页面，不启动或重启。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "expected_warehouse": {"type": "string", "description": "原表目的仓，仅保留核对需求；当前接口不返回仓库代码。"}
+        },
+        "required": ["store_id", "fba"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "logistics_feiwo_query",
       "module": "services.agent_cli.logistics.feiwo_query",
       "command_path": ["logistics", "feiwo", "query"],
