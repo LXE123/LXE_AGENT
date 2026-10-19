@@ -29,9 +29,11 @@ lxeskill logistics jiufang query --fba FBA15GJ013CQU000001 --expected-warehouse 
 - 读取 terminal 顶层 `ok` 以及 `data.request_succeeded/found/identity_verified/complete/matches`。空响应契约尚缺真实样本，`empty_result_unverified` 不代表已经证实无货。结构异常、身份不匹配和网络错误均不能改写成“查无货”。
 - `fba_numbers` 保留运单关联的全部 FBA；`parcel_count/weight/volume` 是整张运单的统计。两个 FBA 共用一张运单时，不把整票箱数或重量分配给单个 FBA 或箱行。
 - `destination` 保留原文，只对已知 `国家-FBA-仓库代码` 布局读取目的仓。`warehouse_matches=false` 时报告冲突，不继续生成可执行业务建议。
-- `trackNumber` 的原文保留在 `source_fields`；现有真实样本为空。非空布局仍待验证，不猜拆分或承运人。缺项和 warnings 必须报告。
+- `trackNumber` 的原文保留在 `source_fields`；已有空值 fixture 和用户回传的非空字段摘要。非空号码的承运人及结构化提取仍待验证，当前继续报告 `tracking_layout_unverified`，不猜拆分或承运人。缺项和 warnings 必须报告。
 - `lines` 保留原顺序、`state`、状态码、时间和备注。`state=false` 的未来阶段不能描述为已完成；时区未证实。到港、到仓日期不等于最终送达 ETA。
 - 两份用户真实响应分别是单 FBA 单箱 `FBA15GJGP83C`、双 FBA 共用运单 `FBA15GJ013CQ/FBA15GJ1LNL0`，均为澳大利亚已签收历史票。可用于物流查询验收，不扩展为美国站或改期闭环已验证。
 - 响应最多 2 MiB、100 行、每行 200 条轨迹、单字段 8000 字符。超限显式失败，不以截断内容做身份匹配。`complete=true` 仅表示本次结果解析完整，不证明所有箱子的尾程号码覆盖。
 
 查询不授权物流订单、表格或 Amazon 写入。此公开 HTTP 模块不操作浏览器；涉及紫鸟页面的其他物流功能继续遵守官方配对 Selenium 链路。
+
+2026-10-19 归档补充：用户另回传两票加拿大历史货件成功摘要。`FBA19Q19JQ9QU000001` 拆为 `FBA19Q19JQ9Q`，运单 `ZX2609LD88`、YYZ7、整票3箱/51 kg/0.15 m³；`FBA19PRMX9HVU000001` 拆为 `FBA19PRMX9HV`，运单 `ZX2609QF23`、XYY4、整票1箱/13.6 kg/0.05 m³，两票均 `identity_verified=true`。第二票原始 `trackNumber=1ZB35H402036640441`，目前仅保留原文，不按前缀认定承运人。证据为用户摘要，未取得这两次完整 terminal JSON、查询时间或可归档的原始响应，不伪造成 fixture；同票无需再次重复。两次启动均仍依赖运行日志写入的一次性沙箱权限放宽，不能表述为执行环境问题已修复。
