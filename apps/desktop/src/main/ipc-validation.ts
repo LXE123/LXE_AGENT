@@ -203,3 +203,46 @@ export function validateDraftImagePreviewVariant(value: unknown): "thumbnail" | 
   if (value !== "thumbnail" && value !== "expanded") throw new Error("Image preview variant must be thumbnail or expanded");
   return value;
 }
+
+const logisticsFields = (value: unknown, required: string[], optional: string[] = []): Record<string, unknown> => {
+  const item = objectValue(value, "Logistics input");
+  if (required.some(key => !Object.hasOwn(item, key)) || Object.keys(item).some(key => ![...required, ...optional].includes(key))) {
+    throw new Error(`Expected only fields: ${[...required, ...optional].join(", ")}`);
+  }
+  return item;
+};
+const logisticsText = (value: unknown, label: string, minimum: number, maximum: number): string => {
+  if (typeof value !== "string" || [...value].length < minimum || [...value].length > maximum || value !== value.trim() || /[\x00-\x1f]/u.test(value)) {
+    throw new Error(`Invalid logistics ${label}`);
+  }
+  return value;
+};
+export function validateLogisticsRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 9007199254740990) throw new Error("Invalid logistics revision");
+  return value;
+}
+export function validateLogisticsProfileId(value: unknown): string {
+  const id = logisticsText(value, "profile_id", 36, 36);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(id)) throw new Error("Invalid logistics UUID");
+  return id;
+}
+export function validateLogisticsProfileInput(value: unknown): import("@lxe/desktop-protocol").DesktopLogisticsProfileInput {
+  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding", "account_name"], ["profile_id"]);
+  const provider = input.provider_id;
+  if (typeof provider !== "string" || !["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"].includes(provider)) throw new Error("Unknown logistics provider");
+  if (typeof input.enabled !== "boolean") throw new Error("Logistics enabled must be boolean");
+  let binding = null;
+  if (provider !== "jiufang") {
+    const raw = logisticsFields(input.store_binding, ["store_id", "store_name"]);
+    binding = { store_id: logisticsText(raw.store_id, "store_id", 1, 512), store_name: logisticsText(raw.store_name, "store_name", 1, 512) };
+  } else if (input.store_binding !== null) throw new Error("Public HTTP providers must not have a store binding");
+  let account = null;
+  if (["wesa", "tiantai"].includes(provider)) account = logisticsText(input.account_name, "account_name", 2, 200);
+  else if (input.account_name !== null) throw new Error("This provider does not use account_name");
+  return {
+    ...(input.profile_id === undefined ? {} : { profile_id: validateLogisticsProfileId(input.profile_id) }),
+    display_name: logisticsText(input.display_name, "display_name", 1, 80),
+    provider_id: provider as import("@lxe/desktop-protocol").DesktopLogisticsProviderId,
+    enabled: input.enabled, store_binding: binding, account_name: account,
+  };
+}

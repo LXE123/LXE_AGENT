@@ -409,3 +409,26 @@ bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts
 可直接使用以下提示启动构建：
 
 > 阅读 `docs/record/20261019-logistics-provider-settings-build.md` 和项目 `AGENTS.md`，实现第一阶段“设置 → 业务集成 → 物流商配置”。先检查当前分支、worktree 和用户已有改动。只实现固定 provider 注册表、配置原子存储、Desktop 独立 IPC、设置页面 CRUD、实时店铺目录刷新和定向测试；不要实现统一查询命令、批量导入、物流网站生产请求、自动登录或 Amazon 改期。不要扩展 `DesktopSetupInput` 保存 profiles，不触发后台重启，不把 profiles 写入 agent DB、Python SQLite、`settings.json` 或 `secrets.bin`。紫鸟状态只读，不启动、重启、退出或导航店铺。所有页面自动化边界继续遵守官方配对 Selenium 规则。开发阶段运行定向测试；准备合并时按 `AGENTS.md` 执行 rebase、一次完整验证、fast-forward 合并和 worktree 归还流程。
+
+
+## 15. 第一阶段实现记录（2026-10-19）
+
+已实现固定五家 provider 注册表、独立 Python 配置文件、Desktop 私有 IPC 和设置页面 CRUD。
+配置按单条 profile 保存，使用跨进程锁、revision、fsync 和原子替换；未知字段、损坏 JSON、
+重复标识、重复名称及不合法的供应商字段组合均明确拒绝，不修改原文件。限制 200 条配置、
+总文件 1 MiB，并在写入前检查 UTF-8 大小，避免生成随后无法读取的文件。
+
+店铺刷新直接调用现有底层 `ZiniaoClient.get_browser_list/get_running_info`。
+未复用会启动客户端或更新内核的高层 getter；未访问页面、启动店铺或创建 SQLite 状态。
+实时目录按业务 store_id 优先匹配，旧接口的数字 ID 只作为内存中的后备匹配材料。
+配置只保存 store_id 和当时的店铺名；名称冲突必须显式重新确认，缺失绑定不自动清空。
+
+页面包含双语文案、状态区分、删除确认、草稿离开保护和窄窗口换行。
+物流保存不调用 `saveSetup()`，不关闭设置弹窗，不参与初始配置完成判断，也不重启后台。
+草稿保留最初读到的 revision；刷新不会让旧草稿绕过并发冲突。
+
+测试使用本地 fixture 和独立临时目录；新增真实 Chromium 的 8 组界面回归覆盖完整设置壳。
+生产物流网站和紫鸟客户端均未作为测试目标。本期未增加统一查询命令，未修改 catalog 或查询适配器请求逻辑。
+
+本任务以已提交的 `codex/fba-delivery-window` 物流适配器提交为前置基线，再与最新 main 集成。
+合并前完整验证结果在后续验证记录中登记。

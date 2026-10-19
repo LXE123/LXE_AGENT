@@ -1,3 +1,4 @@
+import { LogisticsFixture, logisticsMock, logisticsDesktop } from "./logistics-fixture";
 import { ConversationContentFixture } from "./conversation-content-fixture";
 import { RendererFailureView } from "../../src/root-error-boundary";
 import { SessionWorkspaceFixture, sessionFixture } from "./session-workspace-fixture";
@@ -172,6 +173,7 @@ const health: DesktopHealth = {
 const currentModel = modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model")]);
 const subscribe = () => () => {};
 const desktop = {
+  ...logisticsDesktop,
   selectWorkspace: async () => { calls.push({ operation: "chooseWorkspace" }); return chosenDirectory; },
   getWorkspaceApplications: async () => [{ id: "finder", name: "Finder", icon: null }],
   openWorkspace: async (directory: string) => { calls.push({ operation: "openWorkspace", input: directory }); },
@@ -434,6 +436,11 @@ const fixture = {
     vietnamState.parameters_error = "JSONDecodeError: fixture broken parameters";
     vietnamState.sku_map = null;
     vietnamState.sku_map_error = "BadZipFile: fixture broken map";
+  },
+  logistics: logisticsMock,
+  mountLogistics() {
+    reset(); complete = true;
+    flushSync(() => root!.render(<QueryClientProvider client={queryClient!}><LogisticsFixture /></QueryClientProvider>));
   },
   mountVietnam(language: "en" | "zh") {
     reset();

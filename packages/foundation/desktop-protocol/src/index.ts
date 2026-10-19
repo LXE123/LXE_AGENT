@@ -657,6 +657,38 @@ export interface DesktopInputAssetSlot {
   previous: DesktopInputAssetVersion | null;
 }
 
+export type DesktopLogisticsProviderId = "wesa" | "feiwo" | "yuntuo" | "tiantai" | "jiufang";
+export interface DesktopLogisticsStoreBinding { store_id: string; store_name: string; }
+export interface DesktopLogisticsProfileInput {
+  profile_id?: string;
+  display_name: string;
+  provider_id: DesktopLogisticsProviderId;
+  enabled: boolean;
+  store_binding: DesktopLogisticsStoreBinding | null;
+  account_name: string | null;
+}
+export interface DesktopLogisticsProfile extends DesktopLogisticsProfileInput {
+  profile_id: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface DesktopLogisticsProviderSpec {
+  provider_id: DesktopLogisticsProviderId;
+  label: string;
+  transport: "ziniao_browser" | "public_http";
+  requires_store: boolean;
+  requires_account_name: boolean;
+}
+export interface DesktopLogisticsStoreStatus extends DesktopLogisticsStoreBinding { running: boolean; }
+export interface DesktopLogisticsSettingsState {
+  schema_version: 1;
+  revision: number;
+  profiles: DesktopLogisticsProfile[];
+  providers: DesktopLogisticsProviderSpec[];
+  stores: DesktopLogisticsStoreStatus[];
+  stores_error: string | null;
+}
+
 export type DesktopVietnamMapExportKind = "template" | "current";
 export interface DesktopVietnamMapExportResult { path: string; }
 
@@ -742,6 +774,10 @@ export interface LxeDesktopBridge {
     openSyntheticPerformerOutput(taskId: string): Promise<void>;
     listInputAssets(): Promise<DesktopInputAssetSlot[]>;
     revealInputAssetSlot(slot: string): Promise<void>;
+    getLogisticsSettings(): Promise<DesktopLogisticsSettingsState>;
+    saveLogisticsProfile(input: DesktopLogisticsProfileInput, expectedRevision: number): Promise<DesktopLogisticsSettingsState>;
+    deleteLogisticsProfile(profileId: string, expectedRevision: number): Promise<DesktopLogisticsSettingsState>;
+    refreshLogisticsStores(): Promise<DesktopLogisticsSettingsState>;
     getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamSkuMap(): Promise<DesktopVietnamSettingsState | null>;

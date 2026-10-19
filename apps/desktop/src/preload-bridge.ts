@@ -115,6 +115,10 @@ export function createDesktopBridge(
       revealInputAssetSlot: (slot) => ipc.invoke(IPC_CHANNELS.revealInputAssetSlot, slot),
       uploadVietnamSkuMap: () => ipc.invoke(IPC_CHANNELS.uploadVietnamSkuMap),
       exportVietnamSkuMap: kind => ipc.invoke(IPC_CHANNELS.exportVietnamSkuMap, kind),
+      getLogisticsSettings: () => ipc.invoke(IPC_CHANNELS.getLogisticsSettings),
+      saveLogisticsProfile: (input, revision) => ipc.invoke(IPC_CHANNELS.saveLogisticsProfile, input, revision),
+      deleteLogisticsProfile: (id, revision) => ipc.invoke(IPC_CHANNELS.deleteLogisticsProfile, id, revision),
+      refreshLogisticsStores: () => ipc.invoke(IPC_CHANNELS.refreshLogisticsStores),
       getVietnamSettings: () => ipc.invoke(IPC_CHANNELS.getVietnamSettings),
       saveVietnamParameters: (input) => ipc.invoke(IPC_CHANNELS.saveVietnamParameters, input),
       onCloudStateChanged: (listener) => {

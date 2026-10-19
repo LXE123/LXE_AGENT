@@ -1,3 +1,5 @@
+import { LogisticsSettingsPanel, LogisticsConfirmation } from "./logistics-settings-panel";
+import { useLogisticsSettings } from "./use-logistics-settings";
 import { NativeCloudPanel } from "./native-cloud-panel";
 import { WindowsTitlebar } from "./windows-titlebar";
 import { UsagePanel } from "./usage-panel";
@@ -23,6 +25,7 @@ import {
   Settings2,
   ShieldCheck,
   Store,
+  Truck,
   Trash2,
   Wallet,
   X,
@@ -132,8 +135,12 @@ function DesktopSettingsNavigation({
   cloud,
   showStatus,
   onLanguageChange,
+  logisticsSummary,
+  logisticsDirty,
   onSelect,
 }: {
+  logisticsSummary: string;
+  logisticsDirty: boolean;
   activeSection: DesktopSettingsSection;
   baseline: SetupForm;
   form: SetupForm;
@@ -148,7 +155,7 @@ function DesktopSettingsNavigation({
 }) {
   const t = useUiText();
   const item = (section: DesktopSettingsSection, label: string, status: string, Icon: LucideIcon) => {
-    const dirty = desktopSettingsSectionIsDirty(section, form, baseline);
+    const dirty = section === "logistics" ? logisticsDirty : desktopSettingsSectionIsDirty(section, form, baseline);
     const active = activeSection === section;
     return (
       <button
@@ -181,6 +188,7 @@ function DesktopSettingsNavigation({
         <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
         {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
         {item("erp", t.desktop.sectionTitles.erp, desktopSettingsSectionStatus(t.desktop, "erp", setup), Store)}
+        {item("logistics", t.desktop.logistics.title, logisticsSummary, Truck)}
         {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather)}
         {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup), ScrollText)}
       </div>
@@ -1192,6 +1200,8 @@ export function DesktopShell({
   const [activeErp, setActiveErp] = useState<ErpIntegrationName>("mabangTms");
   const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("cloud");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const logistics = useLogisticsSettings(desktop, settingsOpen || (!setup?.complete && !onboardingDismissed && activeSettingsSection === "logistics"));
+  const [logisticsLeave, setLogisticsLeave] = useState<{ proceed: () => void } | null>(null);
   const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
   const [saving, setSaving] = useState(false);
   const [credentialBusy, setCredentialBusy] = useState(false);
@@ -1212,7 +1222,7 @@ export function DesktopShell({
     noticeSequence.current += 1;
     setNotice(desktopSuccessNotice(noticeSequence.current, message));
   };
-  const closeSettings = (): void => {
+  const closeSettingsNow = (): void => {
     setConfirmation(null);
     setCloudBindingDialogOpen(false);
     setCloudEnrollment(null);
@@ -1221,6 +1231,12 @@ export function DesktopShell({
     setSettingsOpen(false);
     setUpdateCheckRequest(0);
   };
+  const leaveLogistics = (proceed: () => void): void => {
+    if (activeSettingsSection === "logistics" && logistics.mutating) return;
+    if (logistics.dirty) setLogisticsLeave({ proceed });
+    else { logistics.discard(); proceed(); }
+  };
+  const closeSettings = (): void => leaveLogistics(closeSettingsNow);
   const settingsDialogRef = useDialogFocus<HTMLFormElement>(settingsOpen, closeSettings);
 
   useEffect(() => {
@@ -1520,7 +1536,7 @@ export function DesktopShell({
   };
   const save = (event: FormEvent): void => {
     event.preventDefault();
-    if (activeSettingsSection === "appearance"
+    if (activeSettingsSection === "logistics" || activeSettingsSection === "appearance"
       || activeSettingsSection === "cloud"
       || activeSettingsSection === "status" || activeSettingsSection === "usage") return;
     if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
@@ -1592,12 +1608,15 @@ export function DesktopShell({
   const baseline = setupForm(setup);
   const editableSection: DesktopSettingsFormSection = activeSettingsSection === "status"
     || activeSettingsSection === "appearance"
-    || activeSettingsSection === "cloud" || activeSettingsSection === "usage"
+    || activeSettingsSection === "cloud" || activeSettingsSection === "usage" || activeSettingsSection === "logistics"
     ? "base"
     : activeSettingsSection === "erp" ? activeErp : activeSettingsSection;
   const selectSettingsSection = (section: DesktopSettingsSection): void => {
-    setActiveSettingsSection(section);
-    window.requestAnimationFrame(() => sectionHeadingRef.current?.focus());
+    if (section === activeSettingsSection) return;
+    leaveLogistics(() => {
+      setActiveSettingsSection(section);
+      window.requestAnimationFrame(() => sectionHeadingRef.current?.focus());
+    });
   };
   const settingsFields = (
     <DesktopSettingsForm
@@ -1649,6 +1668,8 @@ export function DesktopShell({
     />
   ) : activeSettingsSection === "usage" ? (
     <UsagePanel desktop={desktop} headingRef={sectionHeadingRef} language={language} />
+  ) : activeSettingsSection === "logistics" ? (
+    <LogisticsSettingsPanel controller={logistics} headingRef={sectionHeadingRef} />
   ) : activeSettingsSection === "erp" ? (
     <ErpSettingsTabs active={activeErp} baseline={baseline} form={form} onSelect={setActiveErp}>
       {settingsFields}
@@ -1671,9 +1692,15 @@ export function DesktopShell({
       onLanguageChange={onLanguageChange}
       onSelect={selectSettingsSection}
       setup={setup}
+      logisticsSummary={logistics.state ? t.desktop.logistics.count(logistics.state.profiles.length) : t.desktop.logistics.unknown}
+      logisticsDirty={logistics.dirty}
       showStatus={showStatus}
     />
   );
+  const logisticsLeaveDialog = logisticsLeave ? <LogisticsConfirmation title={t.desktop.logistics.discardTitle} description={t.desktop.logistics.discardDescription}
+    onCancel={() => setLogisticsLeave(null)} onConfirm={() => {
+      logistics.discard(); logisticsLeave.proceed(); setLogisticsLeave(null);
+    }} /> : null;
   const confirmationDialog = confirmation ? (
     <DesktopConfirmationDialog
       settingsTheme={settingsOpen}
@@ -1734,14 +1761,16 @@ export function DesktopShell({
               className="desktop-onboarding-skip"
               disabled={saving || credentialBusy}
               onClick={() => {
-                storeOnboardingDismissed();
-                setOnboardingDismissed(true);
+                leaveLogistics(() => {
+                  storeOnboardingDismissed();
+                  setOnboardingDismissed(true);
+                });
               }}
               type="button"
             >
               {t.desktop.onboarding.defer}
             </button>
-            {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage" ? (
+            {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage" && activeSettingsSection !== "logistics" ? (
               <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
                 {saving ? t.desktop.onboarding.starting : t.desktop.onboarding.submit}
               </button>
@@ -1749,6 +1778,7 @@ export function DesktopShell({
           </footer>
         </form>
         {confirmationDialog}
+        {logisticsLeaveDialog}
         {cloudBindingDialog}
       </main>
     );
@@ -1827,7 +1857,7 @@ export function DesktopShell({
               </div>
               {activeSettingsSection !== "status"
                 && activeSettingsSection !== "appearance"
-                && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage" ? (
+                && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage" && activeSettingsSection !== "logistics" ? (
                 <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
                   {saving ? t.desktop.settings.saving : t.desktop.settings.submit}
                 </button>
@@ -1837,6 +1867,7 @@ export function DesktopShell({
         </div>
       ) : null}
       {confirmationDialog}
+      {logisticsLeaveDialog}
       {cloudBindingDialog}
     </div>
   );

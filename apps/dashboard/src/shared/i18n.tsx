@@ -653,8 +653,19 @@ export const ZH_TEXT = {
       yacang: "雅仓",
       feishu: "飞书"
     },
+    logistics: {
+      title: "物流商配置", description: "维护物流商、公司账户和紫鸟店铺的对应关系。店铺状态仅表示当前是否运行，不代表页面或账户已验证。",
+      count: (count: number) => count ? `已配置 ${count} 条` : "未配置", unknown: "尚未加载", add: "添加物流商", refresh: "刷新店铺",
+      loading: "加载中…", retry: "重新加载", empty: "尚未配置物流商", browser: "紫鸟页面", public: "公开接口",
+      name: "配置名称", provider: "物流商", account: "公司账户名", store: "绑定店铺", chooseStore: "请选择店铺", running: "运行中",
+      edit: "编辑", enable: "启用", disable: "停用", delete: "删除", enabled: "启用此配置", save: "保存配置", cancel: "取消编辑",
+      confirm: "确认", confirmStoreName: "确认使用当前店铺名称", deleteDescription: (name: string) => `确认删除“${name}”？`,
+      discardTitle: "放弃未保存的修改？", discardDescription: "离开后将丢弃物流商配置草稿。",
+      status: { disabled: "已停用", public: "公开接口", unavailable: "店铺状态不可读", missing: "当前未发现", ambiguous: "店铺绑定不唯一", renamed: "店铺名称冲突", stopped: "店铺未运行", ready: "可用" },
+    },
     erpConfiguredCount: (count: number, total: number) => `已配置 ${count}/${total}`,
     sectionTitles: {
+      logistics: "物流商配置",
       erp: "ERP 账号",
       status: "运行状态",
       appearance: "外观",
@@ -1553,8 +1564,19 @@ export const UI_TEXT: Record<Language, UiText> = {
         yacang: "Yacang",
         feishu: "Feishu"
       },
+      logistics: {
+        title: "Logistics providers", description: "Manage providers, company accounts and Ziniao store bindings. A running store does not verify the logistics page or account.",
+        count: (count: number) => count ? `${count} configured` : "Not configured", unknown: "Not loaded", add: "Add provider", refresh: "Refresh stores",
+        loading: "Loading…", retry: "Reload", empty: "No logistics providers configured", browser: "Ziniao browser", public: "Public HTTP",
+        name: "Profile name", provider: "Provider", account: "Company account name", store: "Store binding", chooseStore: "Select a store", running: "Running",
+        edit: "Edit", enable: "Enable", disable: "Disable", delete: "Delete", enabled: "Enable this profile", save: "Save profile", cancel: "Cancel editing",
+        confirm: "Confirm", confirmStoreName: "Confirm current store name", deleteDescription: (name: string) => `Delete “${name}”?`,
+        discardTitle: "Discard unsaved changes?", discardDescription: "Leaving will discard the logistics profile draft.",
+        status: { disabled: "Disabled", public: "Public HTTP", unavailable: "Store status unavailable", missing: "Not currently found", ambiguous: "Store binding is ambiguous", renamed: "Store name conflict", stopped: "Store not running", ready: "Available" },
+      },
       erpConfiguredCount: (count: number, total: number) => `Configured ${count}/${total}`,
       sectionTitles: {
+        logistics: "Logistics providers",
         erp: "ERP accounts",
         status: "Runtime status",
         appearance: "Appearance",

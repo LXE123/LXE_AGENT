@@ -1,3 +1,4 @@
+import { DesktopLogisticsSettingsService } from "./main/logistics-settings";
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
@@ -434,6 +435,10 @@ async function bootstrap(): Promise<void> {
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
   });
+  const logisticsSettings = new DesktopLogisticsSettingsService({
+    platform: process.platform, pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(),
+  });
   const vietnamSettings = new DesktopVietnamSettingsService({
     platform: process.platform, pythonPath: paths.managedPythonPath,
     dataRoot: paths.dataRoot, managedPath: paths.managedPath,
@@ -636,6 +641,10 @@ async function bootstrap(): Promise<void> {
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
+    getLogisticsSettings: () => logisticsSettings.read(),
+    refreshLogisticsStores: () => logisticsSettings.refresh(),
+    saveLogisticsProfile: (input, revision) => logisticsSettings.save(input, revision),
+    deleteLogisticsProfile: (id, revision) => logisticsSettings.delete(id, revision),
     getVietnamSettings: () => vietnamSettings.read(),
     saveVietnamParameters: input => vietnamSettings.save(input),
     installVietnamSkuMap: sourcePath => vietnamSettings.upload(sourcePath),

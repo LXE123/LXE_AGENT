@@ -1,0 +1,30 @@
+.logistics-settings { min-width: 0; }
+.logistics-settings p, .logistics-card h3 { overflow-wrap: anywhere; }
+.logistics-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.logistics-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.logistics-card, .logistics-editor { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.logistics-card h3 { margin: 0 0 8px; }
+.logistics-card p { margin: 6px 0; }
+.logistics-status { font-weight: 600; }
+.logistics-editor { margin-top: 20px; display: grid; gap: 12px; }
+.logistics-editor label { display: grid; gap: 6px; min-width: 0; }
+.logistics-editor input:not([type="checkbox"]), .logistics-editor select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+.logistics-editor .logistics-enabled { display: flex; align-items: center; gap: 8px; }
+.logistics-editor input[type="checkbox"] { width: auto; }
+.logistics-settings button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+.logistics-settings { gap: 16px; font-size: 0.8125rem; line-height: 1.6; }
+.logistics-settings > p { margin: 0; color: var(--text-soft); }
+.logistics-settings h2 { font-size: 1.125rem; }
+.logistics-card h3 { font-size: 0.9375rem; color: var(--text-strong); }
+.logistics-actions { margin: 0; }
+.logistics-card .logistics-actions { margin-top: 12px; }
+.logistics-settings button, .logistics-settings input:not([type="checkbox"]), .logistics-settings select {
+  min-height: 34px; padding: 6px 10px; font: inherit; color: var(--text-strong);
+  border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface);
+}
+.logistics-settings button { cursor: pointer; }
+.logistics-settings button:disabled { cursor: default; opacity: .55; }
+.logistics-settings button:not(.desktop-primary-button):hover:not(:disabled) { background: var(--row-hover); }
+.logistics-settings .desktop-primary-button { color: var(--settings-primary-ink); background: var(--settings-primary); border-color: var(--settings-primary); }
+.logistics-settings .desktop-form-error { font-size: 0.75rem; }

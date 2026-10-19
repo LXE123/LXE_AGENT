@@ -1,3 +1,4 @@
+import { registerLogisticsIpc } from "./logistics-ipc";
 import { validateTitlebarMenu } from "./titlebar-menu";
 import { exportVietnamMapWithDialog } from "./vietnam-map-export";
 import { fileResult } from "./file-preview/errors";
@@ -12,6 +13,8 @@ import type {
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
+  DesktopLogisticsSettingsState,
+  DesktopLogisticsProfileInput,
   DesktopInputAssetSlot,
   DesktopVietnamSettingsState,
   DesktopVietnamMapExportKind,
@@ -87,6 +90,10 @@ export interface DesktopIpcApplication {
   syntheticPerformerOutputPath(taskId: string): string;
   listInputAssets(): Promise<DesktopInputAssetSlot[]>;
   inputAssetSlotDirectory(slot: string): Promise<string>;
+  getLogisticsSettings(): Promise<DesktopLogisticsSettingsState>;
+  refreshLogisticsStores(): Promise<DesktopLogisticsSettingsState>;
+  saveLogisticsProfile(input: DesktopLogisticsProfileInput, revision: number): Promise<DesktopLogisticsSettingsState>;
+  deleteLogisticsProfile(id: string, revision: number): Promise<DesktopLogisticsSettingsState>;
   getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
   saveVietnamParameters(input: unknown): Promise<DesktopVietnamSettingsState>;
   installVietnamSkuMap(sourcePath: string): Promise<DesktopVietnamSettingsState>;
@@ -266,6 +273,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (error) throw new Error(error);
   });
   ipcMain.handle(IPC_CHANNELS.listInputAssets, () => application.listInputAssets());
+  registerLogisticsIpc(ipcMain, application);
   ipcMain.handle(IPC_CHANNELS.getVietnamSettings, (event) => {
     trustedWorkspaceSender(event);
     return application.getVietnamSettings();
