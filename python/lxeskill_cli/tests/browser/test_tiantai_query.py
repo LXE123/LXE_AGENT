@@ -15,7 +15,7 @@ from services.agent_cli.logistics import tiantai_query as tiantai
 
 
 FBA = "FBA15MPDN5VF"
-ACCOUNT = "深圳市雷袖尔科技有限公司"
+ACCOUNT = "深圳市新棱镜贸易有限公司"
 ARGS = {"store_id": "test-store", "fba": FBA, "account_name": ACCOUNT}
 
 
