@@ -1,11 +1,12 @@
 ---
 name: fba-logistics-query
-description: 按完整 FBA 标识查询威飒、飞沃运通或云驼的运单、转单号和已有物流信息。威飒可核对目的仓，飞沃和云驼可读取轨迹；承运人缺失明确报告，当前不提供已核实的尾程 ETA 或 Amazon 改期。
+description: 按完整 FBA 标识查询威飒、飞沃运通、云驼或天泰供应链的运单和已有物流信息。威飒可核对目的仓，飞沃和云驼可读取轨迹；天泰当前样本只验证运单列表身份。承运人、转单号或 ETA 缺失时明确报告，不直接生成 Amazon 改期。
 type: ziniao_browser
 commands:
   - lxeskill logistics wesa query
   - lxeskill logistics feiwo query
   - lxeskill logistics yuntuo query
+  - lxeskill logistics tiantai query
 ---
 
 # 威飒单票查询
@@ -32,6 +33,28 @@ lxeskill logistics wesa query --store-id <store_id> --account-name '<公司账�
 失败时保留并转述脱敏后的实际 `data.error` 和 HTTP/业务诊断。登录失效、验证或结构异常时停止，交由用户恢复；不执行马帮 `auth refresh`，不自动重试、重启或切换账户。当前没有物流商账号密码配置或自动登录能力。
 
 查询不授权修改订单、原表或 Amazon；后续改期沿用专用 Amazon 技能的建议、批准和回读流程。
+
+# 天泰供应链单票查询
+
+在 LXE_Agent 真实会话中先检查店铺状态，再严格附着唯一的天泰页面，并从当前页面核对公司账户全名。天泰有两个公司账户，必须分别记录账户和适用店铺；不能因网址相同而把它们视为同一账户。
+
+```text
+lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host ttaiex.nextsls.com --full
+lxeskill logistics tiantai query --store-id <store_id> --account-name '<当前公司账户全名>' --fba <完整FBA> --expected-warehouse <原表目的仓>
+```
+
+命令通过官方配对 Selenium 严格附着已有页面，在固定 `http://ttaiex.nextsls.com` origin 内 POST `/rest/tms/wos/shipment/lists`。请求固定复现已经抓取并成功返回 `activeTab=all` 的 Payload：`activeTab=all` 与页面原始 `isActiveTab=in_transit` 分别保留，不把威飒参数套入天泰。调用方不能传 URL、脚本、请求头、密码、Cookie 或认证值；命令不导航、不自动重试、不启动或重启店铺，也不切换公司账户。
+
+- `data.components.gridView.table.dataSource` 中的完整 FBA 必须与输入精确匹配。保留所有匹配行；不截断箱号后缀，不用天泰运单号代替 FBA。
+- `account_name` 必须来自本次快照。`account_visible=true` 只表示页面可见文本包含该名称，不能证明两个天泰账户可以互换，也不是长期店铺归属配置。
+- 当前真实样本 `FBA15MPDN5VF` 返回天泰运单 `TAI10727074`、服务“欧洲空派递延-带D”、Amazon 德国 `02977`、件数 2、仓库“龙华仓”，响应页签为 `all`，业务状态计数为“已收货(1)”。该票是德国样本，只验证列表请求、完整 FBA 身份和字段投影，不算美国 FBA 验收。
+- 当前行没有 `to_warehouse_code`，`outer_carrier="--"`，也没有最终送达 ETA。命令因此返回 `warehouse/carrier/eta=null`、`tracking_numbers=[]` 并列出缺项；“龙华仓”是物流商仓库，不能替代 Amazon 目的仓。
+- 天泰尚无非空 `outer_carrier` 的真实响应合同。未来出现非空原文时先完整保留并报告 `tracking_layout_unverified_for_tiantai`，在取得明确承运人/转单号证据前不按威飒布局或号码格式拆分。
+- `parcel_count` 的真实类型是数字，与威飒样本的 HTML 字符串不同；解析器分别处理并保留。`created` 是下单时间原值，不作为 ETA、签收时间或改期依据。
+- 默认只读取第 1 页。`complete=false` 时说明其他页未查；真实空结果合同尚未取得，空列表报告 `empty_result_unverified`，不擅自解释为无货、登录过期或账户错误。
+- 检查顶层 HTTP、`success/info/errorCode/errors`、列表、分页和 `returned_active_tab`。HTTP/provider/JSON/网络/Selenium 错误保留实际脱敏诊断；失败即停，不调用马帮认证刷新。
+
+首次实页验收使用当前已核对账户“深圳市雷袖尔科技有限公司”和历史票 `FBA15MPDN5VF`，预期唯一命中 `TAI10727074`、`complete=true`、`all_tab_confirmed=true`，并如实报告仓库、承运人、转单号和 ETA 缺失。成功后独立重复一次，比较业务字段与新的 `queried_at`。第二个公司账户、美国样本、非空尾程字段、空结果、失败响应和在途最终送达 ETA 分别补证，不从本票扩大结论。
 
 # 飞沃运通单票查询
 

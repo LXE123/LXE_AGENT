@@ -1,9 +1,9 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
 - 日期：2026-10-12；最新续档：2026-10-19。
-- 状态：此前成果已归档并提交 PR #91，当前在线评审及远端状态未重新核验。威飒、飞沃、云驼、九方四家已有查询模块及各自真实证据；九方匿名查询与箱号拆分已通过澳大利亚样本及用户回传的两票加拿大验收。合格实票的当前完整改期闭环仍待样本。本轮已归档，最新恢复入口见第 24 节；第 23 节保留九方实现与初轮实测，第 22 节保留云驼实现与实测。
+- 状态：此前成果已归档并提交 PR #91，当前在线评审及远端状态未重新核验。威飒、飞沃、云驼、九方四家已有查询模块及各自真实证据；九方匿名查询与箱号拆分已通过澳大利亚样本及用户回传的两票加拿大验收。天泰查询命令已按真实“全部”请求及德国样本实现，本地契约验证通过，真实 LXE 会话验收及第二账户仍待完成。合格实票的当前完整改期闭环仍待样本。最新恢复入口见第 25 节。
 - 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析。威飒、飞沃、云驼继续复用原浏览器登录态；涉及紫鸟页面的一切自动化必须走官方配对 Selenium。九方已验证的匿名公开 HTTP 接口不需要浏览器、登录或会话，使用独立模块；不从这项验证推广到其他接口。不维护逐物流商固定 ref 点击模板，Amazon 专用适配器和业务门槛保留。
-- 下一轮入口：有后台的物流商尚余掌柜、合联国际、天泰供应链（两个公司账户分别核验），另有天美通消息/截图入口；用户尚未指定下一家，不默认扩大查询范围。九方现有成功样本无需重复；非空尾程号解析、美国样本、空结果/失败契约、在途 ETA，以及日志写入沙箱权限问题分别保留。PR #91 评审、合格实票改期及 CI/CD 不视为已完成。
+- 下一轮入口：当前先完成天泰真实 LXE 会话验收；账户“深圳市雷袖尔科技有限公司”已有请求和响应证据，尚缺当前 `store_id` 下的受控命令结果，第二个天泰公司账户仍须独立核验。有后台的物流商另余掌柜、合联国际，另有天美通消息/截图入口。九方现有成功样本无需重复；非空尾程号解析、美国样本、空结果/失败契约、在途 ETA，以及日志写入沙箱权限问题分别保留。PR #91 评审、合格实票改期及 CI/CD 不视为已完成。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
@@ -916,3 +916,60 @@ lxeskill logistics jiufang query --fba FBA15GJ013CQU000001 --expected-warehouse 
 4. **独立待办**：日志写入沙箱权限、PR #91 实际反馈、合格美国实票的 ETA→建议→批准→改期→回读，以及尚未实施的 CI/CD。不得将到港/到仓时间作为最终送达 ETA，查询授权不等于写入批准。
 
 下一轮先阅读本文开头、第23节及本节，再按用户选择恢复；只运行与实际改动相关的定向测试。浏览器页面自动化继续使用官方配对 Selenium，九方已验证的公开 HTTP 路径保持匿名，不自动扩大为多账户扫描。
+
+## 25 天泰供应链“全部”查询接入（2026-10-19）
+
+### 真实请求与响应证据
+
+用户提供天泰页面一次“已收货”请求和一次“全部”请求的完整响应文本。已确认固定接口为：
+
+```text
+POST http://ttaiex.nextsls.com/rest/tms/wos/shipment/lists
+Content-Type: application/json;charset=utf-8
+```
+
+DevTools 显示的 Remote Address `127.0.0.1:33745` 是本地代理地址，不作为供应商 origin。已验证“全部”Payload 原样为：
+
+```json
+{"timeLimit":0,"page":1,"activeTab":"all","keywords":"FBA15MPDN5VF","isActiveTab":"in_transit","init":1,"scenes":0}
+```
+
+`activeTab="all"` 与 `isActiveTab="in_transit"` 虽名称看似矛盾，但这是实际成功请求，不按威飒参数或字段名称猜测改写。响应 HTTP 200、`success=1`、`info="操作成功!"`、`errorCode=""`、`errors=[]`，且 `gridView.tabs.activeTab="all"`、分页 `{page:1,pageSize:30,total:1}`，完整 FBA 精确匹配唯一一行：
+
+| 字段 | 真实结果与边界 |
+| --- | --- |
+| 当前公司账户 | `深圳市雷袖尔科技有限公司`，由用户提供；仍须在受控命令执行前用当前页面可见文本核对 |
+| FBA / 天泰运单 | `FBA15MPDN5VF` / `TAI10727074` |
+| 服务 | `欧洲空派递延-带D` |
+| 收件地 | Amazon，德国，邮编 `02977` |
+| 件数 | JSON 数字 `2`；与威飒样本的 HTML 字符串类型不同 |
+| 物流商仓库 | `depot_id="龙华仓"`，不能替代 Amazon 目的仓 |
+| Amazon 目的仓 | 返回行没有 `to_warehouse_code`，保持缺失 |
+| 承运及转单号 | `outer_carrier="--"`，没有可解析的承运人或转单号 |
+| 页面状态 | “已收货(1)”；“全部 (1)”响应包含该行 |
+| 时间 | `created=1792228874` 是下单时间原值，不作为 ETA 或签收时间 |
+
+该票是德国样本，只证明天泰列表请求、完整 FBA 身份、全部页签回读和已观察字段形状，不代表美国货件、第二账户、非空尾程字段、空结果、失败响应或在途最终送达 ETA 已通过。
+
+### 实现范围
+
+- 新命令 `lxeskill logistics tiantai query`，模块 `services.agent_cli.logistics.tiantai_query`。必填 `store_id/fba/account_name`，可选 `expected_warehouse/page`；每次只查一个完整 FBA 和明确的一页。
+- 只在真实 LXE 会话使用官方配对 Selenium，严格附着唯一 `ttaiex.nextsls.com` 标签页，核对 HTTP origin 和当前页面可见的完整账户名。不导航、不重试、不启动/重启店铺、不切换账户，不接受 URL、脚本、认证头、Cookie 或密码。
+- 固定 POST 已验证路径及“全部”Payload；响应上限 2 MiB、最多 100 行、单字符串字段 8000 字符。只投影业务状态、页签、分页和已观察的行字段，页面内下单、导入、打印、刷新轨迹等动作配置不会输出或执行。
+- 精确核对完整 FBA，保留天泰运单、服务、收件地、件数、物流商仓库和下单时间原值。仓库、承运人、转单号、ETA 的缺失明确报告。
+- 天泰尚无非空 `outer_carrier` 真实样本；未来遇到非空原文时先保留并报告 `tracking_layout_unverified_for_tiantai`，不直接套用威飒解析或按号码格式猜承运人。真实空结果合同也尚未取得，空列表显式返回 `empty_result_unverified`。
+- `catalog.json` 和 `fba-logistics-query` 技能已同步。威飒、飞沃、云驼、九方、Amazon 规则和通用浏览器能力未改变。
+
+### 本地验证与实页入口
+
+从仓库根运行天泰定向测试，首次 `37 passed / 1 failed`；失败暴露异常字段诊断接收异常对象导致二次 JSON 序列化，已改为保留实际异常文本。修复后 `38 passed`。随后按 `catalog.json` 双端契约要求运行 Python CLI/infra：`500 passed / 4 skipped`；Bun 命令契约：`17 passed`。浏览器适配 JS 由 Bun 实际执行，验证固定同源 POST、账户可见检查、响应预算、投影隔离及真实网络/JSON/provider 错误形状；没有请求生产接口。
+
+真实验收必须在加载当前分支代码的 LXE_Agent 会话中，先实时取得当前 `store_id` 和页面快照；不能沿用历史店铺状态：
+
+```text
+lxeskill browser store --action get_status
+lxeskill browser page --action browser_snapshot --store-id '<当前 store_id>' --strict-attach --target-host ttaiex.nextsls.com --full
+lxeskill logistics tiantai query --store-id '<当前 store_id>' --account-name '深圳市雷袖尔科技有限公司' --fba FBA15MPDN5VF
+```
+
+预期 HTTP/业务成功、`account_visible=true`、`found=true`、`matched_count=1`、`complete=true`、`all_tab_confirmed=true`，唯一命中 `TAI10727074`，同时如实报告 `warehouse/carrier/tracking_numbers/eta` 缺失。成功后独立重复一次并比较业务字段与新 `queried_at`；无需第三次重复。失败保留完整脱敏 terminal 结果，不用旧 ref 补点，不重启或切换账户。第二个天泰公司账户及适用店铺必须另行核验。
