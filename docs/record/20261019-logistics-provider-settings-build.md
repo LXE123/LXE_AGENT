@@ -452,3 +452,16 @@ bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts
 不能将第一次 `bun run verify` 记录为直接成功；其发现的问题已分别修复并获得真实通过结果。
 
 此次验证未使用物流生产网站、紫鸟生产客户端或原始业务表格；配置模块完成不等同于物流账户登录态、页面及 ETA 已验收。
+
+## 17. 交付方式纠正：当前 pool-1 分支走 PR
+
+用户明确要求继续在当前 `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 工作，并通过 PR 交付。
+此前推进本地 main 的操作已撤回：main 恢复到操作前的 `dfaee548`，未推送 main。
+物流配置的两个提交已移回 `codex/fba-delivery-window`，对应提交为 `1bc94ccb` 和 `03ddb97e`。
+后续以此节为准，不再将本任务记为已合并 main。
+
+已核实当前分支对应的 PR 是 [LXE123/LXE_AGENT #91](https://github.com/LXE123/LXE_AGENT/pull/91)，状态为 open。
+继续更新现有 PR；保持当前工作目录和分支，不强推、不自行合并。
+移回后对比确认 apps、packages、python、config 的文件内容与完成验证时完全一致；
+差异仅为当前分支尚未纳入的其他技能说明文档及交付记录，不重复执行相同实现的全量测试。
+当前目录启动开发应用即可使用该功能，Desktop main/preload 的变更需要重启开发进程。
