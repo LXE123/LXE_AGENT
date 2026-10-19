@@ -6,7 +6,7 @@
 .logistics-card h3 { margin: 0 0 8px; }
 .logistics-card p { margin: 6px 0; }
 .logistics-status { font-weight: 600; }
-.logistics-editor { margin-top: 20px; display: grid; gap: 12px; }
+.logistics-editor { box-sizing: border-box; margin-top: 20px; display: grid; gap: 12px; align-content: start; }
 .logistics-editor label { display: grid; gap: 6px; min-width: 0; }
 .logistics-editor input:not([type="checkbox"]), .logistics-editor select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
 .logistics-editor .logistics-enabled { display: flex; align-items: center; gap: 8px; }

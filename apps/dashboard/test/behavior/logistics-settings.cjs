@@ -85,6 +85,28 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await js("behavior.logistics.failRead(true)"); await textClick('刷新店铺'); assert.match(await js("document.body.innerText"),/JSONDecodeError: fixture broken profiles/);
     await js("behavior.logistics.failRead(false)"); await textClick('重新加载'); await waitFor("!document.body.innerText.includes('JSONDecodeError')","retry recovered");
   });
+  await step("provider switching at the bottom keeps the editor and scroll position stable",async()=>{
+    await js("behavior.logistics.patch({stores:[{store_id:'one==',store_name:'Amazon 店铺一 深圳市公司 A',running:true}],stores_error:null})");
+    await textClick('刷新店铺'); await textClick('添加物流商');
+    for (const width of [1200, 680]) {
+      win.setSize(width,900); await settle();
+      await select('provider','wesa'); await select('store','one==');
+      await js("(() => { const content=document.querySelector('.desktop-settings-content'); content.scrollTop=content.scrollHeight; document.querySelector('[name=logistics-provider]').focus({preventScroll:true}); })()");
+      await settle();
+      const geometry = () => js("(() => { const content=document.querySelector('.desktop-settings-content'); const provider=document.querySelector('[name=logistics-provider]'); return {scroll:content.scrollTop,top:provider.getBoundingClientRect().top,height:document.querySelector('.logistics-editor').getBoundingClientRect().height}; })()");
+      const before = await geometry();
+      assert.ok(before.scroll>0,'the regression actually exercises a scrolled editor');
+      for (const provider of ['jiufang','feiwo','tiantai','yuntuo','wesa','jiufang']) {
+        await select('provider',provider);
+        const after = await geometry();
+        assert.ok(Math.abs(after.scroll-before.scroll)<=1,`${width}px ${provider}: scroll position moved`);
+        assert.ok(Math.abs(after.top-before.top)<=1,`${width}px ${provider}: provider selector jumped`);
+        assert.ok(Math.abs(after.height-before.height)<=1,`${width}px ${provider}: editor height changed`);
+        assert.equal(await js("document.activeElement?.getAttribute('name')"),'logistics-provider');
+      }
+    }
+    await textClick('取消编辑'); await textClick('确认','.desktop-confirm-dialog');
+  });
   await step("Chinese and English narrow layouts have no horizontal overflow",async()=>{
     await win.setSize(680,900);
     for(const language of ['zh','en']) {

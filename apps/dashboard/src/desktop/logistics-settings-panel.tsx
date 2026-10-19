@@ -73,6 +73,10 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
       <legend>{input.profile_id ? t.edit : t.add}</legend>
       <label>{t.name}<input name="logistics-name" maxLength={80} value={input.display_name} onChange={event => change({ display_name: event.target.value })} /></label>
       <label>{t.provider}<select name="logistics-provider" value={input.provider_id} onChange={event => {
+        // Keep the draft's expanded height so removing fields cannot clamp the
+        // settings scroller and move the focused provider selector.
+        const editor = event.currentTarget.closest<HTMLFieldSetElement>(".logistics-editor");
+        if (editor) editor.style.minBlockSize = `${editor.getBoundingClientRect().height}px`;
         const spec = state.providers.find(p => p.provider_id === event.target.value)!;
         change({ provider_id: spec.provider_id, account_name: spec.requires_account_name ? "" : null,
           store_binding: spec.requires_store ? input.store_binding : null });
