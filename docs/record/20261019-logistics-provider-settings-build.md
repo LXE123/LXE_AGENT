@@ -432,3 +432,23 @@ bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts
 
 本任务以已提交的 `codex/fba-delivery-window` 物流适配器提交为前置基线，再与最新 main 集成。
 合并前完整验证结果在后续验证记录中登记。
+
+
+## 16. 合并前验证记录
+
+任务分支已 rebase 到 `origin/main` 的 `9f36647a`，无冲突。
+配置模块实现提交为 `95984c7d`；本节与集成修正单独提交。
+
+- 定向物流 Python 测试：初始配置与五家适配器共 271 项通过；最终新增配置测试增至 60 项并全部通过。
+- Desktop、Dashboard 与协议首轮定向测试：87 项通过；补充主 frame 验证后相关用例继续通过。
+- 真实 Chromium：物流配置 8 组交互场景通过，中文和英文窄屏截图已查看，无横向溢出。
+- `bun run verify`：协议 4 份 schema 检查、生产边界和全仓库类型检查通过；Bun 全量结果为 2152 项通过、10 项跳过、1 项失败。
+- 该失败为前置物流分支新增技能缺少中文名称映射。实际扫描 40 份技能，确认两项受覆盖约束的缺失；补齐物流相关三项名称后，`bun test apps/dashboard/test/shared/skill-labels.test.tsx` 的 4 项全部通过，Dashboard 类型检查再次通过。
+- 全量 Python 首次在收集阶段发现新增 `test_settings.py` 与越南备货同名，已更名为 `tests/logistics/test_logistics_settings.py`。之后执行 `bun run test:py-tools`：2908 项通过、20 项跳过、30 条现有 aiohttp 弃用警告，退出码 0。
+- `git diff --check` 通过。
+
+完整验证后的改动仅为名称映射和测试文件更名；按 `AGENTS.md` 选择定向复验受影响的 Dashboard，
+并完成原本因失败尚未执行的全量 Python 阶段，没有重复运行整套全量验证。
+不能将第一次 `bun run verify` 记录为直接成功；其发现的问题已分别修复并获得真实通过结果。
+
+此次验证未使用物流生产网站、紫鸟生产客户端或原始业务表格；配置模块完成不等同于物流账户登录态、页面及 ETA 已验收。
