@@ -54,7 +54,7 @@ lxeskill logistics tiantai query --store-id <store_id> --account-name '<当前�
 - 默认只读取第 1 页。`complete=false` 时说明其他页未查；真实空结果合同尚未取得，空列表报告 `empty_result_unverified`，不擅自解释为无货、登录过期或账户错误。
 - 检查顶层 HTTP、`success/info/errorCode/errors`、列表、分页和 `returned_active_tab`。HTTP/provider/JSON/网络/Selenium 错误保留实际脱敏诊断；失败即停，不调用马帮认证刷新。
 
-历史票 `FBA15MPDN5VF` 已在当前快照显示的账户“深圳市新棱镜贸易有限公司”下完成首次受控实页查询，唯一命中 `TAI10727074`、`complete=true`、`all_tab_confirmed=true`，并如实报告仓库、承运人、转单号和 ETA 缺失。用户此前提供的“深圳市雷袖尔科技有限公司”与执行时页面不一致，未用于查询，不能记录为已核实账户。下一次只需独立重复相同查询，比较业务字段与新的 `queried_at`。第二个公司账户、美国样本、非空尾程字段、空结果、失败响应和在途最终送达 ETA 分别补证，不从本票扩大结论。
+历史票 `FBA15MPDN5VF` 已在当前快照显示的账户“深圳市新棱镜贸易有限公司”下完成两次独立受控实页查询。两次均唯一命中 `TAI10727074`、`complete=true`、`all_tab_confirmed=true`，业务字段及缺项一致，`queried_at` 分别为 `2026-10-19T03:04:58Z` 和 `2026-10-19T03:13:29Z`。用户此前提供的“深圳市雷袖尔科技有限公司”与执行时页面不一致，未用于查询，不能记录为已核实账户。该历史票无需第三次重复；第二个公司账户、美国样本、非空尾程字段、空结果、失败响应和在途最终送达 ETA 分别补证，不从本票扩大结论。
 
 # 飞沃运通单票查询
 
