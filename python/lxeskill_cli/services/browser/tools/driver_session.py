@@ -69,7 +69,15 @@ def _safe_title(driver: Any) -> str:
         return ""
 
 
-def list_browser_tabs(driver: Any) -> list[dict[str, str]]:
+def _safe_current_handle(driver: Any) -> str:
+    try:
+        return str(getattr(driver, "current_window_handle", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def list_browser_tabs(driver: Any, *, restore_original: bool = True) -> list[dict[str, str]]:
+    """Read live tab metadata; target selectors may defer restoring the original."""
     if driver is None:
         return []
 
@@ -78,16 +86,16 @@ def list_browser_tabs(driver: Any) -> list[dict[str, str]]:
     except Exception:
         handles = []
 
-    try:
-        original_handle = str(getattr(driver, "current_window_handle", "") or "").strip()
-    except Exception:
-        original_handle = ""
+    original_handle = _safe_current_handle(driver)
+    current_handle = original_handle
 
     tabs: list[dict[str, str]] = []
     for handle in handles:
         safe_handle = str(handle or "").strip()
         try:
-            driver.switch_to.window(handle)
+            if safe_handle != current_handle:
+                driver.switch_to.window(handle)
+                current_handle = safe_handle
             tabs.append(
                 {
                     "handle": safe_handle,
@@ -96,6 +104,7 @@ def list_browser_tabs(driver: Any) -> list[dict[str, str]]:
                 }
             )
         except Exception as exc:
+            current_handle = _safe_current_handle(driver)
             tabs.append(
                 {
                     "handle": safe_handle,
@@ -104,7 +113,7 @@ def list_browser_tabs(driver: Any) -> list[dict[str, str]]:
                 }
             )
 
-    if original_handle:
+    if restore_original and original_handle and current_handle != original_handle:
         try:
             driver.switch_to.window(original_handle)
         except Exception:
@@ -137,25 +146,40 @@ def select_unique_host_tab(driver: Any, target_host: str) -> dict[str, str]:
     safe_target_host = str(target_host or "").strip().lower().rstrip(".")
     if not safe_target_host:
         raise RuntimeError("target_host missing")
-    tabs = list_browser_tabs(driver)
-    matches = [
-        tab
-        for tab in tabs
-        if is_normal_tab_url(str(tab.get("url") or ""))
-        and str(urlsplit(str(tab.get("url") or "")).hostname or "").strip().lower().rstrip(".")
-        == safe_target_host
-    ]
-    if not matches:
-        raise RuntimeError(
-            f"未找到域名为 {safe_target_host} 的可操作页面。当前标签页: {_format_tab_summary(tabs)}"
-        )
-    if len(matches) > 1:
-        raise RuntimeError(
-            f"域名 {safe_target_host} 匹配到 {len(matches)} 个标签页，无法唯一定位。当前标签页: {_format_tab_summary(tabs)}"
-        )
-    selected = matches[0]
-    driver.switch_to.window(selected["handle"])
-    return dict(selected)
+    original_handle = _safe_current_handle(driver)
+    try:
+        # Inspect every tab for uniqueness, then select directly from the last
+        # inspected context instead of bouncing through the original page.
+        tabs = list_browser_tabs(driver, restore_original=False)
+        matches = [
+            tab
+            for tab in tabs
+            if is_normal_tab_url(str(tab.get("url") or ""))
+            and str(urlsplit(str(tab.get("url") or "")).hostname or "").strip().lower().rstrip(".")
+            == safe_target_host
+        ]
+        if not matches:
+            raise RuntimeError(
+                f"未找到域名为 {safe_target_host} 的可操作页面。当前标签页: {_format_tab_summary(tabs)}"
+            )
+        if len(matches) > 1:
+            raise RuntimeError(
+                f"域名 {safe_target_host} 匹配到 {len(matches)} 个标签页，无法唯一定位。当前标签页: {_format_tab_summary(tabs)}"
+            )
+        selected = matches[0]
+        if _safe_current_handle(driver) != selected["handle"]:
+            driver.switch_to.window(selected["handle"])
+        return dict(selected)
+    except Exception as exc:
+        if original_handle:
+            try:
+                if _safe_current_handle(driver) != original_handle:
+                    driver.switch_to.window(original_handle)
+            except Exception as restore_error:
+                raise RuntimeError(
+                    f"{exc}; 无法恢复原标签页 {original_handle}: {type(restore_error).__name__}: {restore_error}"
+                ) from exc
+        raise
 
 
 @contextmanager
