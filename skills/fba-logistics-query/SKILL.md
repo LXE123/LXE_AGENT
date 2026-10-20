@@ -38,6 +38,7 @@ lxeskill logistics wesa query --store-id <store_id> --account-name '<公司账�
 
 - `request_succeeded` 表示 HTTP、业务状态、列表形状和分页检查通过；`found` 表示本页存在完整 FBA 精确匹配，不能混为一谈。
 - `matches` 保留全部匹配行、原文、承运人和多个转单号。`missing_fields`、`warnings` 和 `warehouse_matches` 必须报告；不得用第一个结果代替整票，也不能根据号码格式推断承运人。
+- `parcel_count` 已观察到 HTML 字符串和非负整数两种形状：字符串输出可读文本，数字保留原整数；`source_html` 保留原字段值。件数不是日期或包裹单号覆盖完整的证明。
 - 默认只读第 1 页；`complete=false` 时说明只取得部分页面，零匹配只能说本页未找到。用户明确指定后才通过 `--page N` 读取其他页，不自动扫描。
 - `returned_active_tab` 与 `all_tab_confirmed` 只证明响应页签读数；跨状态覆盖仍需已知在途样本验证。
 - `account_visible=true` 只表示指定公司全名存在于当前可见文本，不能替代上一步对当前公司账户的人工/页面核对，也不证明长期账户归属。
@@ -63,7 +64,7 @@ lxeskill logistics tiantai query --store-id <store_id> --account-name '<当前�
 - 当前真实样本 `FBA15MPDN5VF` 返回天泰运单 `TAI10727074`、服务“欧洲空派递延-带D”、Amazon 德国 `02977`、件数 2、仓库“龙华仓”，响应页签为 `all`，业务状态计数为“已收货(1)”。该票是德国样本，只验证列表请求、完整 FBA 身份和字段投影，不算美国 FBA 验收。
 - 当前行没有 `to_warehouse_code`，`outer_carrier="--"`，也没有最终送达 ETA。命令因此返回 `warehouse/carrier/eta=null`、`tracking_numbers=[]` 并列出缺项；“龙华仓”是物流商仓库，不能替代 Amazon 目的仓。
 - 天泰尚无非空 `outer_carrier` 的真实响应合同。未来出现非空原文时先完整保留并报告 `tracking_layout_unverified_for_tiantai`，在取得明确承运人/转单号证据前不按威飒布局或号码格式拆分。
-- `parcel_count` 的真实类型是数字，与威飒样本的 HTML 字符串不同；解析器分别处理并保留。`created` 是下单时间原值，不作为 ETA、签收时间或改期依据。
+- `parcel_count` 的真实样本为数字；威飒已另观察到 HTML 字符串和数字两种形状，各适配器分别按证据处理并保留。`created` 是下单时间原值，不作为 ETA、签收时间或改期依据。
 - 默认只读取第 1 页。`complete=false` 时说明其他页未查；真实空结果合同尚未取得，空列表报告 `empty_result_unverified`，不擅自解释为无货、登录过期或账户错误。
 - 检查顶层 HTTP、`success/info/errorCode/errors`、列表、分页和 `returned_active_tab`。HTTP/provider/JSON/网络/Selenium 错误保留实际脱敏诊断；失败即停，不调用马帮认证刷新。
 

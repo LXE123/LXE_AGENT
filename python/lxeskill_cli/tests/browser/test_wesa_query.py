@@ -23,6 +23,11 @@ def provider_response():
     return json.loads((Path(__file__).parent / "fixtures/wesa_shipment_list.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture
+def numeric_count_row():
+    return json.loads((Path(__file__).parent / "fixtures/wesa_numeric_parcel_count_row.json").read_text(encoding="utf-8"))
+
+
 def projection(payload):
     """Python tests consume the same bounded contract as the browser adapter.
 
@@ -58,6 +63,49 @@ def test_real_response_exact_match(provider_response):
     assert match["source_html"]["outer_carrier"] == provider_response["data"]["components"]["gridView"]["table"]["dataSource"][0]["outer_carrier"]
     assert match["missing_fields"] == match["warnings"] == []
     assert "eta" not in match and "created" not in match
+
+
+def test_user_reported_numeric_count_row_retains_identity_and_transfer_number(numeric_count_row):
+    match = wesa.parse_row(numeric_count_row, "FBA19SS5YN6R", "SMF3")
+    assert match is not None
+    assert match["fba_numbers"] == ["FBA19SS5YN6R"]
+    assert match["shipment_number"] == "WS10027586"
+    assert match["warehouse"] == "SMF3" and match["warehouse_matches"] is True
+    assert match["carrier"] == "UPS"
+    assert match["tracking_numbers"] == ["1ZH910550314112374"]
+    assert type(match["parcel_count"]) is int and match["parcel_count"] == 1
+    assert match["source_html"] == numeric_count_row
+    assert match["source_text"]["parcel_count"] == "1"
+    assert match["missing_fields"] == match["warnings"] == []
+    assert "eta" not in match
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_numeric_counts_are_preserved_as_integers(numeric_count_row, count):
+    numeric_count_row["parcel_count"] = count
+    match = wesa.parse_row(numeric_count_row, "FBA19SS5YN6R")
+    assert type(match["parcel_count"]) is int and match["parcel_count"] == count
+    assert match["source_html"]["parcel_count"] == count
+
+
+@pytest.mark.parametrize("count", [True, False, -1, 1.5, None, {"unexpected": 1}, []])
+def test_invalid_count_preserves_actual_diagnostic_and_never_retries(monkeypatch, provider_response, count):
+    response = projection(provider_response)
+    response["rows"][0]["parcel_count"] = count
+    calls = fake_session(monkeypatch, response)
+    result = wesa.run(ARGS)
+    assert not result["success"] and result["error"]["code"] == "query_failed"
+    assert "parcel_count" in result["error"]["message"]
+    assert wesa.diagnostic(count) in result["error"]["message"]
+    assert result["auth_refresh_required"] is False
+    assert len([call for call in calls if call[0] == "query"]) == 1
+
+
+@pytest.mark.parametrize("field", ["shipment_id", "shipment_number", "to_warehouse_code", "outer_carrier", "service"])
+def test_numeric_count_support_does_not_coerce_other_fields(numeric_count_row, field):
+    numeric_count_row[field] = 1
+    with pytest.raises(ValueError, match="Shipment field must be a string"):
+        wesa.parse_row(numeric_count_row, "FBA19SS5YN6R")
 
 
 @pytest.mark.parametrize("suffix", ["U000001", "9", "X"])
@@ -264,6 +312,23 @@ def test_cli_dispatch_and_failure_recovery(monkeypatch, provider_response, capsy
     assert "recovery" not in result  # never refresh unrelated Mabang authentication
 
 
+def test_numeric_count_survives_browser_projection_and_cli_output(monkeypatch, provider_response, numeric_count_row, capsys):
+    # Only the diagnostic row is new real evidence; the outer envelope is a
+    # synthetic combination with the previously captured response contract.
+    provider_response["data"]["components"]["gridView"]["table"]["dataSource"] = [numeric_count_row]
+    calls = fake_session(monkeypatch, projection(provider_response))
+    argv = ["logistics", "wesa", "query", "--store-id", "test-store", "--fba", "FBA19SS5YN6R", "--account-name", ACCOUNT]
+    assert cli.main(argv) == 0
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert result["ok"] and result["data"]["request_succeeded"] and result["data"]["found"]
+    match, = result["data"]["matches"]
+    assert match["parcel_count"] == match["source_html"]["parcel_count"] == 1
+    assert match["tracking_numbers"] == ["1ZH910550314112374"]
+    assert match["shipment_number"] == "WS10027586" and match["warehouse"] == "SMF3"
+    assert len([call for call in calls if call[0] == "query"]) == 1
+    assert calls[2][2] == wesa.request_payload("FBA19SS5YN6R")
+
+
 def test_delivered_payload_matches_captured_contract():
     payload = wesa.request_payload(FBA, "delivered")
     assert payload == {"timeLimit": 0, "page": 1, "pageSize": 30, "keywords": FBA,
@@ -273,7 +338,7 @@ def test_delivered_payload_matches_captured_contract():
         "store_id": "", "to_warehouse_code": ""}
 
 
-def test_actual_browser_script_with_real_response_and_network_failure_cases(provider_response):
+def test_actual_browser_script_with_real_response_and_network_failure_cases(provider_response, numeric_count_row):
     bun = shutil.which("bun")
     assert bun, "Bun is required to exercise the actual adapter JavaScript"
     script = r"""
@@ -306,6 +371,9 @@ process.stdout.write(JSON.stringify(results));
     oversized_field = copy.deepcopy(provider_response)
     oversized_field["data"]["components"]["gridView"]["table"]["dataSource"][0]["shipment_id"] = "x" * 8001 + FBA
     scenarios.append({"body": json.dumps(oversized_field)})
+    numeric_count_response = copy.deepcopy(provider_response)
+    numeric_count_response["data"]["components"]["gridView"]["table"]["dataSource"] = [numeric_count_row]
+    scenarios.append({"body": json.dumps(numeric_count_response)})
     process = subprocess.run([bun, "-e", script], input=json.dumps({"script": wesa.QUERY_SCRIPT,
         "payload": wesa.request_payload(FBA), "fixture": provider_response, "account": ACCOUNT,
         "scenarios": scenarios}), capture_output=True, text=True, timeout=15, check=False)
@@ -325,3 +393,8 @@ process.stdout.write(JSON.stringify(results));
     assert "actual forbidden" in forbidden["error"]["message"]
     assert outputs[8]["result"]["fields_truncated"] is True
     assert parsed(outputs[8]["result"])["error"]["code"] == "truncated_response"
+    assert outputs[9]["result"]["rows"][0] == numeric_count_row
+    numeric = parsed(outputs[9]["result"], fba="FBA19SS5YN6R", expected_warehouse="SMF3")
+    assert numeric["success"] and numeric["found"]
+    assert numeric["matches"][0]["parcel_count"] == 1
+    assert numeric["matches"][0]["tracking_numbers"] == ["1ZH910550314112374"]

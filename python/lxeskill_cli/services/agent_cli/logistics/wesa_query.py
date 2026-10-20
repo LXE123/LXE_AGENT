@@ -153,9 +153,13 @@ def request_payload(fba: str, mode: str = "all", page: int = 1) -> dict[str, Any
 
 def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> dict[str, Any] | None:
     raw = {key: row.get(key, "") for key in ROW_FIELDS}
-    if any(not isinstance(value, str) for value in raw.values()):
+    if any(not isinstance(value, str) for key, value in raw.items() if key != "parcel_count"):
         raise ValueError("Shipment field must be a string: " + diagnostic(raw))
-    text = {key: html_text(value) for key, value in raw.items()}
+    count = raw["parcel_count"]
+    if isinstance(count, bool) or not isinstance(count, (str, int)) or (isinstance(count, int) and count < 0):
+        raise ValueError("Shipment field parcel_count must be a string or non-negative integer: " + diagnostic(count))
+    text = {key: html_text(value) for key, value in raw.items() if key != "parcel_count"}
+    text["parcel_count"] = html_text(count) if isinstance(count, str) else str(count)
     # Boundaries prevent matching FBA123... inside a longer shipment/box number.
     fbas = list(dict.fromkeys(re.findall(r"(?<![A-Za-z0-9])FBA[A-Z0-9]{7,}(?![A-Za-z0-9])", text["shipment_id"])))
     if fba not in fbas:
@@ -180,7 +184,7 @@ def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> di
         warnings.append("warehouse_mismatch")
     return {"fba_numbers": fbas, "shipment_number": text["shipment_number"],
             "warehouse": text["to_warehouse_code"], "warehouse_matches": warehouse_matches,
-            "carrier": carrier, "tracking_numbers": tracking, "parcel_count": text["parcel_count"],
+            "carrier": carrier, "tracking_numbers": tracking, "parcel_count": text["parcel_count"] if isinstance(count, str) else count,
             "service": text["service"], "source_text": text, "source_html": raw,
             "missing_fields": missing, "warnings": warnings}
 
