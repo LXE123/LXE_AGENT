@@ -1,6 +1,6 @@
 ---
 name: fba-shipment-delivery-window
-description: 读取 Amazon FBA 货件送达时段，发现同一 Send to Amazon 工作流程中的目的地子货件，或在人工核对 dry-run 后修改指定货件的送达时段。用户提到 FBA 送达时间、配送时间、送达时段、改期、delivery window，或要求查看同一工作流程的子货件时使用。
+description: 读取 Amazon FBA 货件送达时段、发现工作流程子货件，根据 UPS/FedEx 等实际尾程证据形成改期建议，或按用户指定日期在核对 dry-run 后修改。用户提到 FBA 送达时间、送达时段、运输延误改期、delivery window，或要求查看同一工作流程子货件时使用。
 type: amazon_fba
 commands:
   - lxeskill fba shipment delivery-window-list
@@ -25,12 +25,17 @@ commands:
 
 ## 输入准备
 
+先区分两种入口：
+
+- **查询后建议**：按完整 FBA 从物流商取得尾程承运人和转单号，再核验 UPS/FedEx 等官方追踪，以实际尾程状态及预计送达日期形成建议。先读取 [尾程证据与改期建议](references/carrier-evidence.md)；不得从威飒等货代后台日期或 Amazon 当前计划反推实际送达日。没有尾程预计日期但已超期或明确尚未交件时，按该参考中的业务顺延规则处理，不把缺少货代 ETA 当作整条流程失败。
+- **按指定日期执行**：用户已明确指定目标日期时，按本技能执行，不默认追加物流查询；不得把用户指定日期描述为 UPS 查询结果。
+
 改期前锁定以下内容：
 
 - 目标店铺名称和真实 `store_id`。
 - Amazon 货件列表页绝对 `page_url`。
 - 一个用于定位工作流程的完整 FBA 种子编号。进入工作流程后，以 discovery 返回的 `operator_options` 建立“货件编号 N → 完整 FBA 号”的内部映射。
-- 用户给出的 `target_date`。优先标准化为 `YYYY-MM-DD`；不得沿用历史测试日期或自行猜年份。
+- 用户给出或已向用户展示依据的建议 `target_date`，同时保留日期来源。优先标准化为 `YYYY-MM-DD`；不得沿用历史测试日期或自行猜年份。查询建议不代替下述 dry-run 后的写入批准。
 
 目标日期会换算为所在日历周（周日到周六）。模型不得自行计算后直接写入；以 CLI 返回的 `target_window` 为准。
 

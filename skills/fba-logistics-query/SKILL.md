@@ -1,6 +1,6 @@
 ---
 name: fba-logistics-query
-description: 按完整 FBA 标识查询威飒、飞沃运通、云驼或天泰供应链的运单和已有物流信息。威飒可核对目的仓，飞沃和云驼可读取轨迹；天泰当前样本只验证运单列表身份。承运人、转单号或 ETA 缺失时明确报告，不直接生成 Amazon 改期。
+description: 按完整 FBA 标识查询威飒、飞沃运通、云驼或天泰供应链，取得运单、尾程承运人和转单号。用于 FBA 到 UPS/FedEx 等尾程查询的衔接；物流商后台日期不作为 Amazon 改期依据。天泰非空转单字段仍待验证。
 type: ziniao_browser
 commands:
   - lxeskill logistics wesa query
@@ -9,7 +9,18 @@ commands:
   - lxeskill logistics tiantai query
 ---
 
-# 威飒单票查询
+# FBA 物流商查询
+
+## 在送达时段流程中的职责
+
+本技能负责建立“完整 FBA → 物流商运单 → 尾程承运人及转单号”的对应关系。威飒、飞沃、云驼和天泰是此处的物流商；UPS/FedEx 等实际尾程承运商提供送达状态及预计日期。
+
+- 查询后建议改期时，取得明确的尾程承运人和转单号后，继续核验对应 UPS/FedEx 等官方追踪结果。货代后台的下单、到港、清关日期、转述轨迹或状态不能替代这一步。
+- 物流商结果没有 ETA，或 `missing_fields` 包含 `eta`，不妨碍使用已核实的承运人和转单号进入尾程查询。保留缺项诊断，不要求物流商先提供日期；承运人或转单号缺失、身份/目的仓冲突则暂停对应项。
+- `request_succeeded/found/complete` 只说明本次物流商查询结果，不证明 UPS 已收件、已送达或 Amazon 已接收。
+- 查询后建议的日期来源、无预计日期时的处理及证据要求，见 [尾程证据与改期建议](../fba-shipment-delivery-window/references/carrier-evidence.md)。单独查询物流商的请求仍只报告查询结果，不自行进入 Amazon 修改。
+
+## 威飒单票查询
 
 九方通逊使用独立技能 `jiufang-logistics-query` 和命令 `lxeskill logistics jiufang query`，已验证公开接口可匿名查询，不需要物流账号或紫鸟店铺；支持对已知箱号后缀拆分并精确核对返回的主号。不能把官网顶部搜索框的登录限制套用到公开接口。本技能下的威飒、飞沃和云驼仍沿用各自的浏览器查询约束。
 
