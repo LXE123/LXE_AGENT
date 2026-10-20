@@ -1,8 +1,9 @@
 # 物流商配置模块构建说明
 
-- 日期：2026-10-19。
+- 日期：2026-10-19；最新交接：2026-10-20。
 - 目标：在 LXE Agent Desktop 的“设置 → 业务集成”中增加“物流商配置”，集中维护物流商、公司账户和紫鸟店铺的对应关系，为后续统一单票查询和批量查询提供明确配置。
-- 本文范围：定义下一轮开发的结构、边界、分阶段任务、测试和验收条件。本轮不实现代码，不访问物流商生产页面，不修改现有物流订单、Amazon 或原始表格。
+- 当前状态：第一阶段配置模块及供应商切换防跳动修复已在当前 pool-1 分支实现，自动化回归通过，用户手动验收结果待反馈；统一查询入口尚未实现。下一轮从第 18 节恢复。
+- 本文范围：第 1–14 节保留原构建方案，第 15–17 节记录实现、验证和交付方式纠正；最新工作目录、测试方法及待办以第 18 节为准。没有访问物流商生产页面或修改物流订单、Amazon、原始表格。
 - 相关现状：[美国 FBA 物流查询与送达时段更新交接](20261012-fba-logistics-delivery-window-handoff.md)。
 
 ## 1. 已确认的产品位置
@@ -404,9 +405,9 @@ bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts
 
 第一阶段完成只代表配置模块可用，不代表五家物流商当前登录、页面、空结果、失败合同、尾程号码或 ETA 已全部验证。
 
-## 14. 下一轮启动提示
+## 14. 原构建启动提示（历史，最新入口见第 18 节）
 
-可直接使用以下提示启动构建：
+以下提示保留原第一阶段构建背景，不作为下一轮重复实施或合并 main 的指令：
 
 > 阅读 `docs/record/20261019-logistics-provider-settings-build.md` 和项目 `AGENTS.md`，实现第一阶段“设置 → 业务集成 → 物流商配置”。先检查当前分支、worktree 和用户已有改动。只实现固定 provider 注册表、配置原子存储、Desktop 独立 IPC、设置页面 CRUD、实时店铺目录刷新和定向测试；不要实现统一查询命令、批量导入、物流网站生产请求、自动登录或 Amazon 改期。不要扩展 `DesktopSetupInput` 保存 profiles，不触发后台重启，不把 profiles 写入 agent DB、Python SQLite、`settings.json` 或 `secrets.bin`。紫鸟状态只读，不启动、重启、退出或导航店铺。所有页面自动化边界继续遵守官方配对 Selenium 规则。开发阶段运行定向测试；准备合并时按 `AGENTS.md` 执行 rebase、一次完整验证、fast-forward 合并和 worktree 归还流程。
 
@@ -460,8 +461,86 @@ bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts
 物流配置的两个提交已移回 `codex/fba-delivery-window`，对应提交为 `1bc94ccb` 和 `03ddb97e`。
 后续以此节为准，不再将本任务记为已合并 main。
 
-已核实当前分支对应的 PR 是 [LXE123/LXE_AGENT #91](https://github.com/LXE123/LXE_AGENT/pull/91)，状态为 open。
-继续更新现有 PR；保持当前工作目录和分支，不强推、不自行合并。
+2026-10-19 曾核实当前分支对应的 PR 是 [LXE123/LXE_AGENT #91](https://github.com/LXE123/LXE_AGENT/pull/91)，当时状态为 open；不是持续有效的在线状态。
+用户随后明确要求先自行测试，完成后再处理 PR；当前没有推送或更新 PR。保持当前工作目录和分支，不强推、不自行合并。
 移回后对比确认 apps、packages、python、config 的文件内容与完成验证时完全一致；
 差异仅为当前分支尚未纳入的其他技能说明文档及交付记录，不重复执行相同实现的全量测试。
 当前目录启动开发应用即可使用该功能，Desktop main/preload 的变更需要重启开发进程。
+
+## 18. 下一轮交接（2026-10-20）
+
+### 当前落点和交付约束
+
+- 工作目录：`/Users/lxe-3/LXE_AGENT/.worktrees/pool-1`。
+- 分支：`codex/fba-delivery-window`。本轮归档前工作区干净，最新代码提交为 `1cf4fd1a fix: keep logistics editor stable when switching providers`。
+- 第一阶段实现提交：`1bc94ccb`；名称映射及测试收集修正：`03ddb97e`；交付方式纠正：`e94bbd75`。
+- 保留当前目录和分支。用户要求先测试，后续获得明确指示再推送或更新 PR；不要切换到主工作区开发，不自行合并 main，不释放 pool-1。
+- 之前误推进本地 main 的操作已经撤回，main 恢复到 `dfaee548`；该事件已在第 17 节记录。本次归档没有修改 main 或远端。
+
+第一阶段的代码和自动化验证已具备，但用户尚未反馈手动测试结果，不能写成“用户验收通过”。
+保存 profile 只说明业务配置已保存，不代表物流页面、账户登录态或查询能力已现场验证。
+
+### 最新界面修复
+
+用户反馈：滚到下方编辑区域切换供应商时，输入框数量变化导致页面上下跳动。
+
+原因是切到字段较少的供应商后，编辑区缩短，浏览器收缩可滚动范围并调整滚动位置。
+修复在切换前保留当前编辑区已展开的高度，并让字段从顶部排列，避免滚动位置和供应商下拉框跟着变化。
+字段仍按五家供应商的要求显示，没有添加不适用的输入框；取消编辑、卸载编辑区后释放留白。
+因此切到九方时编辑区底部可能保留空白，这是当前稳定滚动的预期表现。
+
+对应文件：
+
+- `apps/dashboard/src/desktop/logistics-settings-panel.tsx`
+- `apps/dashboard/src/desktop/logistics-settings.css`
+- `apps/dashboard/test/behavior/logistics-settings.cjs`
+
+### 已有验证证据
+
+- 新增滚动回归先在旧代码复现失败：`1200px jiufang: scroll position moved`。
+- 修复后本地 Chromium 的物流配置 9 组场景通过，新增场景覆盖 1200px、680px 窗口，滚到编辑区底部后遍历五家供应商，核对滚动位置、下拉框位置、编辑区高度和焦点稳定。
+- Dashboard 物流组件测试 9 项通过，Dashboard 类型检查及 `git diff --check` 通过。
+- 第 16 节的完整验证属于防跳动修复之前的历史结果；此次局部界面修复仅运行相关定向验证，没有宣称重新跑过全量，也没有以生产物流网站或紫鸟客户端作为自动测试目标。
+
+从当前仓库根运行相关命令：
+
+```sh
+bun test --test-name-pattern logistics-settings apps/dashboard/test/behavior/renderer.test.ts
+bun test apps/dashboard/test/desktop/logistics-settings.test.tsx
+bun run --cwd apps/dashboard typecheck
+```
+
+配置存储及 IPC 的定向入口：
+
+```sh
+uv run --frozen pytest -q python/lxeskill_cli/tests/logistics/test_logistics_settings.py
+bun test apps/desktop/test/logistics-settings.test.ts apps/desktop/test/preload-bridge.test.ts apps/desktop/test/ipc-validation.test.ts packages/foundation/desktop-protocol/test
+bun run --cwd apps/desktop typecheck
+```
+
+没有代码、基线或新问题变化时，不为归档重复运行这些测试。
+
+### 用户手动验收方法（结果待反馈）
+
+在上述 pool-1 目录启动 `bun run desktop:dev`，进入“设置 → 业务集成 → 物流商配置”。
+若旧开发进程还在运行，先停止旧进程再从当前目录启动，以加载新的 Desktop main/preload。
+
+1. **供应商切换**：添加配置，选择天泰并绑定店铺，滚到编辑区底部；依次切换九方、飞沃、天泰、云驼、威飒。供应商下拉框和页面滚动位置应保持稳定，窄窗口下重复检查。
+2. **字段要求**：威飒、天泰要求公司账户；飞沃、云驼不显示公司账户；九方不显示店铺字段。浏览器型配置必须由用户明确选店铺，不能自动取第一家。
+3. **多账户与持久化**：保存两条名称不同、公司账户不同的天泰配置，关闭并重新打开设置，确认两条都存在且互不覆盖；必要时重新启动开发应用复查。保存不能关闭整个设置弹窗或重启后台。
+4. **编辑与保护**：修改配置后切换分区或关闭弹窗，应提示草稿处理；停用保留配置，删除必须确认；重复名称或不完整字段不能覆盖已有有效配置。
+5. **实时店铺状态**：刷新后与紫鸟客户端当前目录比较，区分运行、未运行、未发现及名称冲突。紫鸟状态读取失败时，已有配置仍应可见并显示实际错误；不把保存成功当作已登录或页面正确。
+
+若用户反馈失败，先记录供应商、具体操作、窗口宽度和实际界面/错误，再按问题修复；不沿用历史店铺状态推断本次运行情况。
+
+### 下一阶段边界及恢复提示
+
+先收集用户对第一阶段和防跳动修复的手动反馈。用户未授权前，不自动开始第二阶段或处理 PR。
+若明确进入第二阶段，再按第 10 节设计 `lxeskill logistics query --profile-id ...`：固定路由、完整 profile ID、禁用配置拒绝使用、实时核对店铺 ID/名称/运行状态、传递必要公司账户，并保留现有适配器结果及真实错误。
+九方公开 HTTP 路径不读取或启动店铺；统一命令的 session contract 与技能权限必须在修改 catalog 前单独明确。
+涉及 catalog 时执行 Python/Bun 双端契约测试；涉及紫鸟页面时继续使用官方配对 Selenium 和严格附着。
+批量导入、自动登录、任意请求配置、生产网站操作或 Amazon 改期均不从“配置模块测试”自动获得授权。
+
+下一轮可直接使用：
+
+> 阅读 `docs/record/20261019-logistics-provider-settings-build.md` 第 18 节和项目 `AGENTS.md`，在当前 `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 的 `codex/fba-delivery-window` 分支继续。先检查已有改动并接收用户手动验收结果；物流配置第一阶段和供应商切换防跳动修复已实现，暂不重复构建。依据用户反馈修复并运行相关定向测试。没有明确指示不要推送、更新 PR、合并 main、释放 worktree，或开始统一查询入口和生产页面操作。
