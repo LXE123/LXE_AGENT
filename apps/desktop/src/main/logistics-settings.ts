@@ -76,6 +76,8 @@ export class DesktopLogisticsSettingsService {
       const existing = before.profiles.find(profile => profile.profile_id === input.profile_id);
       if (input.profile_id && !existing) throw new Error("Logistics profile does not exist; reload settings");
       const username = input.login_username === undefined ? existing?.login_username ?? null : input.login_username;
+      const legacyCompany = input.account_name === undefined
+        ? existing?.provider_id === input.provider_id ? existing.account_name : null : input.account_name;
       let credential = existing?.credential_id ?? null;
       if (password === undefined && credential && (username !== existing?.login_username || input.provider_id !== existing?.provider_id)) {
         throw new Error("Enter a new password when changing the login account or provider, or clear the saved password");
@@ -88,7 +90,7 @@ export class DesktopLogisticsSettingsService {
       // Never pass the password to Python, argv, environment, or public JSON.
       // If the child outcome is uncertain, retain the new encrypted entry: it
       // may already be referenced by an atomically committed profile revision.
-      const after = await this.call("save", { input: { ...input, login_username: username, credential_id: credential }, expected_revision: revision });
+      const after = await this.call("save", { input: { ...input, account_name: legacyCompany, login_username: username, credential_id: credential }, expected_revision: revision });
       this.cleanup(before, after);
       return this.publicState(after);
     } catch (error) {

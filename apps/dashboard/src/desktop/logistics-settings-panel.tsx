@@ -48,7 +48,7 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
     <h2 tabIndex={-1} ref={headingRef}>{t.title}</h2>
     <p>{t.description}</p>
     <div className="logistics-actions">
-      <button type="button" disabled={c.busy || !state} onClick={() => begin({ display_name: "", provider_id: "wesa", enabled: true, store_binding: null, account_name: "", login_username: null })}>{t.add}</button>
+      <button type="button" disabled={c.busy || !state} onClick={() => begin({ display_name: "", provider_id: "wesa", enabled: true, store_binding: null, login_username: null })}>{t.add}</button>
       <button type="button" disabled={c.busy} onClick={c.reload}>{c.busy ? t.loading : t.refresh}</button>
     </div>
     {c.error ? <div className="desktop-form-error" role="alert"><p>{c.error}</p><button type="button" disabled={c.busy} onClick={c.reload}>{t.retry}</button></div> : null}
@@ -61,7 +61,6 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
         return <article className="logistics-card" key={profile.profile_id}>
           <h3>{profile.display_name}</h3>
           <p>{spec?.label ?? profile.provider_id} · {spec?.requires_store ? t.browser : t.public}</p>
-          {profile.account_name ? <p>{t.account}: {profile.account_name}</p> : null}
           {spec?.requires_store ? <>
             <p>{t.username}: {profile.login_username ?? t.notConfigured}</p>
             <p>{t.password}: {profile.password_configured ? t.passwordSaved : t.notConfigured}</p>
@@ -85,10 +84,9 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
         const editor = event.currentTarget.closest<HTMLFieldSetElement>(".logistics-editor");
         if (editor) editor.style.minBlockSize = `${editor.getBoundingClientRect().height}px`;
         const spec = state.providers.find(p => p.provider_id === event.target.value)!;
-        change({ provider_id: spec.provider_id, account_name: spec.requires_account_name ? "" : null, login_username: null, password: null,
+        change({ provider_id: spec.provider_id, login_username: null, password: null,
           store_binding: spec.requires_store ? input.store_binding : null });
       }}>{state.providers.map(spec => <option value={spec.provider_id} key={spec.provider_id}>{spec.label}</option>)}</select></label>
-      {provider?.requires_account_name ? <label>{t.account}<input name="logistics-account" maxLength={200} value={input.account_name ?? ""} onChange={event => change({ account_name: event.target.value })} /><small>{t.companyHint}</small></label> : null}
       {provider?.requires_store ? <>
         <label>{t.username}<input name="logistics-username" autoComplete="off" maxLength={200} value={input.login_username ?? ""} onChange={event => change({ login_username: event.target.value || null })} /></label>
         <label>{t.password}<input name="logistics-password" type="password" autoComplete="new-password" maxLength={1024} value={input.password ?? ""}
@@ -113,8 +111,8 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
       </> : null}
       <label className="logistics-enabled"><input type="checkbox" checked={input.enabled} onChange={event => change({ enabled: event.target.checked })} />{t.enabled}</label>
       <div className="logistics-actions">
-        <button className="desktop-primary-button" type="button" disabled={!input.display_name.trim() || !provider || Boolean(storeConflict || duplicateStore || changedLogin) || Boolean(typeof input.password === "string" && !input.login_username?.trim()) || Boolean(provider.requires_store && !input.store_binding) || Boolean(provider.requires_account_name && (input.account_name?.trim().length ?? 0) < 2)} onClick={() => {
-          c.save({ ...input, display_name: input.display_name.trim(), account_name: input.account_name?.trim() ?? null, login_username: input.login_username?.trim() || null }, c.draft!.revision);
+        <button className="desktop-primary-button" type="button" disabled={!input.display_name.trim() || !provider || Boolean(storeConflict || duplicateStore || changedLogin) || Boolean(typeof input.password === "string" && !input.login_username?.trim()) || Boolean(provider.requires_store && !input.store_binding)} onClick={() => {
+          c.save({ ...input, display_name: input.display_name.trim(), login_username: input.login_username?.trim() || null }, c.draft!.revision);
         }}>{t.save}</button>
         <button type="button" onClick={() => { if (c.dirty) setReplacing({ input: null }); else c.discard(); }}>{t.cancel}</button>
       </div>

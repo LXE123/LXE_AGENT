@@ -13,8 +13,9 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
   const editProfile = async name => {
     await js(`(() => { const card=[...document.querySelectorAll('.logistics-card')].find(el=>el.querySelector('h3')?.textContent===${JSON.stringify(name)}); [...card.querySelectorAll('button')].find(el=>el.textContent==='编辑').click(); })()`); await settle();
   };
-  const create = async (name,account,username,password) => {
-    await textClick("添加物流商"); await select("provider","tiantai"); await input("name",name); await input("account",account);
+  const create = async (name,username,password) => {
+    await textClick("添加物流商"); await select("provider","tiantai"); await input("name",name);
+    assert.equal(await js("Boolean(document.querySelector('[name=logistics-account]'))"),false);
     if(username) await input("username",username); if(password) await input("password",password);
     await select("store","one=="); await textClick("保存配置");
     await waitFor("!document.querySelector('.logistics-editor')", "saved profile closes editor");
@@ -32,7 +33,7 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await textClick("取消编辑");
   });
   await step("two Tiantai accounts save separately without closing the settings dialog",async()=>{
-    await create("天泰-新棱镜","深圳市新棱镜贸易有限公司","login-a@example.test","fixture-password-a"); await create("天泰-久艺","深圳市久艺电子商务有限公司","login-b","fixture-password-b");
+    await create("天泰-新棱镜","login-a@example.test","fixture-password-a"); await create("天泰-久艺","login-b","fixture-password-b");
     assert.equal(await js("document.querySelectorAll('.logistics-card').length"),2);
     assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
     assert.equal((await js("behavior.state().calls")).filter(c=>/saveSetup|restart/.test(c.operation)).length,0);
@@ -41,7 +42,7 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
   await step("saved passwords stay blank, survive ordinary edits and can be replaced or cleared",async()=>{
     await editProfile("天泰-新棱镜");
     assert.equal(await js("document.querySelector('[name=logistics-username]').value"),"login-a@example.test");
-    assert.equal(await js("document.querySelector('[name=logistics-account]').value"),"深圳市新棱镜贸易有限公司");
+    assert.equal(await js("Boolean(document.querySelector('[name=logistics-account]'))"),false);
     assert.equal(await js("document.querySelector('[name=logistics-password]').value"),"");
     assert.equal(await js("document.querySelector('[name=logistics-password]').type"),"password");
     await textClick("保存配置"); await waitFor("!document.querySelector('.logistics-editor')","kept password");

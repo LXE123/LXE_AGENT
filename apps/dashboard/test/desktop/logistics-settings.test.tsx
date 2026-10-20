@@ -27,6 +27,7 @@ test("binding states distinguish current running, absent, renamed, ambiguous and
   expect(logisticsProfileInput(profile)).not.toHaveProperty("updated_at");
   expect(logisticsProfileInput(profile)).not.toHaveProperty("password_configured");
   expect(logisticsProfileInput(profile)).not.toHaveProperty("password");
+  expect(logisticsProfileInput(profile)).not.toHaveProperty("account_name");
 });
 test.each(["zh", "en"] as const)("panel renders saved profiles with explicit buttons and no nested form (%s)", language => {
   const html = render(controller(), language);
@@ -40,19 +41,20 @@ test.each(providers)("editor follows provider field requirements: $provider_id",
   const input = { ...logisticsProfileInput(profile), provider_id: spec.provider_id, account_name: spec.requires_account_name ? "公司 A" : null, store_binding: spec.requires_store ? profile.store_binding : null };
   const html = render(controller({ state: { ...state, profiles: [] }, draft: { input, revision: 1, original: JSON.stringify(input) } }));
   const t = UI_TEXT.zh.desktop.logistics;
-  expect(html.includes('name="logistics-account"')).toBe(spec.requires_account_name);
+  expect(html.includes('name="logistics-account"')).toBe(false);
   expect(html.includes(t.chooseStore)).toBe(spec.requires_store);
   expect(html.includes('name="logistics-username"')).toBe(spec.requires_store);
   expect(html.includes('name="logistics-password"')).toBe(spec.requires_store);
   expect(html).not.toContain("<form");
 });
 
-test("login and page company remain independent, saved passwords never populate the editor", () => {
+test("legacy company metadata is absent from the UI and saved passwords never populate the editor", () => {
   const input = logisticsProfileInput(profile);
   const html = render(controller({ draft: { input, revision: 1, original: JSON.stringify(input) } }));
   expect(html).toContain('name="logistics-username"');
   expect(html).toContain('value="actual-login-123"');
-  expect(html).toContain('value="公司 A"');
+  expect(html).not.toContain("公司 A");
+  expect(html).not.toContain('name="logistics-account"');
   const passwordInput = html.match(/<input\b[^>]*name="logistics-password"[^>]*>/)![0];
   expect(passwordInput).toContain('type="password"'); expect(passwordInput).toContain('value=""');
   expect(html).toContain(UI_TEXT.zh.desktop.logistics.clearPassword);

@@ -665,14 +665,15 @@ export interface DesktopLogisticsProfileInput {
   provider_id: DesktopLogisticsProviderId;
   enabled: boolean;
   store_binding: DesktopLogisticsStoreBinding | null;
-  /** Expected company text on the logistics page, never a login username. */
-  account_name: string | null;
+  /** Legacy company metadata. No longer a configuration input or login identity. */
+  account_name?: string | null;
   login_username?: string | null;
   /** Omitted: keep saved password. Null: clear it. String: replace it. Write-only. */
   password?: string | null;
 }
 export interface DesktopLogisticsProfile extends Omit<DesktopLogisticsProfileInput, "password"> {
   profile_id: string;
+  account_name: string | null;
   login_username: string | null;
   password_configured: boolean;
   created_at: string;
@@ -683,6 +684,7 @@ export interface DesktopLogisticsProviderSpec {
   label: string;
   transport: "ziniao_browser" | "public_http";
   requires_store: boolean;
+  /** Query adapter needs current-page company verification, not a settings field. */
   requires_account_name: boolean;
 }
 export interface DesktopLogisticsStoreStatus extends DesktopLogisticsStoreBinding { running: boolean; }

@@ -654,12 +654,11 @@ export const ZH_TEXT = {
       feishu: "飞书"
     },
     logistics: {
-      title: "物流商配置", description: "分别维护物流商的登录账号、密码、页面公司名称和紫鸟店铺。店铺运行或配置保存成功，不代表物流账户已登录。",
+      title: "物流商配置", description: "分别维护物流商的登录账号、密码和紫鸟店铺。店铺运行或配置保存成功，不代表物流账户已登录。",
       count: (count: number) => count ? `已配置 ${count} 条` : "未配置", unknown: "尚未加载", add: "添加物流商", refresh: "刷新店铺",
       loading: "加载中…", retry: "重新加载", empty: "尚未配置物流商", browser: "紫鸟页面", public: "公开接口",
-      name: "配置名称", provider: "物流商", account: "页面公司名称", store: "绑定店铺", chooseStore: "请选择店铺", running: "运行中",
+      name: "配置名称", provider: "物流商", store: "绑定店铺", chooseStore: "请选择店铺", running: "运行中",
       username: "登录账号", password: "登录密码", notConfigured: "未配置", passwordSaved: "已保存",
-      companyHint: "用于核对物流页面显示的公司身份，与登录账号分开填写。",
       keepPassword: "已保存密码，留空保留", enterPassword: "输入此物流商的登录密码", clearPassword: "清除已保存密码",
       passwordCleared: "保存后将清除原密码。", credentialsOptional: "可先保留现有店铺登录方式，稍后补充账号密码。",
       credentialsHint: "密码加密保存，不回显原值；自动登录尚待接入验证。", changedLogin: "更改登录账号后，请输入新密码或清除已保存密码。",
@@ -1570,12 +1569,11 @@ export const UI_TEXT: Record<Language, UiText> = {
         feishu: "Feishu"
       },
       logistics: {
-        title: "Logistics providers", description: "Manage each provider’s login, password, page company name and Ziniao store. A running store or saved profile does not confirm a logistics login.",
+        title: "Logistics providers", description: "Manage each provider’s login, password and Ziniao store. A running store or saved profile does not confirm a logistics login.",
         count: (count: number) => count ? `${count} configured` : "Not configured", unknown: "Not loaded", add: "Add provider", refresh: "Refresh stores",
         loading: "Loading…", retry: "Reload", empty: "No logistics providers configured", browser: "Ziniao browser", public: "Public HTTP",
-        name: "Profile name", provider: "Provider", account: "Company name on page", store: "Store binding", chooseStore: "Select a store", running: "Running",
+        name: "Profile name", provider: "Provider", store: "Store binding", chooseStore: "Select a store", running: "Running",
         username: "Login account", password: "Login password", notConfigured: "Not configured", passwordSaved: "Saved",
-        companyHint: "Used to check the company shown on the logistics page. Enter the login account separately.",
         keepPassword: "Password saved; leave blank to keep", enterPassword: "Enter this provider’s login password", clearPassword: "Clear saved password",
         passwordCleared: "Saving will clear the old password.", credentialsOptional: "You can keep using the store’s existing login and add credentials later.",
         credentialsHint: "Passwords are stored encrypted and never shown again. Automatic login still needs integration and validation.", changedLogin: "After changing the login account, enter a new password or clear the saved password.",

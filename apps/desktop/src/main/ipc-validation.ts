@@ -227,7 +227,7 @@ export function validateLogisticsProfileId(value: unknown): string {
   return id;
 }
 export function validateLogisticsProfileInput(value: unknown): import("@lxe/desktop-protocol").DesktopLogisticsProfileInput {
-  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding", "account_name"], ["profile_id", "login_username", "password"]);
+  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding"], ["account_name", "profile_id", "login_username", "password"]);
   const provider = input.provider_id;
   if (typeof provider !== "string" || !["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"].includes(provider)) throw new Error("Unknown logistics provider");
   if (typeof input.enabled !== "boolean") throw new Error("Logistics enabled must be boolean");
@@ -236,9 +236,11 @@ export function validateLogisticsProfileInput(value: unknown): import("@lxe/desk
     const raw = logisticsFields(input.store_binding, ["store_id", "store_name"]);
     binding = { store_id: logisticsText(raw.store_id, "store_id", 1, 512), store_name: logisticsText(raw.store_name, "store_name", 1, 512) };
   } else if (input.store_binding !== null) throw new Error("Public HTTP providers must not have a store binding");
-  let account = null;
-  if (["wesa", "tiantai"].includes(provider)) account = logisticsText(input.account_name, "account_name", 2, 200);
-  else if (input.account_name !== null) throw new Error("This provider does not use account_name");
+  let account = input.account_name;
+  if (account != null) {
+    if (!["wesa", "tiantai"].includes(provider)) throw new Error("This provider does not use account_name");
+    account = logisticsText(account, "account_name", 2, 200);
+  }
   const username = input.login_username == null ? input.login_username : logisticsText(input.login_username, "login_username", 1, 200);
   if (input.password !== undefined && input.password !== null
     && (typeof input.password !== "string" || !input.password.length || [...input.password].length > 1024 || /[\x00-\x1f]/u.test(input.password))) {
@@ -249,7 +251,8 @@ export function validateLogisticsProfileInput(value: unknown): import("@lxe/desk
     ...(input.profile_id === undefined ? {} : { profile_id: validateLogisticsProfileId(input.profile_id) }),
     display_name: logisticsText(input.display_name, "display_name", 1, 80),
     provider_id: provider as import("@lxe/desktop-protocol").DesktopLogisticsProviderId,
-    enabled: input.enabled, store_binding: binding, account_name: account,
+    enabled: input.enabled, store_binding: binding,
+    ...(account === undefined ? {} : { account_name: account as string | null }),
     ...(username === undefined ? {} : { login_username: username as string | null }),
     ...(input.password === undefined ? {} : { password: input.password as string | null }),
   };

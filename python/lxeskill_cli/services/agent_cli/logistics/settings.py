@@ -60,7 +60,7 @@ def revision(value: object) -> int:
 
 
 def validate_input(raw: object) -> dict:
-    raw = fields(raw, BASE_INPUT_FIELDS, {"profile_id", "login_username", "credential_id"})
+    raw = fields(raw, BASE_INPUT_FIELDS - {"account_name"}, {"account_name", "profile_id", "login_username", "credential_id"})
     result = {"display_name": text(raw["display_name"], "display_name", 1, 80)}
     provider = raw["provider_id"]
     if not isinstance(provider, str) or provider not in PROVIDER_BY_ID:
@@ -75,10 +75,11 @@ def validate_input(raw: object) -> dict:
                    for key, maximum in (("store_id", 512), ("store_name", 512))}
     elif binding is not None:
         raise ValueError("Public HTTP providers must not have a store binding")
-    account = raw["account_name"]
-    if spec.requires_account_name:
+    # Read old company metadata for compatibility; login is configured separately.
+    account = raw.get("account_name")
+    if spec.requires_account_name and account is not None:
         account = text(account, "account_name", 2, 200)
-    elif account is not None:
+    elif not spec.requires_account_name and account is not None:
         raise ValueError("This provider does not use account_name")
     result.update(provider_id=provider, enabled=raw["enabled"], store_binding=binding, account_name=account)
     username, credential = raw.get("login_username"), raw.get("credential_id")

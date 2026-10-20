@@ -30,6 +30,7 @@ export const logisticsDesktop = {
     const now = new Date().toISOString();
     const { password, ...publicInput } = input;
     state.profiles = [...state.profiles.filter(p=>p.profile_id!==input.profile_id), {...publicInput,
+      account_name:input.account_name??old?.account_name??null,
       login_username:input.login_username??null, password_configured:typeof password==="string"?true:password===null?false:old?.password_configured??false,
       profile_id:input.profile_id??crypto.randomUUID(),created_at:old?.created_at??now,updated_at:now}];
     state.revision++;

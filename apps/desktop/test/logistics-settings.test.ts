@@ -155,9 +155,10 @@ test("keep, replace, clear and delete affect only the selected profile credentia
   await expect(h.store.save({ ...loginInput, password: "stale-password" }, 1)).rejects.toThrow("Revision conflict");
   expect(h.files()).toHaveLength(2);
   const originalReference = h.snapshot().profiles[0].credential_id;
-  const { password_configured: _configured, created_at: _created, updated_at: _updated, ...edit } = first;
+  const { password_configured: _configured, created_at: _created, updated_at: _updated, account_name: _legacyCompany, ...edit } = first;
   await h.store.save({ ...edit, enabled: false }, 2);
   expect(h.snapshot().profiles.find((p: {profile_id: string}) => p.profile_id === first.profile_id).credential_id).toBe(originalReference);
+  expect(h.snapshot().profiles.find((p: {profile_id: string}) => p.profile_id === first.profile_id).account_name).toBe("公司 A");
   expect(h.files()).toHaveLength(2);
   await expect(h.store.save({ ...edit, login_username: "changed-without-password" }, 3)).rejects.toThrow("Enter a new password");
   await expect(h.store.save({ ...edit, provider_id: "wesa" }, 3)).rejects.toThrow("Enter a new password");
@@ -218,4 +219,13 @@ test("profiles without passwords remain editable when secure storage is unavaila
   expect(after.profiles[0]!.account_name).toBe("公司 A");
   expect(after.profiles[0]!.login_username).toBe("new-user");
   expect(after.profiles[0]!.password_configured).toBe(false); expect(h.files()).toHaveLength(0);
+});
+
+test.each(["wesa", "tiantai"] as const)("%s saves credentials without asking for a company name", async provider_id => {
+  const h = integrated();
+  const { account_name: _legacy, ...withoutCompany } = loginInput;
+  const result = await h.store.save({ ...withoutCompany, provider_id, password: "private-password" }, 0);
+  expect(result.profiles[0]!.account_name).toBeNull();
+  expect(result.profiles[0]!.password_configured).toBe(true);
+  expect(result.profiles[0]!.login_username).toBe("login-123@example.test");
 });

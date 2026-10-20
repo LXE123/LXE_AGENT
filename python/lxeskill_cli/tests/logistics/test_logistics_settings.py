@@ -69,7 +69,7 @@ def test_two_accounts_update_disable_delete_and_revision():
 @pytest.mark.parametrize("change", [
     {"display_name": ""}, {"display_name": "x" * 81}, {"display_name": " padded"},
     {"display_name": "x\ny"}, {"enabled": 1}, {"provider_id": "other"}, {"provider_id": []},
-    {"account_name": None}, {"account_name": "x"}, {"account_name": "x" * 201},
+    {"account_name": "x"}, {"account_name": "x" * 201},
     {"store_binding": None}, {"store_binding": {"store_id": "A", "store_name": ""}},
     {"store_binding": {"store_id": "A", "store_name": "A", "browser_id": 1}},
     {"profile_id": "not-uuid"}, {"profile_id": "00000000-0000-0000-0000-000000000001"},
@@ -325,3 +325,13 @@ def test_private_snapshot_does_not_discover_stores(monkeypatch):
         raise AssertionError("snapshot must not discover stores")
     monkeypatch.setattr(settings, "discover_stores", failure)
     assert settings.settings_state(discover=False)["stores_error"] is None
+
+
+@pytest.mark.parametrize("provider", ["wesa", "tiantai"])
+def test_configuration_does_not_require_a_company_name(provider):
+    raw = profile(provider)
+    raw.pop("account_name")
+    saved = settings.save_profile({**raw, "login_username": "actual-login", "credential_id": str(uuid4())}, 0)
+    assert saved["profiles"][0]["account_name"] is None
+    assert saved["profiles"][0]["login_username"] == "actual-login"
+    assert settings.read_snapshot() == saved

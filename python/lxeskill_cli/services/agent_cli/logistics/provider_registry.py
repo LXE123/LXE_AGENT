@@ -8,6 +8,7 @@ class ProviderSpec:
     label: str
     transport: str
     requires_store: bool
+    # Query-time company verification from the live page, not a login setting.
     requires_account_name: bool
     command: str
 
