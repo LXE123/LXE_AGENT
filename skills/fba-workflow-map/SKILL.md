@@ -64,7 +64,7 @@ flowchart TD
 | 补录 ERP 上线前、尚未进入期初库存的历史 SP 剩余库存 | 说明这是 ERP“留存库存”页的管理员操作；使用“补录历史库存”，不执行 Agent Skill |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
 | 按 FBA 查物流商运单、尾程承运人和转单号 | `fba-logistics-query`；九方用 `jiufang-logistics-query` |
-| 查询物流后建议调整 Amazon 送达时段，或按指定日期改期 | `fba-shipment-delivery-window`；查询模式先从物流商取得转单号，再核验 UPS/FedEx 等官方追踪，不以货代日期改期 |
+| 查询物流后建议调整 Amazon 送达时段，或按指定日期改期 | `fba-shipment-delivery-window`；两种模式都先只读 discovery 确认当前目标店铺存在完整 FBA，再继续物流查询或指定日期执行 |
 | 按发货单准备库存 SKU Excel | `mabang-delivery-inventory-sku-export` |
 | 下载 MSKU 明细、发票前准备 MSKU 数据 | `mabang-delivery-msku-export` |
 | 填写 invoice_Template、生成发票导入表 | `fba-invoice-template-fill` |
@@ -82,7 +82,7 @@ flowchart TD
 |---|---|
 | 发货单数据 | `mabang-delivery-export` |
 | 装箱与货件创建 | `mabang-delivery-packing-list-export` -> `ziniao-browser` -> `fba-shipment-create` |
-| 物流查询与改期建议 | 完整 FBA -> 物流商查尾程承运人及转单号 -> 官方配对 Selenium 核验 UPS/FedEx 等尾程状态和日期 -> `fba-shipment-delivery-window` 对照 Amazon 计划并建议；写入另经 dry-run、批准和回读 |
+| 物流查询与改期建议 | 当前目标 Amazon 店铺只读 discovery 精确确认完整 FBA、状态与时段 -> 选择目标货件 -> 物流商查尾程承运人及转单号 -> 官方配对 Selenium 核验 UPS/FedEx 等尾程状态和日期 -> 对照已读 Amazon 计划并建议；写入另经 dry-run、批准和回读。独立物流查询不要求 Amazon 校验 |
 | ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
 | ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
 | ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |

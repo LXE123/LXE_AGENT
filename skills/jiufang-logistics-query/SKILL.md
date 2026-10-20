@@ -8,6 +8,8 @@ commands:
 
 # 九方通逊单票查询
 
+整体任务包含 Amazon 改期建议或修改时，先由 `fba-shipment-delivery-window` 在当前目标 Amazon 店铺执行只读 discovery，确认完整 FBA 的归属，再进入本技能并沿用该映射。九方公开查询自身不操作店铺，也不能证明 Amazon 货件归属；独立查询九方不要求这个前置检查。
+
 在 Amazon 改期流程中，本模块用于核对 FBA、目的仓及已有转单信息。取得已核实的尾程承运人和转单号后，继续查 UPS/FedEx 等实际承运商的官方追踪；九方到港、到仓日期和转述轨迹不作为改期日期依据。`eta=null` 不阻止下一步尾程查询，但本模块当前非空转单字段仍未完成结构验证，不能据号码前缀猜承运人。建议规则见 [尾程证据与改期建议](../fba-shipment-delivery-window/references/carrier-evidence.md)。单独查询九方不自动进入改期。
 
 通过 `exec` 独立调用 CLI，每次只查用户指定的一个 FBA：

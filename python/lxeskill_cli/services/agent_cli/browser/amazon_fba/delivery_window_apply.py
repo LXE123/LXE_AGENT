@@ -1902,6 +1902,9 @@ def _run_discovery(
             f"用于定位工作流程的 {seed} 不在当前列表页；"
             f"页面上的行: {sorted(hub['by_id'])[:10]}",
         )
+    seed_duplicates = [item for item in hub["duplicates"] if item["rowId"] == seed]
+    if seed_duplicates:
+        _fail("E1", f"{seed} 的列表字段重复，无法唯一确认当前店铺货件；重复字段: {seed_duplicates}")
     # The seed locates the STA workflow.  It need not itself be eligible: a
     # workflow can contain child shipments at different lifecycle stages.
     hub_status = _read_hub_status(row, seed, trail)
@@ -1933,6 +1936,8 @@ def _run_discovery(
             f"无法把工作流程分页唯一映射为 FBA 货件编号；"
             f"malformed={malformed} duplicates={duplicates}",
         )
+    if seed not in tab_ids:
+        _fail("E2", f"当前工作流程不包含种子货件 {seed}；实际分页 FBA: {tab_ids}")
 
     shipments: list[dict[str, Any]] = []
     for selection_number, shipment_id in enumerate(tab_ids, start=1):

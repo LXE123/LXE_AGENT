@@ -899,6 +899,59 @@ def test_tracking_page_waits_for_detail_fields_after_tabs_appear(tmp_path, monke
     assert "ready=True" in steps["E2a 追踪详情加载"]
 
 
+@pytest.mark.parametrize("visible_id", [SHIPMENT_B, SHIPMENT + "U000001"])
+def test_discovery_stops_before_details_when_current_store_page_has_no_exact_fba(tmp_path, visible_id):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(visible_id, "0/172", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT],
+    )
+    plan = dwa.plan_discover({"action": "discover", "store_id": "store-1", "page_url": PAGE_URL,
+                             "shipment_ids": SHIPMENT, "timeout_sec": 1})
+
+    with pytest.raises(dwa._HardFailure) as caught:
+        dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert caught.value.code == "E1"
+    assert SHIPMENT in caught.value.message and visible_id in caught.value.message
+    assert "不在当前列表页" in caught.value.message
+    assert driver.opened == [PAGE_URL] and driver.clicks == []
+    assert not list(tmp_path.iterdir())
+
+
+def test_discovery_rejects_ambiguous_target_rows_before_opening_details(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "0/172", CURRENT_WINDOW), (SHIPMENT, "0/172", TARGET_WINDOW)]),
+        shipment_ids=[SHIPMENT],
+    )
+    plan = dwa.plan_discover({"action": "discover", "store_id": "store-1", "page_url": PAGE_URL,
+                             "shipment_ids": SHIPMENT, "timeout_sec": 1})
+
+    with pytest.raises(dwa._HardFailure) as caught:
+        dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert caught.value.code == "E1"
+    assert SHIPMENT in caught.value.message and "orderStatus" in caught.value.message
+    assert driver.opened == [PAGE_URL] and driver.clicks == []
+    assert not list(tmp_path.iterdir())
+
+
+def test_discovery_rejects_a_workflow_that_does_not_contain_the_seed(tmp_path):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "0/172", CURRENT_WINDOW), (SHIPMENT_B, "0/172", CURRENT_WINDOW)]),
+        shipment_ids=[SHIPMENT_B],
+    )
+    plan = dwa.plan_discover({"action": "discover", "store_id": "store-1", "page_url": PAGE_URL,
+                             "shipment_ids": SHIPMENT, "timeout_sec": 1})
+
+    with pytest.raises(dwa._HardFailure) as caught:
+        dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert caught.value.code == "E2"
+    assert SHIPMENT in caught.value.message and SHIPMENT_B in caught.value.message
+    assert driver.clicks == [] and driver.state["applied"] is False
+    assert not list(tmp_path.iterdir())
+
+
 def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     driver = _ScriptedDriver(
         hub_cells=_hub_cells(
