@@ -642,7 +642,6 @@ async function bootstrap(): Promise<void> {
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     getLogisticsSettings: () => logisticsSettings.read(),
-    refreshLogisticsStores: () => logisticsSettings.refresh(),
     saveLogisticsProfile: (input, revision) => logisticsSettings.save(input, revision),
     deleteLogisticsProfile: (id, revision) => logisticsSettings.delete(id, revision),
     getVietnamSettings: () => vietnamSettings.read(),

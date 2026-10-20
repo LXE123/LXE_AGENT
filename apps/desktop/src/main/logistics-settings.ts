@@ -18,7 +18,7 @@ export class DesktopLogisticsSettingsService {
     this.credentials = new DesktopLogisticsCredentialStore(options.dataRoot, options.safeStorage);
   }
 
-  private async call(action: "read" | "refresh" | "snapshot" | "save" | "delete", request?: object): Promise<StoredState> {
+  private async call(action: "read" | "snapshot" | "save" | "delete", request?: object): Promise<StoredState> {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
     const args = ["-I", "-B", "-m", "services.agent_cli.logistics.settings", action,
@@ -41,20 +41,19 @@ export class DesktopLogisticsSettingsService {
     } catch (error) { throw new Error(safe(error instanceof Error ? error.message : String(error))); }
     let result: { success?: boolean; data?: StoredState; error?: string } | undefined;
     try { result = JSON.parse(execution.stdout.trim()); } catch { /* Include actual diagnostics below. */ }
-    if (execution.error || result?.success !== true || !result.data || result.data.schema_version !== 2
+    if (execution.error || result?.success !== true || !result.data || result.data.schema_version !== 3
       || !Number.isSafeInteger(result.data.revision) || result.data.revision < 0
-      || !(result.data.stores_error === null || typeof result.data.stores_error === "string") || !Array.isArray(result.data.profiles)
-      || !Array.isArray(result.data.providers) || !Array.isArray(result.data.stores)) {
+      || !Array.isArray(result.data.profiles) || !Array.isArray(result.data.providers)) {
       throw new Error(safe([result?.error, execution.stderr, execution.error?.message,
         `Logistics settings response: ${execution.stdout}`].filter(Boolean).join("\n")));
     }
-    return { ...result.data, stores_error: result.data.stores_error ? safe(result.data.stores_error) : null };
+    return result.data;
   }
   private publicState(state: StoredState): DesktopLogisticsSettingsState {
     return { schema_version: state.schema_version, revision: state.revision, providers: state.providers,
-      stores: state.stores, stores_error: state.stores_error, profiles: state.profiles.map(profile => ({
+      profiles: state.profiles.map(profile => ({
         profile_id: profile.profile_id, display_name: profile.display_name, provider_id: profile.provider_id,
-        enabled: profile.enabled, store_binding: profile.store_binding, account_name: profile.account_name,
+        enabled: profile.enabled, account_name: profile.account_name,
         login_username: profile.login_username, created_at: profile.created_at, updated_at: profile.updated_at,
         password_configured: profile.credential_id !== null && this.credentials.has(profile.credential_id),
       })) };
@@ -66,7 +65,6 @@ export class DesktopLogisticsSettingsService {
     }
   }
   async read(): Promise<DesktopLogisticsSettingsState> { return this.publicState(await this.call("read")); }
-  async refresh(): Promise<DesktopLogisticsSettingsState> { return this.publicState(await this.call("refresh")); }
   async save(raw: unknown, expectedRevision: unknown): Promise<DesktopLogisticsSettingsState> {
     const { password, ...input } = validateLogisticsProfileInput(raw);
     const revision = validateLogisticsRevision(expectedRevision);

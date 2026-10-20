@@ -17,12 +17,10 @@ from services.agent_cli.logistics.provider_registry import PROVIDERS
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "app"))
-    monkeypatch.setattr(settings, "discover_stores", lambda: [])
 
 
 def profile(provider="tiantai", name="天泰-新棱镜"):
     return {"display_name": name, "provider_id": provider, "enabled": True,
-            "store_binding": None if provider == "jiufang" else {"store_id": "VycOXC1cvUBC/rBIOnYXUg==", "store_name": "店铺 A"},
             "account_name": "深圳市新棱镜贸易有限公司" if provider in ("wesa", "tiantai") else None,
             "login_username": None, "credential_id": None}
 
@@ -34,7 +32,7 @@ def target():
 def test_first_read_persists_and_registry_matches_real_adapter_modules():
     state = settings.settings_state()
     assert state["profiles"] == [] and state["revision"] == 0
-    assert json.loads(target().read_text())["schema_version"] == 2
+    assert json.loads(target().read_text())["schema_version"] == 3
     assert {p.provider_id for p in PROVIDERS} == {"wesa", "feiwo", "yuntuo", "tiantai", "jiufang"}
     import importlib
     for spec in PROVIDERS:
@@ -48,8 +46,7 @@ def test_each_provider_and_server_owned_fields(provider):
     assert str(UUID(item["profile_id"])) == item["profile_id"]
     assert item["created_at"].endswith("Z") and item["updated_at"].endswith("Z")
     assert settings.read_snapshot() == saved
-    if provider != "jiufang":
-        assert item["store_binding"]["store_id"].endswith("==")
+    assert "store_binding" not in item
 
 
 def test_two_accounts_update_disable_delete_and_revision():
@@ -91,8 +88,8 @@ def test_unused_account_rejected(provider):
 
 
 def test_public_rejects_store():
-    with pytest.raises(ValueError, match="must not have"):
-        settings.save_profile({**profile("jiufang"), "store_binding": profile()["store_binding"]}, 0)
+    with pytest.raises(ValueError, match="Expected only fields"):
+        settings.save_profile({**profile("jiufang"), "store_binding": None}, 0)
 
 
 @pytest.mark.parametrize("bad", [True, -1, 1.5, "0", 9007199254740991])
@@ -113,7 +110,7 @@ def test_duplicate_names_and_stale_revision_preserve_bytes():
 
 @pytest.mark.parametrize("bad", [
     "{broken", '{"schema_version":1,"schema_version":1,"revision":0,"profiles":[]}',
-    '{"schema_version":3,"revision":0,"profiles":[]}',
+    '{"schema_version":4,"revision":0,"profiles":[]}',
     '{"schema_version":true,"revision":0,"profiles":[]}',
     '{"schema_version":1,"revision":0,"profiles":[],"token":"secret"}',
 ])
@@ -176,38 +173,32 @@ except ValueError as exc:
     assert len(settings.read_snapshot()["profiles"]) == 1
 
 
-def test_store_failure_preserves_profiles_and_redacts_real_error(monkeypatch):
-    settings.save_profile(profile(), 0)
-    monkeypatch.setenv("ZINIAO_PASSWORD", "password-value")
-    def failure():
-        raise RuntimeError("fixture getBrowserList failure: password-value " + "x" * 5000)
-    monkeypatch.setattr(settings, "discover_stores", failure)
-    state = settings.settings_state()
-    assert len(state["profiles"]) == 1 and state["stores"] == []
-    assert "fixture getBrowserList failure" in state["stores_error"]
-    assert "password-value" not in state["stores_error"] and "[truncated]" in state["stores_error"]
-
-
-@pytest.mark.parametrize("running_entry", [{"browserOauth": "7"}, {"browserOauth": "base64==", "browserId": 8}])
-def test_discovery_uses_only_readonly_local_status_apis(monkeypatch, running_entry):
-    # Restore real discovery without calling a production endpoint.
-    from importlib import reload
-    reload(settings)
-    from services.browser.store.ziniao_client import ZiniaoClient
-    calls = []
-    def catalog(self):
-        calls.append("catalog")
-        return [{"browserOauth": "base64==", "browserName": "运行", "browserId": 7},
-                {"browserOauth": "other==", "browserName": "停止", "browserId": 8}]
-    def running(self):
-        calls.append("running")
-        return [running_entry]
-    monkeypatch.setattr(ZiniaoClient, "get_browser_list", catalog)
-    monkeypatch.setattr(ZiniaoClient, "get_running_info", running)
-    assert settings.discover_stores() == [
-        {"store_id": "base64==", "store_name": "运行", "running": True},
-        {"store_id": "other==", "store_name": "停止", "running": False}]
-    assert calls == ["catalog", "running"]
+def test_all_settings_operations_work_without_importing_browser_modules():
+    # A real private CLI process must work even when browser services are absent.
+    code = """import builtins, sys
+original_import = builtins.__import__
+def guarded(name, *args, **kwargs):
+ if name.startswith('services.browser'):
+  raise AssertionError('Settings must not discover or attach stores: ' + name)
+ return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded
+from services.agent_cli.logistics import settings
+raise SystemExit(settings.main())
+"""
+    def run(action, request=None):
+        child = subprocess.run([sys.executable, "-I", "-B", "-c", code, action,
+                                *([] if request is None else [json.dumps(request)])],
+                               capture_output=True, text=True, timeout=10)
+        assert child.returncode == 0, child.stdout + child.stderr
+        result = json.loads(child.stdout)
+        assert result["success"]
+        assert "stores" not in result["data"] and "stores_error" not in result["data"]
+        return result["data"]
+    assert run("read")["revision"] == 0
+    saved = run("save", {"input": profile(), "expected_revision": 0})
+    assert run("snapshot")["profiles"] == saved["profiles"]
+    deleted = run("delete", {"profile_id": saved["profiles"][0]["profile_id"], "expected_revision": 1})
+    assert deleted["profiles"] == [] and deleted["revision"] == 2
 
 
 def test_no_database_or_other_settings_created(tmp_path):
@@ -253,34 +244,63 @@ def test_private_entrypoint_reports_corrupt_json_before_any_store_api():
     assert target().read_text() == "{broken"
 
 
-def test_write_limit_cannot_create_an_unreadable_snapshot():
+def test_maximum_profiles_fit_without_store_bindings_and_excess_is_rejected():
     saved = settings.save_profile(profile(), 0)
-    before = target().read_bytes()
-    # Every individual field is legal, but the total UTF-8 payload is too large.
     profiles = [{**profile(name=f"配置-{index}"), "profile_id": str(uuid4()),
-                 "store_binding": {"store_id": "😀" * 512, "store_name": "😀" * 512},
-                 "account_name": "😀" * 200, "created_at": "2026-10-19T00:00:00Z", "updated_at": "2026-10-19T00:00:00Z"}
+                 "account_name": "😀" * 200, "login_username": "😀" * 200,
+                 "created_at": "2026-10-19T00:00:00Z", "updated_at": "2026-10-19T00:00:00Z"}
                 for index in range(200)]
-    with pytest.raises(ValueError, match="1 MiB"):
-        settings._write(settings.data_directory(), {**saved, "profiles": profiles})
+    settings._write(settings.data_directory(), {**saved, "profiles": profiles})
+    assert len(settings.read_snapshot()["profiles"]) == 200
+    before = target().read_bytes()
+    with pytest.raises(ValueError, match="at most 200"):
+        settings.save_profile(profile(name="excess"), 1)
     assert target().read_bytes() == before
+    target().write_text(" " * (1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="1 MiB"):
+        settings.read_snapshot()
 
 
-def test_legacy_profiles_migrate_without_inventing_login_or_rewriting_on_read():
-    saved = settings.save_profile(profile(), 0)
-    legacy = {**saved, "schema_version": 1, "profiles": [
-        {key: value for key, value in saved["profiles"][0].items() if key not in {"login_username", "credential_id"}}
-    ]}
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("provider", ["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"])
+def test_legacy_bindings_migrate_without_losing_credentials_or_rewriting_on_read(version, provider):
+    raw = profile(provider)
+    if version == 2 and provider != "jiufang":
+        raw.update(login_username="actual-login", credential_id=str(uuid4()))
+    saved = settings.save_profile(raw, 0)
+    item = saved["profiles"][0]
+    binding = None if provider == "jiufang" else {"store_id": "VycOXC1cvUBC/rBIOnYXUg==", "store_name": "店铺 A"}
+    legacy_item = {**item, "store_binding": binding}
+    if version == 1:
+        legacy_item = {key: value for key, value in legacy_item.items() if key not in {"login_username", "credential_id"}}
+    legacy = {**saved, "schema_version": version, "profiles": [legacy_item]}
     target().write_text(json.dumps(legacy))
     before = target().read_bytes()
     migrated = settings.read_snapshot()
     assert target().read_bytes() == before
-    assert migrated["schema_version"] == 2 and migrated["revision"] == 1
-    item = migrated["profiles"][0]
-    assert item["account_name"] == "深圳市新棱镜贸易有限公司"
-    assert item["login_username"] is None and item["credential_id"] is None
+    assert migrated == saved
+    assert "store_binding" not in migrated["profiles"][0]
     result = settings.save_profile({key: item[key] for key in settings.INPUT_FIELDS | {"profile_id"}}, 1)
-    assert result["revision"] == 2 and json.loads(target().read_text())["schema_version"] == 2
+    assert result["revision"] == 2 and json.loads(target().read_text())["schema_version"] == 3
+    assert result["profiles"][0]["credential_id"] == item["credential_id"]
+    assert "store_binding" not in target().read_text()
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("binding", [None, {}, {"store_id": "x", "store_name": ""},
+    {"store_id": "x", "store_name": "A", "browser_id": 1}])
+def test_invalid_legacy_binding_is_not_silently_repaired(version, binding):
+    saved = settings.save_profile(profile(), 0)
+    item = {**saved["profiles"][0], "store_binding": binding}
+    if version == 1:
+        item = {key: value for key, value in item.items() if key not in {"login_username", "credential_id"}}
+    target().write_text(json.dumps({**saved, "schema_version": version, "profiles": [item]}))
+    before = target().read_bytes()
+    with pytest.raises(ValueError):
+        settings.read_snapshot()
+    with pytest.raises(ValueError):
+        settings.save_profile(profile(name="Other"), 1)
+    assert target().read_bytes() == before
 
 
 @pytest.mark.parametrize("provider", ["wesa", "feiwo", "yuntuo", "tiantai"])
@@ -318,13 +338,6 @@ def test_public_credentials_and_shared_credential_references_are_rejected():
     with pytest.raises(ValueError, match="Duplicate credential_id"):
         settings.save_profile({**profile(name="Other"), "login_username": "user", "credential_id": reference}, 1)
     assert target().read_bytes() == before
-
-
-def test_private_snapshot_does_not_discover_stores(monkeypatch):
-    def failure():
-        raise AssertionError("snapshot must not discover stores")
-    monkeypatch.setattr(settings, "discover_stores", failure)
-    assert settings.settings_state(discover=False)["stores_error"] is None
 
 
 @pytest.mark.parametrize("provider", ["wesa", "tiantai"])

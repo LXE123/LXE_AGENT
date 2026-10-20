@@ -56,7 +56,7 @@ describe("preload bridge", () => {
       "revealInputAssetSlot",
       "uploadVietnamSkuMap",
       "exportVietnamSkuMap",
-      "getLogisticsSettings", "refreshLogisticsStores", "saveLogisticsProfile", "deleteLogisticsProfile",
+      "getLogisticsSettings", "saveLogisticsProfile", "deleteLogisticsProfile",
       "getVietnamSettings",
       "saveVietnamParameters",
       "saveLocalModelCredential",

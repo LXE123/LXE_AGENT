@@ -118,7 +118,6 @@ export function createDesktopBridge(
       getLogisticsSettings: () => ipc.invoke(IPC_CHANNELS.getLogisticsSettings),
       saveLogisticsProfile: (input, revision) => ipc.invoke(IPC_CHANNELS.saveLogisticsProfile, input, revision),
       deleteLogisticsProfile: (id, revision) => ipc.invoke(IPC_CHANNELS.deleteLogisticsProfile, id, revision),
-      refreshLogisticsStores: () => ipc.invoke(IPC_CHANNELS.refreshLogisticsStores),
       getVietnamSettings: () => ipc.invoke(IPC_CHANNELS.getVietnamSettings),
       saveVietnamParameters: (input) => ipc.invoke(IPC_CHANNELS.saveVietnamParameters, input),
       onCloudStateChanged: (listener) => {

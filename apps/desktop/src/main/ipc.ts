@@ -91,7 +91,6 @@ export interface DesktopIpcApplication {
   listInputAssets(): Promise<DesktopInputAssetSlot[]>;
   inputAssetSlotDirectory(slot: string): Promise<string>;
   getLogisticsSettings(): Promise<DesktopLogisticsSettingsState>;
-  refreshLogisticsStores(): Promise<DesktopLogisticsSettingsState>;
   saveLogisticsProfile(input: DesktopLogisticsProfileInput, revision: number): Promise<DesktopLogisticsSettingsState>;
   deleteLogisticsProfile(id: string, revision: number): Promise<DesktopLogisticsSettingsState>;
   getVietnamSettings(): Promise<DesktopVietnamSettingsState>;

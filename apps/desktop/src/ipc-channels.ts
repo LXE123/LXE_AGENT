@@ -52,7 +52,6 @@ export const IPC_CHANNELS = {
   getLogisticsSettings: "lxe:desktop:logistics:read",
   saveLogisticsProfile: "lxe:desktop:logistics:save",
   deleteLogisticsProfile: "lxe:desktop:logistics:delete",
-  refreshLogisticsStores: "lxe:desktop:logistics:refresh",
   getVietnamSettings: "lxe:desktop:vietnam:read",
   saveVietnamParameters: "lxe:desktop:vietnam:save",
   syntheticPerformerTaskChanged: "lxe:desktop:synthetic-performer:task-changed",

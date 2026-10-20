@@ -40,7 +40,7 @@ export function useLogisticsSettings(desktop: Api | undefined, open: boolean) {
     },
     change(input: DesktopLogisticsProfileInput) { setDraft(current => current ? { ...current, input } : current); },
     discard() { setDraft(null); setError(""); },
-    reload() { if (desktop) void run(() => desktop.refreshLogisticsStores()); },
+    reload() { if (desktop) void run(() => desktop.getLogisticsSettings()); },
     save(input: DesktopLogisticsProfileInput, revision: number, closeDraft = true) {
       if (desktop) void run(() => desktop.saveLogisticsProfile(input, revision), () => { if (closeDraft) setDraft(null); }, true);
     },

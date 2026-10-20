@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,8 +11,8 @@ import { IPC_CHANNELS } from "../src/ipc-channels";
 import { DesktopLogisticsCredentialStore } from "../src/main/logistics-credentials";
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
-const state = { schema_version: 2, revision: 0, profiles: [], providers: [], stores: [], stores_error: null };
-const input = { display_name: "天泰 A", provider_id: "tiantai", enabled: true, account_name: "公司 A", store_binding: { store_id: "base64==", store_name: "店铺 A" } };
+const state = { schema_version: 3, revision: 0, profiles: [], providers: [] };
+const input = { display_name: "天泰 A", provider_id: "tiantai", enabled: true, account_name: "公司 A" };
 const key = randomBytes(32);
 const safeStorage = {
   isEncryptionAvailable: () => true,
@@ -43,10 +43,10 @@ test("fixed private module, revision and environment-only credentials", async ()
     expect(options.timeout).toBeGreaterThan(0);
     return { stdout: JSON.stringify({ success: true, data: state }), stderr: "", error: null };
   });
-  await store.read(); await store.refresh(); await store.save(input, 0);
+  await store.read(); await store.save(input, 0);
   await store.delete("00000000-0000-0000-0000-000000000001", 0);
-  expect(calls.map(call => call.slice(0, 5))).toEqual(["read", "refresh", "snapshot", "save", "snapshot", "delete"].map(action => ["-I", "-B", "-m", "services.agent_cli.logistics.settings", action]));
-  expect(JSON.parse(calls[3]![5]!)).toEqual({ input: { ...input, login_username: null, credential_id: null }, expected_revision: 0 });
+  expect(calls.map(call => call.slice(0, 5))).toEqual(["read", "snapshot", "save", "snapshot", "delete"].map(action => ["-I", "-B", "-m", "services.agent_cli.logistics.settings", action]));
+  expect(JSON.parse(calls[2]![5]!)).toEqual({ input: { ...input, login_username: null, credential_id: null }, expected_revision: 0 });
 });
 test.each([
   { stdout: "broken-json", stderr: "", error: null },
@@ -58,28 +58,31 @@ test.each([
   try { await service(async () => execution).read(); } catch (error) { message = (error as Error).message; }
   expect(message).toContain(execution.stdout === "broken-json" ? "broken-json" : execution.stderr || (execution.stdout ? "fixture schema failure" : "fixture timeout"));
 });
-test("redacts supplied environment secrets before bounding both failure and store diagnostics", async () => {
-  await expect(service(async () => ({ stdout: "", stderr: "environment-only-credential " + "x".repeat(6000), error: new Error("exit 1") })).read()).rejects.toThrow("[truncated]");
-  const store = service(async () => ({ stdout: JSON.stringify({ success: true, data: { ...state, stores_error: "fixture: environment-only-credential" } }), stderr: "", error: null }));
-  expect((await store.read()).stores_error).toBe("fixture: [redacted]");
+test("redacts supplied environment secrets before bounding failure diagnostics", async () => {
+  let message = "";
+  try { await service(async () => ({ stdout: "", stderr: "x".repeat(6000) + " environment-only-credential", error: new Error("exit 1") })).read(); }
+  catch (error) { message = (error as Error).message; }
+  expect(message).toContain("[truncated]"); expect(message).toContain("[redacted]");
+  expect(message).not.toContain("environment-only-credential");
 });
 test("main validation rejects unknown fields, malformed identities and forbidden combinations", () => {
   expect(validateLogisticsProfileInput(input)).toEqual(input);
   for (const provider_id of ["feiwo", "yuntuo"]) expect(validateLogisticsProfileInput({ ...input, provider_id, account_name: null }).account_name).toBeNull();
-  expect(validateLogisticsProfileInput({ ...input, provider_id: "jiufang", account_name: null, store_binding: null }).store_binding).toBeNull();
-  for (const key of ["token", "credential_id", "password_configured", "url", "module", "sign", "created_at"]) expect(() => validateLogisticsProfileInput({ ...input, [key]: "secret" })).toThrow();
-  for (const change of [{ display_name: "x".repeat(81) }, { display_name: "" }, { enabled: 1 }, { provider_id: "other" }, { provider_id: "jiufang" }, { store_binding: null }, { account_name: "x" }, { store_binding: { ...input.store_binding, browser_id: 1 } }]) {
+  expect(validateLogisticsProfileInput({ ...input, provider_id: "jiufang", account_name: null }).provider_id).toBe("jiufang");
+  for (const key of ["store_binding", "store_id", "stores", "token", "credential_id", "password_configured", "url", "module", "sign", "created_at"]) expect(() => validateLogisticsProfileInput({ ...input, [key]: "secret" })).toThrow();
+  for (const change of [{ display_name: "x".repeat(81) }, { display_name: "" }, { enabled: 1 }, { provider_id: "other" }, { provider_id: "jiufang" }, { account_name: "x" }]) {
     expect(() => validateLogisticsProfileInput({ ...input, ...change })).toThrow();
   }
   for (const value of [true, -1, "0", 1.5, Number.MAX_SAFE_INTEGER]) expect(() => validateLogisticsRevision(value)).toThrow();
   for (const id of ["bad", "00000000-0000-0000-0000-00000000000X"]) expect(() => validateLogisticsProfileId(id)).toThrow();
 });
-test("preload exposes the four explicit logistics IPC calls", async () => {
+test("preload exposes only account configuration IPC calls", async () => {
   const calls: unknown[] = [];
   const bridge = createDesktopBridge({ invoke: async <T>(...args: unknown[]) => { calls.push(args); return state as T; }, on() {}, removeListener() {} }, "darwin").desktop;
-  await bridge.getLogisticsSettings(); await bridge.refreshLogisticsStores();
+  await bridge.getLogisticsSettings();
   await bridge.saveLogisticsProfile({ ...input, provider_id: "tiantai" }, 3); await bridge.deleteLogisticsProfile("id", 4);
-  expect(calls).toEqual([[IPC_CHANNELS.getLogisticsSettings], [IPC_CHANNELS.refreshLogisticsStores], [IPC_CHANNELS.saveLogisticsProfile, input, 3], [IPC_CHANNELS.deleteLogisticsProfile, "id", 4]]);
+  expect(calls).toEqual([[IPC_CHANNELS.getLogisticsSettings], [IPC_CHANNELS.saveLogisticsProfile, input, 3], [IPC_CHANNELS.deleteLogisticsProfile, "id", 4]]);
+  expect(bridge).not.toHaveProperty("refreshLogisticsStores");
 });
 
 
@@ -88,22 +91,21 @@ test("every logistics handler requires the trusted main frame and validates befo
   const handlers = new Map<string, (event: import("electron").IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
   const trusted = {} as import("electron").IpcMainInvokeEvent;
   let calls = 0;
-  const result = async () => { calls++; return { ...state, schema_version: 2 as const }; };
+  const result = async () => { calls++; return { ...state, schema_version: 3 as const }; };
   registerLogisticsIpc({ handle(channel, handler) { handlers.set(channel, handler); } }, {
-    isTrustedFileSender: event => event === trusted, getLogisticsSettings: result, refreshLogisticsStores: result,
+    isTrustedFileSender: event => event === trusted, getLogisticsSettings: result,
     saveLogisticsProfile: result, deleteLogisticsProfile: result,
   });
-  expect(handlers.size).toBe(4);
+  expect(handlers.size).toBe(3);
   for (const handler of handlers.values()) expect(() => handler({} as import("electron").IpcMainInvokeEvent, input, 0)).toThrow("main frame");
   expect(calls).toBe(0);
   expect(() => handlers.get(IPC_CHANNELS.saveLogisticsProfile)!(trusted, { ...input, token: "x" }, 0)).toThrow();
   expect(() => handlers.get(IPC_CHANNELS.deleteLogisticsProfile)!(trusted, "bad", 0)).toThrow();
   expect(calls).toBe(0);
   await handlers.get(IPC_CHANNELS.getLogisticsSettings)!(trusted);
-  await handlers.get(IPC_CHANNELS.refreshLogisticsStores)!(trusted);
   await handlers.get(IPC_CHANNELS.saveLogisticsProfile)!(trusted, input, 0);
   await handlers.get(IPC_CHANNELS.deleteLogisticsProfile)!(trusted, "00000000-0000-0000-0000-000000000001", 1);
-  expect(calls).toBe(4);
+  expect(calls).toBe(3);
 });
 
 function integrated(storage = safeStorage) {
@@ -117,7 +119,7 @@ function integrated(storage = safeStorage) {
       requests.push(JSON.stringify({ args, env: options.env }));
       if (args[4] === "save" && failSave === "before") return { stdout: "", stderr: "fixture save denied", error: new Error("exit 1") };
       const child = Bun.spawn([join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"),
-        "-I", "-B", "-c", "from services.agent_cli.logistics import settings; settings.discover_stores=lambda: []; raise SystemExit(settings.main())", ...args.slice(4)],
+        ...args],
       { cwd: options.cwd, env: options.env, stdout: "pipe", stderr: "pipe" });
       const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
       if (args[4] === "save" && failSave === "after") return { stdout: "", stderr: "fixture response lost after save", error: new Error("timeout") };
@@ -198,7 +200,7 @@ test("unavailable encryption and invalid credentials cannot create a saved login
   await expect(h.store.save({ ...input, password: "private-password" }, 0)).rejects.toThrow("login username is required");
   for (const change of [{ password: "" }, { password: "x".repeat(1025) }, { password: 123 }, { password: "line\nbreak" },
     { login_username: " padded" }, { login_username: "" }, { login_username: "x".repeat(201) },
-    { provider_id: "jiufang", account_name: null, store_binding: null, login_username: "user" }]) {
+    { provider_id: "jiufang", account_name: null, login_username: "user" }]) {
     expect(() => validateLogisticsProfileInput({ ...loginInput, ...change })).toThrow();
   }
 });
@@ -228,4 +230,33 @@ test.each(["wesa", "tiantai"] as const)("%s saves credentials without asking for
   expect(result.profiles[0]!.account_name).toBeNull();
   expect(result.profiles[0]!.password_configured).toBe(true);
   expect(result.profiles[0]!.login_username).toBe("login-123@example.test");
+  expect(result.profiles[0]).not.toHaveProperty("store_binding");
+  expect(h.snapshot().profiles[0]).not.toHaveProperty("store_binding");
+});
+
+test("legacy bound profiles retain their encrypted passwords when migrated and edited without a store", async () => {
+  const h = integrated();
+  await h.store.save({ ...loginInput, password: "wesa-password", provider_id: "wesa" }, 0);
+  await h.store.save({ ...loginInput, display_name: "另一个账号", password: "other-password" }, 1);
+  const snapshot = h.snapshot();
+  const references = snapshot.profiles.map((p: { credential_id: string }) => p.credential_id);
+  const encrypted = h.files().map(file => readFileSync(join(h.root, "config", "logistics-credentials", file)));
+  const path = join(h.root, "skill-data", "logistics-query", "profiles.json");
+  writeFileSync(path, JSON.stringify({ ...snapshot, schema_version: 2, profiles: snapshot.profiles.map((p: object) => ({
+    ...p, store_binding: { store_id: "old-store==", store_name: "旧店铺" },
+  })) }));
+  const legacyBytes = readFileSync(path);
+  const loaded = await h.make().read();
+  expect(loaded.schema_version).toBe(3); expect(loaded.revision).toBe(2);
+  expect(loaded.profiles.every(p => p.password_configured && !("store_binding" in p))).toBe(true);
+  expect(readFileSync(path)).toEqual(legacyBytes);
+  const first = loaded.profiles[0]!;
+  await h.store.save({ profile_id: first.profile_id, display_name: first.display_name, provider_id: first.provider_id,
+    enabled: false, login_username: first.login_username }, loaded.revision);
+  expect(h.snapshot().schema_version).toBe(3);
+  expect(readFileSync(path, "utf8")).not.toContain("store_binding");
+  expect(h.snapshot().profiles.map((p: { credential_id: string }) => p.credential_id).sort()).toEqual([...references].sort());
+  expect(h.files().map(file => readFileSync(join(h.root, "config", "logistics-credentials", file)))).toEqual(encrypted);
+  expect(h.credentials.read(references[0]).password).toBe("wesa-password");
+  expect(h.credentials.read(references[1]).password).toBe("other-password");
 });

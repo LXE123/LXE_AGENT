@@ -7,8 +7,7 @@ const providers: DesktopLogisticsSettingsState["providers"] = ["wesa", "feiwo", 
   provider_id: id as DesktopLogisticsProfileInput["provider_id"], label: ({wesa:"威飒",feiwo:"飞沃",yuntuo:"云驼",tiantai:"天泰供应链",jiufang:"九方"})[id]!,
   transport: id === "jiufang" ? "public_http" : "ziniao_browser", requires_store: id !== "jiufang", requires_account_name: ["wesa", "tiantai"].includes(id),
 }));
-let state: DesktopLogisticsSettingsState = { schema_version: 2, revision: 0, profiles: [], providers,
-  stores: [{store_id:"one==",store_name:"Amazon 店铺一 深圳市公司 A",running:true}, {store_id:"two==",store_name:"Amazon 店铺二 深圳市公司 B",running:false}], stores_error:null };
+let state: DesktopLogisticsSettingsState = { schema_version: 3, revision: 0, profiles: [], providers };
 let readFailure = false;
 let holdSave = false;
 let releaseSave: (() => void) | undefined;
@@ -21,7 +20,6 @@ export const logisticsMock = {
 };
 export const logisticsDesktop = {
   async getLogisticsSettings() { calls.push({operation:"read"}); if(readFailure) throw new Error("JSONDecodeError: fixture broken profiles"); return structuredClone(state); },
-  async refreshLogisticsStores() { calls.push({operation:"refresh"}); return logisticsDesktop.getLogisticsSettings(); },
   async saveLogisticsProfile(input: DesktopLogisticsProfileInput, revision: number) {
     calls.push({operation:"save",input:structuredClone(input),revision});
     if(holdSave) await new Promise<void>(resolve=>{releaseSave=resolve;});

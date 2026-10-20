@@ -18,7 +18,7 @@ from .provider_registry import PROVIDERS, PROVIDER_BY_ID
 
 MAX_REVISION = 9007199254740990
 MAX_PROFILES = 200
-BASE_INPUT_FIELDS = {"display_name", "provider_id", "enabled", "store_binding", "account_name"}
+BASE_INPUT_FIELDS = {"display_name", "provider_id", "enabled", "account_name"}
 INPUT_FIELDS = BASE_INPUT_FIELDS | {"login_username", "credential_id"}
 PROFILE_FIELDS = INPUT_FIELDS | {"profile_id", "created_at", "updated_at"}
 
@@ -68,22 +68,15 @@ def validate_input(raw: object) -> dict:
     spec = PROVIDER_BY_ID[provider]
     if type(raw["enabled"]) is not bool:
         raise ValueError("enabled must be boolean")
-    binding = raw["store_binding"]
-    if spec.requires_store:
-        binding = fields(binding, {"store_id", "store_name"})
-        binding = {key: text(binding[key], key, 1, maximum)
-                   for key, maximum in (("store_id", 512), ("store_name", 512))}
-    elif binding is not None:
-        raise ValueError("Public HTTP providers must not have a store binding")
     # Read old company metadata for compatibility; login is configured separately.
     account = raw.get("account_name")
     if spec.requires_account_name and account is not None:
         account = text(account, "account_name", 2, 200)
     elif not spec.requires_account_name and account is not None:
         raise ValueError("This provider does not use account_name")
-    result.update(provider_id=provider, enabled=raw["enabled"], store_binding=binding, account_name=account)
+    result.update(provider_id=provider, enabled=raw["enabled"], account_name=account)
     username, credential = raw.get("login_username"), raw.get("credential_id")
-    if not spec.requires_store and (username is not None or credential is not None):
+    if spec.transport == "public_http" and (username is not None or credential is not None):
         raise ValueError("Public HTTP providers must not have login credentials")
     if username is not None:
         username = text(username, "login_username", 1, 200)
@@ -106,7 +99,7 @@ def timestamp(value: object) -> str:
 
 def validate_snapshot(raw: object) -> dict:
     raw = fields(raw, {"schema_version", "revision", "profiles"})
-    if type(raw["schema_version"]) is not int or raw["schema_version"] not in (1, 2):
+    if type(raw["schema_version"]) is not int or raw["schema_version"] not in (1, 2, 3):
         raise ValueError("Unsupported logistics settings schema_version")
     revision(raw["revision"])
     profiles = raw["profiles"]
@@ -115,9 +108,22 @@ def validate_snapshot(raw: object) -> dict:
     ids, names, credentials = set(), set(), set()
     normalized = []
     for item in profiles:
-        expected_fields = PROFILE_FIELDS if raw["schema_version"] == 2 else BASE_INPUT_FIELDS | {"profile_id", "created_at", "updated_at"}
+        version = raw["schema_version"]
+        expected_fields = PROFILE_FIELDS if version != 1 else BASE_INPUT_FIELDS | {"profile_id", "created_at", "updated_at"}
+        if version < 3:
+            expected_fields = expected_fields | {"store_binding"}
         fields(item, expected_fields)
-        clean = validate_input({key: item[key] for key in expected_fields - {"created_at", "updated_at"}})
+        clean = validate_input({key: item[key] for key in expected_fields - {"created_at", "updated_at", "store_binding"}})
+        if version < 3:
+            # Validate the complete old schema before dropping the obsolete
+            # binding. Reading never rewrites the file or credential reference.
+            binding = item["store_binding"]
+            if PROVIDER_BY_ID[clean["provider_id"]].requires_store:
+                binding = fields(binding, {"store_id", "store_name"})
+                for key in ("store_id", "store_name"):
+                    text(binding[key], key, 1, 512)
+            elif binding is not None:
+                raise ValueError("Public HTTP providers must not have a store binding")
         timestamp(item["created_at"])
         timestamp(item["updated_at"])
         if datetime.fromisoformat(item["updated_at"].replace("Z", "+00:00")) < datetime.fromisoformat(item["created_at"].replace("Z", "+00:00")):
@@ -133,7 +139,7 @@ def validate_snapshot(raw: object) -> dict:
                 raise ValueError("Duplicate credential_id")
             credentials.add(credential)
         normalized.append({**clean, "created_at": item["created_at"], "updated_at": item["updated_at"]})
-    return {**raw, "schema_version": 2, "profiles": normalized}
+    return {**raw, "schema_version": 3, "profiles": normalized}
 
 
 def _write(root: Path, snapshot: dict) -> None:
@@ -155,7 +161,7 @@ def _write(root: Path, snapshot: dict) -> None:
 def _read(root: Path) -> dict:
     path = root / "profiles.json"
     if not path.exists():
-        snapshot = {"schema_version": 2, "revision": 0, "profiles": []}
+        snapshot = {"schema_version": 3, "revision": 0, "profiles": []}
         _write(root, snapshot)
         return snapshot
     if path.stat().st_size > 1024 * 1024:
@@ -206,68 +212,22 @@ def _mutate(item: dict | None, delete_id: str | None, expected_revision: int) ->
             now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             profiles.append({**item, "profile_id": identifier or str(uuid4()),
                              "created_at": existing["created_at"] if existing else now, "updated_at": now})
-        result = {"schema_version": 2, "revision": snapshot["revision"] + 1, "profiles": profiles}
+        result = {"schema_version": 3, "revision": snapshot["revision"] + 1, "profiles": profiles}
         _write(root, result)
         return result
 
 
-def discover_stores() -> list[dict]:
-    # High-level browser getters can launch/update the client. Use only these
-    # two existing status APIs, never lifecycle, WebDriver or an agent database.
-    from services.browser.store.ziniao_client import ZiniaoClient
-    from services.browser.store import ziniao_config as config
-    client = ZiniaoClient(int(config.ZINIAO_SOCKET_PORT), {
-        "company": config.ZINIAO_COMPANY, "username": config.ZINIAO_USERNAME, "password": config.ZINIAO_PASSWORD,
-    })
-    catalog = client.get_browser_list()
-    running = client.get_running_info()
-    # Prefer an exact business identifier. Numeric IDs are a fallback for older
-    # getRunningInfo responses, and are never returned or persisted.
-    catalog_oauths = {str(item.get("browserOauth") or "") for item in catalog} - {""}
-    running_oauths = set()
-    for item in running:
-        oauth = str(item.get("browserOauth") or "")
-        if oauth in catalog_oauths:
-            running_oauths.add(oauth)
-            continue
-        browser_id = 0
-        for candidate in (item.get("browserId"), item.get("browserOauth")):
-            try:
-                browser_id = int(str(candidate or ""))
-            except ValueError:
-                continue
-            if browser_id > 0:
-                break
-        if browser_id > 0:
-            running_oauths.update(str(store.get("browserOauth") or "") for store in catalog
-                                 if str(store.get("browserId") or "") == str(browser_id))
-    result = []
-    for item in catalog:
-        store_id = text(item.get("browserOauth"), "directory store_id", 1, 512)
-        name = text(item.get("browserName"), "directory store_name", 1, 512)
-        result.append({"store_id": store_id, "store_name": name, "running": store_id in running_oauths})
-    return result
-
-
-def settings_state(snapshot: dict | None = None, *, discover: bool = True) -> dict:
+def settings_state(snapshot: dict | None = None) -> dict:
     snapshot = read_snapshot() if snapshot is None else snapshot
-    stores, stores_error = [], None
-    try:
-        if discover:
-            stores = discover_stores()
-    except Exception as exc:
-        stores_error = diagnostic(exc)
     providers = [{key: value for key, value in asdict(spec).items() if key != "command"} for spec in PROVIDERS]
-    return {**snapshot, "providers": providers, "stores": stores, "stores_error": stores_error}
+    return {**snapshot, "providers": providers}
 
 
 def main() -> int:
     try:
         action, *args = sys.argv[1:]
-        if action in ("read", "refresh") and not args:
+        if action in ("read", "snapshot") and not args:
             result = settings_state()
-        elif action == "snapshot" and not args:
-            result = settings_state(discover=False)
         elif action in ("save", "delete") and len(args) == 1:
             request = json.loads(args[0])
             if action == "save":

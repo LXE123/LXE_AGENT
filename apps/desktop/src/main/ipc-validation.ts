@@ -227,15 +227,10 @@ export function validateLogisticsProfileId(value: unknown): string {
   return id;
 }
 export function validateLogisticsProfileInput(value: unknown): import("@lxe/desktop-protocol").DesktopLogisticsProfileInput {
-  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding"], ["account_name", "profile_id", "login_username", "password"]);
+  const input = logisticsFields(value, ["display_name", "provider_id", "enabled"], ["account_name", "profile_id", "login_username", "password"]);
   const provider = input.provider_id;
   if (typeof provider !== "string" || !["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"].includes(provider)) throw new Error("Unknown logistics provider");
   if (typeof input.enabled !== "boolean") throw new Error("Logistics enabled must be boolean");
-  let binding = null;
-  if (provider !== "jiufang") {
-    const raw = logisticsFields(input.store_binding, ["store_id", "store_name"]);
-    binding = { store_id: logisticsText(raw.store_id, "store_id", 1, 512), store_name: logisticsText(raw.store_name, "store_name", 1, 512) };
-  } else if (input.store_binding !== null) throw new Error("Public HTTP providers must not have a store binding");
   let account = input.account_name;
   if (account != null) {
     if (!["wesa", "tiantai"].includes(provider)) throw new Error("This provider does not use account_name");
@@ -251,7 +246,7 @@ export function validateLogisticsProfileInput(value: unknown): import("@lxe/desk
     ...(input.profile_id === undefined ? {} : { profile_id: validateLogisticsProfileId(input.profile_id) }),
     display_name: logisticsText(input.display_name, "display_name", 1, 80),
     provider_id: provider as import("@lxe/desktop-protocol").DesktopLogisticsProviderId,
-    enabled: input.enabled, store_binding: binding,
+    enabled: input.enabled,
     ...(account === undefined ? {} : { account_name: account as string | null }),
     ...(username === undefined ? {} : { login_username: username as string | null }),
     ...(input.password === undefined ? {} : { password: input.password as string | null }),

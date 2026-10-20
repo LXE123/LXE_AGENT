@@ -7,6 +7,7 @@ class ProviderSpec:
     provider_id: str
     label: str
     transport: str
+    # Execution-time browser requirement, never a persisted account binding.
     requires_store: bool
     # Query-time company verification from the live page, not a login setting.
     requires_account_name: bool

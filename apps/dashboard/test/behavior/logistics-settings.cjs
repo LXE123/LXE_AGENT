@@ -17,7 +17,8 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await textClick("添加物流商"); await select("provider","tiantai"); await input("name",name);
     assert.equal(await js("Boolean(document.querySelector('[name=logistics-account]'))"),false);
     if(username) await input("username",username); if(password) await input("password",password);
-    await select("store","one=="); await textClick("保存配置");
+    assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),false);
+    await textClick("保存配置");
     await waitFor("!document.querySelector('.logistics-editor')", "saved profile closes editor");
   };
   await step("navigation order, empty state and independent save boundary",async()=>{
@@ -28,7 +29,7 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     assert.equal(await js("document.querySelectorAll('.desktop-settings-modal form').length"),0);
     assert.equal(await js("document.querySelectorAll('.desktop-settings-modal > footer [type=submit]').length"),0);
     await textClick("添加物流商");
-    assert.equal(await js("document.querySelector('[name=logistics-store]').value"),"");
+    assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),false);
     assert.equal(await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent==='保存配置').disabled"),true);
     await textClick("取消编辑");
   });
@@ -72,31 +73,28 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await textClick("取消",".desktop-confirm-dialog"); await textClick("删除"); await textClick("确认",".desktop-confirm-dialog");
     await waitFor("document.querySelectorAll('.logistics-card').length===1","delete persisted");
   });
-  await step("refresh reports stopped, renamed, missing, ambiguous and unavailable without dropping binding",async()=>{
-    await js("behavior.logistics.patch({stores:[{store_id:'one==',store_name:'Amazon 店铺一 深圳市公司 A',running:false}]})"); await textClick("刷新店铺");
-    assert.match(await js("document.querySelector('.logistics-card').textContent"),/店铺未运行/);
-    await js("behavior.logistics.patch({stores:[{store_id:'one==',store_name:'已更名',running:true}]})"); await textClick("刷新店铺");
-    assert.match(await js("document.querySelector('.logistics-card').textContent"),/店铺名称冲突/);
-    await textClick("编辑"); await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent.includes('确认使用当前店铺名称')).click()"); await settle(); await textClick("保存配置");
-    await waitFor("!document.querySelector('.logistics-editor')","name confirmed");
-    await js("behavior.logistics.patch({stores:[]})"); await textClick("刷新店铺"); await textClick("编辑");
-    assert.equal(await js("document.querySelector('[name=logistics-store]').value"),"one=="); await textClick("取消编辑");
-    await js("behavior.logistics.patch({stores:[{store_id:'one==',store_name:'已更名',running:true},{store_id:'one==',store_name:'重复',running:true}]})"); await textClick("刷新店铺");
-    assert.match(await js("document.querySelector('.logistics-card').textContent"),/店铺绑定不唯一/);
-    await js("behavior.logistics.patch({stores:[],stores_error:'ConnectionError: fixture client offline'})"); await textClick("刷新店铺");
-    assert.match(await js("document.querySelector('.logistics-card').textContent"),/店铺状态不可读/); assert.equal(await js("document.querySelectorAll('.logistics-card').length"),1);
+  await step("account profiles reload and save without any store binding or browser status",async()=>{
+    const before=(await js("behavior.logistics.calls()")).filter(c=>c.operation==='read').length;
+    await textClick("刷新配置");
+    assert.equal((await js("behavior.logistics.calls()")).filter(c=>c.operation==='read').length,before+1);
+    assert.doesNotMatch(await js("document.querySelector('.logistics-card').textContent"),/绑定店铺|店铺未运行|当前未发现|店铺名称冲突|可用/);
+    await textClick("编辑");
+    assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),false);
+    await textClick("保存配置"); await waitFor("!document.querySelector('.logistics-editor')","account saved independently");
+    assert.equal(await js("behavior.logistics.state().profiles.some(p=>Object.hasOwn(p,'store_binding'))"),false);
+    assert.equal((await js("behavior.logistics.calls()")).filter(c=>c.operation==='refresh').length,0);
   });
   await step("provider fields, duplicate click suppression and revision conflict preserve drafts",async()=>{
     await textClick("添加物流商");
     for(const provider of ['feiwo','yuntuo','jiufang']) {
       await select('provider',provider); assert.equal(await js("Boolean(document.querySelector('[name=logistics-account]'))"),false);
-      assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),provider!=='jiufang');
+      assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),false);
       assert.equal(await js("Boolean(document.querySelector('[name=logistics-username]'))"),provider!=='jiufang');
       assert.equal(await js("Boolean(document.querySelector('[name=logistics-password]'))"),provider!=='jiufang');
     }
     await input('name','九方公开'); await js("behavior.logistics.patch({revision:behavior.logistics.state().revision+1})"); await textClick('保存配置');
     await waitFor("document.body.innerText.includes('Revision conflict')","actual conflict"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),'九方公开');
-    await textClick('刷新店铺'); await textClick('保存配置'); assert.match(await js("document.body.innerText"),/Revision conflict/);
+    await textClick('刷新配置'); await textClick('保存配置'); assert.match(await js("document.body.innerText"),/Revision conflict/);
     await textClick('取消编辑'); await textClick('确认','.desktop-confirm-dialog'); await textClick('添加物流商'); await select('provider','jiufang'); await input('name','九方公开');
     await js("behavior.logistics.holdSave(true)"); await textClick('保存配置');
     const before=(await js("behavior.logistics.calls()")).filter(c=>c.operation==='save').length;
@@ -106,15 +104,14 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     assert.match(await js("document.body.innerText"),/公开接口/);
   });
   await step("configuration errors remain distinct from an empty configuration and retry recovers",async()=>{
-    await js("behavior.logistics.failRead(true)"); await textClick('刷新店铺'); assert.match(await js("document.body.innerText"),/JSONDecodeError: fixture broken profiles/);
+    await js("behavior.logistics.failRead(true)"); await textClick('刷新配置'); assert.match(await js("document.body.innerText"),/JSONDecodeError: fixture broken profiles/);
     await js("behavior.logistics.failRead(false)"); await textClick('重新加载'); await waitFor("!document.body.innerText.includes('JSONDecodeError')","retry recovered");
   });
   await step("provider switching at the bottom keeps the editor and scroll position stable",async()=>{
-    await js("behavior.logistics.patch({stores:[{store_id:'one==',store_name:'Amazon 店铺一 深圳市公司 A',running:true}],stores_error:null})");
-    await textClick('刷新店铺'); await textClick('添加物流商');
+    await textClick('刷新配置'); await textClick('添加物流商');
     for (const width of [1200, 680]) {
       win.setSize(width,900); await settle();
-      await select('provider','wesa'); await select('store','one==');
+      await select('provider','wesa');
       await js("(() => { const content=document.querySelector('.desktop-settings-content'); content.scrollTop=content.scrollHeight; document.querySelector('[name=logistics-provider]').focus({preventScroll:true}); })()");
       await settle();
       const geometry = () => js("(() => { const content=document.querySelector('.desktop-settings-content'); const provider=document.querySelector('[name=logistics-provider]'); return {scroll:content.scrollTop,top:provider.getBoundingClientRect().top,height:document.querySelector('.logistics-editor').getBoundingClientRect().height}; })()");
