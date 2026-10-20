@@ -2050,6 +2050,10 @@ def _run_discovery(
                 }
             )
 
+    # Enumeration finishes on the last child. Restore the requested seed by
+    # full FBA identity so the visible page still matches the query context.
+    _select_shipment_tab(driver, seed, timeout_seconds=float(plan["timeout_sec"]), trail=trail)
+
     editable_ids = [
         item["fba_shipment_id"] for item in shipments if item.get("selectable") is True
     ]

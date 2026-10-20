@@ -952,6 +952,66 @@ def test_discovery_rejects_a_workflow_that_does_not_contain_the_seed(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.parametrize("tab_ids", [
+    [SHIPMENT, SHIPMENT_B, SHIPMENT_C],
+    [SHIPMENT_B, SHIPMENT, SHIPMENT_C],
+    [SHIPMENT_B, SHIPMENT_C, SHIPMENT],
+])
+def test_discovery_keeps_each_window_with_its_fba_and_returns_to_the_exact_seed(tmp_path, tab_ids):
+    windows = {
+        SHIPMENT: "2026年11月8日 - 2026年11月14日",
+        SHIPMENT_B: CURRENT_WINDOW,
+        SHIPMENT_C: TARGET_WINDOW,
+    }
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(shipment, "0/172", windows[shipment]) for shipment in tab_ids]),
+        shipment_ids=tab_ids,
+    )
+    driver.shipment_states = {shipment: {"current_window": window} for shipment, window in windows.items()}
+    plan = dwa.plan_discover({"action": "discover", "store_id": "store-1", "page_url": PAGE_URL,
+                             "shipment_ids": SHIPMENT, "timeout_sec": 1})
+
+    result = dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert result["success"] is True and result["finished"] is True
+    options = result["data"]["operator_options"]
+    assert [item["fba_shipment_id"] for item in options] == tab_ids
+    for index, item in enumerate(options):
+        assert item["selection_number"] == index + 1
+        assert item["current_window"]["raw"] == windows[item["fba_shipment_id"]]
+    target = next(item for item in options if item["fba_shipment_id"] == SHIPMENT)
+    assert target["selection_number"] == tab_ids.index(SHIPMENT) + 1
+    assert driver.state["selected_index"] == tab_ids.index(SHIPMENT)
+    assert dwa.read_current_window_text(driver.page_source)["raw"] == windows[SHIPMENT]
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+    assert all(click[0] != dwa.CALENDAR_SELECTOR for click in driver.clicks)
+
+
+def test_discovery_does_not_report_completion_when_return_to_seed_cannot_be_confirmed(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(
+        hub_cells=_hub_cells([(SHIPMENT, "0/172", CURRENT_WINDOW), (SHIPMENT_B, "0/172", TARGET_WINDOW)]),
+        shipment_ids=[SHIPMENT, SHIPMENT_B],
+    )
+    execute = driver.execute_script
+    def fail_return(script, *args):
+        if "dispatchClick" in script and args[:2] == (dwa.TRACKING_TAB_SELECTOR, 0):
+            driver.state["tab_click_confirms"] = False
+        return execute(script, *args)
+    monkeypatch.setattr(driver, "execute_script", fail_return)
+    plan = dwa.plan_discover({"action": "discover", "store_id": "store-1", "page_url": PAGE_URL,
+                             "shipment_ids": SHIPMENT, "timeout_sec": 1})
+
+    with pytest.raises(dwa._HardFailure) as caught:
+        dwa._run_discovery(driver, plan, output_dir=tmp_path, now=NOW)
+
+    assert caught.value.code == "E2" and SHIPMENT in caught.value.message
+    assert "仍无法确认" in caught.value.message
+    assert driver.state["selected_index"] == 1 and driver.state["applied"] is False
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not list(tmp_path.iterdir())
+
+
 def test_discovery_reads_every_dynamic_tab_and_never_opens_the_editor(tmp_path):
     driver = _ScriptedDriver(
         hub_cells=_hub_cells(
