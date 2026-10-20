@@ -10,8 +10,13 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await js(`(() => { const el=document.querySelector('[name="logistics-${name}"]'); el.value=${JSON.stringify(value)}; el.dispatchEvent(new Event('change',{bubbles:true})); })()`); await settle();
   };
   const nav = async text => { await js(`[...document.querySelectorAll('.desktop-settings-nav-item')].find(el=>el.textContent.includes(${JSON.stringify(text)})).click()`); await settle(); };
-  const create = async (name,account) => {
-    await textClick("添加物流商"); await select("provider","tiantai"); await input("name",name); await input("account",account); await select("store","one=="); await textClick("保存配置");
+  const editProfile = async name => {
+    await js(`(() => { const card=[...document.querySelectorAll('.logistics-card')].find(el=>el.querySelector('h3')?.textContent===${JSON.stringify(name)}); [...card.querySelectorAll('button')].find(el=>el.textContent==='编辑').click(); })()`); await settle();
+  };
+  const create = async (name,account,username,password) => {
+    await textClick("添加物流商"); await select("provider","tiantai"); await input("name",name); await input("account",account);
+    if(username) await input("username",username); if(password) await input("password",password);
+    await select("store","one=="); await textClick("保存配置");
     await waitFor("!document.querySelector('.logistics-editor')", "saved profile closes editor");
   };
   await step("navigation order, empty state and independent save boundary",async()=>{
@@ -27,14 +32,30 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await textClick("取消编辑");
   });
   await step("two Tiantai accounts save separately without closing the settings dialog",async()=>{
-    await create("天泰-新棱镜","深圳市新棱镜贸易有限公司"); await create("天泰-久艺","深圳市久艺电子商务有限公司");
+    await create("天泰-新棱镜","深圳市新棱镜贸易有限公司","login-a@example.test","fixture-password-a"); await create("天泰-久艺","深圳市久艺电子商务有限公司","login-b","fixture-password-b");
     assert.equal(await js("document.querySelectorAll('.logistics-card').length"),2);
     assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
     assert.equal((await js("behavior.state().calls")).filter(c=>/saveSetup|restart/.test(c.operation)).length,0);
     assert.match(await js("document.querySelector('.desktop-settings-nav-item[aria-current=page]').textContent"),/已配置 2 条/);
   });
+  await step("saved passwords stay blank, survive ordinary edits and can be replaced or cleared",async()=>{
+    await editProfile("天泰-新棱镜");
+    assert.equal(await js("document.querySelector('[name=logistics-username]').value"),"login-a@example.test");
+    assert.equal(await js("document.querySelector('[name=logistics-account]').value"),"深圳市新棱镜贸易有限公司");
+    assert.equal(await js("document.querySelector('[name=logistics-password]').value"),"");
+    assert.equal(await js("document.querySelector('[name=logistics-password]').type"),"password");
+    await textClick("保存配置"); await waitFor("!document.querySelector('.logistics-editor')","kept password");
+    assert.equal(await js("behavior.logistics.state().profiles.find(p=>p.display_name==='天泰-新棱镜').password_configured"),true);
+    assert.equal(await js("behavior.logistics.state().profiles.some(p=>Object.hasOwn(p,'password'))"),false);
+    await editProfile("天泰-新棱镜"); await input("username","changed-login");
+    assert.equal(await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent==='保存配置').disabled"),true);
+    await input("password","fixture-replacement"); await textClick("保存配置"); await waitFor("!document.querySelector('.logistics-editor')","replaced credentials");
+    await editProfile("天泰-新棱镜"); await textClick("清除已保存密码"); await textClick("保存配置"); await waitFor("!document.querySelector('.logistics-editor')","cleared password");
+    assert.equal(await js("behavior.logistics.state().profiles.find(p=>p.display_name==='天泰-新棱镜').password_configured"),false);
+    assert.equal(await js("behavior.logistics.state().profiles.find(p=>p.display_name==='天泰-久艺').password_configured"),true);
+  });
   await step("draft guards section switching, cancellation, Escape and modal closing",async()=>{
-    await textClick("编辑"); await input("name","未保存草稿"); await nav("ERP 账号");
+    await editProfile("天泰-新棱镜"); await input("name","未保存草稿"); await nav("ERP 账号");
     await waitFor("document.querySelectorAll('[role=dialog]').length===2","draft dialog");
     await key("Escape"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),"未保存草稿");
     await click(".desktop-close-button"); await textClick("确认",".desktop-confirm-dialog");
@@ -42,7 +63,7 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     const readsBefore=(await js("behavior.logistics.calls()")).filter(c=>c.operation==='read').length;
     await click("#open-logistics"); await waitFor("document.querySelectorAll('.logistics-card').length===2","reload saved data");
     assert.equal((await js("behavior.logistics.calls()")).filter(c=>c.operation==='read').length,readsBefore+1);
-    await textClick("编辑"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),"天泰-新棱镜"); await textClick("取消编辑");
+    await editProfile("天泰-新棱镜"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),"天泰-新棱镜"); await textClick("取消编辑");
   });
   await step("toggle and deletion use independent revisioned actions with confirmation",async()=>{
     await textClick("停用"); await waitFor("document.body.innerText.includes('已停用')","disabled profile"); await textClick("启用");
@@ -69,6 +90,8 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     for(const provider of ['feiwo','yuntuo','jiufang']) {
       await select('provider',provider); assert.equal(await js("Boolean(document.querySelector('[name=logistics-account]'))"),false);
       assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),provider!=='jiufang');
+      assert.equal(await js("Boolean(document.querySelector('[name=logistics-username]'))"),provider!=='jiufang');
+      assert.equal(await js("Boolean(document.querySelector('[name=logistics-password]'))"),provider!=='jiufang');
     }
     await input('name','九方公开'); await js("behavior.logistics.patch({revision:behavior.logistics.state().revision+1})"); await textClick('保存配置');
     await waitFor("document.body.innerText.includes('Revision conflict')","actual conflict"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),'九方公开');
@@ -109,6 +132,7 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
   });
   await step("Chinese and English narrow layouts have no horizontal overflow",async()=>{
     await win.setSize(680,900);
+    await editProfile(await js("behavior.logistics.state().profiles.find(p=>p.provider_id==='tiantai').display_name"));
     for(const language of ['zh','en']) {
       await js(`[...document.querySelectorAll('.desktop-settings-language button')].find(el=>el.textContent===${JSON.stringify(language==='zh'?'中文':'EN')})?.click()`); await settle();
       assert.match(await js("document.querySelector('.logistics-settings h2').textContent"),language==='zh'?/物流商配置/:/Logistics providers/);

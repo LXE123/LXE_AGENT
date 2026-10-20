@@ -44,7 +44,7 @@ for (const suite of ["conversation-content", "conversation-window", "dashboard-p
       expect(line, `Renderer did not report completed scenarios\n${stdout}\n${stderr}`).toBeDefined();
       const report = JSON.parse(line!.slice("LXE_BEHAVIOR_RESULT=".length));
       expect(report.suite).toBe(suite);
-      expect(report.passed).toHaveLength({ "conversation-content": 4, "conversation-window": 3, "dashboard-pages": 9, markdown: 6, "session-workspace": 9, "app-actions": 5, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 6, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8, "logistics-settings": 9 }[suite]);
+      expect(report.passed).toHaveLength({ "conversation-content": 4, "conversation-window": 3, "dashboard-pages": 9, markdown: 6, "session-workspace": 9, "app-actions": 5, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 6, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8, "logistics-settings": 10 }[suite]);
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null) { child.kill(); await child.exited; }

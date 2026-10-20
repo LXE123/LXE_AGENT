@@ -227,7 +227,7 @@ export function validateLogisticsProfileId(value: unknown): string {
   return id;
 }
 export function validateLogisticsProfileInput(value: unknown): import("@lxe/desktop-protocol").DesktopLogisticsProfileInput {
-  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding", "account_name"], ["profile_id"]);
+  const input = logisticsFields(value, ["display_name", "provider_id", "enabled", "store_binding", "account_name"], ["profile_id", "login_username", "password"]);
   const provider = input.provider_id;
   if (typeof provider !== "string" || !["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"].includes(provider)) throw new Error("Unknown logistics provider");
   if (typeof input.enabled !== "boolean") throw new Error("Logistics enabled must be boolean");
@@ -239,10 +239,18 @@ export function validateLogisticsProfileInput(value: unknown): import("@lxe/desk
   let account = null;
   if (["wesa", "tiantai"].includes(provider)) account = logisticsText(input.account_name, "account_name", 2, 200);
   else if (input.account_name !== null) throw new Error("This provider does not use account_name");
+  const username = input.login_username == null ? input.login_username : logisticsText(input.login_username, "login_username", 1, 200);
+  if (input.password !== undefined && input.password !== null
+    && (typeof input.password !== "string" || !input.password.length || [...input.password].length > 1024 || /[\x00-\x1f]/u.test(input.password))) {
+    throw new Error("Invalid logistics password");
+  }
+  if (provider === "jiufang" && (username != null || typeof input.password === "string")) throw new Error("Public HTTP providers must not have login credentials");
   return {
     ...(input.profile_id === undefined ? {} : { profile_id: validateLogisticsProfileId(input.profile_id) }),
     display_name: logisticsText(input.display_name, "display_name", 1, 80),
     provider_id: provider as import("@lxe/desktop-protocol").DesktopLogisticsProviderId,
     enabled: input.enabled, store_binding: binding, account_name: account,
+    ...(username === undefined ? {} : { login_username: username as string | null }),
+    ...(input.password === undefined ? {} : { password: input.password as string | null }),
   };
 }

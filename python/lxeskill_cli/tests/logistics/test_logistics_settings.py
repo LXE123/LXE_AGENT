@@ -23,7 +23,8 @@ def isolated(tmp_path, monkeypatch):
 def profile(provider="tiantai", name="天泰-新棱镜"):
     return {"display_name": name, "provider_id": provider, "enabled": True,
             "store_binding": None if provider == "jiufang" else {"store_id": "VycOXC1cvUBC/rBIOnYXUg==", "store_name": "店铺 A"},
-            "account_name": "深圳市新棱镜贸易有限公司" if provider in ("wesa", "tiantai") else None}
+            "account_name": "深圳市新棱镜贸易有限公司" if provider in ("wesa", "tiantai") else None,
+            "login_username": None, "credential_id": None}
 
 
 def target():
@@ -33,7 +34,7 @@ def target():
 def test_first_read_persists_and_registry_matches_real_adapter_modules():
     state = settings.settings_state()
     assert state["profiles"] == [] and state["revision"] == 0
-    assert json.loads(target().read_text())["schema_version"] == 1
+    assert json.loads(target().read_text())["schema_version"] == 2
     assert {p.provider_id for p in PROVIDERS} == {"wesa", "feiwo", "yuntuo", "tiantai", "jiufang"}
     import importlib
     for spec in PROVIDERS:
@@ -112,7 +113,7 @@ def test_duplicate_names_and_stale_revision_preserve_bytes():
 
 @pytest.mark.parametrize("bad", [
     "{broken", '{"schema_version":1,"schema_version":1,"revision":0,"profiles":[]}',
-    '{"schema_version":2,"revision":0,"profiles":[]}',
+    '{"schema_version":3,"revision":0,"profiles":[]}',
     '{"schema_version":true,"revision":0,"profiles":[]}',
     '{"schema_version":1,"revision":0,"profiles":[],"token":"secret"}',
 ])
@@ -263,3 +264,64 @@ def test_write_limit_cannot_create_an_unreadable_snapshot():
     with pytest.raises(ValueError, match="1 MiB"):
         settings._write(settings.data_directory(), {**saved, "profiles": profiles})
     assert target().read_bytes() == before
+
+
+def test_legacy_profiles_migrate_without_inventing_login_or_rewriting_on_read():
+    saved = settings.save_profile(profile(), 0)
+    legacy = {**saved, "schema_version": 1, "profiles": [
+        {key: value for key, value in saved["profiles"][0].items() if key not in {"login_username", "credential_id"}}
+    ]}
+    target().write_text(json.dumps(legacy))
+    before = target().read_bytes()
+    migrated = settings.read_snapshot()
+    assert target().read_bytes() == before
+    assert migrated["schema_version"] == 2 and migrated["revision"] == 1
+    item = migrated["profiles"][0]
+    assert item["account_name"] == "深圳市新棱镜贸易有限公司"
+    assert item["login_username"] is None and item["credential_id"] is None
+    result = settings.save_profile({key: item[key] for key in settings.INPUT_FIELDS | {"profile_id"}}, 1)
+    assert result["revision"] == 2 and json.loads(target().read_text())["schema_version"] == 2
+
+
+@pytest.mark.parametrize("provider", ["wesa", "feiwo", "yuntuo", "tiantai"])
+def test_login_username_is_independent_of_company_and_password_is_never_accepted(provider):
+    reference = str(uuid4())
+    saved = settings.save_profile({**profile(provider), "login_username": "actual-login-123", "credential_id": reference}, 0)
+    item = saved["profiles"][0]
+    assert item["login_username"] == "actual-login-123" and item["credential_id"] == reference
+    assert item["account_name"] != item["login_username"]
+    assert "password" not in item
+    before = target().read_bytes()
+    with pytest.raises(ValueError, match="Expected only fields"):
+        settings.save_profile({**profile(provider, "other"), "password": "private-password"}, 1)
+    assert target().read_bytes() == before
+
+
+@pytest.mark.parametrize("change", [
+    {"login_username": " padded"}, {"login_username": ""}, {"login_username": "x" * 201},
+    {"credential_id": "not-a-reference"}, {"credential_id": str(uuid4())},
+])
+def test_invalid_login_metadata_preserves_existing_profiles(change):
+    settings.save_profile(profile(), 0)
+    before = target().read_bytes()
+    with pytest.raises(ValueError):
+        settings.save_profile({**profile(name="Other"), **change}, 1)
+    assert target().read_bytes() == before
+
+
+def test_public_credentials_and_shared_credential_references_are_rejected():
+    reference = str(uuid4())
+    with pytest.raises(ValueError, match="must not have login"):
+        settings.save_profile({**profile("jiufang"), "login_username": "user"}, 0)
+    settings.save_profile({**profile(), "login_username": "user", "credential_id": reference}, 0)
+    before = target().read_bytes()
+    with pytest.raises(ValueError, match="Duplicate credential_id"):
+        settings.save_profile({**profile(name="Other"), "login_username": "user", "credential_id": reference}, 1)
+    assert target().read_bytes() == before
+
+
+def test_private_snapshot_does_not_discover_stores(monkeypatch):
+    def failure():
+        raise AssertionError("snapshot must not discover stores")
+    monkeypatch.setattr(settings, "discover_stores", failure)
+    assert settings.settings_state(discover=False)["stores_error"] is None

@@ -18,7 +18,8 @@ from .provider_registry import PROVIDERS, PROVIDER_BY_ID
 
 MAX_REVISION = 9007199254740990
 MAX_PROFILES = 200
-INPUT_FIELDS = {"display_name", "provider_id", "enabled", "store_binding", "account_name"}
+BASE_INPUT_FIELDS = {"display_name", "provider_id", "enabled", "store_binding", "account_name"}
+INPUT_FIELDS = BASE_INPUT_FIELDS | {"login_username", "credential_id"}
 PROFILE_FIELDS = INPUT_FIELDS | {"profile_id", "created_at", "updated_at"}
 
 
@@ -59,7 +60,7 @@ def revision(value: object) -> int:
 
 
 def validate_input(raw: object) -> dict:
-    raw = fields(raw, INPUT_FIELDS, {"profile_id"})
+    raw = fields(raw, BASE_INPUT_FIELDS, {"profile_id", "login_username", "credential_id"})
     result = {"display_name": text(raw["display_name"], "display_name", 1, 80)}
     provider = raw["provider_id"]
     if not isinstance(provider, str) or provider not in PROVIDER_BY_ID:
@@ -80,6 +81,16 @@ def validate_input(raw: object) -> dict:
     elif account is not None:
         raise ValueError("This provider does not use account_name")
     result.update(provider_id=provider, enabled=raw["enabled"], store_binding=binding, account_name=account)
+    username, credential = raw.get("login_username"), raw.get("credential_id")
+    if not spec.requires_store and (username is not None or credential is not None):
+        raise ValueError("Public HTTP providers must not have login credentials")
+    if username is not None:
+        username = text(username, "login_username", 1, 200)
+    if credential is not None:
+        credential = profile_id(credential)
+        if username is None:
+            raise ValueError("credential_id requires login_username")
+    result.update(login_username=username, credential_id=credential)
     if "profile_id" in raw:
         result["profile_id"] = profile_id(raw["profile_id"])
     return result
@@ -94,16 +105,18 @@ def timestamp(value: object) -> str:
 
 def validate_snapshot(raw: object) -> dict:
     raw = fields(raw, {"schema_version", "revision", "profiles"})
-    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+    if type(raw["schema_version"]) is not int or raw["schema_version"] not in (1, 2):
         raise ValueError("Unsupported logistics settings schema_version")
     revision(raw["revision"])
     profiles = raw["profiles"]
     if not isinstance(profiles, list) or len(profiles) > MAX_PROFILES:
         raise ValueError(f"profiles must be a list of at most {MAX_PROFILES} entries")
-    ids, names = set(), set()
+    ids, names, credentials = set(), set(), set()
+    normalized = []
     for item in profiles:
-        fields(item, PROFILE_FIELDS)
-        validate_input({key: item[key] for key in INPUT_FIELDS | {"profile_id"}})
+        expected_fields = PROFILE_FIELDS if raw["schema_version"] == 2 else BASE_INPUT_FIELDS | {"profile_id", "created_at", "updated_at"}
+        fields(item, expected_fields)
+        clean = validate_input({key: item[key] for key in expected_fields - {"created_at", "updated_at"}})
         timestamp(item["created_at"])
         timestamp(item["updated_at"])
         if datetime.fromisoformat(item["updated_at"].replace("Z", "+00:00")) < datetime.fromisoformat(item["created_at"].replace("Z", "+00:00")):
@@ -113,11 +126,17 @@ def validate_snapshot(raw: object) -> dict:
             raise ValueError("Duplicate profile_id or display_name")
         ids.add(identifier)
         names.add(name)
-    return raw
+        credential = clean["credential_id"]
+        if credential is not None:
+            if credential in credentials:
+                raise ValueError("Duplicate credential_id")
+            credentials.add(credential)
+        normalized.append({**clean, "created_at": item["created_at"], "updated_at": item["updated_at"]})
+    return {**raw, "schema_version": 2, "profiles": normalized}
 
 
 def _write(root: Path, snapshot: dict) -> None:
-    validate_snapshot(snapshot)
+    snapshot = validate_snapshot(snapshot)
     serialized = json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     if len(serialized.encode("utf-8")) > 1024 * 1024:
         raise ValueError("Logistics settings exceed 1 MiB")
@@ -135,7 +154,7 @@ def _write(root: Path, snapshot: dict) -> None:
 def _read(root: Path) -> dict:
     path = root / "profiles.json"
     if not path.exists():
-        snapshot = {"schema_version": 1, "revision": 0, "profiles": []}
+        snapshot = {"schema_version": 2, "revision": 0, "profiles": []}
         _write(root, snapshot)
         return snapshot
     if path.stat().st_size > 1024 * 1024:
@@ -186,7 +205,7 @@ def _mutate(item: dict | None, delete_id: str | None, expected_revision: int) ->
             now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             profiles.append({**item, "profile_id": identifier or str(uuid4()),
                              "created_at": existing["created_at"] if existing else now, "updated_at": now})
-        result = {"schema_version": 1, "revision": snapshot["revision"] + 1, "profiles": profiles}
+        result = {"schema_version": 2, "revision": snapshot["revision"] + 1, "profiles": profiles}
         _write(root, result)
         return result
 
@@ -229,11 +248,12 @@ def discover_stores() -> list[dict]:
     return result
 
 
-def settings_state(snapshot: dict | None = None) -> dict:
+def settings_state(snapshot: dict | None = None, *, discover: bool = True) -> dict:
     snapshot = read_snapshot() if snapshot is None else snapshot
     stores, stores_error = [], None
     try:
-        stores = discover_stores()
+        if discover:
+            stores = discover_stores()
     except Exception as exc:
         stores_error = diagnostic(exc)
     providers = [{key: value for key, value in asdict(spec).items() if key != "command"} for spec in PROVIDERS]
@@ -245,6 +265,8 @@ def main() -> int:
         action, *args = sys.argv[1:]
         if action in ("read", "refresh") and not args:
             result = settings_state()
+        elif action == "snapshot" and not args:
+            result = settings_state(discover=False)
         elif action in ("save", "delete") and len(args) == 1:
             request = json.loads(args[0])
             if action == "save":

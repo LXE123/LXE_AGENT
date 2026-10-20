@@ -13,6 +13,7 @@ export function logisticsBindingStatus(profile: DesktopLogisticsProfileInput, st
   return store.running ? "ready" : "stopped";
 }
 export function logisticsProfileInput(profile: DesktopLogisticsProfile): DesktopLogisticsProfileInput {
-  const { created_at: _created, updated_at: _updated, ...input } = profile;
-  return input;
+  return { profile_id: profile.profile_id, display_name: profile.display_name, provider_id: profile.provider_id,
+    enabled: profile.enabled, store_binding: profile.store_binding, account_name: profile.account_name,
+    login_username: profile.login_username };
 }

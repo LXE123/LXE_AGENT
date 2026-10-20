@@ -7,7 +7,7 @@ const providers: DesktopLogisticsSettingsState["providers"] = ["wesa", "feiwo", 
   provider_id: id as DesktopLogisticsProfileInput["provider_id"], label: ({wesa:"威飒",feiwo:"飞沃",yuntuo:"云驼",tiantai:"天泰供应链",jiufang:"九方"})[id]!,
   transport: id === "jiufang" ? "public_http" : "ziniao_browser", requires_store: id !== "jiufang", requires_account_name: ["wesa", "tiantai"].includes(id),
 }));
-let state: DesktopLogisticsSettingsState = { schema_version: 1, revision: 0, profiles: [], providers,
+let state: DesktopLogisticsSettingsState = { schema_version: 2, revision: 0, profiles: [], providers,
   stores: [{store_id:"one==",store_name:"Amazon 店铺一 深圳市公司 A",running:true}, {store_id:"two==",store_name:"Amazon 店铺二 深圳市公司 B",running:false}], stores_error:null };
 let readFailure = false;
 let holdSave = false;
@@ -28,7 +28,10 @@ export const logisticsDesktop = {
     if(revision !== state.revision) throw new Error("Revision conflict: reload logistics settings before saving");
     const old = state.profiles.find(p=>p.profile_id===input.profile_id);
     const now = new Date().toISOString();
-    state.profiles = [...state.profiles.filter(p=>p.profile_id!==input.profile_id), {...input,profile_id:input.profile_id??crypto.randomUUID(),created_at:old?.created_at??now,updated_at:now}];
+    const { password, ...publicInput } = input;
+    state.profiles = [...state.profiles.filter(p=>p.profile_id!==input.profile_id), {...publicInput,
+      login_username:input.login_username??null, password_configured:typeof password==="string"?true:password===null?false:old?.password_configured??false,
+      profile_id:input.profile_id??crypto.randomUUID(),created_at:old?.created_at??now,updated_at:now}];
     state.revision++;
     return structuredClone(state);
   },

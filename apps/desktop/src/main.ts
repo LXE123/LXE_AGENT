@@ -437,7 +437,7 @@ async function bootstrap(): Promise<void> {
   });
   const logisticsSettings = new DesktopLogisticsSettingsService({
     platform: process.platform, pythonPath: paths.managedPythonPath,
-    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(),
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(), safeStorage,
   });
   const vietnamSettings = new DesktopVietnamSettingsService({
     platform: process.platform, pythonPath: paths.managedPythonPath,
