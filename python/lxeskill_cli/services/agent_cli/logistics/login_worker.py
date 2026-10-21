@@ -29,11 +29,12 @@ FORM_SCRIPT = r"""
 const visible = el => Boolean(el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
 const passwords = [...document.querySelectorAll('input[type="password"]')].filter(visible);
 const text = document.body ? document.body.innerText : '';
+const markerText = text.replace(/\u00a0/g, ' ');
 const provider = arguments[0];
 const companies = [...new Set((text.match(/[^\s，,。;；<>]{2,80}(?:有限责任公司|有限公司)/g) || []))].slice(0, 10);
 const yuntuoQuery = provider === 'yuntuo' && !passwords.length && location.pathname === '/customer/trackquery/';
 const yuntuoHome = provider === 'yuntuo' && !passwords.length && location.pathname === '/home' &&
-  ['快速下单', '批量下单', '财务结算', 'SYSTEM SETTING'].every(marker => text.includes(marker));
+  ['快速下单', '批量下单', '财务结算', 'SYSTEM SETTING'].every(marker => markerText.includes(marker));
 const result = {password_count: passwords.length, company_names: companies,
   authenticated: provider === 'yuntuo' ? yuntuoQuery || yuntuoHome
     : !passwords.length && location.pathname.startsWith('/tms/wos/') && text.includes('发货') &&

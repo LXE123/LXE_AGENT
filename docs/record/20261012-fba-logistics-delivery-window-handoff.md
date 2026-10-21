@@ -1252,6 +1252,8 @@ lxeskill logistics query --profile-id <同一配置UUID> --store-id <同一环�
 
 现将 `/home` 加上述四个稳定可见标记作为云驼已登录工作台证据；识别后使用已有 `target_path`，在同一标签页导航到 `/customer/trackquery/`，再以固定路径和密码框消失确认查询就绪。其他无证据的同源落点仍保留 URL 后停止。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
 
+第三次只读探针进一步确认工作台原文是 `SYSTEM`、U+00A0、`SETTING`，而门禁常量使用普通空格；其他三个标记均命中，因此旧比较使整个 `every()` 为 false。现只将页面文本中的 U+00A0 归一化为普通空格后执行原四标记精确包含检查，不改路径、不减少标记，也不扩大为任意 Unicode 空白。回归同时覆盖真实 NBSP 命中及缺少 SYSTEM SETTING 时仍拒绝。
+
 本地定向验证覆盖云驼真实 div 控件源码、HTTPS/端口、`/home` 工作台标记、固定查询路径、单次凭据提交、已有登录态复用、未核实落点停止、Desktop 私有 stdin 和统一 query 先登录后查询。凭据提交和 `/home` 已由用户实页证据确认；自动导航后的查询页及随后统一查询仍待复验。重启加载本分支的 Desktop 后，先执行：
 
 ```text

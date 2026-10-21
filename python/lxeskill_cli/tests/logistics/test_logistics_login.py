@@ -300,7 +300,15 @@ def test_actual_form_probe_recognizes_yuntuo_source_layout_and_only_the_fixed_qu
     script = r"""
 const input = await Bun.stdin.json();
 const output = [];
-for (const path of ['/viplogin', '/home', '/customer/trackquery/', '/customer/unknown/']) {
+const scenarios = [
+  {path: '/viplogin'},
+  {path: '/home', text: '快速下单 批量下单 order manage 财务结算 SYSTEM\u00a0SETTING 待办事项'},
+  {path: '/home', text: '快速下单 批量下单 order manage 财务结算 待办事项'},
+  {path: '/customer/trackquery/'},
+  {path: '/customer/unknown/'},
+];
+for (const scenario of scenarios) {
+  const path = scenario.path;
   const make = (type, placeholder = '', text = '') => ({type, placeholder, innerText: text,
     name: '', id: '', autocomplete: 'off', labels: [], disabled: false, getClientRects: () => [1],
     getAttribute: () => null, get value() { throw new Error('input value must never be read'); }});
@@ -312,9 +320,7 @@ for (const path of ['/viplogin', '/home', '/customer/trackquery/', '/customer/un
   password.closest = () => null;
   globalThis.getComputedStyle = () => ({visibility: 'visible'});
   globalThis.location = {pathname: path};
-  const pageText = path === '/home'
-    ? '快速下单 批量下单 order manage 财务结算 SYSTEM SETTING 待办事项'
-    : '欢迎登录愿景征途订单平台';
+  const pageText = scenario.text || '欢迎登录愿景征途订单平台';
   globalThis.document = {body: {innerText: pageText}, querySelectorAll: q => {
     if (q === 'input[type="password"]') return path === '/viplogin' ? [password] : [];
     if (q === 'input') return [user, password];
@@ -331,13 +337,14 @@ process.stdout.write(JSON.stringify(output));
     process = subprocess.run([bun, "-e", script], input=json.dumps({"script": worker.FORM_SCRIPT}),
         capture_output=True, text=True, timeout=15, check=False)
     assert process.returncode == 0, process.stderr
-    login, home, query_page, other = json.loads(process.stdout)
+    login, home, incomplete_home, query_page, other = json.loads(process.stdout)
     assert login["user_count"] == login["password_count"] == login["submit_count"] == 1
     assert login["form_present"] is False
     assert login["vendor_layout"] == "yuntuo_div_controls" and login["controls_grouped"] is True
     assert not login["authenticated"]
     assert home["authenticated"] is True and home["authenticated_route"] == "home"
     assert home["query_ready"] is False
+    assert incomplete_home["authenticated"] is False and incomplete_home["authenticated_route"] is None
     assert query_page["authenticated"] is True
     assert query_page["authenticated_route"] == "query" and query_page["query_ready"] is True
     assert other["authenticated"] is False
