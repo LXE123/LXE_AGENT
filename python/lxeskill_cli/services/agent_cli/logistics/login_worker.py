@@ -31,11 +31,17 @@ const passwords = [...document.querySelectorAll('input[type="password"]')].filte
 const text = document.body ? document.body.innerText : '';
 const provider = arguments[0];
 const companies = [...new Set((text.match(/[^\s，,。;；<>]{2,80}(?:有限责任公司|有限公司)/g) || []))].slice(0, 10);
+const yuntuoQuery = provider === 'yuntuo' && !passwords.length && location.pathname === '/customer/trackquery/';
+const yuntuoHome = provider === 'yuntuo' && !passwords.length && location.pathname === '/home' &&
+  ['快速下单', '批量下单', '财务结算', 'SYSTEM SETTING'].every(marker => text.includes(marker));
 const result = {password_count: passwords.length, company_names: companies,
-  authenticated: !passwords.length && (provider === 'yuntuo'
-    ? location.pathname === '/customer/trackquery/'
-    : location.pathname.startsWith('/tms/wos/') && text.includes('发货') &&
-      text.includes('财务') && text.includes('总控平台'))};
+  authenticated: provider === 'yuntuo' ? yuntuoQuery || yuntuoHome
+    : !passwords.length && location.pathname.startsWith('/tms/wos/') && text.includes('发货') &&
+      text.includes('财务') && text.includes('总控平台')};
+if (provider === 'yuntuo') {
+  result.query_ready = yuntuoQuery;
+  result.authenticated_route = yuntuoQuery ? 'query' : yuntuoHome ? 'home' : null;
+}
 if (passwords.length !== 1) return result;
 const password = passwords[0];
 const form = password.closest('form');
@@ -97,7 +103,7 @@ def _probe(driver, origin: str, provider: str) -> dict:
 def _evidence(probe: dict) -> dict:
     result = {key: probe[key] for key in ("form_present", "user_count", "submit_count",
               "challenge_count", "authenticated", "company_names", "errors", "vendor_layout",
-              "controls_grouped") if key in probe}
+              "controls_grouped", "query_ready", "authenticated_route") if key in probe}
     if "password_count" in probe:
         result["protected_field_count"] = probe["password_count"]
     return result
@@ -118,6 +124,23 @@ def _validate_form(probe: dict, origin: str, page_url: str, provider: str) -> No
     for action in (probe.get("form_action"), probe.get("submit_action")):
         if action is not None and _origin(urljoin(page_url, action)) != origin:
             raise ValueError("Login form action has an unexpected origin: " + safe_url(urljoin(page_url, action)))
+
+
+def _open_yuntuo_query(driver, origin: str, provider: str, target_path: str) -> dict:
+    driver.get(origin + target_path)
+    last: dict = {}
+
+    def ready(_):
+        nonlocal last
+        last = _probe(driver, origin, provider)
+        return (last.get("query_ready") is True or bool(last.get("errors"))
+                or bool(last.get("challenge_count")) or last.get("password_count", 0) > 0)
+
+    WebDriverWait(driver, 20, poll_frequency=0.5).until(ready)
+    if last.get("query_ready") is not True:
+        raise ValueError("Authenticated Yuntuo session did not reach the fixed query page: "
+                         + diagnostic(_evidence(last)))
+    return last
 
 
 def run_private(request: dict) -> dict:
@@ -154,6 +177,12 @@ def run_private(request: dict) -> dict:
             initial = _probe(driver, origin, provider)
             result["form_evidence"] = _evidence(initial)
             if initial.get("authenticated") is True:
+                if provider == "yuntuo" and initial.get("query_ready") is not True:
+                    try:
+                        initial = _open_yuntuo_query(driver, origin, provider, spec["target_path"])
+                    finally:
+                        result["form_evidence"] = _evidence(initial)
+                        result["page_url"] = safe_url(driver.current_url)
                 result.update(success=True, authenticated=True, status="already_authenticated",
                     warnings=["Existing browser login reused; configured login identity was not verified. Confirm the live company before querying."])
             else:
@@ -189,10 +218,12 @@ def run_private(request: dict) -> dict:
 
                 try:
                     WebDriverWait(driver, 20, poll_frequency=0.5).until(finished)
+                    if provider == "yuntuo" and last.get("authenticated") is True and last.get("query_ready") is not True:
+                        last = _open_yuntuo_query(driver, origin, provider, spec["target_path"])
                 finally:
                     result["form_evidence"] = _evidence(last)
                     result["page_url"] = safe_url(driver.current_url)
-                if last.get("authenticated") is not True:
+                if last.get("authenticated") is not True or (provider == "yuntuo" and last.get("query_ready") is not True):
                     raise ValueError("Login did not reach the authenticated console: " + diagnostic(_evidence(last)))
                 result.update(success=True, authenticated=True, configured_login_submitted=True, status="authenticated",
                     warnings=["Configured credentials were submitted and the authenticated console was observed; confirm the live company before querying."])

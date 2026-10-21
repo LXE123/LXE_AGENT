@@ -1248,9 +1248,11 @@ lxeskill logistics query --profile-id <同一配置UUID> --store-id <同一环�
 
 现已将云驼加入 Desktop 私有登录通道及统一查询 auto 路由。首次实页运行在提交前停止：密码框数量为 1，但 `form_present=false`，证明旧执行器的原生 `<form>` 假设与页面不符，`login_attempted=false`，不代表密码或登录接口失败。用户随后提供真实登录区源码：Element UI 使用 div 布局，账号框为 `placeholder=LOGIN_ACCOUNT`，密码框为 `placeholder=PASSWORD`，登录按钮为 `type=button` 且文本 `LOGIN_LOGIN`，三者没有 `id/name` 或原生 form。
 
-执行器现按上述真实源码识别三个唯一、可见、启用且同组的控件，使用固定 `vip.yjtms.com`、HTTPS 11000 origin，只在 `/viplogin` 提交一次配置凭据；不依赖临时 `data-aid` 或 CSS 哈希属性。验证码、歧义、跨源、未知同源页面均停止。提交后只在实际到达 `/customer/trackquery/` 且密码框消失时判定成功；其他同源落点保留 URL 和实际证据后停止，不自行导航，等待补充真实落点。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
+执行器现按上述真实源码识别三个唯一、可见、启用且同组的控件，使用固定 `vip.yjtms.com`、HTTPS 11000 origin，只在 `/viplogin` 提交一次配置凭据；不依赖临时 `data-aid` 或 CSS 哈希属性。验证码、歧义、跨源、未知同源页面均停止。用户第二次实页回传确认凭据实际已提交成功，平台落到 `https://vip.yjtms.com:11000/home`，标题“愿景征途物流平台”，可见“快速下单 / 批量下单 / order manage / 财务结算 / SYSTEM SETTING / 待办事项”。此前代码只认 `/customer/trackquery/`，并由 `yuntuo_unverified_landing` 提前退出，因而把已登录工作台误报为失败；`company_names=[]` 只是工作台没有可见公司全名，与登录成功无关。
 
-本地定向验证覆盖云驼真实 div 控件源码、HTTPS/端口、固定登录及查询路径、单次凭据提交、未核实落点停止、未知页面停止、Desktop 私有 stdin 和统一 query 先登录后查询。真实凭据提交与云驼成功页尚未复验；重启加载本分支的 Desktop 后，先执行：
+现将 `/home` 加上述四个稳定可见标记作为云驼已登录工作台证据；识别后使用已有 `target_path`，在同一标签页导航到 `/customer/trackquery/`，再以固定路径和密码框消失确认查询就绪。其他无证据的同源落点仍保留 URL 后停止。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
+
+本地定向验证覆盖云驼真实 div 控件源码、HTTPS/端口、`/home` 工作台标记、固定查询路径、单次凭据提交、已有登录态复用、未核实落点停止、Desktop 私有 stdin 和统一 query 先登录后查询。凭据提交和 `/home` 已由用户实页证据确认；自动导航后的查询页及随后统一查询仍待复验。重启加载本分支的 Desktop 后，先执行：
 
 ```text
 lxeskill logistics login --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --store-id 'aAxaFV0HptbSXkiuLiTFGQ=='

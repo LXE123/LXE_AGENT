@@ -91,7 +91,8 @@ def test_existing_console_is_reused_without_claiming_configured_identity(monkeyp
 
 def test_yuntuo_submits_verified_form_and_reaches_query_page(monkeypatch):
     initial = yuntuo_layout()
-    final = {"authenticated": True, "password_count": 0, "company_names": []}
+    final = {"authenticated": True, "query_ready": True, "authenticated_route": "query",
+        "password_count": 0, "company_names": []}
     driver, calls = fake_driver(monkeypatch, [initial, initial, final], origin=YUNTUO_ORIGIN, page_path="/viplogin")
     initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/trackquery/")
     result = worker.run_private(YUNTUO_REQUEST)
@@ -103,15 +104,43 @@ def test_yuntuo_submits_verified_form_and_reaches_query_page(monkeypatch):
     initial["submit"].click.assert_called_once()
 
 
-def test_yuntuo_unverified_landing_is_reported_without_navigation(monkeypatch):
+def test_yuntuo_authenticated_home_opens_and_verifies_fixed_query_page(monkeypatch):
     initial = yuntuo_layout()
-    landed = {"authenticated": False, "password_count": 0, "company_names": []}
+    landed = {"authenticated": True, "query_ready": False, "authenticated_route": "home",
+        "password_count": 0, "company_names": []}
+    query_page = {"authenticated": True, "query_ready": True, "authenticated_route": "query",
+        "password_count": 0, "company_names": []}
+    driver, calls = fake_driver(monkeypatch, [initial, initial, landed, query_page], origin=YUNTUO_ORIGIN, page_path="/viplogin")
+    initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/home")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert result["success"] and result["configured_login_submitted"] and result["login_attempted"]
+    assert ("get", YUNTUO_ORIGIN + "/customer/trackquery/") in calls
+    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/trackquery/"
+    assert result["form_evidence"]["query_ready"] is True
+
+
+def test_yuntuo_existing_authenticated_home_is_reused_then_opens_query_page(monkeypatch):
+    home = {"authenticated": True, "query_ready": False, "authenticated_route": "home",
+        "password_count": 0, "company_names": []}
+    query_page = {"authenticated": True, "query_ready": True, "authenticated_route": "query",
+        "password_count": 0, "company_names": []}
+    _, calls = fake_driver(monkeypatch, [home, query_page], origin=YUNTUO_ORIGIN, page_path="/home")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert result["success"] and result["status"] == "already_authenticated"
+    assert not result["login_attempted"] and "configured_login_submitted" not in result
+    assert ("get", YUNTUO_ORIGIN + "/customer/trackquery/") in calls
+
+
+def test_yuntuo_unverified_post_login_route_is_reported_without_navigation(monkeypatch):
+    initial = yuntuo_layout()
+    landed = {"authenticated": False, "query_ready": False, "authenticated_route": None,
+        "password_count": 0, "company_names": []}
     driver, calls = fake_driver(monkeypatch, [initial, initial, landed], origin=YUNTUO_ORIGIN, page_path="/viplogin")
-    initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/home/")
+    initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/unknown/")
     result = worker.run_private(YUNTUO_REQUEST)
     assert not result["success"] and result["login_attempted"]
     assert not any(call[0] == "get" for call in calls if isinstance(call, tuple))
-    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/home/"
+    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/unknown/"
 
 
 def test_yuntuo_unknown_same_origin_page_stops_before_typing(monkeypatch):
@@ -271,7 +300,7 @@ def test_actual_form_probe_recognizes_yuntuo_source_layout_and_only_the_fixed_qu
     script = r"""
 const input = await Bun.stdin.json();
 const output = [];
-for (const path of ['/viplogin', '/customer/trackquery/', '/customer/home/']) {
+for (const path of ['/viplogin', '/home', '/customer/trackquery/', '/customer/unknown/']) {
   const make = (type, placeholder = '', text = '') => ({type, placeholder, innerText: text,
     name: '', id: '', autocomplete: 'off', labels: [], disabled: false, getClientRects: () => [1],
     getAttribute: () => null, get value() { throw new Error('input value must never be read'); }});
@@ -283,7 +312,10 @@ for (const path of ['/viplogin', '/customer/trackquery/', '/customer/home/']) {
   password.closest = () => null;
   globalThis.getComputedStyle = () => ({visibility: 'visible'});
   globalThis.location = {pathname: path};
-  globalThis.document = {body: {innerText: '欢迎登录愿景征途订单平台'}, querySelectorAll: q => {
+  const pageText = path === '/home'
+    ? '快速下单 批量下单 order manage 财务结算 SYSTEM SETTING 待办事项'
+    : '欢迎登录愿景征途订单平台';
+  globalThis.document = {body: {innerText: pageText}, querySelectorAll: q => {
     if (q === 'input[type="password"]') return path === '/viplogin' ? [password] : [];
     if (q === 'input') return [user, password];
     if (q === 'iframe') return [];
@@ -299,10 +331,13 @@ process.stdout.write(JSON.stringify(output));
     process = subprocess.run([bun, "-e", script], input=json.dumps({"script": worker.FORM_SCRIPT}),
         capture_output=True, text=True, timeout=15, check=False)
     assert process.returncode == 0, process.stderr
-    login, query_page, other = json.loads(process.stdout)
+    login, home, query_page, other = json.loads(process.stdout)
     assert login["user_count"] == login["password_count"] == login["submit_count"] == 1
     assert login["form_present"] is False
     assert login["vendor_layout"] == "yuntuo_div_controls" and login["controls_grouped"] is True
     assert not login["authenticated"]
+    assert home["authenticated"] is True and home["authenticated_route"] == "home"
+    assert home["query_ready"] is False
     assert query_page["authenticated"] is True
+    assert query_page["authenticated_route"] == "query" and query_page["query_ready"] is True
     assert other["authenticated"] is False
