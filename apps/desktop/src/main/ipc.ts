@@ -1,3 +1,4 @@
+import { parseTeamCatalogSettings } from "./team-catalog-sync";
 import { validateTitlebarMenu } from "./titlebar-menu";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
@@ -58,6 +59,7 @@ export interface DesktopIpcApplication {
   dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>>;
   getHealth(): DesktopHealth;
   restartAgent(): Promise<DesktopHealth>;
+  teamCatalog: import("@lxe/desktop-protocol").TeamCatalogBridge;
   getSetupState(): DesktopSetupState;
   getUsageBalance(): Promise<import("@lxe/desktop-protocol").DesktopUsageBalance>;
   saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
@@ -110,6 +112,12 @@ const stringArray = (value: unknown, label: string): string[] => {
 };
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
+  const trustedCatalogSender = (event: Electron.IpcMainInvokeEvent) => {
+    if (!application.isTrustedFileSender(event)) throw new Error("Team directory sync is only available to the desktop main frame");
+  };
+  ipcMain.handle(IPC_CHANNELS.teamCatalogState, event => { trustedCatalogSender(event); return application.teamCatalog.state(); });
+  ipcMain.handle(IPC_CHANNELS.teamCatalogSave, (event, input) => { trustedCatalogSender(event); return application.teamCatalog.save(parseTeamCatalogSettings(input)); });
+  ipcMain.handle(IPC_CHANNELS.teamCatalogSync, event => { trustedCatalogSender(event); return application.teamCatalog.sync(); });
   const workspaceApps = new WorkspaceApplications({ openPath: path => shell.openPath(path), icon: path => process.platform === "darwin" ? bundleIconDataUrl(path) : app.getFileIcon(path, { size: "normal" }).then(image => image.toDataURL()) });
   const trustedWorkspaceSender = (event: Electron.IpcMainInvokeEvent) => { if (!application.isTrustedFileSender(event)) throw new Error("Workspace applications are only available to the desktop main frame"); };
   ipcMain.handle(IPC_CHANNELS.fileCall, (event, call) => fileResult(typeof call?.operation === "string" ? call.operation : "call", () => {

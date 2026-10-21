@@ -6,6 +6,7 @@
 
 - [PR 审查规范](pr-review.md)：团队协作流程、AI 技术检查与人工审核要求；[开发脚本](../scripts/README.md)介绍 worktree 的领取和归还。
 - [Desktop 技术手册](desktop/README.md)：桌面交互、进程边界、配置和开发入口。
+- [团队技能目录同步](desktop/team-skill-catalog.md)：单台 LXE 手动发布到妙搭，公司成员只读浏览。
 - [构建、打包、安装与启动](desktop/packaging-pipeline.md)：源码验证、Windows 分发和安装验收。
 - [桌面对话窗口](harness/conversation-window.md)、[会话状态](desktop/session-status.md)、[结构化提问](harness/tool/ask-user-question.md)：聊天、附件、等待回答和停止任务。
 - [客户端身份与后台登录](record/20260910-client-identity-v1.md)、[Mac WireGuard 服务](harness/desktop/macos-wireguard-service.md)：设备接入与身份边界。
