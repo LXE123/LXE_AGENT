@@ -39,6 +39,19 @@ test.each(providers)("editor follows provider field requirements: $provider_id",
   expect(html.includes('name="logistics-username"')).toBe(spec.requires_store);
   expect(html.includes('name="logistics-password"')).toBe(spec.requires_store);
   expect(html).not.toContain("<form");
+  expect(html).toContain('class="logistics-editor" role="dialog" aria-modal="true"');
+  expect(html).toContain(UI_TEXT.zh.desktop.logistics.editTitle);
+});
+
+test.each(["zh", "en"] as const)("add dialog has a localized title, busy controls and its actual error (%s)", language => {
+  const input = { display_name: "New account", provider_id: "wesa" as const, enabled: true, login_username: null };
+  const html = render(controller({ busy: true, draft: { input, revision: 1, original: "" }, error: "fixture save failed" }), language);
+  expect(html).toContain('aria-busy="true"');
+  expect(html).toContain(UI_TEXT[language].desktop.logistics.add);
+  const dialog = html.slice(html.indexOf('class="logistics-editor"'));
+  expect(dialog).toContain("fixture save failed");
+  expect(dialog).toContain('<fieldset class="logistics-editor-fields" disabled="">');
+  expect(dialog.match(/<footer[\s\S]*?<\/footer>/)?.[0].match(/<button[^>]*>/g)?.every(button => button.includes('disabled=""'))).toBe(true);
 });
 
 test("legacy company metadata is absent from the UI and saved passwords never populate the editor", () => {

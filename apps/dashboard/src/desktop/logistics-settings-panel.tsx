@@ -1,4 +1,6 @@
-import { useState, type RefObject } from "react";
+import { useId, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import type { DesktopLogisticsProfile, DesktopLogisticsProfileInput } from "@lxe/desktop-protocol";
 import { useUiText } from "../shared/i18n";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
@@ -6,12 +8,33 @@ import { logisticsProfileInput } from "./logistics-settings-model";
 import type { LogisticsSettingsController } from "./use-logistics-settings";
 import "./logistics-settings.css";
 
+function LogisticsOverlay({ children }: { children: ReactNode }) {
+  return typeof document === "undefined" ? children : createPortal(children, document.body);
+}
+
+function LogisticsEditorDialog({ title, busy, onClose, children }: {
+  title: string; busy: boolean; onClose: () => void; children: ReactNode;
+}) {
+  const t = useUiText().desktop.logistics;
+  const titleId = useId();
+  const ref = useDialogFocus<HTMLElement>(true, onClose);
+  return <LogisticsOverlay><div className="modal-backdrop logistics-editor-backdrop desktop-settings-theme" onMouseDown={event => {
+    event.stopPropagation();
+    if (event.target === event.currentTarget) { event.preventDefault(); onClose(); }
+  }}>
+    <section className="logistics-editor" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={busy} tabIndex={-1} ref={ref}>
+      <header><h2 id={titleId}>{title}</h2><button type="button" className="logistics-editor-close" aria-label={t.cancel} disabled={busy} onClick={onClose}><X size={18} aria-hidden="true" /></button></header>
+      {children}
+    </section>
+  </div></LogisticsOverlay>;
+}
+
 export function LogisticsConfirmation({ title, description, onCancel, onConfirm }: {
   title: string; description: string; onCancel: () => void; onConfirm: () => void;
 }) {
   const t = useUiText();
   const ref = useDialogFocus<HTMLElement>(true, onCancel);
-  return <div className="modal-backdrop desktop-confirm-backdrop desktop-settings-theme" onMouseDown={event => {
+  return <LogisticsOverlay><div className="modal-backdrop desktop-confirm-backdrop logistics-confirm-backdrop desktop-settings-theme" onMouseDown={event => {
     event.stopPropagation();
     if (event.target === event.currentTarget) onCancel();
   }}>
@@ -22,7 +45,7 @@ export function LogisticsConfirmation({ title, description, onCancel, onConfirm 
         <button type="button" className="desktop-primary-button desktop-danger-button" onClick={onConfirm}>{t.desktop.logistics.confirm}</button>
       </footer>
     </section>
-  </div>;
+  </div></LogisticsOverlay>;
 }
 
 export function LogisticsSettingsPanel({ controller: c, headingRef }: {
@@ -41,6 +64,11 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
   const savedPassword = savedProfile?.provider_id === input?.provider_id && savedProfile?.password_configured;
   const changedLogin = savedPassword && input?.password === undefined && input?.login_username !== savedProfile?.login_username;
   const change = (value: Partial<DesktopLogisticsProfileInput>) => { if (input) c.change({ ...input, ...value }); };
+  const closeEditor = () => {
+    if (c.busy || replacing) return;
+    if (c.dirty) setReplacing({ input: null }); else c.discard();
+  };
+  const error = c.error ? <div className="desktop-form-error" role="alert"><p>{c.error}</p><button type="button" disabled={c.busy} onClick={c.reload}>{t.retry}</button></div> : null;
   return <section className="desktop-settings-section logistics-settings">
     <h2 tabIndex={-1} ref={headingRef}>{t.title}</h2>
     <p>{t.description}</p>
@@ -48,7 +76,7 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
       <button type="button" disabled={c.busy || !state} onClick={() => begin({ display_name: "", provider_id: "wesa", enabled: true, login_username: null })}>{t.add}</button>
       <button type="button" disabled={c.busy} onClick={c.reload}>{c.busy ? t.loading : t.refresh}</button>
     </div>
-    {c.error ? <div className="desktop-form-error" role="alert"><p>{c.error}</p><button type="button" disabled={c.busy} onClick={c.reload}>{t.retry}</button></div> : null}
+    {!input ? error : null}
     {!state && c.busy ? <p role="status">{t.loading}</p> : null}
     {state && !state.profiles.length ? <p>{t.empty}</p> : null}
     {state ? <div className="logistics-list">
@@ -70,14 +98,11 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
         </article>;
       })}
     </div> : null}
-    {input && state ? <fieldset className="logistics-editor" disabled={c.busy}>
-      <legend>{input.profile_id ? t.edit : t.add}</legend>
+    {input && state ? <LogisticsEditorDialog title={input.profile_id ? t.editTitle : t.add} busy={c.busy} onClose={closeEditor}>
+      {error}
+      <fieldset className="logistics-editor-fields" disabled={c.busy}>
       <label>{t.name}<input name="logistics-name" maxLength={80} value={input.display_name} onChange={event => change({ display_name: event.target.value })} /></label>
       <label>{t.provider}<select name="logistics-provider" value={input.provider_id} onChange={event => {
-        // Keep the draft's expanded height so removing fields cannot clamp the
-        // settings scroller and move the focused provider selector.
-        const editor = event.currentTarget.closest<HTMLFieldSetElement>(".logistics-editor");
-        if (editor) editor.style.minBlockSize = `${editor.getBoundingClientRect().height}px`;
         const spec = state.providers.find(p => p.provider_id === event.target.value)!;
         change({ provider_id: spec.provider_id, login_username: null, password: null });
       }}>{state.providers.map(spec => <option value={spec.provider_id} key={spec.provider_id}>{spec.label}</option>)}</select></label>
@@ -91,13 +116,14 @@ export function LogisticsSettingsPanel({ controller: c, headingRef }: {
         {changedLogin ? <p className="desktop-form-error" role="alert">{t.changedLogin}</p> : null}
       </> : null}
       <label className="logistics-enabled"><input type="checkbox" checked={input.enabled} onChange={event => change({ enabled: event.target.checked })} />{t.enabled}</label>
-      <div className="logistics-actions">
-        <button className="desktop-primary-button" type="button" disabled={!input.display_name.trim() || !provider || Boolean(changedLogin) || Boolean(typeof input.password === "string" && !input.login_username?.trim())} onClick={() => {
+      </fieldset>
+      <footer className="logistics-actions logistics-editor-actions">
+        <button type="button" disabled={c.busy} onClick={closeEditor}>{t.cancel}</button>
+        <button className="desktop-primary-button" type="button" disabled={c.busy || !input.display_name.trim() || !provider || Boolean(changedLogin) || Boolean(typeof input.password === "string" && !input.login_username?.trim())} onClick={() => {
           c.save({ ...input, display_name: input.display_name.trim(), login_username: input.login_username?.trim() || null }, c.draft!.revision);
         }}>{t.save}</button>
-        <button type="button" onClick={() => { if (c.dirty) setReplacing({ input: null }); else c.discard(); }}>{t.cancel}</button>
-      </div>
-    </fieldset> : null}
+      </footer>
+    </LogisticsEditorDialog> : null}
     {deleting ? <LogisticsConfirmation title={t.delete} description={t.deleteDescription(deleting.profile.display_name)} onCancel={() => setDeleting(null)} onConfirm={() => {
       c.remove(deleting.profile.profile_id, deleting.revision); setDeleting(null);
     }} /> : null}

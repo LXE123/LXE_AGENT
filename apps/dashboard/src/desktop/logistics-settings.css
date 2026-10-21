@@ -2,16 +2,33 @@
 .logistics-settings p, .logistics-card h3 { overflow-wrap: anywhere; }
 .logistics-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .logistics-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
-.logistics-card, .logistics-editor { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.logistics-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .logistics-card h3 { margin: 0 0 8px; }
 .logistics-card p { margin: 6px 0; }
 .logistics-status { font-weight: 600; }
-.logistics-editor { box-sizing: border-box; margin-top: 20px; display: grid; gap: 12px; align-content: start; }
+.modal-backdrop.logistics-editor-backdrop { z-index: 120; }
+.modal-backdrop.logistics-confirm-backdrop { z-index: 140; }
+.logistics-editor {
+  box-sizing: border-box; display: flex; flex-direction: column; width: min(520px, 100%);
+  height: min(680px, calc(100dvh - 40px)); max-height: 100%; min-width: 0; min-height: 0; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text-strong);
+  box-shadow: 0 24px 64px var(--shadow-strong); font-size: .8125rem; line-height: 1.6;
+}
+.logistics-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px; }
+.logistics-editor h2 { margin: 0; font-size: 1.125rem; }
+.logistics-editor .logistics-editor-close { display: grid; place-items: center; padding: 6px; flex: none; }
+.logistics-editor-fields {
+  display: grid; align-content: start; gap: 14px; flex: 1; min-height: 0; min-width: 0; margin: 0;
+  padding: 0 24px 20px; border: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+.logistics-editor > .desktop-form-error { margin: 0 24px 12px; max-height: 120px; overflow: auto; overflow-wrap: anywhere; }
+.logistics-editor .logistics-editor-actions { justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--border); }
+.logistics-editor > header, .logistics-editor-actions { flex-shrink: 0; }
 .logistics-editor label { display: grid; gap: 6px; min-width: 0; }
 .logistics-editor input:not([type="checkbox"]), .logistics-editor select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
 .logistics-editor .logistics-enabled { display: flex; align-items: center; gap: 8px; }
 .logistics-editor input[type="checkbox"] { width: auto; }
-.logistics-settings button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+:is(.logistics-settings, .logistics-editor) button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 
 .logistics-settings { gap: 16px; font-size: 0.8125rem; line-height: 1.6; }
 .logistics-settings > p { margin: 0; color: var(--text-soft); }
@@ -19,12 +36,13 @@
 .logistics-card h3 { font-size: 0.9375rem; color: var(--text-strong); }
 .logistics-actions { margin: 0; }
 .logistics-card .logistics-actions { margin-top: 12px; }
-.logistics-settings button, .logistics-settings input:not([type="checkbox"]), .logistics-settings select {
+:is(.logistics-settings, .logistics-editor) :is(button, input:not([type="checkbox"]), select) {
   min-height: 34px; padding: 6px 10px; font: inherit; color: var(--text-strong);
   border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface);
 }
-.logistics-settings button { cursor: pointer; }
-.logistics-settings button:disabled { cursor: default; opacity: .55; }
-.logistics-settings button:not(.desktop-primary-button):hover:not(:disabled) { background: var(--row-hover); }
-.logistics-settings .desktop-primary-button { color: var(--settings-primary-ink); background: var(--settings-primary); border-color: var(--settings-primary); }
-.logistics-settings .desktop-form-error { font-size: 0.75rem; }
+:is(.logistics-settings, .logistics-editor) button { cursor: pointer; }
+:is(.logistics-settings, .logistics-editor) button:disabled { cursor: default; opacity: .55; }
+:is(.logistics-settings, .logistics-editor) button:not(.desktop-primary-button):hover:not(:disabled) { background: var(--row-hover); }
+:is(.logistics-settings, .logistics-editor) .desktop-primary-button { color: var(--settings-primary-ink); background: var(--settings-primary); border-color: var(--settings-primary); }
+:is(.logistics-settings, .logistics-editor) .desktop-form-error { font-size: 0.75rem; }
+.logistics-editor :is(input, select):focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }

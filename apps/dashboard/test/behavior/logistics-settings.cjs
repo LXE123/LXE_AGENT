@@ -1,7 +1,7 @@
 // Real local Dashboard DOM and React hooks; the fixture substitutes only IPC.
 module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
-  const textClick = async (text, scope=".logistics-settings") => {
-    await js(`(() => { const el=[...document.querySelectorAll(${JSON.stringify(scope)}+' button')].find(el=>el.textContent===${JSON.stringify(text)}); if(!el || el.disabled) throw new Error('button unavailable: '+${JSON.stringify(text)}); el.click(); })()`); await settle();
+  const textClick = async (text, scope=".logistics-settings, .logistics-editor") => {
+    await js(`(() => { const el=[...document.querySelectorAll(${JSON.stringify(scope)})].flatMap(root=>[...root.querySelectorAll('button')]).find(el=>el.textContent===${JSON.stringify(text)}); if(!el || el.disabled) throw new Error('button unavailable: '+${JSON.stringify(text)}); el.focus({preventScroll:true}); el.click(); })()`); await settle();
   };
   const input = async (name,value) => {
     await js(`(() => { const el=document.querySelector('[name="logistics-${name}"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(value)}); el.dispatchEvent(new Event('input',{bubbles:true})); })()`); await settle();
@@ -29,9 +29,23 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     assert.equal(await js("document.querySelectorAll('.desktop-settings-modal form').length"),0);
     assert.equal(await js("document.querySelectorAll('.desktop-settings-modal > footer [type=submit]').length"),0);
     await textClick("添加物流商");
+    assert.equal(await js("document.querySelector('.logistics-editor')?.getAttribute('role')"),'dialog');
+    assert.equal(await js("document.querySelector('.logistics-editor')?.parentElement.parentElement===document.body"),true);
+    assert.equal(await js("Boolean(document.querySelector('.desktop-settings-content .logistics-editor'))"),false);
+    assert.equal(await js("document.querySelectorAll('.logistics-editor form').length"),0);
     assert.equal(await js("Boolean(document.querySelector('[name=logistics-store]'))"),false);
     assert.equal(await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent==='保存配置').disabled"),true);
+    if(process.env.LXE_LOGISTICS_SCREENSHOT) require('node:fs').writeFileSync(process.env.LXE_LOGISTICS_SCREENSHOT.replace(/\.png$/,'-add.png'),(await win.webContents.capturePage()).toPNG());
     await textClick("取消编辑");
+    assert.equal(await js("document.activeElement?.textContent"),'添加物流商');
+    assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
+    await textClick('添加物流商');
+    await js("document.querySelector('.logistics-editor-backdrop').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))"); await settle();
+    assert.equal(await js("Boolean(document.querySelector('.logistics-editor'))"),false);
+    assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
+    await textClick('添加物流商'); await key('Escape');
+    assert.equal(await js("Boolean(document.querySelector('.logistics-editor'))"),false);
+    assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
   });
   await step("two Tiantai accounts save separately without closing the settings dialog",async()=>{
     await create("天泰-新棱镜","login-a@example.test","fixture-password-a"); await create("天泰-久艺","login-b","fixture-password-b");
@@ -57,9 +71,17 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     assert.equal(await js("behavior.logistics.state().profiles.find(p=>p.display_name==='天泰-久艺').password_configured"),true);
   });
   await step("draft guards section switching, cancellation, Escape and modal closing",async()=>{
-    await editProfile("天泰-新棱镜"); await input("name","未保存草稿"); await nav("ERP 账号");
-    await waitFor("document.querySelectorAll('[role=dialog]').length===2","draft dialog");
+    await editProfile("天泰-新棱镜"); await input("name","未保存草稿");
+    await key("Escape");
+    await waitFor("document.querySelectorAll('[role=dialog]').length===3","draft confirmation above editor");
     await key("Escape"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),"未保存草稿");
+    assert.equal(await js("document.querySelectorAll('[role=dialog]').length"),2);
+    await textClick('取消编辑'); await textClick('确认','.desktop-confirm-dialog');
+    assert.equal(await js("Boolean(document.querySelector('.logistics-editor'))"),false);
+    assert.equal(await js("Boolean(document.querySelector('.desktop-settings-modal'))"),true);
+    await editProfile("天泰-新棱镜"); await input("name","未保存草稿"); await nav("ERP 账号");
+    await waitFor("document.querySelectorAll('[role=dialog]').length===3","settings navigation guards draft");
+    await key("Escape");
     await click(".desktop-close-button"); await textClick("确认",".desktop-confirm-dialog");
     await waitFor("!document.querySelector('.desktop-settings-modal')","confirmed close");
     const readsBefore=(await js("behavior.logistics.calls()")).filter(c=>c.operation==='read').length;
@@ -94,12 +116,15 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     }
     await input('name','九方公开'); await js("behavior.logistics.patch({revision:behavior.logistics.state().revision+1})"); await textClick('保存配置');
     await waitFor("document.body.innerText.includes('Revision conflict')","actual conflict"); assert.equal(await js("document.querySelector('[name=logistics-name]').value"),'九方公开');
-    await textClick('刷新配置'); await textClick('保存配置'); assert.match(await js("document.body.innerText"),/Revision conflict/);
+    assert.match(await js("document.querySelector('.logistics-editor [role=alert]').textContent"),/Revision conflict/);
+    await textClick('重新加载','.logistics-editor'); await textClick('保存配置'); assert.match(await js("document.body.innerText"),/Revision conflict/);
     await textClick('取消编辑'); await textClick('确认','.desktop-confirm-dialog'); await textClick('添加物流商'); await select('provider','jiufang'); await input('name','九方公开');
     await js("behavior.logistics.holdSave(true)"); await textClick('保存配置');
     const before=(await js("behavior.logistics.calls()")).filter(c=>c.operation==='save').length;
     await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent==='保存配置').click()"); await settle();
     assert.equal((await js("behavior.logistics.calls()")).filter(c=>c.operation==='save').length,before);
+    await key('Escape'); assert.equal(await js("document.querySelector('.logistics-editor')?.getAttribute('aria-busy')"),'true');
+    assert.equal(await js("Boolean(document.querySelector('.desktop-confirm-dialog'))"),false);
     await js("behavior.logistics.holdSave(false);behavior.logistics.releaseSave()"); await waitFor("!document.querySelector('.logistics-editor')","held save completed");
     assert.match(await js("document.body.innerText"),/公开接口/);
   });
@@ -107,24 +132,31 @@ module.exports = async ({win,js,step,settle,click,key,waitFor,assert}) => {
     await js("behavior.logistics.failRead(true)"); await textClick('刷新配置'); assert.match(await js("document.body.innerText"),/JSONDecodeError: fixture broken profiles/);
     await js("behavior.logistics.failRead(false)"); await textClick('重新加载'); await waitFor("!document.body.innerText.includes('JSONDecodeError')","retry recovered");
   });
-  await step("provider switching at the bottom keeps the editor and scroll position stable",async()=>{
+  await step("provider switching in a short viewport keeps the dialog and background stable",async()=>{
     await textClick('刷新配置'); await textClick('添加物流商');
+    await input('name','弹窗草稿');
     for (const width of [1200, 680]) {
-      win.setSize(width,900); await settle();
+      win.setSize(width,520); await settle();
       await select('provider','wesa');
-      await js("(() => { const content=document.querySelector('.desktop-settings-content'); content.scrollTop=content.scrollHeight; document.querySelector('[name=logistics-provider]').focus({preventScroll:true}); })()");
+      assert.equal(await js("document.querySelector('.logistics-editor-fields').scrollHeight > document.querySelector('.logistics-editor-fields').clientHeight"),true);
+      await js("document.querySelector('[name=logistics-provider]').focus()");
       await settle();
-      const geometry = () => js("(() => { const content=document.querySelector('.desktop-settings-content'); const provider=document.querySelector('[name=logistics-provider]'); return {scroll:content.scrollTop,top:provider.getBoundingClientRect().top,height:document.querySelector('.logistics-editor').getBoundingClientRect().height}; })()");
+      const geometry = () => js("(() => { const content=document.querySelector('.desktop-settings-content'); const editor=document.querySelector('.logistics-editor'); const rect=editor.getBoundingClientRect(); return {scroll:content.scrollTop,top:rect.top,height:rect.height}; })()");
       const before = await geometry();
-      assert.ok(before.scroll>0,'the regression actually exercises a scrolled editor');
       for (const provider of ['jiufang','feiwo','tiantai','yuntuo','wesa','jiufang']) {
         await select('provider',provider);
         const after = await geometry();
         assert.ok(Math.abs(after.scroll-before.scroll)<=1,`${width}px ${provider}: scroll position moved`);
-        assert.ok(Math.abs(after.top-before.top)<=1,`${width}px ${provider}: provider selector jumped`);
+        assert.ok(Math.abs(after.top-before.top)<=1,`${width}px ${provider}: dialog jumped`);
         assert.ok(Math.abs(after.height-before.height)<=1,`${width}px ${provider}: editor height changed`);
         assert.equal(await js("document.activeElement?.getAttribute('name')"),'logistics-provider');
+        assert.equal(await js("document.querySelector('.logistics-editor-actions').getBoundingClientRect().bottom <= innerHeight"),true);
       }
+      await js("[...document.querySelectorAll('.logistics-editor button')].find(el=>el.textContent==='保存配置').focus()");
+      await key('Tab'); assert.equal(await js("document.activeElement?.classList.contains('logistics-editor-close')"),true);
+      await key('Tab',['shift']); assert.equal(await js("document.activeElement?.textContent"),'保存配置');
+      await js("document.querySelector('[name=logistics-name]').focus()"); await key('Enter');
+      assert.equal((await js("behavior.state().calls")).filter(c=>c.operation==='saveSetup').length,0);
     }
     await textClick('取消编辑'); await textClick('确认','.desktop-confirm-dialog');
   });

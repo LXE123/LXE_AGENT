@@ -54,8 +54,8 @@ CompositionEvent 和带 `isComposing` 的 KeyboardEvent，覆盖 React 事件处
 
 新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（3）和 Markdown（6）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。
 
-物流商配置新增 9 组场景，使用 `--test-name-pattern logistics-settings` 定向运行：
-真实 DesktopShell 中的导航顺序、独立保存、多公司账户、草稿保护、启停删除、实时绑定状态、
+物流商配置包含 10 组场景，使用 `--test-name-pattern logistics-settings` 定向运行：
+真实 DesktopShell 中的新增/编辑弹窗、独立保存、多公司账户、草稿保护、启停删除、账号不绑定店铺、
 revision 冲突、重复点击、错误与重试、中英文窄屏。只替换内存 IPC，不访问紫鸟或物流网站。
-设置 `LXE_LOGISTICS_SCREENSHOT=/tmp/logistics.png` 可保存中英文窄屏截图。
-其中滚动回归会在宽屏和窄屏滚到编辑区底部，遍历五家供应商，检查下拉框位置、编辑区高度、滚动位置和焦点保持稳定。
+设置 `LXE_LOGISTICS_SCREENSHOT=/tmp/logistics.png` 可保存新增弹窗及中英文窄屏编辑弹窗截图。
+弹窗回归还覆盖 Esc、遮罩关闭、嵌套确认、Tab 循环和焦点恢复；短窗口中遍历五家供应商，检查弹窗位置、背景滚动和底部按钮保持稳定。
