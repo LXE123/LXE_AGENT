@@ -142,6 +142,29 @@ test("Jiufang public query owns a non-browser, session-free FBA normalization co
   expect(raw.input_schema.properties.identifier_kind.enum).toEqual(["auto", "shipment", "box"]);
 });
 
+test("unified logistics keeps public routing session-free and credential login private", () => {
+  const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
+  const document = JSON.parse(readFileSync(path, "utf8"));
+  const entries = loadLxeSkillCommandCatalog(path);
+  for (const name of ["logistics_profiles", "logistics_query"]) {
+    const raw = document.entries.find((entry: any) => entry.name === name);
+    expect(raw.session_mode).toBe("none");
+    expect(entries.find(entry => entry.name === name)?.ownerSkills).toEqual(["fba-logistics-query", "jiufang-logistics-query"]);
+  }
+  const login = document.entries.find((entry: any) => entry.name === "logistics_login");
+  expect(login.session_mode).toBe("lxe_session");
+  expect(login.owner_skills).toEqual(["fba-logistics-query"]);
+  expect(Object.keys(login.input_schema.properties).sort()).toEqual(["profile_id", "store_id"]);
+  const query = document.entries.find((entry: any) => entry.name === "logistics_query");
+  expect(query.input_schema.required).toEqual(["profile_id", "fba"]);
+  expect(query.input_schema.properties.login_mode.enum).toEqual(["auto", "reuse"]);
+  for (const raw of [login, query]) {
+    for (const forbidden of ["password", "token", "cookie", "url", "module", "script", "credential_id"]) {
+      expect(raw.input_schema.properties[forbidden]).toBeUndefined();
+    }
+  }
+});
+
 test("Yuntuo query uses the logistics skill and a session-bound single-FBA contract", () => {
   const path = join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json");
   const entries = loadLxeSkillCommandCatalog(path);
@@ -298,7 +321,7 @@ test("flags-only export contracts have matching skill ownership and reject inval
   const document = JSON.parse(readFileSync(path, "utf8"));
   const entries = loadLxeSkillCommandCatalog(path);
   const scoped = document.entries.filter((entry: any) => entry.input_modes !== undefined);
-  expect(scoped).toHaveLength(19);
+  expect(scoped).toHaveLength(22);
   const known = new Map(entries.map(entry => [entry.command, entry.ownerSkills]));
   for (const raw of scoped) {
     expect(raw.input_modes).toEqual(["flags"]);

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopLogisticsProfile, DesktopLogisticsSettingsState } from "@lxe/desktop-protocol";
@@ -6,14 +6,19 @@ import { redactAndBound, type DesktopInputAssetsOptions } from "./input-assets";
 import { validateLogisticsProfileId, validateLogisticsProfileInput, validateLogisticsRevision } from "./ipc-validation";
 import type { SafeStoragePort } from "./config-store/repository";
 import { DesktopLogisticsCredentialStore } from "./logistics-credentials";
+import type { LogisticsLoginRequest } from "./logistics-login-host";
 
-type Options = DesktopInputAssetsOptions & { environment: () => NodeJS.ProcessEnv; safeStorage: SafeStoragePort };
+type LoginExecution = { stdout: string; stderr: string; error: Error | null };
+type Options = DesktopInputAssetsOptions & { environment: () => NodeJS.ProcessEnv; safeStorage: SafeStoragePort;
+  executeLogin?: (args: string[], environment: NodeJS.ProcessEnv, stdin: string) => Promise<LoginExecution> };
 type StoredProfile = Omit<DesktopLogisticsProfile, "password_configured"> & { credential_id: string | null };
 type StoredState = Omit<DesktopLogisticsSettingsState, "profiles"> & { profiles: StoredProfile[] };
 
 /** Private fixed-module bridge; Python owns business input storage. */
 export class DesktopLogisticsSettingsService {
   private readonly credentials: DesktopLogisticsCredentialStore;
+  private readonly loginChildren = new Set<ChildProcess>();
+  private loginStopping = false;
   constructor(private readonly options: Options) {
     this.credentials = new DesktopLogisticsCredentialStore(options.dataRoot, options.safeStorage);
   }
@@ -65,6 +70,76 @@ export class DesktopLogisticsSettingsService {
     }
   }
   async read(): Promise<DesktopLogisticsSettingsState> { return this.publicState(await this.call("read")); }
+  async stopLogins(): Promise<void> {
+    this.loginStopping = true;
+    await Promise.all([...this.loginChildren].map(child => new Promise<void>(resolve => {
+      child.once("close", () => resolve()); child.kill();
+    })));
+  }
+  /** Only the authenticated internal login host calls this. No renderer IPC. */
+  async ensureLogin(request: LogisticsLoginRequest, signal?: AbortSignal): Promise<unknown> {
+    let password = "";
+    const redact = (value: string): string => {
+      if (!password) return value;
+      for (const secret of new Set([JSON.stringify(password).slice(1, -1), password])) value = value.replaceAll(secret, "[redacted]");
+      return value;
+    };
+    const safe = (value: string): string => redactAndBound(redact(value));
+    const publicValue = (value: unknown): unknown => {
+      if (typeof value === "string") return safe(value);
+      if (Array.isArray(value)) return value.map(publicValue);
+      if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) =>
+        [key, /password|token|cookie|secret|credential/iu.test(key) ? "[redacted]" : publicValue(child)]));
+      return value;
+    };
+    try {
+      if (this.loginStopping) throw new Error("Logistics login service is stopping");
+      signal?.throwIfAborted();
+      const id = validateLogisticsProfileId(request.profile_id);
+      const snapshot = await this.call("snapshot");
+      if (snapshot.revision !== validateLogisticsRevision(request.expected_revision)) throw new Error("Revision conflict: reload logistics profiles before login");
+      const profile = snapshot.profiles.find(item => item.profile_id === id);
+      if (!profile || !profile.enabled) throw new Error("Logistics profile is missing or disabled");
+      if (!["wesa", "tiantai"].includes(profile.provider_id)) throw new Error("Automatic login form support is not yet verified for this logistics provider");
+      if (!profile.credential_id || !profile.login_username) throw new Error("This logistics profile has no saved login credentials");
+      const credential = this.credentials.read(profile.credential_id);
+      password = credential.password;
+      if (credential.provider_id !== profile.provider_id || credential.login_username !== profile.login_username) throw new Error("Encrypted credential identity does not match the logistics profile");
+      if (this.loginStopping) throw new Error("Logistics login service is stopping");
+      signal?.throwIfAborted();
+      const args = ["-I", "-B", "-m", "services.agent_cli.logistics.login_worker"];
+      const temporaryRoot = join(this.options.dataRoot, "tmp");
+      mkdirSync(temporaryRoot, { recursive: true });
+      const environment = { ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
+        LXE_AGENT_SESSION_ID: request.session_id, TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot,
+        PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+      const stdin = JSON.stringify({ provider_id: profile.provider_id, store_id: request.store_id,
+        login_username: credential.login_username, password });
+      const execution = this.options.executeLogin ? await this.options.executeLogin(args, environment, stdin)
+        : await new Promise<LoginExecution>(resolve => {
+          const child = execFile(this.options.pythonPath, args, { cwd: this.options.dataRoot, env: environment,
+            timeout: 90_000, maxBuffer: 64 * 1024, windowsHide: true, signal }, (error, stdout, stderr) => {
+            this.loginChildren.delete(child); resolve({ error, stdout, stderr });
+          });
+          this.loginChildren.add(child);
+          child.stdin?.on("error", () => { /* execFile callback retains the actual process failure. */ });
+          child.stdin?.end(stdin);
+        });
+      // The fixed worker returns only evidence. Redact even unexpected process
+      // output before returning it, so driver and startup failures cannot leak it.
+      let payload: { success?: boolean; error?: unknown } | undefined;
+      const stdout = execution.stdout;
+      try { payload = JSON.parse(stdout); } catch { /* Retain actual output below. */ }
+      if (!payload || typeof payload.success !== "boolean" || (execution.error && payload.success)) {
+        throw new Error(safe([execution.error?.message, execution.stderr, `Logistics login response: ${stdout}`].filter(Boolean).join("\n")));
+      }
+      if (execution.error && !payload.error) throw new Error(safe([execution.error.message, execution.stderr, stdout].join("\n")));
+      return publicValue(payload);
+    } catch (error) {
+      return { success: false, auth_refresh_required: false, error: { code: "desktop_login_failed",
+        message: safe(`${error instanceof Error ? error.name : "Error"}: ${error instanceof Error ? error.message : String(error)}`) } };
+    }
+  }
   async save(raw: unknown, expectedRevision: unknown): Promise<DesktopLogisticsSettingsState> {
     const { password, ...input } = validateLogisticsProfileInput(raw);
     const revision = validateLogisticsRevision(expectedRevision);

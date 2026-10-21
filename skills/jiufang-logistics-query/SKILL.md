@@ -8,6 +8,15 @@ commands:
 
 # 九方通逊单票查询
 
+有启用的九方配置时，可用统一入口：
+
+```text
+lxeskill logistics profiles --provider jiufang
+lxeskill logistics query --profile-id <九方配置UUID> --fba <完整FBA或箱号> --expected-warehouse <目的仓>
+```
+
+统一入口不要求 LXE 会话、紫鸟店铺或 Desktop 登录服务，禁止给九方传 `store_id/account_name` 或 `--login-mode auto`。保留原匿名适配器及箱号规则，业务证据在 `data.result`；配置仅选择固定供应商，不能借九方技能转调浏览器物流商。无需配置时继续使用原独立命令。
+
 整体任务包含 Amazon 改期建议或修改时，先由 `fba-shipment-delivery-window` 在当前目标 Amazon 店铺执行只读 discovery，确认完整 FBA 的归属，再进入本技能并沿用该映射。九方公开查询自身不操作店铺，也不能证明 Amazon 货件归属；独立查询九方不要求这个前置检查。
 
 在 Amazon 改期流程中，本模块用于核对 FBA、目的仓及已有转单信息。取得已核实的尾程承运人和转单号后，继续查 UPS/FedEx 等实际承运商的官方追踪；九方到港、到仓日期和转述轨迹不作为改期日期依据。`eta=null` 不阻止下一步尾程查询，但本模块当前非空转单字段仍未完成结构验证，不能据号码前缀猜承运人。建议规则见 [尾程证据与改期建议](../fba-shipment-delivery-window/references/carrier-evidence.md)。单独查询九方不自动进入改期。

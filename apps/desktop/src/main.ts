@@ -1,4 +1,5 @@
 import { DesktopLogisticsSettingsService } from "./main/logistics-settings";
+import { LogisticsLoginHost } from "./main/logistics-login-host";
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
@@ -187,6 +188,8 @@ let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
 let manualTools: ManualToolsService | undefined;
 let activeAuthBrowserHost: AuthBrowserHost | undefined;
+let activeLogisticsLoginHost: LogisticsLoginHost | undefined;
+let activeLogisticsSettings: DesktopLogisticsSettingsService | undefined;
 const applicationWindows = (): BrowserWindow[] => window && !window.isDestroyed() ? [window] : [];
 let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
@@ -219,6 +222,10 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     activeSyntheticPerformer = undefined;
     activeConversationAttachments?.clear();
     activeConversationAttachments = undefined;
+    await activeLogisticsSettings?.stopLogins();
+    activeLogisticsSettings = undefined;
+    await activeLogisticsLoginHost?.stop();
+    activeLogisticsLoginHost = undefined;
     try {
       await activeGateway?.stop();
     } catch (error) {
@@ -336,6 +343,14 @@ async function bootstrap(): Promise<void> {
   const authBrowserHost = new AuthBrowserHost(async headless => new ElectronAuthBrowserSession(headless));
   await authBrowserHost.start();
   activeAuthBrowserHost = authBrowserHost;
+  const logisticsSettings = new DesktopLogisticsSettingsService({
+    platform: process.platform, pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(), safeStorage,
+  });
+  activeLogisticsSettings = logisticsSettings;
+  const logisticsLoginHost = new LogisticsLoginHost((request, signal) => logisticsSettings.ensureLogin(request, signal));
+  await logisticsLoginHost.start();
+  activeLogisticsLoginHost = logisticsLoginHost;
   gateway = new DesktopGateway({
     beforeDeleteSession: sessionId => manualTools?.closeSession(sessionId) ?? Promise.resolve(),
     paths,
@@ -345,6 +360,7 @@ async function bootstrap(): Promise<void> {
     desktopLoggingStatus: () => logging.status(),
     attachments: conversationAttachments,
     authBrowserEnvironment: () => authBrowserHost.environment(),
+    logisticsLoginEnvironment: () => logisticsLoginHost.environment(),
     allowedSkillTypes: () => cloud?.allowedSkillTypes()
       ?? config.cloudPermissionSnapshot()?.allowed_skill_types
       ?? [],
@@ -434,10 +450,6 @@ async function bootstrap(): Promise<void> {
     pythonPath: paths.managedPythonPath,
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
-  });
-  const logisticsSettings = new DesktopLogisticsSettingsService({
-    platform: process.platform, pythonPath: paths.managedPythonPath,
-    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(), safeStorage,
   });
   const vietnamSettings = new DesktopVietnamSettingsService({
     platform: process.platform, pythonPath: paths.managedPythonPath,

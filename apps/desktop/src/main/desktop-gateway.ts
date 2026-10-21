@@ -109,6 +109,7 @@ class SplitGatewayStorage implements DirectGatewayStorage {
 export interface DesktopGatewayOptions {
   beforeDeleteSession?: (sessionId: string) => Promise<void>;
   authBrowserEnvironment?: () => Record<string, string>;
+  logisticsLoginEnvironment?: () => Record<string, string>;
   paths: DesktopPaths;
   config: DesktopConfigStore;
   version: string;
@@ -215,6 +216,7 @@ export class DesktopGateway {
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONNOUSERSITE: "1",
       ...this.options.authBrowserEnvironment?.(),
+      ...this.options.logisticsLoginEnvironment?.(),
       ...(this.options.packaged ? {
         PLAYWRIGHT_NODEJS_PATH: join(process.resourcesPath, "runtime", "node", "node.exe"),
         NODE_PATH: join(process.resourcesPath, "runtime", "node", "node_modules"),

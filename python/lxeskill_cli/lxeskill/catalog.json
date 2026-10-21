@@ -2,6 +2,59 @@
   "protocol_version": "1",
   "entries": [
     {
+      "name": "logistics_profiles",
+      "module": "services.agent_cli.logistics.profiles",
+      "command_path": ["logistics", "profiles"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-logistics-query", "jiufang-logistics-query"],
+      "attribution_skill": "fba-logistics-query",
+      "exposed": true, "timeout_ms": 30000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {"provider": {"type": "string", "enum": ["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"], "description": "可选物流商筛选；仅列出当前技能范围内的配置，不返回密码或凭据引用。"}},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_login",
+      "module": "services.agent_cli.logistics.login",
+      "command_path": ["logistics", "login"],
+      "visibility": "browser", "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true, "timeout_ms": 120000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {"type": "string", "minLength": 36, "maxLength": 36, "description": "logistics profiles 返回的启用配置 ID；Desktop 内部读取已保存凭据。"},
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "本次任务指定的已运行紫鸟环境；仅严格附着唯一物流域名，不启动、重启或自动退出账号。"}
+        },
+        "required": ["profile_id", "store_id"], "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_query",
+      "module": "services.agent_cli.logistics.query",
+      "command_path": ["logistics", "query"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-logistics-query", "jiufang-logistics-query"],
+      "attribution_skill": "fba-logistics-query",
+      "exposed": true, "timeout_ms": 360000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {"type": "string", "minLength": 36, "maxLength": 36, "description": "唯一启用配置 ID；路由只使用固定注册表，不按名称模糊选择。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "一个完整 FBA 标识，保留箱级后缀。"},
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "浏览器物流商本次执行环境，需真实 LXE 会话；九方禁止传入，不固定绑定账号。"},
+          "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "威飒/天泰当前页面核对的完整公司名；不是登录用户名。缺少时登录检查后暂停查询，先读快照确认。"},
+          "expected_warehouse": {"type": "string", "description": "可选原表目的仓代码，仅核对返回值。"},
+          "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "仅威飒和天泰支持；默认第1页，不自动扫描。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "仅九方支持的编号类型。"},
+          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。其他物流商仅支持 reuse。"}
+        },
+        "required": ["profile_id", "fba"], "additionalProperties": false
+      }
+    },
+    {
       "name": "logistics_jiufang_query",
       "module": "services.agent_cli.logistics.jiufang_query",
       "command_path": ["logistics", "jiufang", "query"],

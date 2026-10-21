@@ -1,8 +1,11 @@
 ---
 name: fba-logistics-query
-description: 按完整 FBA 标识查询威飒、飞沃运通、云驼或天泰供应链，取得运单、尾程承运人和转单号。用于 FBA 到 UPS/FedEx 等尾程查询的衔接；物流商后台日期不作为 Amazon 改期依据。天泰非空转单字段仍待验证。
+description: 选择已配置物流账号，通过统一入口查询完整 FBA；提供威飒、天泰受控表单登录，飞沃、云驼复用原登录态，九方走独立匿名查询。取得运单、尾程承运人和转单号，衔接 UPS/FedEx；货代日期不作为改期依据。自动登录实页及天泰非空转单仍待验证。
 type: ziniao_browser
 commands:
+  - lxeskill logistics profiles
+  - lxeskill logistics login
+  - lxeskill logistics query
   - lxeskill logistics wesa query
   - lxeskill logistics feiwo query
   - lxeskill logistics yuntuo query
@@ -10,6 +13,25 @@ commands:
 ---
 
 # FBA 物流商查询
+
+## 配置账号与统一入口
+
+优先使用 `lxeskill logistics profiles [--provider wesa]` 取得当前配置的精确 ID、名称、物流商、启用状态及登录账号。名称不唯一或用户未明确账户时先确认，不枚举账户碰运气。停用配置不能查询。配置跨店铺复用，浏览器环境由本次任务指定；物流环境不证明 Amazon 货件归属。
+
+```text
+lxeskill logistics profiles --provider wesa
+lxeskill logistics query --profile-id <UUID> --store-id <运行中的环境ID> --fba <完整FBA> --account-name '<本次页面确认的公司全名>'
+```
+
+统一入口只查一票，返回 `profile_id/provider/settings_revision` 和完整适配器 `result`。同时检查顶层 `ok`、`data.success` 及 `data.result`；不得丢弃原有 warnings、missing_fields、分页及错误。按当前技能范围逐物流商检查权限，九方技能不能借统一入口操作浏览器。
+
+威飒/天泰配置已保存凭据时，默认先检查登录；也可单独执行 `lxeskill logistics login --profile-id <UUID> --store-id <运行中的环境ID>`。密码由 Desktop 内部解密，经私有子进程 stdin 交给配对 Selenium，不向模型、CLI 参数、环境、公共配置或返回对象暴露。需要重启加载本分支的 Desktop 才有内部登录服务。不要在聊天或命令中填写密码，不调用马帮 `auth refresh`。
+
+登录仅附着已有的唯一供应商域名，不启动/重启店铺、不替换其他标签页、不自动退出或切换账号。登录页必须有唯一、可见的账号/密码表单及明确登录按钮，表单目标须同源；有验证码、结构歧义、跨源、超时或真实失败即停，不重试。此通用实时表单校验的本地测试使用合成 DOM，不代表威飒/天泰实页登录已验收；现场表单不符合时返回实际证据，不猜选择器或接口。
+
+`authenticated` 只表示读到受控的已登录控制台特征；`login_attempted` 表示本次是否提交了登录；`configured_login_submitted=true` 表示本次提交配置中的凭据并读到控制台。当前表单证据尚不能权威核验登录用户名，`profile_identity_verified=false`，不能宣称当前公司属于所选配置。无论新登录还是 `status=already_authenticated`，先用真实快照核对公司，再传 `--account-name` 明确查询；公司候选只作诊断，不使用旧配置公司名或登录账号代替，也不自动退出当前账号。
+
+`--login-mode reuse` 可明确只复用当前登录态；不改变查询的 origin、账户可见性、完整 FBA 检查。飞沃/云驼统一入口现阶段只复用原有查询页，自动登录表单仍待各自证据；九方匿名统一查询见独立技能。自动登录不查询尾程 ETA，也不修改物流订单或 Amazon。
 
 ## 在送达时段流程中的职责
 
@@ -44,7 +66,7 @@ lxeskill logistics wesa query --store-id <store_id> --account-name '<公司账�
 - `account_visible=true` 只表示指定公司全名存在于当前可见文本，不能替代上一步对当前公司账户的人工/页面核对，也不证明长期账户归属。
 - `queried_at` 为本次 UTC 查询时间。列表不包含已经核实的 ETA/实际签收时间，不用下单时间或页签代替。
 
-失败时保留并转述脱敏后的实际 `data.error` 和 HTTP/业务诊断。登录失效、验证或结构异常时停止，交由用户恢复；不执行马帮 `auth refresh`，不自动重试、重启或切换账户。桌面物流商配置保存登录账号和加密密码，不再要求填写公司名称。查询需要的 `account_name` 从本次实际页面核对取得，不能使用登录账号或旧配置中的公司名代替。本查询命令继续复用现有店铺登录态，自动登录尚未接入，不能把凭据保存当作登录已通过。
+失败时保留并转述脱敏后的实际 `data.error` 和 HTTP/业务诊断。登录失效、验证或结构异常时停止，交由用户恢复；不执行马帮 `auth refresh`，不自动重试、重启或切换账户。桌面物流商配置保存登录账号和加密密码，不再要求填写公司名称。查询需要的 `account_name` 从本次实际页面核对取得，不能使用登录账号或旧配置中的公司名代替。独立供应商命令继续只复用现有登录态；登录检查由上述统一入口或 `logistics login` 完成，不能把凭据保存当作登录已通过。
 
 查询不授权修改订单、原表或 Amazon；后续改期沿用专用 Amazon 技能的建议、批准和回读流程。
 
