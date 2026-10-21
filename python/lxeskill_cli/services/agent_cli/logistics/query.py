@@ -43,7 +43,7 @@ def run(arguments):
             raise ValueError("login_mode must be auto or reuse")
         auto_login = mode == "auto"
         if auto_login and provider not in LOGIN_HOSTS:
-            raise ValueError("Automatic login is only available for Wesa and TianTai; other providers reuse the verified existing query page")
+            raise ValueError("Automatic login is not verified for this logistics provider; reuse the verified existing query page")
         if spec.requires_account_name:
             company = arguments.get("account_name")
             if company is not None and (not isinstance(company, str) or not 2 <= len(company.strip()) <= 200):
@@ -78,7 +78,7 @@ def run(arguments):
             _, current_revision = selected_profile(profile["profile_id"])
             if current_revision != revision:
                 raise ValueError("Logistics settings changed during login; reload profiles before querying")
-            if "account_name" not in args:
+            if spec.requires_account_name and "account_name" not in args:
                 raise ValueError("Login completed. Confirm the current company in a fresh snapshot and pass account_name; company identity is not uniquely verified")
         # Preserve the adapter payload intact: its errors, warnings, missing
         # fields, identity and pagination remain authoritative.

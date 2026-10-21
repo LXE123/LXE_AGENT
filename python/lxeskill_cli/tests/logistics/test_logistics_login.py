@@ -14,6 +14,8 @@ from services.agent_cli.logistics import login_worker as worker
 
 REQUEST = {"provider_id": "wesa", "store_id": "test-store", "login_username": "fixture-user", "password": 'fixture-"password"'}
 ORIGIN = "http://wsaexp.nextsls.com"
+YUNTUO_REQUEST = {**REQUEST, "provider_id": "yuntuo"}
+YUNTUO_ORIGIN = "https://vip.yjtms.com:11000"
 
 
 def form(**changes):
@@ -23,17 +25,21 @@ def form(**changes):
         "username": Mock(), "password": Mock(), "submit": Mock(), **changes}
 
 
-def fake_driver(monkeypatch, probes):
+def fake_driver(monkeypatch, probes, *, origin=ORIGIN, page_path="/wos"):
     calls = []
-    driver = SimpleNamespace(current_url=ORIGIN + "/wos", switch_to=SimpleNamespace(default_content=lambda: None))
-    def probe(script):
+    driver = SimpleNamespace(current_url=origin + page_path, switch_to=SimpleNamespace(default_content=lambda: None))
+    def probe(script, provider):
         assert script == worker.FORM_SCRIPT
-        calls.append("probe")
+        calls.append(("probe", provider))
         result = probes.pop(0) if len(probes) > 1 else probes[0]
         if isinstance(result, Exception):
             raise result
         return result
     driver.execute_script = probe
+    def navigate(url):
+        calls.append(("get", url))
+        driver.current_url = url
+    driver.get = navigate
     @contextmanager
     def attach(store_id, **kwargs):
         calls.append((store_id, kwargs))
@@ -74,6 +80,42 @@ def test_existing_console_is_reused_without_claiming_configured_identity(monkeyp
     assert result["success"] and not result["login_attempted"]
     assert not result["profile_identity_verified"]
     assert result["warnings"]
+
+
+def test_yuntuo_submits_verified_form_and_reaches_query_page(monkeypatch):
+    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+    final = {"authenticated": True, "password_count": 0, "company_names": []}
+    driver, calls = fake_driver(monkeypatch, [initial, initial, final], origin=YUNTUO_ORIGIN, page_path="/viplogin")
+    initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/trackquery/")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert result["success"] and result["configured_login_submitted"]
+    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/trackquery/"
+    assert calls[0] == ("test-store", {"strict_attach": True, "target_host": "vip.yjtms.com"})
+    initial["username"].send_keys.assert_called_once_with("fixture-user")
+    initial["password"].send_keys.assert_called_once_with(YUNTUO_REQUEST["password"])
+    initial["submit"].click.assert_called_once()
+
+
+def test_yuntuo_opens_fixed_query_page_after_authenticated_landing(monkeypatch):
+    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+    landed = {"authenticated": False, "password_count": 0, "company_names": []}
+    final = {"authenticated": True, "password_count": 0, "company_names": []}
+    driver, calls = fake_driver(monkeypatch, [initial, initial, landed, final], origin=YUNTUO_ORIGIN, page_path="/viplogin")
+    initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/home/")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert result["success"] and result["configured_login_submitted"]
+    assert ("get", YUNTUO_ORIGIN + "/customer/trackquery/") in calls
+    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/trackquery/"
+
+
+def test_yuntuo_unknown_same_origin_page_stops_before_typing(monkeypatch):
+    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+    fake_driver(monkeypatch, [initial], origin=YUNTUO_ORIGIN, page_path="/customer/orders/")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert not result["success"] and not result["login_attempted"]
+    assert "Expected the Yuntuo login page" in result["error"]["message"]
+    initial["username"].send_keys.assert_not_called()
+    initial["password"].send_keys.assert_not_called()
 
 
 @pytest.mark.parametrize("changes", [{"password_count": 0}, {"password_count": 2}, {"form_present": False},
@@ -145,7 +187,7 @@ def test_timeout_is_not_reported_as_authentication_success(monkeypatch):
     initial["submit"].click.assert_called_once()
 
 
-@pytest.mark.parametrize("extra", [{"provider_id": "yuntuo"}, {"password": ""}, {"store_id": "x" * 257}, {"password": "line\nbreak"}, {"token": "must-not-use"}])
+@pytest.mark.parametrize("extra", [{"provider_id": "feiwo"}, {"password": ""}, {"store_id": "x" * 257}, {"password": "line\nbreak"}, {"token": "must-not-use"}])
 def test_invalid_private_input_never_attaches(monkeypatch, extra):
     attach = Mock(side_effect=AssertionError("must not attach"))
     monkeypatch.setattr(worker, "store_driver_session", attach)
@@ -202,3 +244,37 @@ process.stdout.write(JSON.stringify(outputs));
     assert outputs[4]["form_present"] is False
     assert outputs[5]["authenticated"] is True and outputs[5]["company_names"] == ["测试有限公司"]
     assert outputs[6]["authenticated"] is False
+
+
+def test_actual_form_probe_recognizes_yuntuo_ids_and_only_the_fixed_query_path():
+    bun = shutil.which("bun")
+    assert bun
+    script = r"""
+const input = await Bun.stdin.json();
+const output = [];
+const visible = {getClientRects: () => [1], disabled: false, autocomplete: '', placeholder: '', labels: [],
+  getAttribute: () => null};
+for (const path of ['/viplogin', '/customer/trackquery/', '/customer/home/']) {
+  const user = {...visible, type: 'text', name: 'LOGIN_ACCOUNT', id: 'LOGIN_ACCOUNT'};
+  const password = {...visible, type: 'password', name: 'PASSWORD', id: 'PASSWORD'};
+  const submit = {...visible, type: 'submit', name: 'LOGIN_LOGIN', id: 'LOGIN_LOGIN', innerText: '登录'};
+  const form = {action: 'https://vip.yjtms.com:11000/viplogin', querySelectorAll: q => q === 'input' ? [user, password] : [submit]};
+  password.closest = () => form;
+  globalThis.getComputedStyle = () => ({visibility: 'visible'});
+  globalThis.location = {pathname: path};
+  globalThis.document = {body: {innerText: '愿景征途物流平台'}, querySelectorAll: q =>
+    q === 'input[type="password"]' ? (path === '/viplogin' ? [password] : []) : []};
+  const result = new Function(input.script)('yuntuo');
+  for (const key of ['username', 'password', 'submit']) delete result[key];
+  output.push(result);
+}
+process.stdout.write(JSON.stringify(output));
+"""
+    process = subprocess.run([bun, "-e", script], input=json.dumps({"script": worker.FORM_SCRIPT}),
+        capture_output=True, text=True, timeout=15, check=False)
+    assert process.returncode == 0, process.stderr
+    login, query_page, other = json.loads(process.stdout)
+    assert login["user_count"] == login["password_count"] == login["submit_count"] == 1
+    assert not login["authenticated"]
+    assert query_page["authenticated"] is True
+    assert other["authenticated"] is False

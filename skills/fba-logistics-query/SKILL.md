@@ -1,6 +1,6 @@
 ---
 name: fba-logistics-query
-description: 选择已配置物流账号，通过统一入口查询完整 FBA；威飒已有真实登录和统一查询证据，天泰受控登录待实页验收，飞沃、云驼复用原登录态，九方走独立匿名查询。取得运单、尾程承运人和转单号，衔接 UPS/FedEx；货代日期不作为改期依据。
+description: 选择已配置物流账号，通过统一入口查询完整 FBA；威飒已有真实登录证据，天泰与云驼受控登录待实页验收，飞沃复用原登录态，九方走独立匿名查询。取得运单、尾程承运人和转单号，衔接 UPS/FedEx；货代日期不作为改期依据。
 type: ziniao_browser
 commands:
   - lxeskill logistics profiles
@@ -31,7 +31,7 @@ lxeskill logistics query --profile-id <UUID> --store-id <运行中的环境ID> -
 
 `authenticated` 只表示读到受控的已登录控制台特征；`login_attempted` 表示本次是否提交了登录；`configured_login_submitted=true` 表示本次提交配置中的凭据并读到控制台。当前表单证据尚不能权威核验登录用户名，`profile_identity_verified=false`，不能宣称当前公司属于所选配置。无论新登录还是 `status=already_authenticated`，先用真实快照核对公司，再传 `--account-name` 明确查询；公司候选只作诊断，不使用旧配置公司名或登录账号代替，也不自动退出当前账号。
 
-`--login-mode reuse` 可明确只复用当前登录态；不改变查询的 origin、账户可见性、完整 FBA 检查。飞沃/云驼统一入口现阶段只复用原有查询页，自动登录表单仍待各自证据；九方匿名统一查询见独立技能。自动登录不查询尾程 ETA，也不修改物流订单或 Amazon。
+`--login-mode reuse` 可明确只复用当前登录态；不改变查询的 origin、账户可见性、完整 FBA 检查。云驼已按真实登录页证据接入固定表单，实页提交仍待验收；飞沃统一入口现阶段只复用原有查询页。九方匿名统一查询见独立技能。自动登录不查询尾程 ETA，也不修改物流订单或 Amazon。
 
 2026-10-21 用户回传：威飒实际提交配置凭据并进入控制台，随后本次快照确认“深圳市新棱镜贸易有限公司”，再以同一配置、`--login-mode reuse` 统一查询 `FBA19SS5YN6R`，于 `03:40:51Z` 精确命中 `WS10027586 / SMF3 / UPS / 1ZH910550314112374`，HTTP/业务成功、分页完整、仓库一致、无 warnings/missing_fields。证据为用户摘要，不是已归档的完整 terminal JSON 或登录表单 fixture；不扩大为默认 auto 单命令新登录、其他账户、天泰或验证码场景通过。本票无需重复同阶段验收。后续 UPS 页面仅取得部分状态文本；文本截断时，未取得 ETA 不等于已经确认完整页面无 ETA，也不阻断已满足条件的业务顺延建议。
 
@@ -127,6 +127,8 @@ lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-a
 lxeskill logistics yuntuo query --store-id <store_id> --fba <完整FBA>
 ```
 
+已保存凭据时可先执行 `lxeskill logistics login --profile-id <UUID> --store-id <store_id>`，或由统一查询默认 `auto` 登录。登录执行器只接受当前唯一 `vip.yjtms.com` 标签页：未登录时须为固定的 `https://vip.yjtms.com:11000/viplogin`，唯一可见账号框、密码框和登录按钮分别由实时语义识别；凭据仍只从 Desktop 私有 stdin 进入配对 Selenium。提交后若平台落到同源其他已登录路由，执行器在同一标签页导航到固定 `/customer/trackquery/`，并以该路径上密码框消失作为本阶段登录成功证据。验证码、多个表单、跨源、未知页面或实际错误均停止，不重试。该能力已有合成 DOM/driver 回归，真实云驼凭据提交及成功页仍须本次 LXE_Agent 实页验收。
+
 目标页面必须为 `https://vip.yjtms.com:11000/customer/trackquery/`，可带原有查询参数。页面未打开、域名匹配不唯一或账户不明时停止处理对应项；不替换其他标签页、不启动或重启店铺。`store_id` 沿用本次核实的真实值，不能照抄历史运行状态。
 
 命令通过官方配对 Selenium，在原页面中复用唯一 `$httpService.getRequestHeader`，为固定参数 `{noList: <完整FBA>, queryType: 99}` 生成认证头，再 GET 固定同源路径 `/tms-saas-oms/oms/tms/tracequery/list`。原生函数内部管理认证；适配器不自行枚举存储、提取原始 token 或导出 Cookie/token/sign，不复制签名算法、不持久化认证材料。不调用会丢失错误详情的页面通用 `.get`。调用方不能指定 URL、脚本、请求头或认证值。
@@ -136,6 +138,6 @@ lxeskill logistics yuntuo query --store-id <store_id> --fba <完整FBA>
 - 真实样本 `carrier=""`，因此 `carrier=null`；不按 `1Z` 格式或轨迹提到 UPS 就认定承运人。`destName=US-美国` 不是 Amazon 仓库；`warehouse/warehouse_matches/eta/parcel_count` 未提供时保留为空，不由城市、国家或参考编号补猜。`--expected-warehouse` 只保留核对需求。
 - `podInfoDTOList` 按原始数组顺序输出全部有界轨迹，保留 `scanTime`、`scanDatetime`、状态、站点和备注，不把第一条自动当作实际签收时间。时间文本与数值分别保留；请求头时区不能证明目的地业务时区。备注中 LONG BEACH 的 ETA 是到港日期，不能当最终送达 Amazon 仓库的日期。
 - 页内服务扫描上限 2000 个元素，匹配服务零个、多个或扫描截断时失败；未知生成头字段也失败。响应 2 MiB、最多 100 行、每行 200 条轨迹、单字段 8000 字符；超限显式失败。`complete=true` 只说明本次投影完整，不证明全部包裹、历史转单或在途能力。
-- HTTP/provider/网络/原生头生成/Selenium 异常保留实际脱敏诊断，失败即停；不自动重试、切换账户或刷新登录。空结果真实契约尚无样本，`empty_result_unverified` 不表示已经证实无货。登录失效时由用户完成验证，不调用马帮认证刷新。
+- HTTP/provider/网络/原生头生成/Selenium 异常保留实际脱敏诊断，失败即停；不自动重试、切换账户或刷新登录。空结果真实契约尚无样本，`empty_result_unverified` 不表示已经证实无货。自动登录失败时保留真实表单证据，由用户处理验证码或页面异常，不调用马帮认证刷新。
 
 2026-10-16 用户回传 `FBA19P9T04B2` 两次独立真实查询通过摘要：HTTP 200、`result_code=0`、完整 FBA 精确匹配 1 行、`complete=true`，运单 `999260910003548`、转单 `1Z16HE510305235582`、20 条原顺序轨迹及缺项一致，查询时间和 traceId 更新。该历史票无需第三次重复；其他账户、空结果、失败、多包裹及在途 ETA 仍分别等待真实样本，不扩大已通过结论。两次运行仍依赖日志写入的一次性沙箱权限放宽，未视为已修复。后续失败保留实际结果，不重启补救。查询不授权物流订单、原表或 Amazon 写入。

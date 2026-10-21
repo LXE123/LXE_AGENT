@@ -1,5 +1,6 @@
 from copy import deepcopy
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 
@@ -12,11 +13,12 @@ def account(monkeypatch, tmp_path):
     monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "test-session")
 
-    def make(provider="wesa", enabled=True):
+    def make(provider="wesa", enabled=True, credential=False):
         snapshot = settings.read_snapshot()
         return settings.save_profile({"display_name": f"{provider}-{snapshot['revision']}",
-            "provider_id": provider, "enabled": enabled, "login_username": None,
-            "credential_id": None}, snapshot["revision"])["profiles"][-1]
+            "provider_id": provider, "enabled": enabled,
+            "login_username": "fixture-login" if credential else None,
+            "credential_id": str(uuid4()) if credential else None}, snapshot["revision"])["profiles"][-1]
     return make
 
 
@@ -172,6 +174,19 @@ def test_auto_login_precedes_query_and_preserves_login_evidence(account, monkeyp
                         "account_name": "实际页面公司", "login_mode": "auto"})
     assert result["success"] and not result["login"]["profile_identity_verified"]
     assert calls == ["login", "query"]
+
+
+def test_yuntuo_auto_login_precedes_query_without_company_name(account, monkeypatch):
+    profile = account("yuntuo", credential=True)
+    calls = []
+    monkeypatch.setattr(query, "ensure_login", Mock(side_effect=lambda *args: calls.append("login") or
+        {"success": True, "status": "authenticated", "configured_login_submitted": True}))
+    monkeypatch.setattr(query.yuntuo_query, "run", Mock(side_effect=lambda args: calls.append("query") or
+        {"success": True, "request_succeeded": True, "found": True}))
+    result = query.run({"profile_id": profile["profile_id"], "fba": "FBA19P9T04B2", "store_id": "store"})
+    assert result["success"] and result["login"]["configured_login_submitted"], result
+    assert calls == ["login", "query"]
+    query.yuntuo_query.run.assert_called_once_with({"fba": "FBA19P9T04B2", "store_id": "store"})
 
 
 def test_missing_company_after_login_never_guesses_a_company(account, monkeypatch):

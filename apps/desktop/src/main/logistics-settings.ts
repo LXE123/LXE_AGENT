@@ -100,7 +100,7 @@ export class DesktopLogisticsSettingsService {
       if (snapshot.revision !== validateLogisticsRevision(request.expected_revision)) throw new Error("Revision conflict: reload logistics profiles before login");
       const profile = snapshot.profiles.find(item => item.profile_id === id);
       if (!profile || !profile.enabled) throw new Error("Logistics profile is missing or disabled");
-      if (!["wesa", "tiantai"].includes(profile.provider_id)) throw new Error("Automatic login form support is not yet verified for this logistics provider");
+      if (!["wesa", "tiantai", "yuntuo"].includes(profile.provider_id)) throw new Error("Automatic login form support is not yet verified for this logistics provider");
       if (!profile.credential_id || !profile.login_username) throw new Error("This logistics profile has no saved login credentials");
       const credential = this.credentials.read(profile.credential_id);
       password = credential.password;

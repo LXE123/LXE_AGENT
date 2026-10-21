@@ -15,7 +15,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from services.browser.store.store_driver_session import store_driver_session
 from .common import diagnostic, safe_output, safe_url
 
-LOGIN_HOSTS = {"wesa": "wsaexp.nextsls.com", "tiantai": "ttaiex.nextsls.com"}
+LOGIN_SPECS = {
+    "wesa": {"host": "wsaexp.nextsls.com", "origin": "http://wsaexp.nextsls.com"},
+    "tiantai": {"host": "ttaiex.nextsls.com", "origin": "http://ttaiex.nextsls.com"},
+    "yuntuo": {"host": "vip.yjtms.com", "origin": "https://vip.yjtms.com:11000",
+                "login_path": "/viplogin", "target_path": "/customer/trackquery/"},
+}
+LOGIN_HOSTS = {provider: spec["host"] for provider, spec in LOGIN_SPECS.items()}
 
 # This probe returns WebElements and non-secret form semantics, never input
 # values, cookies, storage or HTML. Ambiguity/challenges stop before typing.
@@ -23,10 +29,13 @@ FORM_SCRIPT = r"""
 const visible = el => Boolean(el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
 const passwords = [...document.querySelectorAll('input[type="password"]')].filter(visible);
 const text = document.body ? document.body.innerText : '';
+const provider = arguments[0];
 const companies = [...new Set((text.match(/[^\s，,。;；<>]{2,80}(?:有限责任公司|有限公司)/g) || []))].slice(0, 10);
 const result = {password_count: passwords.length, company_names: companies,
-  authenticated: !passwords.length && location.pathname.startsWith('/tms/wos/') &&
-    text.includes('发货') && text.includes('财务') && text.includes('总控平台')};
+  authenticated: !passwords.length && (provider === 'yuntuo'
+    ? location.pathname === '/customer/trackquery/'
+    : location.pathname.startsWith('/tms/wos/') && text.includes('发货') &&
+      text.includes('财务') && text.includes('总控平台'))};
 if (passwords.length !== 1) return result;
 const password = passwords[0];
 const form = password.closest('form');
@@ -39,7 +48,7 @@ const challengeFrames = [...document.querySelectorAll('iframe')].filter(el => vi
 const textInputs = inputs.filter(el => ['text', 'email', 'tel'].includes(el.type) && !challenges.includes(el));
 const namedUsers = textInputs.filter(el => /username|user.name|login|account|email|账号|帐号|用户名|邮箱/i.test(semantics(el)));
 const users = namedUsers.length ? namedUsers : textInputs;
-const buttons = [...form.querySelectorAll('button,input[type="submit"]')].filter(el => visible(el) && !el.disabled &&
+const buttons = [...form.querySelectorAll('button,input[type="submit"],input[type="button"]')].filter(el => visible(el) && !el.disabled &&
   /^(登\s*录|login|log\s*in|sign\s*in)$/i.test((el.innerText || el.getAttribute('value') || '').trim()));
 return {...result, form_present: true, user_count: users.length, submit_count: buttons.length,
   challenge_count: challenges.length + challengeFrames.length,
@@ -62,9 +71,9 @@ def _guard(driver, origin: str) -> None:
         raise ValueError("Login origin changed: " + safe_url(driver.current_url))
 
 
-def _probe(driver, origin: str) -> dict:
+def _probe(driver, origin: str, provider: str) -> dict:
     _guard(driver, origin)
-    evidence = driver.execute_script(FORM_SCRIPT)
+    evidence = driver.execute_script(FORM_SCRIPT, provider)
     if not isinstance(evidence, dict):
         raise ValueError("Login form probe returned a non-object")
     return evidence
@@ -119,17 +128,20 @@ def run_private(request: dict) -> dict:
             raise ValueError("Automatic login form support is not yet verified for this logistics provider")
         if not os.environ.get("LXE_AGENT_SESSION_ID", "").strip():
             raise ValueError("LXE_AGENT_SESSION_ID is required for logistics login")
-        host = LOGIN_HOSTS[provider]
-        origin = "http://" + host
+        spec = LOGIN_SPECS[provider]
+        host, origin = spec["host"], spec["origin"]
         with store_driver_session(request["store_id"], strict_attach=True, target_host=host) as (_, driver):
             driver.switch_to.default_content()
             result.update(provider=provider, store_id=request["store_id"], page_url=safe_url(driver.current_url))
-            initial = _probe(driver, origin)
+            initial = _probe(driver, origin, provider)
             result["form_evidence"] = _evidence(initial)
             if initial.get("authenticated") is True:
                 result.update(success=True, authenticated=True, status="already_authenticated",
                     warnings=["Existing browser login reused; configured login identity was not verified. Confirm the live company before querying."])
             else:
+                if provider == "yuntuo" and urlsplit(driver.current_url).path.rstrip("/") != spec["login_path"]:
+                    raise ValueError("Expected the Yuntuo login page or authenticated query page; observed "
+                                     + safe_url(driver.current_url))
                 _validate_form(initial, origin, driver.current_url)
                 initial["username"].clear()
                 _guard(driver, origin)
@@ -140,7 +152,7 @@ def run_private(request: dict) -> dict:
                 initial["password"].send_keys(password)
                 # Recheck origin, destination and uniqueness after framework
                 # updates. A replaced button is not silently substituted.
-                ready = _probe(driver, origin)
+                ready = _probe(driver, origin, provider)
                 _validate_form(ready, origin, driver.current_url)
                 if ready["submit"] != initial["submit"]:
                     raise ValueError("Login submit element changed while entering credentials")
@@ -148,10 +160,20 @@ def run_private(request: dict) -> dict:
                 result["login_attempted"] = True
                 initial["submit"].click()
                 last = initial
+                target_opened = False
 
                 def finished(_):
-                    nonlocal last
-                    last = _probe(driver, origin)
+                    nonlocal last, target_opened
+                    last = _probe(driver, origin, provider)
+                    # Yuntuo may land on another authenticated route. Once the
+                    # verified login form has disappeared, navigate this same
+                    # vendor tab to the fixed query page and verify it there.
+                    if (provider == "yuntuo" and not target_opened and last.get("password_count") == 0
+                            and urlsplit(driver.current_url).path.rstrip("/") != spec["login_path"]
+                            and last.get("authenticated") is not True):
+                        target_opened = True
+                        driver.get(origin + spec["target_path"])
+                        last = _probe(driver, origin, provider)
                     return last.get("authenticated") is True or bool(last.get("errors")) or bool(last.get("challenge_count"))
 
                 try:

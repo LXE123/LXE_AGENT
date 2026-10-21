@@ -17,11 +17,11 @@ const safeStorage = { isEncryptionAvailable: () => true,
   encryptString: (value: string) => Buffer.from(value), decryptString: (value: Buffer) => value.toString() };
 const request: LogisticsLoginRequest = { profile_id: "00000000-0000-0000-0000-000000000001", store_id: "store==", session_id: "lxe-test", expected_revision: 3 };
 
-function service(password: string, execution = { stdout: '{"success":true,"status":"authenticated"}', stderr: "", error: null as Error | null }) {
+function service(password: string, execution = { stdout: '{"success":true,"status":"authenticated"}', stderr: "", error: null as Error | null }, provider = "wesa") {
   const root = mkdtempSync(join(tmpdir(), "logistics-login-")); roots.push(root);
   const credentials = new DesktopLogisticsCredentialStore(root, safeStorage);
-  const reference = credentials.write({ provider_id: "wesa", login_username: "fixture-user", password });
-  const profile = { profile_id: request.profile_id, provider_id: "wesa", login_username: "fixture-user", enabled: true, credential_id: reference };
+  const reference = credentials.write({ provider_id: provider, login_username: "fixture-user", password });
+  const profile = { profile_id: request.profile_id, provider_id: provider, login_username: "fixture-user", enabled: true, credential_id: reference };
   const calls: { args: string[]; environment: NodeJS.ProcessEnv; stdin: string }[] = [];
   const instance = new DesktopLogisticsSettingsService({ dataRoot: root, pythonPath: "python", managedPath: "", platform: process.platform,
     safeStorage, environment: () => ({}),
@@ -41,6 +41,12 @@ test("password goes only through private worker stdin, never argv/environment/RP
   expect(JSON.stringify(h.calls[0]!.environment)).not.toContain(password);
   expect(h.calls[0]!.environment.LXE_AGENT_SESSION_ID).toBe("lxe-test");
   expect(JSON.parse(h.calls[0]!.stdin)).toEqual({ provider_id: "wesa", store_id: "store==", login_username: "fixture-user", password });
+});
+
+test("yuntuo credentials are admitted to the fixed private login worker", async () => {
+  const h = service("private-yuntuo", { stdout: JSON.stringify({ success: true, status: "authenticated", configured_login_submitted: true }), stderr: "", error: null }, "yuntuo");
+  expect(await h.instance.ensureLogin(request)).toMatchObject({ success: true, status: "authenticated", configured_login_submitted: true });
+  expect(JSON.parse(h.calls[0]!.stdin)).toEqual({ provider_id: "yuntuo", store_id: "store==", login_username: "fixture-user", password: "private-yuntuo" });
 });
 
 test("revision, enabled state and encrypted identity are checked before execution", async () => {

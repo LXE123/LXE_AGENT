@@ -49,7 +49,7 @@
           "expected_warehouse": {"type": "string", "description": "可选原表目的仓代码，仅核对返回值。"},
           "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "仅威飒和天泰支持；默认第1页，不自动扫描。"},
           "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "仅九方支持的编号类型。"},
-          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。其他物流商仅支持 reuse。"}
+          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰/云驼已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。飞沃仅支持 reuse，九方不使用登录模式。"}
         },
         "required": ["profile_id", "fba"], "additionalProperties": false
       }

@@ -3,8 +3,8 @@
 - 日期：2026-10-12；最新续档：2026-10-21。
 - 物流配置最新入口：[配置交接第 28 节](20261019-logistics-provider-settings-build.md#28-本轮归档及下一轮测试入口2026-10-21)；账号跨店铺复用的设计见第 23 节。独立账号、加密密码、移除公司名称输入及取消固定店铺绑定已实现；新增/编辑已改为独立弹窗，修复基线 `cec514c6`。不自行推送、更新 PR、合并或释放 worktree。
 - 状态：此前成果已归档并提交 PR #91，当前在线评审及远端状态未重新核验。威飒、飞沃、云驼、九方四家已有查询模块及各自真实证据；九方匿名查询与箱号拆分已通过澳大利亚样本及用户回传的两票加拿大验收。天泰查询命令已按真实“全部”请求及德国样本实现，本地契约验证通过，并在当前账户完成两次独立真实受控查询；第二账户仍待核验。合格实票的当前完整改期闭环仍待样本。执行顺序见第 27 节，指定 FBA 的定位与只读反馈以第 28 节为准，日期依据沿用第 26 节；第 25 节保留天泰查询证据。
-- 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析。威飒配置凭据登录已由用户回传验收，飞沃、云驼继续复用原浏览器登录态；涉及紫鸟页面的一切自动化必须走官方配对 Selenium。九方已验证的匿名公开 HTTP 接口不需要浏览器、登录或会话，使用独立模块；不从这项验证推广到其他接口。不维护逐物流商固定 ref 点击模板，Amazon 专用适配器和业务门槛保留。
-- 下一轮入口：本轮已归档，测试清单见第 35 节。先在加载 `cec514c6` 的 Desktop 确认新增/编辑弹窗，再在真实 LXE_Agent 会话测试天泰登录和统一查询。威飒本票已通过真实凭据登录、公司核对、统一查询、UPS 只读和改期 dry-run，无需重复这些已通过阶段；没有实际改期。query 默认 auto 模式的新登录、天泰第二账户、飞沃/云驼自动登录及其他供应商统一入口实页仍待各自证据。
+- 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析。威飒配置凭据登录已由用户回传验收；云驼已按真实登录页证据补齐自动登录代码，待实页提交验收；飞沃继续复用原浏览器登录态。涉及紫鸟页面的一切自动化必须走官方配对 Selenium。九方已验证的匿名公开 HTTP 接口不需要浏览器、登录或会话，使用独立模块；不从这项验证推广到其他接口。不维护逐物流商固定 ref 点击模板，Amazon 专用适配器和业务门槛保留。
+- 下一轮入口：第 35 节保留原归档入口，云驼自动登录续接见第 36 节。先重启加载当前代码的 Desktop，在真实 LXE_Agent 会话验证云驼配置凭据提交、固定查询页及统一查询。威飒本票已通过真实凭据登录、公司核对、统一查询、UPS 只读和改期 dry-run，无需重复这些已通过阶段；没有实际改期。天泰第二账户、飞沃自动登录及其他供应商统一入口实页仍待各自证据。
 - 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
 - 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
 
@@ -1241,3 +1241,18 @@ lxeskill logistics query --profile-id <同一配置UUID> --store-id <同一环�
 ### 下一轮可直接使用的提示词
 
 > 阅读本文件开头及第 35 节、配置交接第 27–28 节，继续 pool-1 / codex/fba-delivery-window。先确认新增/编辑独立弹窗，再在真实 LXE_Agent 会话按用户明确的天泰账号和环境测试 login、公司快照与统一 query；不要重复威飒本票已通过的阶段。天泰有两个账户，不猜 UUID、当前公司或适用 FBA；历史德国样本只在账户和授权一致时复用。页面自动化仅走官方配对 Selenium；错误即停，不伪造会话、不读 Bun agent DB、不导出凭据、不自动退出/切换账号或启动/重启店铺。保留已有测试文件末尾格式差异，不推送、更新 PR、合并或释放，不执行 Amazon 写入。
+
+## 36 云驼自动登录补齐，待实页验收（2026-10-21）
+
+用户完成云驼配置后，在真实 LXE_Agent 会话调用 `logistics login`，Desktop 返回 `desktop_login_failed / Automatic login form support is not yet verified for this logistics provider`。配置 `ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5` 为启用的 `yuntuo`、revision 7；指定运行环境为 `aAxaFV0HptbSXkiuLiTFGQ==`。用户快照确认唯一云驼页为 `https://vip.yjtms.com:11000/viplogin`，标题“愿景征途物流平台”，唯一表单包含 `LOGIN_ACCOUNT`、`PASSWORD` 和 `LOGIN_LOGIN`；未提供或暴露密码。该失败发生在 Desktop 白名单，未进入 Selenium 表单执行器，不能解释为页面或凭据失败。
+
+现已将云驼加入 Desktop 私有登录通道及统一查询 auto 路由。执行器使用固定 `vip.yjtms.com`、HTTPS 11000 origin，只在 `/viplogin` 的唯一可见同源表单中提交一次配置凭据；验证码、歧义、跨源或未知同源页面均停止。登录直接到 `/customer/trackquery/` 时核验固定路径；若平台先落到其他同源已登录路由，则只在同一云驼标签页导航到固定查询页后核验。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
+
+本地定向验证覆盖云驼表单 ID、HTTPS/端口、固定登录及查询路径、单次凭据提交、登录后同页导航、未知页面停止、Desktop 私有 stdin 和统一 query 先登录后查询。真实凭据提交与云驼成功页尚未复验；重启加载本分支的 Desktop 后，先执行：
+
+```text
+lxeskill logistics login --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --store-id 'aAxaFV0HptbSXkiuLiTFGQ=='
+lxeskill logistics query --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --store-id 'aAxaFV0HptbSXkiuLiTFGQ==' --fba <该账户明确可查的完整FBA> --login-mode reuse
+```
+
+登录验收需返回 `status=authenticated`、`login_attempted/configured_login_submitted=true`，最终 URL 为固定查询页；随后统一查询必须保留完整 FBA 精确匹配、请求、字段、缺项和实际错误。若登录已经由前一命令完成，查询使用 `reuse`，不重复提交凭据。仍不自动查询尾程或修改 Amazon。
