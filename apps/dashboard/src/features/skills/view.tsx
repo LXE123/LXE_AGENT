@@ -1,3 +1,4 @@
+import { TeamCatalogSync } from "./team-catalog-sync";
 import {
   BookOpen,
   ChevronDown,
@@ -54,12 +55,13 @@ export function SkillsView({
 
   const catalog = mergeSkillCatalog(skills, userSkills);
   if (!catalog.length && !commands.some(command => command.visibility === "maintenance")) {
-    return <EmptyState label={t.skills.empty} />;
+    return <div className="catalog-page skills-catalog"><TeamCatalogSync /><EmptyState label={t.skills.empty} /></div>;
   }
   const groups = groupSkillsByType(catalog, t, skill => isManagedSkill(skill) ? "default" : skill.type);
   const maintenanceCommands = commands.filter((command) => command.visibility === "maintenance");
   return (
     <div className="catalog-page skills-catalog">
+      <TeamCatalogSync />
       <div className="toolset-stack">
         {maintenanceCommands.length ? (
           <section className="toolset-section catalog-section maintenance-section">

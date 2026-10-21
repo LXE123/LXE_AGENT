@@ -7,6 +7,7 @@ const LEGACY_LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 export type Language = "zh" | "en";
 
 export const ZH_TEXT = {
+  teamCatalog: { title: "团队技能目录", description: "手动同步当前可用技能，让公司同事在妙搭只读浏览。", settings: "同步设置", sync: "同步到妙搭", working: "处理中…", endpoint: "目录接收地址", device: "来源设备名称", key: "同步 API Key", keepKey: "留空保留已保存的密钥", save: "保存设置", notice: "仅同步技能名称、简介、分类和来源。技能正文、本地路径和执行记录不会上传。每次同步会替换妙搭上的整份目录，包括移除本机已不可用的技能。", synced: (count: number, time: string) => `最近同步 ${count} 项 · ${time}` },
   workspaceOpen: { openIn: (name: string) => `用 ${name} 打开工作区`, more: "选择应用打开工作区", explorer: "文件资源管理器", system: "系统文件管理器", terminal: "终端" },
   composerReferences: { files: "文件", skills: "技能", workspace: "工作区", loading: "加载中…", empty: "没有匹配项", browse: "进入目录", navigation: "目录导航", enter: (name: string) => `进入 ${name}` },
   manualTools: { start: "开始", newTab: "新标签页", newTerminal: "新建终端", terminal: "终端", browser: "浏览器", filesDescription: "浏览此会话工作区里的文件", terminalDescription: "在工作区运行命令", browserDescription: "浏览网页", ended: "终端已结束", reopen: "重新打开", back: "后退", forward: "前进", address: "网页地址", go: "前往", enterAddress: "输入网址开始浏览" },
@@ -928,6 +929,7 @@ export type UiText = typeof ZH_TEXT;
 export const UI_TEXT: Record<Language, UiText> = {
   zh: ZH_TEXT,
   en: {
+    teamCatalog: { title: "Team skill directory", description: "Manually publish available skills for colleagues to browse in Miaoda.", settings: "Sync settings", sync: "Sync to Miaoda", working: "Working…", endpoint: "Directory endpoint", device: "Source device name", key: "Sync API key", keepKey: "Leave empty to retain the saved key", save: "Save settings", notice: "Only names, descriptions, categories and sources are sent. Skill content, local paths and execution history stay local. Each sync replaces the complete directory, including removing skills no longer available here.", synced: (count: number, time: string) => `Last sync: ${count} skills · ${time}` },
     workspaceOpen: { openIn: (name: string) => `Open workspace in ${name}`, more: "Choose workspace application", explorer: "File Explorer", system: "System file manager", terminal: "Terminal" },
     composerReferences: { files: "Files", skills: "Skills", workspace: "Workspace", loading: "Loading…", empty: "No matches", browse: "Browse folder", navigation: "Folder navigation", enter: (name: string) => `Open ${name}` },
     manualTools: { start: "Start", newTab: "New tab", newTerminal: "New terminal", terminal: "Terminal", browser: "Browser", filesDescription: "Browse this session’s workspace", terminalDescription: "Run commands in the workspace", browserDescription: "Browse web pages", ended: "Terminal has ended", reopen: "Reopen", back: "Back", forward: "Forward", address: "Web address", go: "Go", enterAddress: "Enter an address to browse" },

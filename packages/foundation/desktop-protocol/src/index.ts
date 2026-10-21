@@ -5,6 +5,7 @@ import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
   type JsonRpcId, type JsonRpcSuccess, type JsonRpcFailure, type JsonRpcResponse } from "./json-rpc";
 export * from "./json-rpc";
 export * from "./updates";
+export type * from "./team-catalog";
 import {
   desktopStreamBatchValidationError,
   validateAgentJob,
@@ -693,6 +694,7 @@ export interface LxeDesktopBridge {
   files: import("./file-preview").DesktopFilesBridge;
   dashboard: DashboardTransport;
   desktop: {
+    teamCatalog?: import("./team-catalog").TeamCatalogBridge;
     readonly platform: DesktopPlatform;
     showTitlebarMenu?(request: import("./titlebar").DesktopTitlebarMenuRequest): Promise<import("./titlebar").DesktopTitlebarAction>;
     getUpdateState?(): Promise<import("./updates").DesktopUpdateState>;

@@ -23,6 +23,7 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop", "files", "tools"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
+      "teamCatalog",
       "showTitlebarMenu", "getUpdateState", "checkForUpdate", "downloadUpdate", "installUpdate",
       "activateCloudEnrollment",
       "confirmCloudDevice", "refreshCloudContext", "clearCloudModelCache",

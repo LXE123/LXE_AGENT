@@ -49,6 +49,11 @@ export function createDesktopBridge(
       call: (call) => ipc.invoke(IPC_CHANNELS.dashboardCall, call),
     },
     desktop: {
+      teamCatalog: {
+        state: () => ipc.invoke(IPC_CHANNELS.teamCatalogState),
+        save: input => ipc.invoke(IPC_CHANNELS.teamCatalogSave, input),
+        sync: () => ipc.invoke(IPC_CHANNELS.teamCatalogSync),
+      },
       platform,
       showTitlebarMenu: request => ipc.invoke(IPC_CHANNELS.showTitlebarMenu, request),
       getUpdateState: () => ipc.invoke(IPC_CHANNELS.getUpdateState),

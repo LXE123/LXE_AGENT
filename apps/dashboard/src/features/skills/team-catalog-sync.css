@@ -1,0 +1,14 @@
+.team-catalog-sync { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+.team-catalog-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.team-catalog-summary { flex: 1; min-width: 180px; }
+.team-catalog-summary h2 { font-size: 14px; margin: 0 0 4px; }
+.team-catalog-summary p, .team-catalog-form p { margin: 0; font-size: 12px; color: var(--text-soft); line-height: 1.6; }
+.team-catalog-form { display: grid; gap: 12px; margin-top: 18px; max-width: 700px; }
+.team-catalog-form label { display: grid; gap: 5px; font-size: 12px; }
+.team-catalog-form input { width: 100%; min-width: 0; }
+.team-catalog-error { color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+
+.team-catalog-sync button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.team-catalog-sync button:hover:not(:disabled) { background: var(--row-hover); }
+.team-catalog-sync button:disabled { opacity: .55; cursor: not-allowed; }
+.team-catalog-sync input { padding: 9px 10px; }

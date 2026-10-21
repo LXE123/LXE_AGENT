@@ -1,3 +1,4 @@
+import { TeamCatalogSyncService } from "./main/team-catalog-sync";
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
@@ -270,6 +271,9 @@ async function bootstrap(): Promise<void> {
       llmConfigRoot: paths.llmConfigRoot,
     },
   );
+  const teamCatalog = new TeamCatalogSyncService(paths.dataRoot, safeStorage, {
+    call: call => gateway.dashboardCall(call),
+  });
   const usageBalance = new DeepSeekBalanceService(() => config.deepSeekBalanceCredential());
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of applicationWindows()) {
@@ -553,6 +557,11 @@ async function bootstrap(): Promise<void> {
       const health = await gateway.restartAgent();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       return health;
+    },
+    teamCatalog: {
+      state: async () => teamCatalog.state(),
+      save: async input => teamCatalog.save(input),
+      sync: () => teamCatalog.sync(),
     },
     getSetupState: () => config.state(),
     getUsageBalance: () => usageBalance.getBalance(),
