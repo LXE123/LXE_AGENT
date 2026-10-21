@@ -716,6 +716,6 @@ Esc、取消或遮罩关闭有未保存草稿时先提示确认；确认弹窗�
 
 ## 29. 云驼配置登录接入（2026-10-21）
 
-用户已完成云驼配置，但真实 `logistics login` 被 Desktop 的威飒/天泰白名单提前拒绝。用户随后提供当前唯一云驼登录页的真实快照证据：HTTPS 11000、`/viplogin`，唯一账号框 `LOGIN_ACCOUNT`、密码框 `PASSWORD` 和按钮 `LOGIN_LOGIN`。现已允许云驼配置进入原有私有凭据通道，并在 Python worker 中增加独立 origin、登录页及固定查询成功页判断；登录后必要时在同一标签页导航到 `/customer/trackquery/`。密码传递、revision 核对、取消、脱敏和失败不重试规则不变。
+用户已完成云驼配置，但真实 `logistics login` 先被 Desktop 的威飒/天泰白名单提前拒绝。放开固定供应商后，首次表单探测又在提交前安全停止：页面存在唯一密码框，但没有原生 `<form>`。用户随后提供真实登录区源码，确认 Element UI 的 div 布局使用 `placeholder=LOGIN_ACCOUNT`、`placeholder=PASSWORD` 和文本为 `LOGIN_LOGIN` 的 `type=button`。现已允许云驼配置进入原有私有凭据通道，并按这些源码特征识别唯一同组控件；不使用临时 `data-aid`。提交后仅接受实际到达 `/customer/trackquery/`，其他落点保留诊断并停止，不预设自动导航。密码传递、revision 核对、取消、脱敏和失败不重试规则不变。
 
 本地验证及真实复测命令见 [物流交接第 36 节](20261012-fba-logistics-delivery-window-handoff.md#36-云驼自动登录补齐待实页验收2026-10-21)。当前结论是代码与合成表单合同通过，真实云驼凭据提交仍待重启 Desktop 后验收；不把用户此前的 Desktop 白名单失败算作登录失败，也不宣称飞沃获得自动登录能力。

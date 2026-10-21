@@ -39,21 +39,36 @@ const result = {password_count: passwords.length, company_names: companies,
 if (passwords.length !== 1) return result;
 const password = passwords[0];
 const form = password.closest('form');
-if (!form) return {...result, form_present: false};
-const inputs = [...form.querySelectorAll('input')].filter(el => visible(el) && !el.disabled);
+const yuntuoDivLayout = provider === 'yuntuo' && !form;
+if (!form && !yuntuoDivLayout) return {...result, form_present: false};
+const root = form || document;
+const inputs = [...root.querySelectorAll('input')].filter(el => visible(el) && !el.disabled);
 const semantics = el => [el.name, el.id, el.type, el.autocomplete, el.placeholder,
   el.getAttribute('aria-label'), ...[...(el.labels || [])].map(label => label.innerText)].filter(Boolean).join(' ');
 const challenges = inputs.filter(el => /captcha|验证码|校验码|动态码|短信|一次性|one.time|otp/i.test(semantics(el)));
 const challengeFrames = [...document.querySelectorAll('iframe')].filter(el => visible(el) && /captcha|recaptcha|hcaptcha|challenge/i.test([el.src, el.title].join(' ')));
 const textInputs = inputs.filter(el => ['text', 'email', 'tel'].includes(el.type) && !challenges.includes(el));
-const namedUsers = textInputs.filter(el => /username|user.name|login|account|email|账号|帐号|用户名|邮箱/i.test(semantics(el)));
-const users = namedUsers.length ? namedUsers : textInputs;
-const buttons = [...form.querySelectorAll('button,input[type="submit"],input[type="button"]')].filter(el => visible(el) && !el.disabled &&
-  /^(登\s*录|login|log\s*in|sign\s*in)$/i.test((el.innerText || el.getAttribute('value') || '').trim()));
-return {...result, form_present: true, user_count: users.length, submit_count: buttons.length,
+const namedUsers = yuntuoDivLayout
+  ? textInputs.filter(el => el.placeholder === 'LOGIN_ACCOUNT')
+  : textInputs.filter(el => /username|user.name|login|account|email|账号|帐号|用户名|邮箱/i.test(semantics(el)));
+const users = yuntuoDivLayout ? namedUsers : (namedUsers.length ? namedUsers : textInputs);
+const buttons = [...root.querySelectorAll('button,input[type="submit"],input[type="button"]')].filter(el => visible(el) && !el.disabled &&
+  (yuntuoDivLayout ? el.type === 'button' && (el.innerText || '').trim() === 'LOGIN_LOGIN'
+    : /^(登\s*录|login|log\s*in|sign\s*in)$/i.test((el.innerText || el.getAttribute('value') || '').trim())));
+const exactPassword = !yuntuoDivLayout || password.placeholder === 'PASSWORD' ? password : null;
+let controlsGrouped = !yuntuoDivLayout;
+if (yuntuoDivLayout && users.length === 1 && buttons.length === 1 && exactPassword) {
+  let ancestor = exactPassword.parentElement;
+  for (let depth = 0; ancestor && depth < 8; depth++, ancestor = ancestor.parentElement) {
+    if (ancestor.contains(users[0]) && ancestor.contains(buttons[0])) { controlsGrouped = true; break; }
+  }
+}
+return {...result, form_present: Boolean(form), vendor_layout: yuntuoDivLayout ? 'yuntuo_div_controls' : null,
+  controls_grouped: controlsGrouped, user_count: users.length, submit_count: buttons.length,
   challenge_count: challenges.length + challengeFrames.length,
-  form_action: form.action, submit_action: buttons.length === 1 ? buttons[0].getAttribute('formaction') : null,
-  username: users.length === 1 ? users[0] : null, password, submit: buttons.length === 1 ? buttons[0] : null,
+  form_action: form ? form.action : null, submit_action: buttons.length === 1 ? buttons[0].getAttribute('formaction') : null,
+  username: users.length === 1 ? users[0] : null, password: exactPassword,
+  submit: buttons.length === 1 ? buttons[0] : null,
   errors: [...document.querySelectorAll('[role="alert"],.error-message,.alert-danger')]
     .filter(visible).map(el => el.innerText).join('\n').slice(0, 2000)};
 """
@@ -81,16 +96,19 @@ def _probe(driver, origin: str, provider: str) -> dict:
 
 def _evidence(probe: dict) -> dict:
     result = {key: probe[key] for key in ("form_present", "user_count", "submit_count",
-              "challenge_count", "authenticated", "company_names", "errors") if key in probe}
+              "challenge_count", "authenticated", "company_names", "errors", "vendor_layout",
+              "controls_grouped") if key in probe}
     if "password_count" in probe:
         result["protected_field_count"] = probe["password_count"]
     return result
 
 
-def _validate_form(probe: dict, origin: str, page_url: str) -> None:
+def _validate_form(probe: dict, origin: str, page_url: str, provider: str) -> None:
     if probe.get("challenge_count", 0):
         raise ValueError("Login requires human verification; observed form: " + diagnostic(_evidence(probe)))
-    if (probe.get("password_count") != 1 or probe.get("form_present") is not True
+    container_valid = probe.get("form_present") is True or (provider == "yuntuo"
+        and probe.get("vendor_layout") == "yuntuo_div_controls" and probe.get("controls_grouped") is True)
+    if (probe.get("password_count") != 1 or not container_valid
             or probe.get("user_count") != 1 or probe.get("submit_count") != 1
             or not all(probe.get(key) is not None for key in ("username", "password", "submit"))):
         raise ValueError("Login form is not uniquely identifiable: " + diagnostic(_evidence(probe)))
@@ -142,7 +160,7 @@ def run_private(request: dict) -> dict:
                 if provider == "yuntuo" and urlsplit(driver.current_url).path.rstrip("/") != spec["login_path"]:
                     raise ValueError("Expected the Yuntuo login page or authenticated query page; observed "
                                      + safe_url(driver.current_url))
-                _validate_form(initial, origin, driver.current_url)
+                _validate_form(initial, origin, driver.current_url, provider)
                 initial["username"].clear()
                 _guard(driver, origin)
                 initial["username"].send_keys(request["login_username"])
@@ -153,28 +171,21 @@ def run_private(request: dict) -> dict:
                 # Recheck origin, destination and uniqueness after framework
                 # updates. A replaced button is not silently substituted.
                 ready = _probe(driver, origin, provider)
-                _validate_form(ready, origin, driver.current_url)
+                _validate_form(ready, origin, driver.current_url, provider)
                 if ready["submit"] != initial["submit"]:
                     raise ValueError("Login submit element changed while entering credentials")
                 _guard(driver, origin)
                 result["login_attempted"] = True
                 initial["submit"].click()
                 last = initial
-                target_opened = False
-
                 def finished(_):
-                    nonlocal last, target_opened
+                    nonlocal last
                     last = _probe(driver, origin, provider)
-                    # Yuntuo may land on another authenticated route. Once the
-                    # verified login form has disappeared, navigate this same
-                    # vendor tab to the fixed query page and verify it there.
-                    if (provider == "yuntuo" and not target_opened and last.get("password_count") == 0
-                            and urlsplit(driver.current_url).path.rstrip("/") != spec["login_path"]
-                            and last.get("authenticated") is not True):
-                        target_opened = True
-                        driver.get(origin + spec["target_path"])
-                        last = _probe(driver, origin, provider)
-                    return last.get("authenticated") is True or bool(last.get("errors")) or bool(last.get("challenge_count"))
+                    yuntuo_unverified_landing = (provider == "yuntuo" and last.get("password_count") == 0
+                        and urlsplit(driver.current_url).path.rstrip("/") != spec["login_path"]
+                        and last.get("authenticated") is not True)
+                    return (last.get("authenticated") is True or bool(last.get("errors"))
+                            or bool(last.get("challenge_count")) or yuntuo_unverified_landing)
 
                 try:
                     WebDriverWait(driver, 20, poll_frequency=0.5).until(finished)

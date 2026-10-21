@@ -1246,9 +1246,11 @@ lxeskill logistics query --profile-id <同一配置UUID> --store-id <同一环�
 
 用户完成云驼配置后，在真实 LXE_Agent 会话调用 `logistics login`，Desktop 返回 `desktop_login_failed / Automatic login form support is not yet verified for this logistics provider`。配置 `ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5` 为启用的 `yuntuo`、revision 7；指定运行环境为 `aAxaFV0HptbSXkiuLiTFGQ==`。用户快照确认唯一云驼页为 `https://vip.yjtms.com:11000/viplogin`，标题“愿景征途物流平台”，唯一表单包含 `LOGIN_ACCOUNT`、`PASSWORD` 和 `LOGIN_LOGIN`；未提供或暴露密码。该失败发生在 Desktop 白名单，未进入 Selenium 表单执行器，不能解释为页面或凭据失败。
 
-现已将云驼加入 Desktop 私有登录通道及统一查询 auto 路由。执行器使用固定 `vip.yjtms.com`、HTTPS 11000 origin，只在 `/viplogin` 的唯一可见同源表单中提交一次配置凭据；验证码、歧义、跨源或未知同源页面均停止。登录直接到 `/customer/trackquery/` 时核验固定路径；若平台先落到其他同源已登录路由，则只在同一云驼标签页导航到固定查询页后核验。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
+现已将云驼加入 Desktop 私有登录通道及统一查询 auto 路由。首次实页运行在提交前停止：密码框数量为 1，但 `form_present=false`，证明旧执行器的原生 `<form>` 假设与页面不符，`login_attempted=false`，不代表密码或登录接口失败。用户随后提供真实登录区源码：Element UI 使用 div 布局，账号框为 `placeholder=LOGIN_ACCOUNT`，密码框为 `placeholder=PASSWORD`，登录按钮为 `type=button` 且文本 `LOGIN_LOGIN`，三者没有 `id/name` 或原生 form。
 
-本地定向验证覆盖云驼表单 ID、HTTPS/端口、固定登录及查询路径、单次凭据提交、登录后同页导航、未知页面停止、Desktop 私有 stdin 和统一 query 先登录后查询。真实凭据提交与云驼成功页尚未复验；重启加载本分支的 Desktop 后，先执行：
+执行器现按上述真实源码识别三个唯一、可见、启用且同组的控件，使用固定 `vip.yjtms.com`、HTTPS 11000 origin，只在 `/viplogin` 提交一次配置凭据；不依赖临时 `data-aid` 或 CSS 哈希属性。验证码、歧义、跨源、未知同源页面均停止。提交后只在实际到达 `/customer/trackquery/` 且密码框消失时判定成功；其他同源落点保留 URL 和实际证据后停止，不自行导航，等待补充真实落点。不会创建或替换其他标签页，不启动、重启或退出店铺，不导出密码、Cookie、token 或 sign。
+
+本地定向验证覆盖云驼真实 div 控件源码、HTTPS/端口、固定登录及查询路径、单次凭据提交、未核实落点停止、未知页面停止、Desktop 私有 stdin 和统一 query 先登录后查询。真实凭据提交与云驼成功页尚未复验；重启加载本分支的 Desktop 后，先执行：
 
 ```text
 lxeskill logistics login --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --store-id 'aAxaFV0HptbSXkiuLiTFGQ=='

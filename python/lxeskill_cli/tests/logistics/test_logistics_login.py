@@ -1,4 +1,4 @@
-"""Synthetic live-form scenarios, not a captured vendor login contract."""
+"""Synthetic NextSLS cases plus the user-supplied Yuntuo login DOM projection."""
 from contextlib import contextmanager
 import io
 import json
@@ -23,6 +23,13 @@ def form(**changes):
         "challenge_count": 0, "authenticated": False, "company_names": [], "errors": "",
         "form_action": ORIGIN + "/login", "submit_action": None,
         "username": Mock(), "password": Mock(), "submit": Mock(), **changes}
+
+
+def yuntuo_layout(**changes):
+    return {"password_count": 1, "form_present": False, "vendor_layout": "yuntuo_div_controls",
+        "controls_grouped": True, "user_count": 1, "submit_count": 1, "challenge_count": 0,
+        "authenticated": False, "company_names": [], "errors": "", "form_action": None,
+        "submit_action": None, "username": Mock(), "password": Mock(), "submit": Mock(), **changes}
 
 
 def fake_driver(monkeypatch, probes, *, origin=ORIGIN, page_path="/wos"):
@@ -83,7 +90,7 @@ def test_existing_console_is_reused_without_claiming_configured_identity(monkeyp
 
 
 def test_yuntuo_submits_verified_form_and_reaches_query_page(monkeypatch):
-    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+    initial = yuntuo_layout()
     final = {"authenticated": True, "password_count": 0, "company_names": []}
     driver, calls = fake_driver(monkeypatch, [initial, initial, final], origin=YUNTUO_ORIGIN, page_path="/viplogin")
     initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/trackquery/")
@@ -96,26 +103,38 @@ def test_yuntuo_submits_verified_form_and_reaches_query_page(monkeypatch):
     initial["submit"].click.assert_called_once()
 
 
-def test_yuntuo_opens_fixed_query_page_after_authenticated_landing(monkeypatch):
-    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+def test_yuntuo_unverified_landing_is_reported_without_navigation(monkeypatch):
+    initial = yuntuo_layout()
     landed = {"authenticated": False, "password_count": 0, "company_names": []}
-    final = {"authenticated": True, "password_count": 0, "company_names": []}
-    driver, calls = fake_driver(monkeypatch, [initial, initial, landed, final], origin=YUNTUO_ORIGIN, page_path="/viplogin")
+    driver, calls = fake_driver(monkeypatch, [initial, initial, landed], origin=YUNTUO_ORIGIN, page_path="/viplogin")
     initial["submit"].click.side_effect = lambda: setattr(driver, "current_url", YUNTUO_ORIGIN + "/customer/home/")
     result = worker.run_private(YUNTUO_REQUEST)
-    assert result["success"] and result["configured_login_submitted"]
-    assert ("get", YUNTUO_ORIGIN + "/customer/trackquery/") in calls
-    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/trackquery/"
+    assert not result["success"] and result["login_attempted"]
+    assert not any(call[0] == "get" for call in calls if isinstance(call, tuple))
+    assert result["page_url"] == YUNTUO_ORIGIN + "/customer/home/"
 
 
 def test_yuntuo_unknown_same_origin_page_stops_before_typing(monkeypatch):
-    initial = form(form_action=YUNTUO_ORIGIN + "/viplogin")
+    initial = yuntuo_layout()
     fake_driver(monkeypatch, [initial], origin=YUNTUO_ORIGIN, page_path="/customer/orders/")
     result = worker.run_private(YUNTUO_REQUEST)
     assert not result["success"] and not result["login_attempted"]
     assert "Expected the Yuntuo login page" in result["error"]["message"]
     initial["username"].send_keys.assert_not_called()
     initial["password"].send_keys.assert_not_called()
+
+
+@pytest.mark.parametrize("changes", [{"user_count": 0}, {"user_count": 2}, {"submit_count": 0},
+    {"submit_count": 2}, {"controls_grouped": False}, {"vendor_layout": "unknown"},
+    {"challenge_count": 1}])
+def test_yuntuo_source_layout_must_remain_unique_grouped_and_challenge_free(monkeypatch, changes):
+    initial = yuntuo_layout(**changes)
+    fake_driver(monkeypatch, [initial], origin=YUNTUO_ORIGIN, page_path="/viplogin")
+    result = worker.run_private(YUNTUO_REQUEST)
+    assert not result["success"] and not result["login_attempted"]
+    initial["username"].send_keys.assert_not_called()
+    initial["password"].send_keys.assert_not_called()
+    initial["submit"].click.assert_not_called()
 
 
 @pytest.mark.parametrize("changes", [{"password_count": 0}, {"password_count": 2}, {"form_present": False},
@@ -246,24 +265,31 @@ process.stdout.write(JSON.stringify(outputs));
     assert outputs[6]["authenticated"] is False
 
 
-def test_actual_form_probe_recognizes_yuntuo_ids_and_only_the_fixed_query_path():
+def test_actual_form_probe_recognizes_yuntuo_source_layout_and_only_the_fixed_query_path():
     bun = shutil.which("bun")
     assert bun
     script = r"""
 const input = await Bun.stdin.json();
 const output = [];
-const visible = {getClientRects: () => [1], disabled: false, autocomplete: '', placeholder: '', labels: [],
-  getAttribute: () => null};
 for (const path of ['/viplogin', '/customer/trackquery/', '/customer/home/']) {
-  const user = {...visible, type: 'text', name: 'LOGIN_ACCOUNT', id: 'LOGIN_ACCOUNT'};
-  const password = {...visible, type: 'password', name: 'PASSWORD', id: 'PASSWORD'};
-  const submit = {...visible, type: 'submit', name: 'LOGIN_LOGIN', id: 'LOGIN_LOGIN', innerText: '登录'};
-  const form = {action: 'https://vip.yjtms.com:11000/viplogin', querySelectorAll: q => q === 'input' ? [user, password] : [submit]};
-  password.closest = () => form;
+  const make = (type, placeholder = '', text = '') => ({type, placeholder, innerText: text,
+    name: '', id: '', autocomplete: 'off', labels: [], disabled: false, getClientRects: () => [1],
+    getAttribute: () => null, get value() { throw new Error('input value must never be read'); }});
+  const user = make('text', 'LOGIN_ACCOUNT');
+  const password = make('password', 'PASSWORD');
+  const submit = make('button', '', 'LOGIN_LOGIN\n                ');
+  const container = {parentElement: null, contains: element => [user, password, submit].includes(element)};
+  password.parentElement = container;
+  password.closest = () => null;
   globalThis.getComputedStyle = () => ({visibility: 'visible'});
   globalThis.location = {pathname: path};
-  globalThis.document = {body: {innerText: '愿景征途物流平台'}, querySelectorAll: q =>
-    q === 'input[type="password"]' ? (path === '/viplogin' ? [password] : []) : []};
+  globalThis.document = {body: {innerText: '欢迎登录愿景征途订单平台'}, querySelectorAll: q => {
+    if (q === 'input[type="password"]') return path === '/viplogin' ? [password] : [];
+    if (q === 'input') return [user, password];
+    if (q === 'iframe') return [];
+    if (q.startsWith('button,')) return [submit];
+    return [];
+  }};
   const result = new Function(input.script)('yuntuo');
   for (const key of ['username', 'password', 'submit']) delete result[key];
   output.push(result);
@@ -275,6 +301,8 @@ process.stdout.write(JSON.stringify(output));
     assert process.returncode == 0, process.stderr
     login, query_page, other = json.loads(process.stdout)
     assert login["user_count"] == login["password_count"] == login["submit_count"] == 1
+    assert login["form_present"] is False
+    assert login["vendor_layout"] == "yuntuo_div_controls" and login["controls_grouped"] is True
     assert not login["authenticated"]
     assert query_page["authenticated"] is True
     assert other["authenticated"] is False

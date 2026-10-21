@@ -127,7 +127,7 @@ lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-a
 lxeskill logistics yuntuo query --store-id <store_id> --fba <完整FBA>
 ```
 
-已保存凭据时可先执行 `lxeskill logistics login --profile-id <UUID> --store-id <store_id>`，或由统一查询默认 `auto` 登录。登录执行器只接受当前唯一 `vip.yjtms.com` 标签页：未登录时须为固定的 `https://vip.yjtms.com:11000/viplogin`，唯一可见账号框、密码框和登录按钮分别由实时语义识别；凭据仍只从 Desktop 私有 stdin 进入配对 Selenium。提交后若平台落到同源其他已登录路由，执行器在同一标签页导航到固定 `/customer/trackquery/`，并以该路径上密码框消失作为本阶段登录成功证据。验证码、多个表单、跨源、未知页面或实际错误均停止，不重试。该能力已有合成 DOM/driver 回归，真实云驼凭据提交及成功页仍须本次 LXE_Agent 实页验收。
+已保存凭据时可先执行 `lxeskill logistics login --profile-id <UUID> --store-id <store_id>`，或由统一查询默认 `auto` 登录。登录执行器只接受当前唯一 `vip.yjtms.com` 标签页：未登录时须为固定的 `https://vip.yjtms.com:11000/viplogin`。真实源码显示 Element UI 登录区没有原生 `<form>`，固定控件是 `placeholder=LOGIN_ACCOUNT` 的文本框、`placeholder=PASSWORD` 的密码框及文本为 `LOGIN_LOGIN` 的 `type=button`；执行器要求三者唯一、可见、启用且位于八层以内的同一控件组。凭据仍只从 Desktop 私有 stdin 进入配对 Selenium。提交后仅以实际到达固定 `/customer/trackquery/` 且密码框消失作为本阶段成功证据；其他落点原样报告并停止，不自行导航。验证码、结构歧义、跨源、未知页面或实际错误同样停止，不重试。真实控件源码已有回归，凭据提交后的实际落点仍须本次 LXE_Agent 实页验收。
 
 目标页面必须为 `https://vip.yjtms.com:11000/customer/trackquery/`，可带原有查询参数。页面未打开、域名匹配不唯一或账户不明时停止处理对应项；不替换其他标签页、不启动或重启店铺。`store_id` 沿用本次核实的真实值，不能照抄历史运行状态。
 
