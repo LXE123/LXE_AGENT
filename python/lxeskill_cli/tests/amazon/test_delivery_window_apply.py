@@ -3,12 +3,12 @@
 Two kinds of tests live here:
 
 - **Pure logic / HTML reads** — run against the real modal fixture
-  (``fixtures/delivery_window_modal.html``, git-ignored on purpose, so the tests
-  skip when it is absent).  Because the production read path is BeautifulSoup
+  (``fixtures/delivery_window_modal.sanitized.html``, committed with the tests).
+  Because the production read path is BeautifulSoup
   over ``page_source``, these tests exercise the *production* reader, not a
   mirror of it.
 - **Orchestration** — a scripted fake driver feeds the same HTML per stage and
-  records every injected script, so the stop gates (E1-E9) are proven by the
+  records every injected script, so the stop gates (E1-E10) are proven by the
   clicks that did **not** happen.
 """
 
@@ -21,10 +21,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from selenium.common.exceptions import WebDriverException
 
 from services.agent_cli.browser.amazon_fba import delivery_window_apply as dwa
 
-FIXTURE = Path(__file__).parent / "fixtures" / "delivery_window_modal.html"
+FIXTURE = Path(__file__).parent / "fixtures" / "delivery_window_modal.sanitized.html"
 
 SHIPMENT = "FBA19NDSQ2SK"
 SHIPMENT_B = "FBA19QT6571T"
@@ -48,8 +49,6 @@ def _fast_waits(monkeypatch):
 
 @pytest.fixture(scope="module")
 def modal_html() -> str:
-    if not FIXTURE.exists():
-        pytest.skip(f"夹具缺失（故意不入库）: {FIXTURE}")
     return FIXTURE.read_text(encoding="utf-8")
 
 
@@ -1383,6 +1382,8 @@ def test_readback_that_never_changes_reports_e8(tmp_path):
 
     entry = _entry(result)
     assert entry["failure_code"] == "E8"
+    assert entry["status"] == "pending_readback"
+    assert entry["readback_required"] is True
     assert "不是目标周" in entry["failure_detail"]
     assert driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
 
@@ -1529,3 +1530,181 @@ def test_run_wires_the_session_and_carries_a_real_exception(monkeypatch, tmp_pat
     )
     assert payload["success"] is False
     assert payload["exception"] == "RuntimeError: browser_session 没有提供 driver"
+
+
+def _run_entrypoint(monkeypatch, tmp_path, driver, *, shipment_ids=None, cleanup_error=False):
+    @contextmanager
+    def fake_session(**kwargs):
+        yield SimpleNamespace(driver=driver)
+        if cleanup_error:
+            raise WebDriverException("session cleanup failed")
+
+    original_run = dwa._run_shipments
+    monkeypatch.setenv("LXE_AGENT_SESSION_ID", "test-session")
+    monkeypatch.setattr(dwa, "browser_session", fake_session)
+    monkeypatch.setattr(dwa, "workflow_output_dir", lambda _: tmp_path)
+    monkeypatch.setattr(dwa, "_run_shipments", lambda driver, plan, **kwargs:
+                        original_run(driver, plan, now=NOW, **kwargs))
+    return dwa.run({"store_id": "store-1", "page_url": PAGE_URL,
+                    "shipment_ids": shipment_ids or [SHIPMENT],
+                    "target_date": TARGET_DATE_INPUT, "apply": True, "timeout_sec": 1})
+
+
+def test_driver_exception_keeps_applied_failed_and_unattempted_results(monkeypatch, tmp_path):
+    ids = [SHIPMENT, SHIPMENT_B, SHIPMENT_C]
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(sid, "0/10", CURRENT_WINDOW) for sid in ids]), shipment_ids=ids)
+    original_get = driver.get
+
+    def fail_second(url):
+        if f"/{SHIPMENT_B}/contents" in url:
+            # First result must already be durable when the next ticket starts.
+            audits = list(tmp_path.glob("amazon-delivery-window-apply-*.json"))
+            assert len(audits) == 1
+            saved = json.loads(audits[0].read_text())
+            assert saved["shipments"][0]["status"] == "applied"
+            raise WebDriverException("second shipment navigation failed")
+        original_get(url)
+
+    driver.get = fail_second
+    result = _run_entrypoint(monkeypatch, tmp_path, driver, shipment_ids=ids)
+    assert result["success"] is False
+    assert [entry["status"] for entry in result["data"]["shipments"]] == ["applied", "failed", "not_attempted"]
+    assert "WebDriverException" in result["exception"] and "second shipment navigation failed" in result["exception"]
+    artifact = json.loads(Path(result["file_path"][0]["value"]).read_text())
+    assert artifact["shipments"] == result["data"]["shipments"]
+
+
+@pytest.mark.parametrize("phase", ["confirm", "readback"])
+def test_post_submit_exception_requires_readback_and_keeps_audit(monkeypatch, tmp_path, phase):
+    class Driver(_ScriptedDriver):
+        @property
+        def page_source(self):
+            if phase == "readback" and self.state["applied"]:
+                raise WebDriverException("readback disconnected")
+            return super().page_source
+
+        def execute_script(self, script, *args):
+            if "dispatchClick" in script and args and args[0] == dwa.UPDATE_BUTTON_SELECTOR:
+                saved = json.loads(next(tmp_path.glob("amazon-delivery-window-apply-*.json")).read_text())
+                assert saved["shipments"][0]["status"] == "pending_readback"
+                assert saved["shipments"][0]["readback_required"] is True
+                result = super().execute_script(script, *args)
+                if phase == "confirm":
+                    raise WebDriverException("confirm response lost")
+                return result
+            return super().execute_script(script, *args)
+
+    driver = Driver(hub_cells=_hub_cells([(SHIPMENT, "0/10", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    result = _run_entrypoint(monkeypatch, tmp_path, driver)
+    entry = _entry(result)
+    assert result["success"] is False
+    assert entry["status"] == "pending_readback" and entry["readback_required"] is True
+    assert entry["confirmation_attempted"] is True
+    assert "WebDriverException" in entry["failure_detail"]
+    assert json.loads(Path(result["file_path"][0]["value"]).read_text())["shipments"][0] == entry
+    assert sum(click[0] == dwa.UPDATE_BUTTON_SELECTOR for click in driver.clicks) == 1
+
+
+@pytest.mark.parametrize("cancel_return", [False, True])
+def test_dry_run_requires_cancel_and_modal_closure(tmp_path, cancel_return):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "0/10", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    original_execute = driver.execute_script
+
+    def stuck_modal(script, *args):
+        if "dispatchClick" in script and args and args[0] == dwa.CANCEL_BUTTON_SELECTOR:
+            return cancel_return
+        return original_execute(script, *args)
+
+    driver.execute_script = stuck_modal
+    result = _run(driver, _plan(apply=False), tmp_path)
+    assert result["success"] is False and result["finished"] is False
+    entry = _entry(result)
+    assert entry["status"] == "failed" and entry["failure_code"] == "E10"
+    assert entry["dry_run_cancel_clicked"] is cancel_return
+    assert driver.state["modal_open"] is True
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_session_cleanup_error_does_not_discard_completed_results(monkeypatch, tmp_path):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "0/10", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    result = _run_entrypoint(monkeypatch, tmp_path, driver, cleanup_error=True)
+    assert result["success"] is False
+    assert _entry(result)["status"] == "applied"
+    assert result["file_path"] and "session cleanup failed" in result["exception"]
+
+
+def test_audit_write_failure_stops_before_confirm_and_keeps_progress(monkeypatch, tmp_path):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "0/10", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    write = dwa._write_artifact
+
+    def fail_on_submission(output_dir, payload, **kwargs):
+        if any(entry["status"] == "pending_readback" for entry in payload["shipments"]):
+            raise OSError("audit disk full")
+        return write(output_dir, payload, **kwargs)
+
+    monkeypatch.setattr(dwa, "_write_artifact", fail_on_submission)
+    result = _run_entrypoint(monkeypatch, tmp_path, driver)
+    assert result["success"] is False and "OSError: audit disk full" in result["exception"]
+    assert _entry(result)["status"] == "failed"
+    assert _entry(result)["confirmation_attempted"] is False
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+    assert result["file_path"]
+
+
+def test_persistent_audit_failure_after_success_keeps_result_and_stops(monkeypatch, tmp_path):
+    ids = [SHIPMENT, SHIPMENT_B]
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(sid, "0/10", CURRENT_WINDOW) for sid in ids]), shipment_ids=ids)
+    write = dwa._write_artifact
+
+    def disk_full_after_applied(output_dir, payload, **kwargs):
+        if payload["shipments"][0]["status"] == "applied":
+            raise OSError("disk full after first shipment")
+        return write(output_dir, payload, **kwargs)
+
+    monkeypatch.setattr(dwa, "_write_artifact", disk_full_after_applied)
+    result = _run_entrypoint(monkeypatch, tmp_path, driver, shipment_ids=ids)
+    assert result["success"] is False
+    assert [entry["status"] for entry in result["data"]["shipments"]] == ["applied", "not_attempted"]
+    assert result["data"]["audit_error"] == "OSError: disk full after first shipment"
+    saved = json.loads(Path(result["file_path"][0]["value"]).read_text())
+    assert saved["shipments"][0]["status"] == "pending_readback"
+    assert not any(f"/{SHIPMENT_B}/contents" in url for url in driver.opened)
+
+
+def test_initial_audit_failure_prevents_browser_actions(monkeypatch, tmp_path):
+    driver = _ScriptedDriver(hub_cells=[], shipment_ids=[SHIPMENT])
+
+    def fail(*args, **kwargs):
+        raise PermissionError("audit directory denied")
+
+    monkeypatch.setattr(dwa, "_write_artifact", fail)
+    result = _run_entrypoint(monkeypatch, tmp_path, driver)
+    assert result["success"] is False
+    assert _entry(result)["status"] == "not_attempted"
+    assert "PermissionError: audit directory denied" in result["exception"]
+    assert result["file_path"] == [] and driver.opened == []
+
+
+def test_atomic_audit_failure_leaves_last_complete_file(monkeypatch, tmp_path):
+    path = dwa._write_artifact(tmp_path, {"stage": "complete"})
+
+    def fail_replace(*args):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(dwa.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        dwa._write_artifact(tmp_path, {"stage": "new"}, target_path=path)
+    assert json.loads(Path(path).read_text()) == {"stage": "complete"}
+
+
+def test_hub_driver_exception_returns_unattempted_tickets_and_audit(monkeypatch, tmp_path):
+    driver = _ScriptedDriver(hub_cells=[], shipment_ids=[SHIPMENT])
+
+    def fail_get(url):
+        raise WebDriverException("hub navigation failed")
+
+    driver.get = fail_get
+    result = _run_entrypoint(monkeypatch, tmp_path, driver)
+    assert result["success"] is False and _entry(result)["status"] == "not_attempted"
+    assert "WebDriverException" in result["exception"] and "hub navigation failed" in result["exception"]
+    assert result["file_path"]

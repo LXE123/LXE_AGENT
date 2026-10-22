@@ -225,13 +225,20 @@ class ZiniaoBrowserClient:
             logger.info("[Ziniao] stop_browser skipped: local client API unavailable: %s", exc)
             self._client_ready = False
 
-    def get_browser_list(self) -> list[dict[str, Any]]:
-        self.open_client()
-        self._ensure_core_ready()
+    def get_browser_list(
+        self, *, allow_start: bool = True, allow_update: bool = False,
+    ) -> list[dict[str, Any]]:
+        # Reuse-only reads call the API directly: connection/authentication
+        # errors stay intact and cannot trigger startup or core downloads.
+        if allow_start:
+            self.open_client()
+        if allow_update:
+            self._ensure_core_ready()
         return [dict(item or {}) for item in list(self._client.get_browser_list() or [])]
 
-    def get_running_info(self) -> list[dict[str, Any]]:
-        self.open_client()
+    def get_running_info(self, *, allow_start: bool = True) -> list[dict[str, Any]]:
+        if allow_start:
+            self.open_client()
         return [dict(item or {}) for item in list(self._client.get_running_info() or [])]
 
 

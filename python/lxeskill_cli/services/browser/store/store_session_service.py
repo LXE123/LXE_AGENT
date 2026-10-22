@@ -59,11 +59,15 @@ class StoreSessionService:
         self._map = session_map or StoreSessionMap()
         self._browser = browser_client or ZiniaoBrowserClient()
 
-    def _browser_catalog(self) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]], dict[str, dict[str, Any]]]:
+    def _browser_catalog(self, *, reuse_only: bool = False) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]], dict[str, dict[str, Any]]]:
         entries: list[dict[str, Any]] = []
         by_id: dict[int, dict[str, Any]] = {}
         by_oauth: dict[str, dict[str, Any]] = {}
-        for item in self._browser.get_browser_list():
+        browsers = (
+            self._browser.get_browser_list(allow_start=False, allow_update=False)
+            if reuse_only else self._browser.get_browser_list()
+        )
+        for item in browsers:
             entry = _catalog_entry(item)
             entries.append(entry)
             browser_id = int(entry["browserId"] or 0)
@@ -325,12 +329,15 @@ class StoreSessionService:
     ) -> ZiniaoStoreSessionState:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
         trace_event("session.ensure.request", store_id=safe_browser_oauth, force_restart=force_restart)
-        _, catalog_by_id, catalog_by_oauth = self._browser_catalog()
+        _, catalog_by_id, catalog_by_oauth = self._browser_catalog(reuse_only=not start_if_missing)
         catalog_entry = catalog_by_oauth.get(safe_browser_oauth)
         if catalog_entry is None:
             trace_event("session.catalog.miss", level="error", store_id=safe_browser_oauth)
             raise RuntimeError(f"目标店铺不存在: {safe_browser_oauth}")
-        running_entries = self._browser.get_running_info()
+        running_entries = (
+            self._browser.get_running_info(allow_start=False)
+            if not start_if_missing else self._browser.get_running_info()
+        )
         running_summaries = self._normalized_running_summaries(
             catalog_by_id=catalog_by_id,
             catalog_by_oauth=catalog_by_oauth,

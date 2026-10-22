@@ -44,7 +44,7 @@ disabled, or unclickable, ``E7`` the calendar (month header unreadable, paging
 stuck, no day cell), ``E8`` the window read back after confirming is not the
 target week, ``E9`` the current delivery window is unreadable (or the modal
 shows a different window than the page did, which means the wrong shipment tab
-was open).
+was open), ``E10`` dry-run cancellation or modal closure failed.
 
 Argument contract (the catalog ``input_schema`` is the source of truth):
 
@@ -75,6 +75,7 @@ import json
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qs, urljoin, urlsplit
@@ -1729,6 +1730,8 @@ def _run_one_shipment(
     *,
     now: _dt.datetime,
     trail: _Trail,
+    entry: dict[str, Any] | None = None,
+    checkpoint: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     target_start, target_end = _plan_dates(plan)
     target_date = _dt.date.fromisoformat(str(plan["target_date"]))
@@ -1736,7 +1739,9 @@ def _run_one_shipment(
     origin = _origin(str(plan["page_url"]))
     detail_url = DETAIL_URL_TEMPLATE.format(origin=origin, shipment_id=shipment_id)
 
-    entry: dict[str, Any] = {
+    if entry is None:
+        entry = {}
+    entry.update({
         "fba_shipment_id": shipment_id,
         "status": "pending",
         "failure_code": "",
@@ -1745,7 +1750,7 @@ def _run_one_shipment(
         "target_date": target_date.isoformat(),
         "target_window": dict(plan["target_window"]),
         "steps": trail.entries,
-    }
+    })
 
     _open_tracking_detail(driver, detail_url=detail_url, timeout_seconds=timeout_seconds, trail=trail)
     tab = _select_shipment_tab(
@@ -1801,6 +1806,15 @@ def _run_one_shipment(
         cancelled = _click_selector(driver, CANCEL_BUTTON_SELECTOR)
         entry["dry_run_cancel_clicked"] = cancelled
         trail.note("dry-run 收尾", f"取消按钮点击={cancelled}（未点日历、未点确认）")
+        if not cancelled:
+            _fail("E10", "dry-run 取消按钮点击失败；编辑弹窗尚未确认关闭，停止后续货件")
+        closed = _wait_until(
+            lambda: not _selector_present(driver, MODAL_BODY_SELECTOR),
+            timeout_seconds=MODAL_CLOSE_TIMEOUT_SECONDS,
+        )
+        entry["dry_run_modal_closed"] = bool(closed)
+        if not closed:
+            _fail("E10", "dry-run 点击取消后编辑弹窗仍未关闭，停止后续货件")
         entry["status"] = "dry_run_ready"
         return entry
 
@@ -1838,9 +1852,22 @@ def _run_one_shipment(
             "E6",
             f"确认按钮（'{button['label']}'）仍是 disabled，日历选择大概没被页面接受；不点它",
         )
+    # Persist intent BEFORE dispatch. A disconnected response cannot prove
+    # whether Amazon accepted the click; only a subsequent read can do that.
+    entry.update(status="pending_readback", confirmation_attempted=True, readback_required=True)
+    if checkpoint is not None:
+        try:
+            checkpoint()
+        except Exception:
+            entry.update(status="failed", confirmation_attempted=False, readback_required=False)
+            raise
     if not _click_selector(driver, UPDATE_BUTTON_SELECTOR):
+        entry.update(confirmation_attempted=False, readback_required=False)
         _fail("E6", f"确认按钮（{UPDATE_BUTTON_SELECTOR}）点击失败")
+    entry["confirm_clicked"] = True
     trail.note("E6 已点确认", button["label"])
+    if checkpoint is not None:
+        checkpoint()
 
     applied_ok = _wait_until(
         lambda: window_matches(
@@ -1859,6 +1886,7 @@ def _run_one_shipment(
         )
     trail.note("E8 回读通过", f"applied='{applied_read['raw']}'")
     entry["status"] = "applied"
+    entry["readback_required"] = False
     return entry
 
 
@@ -2131,12 +2159,18 @@ def _write_artifact(
     payload: Mapping[str, Any],
     *,
     prefix: str = "amazon-delivery-window-apply",
+    target_path: str | Path | None = None,
 ) -> str:
     target_dir = Path(output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{prefix}-{int(time.time())}.json"
+    target = Path(target_path) if target_path else target_dir / f"{prefix}-{uuid.uuid4().hex}.json"
     serialized = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-    target.write_text(serialized, encoding="utf-8")
+    temporary = target.with_suffix(".tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        stream.write(serialized)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, target)
     return str(target.resolve())
 
 
@@ -2155,7 +2189,7 @@ def _run_shipments(
     output_dir: str | Path,
     now: _dt.datetime | None = None,
 ) -> dict[str, Any]:
-    """Walk the hub check, then every shipment in order.  Never raises for E1-E9."""
+    """Persist each ticket and submission boundary, including failure paths."""
     moment = now or _dt.datetime.now(_dt.timezone.utc)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=_dt.timezone.utc)
@@ -2163,7 +2197,42 @@ def _run_shipments(
     hub_trail = _Trail()
     hub: dict[str, Any] | None = None
     failure: _HardFailure | None = None
+    shipments: list[dict[str, Any]] = [
+        {"fba_shipment_id": shipment_id, "status": "not_attempted",
+         "failure_code": "", "failure_detail": "", "steps": [],
+         "confirmation_attempted": False, "readback_required": False}
+        for shipment_id in plan["shipment_ids"]
+    ]
+    artifact_path = ""
+    audit_error = ""
+
+    def persist() -> None:
+        nonlocal artifact_path, audit_error
+        payload = {
+            "store_id": plan["store_id"], "page_url": plan["page_url"],
+            "apply": bool(plan["apply"]), "target_date": plan["target_date"],
+            "target_window": plan["target_window"],
+            "requested_shipment_ids": list(plan["shipment_ids"]),
+            "hub": {"row_count": (hub or {}).get("row_count", 0),
+                    "rows": (hub or {}).get("rows", []),
+                    "duplicates": (hub or {}).get("duplicates", []),
+                    "steps": hub_trail.entries},
+            "shipments": shipments,
+            "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        }
+        try:
+            artifact_path = _write_artifact(output_dir, payload, target_path=artifact_path or None)
+        except Exception as exc:  # preserve progress even when the disk fails
+            audit_error = f"{type(exc).__name__}: {exc}"
+            raise _HardFailure("audit_write_failed", audit_error) from exc
+
+    def as_failure(exc: Exception) -> _HardFailure:
+        if isinstance(exc, _HardFailure):
+            return exc
+        return _HardFailure("browser_exception", f"{type(exc).__name__}: {exc}")
+
     try:
+        persist()
         navigation = dwl.navigate_to_page_if_needed(driver, str(plan["page_url"]))
         hub_trail.note(
             "列表页定位",
@@ -2185,33 +2254,26 @@ def _run_shipments(
                 f"货件列表页没有读到任何行（{SHIPMENT_HUB_CELL_SELECTOR}）；"
                 f"当前 URL: {getattr(driver, 'current_url', '')}",
             )
-    except _HardFailure as exc:
+    except Exception as exc:
         # The list page itself failed: nothing downstream can be trusted, and
         # every requested shipment stays untouched.
-        hub_trail.note(exc.code, exc.message)
-        failure = exc
+        failure = as_failure(exc)
+        hub_trail.note(failure.code, failure.message)
 
-    shipments: list[dict[str, Any]] = []
     for index, shipment_id in enumerate(plan["shipment_ids"]):
+        entry = shipments[index]
         if failure is not None:
             if index == 0:
                 detail = f"列表页阶段失败后未处理：{failure.code} {failure.message}"
             else:
                 detail = f"前一票 {plan['shipment_ids'][index - 1]} 失败后停止（{failure.code}）"
-            shipments.append(
-                {
-                    "fba_shipment_id": shipment_id,
-                    "status": "not_attempted",
-                    "failure_code": "",
-                    "failure_detail": detail,
-                    "steps": [],
-                }
-            )
+            entry["failure_detail"] = detail
             continue
 
         trail = _Trail()
-        entry: dict[str, Any]
+        entry.update(status="pending", steps=trail.entries)
         try:
+            persist()
             hub_trail.note(f"列表行匹配 {shipment_id}", "")
             row = hub["by_id"].get(shipment_id)
             if row is None:
@@ -2222,22 +2284,26 @@ def _run_shipments(
                     f"页面上的行: {candidates[:10]}{'…' if len(candidates) > 10 else ''}",
                 )
             hub_status = _require_hub_status(row, shipment_id, trail)
-            entry = _run_one_shipment(driver, plan, shipment_id, now=moment, trail=trail)
+            _run_one_shipment(driver, plan, shipment_id, now=moment, trail=trail,
+                              entry=entry, checkpoint=persist)
             entry["order_status"] = hub_status["order_status"]
             entry["unit_status"] = hub_status["unit_status"]
             entry["hub_window_text"] = row.get("delivery_window_text")
             entry["hub_order_status_cell_text"] = row.get("order_status_cell_text")
             entry["hub_unit_status_cell_text"] = row.get("unit_status_cell_text")
-        except _HardFailure as exc:
-            entry = {
-                "fba_shipment_id": shipment_id,
-                "status": "failed",
-                "failure_code": exc.code,
-                "failure_detail": exc.message,
-                "steps": trail.entries,
-            }
-            failure = exc
-        shipments.append(entry)
+            persist()
+        except Exception as exc:
+            failure = as_failure(exc)
+            # A failed audit after verified success does not undo that success.
+            if entry["status"] not in {"applied", "already_target", "dry_run_ready"}:
+                entry["status"] = "pending_readback" if entry.get("readback_required") else "failed"
+            entry.update(failure_code=failure.code, failure_detail=failure.message)
+            trail.note(failure.code, failure.message)
+
+    try:
+        persist()
+    except _HardFailure as exc:
+        failure = failure or exc
 
     statuses = [str(item.get("status")) for item in shipments]
     finished = failure is None and all(
@@ -2260,39 +2326,23 @@ def _run_shipments(
             + ("" if plan["apply"] else "；dry-run：未点日历、未点确认按钮")
         )
 
-    artifact_payload = {
-        "store_id": plan["store_id"],
-        "page_url": plan["page_url"],
-        "apply": bool(plan["apply"]),
-        "target_date": plan["target_date"],
-        "target_window": plan["target_window"],
-        "requested_shipment_ids": list(plan["shipment_ids"]),
-        "hub": {
-            "row_count": (hub or {}).get("row_count", 0),
-            "rows": (hub or {}).get("rows", []),
-            "duplicates": (hub or {}).get("duplicates", []),
-            "steps": hub_trail.entries,
-        },
-        "shipments": shipments,
-        "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-    }
-    artifact_path = _write_artifact(output_dir, artifact_payload)
-
     return {
         "success": failure is None,
         "finished": finished,
-        "exception": "" if failure is None else f"{failure.code}: {failure.message}",
+        "exception": ("" if failure is None else f"{failure.code}: {failure.message}")
+                     + (f"; audit_write_failed: {audit_error}" if audit_error and failure and failure.code != "audit_write_failed" else ""),
         "notice": notice,
-        "file_path": _artifact_entries(artifact_path),
+        "file_path": _artifact_entries(artifact_path) if artifact_path else [],
         "data": {
             "apply": bool(plan["apply"]),
             "dry_run": not bool(plan["apply"]),
             "target_date": plan["target_date"],
             "target_window": plan["target_window"],
             "shipments": shipments,
-            "hub_rows": hub["rows"],
-            "hub_duplicates": hub["duplicates"],
+            "hub_rows": (hub or {}).get("rows", []),
+            "hub_duplicates": (hub or {}).get("duplicates", []),
             "steps": hub_trail.entries,
+            "audit_error": audit_error,
         },
     }
 
@@ -2348,6 +2398,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             data={"plan": plan},
         )
 
+    result: dict[str, Any] | None = None
     try:
         output_dir = Path(workflow_output_dir(session_id))
         with browser_session(
@@ -2362,19 +2413,19 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 result = _run_discovery(driver, plan, output_dir=output_dir)
             else:
                 result = _run_shipments(driver, plan, output_dir=output_dir)
-    except _HardFailure as exc:
-        return _payload(
-            success=False,
-            finished=False,
-            exception=f"{exc.code}: {exc.message}",
-            data={"plan": plan},
-        )
     except Exception as exc:  # noqa: BLE001 - the payload must carry the real error
+        detail = f"{exc.code}: {exc.message}" if isinstance(exc, _HardFailure) else f"{type(exc).__name__}: {exc}"
+        data = dict(result["data"]) if result is not None else {}
+        data["plan"] = plan
+        if result is not None:
+            data["session_cleanup_error"] = detail
+            detail = "; ".join(item for item in [result.get("exception"), detail] if item)
         return _payload(
             success=False,
             finished=False,
-            exception=f"{type(exc).__name__}: {exc}",
-            data={"plan": plan},
+            exception=detail,
+            file_path=result["file_path"] if result is not None else [],
+            data=data,
         )
 
     result["data"]["plan"] = plan

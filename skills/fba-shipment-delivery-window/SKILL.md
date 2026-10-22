@@ -127,7 +127,9 @@ lxeskill fba shipment delivery-window --store-id <store_id> --page-url <page_url
 
 ## 失败处理
 
-- E1–E9 任一失败：停止并原样回传 `failure_code`、`failure_detail`、实际页面读数和 `exception`。
+- E1–E10 任一失败：停止并原样回传 `failure_code`、`failure_detail`、实际页面读数和 `exception`。E10 表示 dry-run 取消失败或弹窗未确认关闭，不能报告预演成功。
+- `status="pending_readback"` / `readback_required=true` 表示已进入提交阶段但结果尚未确认；停止写入，只在用户明确范围内先回读，不能直接重试提交。已 `applied` 的票继续报告成功，不因后续票异常而丢弃。
+- `audit_write_failed` 时停止后续处理，保留实际写盘异常及返回的逐票结果；附件可能只是最后一次成功保存的进度，不能将旧附件当成最终状态。
 - 多票请求中某票失败后，后续 `not_attempted` 不得另起命令补跑，除非用户重新明确要求。
 - 登录态、附着、店铺忙碌或页面结构异常：停止；不要自动重启店铺或改用其它浏览器自动化方案。
 - 写入后 `applied_window` 与目标周不一致属于 E8 高风险失败，必须明确说“未验证成功”，不得用乐观措辞。

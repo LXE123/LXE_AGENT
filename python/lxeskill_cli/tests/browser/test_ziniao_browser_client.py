@@ -258,8 +258,8 @@ def test_client_ready_prevents_repeated_prepare_across_api_methods(monkeypatch, 
     assert calls == []
     assert fake_client.calls == [
         "get_running_info",
-        "update_core",
         "get_browser_list",
+        "update_core",
         "start_browser:store-1",
         "get_running_info",
     ]
@@ -293,7 +293,7 @@ def test_stop_browser_and_close_client_do_not_start_when_api_unavailable(monkeyp
     assert fake_client.calls == ["get_running_info", "get_running_info"]
 
 
-def test_get_browser_list_updates_core_before_authenticated_request(monkeypatch, tmp_path):
+def test_get_browser_list_updates_core_only_when_explicitly_requested(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     monkeypatch.setattr(
         ziniao_browser_client.ZiniaoLifecycleManager,
@@ -308,7 +308,7 @@ def test_get_browser_list_updates_core_before_authenticated_request(monkeypatch,
     client._client = fake_client
     monkeypatch.setattr(ziniao_browser_client.time, "sleep", lambda _seconds: None)
 
-    assert client.get_browser_list() == []
+    assert client.get_browser_list(allow_update=True) == []
     assert fake_client.calls == [
         "get_running_info",
         "update_core",
@@ -345,9 +345,19 @@ def test_get_browser_list_does_not_restart_or_retry_on_auth_failure(monkeypatch,
     client._client = fake_client
 
     with pytest.raises(RuntimeError, match="-10003"):
-        client.get_browser_list()
+        client.get_browser_list(allow_update=True)
 
     assert fake_client.calls == ["get_running_info", "update_core"]
+
+
+def test_default_catalog_read_does_not_update_core(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(ziniao_browser_client.ZiniaoLifecycleManager, "resolve_client_pid",
+                        staticmethod(lambda *args, **kwargs: 1234))
+    client = ziniao_browser_client.ZiniaoBrowserClient()
+    client._client = FakeClient()
+    assert client.get_browser_list() == []
+    assert client._client.calls == ["get_running_info", "get_browser_list"]
 
 
 def test_update_core_sends_credentials_and_surfaces_auth_failure_once(monkeypatch):

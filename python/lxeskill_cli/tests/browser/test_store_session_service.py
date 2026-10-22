@@ -7,6 +7,8 @@ import pytest
 
 from shared.db.shared_state_dto import ZiniaoStoreSessionState
 from services.browser.store.store_session_service import StoreSessionService
+from services.browser.store.ziniao_browser_client import ZiniaoBrowserClient
+from services.browser.store.ziniao_client import ZiniaoClientError
 
 
 OPAQUE_STORE_ID = "imjUiB8rg/2uP9OIOP2uFw=="
@@ -90,12 +92,15 @@ class FakeBrowserClient:
         self.browser_list = list(browser_list)
         self.running_info = list(running_info)
         self.calls: list[tuple[str, str | None]] = []
+        self.read_policies: list[dict[str, Any]] = []
 
-    def get_browser_list(self):
+    def get_browser_list(self, **kwargs):
+        self.read_policies.append({"method": "catalog", **kwargs})
         self.calls.append(("get_browser_list", None))
         return [dict(item) for item in self.browser_list]
 
-    def get_running_info(self):
+    def get_running_info(self, **kwargs):
+        self.read_policies.append({"method": "running", **kwargs})
         self.calls.append(("get_running_info", None))
         return [dict(item) for item in self.running_info]
 
@@ -219,6 +224,41 @@ def test_ensure_store_session_reuse_only_stops_when_running_info_is_incomplete()
         service.ensure_store_session(OPAQUE_STORE_ID, start_if_missing=False)
 
     assert ("start_browser", OPAQUE_STORE_ID) not in browser.calls
+    assert browser.read_policies == [
+        {"method": "catalog", "allow_start": False, "allow_update": False},
+        {"method": "running", "allow_start": False},
+    ]
+
+
+@pytest.mark.parametrize("failed_method", [None, "catalog", "running"])
+def test_reuse_only_propagates_to_real_client_without_lifecycle_calls(monkeypatch, failed_method):
+    class Api:
+        def get_browser_list(self):
+            if failed_method == "catalog":
+                raise ZiniaoClientError("actual catalog connection failure")
+            return [_catalog_entry()]
+
+        def get_running_info(self):
+            if failed_method == "running":
+                raise ZiniaoClientError("actual running-info connection failure")
+            return [{"browserOauth": OPAQUE_STORE_ID}]
+
+    client = ZiniaoBrowserClient.__new__(ZiniaoBrowserClient)
+    client._client = Api()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("reuse-only must not open, prepare, launch or update the client")
+
+    monkeypatch.setattr(client, "open_client", forbidden)
+    monkeypatch.setattr(client, "_ensure_core_ready", forbidden)
+    session_map = FakeStoreSessionMap([_state()])
+    service = StoreSessionService(session_map=session_map, browser_client=client)
+    if failed_method:
+        expected = "actual catalog connection failure" if failed_method == "catalog" else "actual running-info connection failure"
+        with pytest.raises(ZiniaoClientError, match=expected):
+            service.ensure_store_session(OPAQUE_STORE_ID, start_if_missing=False)
+    else:
+        assert service.ensure_store_session(OPAQUE_STORE_ID, start_if_missing=False) is session_map.get(OPAQUE_STORE_ID)
 
 
 def test_list_store_status_still_matches_running_store_by_numeric_browser_id() -> None:
