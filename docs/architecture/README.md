@@ -17,7 +17,7 @@ flowchart TB
     E["Electron<br/>用户入口 · 桌面界面 · Main / Gateway"]
     A["agentcli<br/>Agent Harness"]
     L["lxeskillCLI<br/>业务命令行工具"]
-    K["LibreOffice Kit 0.1.5<br/>转换 · 渲染 · 公式重算"]
+    K["LibreOffice Kit<br/>转换 · 渲染 · 公式重算"]
 
     E <-->|"JSON-RPC 2.0"| A
     E -->|"调用暴露的业务命令"| L
