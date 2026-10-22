@@ -66,15 +66,13 @@ Skill 是供模型读取的指引。实际执行由被调用的工具或程序�
 
 ### 共享 Office 引擎
 
-项目通过 `@deepseek-ai/libreoffice-kit` 使用 LibreOffice 的文档处理能力，并将其作为运行依赖随应用分发。当前有三类调用：
+项目通过 `@deepseek-ai/libreoffice-kit` 使用 LibreOffice 的文档转换、渲染和公式重算能力，并将其作为运行依赖随应用分发。
 
-- Electron 通过 Kit 的 Node API，为侧边栏预览将 Word、PPT 转换为 PDF。
-- 模型根据 Office Skill，通过 `exec` 直接调用 Kit CLI，按需转换、渲染或重算文件。
-- lxeskillCLI 通过内部适配调用 Kit CLI，完成业务所需的文件处理，例如重算越南备货的 Excel 文件。
+Kit 提供 **Node API** 和 **CLI** 两种接口，分别供程序代码和终端命令调用。各模块使用哪种接口，见上方架构图。
 
-Node API 和 CLI 是同一个 Kit 提供的两种调用接口。
+调用方负责业务逻辑、输入文件、产出文件和结果处理；Kit 负责执行文档处理操作。
 
-Office 引擎负责文件处理；调用方管理输入、产出和执行结果，Electron 管理可重建的预览缓存。侧边栏的 Excel 只读预览使用 FortuneSheet，具体机制见 [Electron 模块介绍#侧边栏与文件预览](electron.md#侧边栏与文件预览)。
+Electron 的具体预览方式与缓存管理，见 [Electron 模块介绍](electron.md)中的“侧边栏与文件预览”和“文件服务”。
 
 ## 5. 模块介绍
 
