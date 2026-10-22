@@ -1,6 +1,6 @@
 ---
 name: fba-logistics-query
-description: 选择已配置物流账号，通过统一入口查询完整 FBA；威飒已有真实登录证据，天泰与云驼受控登录待实页验收，飞沃复用原登录态，九方走独立匿名查询。取得运单、尾程承运人和转单号，衔接 UPS/FedEx；货代日期不作为改期依据。
+description: 选择已配置物流账号，通过统一入口查询完整 FBA；威飒已有真实登录证据，天泰与云驼受控登录待实页验收，飞沃可直接查询、不要求先登录，九方走独立匿名查询。取得运单、尾程承运人和转单号，衔接 UPS/FedEx；货代日期不作为改期依据。
 type: ziniao_browser
 commands:
   - lxeskill logistics profiles
@@ -31,7 +31,7 @@ lxeskill logistics query --profile-id <UUID> --store-id <运行中的环境ID> -
 
 `authenticated` 只表示读到受控的已登录控制台特征；`login_attempted` 表示本次是否提交了登录；`configured_login_submitted=true` 表示本次提交配置中的凭据并读到控制台。当前表单证据尚不能权威核验登录用户名，`profile_identity_verified=false`，不能宣称当前公司属于所选配置。无论新登录还是 `status=already_authenticated`，先用真实快照核对公司，再传 `--account-name` 明确查询；公司候选只作诊断，不使用旧配置公司名或登录账号代替，也不自动退出当前账号。
 
-`--login-mode reuse` 可明确只复用当前登录态；不改变查询的 origin、账户可见性、完整 FBA 检查。云驼已按真实登录页证据接入固定表单，实页提交仍待验收；飞沃统一入口现阶段只复用原有查询页。九方匿名统一查询见独立技能。自动登录不查询尾程 ETA，也不修改物流订单或 Amazon。
+`--login-mode reuse` 可明确只复用当前登录态；不改变查询的 origin、账户可见性、完整 FBA 检查。云驼已按真实登录页证据接入固定表单，实页提交仍待验收；飞沃统一入口使用原有查询页，可直接查询，不要求先登录或先调用 `logistics login`，不列自动登录待办。九方匿名统一查询见独立技能。自动登录不查询尾程 ETA，也不修改物流订单或 Amazon。
 
 2026-10-21 用户回传：威飒实际提交配置凭据并进入控制台，随后本次快照确认“深圳市新棱镜贸易有限公司”，再以同一配置、`--login-mode reuse` 统一查询 `FBA19SS5YN6R`，于 `03:40:51Z` 精确命中 `WS10027586 / SMF3 / UPS / 1ZH910550314112374`，HTTP/业务成功、分页完整、仓库一致、无 warnings/missing_fields。证据为用户摘要，不是已归档的完整 terminal JSON 或登录表单 fixture；不扩大为默认 auto 单命令新登录、其他账户、天泰或验证码场景通过。本票无需重复同阶段验收。后续 UPS 页面仅取得部分状态文本；文本截断时，未取得 ETA 不等于已经确认完整页面无 ETA，也不阻断已满足条件的业务顺延建议。
 
@@ -68,7 +68,7 @@ lxeskill logistics wesa query --store-id <store_id> --account-name '<公司账�
 - `account_visible=true` 只表示指定公司全名存在于当前可见文本，不能替代上一步对当前公司账户的人工/页面核对，也不证明长期账户归属。
 - `queried_at` 为本次 UTC 查询时间。列表不包含已经核实的 ETA/实际签收时间，不用下单时间或页签代替。
 
-失败时保留并转述脱敏后的实际 `data.error` 和 HTTP/业务诊断。登录失效、验证或结构异常时停止，交由用户恢复；不执行马帮 `auth refresh`，不自动重试、重启或切换账户。桌面物流商配置保存登录账号和加密密码，不再要求填写公司名称。查询需要的 `account_name` 从本次实际页面核对取得，不能使用登录账号或旧配置中的公司名代替。独立供应商命令继续只复用现有登录态；登录检查由上述统一入口或 `logistics login` 完成，不能把凭据保存当作登录已通过。
+失败时保留并转述脱敏后的实际 `data.error` 和 HTTP/业务诊断。登录失效、验证或结构异常时停止，交由用户恢复；不执行马帮 `auth refresh`，不自动重试、重启或切换账户。桌面物流商配置保存登录账号和加密密码，不再要求填写公司名称。查询需要的 `account_name` 从本次实际页面核对取得，不能使用登录账号或旧配置中的公司名代替。独立供应商命令继续遵守各自的浏览器查询约束；需要登录的供应商由上述统一入口或 `logistics login` 检查，不能把凭据保存当作登录已通过。飞沃直接查询，无需登录凭据或登录检查。
 
 查询不授权修改订单、原表或 Amazon；后续改期沿用专用 Amazon 技能的建议、批准和回读流程。
 
@@ -96,7 +96,7 @@ lxeskill logistics tiantai query --store-id <store_id> --account-name '<当前�
 
 # 飞沃运通单票查询
 
-在 LXE_Agent 真实执行会话中，先按 `ziniao-browser` 检查指定店铺运行状态，再读取当前唯一飞沃页面：
+飞沃可直接查询，不要求登录凭据或已登录状态。现有命令仍通过 LXE_Agent 真实执行会话及官方配对 Selenium 查询；先按 `ziniao-browser` 检查指定店铺运行状态，再读取当前唯一飞沃页面：
 
 ```text
 lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host feichi.nextsls.com --full
