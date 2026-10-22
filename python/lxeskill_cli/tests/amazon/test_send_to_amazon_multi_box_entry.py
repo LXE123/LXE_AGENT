@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import send_to_amazon_multi_box as multi_box
+from services.commands.browser.amazon_common import send_to_amazon_multi_box as multi_box
 
 
 class _FakeSession:

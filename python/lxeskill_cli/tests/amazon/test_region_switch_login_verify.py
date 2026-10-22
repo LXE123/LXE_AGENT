@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import region_switch
+from services.commands.browser.amazon_common import region_switch
 
 
 class _Driver:

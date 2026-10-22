@@ -152,7 +152,7 @@ def test_download_preserves_web_identity_and_missing_local_sku_without_official_
 
 @pytest.mark.parametrize("existing", [False, True])
 def test_catalog_later_page_failure_has_no_publication_or_auth_retry(monkeypatch, tmp_path, existing):
-    from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.commands.mabang import download_store_msku_excel as cli
     from services.mabang.amazon.fba import sku_catalog
 
     calls = mock_pages(monkeypatch)

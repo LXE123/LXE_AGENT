@@ -7,9 +7,9 @@ import pytest
 
 from lxeskill import cli
 from lxeskill.business import load_catalog
-from services.agent_cli._shared.report_names import BRAZIL_REPORTS, YACANG_REPORTS, public_reports
-from services.agent_cli.yacang import export_run as yacang
-from services.agent_cli.mabang import brazil_overseas_export as brazil
+from services.commands._shared.report_names import BRAZIL_REPORTS, YACANG_REPORTS, public_reports
+from services.commands.yacang import export_run as yacang
+from services.commands.mabang import brazil_overseas_export as brazil
 
 CASES = [('yacang_export_run',
   'yacang export run',

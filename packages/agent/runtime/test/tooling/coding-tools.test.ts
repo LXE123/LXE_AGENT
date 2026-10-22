@@ -422,7 +422,7 @@ describe("native coding tools", () => {
     }
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, { execShell: new FixtureShell() });
-    const commands = ["python -m lxeskill list", "python -m services.agent_cli.demo",
+    const commands = ["python -m lxeskill list", "python -m services.commands.demo",
       "lxeskill demo run && echo done", "lxeskill demo run > report.txt", "cd . && lxeskill list"];
     try {
       for (const command of commands) {

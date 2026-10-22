@@ -10,9 +10,9 @@ from urllib.parse import quote
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.mabang import erp_purchase_batch as erp
-from services.agent_cli.mabang import fill_purchase_contracts as contract_cli
-from services.agent_cli.mabang import generate_purchase_batch_workbooks as cli
+from services.commands.mabang import erp_purchase_batch as erp
+from services.commands.mabang import fill_purchase_contracts as contract_cli
+from services.commands.mabang import generate_purchase_batch_workbooks as cli
 
 
 def _write_delivery_csv(
@@ -1933,7 +1933,7 @@ def test_contract_download_is_safe_deliverable_and_retry_restores_missing_file(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from services.agent_cli.mabang import erp_http
+    from services.commands.mabang import erp_http
 
     calls: list[str] = []
     encoded_name = quote("../../正飞合同?.xlsx", safe="")

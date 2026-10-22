@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.agent_cli.mabang import build_amazon_restock_inventory_snapshot as cli
+from services.commands.mabang import build_amazon_restock_inventory_snapshot as cli
 from services.mabang.amazon.fba.amazon_restock_inventory import (
     AmazonRestockInventorySnapshotResult,
     AmazonRestockInventoryValidationSummary,
@@ -91,7 +91,7 @@ def test_replenishment_amazon_restock_inventory_snapshot_skill_contract() -> Non
     assert "按顺序放入 `paths`" in guide
     assert "不要读取、不要解析、不要复述截图内容" in guide
     assert "lxeskill replenish inventory restock-snapshot-build" in text
-    assert "services.agent_cli" not in text
+    assert "services.commands" not in text
     assets = [
         "../assets/amazon_restock_inventory_download_step_1_menu.jpg",
         "../assets/amazon_restock_inventory_download_step_2_report_menu.jpg",

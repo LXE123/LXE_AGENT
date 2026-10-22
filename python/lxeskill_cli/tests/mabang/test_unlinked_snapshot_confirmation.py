@@ -8,7 +8,7 @@ from zipfile import ZipFile
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.mabang import download_store_unlinked_shipments as cli
+from services.commands.mabang import download_store_unlinked_shipments as cli
 from services.mabang.amazon.fba import unlinked_shipments as ship
 from services.mabang.amazon.fba import store_msku_replenishment as rep
 from test_mabang_store_msku_replenishment import _write_inventory_report, _write_sales_report

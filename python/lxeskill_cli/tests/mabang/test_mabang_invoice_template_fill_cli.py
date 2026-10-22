@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.agent_cli.mabang import fill_invoice_template as cli
+from services.commands.mabang import fill_invoice_template as cli
 
 
 def _write_input_workbook(

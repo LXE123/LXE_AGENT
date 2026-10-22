@@ -300,12 +300,12 @@ describe("ExecShellAdapter", () => {
 
   test("passes business modules through while validating Python launcher versions", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
-    expect(shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))
-      .toBe("'/work/.venv/bin/python' -m services.agent_cli.demo");
-    expect(shell.normalizeCommand("/work", "cd . && python -m services.agent_cli.demo"))
-      .toBe("cd . && python -m services.agent_cli.demo");
-    expect(shell.normalizeCommand("/work", "echo services.agent_cli.demo"))
-      .toBe("echo services.agent_cli.demo");
+    expect(shell.normalizeCommand("/work", "python -m services.commands.demo"))
+      .toBe("'/work/.venv/bin/python' -m services.commands.demo");
+    expect(shell.normalizeCommand("/work", "cd . && python -m services.commands.demo"))
+      .toBe("cd . && python -m services.commands.demo");
+    expect(shell.normalizeCommand("/work", "echo services.commands.demo"))
+      .toBe("echo services.commands.demo");
     expect(shell.normalizeCommand("/work", "(Get-Command lxeskill).Source"))
       .toBe("(Get-Command lxeskill).Source");
     expect(shell.normalizeCommand("/work", "where lxeskill"))

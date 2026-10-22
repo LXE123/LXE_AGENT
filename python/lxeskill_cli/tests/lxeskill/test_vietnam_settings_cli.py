@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 
 from lxeskill import cli
 from lxeskill.business import load_catalog
-from services.agent_cli.vietnam_replenishment import settings as command
+from services.commands.vietnam_replenishment import settings as command
 from services.vietnam_replenishment import settings
 from services.vietnam_replenishment.full_workbook import UNCHANGED
 

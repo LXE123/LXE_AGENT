@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import login_verify
+from services.commands.browser.amazon_common import login_verify
 from services.browser.workflows import amazon_fba_login_verify
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
 

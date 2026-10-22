@@ -256,7 +256,7 @@ def test_download_listing_deadline_cancels_without_publication(monkeypatch, tmp_
 
 
 def test_download_cli_business_error_does_not_request_cookie_refresh(monkeypatch):
-    from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.commands.mabang import download_store_msku_excel as cli
     async def failure(*args, **kwargs):
         raise OfficialApiError('sid=401403', 'HTTP 401 upstream actual-denial')
     monkeypatch.setattr(cli, 'download_store_msku_excel', failure)

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.browser.amazon_fba.step2_excel_fill import _read_source_data, fill_multi_box_step2_template
+from services.commands.browser.amazon_fba.step2_excel_fill import _read_source_data, fill_multi_box_step2_template
 from services.browser.workflows.amazon_fba_prepare_multi_box_excel import (
     _weight_capped_notice,
     extract_box_count_from_consignment_excel,

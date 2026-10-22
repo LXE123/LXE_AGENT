@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.agent_cli.browser.amazon_fba import _shared as fba_shared
+from services.commands.browser.amazon_fba import _shared as fba_shared
 from shared import workspace
 from shared.repository import repository_root
 
