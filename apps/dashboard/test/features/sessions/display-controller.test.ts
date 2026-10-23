@@ -148,3 +148,31 @@ test("a nonoverlapping latest replacement invalidates pagination from its former
   expect(c.completeHistory(obsolete,page(10,20),"newer")).toBe(false);
   expect(c.getSnapshot().detail!.messages[0]!.display_group_id).toBe("g50");
 });
+
+test("opening a run before latest history arrives stays detached and retains a target", () => {
+  const c = new ConversationDisplayController(); c.select("s");
+  const latest = c.beginHistory();
+  const target = c.beginTargetHistory();
+  const old = history([saved("old")]);
+  old.messages_page.has_next = true; old.messages_page.next_cursor = "g";
+  expect(c.openHistory(old, "turn", target)).toBe(true);
+  expect(c.getSnapshot().following).toBe(false);
+  expect(c.getSnapshot().connection).toBe("detached");
+  expect(c.getSnapshot().historyTarget?.turnId).toBe("turn");
+  expect(c.completeHistory(latest, history([saved("latest")]), "latest")).toBe(false);
+  expect(c.getSnapshot().detail?.messages[0]?.client_message_id).toBe("old");
+  c.jumpToLatest();
+  expect(c.getSnapshot().following).toBe(true); expect(c.getSnapshot().historyTarget).toBeUndefined();
+});
+
+test("a run response cannot replace a newer navigation, jump or run request", () => {
+  const c = setup(), old = history([saved("old")]);
+  let ticket = c.beginTargetHistory();
+  c.select("other"); c.select("s");
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  ticket = c.beginTargetHistory(); c.jumpToLatest();
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  ticket = c.beginTargetHistory(); const next = c.beginTargetHistory();
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  expect(c.openHistory(old, "turn", next)).toBe(true);
+});

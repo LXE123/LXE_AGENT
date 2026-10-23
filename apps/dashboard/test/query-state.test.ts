@@ -176,6 +176,7 @@ describe("Dashboard Query state", () => {
         "models",
         "skills",
         "tools",
+        "automations",
       ],
       session_ids: [],
     });

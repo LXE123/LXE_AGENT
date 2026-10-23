@@ -44,7 +44,7 @@ for (const suite of ["workspace-deletion", "session-titles", "conversation-conte
       expect(line, `Renderer did not report completed scenarios\n${stdout}\n${stderr}`).toBeDefined();
       const report = JSON.parse(line!.slice("LXE_BEHAVIOR_RESULT=".length));
       expect(report.suite).toBe(suite);
-      expect(report.passed).toHaveLength({ "workspace-deletion": 7, "session-titles": 5, "conversation-content": 4, "conversation-window": 6, "dashboard-pages": 9, "overview-pages": 3, "home-page": 3, "workbench-details": 3, markdown: 7, "session-workspace": 9, "app-actions": 7, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 10, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8 }[suite]);
+      expect(report.passed).toHaveLength({ "workspace-deletion": 7, "session-titles": 5, "conversation-content": 4, "conversation-window": 7, "dashboard-pages": 9, "overview-pages": 3, "home-page": 3, "workbench-details": 3, markdown: 7, "session-workspace": 9, "app-actions": 7, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 10, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8 }[suite]);
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null) { child.kill(); await child.exited; }

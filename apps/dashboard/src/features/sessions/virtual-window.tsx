@@ -7,8 +7,9 @@ import type { ConversationRow } from "./presentation";
 import { useUiText } from "../../shared/i18n";
 import "./conversation-theme.css";
 
-export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, jumpVersion = 0, retryLatest = false }: {
+export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, followingIntent = true, historyTarget, jumpVersion = 0, retryLatest = false }: {
   connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
+  followingIntent?: boolean; historyTarget?: { turnId: string; version: number };
   rows: ConversationRow[]; renderRow: (row: ConversationRow) => React.ReactNode;
   hasOlder: boolean; hasNewer: boolean; loadOlder: () => Promise<unknown>; loadNewer: () => Promise<unknown>;
   jumpToLatest: () => void; onVisibleGroups: (groups: string[]) => void; pageError: string; empty?: React.ReactNode;
@@ -17,13 +18,16 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const root = useRef<HTMLDivElement>(null);
   const initial = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
-  const followIntent = useRef(true);
+  const followIntent = useRef(followingIntent);
   const alignmentFrame = useRef<number | undefined>(undefined);
   const readingVersion = useRef(0);
   const manualAnchor = useRef<{id: string; offset: number; bottom: boolean} | undefined>(undefined);
   const busy = useRef(false);
   const retryDirection = useRef<"older" | "newer">("older");
-  const [following, setFollowing] = useState(true);
+  const [following, setFollowing] = useState(followingIntent);
+  const [allowPagination, setAllowPagination] = useState(true);
+  const paginationAllowed = useRef(true);
+  const releasePagination = () => { paginationAllowed.current = true; setAllowPagination(true); };
   const [loading, setLoading] = useState(false);
   const [hoveredAnswer, setHoveredAnswer] = useState<string>();
   const [focusedAnswer, setFocusedAnswer] = useState<string>();
@@ -94,10 +98,14 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     manualAnchor.current = undefined;
     cancelAlignment();
     updateFollowing(true);
+    releasePagination();
     virtual.setOptions({ ...virtual.options, scrollEndThreshold: 80 });
     scheduleAlignment();
   };
-  const scrollInput = useScrollFollowInput(root, connection === "attached" && !hasNewer, stopFollowing, resumeFollowing);
+  const scrollInput = useScrollFollowInput(root, connection === "attached" && !hasNewer, stopFollowing, resumeFollowing, releasePagination);
+  useLayoutEffect(() => {
+    if (!followingIntent) stopFollowing();
+  }, [followingIntent]);
   useLayoutEffect(() => {
     if (jumpVersion) { scrollInput.clear(); resumeFollowing(); }
   }, [jumpVersion, updateFollowing]);
@@ -168,6 +176,26 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     return () => cancelAnimationFrame(frame);
     // Content-only renders must not cancel restoration between measurement frames.
   }, [structureKey, virtual]);
+  useLayoutEffect(() => {
+    if (!historyTarget) return;
+    stopFollowing();
+    scrollInput.clear();
+    manualAnchor.current = undefined;
+    // Opening a run is a reading destination. Do not page through it until the
+    // user scrolls, even when its short content fits entirely inside the viewport.
+    paginationAllowed.current = false;
+    setAllowPagination(false);
+    const index = rows.findIndex(row => row.turnId === historyTarget.turnId);
+    const version = readingVersion.current;
+    let frame = 0, passes = 0;
+    const restore = () => {
+      if (readingVersion.current !== version) return;
+      virtual.scrollToIndex(Math.max(0, index), { align: "start" });
+      if (++passes < 3) frame = requestAnimationFrame(restore);
+    };
+    restore();
+    return () => cancelAnimationFrame(frame);
+  }, [historyTarget?.version, virtual]);
   const items = virtual.getVirtualItems();
   const visibleIds = items.filter((item) => item.end >= (virtual.scrollOffset ?? 0)
     && item.start <= (virtual.scrollOffset ?? 0) + (root.current?.clientHeight ?? 0)).map((item) => rows[item.index]!.groupId);
@@ -182,12 +210,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   }, [loadOlder, loadNewer]);
   useEffect(() => {
     const el = root.current;
-    if (!el || loading || pageError) return;
+    if (!el || loading || pageError || !paginationAllowed.current) return;
     if (!rows.length) { if (hasOlder) void load("older"); return; }
     if (!initial.current) return;
     if (el.scrollTop <= 120 && hasOlder && !following) void load("older");
     else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && hasNewer) void load("newer");
-  }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length]);
+  }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length, allowPagination]);
   return <div className="conversation-scroll-area">
     <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} tabIndex={0}
       {...scrollInput.handlers}

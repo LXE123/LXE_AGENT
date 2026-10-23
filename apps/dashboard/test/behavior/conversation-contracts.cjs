@@ -107,6 +107,26 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       const result=await js("JSON.parse(document.querySelector('#query-result').textContent)");
       assert.equal(result.actual,'race-second'); assert.equal(result.oldest,'g990');
     });
+    await step('opening historical runs before latest arrives pins the target until user scrolls',async()=>{
+      win.setSize(1000,700);
+      await win.loadURL(new URL('../features/sessions/window-fixture.html?run-history=1',url).href);
+      await waitFor("Boolean(document.querySelector('#run-state'))",'run fixture');
+      const read=()=>js("JSON.parse(document.querySelector('#run-state').textContent)");
+      await textClick('Open short run'); await settle();
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      assert.ok(await js("Boolean(document.querySelector('[data-display-group=g100]'))"));
+      await textClick('Refresh latest'); await settle();
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      await click('.conversation-jump-latest');
+      await waitFor("JSON.parse(document.querySelector('#run-state').textContent).following",'explicit jump resumes following');
+      assert.ok(await js("Boolean(document.querySelector('[data-display-group=g999]'))"));
+      await textClick('Open long run'); await settle(); await settle();
+      const offset=await js("document.querySelector('[data-display-group=g105]').getBoundingClientRect().top-document.querySelector('.conversation-transcript').getBoundingClientRect().top");
+      assert.ok(Math.abs(offset)<3,`target run is anchored at the top: ${offset}`);
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      await js("{const root=document.querySelector('.conversation-transcript');root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:800}));root.scrollTop=root.scrollHeight;root.dispatchEvent(new Event('scroll'))}");
+      await waitFor("JSON.parse(document.querySelector('#run-state').textContent).newer>0",'user scroll enables pagination');
+    });
     await step('compaction stays between streamed content and scrolls normally in every theme',async()=>{
       const fixture=new URL('../features/sessions/window-fixture.html?compaction=1',url).href;
       await win.loadURL(fixture);

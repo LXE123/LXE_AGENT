@@ -233,6 +233,7 @@ export class DashboardService {
   private readonly skillCatalog: SkillCatalog;
   private readonly userSkillFiles: UserSkillFiles;
   private readonly handlers: AgentDashboardRpcHandlers = {
+    "sessions.turn.lookup": input => this.options.store.lookupTurn(input.session_id, input.turn_id),
     "sessions.create": input => {
       const registration = this.options.store.getWorkspace(input.workspace_id) ?? rpcError("not_found", "workspace not found");
       const workspace = resolveWorkspaceContext(registration.directory);
@@ -404,6 +405,7 @@ export class DashboardService {
         limit: integer(input.message_limit, 10, 1, 200),
         ...(input.message_before === undefined ? {} : { before: input.message_before }),
         ...(input.message_after === undefined ? {} : { after: input.message_after }),
+        ...(input.message_turn_id === undefined ? {} : { turnId: input.message_turn_id }),
       });
     } catch (error) {
       if (error instanceof InvalidTranscriptCursorError) rpcError("invalid_argument", error.message);

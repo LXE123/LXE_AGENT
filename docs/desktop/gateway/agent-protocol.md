@@ -123,3 +123,7 @@ runtime host 和会话存储为内存 fixture。HTTP 仅用于验收页面桥接
 不调用模型、不读写生产数据库。退出 fixture 服务会关闭子进程。
 
 该 fixture 验证消息、展示交接和取消；原生 IPC 与窗口行为另用 Electron fixture。问题卡片的真实窗口验收入口见 [结构化提问](../../harness/runtime/tools/ask-user-question.md#验证)。
+
+## 定时任务相关接口
+
+桌面协议版本提升至 26。`automations.*` 由 Electron 处理，Agent dashboard 入口明确拒绝；`sessions.turn.lookup` 由 Agent 返回某个 session/turn 的事实状态。`sessions.detail` 可用 `message_turn_id` 定位历史窗口，它与前后分页游标互斥。具体调度、MCP 与存储约定见 [定时任务](../automations.md)。

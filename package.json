@@ -22,6 +22,7 @@
     "dashboard:build": "bun run --cwd apps/dashboard build",
     "cds:preview": "bun scripts/cds-gallery.ts preview",
     "cds:check": "bun scripts/cds-gallery.ts check",
+    "cds:check:automations": "bun scripts/cds-automations.ts",
     "cds:docs": "bun scripts/cds-gallery.ts docs",
     "agent-cli:build": "bun run --cwd apps/agent-cli build",
     "agent-cli:compile": "bun run --cwd apps/agent-cli compile",

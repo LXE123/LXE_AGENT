@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
     "@larksuiteoapi/node-sdk": "1.70.0",
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
+    "rrule": "2.8.1",
     "yaml": "2.8.1"
   },
   "devDependencies": {
