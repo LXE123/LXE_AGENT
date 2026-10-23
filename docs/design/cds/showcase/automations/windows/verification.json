@@ -1,39 +1,48 @@
 {
   "status": "passed",
-  "verifiedAt": "2026-10-23T12:02:05.584Z",
+  "verifiedAt": "2026-10-23T14:56:35.480Z",
   "sourceHashFormat": "sha256-utf8-lf",
   "sourceHashes": {
-    "apps/dashboard/src/features/automations/AutomationsPage.tsx": "46d5f9a1c907795d86a1a7d7278991dbc185e7518ecc9d7805919923cce4cf52",
-    "apps/dashboard/src/features/automations/theme.css": "9eca25eb6ae0d5b0897be71203388d4edcbfd667138324b83c916a30f21d457b",
+    "apps/dashboard/src/features/automations/AutomationsPage.tsx": "f19a8ffc6f069fdd8fd1710914da03c77bc7efccfc0f9c819edd4e34f46310dc",
+    "apps/dashboard/src/features/automations/theme.css": "c2c10795a46bcb43e863ef539e5f113e46e602a52439be0bbd07325de1cbd684",
     "apps/dashboard/src/shared/cds-theme.css": "0b3a5d60e91fb47eb6fac86ecbbae653db58b7ee9fad738a6c90994ed4cb78a4",
     "apps/dashboard/src/styles.css": "983932403ca91cfd7294271e18655ea0e1eddfdb0b609af69aec310a813f208c",
-    "apps/dashboard/test/features/automations/fixture.tsx": "b4099016a8c664fb47d5edc05c12ad9ec2de3add599e93b9932344f5c988c96e",
+    "apps/dashboard/src/main.tsx": "71b07018b6a535024abbde9314f5fdd40c492a62b55dadd91fad4b7488bffcdc",
+    "apps/dashboard/src/features/capabilities/theme.css": "f0e361ba796191510e0f5adf289dbf28b770fc3ef2ed0da4cdf3dfd3887ea1e0",
+    "apps/dashboard/src/shared/navigation-rail.css": "4b1b912f5fba40250e337f3817250ce07d99194b3207091382b1ebb0509e7074",
+    "apps/dashboard/test/behavior/renderer.tsx": "65e5b82ed13e9f979e8d8c72785cb15b39e7323da029020e567b5bfc2ec8310f",
+    "apps/dashboard/test/features/automations/fixture.tsx": "3bc81f707b283545b12196ee2ed5320300c2b62ebb6335b57b716240cf7c8cd6",
     "apps/dashboard/test/features/automations/fixture-server.ts": "97bb07fcd92272868f1692512bd279394b0eb172b838a4fb402bb5a4d1907da5",
-    "apps/dashboard/test/features/automations/cds-runner.cjs": "1846c3b4afd66021454b1efeb8104116d6f52fac39165760d363431cac8aab60",
-    "scripts/cds-automations.ts": "9cf7ab7dca1f640b4f83751f3eb6967480c0747b30c2ff24c49db199bfcd9b24"
+    "apps/dashboard/test/features/automations/cds-runner.cjs": "b306da7df3b5294337912a00caf9e1d50a82450186feb52cd868bb5ddfaa4bd6",
+    "scripts/cds-automations.ts": "aa6d89870846f6bc7e8fc406eae6046bc785c263dee2aecdeb7e3be364488d78"
   },
   "platform": "win32",
   "arch": "x64",
+  "surface": "desktop-shell",
   "passed": [
+    "light: real desktop shell fills content bounds and aligns title with Capabilities",
     "light: field hover/focus, editable search and filtered empty state",
     "light: row selection persists through hover/focus and switches on click",
     "light: modal surface/backdrop, autofocus, focus containment and reverse tab wrap",
     "light: native validation/error precedence/correction, radio keyboard group, select/textarea focus, Escape restores opener",
     "light: delete confirmation preserves quiet danger semantics",
     "light: offline explanation, disabled button ignores hover/click and Tab skips it",
-    "light: empty view has one primary action",
+    "light: full-page empty view has one create action and no inactive list/filter",
+    "light: first creation reveals both panes and last deletion restores full-page empty view",
     "light: loading does not show empty invitation",
     "light: real fixture error retained, no false empty state",
     "light: save failure retains diagnostic and allows correction",
     "light: pending request explains disabled controls, preserves hover colors, prevents dismissal and restores editing",
     "light: 390px page and dialog do not overflow; footer reachable by keyboard",
+    "dark: real desktop shell fills content bounds and aligns title with Capabilities",
     "dark: field hover/focus, editable search and filtered empty state",
     "dark: row selection persists through hover/focus and switches on click",
     "dark: modal surface/backdrop, autofocus, focus containment and reverse tab wrap",
     "dark: native validation/error precedence/correction, radio keyboard group, select/textarea focus, Escape restores opener",
     "dark: delete confirmation preserves quiet danger semantics",
     "dark: offline explanation, disabled button ignores hover/click and Tab skips it",
-    "dark: empty view has one primary action",
+    "dark: full-page empty view has one create action and no inactive list/filter",
+    "dark: first creation reveals both panes and last deletion restores full-page empty view",
     "dark: loading does not show empty invitation",
     "dark: real fixture error retained, no false empty state",
     "dark: save failure retains diagnostic and allows correction",
@@ -41,6 +50,36 @@
     "dark: 390px page and dialog do not overflow; footer reachable by keyboard"
   ],
   "measurements": [
+    {
+      "theme": "light",
+      "state": "desktop shell alignment",
+      "title": {
+        "x": 89.1875,
+        "y": 72,
+        "width": 88,
+        "font": "22px",
+        "weight": "600",
+        "line": "33px"
+      },
+      "reference": {
+        "x": 89.1875,
+        "y": 72,
+        "width": 898.8125,
+        "font": "22px",
+        "weight": "600",
+        "line": "33px"
+      },
+      "shell": {
+        "left": 53.1875,
+        "right": 1024,
+        "bottom": 768,
+        "navRight": 53.1875,
+        "width": 1024,
+        "height": 768,
+        "background": "rgb(255, 255, 255)",
+        "padding": "0px"
+      }
+    },
     {
       "theme": "light",
       "state": "field/default",
@@ -331,8 +370,8 @@
     },
     {
       "theme": "light",
-      "state": "primary/default",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/default",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
         "selected": "rgba(11, 11, 11, 0.1)",
@@ -343,14 +382,14 @@
         "popover": "rgb(255, 255, 255)",
         "accent": "rgb(24, 79, 149)"
       },
-      "background": "rgb(24, 79, 149)",
-      "color": "rgb(255, 255, 255)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(0, 0, 0, 0)",
+      "color": "rgb(11, 11, 11)",
+      "border": "rgba(11, 11, 11, 0.1)",
       "shadow": "none",
-      "outline": "rgb(255, 255, 255) none 3px",
+      "outline": "rgb(11, 11, 11) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": false,
       "disabled": false,
@@ -359,12 +398,12 @@
       "selected": "rgb(11 11 11 / 10%)",
       "field": "rgb(255 255 255 / 50%)",
       "disabledInk": "rgb(11 11 11 / 40%)",
-      "placeholder": "rgb(255, 255, 255)"
+      "placeholder": "rgb(11, 11, 11)"
     },
     {
       "theme": "light",
-      "state": "primary/hover",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/hover",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
         "selected": "rgba(11, 11, 11, 0.1)",
@@ -375,14 +414,14 @@
         "popover": "rgb(255, 255, 255)",
         "accent": "rgb(24, 79, 149)"
       },
-      "background": "rgb(18, 62, 119)",
-      "color": "rgb(255, 255, 255)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(11, 11, 11, 0.05)",
+      "color": "rgb(11, 11, 11)",
+      "border": "rgba(11, 11, 11, 0.1)",
       "shadow": "none",
-      "outline": "rgb(255, 255, 255) none 3px",
+      "outline": "rgb(11, 11, 11) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": false,
@@ -391,12 +430,12 @@
       "selected": "rgb(11 11 11 / 10%)",
       "field": "rgb(255 255 255 / 50%)",
       "disabledInk": "rgb(11 11 11 / 40%)",
-      "placeholder": "rgb(255, 255, 255)"
+      "placeholder": "rgb(11, 11, 11)"
     },
     {
       "theme": "light",
-      "state": "primary/pressed",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/pressed",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
         "selected": "rgba(11, 11, 11, 0.1)",
@@ -407,14 +446,14 @@
         "popover": "rgb(255, 255, 255)",
         "accent": "rgb(24, 79, 149)"
       },
-      "background": "rgb(18, 62, 119)",
-      "color": "rgb(255, 255, 255)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(11, 11, 11, 0.1)",
+      "color": "rgb(11, 11, 11)",
+      "border": "rgba(11, 11, 11, 0.1)",
       "shadow": "none",
-      "outline": "rgb(255, 255, 255) none 3px",
+      "outline": "rgb(11, 11, 11) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": false,
@@ -423,7 +462,7 @@
       "selected": "rgb(11 11 11 / 10%)",
       "field": "rgb(255 255 255 / 50%)",
       "disabledInk": "rgb(11 11 11 / 40%)",
-      "placeholder": "rgb(255, 255, 255)"
+      "placeholder": "rgb(11, 11, 11)"
     },
     {
       "theme": "light",
@@ -908,7 +947,7 @@
     {
       "theme": "light",
       "state": "button/disabled",
-      "selector": ".automations-header .automation-primary",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
         "selected": "rgba(11, 11, 11, 0.1)",
@@ -925,8 +964,8 @@
       "shadow": "none",
       "outline": "rgba(11, 11, 11, 0.4) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": false,
       "disabled": true,
@@ -940,7 +979,7 @@
     {
       "theme": "light",
       "state": "button/disabled+hover",
-      "selector": ".automations-header .automation-primary",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
         "selected": "rgba(11, 11, 11, 0.1)",
@@ -957,8 +996,8 @@
       "shadow": "none",
       "outline": "rgba(11, 11, 11, 0.4) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": true,
@@ -971,7 +1010,7 @@
     },
     {
       "theme": "light",
-      "state": "empty/secondary action",
+      "state": "empty/primary action",
       "selector": ".automation-empty button",
       "expected": {
         "field": "rgba(255, 255, 255, 0.5)",
@@ -983,13 +1022,13 @@
         "popover": "rgb(255, 255, 255)",
         "accent": "rgb(24, 79, 149)"
       },
-      "background": "rgba(0, 0, 0, 0)",
-      "color": "rgb(11, 11, 11)",
-      "border": "rgba(11, 11, 11, 0.1)",
+      "background": "rgb(24, 79, 149)",
+      "color": "rgb(255, 255, 255)",
+      "border": "rgba(0, 0, 0, 0)",
       "shadow": "none",
-      "outline": "rgb(11, 11, 11) none 3px",
+      "outline": "rgb(255, 255, 255) none 3px",
       "opacity": "1",
-      "width": 124,
+      "width": 105,
       "height": 36,
       "focus": false,
       "hover": false,
@@ -999,7 +1038,7 @@
       "selected": "rgb(11 11 11 / 10%)",
       "field": "rgb(255 255 255 / 50%)",
       "disabledInk": "rgb(11 11 11 / 40%)",
-      "placeholder": "rgb(11, 11, 11)"
+      "placeholder": "rgb(255, 255, 255)"
     },
     {
       "theme": "light",
@@ -1021,7 +1060,7 @@
       "shadow": "none",
       "outline": "rgb(180, 35, 24) none 3px",
       "opacity": "1",
-      "width": 952,
+      "width": 1154.8125,
       "height": 46.09375,
       "focus": false,
       "hover": false,
@@ -1387,6 +1426,36 @@
     },
     {
       "theme": "dark",
+      "state": "desktop shell alignment",
+      "title": {
+        "x": 89.1875,
+        "y": 72,
+        "width": 88,
+        "font": "22px",
+        "weight": "600",
+        "line": "33px"
+      },
+      "reference": {
+        "x": 89.1875,
+        "y": 72,
+        "width": 1154.8125,
+        "font": "22px",
+        "weight": "600",
+        "line": "33px"
+      },
+      "shell": {
+        "left": 53.1875,
+        "right": 1280,
+        "bottom": 1000,
+        "navRight": 53.1875,
+        "width": 1280,
+        "height": 1000,
+        "background": "rgb(26, 26, 25)",
+        "padding": "0px"
+      }
+    },
+    {
+      "theme": "dark",
       "state": "field/default",
       "selector": "input[aria-label='搜索定时任务']",
       "expected": {
@@ -1675,8 +1744,8 @@
     },
     {
       "theme": "dark",
-      "state": "primary/default",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/default",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
         "selected": "rgba(255, 255, 255, 0.15)",
@@ -1687,14 +1756,14 @@
         "popover": "rgb(35, 35, 34)",
         "accent": "rgb(109, 167, 236)"
       },
-      "background": "rgb(109, 167, 236)",
-      "color": "rgb(11, 11, 11)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(0, 0, 0, 0)",
+      "color": "rgb(245, 244, 237)",
+      "border": "rgba(255, 255, 255, 0.1)",
       "shadow": "none",
-      "outline": "rgb(11, 11, 11) none 3px",
+      "outline": "rgb(245, 244, 237) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": false,
       "disabled": false,
@@ -1703,12 +1772,12 @@
       "selected": "rgb(255 255 255 / 15%)",
       "field": "rgb(255 255 255 / 5%)",
       "disabledInk": "rgb(255 255 255 / 40%)",
-      "placeholder": "rgb(11, 11, 11)"
+      "placeholder": "rgb(245, 244, 237)"
     },
     {
       "theme": "dark",
-      "state": "primary/hover",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/hover",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
         "selected": "rgba(255, 255, 255, 0.15)",
@@ -1719,14 +1788,14 @@
         "popover": "rgb(35, 35, 34)",
         "accent": "rgb(109, 167, 236)"
       },
-      "background": "rgb(146, 191, 242)",
-      "color": "rgb(11, 11, 11)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(255, 255, 255, 0.05)",
+      "color": "rgb(245, 244, 237)",
+      "border": "rgba(255, 255, 255, 0.1)",
       "shadow": "none",
-      "outline": "rgb(11, 11, 11) none 3px",
+      "outline": "rgb(245, 244, 237) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": false,
@@ -1735,12 +1804,12 @@
       "selected": "rgb(255 255 255 / 15%)",
       "field": "rgb(255 255 255 / 5%)",
       "disabledInk": "rgb(255 255 255 / 40%)",
-      "placeholder": "rgb(11, 11, 11)"
+      "placeholder": "rgb(245, 244, 237)"
     },
     {
       "theme": "dark",
-      "state": "primary/pressed",
-      "selector": ".automations-header .automation-primary",
+      "state": "create/pressed",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
         "selected": "rgba(255, 255, 255, 0.15)",
@@ -1751,14 +1820,14 @@
         "popover": "rgb(35, 35, 34)",
         "accent": "rgb(109, 167, 236)"
       },
-      "background": "rgb(146, 191, 242)",
-      "color": "rgb(11, 11, 11)",
-      "border": "rgba(0, 0, 0, 0)",
+      "background": "rgba(255, 255, 255, 0.15)",
+      "color": "rgb(245, 244, 237)",
+      "border": "rgba(255, 255, 255, 0.1)",
       "shadow": "none",
-      "outline": "rgb(11, 11, 11) none 3px",
+      "outline": "rgb(245, 244, 237) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": false,
@@ -1767,7 +1836,7 @@
       "selected": "rgb(255 255 255 / 15%)",
       "field": "rgb(255 255 255 / 5%)",
       "disabledInk": "rgb(255 255 255 / 40%)",
-      "placeholder": "rgb(11, 11, 11)"
+      "placeholder": "rgb(245, 244, 237)"
     },
     {
       "theme": "dark",
@@ -2252,7 +2321,7 @@
     {
       "theme": "dark",
       "state": "button/disabled",
-      "selector": ".automations-header .automation-primary",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
         "selected": "rgba(255, 255, 255, 0.15)",
@@ -2269,8 +2338,8 @@
       "shadow": "none",
       "outline": "rgba(255, 255, 255, 0.4) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": false,
       "disabled": true,
@@ -2284,7 +2353,7 @@
     {
       "theme": "dark",
       "state": "button/disabled+hover",
-      "selector": ".automations-header .automation-primary",
+      "selector": ".automation-create",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
         "selected": "rgba(255, 255, 255, 0.15)",
@@ -2301,8 +2370,8 @@
       "shadow": "none",
       "outline": "rgba(255, 255, 255, 0.4) none 3px",
       "opacity": "1",
-      "width": 105,
-      "height": 36,
+      "width": 97,
+      "height": 32,
       "focus": false,
       "hover": true,
       "disabled": true,
@@ -2315,7 +2384,7 @@
     },
     {
       "theme": "dark",
-      "state": "empty/secondary action",
+      "state": "empty/primary action",
       "selector": ".automation-empty button",
       "expected": {
         "field": "rgba(255, 255, 255, 0.05)",
@@ -2327,13 +2396,13 @@
         "popover": "rgb(35, 35, 34)",
         "accent": "rgb(109, 167, 236)"
       },
-      "background": "rgba(0, 0, 0, 0)",
-      "color": "rgb(245, 244, 237)",
-      "border": "rgba(255, 255, 255, 0.1)",
+      "background": "rgb(109, 167, 236)",
+      "color": "rgb(11, 11, 11)",
+      "border": "rgba(0, 0, 0, 0)",
       "shadow": "none",
-      "outline": "rgb(245, 244, 237) none 3px",
+      "outline": "rgb(11, 11, 11) none 3px",
       "opacity": "1",
-      "width": 124,
+      "width": 105,
       "height": 36,
       "focus": false,
       "hover": false,
@@ -2343,7 +2412,7 @@
       "selected": "rgb(255 255 255 / 15%)",
       "field": "rgb(255 255 255 / 5%)",
       "disabledInk": "rgb(255 255 255 / 40%)",
-      "placeholder": "rgb(245, 244, 237)"
+      "placeholder": "rgb(11, 11, 11)"
     },
     {
       "theme": "dark",
@@ -2365,7 +2434,7 @@
       "shadow": "none",
       "outline": "rgb(242, 142, 133) none 3px",
       "opacity": "1",
-      "width": 1208,
+      "width": 1154.8125,
       "height": 46.09375,
       "focus": false,
       "hover": false,
@@ -2731,22 +2800,26 @@
     }
   ],
   "screenshots": [
+    "reference-light.png",
     "editor-light.png",
     "page-light.png",
     "empty-light.png",
+    "empty-narrow-light.png",
     "error-light.png",
     "narrow-light.png",
     "narrow-editor-light.png",
+    "reference-dark.png",
     "editor-dark.png",
     "page-dark.png",
     "empty-dark.png",
+    "empty-narrow-dark.png",
     "error-dark.png",
     "narrow-dark.png",
     "narrow-editor-dark.png"
   ],
   "errors": [],
   "limitations": [
-    "本机 Electron，生产页面配合内存数据和模拟执行；未连接账号或执行真实任务。",
+    "本机 Electron 加载完整桌面布局和生产页面，接口配合内存数据和模拟执行；未连接账号或执行真实任务，不代表安装包验收。",
     "原生日期、选择器、单选框保留系统渲染；验收只覆盖报告记录的平台。",
     "不代表全站 CDS、全量读屏或触屏审计。"
   ]

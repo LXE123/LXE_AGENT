@@ -23,6 +23,7 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
   const [deleting, setDeleting] = useState(false);
   const query = useQuery({ queryKey: ["automations", "list"], queryFn: () => automationActions.list(), refetchInterval: 15_000 });
   const items = query.data?.items ?? [];
+  const empty = query.isSuccess && items.length === 0;
   const visible = items.filter(item => (filter === "all" || item.status === filter) && `${item.name} ${item.prompt}`.toLowerCase().includes(search.toLowerCase()));
   const task = visible.find(item => item.id === selected) ?? visible[0];
   const runs = useQuery({ queryKey: ["automations", "runs", task?.id], queryFn: () => automationActions.runs(task!.id), enabled: ready && !!task, refetchInterval: 5_000 });
@@ -31,15 +32,17 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
     setPending(true); setError("");
     try { await action(); await refresh(); } catch (cause) { setError(queryError(cause)); } finally { setPending(false); }
   }
-  return <section className="automations-page automations-theme">
-    <header className="automations-header"><div><h1>定时任务</h1><p>到时间，让 Agent 在对话中继续工作。</p></div><button className="automation-primary" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16} />新建任务</button></header>
+  return <section className="automations-page">
+    <header className="automations-header"><h1>定时任务</h1>{!empty && <button className="automation-create" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16} />新建任务</button>}</header>
     {!ready && <p id="automation-availability" className="automation-notice" role="status">Agent 尚未就绪，恢复连接后继续调度。应用退出期间不会执行任务。</p>}
     {(error || query.error) && <p className="automation-error" role="alert">{error || queryError(query.error)}</p>}
-    <div className="automations-body"><aside className="automations-list" aria-label="任务列表">
+    {empty ? <div className="automation-empty automation-empty-start"><Clock3 size={28} aria-hidden="true"/><h2>暂无定时任务</h2><p>设置时间和提示词，让 Agent 按计划开始或继续对话。</p><button className="automation-create automation-primary" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16}/>新建任务</button></div>
+    : !items.length ? (query.isPending ? <div className="automation-loading" role="status">正在加载定时任务…</div> : null)
+    : <div className="automations-body"><aside className="automations-list" aria-label="任务列表">
       <input aria-label="搜索定时任务" placeholder="搜索任务" value={search} onChange={event => { setSearch(event.target.value); setDeleting(false); }} />
       <select aria-label="任务状态筛选" value={filter} onChange={event => { setFilter(event.target.value); setDeleting(false); }}><option value="all">全部任务</option><option value="active">已启用</option><option value="paused">已暂停</option><option value="finished">计划已结束</option></select>
       {query.isPending ? <p className="automation-muted" role="status">正在加载…</p> : visible.map(item => <button key={item.id} className={`automation-row ${task?.id === item.id ? "selected" : ""}`} aria-pressed={task?.id === item.id} onClick={() => { select(item.id); setDeleting(false); setError(""); }}><span><strong>{item.name}</strong><small>{statuses[item.status]}</small></span><span className="automation-row-time">{item.status === "active" ? date(item.next_run_at, item.timezone) : item.target.mode === "reuse" ? "沿用对话" : "每次新建对话"}</span></button>)}
-      {!query.isPending && !query.error && !visible.length && <p className="automation-muted">{items.length ? "没有匹配的任务" : "还没有定时任务"}</p>}
+      {!visible.length && <p className="automation-muted">没有匹配的任务</p>}
     </aside><div className="automation-detail">
       {task ? <>
         <div className="automation-detail-heading"><div><span className="automation-eyebrow">{task.target.mode === "reuse" ? "沿用对话" : "每次新建对话"} · {statuses[task.status]}</span><h2>{task.name}</h2></div><button aria-label="编辑任务" disabled={!ready || pending} onClick={() => setEditor(task)}><Pencil size={16} /></button></div>
@@ -59,9 +62,9 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
           {["running", "waiting_input", "waiting_approval"].includes(run.execution_state) && <button disabled={!ready || pending} onClick={() => void act(() => sessionActions.stop(run.session_id, run.turn_id))}>停止</button>}
           <button disabled={!ready || pending} onClick={() => void act(async () => { const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 }); await onOpenSession(detail.session, run.turn_id); })}>打开对话<ArrowUpRight size={14}/></button>
         </div></li>)}</ol>
-      </> : query.isPending ? <p className="automation-muted" role="status">正在加载任务详情…</p> : query.error ? <p className="automation-muted">任务加载失败，请检查上方错误信息。</p> : items.length ? <div className="automation-empty"><h2>没有匹配的任务</h2><p>调整搜索词或状态筛选，查看其他任务。</p></div> : <div className="automation-empty"><Clock3 size={32}/><h2>把重复的工作交给定时任务</h2><p>可以每天生成报告，也可以在指定时间继续当前对话。</p><button disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}>创建第一个任务</button></div>}
-    </div></div>
-    {editor && <AutomationEditor key={editor === "new" ? "new" : editor.id} task={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} onSaved={async task => { select(task.id); setEditor(null); await refresh(); }}/>}
+      </> : <div className="automation-empty"><h2>没有匹配的任务</h2><p>调整搜索词或状态筛选，查看其他任务。</p></div>}
+    </div></div>}
+    {editor && <AutomationEditor key={editor === "new" ? "new" : editor.id} task={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} onSaved={async task => { select(task.id); setSearch(""); setFilter("all"); setEditor(null); await refresh(); }}/>}
   </section>;
 }
 

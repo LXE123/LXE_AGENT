@@ -1,20 +1,30 @@
 @import "../../shared/cds-theme.css";
 
 /* Layout and sizing are LXE choices; purpose colors and state precedence follow CDS. */
+.content-panel.automations-theme {
+  display: flex;
+  flex-direction: column;
+  padding: 32px 36px 80px;
+  background: var(--cds-surface-panel);
+}
 .automations-page {
   --automation-focus-surface: var(--cds-surface-panel);
   color: var(--text);
-  background: var(--cds-surface-panel);
-  min-height: 100%;
-  padding: 32px 36px;
+  width: min(1160px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
 }
 .automations-page *, .automations-page *::before, .automations-page *::after { box-sizing: border-box; }
 .automations-header, .automation-detail-heading, .automation-editor header, .automation-editor footer {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
 }
-.automations-header h1 { font-size: 26px; letter-spacing: -.04em; margin: 0 0 8px; }
-.automations-header p, .automation-muted { color: var(--text-soft); font-size: 13px; line-height: 1.6; }
+.automations-header { align-items: flex-start; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.automations-header h1 { font-size: 1.375rem; font-weight: 600; line-height: 1.5; margin: 0; }
+.automation-muted { color: var(--text-soft); font-size: 13px; line-height: 1.6; }
 .automation-muted:empty { display: none; }
 
 .automations-page button {
@@ -26,6 +36,7 @@
 .automations-page button:active:not(:disabled) { background: var(--cds-selected); }
 .automations-page button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .automations-page .automation-primary { background: var(--cds-primary); color: var(--cds-primary-ink); border-color: transparent; }
+.automations-header .automation-create { min-height: 32px; padding: 5px 10px; font-size: .8125rem; }
 .automations-page .automation-primary:is(:hover, :active):not(:disabled) { background: var(--cds-primary-hover); }
 .automations-page .automation-danger { color: var(--danger); border-color: var(--danger-border); }
 .automations-page .automation-danger:is(:hover, :active):not(:disabled) { background: var(--danger-soft); }
@@ -59,7 +70,7 @@
 .automations-page input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 .automations-page input[type="radio"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.automations-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); margin-top: 28px; border-top: 1px solid var(--border); min-height: 60vh; }
+.automations-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); flex: 1; }
 .automations-list { min-width: 0; padding: 22px 20px 20px 0; border-right: 1px solid var(--border); }
 .automations-list > select { margin: 10px 0 20px; }
 .automations-list .automation-row { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; margin-bottom: 6px; padding: 14px 12px; border-color: transparent; }
@@ -68,10 +79,10 @@
 .automation-row strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
 .automation-row small { flex-shrink: 0; font-size: 11px; color: var(--text-soft); }
 .automation-row-time { color: var(--muted-light); font-size: 12px; }
-.automation-detail { padding: 28px 0 32px 32px; max-width: 880px; min-width: 0; }
+.automation-detail { padding: 24px 0 32px 32px; min-width: 0; }
 .automation-detail-heading > div { min-width: 0; }
 .automation-detail-heading > button { flex-shrink: 0; }
-.automation-detail h2 { margin: 9px 0 22px; font-size: 24px; overflow-wrap: anywhere; }
+.automation-detail h2 { margin: 8px 0 20px; font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }
 .automation-eyebrow { color: var(--text-soft); font-size: 12px; }
 .automation-next { display: flex; gap: 14px; padding: 20px 0; border-block: 1px solid var(--border); }
 .automation-next > svg { margin-top: 4px; flex-shrink: 0; color: var(--text-soft); }
@@ -91,9 +102,12 @@
 .automation-runs strong { font-size: 13px; font-weight: 500; }
 .automation-runs span { display: block; font-size: 12px; color: var(--muted-light); margin-top: 7px; }
 .automation-runs button { font-size: 12px; white-space: nowrap; }
-.automation-empty { padding: 70px 15px; text-align: center; color: var(--text-soft); }
-.automation-empty h2 { color: var(--text); font-size: 22px; }
-.automation-empty p { line-height: 1.8; font-size: 14px; margin-bottom: 25px; }
+.automation-empty { padding: 48px 16px; text-align: center; color: var(--text-soft); }
+.automation-empty h2 { color: var(--text); font-size: 1rem; font-weight: 600; margin: 16px 0 8px; }
+.automation-empty p { line-height: 1.7; font-size: .8125rem; margin: 0 0 24px; max-width: 360px; }
+.automation-empty-start { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-height: 320px; padding-bottom: 96px; }
+.automation-detail > .automation-empty p { margin-inline: auto; }
+.automation-loading { padding: 36px 0; color: var(--text-soft); font-size: .8125rem; }
 
 .automations-page .automation-editor {
   --automation-focus-surface: var(--cds-surface-popover);
@@ -120,7 +134,7 @@
 .automation-editor footer { flex-shrink: 0; border-top: 1px solid var(--border); margin-top: 22px; padding-top: 18px; }
 .automation-editor footer > div { display: flex; gap: 9px; }
 @media (max-width: 900px) {
-  .automations-page { padding: 24px 18px; }
+  .content-panel.automations-theme { padding: 24px 18px 64px; }
   .automations-body { grid-template-columns: 210px minmax(0, 1fr); }
   .automation-detail { padding-left: 20px; }
   .automation-runs li { align-items: flex-start; flex-direction: column; }

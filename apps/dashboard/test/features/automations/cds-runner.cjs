@@ -77,14 +77,32 @@ app.whenReady().then(async () => {
   }
   async function noOverflow() {
     assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true, "No horizontal page overflow");
+    assert.equal(await js("document.querySelector('.content-panel').scrollWidth <= document.querySelector('.content-panel').clientWidth"), true, "No horizontal content panel overflow");
     assert.equal(await js("!document.querySelector('dialog[open]') || document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth"), true, "No horizontal dialog overflow");
     assert.equal(await js("(() => { const b=document.querySelector('dialog[open] button[type=submit]'); if(!b) return true; const r=b.getBoundingClientRect(); return r.top>=0 && r.bottom<=innerHeight; })()"), true, "Save action stays visible while form content scrolls");
   }
-  const create = ".automations-header .automation-primary", search = "input[aria-label='搜索定时任务']";
+  const create = ".automation-create", search = "input[aria-label='搜索定时任务']";
   const name = "input[name='name']", prompt = "textarea[name='prompt']", save = "button[type='submit']";
   try {
     for (const theme of ["light", "dark"]) {
       await load(theme);
+      const geometry = selector => js(`(() => { const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,font:s.fontSize,weight:s.fontWeight,line:s.lineHeight};})()`);
+      const title = await geometry('.automations-header h1');
+      const shell = await js(`(() => { const p=document.querySelector('.content-panel'),r=p.getBoundingClientRect(),nav=document.querySelector('.app-navigation').getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,navRight:nav.right,width:innerWidth,height:innerHeight,background:getComputedStyle(p).backgroundColor,padding:getComputedStyle(document.querySelector('.automations-page')).padding};})()`);
+      assert.ok(Math.abs(shell.left - shell.navRight) < 1, 'Content surface meets navigation rail');
+      assert.ok(Math.abs(shell.right - shell.width) < 1 && Math.abs(shell.bottom - shell.height) < 1, 'Content surface fills desktop bounds');
+      assert.equal(shell.padding, '0px', 'Only the outer panel owns page padding');
+      assert.notEqual(shell.background, 'rgba(0, 0, 0, 0)');
+      await click('.tab-capabilities'); await wait("document.querySelector('.workspace-view-header h1')");
+      const reference = await geometry('.workspace-view-header h1');
+      assert.ok(Math.abs(title.x - reference.x) < 1 && Math.abs(title.y - reference.y) < 1, 'Title aligns with Capabilities');
+      assert.equal(title.font, reference.font); assert.equal(title.weight, reference.weight); assert.equal(title.line, reference.line);
+      await wait("document.querySelector('.skills-catalog .catalog-section') && !document.querySelector('.content-panel [role=status]')");
+      assert.equal(await js("!!document.querySelector('.content-panel [role=alert]')"), false, 'Reference page has no fixture errors');
+      off(); await capture(`reference-${theme}.png`);
+      await click('.tab-automations'); await wait("document.querySelectorAll('.automation-row').length === 2");
+      measurements.push({theme,state:'desktop shell alignment',title,reference,shell});
+      passed.push(`${theme}: real desktop shell fills content bounds and aligns title with Capabilities`);
       const field = await measure(theme, "field/default", search);
       assert.equal(field.background, field.expected.field); assert.equal(field.border, field.expected.border); assert.equal(field.placeholder, field.expected.muted);
       await hover(search); const hovered = await measure(theme, "field/hover", search);
@@ -106,10 +124,10 @@ app.whenReady().then(async () => {
       assert.notEqual(rowHover.background, selected.background);
       await click(".automation-row:not(.selected)"); assert.equal(await js("document.querySelectorAll('.automation-row[aria-pressed=true]').length"), 1);
       passed.push(`${theme}: row selection persists through hover/focus and switches on click`);
-      off(); const primary = await measure(theme, "primary/default", create);
-      await hover(create); const primaryHover = await measure(theme, "primary/hover", create); assert.notEqual(primary.background, primaryHover.background);
+      off(); const primary = await measure(theme, "create/default", create);
+      await hover(create); const primaryHover = await measure(theme, "create/hover", create); assert.notEqual(primary.background, primaryHover.background);
       const p = await point(create); win.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...p });
-      await measure(theme, "primary/pressed", create);
+      await measure(theme, "create/pressed", create);
       win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...p });
       await wait("document.querySelector('dialog')?.open");
       assert.equal(await js("document.activeElement.name"), "name");
@@ -146,7 +164,7 @@ app.whenReady().then(async () => {
       await hover(prompt); await measure(theme, "textarea/focus+hover", prompt);
       await capture(`editor-${theme}.png`); await noOverflow();
       await key("Escape"); await wait("!document.querySelector('dialog')");
-      assert.equal(await js("document.activeElement === document.querySelector('.automations-header button')"), true);
+      assert.equal(await js("document.activeElement === document.querySelector('.automation-create')"), true);
       passed.push(`${theme}: native validation/error precedence/correction, radio keyboard group, select/textarea focus, Escape restores opener`);
       off(); await capture(`page-${theme}.png`);
       await click("button[aria-label='删除任务']"); await wait("document.querySelector('.automation-danger')");
@@ -164,10 +182,23 @@ app.whenReady().then(async () => {
 
       await load(theme, "empty"); await wait("document.querySelector('.automation-empty')");
       assert.equal(await js("document.querySelectorAll('.automation-primary').length"), 1);
-      await measure(theme, "empty/secondary action", ".automation-empty button");
+      assert.equal(await js("document.querySelectorAll('.automation-create').length"), 1);
+      assert.equal(await js("!!document.querySelector('.automations-list, .automations-body')"), false);
+      await measure(theme, "empty/primary action", ".automation-empty button");
       await capture(`empty-${theme}.png`);
-      passed.push(`${theme}: empty view has one primary action`);
-      await load(theme, "loading"); assert.equal(await js("document.querySelector('.automation-detail').textContent.includes('正在加载')"), true);
+      win.setContentSize(390, 844); await delay(100); await noOverflow(); await capture(`empty-narrow-${theme}.png`); win.setContentSize(1280, 1000); await delay(100);
+      passed.push(`${theme}: full-page empty view has one create action and no inactive list/filter`);
+      await click(create); await wait("document.querySelector('dialog')?.open");
+      await type(name, '第一个任务'); await type(prompt, '生成一份简报'); await click(save);
+      await wait("document.querySelectorAll('.automation-row').length === 1");
+      assert.equal(await js("document.querySelector('.automation-detail h2').textContent"), '第一个任务');
+      assert.equal(await js("!!document.querySelector('.automations-list input')"), true);
+      await click("button[aria-label='删除任务']"); await click('.automation-danger');
+      await wait("document.querySelector('.automation-empty-start')");
+      assert.equal(await js("document.querySelectorAll('.automation-create').length"), 1);
+      assert.equal(await js("!!document.querySelector('.automations-list')"), false);
+      passed.push(`${theme}: first creation reveals both panes and last deletion restores full-page empty view`);
+      await load(theme, "loading"); assert.equal(await js("document.querySelector('.automation-loading').textContent.includes('正在加载')"), true);
       passed.push(`${theme}: loading does not show empty invitation`);
       await load(theme, "error"); await wait("document.querySelector('[role=alert]')");
       assert.match(await js("document.querySelector('[role=alert]').textContent"), /SQLITE_BUSY/);
@@ -203,7 +234,7 @@ app.whenReady().then(async () => {
       win.setContentSize(1280, 1000);
     }
     assert.deepEqual(errors, []);
-    console.log("LXE_AUTOMATIONS_CDS=" + JSON.stringify({ passed, measurements, screenshots, errors }));
+    console.log("LXE_AUTOMATIONS_CDS=" + JSON.stringify({ surface: 'desktop-shell', passed, measurements, screenshots, errors }));
     win.destroy(); app.exit(0);
   } catch (error) { await capture("failure.png"); console.error({ completed: passed, error }); win.destroy(); app.exit(1); }
 });

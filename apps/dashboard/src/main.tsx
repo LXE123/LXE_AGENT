@@ -234,6 +234,7 @@ function App({
             activeSection === "sessions" ? "content-panel-fill" : "",
             activeSection === "home" ? "home-theme" : "",
             activeSection === "capabilities" ? "capabilities-theme" : "",
+            activeSection === "automations" ? "automations-theme" : "",
             activeSection === "activity" ? "activity-theme" : "",
             activeSection === "workbench" ? "workbench-theme" : "",
           ].filter(Boolean).join(" ")}>

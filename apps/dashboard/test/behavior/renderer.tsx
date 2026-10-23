@@ -26,6 +26,7 @@ import { ConversationComposer } from "../../src/features/sessions/view";
 import { useDialogFocus } from "../../src/shared/ui/use-dialog-focus";
 import { MermaidBlock } from "../../src/shared/ui/markdown";
 import { I18nContext, LANGUAGE_STORAGE_KEY, UI_TEXT } from "../../src/shared/i18n";
+import { THEME_STORAGE_KEY } from "../../src/shared/appearance";
 import { setupState, cloudState } from "../desktop/settings-fixture-data";
 import { modelRow, modelOption } from "../features/models/source-fixtures";
 import "../../src/styles.css";
@@ -567,8 +568,10 @@ if (!workspaceMode || !sessionStorage.getItem("workspaceFixtureInitialized")) lo
 if (workspaceMode) sessionStorage.setItem("workspaceFixtureInitialized", "true");
 localStorage.setItem(LANGUAGE_STORAGE_KEY, new URLSearchParams(location.search).get("language") || "en");
 const params = new URLSearchParams(location.search);
+if (params.has("theme")) localStorage.setItem(THEME_STORAGE_KEY, params.get("theme")!);
 if (params.has("app")) {
-  if (workspaceMode) Object.assign(health, { gateway: "ready", agent_cli: "ready", workspace_root: "/fixture/default" });
+  if (workspaceMode) Object.assign(health, { gateway: params.get("runtime") === "offline" ? "starting" : "ready",
+    agent_cli: params.get("runtime") === "offline" ? "starting" : "ready", workspace_root: "/fixture/default" });
   complete = params.get("complete") !== "false";
   history.replaceState({ section: params.get("section") || "home" }, "");
   await import("../../src/main");
