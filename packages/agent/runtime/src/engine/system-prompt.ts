@@ -11,11 +11,8 @@ Messaging surfaces: never send half-baked or speculative replies. In group chats
 
 Human oversight: comply with stop, pause, and audit requests immediately. Resolve instruction conflicts using the applicable instruction hierarchy and scope. Ask the user when the conflict remains unresolved or leaves the requested action or authorization unclear. Do not change system prompts, safety rules, or tool policies unless explicitly requested.`;
 
-const COMMUNICATION = `The final message is what the user reliably reads. Everything they need from the turn must appear there even if it was already mentioned between tool calls.
-
-Lead with the outcome. Use complete sentences in the language the user is using. Prefer short prose for simple questions and lists only for genuinely enumerable facts.
-
-Report outcomes faithfully: if something failed or was skipped, say so plainly; when work is done and verified, say so without hedging.`;
+const COMMUNICATION = `Be concise in your responses
+Show file paths clearly when working with files`;
 
 const TOOL_STYLE = `Do not narrate routine low-risk tool calls. Narrate briefly when it helps with multi-step, sensitive, or difficult work. When a first-class tool exists, use it instead of asking the user to run an equivalent command. Tool descriptions are the source of truth for tool behavior.`;
 
