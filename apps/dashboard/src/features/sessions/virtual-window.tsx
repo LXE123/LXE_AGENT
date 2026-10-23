@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
 import { useScrollFollowInput } from "./use-scroll-follow-input";
 import { processId } from "./process";
@@ -43,8 +43,18 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     ? answerByTurn.get(row.turnId) ?? answerByGroup.get(row.groupId) : undefined;
   const getItemKey = useCallback((index: number) => rows[index]!.id, [rows]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => root.current,
-    // First-send rows can be measured during React's commit; schedule the update normally.
+    // Measurements can arrive during React's commit, so don't flush React there.
+    // Let the virtualizer update positions and feed height in the same callback
+    // as scroll compensation; an async React render leaves a one-frame jump.
     useFlushSync: false,
+    directDomUpdates: true, directDomUpdatesMode: "position",
+    scrollToFn: (offset, options, instance) => {
+      // A growing last row can extend past the old feed height. Publish the
+      // new extent before scrolling, or the browser clamps bottom following
+      // short of the footer/padding and needs another frame to catch up.
+      if (feed.current) feed.current.style.height = `${instance.getTotalSize()}px`;
+      elementScroll(offset, options, instance);
+    },
     getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: false,
     // Keep prepend anchoring, but don't let proximity resume following on resize.
     scrollEndThreshold: following ? 80 : -1, useAnimationFrameWithResizeObserver: true,
@@ -52,6 +62,10 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     // The bottom fade covers 26px; keep the last row above it.
     paddingStart: 24, paddingEnd: 40,
   });
+  const setFeed = useCallback((element: HTMLDivElement | null) => {
+    feed.current = element;
+    virtual.containerRef(element);
+  }, [virtual]);
   const cancelAlignment = useCallback(() => {
     if (alignmentFrame.current !== undefined) cancelAnimationFrame(alignmentFrame.current);
     alignmentFrame.current = undefined;
@@ -222,12 +236,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (event.target !== root.current) return;
       scrollInput.onScroll(); scheduleAlignment();
     }}>
-      <div className="conversation-feed" ref={feed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? totalSize : undefined, minHeight: rows.length ? undefined : "100%" }}>
+      <div className="conversation-feed" ref={setFeed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
           data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
           data-answer-id={answerId(rows[item.index]!)}
           data-answer-active={Boolean(answerId(rows[item.index]!) && (answerId(rows[item.index]!) === hoveredAnswer || answerId(rows[item.index]!) === focusedAnswer)) || undefined}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)`, paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
+          style={{ position: "absolute", left: 0, width: "100%", paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
           {renderRow(rows[item.index]!)}
         </div>)}
       </div>

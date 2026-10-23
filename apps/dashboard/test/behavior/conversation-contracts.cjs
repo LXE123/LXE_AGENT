@@ -2,6 +2,84 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('resize compensation and row positions agree before the same paint',async()=>{
+      for(const theme of ['light','dark']){
+        await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
+        await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest rows');
+        await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.fonts.ready`);
+        await settle();
+        await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);
+        await settle();
+        // Give the virtualizer a forward direction without resuming bottom follow.
+        await js("document.querySelector('.conversation-transcript').scrollTop+=1");await settle();
+        const result=await js(`(async()=>{
+          const root=document.querySelector('.conversation-transcript'),top=root.getBoundingClientRect().top;
+          const rows=[...root.querySelectorAll('[data-conversation-row]')];
+          const anchor=rows.find(e=>e.getBoundingClientRect().bottom>top);
+          const previous=rows[rows.indexOf(anchor)-1];
+          if(!previous)throw new Error('Missing a mounted row above the reading anchor');
+          const initial=anchor.getBoundingClientRect().top-top,scroll=root.scrollTop,samples=[];
+          const read=()=>samples.push({offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+          // The production observer queues its measurement into rAF. Sample after
+          // it in that same frame: checking only the settled position misses a flash.
+          const observer=new ResizeObserver(()=>requestAnimationFrame(read));
+          observer.observe(previous,{box:'border-box'});
+          const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
+          try{
+            await delay(80);
+            for(let i=0;i<8;i++){
+              previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
+              await delay(80);
+            }
+            return {initial,scroll,samples};
+          }finally{observer.disconnect();previous.style.paddingBottom=original;}
+        })()`);
+        assert.ok(result.samples.length>=9,`${theme}: measured every resize`);
+        assert.ok(result.samples.some(s=>s.scroll===result.scroll+4),`${theme}: compensation actually ran`);
+        assert.ok(result.samples.every(s=>s.connected&&Math.abs(s.offset-result.initial)<0.5),
+          `${theme}: intermediate-frame reading displacement: ${JSON.stringify(result)}`);
+      }
+    });
+    await step('streaming preserves earlier text while reading and follows the fully sized feed',async()=>{
+      await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
+      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');await settle();
+      await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);await settle();
+      const reading=await js(`(async()=>{
+        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]');
+        const paragraph=row.querySelector('.message-markdown p'),top=paragraph.getBoundingClientRect().top,scroll=root.scrollTop;
+        const samples=[],mutations=[],initialLength=row.textContent.length;
+        const observer=new MutationObserver(records=>mutations.push(...records.map(record=>record.type)));
+        observer.observe(paragraph,{subtree:true,characterData:true,childList:true});
+        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
+        try{
+          for(let i=0;i<12;i++){
+            append.click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            samples.push({offset:paragraph.getBoundingClientRect().top-top,scroll:root.scrollTop-scroll,
+              same:paragraph===row.querySelector('.message-markdown p'),connected:paragraph.isConnected});
+          }
+          return {samples,mutations,initialLength,length:row.textContent.length};
+        }finally{observer.disconnect();}
+      })()`);
+      assert.ok(reading.length>reading.initialLength+1000,'stream actually appended text');
+      assert.deepEqual(reading.mutations,[],'completed paragraph is not rewritten');
+      assert.ok(reading.samples.every(s=>s.same&&s.connected&&Math.abs(s.offset)<0.5&&s.scroll===0),JSON.stringify(reading));
+      await click('.conversation-jump-latest');
+      await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
+      const following=await js(`(async()=>{
+        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
+        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
+        observer.observe(row,{box:'border-box'});
+        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
+        try{
+          await new Promise(resolve=>setTimeout(resolve,80));
+          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
+          return samples;
+        }finally{observer.disconnect();}
+      })()`);
+      assert.ok(following.length>=9,'measured each streaming resize');
+      assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
+    });
     await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
     await waitFor("document.querySelectorAll('[data-conversation-row]').length>0",'virtual conversation');
     await step('pending-to-persisted handoff retains the visible message node',async()=>{
