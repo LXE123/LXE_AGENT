@@ -1,11 +1,13 @@
 # Default MCP server template copied to the writable desktop state directory.
 # Do not commit local secrets. Static header placeholders, env_headers and bearer
 # tokens are resolved only while connecting; missing variables keep the server unhealthy.
+# protocol_mode: auto (default), legacy, or 2026-07-28 (requires that revision).
 
 mcpServers:
   lxe-saihu:
     enabled: false
     type: streamable-http
+    protocol_mode: auto
     url: "http://10.88.0.1:8000/mcp/"
     headers:
       X-LXE-Client: cli

@@ -1,20 +1,21 @@
 import { saihuNativeFetch } from "./saihu-native-http";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse, stringify } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger, type Environment } from "@lxe/core";
+import { createLogger, sanitizeLogValueWithPolicy, type Environment } from "@lxe/core";
 import { ToolRegistry } from "./registry";
 
 export type McpTransportKind = "stdio" | "streamable-http";
+export type McpProtocolMode = "auto" | "legacy" | "2026-07-28";
 
 export interface McpServerConfig {
   name: string;
   enabled: boolean;
   transport: McpTransportKind;
+  protocolMode?: McpProtocolMode;
   command: string;
   args: string[];
   env: Record<string, string>;
@@ -45,13 +46,15 @@ export interface McpRemoteTool {
 
 export interface McpConnection {
   tools: McpRemoteTool[];
+  protocolVersion?: string;
+  protocolEra?: "modern" | "legacy";
   callTool(name: string, arguments_: JsonObject, signal?: AbortSignal): Promise<McpCallResult>;
   close(): Promise<void>;
 }
 
 export interface McpCallResult {
   content: JsonObject[];
-  structuredContent?: JsonObject;
+  structuredContent?: unknown;
   meta?: JsonObject;
   isError: boolean;
 }
@@ -67,6 +70,10 @@ const mapping = (value: unknown): Record<string, unknown> =>
 
 const stringMapping = (value: unknown): Record<string, string> =>
   Object.fromEntries(Object.entries(mapping(value)).map(([key, item]) => [key, String(item ?? "")]));
+
+const mcpFailureText = (error: unknown): string => String(sanitizeLogValueWithPolicy(
+  error instanceof Error ? error.message : String(error), { maxString: 2_000 },
+));
 
 const safeName = (value: string, fallback: string): string => value.trim().replaceAll(/[^A-Za-z0-9_-]+/g, "_").replaceAll(/_+/g, "_").replaceAll(/^_+|_+$/g, "") || fallback;
 export const mcpServerPrefix = (serverName: string): string => `mcp__${safeName(serverName, "mcp")}__`;
@@ -95,8 +102,8 @@ const withTimeout = async <T>(
 ): Promise<T> => {
   const controller = new AbortController();
   const abort = (): void => controller.abort(parent?.reason ?? new DOMException("Cancelled", "AbortError"));
-  if (parent?.aborted) abort();
-  else parent?.addEventListener("abort", abort, { once: true });
+  parent?.throwIfAborted();
+  parent?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
   const interrupted = new Promise<never>((_resolve, reject) => {
     controller.signal.addEventListener("abort", () => reject(
@@ -150,10 +157,15 @@ export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): 
       const headers = stringMapping(config.headers);
       const exposure = String(config.exposure ?? "deferred").trim().toLowerCase();
       if (!["deferred", "direct", "auto"].includes(exposure)) throw new Error(`invalid MCP exposure for ${name}: ${exposure}`);
+      const protocolMode = String(config.protocol_mode ?? config.protocolMode ?? "auto");
+      if (protocolMode !== "auto" && protocolMode !== "legacy" && protocolMode !== "2026-07-28") {
+        throw new Error(`unsupported MCP protocol_mode for ${name}: ${protocolMode}`);
+      }
       return {
         name,
         enabled: config.enabled === true || ["1", "true", "yes", "on"].includes(String(config.enabled ?? "").toLowerCase()),
         transport,
+        protocolMode,
         command: resolvePlaceholders(String(config.command ?? "").trim(), env, `${name}.command`),
         args: Array.isArray(config.args)
           ? config.args.map((item, index) => resolvePlaceholders(String(item), env, `${name}.args.${index}`))
@@ -212,20 +224,14 @@ export const resolveMcpHttpHeaders = (server: McpServerConfig, env: Environment)
   return headers;
 };
 
-interface McpSdkClientPort {
-  connect(transport: unknown): Promise<void>;
-  close(): Promise<void>;
-  listTools(params?: { cursor?: string }, options?: { signal?: AbortSignal }): Promise<{
-    tools: Array<{ name: string; description?: string; inputSchema?: JsonObject }>;
-    nextCursor?: string;
-  }>;
-  callTool(params: { name: string; arguments: JsonObject }, schema?: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
-}
+type McpSdkClientPort = Pick<Client,
+  "connect" | "close" | "listTools" | "callTool" | "getNegotiatedProtocolVersion" | "getProtocolEra"
+>;
 
 export class OfficialMcpConnector implements McpConnector {
   constructor(
     private readonly environment: Environment = process.env,
-    private readonly clientFactory: () => McpSdkClientPort = () => new Client({ name: "lxe-agent", version: "0.1.0" }) as unknown as McpSdkClientPort,
+    private readonly clientFactory: (options: ClientOptions) => McpSdkClientPort = options => new Client({ name: "lxe-agent", version: "0.1.0" }, options),
   ) {}
 
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
@@ -239,9 +245,14 @@ export class OfficialMcpConnector implements McpConnector {
     if (nativeSaihu && !Object.entries(headers).some(([key, value]) => key.toLowerCase() === "x-lxe-client" && value === "cli")) {
       throw new Error(configurationError);
     }
-    const client = this.clientFactory();
-    const closeOnAbort = (): void => { void client.close(); };
-    signal?.addEventListener("abort", closeOnAbort, { once: true });
+    signal?.throwIfAborted();
+    const mode = server.protocolMode ?? "auto";
+    const client = this.clientFactory({
+      versionNegotiation: {
+        mode: mode === "2026-07-28" ? { pin: mode } : mode,
+        probe: { timeoutMs: Math.max(1, Math.min(2_000, Math.floor(server.startupTimeoutMs / 2))), maxRetries: 0 },
+      },
+    });
     const transport = server.transport === "stdio"
       ? new StdioClientTransport({
         command: server.command,
@@ -253,36 +264,40 @@ export class OfficialMcpConnector implements McpConnector {
         requestInit: { headers },
         ...(nativeSaihu ? { fetch: saihuNativeFetch(server.url) } : {}),
       });
+    // During v2 discovery the transport is not yet attached to Client. Closing
+    // only Client would let the sibling probe finish and spawn a session later.
+    const closeOnAbort = (): void => {
+      void transport.close().catch(() => undefined);
+      void client.close().catch(() => undefined);
+    };
+    signal?.addEventListener("abort", closeOnAbort, { once: true });
     try {
-      await client.connect(transport);
-      if (signal?.aborted) throw signal.reason;
-      const tools: McpRemoteTool[] = [];
-      const cursors = new Set<string>();
-      let cursor = "";
-      do {
-        const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
-        tools.push(...listed.tools.map((tool) => ({
-          name: tool.name,
-          ...(tool.description ? { description: tool.description } : {}),
-          inputSchema: (tool.inputSchema ?? { type: "object", properties: {} }) as JsonObject,
-        })));
-        const next = String(listed.nextCursor ?? "").trim();
-        if (!next) break;
-        if (cursors.has(next)) throw new Error(`MCP server ${server.name} repeated tools cursor`);
-        cursors.add(next);
-        cursor = next;
-      } while (true);
+      await client.connect(transport, signal ? { signal } : undefined);
+      signal?.throwIfAborted();
+      // v2 aggregates pages, detects cursor loops and bounds the walk.
+      const listed = await client.listTools(undefined, signal ? { signal } : undefined);
+      signal?.throwIfAborted();
+      const tools: McpRemoteTool[] = listed.tools.map((tool) => ({
+        name: tool.name,
+        ...(tool.description ? { description: tool.description } : {}),
+        // The SDK validates wire JSON but its extensible schema type uses unknown.
+        inputSchema: tool.inputSchema as JsonObject,
+      }));
+      const protocolVersion = client.getNegotiatedProtocolVersion();
+      const protocolEra = client.getProtocolEra();
       return {
         tools,
+        ...(protocolVersion === undefined ? {} : { protocolVersion }),
+        ...(protocolEra === undefined ? {} : { protocolEra }),
         callTool: async (name, arguments_, signal) => {
-          const result = mapping(await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {}));
+          const result = await client.callTool({ name, arguments: arguments_ }, signal ? { signal } : {});
           const content = Array.isArray(result.content)
             ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
             : [];
           return {
             content,
-            ...(Object.keys(mapping(result.structuredContent)).length > 0
-              ? { structuredContent: mapping(result.structuredContent) as JsonObject }
+            ...(result.structuredContent !== undefined
+              ? { structuredContent: result.structuredContent }
               : {}),
             ...(Object.keys(mapping(result._meta)).length > 0 ? { meta: mapping(result._meta) as JsonObject } : {}),
             isError: result.isError === true,
@@ -292,6 +307,7 @@ export class OfficialMcpConnector implements McpConnector {
       };
     } catch (error) {
       await client.close().catch(() => undefined);
+      await transport.close().catch(() => undefined);
       throw error;
     } finally {
       signal?.removeEventListener("abort", closeOnAbort);
@@ -327,7 +343,7 @@ const safeMcpContent = (result: McpCallResult): JsonObject[] => {
     }
     return { type: "text", text: `[MCP ${type || "unknown"} block] ${JSON.stringify(block).slice(0, 8_000)}` };
   });
-  if (result.structuredContent) {
+  if (result.structuredContent !== undefined) {
     content.push({ type: "text", text: `[MCP structured content]\n${JSON.stringify(result.structuredContent)}` });
   }
   return content;
@@ -339,6 +355,7 @@ export class McpManager {
   private readonly errors = new Map<string, string>();
   private readonly toolNames = new Map<string, Array<{ rawName: string; modelName: string }>>();
   private readonly discoveredToolCounts = new Map<string, number>();
+  private readonly connecting = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -357,8 +374,10 @@ export class McpManager {
       try {
         await this.connect(server, registry);
       } catch (error) {
-        this.errors.set(server.name, error instanceof Error ? error.message : String(error));
-        this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
+        if (server.enabled && this.registry === registry) {
+          this.errors.set(server.name, mcpFailureText(error));
+          this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
+        }
       }
     }));
   }
@@ -368,15 +387,18 @@ export class McpManager {
     if (!server) throw new Error(`MCP server not found: ${serverName}`);
     const registry = this.registry;
     if (!registry) throw new Error("MCP manager is not started");
-    if (server.enabled === enabled && this.connections.has(serverName) === enabled) return;
+    if (server.enabled === enabled && this.connections.has(serverName) === enabled && !this.connecting.has(serverName)) return;
     server.enabled = enabled;
     if (!enabled) {
+      const pending = this.connecting.get(serverName);
+      pending?.controller.abort(new Error(`MCP server ${serverName} disabled during startup`));
       registry.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
       this.toolNames.delete(serverName);
       this.discoveredToolCounts.delete(serverName);
       const connection = this.connections.get(serverName);
       this.connections.delete(serverName);
       await connection?.close();
+      await pending?.promise.catch(() => undefined);
       this.logger.info("mcp_disabled", this.serverFields(server));
       return;
     }
@@ -384,8 +406,10 @@ export class McpManager {
     try {
       await this.connect(server, registry);
     } catch (error) {
-      this.errors.set(server.name, error instanceof Error ? error.message : String(error));
-      this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
+      if (server.enabled && this.registry === registry) {
+        this.errors.set(server.name, mcpFailureText(error));
+        this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
+      }
     }
   }
 
@@ -399,13 +423,18 @@ export class McpManager {
   }
 
   async stop(): Promise<void> {
+    const registry = this.registry;
+    this.registry = undefined;
+    const pending = [...this.connecting.values()];
+    for (const { controller } of pending) controller.abort(new Error("MCP manager stopped during startup"));
+    await Promise.allSettled(pending.map(item => item.promise));
     const connections = [...this.connections.entries()].reverse();
     this.connections.clear();
     this.errors.clear();
     this.toolNames.clear();
     this.discoveredToolCounts.clear();
     for (const [serverName] of connections) {
-      this.registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
+      registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
     }
     const results = await Promise.allSettled(connections.map(([, connection]) => connection.close()));
     connections.forEach(([serverName], index) => {
@@ -416,15 +445,41 @@ export class McpManager {
         this.logger.info("mcp_disconnected", { server_name: serverName });
       }
     });
-    this.registry = undefined;
   }
 
-  private async connect(server: McpServerConfig, registry: ToolRegistry): Promise<void> {
+  private connect(server: McpServerConfig, registry: ToolRegistry): Promise<void> {
+    const previous = this.connecting.get(server.name);
+    if (previous) return previous.controller.signal.aborted
+      ? previous.promise.catch(() => undefined).then(() => {
+        if (server.enabled && this.registry === registry) return this.connect(server, registry);
+      })
+      : previous.promise;
+    const controller = new AbortController();
+    const promise = this.connectAndRegister(server, registry, controller.signal).finally(() => {
+      if (this.connecting.get(server.name)?.controller === controller) this.connecting.delete(server.name);
+    });
+    this.connecting.set(server.name, { controller, promise });
+    return promise;
+  }
+
+  private async connectAndRegister(server: McpServerConfig, registry: ToolRegistry, parent: AbortSignal): Promise<void> {
     const connection = await withTimeout(
-      (signal) => this.connector.connect(server, signal),
+      async signal => {
+        const connection = await this.connector.connect(server, signal);
+        if (signal.aborted) {
+          await connection.close();
+          signal.throwIfAborted();
+        }
+        return connection;
+      },
       server.startupTimeoutMs,
       `MCP server ${server.name} startup`,
+      parent,
     );
+    if (parent.aborted || !server.enabled || this.registry !== registry) {
+      await connection.close();
+      return;
+    }
     this.connections.set(server.name, connection);
     this.discoveredToolCounts.set(server.name, connection.tools.length);
     this.errors.delete(server.name);
@@ -453,12 +508,12 @@ export class McpManager {
               context.handle.signal,
             );
             if (result.isError) {
-              const preview = safeMcpContent(result).map((block) => String(block.text ?? "")).filter(Boolean).join("\n").slice(0, 2_000);
-              throw new Error(preview || `MCP tool ${server.name}/${tool.name} returned isError=true`);
+              const preview = mcpFailureText(safeMcpContent(result).map((block) => String(block.text ?? "")).filter(Boolean).join("\n"));
+              throw new Error(preview || `MCP tool ${server.name}/${tool.name} returned isError=true`, { cause: result });
             }
             return { content: safeMcpContent(result) };
           } catch (error) {
-            this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+            this.errors.set(server.name, mcpFailureText(error));
             throw error;
           }
         },
@@ -469,6 +524,8 @@ export class McpManager {
       ...this.serverFields(server),
       tool_count: connection.tools.length,
       registered_tool_count: names.length,
+      protocol_version: connection.protocolVersion ?? null,
+      protocol_era: connection.protocolEra ?? null,
     });
   }
 
