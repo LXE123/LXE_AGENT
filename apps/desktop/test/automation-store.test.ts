@@ -19,9 +19,10 @@ test("SQLite persists definitions, salt and immutable dispatch records; claims a
     expect(store.claim(task, task, { ...run, id:"duplicate" })).toBe(false);
     expect(store.runs()).toHaveLength(1);
     service.delete(task.id, task.version); expect(store.list()).toHaveLength(0); expect(store.list(true)).toHaveLength(1);
-    await service.stop(); db.close(); db = new Database(path); store = new NodeAutomationStore(db as unknown as DatabaseSync);
+    // Bun's default close defers releasing prepared statements; match Node's immediate close.
+    await service.stop(); db.close(true); db = new Database(path); store = new NodeAutomationStore(db as unknown as DatabaseSync);
     expect(store.setting("jitter_salt")).toBe(salt); expect(store.runs(task.id)[0]).toEqual(run);
     expect(store.get(task.id)?.status).toBe("deleted");
     expect(() => store.save(task, 999)).toThrow("changed");
-  } finally { await service.stop(); db.close(); rmSync(root, {recursive:true,force:true}); }
+  } finally { await service.stop(); db.close(true); rmSync(root, {recursive:true,force:true}); }
 });

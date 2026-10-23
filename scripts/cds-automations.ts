@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { startAutomationFixture } from "../apps/dashboard/test/features/automations/fixture-server";
 
 const root = resolve(import.meta.dir, "..");
-const output = resolve(root, "docs/design/cds/showcase/automations");
+const output = resolve(root, "docs/design/cds/showcase/automations", process.platform === "win32" ? "windows" : ".");
 const profile = mkdtempSync(resolve(tmpdir(), "lxe-automations-cds-"));
 mkdirSync(output, { recursive: true });
 const reportPath = resolve(output, "verification.json");
@@ -18,7 +18,8 @@ try {
   fixture = await startAutomationFixture();
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
   child = Bun.spawn([require(resolve(root, "apps/desktop/node_modules/electron")),
-    resolve(root, "apps/dashboard/test/features/automations/cds-runner.cjs"), profile, fixture.url, output],
+    // Electron on Windows rejects arguments after a URL; keep the URL last.
+    resolve(root, "apps/dashboard/test/features/automations/cds-runner.cjs"), profile, output, fixture.url],
   { env, stdout: "pipe", stderr: "pipe" });
   timer = setTimeout(() => child?.kill(), 180_000);
   const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -35,10 +36,13 @@ try {
     "apps/dashboard/src/shared/cds-theme.css", "apps/dashboard/src/styles.css",
     "apps/dashboard/test/features/automations/fixture.tsx", "apps/dashboard/test/features/automations/fixture-server.ts",
     "apps/dashboard/test/features/automations/cds-runner.cjs", "scripts/cds-automations.ts"];
-  const sourceHashes = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash("sha256").update(await Bun.file(resolve(root, file)).bytes()).digest("hex")])));
-  await Bun.write(reportPath, JSON.stringify({ status: "passed", verifiedAt: new Date().toISOString(), sourceHashes,
-    ...report, limitations: ["macOS 本地 Electron，生产页面配合内存数据和模拟执行；未连接账号或执行真实任务。",
-      "原生日期、选择器、单选框保留系统渲染，未验证 Windows 视觉效果。",
+  // Git may check out CRLF on Windows. Compare the same UTF-8/LF source across platforms.
+  const sourceHashes = Object.fromEntries(await Promise.all(files.map(async file => [file,
+    createHash("sha256").update((await Bun.file(resolve(root, file)).text()).replace(/\r\n/g, "\n"), "utf8").digest("hex")])));
+  await Bun.write(reportPath, JSON.stringify({ status: "passed", verifiedAt: new Date().toISOString(), sourceHashFormat: "sha256-utf8-lf", sourceHashes,
+    platform: process.platform, arch: process.arch, ...report,
+    limitations: ["本机 Electron，生产页面配合内存数据和模拟执行；未连接账号或执行真实任务。",
+      "原生日期、选择器、单选框保留系统渲染；验收只覆盖报告记录的平台。",
       "不代表全站 CDS、全量读屏或触屏审计。"] }, null, 2) + "\n");
 } catch (cause) {
   await Bun.write(reportPath, JSON.stringify({ status: "failed", failedAt: new Date().toISOString(), error: String(cause) }, null, 2) + "\n");

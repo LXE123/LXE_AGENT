@@ -31,7 +31,7 @@ bun run cds:check:automations
 
 检查使用本地 Electron 加载**生产 React 页面和生产 CSS**，配合内存数据库与模拟执行。鼠标、Tab、方向键、输入、提交等操作触发真实控件状态，不给 DOM 强制添加 hover/focus 类。测试中的错误带 `Fixture:` 前缀，只有测试传输层会产生。
 
-结果写入 [verification.json](showcase/automations/verification.json)，包含实际计算样式、断言组、截图列表和受验源码的 SHA-256。每次启动先将报告标为 running，失败则标为 failed，避免将旧截图或旧成功结果误当本轮通过。
+结果按平台保存：[macOS 报告](showcase/automations/verification.json)、[Windows 报告](showcase/automations/windows/verification.json)。报告包含平台、架构、实际计算样式、断言组、截图列表和受验源码的 SHA-256。指纹按 UTF-8 / LF 计算，避免 Windows checkout 的 CRLF 换行造成误差。Windows 输出到 `windows/`，保留 macOS 证据。每次启动先将当前平台报告标为 running，失败则标为 failed，避免将旧截图或旧成功结果误当本轮通过。
 
 | 亮暗主题均覆盖 | 组合 |
 | --- | --- |
@@ -42,4 +42,6 @@ bun run cds:check:automations
 
 截图：[亮色页面](showcase/automations/page-light.png)、[暗色页面](showcase/automations/page-dark.png)、[亮色编辑器](showcase/automations/editor-light.png)、[暗色编辑器](showcase/automations/editor-dark.png)。其余错误、空白和窄屏截图见同目录。
 
-本轮限于 macOS Electron。原生选择器、日期输入和单选框保留系统渲染，Windows 外观、完整读屏与触屏行为尚未实机验收。功能检查和截图不能证明上游规则本身正确，也不能代表全站组件的完整验收。
+Windows 截图：[亮色页面](showcase/automations/windows/page-light.png)、[暗色页面](showcase/automations/windows/page-dark.png)、[亮色编辑器](showcase/automations/windows/editor-light.png)、[暗色编辑器](showcase/automations/windows/editor-dark.png)。两平台均通过 24 组检查、84 项状态测量并生成 12 张截图；Windows 源码与进程验收范围见[实机记录](../../desktop/automations-windows-validation.md)。
+
+原生选择器、日期输入和单选框保留系统渲染。完整读屏、触屏和所有原生弹出层尚未验收。功能检查和截图不能证明上游规则本身正确，也不能代表全站组件的完整验收。

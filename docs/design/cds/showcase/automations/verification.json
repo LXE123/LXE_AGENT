@@ -1,6 +1,7 @@
 {
   "status": "passed",
-  "verifiedAt": "2026-10-23T10:20:17.192Z",
+  "verifiedAt": "2026-10-23T12:02:04.850Z",
+  "sourceHashFormat": "sha256-utf8-lf",
   "sourceHashes": {
     "apps/dashboard/src/features/automations/AutomationsPage.tsx": "46d5f9a1c907795d86a1a7d7278991dbc185e7518ecc9d7805919923cce4cf52",
     "apps/dashboard/src/features/automations/theme.css": "9eca25eb6ae0d5b0897be71203388d4edcbfd667138324b83c916a30f21d457b",
@@ -8,9 +9,11 @@
     "apps/dashboard/src/styles.css": "983932403ca91cfd7294271e18655ea0e1eddfdb0b609af69aec310a813f208c",
     "apps/dashboard/test/features/automations/fixture.tsx": "b4099016a8c664fb47d5edc05c12ad9ec2de3add599e93b9932344f5c988c96e",
     "apps/dashboard/test/features/automations/fixture-server.ts": "97bb07fcd92272868f1692512bd279394b0eb172b838a4fb402bb5a4d1907da5",
-    "apps/dashboard/test/features/automations/cds-runner.cjs": "f860596cfc99867588016e55cf0141e0f8d3fcbf9b8788941b3fe41b1e32dcc4",
-    "scripts/cds-automations.ts": "9ec10bf12d1403928772f3c11124779bc617bcb59cd6e568c71082fee4cf2cf0"
+    "apps/dashboard/test/features/automations/cds-runner.cjs": "1846c3b4afd66021454b1efeb8104116d6f52fac39165760d363431cac8aab60",
+    "scripts/cds-automations.ts": "9cf7ab7dca1f640b4f83751f3eb6967480c0747b30c2ff24c49db199bfcd9b24"
   },
+  "platform": "darwin",
+  "arch": "arm64",
   "passed": [
     "light: field hover/focus, editable search and filtered empty state",
     "light: row selection persists through hover/focus and switches on click",
@@ -2743,8 +2746,8 @@
   ],
   "errors": [],
   "limitations": [
-    "macOS 本地 Electron，生产页面配合内存数据和模拟执行；未连接账号或执行真实任务。",
-    "原生日期、选择器、单选框保留系统渲染，未验证 Windows 视觉效果。",
+    "本机 Electron，生产页面配合内存数据和模拟执行；未连接账号或执行真实任务。",
+    "原生日期、选择器、单选框保留系统渲染；验收只覆盖报告记录的平台。",
     "不代表全站 CDS、全量读屏或触屏审计。"
   ]
 }

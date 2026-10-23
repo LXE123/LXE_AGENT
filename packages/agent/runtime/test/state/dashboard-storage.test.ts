@@ -582,6 +582,7 @@ test("old sessions recover latest turn consumption separately from unknown occup
   await store.stop();
 });
 
+// Forty durable transcript writes can exceed Bun's default five seconds on Windows.
 test("scheduled run navigation reads a bounded window starting at the requested historical turn", async () => {
   const root=mkdtempSync(join(tmpdir(),"lxe-turn-window-")); roots.push(root);
   const store=new SqliteRuntimeStore(join(root,"agent.sqlite3")); await store.start();
@@ -600,4 +601,4 @@ test("scheduled run navigation reads a bounded window starting at the requested 
     expect(store.lookupTurn("s","t3").state).toBe("completed");
     expect(store.lookupTurn("other","t3").state).toBe("missing");
   } finally {await store.stop();}
-});
+}, 30_000);

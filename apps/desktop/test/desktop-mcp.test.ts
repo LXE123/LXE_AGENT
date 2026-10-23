@@ -62,7 +62,11 @@ test("real Runtime -> managed MCP stdio -> authenticated desktop pipe -> persist
     await expect(requestDesktopPipe(pipe,"wrong-token","tools/list",{})).rejects.toThrow("authentication failed");
     await manager.setEnabled(config.name,false); expect(manager.status(config.name).connected).toBe(false);
     expect(app.service.list()).toHaveLength(1);
-  } finally { await runtime.stop(); await manager.stop(); await app.close(); db.close(); rmSync(root,{recursive:true,force:true}); }
+  } finally {
+    await runtime.stop(); await manager.stop(); await app.close();
+    // Finalize Bun's prepared statements on close, matching production node:sqlite on Windows.
+    db.close(true); rmSync(root,{recursive:true,force:true});
+  }
   if (process.platform!=="win32") expect(existsSync(pipe)).toBe(false);
 }, 20_000);
 

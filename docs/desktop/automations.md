@@ -71,4 +71,4 @@ flowchart LR
 
 遇到任务未运行，先看计划状态、下次时间和阻塞原因，再检查 Agent 是否就绪、工作区/模型是否仍可用。执行失败从运行记录打开原对话查看实际错误。连接失败会保留原始诊断，经脱敏和显式截断后返回，不以成功或空结果替代。
 
-源码验证入口：Gateway `automations.test.ts`、Desktop `automation-store.test.ts` / `desktop-mcp.test.ts`，以及 Runtime 历史窗口测试。手动页面验收可从仓库根启动 `bun apps/dashboard/test/features/automations/fixture-server.ts`；仅使用临时内存数据库与模拟执行，不读取真实业务数据。Windows 命名管道、托盘长时间运行、安装包和真实供应商任务仍需对应平台验收。
+源码验证入口：Gateway `automations.test.ts`、Desktop `automation-store.test.ts` / `desktop-mcp.test.ts` / `automation-electron.test.ts`，以及 Runtime 历史窗口测试。手动页面验收可从仓库根启动 `bun apps/dashboard/test/features/automations/fixture-server.ts`；仅使用临时内存数据库与模拟执行，不读取真实业务数据。[Windows 实机记录](automations-windows-validation.md)覆盖命名管道、真实 Electron SQLite / Worker、退出恢复和页面状态；整机休眠、托盘长时间运行、安装包和真实供应商任务仍需另行验收。

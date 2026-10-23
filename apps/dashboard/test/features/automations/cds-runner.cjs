@@ -3,7 +3,7 @@ const { app, BrowserWindow } = require("electron");
 const assert = require("node:assert/strict");
 const { writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const [profile, url, output] = process.argv.slice(2);
+const [profile, output, url] = process.argv.slice(2);
 app.disableHardwareAcceleration();
 app.setPath("userData", profile);
 const passed = [], measurements = [], screenshots = [], errors = [];
