@@ -211,16 +211,18 @@ for (const status of [401, 403, 500]) {
     const methods: string[] = [];
     const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       methods.push((await request.json() as WireMessage).method!);
-      return new Response(`actual fixture failure ${status}`, { status });
+      return new Response(`actual fixture failure ${status} token=private-value`, { status });
     } });
+    const manager = new McpManager({ servers: [config({ transport: "streamable-http", url: `http://127.0.0.1:${http.port}/mcp` })] });
     try {
-      let failure: unknown;
-      try { await new OfficialMcpConnector().connect(config({ transport: "streamable-http", url: `http://127.0.0.1:${http.port}/mcp` })); }
-      catch (error) { failure = error; }
-      expect(failure).toBeInstanceOf(Error);
-      expect(String(failure)).toContain(String(status));
+      await manager.start(new ToolRegistry());
+      expect(manager.status("fixture").connected).toBe(false);
+      const error = manager.status("fixture").error;
+      expect(error).toContain(`actual fixture failure ${status}`);
+      expect(error).toContain("[redacted]");
+      expect(error).not.toContain("private-value");
       expect(methods).toEqual(["server/discover"]);
-    } finally { await http.stop(true); }
+    } finally { await manager.stop(); await http.stop(true); }
   });
 }
 

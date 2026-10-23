@@ -1,12 +1,12 @@
 import { saihuNativeFetch } from "./saihu-native-http";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Client, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
+import { Client, ProtocolError, SdkError, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse, stringify } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger, sanitizeLogValueWithPolicy, type Environment } from "@lxe/core";
-import { ToolRegistry } from "./registry";
+import { ToolExecutionError, ToolRegistry, unknownToolFailureDetails } from "./registry";
 
 export type McpTransportKind = "stdio" | "streamable-http";
 export type McpProtocolMode = "auto" | "legacy" | "2026-07-28";
@@ -71,9 +71,16 @@ const mapping = (value: unknown): Record<string, unknown> =>
 const stringMapping = (value: unknown): Record<string, string> =>
   Object.fromEntries(Object.entries(mapping(value)).map(([key, item]) => [key, String(item ?? "")]));
 
-const mcpFailureText = (error: unknown): string => String(sanitizeLogValueWithPolicy(
-  error instanceof Error ? error.message : String(error), { maxString: 2_000 },
-));
+const mcpFailureText = (error: unknown): string => {
+  let observed = error instanceof Error ? error.message : String(error);
+  if (error instanceof ProtocolError || error instanceof SdkError) {
+    // v2 HTTP/protocol failures can keep the upstream diagnostic in data,
+    // while message contains only the status or a short protocol summary.
+    const details = sanitizeLogValueWithPolicy({ code: error.code, data: error.data }, { maxString: 2_000 });
+    observed += `\n${JSON.stringify(details)}`;
+  }
+  return String(sanitizeLogValueWithPolicy(observed, { maxString: 2_000 }));
+};
 
 const safeName = (value: string, fallback: string): string => value.trim().replaceAll(/[^A-Za-z0-9_-]+/g, "_").replaceAll(/_+/g, "_").replaceAll(/^_+|_+$/g, "") || fallback;
 export const mcpServerPrefix = (serverName: string): string => `mcp__${safeName(serverName, "mcp")}__`;
@@ -508,13 +515,21 @@ export class McpManager {
               context.handle.signal,
             );
             if (result.isError) {
-              const preview = mcpFailureText(safeMcpContent(result).map((block) => String(block.text ?? "")).filter(Boolean).join("\n"));
+              const preview = safeMcpContent(result).map((block) => String(block.text ?? "")).filter(Boolean).join("\n");
               throw new Error(preview || `MCP tool ${server.name}/${tool.name} returned isError=true`, { cause: result });
             }
             return { content: safeMcpContent(result) };
           } catch (error) {
-            this.errors.set(server.name, mcpFailureText(error));
-            throw error;
+            const observed = mcpFailureText(error);
+            this.errors.set(server.name, observed);
+            if (context.handle.signal.aborted) throw error;
+            // Use the Runtime's structured failure path so the generic error
+            // preview cannot silently truncate these diagnostics a second time.
+            const failure = new ToolExecutionError("unclassified", observed, {
+              ...unknownToolFailureDetails(modelName, error), observed_message: observed,
+            });
+            failure.cause = error;
+            throw failure;
           }
         },
       });

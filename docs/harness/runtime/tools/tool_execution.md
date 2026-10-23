@@ -52,7 +52,7 @@ Runtime 使用官方 `@modelcontextprotocol/client` 2.3.1，支持 MCP `2026-07-
 
 Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更新 MCP status 并返回 tool error。Enable/disable 会注册或移除该 server definition，不在 Dashboard PATCH 时隐式调用模型。
 
-工具列表分页由 SDK 聚合。`structuredContent` 按 JSON 值保留，包括数组、`null`、`false`、`0` 和空字符串，并转为模型可读的结果文本进入现有历史流程。图片继续走既有归一化和持久化流程。工具返回 `isError=true` 或 SDK 抛错时均按失败处理；错误状态经过脱敏和带标记的长度截断，不用空结果代替实际错误。
+工具列表分页由 SDK 聚合。`structuredContent` 按 JSON 值保留，包括数组、`null`、`false`、`0` 和空字符串，并转为模型可读的结果文本进入现有历史流程。图片继续走既有归一化和持久化流程。工具返回 `isError=true` 或 SDK 抛错时均按失败处理；错误状态保留 SDK 的诊断 `data`，经过脱敏和带标记的长度截断，不用空结果代替实际错误。工具错误通过 Runtime 的结构化错误路径进入模型与历史，避免通用错误摘要再次静默截断；原异常保留在 `cause` 中。
 
 升级参考：[协议规范](https://modelcontextprotocol.io/specification/2026-07-28)、[SDK v2 迁移指南](https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2.html)、[协议协商](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions.html)。
 

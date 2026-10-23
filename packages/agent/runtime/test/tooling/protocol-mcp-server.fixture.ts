@@ -1,14 +1,16 @@
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { Server, type CallToolResult, type JSONRPCMessage } from "@modelcontextprotocol/server";
+import { ProtocolError, Server, type CallToolResult, type JSONRPCMessage } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 export type WireMessage = { method?: string; id?: string | number; params?: Record<string, any> };
 
 export const fixtureTools = ["echo", "second"].map(name => ({ name, inputSchema: { type: "object" as const } }));
+export const fixtureFailure = `actual upstream rejection: token=private-value ${"x".repeat(3_000)} end-of-error`;
 
 export function fixtureResult(arguments_: Record<string, unknown> = {}): CallToolResult {
-  if (arguments_.failure) return { content: [{ type: "text", text: "actual upstream rejection: token=private-value" }], isError: true };
+  if (arguments_.protocolError) throw new ProtocolError(-32602, "actual protocol rejection", { diagnostic: fixtureFailure });
+  if (arguments_.failure) return { content: [{ type: "text", text: fixtureFailure }], isError: true };
   return {
     content: [{ type: "text", text: "fixture result" }],
     ...(Object.hasOwn(arguments_, "value") ? { structuredContent: arguments_.value } : {}),
