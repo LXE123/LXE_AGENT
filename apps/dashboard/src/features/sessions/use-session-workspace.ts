@@ -104,8 +104,9 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
 
   async function openSessionRun(session: SessionPayload, turnId: string): Promise<void> {
     openSession(session);
+    const ticket = conversationDisplay.beginTargetHistory();
     const page = await sessionActions.detail({ session_id: session.session_id, message_turn_id: turnId, message_limit: 10 });
-    if (conversationDisplay.getSnapshot().sessionId === session.session_id) conversationDisplay.openHistory(page);
+    conversationDisplay.openHistory(page, turnId, ticket);
   }
 
   function newWorkspaceId(explicit?: string): string | undefined {

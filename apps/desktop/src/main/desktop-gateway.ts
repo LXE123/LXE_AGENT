@@ -346,6 +346,8 @@ export class DesktopGateway {
     try {
       void this.lxeskillHealth.check();
       this.automations = new DesktopAutomations({
+        timeWorker: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "automation-time-worker.mjs")
+          : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "automation-time-worker.mjs"),
         store: store.automations!, composition, runtime, environment,
         node: this.options.paths.officeNodePath,
         script: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "desktop-mcp.mjs")

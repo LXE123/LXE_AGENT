@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Automation, AutomationDefinition, AutomationRun, AutomationRunView } from "@lxe/desktop-protocol";
 import { AutomationBlockedError, AutomationService, type AutomationExecutionPort } from "../../src/orchestration/automations";
+import { AutomationClock } from "../../src/orchestration/automation-clock";
 import type { AutomationStore } from "../../src/orchestration/automation-store";
 import { nextNominal, nextTime, jitterSeconds, validateAutomationTime } from "../../src/orchestration/automation-time";
 
@@ -18,13 +19,13 @@ class MemoryStore implements AutomationStore {
 const definition = (patch: Partial<AutomationDefinition> = {}): AutomationDefinition => ({ name: "每日报告", prompt: "输出报告", target: { mode: "new", workspace_id: "workspace" }, timezone: "Asia/Shanghai", schedule: { kind: "interval", minutes: 1 }, ...patch });
 const services: AutomationService[] = [];
 afterEach(async () => { for (const service of services.splice(0)) await service.stop(); });
-async function setup(store = new MemoryStore(), port: Partial<AutomationExecutionPort> = {}) {
+async function setup(store = new MemoryStore(), port: Partial<AutomationExecutionPort> = {}, clock?: AutomationClock) {
   let now = Date.UTC(2026, 9, 23);
   const sent: AutomationRun[] = [], states = new Map<string, AutomationRunView["execution_state"]>();
   const execution: AutomationExecutionPort = { ready: () => true, validate: async () => {}, blockReason: async () => null,
     submit: async (run, current) => { current(); sent.push(run); states.set(run.turn_id, "running"); },
     observe: async run => states.get(run.turn_id) ?? "missing", resumeSession() {}, ...port };
-  const service = new AutomationService({ store, execution, now: () => now }); services.push(service); service.start(); await service.tick();
+  const service = new AutomationService({ store, execution, now: () => now, ...(clock ? { clock } : {}) }); services.push(service); service.start(); await service.tick();
   return { service, store, sent, states, execution, advance: (ms: number) => { now += ms; }, now: () => now };
 }
 test("100 due tasks launch three each tick, while independent running chats do not consume a concurrency slot", async () => {
@@ -132,4 +133,32 @@ test("cancelled MCP callers cannot commit a task after target validation",async(
   f.execution.validate=async()=>{cancelled=true;};
   await expect(f.service.save({definition:definition()},()=>{if(cancelled)throw new Error("caller cancelled");})).rejects.toThrow("caller cancelled");
   expect(f.service.list()).toEqual([]);
+});
+
+
+test("cancel and concurrent edits still win while recurrence calculation is in flight", async () => {
+  let entered!: () => void, release!: () => void;
+  class HeldClock extends AutomationClock {
+    hold = false;
+    override async next(...args: Parameters<AutomationClock["next"]>) {
+      const result = await super.next(...args);
+      if (this.hold) { entered(); await new Promise<void>(resolve => { release = resolve; }); }
+      return result;
+    }
+  }
+  const clock = new HeldClock(), f = await setup(undefined, {}, clock);
+  const rule = definition({ timezone: "UTC", schedule: { kind: "rrule", rule: "FREQ=DAILY;BYHOUR=8", start_at: f.now() } });
+  const task = await f.service.save({ definition: rule });
+  clock.hold = true;
+  let cancelled = false;
+  let started = new Promise<void>(resolve => { entered = resolve; });
+  const saving = f.service.save({ definition: rule }, () => { if (cancelled) throw new Error("caller cancelled"); });
+  await started; cancelled = true; release();
+  await expect(saving).rejects.toThrow("caller cancelled"); expect(f.service.list()).toHaveLength(1);
+  started = new Promise<void>(resolve => { entered = resolve; });
+  const resuming = f.service.setStatus(task.id, task.version, "active");
+  await started;
+  await f.service.setStatus(task.id, task.version, "paused"); release();
+  await expect(resuming).rejects.toThrow("Task changed");
+  expect(f.service.get(task.id).status).toBe("paused");
 });

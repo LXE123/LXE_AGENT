@@ -1578,6 +1578,7 @@ export function SessionDetailView({
       </header>
       <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
         connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+        followingIntent={display?.following} historyTarget={display?.historyTarget}
         loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
         pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />

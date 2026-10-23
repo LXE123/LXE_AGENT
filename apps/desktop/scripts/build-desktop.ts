@@ -31,6 +31,7 @@ export function buildDesktop(options: DesktopBuildOptions = {}): void {
 
   runBuild(desktopRoot, [join(desktopRoot, "src", "main", "manual-tools", "pty-host.ts"), "--outfile", join(outputRoot, "pty-host.cjs"), "--target", "node", "--format", "cjs", "--external", "node-pty"]);
   runBuild(desktopRoot, [join(desktopRoot, "src", "mcp", "server.ts"), "--outfile", join(outputRoot, "desktop-mcp.mjs"), "--target", "node", "--format", "esm"]);
+  runBuild(desktopRoot, [join(desktopRoot, "..", "gateway", "src", "orchestration", "automation-time-worker.ts"), "--outfile", join(outputRoot, "automation-time-worker.mjs"), "--target", "node", "--format", "esm"]);
   // node-pty's packaged Node-API binaries work across Electron ABIs. Keep native helpers outside ASAR.
   const nativeRoot = join(outputRoot, "pty-runtime");
   const installed = dirname(fileURLToPath(import.meta.resolve("node-pty/package.json")));

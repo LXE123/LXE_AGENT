@@ -34,8 +34,24 @@ function ruleFor(task: AutomationDefinition): RRule {
   if (seconds.length !== 1) throw new Error("RRULE cannot trigger more than once a minute");
   // Generate floating calendar dates, then convert with Temporal. rrule's built-in
   // TZID conversion depends on the process timezone, which a desktop can change.
-  return new RRule({ ...options, dtstart: wallDate(task.schedule.start_at, task.timezone),
+  const rule = new RRule({ ...options, dtstart: wallDate(task.schedule.start_at, task.timezone),
     ...(options.until ? { until: wallDate(options.until.getTime(), task.timezone) } : {}), tzid: null }, true);
+  if (rule.options.freq === RRule.HOURLY || rule.options.freq === RRule.MINUTELY) {
+    const { freq, interval, byhour, byminute, dtstart } = rule.options;
+    const hourly = freq === RRule.HOURLY;
+    const period = hourly ? 24 : 1440;
+    const start = hourly ? dtstart.getUTCHours() : dtstart.getUTCHours() * 60 + dtstart.getUTCMinutes();
+    let reachable = false;
+    // At most one day's phases. Detect incompatible INTERVAL/filter combinations
+    // before rrule's addHours/addMinutes can enter their unbounded inner loops.
+    for (let i = 0; i < period; i++) {
+      const phase = (start + i * interval) % period;
+      const hour = hourly ? phase : Math.floor(phase / 60);
+      if ((!byhour?.length || byhour.includes(hour)) && (hourly || !byminute?.length || byminute.includes(phase % 60))) { reachable = true; break; }
+    }
+    if (!reachable) throw new Error("RRULE INTERVAL cannot reach the requested BYHOUR/BYMINUTE from DTSTART");
+  }
+  return rule;
 }
 
 export function validateAutomationTime(task: AutomationDefinition): void {

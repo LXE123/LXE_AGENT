@@ -8,3 +8,5 @@ export * from "./state/models";
 
 export * from "./orchestration/automation-store";
 export * from "./orchestration/automations";
+
+export { AutomationClock } from "./orchestration/automation-clock";

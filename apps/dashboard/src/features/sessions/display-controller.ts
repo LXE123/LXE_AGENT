@@ -19,6 +19,7 @@ export interface ConversationDisplaySnapshot {
   pending: PendingMessage[];
   connection: WindowConnection;
   following: boolean;
+  historyTarget?: { turnId: string; version: number } | undefined;
   loadState: "loading" | "ready" | "error";
   error: string;
   jump: number;
@@ -97,11 +98,18 @@ export class ConversationDisplayController {
     }
     this.publish();
   }
-  openHistory(page: SessionDetailPayload): void {
-    if (page.session.session_id !== this.state.sessionId) return;
+  beginTargetHistory(): HistoryTicket {
+    this.window++;
+    this.state = { ...this.state, following: false };
+    this.notify();
+    return this.beginHistory();
+  }
+  openHistory(page: SessionDetailPayload, turnId: string, ticket: HistoryTicket): boolean {
+    if (!this.isCurrent(ticket) || page.session.session_id !== this.state.sessionId) return false;
     this.window++; this.historyProjection = undefined; this.visible = [];
-    this.state = { ...this.state, detail: undefined, following: false };
+    this.state = { ...this.state, detail: undefined, following: false, historyTarget: { turnId, version: this.window } };
     this.receiveHistory(page, "older");
+    return true;
   }
   setDraftDirectory(directory: string): void {
     if (this.state.sessionId || this.state.pending.some(item => !item.error)) return;
@@ -163,7 +171,7 @@ export class ConversationDisplayController {
       ? mergeLatestConversationWindow(previous, page, this.state.following)
       : direction === "older" ? prependConversationWindow(previous, page) : appendConversationWindow(previous, page);
     const tail = latest?.messages_page.newest_cursor;
-    let connection: WindowConnection = !tail || groups(detail).has(tail) ? "attached" : "detached";
+    let connection: WindowConnection = (tail ? groups(detail).has(tail) : !detail.messages_page.has_next) ? "attached" : "detached";
     const tailMessages = connection === "detached" ? latest?.messages.filter(message => !groups(detail).has(message.display_group_id)) ?? [] : [];
     detail = boundConversationWindow(detail, this.visible, direction === "older" ? "older" : "newer", {
       groups: Math.max(1, CONVERSATION_GROUP_BUDGET - new Set(tailMessages.map(message => message.display_group_id)).size),
@@ -234,7 +242,7 @@ export class ConversationDisplayController {
   jumpToLatest = (): void => {
     this.visible = [];
     this.window += 1;
-    this.state = { ...this.state, detail: this.state.latest, connection: "attached", following: true,
+    this.state = { ...this.state, detail: this.state.latest, connection: "attached", following: true, historyTarget: undefined,
       loadState: this.state.latest || !this.state.sessionId ? "ready" : "loading", error: "", jump: this.state.jump + 1 };
     this.pruneUnreferencedTurns();
     this.publish();

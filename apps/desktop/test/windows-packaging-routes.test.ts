@@ -271,7 +271,7 @@ describe("Windows desktop packaging routes", () => {
       "python/lxeskill_cli/shared",
       "python/lxeskill_cli/browser_auth_service",
     ]);
-    expect(builderConfig.files).toEqual(["dist/main.js", "dist/preload.cjs", "dist/desktop-mcp.mjs", "dist/pty-host.cjs", "dist/pty-runtime/**/*"]);
-    expect(builderConfig.asarUnpack).toEqual(["dist/desktop-mcp.mjs", "dist/pty-host.cjs", "dist/pty-runtime/**/*"]);
+    expect(builderConfig.files).toEqual(["dist/main.js", "dist/preload.cjs", "dist/desktop-mcp.mjs", "dist/automation-time-worker.mjs", "dist/pty-host.cjs", "dist/pty-runtime/**/*"]);
+    expect(builderConfig.asarUnpack).toEqual(["dist/desktop-mcp.mjs", "dist/automation-time-worker.mjs", "dist/pty-host.cjs", "dist/pty-runtime/**/*"]);
   });
 });

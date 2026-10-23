@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
 import { parseAutomationDefinition, type Automation, type AutomationDefinition, type AutomationRun, type AutomationRunView } from "@lxe/desktop-protocol";
 import type { AutomationStore } from "./automation-store";
-import { jitterSeconds, nextNominal, nextTime, validateAutomationTime } from "./automation-time";
+import { validateAutomationTime } from "./automation-time";
+import { AutomationClock } from "./automation-clock";
 
 export class AutomationBlockedError extends Error {}
 export class AutomationTargetMissingError extends Error {}
@@ -21,6 +22,7 @@ const diagnostic = (error: unknown): string => String(sanitizeLogValueWithPolicy
 ));
 
 export class AutomationService {
+  private readonly clock: AutomationClock;
   private readonly now: () => number;
   private readonly salt: string;
   private timer?: ReturnType<typeof setInterval>;
@@ -32,8 +34,9 @@ export class AutomationService {
   private readonly editing = new Map<string, number>();
   constructor(private readonly options: {
     store: AutomationStore; execution: AutomationExecutionPort; now?: () => number;
-    changed?: () => void; onError?: (error: unknown) => void;
+    clock?: AutomationClock; changed?: () => void; onError?: (error: unknown) => void;
   }) {
+    this.clock = options.clock ?? new AutomationClock();
     this.now = options.now ?? Date.now;
     this.salt = options.store.setting("jitter_salt") ?? randomUUID();
     options.store.setSetting("jitter_salt", this.salt);
@@ -56,9 +59,11 @@ export class AutomationService {
     if (definition.schedule.kind === "once" && definition.schedule.at <= this.now()) throw new Error("一次性任务请选择未来的时间");
     await this.options.execution.validate(definition);
     assertCurrent?.();
-    const previous = input.id ? this.matching(input.id, input.version!) : undefined;
+    let previous = input.id ? this.matching(input.id, input.version!) : undefined;
     const now = this.now(), id = previous?.id ?? randomUUID();
-    const time = nextTime(definition, id, this.salt, now, now);
+    const time = await this.clock.next(definition, id, this.salt, now, now);
+    assertCurrent?.();
+    if (previous) previous = this.matching(previous.id, previous.version);
     if (!time) throw new Error("时间规则没有未来的运行时间");
     const task: Automation = { ...definition, id, version: (previous?.version ?? 0) + 1,
       status: previous?.status === "paused" ? "paused" : "active", schedule_anchor_at: now, next_nominal_at: time.nominal, next_run_at: time.due,
@@ -77,7 +82,8 @@ export class AutomationService {
       task = this.matching(id, version);
       const now = this.now();
       const time = task.schedule.kind === "once" ? { nominal: task.schedule.at, due: Math.max(now, task.schedule.at) }
-        : nextTime(task, task.id, this.salt, now, now);
+        : await this.clock.next(task, task.id, this.salt, now, now);
+      assertCurrent?.(); task = this.matching(id, version);
       task = { ...task, status: time ? "active" : "finished", schedule_anchor_at: now, next_nominal_at: time?.nominal ?? null, next_run_at: time?.due ?? null };
       if (task.target.mode === "reuse") this.options.execution.resumeSession(task.target.session_id);
     } else task = { ...task, status };
@@ -100,18 +106,12 @@ export class AutomationService {
   setEditing(sessionId: string, editing: boolean): void {
     if (editing) this.editing.set(sessionId, this.now()); else this.editing.delete(sessionId);
   }
-  preview(definition: AutomationDefinition): { times: number[]; jitter_seconds: number } {
+  async preview(definition: AutomationDefinition): Promise<{ times: number[]; jitter_seconds: number }> {
     const task = parseAutomationDefinition(definition);
     validateAutomationTime(task);
-    const times: number[] = [];
-    let cursor = this.now();
-    for (let i = 0; i < 5; i++) {
-      const next = nextNominal(task, cursor, this.now());
-      if (next === null) break;
-      times.push(next); cursor = next;
-    }
-    return { times, jitter_seconds: jitterSeconds(task) };
+    return this.clock.preview(task, this.now());
   }
+
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
@@ -122,6 +122,7 @@ export class AutomationService {
   async stop(): Promise<void> {
     this.stopped = true;
     clearInterval(this.timer);
+    await this.clock.close();
     await this.ticking;
     await Promise.allSettled([...this.pendingDispatches]);
   }
@@ -190,7 +191,11 @@ export class AutomationService {
       const now = this.now();
       const advance = trigger === "scheduled" || task.target.mode === "reuse" || task.schedule.kind === "once";
       const after = task.schedule.kind === "interval" ? now : Math.max(now, task.next_nominal_at ?? now);
-      const time = advance ? (task.schedule.kind === "once" ? null : nextTime(task, id, this.salt, after, task.schedule_anchor_at)) : null;
+      const time = advance ? (task.schedule.kind === "once" ? null : await this.clock.next(task, id, this.salt, after, task.schedule_anchor_at)) : null;
+      assertRequester?.();
+      if (this.stopped) throw new AutomationBlockedError("任务调度已停止");
+      this.assertNotEditing(task);
+      this.matching(id, task.version);
       const next: Automation = { ...task, recheck_at: null, blocked_reason: null, last_triggered_at: now,
         ...(advance ? { next_nominal_at: time?.nominal ?? null, next_run_at: time?.due ?? null,
           status: time ? task.status : "finished" as const } : {}) };

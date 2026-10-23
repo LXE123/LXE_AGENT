@@ -14,10 +14,12 @@ files:
   - dist/main.js
   - dist/preload.cjs
   - dist/desktop-mcp.mjs
+  - dist/automation-time-worker.mjs
   - dist/pty-host.cjs
   - dist/pty-runtime/**/*
 asarUnpack:
   - dist/desktop-mcp.mjs
+  - dist/automation-time-worker.mjs
   - dist/pty-host.cjs
   - dist/pty-runtime/**/*
 win:

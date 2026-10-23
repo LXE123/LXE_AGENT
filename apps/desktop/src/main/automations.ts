@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { accessSync, constants } from "node:fs";
-import { AutomationService, AutomationBlockedError, AutomationTargetMissingError, type DirectGatewayComposition, type ProcessAgentRuntime, type AutomationStore } from "@lxe/gateway/desktop";
+import { AutomationClock, AutomationService, AutomationBlockedError, AutomationTargetMissingError, type DirectGatewayComposition, type ProcessAgentRuntime, type AutomationStore } from "@lxe/gateway/desktop";
 import { DESKTOP_MCP_NAME, parseDashboardRpcCall, type AutomationDefinition, type AutomationOperation, type DashboardRpcCall, type AutomationRun, type AutomationRunView } from "@lxe/desktop-protocol";
 import { startDesktopPipe } from "../mcp/pipe";
 import { desktopTools } from "../mcp/tools";
@@ -16,9 +16,9 @@ export class DesktopAutomations {
   constructor(private readonly options: {
     store: AutomationStore; composition: DirectGatewayComposition; runtime: ProcessAgentRuntime;
     environment: Record<string, string | undefined>; node: string; script: string;
-    changed(): void; onError(error: unknown): void;
+    timeWorker?: string; changed(): void; onError(error: unknown): void;
   }) {
-    this.service = new AutomationService({ store: options.store, changed: options.changed, onError: options.onError,
+    this.service = new AutomationService({ clock: new AutomationClock({ workerPath: options.timeWorker }), store: options.store, changed: options.changed, onError: options.onError,
       execution: {
         ready: () => options.runtime.isReady,
         validate: definition => this.validateTarget(definition),

@@ -1,13 +1,13 @@
 {
   "status": "passed",
-  "verifiedAt": "2026-10-23T09:47:52.607Z",
+  "verifiedAt": "2026-10-23T10:20:17.192Z",
   "sourceHashes": {
     "apps/dashboard/src/features/automations/AutomationsPage.tsx": "46d5f9a1c907795d86a1a7d7278991dbc185e7518ecc9d7805919923cce4cf52",
     "apps/dashboard/src/features/automations/theme.css": "9eca25eb6ae0d5b0897be71203388d4edcbfd667138324b83c916a30f21d457b",
     "apps/dashboard/src/shared/cds-theme.css": "0b3a5d60e91fb47eb6fac86ecbbae653db58b7ee9fad738a6c90994ed4cb78a4",
     "apps/dashboard/src/styles.css": "983932403ca91cfd7294271e18655ea0e1eddfdb0b609af69aec310a813f208c",
     "apps/dashboard/test/features/automations/fixture.tsx": "b4099016a8c664fb47d5edc05c12ad9ec2de3add599e93b9932344f5c988c96e",
-    "apps/dashboard/test/features/automations/fixture-server.ts": "9fe7b224d8e8544ab890e10ced55868caa1c83c39392433f91557f1ee2f0de9b",
+    "apps/dashboard/test/features/automations/fixture-server.ts": "97bb07fcd92272868f1692512bd279394b0eb172b838a4fb402bb5a4d1907da5",
     "apps/dashboard/test/features/automations/cds-runner.cjs": "f860596cfc99867588016e55cf0141e0f8d3fcbf9b8788941b3fe41b1e32dcc4",
     "scripts/cds-automations.ts": "9ec10bf12d1403928772f3c11124779bc617bcb59cd6e568c71082fee4cf2cf0"
   },
@@ -1789,7 +1789,7 @@
       "width": 640,
       "height": 968,
       "focus": false,
-      "hover": false,
+      "hover": true,
       "disabled": false,
       "invalid": false,
       "surface": "#232322",
