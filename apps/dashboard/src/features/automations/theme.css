@@ -45,15 +45,15 @@
   border-color: var(--border); opacity: 1; cursor: not-allowed;
 }
 
-.automations-page :is(input:not([type="radio"]), select, textarea) {
+.automations-page :is(input:not(:where([type="radio"], [type="checkbox"])), select, textarea) {
   width: 100%; min-width: 0; min-height: 36px; padding: 9px 11px;
   color: var(--text); background: var(--cds-field); border: 1px solid var(--border);
   border-radius: 8px; font: inherit;
 }
 .automations-page textarea { resize: vertical; }
 .automations-page :is(input, textarea)::placeholder { color: var(--cds-muted); opacity: 1; }
-.automations-page :is(input:not([type="radio"]), select, textarea):hover:not(:disabled):not(:focus-visible):not(:user-invalid) { border-color: var(--border-strong); }
-.automations-page :is(input:not([type="radio"]), select, textarea):focus-visible {
+.automations-page :is(input:not(:where([type="radio"], [type="checkbox"])), select, textarea):hover:not(:disabled):not(:focus-visible):not(:user-invalid) { border-color: var(--border-strong); }
+.automations-page :is(input:not(:where([type="radio"], [type="checkbox"])), select, textarea):focus-visible {
   outline: none; border-color: transparent;
   box-shadow: 0 0 0 1px var(--automation-focus-surface), 0 0 0 3px var(--accent);
 }
@@ -67,8 +67,8 @@
   background: var(--cds-disabled-fill); color: var(--cds-disabled-ink);
   border-color: var(--border); box-shadow: none; opacity: 1; cursor: not-allowed;
 }
-.automations-page input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
-.automations-page input[type="radio"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.automations-page input:is([type="radio"], [type="checkbox"]) { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.automations-page input:is([type="radio"], [type="checkbox"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .automations-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); flex: 1; }
 .automations-list { min-width: 0; padding: 22px 20px 20px 0; border-right: 1px solid var(--border); }
@@ -131,6 +131,22 @@
 .automation-radio:last-child { margin-bottom: 0; }
 .automation-radio span { grid-column: 2; font-size: 12px; color: var(--text-soft); line-height: 1.6; }
 .automation-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.automation-schedule-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 240px); align-items: center; gap: 16px; padding: 10px 0; font-size: 13px; }
+.automation-schedule-row + .automation-schedule-row { border-top: 1px solid var(--border); }
+.automation-schedule-interval { display: flex; align-items: center; gap: 10px; }
+.automation-schedule-interval > span { flex-shrink: 0; color: var(--text-soft); }
+.automation-schedule-summary { font-size: 13px; line-height: 1.6; color: var(--text-soft); margin: 14px 0 0; overflow-wrap: anywhere; }
+.automation-schedule > small { display: block; margin-top: 6px; }
+.automation-editor .automation-weekdays { border: 0; padding: 10px 0; margin: 10px 0 0; }
+.automation-weekdays > legend { padding: 0; }
+.automation-weekdays > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.automation-weekdays label { display: flex; align-items: center; gap: 7px; padding: 8px; min-height: 36px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; cursor: pointer; }
+.automation-weekdays label:has(input:checked) { background: var(--cds-selected); }
+.automation-weekdays label:hover:not(:has(input:disabled)):not(:has(input:checked)) { background: var(--row-hover); }
+.automation-weekdays label:has(input:disabled) { color: var(--cds-disabled-ink); background: var(--cds-disabled-fill); cursor: not-allowed; }
+.automation-weekdays label:has(input:user-invalid) { border-color: var(--danger); }
+.automation-preserved-schedule { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.automation-preserved-schedule p { margin: 0; font-size: 13px; }
 .automation-editor footer { flex-shrink: 0; border-top: 1px solid var(--border); margin-top: 22px; padding-top: 18px; }
 .automation-editor footer > div { display: flex; gap: 9px; }
 @media (max-width: 900px) {
@@ -145,6 +161,7 @@
   .automations-list { border-right: 0; border-bottom: 1px solid var(--border); padding-right: 0; max-height: 260px; overflow: auto; }
   .automation-detail { padding-left: 0; }
   .automation-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .automation-schedule-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .automations-page .automation-editor { padding: 18px; }
   .automation-editor footer { gap: 10px; flex-wrap: wrap; }
 }

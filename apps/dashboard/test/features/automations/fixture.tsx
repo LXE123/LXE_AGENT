@@ -5,6 +5,8 @@ import { setDashboardTransportForTests } from "../../../src/api/client";
 const params = new URLSearchParams(location.search);
 const scenario = params.get("scenario");
 const created = new Set<string>();
+const calls: { operation: string; input: unknown }[] = [];
+Object.assign(window, { automationFixtureCalls: calls });
 params.set("app", "1");
 params.set("workspaces", "1");
 params.set("contracts", "1");
@@ -14,6 +16,7 @@ params.set("runtime", scenario === "offline" ? "offline" : "ready");
 history.replaceState(null, "", `${location.pathname}?${params}`);
 
 setDashboardTransportForTests({ async call(call) {
+  calls.push(structuredClone(call));
   if (call.operation === "skills.user.list") return { items: [], total: 0 };
   if (call.operation === "automations.list") {
     if (scenario === "loading") await new Promise(resolve => setTimeout(resolve, 60_000));

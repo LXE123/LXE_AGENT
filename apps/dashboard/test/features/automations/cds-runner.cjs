@@ -29,7 +29,8 @@ app.whenReady().then(async () => {
     if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach("1.3");
     await win.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
     await js("document.fonts.ready");
-    if (!["empty", "error", "loading"].includes(scenario)) await wait("document.querySelectorAll('.automation-row').length === 2");
+    if (scenario === "schedules") await wait("document.querySelectorAll('.automation-row').length >= 2");
+    else if (!["empty", "error", "loading"].includes(scenario)) await wait("document.querySelectorAll('.automation-row').length === 2");
     await delay(120); off();
   }
   function off() { win.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 }); }
@@ -216,8 +217,10 @@ app.whenReady().then(async () => {
 
       await load(theme, "pending"); await click(create); await wait("document.querySelector('dialog')?.open");
       await type(name, "保存中状态验收"); await type(prompt, "检查请求期间的字段和按钮状态。");
+      await js("(() => { const e=document.querySelector('select[name=schedule]'); e.value='weekly'; e.dispatchEvent(new Event('change',{bubbles:true})); })()");
+      await wait("document.querySelector('input[name=weekdays]:checked')");
       await click("dialog footer > button"); await wait("document.querySelector('dialog').getAttribute('aria-busy') === 'true'");
-      for (const selector of [name, prompt, "select[name=workspace]", "input[type=radio]:checked", save]) {
+      for (const selector of [name, prompt, "select[name=workspace]", "select[name=schedule]", "input[name=time]", "input[name=weekdays]:checked", "input[type=radio]:checked", save]) {
         const d = await measure(theme, "pending/disabled", selector); assert.equal(d.disabled, true); assert.equal(d.opacity, "1");
         assert.equal(d.color, d.expected.disabledInk); assert.equal(d.background, d.expected.disabledFill);
         await hover(selector); assert.equal((await measure(theme, "pending/disabled+hover", selector)).background, d.background);
@@ -232,9 +235,10 @@ app.whenReady().then(async () => {
       await tabTo(save); assert.equal(await js("document.activeElement.type"), "submit");
       passed.push(`${theme}: 390px page and dialog do not overflow; footer reachable by keyboard`);
       win.setContentSize(1280, 1000);
+      await require('./schedule-controls.cjs')({ theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed });
     }
     assert.deepEqual(errors, []);
     console.log("LXE_AUTOMATIONS_CDS=" + JSON.stringify({ surface: 'desktop-shell', passed, measurements, screenshots, errors }));
     win.destroy(); app.exit(0);
-  } catch (error) { await capture("failure.png"); console.error({ completed: passed, error }); win.destroy(); app.exit(1); }
+  } catch (error) { await capture("failure.png"); console.error({ completed: passed, errors, error }); win.destroy(); app.exit(1); }
 });

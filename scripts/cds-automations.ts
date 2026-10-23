@@ -29,22 +29,23 @@ try {
   const result = stdout.split("\n").find(line => line.startsWith("LXE_AUTOMATIONS_CDS="));
   if (!result) throw new Error("Missing Electron verification result");
   const report = JSON.parse(result.slice("LXE_AUTOMATIONS_CDS=".length));
-  if (report.surface !== "desktop-shell" || report.passed.length < 28 || report.measurements.length < 86 || report.screenshots.length < 16) throw new Error("Incomplete automation desktop shell/state coverage");
+  if (report.surface !== "desktop-shell" || report.passed.length < 36 || report.measurements.length < 106 || report.screenshots.length < 20) throw new Error("Incomplete automation desktop shell/state coverage");
   console.log(`Automation CDS: ${report.passed.length} checks, ${report.measurements.length} state measurements, ${report.screenshots.length} screenshots passed.`);
   rmSync(resolve(output, "failure.png"), { force: true });
   const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
+    "apps/dashboard/src/features/automations/form.ts", "apps/dashboard/src/features/automations/ScheduleFields.tsx",
     "apps/dashboard/src/shared/cds-theme.css", "apps/dashboard/src/styles.css", "apps/dashboard/src/main.tsx",
     "apps/dashboard/src/features/capabilities/theme.css", "apps/dashboard/src/shared/navigation-rail.css",
     "apps/dashboard/test/behavior/renderer.tsx",
     "apps/dashboard/test/features/automations/fixture.tsx", "apps/dashboard/test/features/automations/fixture-server.ts",
-    "apps/dashboard/test/features/automations/cds-runner.cjs", "scripts/cds-automations.ts"];
+    "apps/dashboard/test/features/automations/cds-runner.cjs", "apps/dashboard/test/features/automations/schedule-controls.cjs", "scripts/cds-automations.ts"];
   // Git may check out CRLF on Windows. Compare the same UTF-8/LF source across platforms.
   const sourceHashes = Object.fromEntries(await Promise.all(files.map(async file => [file,
     createHash("sha256").update((await Bun.file(resolve(root, file)).text()).replace(/\r\n/g, "\n"), "utf8").digest("hex")])));
   await Bun.write(reportPath, JSON.stringify({ status: "passed", verifiedAt: new Date().toISOString(), sourceHashFormat: "sha256-utf8-lf", sourceHashes,
     platform: process.platform, arch: process.arch, ...report,
     limitations: ["本机 Electron 加载完整桌面布局和生产页面，接口配合内存数据和模拟执行；未连接账号或执行真实任务，不代表安装包验收。",
-      "原生日期、选择器、单选框保留系统渲染；验收只覆盖报告记录的平台。",
+      "原生日期、选择器、单选框和复选框保留系统渲染；下拉选择通过 change 事件驱动生产表单，系统原生弹出层未验收。",
       "不代表全站 CDS、全量读屏或触屏审计。"] }, null, 2) + "\n");
 } catch (cause) {
   await Bun.write(reportPath, JSON.stringify({ status: "failed", failedAt: new Date().toISOString(), error: String(cause) }, null, 2) + "\n");

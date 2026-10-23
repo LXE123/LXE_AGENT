@@ -5,7 +5,8 @@ import type { Automation, AutomationDefinition, AutomationRunView, SessionPayloa
 import { automationActions } from "../../api/automation-actions";
 import { sessionActions } from "../../api/session-actions";
 import { queryError, useModelsQuery, useSessionWorkspacesQuery } from "../../api/queries";
-import { instant, localTime, scheduleLabel } from "./form";
+import { buildSchedule, newScheduleDraft, scheduleDraft, scheduleLabel } from "./form";
+import { ScheduleFields } from "./ScheduleFields";
 import "./theme.css";
 
 const statuses = { active: "已启用", paused: "已暂停", finished: "计划已结束", deleted: "已删除" };
@@ -84,11 +85,9 @@ function AutomationEditor({ task, onClose, onSaved }: { task?: Automation; onClo
   const [session, setSession] = useState(task?.target.mode === "reuse" ? task.target.session_id : "");
   const [sessionSearch, setSessionSearch] = useState("");
   const [model, setModel] = useState(task?.target.mode === "new" && task.target.model ? JSON.stringify(task.target.model) : "");
-  const [kind, setKind] = useState<"once" | "interval" | "rrule">(task?.schedule.kind ?? "rrule");
   const [zone, setZone] = useState(task?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [at, setAt] = useState(localTime(task?.schedule.kind === "once" ? task.schedule.at : task?.schedule.kind === "rrule" ? task.schedule.start_at : Date.now() + 3600_000, zone));
-  const [minutes, setMinutes] = useState(task?.schedule.kind === "interval" ? task.schedule.minutes : 60);
-  const [rule, setRule] = useState(task?.schedule.kind === "rrule" ? task.schedule.rule : "FREQ=DAILY;BYHOUR=9;BYMINUTE=0");
+  const [initialSchedule] = useState(() => task ? scheduleDraft(task) : newScheduleDraft(zone));
+  const [schedule, setSchedule] = useState(initialSchedule);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<{ times: number[]; jitter_seconds: number }>();
@@ -97,7 +96,8 @@ function AutomationEditor({ task, onClose, onSaved }: { task?: Automation; onClo
   const sessions = useQuery({ queryKey: ["automations", "sessions", sessionSearch], queryFn: () => automationActions.sessions(sessionSearch), enabled: mode === "reuse" });
   function definition(): AutomationDefinition {
     return { name, prompt, timezone: zone, target: mode === "reuse" ? { mode, session_id: session } : { mode, workspace_id: workspace || workspaces.data?.items[0]?.workspace_id || "", ...(model ? { model: JSON.parse(model) } : {}) },
-      schedule: kind === "once" ? { kind, at: instant(at, zone) } : kind === "interval" ? { kind, minutes } : { kind, rule, start_at: instant(at, zone) } };
+      // Preserve anchors, seconds and conditions exactly when only task content changes.
+      schedule: task && schedule === initialSchedule && zone === task.timezone ? task.schedule : buildSchedule(schedule, zone) };
   }
   async function submit(previewOnly: boolean) {
     setError(""); setSaving(true);
@@ -121,11 +121,9 @@ function AutomationEditor({ task, onClose, onSaved }: { task?: Automation; onClo
       <fieldset className="automation-editor-fields" disabled={saving} aria-label="任务配置">
       <label>任务名称<input name="name" required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：每天的运营简报"/></label>
       <label>任务提示词<textarea name="prompt" required rows={4} maxLength={32768} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="告诉 Agent 要做什么，以及你希望得到的结果。"/></label>
+      <ScheduleFields value={schedule} zone={zone} onChange={value => { setSchedule(value); setPreview(undefined); }} onZoneChange={setZone}/>
       <fieldset><legend>对话方式</legend><label className="automation-radio"><input type="radio" name="automation-conversation-mode" checked={mode === "new"} onChange={() => setMode("new")}/>每次新建对话<span>每次从新的上下文开始，适合独立报告。</span></label><label className="automation-radio"><input type="radio" name="automation-conversation-mode" checked={mode === "reuse"} onChange={() => setMode("reuse")}/>沿用已有对话<span>保留历史上下文；对话忙碌时等待空闲。</span></label></fieldset>
       {mode === "new" ? <><label>工作区<select name="workspace" required value={workspace || workspaces.data?.items[0]?.workspace_id || ""} onChange={event => setWorkspace(event.target.value)}>{!workspaces.data?.items.length && <option value="">请先在对话页添加工作区</option>}{workspaces.data?.items.map(item => <option key={item.workspace_id} value={item.workspace_id}>{item.display_name || item.directory}</option>)}</select></label><label>模型<select name="model" value={model} onChange={event => setModel(event.target.value)}><option value="">运行时的默认模型</option>{models.data?.items.flatMap(provider => provider.model_options.map(option => { const value = JSON.stringify({ provider: provider.provider, model: option.model, credential_source: provider.credential_source }); return <option key={value} value={value} disabled={!provider.selectable}>{provider.label} · {option.model}</option>; }))}</select></label></> : <><label>查找对话<input value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} placeholder="输入对话标题"/></label><label>绑定对话<select name="session" required value={session} onChange={event => setSession(event.target.value)}><option value="">选择桌面对话</option>{session && !options.some(item => item.session_id === session) && <option value={session}>{session}</option>}{options.map(item => <option value={item.session_id} key={item.session_id}>{item.title || item.session_id}</option>)}</select></label></>}
-      <div className="automation-fields"><label>运行方式<select name="schedule" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="rrule">按日历重复</option><option value="interval">固定间隔</option><option value="once">仅执行一次</option></select></label><label>时区<input name="timezone" required value={zone} onChange={event => setZone(event.target.value)} placeholder="Asia/Shanghai"/></label></div>
-      {kind !== "interval" ? <label>{kind === "once" ? "执行时间" : "计划开始时间"}<input type="datetime-local" required value={at} onChange={event => setAt(event.target.value)}/><small>按上方时区解释；夏令时切换时的歧义时间需调整。</small></label> : <label>间隔（分钟）<input type="number" min={1} max={525600} required value={minutes} onChange={event => setMinutes(Number(event.target.value))}/></label>}
-      {kind === "rrule" && <><label>时间规则<select value={rule === "FREQ=DAILY;BYHOUR=9;BYMINUTE=0" ? "daily" : rule === "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0" ? "weekday" : "custom"} onChange={event => setRule(event.target.value === "daily" ? "FREQ=DAILY;BYHOUR=9;BYMINUTE=0" : event.target.value === "weekday" ? "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0" : "FREQ=DAILY;BYHOUR=10;BYMINUTE=0")}><option value="daily">每天 09:00</option><option value="weekday">工作日 09:00</option><option value="custom">自定义 RRULE</option></select></label><label>RRULE<input name="rrule" required value={rule} onChange={event => setRule(event.target.value)}/></label></>}
       </fieldset>
       {(error || workspaces.error || models.error || sessions.error) && <p className="automation-error" role="alert">{error || queryError(workspaces.error || models.error || sessions.error)}</p>}
       {preview && <div className="automation-notice"><strong>接下来的计划时间</strong>{preview.times.map(time => <div key={time}>{date(time, zone)}</div>)}{preview.jitter_seconds > 0 && <small>实际触发会错开约 ±{preview.jitter_seconds} 秒，以分散同时间任务。</small>}</div>}
