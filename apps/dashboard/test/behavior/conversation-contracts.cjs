@@ -49,6 +49,37 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await js("{const root=document.querySelector('.conversation-transcript');root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:800}));root.scrollTop=root.scrollHeight;root.dispatchEvent(new Event('scroll'))}");
       await waitFor("JSON.parse(document.querySelector('#run-state').textContent).newer>0",'user scroll enables pagination');
     });
+    await step('paging follows scroll position when tall rows keep the virtual range unchanged',async()=>{
+      for(const direction of ['older','newer']) {
+        await win.loadURL(new URL(`../features/sessions/window-fixture.html?pagination=${direction}`,url).href);
+        await waitFor("document.querySelectorAll('[data-conversation-row]').length>0",'long conversation rows');
+        await settle(); await settle();
+        // Leave follow mode before approaching the edge. Jumping directly to
+        // zero in the same event, as older tests did, hides this regression.
+        await js(`{
+          const root=document.querySelector('.conversation-transcript');
+          root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-40}));
+          root.scrollTop=${direction==='older'?'300':'root.scrollHeight-root.clientHeight-300'};
+          root.dispatchEvent(new Event('scroll'));
+        }`);
+        await settle(); await settle();
+        await textClick('Enable paging');
+        const before=await js("({range:[...document.querySelectorAll('[data-index]')].map(e=>e.dataset.index),requests:JSON.parse(document.querySelector('#pagination-metrics').textContent).requests,top:document.querySelector('.conversation-transcript').scrollTop,bottom:document.querySelector('.conversation-transcript').scrollHeight-document.querySelector('.conversation-transcript').clientHeight-document.querySelector('.conversation-transcript').scrollTop})");
+        assert.equal(before.requests,0,`${direction}: no request outside the paging boundary`);
+        assert.deepEqual(before.range,['0','1','2','3'],'both messages and their metadata are already mounted');
+        assert.ok(before.top>120&&before.bottom>120,'test starts away from both paging boundaries');
+        await js(`{
+          const root=document.querySelector('.conversation-transcript');
+          root.scrollTop=${direction==='older'?'0':'root.scrollHeight-root.clientHeight'};
+          root.dispatchEvent(new Event('scroll'));
+          window.boundaryRange=[...document.querySelectorAll('[data-index]')].map(e=>e.dataset.index);
+        }`);
+        assert.deepEqual(await js('boundaryRange'),before.range,'edge reached without changing the mounted rows');
+        await waitFor("JSON.parse(document.querySelector('#pagination-metrics').textContent).loaded",`${direction} page loaded inside unchanged virtual range`);
+        assert.equal(await js("JSON.parse(document.querySelector('#pagination-metrics').textContent).requests"),1,'one page request');
+        assert.ok(await js(`Boolean(document.querySelector('[data-display-group="page-${direction==='older'?1:4}"]'))`),'returned page renders');
+      }
+    });
     await step('compaction stays between streamed content and scrolls normally in every theme',async()=>{
       const fixture=new URL('../features/sessions/window-fixture.html?compaction=1',url).href;
       await win.loadURL(fixture);

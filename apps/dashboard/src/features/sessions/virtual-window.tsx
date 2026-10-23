@@ -29,6 +29,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const paginationAllowed = useRef(true);
   const releasePagination = () => { paginationAllowed.current = true; setAllowPagination(true); };
   const [loading, setLoading] = useState(false);
+  const [pagingBoundary, setPagingBoundary] = useState<"start" | "end" | null>(null);
   const [hoveredAnswer, setHoveredAnswer] = useState<string>();
   const [focusedAnswer, setFocusedAnswer] = useState<string>();
   const answerAt = (target: EventTarget | null) => target instanceof Element
@@ -183,8 +184,10 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     return () => cancelAnimationFrame(frame);
   }, [historyTarget?.version, virtual]);
   const items = virtual.getVirtualItems();
-  const visibleIds = items.filter((item) => item.end >= (virtual.scrollOffset ?? 0)
-    && item.start <= (virtual.scrollOffset ?? 0) + (root.current?.clientHeight ?? 0)).map((item) => rows[item.index]!.groupId);
+  const scrollOffset = virtual.scrollOffset ?? 0;
+  const viewportHeight = root.current?.clientHeight ?? 0;
+  const visibleIds = items.filter((item) => item.end >= scrollOffset
+    && item.start <= scrollOffset + viewportHeight).map((item) => rows[item.index]!.groupId);
   const visibleKey = JSON.stringify([...new Set(visibleIds)]);
   useLayoutEffect(() => { onVisibleGroups(JSON.parse(visibleKey)); }, [visibleKey, onVisibleGroups]);
   const load = useCallback(async (direction: "older" | "newer") => {
@@ -201,7 +204,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     if (!initial.current) return;
     if (el.scrollTop <= 120 && hasOlder && !following) void load("older");
     else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && hasNewer) void load("newer");
-  }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length, allowPagination]);
+  }, [pagingBoundary, totalSize, viewportHeight, following, hasOlder, hasNewer, loading, load, pageError, rows.length, allowPagination]);
   return <div className="conversation-scroll-area">
     <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} tabIndex={0}
       {...scrollInput.handlers}
@@ -221,6 +224,11 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     }} onScroll={(event) => {
       if (event.target !== root.current) return;
       scrollInput.onScroll(); scheduleAlignment();
+      // Long rows can reach an edge without changing the virtual range. Trigger
+      // the paging effect after the visible rows commit, only on edge changes.
+      const el = event.currentTarget;
+      setPagingBoundary(el.scrollTop <= 120 ? "start"
+        : el.scrollHeight - el.scrollTop - el.clientHeight <= 120 ? "end" : null);
     }}>
       <div className="conversation-feed" ref={feed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? totalSize : undefined, minHeight: rows.length ? undefined : "100%" }}>
         {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
