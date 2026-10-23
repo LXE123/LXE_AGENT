@@ -41,17 +41,21 @@ def store_driver_session(
     lock_timeout_seconds: float = 180.0,
     strict_attach: bool = False,
     target_host: str = "",
+    target_handle: str = "",
 ) -> Iterator[tuple[Any, Any]]:
     """Attach a Selenium driver to the store browser, holding the store lock.
 
     Yields ``(store_session, driver)``. When attaching to a supposedly running
     browser fails, the store browser is restarted once before giving up unless
     ``strict_attach`` requires reuse-only, fail-fast behavior. ``target_host``
-    selects exactly one matching tab instead of the first normal page.
+    selects exactly one matching tab instead of the first normal page. An
+    explicit ``target_handle`` pins a live tab and rechecks its hostname.
     """
     safe_store_id = str(store_id or "").strip()
     if not safe_store_id:
         raise RuntimeError("store_driver_session requires store_id")
+    if target_handle and (not strict_attach or not target_host):
+        raise ValueError("target_handle requires strict_attach and target_host")
     with store_lock(safe_store_id, timeout_seconds=lock_timeout_seconds):
         service = StoreSessionService()
         if strict_attach:
@@ -70,7 +74,10 @@ def store_driver_session(
             driver = driver_context.__enter__()
         try:
             if target_host:
-                select_unique_host_tab(driver, target_host)
+                if target_handle:
+                    select_unique_host_tab(driver, target_host, target_handle=target_handle)
+                else:
+                    select_unique_host_tab(driver, target_host)
             else:
                 select_first_normal_tab(driver)
             yield store_session, driver

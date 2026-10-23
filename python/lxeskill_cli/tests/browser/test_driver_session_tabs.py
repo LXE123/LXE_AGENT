@@ -289,3 +289,93 @@ def test_select_unique_host_tab_rejects_ambiguous_matches() -> None:
 
     with pytest.raises(RuntimeError, match="匹配到 2 个标签页"):
         select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+
+def test_explicit_handle_selects_each_same_host_page_without_fallback():
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    for handle in ("account-b", "account-a", "account-b"):
+        selected = select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle=handle)
+        assert selected["handle"] == driver.current_window_handle == handle
+    del driver.pages["account-a"]
+    driver.window_handles.remove("account-a")
+    with pytest.raises(RuntimeError, match="account-a"):
+        select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle="account-a")
+    assert driver.current_window_handle == "account-b"
+
+
+def test_explicit_handle_rechecks_host_instead_of_selecting_another_matching_page():
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "https://other.test/", "已导航"),
+    ])
+    with pytest.raises(RuntimeError, match="account-b"):
+        select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle="account-b")
+    assert driver.current_window_handle == "account-a"
+
+
+def test_tabs_command_exposes_handles_through_client_without_snapshotting_other_pages(monkeypatch, tmp_path):
+    import json
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from services.browser.tools import client, executor
+
+    driver = _FakeDriver([
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+        ("account-a", "http://ttaiex.nextsls.com/wos?token=secret#private", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    calls = []
+
+    @contextmanager
+    def attach(store_id, **kwargs):
+        calls.append((store_id, kwargs))
+        yield SimpleNamespace(browser_oauth=store_id, browser_name="fixture store", download_path="", browser_path=""), driver
+
+    monkeypatch.setattr(executor, "store_driver_session", attach)
+    monkeypatch.setattr(executor, "_artifacts_dir", lambda *_: tmp_path)
+    result = executor.execute_browser_tool(SimpleNamespace(session_id="test"), tool_name="ziniao_page",
+        arguments={"action": "browser_tabs", "store_id": "store", "strict_attach": True,
+                   "target_host": "ttaiex.nextsls.com"})
+    assert result.success, result.failure_reason
+    content = client._to_tool_execution_result(result).content[0]["text"]
+    data = json.loads(content.split("Tabs JSON: ")[1])
+    assert [tab["handle"] for tab in data["tabs"]] == ["account-a", "account-b"]
+    assert data["complete"] and "secret" not in content and "private" not in content
+    assert "amazon" not in content.lower()
+    assert calls == [("store", {"strict_attach": True, "target_host": ""})]
+    assert driver.current_window_handle == "amazon" and driver.close_calls == 0
+
+
+def test_tabs_command_preserves_actual_scan_error(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from services.browser.tools import dispatcher
+
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    switch = driver.switch_to.window
+
+    def unavailable(handle):
+        if handle == "account-b":
+            raise RuntimeError("fixture tab disconnected")
+        switch(handle)
+
+    monkeypatch.setattr(driver.switch_to, "window", unavailable)
+    result = dispatcher.dispatch_ziniao_page(SimpleNamespace(driver=driver),
+        {"action": "browser_tabs", "store_id": "store", "target_host": "ttaiex.nextsls.com"}, output_dir=tmp_path)
+    assert result["payload"]["complete"] is False
+    assert "fixture tab disconnected" in result["payload"]["tabs"][1]["title"]
+
+
+def test_strict_tab_list_never_reports_an_inventory_error_as_an_empty_list():
+    class Disconnected:
+        @property
+        def window_handles(self):
+            raise RuntimeError("fixture handle inventory disconnected")
+
+    with pytest.raises(RuntimeError, match="fixture handle inventory disconnected"):
+        list_browser_tabs(Disconnected(), strict=True)

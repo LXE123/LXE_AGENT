@@ -18,7 +18,7 @@ ADAPTERS = {"wesa": wesa_query, "feiwo": feiwo_query, "yuntuo": yuntuo_query,
 def run(arguments):
     result = {"success": False, "auth_refresh_required": False, "request_succeeded": False}
     try:
-        allowed = {"profile_id", "store_id", "fba", "account_name", "expected_warehouse", "page", "identifier_kind", "login_mode"}
+        allowed = {"profile_id", "store_id", "fba", "account_name", "expected_warehouse", "page", "identifier_kind", "login_mode", "target_handle"}
         if not isinstance(arguments, dict) or set(arguments) - allowed:
             raise ValueError("Unexpected logistics query arguments")
         if not isinstance(arguments.get("fba"), str) or not wesa_query.FBA_PATTERN.fullmatch(arguments["fba"]) or len(arguments["fba"]) > 64:
@@ -38,10 +38,17 @@ def run(arguments):
             args["store_id"] = store
         elif "store_id" in arguments:
             raise ValueError("Public HTTP queries do not accept store_id")
-        mode = arguments.get("login_mode", "auto" if provider in LOGIN_HOSTS and profile["credential_id"] is not None else "reuse")
+        if "target_handle" in arguments:
+            if provider != "tiantai":
+                raise ValueError("Only TianTai accepts target_handle for logistics queries")
+            args["target_handle"] = tiantai_query.validate_target_handle(arguments["target_handle"])
+        mode = arguments.get("login_mode", "reuse" if "target_handle" in args else
+                             "auto" if provider in LOGIN_HOSTS and profile["credential_id"] is not None else "reuse")
         if mode not in ("auto", "reuse"):
             raise ValueError("login_mode must be auto or reuse")
         auto_login = mode == "auto"
+        if auto_login and "target_handle" in args:
+            raise ValueError("target_handle requires login_mode reuse; inspect the selected page company before querying")
         if auto_login and provider not in LOGIN_HOSTS:
             raise ValueError("Automatic login is not verified for this logistics provider; reuse the verified existing query page")
         if spec.requires_account_name:
@@ -61,11 +68,15 @@ def run(arguments):
                 raise ValueError("page must be an integer between 1 and 1000")
             args["page"] = arguments["page"]
         if "identifier_kind" in arguments:
-            if provider != "jiufang":
-                raise ValueError("Only Jiufang accepts identifier_kind")
+            if provider not in ("jiufang", "tiantai"):
+                raise ValueError("Only Jiufang and TianTai accept identifier_kind")
             if arguments["identifier_kind"] not in ("auto", "shipment", "box"):
                 raise ValueError("identifier_kind must be auto, shipment or box")
             args["identifier_kind"] = arguments["identifier_kind"]
+        if provider == "tiantai":
+            # Validate the box layout before any configured credential submission.
+            # Pass the original identifier to the adapter to preserve provenance.
+            tiantai_query.normalize_identifier(arguments["fba"], arguments.get("identifier_kind", "auto"))
         warehouse = args.get("expected_warehouse", "")
         if not isinstance(warehouse, str) or (warehouse and not re.fullmatch(r"[A-Z0-9]{2,12}", warehouse)):
             raise ValueError("expected_warehouse must be an uppercase warehouse code")

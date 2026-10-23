@@ -132,6 +132,22 @@ def test_ziniao_page_session_forwards_strict_attach_and_target_host(monkeypatch,
     ]
 
 
+def test_page_and_store_session_forward_explicit_handle_without_starting(monkeypatch, tmp_path):
+    calls = []
+    driver = object()
+    service = _FakeStoreSessionService(_store_session(), calls)
+    _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls)
+    monkeypatch.setattr(store_driver_session_module, "select_unique_host_tab",
+        lambda selected_driver, host, **kwargs: calls.append(("select", selected_driver, host, kwargs)))
+
+    with executor._page_workflow_session(SimpleNamespace(session_id="test"), store_id="store-1",
+            output_dir=tmp_path, strict_attach=True, target_host="ttaiex.nextsls.com", target_handle="account-b") as session:
+        assert session.driver is driver
+    assert ("select", driver, "ttaiex.nextsls.com", {"target_handle": "account-b"}) in calls
+    assert ("ensure_store_session", "store-1", False, False) in calls
+    assert not any(call[0] == "select_first_normal_tab" for call in calls)
+
+
 def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
     calls: list[tuple] = []
     driver = object()

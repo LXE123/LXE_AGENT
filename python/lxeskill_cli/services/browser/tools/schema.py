@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.browser.models.models import ToolCall
+from services.browser.tools.driver_session import validate_target_handle
 
 
 def _clean_text(value: Any, limit: int = 240) -> str:
@@ -38,6 +39,7 @@ _ZINIAO_BROWSER_ACTIONS = (
 )
 
 _ZINIAO_PAGE_ACTIONS = (
+    "browser_tabs",
     "browser_snapshot",
     "browser_vision",
     "browser_navigate",
@@ -97,7 +99,11 @@ _BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
                 },
                 "target_host": {
                     "type": "string",
-                    "description": "Exact hostname of the single browser tab to select.",
+                    "description": "Exact hostname; requires a unique tab unless a live target_handle is supplied. browser_tabs lists every matching tab.",
+                },
+                "target_handle": {
+                    "type": "string",
+                    "description": "Live handle returned by browser_tabs; requires strict_attach and target_host. Never falls back to another tab.",
                 },
                 "full": {
                     "type": "boolean",
@@ -166,7 +172,7 @@ def _normalize_ziniao_browser_arguments(arguments: dict[str, Any]) -> dict[str, 
 
 
 _MAX_PAGE_BATCH_STEPS = 20
-_PAGE_SESSION_KEYS = {"strict_attach", "target_host"}
+_PAGE_SESSION_KEYS = {"strict_attach", "target_host", "target_handle"}
 
 
 def _normalize_page_session_options(arguments: dict[str, Any], normalized: dict[str, Any]) -> None:
@@ -178,6 +184,10 @@ def _normalize_page_session_options(arguments: dict[str, Any], normalized: dict[
         if "://" in target_host or any(char in target_host for char in "/@?#:"):
             raise ValueError("target_host must be a hostname without scheme, port or path")
         normalized["target_host"] = target_host
+    if "target_handle" in arguments:
+        normalized["target_handle"] = validate_target_handle(arguments["target_handle"])
+        if not normalized.get("strict_attach") or not target_host:
+            raise ValueError("target_handle requires strict_attach and target_host")
 
 
 def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -201,6 +211,8 @@ def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
         step = dict(raw_step)
         if "steps" in step or "store_id" in step:
             raise ValueError(f"step {position} must not contain steps or store_id")
+        if step.get("action") == "browser_tabs" or "target_handle" in step:
+            raise ValueError(f"step {position}: enumerate tabs separately and set target_handle at batch level")
         try:
             normalized_steps.append(_normalize_ziniao_page_arguments({**step, "store_id": store_id}))
         except ValueError as exc:
@@ -229,6 +241,13 @@ def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any
         "store_id": store_id,
     }
     _normalize_page_session_options(arguments, normalized)
+
+    if action == "browser_tabs":
+        if set(arguments) - {"action", "store_id", "strict_attach", "target_host"}:
+            raise ValueError("browser_tabs only accepts store_id, strict_attach and target_host")
+        if not normalized.get("strict_attach") or not normalized.get("target_host"):
+            raise ValueError("browser_tabs requires strict_attach and target_host")
+        return normalized
 
     if action == "browser_snapshot":
         extra_keys = sorted(set(arguments) - {"action", "store_id", "full", *_PAGE_SESSION_KEYS})

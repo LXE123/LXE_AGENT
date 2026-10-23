@@ -15,7 +15,7 @@ commands:
 - 每次先检查 terminal 的 `ok`。成功时读取 `data`；失败时停止并原样转述 `error.message`，不要凭空补救。
 - `store_id` 必须来自用户输入或 `get_status` 的真实结果，禁止猜测。
 - 优先复用已运行店铺；只有状态明确为未运行时才 `open_store`。
-- 复用指定站点页面且不允许启动或重启店铺时，每次页面命令都带 `--strict-attach --target-host <hostname>`；域名匹配为零或多个标签页时停止。
+- 复用指定站点页面且不允许启动或重启店铺时，每次页面命令都带 `--strict-attach --target-host <hostname>`。默认要求域名唯一；同域多页先用 `browser_tabs` 列出 handle，再逐页指定 `--target-handle` 获取快照核对账号。不得凭标签页顺序、标题或历史公司名认定账号，也不自动退出或切换登录。
 - snapshot 自动读取顶层及最多 10 个子 frame，返回 `Frames`、读取失败的实际错误和截断提示。frame 中的 ref 包含路径和 document 身份，必须完整原样传入 click/type；frame 变化时报错后重新 snapshot，不手工拼接或截短 ref。
 - 页面有文字但没有 refs 时使用 `--full`，读取 `DOM diagnostics` 中的节点类型、role、class 和 cursor 等结构证据。诊断样本不是可操作 ref；仅有鼠标手形样式不证明节点绑定了点击行为。
 - 零 refs 时 `structure_probe` 会优先列出手形节点，返回隐藏 selector 候选、计算样式、矩形、最多 4 层父级，以及页面暴露的 DOM/Vue/React 事件线索。`diagnostic_node` 只索引该 frame 的探针 `nodes` 表，不是 ref。探针不执行事件函数、不读取函数正文或组件状态；没有线索不排除事件委托或 `addEventListener`。读取并保留截断标记，不把截断或观察不到解释为不存在。
@@ -51,6 +51,7 @@ lxeskill browser store --action exit_store --store-id <store_id>
 
 | action | 参数 | 用途与约束 |
 |---|---|---|
+| `browser_tabs` | 必须带 `--strict-attach --target-host <hostname>` | 列出该域名的实时 handle、标题和去除查询参数/片段的 URL；`complete=false` 时保留实际读取错误，不能当作完整列表。 |
 | `browser_snapshot` | 无额外参数 | 返回页面 URL、标题、文本和可交互元素引用；每次交互前优先使用。 |
 | `browser_vision` | 可选 `--full` | 生成截图。terminal 的 `data.screenshot_path` 是模型输入，不是默认发给用户的附件。 |
 | `browser_navigate` | `--url <url>` | 跳转到明确 URL；随后重新 snapshot。 |
@@ -63,10 +64,14 @@ lxeskill browser store --action exit_store --store-id <store_id>
 ```text
 lxeskill browser page --action browser_snapshot --store-id <store_id>
 lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host <hostname>
+lxeskill browser page --action browser_tabs --store-id <store_id> --strict-attach --target-host <hostname>
+lxeskill browser page --action browser_snapshot --store-id <store_id> --strict-attach --target-host <hostname> --target-handle <返回的handle> --full
 lxeskill browser page --action browser_click --store-id <store_id> --ref <ref>
 lxeskill browser page --action browser_type --store-id <store_id> --ref <ref> --text "<text>"
 lxeskill browser page --action browser_scroll --store-id <store_id> --direction down --pixels 800
 ```
+
+`target_handle` 是当前浏览器的实时标识，不写入账号配置或数据库。指定后仍核对域名；关闭、导航到其他域名或失效时立即失败，不回退到另一个同域页面。切换页面后重新获取快照和 refs；多个页面显示相同公司或公司无法确认时，不能据此声称两个账号都已核实。
 
 ## 批量页面操作（steps）
 
@@ -75,6 +80,7 @@ lxeskill browser page --action browser_scroll --store-id <store_id> --direction 
 - `--steps` 与 `--action` 互斥；每个 `--steps` 值是一个紧凑单行 JSON 对象，最多 20 步。
 - `ref` 来自上一次调用返回的 snapshot；批执行后结果会自动附带最新页面快照，无需再单独 snapshot。
 - `browser_vision` 只能作为最后一步。
+- `browser_tabs` 单独调用；`target_handle` 只能放在批量命令顶层，同一批只操作一个页面。
 - 某步失败时批停止：结果逐条标注 ✓/✗，附失败原因与当前页面快照；已完成步骤不会回滚，按快照判断现场后再继续。
 
 示例（填写表单并确认）：

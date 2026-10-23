@@ -56,6 +56,56 @@ def test_public_query_needs_no_session_or_desktop(account, monkeypatch):
     call.assert_called_once_with({"fba": "FBA15GJ013CQU000001", "identifier_kind": "box"})
 
 
+def test_tiantai_route_passes_original_box_and_identifier_kind(account, monkeypatch):
+    profile = account("tiantai")
+    call = Mock(return_value={"success": True, "request_succeeded": True})
+    monkeypatch.setattr(query.tiantai_query, "run", call)
+    result = query.run({"profile_id": profile["profile_id"], "fba": "FBA15MN7QKMDU000001",
+                        "store_id": "store", "account_name": "当前公司", "identifier_kind": "box"})
+    assert result["success"]
+    call.assert_called_once_with({"fba": "FBA15MN7QKMDU000001", "store_id": "store",
+                                  "account_name": "当前公司", "identifier_kind": "box"})
+
+
+def test_tiantai_handle_defaults_to_reuse_even_with_saved_credentials(account, monkeypatch):
+    profile = account("tiantai", credential=True)
+    authenticate = Mock(side_effect=AssertionError("must not login or switch accounts"))
+    monkeypatch.setattr(query, "ensure_login", authenticate)
+    call = Mock(return_value={"success": True, "request_succeeded": True, "target_handle": "account-b"})
+    monkeypatch.setattr(query.tiantai_query, "run", call)
+    args = {"profile_id": profile["profile_id"], "store_id": "store", "fba": "FBA15MN7QKMD",
+            "account_name": "当前公司", "target_handle": "account-b"}
+    result = query.run(args)
+    assert result["success"] and result["result"]["target_handle"] == "account-b"
+    call.assert_called_once_with({key: value for key, value in args.items() if key != "profile_id"})
+    authenticate.assert_not_called()
+    assert not query.run({**args, "login_mode": "auto"})["success"]
+    assert call.call_count == 1
+    authenticate.assert_not_called()
+
+
+@pytest.mark.parametrize("provider,handle", [("jiufang", "a"), ("wesa", "a"), ("tiantai", ""), ("tiantai", "x" * 257)])
+def test_unsupported_or_invalid_handle_never_logs_in(account, monkeypatch, provider, handle):
+    profile = account(provider, credential=provider != "jiufang")
+    authenticate = Mock(side_effect=AssertionError("must not login"))
+    monkeypatch.setattr(query, "ensure_login", authenticate)
+    args = {"profile_id": profile["profile_id"], "fba": "FBA15MN7QKMD", "target_handle": handle}
+    if provider != "jiufang":
+        args.update(store_id="store", account_name="当前公司")
+    assert not query.run(args)["success"]
+    authenticate.assert_not_called()
+
+
+def test_tiantai_incomplete_box_fails_before_configured_login(account, monkeypatch):
+    profile = account("tiantai", credential=True)
+    authenticate = Mock(side_effect=AssertionError("must not submit credentials"))
+    monkeypatch.setattr(query, "ensure_login", authenticate)
+    result = query.run({"profile_id": profile["profile_id"], "fba": "FBA15MN7QKMDU",
+                        "store_id": "store", "identifier_kind": "box"})
+    assert not result["success"] and "U + six digits" in result["error"]["message"]
+    authenticate.assert_not_called()
+
+
 def test_rejects_disabled_missing_invalid_and_cross_scope_accounts(account, monkeypatch):
     enabled = account()
     disabled = account(enabled=False)

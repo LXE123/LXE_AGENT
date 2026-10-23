@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from services.browser.tools.driver_session import (
     attached_driver,
     check_ip,
     open_launcher_page,
     select_first_normal_tab,
+    list_browser_tabs,
 )
 from services.browser.store.store_driver_session import store_lock
 from services.browser.store.store_session_service import StoreSessionService
@@ -281,6 +283,21 @@ def dispatch_ziniao_page(
     action = str(arguments.get("action") or "").strip().lower()
     store_id = str(arguments.get("store_id") or "").strip()
     snapshot_before = dict(before_snapshot or {})
+    if action == "browser_tabs":
+        host = str(arguments["target_host"])
+        tabs = list_browser_tabs(session.driver, strict=True)
+        matches = []
+        for tab in tabs:
+            parts = urlsplit(tab["url"])
+            if (parts.hostname or "").lower().rstrip(".") == host or not tab["url"]:
+                matches.append({**tab, "url": urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", ""))})
+        return {
+            "summary": f"已读取域名 {host} 的标签页；请按 handle 获取快照核对公司。",
+            "verification": {"action": action, "meaningful_change": False},
+            "after_snapshot": {},
+            "payload": {"action": action, "store_id": store_id, "target_host": host,
+                        "tabs": matches, "complete": all(bool(tab["url"]) for tab in tabs)},
+        }
     if not snapshot_before:
         snapshot_before = session.snapshot()
 
@@ -300,6 +317,7 @@ def dispatch_ziniao_page(
                 "store_id": store_id,
                 "full": full,
                 "refs": refs,
+                "target_handle": str(getattr(session.driver, "current_window_handle", "")),
             },
         }
 

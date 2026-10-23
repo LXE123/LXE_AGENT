@@ -69,6 +69,24 @@ def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() 
     assert "不主动调用 `send_files`" in skill
 
 
+def test_logistics_flow_has_only_login_and_write_confirmations() -> None:
+    logistics = _skill_text("fba-logistics-query")
+    delivery = _skill_text("fba-shipment-delivery-window")
+    carrier = (PROJECT_ROOT / "skills" / "fba-shipment-delivery-window" /
+               "references" / "carrier-evidence.md").read_text(encoding="utf-8")
+
+    assert "整条只读链最多一次登录确认" in logistics
+    assert "不得在物流商查询、尾程跳转、尾程搜索、页面读取或返回 Amazon 之间逐步询问" in logistics
+    assert "物流商查询成功并取得明确尾程单号后立即继续官方追踪" in logistics
+    assert "自动继续明确的后续页，不逐页询问用户" in logistics
+    assert "全流程最多保留两个确认点" in delivery
+    assert "登录确认" in delivery and "修改确认" in delivery
+    assert "dry-run 是只读准备步骤，必须自动执行" in delivery
+    assert "不再请求第三次确认" in delivery
+    assert "无需分别确认物流商查询、打开承运商页面、输入单号、读取结果或返回 Amazon" in carrier
+    assert "中间不再确认" in carrier
+
+
 def test_fba_docs_send_only_declared_deliverables() -> None:
     catalog = load_catalog()
     deliverable_owners = {

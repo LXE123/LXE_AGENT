@@ -48,8 +48,9 @@
           "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "威飒/天泰当前页面核对的完整公司名；不是登录用户名。缺少时登录检查后暂停查询，先读快照确认。"},
           "expected_warehouse": {"type": "string", "description": "可选原表目的仓代码，仅核对返回值。"},
           "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "仅威飒和天泰支持；默认第1页，不自动扫描。"},
-          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "仅九方支持的编号类型。"},
-          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰/云驼已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。飞沃仅支持 reuse，九方不使用登录模式。"}
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "仅九方和天泰支持；auto 识别末尾 U+6位数字，shipment 保留整个输入，box 要求该后缀。"},
+          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰/云驼已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。飞沃仅支持 reuse，九方不使用登录模式。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "仅天泰支持；browser_tabs 返回并经该页面快照核对公司的 handle。指定时默认 reuse，禁止 auto，不自动切换账号。"}
         },
         "required": ["profile_id", "fba"], "additionalProperties": false
       }
@@ -130,8 +131,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；仅严格附着唯一天泰供应链页面，不启动或重启。"},
-          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；严格附着天泰页面，同域多页时须指定 target_handle，不启动或重启。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "browser_tabs 返回并经快照核对公司的实时页面 handle；页面关闭或域名变化即停，不回退其他页面。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "完整主号或箱号；保留原始输入，默认识别末尾 U+6位数字并以主号查询、精确核对返回 FBA，不证明单箱归属。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "默认 auto 仅拆分末尾 U+6位数字；shipment 保留整个输入；box 要求该后缀。不自动删除孤立的 U 或未知后缀。"},
           "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "本次快照核对的天泰供应链公司账户全名；页面可见文本必须包含它。"},
           "expected_warehouse": {"type": "string", "description": "原表中的目的仓代码；不作为请求过滤条件。当前样本未返回仓库，不能自动核实。"},
           "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "默认 1；只读取明确指定的一页，不自动遍历。"}
@@ -199,10 +202,11 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"},
+          "action": {"type": "string", "enum": ["browser_tabs", "browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一。browser_tabs 须带 strict_attach 和 target_host，只列实时页面 handle/标题/脱敏 URL，再逐页 snapshot 核对公司；不用于 steps。交互前先 snapshot。"},
           "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"},
           "strict_attach": {"type": "boolean", "description": "仅附着已运行店铺，附着失败时停止，不启动或重启店铺。"},
-          "target_host": {"type": "string", "minLength": 1, "description": "必须唯一匹配的目标标签页精确域名。"},
+          "target_host": {"type": "string", "minLength": 1, "description": "目标标签页精确域名；未指定 target_handle 时须唯一，browser_tabs 列出全部匹配页。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "browser_tabs 返回的实时 handle；必须同时带 strict_attach 和 target_host，关闭或域名变化即停；批量动作只在顶层指定。"},
           "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}},
           "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"},
           "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"},

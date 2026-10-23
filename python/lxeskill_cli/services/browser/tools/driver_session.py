@@ -76,7 +76,7 @@ def _safe_current_handle(driver: Any) -> str:
         return ""
 
 
-def list_browser_tabs(driver: Any, *, restore_original: bool = True) -> list[dict[str, str]]:
+def list_browser_tabs(driver: Any, *, restore_original: bool = True, strict: bool = False) -> list[dict[str, str]]:
     """Read live tab metadata; target selectors may defer restoring the original."""
     if driver is None:
         return []
@@ -84,9 +84,11 @@ def list_browser_tabs(driver: Any, *, restore_original: bool = True) -> list[dic
     try:
         handles = list(getattr(driver, "window_handles", []) or [])
     except Exception:
+        if strict:
+            raise
         handles = []
 
-    original_handle = _safe_current_handle(driver)
+    original_handle = str(driver.current_window_handle or "").strip() if strict else _safe_current_handle(driver)
     current_handle = original_handle
 
     tabs: list[dict[str, str]] = []
@@ -99,8 +101,8 @@ def list_browser_tabs(driver: Any, *, restore_original: bool = True) -> list[dic
             tabs.append(
                 {
                     "handle": safe_handle,
-                    "url": _safe_current_url(driver),
-                    "title": _safe_title(driver),
+                    "url": str(driver.current_url or "").strip() if strict else _safe_current_url(driver),
+                    "title": str(driver.title or "").strip() if strict else _safe_title(driver),
                 }
             )
         except Exception as exc:
@@ -117,7 +119,8 @@ def list_browser_tabs(driver: Any, *, restore_original: bool = True) -> list[dic
         try:
             driver.switch_to.window(original_handle)
         except Exception:
-            pass
+            if strict:
+                raise
 
     return tabs
 
@@ -142,12 +145,28 @@ def select_first_normal_tab(driver: Any, *, allow_blank: bool = False) -> dict[s
     raise RuntimeError(f"未找到可操作的普通页面。当前标签页: {_format_tab_summary(tabs)}")
 
 
-def select_unique_host_tab(driver: Any, target_host: str) -> dict[str, str]:
+def validate_target_handle(value: Any) -> str:
+    if not isinstance(value, str) or not value or len(value) > 256 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ValueError("target_handle must be a non-empty browser handle of at most 256 characters without whitespace")
+    return value
+
+
+def select_unique_host_tab(driver: Any, target_host: str, *, target_handle: str = "") -> dict[str, str]:
     safe_target_host = str(target_host or "").strip().lower().rstrip(".")
     if not safe_target_host:
         raise RuntimeError("target_host missing")
     original_handle = _safe_current_handle(driver)
     try:
+        if target_handle:
+            validate_target_handle(target_handle)
+            if target_handle not in driver.window_handles:
+                raise RuntimeError(f"目标标签页 {target_handle} 已关闭或不存在；请重新列出标签页")
+            if _safe_current_handle(driver) != target_handle:
+                driver.switch_to.window(target_handle)
+            url = str(driver.current_url or "").strip()
+            if not is_normal_tab_url(url) or (urlsplit(url).hostname or "").lower().rstrip(".") != safe_target_host:
+                raise RuntimeError(f"目标标签页 {target_handle} 不再属于域名 {safe_target_host}")
+            return {"handle": target_handle, "url": url, "title": _safe_title(driver)}
         # Inspect every tab for uniqueness, then select directly from the last
         # inspected context instead of bouncing through the original page.
         tabs = list_browser_tabs(driver, restore_original=False)

@@ -17,6 +17,33 @@ from services.browser.tools.schema import build_browser_tool_call
 STORE_ID = "store-1"
 
 
+@pytest.mark.parametrize("patch", [
+    {"target_handle": ""}, {"target_handle": "a b"}, {"target_handle": "x" * 257},
+    {"target_handle": 123}, {"strict_attach": False}, {"target_host": ""},
+])
+def test_explicit_page_handle_requires_valid_handle_and_strict_host(patch):
+    with pytest.raises(ValueError):
+        build_browser_tool_call(name="ziniao_page", arguments={"action": "browser_snapshot",
+            "store_id": STORE_ID, "strict_attach": True, "target_host": "ttaiex.nextsls.com",
+            "target_handle": "account-a", **patch})
+
+
+def test_batch_handle_is_top_level_only():
+    call = build_browser_tool_call(name="ziniao_page", arguments={"store_id": STORE_ID,
+        "strict_attach": True, "target_host": "ttaiex.nextsls.com", "target_handle": "account-a",
+        "steps": [{"action": "browser_snapshot"}]})
+    assert call.arguments["target_handle"] == "account-a"
+    for step in ({"action": "browser_tabs"}, {"action": "browser_snapshot", "target_handle": "account-b"}):
+        with pytest.raises(ValueError):
+            build_browser_tool_call(name="ziniao_page", arguments={"store_id": STORE_ID, "steps": [step]})
+
+
+@pytest.mark.parametrize("extra", [{}, {"target_host": "ttaiex.nextsls.com"}, {"strict_attach": True}])
+def test_tabs_require_explicit_host_and_reuse_only(extra):
+    with pytest.raises(ValueError):
+        build_browser_tool_call(name="ziniao_page", arguments={"action": "browser_tabs", "store_id": STORE_ID, **extra})
+
+
 # --- schema normalization ---
 
 

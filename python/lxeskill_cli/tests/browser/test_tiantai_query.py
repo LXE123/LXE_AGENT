@@ -48,6 +48,79 @@ def parsed(response, **overrides):
     return tiantai.parse_result(response, tiantai._validate({**ARGS, **overrides}))
 
 
+@pytest.fixture
+def ups_response(provider_response):
+    # Only this row is new real evidence; the envelope is the earlier fixture.
+    path = Path(__file__).parent / "fixtures/tiantai_shipment_row_ups.json"
+    provider_response["data"]["components"]["gridView"]["table"]["dataSource"] = [
+        json.loads(path.read_text(encoding="utf-8"))]
+    return projection(provider_response)
+
+
+def test_box_query_uses_parent_and_preserves_input(monkeypatch, ups_response):
+    calls = fake_session(monkeypatch, ups_response)
+    result = tiantai.run({**ARGS, "fba": "FBA15MN7QKMDU000001"})
+    assert result["success"] and result["found"] and result["identity_verified"]
+    assert result["input_fba"] == "FBA15MN7QKMDU000001"
+    assert result["fba"] == "FBA15MN7QKMD"
+    assert result["box_suffix"] == "U000001"
+    assert result["normalization_rule"] == "terminal_U_six_digits"
+    assert result["box_identity_verified"] is False
+    assert calls[2][2]["keywords"] == "FBA15MN7QKMD"
+    assert len([call for call in calls if call[0] == "query"]) == 1
+    match, = result["matches"]
+    assert match["shipment_number"] == "TAI10723968"
+    assert match["parcel_count"] == 3
+    assert match["carrier"] == "UPS"
+    assert match["tracking_numbers"] == ["1ZK3526F6802707236"]
+    assert match["carrier_status_text"] == "已生成"
+    assert match["eta"] is None and match["warehouse"] is None
+    assert match["source_fields"]["outer_carrier"] == ups_response["rows"][0]["outer_carrier"]
+
+
+def test_trailing_u_is_not_silently_corrected(ups_response):
+    result = parsed(ups_response, fba="FBA15MN7QKMDU")
+    assert result["success"] and result["request_succeeded"] and not result["found"]
+    assert result["status"] == "identity_unverified"
+    assert result["identity_evidence"] == [{
+        "row_index": 0, "shipment_id": ups_response["rows"][0]["shipment_id"],
+        "fba_numbers": ["FBA15MN7QKMD"]}]
+
+
+def test_shipment_override_keeps_entire_identifier(monkeypatch, ups_response):
+    calls = fake_session(monkeypatch, ups_response)
+    result = tiantai.run({**ARGS, "fba": "FBA15MN7QKMDU000001", "identifier_kind": "shipment"})
+    assert result["success"] and not result["found"]
+    assert result["fba"] == "FBA15MN7QKMDU000001" and result["box_suffix"] is None
+    assert calls[2][2]["keywords"] == "FBA15MN7QKMDU000001"
+
+
+@pytest.mark.parametrize("identifier,parent,suffix", [
+    ("FBA15MN7QKMDU000001", "FBA15MN7QKMD", "U000001"),
+    ("FBA15MN7QKMDU000002", "FBA15MN7QKMD", "U000002"),
+    ("FBAABC123UU000001", "FBAABC123U", "U000001"),
+    ("FBA15MN7QKMD000001", "FBA15MN7QKMD000001", None),
+    ("FBA15MN7QKMDU", "FBA15MN7QKMDU", None),
+])
+def test_normalization_only_removes_complete_terminal_box_suffix(identifier, parent, suffix):
+    result = tiantai.normalize_identifier(identifier)
+    assert result["input_fba"] == identifier
+    assert result["fba"] == parent and result["box_suffix"] == suffix
+
+
+@pytest.mark.parametrize("carrier", [
+    "FedEx<br/>1ZK3526F6802707236<br/>已生成",
+    "UPS<br/>1ZK3526F6802707236<br/>未知状态",
+    "UPS<br/>1ZK3526F6802707236<br/>1ZK3526F6802707237<br/>已生成",
+    "UPS<br/>not-a-tracking-number<br/>已生成",
+])
+def test_unobserved_carrier_layout_stays_unverified(ups_response, carrier):
+    ups_response["rows"][0]["outer_carrier"] = carrier
+    match, = parsed(ups_response, fba="FBA15MN7QKMD")["matches"]
+    assert match["carrier"] is None and match["tracking_numbers"] == []
+    assert "tracking_layout_unverified_for_tiantai" in match["warnings"]
+
+
 def test_real_response_exact_match_preserves_observed_limits(provider_response):
     result = parsed(projection(provider_response), expected_warehouse="FRA7")
     assert result["success"] and result["request_succeeded"] and result["found"]
@@ -86,8 +159,8 @@ def test_all_payload_matches_captured_contract():
 def test_never_strips_or_prefix_matches_box_identifiers(provider_response, suffix):
     response = projection(provider_response)
     response["rows"][0]["shipment_id"] = FBA + suffix
-    assert parsed(response)["status"] == "not_found_unverified"
-    assert parsed(response, fba=FBA + suffix)["found"] is True
+    assert parsed(response)["status"] == "identity_unverified"
+    assert parsed(response, fba=FBA + suffix, identifier_kind="shipment")["found"] is True
 
 
 def test_future_carrier_text_is_preserved_without_unverified_parsing(provider_response):
@@ -176,6 +249,8 @@ def test_failure_shapes_never_become_success(provider_response, update, code):
     {"expected_warehouse": "bad code"},
     {"account_name": ""},
     {"store_id": ""},
+    {"identifier_kind": "other"},
+    {"identifier_kind": "box", "fba": "FBA15MN7QKMDU"},
 ])
 def test_invalid_arguments_fail_before_browser(monkeypatch, update):
     monkeypatch.setattr(tiantai, "store_driver_session", lambda *a, **k: pytest.fail("must not attach"))
@@ -194,6 +269,7 @@ def fake_session(monkeypatch, response, *, origin=tiantai.ORIGIN, failure=None):
     calls = []
     driver = SimpleNamespace(
         current_url=origin + "/tms/wos/shipment?private=abc",
+        current_window_handle="account-b",
         switch_to=SimpleNamespace(default_content=lambda: None),
     )
     driver.set_script_timeout = lambda seconds: calls.append(("timeout", seconds))
@@ -214,6 +290,39 @@ def fake_session(monkeypatch, response, *, origin=tiantai.ORIGIN, failure=None):
     monkeypatch.setattr(tiantai, "store_driver_session", attach)
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "unit-test-session")
     return calls
+
+
+def test_selected_handle_is_forwarded_and_returned_with_company_check(monkeypatch, provider_response):
+    calls = fake_session(monkeypatch, projection(provider_response))
+    result = tiantai.run({**ARGS, "target_handle": "account-b"})
+    assert result["success"] and result["target_handle"] == "account-b"
+    assert calls[0][2] == {"strict_attach": True, "target_host": tiantai.HOST, "target_handle": "account-b"}
+    assert calls[2][3] == ACCOUNT
+
+
+def test_cli_can_query_an_explicit_live_tiantai_page(monkeypatch, provider_response, capsys):
+    calls = fake_session(monkeypatch, projection(provider_response))
+    assert cli.main(["logistics", "tiantai", "query", "--store-id", "test-store",
+                     "--fba", FBA, "--account-name", ACCOUNT, "--target-handle", "account-b"]) == 0
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output["ok"] and output["data"]["target_handle"] == "account-b"
+    assert calls[0][2]["target_handle"] == "account-b"
+
+
+def test_selected_handle_company_mismatch_is_failure_not_another_account_query(monkeypatch, provider_response):
+    response = projection(provider_response)
+    response.update(account_visible=False, error={"code": "account_not_visible", "message": "fixture company changed"})
+    calls = fake_session(monkeypatch, response)
+    result = tiantai.run({**ARGS, "target_handle": "account-b"})
+    assert not result["success"] and not result["request_succeeded"]
+    assert "fixture company changed" in str(result)
+    assert len([call for call in calls if call[0] == "query"]) == 1
+
+
+@pytest.mark.parametrize("handle", ["", "a b", "x" * 257, False])
+def test_invalid_target_handle_fails_before_browser(monkeypatch, handle):
+    monkeypatch.setattr(tiantai, "store_driver_session", lambda *a, **k: pytest.fail("must not attach"))
+    assert not tiantai.run({**ARGS, "target_handle": handle})["success"]
 
 
 def test_repeated_calls_strictly_attach_and_do_not_navigate_or_retry(monkeypatch, provider_response):
@@ -253,7 +362,17 @@ def test_cli_dispatch(monkeypatch, provider_response, capsys):
     assert result["ok"] and result["data"]["found"]
 
 
-def test_actual_browser_script_uses_fixed_request_and_bounded_projection(provider_response):
+def test_cli_box_dispatch(monkeypatch, ups_response, capsys):
+    fake_session(monkeypatch, ups_response)
+    assert cli.main(["logistics", "tiantai", "query", "--store-id", "test-store",
+                     "--fba", "FBA15MN7QKMDU000001", "--account-name", ACCOUNT,
+                     "--identifier-kind", "box"]) == 0
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert result["ok"] and result["data"]["fba"] == "FBA15MN7QKMD"
+
+
+@pytest.mark.parametrize("ups_row", [False, True])
+def test_actual_browser_script_uses_fixed_request_and_bounded_projection(provider_response, ups_row):
     bun = shutil.which("bun")
     assert bun, "Bun is required to exercise the actual adapter JavaScript"
     script = r"""
@@ -275,6 +394,12 @@ for (const scenario of input.scenarios) {
 }
 process.stdout.write(JSON.stringify(results));
 """
+    target_fba = FBA
+    if ups_row:
+        path = Path(__file__).parent / "fixtures/tiantai_shipment_row_ups.json"
+        provider_response["data"]["components"]["gridView"]["table"]["dataSource"] = [
+            json.loads(path.read_text(encoding="utf-8"))]
+        target_fba = "FBA15MN7QKMD"
     provider_response["token"] = "must-not-export-token"
     row = provider_response["data"]["components"]["gridView"]["table"]["dataSource"][0]
     row["private_auth"] = "must-not-export-auth"
@@ -293,7 +418,7 @@ process.stdout.write(JSON.stringify(results));
     scenarios.append({"body": json.dumps(oversized)})
     process = subprocess.run(
         [bun, "-e", script],
-        input=json.dumps({"script": tiantai.QUERY_SCRIPT, "payload": tiantai.request_payload(FBA),
+        input=json.dumps({"script": tiantai.QUERY_SCRIPT, "payload": tiantai.request_payload(target_fba),
                           "fixture": provider_response, "account": ACCOUNT, "scenarios": scenarios}),
         capture_output=True,
         text=True,
@@ -302,14 +427,17 @@ process.stdout.write(JSON.stringify(results));
     )
     assert process.returncode == 0, process.stderr
     outputs = json.loads(process.stdout)
-    assert parsed(outputs[0]["result"])["matches"][0]["shipment_number"] == "TAI10727074"
+    match, = parsed(outputs[0]["result"], fba=target_fba)["matches"]
+    assert match["shipment_number"] == row["shipment_number"]
+    if ups_row:
+        assert match["carrier"] == "UPS" and match["tracking_numbers"] == ["1ZK3526F6802707236"]
     assert outputs[0]["calls"] == [{
         "url": tiantai.PATH,
         "method": "POST",
         "credentials": "same-origin",
         "redirect": "error",
         "headers": {"Content-Type": "application/json;charset=utf-8"},
-        "body": tiantai.request_payload(FBA),
+        "body": tiantai.request_payload(target_fba),
     }]
     assert "must-not-export" not in json.dumps(outputs)
     for index, code in [(1, "origin_mismatch"), (2, "account_not_visible"), (3, "request_failed"),

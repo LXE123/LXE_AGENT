@@ -10,6 +10,16 @@ import {
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 describe("lxeskill command recognition", () => {
+  test("TianTai can reuse an explicit live tab and browser discovery exposes handles", () => {
+    const raw = JSON.parse(readFileSync(join(process.cwd(), "python/lxeskill_cli/lxeskill/catalog.json"), "utf8"));
+    const byName = (name: string) => raw.entries.find((entry: any) => entry.name === name);
+    for (const name of ["logistics_query", "logistics_tiantai_query", "ziniao_page"]) {
+      expect(byName(name).input_schema.properties.target_handle).toMatchObject({ type: "string", minLength: 1, maxLength: 256 });
+      expect(byName(name).input_schema.required).not.toContain("target_handle");
+    }
+    expect(byName("ziniao_page").input_schema.properties.action.enum).toContain("browser_tabs");
+    expect(byName("logistics_login").input_schema.properties.target_handle).toBeUndefined();
+  });
   test("matches only a leading known command and chooses the longest path", () => {
     const known = new Map([
       ["lxeskill mabang store shenzhen-inventory export", ["inventory"]],
@@ -228,7 +238,8 @@ test("TianTai query is session-bound and keeps company-account identity explicit
   const raw = JSON.parse(readFileSync(path, "utf8")).entries.find((entry: { name: string }) => entry.name === "logistics_tiantai_query");
   expect(raw.session_mode).toBe("lxe_session");
   expect(raw.input_schema.required).toEqual(["store_id", "fba", "account_name"]);
-  expect(Object.keys(raw.input_schema.properties).sort()).toEqual(["account_name", "expected_warehouse", "fba", "page", "store_id"]);
+  expect(Object.keys(raw.input_schema.properties).sort()).toEqual(["account_name", "expected_warehouse", "fba", "identifier_kind", "page", "store_id", "target_handle"]);
+  expect(raw.input_schema.properties.identifier_kind.enum).toEqual(["auto", "shipment", "box"]);
   const known = new Map([["lxeskill logistics tiantai query", ["fba-logistics-query"]]]);
   expect(matchLxeSkillInvocation("lxeskill logistics tiantai query --fba FBA15MPDN5VF", known)?.ownerSkills).toEqual(["fba-logistics-query"]);
 });

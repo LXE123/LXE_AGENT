@@ -40,11 +40,13 @@ def _page_workflow_session(
     output_dir: Path,
     strict_attach: bool = False,
     target_host: str = "",
+    target_handle: str = "",
 ) -> Iterator[WorkflowBrowserSession]:
     with store_driver_session(
         store_id,
         strict_attach=strict_attach,
         target_host=target_host,
+        **({"target_handle": target_handle} if target_handle else {}),
     ) as (store_session, driver):
         yield WorkflowBrowserSession(
             driver=driver,
@@ -184,6 +186,7 @@ def _execute_page_batch(
             output_dir=output_dir,
             strict_attach=bool(arguments.get("strict_attach")),
             target_host=str(arguments.get("target_host") or "").strip(),
+            **({"target_handle": arguments["target_handle"]} if arguments.get("target_handle") else {}),
         ) as session:
             previous_after: dict[str, Any] = {}
             for index, step in enumerate(steps, start=1):
@@ -342,9 +345,10 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
             store_id=store_id,
             output_dir=output_dir,
             strict_attach=bool(tool_call.arguments.get("strict_attach")),
-            target_host=str(tool_call.arguments.get("target_host") or "").strip(),
+            target_host="" if tool_call.arguments.get("action") == "browser_tabs" else str(tool_call.arguments.get("target_host") or "").strip(),
+            **({"target_handle": tool_call.arguments["target_handle"]} if tool_call.arguments.get("target_handle") else {}),
         ) as session:
-            before_snapshot = session.snapshot()
+            before_snapshot = {} if tool_call.arguments.get("action") == "browser_tabs" else session.snapshot()
             payload = dispatch_ziniao_page(
                 session,
                 dict(tool_call.arguments or {}),

@@ -17,12 +17,14 @@ from services.agent_cli.logistics.common import diagnostic, html_text
 from services.agent_cli.logistics.common import safe_output as _safe_output
 from services.agent_cli.logistics.common import safe_url as _safe_url
 from services.browser.store.store_driver_session import store_driver_session
+from services.browser.tools.driver_session import validate_target_handle
 
 
 HOST = "ttaiex.nextsls.com"
 ORIGIN = f"http://{HOST}"
 PATH = "/rest/tms/wos/shipment/lists"
 FBA_PATTERN = re.compile(r"FBA[A-Z0-9]{7,}")
+BOX_PATTERN = re.compile(r"(FBA[A-Z0-9]{7,})(U[0-9]{6})")
 ROW_FIELDS = (
     "shipment_id",
     "shipment_number",
@@ -125,8 +127,24 @@ let timer = null;
 """
 
 
+def normalize_identifier(raw: str, kind: str = "auto") -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise ValueError("fba must be a string")
+    value = raw.strip()
+    if not FBA_PATTERN.fullmatch(value) or len(value) > 64:
+        raise ValueError("fba must be one complete uppercase FBA identifier (including any box suffix)")
+    if kind not in ("auto", "shipment", "box"):
+        raise ValueError("identifier_kind must be auto, shipment or box")
+    box = BOX_PATTERN.fullmatch(value) if kind != "shipment" else None
+    if kind == "box" and box is None:
+        raise ValueError("box identifier must end in the observed U + six digits layout")
+    return {"input_fba": raw, "fba": box[1] if box else value,
+            "box_suffix": box[2] if box else None, "identifier_kind": kind,
+            "normalization_rule": "terminal_U_six_digits" if box else "unchanged"}
+
+
 def _validate(arguments: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"store_id", "fba", "account_name", "expected_warehouse", "page"}
+    allowed = {"store_id", "fba", "account_name", "expected_warehouse", "page", "identifier_kind", "target_handle"}
     unknown = set(arguments) - allowed
     if unknown:
         raise ValueError("Unknown arguments: " + ", ".join(sorted(unknown)))
@@ -134,8 +152,9 @@ def _validate(arguments: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(arguments.get(key), str) or not arguments[key].strip():
             raise ValueError(f"{key} is required")
     clean = {key: value.strip() if isinstance(value, str) else value for key, value in arguments.items()}
-    if not FBA_PATTERN.fullmatch(clean["fba"]) or len(clean["fba"]) > 64:
-        raise ValueError("fba must be one complete uppercase FBA identifier (including any box suffix)")
+    if "target_handle" in arguments:
+        clean["target_handle"] = validate_target_handle(arguments["target_handle"])
+    clean.update(normalize_identifier(arguments["fba"], clean.get("identifier_kind", "auto")))
     if len(clean["store_id"]) > 256 or not 2 <= len(clean["account_name"]) <= 200:
         raise ValueError("store_id/account_name length is invalid")
     page = clean.get("page", 1)
@@ -169,6 +188,10 @@ def _text_field(row: dict[str, Any], key: str) -> tuple[str, Any]:
     return html_text(raw), raw
 
 
+def _fba_numbers(text: str) -> list[str]:
+    return list(dict.fromkeys(re.findall(r"(?<![A-Za-z0-9])FBA[A-Z0-9]{7,}(?![A-Za-z0-9])", text)))
+
+
 def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> dict[str, Any] | None:
     text: dict[str, str] = {}
     raw: dict[str, Any] = {}
@@ -189,7 +212,7 @@ def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> di
         raise ValueError("Shipment field created must be a string or integer: " + diagnostic(created))
     raw["created"] = created
 
-    fbas = list(dict.fromkeys(re.findall(r"(?<![A-Za-z0-9])FBA[A-Z0-9]{7,}(?![A-Za-z0-9])", text["shipment_id"])))
+    fbas = _fba_numbers(text["shipment_id"])
     if fba not in fbas:
         return None
 
@@ -197,8 +220,15 @@ def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> di
     warehouse_matches = warehouse == expected_warehouse if expected_warehouse and warehouse else None
     carrier_source = text["outer_carrier"]
     carrier_present = bool(carrier_source and carrier_source != "--")
+    carrier, tracking_numbers, carrier_status = None, [], None
+    lines = [line.strip() for line in carrier_source.splitlines() if line.strip()]
+    # The 2026-10-22 real row explicitly names UPS, one number, and 已生成.
+    # Other carriers, statuses and multi-number layouts still need evidence.
+    if (len(lines) == 3 and lines[0] == "UPS" and lines[2] == "已生成"
+            and re.fullmatch(r"1Z[A-Z0-9]{16}", lines[1])):
+        carrier, tracking_numbers, carrier_status = "UPS", [lines[1]], lines[2]
     warnings: list[str] = []
-    if carrier_present:
+    if carrier_present and carrier is None:
         warnings.append("tracking_layout_unverified_for_tiantai")
     if expected_warehouse and warehouse is None:
         warnings.append("warehouse_not_returned")
@@ -209,8 +239,8 @@ def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> di
     for key, value in (
         ("shipment_number", text["shipment_number"]),
         ("warehouse", warehouse),
-        ("carrier", None),
-        ("tracking_numbers", []),
+        ("carrier", carrier),
+        ("tracking_numbers", tracking_numbers),
         ("eta", None),
     ):
         if not value:
@@ -225,8 +255,9 @@ def parse_row(row: dict[str, Any], fba: str, expected_warehouse: str = "") -> di
         "warehouse": warehouse,
         "warehouse_matches": warehouse_matches,
         "parcel_count": parcel_count_value,
-        "carrier": None,
-        "tracking_numbers": [],
+        "carrier": carrier,
+        "tracking_numbers": tracking_numbers,
+        "carrier_status_text": carrier_status,
         "carrier_source_text": carrier_source or None,
         "depot": text["depot_id"] or None,
         "created": created,
@@ -245,6 +276,8 @@ def parse_result(response: dict[str, Any], arguments: dict[str, Any]) -> dict[st
         "found": False,
         "matched_count": 0,
         "matches": [],
+        "identity_verified": False,
+        "box_identity_verified": False,
         "http_status": response.get("http_status"),
         "content_type": diagnostic(response.get("content_type", "")),
         "account_visible": response.get("account_visible") is True,
@@ -298,6 +331,7 @@ def parse_result(response: dict[str, Any], arguments: dict[str, Any]) -> dict[st
     result["request_succeeded"] = True
     result.update(
         found=bool(matches),
+        identity_verified=bool(matches),
         matched_count=len(matches),
         matches=matches,
         returned_row_count=response.get("row_count"),
@@ -308,6 +342,8 @@ def parse_result(response: dict[str, Any], arguments: dict[str, Any]) -> dict[st
     result["returned_active_tab"] = tabs.get("activeTab") if isinstance(tabs, dict) else None
     result["all_tab_confirmed"] = result["returned_active_tab"] == "all"
     result["warnings"] = []
+    if arguments.get("box_suffix"):
+        result["warnings"].append("box_identifier_normalized; shipment-level result does not verify individual box")
     if not result["complete"]:
         result["warnings"].append("partial_page; other pages were not queried")
     if len(matches) > 1:
@@ -316,7 +352,14 @@ def parse_result(response: dict[str, Any], arguments: dict[str, Any]) -> dict[st
         result["warnings"].append("returned_active_tab_not_all; cross-status coverage unverified")
     if not rows and result["complete"]:
         result["warnings"].append("empty_result_unverified")
-    result["status"] = "matched" if matches else ("not_found_unverified" if result["complete"] else "not_found_on_page")
+    if rows and not matches:
+        result["identity_evidence"] = [
+            {"row_index": index, "shipment_id": row.get("shipment_id"),
+             "fba_numbers": _fba_numbers(_text_field(row, "shipment_id")[0])}
+            for index, row in enumerate(rows)]
+        result["warnings"].append("returned_rows_without_verified_fba_match")
+    result["status"] = ("matched" if matches else "identity_unverified" if rows
+                        else "not_found_unverified" if result["complete"] else "not_found_on_page")
     result["success"] = True
     return result
 
@@ -338,18 +381,25 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         result.update(
             store_id=args["store_id"],
             fba=args["fba"],
+            input_fba=args["input_fba"],
+            box_suffix=args["box_suffix"],
+            identifier_kind=args["identifier_kind"],
+            normalization_rule=args["normalization_rule"],
             account_name=args["account_name"],
             account_evidence_source="expected company name in visible page text; confirm using the current snapshot",
             expected_warehouse=args.get("expected_warehouse", ""),
             source={"url": ORIGIN + PATH, "method": "POST", "payload": payload},
             queried_at=datetime.now(timezone.utc).isoformat(),
         )
-        with store_driver_session(args["store_id"], strict_attach=True, target_host=HOST) as (store, driver):
+        with store_driver_session(args["store_id"], strict_attach=True, target_host=HOST,
+                                  **({"target_handle": args["target_handle"]} if "target_handle" in args else {})) as (store, driver):
             driver.switch_to.default_content()
             if urlsplit(driver.current_url).netloc != HOST or not driver.current_url.startswith(ORIGIN + "/"):
                 raise ValueError("Unexpected browser origin: " + _safe_url(driver.current_url))
             result["store_name"] = str(store.browser_name or "")
             result["page_url"] = _safe_url(driver.current_url)
+            if "target_handle" in args:
+                result["target_handle"] = str(driver.current_window_handle)
             driver.set_script_timeout(40)
             response = driver.execute_async_script(QUERY_SCRIPT, json.dumps(payload, ensure_ascii=False), args["account_name"])
             if not isinstance(response, dict):
