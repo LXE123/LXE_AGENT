@@ -1,3 +1,4 @@
+import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, completeTool, replaySignature } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
@@ -27,6 +28,8 @@ import {
   type ProviderDescriptor,
 } from "./provider";
 import { OpenAIResponsesStreamAdapter } from "./protocols/openai-responses";
+import { DeepSeekImageRequest, usesDeepSeekImages } from "./deepseek-image-request";
+import type { DeepSeekFilesService } from "./deepseek-files";
 
 const IMAGE_PLACEHOLDER = "[image omitted: the selected model does not support image content]";
 
@@ -212,8 +215,9 @@ export const buildResponsesSummaryThinkingPayload = (
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature" | "auxiliary">,
 ): Record<string, unknown> {
+  descriptor = auxiliaryDescriptor(descriptor, request);
   // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
   // rate-limits and isolates against. A shared Feishu bot would otherwise put
   // everyone in one bucket.
@@ -249,6 +253,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
   constructor(
     private readonly descriptor: ProviderDescriptor,
     private readonly injectedClient?: ResponsesClientPort,
+    private readonly deepseekFiles?: DeepSeekFilesService,
   ) {}
 
   /** Per call for the same reason as the Anthropic provider; see clientFor there. */
@@ -269,7 +274,8 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
   async turn(request: RuntimeProviderRequest): Promise<AssistantMessage> {
     const accumulator = new AssistantMessageAccumulator(this.descriptor, request.onEvent);
     let parseFailure: unknown;
-    const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
+    let watchdog: ProviderIdleWatchdog | undefined;
+    let trace = request.wireTrace;
     let wireOk = false;
     let wireError = "";
     const wire = (operation: () => void): void => {
@@ -278,41 +284,65 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
     try {
       request.signal.throwIfAborted();
       const parameters = buildResponsesRequest(this.descriptor, request);
-      const client = this.clientFor((headers) => {
-        wire(() => request.wireTrace?.requestStart(headers, parameters as unknown as JsonObject));
-      });
-      const normalizer = new OpenAIResponsesStreamAdapter(accumulator);
-      const stream = client.responses.stream(parameters, { signal: watchdog.signal });
-      // Every frame is traced from one catch-all listener, so the diagnostics
-      // keep the events this adapter does not map - lifecycle and failure
-      // frames included - instead of only the four it reads.
-      wire(() => {
-        stream.on?.("event", (payload) => {
-          watchdog.activity();
-          const name = text(record(payload).type) || "event";
-          wire(() => request.wireTrace?.event(name, payload));
-          try {
-            if (parseFailure) return;
-            normalizer.streamEvent(payload);
-          } catch (error) {
-            parseFailure = error;
-            watchdog.abort(error);
-            wire(() => request.wireTrace?.parseError(name, JSON.stringify(payload ?? null), error));
-          }
+      const images = this.deepseekFiles && usesDeepSeekImages(this.descriptor)
+        ? new DeepSeekImageRequest(this.descriptor, this.deepseekFiles, parameters, request.signal,
+          (name, payload) => wire(() => trace?.event(name, payload))) : undefined;
+      for (;;) {
+        await images?.prepare();
+        if (images?.omittedCount) request.onRequestImagesOmitted?.(images.omittedCount);
+        request.signal.throwIfAborted();
+        watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
+        const activeWatchdog = watchdog;
+        let receivedEvent = false;
+        const client = this.clientFor((headers) => {
+          wire(() => trace?.requestStart(headers, parameters as unknown as JsonObject));
         });
-      });
-      const response = record(await stream.finalResponse());
-      if (parseFailure) throw parseFailure;
-      request.signal.throwIfAborted();
-      const result = normalizer.finalize(response);
-      await accumulator.drain();
-      wireOk = true;
-      return result;
+        const normalizer = new OpenAIResponsesStreamAdapter(accumulator);
+        const stream = client.responses.stream(parameters, { signal: watchdog.signal });
+        // Every frame is traced from one catch-all listener, so the diagnostics
+        // keep the events this adapter does not map - lifecycle and failure
+        // frames included - instead of only the four it reads.
+        wire(() => {
+          stream.on?.("event", (payload) => {
+            receivedEvent = true;
+            activeWatchdog.activity();
+            const name = text(record(payload).type) || "event";
+            wire(() => trace?.event(name, payload));
+            try {
+              if (parseFailure) return;
+              normalizer.streamEvent(payload);
+            } catch (error) {
+              parseFailure = error;
+              activeWatchdog.abort(error);
+              wire(() => trace?.parseError(name, JSON.stringify(payload ?? null), error));
+            }
+          });
+        });
+        let response: Record<string, unknown>;
+        try { response = record(await stream.finalResponse()); }
+        catch (error) {
+          watchdog.cleanup();
+          if (!receivedEvent && !watchdog.timedOut() && await images?.retry(error)) {
+            wire(() => trace?.end(false, normalizeProviderError(error, this.descriptor).message));
+            let nextTrace: typeof trace;
+            wire(() => { nextTrace = trace?.nextRequest?.(); });
+            trace = nextTrace;
+            continue;
+          }
+          throw error;
+        }
+        if (parseFailure) throw parseFailure;
+        request.signal.throwIfAborted();
+        const result = normalizer.finalize(response);
+        await accumulator.drain();
+        wireOk = true;
+        return result;
+      }
     } catch (error) {
       const failure = parseFailure ?? error;
       const classified = request.signal.aborted
         ? request.signal.reason ?? new DOMException("Aborted", "AbortError")
-        : watchdog.timedOut()
+        : watchdog?.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
               this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
@@ -323,40 +353,58 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       await accumulator.drain();
       throw classified;
     } finally {
-      wire(() => request.wireTrace?.end(wireOk, wireError));
-      watchdog.cleanup();
+      wire(() => trace?.end(wireOk, wireError));
+      watchdog?.cleanup();
     }
   }
 
   async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
-    const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
+    let watchdog: ProviderIdleWatchdog | undefined;
     try {
       const maxOutputTokens = Math.max(
         1,
         Math.min(32_768, this.descriptor.maxTokens, Math.trunc(request.maxOutputTokens)),
       );
-      const stream = this.clientFor().responses.stream(buildResponsesRequest({ ...this.descriptor, maxTokens: maxOutputTokens }, {
+      const parameters = buildResponsesRequest({ ...this.descriptor, maxTokens: maxOutputTokens }, {
         system: SUMMARY_SYSTEM_PROMPT, messages: request.messages, tools: [], toolChoice: "auto",
         ...(request.userIdentity ? { userIdentity: request.userIdentity } : {}), ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-      }), { signal: watchdog.signal });
-      try {
-        stream.on?.("response.output_text.delta", () => watchdog.activity());
-        stream.on?.("response.reasoning_text.delta", () => watchdog.activity());
-        stream.on?.("response.reasoning.delta", () => watchdog.activity());
-        stream.on?.("response.output_item.done", () => watchdog.activity());
-      } catch { /* Diagnostics/activity hooks must not replace Provider behavior. */ }
-      const response = record(await stream.finalResponse());
-      const result = new OpenAIResponsesStreamAdapter(new AssistantMessageAccumulator(this.descriptor)).finalize(response);
-      const summary = result.content
-        .filter((block) => record(block).type === "text")
-        .map((block) => text(record(block).text))
-        .join("")
-        .trim();
-      const { status: _status, ...usage } = result.usage;
-      return { text: summary, usage };
+      });
+      const images = this.deepseekFiles && usesDeepSeekImages(this.descriptor)
+        ? new DeepSeekImageRequest(this.descriptor, this.deepseekFiles, parameters, request.signal) : undefined;
+      for (;;) {
+        await images?.prepare();
+        request.signal.throwIfAborted();
+        watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
+        const activeWatchdog = watchdog;
+        const stream = this.clientFor().responses.stream(parameters, { signal: watchdog.signal });
+        let receivedEvent = false;
+        try {
+          stream.on?.("event", () => { receivedEvent = true; activeWatchdog.activity(); });
+          stream.on?.("response.output_text.delta", () => activeWatchdog.activity());
+          stream.on?.("response.reasoning_text.delta", () => activeWatchdog.activity());
+          stream.on?.("response.reasoning.delta", () => activeWatchdog.activity());
+          stream.on?.("response.output_item.done", () => activeWatchdog.activity());
+        } catch { /* Diagnostics/activity hooks must not replace Provider behavior. */ }
+        let response: Record<string, unknown>;
+        try { response = record(await stream.finalResponse()); }
+        catch (error) {
+          watchdog.cleanup();
+          if (!receivedEvent && !watchdog.timedOut() && await images?.retry(error)) continue;
+          throw error;
+        }
+        request.signal.throwIfAborted();
+        const result = new OpenAIResponsesStreamAdapter(new AssistantMessageAccumulator(this.descriptor)).finalize(response);
+        const summary = result.content
+          .filter((block) => record(block).type === "text")
+          .map((block) => text(record(block).text))
+          .join("")
+          .trim();
+        const { status: _status, ...usage } = result.usage;
+        return { text: summary, usage };
+      }
     } catch (error) {
       if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
-      if (watchdog.timedOut()) {
+      if (watchdog?.timedOut()) {
         throw new RuntimeProviderError(
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
@@ -367,7 +415,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       }
       throw normalizeProviderError(error, this.descriptor);
     } finally {
-      watchdog.cleanup();
+      watchdog?.cleanup();
     }
   }
 }

@@ -16,6 +16,8 @@
      this one stack. Document viewers keep the fonts declared by the file. */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #fafaf9;
+  /* Shared canvas for chat content, composer dock and scroll-edge fades. */
+  --conversation-bg: var(--bg);
   --bg-soft: #ffffff;
   --surface: #ffffff;
   --surface-muted: #f7f4f0;
@@ -27,8 +29,8 @@
   --inline-code-fill: var(--table-header-fill);
   --inline-code-text: #1f1f1f;
   --row-hover: #f3efe9;
-  --border: #ebe4da;
-  --border-strong: #ddd2c4;
+  --border: #e3e3e3;
+  --border-strong: #d1d1d1;
   --text: #2f2a24;
   --text-strong: #221f1b;
   --text-soft: #5d544a;
@@ -52,7 +54,7 @@
   --tool-muted: #fdf8f0;
   --tool-border: #eee6d9;
   --tool-border-strong: #e1d1b8;
-  --message-border: #e8ded3;
+  --message-border: var(--border);
   --message-border-user: #6f9fc0;
   --message-border-assistant: #d59478;
   --message-border-tool: #d9b56f;
@@ -65,7 +67,7 @@
   --message-tool-text: #826238;
   --message-system-soft: #f7f6f4;
   --message-system-text: #6c635a;
-  --assistant-content-width: 760px;
+  --assistant-content-width: 722px;
   --danger: #a34d3d;
   --danger-soft: #fff5f2;
   --danger-border: #ecc7bf;
@@ -73,10 +75,10 @@
   --info-soft: #fbf7f2;
   --focus-ring: rgba(180, 106, 77, 0.2);
   --scrim: rgba(47, 42, 36, 0.42);
-  --shadow-soft: rgba(82, 62, 42, 0.06);
-  --shadow-medium: rgba(82, 62, 42, 0.1);
-  --shadow-strong: rgba(54, 39, 26, 0.2);
-  --shadow-card: 0 1px 2px rgba(82, 62, 42, 0.05), 0 6px 20px rgba(82, 62, 42, 0.04);
+  --shadow-soft: rgba(0, 0, 0, 0.06);
+  --shadow-medium: rgba(0, 0, 0, 0.1);
+  --shadow-strong: rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px rgba(0, 0, 0, 0.04);
   --rate-good: #4e8a4e;
   --rate-good-soft: #edf5ed;
   --rate-warn: #b07f1f;
@@ -144,6 +146,7 @@ button {
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #242322;
+  --conversation-bg: #151515;
   --bg-soft: #2b2927;
   --surface: #32302e;
   --surface-muted: #2e2c2a;
@@ -433,6 +436,10 @@ button {
   gap: 0;
   padding: 0;
   overflow: hidden;
+}
+
+:where(:root:not([data-theme="dark"])) :is(.desktop-fatal-card, .desktop-onboarding-card, .desktop-settings-modal) {
+  box-shadow: 0 24px 80px rgb(0 0 0 / 14%);
 }
 
 .desktop-onboarding-header {
@@ -2050,6 +2057,7 @@ button {
   --app-navigation-width: 53.2px;
   --app-titlebar-height: 41.8px;
   --app-sidebar-width: 256px;
+  --app-panel-radius: 14px;
   --sidebar-control-left: calc(var(--app-navigation-width) + 8px);
   --navigation-bg: var(--bg);
   --sidebar-bg: var(--bg);
@@ -2076,8 +2084,20 @@ button {
   transition: grid-template-columns 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
-.app-shell.sidebar-collapsed {
+.app-shell.sidebar-collapsed,
+.app-shell.sidebar-unavailable {
   grid-template-columns: var(--app-navigation-width) 0 minmax(0, 1fr);
+}
+
+/* When the session list is absent, the page owns the same leading corner. */
+.app-shell.sidebar-unavailable > .main-panel > .content-panel {
+  border-top-left-radius: var(--app-panel-radius);
+}
+
+/* Keep the list mounted for scroll/search state, but remove all off-page chrome. */
+.app-sidebar[hidden],
+.sidebar-window-controls[hidden] {
+  display: none;
 }
 
 .sidebar-resizer {
@@ -2249,7 +2269,7 @@ button {
   margin-top: var(--app-titlebar-height);
   padding-top: 8px;
   border-top: 1px solid var(--sidebar-border);
-  border-radius: 14px 0 0 0;
+  border-radius: var(--app-panel-radius) 0 0 0;
   opacity: 1;
   transform: translateX(0);
   visibility: visible;
@@ -2763,6 +2783,10 @@ h1 {
   padding: 4px 9px;
   font-size: 0.6875rem;
   box-shadow: 0 4px 14px rgba(33, 29, 26, 0.06);
+}
+
+:root:not([data-theme="dark"]) .dashboard-refresh-indicator {
+  box-shadow: 0 4px 14px rgb(0 0 0 / 6%);
 }
 
 .dashboard-home-panel .content-panel {
@@ -4937,14 +4961,14 @@ h1 {
 
 .conversation-scroll-area::before {
   top: 0;
-  background: linear-gradient(to bottom, var(--bg) 30%, transparent);
+  background: linear-gradient(to bottom, var(--conversation-bg) 30%, transparent);
 }
 
 /* The composer dock's own gradient sits below the scroll container, so it
    never reached the edge that does the cutting. This one covers that edge. */
 .conversation-scroll-area::after {
   bottom: 0;
-  background: linear-gradient(to top, var(--bg) 30%, transparent);
+  background: linear-gradient(to top, var(--conversation-bg) 30%, transparent);
 }
 
 .conversation-jump-latest {
@@ -5805,6 +5829,13 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* Streaming prose is a grid item before it becomes a final-answer card.
+   Let it shrink to the chat column so wide tables scroll inside their wrapper
+   instead of giving every paragraph the table's intrinsic width. */
+.conversation-feed .message-markdown {
+  min-width: 0;
+}
+
 .message-card.role-assistant .message-block-list > .message-text,
 .message-card.role-assistant .message-block-list > .message-markdown {
   margin-block: 4px;
@@ -5873,6 +5904,60 @@ h1 {
   margin-top: 3px;
 }
 
+/* Assistant prose shares one reading rhythm in both themes, including while
+   streaming. Other Markdown surfaces retain their existing typography. */
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
+  line-height: 1.55;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown p:not(:last-child) {
+  margin-bottom: 0.75em;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-weight: 600;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin-bottom: 7px;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h1 {
+  margin-top: 30px;
+  font-size: 1.5rem;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h2 {
+  margin-top: 26px;
+  font-size: 1.1875rem;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h3 {
+  margin-top: 21px;
+  font-size: 1rem;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h4, h5, h6) {
+  margin-top: 18px;
+}
+
+/* Keep the first heading flush with its container, including inside quotes. */
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown > :is(h1, h2, h3, h4, h5, h6):first-child,
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown blockquote > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown > :is(h1, h2, h3, h4, h5, h6):last-child,
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown blockquote > :is(h1, h2, h3, h4, h5, h6):last-child {
+  margin-bottom: 0;
+}
+
+/* Table density is independent of the prose rhythm; code blocks already
+   declare their own line height. */
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown table {
+  line-height: 1.7;
+}
+
 .message-markdown a {
   color: var(--info);
   font-weight: 600;
@@ -5893,6 +5978,24 @@ h1 {
   background: var(--border);
 }
 
+/* Light chat prose only; shared Markdown previews keep their existing theme. */
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown hr {
+  margin: 20px 0;
+  background: var(--border);
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href] {
+  color: #184f95;
+  font-weight: 500;
+  text-decoration-color: #a3b7d4;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href]:hover {
+  color: #2a78d6;
+}
+
 /* A quote carries no vertical padding of its own: the rail hugs the text and
    the block keeps the same rhythm as a paragraph, so quoting a line never
    pushes the text around it. The margin reset has to be repeated here because
@@ -5903,6 +6006,14 @@ h1 {
   border-left: 2px solid var(--accent-muted);
   background: transparent;
   color: var(--text-soft);
+}
+
+/* Neutral rails and a wider inset at every quote level in light chat prose. */
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown blockquote {
+  margin-left: 7px;
+  padding-left: 14px;
+  border-left: 4px solid var(--border);
+  color: #52514f;
 }
 
 .message-markdown blockquote > :first-child {
@@ -6328,6 +6439,136 @@ code {
 
 .hljs-strong {
   font-weight: 650;
+}
+
+/* Screenshot-derived light chat palette. Keep these overrides local: the
+   shared highlighter also renders tool output, file previews and skill docs. */
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown code:not(pre code) {
+  border: 1px solid #dadada;
+  background: #f0f0ef;
+  color: #8e2726;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown pre.code-block {
+  border-color: var(--border);
+  background: #fff;
+  color: #1a1a1a;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-comment, .hljs-quote) {
+  color: #999;
+  font-style: normal;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-number, .hljs-function, .hljs-operator) {
+  color: #c6631b;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-string, .hljs-regexp, .hljs-addition) {
+  color: #1f9e3c;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-type) {
+  color: #0273e7;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr, .hljs-attribute, .hljs-property, .hljs-params, .hljs-symbol) {
+  color: #1a1a1a;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-punctuation, .hljs-meta) {
+  color: #737373;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block .hljs-deletion {
+  color: #8e2726;
+}
+
+/* Pixel-checked dark chat colours. Keep the palette local: the sidebar,
+   composer, user bubbles, tool output and other Markdown viewers retain theirs. */
+:root[data-theme="dark"] :is(.conversation-view, .conversation-scroll-area, .conversation-feed) {
+  background-color: var(--conversation-bg);
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
+  color: #f0efec;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h1, h2, h3, h4, h5, h6) {
+  color: #f0efec;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown code:not(pre code) {
+  color: #ed7e7e;
+  background: #212121;
+  /* An inset stroke preserves the existing inline box size and line wrapping. */
+  box-shadow: inset 0 0 0 1px #373737;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown pre.code-block {
+  background: #1a1a19;
+  border-color: #2c2c2c;
+  color: #d3d7df;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown hr {
+  background: #2d2d2d;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown blockquote {
+  border-left-color: #2d2d2d;
+  color: #c3c2b7;
+}
+
+/* Only the verified default state; hover keeps the existing link styling. */
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown a[href]:not(:hover) {
+  color: #6da8ed;
+  text-decoration-color: #39506a;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(th, td) {
+  color: #f0efec;
+  border-color: #373737;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown th {
+  background: #212121;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown td {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-keyword {
+  color: #cc7bf4;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-title, .hljs-built_in) {
+  color: #70b8ff;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-type, .hljs-params) {
+  color: #fbae60;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block.language-typescript :is(.hljs-built_in, .hljs-params .hljs-attr) {
+  color: #fbae60;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-string, .hljs-addition) {
+  color: #9ce963;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-number {
+  color: #5eedee;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block.language-json .hljs-attr {
+  color: #ebecf0;
+}
+
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-deletion {
+  color: #f57b85;
 }
 
 .modal-backdrop {
@@ -7676,6 +7917,19 @@ pre {
   transform: translateY(0) scale(0.96);
 }
 
+/* Neutral light-theme elevation; retain the existing dark-theme shadows. */
+:root:not([data-theme="dark"]) .runtime-status-popover {
+  box-shadow: 0 18px 50px rgb(0 0 0 / 18%), 0 2px 8px var(--shadow-soft);
+}
+
+:root:not([data-theme="dark"]) .runtime-status-trigger {
+  box-shadow: 0 12px 30px rgb(0 0 0 / 26%), 0 2px 7px var(--shadow-medium);
+}
+
+:root:not([data-theme="dark"]) .runtime-status-trigger:hover {
+  box-shadow: 0 15px 34px rgb(0 0 0 / 30%), 0 2px 8px var(--shadow-medium);
+}
+
 .runtime-status-trigger:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
@@ -8000,7 +8254,7 @@ pre {
 }
 
 .home-session-row:hover {
-  background: var(--row-hover);
+  background: var(--sidebar-hover, var(--row-hover));
 }
 
 .home-session-title {
@@ -8267,13 +8521,13 @@ pre {
 
 .sidebar-session-section .session-index-item {
   display: block;
-  padding: 0 3px 0 0;
+  padding: 0;
   color: var(--sidebar-ink-soft);
 }
 
 .sidebar-session-section .session-index-open {
   width: 100%;
-  padding: 5.5px 8px;
+  padding: 5.5px 0 5.5px 8px;
 }
 
 .sidebar-session-section .session-index-actions {
@@ -8292,6 +8546,7 @@ pre {
 }
 
 .sidebar-session-section .session-index-icon {
+  border-width: 1px;
   color: currentColor;
   opacity: 0.35;
 }
@@ -8317,10 +8572,11 @@ pre {
   min-width: 0;
   color: inherit;
   font-size: 0.8375rem;
+  font-weight: 400;
   text-overflow: clip;
   white-space: nowrap;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
-  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
 }
 
 .sidebar-session-section .empty-state {
@@ -8389,7 +8645,6 @@ pre {
   color: var(--danger);
 }
 
-.session-actions-hint,
 .session-actions-error {
   margin: 3.1px 6.4px 2.4px;
   color: var(--muted);
@@ -8473,14 +8728,12 @@ pre {
   opacity: 0.6;
 }
 
-/* The plane, not a card. --surface here sits under every card in the
-   transcript, which in light mode differed from --bg by five units and hid the
-   problem; on dark the same pair is far enough apart that the composer dock's
-   fade to --bg showed up as a band across the bottom. */
+/* Share the chat canvas with the dock and edge fades to avoid visible seams.
+   Cards, including the input card, keep their own surface colours. */
 .conversation-view {
   position: relative;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--conversation-bg);
 }
 
 .conversation-header {
@@ -8606,9 +8859,8 @@ pre {
   background-color: rgba(180, 106, 77, 0.72);
 }
 
-/* One content column for everything. The feed used to be 820px while assistant
-   content capped at --assistant-content-width (760px), so user bubbles, tool
-   traces and replies each ended on a different right edge. */
+/* One centered column for user bubbles, tool traces, replies and the composer.
+   The shared cap leaves room on both sides without shrinking narrow windows. */
 .conversation-feed {
   display: flex;
   width: min(var(--assistant-content-width), calc(100% - 48px));
@@ -9121,7 +9373,7 @@ pre {
   justify-self: end;
   margin: 22px 0 1px;
   padding: 9px 13px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 14px;
   background: var(--conversation-muted-fill);
 }
@@ -9241,6 +9493,38 @@ pre {
   padding: 5px 9px;
 }
 
+/* Both themes use text contrast for interaction, leaving the row background,
+   status colours and keyboard focus outline independent. */
+.conversation-feed {
+  --tool-op-hover-name: #52514f;
+  --tool-op-hover-argument: #0b0b0b;
+}
+
+:root[data-theme="dark"] .conversation-feed {
+  --tool-op-hover-name: #bfbdb5;
+  --tool-op-hover-argument: #f5f4ed;
+}
+
+.conversation-feed .tool-op-summary:is(:hover, :focus-visible) {
+  background: transparent;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .tool-op:not(.state-error) .tool-op-name {
+  color: #8a8984;
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .tool-op-argument {
+  color: #52514f;
+}
+
+.conversation-feed .tool-op:not(.state-error) .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-name {
+  color: var(--tool-op-hover-name);
+}
+
+.conversation-feed .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-argument {
+  color: var(--tool-op-hover-argument);
+}
+
 .optimistic-message-state {
   display: flex;
   align-items: center;
@@ -9330,6 +9614,19 @@ pre {
 
 .turn-file-item.has-error {
   border-color: var(--danger-border);
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .turn-file-item {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 3px 8px rgb(0 0 0 / 8%);
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:not(.has-error) {
+  border-color: var(--border-strong);
+}
+
+:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:has(> .turn-file-card:hover:not(:disabled)):not(.has-error) {
+  border-color: #bdbdbd;
+  background: var(--surface);
 }
 
 /* Kept on every row, including when the whole set shares a type, because it is
@@ -9446,7 +9743,7 @@ pre {
   z-index: 7;
   flex: 0 0 auto;
   padding: 0 24px 18px;
-  background: linear-gradient(to bottom, transparent, var(--bg) 18px);
+  background: linear-gradient(to bottom, transparent, var(--conversation-bg) 18px);
 }
 
 /* Same axis as .conversation-feed — both track --assistant-content-width. */
@@ -11284,53 +11581,60 @@ pre {
 .session-index-item .session-index-icon[data-session-state="unavailable"] { border-style: dotted; opacity: .8; }
 @keyframes session-status-breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .session-index-item .session-index-icon[data-session-state] { animation: none; } }
-/* Keep questions to roughly a third of the window; extra choices scroll inside the card. */
-.user-question-card { width: min(var(--assistant-content-width, 780px), 100%); margin-inline: auto; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; max-height: min(35dvh, 300px); font-size: .8rem; }
-.user-question-header { display: flex; align-items: flex-start; gap: 8px; padding: 6px 6px 4px 10px; flex-shrink: 0; }
-.user-question-header h3 { flex: 1; min-width: 0; margin: 3px 8px 0 0; font-size: .75rem; font-weight: 600; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(8dvh, 3rem); overflow-y: auto; }
+.user-question-summary { box-sizing: border-box; width: min(640px, 100%); margin: 0; padding: 12px 16px; border: 1px solid #e3e3e3; border-radius: 12px; background: transparent; font-size: .85rem; line-height: 1.6; }
+:root[data-theme="dark"] .user-question-summary { border-color: var(--border); }
+.user-question-summary-item + .user-question-summary-item { margin-top: 14px; }
+.user-question-summary dt { color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-question-summary dd { margin: 3px 0 0; color: var(--text-strong); white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-question-summary-skipped { color: var(--text-soft); }
+/* Keep the header and actions visible while longer question content scrolls inside the card. */
+.conversation-compose-box:has(> .user-question-card) { padding: 0; border: 0; background: transparent; box-shadow: none; gap: 8px; }
+.user-question-card { --question-option-fill: #f3f3f3; --question-option-hover: #ebebeb; --question-option-selected: #e8e8e8; width: min(var(--assistant-content-width, 780px), 100%); margin-inline: auto; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 12px; max-height: min(60dvh, 560px); font-size: .8rem; }
+:root[data-theme="dark"] .user-question-card { --question-option-fill: var(--surface-muted); --question-option-hover: var(--surface-subtle); --question-option-selected: var(--accent-soft); }
+.user-question-header { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0; flex-shrink: 0; }
+.user-question-progress { flex-shrink: 0; margin-top: 3px; padding: 3px 7px; border-radius: 12px; background: var(--accent-muted); color: var(--text-strong); font-size: .65rem; line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.user-question-header h3 { flex: 1; min-width: 0; margin: 4px 0 0; font-size: .75rem; font-weight: 600; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(8dvh, 3rem); overflow-y: auto; }
 .user-question-header h3:focus-visible { outline: none; }
 .user-question-card button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .user-question-pagination { display: flex; align-items: center; flex-shrink: 0; color: var(--text-soft); }
-.user-question-pagination span { min-width: 44px; text-align: center; font-size: .65rem; font-variant-numeric: tabular-nums; }
 .user-question-pagination button, .user-question-stop { display: grid; place-items: center; width: 28px; height: 30px; padding: 0; border-radius: 8px; flex-shrink: 0; }
 .user-question-card .user-question-stop { color: var(--text-soft); margin-left: 2px; }
 .user-question-pagination button:hover:not(:disabled), .user-question-stop:hover:not(:disabled) { background: var(--surface-subtle); color: var(--text); }
 .user-question-fields { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; }
-.user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
+.user-question-card fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 5px; }
 .user-question-hint { display: block; padding: 0 12px 4px; font-size: .6rem; color: var(--text-soft); }
-.user-question-option { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 8px 12px; border-radius: 14px; cursor: pointer; overflow-wrap: anywhere; transition: background 120ms ease; }
-.user-question-option:hover { background: var(--surface-muted); }
-.user-question-option[data-selected="true"] { background: var(--surface-subtle); }
+.user-question-option { position: relative; display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--question-option-fill); cursor: pointer; overflow-wrap: anywhere; transition: background 120ms ease; }
+.user-question-option:hover { background: var(--question-option-hover); }
+.user-question-option[data-selected="true"] { background: var(--question-option-selected); box-shadow: inset 0 0 0 1px var(--accent); }
 .user-question-option input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
-.user-question-number { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-muted); color: var(--text-soft); font-size: .65rem; box-sizing: border-box; }
+.user-question-number { display: flex; align-items: center; justify-content: center; flex: 0 0 20px; width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--text-soft); font-size: .6rem; box-sizing: border-box; }
 .user-question-option[data-selected="true"] .user-question-number { color: var(--text); border-color: var(--text-soft); }
-.user-question-option-copy { min-width: 0; flex: 1; padding-top: 3px; line-height: 1.5; }
-.user-question-option-copy strong { display: block; font-size: .7rem; font-weight: 600; }
+.user-question-option-copy { min-width: 0; flex: 1; line-height: 1.5; }
+.user-question-option-copy strong { display: block; font-size: .75rem; font-weight: 500; }
 .user-question-option-copy small { display: block; margin-top: 3px; font-size: .65rem; color: var(--text-soft); white-space: pre-wrap; }
-.user-question-option-arrow { align-self: center; flex-shrink: 0; color: var(--text-soft); opacity: 0; }
-.user-question-option:hover .user-question-option-arrow, .user-question-option:has(input:focus-visible) .user-question-option-arrow, .user-question-option[data-selected="true"] .user-question-option-arrow { opacity: 1; }
 .user-question-option:has(input:focus-visible), .user-question-card button:focus-visible, .user-question-custom textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .user-question-card fieldset:disabled .user-question-option { cursor: default; opacity: .65; }
-.user-question-custom { display: grid; gap: 7px; margin: 6px 12px 4px; font-size: .6rem; color: var(--text-soft); }
-.user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; resize: vertical; background: var(--surface-muted); color: var(--text); font: inherit; font-size: .7rem; line-height: 1.5; min-height: 70px; max-height: 150px; }
+.user-question-custom { display: grid; gap: 10px; min-width: 0; padding: 10px 12px; border-radius: 8px; background: var(--question-option-fill); font-size: .75rem; color: var(--text); }
+.user-question-custom-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.user-question-custom textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 7px; padding: 8px 10px; resize: none; overflow-y: auto; background: var(--surface); color: var(--text); font: inherit; font-size: .7rem; line-height: 1.5; min-height: 38px; max-height: 120px; }
 .user-question-custom textarea::placeholder { color: var(--text-soft); }
-.user-question-actions { display: flex; align-items: center; gap: 12px; padding: 2px 6px 2px 12px; flex-shrink: 0; }
-.user-question-card .user-question-custom-toggle { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border-radius: 8px; text-align: left; color: var(--text-soft); font-size: .65rem; }
-.user-question-custom-toggle:hover:not(:disabled) { color: var(--text); }
-.user-question-custom-toggle > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-question-actions { display: flex; align-items: center; gap: 12px; padding: 0; flex-shrink: 0; }
 .user-question-buttons { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
-.user-question-card .user-question-continue, .user-question-card .user-question-skip { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--border-strong); font-size: .65rem; font-weight: 500; white-space: nowrap; }
-.user-question-card .user-question-skip { color: var(--text-soft); border-color: transparent; }
-.user-question-continue:hover:not(:disabled), .user-question-skip:hover:not(:disabled) { background: var(--surface-subtle); }
+.user-question-card .user-question-continue, .user-question-card .user-question-skip { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 11px; border-radius: 7px; border: 1px solid var(--border-strong); font-size: .65rem; font-weight: 500; white-space: nowrap; }
+.user-question-card .user-question-continue { background: var(--text-strong); color: var(--surface); border-color: transparent; }
+.user-question-card .user-question-skip { color: var(--text-soft); }
+.user-question-card .user-question-continue:hover:not(:disabled) { background: var(--text-soft); }
+.user-question-skip:hover:not(:disabled) { background: var(--surface-subtle); }
 .user-question-card button:disabled { opacity: .4; cursor: default; }
 .user-question-error { color: var(--danger, #c53b3b); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .6rem; line-height: 1.5; margin: 0 12px 8px; }
 .session-index-item .session-index-icon[data-session-state="waiting_input"] { color: #60a5fa; background: currentColor; border-color: currentColor; opacity: 1; animation: none; }
 @media (max-width: 700px) {
-  .user-question-card { padding: 8px; border-radius: 18px; }
-  .user-question-header { gap: 2px; padding-left: 8px; }
+  .user-question-card { padding: 8px; border-radius: 12px; }
+  .user-question-header { gap: 4px; }
   .user-question-header h3 { font-size: .7rem; margin-right: 4px; }
   .user-question-option { padding: 8px; gap: 10px; }
-  .user-question-actions { padding-left: 8px; gap: 8px; }
+  .user-question-custom { padding: 8px; }
+  .user-question-actions { gap: 8px; }
 }
 
 /* Skill management uses the existing catalog and modal surfaces. */
@@ -11383,6 +11687,7 @@ pre {
 
 .image-view-group { min-width: 0; padding: 6px 0; }
 .image-view-summary { display: flex; align-items: center; gap: 8px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 6px 0 10px; font: inherit; font-size: .75rem; }
+.conversation-compaction-marker { color: var(--muted); padding: 6px 0 10px; font-size: .75rem; }
 .image-view-note { margin: 0; padding: 8px 16px; opacity: .7; font-size: .75rem; }
 
 

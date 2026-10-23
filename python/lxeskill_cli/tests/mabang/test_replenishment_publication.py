@@ -83,10 +83,17 @@ def test_publish_happens_once_after_handles_close_and_complete_validation(tmp_pa
             book = load_workbook(source, data_only=True)
             try:
                 assert book.active["A3"].value == "NEW"
-                assert book.active["W3"].value is not None
+                assert book.active["X2"].value == "理论空运需求"
+                assert book.active["X3"].value == 450
                 assert "源数据核验信息" in book.sheetnames
             finally:
                 book.close()
+            formulas = load_workbook(source, data_only=False)
+            try:
+                assert formulas.active["X3"].data_type == "f"
+                assert formulas.active["X3"].value == '=IF(AJ3="正常",ROUNDUP(I3*V3,0),"")'
+            finally:
+                formulas.close()
         return original_replace(source, destination)
 
     monkeypatch.setattr(ZipFile, "__init__", track)

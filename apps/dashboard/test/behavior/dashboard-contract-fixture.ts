@@ -22,6 +22,19 @@ export function createDashboardContractFixture(calls: Call[]) {
     modelRow("openrouter", "cloud", "OpenRouter", [modelOption("unavailable-model")], false),
   ];
   let current = models[0]!;
+  const sessionModels = new Map<string, ModelPayload>();
+  const selectedModel = (sessionId: unknown): ModelPayload => sessionId
+    ? sessionModels.get(String(sessionId)) ?? { ...current, session_id: String(sessionId), selection_version: 0 } : current;
+  function saveModel(input: Record<string, unknown>, next: ModelPayload): ModelPayload {
+    if (!input.session_id) { current = next; return structuredClone(current); }
+    const before = selectedModel(input.session_id);
+    if (input.selection_version !== before.selection_version) throw new Error("stale model selection");
+    const saved = { ...next, session_id: String(input.session_id), selection_version: (before.selection_version ?? 0) + 1 };
+    sessionModels.set(saved.session_id, saved);
+    const { session_id: _sessionId, selection_version: _version, ...defaultModel } = saved;
+    current = defaultModel;
+    return structuredClone(saved);
+  }
   const server: McpServerPayload = { name: "fixture-server", enabled: true, transport: "stdio", status: "ready", tool_count: 1,
     error: "", server_title: "Fixture server", connector_id: "fixture", connector_name: "Fixture connector",
     connector_description: "Local fixture", exposure: "full", tools: [{ rawName: "lookup", modelName: "fixture_lookup" }] };
@@ -37,6 +50,7 @@ export function createDashboardContractFixture(calls: Call[]) {
     cloud(patch: Partial<DesktopCloudState>) { cloud = { ...cloud, ...patch }; cloudListeners.forEach(listener => listener(structuredClone(cloud))); },
     listeners() { return { cloud: cloudListeners.size, task: taskListeners.size }; },
     completeTask() { if (task) { task = { ...task, state: "completed", stage: "done", processed: 1 }; taskListeners.forEach(listener => listener(structuredClone(task!))); } },
+    task(value: DesktopSyntheticPerformerTask) { task = structuredClone(value); taskListeners.forEach(listener => listener(structuredClone(task!))); },
     clearCalls() { calls.length = 0; },
   };
   const desktop = {
@@ -59,11 +73,12 @@ export function createDashboardContractFixture(calls: Call[]) {
   function rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
     switch (call.operation) {
       case "stats.skills.list": return { days: 7, items: Array.from({ length: 8 }, (_, i) => ({ name: `skill-${i}`, executions: i + 1, failures: 0, success_rate: 1 })) };
-      case "models.current": return structuredClone(current);
+      case "models.current": return structuredClone(selectedModel(call.input.session_id));
       case "models.list": return { items: structuredClone(models) };
       case "models.update": return (async () => { await gate(call.operation); const row = models.find(m => m.provider === call.input.provider)!;
-        current = { ...row, ...row.model_options.find(m => m.model === call.input.model)!, model: String(call.input.model) }; return structuredClone(current); })();
-      case "models.thinking.update": return (async () => { await gate(call.operation); current = { ...current, thinking_state: { enabled: call.input.level !== "off", editable: true, level: String(call.input.level) } }; return structuredClone(current); })();
+        return saveModel(call.input, { ...row, ...row.model_options.find(m => m.model === call.input.model)!, model: String(call.input.model) }); })();
+      case "models.thinking.update": return (async () => { await gate(call.operation);
+        return saveModel(call.input, { ...selectedModel(call.input.session_id), thinking_state: { enabled: call.input.level !== "off", editable: true, level: String(call.input.level) } }); })();
       case "toolsets.list": return { items: structuredClone(toolsets) };
       case "mcp.servers.update": return (async () => { await gate(call.operation); server.enabled = Boolean(call.input.enabled); return structuredClone(server); })();
       case "skills.list": return { items: [{ name: "fixture-skill", description: "Fixture skill", type: "default", source: "default", commands: [], references: [], location: "/skills/fixture-skill/SKILL.md" }], total: 1 };

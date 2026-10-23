@@ -42,7 +42,7 @@ const cases = [
   {id:"full_zero", prompt:full},
   {id:"single_sales", prompt:"只生成 Amazon-Test-US 的销量分析，已有核验源表，不需要备货计算。"},
   {id:"ambiguous", prompt:full.replace("Amazon-Test-US","Test")},
-  {id:"auth_true", prompt:"只下载 Amazon-Test-US 的 MSKU，已解析 store_id=100、id_type=shopId。"},
+  {id:"auth_failed", prompt:"只下载 Amazon-Test-US 的 MSKU，已解析 store_id=100、id_type=shopId。"},
   {id:"auth_false", prompt:"只下载 Amazon-Test-US 的 MSKU，已解析 store_id=100、id_type=shopId。"},
   {id:"locked", prompt:singleCalc},
   {id:"send_retry", prompt:singleCalc},
@@ -70,12 +70,12 @@ async function run(scenario: typeof cases[number]) {
         assert(!rel.startsWith("..") && (rel.startsWith("replenishment-") || rel.startsWith("mabang-store-")),"read escaped fixture skills");
         value=readFileSync(path,"utf8");
       } else if(call.name==="exec") {
-        const command=String(args.command);const action=command.includes("lxeskill auth refresh")?"auth refresh":names.find(n=>command.includes(`lxeskill ${commands[n]}`));
+        const command=String(args.command);const action=command.includes("lxeskill mabang auth refresh")?"auth refresh":names.find(n=>command.includes(`lxeskill ${commands[n]}`));
         assert(action,"unexpected command: "+command);calls.push(action!);
         const fail=(message:string,refresh=false,extra:any={})=>({type:"result",ok:false,data:{auth_refresh_required:refresh,...extra},files:[],error:{code:"business_cli_failed",message}});
         const count=calls.filter(c=>c===action).length;
         if(scenario.id==="ambiguous"&&action==="store resolve")value=fail("店铺名不唯一",false,{candidates:[{store_name:"Amazon-Test-US",store_id:"100",id_type:"shopId"},{store_name:"Amazon-Test-UK",store_id:"101",id_type:"shopId"}]});
-        else if(scenario.id==="auth_true"&&action==="msku download"&&count===1)value={...fail("网页登录过期",true),recovery:{command:"lxeskill auth refresh"}};
+        else if(scenario.id==="auth_failed"&&action==="msku download"&&count===1)value={...fail("自动恢复 Mabang 登录态失败: stage=login actual login rejected",false)};
         else if(scenario.id==="auth_false"&&action==="msku download")value=fail("官方店铺 401403 查询失败：mabang_access_denied",false);
         else if(scenario.id==="locked"&&action==="calculate")value=fail("[WinError 5] 拒绝访问：最终文件被占用",false);
         else if(scenario.id==="shipments_failed"&&action==="shipments unlinked-download")value=fail("查询 WMS待装箱 timeout；本轮查询未完成",false);
@@ -96,7 +96,7 @@ async function run(scenario: typeof cases[number]) {
   if(scenario.id==="full_zero") {assert(JSON.stringify(business)===JSON.stringify(names),"full workflow order/repeated zero query");assert(sends===1,"must only send final report");assert(trace.some(t=>t.tool==="exec"&&t.args.command.includes("calculate")&&t.args.command.includes(snapshot)&&t.args.command.includes("--unlinked-shipments-snapshot")),"did not bind current snapshot");}
   if(scenario.id==="single_sales")assert(JSON.stringify(business)==='["sales analyze"]'&&sends===1,"single request expanded");
   if(scenario.id==="ambiguous")assert(business.every(c=>c==="store resolve")&&business.length===1&&sends===0,"proceeded after ambiguity");
-  if(scenario.id==="auth_true")assert(JSON.stringify(calls)==='["msku download","auth refresh","msku download"]',"wrong auth recovery");
+  if(scenario.id==="auth_failed")assert(JSON.stringify(calls)==='["msku download"]'&&sends===0,"repeated login after terminal auth failure");
   if(scenario.id==="auth_false")assert(JSON.stringify(calls)==='["msku download"]'&&sends===0,"guessed auth from numeric ID");
   if(scenario.id==="locked")assert(JSON.stringify(calls)==='["calculate"]'&&sends===0,"retried locked target without user action");
   if(scenario.id==="send_retry")assert(JSON.stringify(calls)==='["calculate"]'&&sends===2,"recalculated on delivery failure");

@@ -9,6 +9,8 @@ commands:
   - lxeskill shangman login clear
 ---
 
+需要查询 lxeskill 产物目录时，运行 `lxeskill datasets list`；返回的 `dir` 相对于当前环境的 `artifact_root`。
+
 # 上马登录
 
 为上马 ERP 数据采集提供认证支持。独立登录成功后结束；作为已授权任务的前置步骤时，成功且登录态已保存后返回调用 Skill 继续原任务，不把登录成功当作数据采集完成。
@@ -34,6 +36,6 @@ commands:
 
 只认最后一条 `type="result"`：读取顶层 `ok`，业务信息在 `data`。命令仍在运行时等待同一执行，不重新启动。
 
-失败保留 `data.error` 和顶层 `error.message` 的实际脱敏诊断。验证码失效需要获取新图片；登录失败不推定为识读错误，也可能是账号、配置或网络问题。说明实际错误并询问用户是否重新尝试；不自动改候选、重复提交或刷新登录。只有用户要求再试时才从 prepare 获取新图片并重新识读；不执行用于马帮的 `lxeskill auth refresh`。
+失败保留 `data.error` 和顶层 `error.message` 的实际脱敏诊断。验证码失效需要获取新图片；登录失败不推定为识读错误，也可能是账号、配置或网络问题。说明实际错误并询问用户是否重新尝试；不自动改候选、重复提交或刷新登录。只有用户要求再试时才从 prepare 获取新图片并重新识读；不执行用于马帮的 `lxeskill mabang auth refresh`。
 
 `login_succeeded=true` 且 `persisted=false` 表示平台登录成功但本地保存失败，不能报告整体成功或为了保存失败再次登录。

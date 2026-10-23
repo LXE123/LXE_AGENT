@@ -135,14 +135,14 @@ SOFTWARE.
 
 ## Office skills and LibreOffice Kit
 
-The three `office-*` skills and `shared/office/check.py` are adapted from
+The three `office-*` skills are adapted from
 DeepSeek Harness, commit `639ed015397290b3745d163aafe02ffee4aa3f84`,
 `packages/skill/skill-office/assets`. Copyright (c) 2026 DeepSeek.
-The upstream MIT license is retained in each skill and `shared/office/LICENSE`.
+The upstream MIT license is retained in each skill.
 Source: https://github.com/deepseek-ai/deepseek-harness
 
-LXE bundles `@deepseek-ai/libreoffice-kit` 0.1.3 and its version-matched native
-engine (Windows x64 and macOS development 0.1.3). Kit and LibreOffice are
+LXE bundles `@deepseek-ai/libreoffice-kit` 0.1.5 and its version-matched native
+engine (Windows x64 and macOS development 0.1.5). Kit and LibreOffice are
 MPL-2.0; engine dependencies have their own notices. The complete upstream
 `licenses/`, `sources/`, `prebuilds.json`, NOTICE files and program resources
 remain under `runtime/office/node_modules/@deepseek-ai/` in the Windows app.

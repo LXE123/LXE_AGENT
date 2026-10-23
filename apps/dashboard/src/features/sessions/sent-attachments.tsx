@@ -97,7 +97,7 @@ export function SentAttachmentList({ attachments, sessionId, ready = true, onOpe
       <ImageAttachment key={attachment.attachment_id} attachment={attachment} sessionId={sessionId}
         ready={ready && !!sessionId} />)}</div> : null}
     {files.length ? <div className="sent-file-list">{files.map((attachment) =>
-      <div className="sent-file-with-actions" key={attachment.attachment_id}><button className="sent-file-card" type="button"
+      <div className="sent-file-with-actions conversation-chrome-theme" key={attachment.attachment_id}><button className="sent-file-card" type="button"
         title={t.conversation.openFile(attachment.name)} onClick={() => void open(attachment.attachment_id)}>
         <FileAttachmentIcon name={attachment.name} />
         <FileAttachmentInfo name={attachment.name} status={panel && sessionId ? <FileAvailabilityBadge file={{ session_id: sessionId, kind: "attachment", id: attachment.attachment_id }} /> : undefined} />

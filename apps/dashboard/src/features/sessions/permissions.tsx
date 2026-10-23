@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Shield, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
@@ -61,10 +61,10 @@ export function PermissionPicker({ sessionId, initialMode, ready }: { sessionId:
 function FullAccessConfirmation({ pending, ready, error, onCancel, onConfirm }: { pending: boolean; ready: boolean; error: string; onCancel(): void; onConfirm(): void }) {
   const t = useUiText().permissions;
   const ref = useDialogFocus<HTMLElement>(true, onCancel);
-  return createPortal(<div className="session-delete-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="permission-full-title" className="session-delete-dialog permission-confirm-dialog" ref={ref} tabIndex={-1}>
-    <h2 id="permission-full-title">{t.confirmTitle}</h2><p>{t.confirmBody}</p>
-    {error ? <p role="alert">{error}</p> : null}
-    <footer><button type="button" disabled={pending} onClick={onCancel}>{t.cancel}</button><button type="button" className="danger" disabled={pending || !ready} onClick={onConfirm}>{t.confirm}</button></footer>
+  return createPortal(<div className="session-delete-backdrop permission-confirm-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="permission-full-title" aria-describedby="permission-full-description" aria-busy={pending} className="session-delete-dialog permission-confirm-dialog" ref={ref} tabIndex={-1}>
+    <h2 id="permission-full-title">{t.confirmTitle}</h2><p id="permission-full-description">{t.confirmBody}</p>
+    {error ? <p role="alert" className="permission-confirm-error">{error}</p> : null}
+    <footer><button type="button" disabled={pending} onClick={onCancel}>{t.cancel}</button><button type="button" className="permission-confirm-primary" disabled={pending || !ready} onClick={onConfirm}>{t.confirm}</button></footer>
   </section></div>, document.body);
 }
 
@@ -77,6 +77,8 @@ export function ApprovalGate({ requests, ready, onChanged, children }: { request
 
 export function ApprovalCard({ request, count, onChanged, onBusy }: { request: PendingApproval; count: number; onChanged?(): void; onBusy?(busy: boolean): void }) {
   const t = useUiText().permissions;
+  const headingId = useId();
+  const title = { exec: t.runTitle, write: t.writeTitle, edit: t.editTitle }[request.tool];
   const actions = useApprovalActions();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const lock = useRef(false);
@@ -87,11 +89,12 @@ export function ApprovalCard({ request, count, onChanged, onBusy }: { request: P
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { lock.current = false; setBusy(false); onBusy?.(false); onChanged?.(); }
   };
-  return <section className="permission-approval" aria-label={t.waiting} aria-busy={busy} data-request-id={request.request_id}>
-    <header className="permission-approval-status"><span className="permission-status-dot" aria-hidden="true" />{t.waiting}
+  return <section className="permission-approval conversation-chrome-theme" aria-labelledby={headingId} aria-busy={busy} data-request-id={request.request_id}>
+    <header className="permission-approval-heading"><h3 id={headingId}>{title}</h3>
       {count > 1 ? <span className="permission-approval-count">{count} {t.pending}</span> : null}</header>
     <div className="permission-approval-body">
-      <p className="permission-approval-reason">{t.request(labels[request.target_mode])} {request.justification}</p>
+      <p className="permission-approval-mode">{t.requestedMode} <strong>{labels[request.target_mode]}</strong></p>
+      <p className="permission-approval-reason">{request.justification}</p>
       <ApprovalOperation request={request} />
     </div>
     {error ? <p role="alert" className="permission-error">{error}</p> : null}

@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { VERSION, verifyCandidate, writeJsonAtomic, type ReleaseCandidate } from "./release-candidate";
 
 import { cleanupCandidates } from "./release-retention";
+import { publishGitHubRelease } from "./github-release";
 
 type Action = "build" | "publish";
 interface Source { commit: string; dirty: boolean }
@@ -21,6 +22,7 @@ export interface WorkflowPorts {
   interactive?: boolean;
   confirm?: () => Promise<string>;
   log?: (text: string) => void;
+  githubRelease?: (candidate: ReleaseCandidate) => string | Promise<string>;
 }
 export async function runWorkflow(action: Action, ports: WorkflowPorts): Promise<void> {
   if ((ports.platform ?? process.platform) !== "win32" || (ports.arch ?? process.arch) !== "x64") {
@@ -115,7 +117,7 @@ export async function runWorkflow(action: Action, ports: WorkflowPorts): Promise
     if (!(ports.interactive ?? (process.stdin.isTTY && process.stdout.isTTY))) throw new Error("Publishing requires an interactive terminal; no files uploaded");
     const answer = await (ports.confirm ?? (async () => {
       const input = createInterface({ input: process.stdin, output: process.stdout });
-      try { return await input.question("Publish to the stable channel so clients can receive this update? Type y to publish: "); }
+      try { return await input.question("Publish to the stable channel and record a GitHub Release? Type y to publish: "); }
       finally { input.close(); }
     }))();
     if (answer.trim() !== "y") { log("Publication cancelled; no files uploaded."); return; }
@@ -123,6 +125,13 @@ export async function runWorkflow(action: Action, ports: WorkflowPorts): Promise
     matches(record, cleanSource(), intent());
     if (JSON.stringify(await verifyCandidate(path)) !== JSON.stringify(record)) throw new Error("Candidate changed during confirmation; rebuild");
     await stage("Publish candidate", ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "scripts", "publish-desktop-windows.ps1"), "-Candidate", path]);
+    try {
+      log("==> Record GitHub Release");
+      const url = await (ports.githubRelease ?? (candidate => publishGitHubRelease(root, candidate)))(record);
+      log(`GitHub Release: ${url}`);
+    } catch (error) {
+      throw new Error(`COS publication succeeded; GitHub Release recording failed. The client update is already available.\n${error instanceof Error ? error.message : String(error)}\nInstall GitHub CLI and authenticate with gh auth login if needed, ensure the built commit is pushed to origin, then retry bun run release:publish with this same candidate. Do not rebuild or change the version just to retry GitHub.`);
+    }
   } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 if (import.meta.main) {

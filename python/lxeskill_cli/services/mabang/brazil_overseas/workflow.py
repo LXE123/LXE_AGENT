@@ -8,7 +8,7 @@ from shared.datasets import dataset_dir
 from shared.process_lock import InterProcessLockTimeout
 from shared.infra.net.aiohttp_client import HttpSessionRegistry
 from services.mabang import config
-from services.mabang.auth import get_existing_auth_context
+from services.mabang.auth import get_auth_context
 from services.mabang.errors import MabangAuthError
 from services.mabang.export_lock import account_digest, warehouse_export_lock
 from .client import BrazilClient
@@ -65,7 +65,7 @@ async def execute(arguments):
                   'time_scope': '当前快照' if r == 'inventory_sales_snapshot' else REPORTS[r]+'（平台页面快捷筛选，不推断为签收日期）',
                   'completed_batches':0,'exported_document_count':0} for r in reports]
         async with asyncio.timeout(TIME_BUDGET):
-            context = await get_existing_auth_context(purpose='brazil_overseas_export')
+            context = await get_auth_context(purpose='brazil_overseas_export')
             client = BrazilClient(context)
             with warehouse_export_lock(context.account):
                 folder = dataset_dir("mabang_brazil_exports",account_digest(context.account),uuid.uuid4().hex)

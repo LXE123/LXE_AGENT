@@ -13,6 +13,32 @@ from .client import FIELDS, FILTERS, TmsClient, TmsError, diagnostic
 from .workbooks import atomic_bytes, coverage, read_workbook, write_merged
 
 
+# Confirmed by the user's PH1/VN1 list and export requests (2026-10-16).
+WAREHOUSE_IDS = {"PH1": 12107, "VN1": 12831}
+
+
+def warehouse_selection(arguments):
+    if not isinstance(arguments, dict) or set(arguments) - {"warehouse"}:
+        raise TmsError("invalid_arguments", "仅接受 --warehouse PH1、VN1 或 all")
+    if "warehouse" not in arguments and os.getenv("LXESKILL_SKILL_SCOPE", "").strip():
+        raise TmsError("warehouse_required", "Agent 必须先确认仓库，再显式传入 --warehouse PH1、VN1 或 all")
+    warehouse = arguments.get("warehouse", "all")
+    if not isinstance(warehouse, str) or warehouse not in (*WAREHOUSE_IDS, "all"):
+        raise TmsError("invalid_arguments", "--warehouse 只能为 PH1、VN1 或 all")
+    return warehouse, WAREHOUSE_IDS.get(warehouse)
+
+
+def check_warehouse(records, warehouse_id):
+    if warehouse_id is None:
+        return
+    for record in records:
+        # stock.warehouseId describes a product association, not this inventory row.
+        actual = record.get("warehouseId")
+        if isinstance(actual, bool) or not isinstance(actual, (str, int)) or str(actual) != str(warehouse_id):
+            raise TmsError("warehouse_scope_mismatch",
+                           f"列表记录 {record['id']!r} 顶层 warehouseId={actual!r}，预期 {warehouse_id}")
+
+
 def page_data(body, requested_page):
     payload = next((p for p in (body, body.get("data"), body.get("pop"))
                     if isinstance(p, dict) and "datas" in p and "totalNum" in p), None)
@@ -21,7 +47,9 @@ def page_data(body, requested_page):
     total = payload["totalNum"]
     if isinstance(total, bool) or not str(total).isdigit():
         raise TmsError("invalid_total", f"无效 totalNum: {total!r}")
-    for p in (payload, body.get("pop"), payload.get("pop")):
+    # Observed VN1 pop.totalPage echoes the current page, not a reliable page count.
+    # Ignore its value/shape; completion uses unique IDs vs totalNum and actual budgets.
+    for p in (payload, body, body.get("pop"), payload.get("pop")):
         if not isinstance(p, dict):
             continue
         for key in ("page", "pageNo", "pageNum", "currentPage"):
@@ -49,10 +77,10 @@ def run_with_events(arguments, on_event):
     rows, batches, artifacts = [], [], []
     seen, exported = set(), set()
     total, failure, failure_page = None, None, None
+    warehouse, warehouse_id = None, None
     locks = ExitStack()
     try:
-        if arguments:
-            raise TmsError("invalid_arguments", "此命令不接受参数")
+        warehouse, warehouse_id = warehouse_selection(arguments)
         if not account or not password:
             raise TmsError("credentials_missing", "请在桌面马帮 TMS 设置中配置账号和密码")
         account_id = hashlib.sha256(account.encode()).hexdigest()
@@ -67,7 +95,8 @@ def run_with_events(arguments, on_event):
         for page in range(1, 101):
             failure_page = page
             client.check_budget()
-            current_total, records, ids = page_data(client.list_page(page), page)
+            current_total, records, ids = page_data(client.list_page(page, warehouse_id=warehouse_id), page)
+            check_warehouse(records, warehouse_id)
             if current_total > 100_000:
                 raise TmsError("record_limit", f"接口总数 {current_total} 超过 100000 条上限")
             if total is None:
@@ -83,10 +112,12 @@ def run_with_events(arguments, on_event):
             seen.update(ids)
             if not ids:
                 break
-            content = client.download(client.export([r["id"] for r in records]))
+            content = client.download(client.export([r["id"] for r in records], warehouse_id=warehouse_id))
             batch_headers, batch_rows, extension = read_workbook(content)
             if headers is not None and batch_headers != headers:
                 raise TmsError("header_mismatch", f"第 {page} 批表头变化: {batch_headers}; 之前为 {headers}")
+            # Top-level IDs establish scope; pair/count coverage rejects foreign
+            # warehouses and record-count shortfalls before publication.
             coverage(records, batch_headers, batch_rows)
             raw = folder / f"原始-第{page:03d}批.{extension}"
             atomic_bytes(raw, content)
@@ -110,7 +141,9 @@ def run_with_events(arguments, on_event):
         try:
             if headers is not None:
                 label = "部分导出" if failure else "合并"
-                path = folder / f"马帮TMS-商品-{label}-{datetime.now():%Y%m%d-%H%M%S}.xlsx"
+                warehouse_name = {"PH1": "菲律宾PH1仓", "VN1": "越南VN1仓", "all": "全部仓库"}[warehouse]
+                partial = "-部分导出" if failure else ""
+                path = folder / f"马帮TMS-商品-{warehouse_name}{partial}-{datetime.now():%Y%m%d-%H%M%S}.xlsx"
                 write_merged(path, headers, rows)
                 artifacts.append({"path": str(path.resolve()), "row_count": len(rows), "sheet_names": ["商品"], "kind": label})
         except Exception as exc:
@@ -124,7 +157,9 @@ def run_with_events(arguments, on_event):
     sku_index = headers.index("库存SKU") if headers else None
     warehouse_index = headers.index("仓库") if headers else None
     result = {"success": failure is None, "status": "partial_success" if failure and artifacts else "failed" if failure else "completed",
-              "filters": FILTERS, "warehouse_scope": "current_account_all", "requested_fields": FIELDS,
+              "filters": {**FILTERS, **({"warehouseId": warehouse_id} if warehouse_id is not None else {})},
+              "warehouse_scope": "selected_warehouse" if warehouse_id is not None else "current_account_all",
+              "warehouse": warehouse, "warehouse_id": warehouse_id, "requested_fields": FIELDS,
               "headers": list(headers or []), "reported_total": total, "read_unique_ids": len(seen),
               "exported_unique_ids": len(exported), "remaining_records": total - len(exported) if total is not None else None,
               "completed_batches": len(batches), "batches": batches, "row_count": len(rows),

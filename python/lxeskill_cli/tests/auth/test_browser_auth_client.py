@@ -70,6 +70,20 @@ def test_browser_auth_main_ensure_writes_secret_free_summary(monkeypatch, capsys
     assert "wms_cookie_header" not in payload
 
 
+def test_unexpected_auth_error_preserves_redacted_cause_without_guessing_browser(monkeypatch, capsys):
+    def failed_ensure(account=""):
+        raise OSError("Cannot open auth state directory; ticket=private-ticket")
+
+    monkeypatch.setattr(browser_auth_service, "ensure_auth", failed_ensure)
+    monkeypatch.setattr(browser_auth_main.sys, "argv", ["browser_auth_service", "ensure"])
+    assert browser_auth_main.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["exception_type"] == "OSError"
+    assert "Cannot open auth state directory" in payload["message"]
+    assert "private-ticket" not in payload["message"]
+    assert payload["auth_environment"]["provider"] == "not_selected"
+
+
 def test_refresh_auth_sync_uses_single_refresh_command_and_inherits_stderr(monkeypatch) -> None:
     calls: list[tuple[list[str], dict]] = []
 

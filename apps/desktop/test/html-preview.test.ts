@@ -23,7 +23,7 @@ async function fixture() {
     resolveWorkspaceDirectory: async id => { if (id !== "s" || !exists) throw new Error("Session not found"); return workspace; },
     resolveArtifact: async (s, id) => s === "s" && id === "a" && exists ? join(outside, "report.html") : undefined,
     resolveAttachment: async () => undefined, resolveImagePreview: async () => undefined,
-  }), new OfficePreviewCache(join(root, "cache"), "node", "cli"), { openPath: async () => "", revealPath: () => {} });
+  }), new OfficePreviewCache(join(root, "cache"), "cli"), { openPath: async () => "", revealPath: () => {} });
   services.push(service);
   const ref: SessionFileRef = { session_id: "s", kind: "workspace", path: "报告/test.htm" };
   const preview = await service.call({ operation: "prepare", input: { ref, request_id: "html" } });

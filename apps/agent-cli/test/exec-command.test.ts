@@ -35,7 +35,6 @@ const pathsFor = (root: string): ExecRuntimePaths => ({
   agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
-  lxeskillCatalogPath: join(root, "catalog.json"),
   llmConfigRoot: join(root, "config", "llm"),
   managedPythonPath: join(root, ".venv", "bin", "python"),
   managedPath: "",

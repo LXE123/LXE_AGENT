@@ -252,7 +252,6 @@ export class AgentProtocolServer {
         agentSoulPath: payload.agent_soul_path,
         skillsRoot: payload.skills_root,
         userSkillsRoot: payload.user_skills_root,
-        lxeskillCatalogPath: payload.lxeskill_catalog_path,
         llmConfigRoot: payload.llm_config_root,
         ...(payload.managed_llm_state ? { managedLlmState: payload.managed_llm_state } : {}),
         dataRoot: payload.data_root,

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from services.mabang.errors import MabangAuthError
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba.store_msku import StoreMskuGroupNotSupportedError, download_store_msku_excel
@@ -24,7 +23,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             "store_id": store_id,
             "id_type": id_type,
             "exception": _exception_text(exc),
-            "auth_refresh_required": isinstance(exc, MabangAuthError),
+            "auth_refresh_required": False,
         }
         if isinstance(exc, StoreMskuGroupNotSupportedError):
             payload["context"] = exc.context

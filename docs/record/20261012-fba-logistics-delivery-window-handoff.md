@@ -1394,3 +1394,13 @@ lxeskill logistics query --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --sto
 本轮从仓库根执行相关模块检测：物流配置/登录/统一入口、五家物流查询、页面附着/标签页/批量动作、frame、Amazon 列表及改期、Python CLI/infra 共 **1260 passed、4 skipped**，跳过项为 Windows 专用。Bun 命令契约、Desktop 登录/设置/preload 及 Dashboard 配置共 **72 passed**；首轮沙箱内 8 项 localhost 监听失败，沙箱外同命令复跑全部通过。Desktop 与 Dashboard 类型检查通过，本地基础 Ruff 及 `git diff --check` 通过。未执行合并前全量验证，也未将模拟测试描述为真实双账号或真实改期验收。
 
 业务提交包含天泰箱号/UPS 行解析、同域多页面发现与定向查询、Python/Bun 契约、对应 fixture/回归、连续只读链的两确认点规则和交接。保留而不混入这些文件：Dashboard 行末格式差异、三个马帮 CLI 的 Any 导入、长路径本地测试修正、未跟踪 `scripts/verify-branches.py`。`.lxeagent/local-quality/` 继续忽略，不提交本地工具、依赖、配置或新增 CI。真实天泰双页面 A/B/A、云驼查询页续验、完整改期闭环仍按前节边界待验收。
+
+## 45 同步最新 main 并准备最终 PR 版本（2026-10-23）
+
+第 44 节最初从 PR API 读取的是旧 base；后续实际 fetch 得到最新 upstream/main `abde37dd`（MCP SDK v2）。与该基线存在 12 个冲突文件，因此在当前任务分支合入最新 main，保留已推送的 `344a3108` 及历史提交，不强制改写远端。主工作区和 main 分支未被修改。无关六文件在同步前保存到专用 stash，合并提交后恢复，不混入 PR。
+
+冲突整合保留上游设置分组与搜索、越南模板新接口、公开 CLI 契约查询和最新浏览器说明，同时接回物流配置、同域多页以及严格附着约束。Bun 契约测试改由公开 `lxeskill list` 读取，不恢复上游已移除的 registry 直读实现。Desktop 设置和私有登录执行新增隐藏的 `logistics settings/login-worker` CLI 契约；解密密码仍只走固定子进程 stdin，不进入 argv、环境或模型结果。
+
+完整源码检查的协议、生产边界和全仓类型检查通过；完整 Bun 测试 **2365 passed、10 skipped、0 failed**，包含物流配置 Chromium 场景。首次完整 Python 测试发现一个新增保密回归：CLI 拒绝 `--password` 后仍把错误命令参数放入回包。现对已解析命令只返回规范命令名，保留实际 `unknown option: --password`，不覆盖错误原因。修复后最终完整 Python 复验 **3305 passed、20 skipped**；CLI/infra/物流定向复验 **766 passed、4 skipped**，Bun 公开契约复验 **11 passed**。Desktop 最终成功标记校验另经 **35 项**定向复验和类型检查通过。相关基础 Ruff 通过。
+
+相对最新 upstream/main 的 PR 补丁 `diff --check` 通过；HEAD 到 main 的上游改动本身包含三处已有行末空行，不修改这些无关文件。依赖仅按上游锁文件同步，bun.lock、uv.lock 和 package.json 与 upstream/main 一致。本轮最终没有生产查询或 Amazon 写入；真实天泰双页面、云驼查询页续验和真实改期闭环的待验收边界不变。新增接口、配置交互及 Skill 指引按 `docs/pr-review.md` 提交人工审查，不自动合并。

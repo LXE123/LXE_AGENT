@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowRight, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { PendingUserQuestion, UserQuestionAnswer } from "@lxe/desktop-protocol";
 import { useUserQuestionActions } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
@@ -7,6 +7,11 @@ import { hasQuestionAnswer, nextUnansweredQuestion, questionAnswers, questionDra
 
 const draftKey = (id: string) => `lxe.question-draft.${id}`;
 const pageKey = (id: string) => `lxe.question-page.${id}`;
+function resizeCustomInput(input: HTMLTextAreaElement): void {
+  const border = input.offsetHeight - input.clientHeight;
+  input.style.height = "0px";
+  input.style.height = `${input.scrollHeight + border}px`;
+}
 function initialPage(request: PendingUserQuestion): number {
   try {
     const page = Number(sessionStorage.getItem(pageKey(request.request_id)));
@@ -44,7 +49,6 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
   const [answers, setAnswers] = useState(() => initialAnswers(request));
   const answersRef = useRef(answers);
   const [page, setPage] = useState(() => initialPage(request));
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submissionFailed, setSubmissionFailed] = useState(false);
@@ -87,8 +91,21 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
   };
   const question = request.questions[page]!;
   const answer = answers[page]!;
+  useLayoutEffect(() => {
+    if (customInput.current) resizeCustomInput(customInput.current);
+  }, [question.id, answer.custom]);
+  useLayoutEffect(() => {
+    const input = customInput.current;
+    if (!input) return;
+    let width = input.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = input.getBoundingClientRect().width;
+      if (nextWidth !== width) { width = nextWidth; resizeCustomInput(input); }
+    });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [question.id]);
   const disabled = submitting || submitted || stopping;
-  const customOpen = !question.options?.length || expanded.has(question.id) || Boolean(answer.custom);
   const titleId = `${request.request_id}-${question.id}-title`;
   const customId = `${request.request_id}-${question.id}-custom`;
   const pageComplete = questionDraftComplete(question, answer);
@@ -149,10 +166,10 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
       confirm();
     }}>
     <header className="user-question-header">
+      <span className="user-question-progress" aria-label={t.pagination} aria-live="polite" aria-atomic="true">{page + 1} / {request.questions.length}</span>
       <h3 ref={heading} id={titleId} tabIndex={-1}>{question.question}</h3>
       <nav className="user-question-pagination" aria-label={t.pagination}>
         <button type="button" aria-label={t.previous} title={t.previous} disabled={disabled || page === 0} onClick={() => setPage(page - 1)}><ChevronLeft size={17} /></button>
-        <span aria-live="polite" aria-atomic="true">{page + 1} / {request.questions.length}</span>
         <button type="button" aria-label={t.next} title={t.next} disabled={disabled || page === request.questions.length - 1} onClick={() => setPage(page + 1)}><ChevronRight size={17} /></button>
       </nav>
       <button className="user-question-stop" type="button" onClick={() => void stop()} disabled={stopping || submitted}
@@ -176,26 +193,22 @@ export function UserQuestionCard({ request, onAnswered, onBusy }: {
                     ? current.selected.filter(label => label !== option.label) : [...current.selected, option.label] });
                 }
               }} />
-            <span className="user-question-number" aria-hidden="true">{selected ? <Check size={16} /> : index + 1}</span>
             <span className="user-question-option-copy"><strong>{option.label}</strong>{option.description ? <small>{option.description}</small> : null}</span>
-            {!question.multi_select ? <ArrowRight className="user-question-option-arrow" size={19} aria-hidden="true" /> : null}
+            <span className="user-question-number" aria-hidden="true">{selected ? <Check size={13} /> : index + 1}</span>
           </label>;
         })}
-        {customOpen ? <label className="user-question-custom" htmlFor={customId}>
-            <span>{question.options?.length ? t.custom : t.freeText}</span>
+        <label className="user-question-custom" htmlFor={customId}>
+            <span className="user-question-custom-heading"><span>{question.options?.length ? t.custom : t.freeText}</span>
+              {question.options?.length ? <span className="user-question-number" aria-hidden="true">{question.options.length + 1}</span> : null}
+            </span>
             <textarea ref={customInput} id={customId} value={answer.custom ?? ""} placeholder={t.customPlaceholder}
-              maxLength={8192} rows={question.options?.length ? 2 : 3} onChange={event => update(page, {
+              aria-label={question.options?.length ? t.custom : t.freeText} maxLength={8192} rows={1} onChange={event => update(page, {
               custom: event.target.value, ...(question.multi_select ? {} : { selected: [] }),
             })} />
-          </label> : null}
+          </label>
       </fieldset>
     </div>
     <footer className="user-question-actions">
-      {question.options?.length ? <button className="user-question-custom-toggle" type="button" disabled={disabled}
-        aria-expanded={customOpen} aria-controls={customOpen ? customId : undefined} onClick={() => {
-          setExpanded(current => new Set([...current, question.id]));
-          requestAnimationFrame(() => customInput.current?.focus());
-        }}><span className="user-question-number" aria-hidden="true"><Pencil size={16} /></span><span>{t.customPlaceholder}</span></button> : null}
       <div className="user-question-buttons">
         <button className="user-question-skip" type="button" disabled={disabled} onClick={skip} aria-label={t.skipQuestion} title={t.skipQuestion}>{t.skip}</button>
         <button className="user-question-continue" type="submit" disabled={disabled || (!pageHasAnswer && !pageComplete)}>

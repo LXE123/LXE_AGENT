@@ -18,11 +18,11 @@ test("register canonical directories without sessions, reuse aliases, and expose
     skillsRoot: join(root, "skills"), userSkillsRoot: join(root, "user"), environment: {},
     store, tools: new ToolRegistry(), mcpConfig: { servers: [] } });
   const register = (directory: string) => service.call({ operation: "workspaces.register", input: { directory } });
-  const rename = (directory: string, display_name: string) => service.call({ operation: "workspaces.rename", input: { directory, display_name } });
+  const rename = (workspace_id: string, display_name: string) => service.call({ operation: "workspaces.rename", input: { workspace_id, display_name } });
   try {
     const saved = await register(directory);
     expect(saved).toMatchObject({ directory: realpathSync.native(directory), session_count: 0, display_name: null });
-    await rename(saved.directory, "  采购  ");
+    await rename(saved.workspace_id, "  采购  ");
     expect(await register(alias)).toEqual({ ...saved, display_name: "采购" });
     expect(await register(join(directory, "."))).toEqual({ ...saved, display_name: "采购" });
     expect((await service.call({ operation: "sessions.workspaces", input: {} })).items).toHaveLength(1);
@@ -33,7 +33,31 @@ test("register canonical directories without sessions, reuse aliases, and expose
     await expect(rename(join(root, "unknown"), "name")).rejects.toThrow("workspace not found");
     rmSync(alias, { recursive: true, force: true });
     rmSync(directory, { recursive: true });
-    expect((await rename(saved.directory, "Offline")).display_name).toBe("Offline");
-    expect((await rename(saved.directory, "  ")).display_name).toBeNull();
+    expect((await rename(saved.workspace_id, "Offline")).display_name).toBe("Offline");
+    expect((await rename(saved.workspace_id, "  ")).display_name).toBeNull();
+  } finally { await store.stop(); rmSync(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test("workspace deletion addresses the registration, retains live sessions, and rejects stale ids", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-delete-rpc-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3")); await store.start();
+  const stopped: string[] = [];
+  const service = new DashboardService({ stateRoot: root, llmConfigRoot: root, skillsRoot: root, userSkillsRoot: root,
+    environment: {}, store, tools: new ToolRegistry(), mcpConfig: { servers: [] }, terminateSession: id => { stopped.push(id); } });
+  try {
+    const registration = await service.call({ operation: "workspaces.register", input: { directory: root } });
+    const blank = await service.call({ operation: "sessions.create", input: { workspace_id: registration.workspace_id } });
+    await store.appendPendingEvent(blank.session_id, { event_id: "queued", text: "Continue later" });
+    expect(await service.call({ operation: "workspaces.delete", input: { workspace_id: registration.workspace_id } })).toEqual({ deleted: true });
+    expect(store.sessionMetadata(blank.session_id)).toMatchObject({ workspace_id: null, workspace: blank.workspace });
+    expect(await store.hasPendingEvents(blank.session_id)).toBe(true);
+    expect(stopped).toEqual([]);
+    const next = await service.call({ operation: "workspaces.register", input: { directory: root } });
+    expect(next.workspace_id).not.toBe(registration.workspace_id);
+    for (const operation of ["workspaces.delete", "sessions.create"] as const) {
+      await expect(service.call({ operation, input: { workspace_id: registration.workspace_id } })).rejects.toThrow("workspace not found");
+    }
+    await expect(service.call({ operation: "workspaces.rename", input: { workspace_id: registration.workspace_id, display_name: "Late rename" } })).rejects.toThrow("workspace not found");
+    expect((await service.call({ operation: "sessions.workspaces", input: {} })).items[0]?.display_name).toBeNull();
   } finally { await store.stop(); rmSync(root, { recursive: true, force: true, maxRetries: 5 }); }
 });

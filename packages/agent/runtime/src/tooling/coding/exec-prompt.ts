@@ -75,7 +75,7 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
     shellLine(profile),
     "Commands follow the current environment permission mode for local file writes. Changing cwd does not expand the fixed workspace boundary. This policy does not restrict networking.",
     "",
-    "Environment: python and pip resolve to this project's .venv; lxeskill prefers the precompiled project runtime and falls back to .venv in development.",
+    "Environment: python and pip resolve to this project's .venv; lxeskill uses the configured Python environment.",
     "Use the cwd parameter for the working directory instead of cd.",
     "",
     chainingLine(profile),
@@ -84,17 +84,9 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
     truncationLine(profile, limits),
     "Use wait with the returned exec_id to observe new output or terminate a running command. Finishing does not automatically wake the model.",
     "",
-    "A lxeskill invocation must be the only command in command: do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
   ].join("\n");
 }
 
-export function execCommandParameterDescription(profile: ExecShellProfile): string {
-  const operators = profile.kind === "windows-powershell"
-    ? "newlines, pipes, redirects, semicolons, backticks, or $()"
-    : "newlines, pipes, redirects, &&, ||, semicolons, backticks, or $()";
-  return [
-    "Shell command string.",
-    `For lxeskill, provide exactly one standalone \`lxeskill <command> [options]\`; do not use uv, python -m, cd, ${operators}.`,
-    "Use cwd for the working directory. Help/list/describe commands follow the same rule.",
-  ].join(" ");
+export function execCommandParameterDescription(_profile: ExecShellProfile): string {
+  return "Shell command string. Use cwd for the working directory.";
 }

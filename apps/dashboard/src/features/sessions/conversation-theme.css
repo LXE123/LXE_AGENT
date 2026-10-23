@@ -1,0 +1,123 @@
+@import "../../shared/cds-theme.css";
+
+/* Page-level empty state: a quiet hint on the existing conversation canvas.
+   Layout is an LXE adaptation; do not inherit the generic empty-state card. */
+.conversation-empty-state.conversation-chrome-theme {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  padding: 32px 24px;
+  overflow: auto;
+  color: var(--cds-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.conversation-empty-state > p {
+  max-width: 28ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Colors only: retain the existing geometry, typography and behavior.
+   CDS purpose tokens inform the palette; applying them here is an LXE adaptation. */
+.conversation-compose-box.conversation-chrome-theme {
+  --surface: var(--cds-surface-popover);
+  --focus-ring: var(--cds-accent);
+  background: var(--surface);
+  border-color: var(--cds-alpha-2);
+  /* Preserve the existing shadow footprint with the shared neutral shadow color. */
+  --shadow-card: 0 1px 2px var(--shadow-soft), 0 6px 20px var(--shadow-soft);
+}
+.conversation-compose-box.conversation-chrome-theme:has(.reference-editor:focus) { border-color: var(--accent); }
+:root .conversation-compose-box.conversation-chrome-theme .reference-composer {
+  --composer-reference-color: var(--cds-accent);
+  --composer-reference-hover: var(--cds-accent-tint);
+}
+.conversation-chrome-theme .conversation-send-button[data-mode="send"]:not(:disabled) {
+  background: var(--cds-primary); border-color: var(--cds-primary); color: var(--cds-primary-ink);
+}
+.conversation-chrome-theme .conversation-send-button[data-mode="send"]:not(:disabled):hover {
+  background: var(--cds-primary-hover); border-color: var(--cds-primary-hover);
+}
+.conversation-chrome-theme .conversation-send-button[data-mode="send"]:disabled {
+  background: var(--cds-alpha-2); border-color: transparent; color: var(--cds-muted);
+}
+:root .conversation-compose-box.conversation-chrome-theme :is(.conversation-model-trigger, .conversation-thinking-trigger):is(:hover:not(:disabled), :focus-visible) {
+  background: var(--cds-alpha-1);
+}
+.conversation-chrome-theme .input-attachment-chip { background: var(--cds-alpha-1); }
+.conversation-drop-hint.conversation-chrome-theme { color: var(--accent); }
+
+/* A quiet, flat user-message surface; references and metadata inherit the
+   same semantic colors without changing assistant messages or bubble geometry. */
+.message-with-meta.role-user.conversation-chrome-theme { --focus-ring: var(--cds-accent); }
+:root .conversation-feed .message-with-meta.role-user.conversation-chrome-theme > .message-card.role-user {
+  background: color-mix(in srgb, var(--cds-surface-nav) 94%, var(--cds-ink));
+  border-color: var(--cds-alpha-1);
+  color: var(--cds-ink);
+}
+.message-with-meta.role-user.conversation-chrome-theme button.message-reference:hover {
+  background: var(--cds-accent-tint);
+}
+.message-with-meta.role-user.conversation-chrome-theme button.message-reference:focus-visible {
+  outline: 2px solid var(--cds-accent);
+  outline-offset: 1px;
+}
+
+/* The floating jump control stays opaque over transcript text. */
+.conversation-jump-latest.conversation-chrome-theme {
+  background: var(--cds-surface-popover);
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-ink);
+}
+.conversation-jump-latest.conversation-chrome-theme:hover {
+  background: color-mix(in srgb, var(--cds-surface-popover) 95%, var(--cds-ink));
+  border-color: var(--cds-alpha-3);
+}
+.conversation-jump-latest.conversation-chrome-theme:focus-visible {
+  outline: 2px solid var(--cds-accent);
+  outline-offset: 2px;
+}
+
+/* Extra specificity wins over the legacy light-theme card overrides, without
+   changing the transcript palette or the file preview sidebar. */
+:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme {
+  --focus-ring: var(--cds-accent);
+  background: var(--cds-surface-panel);
+}
+:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme:not(.has-error) {
+  border-color: var(--cds-alpha-2);
+}
+:root .conversation-feed .turn-file-item.conversation-chrome-theme {
+  box-shadow: 0 1px 2px var(--shadow-soft), 0 3px 8px var(--shadow-soft);
+}
+:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme:has(> :is(.turn-file-card, .sent-file-card):hover:not(:disabled)):not(.has-error) {
+  border-color: var(--cds-alpha-3); background: var(--cds-alpha-1);
+}
+:root .conversation-feed .turn-file-item.conversation-chrome-theme.has-error { border-color: var(--danger-border); }
+.conversation-chrome-theme :is(.file-open-split, .file-open-split button + button) { border-color: var(--cds-alpha-2); }
+.conversation-chrome-theme .file-open-split button:hover:not(:disabled) { background: var(--cds-alpha-1); }
+.conversation-chrome-theme .file-open-split button:focus-visible { outline-color: var(--cds-accent); }
+.conversation-chrome-theme .file-availability-badge { color: var(--text-soft); background: var(--cds-alpha-1); }
+
+/* Welcome statistics use the same surfaces, without changing the metric grid
+   or the 26-week heatmap. The blue sequential ramp is an LXE data-viz choice. */
+.welcome-panel.conversation-chrome-theme { --focus-ring: var(--cds-accent); }
+.welcome-panel.conversation-chrome-theme .welcome-panel-title { color: var(--text-strong); }
+.welcome-panel.conversation-chrome-theme .welcome-range { background: var(--cds-alpha-1); }
+.welcome-panel.conversation-chrome-theme .welcome-range-button.is-active { background: var(--cds-thumb); }
+.welcome-panel.conversation-chrome-theme .welcome-range-button:hover:not(.is-active) { background: var(--cds-alpha-1); }
+.welcome-panel.conversation-chrome-theme .welcome-range-button:focus-visible { outline-color: var(--cds-accent); }
+:root .welcome-panel.conversation-chrome-theme .welcome-metrics > div { background: var(--cds-alpha-1); }
+:root .welcome-panel.conversation-chrome-theme .welcome-heatmap {
+  --heatmap-empty: var(--cds-alpha-1);
+  --heatmap-level-1: color-mix(in srgb, var(--cds-accent) 28%, var(--cds-surface-panel));
+  --heatmap-level-2: color-mix(in srgb, var(--cds-accent) 52%, var(--cds-surface-panel));
+  --heatmap-level-3: color-mix(in srgb, var(--cds-accent) 76%, var(--cds-surface-panel));
+  --heatmap-level-4: var(--cds-accent);
+}

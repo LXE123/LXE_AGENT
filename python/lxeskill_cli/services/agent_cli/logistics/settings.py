@@ -223,6 +223,26 @@ def settings_state(snapshot: dict | None = None) -> dict:
     return {**snapshot, "providers": providers}
 
 
+def run(arguments: dict) -> dict:
+    try:
+        fields(arguments, {"action"}, {"request"})
+        action = arguments["action"]
+        request = arguments.get("request")
+        if action in ("read", "snapshot") and request is None:
+            result = settings_state()
+        elif action == "save":
+            fields(request, {"input", "expected_revision"})
+            result = settings_state(save_profile(request["input"], request["expected_revision"]))
+        elif action == "delete":
+            fields(request, {"profile_id", "expected_revision"})
+            result = settings_state(delete_profile(request["profile_id"], request["expected_revision"]))
+        else:
+            raise ValueError("Invalid logistics settings operation")
+        return {"success": True, "data": result}
+    except Exception as exc:
+        return {"success": False, "error": diagnostic(exc)}
+
+
 def main() -> int:
     try:
         action, *args = sys.argv[1:]

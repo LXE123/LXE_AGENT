@@ -34,6 +34,8 @@ export type ModelOptionPayload = {
 };
 
 export type ModelPayload = {
+  session_id?: string;
+  selection_version?: number;
   provider: string;
   credential_source: "local" | "cloud";
   label: string;
@@ -71,10 +73,13 @@ export type SessionPayload = {
   permission_mode: PermissionMode;
   blank?: boolean;
   title: string;
+  title_version?: number;
+  title_source?: string;
   pinned_at: number;
   source: Record<string, unknown>;
   source_summary: SourceSummary;
   workspace: WorkspacePayload;
+  workspace_id: string | null;
   model: string;
   reasoning_effort: string;
   model_config: Record<string, unknown>;
@@ -93,6 +98,8 @@ export type SessionMessage = {
   client_message_id?: string;
   message_id?: string;
   source_reason?: string;
+  /** Derived from a persisted compaction event, never inferred from message text. */
+  context_marker?: { kind: "compaction"; compacted_count?: number };
   role: string;
   /** Epoch seconds from the immutable transcript event. */
   created_at?: number;
@@ -441,6 +448,7 @@ export type StatsOverviewPayload = {
     llm_calls: number;
     input_tokens: number;
     output_tokens: number;
+    skill_activations?: number;
     skill_executions: number;
     skill_failures: number;
   };
@@ -464,6 +472,7 @@ export type StatsOverviewPayload = {
 export type DashboardRpcEmptyInput = Record<string, never>;
 
 export interface WorkspaceSummaryPayload {
+  workspace_id: string;
   directory: string;
   display_name: string | null;
   created_at: number;
@@ -473,7 +482,7 @@ export interface WorkspaceSummaryPayload {
 
 export interface DashboardRpcSpec {
   "sessions.create": {
-    input: { directory: string };
+    input: { workspace_id: string };
     result: SessionPayload;
   };
   "sessions.workspaces": {
@@ -485,16 +494,17 @@ export interface DashboardRpcSpec {
     result: WorkspaceSummaryPayload;
   };
   "workspaces.rename": {
-    input: { directory: string; display_name: string };
+    input: { workspace_id: string; display_name: string };
     result: WorkspaceSummaryPayload;
   };
+  "workspaces.delete": { input: { workspace_id: string }; result: { deleted: true } };
   "sessions.permission.set": { input: { session_id: string; permission_mode: PermissionMode }; result: { session_id: string; permission_mode: PermissionMode } };
   "sessions.approvals": { input: DashboardRpcEmptyInput; result: { items: PendingApproval[] } };
   "sessions.approval.decide": { input: ApprovalDecision; result: { accepted: true; request_id: string } };
   "sessions.questions": { input: DashboardRpcEmptyInput; result: { items: PendingUserQuestion[] } };
   "sessions.answer": { input: SubmitUserQuestionAnswer; result: { accepted: true; request_id: string } };
   "sessions.list": {
-    input: { query?: string; limit?: number; offset?: number; directory?: string };
+    input: { query?: string; limit?: number; offset?: number; workspace_id?: string | null };
     result: SessionListPayload;
   };
   "sessions.detail": {
@@ -505,6 +515,7 @@ export interface DashboardRpcSpec {
     input: { session_id: string };
     result: { items: BackgroundTaskChangedPayload[] };
   };
+  "sessions.rename": { input: { session_id: string; title: string }; result: SessionPayload };
   "sessions.pin": {
     input: { session_id: string; pinned: boolean };
     result: SessionPayload;
@@ -572,12 +583,12 @@ export interface DashboardRpcSpec {
   "stats.skills.detail": { input: { name: string; days?: number }; result: SkillUsageDetailPayload };
   "stats.tools.list": { input: { days?: number }; result: ApiList<ToolStatPayload> & { days: number } };
   "models.list": { input: DashboardRpcEmptyInput; result: ApiList<ModelPayload> };
-  "models.current": { input: DashboardRpcEmptyInput; result: ModelPayload };
+  "models.current": { input: { session_id?: string }; result: ModelPayload };
   "models.update": {
-    input: { provider: string; model?: string; credential_source?: "local" | "cloud" };
+    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number };
     result: ModelMutationPayload;
   };
-  "models.thinking.update": { input: { level: string }; result: ModelMutationPayload };
+  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number }; result: ModelMutationPayload };
 }
 
 export type DashboardRpcOperation = keyof DashboardRpcSpec;
@@ -593,7 +604,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -699,6 +710,17 @@ const emptyInput = (input: Record<string, unknown>, operation: string): Dashboar
   return {};
 };
 
+const modelSelectionScope = (input: Record<string, unknown>, operation: string) => {
+  if (input.selection_version !== undefined && (input.session_id === undefined
+    || !Number.isSafeInteger(input.selection_version) || Number(input.selection_version) < 0)) {
+    throw new DashboardRpcError("invalid_request", `${operation}.selection_version requires a session and a nonnegative integer`);
+  }
+  return {
+    ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
+    ...(input.selection_version === undefined ? {} : { selection_version: Number(input.selection_version) }),
+  };
+};
+
 export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   const call = objectValue(value, "Dashboard RPC call");
   exactKeys(call, ["operation", "input"], "Dashboard RPC call");
@@ -717,15 +739,16 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
   switch (operation) {
     case "sessions.create":
-      exactKeys(input, ["directory"], `${operation}.input`);
-      return { operation, input: { directory: textValue(input.directory, `${operation}.directory`)! } };
+    case "workspaces.delete":
+      exactKeys(input, ["workspace_id"], `${operation}.input`);
+      return { operation, input: { workspace_id: textValue(input.workspace_id, `${operation}.workspace_id`)! } };
     case "workspaces.register":
       exactKeys(input, ["directory"], `${operation}.input`);
       return { operation, input: { directory: textValue(input.directory, `${operation}.directory`)! } };
     case "workspaces.rename":
-      exactKeys(input, ["directory", "display_name"], `${operation}.input`);
+      exactKeys(input, ["workspace_id", "display_name"], `${operation}.input`);
       return { operation, input: {
-        directory: textValue(input.directory, `${operation}.directory`)!,
+        workspace_id: textValue(input.workspace_id, `${operation}.workspace_id`)!,
         display_name: textValue(input.display_name, `${operation}.display_name`, { allowEmpty: true })!,
       } };
     case "sessions.workspaces":
@@ -746,9 +769,9 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       try { return { operation, input: parseUserQuestionSubmission(input) }; }
       catch (error) { return rpcError(error instanceof Error ? error.message : String(error)); }
     case "sessions.list":
-      exactKeys(input, ["query", "limit", "offset", "directory"], `${operation}.input`);
+      exactKeys(input, ["query", "limit", "offset", "workspace_id"], `${operation}.input`);
       return { operation, input: {
-        ...(input.directory === undefined ? {} : { directory: textValue(input.directory, `${operation}.directory`)! }),
+        ...(input.workspace_id === undefined ? {} : { workspace_id: input.workspace_id === null ? null : textValue(input.workspace_id, `${operation}.workspace_id`)! }),
         query: textValue(input.query, `${operation}.query`, { optional: true, allowEmpty: true }) ?? "",
         limit: integerValue(input.limit, `${operation}.limit`, 50, 1, 200),
         offset: integerValue(input.offset, `${operation}.offset`, 0, 0, Number.MAX_SAFE_INTEGER),
@@ -765,6 +788,9 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(messageAfter === undefined ? {} : { message_after: messageAfter }),
       } };
     }
+    case "sessions.rename":
+      exactKeys(input, ["session_id", "title"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)!, title: textValue(input.title, `${operation}.title`)! } };
     case "sessions.pin":
       exactKeys(input, ["session_id", "pinned"], `${operation}.input`);
       return { operation, input: {
@@ -848,6 +874,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       if (typeof input.query !== "string" || input.query.length > 8192) throw new DashboardRpcError("invalid_request", "Invalid file query");
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)!, query: input.query } };
     case "skills.list":
+    case "models.current":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "skills.user.list":
@@ -856,7 +883,6 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "mcp.servers.list":
     case "channels.health":
     case "models.list":
-    case "models.current":
       return { operation, input: emptyInput(input, operation) } as DashboardRpcCall;
     case "skills.user.content":
       exactKeys(input, ["id", "path"], `${operation}.input`);
@@ -896,7 +922,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         days: integerValue(input.days, `${operation}.days`, 30, 1, 365),
       } };
     case "models.update":
-      exactKeys(input, ["provider", "model", "credential_source"], `${operation}.input`);
+      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version"], `${operation}.input`);
       if (input.credential_source !== undefined
         && input.credential_source !== "local"
         && input.credential_source !== "cloud") {
@@ -904,12 +930,13 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       }
       return { operation, input: {
         provider: textValue(input.provider, `${operation}.provider`)!,
+        ...modelSelectionScope(input, operation),
         ...(input.model === undefined ? {} : { model: textValue(input.model, `${operation}.model`, { allowEmpty: true })! }),
         ...(input.credential_source === undefined ? {} : { credential_source: input.credential_source }),
       } };
     case "models.thinking.update":
-      exactKeys(input, ["level"], `${operation}.input`);
-      return { operation, input: { level: textValue(input.level, `${operation}.level`)! } };
+      exactKeys(input, ["level", "session_id", "selection_version"], `${operation}.input`);
+      return { operation, input: { level: textValue(input.level, `${operation}.level`)!, ...modelSelectionScope(input, operation) } };
     default:
       return rpcError(`unsupported Dashboard RPC operation: ${operation}`);
   }
@@ -917,7 +944,8 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "channels.health"
+  if (call.operation === "commands.list"
+    || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"
     || call.operation === "sessions.activity"

@@ -32,11 +32,12 @@ function McpServerRow({
         <span>{server.transport || t.common.unknown}</span>
         <span>{t.common.countItems(formatNumber(server.tool_count), t.tools.itemUnit)}</span>
       </div>
-      <span className={server.enabled ? "connection-state on" : "connection-state"}>
+      <span className={server.error ? "connection-state error" : server.enabled ? "connection-state on" : "connection-state"}>
         <i aria-hidden="true" />
         {server.enabled ? server.status || t.tools.enabled : t.tools.disabled}
       </span>
       <button
+        aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
         className={server.enabled ? "mcp-toggle on" : "mcp-toggle"}
         disabled={saving}
         onClick={() => onToggle(server)}

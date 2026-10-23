@@ -69,7 +69,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     try {
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
       await settle();
-      assert.notEqual(await js("getComputedStyle(document.querySelector('.model-card[data-provider=\"kimi_coding\"].item-active'), '::after').animationName"), 'none', 'the tested card really animates without reduced motion');
+      assert.equal(await js("getComputedStyle(document.querySelector('.model-card[data-provider=\"kimi_coding\"].item-active'), '::after').animationName"), 'none', 'catalog model metadata stays still even without reduced motion');
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
       await settle();
       assert.equal(await js("matchMedia('(prefers-reduced-motion: reduce)').matches"), true);
@@ -118,8 +118,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     }
     await textClick('Model settings', '.desktop-settings-nav');
     await win.setSize(960,640); await settle();
-    const geometry = await js(`(() => { const el=document.querySelector('.desktop-settings-content'); const header=document.querySelector('.desktop-settings-modal > header');
-      const top=header.getBoundingClientRect().top; el.scrollTop=el.scrollHeight; return {scroll:el.scrollTop,top,after:header.getBoundingClientRect().top,overflow:getComputedStyle(el).overflowY}; })()`);
+    const geometry = await js(`(() => { const el=document.querySelector('.desktop-settings-content'); const close=document.querySelector('.desktop-settings-dismiss');
+      const top=close.getBoundingClientRect().top; el.scrollTop=el.scrollHeight; return {scroll:el.scrollTop,top,after:close.getBoundingClientRect().top,overflow:getComputedStyle(el).overflowY}; })()`);
     assert.ok(['auto','scroll'].includes(geometry.overflow));
     assert.ok(geometry.scroll>0,'settings body actually scrolls');
     assert.equal(geometry.top, geometry.after);

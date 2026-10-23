@@ -221,7 +221,7 @@ export class UsageStore {
             (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
           VALUES (?, ?, ?, 'skill_execution', ?, ?, 1, ?, ?, ?)
         `).run(
-          turnId, safeSessionId, startedAt, name, text(execution.module), execution.success === true ? 0 : 1,
+          turnId, safeSessionId, startedAt, name, text(execution.module), execution.success === false ? 1 : 0,
           Number(execution.duration_ms ?? 0), text(execution.command),
         );
       }
@@ -251,6 +251,7 @@ export class UsageStore {
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
       GROUP BY day ORDER BY day ASC
     `, cutoff);
+    const skillReads = this.get<{ calls: number }>("SELECT COALESCE(SUM(calls), 0) AS calls FROM turn_usage_items WHERE kind = 'skill_activation' AND started_at >= ?", cutoff);
     const skillTotals = this.get<Record<string, number>>(`
       SELECT COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
@@ -280,6 +281,7 @@ export class UsageStore {
         input_tokens: Number(totals.input_tokens ?? 0), output_tokens: Number(totals.output_tokens ?? 0),
         cache_read_input_tokens: Number(totals.cache_read_input_tokens ?? 0),
         cache_creation_input_tokens: Number(totals.cache_creation_input_tokens ?? 0),
+        skill_activations: Number(skillReads?.calls ?? 0),
         skill_executions: Number(skillTotals?.executions ?? 0), skill_failures: Number(skillTotals?.failures ?? 0),
       },
       modules: modules.map((row) => ({
@@ -484,8 +486,10 @@ export class UsageStore {
           name: clippedText(row.name, 256),
           module: clippedText(row.module, 256),
           calls: Number(row.calls ?? 0),
-          errors: Number(row.errors ?? 0),
-          duration_ms: Number(row.duration_ms ?? 0),
+          ...(row.kind === "tool" ? {
+            errors: Number(row.errors ?? 0),
+            duration_ms: Number(row.duration_ms ?? 0),
+          } : {}),
         });
       }
     }

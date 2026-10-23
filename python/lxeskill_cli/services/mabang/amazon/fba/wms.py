@@ -14,7 +14,7 @@ from shared.logging import get_logger
 
 from ... import auth_audit
 from ...auth import get_fba_wms_cookie_header, refresh_mabang_auth
-from ...errors import MabangAuthError, MabangBusinessError
+from ...errors import MabangAuthError, MabangAuthUnavailableError, MabangBusinessError
 from .consignment_paths import resolve_wms_consignment_dir
 from . import wms_config as wms_settings
 
@@ -245,6 +245,8 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
                 f"[FBA Logistics][WMS] Excel 下载完成: shipNo={normalized}, file={saved.name}, size={len(body)}"
             )
             return saved
+        except MabangAuthUnavailableError:
+            raise
         except WmsExcelAuthError as exc:
             if not auth_refreshed:
                 last_error = exc

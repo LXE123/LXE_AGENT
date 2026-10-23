@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, KeyboardEvent } from "react";
 
 import { initialSidebarExpanded, storeSidebarExpanded } from "./sidebar-preference";
@@ -8,7 +8,7 @@ const PEEK_CLOSE_DELAY_MS = 120;
 
 export type SidebarDisplayMode = "collapsed" | "peek" | "expanded";
 
-export function useThreeStateSidebar(storage?: Storage) {
+export function useThreeStateSidebar(storage?: Storage, available = true) {
   const [collapsed, setCollapsed] = useState(() => !initialSidebarExpanded(storage));
   const [peekOpen, setPeekOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -49,6 +49,20 @@ export function useThreeStateSidebar(storage?: Storage) {
     keyboardModeRef.current = false;
     setPeekOpen(false);
   }, []);
+
+  // Route visibility is temporary; it must not overwrite the user's preference.
+  useLayoutEffect(() => {
+    if (available) return;
+    clearOpenTimer();
+    clearCloseTimer();
+    controlHoveredRef.current = false;
+    panelHoveredRef.current = false;
+    controlFocusedRef.current = false;
+    panelFocusedRef.current = false;
+    transientInteractionRef.current = false;
+    peekSuppressedRef.current = false;
+    hidePeek();
+  }, [available, clearOpenTimer, clearCloseTimer, hidePeek]);
 
   const scheduleClose = useCallback(() => {
     clearOpenTimer();
@@ -91,6 +105,7 @@ export function useThreeStateSidebar(storage?: Storage) {
   }, [clearCloseTimer, clearOpenTimer]);
 
   const toggle = useCallback(() => {
+    if (!available) return;
     clearOpenTimer();
     clearCloseTimer();
     if (collapsed) {
@@ -104,11 +119,11 @@ export function useThreeStateSidebar(storage?: Storage) {
     keyboardModeRef.current = false;
     setPeekOpen(false);
     setCollapsed(true);
-  }, [clearCloseTimer, clearOpenTimer, collapsed]);
+  }, [available, clearCloseTimer, clearOpenTimer, collapsed]);
 
   const openForSearch = useCallback(() => {
-    if (collapsed && !peekOpen) setPeekOpen(true);
-  }, [collapsed, peekOpen]);
+    if (available && collapsed && !peekOpen) setPeekOpen(true);
+  }, [available, collapsed, peekOpen]);
 
   const onEscape = useCallback((event: KeyboardEvent<HTMLElement>) => {
     if (event.defaultPrevented || !collapsed || !peekOpen || event.key !== "Escape") return;
@@ -176,8 +191,9 @@ export function useThreeStateSidebar(storage?: Storage) {
   };
 
   const expanded = !collapsed;
-  const mode: SidebarDisplayMode = expanded ? "expanded" : peekOpen ? "peek" : "collapsed";
+  const mode: SidebarDisplayMode = expanded ? "expanded" : available && peekOpen ? "peek" : "collapsed";
   return {
+    available,
     collapsed,
     controlProps,
     expanded,
@@ -186,9 +202,9 @@ export function useThreeStateSidebar(storage?: Storage) {
     openForSearch,
     panelProps,
     panelRef,
-    peekOpen,
+    peekOpen: available && peekOpen,
     toggle,
     toggleRef,
-    visible: mode !== "collapsed",
+    visible: available && mode !== "collapsed",
   };
 }

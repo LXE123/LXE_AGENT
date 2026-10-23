@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ChevronRight, Download, FileSpreadsheet, Upload, Save, LoaderCircle } from "lucide-react";
-import type { DesktopVietnamMapExportKind, DesktopVietnamParameters, DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
+import { Download, FileSpreadsheet, Upload, Save, LoaderCircle } from "lucide-react";
+import type { DesktopVietnamParameters, DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
+import { WorkbenchPageHeader } from "./page-header";
 import "./vietnam-settings.css";
 
 const days = [7, 15, 30] as const;
@@ -70,7 +71,7 @@ export function VietnamSettingsWorkbench({ onBack }: { onBack: () => void }) {
     if (!desktop || busy) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      const next = await desktop.uploadVietnamSkuMap();
+      const next = await desktop.uploadVietnamTemplate();
       if (next) { setState(next); setNotice(copy.uploaded); }
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
@@ -87,40 +88,36 @@ export function VietnamSettingsWorkbench({ onBack }: { onBack: () => void }) {
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
   };
-  const exportMap = async (kind: DesktopVietnamMapExportKind) => {
+  const exportTemplate = async () => {
     if (busy) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const desktop = window.lxe?.desktop;
       if (!desktop) throw new Error(copy.unavailable);
-      const result = await desktop.exportVietnamSkuMap(kind);
+      const result = await desktop.exportVietnamTemplate();
       if (result) setNotice(copy.exported(result.path));
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
   };
 
-  return <section className="workbench-tool-view vietnam-settings-view">
-    <header className="workbench-tool-header">
-      <button className="workbench-back" onClick={onBack} type="button"><ArrowLeft size={14} />{t.workbenchIndex.back}</button>
-      <h2>{copy.title}</h2><p className="workbench-index-subtitle">{copy.subtitle}</p>
-    </header>
+  return <section className="workbench-tool-view workbench-detail vietnam-settings-view" aria-labelledby="vietnam-settings-title">
+    <WorkbenchPageHeader title={copy.title} titleId="vietnam-settings-title" description={copy.subtitle} onBack={onBack} />
     {error ? <p className="workbench-error" role="alert">{error}</p> : null}
     {notice ? <p className="workbench-tool-status" role="status">{notice}</p> : null}
-    {loading ? <p role="status"><LoaderCircle className="spin" size={16} />{copy.loading}</p> : null}
+    {loading ? <p className="workbench-loading" role="status"><LoaderCircle className="spin" size={16} />{copy.loading}</p> : null}
     {!loading && !state ? <button className="workbench-refresh" type="button" onClick={() => void load()}>{copy.retry}</button> : null}
-    <article className="vietnam-settings-card vietnam-map-card">
-      <header className="asset-slot-header"><h3>{copy.skuMap}</h3>
-        <div className="vietnam-map-actions">
-          <button className="vietnam-template-download" type="button" disabled={busy} onClick={() => void exportMap("template")}><Download size={14} />{copy.downloadTemplate}</button>
-          <button className="vietnam-map-export" type="button" disabled={busy || !state?.sku_map || !!state.sku_map_error} onClick={() => void exportMap("current")}><Download size={14} />{copy.exportCurrent}</button>
-          <button className="vietnam-map-upload" type="button" disabled={busy} onClick={() => void upload()}><Upload size={14} />{state?.sku_map ? copy.replace : copy.upload}</button>
+    <article className="vietnam-settings-card vietnam-template-card">
+      <header className="asset-slot-header"><h3>{copy.template}</h3>
+        <div className="vietnam-template-actions">
+          <button className="vietnam-template-export" type="button" disabled={busy || !state?.template || !!state.template_error} onClick={() => void exportTemplate()}><Download size={14} />{copy.exportCurrent}</button>
+          <button className="vietnam-template-upload" type="button" disabled={busy} onClick={() => void upload()}><Upload size={14} />{state?.template ? copy.replace : copy.upload}</button>
         </div>
       </header>
-      <p>{copy.skuHint}</p>
-      {state?.sku_map_error ? <p className="workbench-error" role="alert">{state.sku_map_error}</p> : null}
-      {state?.sku_map ? <div className="vietnam-file-status"><FileSpreadsheet size={16} aria-hidden />
-        <span>{state.sku_map.file_name}</span><span className="vietnam-file-updated">{copy.updated} {new Date(state.sku_map.updated_at).toLocaleString()}</span>
-      </div> : state && !state.sku_map_error ? <p className="vietnam-file-status">{copy.noMap}</p> : null}
+      <p>{copy.templateHint}</p>
+      {state?.template_error ? <p className="workbench-error" role="alert">{state.template_error}</p> : null}
+      {state?.template ? <div className="vietnam-file-status"><FileSpreadsheet size={16} aria-hidden />
+        <span>{state.template.file_name}</span><span className="vietnam-file-updated">{copy.updated} {new Date(state.template.updated_at).toLocaleString()}</span>
+      </div> : state && !state.template_error ? <p className="vietnam-file-status">{copy.noTemplate}</p> : null}
     </article>
     {state ? <>
       {state.parameters_error ? <p className="workbench-error" role="alert">{state.parameters_error}</p> : null}
@@ -137,15 +134,12 @@ export function VietnamSettingsWorkbench({ onBack }: { onBack: () => void }) {
               <div className="vietnam-setting-copy"><h3>{copy.exchange}</h3></div>
               <label className="vietnam-exchange">{copy.cny}<input required inputMode="decimal" aria-label={copy.exchange} value={form.exchange_rate} onChange={event => update("exchange_rate", event.target.value)} />{copy.vnd}</label>
             </section>
-            <details className="vietnam-advanced" open={state.parameters_error ? true : undefined}>
-              <summary><ChevronRight size={14} aria-hidden />{copy.advanced}</summary>
-              <div className="vietnam-setting-row">
-                <p>{copy.adjustmentHint}</p>
-                <div className="vietnam-parameter-grid">{days.map(day => <label key={day}>{copy.adjustment(day)}
-                  <input required inputMode="decimal" value={form[`day_adjustment_${day}d`]} onChange={event => update(`day_adjustment_${day}d`, event.target.value)} />
-                </label>)}</div>
-              </div>
-            </details>
+            <section className="vietnam-setting-row">
+              <div className="vietnam-setting-copy"><h3>{copy.adjustmentsTitle}</h3><p>{copy.adjustmentHint}</p></div>
+              <div className="vietnam-parameter-grid">{days.map(day => <label key={day}>{copy.adjustment(day)}
+                <input required inputMode="decimal" value={form[`day_adjustment_${day}d`]} onChange={event => update(`day_adjustment_${day}d`, event.target.value)} />
+              </label>)}</div>
+            </section>
           </div>
           <div className="vietnam-save"><button className="desktop-primary-button" type="submit">{busy ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />}{busy ? copy.saving : copy.save}</button><span>{copy.appliesNextRun}</span></div>
         </fieldset>

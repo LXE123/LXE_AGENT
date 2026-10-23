@@ -1,0 +1,100 @@
+<style>
+  /* Color values from the Claude Design System (CDS) purpose tokens:
+     --bg=surface-0, --ink=text-primary, --ink-soft=text-secondary,
+     --line=border, --card=surface-1, --accent=text-accent.
+     --accent-soft is derived from --accent so "tune --accent" keeps
+     working; the dark block must mirror any light-block additions. */
+  :root {
+    color-scheme: light;
+    --bg: #f9f9f7;
+    --ink: #0b0b0b;
+    --ink-soft: #52514e;
+    --line: rgba(11, 11, 11, 0.1);
+    --card: #fcfcfb;
+    --accent: #184f95;
+    --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  /* Dark theme, both ways the viewer signals it: the OS preference (unless
+     the viewer toggle pinned light) and the toggle's data-theme stamp. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0d0d0d;
+      --ink: #ffffff;
+      --ink-soft: #c3c2b7;
+      --line: rgba(255, 255, 255, 0.1);
+      --card: #1a1a19;
+      --accent: #6da7ec;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --ink: #ffffff;
+    --ink-soft: #c3c2b7;
+    --line: rgba(255, 255, 255, 0.1);
+    --card: #1a1a19;
+    --accent: #6da7ec;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 16px; line-height: 1.65; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 64px 24px 96px; }
+
+  header { margin-bottom: 48px; }
+  h1 { margin: 0 0 14px; font-size: 34px; font-weight: 650; line-height: 1.15; letter-spacing: -0.01em; text-wrap: balance; }
+  .lede { font-size: 18px; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+
+  ol.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+  li.step {
+    counter-increment: step; position: relative;
+    padding: 28px 0 28px 56px; border-top: 1px solid var(--line);
+  }
+  li.step:first-child { border-top: none; }
+  li.step::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 28px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-weight: 600; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* line-height matches the 36px step circle so their centers align on the
+     first line; wrapped title lines keep the same leading. */
+  .step h2 { margin: 0 0 10px; font-size: 21px; font-weight: 600; line-height: 36px; }
+  .step p { margin: 0 0 14px; max-width: 62ch; }
+
+  .sections { margin: 0; }
+  section.topic { padding: 26px 0; border-top: 1px solid var(--line); }
+  section.topic:first-child { border-top: none; padding-top: 0; }
+  .topic h2 {
+    margin: 0 0 10px; font-size: 21px; font-weight: 600; line-height: 1.3;
+    padding-left: 14px; border-left: 3px solid var(--accent);
+  }
+  .topic p { margin: 0 0 14px; max-width: 62ch; }
+
+  .visual {
+    margin: 18px 0 6px; padding: 18px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    overflow-x: auto;
+  }
+  .visual svg { display: block; max-width: 100%; height: auto; }
+  .visual pre { margin: 0; font-family: var(--mono); font-size: 14px; line-height: 1.55; }
+  .visual code { font-family: var(--mono); }
+  .callout { font-size: 14px; color: var(--ink-soft); margin-top: 10px; }
+
+  .recap { margin-top: 48px; padding: 24px 28px; background: var(--accent-soft); border-radius: 10px; }
+  .recap h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); }
+  .recap ul { margin: 0; padding-left: 20px; }
+  .recap li { margin: 6px 0; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 40px 18px 72px; }
+    h1 { font-size: 27px; }
+    li.step { padding-left: 48px; }
+    li.step::before { width: 32px; height: 32px; font-size: 14px; }
+    /* keep the first-line center on the shrunken 32px circle */
+    .step h2 { line-height: 32px; }
+  }
+</style>

@@ -12,7 +12,6 @@ export interface ExecRuntimePaths {
   agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
-  lxeskillCatalogPath: string;
   llmConfigRoot: string;
   managedPythonPath: string;
   officeNodePath: string;
@@ -100,9 +99,6 @@ export function resolveExecRuntimePaths(
     agentSoulPath: packaged ? join(resourceRoot, "agent", "SOUL.md") : join(layoutRoot, "SOUL.md"),
     skillsRoot: join(resourceRoot, "skills"),
     userSkillsRoot,
-    lxeskillCatalogPath: packaged
-      ? join(resourceRoot, "lxeskill", "catalog.json")
-      : join(layoutRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
     llmConfigRoot: join(resourceRoot, "config", "llm"),
     managedPythonPath,
     officeNodePath,
@@ -124,7 +120,6 @@ export function execRuntimeEnvironment(
     LXE_AGENT_SOUL_PATH: paths.agentSoulPath,
     LXE_SKILLS_ROOT: paths.skillsRoot,
     LXE_USER_SKILLS_ROOT: paths.userSkillsRoot,
-    LXE_LXESKILL_CATALOG_PATH: paths.lxeskillCatalogPath,
     LXE_LLM_CONFIG_ROOT: paths.llmConfigRoot,
     LXE_DATA_ROOT: paths.dataRoot,
     LXE_AGENT_SQLITE_DB_PATH: databasePath,

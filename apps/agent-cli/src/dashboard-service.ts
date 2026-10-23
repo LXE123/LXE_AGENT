@@ -16,7 +16,7 @@ import {
   type DashboardRpcSpec,
 } from "@lxe/desktop-protocol";
 import type { JsonObject } from "@lxe/protocol";
-import { loadLlmProviderCatalog, normalizeProviderKey, type LlmProviderSpec } from "@lxe/core";
+import { createLogger, loadLlmProviderCatalog, normalizeProviderKey, type LlmProviderSpec } from "@lxe/core";
 import {
   InvalidTranscriptCursorError,
   mcpServerPrefix,
@@ -27,12 +27,13 @@ import {
   WorkspaceFileSearch, DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
   UserSkillFiles,
   type McpConfig,
-  type LxeSkillCommandDefinition,
   type RuntimeProviderManager,
+  type RuntimeModelSelection,
   type SkillManifest,
   type SqliteRuntimeStore,
   type ToolRegistry,
   type UserQuestionService,
+  type SessionTitleService,
   type PermissionApprovalService,
 } from "@lxe/runtime";
 
@@ -41,6 +42,7 @@ type Environment = Record<string, string | undefined>;
 /** Agent-process dependencies required by the Dashboard query service. */
 interface DashboardServiceOptions {
   questions?: UserQuestionService;
+  sessionTitles?: SessionTitleService;
   approvals?: PermissionApprovalService;
   onPermissionChanged?: (sessionId: string) => Promise<void> | void;
   /** Writable desktop/source state. */
@@ -69,7 +71,6 @@ interface DashboardServiceOptions {
   managedLlmState?: () => ManagedLlmState | undefined;
   skillCatalog?: SkillCatalog;
   allowedSkillTypes?: ReadonlySet<string>;
-  cliCommands?: LxeSkillCommandDefinition[];
   reloadWorkspace?: (sessionId: string) => Promise<JsonObject>;
 }
 
@@ -233,9 +234,10 @@ export class DashboardService {
   private readonly userSkillFiles: UserSkillFiles;
   private readonly handlers: AgentDashboardRpcHandlers = {
     "sessions.create": input => {
-      const workspace = resolveWorkspaceContext(input.directory);
+      const registration = this.options.store.getWorkspace(input.workspace_id) ?? rpcError("not_found", "workspace not found");
+      const workspace = resolveWorkspaceContext(registration.directory);
       accessSync(workspace.directory, constants.R_OK | constants.W_OK | constants.X_OK);
-      return this.options.store.createBlankSession(workspace) as DashboardRpcResult<"sessions.create">;
+      return this.options.store.createBlankSession(workspace, input.workspace_id) as DashboardRpcResult<"sessions.create">;
     },
     "sessions.workspaces": () => this.options.store.listSessionWorkspaces(),
     "workspaces.register": input => {
@@ -243,8 +245,12 @@ export class DashboardService {
       accessSync(directory, constants.R_OK | constants.W_OK | constants.X_OK);
       return this.options.store.registerWorkspace(directory);
     },
-    "workspaces.rename": input => this.options.store.renameWorkspace(input.directory, input.display_name)
+    "workspaces.rename": input => this.options.store.renameWorkspace(input.workspace_id, input.display_name)
       ?? rpcError("not_found", "workspace not found"),
+    "workspaces.delete": input => {
+      if (!this.options.store.deleteWorkspace(input.workspace_id)) rpcError("not_found", "workspace not found");
+      return { deleted: true };
+    },
     "sessions.permission.set": async input => {
       this.options.store.setSessionPermissionMode(input.session_id, input.permission_mode);
       const permission_mode = this.options.store.getSessionPermissionMode(input.session_id);
@@ -265,6 +271,13 @@ export class DashboardService {
       .map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item)) }),
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "sessions.rename": async input => {
+      if (!this.options.sessionTitles) return rpcError("unavailable", "Session titles are unavailable");
+      await this.options.sessionTitles.rename(input.session_id, input.title);
+      const session = this.options.store.sessionMetadata(input.session_id);
+      if (!session) return rpcError("not_found", "session not found");
+      return session as DashboardRpcResult<"sessions.rename">;
+    },
     "sessions.pin": (input) => this.pinSession(input) as DashboardRpcResult<"sessions.pin">,
     "sessions.delete": (input) => this.deleteSession(input) as Promise<DashboardRpcResult<"sessions.delete">>,
     "sessions.files.candidates": input => this.fileCandidates(input.session_id, input.query),
@@ -280,7 +293,6 @@ export class DashboardService {
       return this.skillPayload(skill, true) as DashboardRpcResult<"skills.content">;
     },
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
-    "commands.list": () => this.listPayload(this.options.cliCommands ?? []) as DashboardRpcResult<"commands.list">,
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
@@ -298,7 +310,7 @@ export class DashboardService {
       return { ...this.listPayload(this.options.store.toolUsageStats(days)), days } as DashboardRpcResult<"stats.tools.list">;
     },
     "models.list": () => this.listPayload(this.models()) as DashboardRpcResult<"models.list">,
-    "models.current": () => this.currentModel() as DashboardRpcResult<"models.current">,
+    "models.current": (input) => (input.session_id ? this.sessionCurrentModel(input.session_id) : this.currentModel()) as DashboardRpcResult<"models.current"> | Promise<DashboardRpcResult<"models.current">>,
     "models.update": (input) => this.updateModel(input) as Promise<DashboardRpcResult<"models.update">>,
     "models.thinking.update": (input) => this.updateThinking(input) as Promise<DashboardRpcResult<"models.thinking.update">>,
   };
@@ -334,7 +346,7 @@ export class DashboardService {
       limit: integer(input.limit, 50, 1, 200),
       offset: integer(input.offset, 0, 0, Number.MAX_SAFE_INTEGER),
       query: input.query ?? "",
-      ...(input.directory === undefined ? {} : { directory: input.directory }),
+      ...(input.workspace_id === undefined ? {} : { workspace_id: input.workspace_id }),
     });
   }
 
@@ -374,6 +386,7 @@ export class DashboardService {
     if (!await this.options.store.getSession(input.session_id)) {
       return rpcError("not_found", "session not found");
     }
+    this.options.sessionTitles?.cancel(input.session_id);
     await this.options.terminateSession?.(input.session_id);
     await this.options.approvals?.forgetSession(input.session_id);
     this.options.questions?.forgetSession(input.session_id);
@@ -581,6 +594,73 @@ export class DashboardService {
     return this.models()[0] ?? {};
   }
 
+  private selectionPayload(selection: RuntimeModelSelection): JsonObject {
+    const spec = selection.credential_source === "cloud"
+      ? this.managedProviderSpec(selection.provider) : this.providerSpec(selection.provider);
+    const available = spec && selection.model in object(spec.models);
+    const payload = available
+      ? this.modelPayload(spec, selection.model, selection.credential_source, {
+        model: selection.model, thinkingEffort: selection.effort, thinkingEnabled: selection.thinking_enabled ? "1" : "0",
+      }) : { ...this.unsupportedManagedModelPayload(selection, spec),
+        ...(selection.credential_source === "local" ? { disabled_reason: `Unsupported model: ${selection.provider}/${selection.model}` } : {}) };
+    return { ...payload, credential_source: selection.credential_source,
+      thinking_state: { ...object(payload.thinking_state), level: selection.effort, enabled: selection.thinking_enabled } };
+  }
+
+  private async sessionCurrentModel(sessionId: string): Promise<JsonObject> {
+    const session = await this.options.store.getSession(sessionId);
+    if (!session) rpcError("not_found", `session not found: ${sessionId}`);
+    return { ...(session.model_selection ? this.selectionPayload(session.model_selection) : this.currentModel()),
+      session_id: sessionId, selection_version: session.model_selection_version ?? 0 };
+  }
+
+  private async selectSessionModel(input: {
+    session_id: string; selection_version?: number; provider?: string; model?: string;
+    credential_source?: "local" | "cloud"; level?: string;
+  }): Promise<JsonObject> {
+    const current = await this.sessionCurrentModel(input.session_id);
+    if (input.selection_version !== undefined && input.selection_version !== current.selection_version) {
+      rpcError("failed_precondition", `session model selection changed: expected version ${input.selection_version}, current ${current.selection_version}`);
+    }
+    const provider = normalizeProviderKey(input.provider ?? text(current.provider));
+    const source = input.credential_source ?? (current.credential_source === "cloud" ? "cloud" : "local");
+    const spec = source === "cloud" ? this.managedProviderSpec(provider) : this.providerSpec(provider);
+    if (!spec) rpcError("invalid_argument", `Unsupported model provider: ${provider}`);
+    const model = input.model || (input.provider ? text(spec.default_model) : text(current.model));
+    const modelSpec = object(object(spec.models)[model]);
+    if (!(model in object(spec.models))) rpcError("invalid_argument", `Unsupported model: ${provider}/${model}`);
+    if (source === "cloud" ? !this.managedConfigured({ provider, model }) : !this.localModelConfigured(provider)) {
+      rpcError("failed_precondition", "missing API key");
+    }
+    const levels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
+    const sameModel = current.provider === provider && current.model === model && current.credential_source === source;
+    const fallback = text(modelSpec.thinking_default) || levels[0] || "off";
+    const requested = input.level?.toLowerCase() ?? (sameModel ? text(object(current.thinking_state).level) : fallback);
+    if (input.level !== undefined && !levels.includes(requested)) {
+      rpcError("invalid_argument", `Current model thinking level must be one of: ${levels.join(", ")}`);
+    }
+    const effort = normalizeThinkingEffort(requested, levels, fallback);
+    const selection: RuntimeModelSelection = { provider, model, credential_source: source, effort,
+      thinking_enabled: levels.length > 0 && effort !== "off" };
+    this.options.providerManager?.acquire(selection);
+    const version = await this.options.store.setSessionModelSelection(input.session_id, selection,
+      input.selection_version ?? Number(current.selection_version));
+    const values = { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model, AGENT_LLM_CREDENTIAL_SOURCE: source,
+      AGENT_LLM_THINKING_ENABLED: selection.thinking_enabled ? "1" : "0", AGENT_LLM_THINKING_EFFORT: effort };
+    // Remember the choice for new conversations only; existing ones resolve their own log.
+    let generation = 0;
+    try {
+      const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
+        thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
+      generation = snapshot?.generation ?? 0;
+      this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
+    } catch (error) {
+      createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+    }
+    return { ...this.selectionPayload(selection), session_id: input.session_id, selection_version: version,
+      generation, effective_from: "next_turn" };
+  }
+
   private managedTarget(): { provider: string; model: string } {
     const state = this.options.managedLlmState?.();
     if (state) {
@@ -673,10 +753,11 @@ export class DashboardService {
     spec: Record<string, unknown>,
     modelOverride?: string,
     credentialSource: "local" | "cloud" = "local",
+    selectedPreference?: { model: string; thinkingEnabled: string; thinkingEffort: string },
   ): JsonObject {
     const name = normalizeProviderKey(spec.name);
     const models = object(spec.models);
-    const runtimePreference = this.providerRuntimePreference(name);
+    const runtimePreference = selectedPreference ?? this.providerRuntimePreference(name);
     const savedPreference = readProviderPreference(this.options.environment, name);
     const requestedModel = credentialSource === "cloud"
       ? text(modelOverride) || this.managedTarget().model
@@ -767,6 +848,7 @@ export class DashboardService {
   }
 
   private async updateModel(input: DashboardRpcSpec["models.update"]["input"]): Promise<JsonObject> {
+    if (input.session_id) return this.selectSessionModel({ ...input, session_id: input.session_id });
     const spec = input.credential_source === "cloud" ? this.managedProviderSpec(input.provider) : this.providerSpec(input.provider);
     if (!spec) rpcError("invalid_argument", "Unsupported model provider");
     const provider = normalizeProviderKey(spec.name);
@@ -858,6 +940,7 @@ export class DashboardService {
   }
 
   private async updateThinking(input: DashboardRpcSpec["models.thinking.update"]["input"]): Promise<JsonObject> {
+    if (input.session_id) return this.selectSessionModel({ ...input, session_id: input.session_id });
     const current = this.currentModel();
     const level = text(input.level).toLowerCase();
     const levels = Array.isArray(current.thinking_levels) ? current.thinking_levels.map(text) : [];

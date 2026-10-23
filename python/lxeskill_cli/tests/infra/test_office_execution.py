@@ -216,3 +216,10 @@ def test_killing_windows_supervisor_closes_job_and_kills_descendants(fake_kit, t
             process.kill()
             process.wait(timeout=5)
         _cleanup_fixture_children(tmp_path)
+
+
+def test_missing_runtime_keeps_actual_configuration_error(monkeypatch):
+    monkeypatch.setenv("LXE_OFFICE_NODE", "")
+    result = run_kit_bounded(["recalculate"], timeout_seconds=5)
+    assert result.returncode == 1
+    assert "ValueError: LXE_OFFICE_NODE is not configured" in result.stderr

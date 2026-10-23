@@ -54,7 +54,6 @@ export async function prepareDesktopFd(options: {
     if (platform !== "win32") chmodSync(binary, 0o755);
     check(binary);
     const marker = { version: lock.version, archive_sha256: asset.archive_sha256, binary_sha256: sha256(binary) };
-    // Publish only after extraction and verification have completed.
     renameSync(binary, executable);
     const stagedMarker = join(stage, "marker.json"); writeFileSync(stagedMarker, JSON.stringify(marker));
     renameSync(stagedMarker, markerPath);

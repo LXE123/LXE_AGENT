@@ -68,10 +68,10 @@ describe("exec tool description", () => {
     }
   });
 
-  test("keeps the lxeskill single-command rule on every shell", () => {
+  test("does not impose CLI-specific rules on any shell", () => {
     for (const profile of [posix, pwsh, windowsPowerShell]) {
-      expect(execToolDescription(profile, LIMITS)).toContain("must be the only command");
-      expect(execCommandParameterDescription(profile)).toContain("exactly one standalone");
+      expect(execToolDescription(profile, LIMITS)).not.toContain("must be the only command");
+      expect(execCommandParameterDescription(profile)).not.toContain("exactly one standalone");
     }
   });
 
@@ -81,8 +81,8 @@ describe("exec tool description", () => {
     expect(description).toContain("does not automatically wake the model");
   });
 
-  test("drops && from the lxeskill operator list where it cannot be typed anyway", () => {
-    expect(execCommandParameterDescription(posix)).toContain("&&");
+  test("keeps the command parameter independent of CLI integrations", () => {
+    expect(execCommandParameterDescription(posix)).not.toContain("&&");
     expect(execCommandParameterDescription(windowsPowerShell)).not.toContain("&&");
   });
 });

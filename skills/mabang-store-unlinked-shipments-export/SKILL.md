@@ -8,6 +8,8 @@ references:
   - references/results.md
 ---
 
+需要查询 lxeskill 产物目录时，运行 `lxeskill datasets list`；返回的 `dir` 相对于当前环境的 `artifact_root`。
+
 # 下载 Amazon 未关联货件并生成扣减快照
 
 ## 范围与输入
@@ -55,7 +57,7 @@ lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"
 - 说明日志或终态能确认的失败阶段，保留 `error.message` 和可用的 `data.context`。没有证据时不归因于马帮故障、认证过期或零货件，也不把“稍后重试”当作已确认的解决办法。
 - `data.download_result` 存在表示原生下载已完成、快照阶段失败；它不是成功快照，也不代表查询全失败。没有该字段时，不推断所有状态均未查询或没有任何文件落盘。
 - 失败、状态缺失或快照不可用时，停止正式备货建议；保留已成功产物，不按零计算、不回退旧快照、不修改历史文件日期或核验信息。
-- 本命令内部已处理一次认证刷新重试。终态失败后不凭错误文本或单独的 `recovery.command` 再刷新；仅当 `data.auth_refresh_required=true` 且本轮尚未执行认证恢复时，按 `lxeskill auth refresh` 流程恢复一次并重试。标记为 false 或缺失时保留诊断，不叠加认证重试。
+- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。不凭错误文本中的 401/403 或 ID 猜测认证失败。
 - 文件占用时提示关闭占用文件后再试，不删除目标。业务执行中不改脚本、依赖或报表绕过错误；源码修复作为另行授权的开发任务处理。
 
 需要核对混合状态、全零、快照失败的返回形状或快照内部结构时，读取 [返回参考](references/results.md)。

@@ -25,10 +25,10 @@
   background: var(--surface);
   padding: 18px 20px;
 }
-.vietnam-map-card { display: grid; gap: 10px; }
-.vietnam-map-card .asset-slot-header { gap: 12px; flex-wrap: wrap; }
-.vietnam-map-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.vietnam-map-card .asset-slot-header button {
+.vietnam-template-card { display: grid; gap: 10px; }
+.vietnam-template-card .asset-slot-header { gap: 12px; flex-wrap: wrap; }
+.vietnam-template-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vietnam-template-card .asset-slot-header button {
   flex-shrink: 0;
   min-height: 32px;
   padding: 5px 10px;
@@ -58,8 +58,7 @@
   gap: 24px;
   padding: 20px 0;
 }
-.vietnam-setting-row + .vietnam-setting-row,
-.vietnam-advanced { border-top: 1px solid var(--border); }
+.vietnam-setting-row + .vietnam-setting-row { border-top: 1px solid var(--border); }
 .vietnam-setting-copy { display: grid; gap: 6px; }
 .vietnam-parameter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .vietnam-parameter-grid label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -80,10 +79,6 @@
 .vietnam-settings-view input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .vietnam-exchange { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .vietnam-exchange input { width: 128px; }
-.vietnam-advanced summary { display: flex; align-items: center; gap: 7px; padding: 15px 0; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; }
-.vietnam-advanced summary::-webkit-details-marker { display: none; }
-.vietnam-advanced[open] > summary svg { transform: rotate(90deg); }
-.vietnam-advanced .vietnam-setting-row { padding-top: 0; }
 .vietnam-save { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
 .vietnam-save button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
 .vietnam-save span { color: var(--muted); font-size: 12px; line-height: 1.6; }

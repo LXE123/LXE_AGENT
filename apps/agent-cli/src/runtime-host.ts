@@ -1,6 +1,7 @@
+import { SessionTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type {
   EmitRequest,
   JsonObject,
@@ -22,15 +23,13 @@ import {
   buildSystemPrompt,
   configureRuntimeWireTracing,
   createRuntimeProvider,
+  DeepSeekFilesService,
   ExecShellAdapter,
-  loadLxeSkillCommandCatalog,
-  loadLxeSkillDatasets,
+  queryLxeSkillCommandSkills,
   loadMcpConfig,
-  LxeSkillRuntimeService,
-  MaintenanceScheduler,
+  TurnUsageSyncService,
   McpManager,
   OfficialMcpConnector,
-  OneShotCliRunner,
   PermissionPolicyService,
   PermissionApprovalService,
   ExecutionPaths,
@@ -59,7 +58,6 @@ export interface AgentRuntimeHostOptions {
   agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
-  lxeskillCatalogPath: string;
   llmConfigRoot: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
@@ -114,7 +112,6 @@ export function createAgentRuntimeHost(
     LXE_AGENT_SOUL_PATH: options.agentSoulPath,
     LXE_SKILLS_ROOT: options.skillsRoot,
     LXE_USER_SKILLS_ROOT: options.userSkillsRoot,
-    LXE_LXESKILL_CATALOG_PATH: options.lxeskillCatalogPath,
     LXE_LLM_CONFIG_ROOT: options.llmConfigRoot,
     LXE_DATA_ROOT: options.dataRoot,
     LXE_WORKSPACE_ROOT: join(options.dataRoot, "workspace"),
@@ -123,12 +120,17 @@ export function createAgentRuntimeHost(
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
+  const sessionTitles = new SessionTitleService({ store, onChanged: sessionId => options.onSessionChanged?.(sessionId, "title"), logger });
   const permissionPolicy = new PermissionPolicyService();
   const executionPaths = new ExecutionPaths(options.dataRoot);
+  const deepseekFiles = new DeepSeekFilesService({
+    cachePath: join(options.dataRoot, "cache", "deepseek-files.json"),
+    imageDirectory: join(options.dataRoot, "cache", "deepseek-images"),
+  });
   const providerManager = new AtomicRuntimeProviderManager(
     options.dataRoot,
     environment,
-    createRuntimeProvider,
+    descriptor => createRuntimeProvider(descriptor, deepseekFiles),
     options.llmConfigRoot,
     join(options.dataRoot, "config", "auth.json"),
     () => managedLlmState,
@@ -157,20 +159,6 @@ export function createAgentRuntimeHost(
         .catch(error => logger.warn("skills_notification_failed", { error }));
     },
   });
-  const commandCatalogPath = options.lxeskillCatalogPath;
-  const cliCommands = existsSync(commandCatalogPath)
-    ? loadLxeSkillCommandCatalog(commandCatalogPath)
-    : [];
-  const cliDatasets = existsSync(commandCatalogPath)
-    ? loadLxeSkillDatasets(commandCatalogPath)
-    : [];
-  const businessCommands = new Map(
-    cliCommands
-      .filter((entry) => ["business", "browser"].includes(entry.visibility) || (
-        entry.visibility === "maintenance" && entry.ownerSkills.length > 0
-      ))
-      .map((entry) => [entry.command, entry.ownerSkills] as const),
-  );
   const execShell = new ExecShellAdapter({ environment });
   const sourceRoot = String(environment.LXE_SOURCE_ROOT ?? "").trim();
   const sourcePython = sourceRoot ? join(
@@ -180,57 +168,24 @@ export function createAgentRuntimeHost(
   ) : "";
   const managedPython = String(environment.LXE_MANAGED_PYTHON ?? "").trim();
   if (!managedPython && sourcePython) environment.LXE_MANAGED_PYTHON = sourcePython;
-  const lxeSkillArgv = execShell.lxeSkillArgv(options.dataRoot);
-  const selectedPython = String(lxeSkillArgv?.[0] ?? (managedPython || sourcePython)).trim();
-  const sourceRuntime = Boolean(sourcePython) && !managedPython && resolve(selectedPython) === resolve(sourcePython);
-  const recovery = sourceRuntime
-    ? `Run uv sync --frozen --all-groups --python 3.12.10 in ${sourceRoot}`
-    : "Reinstall or rebuild LXE Agent";
-  const {
-    LXE_AGENT_SOUL_PATH: _agentSoulPath,
-    LXE_USER_SKILLS_ROOT: _userSkillsRoot,
-    LXE_AGENT_SQLITE_DB_PATH: _agentDatabasePath,
-    ...lxeSkillEnvironment
-  } = environment;
-  const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
-    command: lxeSkillArgv,
-    cwd: options.dataRoot,
-    timeoutMs: 3 * 60_000,
-    maxOutputBytes: 10 * 1024 * 1024,
-    env: lxeSkillEnvironment,
-    onStderr: (line) => logger.info("lxeskill", { line }),
-  }) : undefined;
-  const maintenance = lxeSkillRunner ? new MaintenanceScheduler({
-    environment: lxeSkillEnvironment,
+  const turnUsageSync = new TurnUsageSyncService({
+    environment,
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
-    authRunner: lxeSkillRunner,
-  }) : undefined;
-  const lxeSkillRuntime = new LxeSkillRuntimeService({
-    ...(lxeSkillRunner ? { runner: lxeSkillRunner } : {}),
-    ...(maintenance ? { dependentService: maintenance } : {}),
-    recovery,
-    unavailableMessage: selectedPython
-      ? `LXE Skill CLI Python is unavailable: ${selectedPython}`
-      : "LXE Skill CLI Python is not configured",
-    logger,
   });
   const processes = registerCodingTools(tools, {
     executionPaths, approvals,
     ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
-    businessCommands,
-    businessCommandCatalog: cliCommands,
     execShell,
-    lxeSkillStatus: () => lxeSkillRuntime.snapshot(),
     execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
     ...(options.onBackgroundTaskChanged ? { onExecUpdate: options.onBackgroundTaskChanged } : {}),
   });
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
-  }> = [processes, lxeSkillRuntime, {
+  }> = [processes, turnUsageSync, {
     async start() {
       await skillCatalog.refreshForUse();
     },
@@ -244,7 +199,7 @@ export function createAgentRuntimeHost(
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
-    questions, approvals,
+    questions, approvals, sessionTitles,
     onPermissionChanged: sessionId => options.onSessionChanged?.(sessionId, "permission"),
     stateRoot: options.dataRoot,
     llmConfigRoot: options.llmConfigRoot,
@@ -262,7 +217,6 @@ export function createAgentRuntimeHost(
     },
     mcpStatus: (serverName) => mcpManager.status(serverName),
     skillCatalog,
-    cliCommands,
     allowedSkillTypes,
     providerManager,
     managedLlmState: () => managedLlmState,
@@ -281,8 +235,9 @@ export function createAgentRuntimeHost(
   });
   const providerDescriptor = providerManager.acquire().descriptor;
   const runtime = new TypeScriptAgentRuntime({
+    commandSkills: () => queryLxeSkillCommandSkills({ cwd: options.dataRoot, environment }),
     permissionPolicy, executionPaths, approvalAvailable: true,
-    store,
+    store, sessionTitles,
     providerManager,
     environment,
     wireTraceController: configureRuntimeWireTracing({
@@ -317,7 +272,6 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
-      datasets: cliDatasets,
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,
@@ -332,7 +286,7 @@ export function createAgentRuntimeHost(
     stop: async () => {
       const errors: unknown[] = [];
       // Audit failures must not leave processes or temporary grants alive.
-      for (const stop of [() => approvals.stop(), () => questions.stop(), () => runtime.stop()]) {
+      for (const stop of [() => approvals.stop(), () => questions.stop(), () => runtime.stop(), () => deepseekFiles.close()]) {
         try { await stop(); } catch (error) { errors.push(error); }
       }
       started = false;
@@ -389,14 +343,11 @@ export function createAgentRuntimeHost(
       return { cancelActiveTurns: false };
     },
     health: () => {
-      const lxeSkillStatus = lxeSkillRuntime.snapshot();
       return {
         ready: started,
         database_path: databasePath,
         provider: providerManager.acquire().descriptor.name,
         model: providerManager.acquire().descriptor.model,
-        lxeskill_available: lxeSkillStatus.available,
-        lxeskill_message: lxeSkillStatus.message,
         skill_diagnostics: skillCatalog.diagnostics(),
         workspace_instances: workspaceInstances.diagnostics(),
       };

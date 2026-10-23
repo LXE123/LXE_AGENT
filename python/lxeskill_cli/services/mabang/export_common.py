@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth import MabangAuthContext, refresh_mabang_auth
-from services.mabang.errors import MabangAuthError
+from services.mabang.errors import MabangAuthError, MabangAuthUnavailableError
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_HOST
 from services.mabang.cookies import (
     build_cookie_header,
@@ -45,6 +45,8 @@ async def run_export_pipeline(spec: ExportPipelineSpec[FileT, ResultT]) -> Resul
 
     try:
         return await run_once()
+    except MabangAuthUnavailableError:
+        raise
     except MabangAuthError:
         await refresh_mabang_auth(purpose="private_amz_export_auth_retry")
         return await run_once()

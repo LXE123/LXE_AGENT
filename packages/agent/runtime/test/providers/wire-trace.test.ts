@@ -133,11 +133,13 @@ describe("provider wire traces", () => {
       recursive: value,
       text: "x".repeat(9_000),
       signature_delta: "private",
+      image_url: "data:image/png;base64,cHJpdmF0ZQ==",
       binary: new Uint8Array([1, 2, 3]),
     }) as Record<string, unknown>;
     expect(String(wire.text).length).toBeLessThanOrEqual(8_192);
     expect((wire.recursive as Record<string, unknown>).self).toBe("[recursive]");
     expect(wire.signature_delta).toBe("***");
+    expect(wire.image_url).toBe("[image data URL omitted: 34 chars]");
     expect(String(wire.binary)).toContain("3 bytes");
   });
 

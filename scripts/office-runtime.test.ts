@@ -18,15 +18,15 @@ function fixture() {
   const write = (path: string, value: unknown) => {
     mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, typeof value === "string" ? value : JSON.stringify(value));
   };
-  write(join(scope, "libreoffice-kit", "package.json"), { version: "0.1.3", optionalDependencies: { "@deepseek-ai/libreoffice-kit-win32-x64": "0.1.3" } });
+  write(join(scope, "libreoffice-kit", "package.json"), { version: "0.1.5", optionalDependencies: { "@deepseek-ai/libreoffice-kit-win32-x64": "0.1.5" } });
   write(join(scope, "libreoffice-kit", "lib", "cli.js"), "cli");
-  write(join(engine, "package.json"), { name: "@deepseek-ai/libreoffice-kit-win32-x64", version: "0.1.3" });
+  write(join(engine, "package.json"), { name: "@deepseek-ai/libreoffice-kit-win32-x64", version: "0.1.5" });
   const files: Record<string, string> = {};
   for (const name of ["bin/engine.exe", "program/resource", "sources/source.json", "licenses/MIT"]) {
     write(join(engine, name), name);
     files[name] = createHash("sha256").update(name).digest("hex");
   }
-  write(join(engine, "prebuilds.json"), { schemaVersion: 1, version: "0.1.3", status: "built", platform: "win32-x64",
+  write(join(engine, "prebuilds.json"), { schemaVersion: 1, version: "0.1.5", status: "built", platform: "win32-x64",
     engine: { kind: "native", executable: "bin/engine.exe", programDirectory: "program" }, files,
     source: { files: ["sources/source.json"] }, licenses: [{ path: "licenses/MIT" }] });
   return { root, engine };

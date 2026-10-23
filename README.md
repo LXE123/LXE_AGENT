@@ -1,60 +1,91 @@
 # LXE Agent
 
-LXE Agent 是面向跨境电商运营团队的本地 AI 自动化助手。它把大模型、企业沟通渠道、业务系统和可复用工作流连接起来，帮助团队完成重复、跨系统且需要持续跟踪的运营任务。
+LXE Agent 是面向跨境电商运营团队的 AI 桌面助手。用户通过对话提出目标，模型结合上下文、Skill 和工具完成文件处理、数据分析与业务系统操作。
 
-当前 `main` 是 Electron 桌面产品线，正式分发目标为 Windows x64，也支持 macOS 源码开发和预览。独立终端产品见 [`lxe-agent-TUI`](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI) 分支。
+本文对应 `main` 分支。桌面程序和业务工具在本机运行，模型调用及外部业务操作按配置访问对应服务。
 
 ## 主要能力
 
-- 在桌面直接创建会话、发送任务与附件、查看过程和停止任务，也可通过飞书私聊和群聊接收任务。
-- AI 需要澄清时，桌面输入区显示问题卡片，支持单选、多选和自由回答；提交后继续当前任务。
-- 提供 FBA 与补货工作流，覆盖马帮、紫鸟、报关、发票、采购和退税等场景。
-- 在 Dashboard 中查看会话、任务、Skills、工具、模型、集成、统计和运行状态。
-- 保存本地会话、JSONL transcript、任务和使用量记录，便于追踪执行过程。
-- 支持 LXE Skills、MCP、Lark CLI 和 Data Server 等扩展能力。
-- 安装包自带 Node.js、Python 和命令行工具；桌面马帮认证使用 Electron 窗口，紫鸟业务使用用户配置的紫鸟客户端。
+- **对话与任务**：按工作区管理会话，发送文字和附件，查看执行过程、回答问题卡片或停止任务；也可接入飞书私聊和群聊。
+- **业务操作**：通过 lxeskillCLI 提供 FBA、补货及 ERP 报表等能力，覆盖马帮、雅仓、上马、紫鸟、报关、发票、采购和退税等场景。
+- **文件处理**：创建、修改和分析 Excel、Word、PowerPoint；通过 LibreOffice Kit 转换、渲染和重算文件，在桌面侧栏预览结果。
+- **桌面工作环境**：浏览工作区文件，使用手动终端、浏览器和工作台，管理模型、集成与运行状态。
+- **技能与工具**：加载预置及用户 Skill，使用内置 Tool、MCP 和外部 CLI；保存会话历史与用量统计。
 
-## 使用方式
+## 架构
 
-1. 安装并启动 LXE Agent Desktop。
-2. 连接公司云端并设置默认工作区；公司模型会自动启用，紫鸟、马帮和飞书等集成也可稍后补充。
-3. 在桌面会话中直接发起任务，或使用已接入的飞书渠道；在 Dashboard 中查看执行状态和结果记录。
-4. 关闭窗口后应用可继续在托盘运行；后台组件异常时可在桌面设置中检查状态或重启。
+项目按职责分为三个主要模块，与目录或进程数量不一一对应：
 
-问题卡片等待期间可以切换会话，返回后继续回答。停止任务或重启 Agent 会让未回答的问题失效。
-
-## 获取 LXE Agent
-
-桌面版当前支持 Windows x64，使用完整离线 NSIS 安装程序分发。安装后无需系统提供 Bun、Node.js、Python、Go、uv 或 Playwright。
-
-Windows 构建与安装验收见 [打包手册](docs/desktop/packaging-pipeline.md)。macOS 可运行源码版和生产页面预览，尚无正式签名、公证的安装包流水线。
-
-## 产品版本
-
-| 产品线 | 分支 | 适用场景 |
+| 模块 | 职责 | 主要代码 |
 | --- | --- | --- |
-| LXE Agent Desktop | `main` | Windows 桌面安装、会话交互、图形化管理；macOS 源码开发与预览。 |
-| LXE Agent TUI | [`lxe-agent-TUI`](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI) | 源码安装、终端命令、浏览器 Dashboard 以及自主管理开发环境。 |
+| **Electron** | 面向用户的应用入口，负责桌面交互、侧栏与预览、配置和进程管理；Gateway 负责渠道接入、调度与结果交付。 | [desktop](apps/desktop)、[dashboard](apps/dashboard)、[gateway](apps/gateway) |
+| **agentcli** | 独立的 Agent Harness，为模型提供工具、上下文和执行环境，管理会话、执行权限与统计。 | [agent-cli](apps/agent-cli)、[runtime](packages/agent/runtime) |
+| **lxeskillCLI** | 通过暴露的命令提供业务能力，负责业务计算、外部系统操作、文件产出和自身业务数据。 | [lxeskill_cli](python/lxeskill_cli) |
 
-两条产品线独立维护，不通过整体 merge 或 rebase 保持同步；公共修复会按需选择性移植。TUI 的安装方式和运行要求请直接查看对应分支 README。`main` 也提供可显式调用的 [一次性 Agent CLI exec](docs/harness/runtime/agent_cli_exec.md)，不需要切换分支才能使用它。
+```mermaid
+flowchart TB
+    E["Electron<br/>用户入口 · 桌面界面 · Main / Gateway"]
+    A["agentcli<br/>Agent Harness"]
+    L["lxeskillCLI<br/>业务命令行工具"]
+    K["LibreOffice Kit<br/>转换 · 渲染 · 公式重算"]
+
+    E <-->|"JSON-RPC 2.0"| A
+    E -->|"调用暴露的业务命令"| L
+    A -->|"模型通过 exec 调用 lxeskill"| L
+    E -->|"Node API：Word / PPT 预览"| K
+    A -->|"模型通过 exec 调用 Kit CLI"| K
+    L -->|"内部适配调用 Kit CLI：业务文件重算"| K
+```
+
+agentcli 与 lxeskillCLI 分别管理自己的数据，通过 CLI 契约协作。对 agentcli 而言，`lxeskill` 与其他外部命令行工具一样，由模型通过 `exec` 调用；它的安装与运行不是 Agent Harness 自身成立的前提。
+
+[skills/](skills) 存放通用和业务 Skill，为模型提供任务知识、工作上下文与操作指引，实际操作由工具或程序执行。Office 的三种调用方式见 [Office 文件能力](docs/office-runtime.md)。
+
+## 安装与使用
+
+正式桌面安装包面向 **Windows x64**，使用完整 NSIS 安装程序，随包提供运行所需的 Node.js、Python、Office 引擎和命令行工具。macOS 支持源码开发与生产页面预览，尚无正式签名、公证的安装包流水线。
+
+1. 安装并启动桌面应用，设置默认工作区。
+2. 使用公司云端提供的模型，或在设置中配置受支持的个人模型 API Key。已有公司网络连接时的自动模型发现见 [自动云端访问](docs/desktop/cloud-access.md)。
+3. 根据任务需要配置业务集成，在桌面对话中发起任务，或通过已接入的飞书渠道使用。
+
+关闭窗口后应用继续在托盘运行；完整退出使用托盘菜单。紫鸟业务需要用户配置的紫鸟客户端，桌面马帮认证使用 Electron 认证窗口。详细操作见 [Desktop 技术手册](docs/desktop/README.md)。
+
+独立 TUI 产品另在 [`lxe-agent-TUI`](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI) 分支维护，安装方式以该分支 README 为准。当前 `main` 也提供 [一次性 Agent CLI exec](docs/harness/runtime/agent_cli_exec.md)，可用于脚本调用，无需切换产品分支。
+
+## 源码开发
+
+安装 uv，以及 [package.json](package.json) 指定版本的 Bun；macOS 还需独立 Node.js >=22.19。以下命令均从仓库根目录运行：
+
+```sh
+bun install --frozen-lockfile
+uv sync --frozen --all-groups
+bun run desktop:dev
+```
+
+`desktop:dev` 提供 Vite 热更新；预览生产页面使用 `bun run desktop:preview`。两者都会自动准备各平台运行资源，首次准备需要联网；Python 使用当前 checkout 自己的 `.venv`。
+
+开发时按 [AGENTS.md](AGENTS.md) 执行与改动相关的定向检查。完整源码验证使用 `bun run verify:source`，新 checkout 需先执行 `bun run desktop:tools:fd`。Windows 打包、发布及安装验收见 [打包手册](docs/desktop/packaging-pipeline.md)。
 
 ## 数据与隐私
 
-- 公司下发的模型密钥与业务集成凭证由 Electron 安全存储加密保存；用户自带的本地模型 Key 明文保存在数据目录的 `config/auth.json`，仅依靠当前用户的文件系统权限保护。
-- 源码开发和预览使用当前 checkout 的 `var/`；Windows 安装版默认使用 `%LOCALAPPDATA%\LXE Agent`。更换程序目录和卸载都会保留数据，旧版数据自动迁移规则见[程序与用户数据](docs/desktop/data-location.md)。
-- Data Server 同步由配置和业务凭据控制，启用后按批上传回合用量统计。
-- 真实业务 Excel、认证信息、日志和本地 `.env` 文件不会进入桌面安装包。
+- **存储归属**：Electron 管理桌面配置、凭据、缓存及 Gateway 接入数据；agentcli 管理 Agent 会话和统计，消息及工具记录保存在 JSONL transcript；lxeskillCLI 管理业务数据和配置。
+- **数据位置**：源码开发和预览使用当前 checkout 的 `var/`；Windows 安装版默认使用 `%LOCALAPPDATA%\LXE Agent`。更换程序目录和卸载保留用户数据，迁移规则见 [程序与用户数据](docs/desktop/data-location.md)。
+- **凭据**：公司下发的模型密钥与桌面保存的业务集成凭证由 Electron 安全存储加密保存；用户自行配置的模型 Key 明文保存在数据目录的 `config/auth.json`，依靠当前用户的文件系统权限保护。
+- **统计同步**：按接入配置启用后，agentcli 独立上传回合、模型和工具用量，以及 Skill 读取与命令调用次数；通过公司网络按设备身份鉴权，不依赖 lxeskillCLI。详见 [统计上传](docs/harness/runtime/native-statistics-upload.md)。
+- **安装包资源**：本地业务文件、认证信息、日志和 `.env` 不属于打包输入。
 
 ## 文档
 
-- [文件预览侧栏](docs/file-preview.md)：支持格式、系统应用打开与工作区文件树。
-
-- [Desktop 技术手册](docs/desktop/README.md)：进程架构、私有运行时、配置、开发和打包。
-- [文档入口](docs/README.md)：使用手册、架构说明、有效决策和外部参考。
-- [当前 Skill 清单](docs/harness/skill/current_skill_catalog.md)：正在运行的业务能力目录。
+- [PR 审查规范](docs/pr-review.md)：团队协作流程、AI 技术检查与人工审核要求。
+- [架构简介](docs/architecture/README.md)：三模块关系、数据归属及各模块介绍。
+- [文档入口](docs/README.md)：专题手册、架构契约、验收记录和外部参考。
+- [Desktop 技术手册](docs/desktop/README.md)：界面、进程、配置与开发方式。
+- [Gateway ↔ Agent 协议](docs/desktop/gateway/agent-protocol.md)：JSON-RPC 2.0 通信契约。
+- [Agent Runtime](docs/harness/runtime/README.md)：执行循环、上下文、会话与工具。
+- [Skill 手册](docs/harness/skill/README.md)：发现、管理与统计机制；具体任务指引见 [skills/](skills)。
+- [文件预览侧栏](docs/desktop/file-preview.md)与[Office 文件能力](docs/office-runtime.md)：桌面预览和文件处理。
 
 ## License
 
 Private Project - Internal Use Only.
-
-跨目录获取模型与网页登录见 [自动云端访问](docs/desktop-native-cloud-access.md)。

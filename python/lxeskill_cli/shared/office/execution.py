@@ -66,7 +66,7 @@ def run_kit_bounded(
 
     POSIX uses a private session; Windows uses a kill-on-close job. The gated
     worker joins the Windows job itself before it can start any children.
-    This does not change the transparent public ``python -m shared.office`` CLI.
+    This is private to business workflows; models call Kit CLI directly.
     """
     if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 2_147_483.647:
         raise ValueError("Office timeout_seconds must be positive and fit a 32-bit millisecond timer")

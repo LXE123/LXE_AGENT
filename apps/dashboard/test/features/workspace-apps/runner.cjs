@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
    assert.equal(await js("document.querySelectorAll('.workspace-open-split button:not(:disabled)').length"),0);
    await js("fixture.setPath('/second');fixture.release();fixture.hold(false)");await delay(100);
    assert.equal(await js('fixture.calls.filter(c=>c.directory).at(-1).directory'),'/first');
-   assert.equal(await js("document.querySelector('#new select').value"),'/second');
+   assert.equal(await js("document.querySelector('#new select').value"),'workspace:/second');
   });
   await step('Reload restores preference, query retry works, missing preferred app falls back',async()=>{
    await win.reload();await wait("document.querySelectorAll('.workspace-open-split button[aria-label*=Code]').length===3",'persisted choice');

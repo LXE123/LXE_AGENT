@@ -131,6 +131,7 @@ describe("Dashboard invalidation bridge", () => {
     expect(dashboardDomainsForMutation("sessions.delete")).toEqual(["sessions"]);
     expect(dashboardDomainsForMutation("workspaces.register")).toEqual(["sessions"]);
     expect(dashboardDomainsForMutation("workspaces.rename")).toEqual(["sessions"]);
+    expect(dashboardDomainsForMutation("workspaces.delete")).toEqual(["sessions"]);
     expect(dashboardDomainsForMutation("sessions.activity")).toEqual([]);
     expect(dashboardDomainsForMutation("sessions.list")).toEqual([]);
   });

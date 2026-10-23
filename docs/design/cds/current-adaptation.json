@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-10-20",
+  "scope": "首批：设置原生输入框、会话导航行、工具调用条。不是全站审计，也不是 Claude 全组件规范。",
+  "upstreamVersion": "Claude.app 2.42304.0（已归档资源；未重新抓取当前安装版本）",
+  "sources": [
+    { "id": "S1", "file": "docs/design/cds/sources/cds-tokens-vanilla.original.md", "locator": "Token rule / Muted text rule / Purpose tokens", "kind": "原规则", "note": "生成的 CDS 文档；适用范围见 evidence.md。" },
+    { "id": "S5-field", "file": "docs/design/cds/sources/ion-settings/evidence-excerpts.json", "locator": "entries[id=field-states]", "kind": "实现证据", "note": "字段的 hover 排除 focus、invalid、disabled；错误焦点使用 shadow-focus-danger。字符位置可复核，未验证 Claude 运行时最终像素。" },
+    { "id": "S5-nav", "file": "docs/design/cds/sources/ion-settings/evidence-excerpts.json", "locator": "entries[id=settings-row-states]", "kind": "实现证据", "note": "Claude 设置导航的选中与悬停。不能直接等同会话导航的全部行为。" }
+  ],
+  "components": [
+    {
+      "id": "field",
+      "title": "输入框",
+      "scope": "设置页原生 input。直接加载生产 settings-theme.css；它目前是 shell.tsx 内联原生字段，没有独立 React 输入框组件。",
+      "implementation": ["apps/dashboard/src/desktop/shell.tsx", "apps/dashboard/src/desktop/settings-theme.css"],
+      "reuse": "原生控件 + 生产样式",
+      "instructions": "在普通字段上悬停、点击或用 Tab 聚焦。错误探针只添加 aria-invalid，用来观察现有 CSS 是否响应；它不代表产品已经接入字段级校验。",
+      "states": [
+        { "id": "field-default", "label": "默认", "upstream": ["S1", "S5-field"], "lxe": "背景 --cds-field；主文字 --text；1px --border。", "classification": "已适配", "selector": ".desktop-settings-theme .desktop-settings-content input", "verification": "读取默认背景、文字与边界；核对可编辑。" },
+        { "id": "field-hover", "label": "悬停", "upstream": ["S5-field"], "lxe": "未禁用、未 focus-visible 时边框变为 --border-strong；未排除错误状态。", "classification": "部分适配", "selector": ".desktop-settings-theme :is(input, select, textarea):hover:not(:disabled):not(:focus-visible)", "verification": "真实鼠标移入；与默认、禁用、错误探针对照。" },
+        { "id": "field-focus", "label": "焦点／悬停＋焦点", "upstream": ["S1", "S5-field"], "lxe": "透明边界、--cds-focus 蓝环；表面隔离环与尺寸为 LXE 配方。", "classification": "LXE 适配", "selector": ".desktop-settings-theme :is(input, select, textarea):focus-visible", "verification": "Tab 聚焦后再移入鼠标，核对焦点环未被悬停覆盖。" },
+        { "id": "field-disabled", "label": "禁用", "upstream": ["S1"], "lxe": "仍使用整个输入框 opacity: .4；未采用独立的禁用文字和填充变量。", "classification": "已知偏差", "selector": ".desktop-settings-theme :is(input, select, textarea):disabled", "verification": "核对 opacity、不可编辑、Tab 跳过及无悬停提亮。" },
+        { "id": "field-invalid", "label": "错误／错误＋焦点（探针）", "upstream": ["S5-field"], "lxe": "仅设置 aria-invalid 时没有错误专用边界；焦点仍为普通蓝环。探针不是生产错误流程。", "classification": "实现缺口", "selector": ".desktop-settings-theme input[aria-invalid=true]（当前没有专用规则）", "verification": "与正常字段默认／悬停／焦点值比较；如后续实现改变，检查会要求更新记录。" }
+      ],
+      "gaps": ["Claude 字段在所有表面上的最终计算样式未抓取。", "生产设置字段尚未统一接入 aria-invalid 和错误说明关联。", "占位符、禁用文字的实际合成对比度尚未专项审计。"]
+    },
+    {
+      "id": "navigation",
+      "title": "导航行",
+      "scope": "会话侧边栏的 SessionsIndex。30px 会话行、10px 工作区间距与文字层级是 LXE 适配；标题用满行宽，尾部以 20px 渐隐代替省略号。悬停、键盘聚焦或菜单打开时，菜单覆盖在右侧，渐隐终点内收 36px，文字位置不变。分组及搜索列表使用靠右的 8px 滚动条轨道，与行背景间隔 2px；滑块仅在滚动或拖动轨道时显示，停止约 800ms 后隐藏，鼠标移入及单纯聚焦不触发，拖动中保持显示，轨道宽度不变。这些尺寸与交互是 LXE 适配，不是已确认的 CDS 原始规则。当前实现见下方生产源码。组件状态实测见 showcase/verification.json，不是所有导航组件的完整审计。",
+      "implementation": ["apps/dashboard/src/features/sessions/view.tsx", "apps/dashboard/src/features/sessions/sidebar-theme.css", "apps/dashboard/src/features/sessions/use-sidebar-scrollbar.ts", "apps/dashboard/src/styles.css"],
+      "reuse": "生产 SessionsIndex",
+      "instructions": "点击切换当前会话；悬停选中与未选中的行；用 Tab / Enter 导航。更多菜单沿用生产组件，动作只修改当前样本数据。",
+      "states": [
+        { "id": "navigation-default", "label": "默认／悬停", "upstream": ["S1", "S5-nav"], "lxe": "导航面 --cds-surface-nav；悬停为背景 95% + 前景 5% 的不透明混色。会话标题 13px、400 字重，默认 secondary，悬停或键盘焦点为 ink。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme / .session-index-item:hover", "verification": "读取表面、文字和行悬停背景；点击能切换选中。" },
+        { "id": "navigation-selected", "label": "选中／选中＋悬停", "upstream": ["S5-nav"], "lxe": "浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题均为 400 字重。与设置导航暗色白 15% 不同，是会话行的局部选择。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme .session-index-item.active", "verification": "选中持续显示 aria-current=page；移入鼠标保持选中背景。" },
+        { "id": "navigation-focus", "label": "键盘焦点／选中＋焦点", "upstream": ["S1"], "lxe": "使用现有导航焦点规则与蓝色 --focus-ring。", "classification": "LXE 适配", "selector": ".session-index-open:focus-visible", "verification": "真实 Tab 聚焦、Enter 选中，读取 outline；不把程序添加 class 当成焦点。" },
+        { "id": "navigation-na", "label": "禁用／错误行", "upstream": [], "lxe": "当前 SessionsIndex 没有整行 disabled 或 invalid 接口；运行结果状态图标是另一维度。", "classification": "不适用", "selector": "SessionsIndex props", "verification": "不伪造整行禁用／错误样本；会话状态图标不在本轮范围。" }
+      ],
+      "gaps": ["已取得的直接导航证据来自 Claude 设置页，Claude 会话导航的专用状态规则未确认。", "菜单、工作区标题、搜索结果与状态图标未纳入本轮完整状态矩阵。"]
+    },
+    {
+      "id": "tool",
+      "title": "工具调用条",
+      "scope": "UnifiedConversationRow 的 tool 分支，置于生产 conversation-feed 作用域；不额外套 CDS 主题以掩盖遗留配色。",
+      "implementation": ["apps/dashboard/src/features/sessions/view.tsx", "apps/dashboard/src/styles.css"],
+      "reuse": "生产 UnifiedConversationRow",
+      "instructions": "五种执行状态均可悬停、用 Tab 聚焦和点击展开。示例命令只作为文本展示，不会执行。",
+      "states": [
+        { "id": "tool-default", "label": "默认 · 五种执行状态", "upstream": ["S1"], "lxe": "pending / running / success / error / unconfirmed 使用生产状态名称与图标；默认文字、状态色仍有旧主题变量。", "classification": "部分适配", "selector": ".tool-op.state-* / .tool-status-icon", "verification": "检查五种真实组件状态和图标标签；没有执行任何命令。" },
+        { "id": "tool-hover", "label": "悬停", "upstream": ["S1"], "lxe": "背景保持透明，普通名称及参数文字提亮；错误名称、状态图标保留原色。", "classification": "LXE 选择", "selector": ".conversation-feed .tool-op-summary:is(:hover, :focus-visible)", "verification": "两种主题逐一移入五种状态，比较文字、透明背景、状态色与尺寸。" },
+        { "id": "tool-focus", "label": "键盘焦点", "upstream": ["S1"], "lxe": "文字同悬停；outline 仍引用旧 --tool-border-strong，尚未统一为 CDS 蓝环。", "classification": "已知偏差", "selector": ".tool-op-summary:focus-visible", "verification": "Tab 聚焦，读取真实 outline；焦点可见不等于已经统一配色。" },
+        { "id": "tool-expanded", "label": "展开／收起", "upstream": [], "lxe": "真实按钮切换 aria-expanded，展开参数和示例结果。", "classification": "LXE 行为", "selector": "UnifiedConversationRow / .tool-op-body", "verification": "点击、Enter 展开与收起；已展开状态再次悬停。" },
+        { "id": "tool-na", "label": "禁用", "upstream": [], "lxe": "这一生产分支没有 disabled prop；历史 CSS 有禁用保护，但不据此宣称存在业务禁用状态。", "classification": "不适用", "selector": "UnifiedConversationRow tool 分支", "verification": "不通过改 DOM 属性伪造生产禁用支持。" }
+      ],
+      "gaps": ["没有取得 Claude tool use 专用 hover、focus、展开状态的完整规范；通用 CDS 原则仅作参考。", "默认态和状态图标仍混用旧变量，不能宣称工具调用条已完整迁移。"]
+    }
+  ],
+  "limitations": [
+    "原规则、静态实现证据、LXE 实测分开记录；本地实测通过不会提高上游证据等级。",
+    "展示页使用示例数据；不连接真实会话、配置、账号或命令执行。",
+    "未进行完整对比度、读屏、触屏或所有平台审计。",
+    "hover 与 focus 用真实浏览器交互触发；按下态可自然操作，但本轮没有独立的 pressed 视觉规范或验收断言。"
+  ]
+}

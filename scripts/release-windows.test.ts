@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkflow, type WorkflowPorts } from "./release-windows";
-import { sha512, writeJsonAtomic } from "./release-candidate";
+import { sha512, writeJsonAtomic, type ReleaseCandidate } from "./release-candidate";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "lxe release fixture "));
@@ -12,6 +12,7 @@ function fixture() {
   writeFileSync(join(root, "config", "desktop-release.json"), JSON.stringify(release));
   const directory = join(root, "dist", "desktop-candidates"), current = join(directory, "current.json");
   const calls: string[][] = [], logs: string[] = [];
+  const githubReleases: ReleaseCandidate[] = [];
   let commit = "a".repeat(40), dirty = false;
   const build = "fixture-build";
   const candidate = join(directory, build, "candidate.json");
@@ -24,6 +25,11 @@ function fixture() {
   };
   const ports: WorkflowPorts = { root, platform: "win32", arch: "x64", source: () => ({ commit, dirty }),
     interactive: true, confirm: async () => "y", log: text => logs.push(text),
+    githubRelease: record => {
+      expect(calls.at(-1)?.slice(-2)).toEqual(["-Candidate", candidate]);
+      githubReleases.push(record);
+      return `https://github.com/example/project/releases/tag/v${record.version}`;
+    },
     run: async (command, environment) => {
       calls.push(command);
       if (command.includes("desktop:dist:win")) {
@@ -32,7 +38,7 @@ function fixture() {
       }
     },
   };
-  return { root, directory, current, candidate, file, calls, logs, ports, create,
+  return { root, directory, current, candidate, file, calls, logs, githubReleases, ports, create,
     commit: () => { commit = "b".repeat(40); }, dirty: () => { dirty = true; },
     state: () => JSON.parse(readFileSync(current, "utf8")), cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -47,6 +53,8 @@ test("build installs frozen dependencies, verifies and builds once, then publish
     await runWorkflow("publish", f.ports);
     expect(f.calls.at(-1)?.slice(-2)).toEqual(["-Candidate", f.candidate]);
     expect(f.logs.join("\n")).toContain("测试发布：中文说明");
+    expect(f.githubReleases).toEqual([JSON.parse(readFileSync(f.candidate, "utf8"))]);
+    expect(f.logs.join("\n")).toContain("GitHub Release: https://github.com/example/project/releases/tag/v0.2.19");
     expect(existsSync(join(f.directory, "workflow.lock"))).toBe(false);
     expect(readdirSync(f.directory).some(name => name.endsWith(".tmp"))).toBe(false);
   } finally { f.cleanup(); }
@@ -83,6 +91,7 @@ for (const scenario of ["missing", "corrupt", "building", "traversal", "commit",
       if (scenario === "missing-artifact") rmSync(f.file);
       await expect(runWorkflow("publish", f.ports)).rejects.toThrow();
       expect(f.calls).toHaveLength(0);
+      expect(f.githubReleases).toHaveLength(0);
     } finally { f.cleanup(); }
   });
 }
@@ -125,9 +134,10 @@ for (const scenario of ["cancel", "noninteractive", "change-during-confirm", "pu
       if (scenario === "publish-retry") {
         const original = f.ports.run!; f.ports.run = async () => { throw new Error("actual upload failure"); };
         await expect(runWorkflow("publish", f.ports)).rejects.toThrow("actual upload failure");
+        expect(f.githubReleases).toHaveLength(0);
         expect(f.state().status).toBe("ready");
         f.ports.run = original; await runWorkflow("publish", f.ports); expect(f.calls).toHaveLength(1);
-      } else expect(f.calls).toHaveLength(0);
+      } else { expect(f.calls).toHaveLength(0); expect(f.githubReleases).toHaveLength(0); }
     } finally { f.cleanup(); }
   });
 }
@@ -170,5 +180,30 @@ test("publisher rejects metadata replacement during confirmation", async () => {
     };
     await expect(runWorkflow("publish", f.ports)).rejects.toThrow("Candidate changed during confirmation");
     expect(f.calls).toHaveLength(0);
+  } finally { f.cleanup(); }
+});
+
+test("GitHub failure reports COS success, keeps the candidate ready and permits retry", async () => {
+  const f = fixture(); try {
+    await runWorkflow("build", f.ports);
+    const original = f.ports.githubRelease!;
+    f.ports.githubRelease = () => { throw new Error("gh: Bad credentials (HTTP 401)"); };
+    await expect(runWorkflow("publish", f.ports)).rejects.toThrow("COS publication succeeded; GitHub Release recording failed");
+    expect(f.state().status).toBe("ready");
+    expect(existsSync(join(f.directory, "workflow.lock"))).toBe(false);
+    await expect(runWorkflow("publish", f.ports)).rejects.toThrow("gh: Bad credentials (HTTP 401)");
+    f.ports.githubRelease = original;
+    await runWorkflow("publish", f.ports);
+    expect(f.githubReleases).toHaveLength(1);
+  } finally { f.cleanup(); }
+});
+
+test("GitHub receives the published candidate even if HEAD changes while uploading", async () => {
+  const f = fixture(); try {
+    await runWorkflow("build", f.ports);
+    const original = f.ports.run!;
+    f.ports.run = async (command, env) => { await original(command, env); f.commit(); };
+    await runWorkflow("publish", f.ports);
+    expect(f.githubReleases[0]?.source_commit).toBe("a".repeat(40));
   } finally { f.cleanup(); }
 });

@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
   const service = new host.FilePreviewService(() => ({
     resolveWorkspaceDirectory: async id => { if (!exists) throw new Error('Session not found'); if (id === 's') return workspace; if (id === 'other') return other; throw new Error('Session not found'); },
     resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImagePreview: async () => undefined,
-  }), new host.OfficePreviewCache(join(profile, 'cache'), 'node', 'cli'), { openPath: async () => '', revealPath: () => {} }, { list: async () => [], open: async () => {} });
+  }), new host.OfficePreviewCache(join(profile, 'cache'), 'cli'), { openPath: async () => '', revealPath: () => {} }, { list: async () => [], open: async () => {} });
   const dispose = host.registerDesktopIpc({
     isTrustedFileSender: event => !!win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame,
     fileCall: call => service.call(call), fileRead: (handle, image) => service.read(handle, image), fileReadText: (handle, range) => service.readText(handle, range),

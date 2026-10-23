@@ -169,6 +169,9 @@ const kimiClassification = (status: number, text: string): Classification => {
 
 const deepseekClassification = (status: number, text: string): Classification => {
   const label = "DeepSeek";
+  if (status === 413 || text.includes("failed to buffer the request body: length limit exceeded")) return {
+    category: "请求体过大", userMessage: `${label} 请求体超过字节上限，请减少图片或压缩文字和工具历史。`, retryable: false,
+  };
   if (contextOverflow(text)) return {
     category: "格式错误",
     userMessage: `${label} 上下文超过限制，已尝试压缩历史后仍无法发送，请缩短输入后重试。`,

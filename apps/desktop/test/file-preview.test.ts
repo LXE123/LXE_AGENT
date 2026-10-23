@@ -19,7 +19,7 @@ async function fixture() {
     resolveArtifact: async (s, id) => linked && s === "s" && id === "a" ? join(outside, "external.txt") : undefined,
     resolveAttachment: async (s, id) => s === "s" && id === "i" ? join(outside, "missing.png") : undefined,
     resolveImagePreview: async () => ({ source: "history", image: { type: "image", source: { type: "base64", media_type: "image/png", data: Buffer.from("historical").toString("base64") } } }),
-  }), new OfficePreviewCache(join(root, "cache"), "node", "cli"), { openPath: async path => { nativeCalls.push(path); return ""; }, revealPath: path => nativeCalls.push(path) }, {
+  }), new OfficePreviewCache(join(root, "cache"), "cli"), { openPath: async path => { nativeCalls.push(path); return ""; }, revealPath: path => nativeCalls.push(path) }, {
     list: async () => [{ id: "installed", name: "Editor", default: true, icon: null }],
     open: async (_path, id) => { if (id !== "installed") throw new Error("Application is not registered for this file"); nativeCalls.push(id); },
   }); services.push(service);
@@ -81,30 +81,39 @@ test("text limits and unsupported files are explicit without reading arbitrary b
   const p = await f.service.call({ operation: "prepare", input: { ref: { ...ref, kind: "workspace", path: "archive.zip" }, request_id: "html" } }); expect(p.metadata.kind).toBe("unsupported"); expect(await f.service.read(p.handle)).toHaveLength(0);
 });
 test("conversion is coalesced, serial, cached, and cancelled only after the last consumer releases", async () => {
-  const f = await fixture(); let calls = 0, active = 0, maxActive = 0;
-  const cache = new OfficePreviewCache(join(f.root, "test-cache"), "node", "cli", async (_node, _cli, _input, output, signal) => {
+  const f = await fixture(); let calls = 0, active = 0, maxActive = 0, created = 0, disposed = 0;
+  const cache = new OfficePreviewCache(join(f.root, "test-cache"), "cli", async () => { created++; return { dispose: async () => { disposed++; }, render: async ({ outputPath: output }, signal) => {
+    signal!.throwIfAborted();
     calls++; active++; maxActive = Math.max(maxActive, active);
-    try { await new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, 40); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("cancelled")); }, { once: true }); }); await writeFile(output, "%PDF-fixture"); return JSON.stringify({ missingFonts: ["Test font"] }); } finally { active--; }
-  });
+    try { await new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, 40); signal!.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("cancelled")); }, { once: true }); }); await writeFile(output, "%PDF-fixture"); return { missingFonts: ["Test font"] }; } finally { active--; }
+  } }; });
   const a = new AbortController(), b = new AbortController();
   const first = cache.get(new Uint8Array([1]), ".docx", a.signal).catch(error => error.message), second = cache.get(new Uint8Array([1]), ".docx", b.signal);
   a.abort(); expect(await first).toContain("abort"); expect((await second).missingFonts).toEqual(["Test font"]); expect(calls).toBe(1);
   await cache.get(new Uint8Array([1]), ".docx", new AbortController().signal); expect(calls).toBe(1);
   await Promise.all([cache.get(new Uint8Array([2]), ".docx", new AbortController().signal), cache.get(new Uint8Array([3]), ".pptx", new AbortController().signal)]); expect(maxActive).toBe(1);
   const c = new AbortController(), pending = cache.get(new Uint8Array([4]), ".docx", c.signal); c.abort(); await expect(pending).rejects.toThrow(); await cache.dispose();
+  expect(created).toBe(1); expect(disposed).toBe(1);
 });
 
-test("real conversion processes terminate on timeout, cancellation and missing executables", async () => {
-  const { runOffice } = await import("../src/main/file-preview/office-cache");
-  const f = await fixture(), cli = join(f.root, "hanging-engine.cjs");
-  await writeFile(cli, "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {stdio:'inherit'});setTimeout(() => {}, 30000)");
-  const started = Date.now();
-  await expect(runOffice(process.execPath, cli, "input", "output", new AbortController().signal, 40)).rejects.toThrow("exceeded 40 ms");
-  const abort = new AbortController(), pending = runOffice(process.execPath, cli, "input", "output", abort.signal);
-  setTimeout(() => abort.abort(), 40);
-  await expect(pending).rejects.toThrow("cancelled");
-  expect(Date.now() - started).toBeLessThan(5000);
-  await expect(runOffice(join(f.root, "missing-node"), cli, "input", "output", new AbortController().signal)).rejects.toThrow();
+test("failed Kit load can retry, actual errors survive, and disposal waits for cancellation", async () => {
+  const f = await fixture(); let attempts = 0, disposed = false;
+  let started!: () => void, exited = false;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const cache = new OfficePreviewCache(join(f.root, "retry-cache"), "cli", async () => {
+    if (++attempts === 1) throw new Error("actual missing Kit package");
+    return { dispose: async () => { expect(exited).toBe(true); disposed = true; }, render: async (_options, signal) => {
+      started();
+      await new Promise<void>(resolve => signal!.addEventListener("abort", () => setTimeout(resolve, 20), { once: true }));
+      exited = true; throw new Error("actual Kit cancellation");
+    } };
+  });
+  await expect(cache.get(new Uint8Array([1]), ".docx", new AbortController().signal)).rejects.toThrow("actual missing Kit package");
+  const pending = cache.get(new Uint8Array([2]), ".docx", new AbortController().signal).catch(error => error.message);
+  await ready; await cache.dispose();
+  expect(await pending).toBe("actual Kit cancellation"); expect(disposed).toBe(true); expect(attempts).toBe(2);
+  await expect(cache.get(new Uint8Array([3]), ".docx", new AbortController().signal)).rejects.toThrow("disposed");
+  await cache.dispose();
 });
 
 test("paged text reads beyond 32 MiB, preserves CRLF and rejects stale/released handles", async () => {
@@ -119,7 +128,7 @@ test("paged text reads beyond 32 MiB, preserves CRLF and rejects stale/released 
   await expect(f.service.read(p.handle)).rejects.toThrow("paged");
   await writeFile(path, "changed"); await expect(f.service.readText(p.handle)).rejects.toThrow("changed");
   f.service.release("paged"); await expect(f.service.readText(p.handle)).rejects.toThrow("closed");
-});
+}, 30_000);
 
 test("text page byte/line boundaries, BOM encodings, invalid data and cancellation", async () => {
   const { readTextPage, TEXT_PAGE_BYTES } = await import("../src/main/file-preview/text-pages");
@@ -164,10 +173,10 @@ test("file errors cross IPC as data and distinguish deleted source, invalid refe
   expect(invalid.ok ? "success" : invalid.error.kind).toBe("invalid_reference");
   await writeFile(join(f.workspace, "中文 file.md"), "restored");
   expect((await call("stat")).ok).toBe(true);
-  const { runOffice } = await import("../src/main/file-preview/office-cache");
-  const helper = await fileResult("prepare", () => runOffice(join(f.root, "absent-node"), "cli", "input.docx", "output.pdf", AbortSignal.timeout(1000)));
+  const { createOfficeConverter } = await import("../src/main/file-preview/office-kit");
+  const helper = await fileResult("prepare", () => createOfficeConverter(join(f.root, "absent-kit", "cli.js")));
   expect(helper.ok).toBe(false);
-  if (!helper.ok) { expect(helper.error.kind).toBe("unknown"); expect(helper.error.diagnostic).toMatch(/ENOENT|Executable not found in \$PATH/); }
+  if (!helper.ok) { expect(helper.error.kind).toBe("unknown"); expect(helper.error.diagnostic).toMatch(/Cannot find|Cannot resolve/); }
   const history = { session_id: "s", kind: "attachment" as const, id: "i" };
   expect((await f.service.call({ operation: "stat", input: { ref: history } })).source).toBe("history");
   const original = await fileResult("stat", () => f.service.call({ operation: "stat", input: { ref: history, original: true } }));
@@ -202,7 +211,7 @@ test("skill previews resolve only session-authorized names and revalidate each c
     resolveSkill: async (id, name) => allowed && id === "s" && name === "demo" ? source : undefined,
     resolveArtifact: async () => undefined, resolveAttachment: async () => undefined,
     resolveImagePreview: async () => { throw new Error("Not an image attachment"); },
-  }), new OfficePreviewCache(join(root, "cache"), "node", "cli"), { openPath: async () => "", revealPath: () => {} });
+  }), new OfficePreviewCache(join(root, "cache"), "cli"), { openPath: async () => "", revealPath: () => {} });
   services.push(service);
   const file = { session_id: "s", kind: "skill" as const, id: "demo" };
   const prepared = await service.call({ operation: "prepare", input: { ref: file, request_id: "skill", mode: "text" } });

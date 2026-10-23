@@ -23,11 +23,19 @@ const server = new AgentProtocolServer({
           const user = [...request.messages].reverse().find(message => message.role === "user" && !message.environmentContext);
           const prompt = typeof user?.content === "string" ? user.content : JSON.stringify(user?.content);
           const single = prompt?.includes("fixture:single");
+          const four = prompt?.includes("fixture:four");
           const allSingle = prompt?.includes("fixture:all-single");
           return { id: crypto.randomUUID(), role: "assistant", timestamp: Date.now(), api: "anthropic_messages", provider: "fixture", model: "fixture",
             stopReason: ask ? "toolUse" : "stop", usage: { input_tokens: 1, output_tokens: 1, status: "complete" },
-            content: ask ? [{ type: "tool_call", id: crypto.randomUUID(), name: "ask_user_question", arguments: { questions: single ? [
-              { id: "single", question: "这次需要优先处理哪一项？请结合店铺目前的运营情况、资料准备进度和已安排的工作，选择最适合的一项；也可以填写自己的处理建议。", options: Array.from({ length: 8 }, (_, i) => ({ label: `方案 ${i + 1}`, description: "整理本周需要处理的商品资料，核对库存与订单，并保留已发布内容。".repeat(3) })) },
+            content: ask ? [{ type: "tool_call", id: crypto.randomUUID(), name: "ask_user_question", arguments: { questions: four ? [
+              { id: "four", question: "这次优先处理哪项店铺工作？", options: [
+                { label: "整理商品资料", description: "检查标题、图片和规格，补齐待发布的商品信息。" },
+                { label: "核对库存", description: "确认可售库存和补货计划，优先处理缺货商品。" },
+                { label: "跟进订单", description: "整理待发货与异常订单，确认后续处理安排。" },
+                { label: "查看经营概况", description: "汇总近期销量与费用，保留原始数据供核对。" },
+              ] },
+            ] : single ? [
+              { id: "single", question: "这次需要优先处理哪一项？请结合店铺目前的运营情况、资料准备进度和已安排的工作，选择最适合的一项；也可以填写自己的处理建议。", options: Array.from({ length: 4 }, (_, i) => ({ label: `方案 ${i + 1}`, description: "整理本周需要处理的商品资料，核对库存与订单，并保留已发布内容。".repeat(5) })) },
             ] : allSingle ? ["one", "two", "three"].map(id => ({
               id, question: `问题 ${id}：选择哪个店铺？`, options: [{ label: "店铺 A" }, { label: "店铺 B" }],
             })) : [

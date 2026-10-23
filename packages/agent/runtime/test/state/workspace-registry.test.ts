@@ -22,9 +22,9 @@ test("empty registrations, names and the former default survive restarts and las
   try {
     expect(store.listSessionWorkspaces().items).toMatchObject([{ directory: a, session_count: 0, display_name: null }]);
     const initial = store.registerWorkspace(b);
-    expect(store.renameWorkspace(b, "  My work  ")?.display_name).toBe("My work");
+    expect(store.renameWorkspace(initial.workspace_id, "  My work  ")?.display_name).toBe("My work");
     expect(store.registerWorkspace(b)).toEqual({ ...initial, display_name: "My work" });
-    store.renameWorkspace(a, "My work"); // Aliases need not be unique.
+    store.renameWorkspace(store.registerWorkspace(a).workspace_id, "My work"); // Aliases need not be unique.
     await store.ensureSession({ session_id: "last", workspace: { directory: b, worktree: root }, source: {} });
     expect(store.listSessionWorkspaces().items.find(row => row.directory === b)?.session_count).toBe(1);
     await store.deleteSession("last");
@@ -34,7 +34,7 @@ test("empty registrations, names and the former default survive restarts and las
     await store.start();
     expect(store.listSessionWorkspaces().items).toHaveLength(2);
     expect(store.listSessionWorkspaces().items.every(row => row.display_name === "My work" && row.session_count === 0)).toBe(true);
-    expect(store.renameWorkspace(b, " \n ")?.display_name).toBeNull();
+    expect(store.renameWorkspace(initial.workspace_id, " \n ")?.display_name).toBeNull();
     expect(store.renameWorkspace(join(root, "missing"), "name")).toBeUndefined();
     await store.stop();
     store = new SqliteRuntimeStore(path);
@@ -52,14 +52,14 @@ test("upgrade backfills exact historical paths once, including unavailable direc
   await store.ensureSession({ session_id: "old", workspace: { directory: historical, worktree: historical }, source: {} });
   await store.stop();
   const db = new Database(path);
-  db.exec("DROP TABLE agent_workspaces");
+  db.exec("DROP TABLE agent_workspaces; DROP INDEX idx_agent_sessions_group; ALTER TABLE agent_sessions DROP COLUMN workspace_id");
   db.query("UPDATE agent_sessions SET created_at = 12 WHERE session_id = 'old'").run();
   db.close();
   store = new SqliteRuntimeStore(path);
   await store.start();
   try {
     expect(store.listSessionWorkspaces().items).toMatchObject([{ directory: historical, created_at: 12, session_count: 1 }]);
-    store.renameWorkspace(historical, "Offline project");
+    store.renameWorkspace(store.listSessionWorkspaces().items[0]!.workspace_id, "Offline project");
     await store.stop();
     store = new SqliteRuntimeStore(path);
     await store.start();
@@ -76,7 +76,7 @@ test("database failures propagate and session registration is atomic", async () 
   try {
     store.registerWorkspace(root);
     db.exec("CREATE TRIGGER refuse_workspace_rename BEFORE UPDATE ON agent_workspaces BEGIN SELECT RAISE(ABORT, 'fixture rename denied'); END");
-    expect(() => store.renameWorkspace(root, "New name")).toThrow("fixture rename denied");
+    expect(() => store.renameWorkspace(store.registerWorkspace(root).workspace_id, "New name")).toThrow("fixture rename denied");
     expect(store.listSessionWorkspaces().items[0]?.display_name).toBeNull();
     db.exec("CREATE TRIGGER refuse_session BEFORE INSERT ON agent_sessions BEGIN SELECT RAISE(ABORT, 'fixture session denied'); END");
     const directory = join(root, "new");

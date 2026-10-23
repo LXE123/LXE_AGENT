@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ArrowLeft, ArrowRight, Compass, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
 import type { BrowserSnapshot, ManualToolEvent, TerminalSnapshot } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
 import type { PreviewTab } from "./layout-state";
@@ -10,7 +10,7 @@ export function toolBridge() { if (!window.lxe?.tools) throw new Error("Manual t
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 export function StartPanel({ open }: { open: (kind: "tree" | "terminal" | "browser") => void }) {
   const t = useUiText();
-  return <div className="tools-start"><Compass size={54} strokeWidth={1.2} aria-hidden="true" />
+  return <div className="tools-start">
     {([ ["tree", FolderOpen, t.filePreview.files, t.manualTools.filesDescription], ["terminal", TerminalSquare, t.manualTools.newTerminal, t.manualTools.terminalDescription], ["browser", Globe, t.manualTools.browser, t.manualTools.browserDescription] ] as const).map(([kind, Icon, title, description]) =>
       <button key={kind} onClick={() => open(kind)}><Icon size={24} /><span><strong>{title}</strong><small>{description}</small></span></button>)}
   </div>;

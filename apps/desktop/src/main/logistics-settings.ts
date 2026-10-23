@@ -14,7 +14,7 @@ type Options = DesktopInputAssetsOptions & { environment: () => NodeJS.ProcessEn
 type StoredProfile = Omit<DesktopLogisticsProfile, "password_configured"> & { credential_id: string | null };
 type StoredState = Omit<DesktopLogisticsSettingsState, "profiles"> & { profiles: StoredProfile[] };
 
-/** Private fixed-module bridge; Python owns business input storage. */
+/** Fixed internal CLI contract; Python owns business input storage. */
 export class DesktopLogisticsSettingsService {
   private readonly credentials: DesktopLogisticsCredentialStore;
   private readonly loginChildren = new Set<ChildProcess>();
@@ -26,8 +26,8 @@ export class DesktopLogisticsSettingsService {
   private async call(action: "read" | "snapshot" | "save" | "delete", request?: object): Promise<StoredState> {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
-    const args = ["-I", "-B", "-m", "services.agent_cli.logistics.settings", action,
-      ...(request ? [JSON.stringify(request)] : [])];
+    const args = ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "settings", "--action", action,
+      ...(request ? ["--request", JSON.stringify(request)] : [])];
     const environment = { ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
       TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
     const safe = (message: string): string => {
@@ -44,12 +44,13 @@ export class DesktopLogisticsSettingsService {
           execFile(this.options.pythonPath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
         });
     } catch (error) { throw new Error(safe(error instanceof Error ? error.message : String(error))); }
-    let result: { success?: boolean; data?: StoredState; error?: string } | undefined;
-    try { result = JSON.parse(execution.stdout.trim()); } catch { /* Include actual diagnostics below. */ }
-    if (execution.error || result?.success !== true || !result.data || result.data.schema_version !== 3
+    let terminal: { type?: string; ok?: boolean; data?: { success?: boolean; data?: StoredState }; error?: { message?: string } } | undefined;
+    try { terminal = JSON.parse(execution.stdout.trim().split(/\r?\n/u).at(-1) ?? ""); } catch { /* Include actual diagnostics below. */ }
+    const result = terminal?.data;
+    if (execution.error || terminal?.type !== "result" || terminal.ok !== true || result?.success !== true || !result.data || result.data.schema_version !== 3
       || !Number.isSafeInteger(result.data.revision) || result.data.revision < 0
       || !Array.isArray(result.data.profiles) || !Array.isArray(result.data.providers)) {
-      throw new Error(safe([result?.error, execution.stderr, execution.error?.message,
+      throw new Error(safe([terminal?.error?.message, execution.stderr, execution.error?.message,
         `Logistics settings response: ${execution.stdout}`].filter(Boolean).join("\n")));
     }
     return result.data;
@@ -107,7 +108,7 @@ export class DesktopLogisticsSettingsService {
       if (credential.provider_id !== profile.provider_id || credential.login_username !== profile.login_username) throw new Error("Encrypted credential identity does not match the logistics profile");
       if (this.loginStopping) throw new Error("Logistics login service is stopping");
       signal?.throwIfAborted();
-      const args = ["-I", "-B", "-m", "services.agent_cli.logistics.login_worker"];
+      const args = ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "login-worker"];
       const temporaryRoot = join(this.options.dataRoot, "tmp");
       mkdirSync(temporaryRoot, { recursive: true });
       const environment = { ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
@@ -129,7 +130,10 @@ export class DesktopLogisticsSettingsService {
       // output before returning it, so driver and startup failures cannot leak it.
       let payload: { success?: boolean; error?: unknown } | undefined;
       const stdout = execution.stdout;
-      try { payload = JSON.parse(stdout); } catch { /* Retain actual output below. */ }
+      try {
+        const terminal = JSON.parse(stdout.trim().split(/\r?\n/u).at(-1) ?? "");
+        if (terminal.type === "result" && terminal.ok === terminal.data?.success) payload = terminal.data;
+      } catch { /* Retain actual output below. */ }
       if (!payload || typeof payload.success !== "boolean" || (execution.error && payload.success)) {
         throw new Error(safe([execution.error?.message, execution.stderr, `Logistics login response: ${stdout}`].filter(Boolean).join("\n")));
       }

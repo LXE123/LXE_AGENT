@@ -8,26 +8,16 @@ commands:
 
 # WMS Box Download
 
-## Hard Rules
-
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 使用命令行选项传参，不接受 --input-json、--stdin-json 或旧命令别名。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
-
-- 只执行固定 CLI；不要调用 Python 内部函数。
-- 只在用户明确提到 WMS、装箱数据、托运单 Excel 或创建货件前置装箱文件时使用。
-- 下载前必须明确 `split-mode`：`auto` 或 `original`。用户没说明就先追问。
-- 不要猜测本地路径；以 CLI 返回的 `excel_path` 和 `split_excel_paths` 为准。
-- CLI 失败时保留 `exception` 原文；返回空内容或空文件时，按下方规则追问。
-
-## Required Input
+## 输入与依赖
 
 - `delivery_no`：必须是 `SP` 开头的发货单号。
-- `split-mode`：
+- `split-mode`：按用户选择设置，未说明时先确认。
   - `auto`: 用户说“自动拆分”“按系统默认”“超过 5 箱拆分”。
   - `original`: 用户说“使用原始装箱数据”“原始文件”“不要拆分”“不拆”。
+- 通过 `exec` 调用下方 lxeskill 命令，使用命令行选项传参。API 请求和凭据由 CLI 管理，回复使用其脱敏诊断。
+- CLI 使用当前配置的马帮账号和有效认证缓存；需要恢复认证时创建独立临时会话，桌面使用 Electron 认证窗口，独立 CLI 使用已绑定的 Chrome/Edge。
 
-## Command
+## 执行
 
 ```text
 lxeskill mabang delivery packing-list export --delivery-no <SP单号> --split-mode auto
@@ -37,9 +27,9 @@ lxeskill mabang delivery packing-list export --delivery-no <SP单号> --split-mo
 lxeskill mabang delivery packing-list export --delivery-no <SP单号> --split-mode original
 ```
 
-只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+## 结果处理
 
-## Result Handling
+只把最后一条 `type="result"` 记录作为 terminal，先看 `ok`；下表业务字段均位于 `data`，附件位于 `files`。
 
 | Result | Meaning | 后续创建货件 `consignment_no` |
 |---|---|---|
@@ -47,9 +37,13 @@ lxeskill mabang delivery packing-list export --delivery-no <SP单号> --split-mo
 | `split_mode=auto` 且 `split_required=true` | 超过 5 箱，已按每 5 箱生成拆分文件 | 拆分文件名对应编号，如 `SP2000202021-1` |
 | `split_mode=auto` 且 `split_required=false` | 未超过拆分阈值 | 原始 `ship_no` |
 
-- `success=true`：告诉用户托运单 Excel 已准备好，并保留 `excel_path`。
-- terminal `files` 已按拆分结果选择正式交付文件，非空时一次调用 `send_files(paths=<terminal.files>)`；不要额外发送诊断用原始文件。
-- 如有 `split_excel_paths`，列出这些拆分文件供后续创建货件使用。
-- 如有 `split_skipped_reason`，简要转述。
-- `success=false`：转述 `exception` 原文。若下载返回空内容或空文件（包括非 Excel 报错中响应头和正文均为空），询问用户：“<SP 单号> 的 WMS 装箱数据是否已从 ERP 中删除？”不要仅凭空响应断定数据已删除或接口故障。
+- `ok=true`：告诉用户托运单 Excel 已准备好，业务文件路径见 `data.excel_path`。
+- terminal `files` 是 CLI 校验并按拆分结果选择的正式交付文件，非空时一次调用 `send_files(paths=<terminal.files>)`。
+- 如有 `data.split_excel_paths`，列出这些拆分文件供后续创建货件使用。
+- 如有 `data.split_skipped_reason`，简要转述。
+- `ok=false`：保留 `error.message` 中的实际诊断，说明已确认的失败阶段和观察结果。实际 WMS 下载返回空内容或空文件（包括非 Excel 报错中响应头和正文均为空）时，向用户确认该单装箱数据在 ERP 中是否仍存在。
 - 用户继续创建 Amazon FBA 货件时，切到 `fba-shipment-create`。
+
+认证刷新先读取 FBA `freeToken`，再进入 WMS，因此装箱下载也可能在 `stage=fba_delivery` 失败。认证诊断附在 `error.message` 中，包括 `auth_environment`、阶段和实际异常；等待 token 失败时还有 `details`，可结合 frame、读取次数及 `last_read_error` 判断观察结果。
+
+CLI 已负责认证恢复；认证获取或恢复失败时结束本次尝试并报告诊断。再次刷新会重新提交登录，需用户明确要求后再尝试。

@@ -37,6 +37,7 @@ env/
 .superpowers/
 /.workbuddy/
 .worktrees/
+/doc-fetch-resources/
 
 # Lint/Format cache
 .ruff_cache/

@@ -57,31 +57,6 @@ describe("system prompt builder", () => {
     expect(volatile).not.toContain(`Server ${"scope"}`);
   });
 
-  test("caches the dataset map without embedding the absolute root", () => {
-    const prompt = buildSystemPrompt({
-      platform: "feishu",
-      provider: "anthropic",
-      model: "claude-test",
-      skillPrompt: "",
-      workspace: { directory: "/workspace/project", worktree: "/workspace" },
-      datasets: [
-        { id: "fba_delivery_csv", dir: "fba/delivery_csv", holds: "FBA 发货单 CSV。" },
-        { id: "replenish_store_msku", dir: "replenish/store_msku", holds: "店铺 MSKU 数据。" },
-      ],
-    });
-    const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
-    // The map never changes between turns, so it must sit inside the cached prefix.
-    expect(stable).toContain("## Data Directories");
-    expect(stable).toContain("These lxeskill CLI output directories are relative to artifact_root in the most recent environment_context.");
-    expect(prompt).not.toContain("artifact root given under Workspace");
-    expect(stable).toContain("fba/delivery_csv — FBA 发货单 CSV。");
-    expect(stable).toContain("### replenish");
-    expect(stable).not.toContain("/data/var/artifacts");
-    // The root is supplied by environment context.
-    expect(volatile).not.toContain("Artifact root: /data/var/artifacts");
-    expect(volatile).not.toContain("## Data Directories");
-  });
-
   test("omits the dataset section entirely when no registry is supplied", () => {
     const prompt = buildSystemPrompt({
       platform: "feishu",

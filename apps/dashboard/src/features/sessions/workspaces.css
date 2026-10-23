@@ -3,9 +3,8 @@
 .workspace-index-scroll { flex: 1; min-height: 0; overflow: hidden auto; scrollbar-width: thin; }
 .workspace-group { margin-bottom: 7px; }
 .workspace-group-header { display: flex; align-items: center; border-radius: 8px; min-height: 34px; padding-right: 3px; }
-.workspace-group-header:hover, .workspace-group.is-active > .workspace-group-header { background: var(--sidebar-hover); }
+.workspace-group-header:hover { background: var(--sidebar-hover); }
 .workspace-group-toggle { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; padding: 8px 4px; border: 0; background: transparent; color: var(--sidebar-ink); text-align: left; font: inherit; font-size: .82rem; cursor: pointer; }
-.workspace-group-toggle > svg { flex-shrink: 0; color: var(--sidebar-ink-soft); }
 .workspace-group-toggle > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .workspace-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--sidebar-ink-soft); cursor: pointer; }
 .workspace-icon-button:hover { color: var(--sidebar-ink); background: var(--sidebar-hover); }

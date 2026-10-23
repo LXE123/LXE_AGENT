@@ -240,8 +240,10 @@ def run_private(request: dict) -> dict:
     return safe_output(clean(result))
 
 
-def main() -> int:
+def run(arguments: dict) -> dict:
     try:
+        if arguments:
+            raise ValueError("Private login accepts credentials only on stdin")
         raw = sys.stdin.buffer.read(8193)
         if len(raw) > 8192:
             raise ValueError("Private login input exceeds 8 KiB [truncated]")
@@ -257,6 +259,11 @@ def main() -> int:
                   "error": {"code": "invalid_private_input", "message": diagnostic(f"{type(exc).__name__}: {message}")}}
     else:
         result = run_private(request)
+    return result
+
+
+def main() -> int:
+    result = run({})
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["success"] else 1
 

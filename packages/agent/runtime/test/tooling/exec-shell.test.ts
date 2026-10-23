@@ -225,7 +225,6 @@ describe("ExecShellAdapter", () => {
         LXE_AGENT_SOUL_PATH: "/resources/agent/SOUL.md",
         LXE_SKILLS_ROOT: "/resources/skills",
         LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
-        LXE_LXESKILL_CATALOG_PATH: "/resources/lxeskill/catalog.json",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
         LXE_DATA_ROOT: "/state",
         LXE_ROOT: "/legacy",
@@ -239,7 +238,6 @@ describe("ExecShellAdapter", () => {
 
     expect(environment.LXE_AGENT_SOUL_PATH).toBeUndefined();
     expect(environment.LXE_USER_SKILLS_ROOT).toBeUndefined();
-    expect(environment.LXE_LXESKILL_CATALOG_PATH).toBeUndefined();
     expect(environment.LXE_LLM_CONFIG_ROOT).toBeUndefined();
     expect(environment.LXE_ROOT).toBeUndefined();
     expect(environment.LXE_RESOURCE_ROOT).toBeUndefined();
@@ -300,12 +298,12 @@ describe("ExecShellAdapter", () => {
     );
   });
 
-  test("rejects direct business modules and unsupported Python launcher versions", () => {
+  test("passes business modules through while validating Python launcher versions", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
-    expect(() => shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))
-      .toThrow("through lxeskill");
-    expect(() => shell.normalizeCommand("/work", "cd . && python -m services.agent_cli.demo"))
-      .toThrow("through lxeskill");
+    expect(shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))
+      .toBe("'/work/.venv/bin/python' -m services.agent_cli.demo");
+    expect(shell.normalizeCommand("/work", "cd . && python -m services.agent_cli.demo"))
+      .toBe("cd . && python -m services.agent_cli.demo");
     expect(shell.normalizeCommand("/work", "echo services.agent_cli.demo"))
       .toBe("echo services.agent_cli.demo");
     expect(shell.normalizeCommand("/work", "(Get-Command lxeskill).Source"))

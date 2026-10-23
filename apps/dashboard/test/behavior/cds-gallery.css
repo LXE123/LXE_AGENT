@@ -1,0 +1,76 @@
+/* Gallery chrome only. Sample component paint comes from production styles.
+   Layout overrides below are limited to the sandbox containers. */
+body.cds-gallery-body { margin: 0; height: auto; overflow: auto; background: #fcfcfb; color: #0b0b0b; }
+.gallery-shell { max-width: 1320px; margin: auto; padding: 48px 40px 32px; }
+.gallery-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.gallery-context { margin: 0 0 12px; color: var(--text-soft); font-size: 13px; }
+.gallery-header h1 { margin: 0; font-size: 32px; font-weight: 600; letter-spacing: -.8px; }
+.gallery-description { margin: 12px 0 0; color: var(--text-soft); line-height: 1.7; }
+.gallery-link { color: var(--accent); font-size: 14px; text-decoration: none; }
+.gallery-link:hover { text-decoration: underline; }
+.gallery-toolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 36px; border-bottom: 1px solid var(--border); }
+.gallery-toolbar nav { display: flex; gap: 24px; }
+.gallery-toolbar nav button, .gallery-reset { padding: 12px 0; border: 0; border-radius: 0; background: transparent; color: var(--text-soft); font: inherit; cursor: pointer; }
+.gallery-toolbar nav button { border-bottom: 2px solid transparent; }
+.gallery-toolbar nav button[aria-current] { color: var(--text); border-bottom-color: var(--accent); }
+.gallery-toolbar button:hover { color: var(--text); }
+.gallery-reset { font-size: 13px; }
+.gallery-shell :is(button, a, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.gallery-explanation { display: flex; align-items: baseline; gap: 14px; margin: 22px 0 18px; font-size: 13px; line-height: 1.7; }
+.gallery-explanation p { margin: 0; color: var(--text-soft); }
+.gallery-reuse { flex-shrink: 0; color: var(--text); }
+.gallery-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.gallery-pane { overflow: hidden; border-radius: 12px; border: 1px solid rgb(11 11 11 / 10%); background: white; }
+.gallery-pane h2 { display: flex; justify-content: space-between; align-items: center; margin: 0; padding: 16px 20px; border-bottom: 1px solid rgb(11 11 11 / 10%); font-size: 14px; font-weight: 600; color: #0b0b0b; }
+.gallery-pane h2 small { font-size: 11px; font-weight: 400; color: #52514e; }
+.gallery-pane iframe { display: block; width: 100%; border: 0; background: transparent; }
+.pane-dark { background: #1a1a19; border-color: rgb(255 255 255 / 10%); }
+.pane-dark h2 { color: #f5f4ed; border-bottom-color: rgb(255 255 255 / 10%); }
+.pane-dark h2 small { color: #bfbdb5; }
+.gallery-evidence { margin-top: 40px; scroll-margin-top: 20px; }
+.gallery-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.gallery-section-heading h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.gallery-section-heading span { font-size: 12px; color: var(--text-soft); }
+.gallery-evidence > p { font-size: 13px; color: var(--text-soft); line-height: 1.7; }
+.gallery-table-scroll { overflow-x: auto; }
+.gallery-evidence table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.7; }
+.gallery-evidence th, .gallery-evidence td { padding: 14px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.gallery-evidence thead th { color: var(--text-soft); font-size: 12px; font-weight: 400; }
+.gallery-evidence tbody th { min-width: 140px; font-weight: 500; }
+.gallery-evidence tbody td:last-child { width: 25%; min-width: 165px; }
+.gallery-evidence td p { margin: 6px 0 0; color: var(--text-soft); font-size: 12px; }
+.gallery-tag { display: inline-block; padding: 1px 7px; border-radius: 5px; background: var(--cds-alpha-1); font-size: 11px; }
+.gallery-tag.gap { color: var(--warning); background: var(--warning-soft); }
+.gallery-sources { margin-top: 20px; font-size: 13px; line-height: 1.8; color: var(--text-soft); }
+.gallery-sources summary { cursor: pointer; color: var(--text); }
+.gallery-sources code { overflow-wrap: anywhere; font-size: 11px; }
+.gallery-footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-soft); font-size: 12px; line-height: 1.7; }
+.gallery-footer p { margin: 4px 0; }
+body.cds-sample-body { margin: 0; min-height: 0; height: auto; overflow: auto; background: #fff; }
+:root[data-theme="dark"] body.cds-sample-body { background: #1a1a19; }
+.cds-sample-body #root { min-height: 0; }
+.sample-root { padding: 20px; }
+.sample-intro, .sample-gap { margin: 0 0 16px; color: #52514e; font-size: 12px; line-height: 1.8; }
+:root[data-theme="dark"] :is(.sample-intro, .sample-gap) { color: #bfbdb5; }
+.sample-gap { margin: 18px 0 0; }
+.desktop-settings-theme .desktop-settings-content.gallery-fields { padding: 0; overflow: visible; scrollbar-gutter: auto; }
+.gallery-fields .desktop-field-grid > label { grid-template-columns: minmax(0, 1fr); gap: 9px; padding: 16px 0; }
+.gallery-fields .desktop-field-grid > label small { display: block; color: var(--text-soft); font-size: 11px; font-weight: 400; }
+.gallery-fields input { width: 100%; min-width: 0; }
+.app-sidebar.gallery-sidebar { position: relative; inset: auto; width: 100%; height: auto; max-height: none; padding: 12px; border-radius: 8px; border: 0; transform: none; }
+.gallery-sidebar .sidebar-session-section { min-height: 0; }
+.conversation-feed.gallery-tools { display: block; width: 100%; max-width: none; padding: 12px; margin: 0; overflow: visible; border-radius: 8px; background: var(--conversation-bg); }
+.gallery-tool-case + .gallery-tool-case { margin-top: 18px; }
+.sample-caption { margin: 0 0 6px; color: var(--text-soft); font-size: 12px; }
+.sample-caption code { margin-left: 6px; font-size: 10px; }
+.sample-inspector { margin-top: 20px; padding-top: 12px; border-top: 1px solid rgb(128 128 128 / 20%); font-size: 12px; color: #52514e; }
+:root[data-theme="dark"] .sample-inspector { color: #bfbdb5; }
+.sample-inspector summary { cursor: pointer; }
+.sample-inspector pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.7; }
+@media (max-width: 760px) {
+  .gallery-shell { padding: 28px 18px; }
+  .gallery-header, .gallery-section-heading { align-items: start; flex-direction: column; gap: 14px; }
+  .gallery-header h1 { font-size: 27px; }
+  .gallery-pair { grid-template-columns: minmax(0, 1fr); }
+  .gallery-explanation { flex-direction: column; gap: 5px; }
+}

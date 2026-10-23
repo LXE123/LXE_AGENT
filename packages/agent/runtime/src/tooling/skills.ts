@@ -348,21 +348,10 @@ export class SkillCatalog {
       return `- ${manifest.name} (${manifest.type}): ${manifest.description}\n  Instructions: ${instructions}${commands}`;
     });
     if (rows.length === 0) return "";
-    const hasLxeSkillCommands = manifests.some((manifest) =>
-      manifest.commands.some((command) => /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(command))
-    );
     return [
       "## Available skills",
       "When a request matches a skill, use the read tool to load its SKILL.md before executing its workflow. Follow that file exactly.",
       "Explicit /skill-name references may already supply a <skill_content> block. Follow that block without loading the same skill again.",
-      ...(hasLxeSkillCommands ? [
-        "",
-        "## lxeskill invocation contract",
-        "Before execution, read the matching SKILL.md and use its declared Commands entry.",
-        "For lxeskill, exec.command must contain exactly one command beginning with lxeskill (or lxeskill.cmd on Windows). Do not wrap it with uv, python -m, cd, newlines, pipes, redirects, &&, ||, semicolons, backticks, or $(). Set the working directory with exec.cwd instead.",
-        "Help and diagnostics must also be standalone commands: lxeskill --help, lxeskill list, or lxeskill describe <command-path>.",
-        "After an invocation-format error, read the returned recovery data and make at most one grounded correction. If the correction still violates this contract, stop retrying shell variations and report the failure.",
-      ] : []),
       "",
       ...rows,
     ].join("\n");

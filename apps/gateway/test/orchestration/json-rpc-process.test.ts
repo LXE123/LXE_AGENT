@@ -18,7 +18,7 @@ const create = (mode: string, overrides: Partial<ProcessAgentRuntimeOptions> = {
     command: process.execPath, arguments: [resolve(import.meta.dirname, "fixtures/json-rpc-peer.mjs")],
     cwd: process.cwd(), environment: { ...process.env, RPC_FIXTURE_MODE: mode },
     agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills",
-    lxeskillCatalogPath: "/catalog", llmConfigRoot: "/llm", dataRoot: process.cwd(),
+    llmConfigRoot: "/llm", dataRoot: process.cwd(),
     legacyWorkspace: { directory: process.cwd(), worktree: process.cwd() },
     ...overrides,
   });

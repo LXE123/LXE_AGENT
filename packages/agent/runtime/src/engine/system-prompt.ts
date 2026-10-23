@@ -1,5 +1,4 @@
 import type { WorkspaceContext } from "@lxe/protocol";
-import type { LxeSkillDataset } from "../tooling/lxeskill-command";
 
 export const SYSTEM_PROMPT_CACHE_BREAKPOINT = "<<system-prompt-cache-breakpoint>>";
 
@@ -26,22 +25,6 @@ const ATTACHMENTS = `Attachment metadata is context, not an implicit request to 
 
 const SKILLS = `When an explicit /skill-name reference supplies a <skill_content> block, follow those instructions without reloading that skill. Otherwise, when the user explicitly names an available skill, read its SKILL.md before following its instructions. Before replying, inspect the available skill descriptions. If exactly one skill clearly applies, read its SKILL.md and follow it. If several apply, choose the most specific. If none clearly applies, do not read a SKILL.md. Resolve relative paths from the skill directory and avoid unnecessary external API writes.`;
 
-const DATA_DIRECTORIES_INTRO = `These lxeskill CLI output directories are relative to artifact_root in the most recent environment_context. Directories are partitioned by business module; a directory is shared by every skill in its module, so an upstream skill's output is where a downstream skill reads its input. Use this to know before a call which files a command needs and where its results will appear. Exact filenames are decided at run time — take those from the tool result, not from guesses.`;
-
-const buildDataDirectories = (datasets: readonly LxeSkillDataset[]): string => {
-  if (datasets.length === 0) return "";
-  const byModule = new Map<string, LxeSkillDataset[]>();
-  for (const dataset of [...datasets].sort((left, right) => left.dir.localeCompare(right.dir))) {
-    const module = dataset.dir.split("/")[0] ?? "";
-    byModule.set(module, [...(byModule.get(module) ?? []), dataset]);
-  }
-  const sections = [...byModule.entries()].map(([module, entries]) => [
-    `### ${module}`,
-    ...entries.map((entry) => `- ${entry.dir} — ${entry.holds}`),
-  ].join("\n"));
-  return ["## Data Directories", DATA_DIRECTORIES_INTRO, ...sections].join("\n\n");
-};
-
 export interface BuildSystemPromptOptions {
   soul?: string;
   platform: string;
@@ -50,8 +33,6 @@ export interface BuildSystemPromptOptions {
   skillPrompt: string;
   workspaceInstructions?: string;
   workspace: WorkspaceContext;
-  /** Artifact dataset registry; stable across turns, so it is cached with the prefix. */
-  datasets?: readonly LxeSkillDataset[];
   /** Whether lark-cli resolves in the current exec environment. */
   larkCliAvailable?: boolean;
 }
@@ -66,7 +47,6 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
     `## Error Truthfulness\n${ERROR_EPISTEMICS}`,
     `## Attachment Handling\n${ATTACHMENTS}`,
     `## Skills (mandatory)\n${SKILLS}`,
-    buildDataDirectories(options.datasets ?? []),
   ].filter(Boolean).join("\n\n");
   const volatile = [
     options.larkCliAvailable

@@ -46,7 +46,7 @@ def read_binding() -> str | None:
 def bound_executable() -> str:
     executable = read_binding()
     if not executable:
-        raise ValueError('未绑定认证浏览器，请运行 lxeskill auth browser bind --executable "<Chrome/Edge 可执行文件绝对路径>"')
+        raise ValueError('未绑定认证浏览器，请运行 lxeskill mabang auth browser bind --executable "<Chrome/Edge 可执行文件绝对路径>"')
     if not Path(executable).is_file():
         raise FileNotFoundError(f"绑定的浏览器不存在，请重新绑定: {executable}")
     return executable

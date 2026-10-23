@@ -16,7 +16,7 @@ app.whenReady().then(async () => {
   const service = new FilePreviewService(() => ({
     resolveWorkspaceDirectory: async id => { if (id !== "native-test") throw new Error("Unknown test session"); return root; },
     resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImagePreview: async () => undefined,
-  }), new OfficePreviewCache(join(root, "cache"), "unused", "unused"), { openPath: path => shell.openPath(path), revealPath: path => shell.showItemInFolder(path) });
+  }), new OfficePreviewCache(join(root, "cache"), "unused"), { openPath: path => shell.openPath(path), revealPath: path => shell.showItemInFolder(path) });
   const ref = { session_id: "native-test", kind: "workspace" as const, path: "中文 preview.txt" };
   try {
     const applications = await service.call({ operation: "applications", input: { ref } });

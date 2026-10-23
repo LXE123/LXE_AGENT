@@ -6,16 +6,17 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 
 普通消息写一次；压缩、修复和重置通过最小 `context_patch` 改变“当前模型视图”。这样既能保留完整审计轨迹，也能让下一次模型请求使用更短的上下文。
 
-数据库和文件的完整分工见 [本地状态与数据库](../../../database/local_agent.md)。本篇只解释 transcript 如何写入和 replay。
+数据库和文件的完整分工见 [本地数据与存储](../../../storage/README.md)。本篇只解释 transcript 如何写入和 replay。
 
 ## Transcript v2 事件
 
-每个 session 对应一个 `session_transcripts/<session>.jsonl` 文件。主要事件只有四类：
+每个 session 对应数据目录下的 `db/session_transcripts/<session>.jsonl` 文件。与模型历史及选择相关的主要事件如下；其他审计事件以 transcript 契约为准：
 
 | 事件 | 作用 |
 | --- | --- |
 | `transcript_header` | 标记 transcript 版本和 session |
-| `message` | 保存 user、assistant 或 tool canonical message |
+| `message` | 保存统一消息，包括用户输入、模型响应与工具结果 |
+| `model_selection` | 保存会话模型选择及版本，详见 [会话模型](../session-models.md) |
 | `turn_context` | 记录本轮实际 provider、model、effort 和 context window |
 | `context_patch` | 对当前模型视图做最小删除和插入 |
 
@@ -27,7 +28,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
   "start": 4,
   "delete_count": 18,
   "insert_messages": [
-    {"role": "user", "content": "较早对话已压缩为摘要……"}
+    {"role": "compactionSummary", "summary": "较早对话已压缩为摘要……", "tokensBefore": 220000, "details": {"readFiles": [], "modifiedFiles": []}}
   ],
   "patch_kind": "compaction"
 }
@@ -63,7 +64,11 @@ SQLite 中的 transcript 状态和 Dashboard 分页区间都是可重建索引�
 
 ## 图片与敏感数据
 
-图片第一次交给模型后，持久化时会把 base64 数据换成文本占位，保留“这里曾有图片”的语义，避免后续 turn 反复携带大块二进制。
+transcript 保留图片的原始 Base64，完成、取消或重启后仍可回放，不会因模型已经处理过就统一换成占位。即使原文件被覆盖或删除，历史仍可使用已保存的图片。
+
+压缩可能让较早图片不再进入当前模型视图，但原始记录和历史预览仍在。Dashboard 的消息 DTO 不携带整段 Base64；摘要输入与部分供应商请求可以省略或替换图片，这些都是用途各异的投影，不改写原始 transcript。[DeepSeek 图片请求](../../llm/deepseek-images.md)另有上传和预算策略。
+
+对应验证入口：[跨轮与重启保留](../../../../packages/agent/runtime/test/engine/image-retention.test.ts)、[历史图片预览](../../../../packages/agent/runtime/test/state/history-images.test.ts)。
 
 应用不把认证配置注入 Context。Transcript 会保存实际会话内容，不能把它当作已脱敏日志；用户或工具提供的内容仍需遵守敏感数据处理规则。需要兼容的 opaque thinking 数据可留在模型历史中，但不能原样出现在 summary、日志或 Dashboard 正文中。
 
@@ -79,4 +84,4 @@ Runtime 只直接读取 Transcript v2。带 `replacement_history` 的 v1 整段�
 - SQLite 事务失败不能留下半条 session、route 或 usage 更新。
 - summary 失败、为空或没有降低 token 时，不写 patch，原模型视图保持不变。
 
-实现事实来源是 [Transcript v2](/packages/agent/runtime/src/state/transcript.ts) 和 [Runtime storage](/packages/agent/runtime/src/state/storage.ts)。
+实现事实来源是 [Transcript v2](../../../../packages/agent/runtime/src/state/transcript.ts) 和 [Runtime storage](../../../../packages/agent/runtime/src/state/storage.ts)。

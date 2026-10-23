@@ -20,12 +20,9 @@ from shared.repository import repository_root
 REPO_ROOT = repository_root()
 
 ALLOWED_TOP_LEVEL_DIRECTORIES = {
-    # TS world
     "apps",
     "packages",
-    # Python world
     "python",
-    # Assets and supporting material
     "skills",
     "config",
     "docs",
@@ -178,15 +175,16 @@ def test_lxeskill_cli_container_is_not_a_python_package() -> None:
 
 def test_runtime_docs_do_not_reference_legacy_root_log_paths() -> None:
     legacy_path = re.compile(
-        r"(?<!var/)logs/(?:runtime|feishu_raw_events|agent_traces|sse_wire_traces)"
+        r"(?<!var/)(?<!<data-root>/)(?<!LXE_DATA_ROOT/)logs/"
+        r"(?:runtime|feishu_raw_events|agent_traces|sse_wire_traces)"
     )
     offenders: list[str] = []
-    for relative_path in ("README.md", "docs/harness/logger.md"):
+    for relative_path in ("README.md", "docs/logging.md"):
         text = (REPO_ROOT / relative_path).read_text("utf-8")
         if legacy_path.search(text):
             offenders.append(relative_path)
     assert offenders == [], (
-        "runtime documentation must keep logs under var/logs: "
+        "runtime documentation must resolve log paths from the data root: "
         f"{offenders}"
     )
 

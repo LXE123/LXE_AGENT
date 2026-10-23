@@ -11,3 +11,5 @@ export * from "./managed-llm";
 
 export * from "./user-skills-path";
 export { relocateStoredPath } from "./relocate-path";
+
+export * from "./lxeskill-query";

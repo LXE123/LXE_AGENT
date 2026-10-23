@@ -1,7 +1,7 @@
 import { UnifiedConversationRow } from "../../src/features/sessions/view";
 import { SkillDetailDialog } from "../../src/shared/ui/skill-detail-dialog";
 
-export type MarkdownSurface = "conversation" | "skill";
+export type MarkdownSurface = "conversation" | "streaming" | "skill";
 const noop = () => {};
 const unusedFileAction = async () => { throw new Error("Markdown fixture has no files to open"); };
 
@@ -16,8 +16,10 @@ export function MarkdownFixture({ surface, content }: { surface: MarkdownSurface
   />;
   return <main className="conversation-feed" aria-label="Conversation preview">
     <UnifiedConversationRow row={{ id: "markdown-message", groupId: "markdown-group", turnId: "markdown-turn",
-      kind: "message", presentation: "final", createdAt: 1, status: "completed",
-      message: { role: "assistant", display_group_id: "markdown-group", content } }}
+      kind: "message", presentation: surface === "streaming" ? "process" : "final", createdAt: 1,
+      status: surface === "streaming" ? "running" : "completed",
+      message: { role: "assistant", display_group_id: "markdown-group",
+        content: surface === "streaming" ? [{ type: "text", text: content }] : content } }}
       expanded={false} onToggle={noop} onOpenFile={unusedFileAction}
       onRevealFile={unusedFileAction} onOpenAttachment={unusedFileAction} />
   </main>;

@@ -1,61 +1,42 @@
-# Provider Catalog
+# 模型目录与选择
 
-Runtime resolves a provider descriptor from the local catalog and, for company models, the validated cloud definition. Local model entries live in `config/llm/providers/`; cloud compatibility is defined by [managed-model-definition.ts](/packages/foundation/core/src/managed-model-definition.ts). [provider.ts](/packages/agent/runtime/src/providers/provider.ts) builds the selected runtime descriptor.
+模型目录描述“有哪些模型、通过什么协议调用、支持哪些能力”，凭据单独管理。Runtime 根据所选目录和凭据创建 Provider；它不把一份模型 ID 清单写死在执行循环里。
 
-## Descriptor Contract
+## 本地与公司模型
 
-A descriptor records the stable facts needed to create a provider client:
+| 来源 | 定义在哪里 | 如何使用 |
+| --- | --- | --- |
+| 本地模型 | [`config/llm/providers/`](../../../config/llm/providers) | 个人凭据配合本地定义；独立 CLI 也使用本地目录 |
+| 公司模型 | 经客户端校验的云端模型描述 | Desktop 同步定义与对应凭据，再将结构化状态传给 Gateway 和 agentcli |
 
-- provider identifier and display metadata;
-- API style (Anthropic Messages, OpenAI Completions, or OpenAI Responses) and base URL;
-- authentication environment variable;
-- available model identifiers and labels;
-- context-window and output-token limits;
-- supported thinking levels and provider quirks.
+两类来源分别解析。公司模型不可用时返回配置或授权错误，不自动换用个人 Key 或本地默认模型。设备同步、加密缓存、下架与断网处理统一见 [云端接入手册](../../desktop/cloud-access.md)。
 
-Repository and cloud model definitions contain no credentials; the resolved Runtime descriptor receives the selected key separately. Desktop owns credential selection: company credentials use encrypted storage, while personal model keys use local auth.json. Source Desktop dotenv files do not configure model keys. See [Desktop configuration](../../desktop/README.md#桌面配置与安全).
+## 定义与校验
 
-## Runtime Selection
+模型定义包含供应商和模型标识、展示名称、协议与地址、上下文窗口、输出上限、图片输入能力、thinking／effort 选项及协议兼容参数。目录中的认证环境变量名用于识别凭据配置，不包含实际 Key。
 
-Desktop selects a provider/model pair and passes the resolved configuration to Runtime. The explicit CLI exec entry supplies its own runtime configuration. Runtime validates the model against the selected local catalog or supported cloud definition before starting a request. A configuration update replaces the shared provider snapshot atomically and affects the next turn, not a request already streaming.
+本地解析由 [`llm-provider-catalog.ts`](../../../packages/foundation/core/src/llm-provider-catalog.ts) 负责。公司模型 v3 使用 [`managed-model-definition.ts`](../../../packages/foundation/core/src/managed-model-definition.ts) 的严格契约：
 
-Relevant runtime controls include:
+- 模型 ID 可以尚未出现在本地目录中；供应商、协议和地址仍限于客户端已经支持的路线。
+- 字段、数值范围、输入类型与推理参数必须通过校验，不能下发脚本或任意请求字段。
+- `compat` 的缺省值是本项目行为，不自动跟随外部实现；原始参考保留在 [`pi-compat-reference.txt`](pi-compat-reference.txt)。
 
-- the selected provider and model;
-- the selected thinking or effort level.
+Desktop 优先使用 v3，兼容 v2 和旧格式。定义版本与凭据版本分开处理，修改模型参数不等于重新领取 Key。管理员只改默认项时，客户端保留仍有效的用户选择；同步细节由云端接入手册维护。
 
-The requested output cap comes from the selected model descriptor, with a conservative internal fallback when metadata is absent. Provider inactivity uses the validated descriptor timeout, defaulting to 120 seconds, between connection and stream events. Model context limits come from the local catalog or cloud model definition rather than a global environment setting.
+## 选择与生效
 
-## Protocol And History Adaptation
+每个会话保存自己的 provider、model、凭据来源和推理选项；全局偏好用于新会话。持久化顺序、并发版本与重启恢复见 [会话模型与 effort](../runtime/session-models.md)。
 
-The descriptor selects one of the [three runtime adapters](README.md). The same model family can have protocol-specific tool, reasoning and image requirements; an Anthropic wire rule must not be applied to OpenAI requests.
+一轮开始时取得模型配置快照，普通请求、重试与摘要使用同一轮的 Provider。凭据由该 Provider 首次使用时解析并复用；公司状态随快照固定，本地 Key 在首次解析时从认证配置读取。更新配置供后续 turn 使用，不切换正在流式输出的请求。
 
-Adapters preserve closed tool-call/result relationships and translate canonical history to their wire format. Opaque reasoning signatures, provider item IDs and namespaces are replayed only for a matching source. Unsupported content is adapted for the selected protocol without silently rewriting the persisted transcript. See [Assistant message streaming](../assistant-message-stream.md).
+[`provider.ts`](../../../packages/agent/runtime/src/providers/provider.ts) 校验目标并组装 descriptor，随后由 [LLM 适配层](README.md) 选择协议实现。上下文窗口和输出上限来自当前 descriptor；它们与 Provider 的连接／流事件空闲超时是不同参数。
 
-## Adding A Local Provider Or Model
+认证配置不进入模型上下文。定义文件不保存 Key，`model_selection` 和 `turn_context` 也不保存 Key；桌面与独立 CLI 的配置入口分别见 [Desktop](../../desktop/README.md#桌面配置与安全) 和 [CLI exec](../runtime/agent_cli_exec.md)。
 
-1. Add or update a descriptor under `config/llm/providers/`.
-2. Use an environment-variable name for authentication; never place a key in the descriptor.
-3. Record accurate context, output, and thinking capabilities.
-4. Add catalog tests for parsing, model lookup, and invalid configuration.
-5. Verify the Dashboard options and runtime selection expose the same models.
-6. Exercise streaming text, tool calls, retry classification, and context overflow.
+## 修改与发布
 
-Do not add provider-specific conditionals to the turn loop when the behavior belongs in catalog metadata or provider request adaptation.
+新增本地模型时更新对应定义；若只是已支持协议下的能力参数变化，不必在 turn 循环增加供应商分支。新协议或新请求行为应进入适配层，并验证受影响的消息、工具、图片或推理请求。
 
-## Failure Boundaries
+公司模型按“兼容的云端接口 → 支持该契约的客户端 → 发布新目标／参数”的顺序上线；客户端契约之外的新供应商或协议仍需要代码支持。真实供应商调用属于独立验证，不能从目录解析或本地模拟测试通过推断线上可用。
 
-- Unknown provider/model: configuration error before transport.
-- Missing credential: explicit setup error without printing the credential value.
-- Authentication or permission failure: non-retryable provider error.
-- Rate limit or transient upstream failure: bounded retry according to runtime policy.
-- Context overflow: handed to runtime compaction/recovery rather than treated as an ordinary retry.
-- Unsupported history content: sanitize only the provider request representation and retain a diagnostic reason.
-
-## Company-managed model sets
-
-Desktop prefers the v3 cloud manifest, with v2 and legacy responses retained for compatibility. v3 can publish a model ID absent from the local catalog, provided its supplier, protocol, address and model definition pass the client contract. Personal credentials and local model entries remain a separate source.
-
-The manifest and per-target credentials are encrypted locally and passed to Gateway and Agent CLI as typed state. Each running turn holds its acquired configuration and credentials; updates apply to later turns. Network failures preserve cache, while explicit withdrawal removes the affected target. An unavailable company target must not silently spend a personal key.
-
-Cloud publication, configuration revisions, credential refresh and rollout have one maintained reference: [Cloud model definitions v3](managed-model-catalog.md).
+核对入口：[`目录测试`](../../../packages/foundation/core/test/llm-provider-catalog.test.ts)、[`Provider 测试`](../../../packages/agent/runtime/test/providers/provider.test.ts)及对应协议测试；按实际改动范围选择验证。审查流程统一见 [PR 审查规范](../../pr-review.md)。

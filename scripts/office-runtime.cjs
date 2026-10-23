@@ -13,7 +13,7 @@ function verifyOfficeRuntime(root, platform) {
   }
   const scope = join(root, "node_modules", "@deepseek-ai");
   const kit = readJson(join(scope, "libreoffice-kit", "package.json"));
-  if (kit.version !== "0.1.3") throw new Error(`Unexpected Office Kit version: ${kit.version}`);
+  if (kit.version !== "0.1.5") throw new Error(`Unexpected Office Kit version: ${kit.version}`);
   const engineName = `@deepseek-ai/libreoffice-kit-${platform}`;
   const engineRoot = resolve(scope, `libreoffice-kit-${platform}`);
   const engine = readJson(join(engineRoot, "package.json"));

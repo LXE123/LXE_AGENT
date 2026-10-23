@@ -8,7 +8,7 @@ import type { AgentJob } from "@lxe/protocol";
 const initialize = {
   protocol_version: AGENT_PROTOCOL_VERSION,
   agent_soul_path: "/soul", skills_root: "/skills", user_skills_root: "/user-skills",
-  lxeskill_catalog_path: "/catalog", llm_config_root: "/llm", data_root: process.cwd(),
+  llm_config_root: "/llm", data_root: process.cwd(),
   legacy_workspace: { directory: process.cwd(), worktree: process.cwd() },
 };
 const servers: AgentProtocolServer[] = [];

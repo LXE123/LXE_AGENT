@@ -24,4 +24,4 @@ agent-cli -> desktop-protocol / core / protocol
 - Feishu channel composition must inject `InboundImageProcessorPort`; Desktop supplies the Electron implementation.
 - Machine identity has one implementation in `@lxe/core/machine-identity`; its path and JSON format are unchanged.
 - Gateway policy still decides allowed skill types. `AgentRuntimeHost` turns that authorization into Workspace/ToolRegistry scope and the `LXESKILL_SKILL_SCOPE` passed to Python CLI commands.
-- This ownership migration left NDJSON at v2; strict steering advanced it to v3, truthful inbound diagnostics to v4, and persisted `session.changed` notifications to v5. Typed Dashboard RPC and SQLite ownership remain unchanged.
+- This ownership migration left the Agent business protocol at v2; strict steering advanced it to v3, truthful inbound diagnostics to v4, and persisted `session.changed` notifications to v5. These are historical business protocol versions, separate from the JSON-RPC 2.0 envelope and JSONL framing used by the [current transport](../desktop/gateway/agent-protocol.md). Typed Dashboard RPC and SQLite ownership remain unchanged.

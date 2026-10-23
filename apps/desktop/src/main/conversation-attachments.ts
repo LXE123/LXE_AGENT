@@ -14,8 +14,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { DashboardRpcError, type DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
 
-const DEFAULT_TTL_MS = 30 * 60 * 1_000;
-
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".pdf": "application/pdf",
   ".doc": "application/msword",
@@ -43,7 +41,6 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
 
 export type StagedConversationAttachment = DesktopDraftAttachmentPayload & {
   path: string;
-  expires_at: number;
   origin: "reference" | "screenshot";
 };
 
@@ -56,18 +53,14 @@ const invalidAttachment = (message: string): never => {
   throw new DashboardRpcError("invalid_argument", message);
 };
 
+/** Draft attachments live until sent, explicitly discarded, or cleared on shutdown. */
 export class DesktopConversationAttachmentService {
   private readonly staged = new Map<string, StagedConversationAttachment>();
   private readonly sending = new Map<string, { discardRequested: boolean }>();
 
-  constructor(
-    private readonly now: () => number = Date.now,
-    private readonly ttlMs = DEFAULT_TTL_MS,
-    private readonly screenshots?: ScreenshotStorage,
-  ) {}
+  constructor(private readonly screenshots?: ScreenshotStorage) {}
 
   register(paths: readonly string[]): DesktopDraftAttachmentPayload[] {
-    this.prune();
     // Validate the complete batch before publishing any draft IDs.
     const files = [...new Map(paths.map((path) => {
       const file = this.inspect(path);
@@ -83,7 +76,6 @@ export class DesktopConversationAttachmentService {
         path: file.path,
         origin: "reference",
         reference_key: createHash("sha256").update(file.path).digest("hex"),
-        expires_at: this.now() + this.ttlMs,
       };
       this.staged.set(staged.attachment_id, staged);
       selected.push(staged);
@@ -99,7 +91,6 @@ export class DesktopConversationAttachmentService {
       return invalidAttachment("Clipboard payload must contain either file paths or images");
     }
     if (paths.length) return this.register(paths);
-    this.prune();
     if (images.length === 0 || images.length > MAX_CONVERSATION_SCREENSHOTS) return invalidAttachment("Paste must contain between 1 and 5 screenshots");
     for (const image of images) {
       if (!(image instanceof Uint8Array) || image.byteLength === 0 || image.byteLength > MAX_SCREENSHOT_BYTES) {
@@ -125,7 +116,7 @@ export class DesktopConversationAttachmentService {
         selected.push({
           attachment_id: id, name: basename(path), size_bytes: prepared.png.byteLength,
           media_type: "image/png", path, origin: "screenshot",
-          preview_data_url: prepared.preview, expires_at: this.now() + this.ttlMs,
+          preview_data_url: prepared.preview,
         });
       }
     } catch (cause) {
@@ -137,12 +128,11 @@ export class DesktopConversationAttachmentService {
   }
 
   resolve(attachmentIds: readonly string[]): StagedConversationAttachment[] {
-    this.prune();
     if (attachmentIds.length === 0) invalidAttachment("At least one attachment is required");
     if (new Set(attachmentIds).size !== attachmentIds.length) invalidAttachment("Duplicate attachment IDs are not allowed");
     const items = attachmentIds.map((attachmentId): StagedConversationAttachment => {
       const item = this.staged.get(attachmentId);
-      if (!item) return invalidAttachment("An attachment expired or is no longer available");
+      if (!item) return invalidAttachment("An attachment is no longer available");
       const current = this.inspect(item.path);
       if (item.origin === "screenshot" && current.size > MAX_SCREENSHOT_BYTES) invalidAttachment("Screenshot exceeds the 20 MiB limit");
       return {
@@ -210,13 +200,6 @@ export class DesktopConversationAttachmentService {
     const mediaType = MEDIA_TYPES[extension] ?? "application/octet-stream";
     accessSync(path, constants.R_OK);
     return { path: realpathSync(path), size: stat.size, mediaType };
-  }
-
-  private prune(): void {
-    const now = this.now();
-    for (const [attachmentId, item] of this.staged) {
-      if (item.expires_at <= now && !this.sending.has(attachmentId)) this.discard([attachmentId]);
-    }
   }
 
   private removeScreenshot(path: string): void {

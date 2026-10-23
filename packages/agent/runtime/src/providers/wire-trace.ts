@@ -54,7 +54,10 @@ const prepareWireValue = (
     return `[redacted thinking data omitted: ${textLength(value)} chars]`;
   }
   if (value === null || value === undefined || typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return truncateWireText(value.replaceAll(ABSOLUTE_PATH, "<path>"));
+  if (typeof value === "string") {
+    if (/^data:image\/[a-z0-9.+-]+;base64,/iu.test(value)) return `[image data URL omitted: ${value.length} chars]`;
+    return truncateWireText(value.replaceAll(ABSOLUTE_PATH, "<path>"));
+  }
   if (typeof value !== "object") return value;
   if (value instanceof Error || value instanceof Date || value instanceof URL) return value;
   if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
@@ -112,6 +115,8 @@ export interface RuntimeWireTraceAttemptContext {
 }
 
 export interface RuntimeWireTraceAttempt {
+  /** Separate physical request after bounded provider-specific recovery. */
+  nextRequest?(): RuntimeWireTraceAttempt;
   requestStart(requestHeaders: JsonObject, requestPayload: JsonObject): void;
   responseStart(statusCode: number, responseHeaders: JsonObject): void;
   event(eventName: string, payload: unknown): void;
@@ -149,6 +154,7 @@ class FileWireTraceAttempt implements RuntimeWireTraceAttempt {
     private readonly sessionId: string,
     private readonly turnId: string,
     private readonly context: RuntimeWireTraceAttemptContext,
+    private readonly requestIndex = 1,
   ) {
     try {
       mkdirSync(dirname(path), { recursive: true });
@@ -175,6 +181,12 @@ class FileWireTraceAttempt implements RuntimeWireTraceAttempt {
       request_headers: sanitizeWireTraceValue(requestHeaders),
       request_payload: sanitizeWireTraceValue(requestPayload),
     });
+  }
+
+  nextRequest(): RuntimeWireTraceAttempt {
+    const index = this.requestIndex + 1;
+    const path = this.path.replace(/(?:_request_\d+)?\.jsonl$/u, `_request_${index}.jsonl`);
+    return new FileWireTraceAttempt(path, this.sessionId, this.turnId, this.context, index);
   }
 
   responseStart(statusCode: number, responseHeaders: JsonObject): void {
@@ -232,6 +244,7 @@ class FileWireTraceAttempt implements RuntimeWireTraceAttempt {
       step: this.context.step,
       attempt: this.context.attempt,
       provider: this.context.provider,
+      request_index: this.requestIndex,
     };
   }
 

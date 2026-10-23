@@ -45,6 +45,7 @@ export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboard
       activeView={capabilityView}
       items={capabilityItems}
       label={t.nav.capabilities}
+      title={t.nav.capabilities}
       onSelect={openCapabilityView}
       actions={capabilityView === "skills" ? <AddSkillMenu disabled={!dashboardRuntimeReady}
         onAdd={() => startSkillConversation("create")} /> : undefined}

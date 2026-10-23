@@ -9,6 +9,10 @@ from urllib.parse import quote, quote_plus, urlsplit
 
 import requests
 
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
+
 BASE_URL = "https://tms.mabangerp.com/tmsapi"
 FIELDS = ["stockSku", "sale3", "sale1", "availableinventory", "sale2", "warehouse",
           "stockQuantity", "allotShippingQuantity", "stockCost", "purchasePrice", "lastInTime", "sale5"]
@@ -97,13 +101,19 @@ class TmsClient:
             raise TmsError("missing_token", self.safe({"reason": "登录响应缺少有效 apiToken", "response": body}))
         self.token = token.strip()
 
-    def list_page(self, page):
-        return self.post("/findMyStockwarehouseList", {**FILTERS, "page": page, "pageSize": 1000})
+    def list_page(self, page, *, warehouse_id=None):
+        payload = {**FILTERS, "page": page, "pageSize": 1000}
+        if warehouse_id is not None:
+            payload["warehouseId"] = warehouse_id
+        return self.post("/findMyStockwarehouseList", payload)
 
-    def export(self, ids):
-        body = self.post("/exportStockwarehouse", {"startNum": None, "pageSize": 1000,
+    def export(self, ids, *, warehouse_id=None):
+        payload = {"startNum": None, "pageSize": 1000,
             "classId": None, "gridproperty": -1, "idsList": ids, "isCombo": 1,
-            "ischecked": False, "orderBys": "2", "status": 1, "stockValueArr": FIELDS})
+            "ischecked": False, "orderBys": "2", "status": 1, "stockValueArr": FIELDS}
+        if warehouse_id is not None:
+            payload["warehouseId"] = warehouse_id
+        body = self.post("/exportStockwarehouse", payload)
         pop = body.get("pop") or (body.get("data") or {}).get("pop")
         if isinstance(pop, dict):
             pop = next((pop[k] for k in ("url", "fileUrl", "downloadUrl", "path") if isinstance(pop.get(k), str)), None)
@@ -117,21 +127,49 @@ class TmsClient:
                 or parsed.username or parsed.password or parsed.port not in (None, 443)):
             raise TmsError("invalid_download_url", "平台返回的下载地址不属于允许的 HTTPS 文件域名")
         self.pace()
+        started = self.clock()
+        status, failure, stage = None, None, "unknown"
         # A separate request prevents platform cookies/token from reaching the download host.
         try:
             with requests.get(url, timeout=(5, 30), stream=True, allow_redirects=False) as response:
+                status, stage = response.status_code, "response_headers"
                 if response.status_code != 200:
                     raise TmsError(f"download_http_{response.status_code}", self.safe(f"HTTP {response.status_code}: {response.text}"))
                 chunks, size = [], 0
+                stage = "response_body"
                 for chunk in response.iter_content(65536):
                     self.check_budget()
                     size += len(chunk)
                     if size > 50_000_000:
                         raise TmsError("download_size_limit", "下载文件超过 50 MB")
                     chunks.append(chunk)
+                stage = "completed"
                 return b"".join(chunks)
         except requests.RequestException as exc:
+            failure = exc
             raise TmsError("download_network_error", self.safe(f"{type(exc).__name__}: {exc}")) from exc
+        except Exception as exc:
+            failure = exc
+            raise
+        finally:
+            # Logging must not override the original download result or exception.
+            try:
+                reason = None
+                if failure is not None:
+                    reason = str(failure).replace(url, "[REDACTED_URL]")
+                    relative_url = parsed.path + ("?" + parsed.query if parsed.query else "")
+                    if relative_url and relative_url != "/":
+                        reason = reason.replace(relative_url, "[REDACTED_URL]")
+                    reason = re.sub(r"(?i)(url:\s*)\S+", r"\1[REDACTED_URL]", reason)
+                    reason = self.safe(reason)
+                logger.info("马帮 TMS 文件 GET %s", json.dumps({
+                    "service": "mabang_tms_file", "elapsed_ms": round((self.clock() - started) * 1000, 3),
+                    "http_status": status, "stage": stage,
+                    "exception_type": type(failure).__name__ if failure is not None else None,
+                    "reason": reason,
+                }, ensure_ascii=False))
+            except Exception:
+                pass
 
     def close(self):
         self.token = ""

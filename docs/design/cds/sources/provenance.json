@@ -1,0 +1,124 @@
+{
+  "extractedAt": "2026-10-18T10:54:42.791Z",
+  "applicationVersion": "2.42304.0",
+  "archive": "/Applications/Claude.app/Contents/Resources/app.asar",
+  "archiveSize": 49233786,
+  "archiveSha256": "bfa22ac393906762fa04b9607ff202907405b089c1ae7db257159202f31bb3d0",
+  "files": [
+    {
+      "archiveMember": "/.vite/build/index.chunk-BaLvO2wi.js",
+      "savedAs": "cds-visualize-bundle.js",
+      "size": 461552,
+      "sha256": "a0420d5047175bd4e8b86e7b12b1f6ce7be8c862899f2c61180f398cc677b2e0"
+    },
+    {
+      "archiveMember": "/.vite/renderer/about_window/window-shared.css",
+      "savedAs": "desktop-window-shared.css",
+      "size": 8078,
+      "sha256": "4718e9ae105d196fbf8928e83493530c7257af0e8d32d2c551fa541bf112aa37"
+    },
+    {
+      "archiveMember": "/.vite/renderer/main_window/assets/MainWindowPage-DTxMhyWF.css",
+      "savedAs": "desktop-main.css",
+      "size": 251089,
+      "sha256": "16ae317b1762db1a556d1b8e6c872eab361a6a7530ffa67962b1682aa4582362"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "cds-tokens-vanilla.original.md",
+      "literalStartCharacter": 691,
+      "literalEndCharacter": 25061,
+      "transformation": "Decode JavaScript string escapes without evaluating source",
+      "sha256": "b8c2ce4c517c4e1e4343447e7dc8a16b5443f5e807e6363b5f7a3692e7cc9be8"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-1.original.md",
+      "literalStartCharacter": 25110,
+      "literalEndCharacter": 36237,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "7879956dae5c8f164aae0d576cdf304333eba718150818ddd6e08f90dd5b38cf"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-2.original.md",
+      "literalStartCharacter": 36258,
+      "literalEndCharacter": 44434,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "08509ba7feaa1149c4efd71a6a2c2d16a3b1c47cd0f952f40035a416b54fa56f"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-3.original.md",
+      "literalStartCharacter": 44441,
+      "literalEndCharacter": 59060,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "5258686f595c47c3f50038bcaaaadb27351a7b25f25da2c809fd7dc8921b54c8"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-4.original.md",
+      "literalStartCharacter": 59063,
+      "literalEndCharacter": 62820,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "3918742dd3f3d8152255227f5b9164143497aef406520267218f34634c38ba69"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-5.original.md",
+      "literalStartCharacter": 63658,
+      "literalEndCharacter": 74281,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "8c8d90cede021ab4fb228e0068e157049559213550866b2bda1df5cdc113ee9f"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-6.original.md",
+      "literalStartCharacter": 74309,
+      "literalEndCharacter": 114907,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "eda9d8744cc42456c778ab053afea3368d62936342be7641926d8f9c4ab29f74"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-7.original.md",
+      "literalStartCharacter": 114921,
+      "literalEndCharacter": 121238,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "eed97b3481a66414a56170f17be4b44ec94edb9ab83bc9d9d6e60e628e5dbdbe"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-8.original.md",
+      "literalStartCharacter": 121241,
+      "literalEndCharacter": 126540,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "930d59a90565eb0d186bd3d19d1a6aa33034ce062831e11bbdf1c4ed6edb4bb2"
+    },
+    {
+      "derivedFrom": "cds-visualize-bundle.js",
+      "savedAs": "embedded-text-9.original.md",
+      "literalStartCharacter": 127521,
+      "literalEndCharacter": 455169,
+      "transformation": "Babel AST decode without execution; template interpolations preserved literally",
+      "sha256": "8525455feb4757a876381506b1302bb8cbc9c6ab759256ae94efb8ff5ca28346"
+    },
+    {
+      "sourceBinary": "/Users/llxx/Library/Application Support/Claude-3p/claude-code/2.1.299/4fa9694b7975/claude.app/Contents/MacOS/claude",
+      "binarySize": 247931696,
+      "binarySha256": "05f5000df42e8d85d468e345539d7bbadb8516c447b00cfb5e10dc61b7786ad2",
+      "savedAs": "artifact-explainer-style.original.txt",
+      "startByte": 244580179,
+      "endByteExclusive": 244584254,
+      "sha256": "946d46715194e0c105655eee117a4a1011cf0fcb7ecc6b486d37f51324d28aba",
+      "transformation": "Exact contiguous binary byte slice; no decoding or reformatting"
+    }
+  ],
+  "derivedAudit": {
+    "parser": "postcss 8.5.16",
+    "declarations": 2070,
+    "uniqueDeclaredNames": 952,
+    "rootDeclarations": 373,
+    "paletteRows": 315
+  }
+}

@@ -78,7 +78,7 @@ def test_catalog_covers_active_business_skills() -> None:
     assert "amazon_logistic_quote" not in catalog
     assert "logistics_rate_import" not in catalog
     assert catalog["mabang_resolve_fba_store"]["owner_skills"]
-    assert catalog["browser_auth_refresh"]["exposed"] is False
+    assert catalog["mabang_auth_refresh"]["exposed"] is False
 
 
 def test_business_adapter_requires_the_run_contract(monkeypatch) -> None:

@@ -62,6 +62,7 @@ test("real stdio MCP images are normalized before history and survive a cold nex
     expect(serialized).toContain("x coordinates by 3.0000 and y coordinates by 2.0000");
     expect(serialized).toContain("Tool image 2 omitted:");
     expect(serialized).toContain("Page title: fixture");
+    expect(serialized).toContain("[MCP structured content]\\nfalse");
     expect(serialized).not.toContain("YWJj");
     expect(images(requests[1])).toEqual(retained);
     expect(JSON.stringify(streams)).not.toContain(String(source.data));
@@ -74,6 +75,7 @@ test("real stdio MCP images are normalized before history and survive a cold nex
     await runtime.start();
     expect((await runtime.runTurn(job("t2"), handle)).status).toBe("completed");
     expect(images(requests.at(-1))).toEqual(retained);
+    expect(JSON.stringify(requests.at(-1))).toContain("[MCP structured content]\\nfalse");
   } finally {
     await runtime.stop();
     await manager.stop();

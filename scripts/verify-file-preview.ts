@@ -11,7 +11,7 @@ await mkdir(output, { recursive: true });
 const service = new FilePreviewService(() => ({
   resolveWorkspaceDirectory: async session => { if (session !== "acceptance") throw new Error("Unknown session"); return root; },
   resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImagePreview: async () => undefined,
-}), new OfficePreviewCache(join(output, "cache"), join(runtime, "node", process.platform === "win32" ? "node.exe" : "node"), join(runtime, "office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js")), { openPath: async () => { throw new Error("No UI launch during conversion test"); }, revealPath: () => {} });
+}), new OfficePreviewCache(join(output, "cache"), join(runtime, "office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js")), { openPath: async () => { throw new Error("No UI launch during conversion test"); }, revealPath: () => {} });
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const reports = [];
 try {
@@ -32,6 +32,6 @@ try {
   await writeFile(join(root, "损坏.docx"), "not a document");
   try { await service.call({ operation: "prepare", input: { ref: { session_id: "acceptance", kind: "workspace", path: "损坏.docx" }, request_id: "broken" } }); throw new Error("Corrupt file falsely succeeded"); }
   catch (error) { if (String(error).includes("falsely succeeded")) throw error; reports.push({ corruptDocumentDiagnostic: String(error) }); }
-  const report = { platform: process.platform, arch: process.arch, engine: "0.1.3", reports };
+  const report = { platform: process.platform, arch: process.arch, engine: "0.1.5", reports };
   await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
 } finally { await service.dispose(); }

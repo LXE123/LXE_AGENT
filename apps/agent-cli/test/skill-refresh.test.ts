@@ -13,9 +13,9 @@ test("runtime initialization scans once; idle time and health checks never resca
   const soul = join(root, "SOUL.md"); writeFileSync(soul, "Test instructions", "utf8");
   const scan = spyOn(SkillCatalog.prototype, "forceRefresh");
   const host = createAgentRuntimeHost({
+    llmConfigRoot: join(source, "config", "llm"),
     dataRoot: root, legacyWorkspace: { directory: root, worktree: root },
     agentSoulPath: soul, skillsRoot: skills, userSkillsRoot: join(root, "user"),
-    llmConfigRoot: join(source, "config", "llm"), lxeskillCatalogPath: join(root, "missing-catalog.json"),
     environment: { LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     emitter: { emit: async () => {}, typing: async () => {} },
   });

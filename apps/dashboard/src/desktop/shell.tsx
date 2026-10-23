@@ -22,6 +22,7 @@ import {
   Palette,
   RotateCcw,
   ScrollText,
+  Search,
   Settings2,
   ShieldCheck,
   Store,
@@ -154,6 +155,28 @@ function DesktopSettingsNavigation({
   onSelect: (section: DesktopSettingsSection) => void;
 }) {
   const t = useUiText();
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLocaleLowerCase();
+  const groups: Array<{ label: string; items: Array<[DesktopSettingsSection, string, string, LucideIcon]> }> = [
+    { label: t.desktop.preferencesGroup, items: [
+      ["appearance", t.desktop.sectionTitles.appearance, t.desktop.fontSizeStatus(fontSizeLabel(t.desktop, fontSize)), Palette],
+      ["base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2],
+      ["cloud", t.desktop.sectionTitles.cloud, cloud.device_context ? t.desktop.cloud.permission.status[cloud.permission_status] : t.desktop.cloudStates[cloud.connection], Cloud],
+      ["usage", t.desktop.sectionTitles.usage, t.desktop.usage.availableBalance, Wallet],
+    ] },
+    { label: t.desktop.integrationsGroup, items: [
+      ["ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe],
+      ["erp", t.desktop.sectionTitles.erp, desktopSettingsSectionStatus(t.desktop, "erp", setup), Store],
+      ["logistics", t.desktop.logistics.title, logisticsSummary, Truck],
+      ["feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather],
+    ] },
+    { label: t.desktop.computerGroup, items: [
+      ...(showStatus ? [["status", t.desktop.sectionTitles.status, t.home.componentStates[health?.gateway ?? "starting"], Activity] as [DesktopSettingsSection, string, string, LucideIcon]] : []),
+      ["logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup), ScrollText],
+    ] },
+  ];
+  const filteredGroups = groups.map(group => ({ ...group, items: group.items.filter(([, label, status]) =>
+    `${group.label} ${label} ${status}`.toLocaleLowerCase().includes(query)) })).filter(group => group.items.length > 0);
   const item = (section: DesktopSettingsSection, label: string, status: string, Icon: LucideIcon) => {
     const dirty = section === "logistics" ? logisticsDirty : desktopSettingsSectionIsDirty(section, form, baseline);
     const active = activeSection === section;
@@ -163,6 +186,7 @@ function DesktopSettingsNavigation({
         className={`desktop-settings-nav-item${active ? " active" : ""}`}
         key={section}
         onClick={() => onSelect(section)}
+        title={`${label} · ${status}`}
         type="button"
       >
         <Icon aria-hidden size={15} />
@@ -179,18 +203,20 @@ function DesktopSettingsNavigation({
 
   return (
     <nav aria-label={t.desktop.menuAria} className="desktop-settings-nav">
+      {showStatus ? <h2 className="desktop-settings-nav-title" id="desktop-settings-title">{t.desktop.settingsTitle}</h2> : null}
+      {showStatus ? <div className="desktop-settings-search">
+        <Search aria-hidden size={17} />
+        <input aria-label={t.desktop.searchSettings} placeholder={t.desktop.searchSettings}
+          value={search} onChange={event => setSearch(event.target.value)}
+          onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} type="search" />
+        {search ? <button aria-label={t.desktop.clearSearch} onClick={() => setSearch("")} type="button"><X aria-hidden size={14} /></button> : null}
+      </div> : null}
       <div className="desktop-settings-nav-list">
-        {showStatus ? item("status", t.desktop.sectionTitles.status, t.home.componentStates[health?.gateway ?? "starting"], Activity) : null}
-        {item("appearance", t.desktop.sectionTitles.appearance, t.desktop.fontSizeStatus(fontSizeLabel(t.desktop, fontSize)), Palette)}
-        {item("cloud", t.desktop.sectionTitles.cloud, cloud.device_context ? t.desktop.cloud.permission.status[cloud.permission_status] : t.desktop.cloudStates[cloud.connection], Cloud)}
-        {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2)}
-        {item("usage", t.desktop.sectionTitles.usage, t.desktop.usage.availableBalance, Wallet)}
-        <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
-        {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
-        {item("erp", t.desktop.sectionTitles.erp, desktopSettingsSectionStatus(t.desktop, "erp", setup), Store)}
-        {item("logistics", t.desktop.logistics.title, logisticsSummary, Truck)}
-        {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather)}
-        {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup), ScrollText)}
+        {filteredGroups.map(group => <div className="desktop-settings-nav-section" key={group.label}>
+          <p className="desktop-settings-nav-group">{group.label}</p>
+          {group.items.map(args => item(...args))}
+        </div>)}
+        {filteredGroups.length === 0 ? <p className="desktop-settings-search-empty" role="status">{t.desktop.noSettingsFound}</p> : null}
       </div>
       <div className="desktop-settings-nav-footer">
         <div className="desktop-settings-language">
@@ -540,45 +566,49 @@ function DesktopAppearancePanel({
   return (
     <section className="desktop-settings-section desktop-appearance-panel">
       <DesktopSectionHeading
-        badge={fontSizeLabel(t.desktop, fontSize)}
-        badgeClassName="desktop-appearance-badge"
         description={t.desktop.appearance.description}
         headingRef={headingRef}
         title={t.desktop.sectionTitles.appearance}
       />
-      <div aria-label={t.desktop.appearance.themeAria} className="desktop-appearance-options" role="group">
-        {THEME_VALUES.map((value) => {
-          const option = t.desktop.themeOptions[value];
-          return (
-            <button
-              aria-pressed={theme === value}
-              className={`desktop-appearance-option${theme === value ? " active" : ""}`}
-              key={value}
-              onClick={() => onThemeChange(value)}
-              type="button"
-            >
-              <strong>{option.label}</strong>
-              <span>{option.description}</span>
-            </button>
-          );
-        })}
+      <div className="desktop-setting-row">
+        <div className="desktop-setting-copy"><strong>{t.desktop.appearance.themeAria}</strong><p>{t.desktop.appearance.themeHint}</p></div>
+        <div aria-label={t.desktop.appearance.themeAria} className="desktop-appearance-options" role="group">
+          {THEME_VALUES.map((value) => {
+            const option = t.desktop.themeOptions[value];
+            return (
+              <button
+                aria-pressed={theme === value}
+                className={`desktop-appearance-option${theme === value ? " active" : ""}`}
+                key={value}
+                onClick={() => onThemeChange(value)}
+                title={option.description}
+                type="button"
+              >
+                <strong>{option.label}</strong>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div aria-label={t.desktop.appearance.fontSizeAria} className="desktop-appearance-options" role="group">
-        {FONT_SIZE_VALUES.map((value) => {
-          const option = t.desktop.fontSizeOptions[value];
-          return (
-            <button
-              aria-pressed={fontSize === value}
-              className={`desktop-appearance-option${fontSize === value ? " active" : ""}`}
-              key={value}
-              onClick={() => onFontSizeChange(value)}
-              type="button"
-            >
-              <strong>{option.label}</strong>
-              <span>{option.description}</span>
-            </button>
-          );
-        })}
+      <div className="desktop-setting-row">
+        <div className="desktop-setting-copy"><strong>{t.desktop.appearance.fontSizeAria}</strong><p>{t.desktop.appearance.fontSizeHint}</p></div>
+        <div aria-label={t.desktop.appearance.fontSizeAria} className="desktop-appearance-options" role="group">
+          {FONT_SIZE_VALUES.map((value) => {
+            const option = t.desktop.fontSizeOptions[value];
+            return (
+              <button
+                aria-pressed={fontSize === value}
+                className={`desktop-appearance-option${fontSize === value ? " active" : ""}`}
+                key={value}
+                onClick={() => onFontSizeChange(value)}
+                title={option.description}
+                type="button"
+              >
+                <strong>{option.label}</strong>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
@@ -1820,15 +1850,9 @@ export function DesktopShell({
             role="dialog"
             tabIndex={-1}
           >
-            <header>
-              <div>
-                <p className="desktop-eyebrow">LXE Agent Desktop</p>
-                <h2 id="desktop-settings-title">{t.desktop.settingsTitle}</h2>
-              </div>
-              <button aria-label={t.desktop.closeSettings} className="desktop-close-button" onClick={closeSettings} type="button">
-                <X size={18} />
-              </button>
-            </header>
+            <button aria-label={t.desktop.closeSettings} className="desktop-close-button desktop-settings-dismiss" onClick={closeSettings} type="button">
+              <X aria-hidden size={20} />
+            </button>
             <div className="desktop-settings-workspace">
               {settingsNavigation(true)}
               <div className="desktop-settings-content">

@@ -54,8 +54,8 @@ describe("preload bridge", () => {
       "restartAgent",
       "retryCloudConnection",
       "revealInputAssetSlot",
-      "uploadVietnamSkuMap",
-      "exportVietnamSkuMap",
+      "uploadVietnamTemplate",
+      "exportVietnamTemplate",
       "getLogisticsSettings", "saveLogisticsProfile", "deleteLogisticsProfile",
       "getVietnamSettings",
       "saveVietnamParameters",
@@ -286,20 +286,18 @@ test("workspace bridge forwards the directory and optional catalog ID without ch
   ]);
 });
 
-test("Vietnam map bridge sends no renderer source path or slot", async () => {
+test("Vietnam template bridge sends no renderer source path or slot", async () => {
   const calls: unknown[][] = [];
   const bridge = createDesktopBridge({
     invoke: async <T>(...args: unknown[]) => { calls.push(args); return null as T; },
     on: () => {}, removeListener: () => {},
   }, "darwin");
-  await bridge.desktop.uploadVietnamSkuMap();
-  await bridge.desktop.exportVietnamSkuMap("template");
-  await bridge.desktop.exportVietnamSkuMap("current");
+  await bridge.desktop.uploadVietnamTemplate();
+  await bridge.desktop.exportVietnamTemplate();
   await bridge.desktop.getVietnamSettings();
   expect(calls).toEqual([
-    [IPC_CHANNELS.uploadVietnamSkuMap],
-    [IPC_CHANNELS.exportVietnamSkuMap, "template"],
-    [IPC_CHANNELS.exportVietnamSkuMap, "current"],
+    [IPC_CHANNELS.uploadVietnamTemplate],
+    [IPC_CHANNELS.exportVietnamTemplate],
     [IPC_CHANNELS.getVietnamSettings],
   ]);
 });

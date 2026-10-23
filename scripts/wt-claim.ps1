@@ -89,13 +89,8 @@ try {
             $branch = Get-LxeSlotBranch $directory
             Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "--detach", "main") | Out-Null
             Remove-Item -LiteralPath "$directory.claim" -Force
-            if ($branch) {
-                $deleteResult = Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("branch", "-d", $branch) -AllowFailure
-                if ($deleteResult.ExitCode -ne 0) {
-                    Write-Output "note: branch $branch is not merged into main; kept (delete manually once merged)"
-                }
-            }
             Write-Output "released pool-$index"
+            if ($branch) { Write-Output "kept branch $branch" }
             exit 0
         }
         throw "no slot claimed by: $TaskSlug"
@@ -116,9 +111,7 @@ try {
         }
     }
 
-    # Reattach: the branch survived a release (e.g. the merge failed after the
-    # slot was freed). Check it out again instead of refusing, so recovery stays
-    # inside the pool workflow rather than forcing work in the main workspace.
+    # Reattach a retained branch so PR follow-up work resumes at its saved commit.
     $branchResult = Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("show-ref", "--verify", "--quiet", "refs/heads/$branchName") -AllowFailure
     $reattach = $branchResult.ExitCode -eq 0
 

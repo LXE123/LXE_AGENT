@@ -9,7 +9,6 @@ import {
   MIN_EXEC_YIELD_MS,
   MIN_WAIT_YIELD_MS,
 } from "../exec-shell";
-import { classifyLxeSkillInput, matchLxeSkillInvocation } from "../lxeskill-command";
 import {
   DEFAULT_COMMAND_OUTPUT_TOKENS,
   formatCommandPayloadWithBudget,
@@ -21,13 +20,11 @@ import {
 } from "./exec-prompt";
 import {
   ToolExecutionError,
-  type LxeSkillInvocationErrorDetails,
-  type LxeSkillInvocationViolation,
   type ToolDefinition,
 } from "../registry";
 import type { CodingPathPolicy } from "./path-policy";
 import type { CodingProcessManager } from "./process-manager";
-import type { CodingToolOptions, LxeSkillRecoveryCommand } from "./public-types";
+import type { CodingToolOptions } from "./public-types";
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const MIN_COMMAND_OUTPUT_TOKENS = 1;
@@ -67,74 +64,6 @@ const commandResult = async (
 };
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 
-const PYTHON_COMMAND_PREFIX = String.raw`(?:(?:uv(?:\.exe)?\s+run(?:\s+--frozen)?\s+)?(?:python3?(?:\.exe)?|py(?:\.exe)?)(?:\s+-[IB])*)`;
-const SHELL_COMMAND_BOUNDARY = String.raw`(?:^|[\r\n]|&&|\|\||[;|])\s*`;
-const DIRECT_BUSINESS_MODULE_PATTERN = new RegExp(
-  String.raw`${SHELL_COMMAND_BOUNDARY}${PYTHON_COMMAND_PREFIX}\s+-m\s+(services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b`,
-  "iu",
-);
-const DIRECT_LXESKILL_MODULE_WRAPPER_PATTERN = new RegExp(
-  String.raw`${SHELL_COMMAND_BOUNDARY}${PYTHON_COMMAND_PREFIX}\s+-m\s+lxeskill\b`,
-  "iu",
-);
-const SHELL_COMPOSITION_PATTERN = /[\r\n]|&&|\|\||[;|`<>]|\$\(/u;
-
-const lxeSkillInvocationError = (
-  rawCommand: string,
-  knownCommands: ReadonlyMap<string, readonly string[]>,
-  commandCatalog: readonly LxeSkillRecoveryCommand[],
-): ToolExecutionError | undefined => {
-  const command = rawCommand.trim();
-  const violations: LxeSkillInvocationViolation[] = [];
-  const directBusinessModule = command.match(DIRECT_BUSINESS_MODULE_PATTERN)?.[1];
-  const modules = directBusinessModule ? [directBusinessModule] : [];
-  const hasBusinessModule = modules.length > 0;
-  const hasPythonModuleWrapper = DIRECT_LXESKILL_MODULE_WRAPPER_PATTERN.test(command);
-  const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(command);
-  const concernsLxeSkill = hasBusinessModule || hasPythonModuleWrapper || directLxeSkill;
-
-  if (hasBusinessModule) violations.push("direct_business_module");
-  if (hasPythonModuleWrapper) violations.push("python_module_wrapper");
-  if (hasPythonModuleWrapper) violations.push("not_standalone");
-  if (concernsLxeSkill && SHELL_COMPOSITION_PATTERN.test(rawCommand)) violations.push("shell_composition");
-  if (violations.length === 0) return undefined;
-
-  const embeddedCommand = rawCommand.match(/\blxeskill(?:\.cmd)?\b[\s\S]*/iu)?.[0];
-  const invocation = embeddedCommand
-    ? matchLxeSkillInvocation(embeddedCommand, knownCommands)
-    : undefined;
-  const moduleEntry = modules
-    .map((module) => commandCatalog.find((entry) => entry.module?.toLowerCase() === module.toLowerCase()))
-    .find((entry): entry is LxeSkillRecoveryCommand => Boolean(entry));
-  const catalogEntry = invocation
-    ? commandCatalog.find((entry) => entry.command.toLowerCase() === invocation.command.toLowerCase())
-    : moduleEntry;
-  const canonicalCommand = invocation?.command ?? catalogEntry?.command;
-  const ownerSkills = invocation?.ownerSkills?.length
-    ? invocation.ownerSkills
-    : catalogEntry?.ownerSkills.length ? [...catalogEntry.ownerSkills] : undefined;
-  const details: LxeSkillInvocationErrorDetails = {
-    type: "lxeskill_invocation_error",
-    violations,
-    required_command_shape: "lxeskill <command> [options]",
-    use_exec_cwd: true,
-    ...(canonicalCommand ? {
-      canonical_command_path: canonicalCommand,
-      describe_command: canonicalCommand.replace(/^lxeskill\s+/iu, "lxeskill describe "),
-    } : { discovery_command: "lxeskill list" }),
-    ...(ownerSkills?.length ? { owner_skills: [...ownerSkills] } : {}),
-  };
-  const code = hasBusinessModule || hasPythonModuleWrapper
-    ? "permission_denied"
-    : "unsupported_invocation";
-  return new ToolExecutionError(
-    code,
-    "Invalid lxeskill invocation: exec.command must contain exactly one standalone lxeskill command; use exec.cwd for the working directory and do not use uv, python -m, cd, pipes, redirects, or shell operators.",
-    details,
-    "lxeskill_invocation",
-  );
-};
-
 export interface ExecToolDependencies {
   paths: CodingPathPolicy;
   processes: CodingProcessManager;
@@ -143,7 +72,7 @@ export interface ExecToolDependencies {
   maxOutputBytes: number;
   options: Pick<
     CodingToolOptions,
-    "businessCommands" | "businessCommandCatalog" | "execEnv" | "lxeSkillStatus" | "approvals"
+    "execEnv" | "approvals"
   >;
 }
 
@@ -155,16 +84,6 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
   const promptLimits: ExecPromptLimits = {
     maxOutputBytes: dependencies.maxOutputBytes,
   };
-  const commandCatalog = options.businessCommandCatalog ?? [];
-  const businessCommands = options.businessCommands ?? new Map(
-    commandCatalog.map((entry) => [entry.command, [...entry.ownerSkills]] as const),
-  );
-  const businessAttributions = new Map(
-    commandCatalog
-      .filter((entry) => Boolean(entry.attributionSkill))
-      .map((entry) => [entry.command, entry.attributionSkill!] as const),
-  );
-
   return [
     {
       name: "exec",
@@ -194,52 +113,12 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
         required: ["command"],
         additionalProperties: false,
       },
-      classifyInvocation: (input) => {
-        const invocation = classifyLxeSkillInput(input, businessCommands, businessAttributions);
-        if (!invocation) return undefined;
-        return {
-          usageName: `lxeskill:${invocation.commandId}`,
-          commandId: invocation.commandId,
-          ...(invocation.ownerSkills?.length ? { ownerSkills: invocation.ownerSkills } : {}),
-          ...(invocation.attributionSkill ? { attributionSkill: invocation.attributionSkill } : {}),
-        };
-      },
       execute: async (input, context) => {
         if (!context.executionPolicy) throw new ToolExecutionError("failed_precondition", "exec requires a runtime execution policy");
         input = structuredClone(input);
         const policy = requestedPolicy(input, context.executionPolicy);
         const rawCommand = inputText(input, "command");
         if (!rawCommand.trim()) throw new Error("command 不能为空");
-        // The standalone/composition rules keep lxeskill invocations parseable for
-        // usage attribution and card display; command authorization itself belongs
-        // to the CLI, which rejects unknown or out-of-scope commands with a
-        // structured error.
-        const ownerIsVisible = (ownerSkills: readonly string[]): boolean =>
-          ownerSkills.length === 0
-          || !context.exposureState
-          || ownerSkills.some((owner) => context.exposureState?.allowsSkill(owner));
-        const recoveryCommands = new Map(
-          [...businessCommands].filter(([, ownerSkills]) => ownerIsVisible(ownerSkills)),
-        );
-        const recoveryCatalog = commandCatalog.filter((entry) => ownerIsVisible(entry.ownerSkills));
-        const invocationError = lxeSkillInvocationError(rawCommand, recoveryCommands, recoveryCatalog);
-        if (invocationError) throw invocationError;
-
-        if (/^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim())) {
-          const status = options.lxeSkillStatus?.();
-          if (status && !status.available) {
-            throw new ToolExecutionError(
-              "environment_unavailable",
-              status.message || "LXE Skill CLI is unavailable",
-              {
-                type: "lxeskill_runtime_unavailable",
-                retryable: false,
-                next_action: "report_environment_failure_without_retrying_shell_variations",
-                operator_recovery: status.recovery,
-              },
-            );
-          }
-        }
         const yieldMs = Number(input["yield-time-ms"] ?? DEFAULT_EXEC_YIELD_MS);
         if (!Number.isFinite(yieldMs) || yieldMs < MIN_EXEC_YIELD_MS || yieldMs > MAX_EXEC_YIELD_MS) {
           throw new Error(`yield-time-ms must be between ${MIN_EXEC_YIELD_MS} and ${MAX_EXEC_YIELD_MS} milliseconds`);

@@ -44,27 +44,29 @@ export function WorkbenchIndex({
   return (
     <section className="workbench-index">
       <header className="workbench-index-header">
-        <p className="workbench-eyebrow">{copy.eyebrow}</p>
-        <h2>{copy.title}</h2>
+        <h1>{copy.eyebrow}</h1>
         <p className="workbench-index-subtitle">{copy.subtitle}</p>
       </header>
-      <div className="workbench-tool-grid">
-        {tools.map((tool) => (
-          <button
-            className="workbench-tool-card"
-            key={tool.id}
-            onClick={() => onOpen(tool.id)}
-            type="button"
-          >
-            <span className="workbench-tool-icon">{tool.icon}</span>
-            <span className="workbench-tool-body">
-              <span className="workbench-tool-name">{tool.name}</span>
-              <span className="workbench-tool-summary">{tool.summary}</span>
+      <div className="workbench-directory">
+        <h2 className="workbench-directory-title">{copy.title}<span>{tools.length}</span></h2>
+        <div className="workbench-tool-grid">
+          {tools.map((tool) => (
+            <button
+              className="workbench-tool-card"
+              key={tool.id}
+              onClick={() => onOpen(tool.id)}
+              type="button"
+            >
+              <span className="workbench-tool-icon" aria-hidden="true">{tool.icon}</span>
+              <span className="workbench-tool-body">
+                <span className="workbench-tool-name">{tool.name}</span>
+                <span className="workbench-tool-summary">{tool.summary}</span>
+              </span>
               {tool.status ? <span className="workbench-tool-status">{tool.status}</span> : null}
-            </span>
-            <ChevronRight aria-hidden className="workbench-tool-chevron" size={16} />
-          </button>
-        ))}
+              <ChevronRight aria-hidden className="workbench-tool-chevron" size={16} />
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );

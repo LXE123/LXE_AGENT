@@ -7,7 +7,7 @@ from browser_auth_service.client import BrowserAuthClientError, ensure_auth, rea
 from services.mabang import config as mabang_settings
 
 from . import auth_audit
-from .errors import MabangAuthError
+from .errors import MabangAuthUnavailableError
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class MabangAuthContext:
 def _resolve_account(account: str) -> str:
     resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
     if not resolved_account:
-        raise MabangAuthError("Mabang 账号为空")
+        raise MabangAuthUnavailableError("Mabang 账号为空")
     return resolved_account
 
 
@@ -46,7 +46,7 @@ async def refresh_mabang_auth(
         return await refresh_auth(account=resolved_account)
     except Exception as exc:
         purpose_label = str(purpose or "").strip() or "-"
-        raise MabangAuthError(
+        raise MabangAuthUnavailableError(
             f"刷新 Mabang 登录态失败(purpose={purpose_label}): {exc}"
         ) from exc
 
@@ -60,7 +60,7 @@ async def _ensure_mabang_auth(
         return await ensure_auth(account=account)
     except Exception as exc:
         purpose_label = str(purpose or "").strip() or "-"
-        raise MabangAuthError(
+        raise MabangAuthUnavailableError(
             f"自动恢复 Mabang 登录态失败(purpose={purpose_label}): {exc}"
         ) from exc
 
@@ -108,17 +108,17 @@ async def get_auth_context(
                 purpose=str(purpose or "").strip() or "missing_or_incomplete_state",
             )
             return await _read_auth_context(account=resolved_account, purpose=purpose)
-    except MabangAuthError:
+    except MabangAuthUnavailableError:
         raise
     except Exception as exc:
-        raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
+        raise MabangAuthUnavailableError(f"获取 Mabang 登录态失败: {exc}") from exc
 
 
 async def get_fba_free_token(purpose: str = "") -> str:
     context = await get_auth_context(purpose=purpose)
     token = str(context.free_token or "").strip()
     if not token:
-        raise MabangAuthError("未获取到 freeToken")
+        raise MabangAuthUnavailableError("未获取到 freeToken")
     return token
 
 
@@ -126,14 +126,5 @@ async def get_fba_wms_cookie_header(purpose: str = "") -> str:
     context = await get_auth_context(purpose=purpose)
     cookie_header = str(context.wms_cookie_header or "").strip()
     if not cookie_header:
-        raise MabangAuthError("未获取到 WMS Cookie Header")
+        raise MabangAuthUnavailableError("未获取到 WMS Cookie Header")
     return cookie_header
-
-
-async def get_existing_auth_context(account: str = "", purpose: str = "") -> MabangAuthContext:
-    """Read existing credentials only; never start or refresh browser authentication."""
-    resolved_account = _resolve_account(account)
-    try:
-        return await _read_auth_context(account=resolved_account, purpose=purpose)
-    except Exception as exc:
-        raise MabangAuthError(f"读取已有 Mabang 登录态失败: {exc}") from exc

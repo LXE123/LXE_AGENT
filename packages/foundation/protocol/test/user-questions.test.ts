@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseUserQuestions, UserQuestionValidationError } from "../src/user-questions";
+import { parseUserQuestions, parseUserQuestionSubmission, validateUserQuestionAnswers, UserQuestionValidationError } from "../src/user-questions";
 
 function violations(value: unknown) {
   try { parseUserQuestions(value); } catch (error) {
@@ -8,6 +8,18 @@ function violations(value: unknown) {
   }
   throw new Error("Expected question validation to fail");
 }
+
+test("new questions allow four choices, reject five without truncation, and still read legacy answers", () => {
+  const options = Array.from({ length: 4 }, (_, index) => ({ label: `Choice ${index + 1}` }));
+  expect(parseUserQuestions([{ id: "q", question: "Choose", options }])[0]?.options).toEqual(options);
+  expect(violations([{ id: "q", question: "Choose", options: [...options, { label: "Fifth" }] }])).toEqual([
+    { path: "questions[0].options", message: "must contain between 1 and 4 choices" },
+  ]);
+  const legacyOptions = Array.from({ length: 8 }, (_, index) => ({ label: `Old ${index + 1}` }));
+  const legacyAnswer = { id: "old", selected: legacyOptions.map(option => option.label) };
+  const submission = parseUserQuestionSubmission({ session_id: "s", request_id: "r", answers: [legacyAnswer] });
+  expect(validateUserQuestionAnswers([{ id: "old", question: "Previous question", multi_select: true, options: legacyOptions }], submission.answers)).toEqual([legacyAnswer]);
+});
 
 test("reports all misplaced and missing fields from the failed model call", () => {
   const issues = violations([{ header: "下一步", multiSelect: false, options: [{

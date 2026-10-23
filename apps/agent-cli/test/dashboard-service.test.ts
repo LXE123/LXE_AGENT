@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SkillCatalog, SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
+import { SessionTitleService, SkillCatalog, SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import type { AgentDashboardRpcCall, UserSkillPayload } from "@lxe/desktop-protocol";
 import {
   DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES,
@@ -363,7 +363,6 @@ describe("DashboardService", () => {
       terminateSession: async (sessionId) => { terminatedSessions.push(sessionId); },
       execSnapshots: sessionId => [{ exec_id: "live-exec", tool_call_id: "live-call", session_id: sessionId,
         origin_turn_id: "live-turn", revision: 3, status: "running", output_tail: "recovered preview" }],
-      cliCommands: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       providerManager,
       reloadWorkspace: async (sessionId) => {
         workspaceReloads.push(sessionId);
@@ -438,10 +437,6 @@ describe("DashboardService", () => {
         references: [{ path: "references/help.md" }],
         diagnostics: [{ code: "user_skill_shadowed", skill_name: "demo" }],
       }],
-    });
-    expect(await call({ operation: "commands.list", input: {} })).toEqual({
-      items: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
-      total: 1,
     });
     expect(await call({ operation: "skills.content", input: { name: "demo" } }))
       .toMatchObject({ name: "demo", content: expect.stringContaining("# Demo") });
@@ -763,17 +758,17 @@ describe("DashboardService", () => {
 });
 
 
-test("sessions.create validates and canonicalizes directories, reuses blanks, and never invokes tools", async () => {
+test("sessions.create validates workspace identity and directory availability, reuses blanks, and never invokes tools", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-blank-rpc-")); roots.push(root);
   const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"), { legacyWorkspace: workspaceFor(root) }); await store.start();
   const service = new DashboardService({ stateRoot: root, llmConfigRoot: root, skillsRoot: root, userSkillsRoot: root,
     environment: {}, store, tools: new ToolRegistry(), mcpConfig: { servers: [] } });
   try {
-    const first = await service.call({ operation: "sessions.create", input: { directory: root } });
-    const other = await service.call({ operation: "sessions.create", input: { directory: join(root, ".") } });
+    const first = await service.call({ operation: "sessions.create", input: { workspace_id: (await service.call({ operation: "workspaces.register", input: { directory: root } })).workspace_id } });
+    const other = await service.call({ operation: "sessions.create", input: { workspace_id: (await service.call({ operation: "workspaces.register", input: { directory: root } })).workspace_id } });
     expect(first).toEqual(other); expect(first.blank).toBe(true);
     expect((await service.call({ operation: "sessions.list", input: {} })).total).toBe(0);
-    await expect(service.call({ operation: "sessions.create", input: { directory: join(root, "missing") } })).rejects.toThrow("ENOENT");
+    await expect(service.call({ operation: "sessions.create", input: { workspace_id: store.registerWorkspace(join(root, "missing")).workspace_id } })).rejects.toThrow("ENOENT");
   } finally { await store.stop(); }
 });
 
@@ -811,4 +806,26 @@ test("composer candidates and skills use the session workspace and current catal
     await service.call({ operation: "sessions.delete", input: { session_id: "a" } });
     await expect(candidates("a")).rejects.toThrow("session not found");
   } finally { service.dispose(); await store.stop(); }
+});
+
+
+test("session rename returns accepted metadata and updates list/detail/search while preserving actual failures", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-rename-rpc-")); roots.push(root);
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  await store.start(); await store.ensureSession({ session_id: "s", workspace: workspaceFor(root), source: {} });
+  await store.appendMessage("s", { role: "user", content: "First prompt" }, "turn_input");
+  const titles = new SessionTitleService({ store });
+  const service = new DashboardService({ stateRoot: root, llmConfigRoot: join(root, "llm"), skillsRoot: join(root, "skills"),
+    userSkillsRoot: join(root, "user"), environment: {}, store, tools: new ToolRegistry(), mcpConfig: { servers: [] }, sessionTitles: titles });
+  try {
+    const renamed = await service.call({ operation: "sessions.rename", input: { session_id: "s", title: "新\n名称" } });
+    expect(renamed).toMatchObject({ title: "新 名称", title_version: 2, title_source: "user" });
+    expect((await service.call({ operation: "sessions.detail", input: { session_id: "s" } })).session.title).toBe("新 名称");
+    expect((await service.call({ operation: "sessions.list", input: { query: "新 名称" } })).items).toHaveLength(1);
+    expect((await service.call({ operation: "sessions.list", input: { query: "First prompt" } })).items).toHaveLength(0);
+    const failure = spyOn(store, "acceptTitle").mockRejectedValueOnce(new Error("SQLITE_READONLY: actual database error"));
+    await expect(service.call({ operation: "sessions.rename", input: { session_id: "s", title: "Retry" } })).rejects.toThrow("SQLITE_READONLY: actual database error");
+    failure.mockRestore();
+    expect((await service.call({ operation: "sessions.rename", input: { session_id: "s", title: "Retry" } })).title_version).toBe(3);
+  } finally { await titles.stop(); await store.stop(); }
 });

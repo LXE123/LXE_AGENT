@@ -2,12 +2,38 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { repositoryRoot, parseManagedManifest, parseManagedModelDefinition } from "@lxe/core";
 import { definitions, modelDefinition, withV3Definitions } from "../../../../foundation/core/test/managed-v3-fixtures";
-import { loadProviderDescriptor, buildProviderRequest, adaptMessagesForProvider, AnthropicRuntimeProvider } from "../../src/providers/provider";
+import { loadProviderDescriptor, buildProviderRequest, adaptMessagesForProvider, AnthropicRuntimeProvider, AtomicRuntimeProviderManager } from "../../src/providers/provider";
+import { messageFixture } from "../message-fixtures";
 import { buildCompletionsRequest, CompletionsRuntimeProvider } from "../../src/providers/completions-provider";
 import { buildResponsesRequest, ResponsesRuntimeProvider } from "../../src/providers/responses-provider";
 import type { RuntimeProviderRequest, RuntimeMessage } from "../../src/engine/types";
 const root = repositoryRoot(import.meta.dir);
 const request: RuntimeProviderRequest = { system: "System instructions", messages: [{ role: "user", content: "hello" }], tools: [{ name: "example", description: "tool", input_schema: { type: "object", properties: {} } }], toolChoice: "auto", signal: new AbortController().signal };
+
+test("session snapshots select independent model credentials without changing the global default", async () => {
+  const target = { provider: "deepseek", model: "deepseek-v4-flash" };
+  const state = withV3Definitions({ revision: 1, default_target: target,
+    models: [{ ...target, available: true, credential_revision: "a".repeat(64) }],
+    credentials: [{ ...target, api_key: "cloud-key", credential_revision: "a".repeat(64), fetched_at: 1, invalid_revision: "" }] });
+  state.models[0]!.definition = modelDefinition(target.provider, target.model);
+  const environment = { AGENT_LLM_PROVIDER: "kimi_coding", AGENT_LLM_MODEL: "k3", DEEPSEEK_API: "local-key" };
+  const used: Array<{ source: string | undefined; key: string; effort: string }> = [];
+  const manager = new AtomicRuntimeProviderManager(root, environment, descriptor => ({
+    summarize: async () => ({ text: "", usage: { input_tokens: 0, output_tokens: 0 } }),
+    turn: async () => { used.push({ source: descriptor.credentialSource, key: descriptor.apiKey, effort: descriptor.thinkingEffort }); return messageFixture(); },
+  }), undefined, undefined, () => state);
+  const original = manager.acquire();
+  const local = manager.acquire({ ...target, credential_source: "local", effort: "low", thinking_enabled: true });
+  const cloud = manager.acquire({ ...target, credential_source: "cloud", effort: "high", thinking_enabled: true });
+  state.credentials[0]!.api_key = "rotated-cloud-key";
+  await local.provider.turn(request); await cloud.provider.turn(request);
+  expect(used).toEqual([{ source: "local", key: "local-key", effort: "low" }, { source: "cloud", key: "cloud-key", effort: "high" }]);
+  expect(manager.acquire()).toBe(original);
+  expect(environment.AGENT_LLM_MODEL).toBe("k3");
+  expect(() => manager.acquire({ ...target, model: "removed-model", credential_source: "local", effort: "low", thinking_enabled: true }))
+    .toThrow("unsupported");
+});
+
 function descriptor(provider: string, model?: string) {
   const d = modelDefinition(provider, model);
   const state = withV3Definitions({ revision: 1, default_target: d, models: [{ ...d, available: true, credential_revision: "a".repeat(64) }], credentials: [] });

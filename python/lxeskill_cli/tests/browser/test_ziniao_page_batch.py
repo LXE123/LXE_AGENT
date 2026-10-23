@@ -148,9 +148,6 @@ def test_batch_reports_step_position_for_invalid_step() -> None:
         )
 
 
-# --- CLI parsing ---
-
-
 def test_cli_parses_repeated_steps_flags_as_object_array() -> None:
     entry = {
         "input_schema": {
@@ -190,9 +187,6 @@ def test_cli_rejects_non_object_steps_value() -> None:
 
     with pytest.raises(lxeskill_cli.LxeSkillError, match="JSON object"):
         lxeskill_cli._input_arguments(entry, ["--steps", "not-json"])
-
-
-# --- executor batch loop ---
 
 
 class _FakeSession:
@@ -247,7 +241,6 @@ def test_batch_executes_all_steps_with_one_attach_and_threads_snapshots(monkeypa
 
     assert result.success is True
     assert attach_calls == [STORE_ID]
-    # click, type, plus the automatic trailing snapshot
     assert [item[0] for item in dispatch_calls] == ["browser_click", "browser_type", "browser_snapshot"]
     # step 2 reuses step 1's after_snapshot instead of re-snapshotting
     assert dispatch_calls[1][1]["url"] == "https://example.test/1"
@@ -296,7 +289,6 @@ def test_batch_stops_at_failed_step_and_returns_recovery_snapshot(monkeypatch, t
     assert payload["completed"] is False
     assert payload["failed_step"] == 2
     assert "失效" in payload["failure_reason"]
-    # step 3 never dispatched; recovery snapshot appended after the failure
     assert dispatch_calls == ["browser_navigate", "browser_click", "browser_snapshot"]
     assert [step["ok"] for step in payload["steps"]] == [True, False]
     assert result.after_snapshot["title"] == "browser_snapshot"
@@ -336,9 +328,6 @@ def test_batch_vision_last_returns_screenshot(monkeypatch, tmp_path) -> None:
 
     assert result.success is True
     assert result.screenshot_path == str(shot)
-
-
-# --- CLI contract for batch vision ---
 
 
 def test_browser_command_returns_screenshot_path_for_batch_ending_in_vision(tmp_path, monkeypatch) -> None:

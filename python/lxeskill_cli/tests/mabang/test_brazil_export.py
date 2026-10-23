@@ -73,7 +73,7 @@ def setup_client(monkeypatch,tmp_path):
     fake.inventory_search=AsyncMock(return_value={'message':'<ul><a class="shopStock" data-id="1">SKU</a><li class="warehouseIds" data-id="1072376">巴西海外仓</li></ul>'})
     fake.inventory_page=AsyncMock(return_value={'pageHtml':paged(1,1,50)})
     fake.inventory_download=AsyncMock(return_value=b'original-xlsx')
-    monkeypatch.setattr(workflow,'get_existing_auth_context',AsyncMock(return_value=MabangAuthContext('test','test',{},'', '')))
+    monkeypatch.setattr(workflow,'get_auth_context',AsyncMock(return_value=MabangAuthContext('test','test',{},'', '')))
     monkeypatch.setattr(workflow,'BrazilClient',lambda context:fake)
     monkeypatch.setattr(workflow,'dataset_dir',lambda *args:tmp_path/'artifacts')
     monkeypatch.setenv('LXE_DATA_ROOT',str(tmp_path/'state'))
@@ -225,13 +225,40 @@ def test_unapproved_url_not_fetched(monkeypatch):
     s.get.assert_not_called()
 
 
-def test_existing_auth_never_ensures_or_refreshes(monkeypatch):
+def test_missing_auth_is_restored_before_export(monkeypatch, tmp_path):
     from services.mabang import auth
-    monkeypatch.setattr(auth,'_read_auth_context',AsyncMock(side_effect=RuntimeError('missing current state')))
-    ensure=AsyncMock();monkeypatch.setattr(auth,'_ensure_mabang_auth',ensure)
-    with pytest.raises(auth.MabangAuthError,match='missing current state'):
-        asyncio.run(auth.get_existing_auth_context(account='test'))
-    ensure.assert_not_called()
+    from browser_auth_service.client import BrowserAuthClientError
+    fake = setup_client(monkeypatch, tmp_path)
+    context = MabangAuthContext('test', 'file', {}, '', '')
+    read = AsyncMock(side_effect=[BrowserAuthClientError('state expired'), context])
+    ensure = AsyncMock()
+    monkeypatch.setattr(auth, '_read_auth_context', read)
+    monkeypatch.setattr(auth, '_ensure_mabang_auth', ensure)
+    monkeypatch.setattr(auth.mabang_settings, 'MABANG_ACCOUNT', 'test')
+    monkeypatch.setattr(workflow, 'get_auth_context', auth.get_auth_context)
+    original_search = fake.allocation_search.side_effect
+    async def search(kind, page):
+        ensure.assert_awaited_once()
+        assert read.await_count == 2
+        return original_search(kind, page)
+    fake.allocation_search.side_effect = search
+    result = workflow.run({'params': {'reports': [PENDING]}})
+    assert result['success']
+    ensure.assert_awaited_once_with(account='test', purpose='brazil_overseas_export')
+
+
+def test_auth_failure_stops_before_any_business_request(monkeypatch, tmp_path):
+    from services.mabang.errors import MabangAuthUnavailableError
+    fake = setup_client(monkeypatch, tmp_path)
+    acquire = AsyncMock(side_effect=MabangAuthUnavailableError('stage=login actual rejection'))
+    monkeypatch.setattr(workflow, 'get_auth_context', acquire)
+    result = workflow.run({'params': {'reports': [PENDING]}})
+    assert not result['success'] and result['artifacts'] == []
+    assert result['auth_refresh_required'] is False
+    assert 'stage=login actual rejection' in result['error']['message']
+    acquire.assert_awaited_once()
+    fake.allocation_search.assert_not_called()
+    fake.allocation_download.assert_not_called()
 
 
 def test_lock_is_shared_with_amazon_and_separates_accounts(monkeypatch,tmp_path):

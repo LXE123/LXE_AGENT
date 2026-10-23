@@ -13,10 +13,10 @@ Canonical message 是 storage、ContextPipeline、provider 和 tool loop 共享�
 - `redacted_thinking` 与旧 `signature` 字段仍可在兼容历史中出现
 - `tool_call`，包含 id、name 和 object arguments
 - `tool_result`，包含对应 `tool_call_id`、content 和可选 `is_error`
-- `image`，本轮可携带 provider 支持的 source
+- `image`，保存图片 source，由 provider 按能力转换请求
 - `local_file`，用户提供的本地附件引用
 
-Tool result 位于独立 `tool` message。各 Provider adapter 转换为对应 wire 格式，例如 Anthropic 的 `user + tool_result/tool_use_id`；响应先还原为 canonical `tool_call/arguments` 再进入 Runtime 和 transcript。统一 AssistantMessage 的来源字段和流事件见 [模型消息流](../../assistant-message-stream.md)。
+Tool result 位于独立 `tool` message。各 Provider adapter 转换为对应 wire 格式，例如 Anthropic 的 `user + tool_result/tool_use_id`；响应先还原为 canonical `tool_call/arguments` 再进入 Runtime 和 transcript。统一 AssistantMessage 的来源字段和流事件见 [模型消息流](../../llm/assistant-message-stream.md)。
 
 ## Tool closure
 
@@ -31,7 +31,7 @@ Runtime 正常路径在本批工具执行结束后按原调用顺序写入 tool 
 
 ## Thinking
 
-思考签名与不透明数据可以进入 canonical history，使来源匹配的 provider 在后续 turn 继续使用。新消息字段以 [AssistantMessage](/packages/agent/runtime/src/messages/assistant-message.ts) 为准；旧历史可能包含 `signature` 和 `redacted_thinking.data`。它们受到严格隔离：
+思考签名与不透明数据可以进入 canonical history，使来源匹配的 provider 在后续 turn 继续使用。新消息字段以 [AssistantMessage](../../../../packages/agent/runtime/src/messages/assistant-message.ts) 为准；旧历史可能包含 `signature` 和 `redacted_thinking.data`。它们受到严格隔离：
 
 - summary transcript 只写占位或描述，不写 opaque data。
 - runtime log、wire trace 和错误文本不写 data/signature 原文。
@@ -40,9 +40,7 @@ Runtime 正常路径在本批工具执行结束后按原调用顺序写入 tool 
 
 ## Image
 
-当前 turn 的 image block 进入 token estimate 和 provider request。消息持久化时，base64 source 替换为 `[image data removed - already processed by model]` 文本占位；路径/资源描述可保留。
-
-这样 replay 仍知道用户提供过图片，但不会在每个 turn 重复携带二进制数据。
+Image block 在统一消息中保留 source，可跨 turn 与重启继续使用。模型视图是否携带图片取决于上下文压缩和当前 Provider 的输入能力；展示或请求内的占位不代表磁盘原图已删除。保存与恢复只在 [图片持久化](context_persistence.md#图片与敏感数据)维护。
 
 ## Legacy replay
 
@@ -53,8 +51,8 @@ Runtime 正常路径在本批工具执行结束后按原调用顺序写入 tool 
 - message 必须是可 JSON 序列化数据。
 - tool input 和 state patch 必须是 object，不能接受 array/null 伪装。
 - clone 进入 provider request，防止 SDK mutation 反向修改 transcript。
-- 任何脱敏只影响日志/展示；除 image aging 和明确的 `context_patch` 外，不静默改变模型视图。
+- 任何脱敏只影响日志/展示；模型视图的修复、压缩与重置通过明确的 `context_patch` 记录。
 
 ## 验证
 
-Context tests 覆盖 orphan/duplicate/missing tool result、thinking/redacted blocks、image aging、legacy replay 和 compaction 后 closure。新增 block 类型时必须同时更新 token estimate、provider adaptation、storage replay 和 trace redaction。
+Context tests 覆盖 orphan/duplicate/missing tool result、thinking/redacted blocks、图片保留、legacy replay 和 compaction 后 closure。新增 block 类型时必须同时更新 token estimate、provider adaptation、storage replay 和 trace redaction。

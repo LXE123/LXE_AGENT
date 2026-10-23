@@ -7,6 +7,8 @@ commands:
 license: MIT
 ---
 
+需要查询 lxeskill 产物目录时，运行 `lxeskill datasets list`；返回的 `dir` 相对于当前环境的 `artifact_root`。
+
 # Amazon Review Analyzer
 
 本 Skill 对 Amazon.com 的公开商品页和最近评论页做一次性分析，不提供定时监控、告警或 Seller Central 操作，也不需要 Seller 账号或 API Key。

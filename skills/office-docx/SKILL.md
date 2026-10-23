@@ -17,13 +17,7 @@ python-docx 不提供 Word 排版引擎。目录、页码和其他域的缓存�
 
 ## 检查与交付
 
-保存后重新用 python-docx 打开，验证正文、表格、样式、图片及任务要求保留的内容，再执行结构检查：
-
-```text
-uv run --frozen python -m shared.office check "结果.docx" --out "检查.json" --contains "摘要"
-```
-
-检查器校验 ZIP/XML 和内部关系，并提取文档文本；`--contains` 可重复。`--count` 只用于工作表和幻灯片，不适用于 DOCX。结构检查不能判断分页、遮挡或版式。
+保存后重新用 python-docx 打开，根据任务核对正文、表格、样式、图片及要求保留的内容。需要检查特定文字或结构时，在任务脚本中编写对应断言；结构和内容检查不能判断分页、遮挡或版式。
 
 按内容和排版要求选择需检查的页面，关注分页、标题孤行、表格断页、图片比例和页眉页脚。模型支持图片输入时，用 `read` 查看生成的页面；不支持时完成其他检查，说明所需视觉检查的限制。确认预览包含目标内容，空白或损坏的图片不能作为视觉检查通过的证据。
 
@@ -31,12 +25,14 @@ uv run --frozen python -m shared.office check "结果.docx" --out "检查.json" 
 
 ## 内置 Office 引擎
 
-```text
-uv run --frozen python -m shared.office capabilities --json
-uv run --frozen python -m shared.office render --input "结果.docx" --output-dir "预览-v1" --pages 1,3 --dpi 144
-uv run --frozen python -m shared.office convert --input "结果.docx" --output "结果.pdf"
+```sh
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" capabilities --json
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" render --input "结果.docx" --output-dir "预览-v1" --pages 1,3 --dpi 144
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" convert --input "结果.docx" --output "结果.pdf"
 ```
 
-需要引擎操作时先读取一次能力信息。入口使用宿主提供的内置 Node 和 Kit；失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在。`--pages` 从 1 开始，省略则渲染全部页面。
+上述命令适用于 macOS 的 shell；Windows PowerShell 使用 `& $env:LXE_OFFICE_NODE $env:LXE_OFFICE_CLI`，后接相同参数。宿主通过这两个环境变量提供内置 Node 和 Kit CLI 的绝对路径，直接经 `exec` 调用。
+
+需要引擎操作时先读取一次能力信息。失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在。`--pages` 从 1 开始，省略则渲染全部页面。
 
 读取返回 manifest 的图片路径和缺失字体诊断，使用系统已安装字体及引擎附带资源。复用同一版文档的预览；源文件变化后再按需更新。LibreOffice 的分页可能与 Microsoft Word 有差异；导出 PDF 不等于刷新原 DOCX 中所有域缓存。

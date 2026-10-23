@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 const isRepositoryRoot = (directory: string): boolean =>
   existsSync(join(directory, "package.json"))
   && existsSync(join(directory, "bun.lock"))
-  && existsSync(join(directory, "python", "lxeskill_cli", "lxeskill", "catalog.json"));
+  && existsSync(join(directory, "packages", "agent", "runtime", "package.json"));
 
 export function repositoryRoot(start: string = process.cwd()): string {
   let current = resolve(start);

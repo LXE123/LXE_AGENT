@@ -1,6 +1,7 @@
 # browser_auth_service
 
-马帮登录态刷新 CLI。业务请求平时直接读取本地状态；需要刷新时才通过子进程调用本服务，
+马帮 ERP 登录态由 lxeskillCLI 按需维护。agentcli 不在启动或闲置时刷新认证。
+业务请求平时直接读取本地状态；需要刷新时才通过子进程调用本服务，
 通过桌面提供的 Electron 窗口，或手动绑定的 Chrome/Edge，重新获取 Cookie、FBA `freeToken` 和 WMS Cookie Header。
 
 状态文件在：
@@ -18,23 +19,26 @@ var/db/lxeskill/browser_auth_service/mabang_erp/<account>/state.json
 `erp_http_session` / `external_http_session` 使用无状态 CookieJar，不参与认证状态；新流程如果依赖服务端
 `Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
 
+公开刷新命令不接受 `--account`，统一使用当前配置的 `MABANG_ACCOUNT` 和 `MABANG_PASSWORD`。
+旧的 `lxeskill auth …` 命令已移除。浏览器绑定与状态文件位置不变。
+
 ## 用 CLI 测统一认证路径
 
 桌面内发起的业务调用自动使用 Electron。独立终端运行时，先绑定本机浏览器的实际可执行文件：
 
 ```bash
-uv run --frozen lxeskill auth browser bind --executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-uv run --frozen lxeskill auth browser status
-uv run --frozen lxeskill auth refresh
-uv run --frozen lxeskill auth browser unbind
+uv run --frozen lxeskill mabang auth browser bind --executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+uv run --frozen lxeskill mabang auth browser status
+uv run --frozen lxeskill mabang auth refresh
+uv run --frozen lxeskill mabang auth browser unbind
 ```
 
 Windows 示例：
 
 ```powershell
-uv run --frozen lxeskill auth browser bind --executable "C:\Program Files\Google\Chrome\Application\chrome.exe"
+uv run --frozen lxeskill mabang auth browser bind --executable "C:\Program Files\Google\Chrome\Application\chrome.exe"
 # 或指定 Edge；两者任选其一，不扫描或自动切换。
-uv run --frozen lxeskill auth browser bind --executable "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+uv run --frozen lxeskill mabang auth browser bind --executable "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 ```
 
 绑定会在临时环境启动一次空白页，验证成功后才保存路径；替换失败保留原配置。
@@ -78,7 +82,8 @@ FBA 仍等待目标域的 `freeToken`，WMS 跳转和最后 1 秒等待保持原
 业务请求发现本地状态缺失、过期或不完整时，通过内部 `ensure` 命令自动恢复。`ensure` 会在账户锁内
 重新读取状态：第一个调用者执行完整刷新，并发等待者复用它写入的新状态，不再重复启动浏览器。
 如果第一个刷新失败，下一位等待者会重新检查状态并接替刷新。服务端明确返回 401/403 后的重试和手工
-`lxeskill auth refresh` 仍使用无条件 `refresh`，不会复用服务器已经拒绝的状态。
+`lxeskill mabang auth refresh` 仍使用无条件 `refresh`，不会复用服务器已经拒绝的状态。
+认证获取或恢复失败会直接返回实际错误，外层业务重试不会再次登录；终态失败也不再要求 AI 追加刷新。
 
 Windows PowerShell 不支持上面的 Unix 环境变量写法，用这个：
 
@@ -93,6 +98,23 @@ stderr 会实时输出各阶段的开始、成功、实际 URL 或真实错误�
 - `final_url`
 - `state_written`
 - 失败时的 `stage`、`current_url`、`exception_type` 和 `message`
+
+实际刷新成功或失败的结果还包含 `auth_environment`：`provider=electron_host` 表示选择了桌面
+Electron 宿主，`bound_chromium` 表示选择了独立 CLI 的绑定浏览器路线，`not_selected` 表示尚未
+完成选择（例如凭据或宿主配置检查失败）。它描述选择的路线，不表示浏览器一定已启动。
+`session_scope=isolated_temporary`、`shares_ziniao_session=false` 说明认证会话独立；在个人浏览器
+或紫鸟里登录、打开页面，都不会补充本次认证状态。`ensure` 直接复用缓存时没有启动浏览器，不返回这项。
+
+FBA token 等待失败的 `details` 会区分以下观察结果，而不猜测页面改版等原因：
+
+- `target_frame_missing`：等待期间未发现目标域 frame。
+- `storage_read_failed`：尝试读取，但没有一次读取成功。
+- `storage_value_empty`：至少一次读取完成，但没有取得非空 token；可能同时存在其他读取异常。
+
+其中包含目标 origin、存储 key、等待预算、页面/frame URL、成功读取次数、异常次数，以及最后一次
+真实读取异常的类型、消息和 frame URL。异常先脱敏，过长消息标记截断，frame URL 最多返回 20 条并注明省略数。
+瞬时 frame 异常仍允许在原等待预算内恢复；最终失败不会再被压成单独一句“未获取到 freeToken”。
+公共 `lxeskill` 手动刷新与业务命令把这些信息一起保留在终态 `error.message` 中，兼容业务层的文本错误传递。
 
 日志中各阶段的成功、失败记录均带 `elapsed_ms`；`stage=refresh` 记录本次刷新的总耗时。
 手动刷新总耗时包含账号锁等待；自动 `ensure` 的锁等待单独记录为 `waited_ms`，刷新计时从取得锁后开始。

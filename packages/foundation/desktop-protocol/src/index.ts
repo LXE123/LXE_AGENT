@@ -101,7 +101,6 @@ export type AgentInitializePayload = {
   agent_soul_path: string;
   skills_root: string;
   user_skills_root: string;
-  lxeskill_catalog_path: string;
   llm_config_root: string;
   data_root: string;
   legacy_workspace: WorkspaceContext;
@@ -233,7 +232,7 @@ export type AgentSuccessResponse = JsonRpcSuccess;
 export type AgentErrorResponse = JsonRpcFailure;
 export type AgentResponse = JsonRpcResponse;
 
-export type AgentSessionChange = "messages" | "usage" | "artifacts" | "attachments" | "questions" | "permission" | "approvals";
+export type AgentSessionChange = "title" | "messages" | "usage" | "artifacts" | "attachments" | "questions" | "permission" | "approvals";
 
 export type AgentSessionChangedPayload = {
   changes: AgentSessionChange[];
@@ -693,8 +692,7 @@ export interface DesktopLogisticsSettingsState {
   providers: DesktopLogisticsProviderSpec[];
 }
 
-export type DesktopVietnamMapExportKind = "template" | "current";
-export interface DesktopVietnamMapExportResult { path: string; }
+export interface DesktopVietnamTemplateExportResult { path: string; }
 
 export interface DesktopVietnamParameters {
   day_adjustment_7d: string;
@@ -710,8 +708,8 @@ export interface DesktopVietnamSettingsState {
   directory: string;
   parameters: DesktopVietnamParameters | null;
   parameters_error: string | null;
-  sku_map: DesktopInputAssetVersion | null;
-  sku_map_error: string | null;
+  template: DesktopInputAssetVersion | null;
+  template_error: string | null;
 }
 
 export interface DesktopUsageBalance {
@@ -783,8 +781,8 @@ export interface LxeDesktopBridge {
     deleteLogisticsProfile(profileId: string, expectedRevision: number): Promise<DesktopLogisticsSettingsState>;
     getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
-    uploadVietnamSkuMap(): Promise<DesktopVietnamSettingsState | null>;
-    exportVietnamSkuMap(kind: DesktopVietnamMapExportKind): Promise<DesktopVietnamMapExportResult | null>;
+    uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
+    exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;
@@ -872,7 +870,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("agent_soul_path");
       requireText("skills_root");
       requireText("user_skills_root");
-      requireText("lxeskill_catalog_path");
       requireText("llm_config_root");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
@@ -1044,7 +1041,7 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
         throw new Error("agent protocol session.changed.changes must be a non-empty array");
       }
       const changes = [...new Set(payload.changes)];
-      if (changes.some((change) => change !== "messages" && change !== "usage"
+      if (changes.some((change) => change !== "title" && change !== "messages" && change !== "usage"
         && change !== "artifacts" && change !== "attachments" && change !== "questions" && change !== "permission" && change !== "approvals")) {
         throw new Error("agent protocol session.changed.changes contains an unsupported change type");
       }

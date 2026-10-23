@@ -1,0 +1,102 @@
+/* CDS-inspired purpose tokens. Shared by settings, capabilities, activity, workbench,
+   home, runtime status, user messages and selected conversation controls.
+   Assistant text and onboarding keep their themes.
+   Rules: surface hierarchy, semantic ink, alpha borders, shared field states.
+   Source: CDS tokens — vanilla, Rules / Theme ramps / Elevation / Purpose. */
+:is(.desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+  --cds-surface-nav: #fcfcfb;
+  --cds-surface-panel: #ffffff;
+  --cds-surface-popover: #ffffff;
+  --cds-ink: #0b0b0b;
+  --cds-secondary: #52514e;
+  --cds-muted: #898781;
+  --cds-alpha-1: rgb(11 11 11 / 5%);
+  --cds-alpha-2: rgb(11 11 11 / 10%);
+  --cds-alpha-3: rgb(11 11 11 / 20%);
+  --cds-field: rgb(255 255 255 / 50%);
+  --cds-selected: var(--cds-alpha-2);
+  --cds-thumb: var(--cds-surface-popover);
+  --cds-accent: #184f95;
+  --cds-accent-hover: #123e77;
+  --cds-accent-tint: rgb(24 79 149 / 12%);
+  --cds-primary: var(--cds-accent);
+  --cds-primary-hover: var(--cds-accent-hover);
+  --cds-primary-ink: #ffffff;
+  --cds-danger-action: #b42318;
+  --cds-danger-hover: #912018;
+  --cds-focus: 0 0 0 1px var(--cds-surface-panel), 0 0 0 3px var(--cds-accent);
+  --bg: var(--cds-surface-nav);
+  --bg-soft: var(--cds-surface-panel);
+  --surface: var(--cds-surface-panel);
+  --surface-muted: var(--cds-alpha-1);
+  --surface-subtle: var(--cds-surface-nav);
+  --row-hover: var(--cds-alpha-1);
+  --border: var(--cds-alpha-2);
+  --border-strong: var(--cds-alpha-3);
+  --text: var(--cds-ink);
+  --text-strong: var(--cds-ink);
+  --text-soft: var(--cds-secondary);
+  --muted: var(--cds-secondary);
+  --muted-light: var(--cds-muted);
+  --accent: var(--cds-accent);
+  --accent-strong: var(--cds-accent);
+  --accent-soft: var(--cds-accent-tint);
+  --accent-muted: var(--cds-alpha-3);
+  --success: #287342;
+  --success-soft: #eef7f0;
+  --success-border: #c9e2d0;
+  --rate-good: var(--success);
+  --rate-good-soft: var(--success-soft);
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-border: #fecdca;
+  --warning: #805c13;
+  --warning-soft: #fbf5df;
+  --warning-border: #e9d9a4;
+  --info: var(--accent);
+  --info-soft: var(--accent-soft);
+  --focus-ring: var(--cds-accent-tint);
+  --scrim: rgb(0 0 0 / 40%);
+  --shadow-soft: rgb(0 0 0 / 5%);
+  --shadow-medium: rgb(0 0 0 / 10%);
+  --shadow-strong: rgb(0 0 0 / 18%);
+  --shadow-card: 0 1px 2px var(--shadow-soft);
+  --scrollbar-thumb: var(--cds-alpha-3);
+  color: var(--text);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] :is(.desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+  --cds-surface-nav: #151515;
+  --cds-surface-panel: #1a1a19;
+  --cds-surface-popover: #232322;
+  --cds-ink: #f5f4ed;
+  --cds-secondary: #bfbdb5;
+  --cds-muted: #9c9a92;
+  --cds-alpha-1: rgb(255 255 255 / 5%);
+  --cds-alpha-2: rgb(255 255 255 / 10%);
+  --cds-alpha-3: rgb(255 255 255 / 20%);
+  --cds-field: var(--cds-alpha-1);
+  --cds-selected: rgb(255 255 255 / 15%);
+  --cds-thumb: var(--cds-alpha-2);
+  --cds-accent: #6da7ec;
+  --cds-accent-hover: #92bff2;
+  --cds-accent-tint: rgb(109 167 236 / 14%);
+  --cds-primary-ink: #0b0b0b;
+  --cds-danger-action: #b42318;
+  --success: #8dca8d;
+  --success-soft: #253429;
+  --success-border: #3e5844;
+  --danger: #f28e85;
+  --danger-soft: #3d2827;
+  --danger-border: #693b38;
+  --warning: #dec77f;
+  --warning-soft: #363022;
+  --warning-border: #685632;
+  --scrim: rgb(0 0 0 / 50%);
+  --shadow-soft: rgb(0 0 0 / 20%);
+  --shadow-medium: rgb(0 0 0 / 28%);
+  --shadow-strong: rgb(0 0 0 / 42%);
+  color-scheme: dark;
+}
+

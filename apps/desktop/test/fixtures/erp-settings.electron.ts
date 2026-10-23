@@ -39,6 +39,21 @@ app.whenReady().then(async () => {
     assert.equal(await js("[...document.querySelectorAll('.desktop-settings-nav-item')].filter(e=>e.textContent.includes('ERP')).length"), 1);
     assert((await js("document.querySelector('.desktop-settings-nav-item.active').textContent")).includes("3/4"));
     assert.deepEqual(await inputs(), ["mock-tms", ""]);
+    // Searching the navigation must not switch sections or discard a draft.
+    await edit(0, "search-preserves-draft");
+    const search = async (value: string) => {
+      await js(`(()=>{const input=document.querySelector('.desktop-settings-search input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});
+        input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    };
+    await search("ERP");
+    await waitFor("document.querySelectorAll('.desktop-settings-nav-item').length===1");
+    assert.deepEqual(await inputs(), ["search-preserves-draft", ""]);
+    await search("no-matching-setting");
+    await waitFor("document.querySelector('.desktop-settings-search-empty')");
+    assert.deepEqual(await inputs(), ["search-preserves-draft", ""]);
+    await js("document.querySelector('.desktop-settings-search button').click()");
+    await waitFor("document.querySelectorAll('.desktop-settings-nav-item').length===9");
     await edit(0, "edited-tms");
     await tab(1);
     assert.equal(await js("document.querySelector('.desktop-vietnam-settings')"), null);
@@ -86,8 +101,9 @@ app.whenReady().then(async () => {
       window.setSize(width, 850);
       await waitFor(`innerWidth===${width}`);
       for (const language of ["zh", "en"]) for (const theme of ["light", "dark"]) {
-        await js(`window.fixtureLanguage('${language}');document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.fontSize='large'`);
+        await js(`window.fixtureLanguage('${language}');window.fixtureTheme('${theme}');window.fixtureFontSize('large')`);
         await waitFor(`document.querySelector('[role=tab]').textContent==='${language === "zh" ? "马帮 TMS" : "Mabang TMS"}'`);
+        await waitFor(`document.documentElement.dataset.theme==='${theme}'`);
         assert.equal(await js(`(()=>{const content=document.querySelector('.desktop-settings-content');
           return content.scrollWidth<=content.clientWidth && document.documentElement.scrollWidth<=innerWidth
           && [...document.querySelectorAll('[role=tabpanel] input')].every(e=>e.getBoundingClientRect().width>100);})()`), true);

@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { UserQuestionService, registerUserQuestionTool } from "../../src/tooling/user-questions";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { policyFor, testWorkspace } from "../workspace";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { repositoryRoot } from "@lxe/core";
 
 const input = { questions: [
   { id: "one", question: "Which?", options: [{ label: "A" }, { label: "B" }] },
@@ -15,6 +18,51 @@ function context(session_id = "s", controller = new AbortController(), platform 
 }
 
 describe("runtime user question ownership", () => {
+  test("advertises four choices and rejects overflow before publishing a pending question", async () => {
+    const changes: string[] = [];
+    const service = new UserQuestionService(id => changes.push(id));
+    const registry = new ToolRegistry();
+    registerUserQuestionTool(registry, service);
+    const definition = registry.definition("ask_user_question")!;
+    expect(definition.input_schema).toMatchObject({ properties: { questions: { maxItems: 3,
+      items: { properties: { options: { maxItems: 4 } } },
+    } } });
+    expect(definition.description).toContain("up to 4 choices per question");
+    expect(definition.description).toContain("do not add an Other option");
+    const options = Array.from({ length: 5 }, (_, index) => ({ label: `Choice ${index + 1}` }));
+    await expect(service.ask({ questions: [{ id: "q", question: "Choose", options }] }, context())).rejects.toMatchObject({
+      code: "invalid_argument", message: "Invalid question arguments: questions[0].options: must contain between 1 and 4 choices",
+    });
+    expect(service.snapshot()).toEqual([]);
+    expect(changes).toEqual([]);
+    const waiting = service.ask({ questions: [{ id: "q", question: "Choose", options: options.slice(0, 4) }] }, context());
+    const request = service.snapshot()[0]!;
+    service.submit({ session_id: "s", request_id: request.request_id, answers: [{ id: "q", selected: [options[3]!.label] }] });
+    expect(await waiting).toEqual({ answers: [{ id: "q", selected: [options[3]!.label] }] });
+  });
+
+  test.each(["菲律宾 PH1", "越南 VN1", "当前账号全部仓库", ""])("TMS skill question waits for explicit choice: %s", async label => {
+    const skill = readFileSync(join(repositoryRoot(import.meta.dir), "skills/mabang-tms-products-export/SKILL.md"), "utf8");
+    const question = JSON.parse(skill.match(/```json\r?\n([\s\S]*?)\r?\n```/)![1]!);
+    const service = new UserQuestionService(() => {});
+    const registry = new ToolRegistry();
+    registerUserQuestionTool(registry, service);
+    let settled = false;
+    const task = registry.execute("ask_user_question", question, context()).then(result => { settled = true; return result; });
+    const pending = service.snapshot()[0]!;
+    expect(pending.questions).toMatchObject([{ id: "warehouse", multi_select: false,
+      options: [{ label: "菲律宾 PH1" }, { label: "越南 VN1" }, { label: "当前账号全部仓库" }] }]);
+    await Bun.sleep(0);
+    expect(settled).toBe(false);
+    service.submit({ session_id: "s", request_id: pending.request_id,
+      answers: [{ id: "warehouse", selected: label ? [label] : [] }] });
+    const result = await task;
+    const answer = JSON.parse(String(result.content?.[0]?.text)).answers[0];
+    expect(answer.selected).toEqual(label ? [label] : []);
+    expect(service.snapshot()).toEqual([]);
+    await service.stop();
+  });
+
   test("classifies argument errors before creating a form, without reclassifying UI failures", async () => {
     const changes: string[] = [];
     const service = new UserQuestionService(id => changes.push(id));

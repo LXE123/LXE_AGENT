@@ -7,10 +7,9 @@ export * from "./tooling/coding-tools";
 export { buildExecOutputStep, sanitizeToolDisplayText } from "./tooling/tool-display";
 export * from "./tooling/exec-shell";
 export * from "./tooling/mcp";
-export * from "./operations/maintenance";
-export * from "./operations/lxeskill-runtime";
-export * from "./tooling/one-shot-cli";
-export * from "./tooling/lxeskill-command";
+export * from "./operations/turn-usage-sync";
+export * from "./statistics/turn-statistics";
+export * from "./statistics/lxeskill";
 export * from "./providers/model-image";
 export * from "./providers/config-paths";
 export * from "./engine/runtime";
@@ -24,6 +23,7 @@ export * from "./providers/provider-factory";
 export * from "./providers/provider-preferences";
 export * from "./providers/completions-provider";
 export * from "./providers/responses-provider";
+export * from "./providers/deepseek-files";
 export * from "./tooling/process-output";
 export * from "./state/storage";
 export * from "./tooling/registry";
@@ -38,3 +38,5 @@ export type * from "./messages/assistant-message";
 
 export { WorkspaceFileSearch, DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES } from "./tooling/file-references";
 export { relocateAgentData } from "./state/relocate-data";
+
+export * from "./state/session-title";

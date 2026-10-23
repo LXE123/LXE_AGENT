@@ -63,6 +63,37 @@ module.exports = async ({suite, js, step, settle, click, type, focus, key, state
       await waitFor('document.querySelector("#action-error").textContent.includes("mcp.servers.update")','MCP rejected');
       assert.equal(await js('document.querySelector(".connection-state").classList.contains("on")'),false);
     });
+    await step('session switches isolate pending model and effort saves, including late responses and remount', async () => {
+      await js('behavior.actions.fail(""); behavior.openModelSession("a")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).version === 0', 'session a');
+      await js('behavior.actions.hold("models.update"); behavior.actions.select("second")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).modelSaving', 'a save pending');
+      await js('behavior.openModelSession("b")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).model === "first"', 'session b');
+      assert.equal((await current()).modelSaving, false);
+      await js('behavior.actions.thinking("high")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).version === 1', 'b effort saved');
+      await js('behavior.actions.release()'); await settle();
+      assert.equal((await current()).model, 'first'); assert.equal((await current()).thinking, 'high');
+      await js('behavior.openModelSession("a")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).model === "second" && !JSON.parse(document.querySelector("#action-state").textContent).modelSaving', 'a restored');
+      const changes=(await state()).calls.filter(c=>c.operation==='models.update' && c.input.session_id === 'a');
+      assert.equal(changes.length,1); assert.equal(changes[0].input.selection_version,0);
+      await js('behavior.reloadModelSession("b")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).thinking === "high"', 'b remounted');
+      assert.equal((await current()).model,'first');
+      await js('behavior.openModelSession("a")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).model === "second"', 'a remounted');
+    });
+    await step('a rejected save after navigating away cannot roll back the visible session', async () => {
+      await js('behavior.actions.hold("models.update"); behavior.actions.fail("models.update"); behavior.actions.select("first")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).modelSaving', 'a rejected save pending');
+      await js('behavior.openModelSession("b"); behavior.actions.release()'); await settle();
+      assert.equal((await current()).model,'first'); assert.equal((await current()).thinking,'high');
+      assert.equal(await js('document.querySelector("#action-error").textContent'), '');
+      await js('behavior.actions.fail(""); behavior.openModelSession("a")');
+      await waitFor('JSON.parse(document.querySelector("#action-state").textContent).model === "second"', 'a rollback');
+    });
   } else {
     await step('ordered batches merge once per frame and keep sessions separate', async () => {
       assert.deepEqual(await js('behavior.actions.state()'),{sends:0,activityListeners:1,streamListeners:1});

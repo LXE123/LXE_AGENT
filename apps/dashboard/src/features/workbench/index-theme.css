@@ -1,0 +1,64 @@
+@import "../../shared/cds-theme.css";
+
+/* CDS-inspired directory: one surface, semantic ink and alpha separators.
+   The row layout is an LXE adaptation; detail workflows use the same purpose tokens. */
+.content-panel.workbench-theme {
+  padding: 32px 36px 80px;
+  background: var(--cds-surface-panel);
+  /* Keep long workflows inside their surface at narrow window widths too. */
+  overflow: auto;
+}
+.workbench-theme .workbench-index { width: min(1160px, 100%); gap: 32px; }
+.workbench-theme .workbench-index-header {
+  gap: 8px; padding: 0 0 24px; border-bottom: 1px solid var(--border);
+}
+.workbench-theme .workbench-index-header h1 {
+  margin: 0; color: var(--text); font-size: 1.375rem; font-weight: 600; line-height: 1.5;
+}
+.workbench-theme .workbench-index-subtitle { font-size: .875rem; color: var(--text-soft); }
+.workbench-theme .workbench-directory { min-width: 0; }
+.workbench-theme .workbench-directory-title {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 16px; color: var(--text); font-size: .9375rem; font-weight: 600;
+}
+.workbench-theme .workbench-directory-title span {
+  color: var(--cds-muted); font-size: .75rem; font-weight: 400; font-variant-numeric: tabular-nums;
+}
+.workbench-theme .workbench-tool-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.workbench-theme .workbench-tool-card {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 16px;
+  align-items: center; gap: 18px; min-height: 104px; padding: 24px 12px;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+  background: transparent; box-shadow: none;
+  transition: background .14s ease;
+}
+.workbench-theme .workbench-tool-card:hover { background: var(--row-hover); }
+.workbench-theme .workbench-tool-card:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
+}
+.workbench-theme .workbench-tool-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: var(--cds-alpha-1); color: var(--text-soft);
+}
+.workbench-theme .workbench-tool-body { gap: 6px; }
+.workbench-theme .workbench-tool-name { font-size: .9375rem; font-weight: 500; line-height: 1.5; }
+.workbench-theme .workbench-tool-summary { max-width: 64ch; font-size: .8125rem; color: var(--text-soft); }
+.workbench-theme .workbench-tool-card .workbench-tool-status {
+  grid-column: 3; margin: 0; padding: 4px 8px; border-radius: 6px;
+  background: var(--cds-alpha-1); color: var(--text-soft);
+  font-size: .75rem; font-weight: 400; white-space: nowrap;
+}
+.workbench-theme .workbench-tool-chevron { grid-column: 4; margin: 0; color: var(--cds-muted); }
+@media (max-width: 800px) {
+  .content-panel.workbench-theme { padding: 24px 20px 72px; }
+  .workbench-theme .workbench-tool-card { gap: 12px; padding-inline: 8px; }
+}
+@media (max-width: 600px) {
+  .workbench-theme .workbench-tool-card { grid-template-columns: 32px minmax(0, 1fr) 16px; }
+  .workbench-theme .workbench-tool-icon { align-self: start; width: 32px; height: 32px; }
+  .workbench-theme .workbench-tool-chevron { grid-column: 3; grid-row: 1; }
+  .workbench-theme .workbench-tool-card .workbench-tool-status { grid-column: 2; justify-self: start; }
+}
+@media (max-width: 480px) {
+  .content-panel.workbench-theme { padding: 20px 12px 72px; }
+}

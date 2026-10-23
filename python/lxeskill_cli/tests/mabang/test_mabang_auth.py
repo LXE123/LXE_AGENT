@@ -7,7 +7,7 @@ import pytest
 
 from browser_auth_service.client import BrowserAuthClientError
 from services.mabang import auth
-from services.mabang.errors import MabangAuthError
+from services.mabang.errors import MabangAuthUnavailableError
 
 
 def _payload(cookie_value: str = "fresh") -> dict:
@@ -114,7 +114,7 @@ def test_ensure_failure_is_not_retried_and_preserves_real_error(monkeypatch) -> 
     monkeypatch.setattr(auth, "ensure_auth", failed_ensure)
     monkeypatch.setattr(auth.mabang_settings, "MABANG_ACCOUNT", "account-a")
 
-    with pytest.raises(MabangAuthError) as captured:
+    with pytest.raises(MabangAuthUnavailableError) as captured:
         asyncio.run(auth.get_auth_context())
 
     assert calls == ["read", "ensure"]

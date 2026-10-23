@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
       await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(text)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     };
     const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
-    const page = async (value: string) => until(`document.querySelector('.user-question-pagination span')?.textContent === ${JSON.stringify(value)}`);
+    const page = async (value: string) => until(`document.querySelector('.user-question-progress')?.textContent === ${JSON.stringify(value)}`);
     const next = '.user-question-pagination button:last-child';
     const previous = '.user-question-pagination button:first-child';
     const primary = '.user-question-continue';
@@ -64,6 +64,15 @@ app.whenReady().then(async () => {
       if (resultText) await until(`document.querySelector(${JSON.stringify(`${selector} .result-block`)})?.textContent.includes(${JSON.stringify(resultText)})`);
       return selector;
     };
+    const answeredHistory = async (callId: string, answers: string[]) => {
+      const selector = historySelector(callId);
+      await until(`!!document.querySelector(${JSON.stringify(`${selector} .user-question-summary`)})`);
+      assert.deepEqual(await js(`[...document.querySelectorAll(${JSON.stringify(`${selector} dd`)})].map(e=>e.textContent.trim())`), answers);
+      assert.equal(await js(`document.querySelectorAll(${JSON.stringify(`${selector} button, ${selector} input, ${selector} textarea, ${selector} form`)}).length`), 0);
+      assert.equal(await js(`!!document.querySelector(${JSON.stringify(`${selector} .tool-op-summary`)})`), false);
+      await js(`document.querySelector(${JSON.stringify(`${selector} .user-question-summary`)}).scrollIntoView({block:'nearest'})`);
+      return selector;
+    };
     const assertCompactLayout = async () => {
       const layout = await js(`(() => {
         const card = document.querySelector('.user-question-card').getBoundingClientRect();
@@ -78,7 +87,7 @@ app.whenReady().then(async () => {
           choicesVisible: fields.clientHeight >= 44,
           footerVisible: footer.bottom <= Math.min(card.bottom, innerHeight),
           headerVisible: header.top >= card.top && header.top >= 0,
-          cardFits: card.height <= Math.min(innerHeight * .35, 300) + 1,
+          cardFits: card.height <= Math.min(innerHeight * .6, 560) + 1,
           noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
           oneQuestion: document.querySelectorAll('.user-question-card fieldset').length === 1,
           // Fractional line heights round to device pixels in Electron.
@@ -90,8 +99,10 @@ app.whenReady().then(async () => {
     };
     await request("fixture.restart");
     await window.loadURL(`${base}/test/features/sessions/user-questions-fixture.html`);
-    await until("!!document.querySelector('.conversation-compose-box textarea')");
-    await setText(".conversation-compose-box textarea", "保留原来的聊天草稿");
+    await until("!!document.querySelector('.conversation-compose-box .reference-editor')");
+    await js("document.querySelector('.reference-editor').focus()");
+    await window.webContents.insertText("保留原来的聊天草稿");
+    await until("sessionStorage.getItem('lxe.composer-draft.a')==='保留原来的聊天草稿'");
     await request("fixture.start", { session_id: "a" });
     await request("fixture.start", { session_id: "b" });
     // No event subscription here: production polling must recover both questions.
@@ -103,10 +114,12 @@ app.whenReady().then(async () => {
     await click(`${waitingHistory} .tool-op-summary`);
     await page("1 / 3");
     assert.equal(await js("document.querySelectorAll('.user-question-card fieldset').length"), 1);
-    assert.equal(await js("!!document.querySelector('.conversation-send-button')"), false);
+    assert.equal(await js("!!document.querySelector('.reference-editor')"), false);
+    assert.equal(await js("document.querySelector('.permission-picker > button').disabled"), false);
     assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).disabled`), true);
     assert.equal(await js(`document.querySelector(${JSON.stringify(previous)}).disabled`), true);
-    assert.equal(await js("!!document.querySelector('.user-question-card textarea')"), false);
+    assert.equal(await js("document.querySelectorAll('.user-question-card textarea').length"), 1);
+    assert.equal(await js(`document.querySelector(${JSON.stringify('.user-question-card textarea')}).value`), "");
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
     assert.equal(await js("document.querySelector('.session-index-item.active').textContent.includes('等待回答')"), false);
     const dot = await js(`(()=>{const e=document.querySelector(${JSON.stringify(activeDot)}); const s=getComputedStyle(e);return {state:e.dataset.sessionState,label:e.getAttribute('aria-label'),title:e.title,width:s.width,height:s.height,background:s.backgroundColor,border:s.borderColor,opacity:s.opacity,animation:s.animationName};})()`);
@@ -136,7 +149,6 @@ app.whenReady().then(async () => {
     assert.equal(await js("document.activeElement===document.querySelector('.user-question-header h3')"), true, "Page change moves focus to the new question");
     await js("document.querySelectorAll('.user-question-card input[type=checkbox]').forEach(e=>e.click())");
     await page("2 / 3");
-    await click('.user-question-custom-toggle');
     await setText(textarea, "附上来源链接");
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 2);
     await click(primary); await page("3 / 3");
@@ -175,25 +187,29 @@ app.whenReady().then(async () => {
     assert.equal(await js("document.querySelector('.user-question-card fieldset').disabled"), true);
     assert.equal(await js(`document.querySelector(${JSON.stringify(previous)}).disabled`), true);
     assert.equal(await js(`document.querySelector(${JSON.stringify(skip)}).disabled`), true);
-    await until("!!document.querySelector('.conversation-compose-box textarea')");
+    await until("!!document.querySelector('.conversation-compose-box .reference-editor')");
     assert.equal(submits - before, 1, "Double submission must send one RPC");
-    assert.equal(await js("document.querySelector('.conversation-compose-box textarea').value"), "保留原来的聊天草稿");
+    assert.equal(await js("document.querySelector('.conversation-compose-box .reference-editor').textContent"), "保留原来的聊天草稿");
     assert.equal(await js(`sessionStorage.getItem('lxe.question-draft.'+${JSON.stringify(saved.request_id)})`), null);
     assert.equal(await js(`sessionStorage.getItem('lxe.question-page.'+${JSON.stringify(saved.request_id)})`), null);
-    const answeredHistory = await expandHistory(saved.tool_call_id, "不要修改已经发布的内容");
-    const history = await js(`document.querySelector(${JSON.stringify(`${answeredHistory} .result-block`)}).textContent`);
-    assert.ok(history.includes("店铺 B") && history.includes("表格") && history.includes("摘要") && history.includes("附上来源链接"));
-    assert.equal(await js(`document.querySelector(${JSON.stringify(`${answeredHistory} .tool-status-icon`)}).dataset.toolStatus`), "success");
+    const acceptedAnswers = ["店铺 B", "表格摘要附上来源链接", "不要修改已经发布的内容"];
+    const acceptedHistory = await answeredHistory(saved.tool_call_id, acceptedAnswers);
+    assert.deepEqual(await js(`[...document.querySelectorAll(${JSON.stringify(`${acceptedHistory} dt`)})].map(e=>e.textContent)`),
+      ["先处理哪个店铺？", "需要哪些输出？", "还有什么需要注意？"]);
     await screenshot("history-answered-light");
     await js("document.documentElement.dataset.theme='dark'");
     await screenshot("history-answered-dark");
     await js("document.documentElement.dataset.theme='light'");
-    await click(`${answeredHistory} .tool-op-summary`);
-    await assertCollapsedHistory(saved.tool_call_id);
-    await screenshot("history-collapsed");
+    window.setSize(760, 600);
+    await screenshot("history-answered-narrow");
+    assert.equal(await js(`document.querySelector(${JSON.stringify(`${acceptedHistory} .user-question-summary`)}).getBoundingClientRect().right <= innerWidth`), true);
+    assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true);
+    window.setSize(1050, 850);
+    window.reload();
+    await answeredHistory(saved.tool_call_id, acceptedAnswers);
     await until(`document.querySelector(${JSON.stringify(activeDot)})?.dataset.sessionState==='running'`);
     await click('.conversation-send-button');
-    await until("document.querySelector('.conversation-compose-box textarea').value===''");
+    await until("document.querySelector('.conversation-compose-box .reference-editor').textContent===''");
     console.log("PASS: single/multi/text pagination, edit/back, page persistence, missed events, IPC retry/ack, draft restoration, read-only history, blue sidebar dot and priority");
 
     await js("questionFixture.select('b')"); await page("1 / 3");
@@ -209,7 +225,6 @@ app.whenReady().then(async () => {
       await until("!document.querySelector('.user-question-card')");
       await js("questionFixture.select('b')"); await page(expected!);
     }
-    await click('.user-question-custom-toggle');
     await setText(textarea, "先处理新店铺");
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0, "Single custom text clears the radio selection");
     await click('.user-question-card input[type=radio]'); await page("2 / 3");
@@ -294,33 +309,28 @@ app.whenReady().then(async () => {
     assert.equal(await js(`(() => {
       const fields = document.querySelector('.user-question-fields');
       fields.scrollTop = fields.scrollHeight;
-      const last = fields.querySelector('.user-question-option:last-child').getBoundingClientRect();
+      const last = [...fields.querySelectorAll('.user-question-option')].at(-1).getBoundingClientRect();
       return last.bottom <= fields.getBoundingClientRect().bottom + 1;
-    })()`), true, "All eight choices remain reachable inside the compact card");
+    })()`), true, "All four choices remain reachable inside the compact card");
     // Native textarea Enter must add a line, not submit the task.
-    await click('.user-question-custom-toggle');
     const longAnswer = "自己的计划\n" + ("保留全部细节，逐项检查并说明每个选择。".repeat(12) + "\n").repeat(8) + "ANSWER_END";
     await setText(textarea, longAnswer);
     await js("document.querySelector('.user-question-card textarea').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
     await delay(100);
     assert.equal(submits, beforeSingle + 1);
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
     await click(primary);
     await until("!document.querySelector('.user-question-card')");
-    const longHistory = await expandHistory(single.tool_call_id, "ANSWER_END");
-    const parameters = await js(`JSON.parse(document.querySelector(${JSON.stringify(`${longHistory} .message-json`)}).textContent)`);
-    assert.equal(parameters.questions[0].options.length, 8, "Expanded history keeps all question options");
-    const result = await js(`JSON.parse(document.querySelector(${JSON.stringify(`${longHistory} .tool-result-full code`)}).textContent)`);
-    assert.equal(result.answers[0].custom.trim(), longAnswer, "Expanded history keeps the full long answer");
+    const longHistory = await answeredHistory(single.tool_call_id, [longAnswer]);
     assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true);
     await screenshot("history-long-dark");
     await js("document.documentElement.dataset.theme='light'");
     await screenshot("history-long-light");
-    await js(`document.querySelector(${JSON.stringify(`${longHistory} .result-block`)}).scrollIntoView()`);
+    await js(`document.querySelector(${JSON.stringify(`${longHistory} dd`)}).scrollIntoView({block:'end'})`);
     await screenshot("history-long-result");
-    await click(`${longHistory} .tool-op-summary`);
     console.log("PASS: automatic single-choice submit, failure retention, free text confirmation, textarea Enter, long content scrolling, narrow light/dark layout");
     await request("fixture.start", { session_id: "c", variant: "single" });
     await refresh(); await page("1 / 1");
@@ -351,10 +361,7 @@ app.whenReady().then(async () => {
     assert.equal(await js("!!document.querySelector('.user-question-card')"), true);
     assert.equal(submits, beforeSingles + 1);
     await until("!document.querySelector('.user-question-card')");
-    const singlesHistory = await expandHistory(singles.tool_call_id, "answers");
-    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${singlesHistory} .tool-result-full code`)}).textContent).answers`), [
-      { id: "one", selected: ["店铺 A"] }, { id: "two", selected: ["店铺 B"] }, { id: "three", selected: ["店铺 B"] },
-    ]);
+    await answeredHistory(singles.tool_call_id, ["店铺 A", "店铺 B", "店铺 B"]);
     console.log("PASS: single choices confirm immediately, returning to edit preserves the newest choice, final double click submits once and waits for acknowledgement");
 
     // Explicit skips survive session changes and reload; the question and options stay editable.
@@ -365,17 +372,18 @@ app.whenReady().then(async () => {
     const beforeSkips = submits;
     await click(skip); await page("2 / 3");
     await js("document.querySelectorAll('.user-question-card input[type=checkbox]').forEach(e=>e.click())");
-    await click('.user-question-custom-toggle'); await setText(textarea, "这份草稿会被跳过清除");
+    await setText(textarea, "这份草稿会被跳过清除");
     await click(skip); await page("3 / 3");
     assert.equal(submits, beforeSkips);
     await js("questionFixture.select('a')"); await until("!document.querySelector('.user-question-card')");
     await js("questionFixture.select('b')"); await page("3 / 3");
-    window.reload(); await until("!!document.querySelector('.conversation-compose-box textarea')");
+    window.reload(); await until("!!document.querySelector('.conversation-compose-box .reference-editor')");
     await js("questionFixture.select('b')"); await page("3 / 3");
     await click(previous); await page("2 / 3");
     assert.equal(await js("document.querySelector('.user-question-card fieldset [role=status]')?.textContent"), "已跳过");
     assert.equal(await js("document.querySelectorAll('.user-question-card input:checked').length"), 0);
-    assert.equal(await js("!!document.querySelector('.user-question-card textarea')"), false);
+    assert.equal(await js("document.querySelectorAll('.user-question-card textarea').length"), 1);
+    assert.equal(await js(`document.querySelector(${JSON.stringify('.user-question-card textarea')}).value`), "");
     assert.equal(await js("document.querySelectorAll('.user-question-card input[type=checkbox]').length"), 2);
     await screenshot("skipped-light");
     await js("document.documentElement.dataset.theme='dark'"); await screenshot("skipped-dark");
@@ -391,10 +399,7 @@ app.whenReady().then(async () => {
     assert.equal(submits, beforeSkips);
     await click(skip);
     await until("!document.querySelector('.user-question-card')");
-    const skippedHistory = await expandHistory(skipped.tool_call_id, "answers");
-    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${skippedHistory} .tool-result-full code`)}).textContent).answers`), [
-      { id: "one", selected: ["店铺 B"] }, { id: "many", selected: [] }, { id: "text", selected: [] },
-    ]);
+    await answeredHistory(skipped.tool_call_id, ["店铺 B", "已跳过", "已跳过"]);
     assert.equal(submits, beforeSkips + 1);
 
     // Skipping the last page first wraps to the missed first question; all-skipped is a normal result.
@@ -412,14 +417,46 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.querySelector(${JSON.stringify(primary)}).disabled`), false);
     assert.equal(submits, beforeAllSkipped + 1);
     await click(primary); await until("!document.querySelector('.user-question-card')");
-    const allSkippedHistory = await expandHistory(allSkipped.tool_call_id, "answers");
-    assert.equal(await js(`document.querySelector(${JSON.stringify(`${allSkippedHistory} .tool-status-icon`)}).dataset.toolStatus`), "success");
-    assert.deepEqual(await js(`JSON.parse(document.querySelector(${JSON.stringify(`${allSkippedHistory} .tool-result-full code`)}).textContent).answers`), [
-      { id: "one", selected: [] }, { id: "many", selected: [] }, { id: "text", selected: [] },
-    ]);
+    await answeredHistory(allSkipped.tool_call_id, ["已跳过", "已跳过", "已跳过"]);
     assert.equal(submits, beforeAllSkipped + 2);
     console.log("PASS: skip single/multi/text, clear only drafted answers, restore skips across session switch/reload, revise skipped choices, wrap missed questions, all-skipped result and failed-submit retry");
     console.log("PASS: simultaneous submit/stop settles the owned call and leaves one completed history operation");
+
+    // Reference layout: four choices plus one inline custom field, with no ordinary composer.
+    window.setSize(1050, 850);
+    await js("questionFixture.select('c')");
+    await request("fixture.start", { session_id: "c", variant: "four" });
+    await refresh(); await page("1 / 1");
+    assert.equal(await js("document.querySelectorAll('.user-question-option').length"), 4);
+    assert.equal(await js("document.querySelectorAll('.user-question-card textarea').length"), 1);
+    assert.equal(await js("!!document.querySelector('.conversation-compose-box .reference-editor')"), false);
+    assert.equal(await js("!!document.querySelector('.user-question-custom-toggle')"), false);
+    assert.equal(await js("document.querySelector('.user-question-custom-heading').textContent"), "其他回答5");
+    await screenshot("four-options-light");
+    await js("document.documentElement.dataset.theme='dark'");
+    await screenshot("four-options-dark");
+    await js("document.documentElement.dataset.theme='light'");
+    const initialHeight = await js(`document.querySelector(${JSON.stringify(textarea)}).getBoundingClientRect().height`);
+    assert.ok(initialHeight < 60, "Custom answer starts at one line");
+    const beforeTyping = submits;
+    await setText(textarea, "第一行");
+    await js(`document.querySelector(${JSON.stringify(textarea)}).focus()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+    await until(`document.querySelector(${JSON.stringify(textarea)}).value.includes(${JSON.stringify("\n")})`);
+    assert.equal(submits, beforeTyping, "Enter inserts a newline without submitting");
+    await setText(textarea, "长回答\n".repeat(20));
+    await until(`document.querySelector(${JSON.stringify(textarea)}).scrollHeight > 120`);
+    assert.equal(await js(`document.querySelector(${JSON.stringify(textarea)}).getBoundingClientRect().height`), 120);
+    await setText(textarea, "");
+    await until(`document.querySelector(${JSON.stringify(textarea)}).getBoundingClientRect().height === ${initialHeight}`);
+    window.setSize(760, 600);
+    await screenshot("four-options-narrow");
+    assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true);
+    assert.equal(await js("document.querySelector('.user-question-actions').getBoundingClientRect().bottom <= innerHeight"), true);
+    await click('.user-question-stop'); await refresh(); await until("!document.querySelector('.user-question-card')");
+    console.log("PASS: four-option light/dark/narrow layout, always-visible custom field, hidden composer, Enter newline and textarea autosizing");
     window.destroy(); app.exit(0);
   } catch (error) { console.error(error); window?.destroy(); app.exit(1); }
 });

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+from collections import Counter
 from itertools import chain
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
@@ -68,18 +69,25 @@ def read_workbook(content):
 
 
 def coverage(records, headers, rows):
-    """Compare exported SKU/warehouse pairs, without assuming one row per ID."""
-    expected = set()
+    """Require each inventory record's pair, allowing one ID to expand to rows.
+
+    Without exported record IDs this is a multiplicity lower bound, not a proof
+    of record identity or the exact number of rows produced by each ID.
+    """
+    expected = Counter()
     for record in records:
         sku = record.get("stockSku")
         warehouse = record.get("warehouseName") or record.get("warehouse")
         if not isinstance(sku, str) or not sku or not isinstance(warehouse, str) or not warehouse:
             raise TmsError("coverage_schema_unknown", f"无法核对列表 SKU/仓库字段，实际字段: {sorted(record)}")
-        expected.add((sku, warehouse))
+        expected[(sku, warehouse)] += 1
     sku_index, warehouse_index = headers.index("库存SKU"), headers.index("仓库")
-    actual = {(row[sku_index], row[warehouse_index]) for row in rows}
-    if actual != expected:
-        raise TmsError("coverage_mismatch", f"批次商品/仓库覆盖不一致: 缺少 {len(expected - actual)}，多出 {len(actual - expected)}")
+    actual = Counter((row[sku_index], row[warehouse_index]) for row in rows)
+    if actual.keys() != expected.keys():
+        raise TmsError("coverage_mismatch", f"批次商品/仓库覆盖不一致: 缺少 {len(expected.keys() - actual.keys())}，多出 {len(actual.keys() - expected.keys())}")
+    missing = expected - actual
+    if missing:
+        raise TmsError("coverage_count_mismatch", f"批次商品/仓库记录行数不足: 缺少至少 {sum(missing.values())} 行，涉及 {len(missing)} 组 SKU/仓库")
 
 
 def atomic_bytes(path: Path, content: bytes):

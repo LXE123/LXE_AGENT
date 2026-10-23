@@ -6,21 +6,21 @@ module.exports = async ({js, step, settle, load, state, waitFor}) => {
   const actions = 'behavior.session.current.actions';
   const navigate = 'behavior.session.navigation';
   const create = async directory => {
-    await js(`${actions}.startNewConversation(${JSON.stringify(directory)})`);
+    await js(`${actions}.startNewConversation(behavior.registerWorkspace(${JSON.stringify(directory)}))`);
     await waitFor(`behavior.session.current.selection.selectedSession?.workspace.directory === ${JSON.stringify(directory)}`, 'selected new workspace');
   };
   await waitFor('behavior.session.current.selection.selectedSessionId === "Default chat"', 'initial selected conversation');
 
   await step('late creation respects page changes, existing selection and reversed response order', async () => {
-    await js(`behavior.holdCreation(true); ${actions}.startNewConversation('/fixture/late-page')`); await settle();
+    await js(`behavior.holdCreation(true); ${actions}.startNewConversation(behavior.registerWorkspace('/fixture/late-page'))`); await settle();
     await js(`${navigate}.openDashboardSection('home')`); await settle();
     await js('behavior.releaseCreation(0)'); await settle();
     assert.equal((await current()).section, 'home');
-    await js(`${actions}.startNewConversation('/fixture/late-session')`); await settle();
+    await js(`${actions}.startNewConversation(behavior.registerWorkspace('/fixture/late-session'))`); await settle();
     await js(`${actions}.openSession(behavior.state().sessions.find(s => s.session_id === 'Shop chat 1'))`); await settle();
     await js('behavior.releaseCreation(0)'); await settle();
     assert.equal((await current()).selection.selectedSessionId, 'Shop chat 1');
-    await js(`${actions}.startNewConversation('/fixture/first'); ${actions}.startNewConversation('/fixture/second')`); await settle();
+    await js(`${actions}.startNewConversation(behavior.registerWorkspace('/fixture/first')); ${actions}.startNewConversation(behavior.registerWorkspace('/fixture/second'))`); await settle();
     await js('behavior.releaseCreation(1)'); await settle();
     const selected = (await current()).selection.selectedSessionId;
     await js('behavior.releaseCreation(0); behavior.holdCreation(false)'); await settle();
@@ -50,7 +50,7 @@ module.exports = async ({js, step, settle, load, state, waitFor}) => {
   await step('unready runtime defers creation and adopts the draft once ready', async () => {
     await js('behavior.session.ready(false)'); await settle();
     const before = (await state()).calls.filter(c=>c.operation==='sessions.create').length;
-    await js(`${actions}.startNewConversation('/fixture/deferred')`); await settle();
+    await js(`${actions}.startNewConversation(behavior.registerWorkspace('/fixture/deferred'))`); await settle();
     assert.equal((await current()).selection.selectedSessionId, '');
     assert.equal((await state()).calls.filter(c=>c.operation==='sessions.create').length, before);
     const key = (await current()).viewKey;
@@ -97,7 +97,7 @@ module.exports = async ({js, step, settle, load, state, waitFor}) => {
     const id=(await current()).selection.selectedSessionId;
     await js(`behavior.session.seedCleanup(${JSON.stringify(id)}); behavior.session.draft(${JSON.stringify(id)},'removed draft',1); ${actions}.deleteSession(behavior.session.current.selection.selectedSession)`);
     await waitFor(`behavior.session.current.selection.selectedSessionId !== ${JSON.stringify(id)} && behavior.session.current.selection.newConversation`, 'new blank after deletion');
-    assert.equal((await current()).selection.selectedSession.workspace.directory, '/fixture/default');
+    assert.equal((await current()).selection.selectedSession.workspace.directory, '/fixture/selected-delete');
     assert.deepEqual(await js(`behavior.session.cleaned(${JSON.stringify(id)})`), {history:0,activity:null,preview:null,zoom:0,attachments:[]});
   });
   await step('skill entry appends its prompt only when creation still owns selection', async () => {

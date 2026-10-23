@@ -10,7 +10,7 @@ describe("InputAssetsWorkbench", () => {
       <InputAssetsWorkbench
         error=""
         loading={false}
-        onBack={() => undefined} onOpenVietnamSettings={() => undefined}
+        onBack={() => undefined}
         refresh={async () => undefined}
         slots={[{
           slot: "export_tax_master",
@@ -31,14 +31,15 @@ describe("InputAssetsWorkbench", () => {
     expect(markup).toContain("用于：</strong>采购汇总、备货工作簿");
     expect(markup).not.toContain("提供采购和备货所需资料。");
   });
-  test.each(["zh", "en"] as const)("links to Vietnam settings without a legacy asset slot (%s)", (language) => {
+  test.each(["zh", "en"] as const)("shows the FBA title without unrelated Vietnam settings (%s)", (language) => {
     const markup = renderToStaticMarkup(
       <I18nContext.Provider value={UI_TEXT[language]}>
-        <InputAssetsWorkbench error="" loading={false} onBack={() => undefined} onOpenVietnamSettings={() => undefined}
+        <InputAssetsWorkbench error="" loading={false} onBack={() => undefined}
           refresh={async () => undefined} slots={[]} />
       </I18nContext.Provider>,
     );
-    expect(markup).toContain(UI_TEXT[language].vietnamSettings.title);
+    expect(markup).toContain(language === "zh" ? "FBA模版与数据源" : "FBA templates &amp; data sources");
+    expect(markup).not.toContain(UI_TEXT[language].vietnamSettings.title);
     expect(markup).not.toContain('class="asset-slot"');
   });
 });

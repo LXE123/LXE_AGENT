@@ -23,6 +23,11 @@ import {
 } from "lucide-react";
 
 import "./styles.css";
+import "./features/home/theme.css";
+import "./features/capabilities/theme.css";
+import "./features/stats/theme.css";
+import "./features/workbench/index-theme.css";
+import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
@@ -96,7 +101,8 @@ function App({
     : "";
   const [error, setError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
-  const sidebar = useThreeStateSidebar(browserStorage());
+  const sidebarAvailable = activeSection === "home" || activeSection === "sessions";
+  const sidebar = useThreeStateSidebar(browserStorage(), sidebarAvailable);
   const dashboardRuntimeReady = desktopHealth.gateway === "ready"
     && desktopHealth.agent_cli === "ready";
 
@@ -112,6 +118,7 @@ function App({
       && (activeSection === "sessions" || (capabilitiesOpen && capabilityView === "models")),
   );
   const currentModelQuery = useCurrentModelQuery(dashboardRuntimeReady);
+  const sessionModelQuery = useCurrentModelQuery(dashboardRuntimeReady && Boolean(selectedSessionId), selectedSessionId || undefined);
   const skillsQuery = useSkillsQuery(
     dashboardRuntimeReady && capabilitiesOpen && capabilityView === "skills",
   );
@@ -130,7 +137,8 @@ function App({
   }, [dashboardRuntimeReady]);
 
   const { setCurrentModel, setCurrentThinkingLevel, modelSaving, thinkingSaving } = useModelActions({
-    current: currentModelQuery.data, models: modelsQuery.data?.items ?? [], onError: setError,
+    current: sessionModelQuery.data, sessionId: selectedSessionId || undefined,
+    models: modelsQuery.data?.items ?? [], onError: setError,
   });
   const { toggleMcpServer, savingId: mcpSavingId } = useMcpActions(setError);
 
@@ -140,7 +148,7 @@ function App({
     || activeSection === "workbench"
     || activeSection === "sessions";
   const activeQueries = activeSection === "sessions"
-    ? [...workspace.queryStatus, modelsQuery, currentModelQuery]
+    ? [...workspace.queryStatus, modelsQuery, sessionModelQuery]
     : activeSection === "capabilities" && capabilityView === "models"
       ? [modelsQuery, currentModelQuery]
       : activeSection === "capabilities" && capabilityView === "tools"
@@ -190,6 +198,7 @@ function App({
   );
   const shellClassName = [
     "app-shell",
+    sidebarAvailable ? "" : "sidebar-unavailable",
     sidebar.collapsed ? "sidebar-collapsed" : "",
     sidebar.peekOpen ? "sidebar-peeking" : "",
     activeSection === "sessions" ? "sessions-focus" : "",
@@ -216,7 +225,14 @@ function App({
               </div>
             </header>
           ) : null}
-          <section className={activeSection === "sessions" ? "content-panel content-panel-fill" : "content-panel"}>
+          <section className={[
+            "content-panel",
+            activeSection === "sessions" ? "content-panel-fill" : "",
+            activeSection === "home" ? "home-theme" : "",
+            activeSection === "capabilities" ? "capabilities-theme" : "",
+            activeSection === "activity" ? "activity-theme" : "",
+            activeSection === "workbench" ? "workbench-theme" : "",
+          ].filter(Boolean).join(" ")}>
             {visibleError ? (
               <div className="dashboard-query-notice" role="status">
                 {t.common.errorPrefix(t.errors.api, visibleError)}
@@ -233,9 +249,9 @@ function App({
                 actions={workspace.actions}
                 setupComplete={setupComplete}
                 model={{
-                  currentModel: currentModelQuery.data ?? null,
+                  currentModel: selectedSessionId ? sessionModelQuery.data ?? null : null,
                   models: modelsQuery.data?.items ?? [],
-                  modelLoading: dashboardRuntimeReady && (modelsQuery.isPending || currentModelQuery.isPending),
+                  modelLoading: dashboardRuntimeReady && (!selectedSessionId || modelsQuery.isPending || sessionModelQuery.isPending),
                   modelSaving, thinkingSaving,
                   onModelChange: setCurrentModel,
                   onThinkingLevelChange: setCurrentThinkingLevel,
@@ -265,7 +281,6 @@ function App({
             ) : null}
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
-                onOpenVietnamSettings={() => openWorkbenchView("vietnam-settings")}
                 error={assetSlots.error}
                 loading={assetSlots.loading}
                 onBack={() => openWorkbenchView("index")}
@@ -292,7 +307,8 @@ function App({
             {activeSection === "activity" ? (
               <section className="workspace-view">
                 <header className="workspace-view-header">
-                  <h2>{t.nav.activity}</h2>
+                  <h1>{t.nav.activity}</h1>
+                  <p>{t.usage.description}</p>
                 </header>
                 <div className="workspace-view-content">
                   <StatsView enabled={dashboardRuntimeReady} />
@@ -303,11 +319,12 @@ function App({
         </section>
 
         <DetailModal
+          themeClassName={capabilitiesOpen ? "capabilities-theme" : undefined}
           enabled={dashboardRuntimeReady}
           target={detailTarget}
           onClose={() => setDetailTarget(null)}
         />
-        <SidebarResizer expanded={sidebar.expanded} storage={browserStorage()} />
+        <SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />
       </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
         {runtimeStatusPopover}

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Cloud, HardDrive, Sparkles } from "lucide-react";
 
-import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
-import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
+import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   groupModelsByProvider,
   modelDisabledReasonLabel,
@@ -22,37 +21,6 @@ function CompactTokenMetric({ value }: { value: number }) {
     <dd aria-label={exactValue} title={exactValue}>
       {formatCompactNumber(value)}
     </dd>
-  );
-}
-
-function ModelArtwork({ provider }: { provider: string }) {
-  const brandKind = providerBrandKind(provider);
-  if (brandKind === "kimi") {
-    return (
-      <div className="model-kimi-dust" aria-hidden="true">
-        <img alt="" draggable={false} src={kimiMoonDust} />
-      </div>
-    );
-  }
-  if (brandKind === "deepseek") {
-    return (
-      <>
-        <div className="model-deepseek-waves" aria-hidden="true">
-          <svg preserveAspectRatio="none" viewBox="0 0 600 120">
-            <path className="wave-a" d="M0 70 C 90 50, 180 90, 300 72 S 480 52, 600 70 L600 120 L0 120 Z" />
-            <path className="wave-b" d="M0 88 C 110 72, 220 104, 340 88 S 510 70, 600 88 L600 120 L0 120 Z" />
-          </svg>
-        </div>
-        <div className="model-brand-watermark" aria-hidden="true">
-          <ProviderBrandMark provider={provider} size={142} />
-        </div>
-      </>
-    );
-  }
-  return (
-    <div className="model-brand-watermark" aria-hidden="true">
-      <ProviderBrandMark provider={provider} size={142} />
-    </div>
   );
 }
 
@@ -168,7 +136,6 @@ function ModelSourceSection({
               data-credential-source={credentialSource}
               key={group.key}
             >
-              <ModelArtwork provider={provider} />
               <div className="model-card-header">
                 <div className="item-heading">
                   <div className="item-icon"><ProviderBrandMark provider={provider} size={23} /></div>

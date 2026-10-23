@@ -26,4 +26,4 @@ Windows 安装版默认把数据放在 `%LOCALAPPDATA%\LXE Agent`，默认工作
 
 迁移完成标记位于 `migrations/data-location-v1.json`。启动锁和失败诊断位于数据目录旁，因此加锁不会提前初始化目标目录。迁移范围只涉及本地数据位置，不改变设备身份、不重新创建 WireGuard 隧道，也不引入数据库降级或启动健康回滚。
 
-源码与 Windows 隔离安装验证结果见[验证记录](data-location-validation.md)。
+源码与 Windows 隔离安装验证结果见[验证记录](../acceptance/data-location-validation.md)。

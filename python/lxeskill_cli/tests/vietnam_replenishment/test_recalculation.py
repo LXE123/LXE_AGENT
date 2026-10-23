@@ -10,11 +10,11 @@ from types import SimpleNamespace
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 from openpyxl.formula.translate import Translator
 import pytest
 
-from services.vietnam_replenishment.asset_contract import AssetContractError, SkuParameters
+from services.vietnam_replenishment.asset_contract import SkuParameters
 from services.vietnam_replenishment.formula_dependencies import mapping_formula_blank
 from services.vietnam_replenishment.workbook import (
     RecommendationConfig,
@@ -292,25 +292,23 @@ def test_unmapped_guarded_formula_cannot_be_removed(tmp_path: Path, coordinate: 
 
 
 @pytest.mark.parametrize(
-    ("column", "invalid", "label"),
-    [(column, invalid, label) for column, label in ((3, "成本"), (4, "跨境价"), (5, "折扣价"))
-     for invalid in (0, -1)] + [(2, None, "热销标记")],
+    ("field", "invalid", "label"),
+    [(field, invalid, label) for field, label in (("cost", "成本"), ("cross_border_price", "跨境价"), ("discount_price", "折扣价"))
+     for invalid in (0, -1)] + [("hot_flag", None, "热销标记")],
 )
-def test_generator_rejects_invalid_map_before_writing_or_office(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, column: int, invalid: object, label: str,
+def test_generator_rejects_invalid_template_parameters_before_writing_or_office(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, invalid: object, label: str,
 ) -> None:
-    mapping = tmp_path / "不完整 映射.xlsx"
-    book = Workbook()
-    book.active.append(["SKU", "热销标记", "成本", "跨境价", "折扣价"])
-    book.active.append(["VN-A", 1, 10, 20, 15])
-    book.active.cell(2, column).value = invalid
-    book.save(mapping)
-    book.close()
+    parameters = _parameters()
+    parameters["VN-A"] = replace(parameters["VN-A"], **{field: invalid})
     monkeypatch.setattr(recalculation, "write_vietnam_workbook", lambda *a, **kw: pytest.fail("Writer must not run"))
     monkeypatch.setattr(recalculation, "recalculate_with_office", lambda *a, **kw: pytest.fail("Office must not run"))
     output = tmp_path / "output.xlsx"
-    with pytest.raises(AssetContractError, match=f"VN-A.*{label}"):
-        recalculation.generate_vietnam_workbook(mapping, output, sources=_sources(), config=RecommendationConfig())
+    with pytest.raises(ValueError, match=f"VN-A.*{label}"):
+        recalculation.generate_vietnam_workbook(
+            output, sources=_sources(), config=RecommendationConfig(),
+            template=tmp_path / "template.xlsx", parameters=parameters,
+        )
     assert not output.exists()
 
 
@@ -414,20 +412,21 @@ def test_office_failure_preserves_actual_redacted_diagnostic(tmp_path: Path, mon
 
 def test_failed_generation_leaves_no_final_file(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "result.xlsx"
-    monkeypatch.setattr(recalculation, "validate_usable_sku_parameters", lambda path: _parameters())
     monkeypatch.setattr(
         recalculation,
         "write_vietnam_workbook",
-        lambda path, sources, parameters, config: Path(path).write_bytes(b"draft"),
+        lambda path, sources, parameters, config, **kwargs: Path(path).write_bytes(b"draft"),
     )
 
     def fail_office(_source, _output):
         raise recalculation.WorkbookGenerationError("Kit actual failure")
 
     monkeypatch.setattr(recalculation, "recalculate_with_office", fail_office)
+    template = tmp_path / "template.xlsx"
+    template.write_bytes(b"mock template")
     with pytest.raises(recalculation.WorkbookGenerationError, match="actual failure"):
         recalculation.generate_vietnam_workbook(
-            tmp_path / "map.xlsx", output, sources=_sources()
+            output, sources=_sources(), template=template, parameters=_parameters(),
         )
     assert not output.exists()
     assert not list(tmp_path.glob(".vietnam-workbook-*"))
@@ -436,9 +435,9 @@ def test_failed_generation_leaves_no_final_file(tmp_path: Path, monkeypatch) -> 
 def test_success_publishes_after_validation_without_overwriting(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "result.xlsx"
     events: list[str] = []
-    monkeypatch.setattr(recalculation, "validate_usable_sku_parameters", lambda path: _parameters())
 
-    def write(path, sources, parameters, config):
+    def write(path, sources, parameters, config, **kwargs):
+        assert kwargs == {"allow_empty_map": True}
         events.append("write")
         Path(path).write_bytes(b"draft")
 
@@ -454,12 +453,15 @@ def test_success_publishes_after_validation_without_overwriting(tmp_path: Path, 
     monkeypatch.setattr(recalculation, "write_vietnam_workbook", write)
     monkeypatch.setattr(recalculation, "recalculate_with_office", recalculate)
     monkeypatch.setattr(recalculation, "validate_recalculated_workbook", validate)
+    monkeypatch.setattr(recalculation, "combine_full_workbook", lambda _template, calculated, complete: shutil.copyfile(calculated, complete))
+    template = tmp_path / "template.xlsx"
+    template.write_bytes(b"mock template")
     assert recalculation.generate_vietnam_workbook(
-        tmp_path / "map.xlsx", output, sources=_sources()
+        output, sources=_sources(), template=template, parameters=_parameters(),
     ) == output
     assert events == ["write", "recalculate", "validate"]
     assert output.read_bytes() == b"draft"
     with pytest.raises(FileExistsError):
         recalculation.generate_vietnam_workbook(
-            tmp_path / "map.xlsx", output, sources=_sources()
+            output, sources=_sources(), template=template, parameters=_parameters(),
         )

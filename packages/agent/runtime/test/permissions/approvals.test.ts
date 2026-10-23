@@ -12,7 +12,7 @@ import { ToolRegistry } from "../../src/tooling/registry";
 import { workspaceFor } from "../workspace";
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
-function fixture(channel = "desktop", businessCommandCatalog: readonly { command: string; ownerSkills: readonly string[] }[] = []) {
+function fixture(channel = "desktop") {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "lxe-approval-"))), directory = join(root, "workspace");
   mkdirSync(directory);
   const workspace = workspaceFor(directory), policyService = new PermissionPolicyService();
@@ -20,7 +20,7 @@ function fixture(channel = "desktop", businessCommandCatalog: readonly { command
   const approvals = new PermissionApprovalService({ changed: id => { changes.push(id); }, audit: async (_id, event) => { events.push(event); } });
   const tools = new ToolRegistry();
   const paths = new ExecutionPaths(join(root, "var"), { platform: "win32", temporaryRoot: join(root, "temp") });
-  const processes = registerCodingTools(tools, { approvals, executionPaths: paths, businessCommandCatalog,
+  const processes = registerCodingTools(tools, { approvals, executionPaths: paths,
     execShell: new ExecShellAdapter({ environment: { ...process.env,
       LXE_MANAGED_PYTHON: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
       LXE_DATA_ROOT: join(root, "var"), LXE_SQLITE_DB_PATH: join(root, "var/db/lxeskill.sqlite3"),
@@ -166,7 +166,7 @@ test("a failed audit write cannot release executable authority", async () => {
 
 
 test("Vietnam exec requests ordinary one-shot approval and respects denial", async () => {
-  const f = fixture("desktop", [{ command: "lxeskill vietnam replenishment calculate", ownerSkills: ["vietnam-replenishment"] }]);
+  const f = fixture("desktop");
   const context = f.context("workspace-write");
   const execution = f.tools.execute("exec", { command: "lxeskill vietnam replenishment calculate", sandbox_permissions: "danger-full-access", justification: "Write the app-owned ERP task records" }, context).catch(error => error);
   const [request] = await pending(f.approvals);
@@ -177,12 +177,13 @@ test("Vietnam exec requests ordinary one-shot approval and respects denial", asy
 });
 
 test("approved Vietnam exec uses the ordinary CLI and leaves the session permission unchanged", async () => {
-  const f = fixture("desktop", [{ command: "lxeskill vietnam replenishment calculate", ownerSkills: ["vietnam-replenishment"] }]);
+  const f = fixture("desktop");
   const context = f.context("workspace-write");
   const execution = f.tools.execute("exec", { command: "lxeskill vietnam replenishment calculate --help", sandbox_permissions: "danger-full-access", justification: "Read the command contract" }, context);
   const [request] = await pending(f.approvals);
   await f.approvals.decide({ session_id: "s", request_id: request!.request_id, decision: "allow" });
   const result = await execution;
-  expect(JSON.stringify(result.content)).toContain("sku_map");
+  expect(JSON.stringify(result.content)).toContain("template_file");
+  expect(JSON.stringify(result.content)).not.toContain("sku_map_file");
   expect(context.executionPolicy.mode).toBe("workspace-write");
 });

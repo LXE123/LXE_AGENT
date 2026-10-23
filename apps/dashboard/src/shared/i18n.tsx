@@ -1,4 +1,3 @@
-// UI copy (zh/en) and the language context.
 import React from "react";
 import { skillDisplayName } from "./skill-labels";
 
@@ -25,8 +24,8 @@ export const ZH_TEXT = {
 
   skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
   sessionStatus: {waiting_input:"等待回答",running:"运行中",stopping:"正在停止",queued:"排队中",completed:"已完成，尚未查看",error:"执行失败，尚未查看",cancelled:"已停止",idle:"暂无未查看结果",unknown:"上次运行结果未确认",unavailable:"状态暂不可用",syncError:"状态同步失败"},
-  permissions: { mode:"权限模式", readOnly:"不修改普通文件", workspaceWrite:"可写工作区和平台临时区域", fullAccess:"不施加文件沙箱限制", confirmTitle:"启用 Full access？", confirmBody:"允许本地工具在操作系统权限范围内修改文件，包括工作区以外的文件。", cancel:"取消", confirm:"启用 Full access", waiting:"等待审批", pending:"项待审批", request:(mode: string) => `允许本次操作使用 ${mode} 权限：`, cwd:"工作目录", originalCommand:"查看原始命令", write:"写入", edit:"编辑", viewContents:"查看写入内容", viewChanges:"查看修改", before:"修改前", after:"修改后", deny:"拒绝", allow:"允许一次" },
-  userQuestions: {waiting:"等待回答",received:"回答已接收",done:"完成",retry:"重试提交",skip:"跳过",skipQuestion:"跳过当前问题",skipped:"已跳过",submitting:"正在提交…",stop:"停止本次任务",stopping:"正在停止…",pagination:"问题分页",previous:"上一题",next:"下一题",multiple:"可多选，也可以补充文字",custom:"自己的回答",customPlaceholder:"填写自己的回答…",freeText:"回答"},
+  permissions: { mode:"权限模式", readOnly:"不修改普通文件", workspaceWrite:"可写工作区和平台临时区域", fullAccess:"不施加文件沙箱限制", confirmTitle:"启用 Full access？", confirmBody:"允许本地工具在操作系统权限范围内修改文件，包括工作区以外的文件。", cancel:"取消", confirm:"启用 Full access", waiting:"等待审批", pending:"项待审批", runTitle:"允许 LXE Agent 运行命令？", writeTitle:"允许 LXE Agent 写入文件？", editTitle:"允许 LXE Agent 编辑文件？", requestedMode:"本次权限：", cwd:"工作目录", originalCommand:"查看原始命令", write:"写入", edit:"编辑", viewContents:"查看写入内容", viewChanges:"查看修改", before:"修改前", after:"修改后", deny:"拒绝", allow:"允许一次" },
+  userQuestions: {waiting:"等待回答",received:"回答已接收",done:"完成",retry:"重试提交",skip:"跳过",skipQuestion:"跳过当前问题",skipped:"已跳过",submitting:"正在提交…",stop:"停止本次任务",stopping:"正在停止…",pagination:"问题分页",previous:"上一题",next:"下一题",multiple:"可多选，也可以补充文字",custom:"其他回答",customPlaceholder:"填写自己的回答…",freeText:"回答"},
   language: {
     label: "语言",
     zh: "中文",
@@ -66,7 +65,7 @@ export const ZH_TEXT = {
     greetingEvening: "晚上好",
     overviewHint: "这是最近 24 小时的运行情况",
     todayTurns: "回合",
-    todayExecutions: "技能执行",
+    todayExecutions: "Skill 命令调用次数",
     todayFailures: "执行失败",
     todayTokens: "Token 消耗",
     runtimeStatusAria: "实时运行状态",
@@ -116,7 +115,8 @@ export const ZH_TEXT = {
     viewStats: "查看统计",
     noSessions: "暂无会话记录",
     noSkills: "近 7 天暂无技能使用",
-    executionsUnit: (count: string) => `${count} 次执行`,
+    retry: "重试",
+    executionsUnit: (count: string) => `${count} 次命令调用`,
     loadError: "总览数据加载失败"
   },
   workbench: {
@@ -172,21 +172,21 @@ export const ZH_TEXT = {
     disclaimer: "这个工具只负责添加并验证元数据，不会判断媒体是否真的包含 AI 生成人物，也不会检查视频分辨率、时长等其他亚马逊上传要求。"
   },
   vietnamSettings: {
-    title: "越南备货设置", subtitle: "管理 SKU 映射表、销量权重和人民币兑越南盾汇率。所有工作目录共用。",
-    skuMap: "SKU 映射表", skuHint: "热销标记必填 1 或 2。成本、跨境价和折扣价可留空，填写时须大于 0；缺少金额时，对应价格和利润结果留空，备货量正常计算。聊天中指定的文件仅用于当次计算。",
-    upload: "上传映射表", replace: "替换映射表", uploaded: "SKU 映射表已保存。", noMap: "尚未上传映射表", updated: "更新于",
-    downloadTemplate: "下载空白模板", exportCurrent: "导出当前映射表", exported: (path: string) => `文件已保存至：${path}`,
+    title: "越南备货设置", subtitle: "管理越南备货模板表、销量权重和人民币兑越南盾汇率。所有工作目录共用。",
+    template: "越南备货模板表", templateHint: "上传完整九表模板。模板中的越南备货清单提供热销标记、成本、跨境价和折扣价；雅仓中有而模板中没有的 SKU 仍会导出，相关价格和利润留空。聊天中指定的模板仅用于当次计算。",
+    upload: "上传模板表", replace: "替换模板表", uploaded: "越南备货模板表已保存。", noTemplate: "尚未上传模板表", updated: "更新于",
+    exportCurrent: "导出当前模板表", exported: (path: string) => `文件已保存至：${path}`,
     weights: "销量权重", weightsHint: "将各周期日均销量合并，三个权重合计为 100%。", days: (day: number) => `${day} 天`,
     weightNonNegative: "销量权重必须是非负数字。", weightOutOfRange: "销量权重超出数值范围。", weightTotal: "销量权重合计必须为 100%。",
-    exchange: "人民币 → 越南盾汇率", cny: "1 元人民币 =", vnd: "越南盾", advanced: "高级设置 · 天数修正",
+    exchange: "人民币 → 越南盾汇率", cny: "1 元人民币 =", vnd: "越南盾", adjustmentsTitle: "天数修正",
     adjustment: (day: number) => `${day} 天天数修正`, adjustmentHint: "日均销量 = 该周期销量 ÷（周期天数 + 修正值）。默认 7、15、30 天分别为 0、0.8、0.8。",
     save: "保存参数", saving: "正在保存…", saved: "参数已保存，下一次计算生效。", appliesNextRun: "保存后下一次计算生效，正在进行的计算不受影响。",
     loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用中打开越南备货设置。",
   },
   workbenchIndex: {
     eyebrow: "工作台",
-    title: "工具",
-    subtitle: "选一个工具开始。",
+    title: "功能",
+    subtitle: "选择一项功能开始。",
     back: "返回工作台",
     tools: {
       syntheticPerformer: {
@@ -194,16 +194,17 @@ export const ZH_TEXT = {
         summary: "批量给图片和视频添加亚马逊要求的 AI 人物标签。"
       },
       inputAssets: {
-        name: "模板与数据源",
+        name: "FBA模版与数据源",
         summary: "查看技能正在使用的模板和长期数据表。"
       }
     }
   },
   inputAssets: {
-    eyebrow: "工作台 · 模板与数据源",
-    title: "模板与数据源",
+    eyebrow: "工作台 · FBA模版与数据源",
+    title: "FBA模版与数据源",
     subtitle: "技能会自动记住这些文件的当前版本。上传新版本时会自动升档，上一版保留一份备用。",
     slotSummary: (filled: number, total: number) => `${filled} / ${total} 已就绪`,
+    noSlots: "暂无可用的模板与数据源。",
     empty: "还没有存过",
     emptyHint: "第一次在对话里上传后，这里就会显示当前版本。",
     current: "当前版本",
@@ -241,7 +242,7 @@ export const ZH_TEXT = {
     range30: "30 天",
     range90: "90 天",
     turns: "处理任务",
-    executions: "技能执行",
+    executions: "Skill 命令调用次数",
     successRate: "成功率",
     toolCalls: "工具调用",
     activeDays: "活跃天数",
@@ -250,8 +251,8 @@ export const ZH_TEXT = {
     topSkill: "最常用技能",
     days: (count: string) => `${count} 天`,
     hour: (hour: string) => `${hour}:00`,
-    heatmapAria: "每日技能执行热力图",
-    heatmapDay: (day: string, count: string) => `${day}：${count} 次执行`,
+    heatmapAria: "每日回合热力图",
+    heatmapDay: (day: string, count: string) => `${day}：${count} 个回合`,
     loading: "正在统计…"
   },
   common: {
@@ -290,6 +291,8 @@ export const ZH_TEXT = {
     recent: "最近会话",
     pin: "置顶",
     unpin: "取消置顶",
+    rename: "重命名会话",
+    name: "会话名称",
     delete: "删除",
     deleting: "正在删除…",
     deleteTitle: "删除会话",
@@ -297,7 +300,6 @@ export const ZH_TEXT = {
     deleteConfirm: "删除会话",
     deletePrompt: (title: string) => `确定删除“${title}”吗？此操作无法撤销。`,
     deleteNote: "会话历史会被永久删除，但传入附件和产出文件不会被删除。",
-    deleteRunning: "该会话仍在运行或排队，请先停止后再删除。",
     actionsFor: (title: string) => `${title} 的会话操作`,
     selectPrompt: "选择一个会话查看详情。",
     searchResults: (count: string) => `搜索结果 ${count} 条`,
@@ -310,6 +312,13 @@ export const ZH_TEXT = {
     tokenSuffix: "Token"
   },
   workspaces: {
+    delete: "删除工作区",
+    deletePrompt: (name: string) => "将把“" + name + "”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。",
+    deleting: "正在删除工作区…",
+    ungrouped: "未分组",
+    required: "请先选择工作区。",
+    notFound: "工作区不存在。",
+
     title: "工作区", defaultName: "默认工作区", choose: "选择工作区", open: "打开文件夹",
     newIn: (name: string) => `在“${name}”中新建对话`,
     loadMore: "加载更多对话", retry: "重试", empty: "暂无对话",
@@ -338,6 +347,7 @@ export const ZH_TEXT = {
   },
   conversation: {
     viewedImages: (count: number) => `查看了 ${count} 张图片`,
+    contextCompacted: (count?: number) => count === undefined ? "已压缩上下文" : `已压缩上下文 · ${count} 条消息`,
     currentImageFile: "预览当前文件",
     historicalImage: "预览历史图片",
     newTitle: "新对话",
@@ -519,6 +529,7 @@ export const ZH_TEXT = {
   },
   usage: {
     title: "使用统计",
+    description: "查看回合、技能和工具的使用情况。",
     rangeAria: "统计时间范围",
     rangeDays: (days: string) => `${days} 天`,
     loading: "正在加载统计...",
@@ -527,12 +538,13 @@ export const ZH_TEXT = {
     totalsTurns: "回合",
     totalsErrorTurns: "错误回合",
     totalsToolCalls: "工具调用",
-    totalsExecutions: "技能执行",
+    totalsReads: "Skill 读取调用次数",
+    totalsExecutions: "Skill 命令调用次数",
     totalsFailures: "执行失败",
     totalsTokens: "Token",
     dailyTitle: "每日趋势",
     dailyLegendTurns: "回合",
-    dailyLegendExecutions: "技能执行",
+    dailyLegendExecutions: "Skill 命令调用",
     chartModeAria: "图表形式",
     chartModeBars: "柱状",
     chartModeLine: "折线",
@@ -542,15 +554,15 @@ export const ZH_TEXT = {
     columnName: "名称",
     columnSkills: "技能数",
     columnTurns: "回合",
-    columnActivations: "激活",
-    columnExecutions: "执行",
+    columnActivations: "读取调用次数",
+    columnExecutions: "命令调用次数",
     columnFailures: "失败",
     columnSuccessRate: "成功率",
     columnAvgDuration: "平均耗时",
     columnCalls: "调用",
     columnErrors: "错误",
     columnLastUsed: "最近使用",
-    executionsBadge: (count: string) => `${count} 次执行`,
+    executionsBadge: (count: string) => `${count} 次命令调用`,
     successRateBadge: (pct: string) => `成功率 ${pct}`
   },
   mcp: {
@@ -600,6 +612,11 @@ export const ZH_TEXT = {
     closeNotice: "关闭提示",
     interfaceLanguage: "界面语言",
     integrationsGroup: "业务集成",
+    preferencesGroup: "偏好与账户",
+    computerGroup: "这台电脑",
+    searchSettings: "搜索设置",
+    clearSearch: "清除搜索",
+    noSettingsFound: "没有匹配的设置项",
     cancel: "取消",
     listSeparator: "、",
     keepBlankSuffix: "（留空则保持不变）",
@@ -708,7 +725,9 @@ export const ZH_TEXT = {
       workspaceRoot: "新会话默认工作区"
     },
     appearance: {
-      description: "调整整个界面的文字大小，选择后立即生效。",
+      description: "让界面适合你的阅读习惯。更改会立即生效。",
+      themeHint: "选择浅色、深色，或跟随系统外观。",
+      fontSizeHint: "调整界面和对话中的文字大小。",
       fontSizeAria: "字体大小",
       themeAria: "外观主题"
     },
@@ -940,8 +959,8 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     skillDisplayName: (name: string) => skillDisplayName(name, "en"),
     sessionStatus: {waiting_input:"Waiting for answer",running:"Running",stopping:"Stopping",queued:"Queued",completed:"Completed, not viewed",error:"Failed, not viewed",cancelled:"Stopped",idle:"No unviewed results",unknown:"Previous run result unconfirmed",unavailable:"Status unavailable",syncError:"Status sync failed"},
-    permissions: { mode:"Permission mode", readOnly:"Do not modify ordinary files", workspaceWrite:"Write workspace and platform temporary regions", fullAccess:"No file sandbox restriction", confirmTitle:"Enable Full access?", confirmBody:"Allow local tools to modify files within operating-system permissions, including files outside the workspace.", cancel:"Cancel", confirm:"Enable Full access", waiting:"Waiting for approval", pending:"pending approvals", request:(mode: string) => `Allow this operation with ${mode} permissions:`, cwd:"Working directory", originalCommand:"View original command", write:"Write", edit:"Edit", viewContents:"View file contents", viewChanges:"View changes", before:"Before", after:"After", deny:"Reject", allow:"Allow once" },
-  userQuestions: {waiting:"Waiting for answer",received:"Answer received",done:"Done",retry:"Retry submission",skip:"Skip",skipQuestion:"Skip this question",skipped:"Skipped",submitting:"Submitting…",stop:"Stop this task",stopping:"Stopping…",pagination:"Question pages",previous:"Previous question",next:"Next question",multiple:"Choose any and optionally add text",custom:"Your own answer",customPlaceholder:"Write your own answer…",freeText:"Answer"},
+    permissions: { mode:"Permission mode", readOnly:"Do not modify ordinary files", workspaceWrite:"Write workspace and platform temporary regions", fullAccess:"No file sandbox restriction", confirmTitle:"Enable Full access?", confirmBody:"Allow local tools to modify files within operating-system permissions, including files outside the workspace.", cancel:"Cancel", confirm:"Enable Full access", waiting:"Waiting for approval", pending:"pending approvals", runTitle:"Allow LXE Agent to run this command?", writeTitle:"Allow LXE Agent to write this file?", editTitle:"Allow LXE Agent to edit this file?", requestedMode:"Requested permission:", cwd:"Working directory", originalCommand:"View original command", write:"Write", edit:"Edit", viewContents:"View file contents", viewChanges:"View changes", before:"Before", after:"After", deny:"Reject", allow:"Allow once" },
+  userQuestions: {waiting:"Waiting for answer",received:"Answer received",done:"Done",retry:"Retry submission",skip:"Skip",skipQuestion:"Skip this question",skipped:"Skipped",submitting:"Submitting…",stop:"Stop this task",stopping:"Stopping…",pagination:"Question pages",previous:"Previous question",next:"Next question",multiple:"Choose any and optionally add text",custom:"Other",customPlaceholder:"Write your own answer…",freeText:"Answer"},
     language: {
       label: "Language",
       zh: "中文",
@@ -981,7 +1000,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       greetingEvening: "Good evening",
       overviewHint: "Here is the last 24 hours at a glance",
       todayTurns: "Turns",
-      todayExecutions: "Skill runs",
+      todayExecutions: "Skill command calls",
       todayFailures: "Failed runs",
       todayTokens: "Tokens",
       runtimeStatusAria: "Live runtime status",
@@ -1031,7 +1050,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       viewStats: "Open stats",
       noSessions: "No sessions yet",
       noSkills: "No skill usage in the last 7 days",
-      executionsUnit: (count: string) => `${count} runs`,
+      retry: "Retry",
+      executionsUnit: (count: string) => `${count} command calls`,
       loadError: "Failed to load overview"
     },
     workbench: {
@@ -1087,21 +1107,21 @@ export const UI_TEXT: Record<Language, UiText> = {
       disclaimer: "This tool only adds and verifies metadata. It does not decide whether media contains an AI-generated performer, and it does not check resolution, duration, or other Amazon upload requirements."
     },
     vietnamSettings: {
-      title: "Vietnam replenishment settings", subtitle: "Manage the SKU map, sales weights and CNY to VND exchange rate. Shared across workspaces.",
-      skuMap: "SKU map", skuHint: "Each listed SKU requires a hot-selling flag of 1 or 2. Cost, cross-border price and discount price may be blank; provided amounts must be greater than 0. Missing amounts leave dependent price and profit results blank without affecting replenishment quantities. Files specified in chat apply to that run only.",
-      upload: "Upload map", replace: "Replace map", uploaded: "SKU map saved.", noMap: "No SKU map uploaded", updated: "Updated",
-      downloadTemplate: "Download blank template", exportCurrent: "Export current map", exported: (path: string) => `File saved to: ${path}`,
+      title: "Vietnam replenishment settings", subtitle: "Manage the Vietnam replenishment template, sales weights and CNY to VND exchange rate. Shared across workspaces.",
+      template: "Vietnam replenishment template", templateHint: "Upload the complete nine-sheet workbook. The replenishment sheet supplies the hot-selling flag, cost, cross-border price, and discount price. ERP SKUs absent from the template are still exported, with dependent prices and profit left blank. A template specified in chat applies only to that run.",
+      upload: "Upload template", replace: "Replace template", uploaded: "Vietnam replenishment template saved.", noTemplate: "No template uploaded", updated: "Updated",
+      exportCurrent: "Export current template", exported: (path: string) => `File saved to: ${path}`,
       weights: "Sales weights", weightsHint: "Combine daily sales across the three periods. Weights must total 100%.", days: (day: number) => `${day} days`,
       weightNonNegative: "Sales weights must be non-negative numbers.", weightOutOfRange: "Sales weight is out of range.", weightTotal: "Sales weights must total 100%.",
-      exchange: "CNY → VND exchange rate", cny: "1 CNY =", vnd: "VND", advanced: "Advanced · Day adjustments",
+      exchange: "CNY → VND exchange rate", cny: "1 CNY =", vnd: "VND", adjustmentsTitle: "Day adjustments",
       adjustment: (day: number) => `${day}-day adjustment`, adjustmentHint: "Daily sales = period sales ÷ (period days + adjustment). Defaults for 7, 15 and 30 days: 0, 0.8 and 0.8.",
       save: "Save parameters", saving: "Saving…", saved: "Parameters saved for the next run.", appliesNextRun: "Changes apply to the next calculation. Running calculations keep their original inputs.",
       loading: "Loading settings…", retry: "Retry", unavailable: "Open these settings in the desktop app.",
     },
     workbenchIndex: {
       eyebrow: "Workbench",
-      title: "Tools",
-      subtitle: "Pick a tool to get started.",
+      title: "Features",
+      subtitle: "Choose a feature to get started.",
       back: "Back to workbench",
       tools: {
         syntheticPerformer: {
@@ -1109,16 +1129,17 @@ export const UI_TEXT: Record<Language, UiText> = {
           summary: "Batch-add Amazon's required AI performer tag to images and videos."
         },
         inputAssets: {
-          name: "Templates & data sources",
+          name: "FBA templates & data sources",
           summary: "See the templates and long-lived tables your skills are using."
         }
       }
     },
     inputAssets: {
-      eyebrow: "Workbench · Templates & data sources",
-      title: "Templates & data sources",
+      eyebrow: "Workbench · FBA templates & data sources",
+      title: "FBA templates & data sources",
       subtitle: "Skills remember the current version of these files. Uploading a new one promotes it automatically and keeps the previous version as a spare.",
       slotSummary: (filled: number, total: number) => `${filled} / ${total} ready`,
+      noSlots: "No templates or data sources are available yet.",
       empty: "Nothing stored yet",
       emptyHint: "The current version appears here after your first upload in a conversation.",
       current: "Current",
@@ -1156,7 +1177,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       range30: "30d",
       range90: "90d",
       turns: "Tasks handled",
-      executions: "Skill runs",
+      executions: "Skill command calls",
       successRate: "Success rate",
       toolCalls: "Tool calls",
       activeDays: "Active days",
@@ -1165,8 +1186,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       topSkill: "Top skill",
       days: (count: string) => `${count}d`,
       hour: (hour: string) => `${hour}:00`,
-      heatmapAria: "Daily skill runs",
-      heatmapDay: (day: string, count: string) => `${day}: ${count} runs`,
+      heatmapAria: "Daily turns",
+      heatmapDay: (day: string, count: string) => `${day}: ${count} turns`,
       loading: "Counting…"
     },
     common: {
@@ -1205,6 +1226,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       recent: "Recent chats",
       pin: "Pin",
       unpin: "Unpin",
+      rename: "Rename session",
+      name: "Session name",
       delete: "Delete",
       deleting: "Deleting…",
       deleteTitle: "Delete chat",
@@ -1212,7 +1235,6 @@ export const UI_TEXT: Record<Language, UiText> = {
       deleteConfirm: "Delete chat",
       deletePrompt: (title: string) => `Delete “${title}”? This action cannot be undone.`,
       deleteNote: "The chat history will be permanently deleted. Input attachments and output files will remain on disk.",
-      deleteRunning: "This chat is running or queued. Stop it before deleting.",
       actionsFor: (title: string) => `Chat actions for ${title}`,
       selectPrompt: "Select a session to view details.",
       searchResults: (count: string) => `${count} search results`,
@@ -1225,6 +1247,13 @@ export const UI_TEXT: Record<Language, UiText> = {
       tokenSuffix: "Token"
     },
     workspaces: {
+      delete: "Delete workspace",
+      deletePrompt: (name: string) => "This removes “" + name + "” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.",
+      deleting: "Deleting workspace…",
+      ungrouped: "Ungrouped",
+      required: "Select a workspace first.",
+      notFound: "Workspace not found.",
+
       title: "Workspaces", defaultName: "Default workspace", choose: "Choose workspace", open: "Open folder",
       newIn: (name: string) => `New chat in “${name}”`,
       loadMore: "Load more chats", retry: "Retry", empty: "No conversations yet",
@@ -1253,6 +1282,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     conversation: {
       viewedImages: (count: number) => `Viewed ${count} image${count === 1 ? "" : "s"}`,
+      contextCompacted: (count?: number) => count === undefined ? "Context compacted" : `Context compacted · ${count} message${count === 1 ? "" : "s"}`,
       currentImageFile: "Preview of current file",
       historicalImage: "Preview of historical image",
       newTitle: "New chat",
@@ -1434,6 +1464,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     usage: {
       title: "Usage Stats",
+      description: "Review activity across turns, skills and tools.",
       rangeAria: "Stats time range",
       rangeDays: (days: string) => `${days} days`,
       loading: "Loading stats...",
@@ -1442,12 +1473,13 @@ export const UI_TEXT: Record<Language, UiText> = {
       totalsTurns: "Turns",
       totalsErrorTurns: "Error Turns",
       totalsToolCalls: "Tool Calls",
-      totalsExecutions: "Skill Runs",
+      totalsReads: "Skill read calls",
+      totalsExecutions: "Skill command calls",
       totalsFailures: "Failed Runs",
       totalsTokens: "Tokens",
       dailyTitle: "Daily Trend",
       dailyLegendTurns: "Turns",
-      dailyLegendExecutions: "Skill runs",
+      dailyLegendExecutions: "Skill command calls",
       chartModeAria: "Chart type",
       chartModeBars: "Bars",
       chartModeLine: "Line",
@@ -1457,15 +1489,15 @@ export const UI_TEXT: Record<Language, UiText> = {
       columnName: "Name",
       columnSkills: "Skills",
       columnTurns: "Turns",
-      columnActivations: "Activations",
-      columnExecutions: "Runs",
+      columnActivations: "Read calls",
+      columnExecutions: "Command calls",
       columnFailures: "Failures",
       columnSuccessRate: "Success",
       columnAvgDuration: "Avg Duration",
       columnCalls: "Calls",
       columnErrors: "Errors",
       columnLastUsed: "Last Used",
-      executionsBadge: (count: string) => `${count} runs`,
+      executionsBadge: (count: string) => `${count} command calls`,
       successRateBadge: (pct: string) => `${pct} success`
     },
     mcp: {
@@ -1515,6 +1547,11 @@ export const UI_TEXT: Record<Language, UiText> = {
       closeNotice: "Dismiss notice",
       interfaceLanguage: "Interface language",
       integrationsGroup: "Integrations",
+      preferencesGroup: "Preferences & account",
+      computerGroup: "This computer",
+      searchSettings: "Search settings",
+      clearSearch: "Clear search",
+      noSettingsFound: "No matching settings",
       cancel: "Cancel",
       listSeparator: ", ",
       keepBlankSuffix: " (leave blank to keep it unchanged)",
@@ -1623,7 +1660,9 @@ export const UI_TEXT: Record<Language, UiText> = {
         workspaceRoot: "Default workspace for new sessions"
       },
       appearance: {
-        description: "Adjust the text size across the interface; changes apply immediately.",
+        description: "Make the interface comfortable to read. Changes apply immediately.",
+        themeHint: "Choose a light or dark appearance, or follow your system.",
+        fontSizeHint: "Adjust text size across the interface and conversations.",
         fontSizeAria: "Font size",
         themeAria: "Appearance theme"
       },

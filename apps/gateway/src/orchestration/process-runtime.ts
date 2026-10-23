@@ -44,8 +44,6 @@ export interface AgentProcessStatus {
   state: ProcessState;
   pid: number;
   message: string;
-  lxeskillAvailable?: boolean;
-  lxeskillMessage?: string;
   logging?: DesktopLoggingSinkStatus;
 }
 
@@ -57,7 +55,6 @@ export interface ProcessAgentRuntimeOptions {
   agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
-  lxeskillCatalogPath: string;
   llmConfigRoot: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
@@ -162,17 +159,11 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   }
 
   status(): AgentProcessStatus {
-    const lxeSkillAvailable = this.remoteHealthSnapshot.lxeskill_available;
-    const lxeSkillMessage = String(this.remoteHealthSnapshot.lxeskill_message ?? "").trim();
     const logging = loggingStatus(this.remoteHealthSnapshot.logging);
     return {
       state: this.state,
       pid: this.child?.pid ?? this.treeTermination?.pid ?? 0,
       message: this.statusMessage,
-      ...(typeof lxeSkillAvailable === "boolean"
-        ? { lxeskillAvailable: lxeSkillAvailable }
-        : {}),
-      ...(lxeSkillMessage ? { lxeskillMessage: lxeSkillMessage } : {}),
       ...(logging ? { logging } : {}),
     };
   }
@@ -238,7 +229,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         agent_soul_path: this.options.agentSoulPath,
         skills_root: this.options.skillsRoot,
         user_skills_root: this.options.userSkillsRoot,
-        lxeskill_catalog_path: this.options.lxeskillCatalogPath,
         llm_config_root: this.options.llmConfigRoot,
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,

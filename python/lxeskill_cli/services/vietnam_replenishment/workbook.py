@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import copy
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from importlib.resources import files
 from pathlib import Path
@@ -70,35 +70,10 @@ def canonical_product_time(value: object) -> str:
 _number = excel_number
 
 
-def _map_time_agrees(sku: str, listed_at: object, canonical: str) -> None:
-    if listed_at is None or isinstance(listed_at, str) and not listed_at.strip():
-        return
-    if not isinstance(listed_at, str):
-        raise WorkbookInputError(f"SKU {sku} 的旧映射上架时间不是文本，无法与商品创建时间核对")
-    raw = listed_at.strip()
-    product = datetime.strptime(canonical, "%Y-%m-%d %H:%M")
-    try:
-        if len(raw) == 10:
-            agrees = date.fromisoformat(raw) == product.date()
-        else:
-            mapped = datetime.fromisoformat(raw)
-            if mapped.tzinfo is not None:
-                raise WorkbookInputError(
-                    f"SKU {sku} 的旧映射上架时间含时区，无法与不含时区的商品创建时间核对"
-                )
-            agrees = mapped == product
-    except ValueError as exc:
-        raise WorkbookInputError(f"SKU {sku} 的旧映射上架时间无效: {exc}") from exc
-    if not agrees:
-        raise WorkbookInputError(
-            f"SKU {sku} 的旧映射上架时间 {raw!r} 与仓库产品创建时间 {canonical!r} 冲突"
-        )
-
-
 def _validated_rows(
-    sources: VietnamSources, parameters: Mapping[str, SkuParameters]
+    sources: VietnamSources, parameters: Mapping[str, SkuParameters], *, allow_empty_map: bool = False,
 ) -> tuple[_CurrentRow, ...]:
-    validate_sku_parameter_values(parameters)
+    validate_sku_parameter_values(parameters, allow_empty=allow_empty_map)
     skus = tuple(sources.skus)
     if not skus:
         raise WorkbookInputError("本轮 VN8806 SKU 集合为空")
@@ -138,9 +113,7 @@ def _validated_rows(
         has_mapping = sku in parameters
         values = parameters[sku] if has_mapping else None
         if has_mapping and not isinstance(values, SkuParameters):
-            raise WorkbookInputError(f"SKU {sku} 的运营 SKU 映射行无效")
-        if values is not None:
-            _map_time_agrees(sku, values.listed_at, listed_at)
+            raise WorkbookInputError(f"SKU {sku} 的模板 SKU 参数行无效")
 
         actual_transit = _number(inventory.get("在途数量"), sku, "当前库存在途数量")
         mapped_transit = _number(sources.in_transit.get(sku), sku, "权威在途数量")
@@ -258,12 +231,13 @@ def write_vietnam_workbook(
     sources: VietnamSources,
     parameters: Mapping[str, SkuParameters],
     config: RecommendationConfig,
+    *, allow_empty_map: bool = False,
 ) -> None:
     """Write only current SKU literals and translated formulas; never overwrite output."""
     output = Path(path)
     if output.exists():
         raise FileExistsError(output)
-    rows = _validated_rows(sources, parameters)
+    rows = _validated_rows(sources, parameters, allow_empty_map=allow_empty_map)
     input_config = validate_recommendation_config(config)
     book = _load_skeleton()
     try:

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from browser_auth_service import service
+from browser_auth_service.host import HostBrowserError
 from browser_auth_service.service import _extract_token
 
 
@@ -16,7 +21,10 @@ class FakeFrame:
         if self._raises:
             raise RuntimeError("frame not ready")
         index = min(self.calls - 1, len(self._values) - 1)
-        return self._values[index]
+        value = self._values[index]
+        if isinstance(value, Exception):
+            raise value
+        return value
 
 
 class FakePage:
@@ -74,31 +82,72 @@ def test_extract_token_does_not_read_non_target_origin() -> None:
     private_frame = FakeFrame("https://private.mabangerp.com/index.php", ["wrong-token"])
     page = FakePage([private_frame])
 
-    token = _extract_token(
-        page,
-        "https://amz1-private.mabangerp.com",
-        "freeToken",
-        wait_seconds=0,
-        poll_interval_ms=1,
-    )
+    with pytest.raises(service.FbaTokenReadError) as captured:
+        _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken", wait_seconds=0)
 
-    assert token == ""
+    assert captured.value.details["reason"] == "target_frame_missing"
+    assert captured.value.details["read_error_count"] == 0
+    assert captured.value.details["frame_urls"] == [private_frame.url]
     assert private_frame.calls == 0
 
 
-def test_extract_token_returns_empty_when_target_origin_has_no_token() -> None:
+def test_extract_token_reports_empty_storage_and_any_read_errors() -> None:
     token_frame = FakeFrame("https://amz1-private.mabangerp.com/dashboard", [""])
     broken_frame = FakeFrame("https://sub.amz1-private.mabangerp.com/widget", raises=True)
     page = FakePage([token_frame, broken_frame])
 
-    token = _extract_token(
-        page,
-        "https://amz1-private.mabangerp.com",
-        "freeToken",
-        wait_seconds=0,
-        poll_interval_ms=1,
-    )
+    with pytest.raises(service.FbaTokenReadError) as captured:
+        _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken", wait_seconds=0)
 
-    assert token == ""
+    details = captured.value.details
+    assert details["reason"] == "storage_value_empty"
+    assert details["successful_reads"] == 1
+    assert details["read_error_count"] == 1
+    assert details["last_read_error"]["message"] == "frame not ready"
     assert token_frame.calls == 1
     assert broken_frame.calls == 1
+
+
+def test_extract_token_empty_storage_is_not_reported_as_read_failure():
+    page = FakePage([FakeFrame(service.FBA_LOGISTICS_TOKEN_ORIGIN, [None, ""])])
+    with pytest.raises(service.FbaTokenReadError) as captured:
+        _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken", wait_seconds=0)
+    assert captured.value.details["reason"] == "storage_value_empty"
+    assert captured.value.details["last_read_error"] is None
+
+
+def test_extract_token_recovers_from_transient_read_error():
+    frame = FakeFrame(service.FBA_LOGISTICS_TOKEN_ORIGIN, [RuntimeError("frame detached"), "fresh-value"])
+    page = FakePage([frame])
+    assert _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken") == "fresh-value"
+    assert frame.calls == 2
+    assert len(page.waits) == 1
+
+
+def test_extract_token_preserves_remote_error_with_redaction_and_bounds(monkeypatch, caplog):
+    monkeypatch.setenv("LXE_AUTH_BROWSER_HOST_TOKEN", "private-host-credential")
+    cause = HostBrowserError({
+        "exception_type": "SecurityError",
+        "message": "Access to localStorage denied; private-host-credential; freeToken=secret-value " + "details " * 700,
+    })
+    url = service.FBA_LOGISTICS_TOKEN_ORIGIN + "/frame?ticket=private-ticket#private-fragment"
+    page = FakePage([FakeFrame(url, [cause])])
+    with pytest.raises(service.FbaTokenReadError) as captured:
+        _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken", wait_seconds=0)
+    details = captured.value.details
+    assert details["reason"] == "storage_read_failed"
+    assert details["last_read_error"]["exception_type"] == "SecurityError"
+    assert "Access to localStorage denied" in details["last_read_error"]["message"]
+    assert "[truncated " in details["last_read_error"]["message"]
+    assert captured.value.__cause__ is cause
+    output = json.dumps(details) + caplog.text + str(captured.value)
+    for secret in ("private-host-credential", "secret-value", "private-ticket", "private-fragment"):
+        assert secret not in output
+
+
+def test_extract_token_marks_omitted_frame_urls():
+    page = FakePage([FakeFrame(f"https://unrelated.example/{index}") for index in range(25)])
+    with pytest.raises(service.FbaTokenReadError) as captured:
+        _extract_token(page, service.FBA_LOGISTICS_TOKEN_ORIGIN, "freeToken", wait_seconds=0)
+    assert len(captured.value.details["frame_urls"]) == 20
+    assert captured.value.details["frame_urls_omitted"] == 5

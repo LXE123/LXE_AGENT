@@ -7,14 +7,14 @@ import type { DetailTarget } from "../../shared/ui/detail-target";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { SkillDetailDialog } from "../../shared/ui/skill-detail-dialog";
 
-function SkillDetail({ enabled, skill, close }: { enabled: boolean; skill: SkillPayload; close: () => void }) {
+function SkillDetail({ enabled, skill, close, themeClassName }: { enabled: boolean; skill: SkillPayload; close: () => void; themeClassName?: string }) {
   const t = useUiText();
   const [file, setFile] = useState("SKILL.md");
   const contentQuery = useSkillContentQuery(skill.name, enabled && file === "SKILL.md");
   const referenceQuery = useSkillReferenceQuery(skill.name, file, enabled && file !== "SKILL.md");
   const selected = file === "SKILL.md" ? contentQuery : referenceQuery;
   const references = contentQuery.data?.references ?? skill.references;
-  return <SkillDetailDialog skill={contentQuery.data ?? skill} title={t.skillDisplayName(skill.name)} close={close}
+  return <SkillDetailDialog themeClassName={themeClassName} skill={contentQuery.data ?? skill} title={t.skillDisplayName(skill.name)} close={close}
     files={["SKILL.md", ...references.map(reference => reference.path)]} selectedFile={file} onSelectFile={setFile}
     content={selected.data?.content} loading={selected.isPending} error={queryError(selected.error)} />;
 }
@@ -58,23 +58,25 @@ function ToolParameters({ parameters }: { parameters: Record<string, unknown> })
   );
 }
 
-export function DetailModal({ enabled, target, onClose }: {
+export function DetailModal({ enabled, target, onClose, themeClassName }: {
   enabled: boolean; target: DetailTarget; onClose: () => void;
+  themeClassName?: string;
 }) {
   if (!target) return null;
   return target.type === "skill"
-    ? <SkillDetail key={target.item.location} enabled={enabled} skill={target.item} close={onClose} />
-    : <ToolDetail target={target} onClose={onClose} />;
+    ? <SkillDetail key={target.item.location} enabled={enabled} skill={target.item} close={onClose} themeClassName={themeClassName} />
+    : <ToolDetail target={target} onClose={onClose} themeClassName={themeClassName} />;
 }
 
-function ToolDetail({ target, onClose }: {
+function ToolDetail({ target, onClose, themeClassName = "" }: {
   target: Extract<NonNullable<DetailTarget>, { type: "tool" }>; onClose: () => void;
+  themeClassName?: string;
 }) {
   const t = useUiText();
   const dialogRef = useDialogFocus<HTMLElement>(true, onClose);
   const title = target.title;
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+    <div className={`modal-backdrop ${themeClassName}`} role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
       <section aria-label={title} aria-modal="true" className="modal" ref={dialogRef} role="dialog" tabIndex={-1}>

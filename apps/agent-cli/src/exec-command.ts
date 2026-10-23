@@ -439,7 +439,6 @@ export async function runExecCommand(
         agentSoulPath: runtimePaths.agentSoulPath,
         skillsRoot: runtimePaths.skillsRoot,
         userSkillsRoot: runtimePaths.userSkillsRoot,
-        lxeskillCatalogPath: runtimePaths.lxeskillCatalogPath,
         llmConfigRoot: runtimePaths.llmConfigRoot,
         dataRoot: runtimePaths.dataRoot,
         legacyWorkspace: session.workspace,

@@ -2,6 +2,25 @@
   "protocol_version": "1",
   "entries": [
     {
+      "name": "logistics_settings",
+      "command_path": ["logistics", "settings"],
+      "visibility": "internal", "session_mode": "none",
+      "module": "services.agent_cli.logistics.settings",
+      "owner_skills": [], "exposed": false, "timeout_ms": 260000, "input_modes": ["flags"],
+      "input_schema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["read", "snapshot", "save", "delete"]},
+        "request": {"type": "object"}
+      }, "required": ["action"], "additionalProperties": false}
+    },
+    {
+      "name": "logistics_login_worker",
+      "command_path": ["logistics", "login-worker"],
+      "visibility": "internal", "session_mode": "none",
+      "module": "services.agent_cli.logistics.login_worker",
+      "owner_skills": [], "exposed": false, "timeout_ms": 90000, "input_modes": ["flags"],
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
       "name": "logistics_profiles",
       "module": "services.agent_cli.logistics.profiles",
       "command_path": ["logistics", "profiles"],
@@ -168,9 +187,9 @@
       }
     },
     {"name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "vietnam_replenishment_generate", "module": "services.agent_cli.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "sku_map_file": {"type": "string", "minLength": 1}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "vietnam_replenishment_generate", "module": "services.agent_cli.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。"}}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "shangman_goods_export", "command_path": ["shangman", "products", "export"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.goods_export", "owner_skills": ["shangman-products-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}], "input_modes": ["flags"]},
     {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}]},
     {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.agent_cli.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}},
@@ -207,8 +226,8 @@
           "strict_attach": {"type": "boolean", "description": "仅附着已运行店铺，附着失败时停止，不启动或重启店铺。"},
           "target_host": {"type": "string", "minLength": 1, "description": "目标标签页精确域名；未指定 target_handle 时须唯一，browser_tabs 列出全部匹配页。"},
           "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "browser_tabs 返回的实时 handle；必须同时带 strict_attach 和 target_host，关闭或域名变化即停；批量动作只在顶层指定。"},
-          "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}},
-          "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"},
+          "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}},
+          "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"},
           "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"},
           "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"},
           "text": {"type": "string", "description": "browser_type 输入文本。"},
@@ -220,48 +239,69 @@
       }
     },
     {
-      "name": "browser_auth_refresh",
-      "command_path": ["auth", "refresh"],
+      "name": "mabang_auth_refresh",
+      "command_path": ["mabang", "auth", "refresh"],
       "visibility": "maintenance",
       "session_mode": "none",
-      "handler": "auth",
-      "owner_skills": ["ziniao-browser"],
+      "handler": "mabang_auth",
+      "owner_skills": [],
       "timeout_ms": 180000,
       "exposed": false,
-      "input_schema": {"type": "object", "properties": {"account": {"type": "string"}}, "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
     },
     {
-      "name": "browser_auth_bind",
-      "command_path": ["auth", "browser", "bind"],
+      "name": "mabang_auth_browser_bind",
+      "command_path": ["mabang", "auth", "browser", "bind"],
       "visibility": "maintenance",
       "session_mode": "none",
-      "handler": "auth_browser",
+      "handler": "mabang_auth_browser",
       "owner_skills": [],
       "timeout_ms": 60000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {"executable": {"type": "string", "minLength": 1}}, "required": ["executable"], "additionalProperties": false}
     },
     {
-      "name": "browser_auth_status",
-      "command_path": ["auth", "browser", "status"],
+      "name": "mabang_auth_browser_status",
+      "command_path": ["mabang", "auth", "browser", "status"],
       "visibility": "maintenance",
       "session_mode": "none",
-      "handler": "auth_browser",
+      "handler": "mabang_auth_browser",
       "owner_skills": [],
       "timeout_ms": 10000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
     },
     {
-      "name": "browser_auth_unbind",
-      "command_path": ["auth", "browser", "unbind"],
+      "name": "mabang_auth_browser_unbind",
+      "command_path": ["mabang", "auth", "browser", "unbind"],
       "visibility": "maintenance",
       "session_mode": "none",
-      "handler": "auth_browser",
+      "handler": "mabang_auth_browser",
       "owner_skills": [],
       "timeout_ms": 10000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "vietnam_replenishment_settings",
+      "command_path": ["vietnam", "replenishment", "settings"],
+      "visibility": "internal",
+      "session_mode": "none",
+      "module": "services.agent_cli.vietnam_replenishment.settings",
+      "owner_skills": [],
+      "timeout_ms": 180000,
+      "exposed": false,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["read", "save", "upload", "export"]},
+          "parameters": {"type": "object"},
+          "path": {"type": "string", "minLength": 1}
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
     },
     {
       "name": "assets_inspect",
@@ -546,8 +586,8 @@
     "mabang_brazil_exports": {"dir": "mabang/brazil/exports", "holds": "巴西库存 XLSX 及调拨原始分批 XLS，按账号与运行隔离。"},
     "mabang_tms_exports": {"dir": "mabang_tms/exports", "holds": "马帮 TMS 原始分批文件及合并 XLSX，按账号与运行隔离。"},
     "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类 XLSX，按账号摘要与本次运行隔离。库存动销下载后去掉末列创建日期，只保存最终文件；另两类原样交付。"},
-    "vietnam_recommendations": {"dir": "vietnam/recommendations", "holds": "越南备货五表最终 XLSX；每次运行保存到独立目录，成功校验后交付。"},
-    "shangman_goods_export": {"dir": "shangman/indonesia", "holds": "上马 ERP 当前配置账号可见的商品全量原始 XLSX，每次导出保存于独立运行子目录。"},
+    "vietnam_recommendations": {"dir": "vietnam/recommendations", "holds": "越南备货九表最终 XLSX；每次运行保存到独立目录，成功校验后交付。"},
+    "shangman_goods_export": {"dir": "shangman/indonesia", "holds": "上马 ERP 官方商品 XLSX 中 status=2 的启用商品行，每次导出保存于独立运行子目录。"},
     "fba_delivery_csv": {"dir": "fba/delivery_csv", "holds": "FBA 发货单 CSV，命名 <SP单号>_*.csv；报关、发票、采购、退税汇总都从这里读。", "legacy_dirs": ["mabang_fba_delivery"]},
     "fba_stock_sku": {"dir": "fba/stock_sku", "holds": "马帮库存 SKU Excel，按发货单 SKU发货量 列导出；SKU 多时分批成多个文件。", "legacy_dirs": ["mabang_stock_sku"]},
     "fba_msku_detail": {"dir": "fba/msku_detail", "holds": "马帮 MSKU 明细 Excel。", "legacy_dirs": ["mabang_msku_detail"]},
@@ -576,6 +616,7 @@
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
   },
   "input_assets": {
+    "vietnam_full_workbook": {"display_name": "东南亚越南备货完整模板", "used_by": ["越南备货清单生成"], "dir": "vietnam/full_workbook", "holds": "保留改库存、改折扣、报官方活动、竞价报名四张原始工作表，计算成功后只更新其他五张表。"},
     "export_tax_master": {"display_name": "出口退税总表", "used_by": ["采购汇总", "备货工作簿"], "dir": "fba/export_tax_master", "holds": "SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},
     "contract_template": {"display_name": "采购合同模板", "used_by": ["采购汇总（正式模式）", "采购合同"], "dir": "fba/contract_template", "holds": "包含附加件明细模板，以及每个供应商一个 sheet。"},
     "customs_template": {"display_name": "报关资料模板", "used_by": ["报关资料填写"], "dir": "fba/customs_template", "holds": "CLI 只复制副本填写，原件不改。"},

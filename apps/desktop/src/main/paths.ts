@@ -11,7 +11,6 @@ export interface DesktopPaths {
   agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
-  lxeskillCatalogPath: string;
   llmConfigRoot: string;
   mcpDefaultPath: string;
   dataRoot: string;
@@ -124,9 +123,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
       ? targetPath.join(options.resourcesPath, "skills")
       : targetPath.join(sourceRoot, "skills"),
     userSkillsRoot,
-    lxeskillCatalogPath: options.packaged
-      ? targetPath.join(options.resourcesPath, "lxeskill", "catalog.json")
-      : targetPath.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
     llmConfigRoot: options.packaged
       ? targetPath.join(options.resourcesPath, "config", "llm")
       : targetPath.join(sourceRoot, "config", "llm"),

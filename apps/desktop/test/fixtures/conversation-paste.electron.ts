@@ -101,10 +101,9 @@ async function run() {
   const snapshot = JSON.parse(pasteboard({ action: "snapshot" })) as unknown;
   let window: BrowserWindow | undefined;
   let writer: ChildProcess | undefined;
-  let clock = Date.now();
   let previewMode = "normal";
   let releasePreview: (() => void) | undefined;
-  const service = new DesktopConversationAttachmentService(() => clock, undefined, {
+  const service = new DesktopConversationAttachmentService({
     directory: join(root, "screenshots"), prepare: prepareClipboardScreenshot,
   });
   try {
@@ -128,7 +127,7 @@ async function run() {
       if (variant === "thumbnail" && previewMode === "delay") await new Promise<void>(resolve => { releasePreview = resolve; });
       if (variant === "thumbnail" && previewMode === "missing") rmSync(imagePath);
       if (variant === "thumbnail" && previewMode === "invalid") writeFileSync(imagePath, "not an image");
-      if (variant === "thumbnail" && previewMode === "expired") clock += 31 * 60_000;
+      if (variant === "thumbnail" && previewMode === "discarded") service.discard([id]);
       const [item] = service.resolve([id]);
       return { data_url: await attachmentThumbnail(item!.path, variant === "thumbnail" ? 320 : 1600) };
     });
@@ -217,7 +216,7 @@ async function run() {
       assert.equal(staged[0]!.preview_data_url, undefined, "Reference thumbnails must not change draft metadata");
       await js("document.querySelector('.input-attachment-remove').click()");
       await wait("!document.querySelector('.input-attachment-chip')");
-      for (const [mode, error] of [["missing", "ENOENT"], ["invalid", "could not decode"], ["expired", "expired"]]) {
+      for (const [mode, error] of [["missing", "ENOENT"], ["invalid", "could not decode"], ["discarded", "no longer available"]]) {
         writeFileSync(imagePath, image.toPNG()); previewMode = mode!;
         writer?.kill(); writer = await writeFiles([imagePath]);
         await paste(false, false);
@@ -238,7 +237,7 @@ async function run() {
         await new Promise(resolve => setTimeout(resolve, 100));
         assert.equal(await js("document.querySelectorAll('.input-attachment-chip').length"), 0);
       }
-      console.log("PASS: JPEG/PNG reference thumbnails, file selection, real missing/invalid/expired errors, non-blocking preview failures, late results after removal/session switch");
+      console.log("PASS: JPEG/PNG reference thumbnails, file selection, real missing/invalid/discarded errors, non-blocking preview failures, late results after removal/session switch");
     }
     console.log("PASS: native macOS single/multi-file and image references, screenshot + text, PNG preview, 54px draft tile and expanded original with Escape dismissal, visual model block, accepted-file retention");
   } finally {

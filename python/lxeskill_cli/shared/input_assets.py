@@ -24,10 +24,14 @@ from functools import lru_cache
 from pathlib import Path
 import re
 import shutil
+from tempfile import mkdtemp
 from typing import NamedTuple
 
 from shared.workspace import input_root
+from shared.logging import get_logger
 
+
+logger = get_logger(__name__)
 
 _SLOT_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 _SLOT_DIR = re.compile(r"^[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_]*)*$")
@@ -155,6 +159,8 @@ def promote_asset(slot_id: str, source: str | os.PathLike[str]) -> AssetVersion:
 
     Re-promoting identical content is a no-op, so retrying a command or sending
     the same file twice does not burn the single rollback slot.
+    Copies are staged and verified before version changes; failed renames roll
+    both generations back without publishing an incomplete file.
     """
     if asset(slot_id).management != "command":
         raise InputAssetError(f"desktop-managed input asset cannot be promoted by command: {slot_id}")
@@ -168,21 +174,65 @@ def promote_asset(slot_id: str, source: str | os.PathLike[str]) -> AssetVersion:
     previous_dir = root / _PREVIOUS
     existing = _generation_file(slot_id, _CURRENT)
 
-    if existing is not None and _digest(existing) == _digest(incoming):
+    incoming_digest = _digest(incoming)
+    if existing is not None and _digest(existing) == incoming_digest:
         return _describe(existing)
 
-    if existing is not None:
-        # Replace the whole previous generation; never merge two generations.
-        shutil.rmtree(previous_dir, ignore_errors=True)
-        previous_dir.mkdir(parents=True, exist_ok=True)
-        # os.replace overwrites on Windows, where Path.rename would raise.
-        os.replace(existing, previous_dir / existing.name)
+    root.mkdir(parents=True, exist_ok=True)
+    staging = Path(mkdtemp(prefix=".promote-", dir=root))
+    cleanup = True
+    try:
+        staged_current = staging / "incoming"
+        staged_current.mkdir()
+        copied = staged_current / incoming.name
+        shutil.copyfile(incoming, copied)
+        # Windows fsync requires a writable handle. Apply the source permissions
+        # afterwards so a read-only template can still be staged and synced.
+        with copied.open("r+b") as stream:
+            os.fsync(stream.fileno())
+        shutil.copystat(incoming, copied)
+        if _digest(copied) != incoming_digest:
+            raise InputAssetError(f"input asset changed while staging: {incoming}")
+        promoted = _describe(copied)._replace(path=current_dir / incoming.name)
 
-    shutil.rmtree(current_dir, ignore_errors=True)
-    current_dir.mkdir(parents=True, exist_ok=True)
-    target = current_dir / incoming.name
-    shutil.copy2(incoming, target)
-    return _describe(target)
+        # Stage the complete generation on the destination filesystem before
+        # touching either live version. Directory renames retain original names.
+        old_current = staging / _CURRENT
+        old_previous = staging / _PREVIOUS
+        current_moved = previous_moved = demoted = False
+        try:
+            if current_dir.exists():
+                os.replace(current_dir, old_current)
+                current_moved = True
+            if existing is not None:
+                if previous_dir.exists():
+                    os.replace(previous_dir, old_previous)
+                    previous_moved = True
+                os.replace(old_current, previous_dir)
+                demoted = True
+            os.replace(staged_current, current_dir)
+        except BaseException as error:
+            try:
+                if demoted:
+                    os.replace(previous_dir, current_dir)
+                elif current_moved:
+                    os.replace(old_current, current_dir)
+                if previous_moved:
+                    os.replace(old_previous, previous_dir)
+            except BaseException as rollback_error:
+                # A second filesystem failure must not delete the last good copies.
+                cleanup = False
+                error.add_note(f"input asset rollback failed; retained copies in {staging}")
+                raise error from rollback_error
+            raise
+        return promoted
+    finally:
+        if cleanup:
+            try:
+                shutil.rmtree(staging)
+            except OSError as exc:
+                # Cleanup must not mask an upload error or reject a committed upload.
+                logger.warning("Input asset staging cleanup failed: path=%s; %s: %s", staging, type(exc).__name__, exc)
 
 
 __all__ = [

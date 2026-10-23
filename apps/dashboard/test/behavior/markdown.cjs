@@ -1,12 +1,51 @@
 const assert = require("node:assert/strict");
 
-module.exports = async ({ win, js, step, settle }) => {
+module.exports = async ({ win, js, step, settle, waitFor }) => {
+  const resize = async (width, height) => {
+    win.setContentSize(width, height);
+    await waitFor(`innerWidth === ${width}`, `Markdown viewport width ${width}`);
+  };
   const mount = async (surface, content) => {
     await js(`behavior.mountMarkdown(${JSON.stringify(surface)}, ${JSON.stringify(content)})`);
     await js("document.fonts.ready.then(() => undefined)");
     await settle();
     assert.equal(await js("document.querySelectorAll('.message-markdown').length"), 1);
   };
+  await step('streamed wide tables stay scrollable without widening surrounding prose before turn completion', async () => {
+    const prose = '测量条件与证据等级：正文应当在聊天列内自动换行。'.repeat(12);
+    const header = '| 项目 | Claude 值 | 证据 | LXE 当前 | 视觉影响 |\n|---|---|---|---|---|';
+    const cell = 'unbroken-evidence-'.repeat(60);
+    const partial = `${prose}\n\n${header}\n| 标题尺寸 | ${cell}`;
+    const complete = `${partial} | 测试页 | 14px | 对照 |\n\n${prose}`;
+    for (const width of [1280, 380]) {
+      await resize(width, 820);
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+        for (const [surface, content] of [['streaming', partial], ['streaming', complete], ['conversation', complete]]) {
+          await mount(surface, content);
+          const layout = await js(`(() => {
+            const feed=document.querySelector('.conversation-feed'), root=document.querySelector('.message-markdown');
+            const table=root.querySelector('.markdown-table-scroll'), bounds=feed.getBoundingClientRect();
+            const range=document.createRange();range.selectNodeContents(root.querySelector('p'));
+            return { page:document.documentElement.scrollWidth, viewport:innerWidth, feed:bounds.toJSON(),
+              root:root.getBoundingClientRect().toJSON(), table:table.getBoundingClientRect().toJSON(),
+              scrollWidth:table.scrollWidth, clientWidth:table.clientWidth, text:table.textContent,
+              lines:Array.from(range.getClientRects()).map(r=>({left:r.left,right:r.right})) };
+          })()`);
+          const context = `${surface}/${theme}/${width}: ${JSON.stringify(layout)}`;
+          assert.ok(layout.text.includes(cell), 'table preserves the full streamed cell');
+          assert.ok(layout.page <= layout.viewport + 1, context);
+          assert.ok(layout.root.right <= layout.feed.right + 1 && layout.table.right <= layout.feed.right + 1, context);
+          assert.ok(layout.scrollWidth > layout.clientWidth, 'wide table scrolls inside its own wrapper');
+          assert.ok(layout.lines.length > 1 && layout.lines.every(r=>r.left>=layout.feed.left-1&&r.right<=layout.feed.right+1), context);
+          await js("document.querySelector('.markdown-table-scroll').scrollLeft=100");
+          assert.ok(await js("document.querySelector('.markdown-table-scroll').scrollLeft>0"), 'overflow is reachable, not clipped');
+        }
+      }
+    }
+    await js("document.documentElement.dataset.theme='light'");
+    await resize(1280, 820);
+  });
   for (const surface of ["conversation", "skill"]) {
     await step(`${surface}: all six heading levels render with a readable hierarchy`, async () => {
       const content = Array.from({ length: 6 }, (_, i) => `${"#".repeat(i + 1)} Heading ${i + 1}\n\nBody ${i + 1}.`).join("\n\n");
@@ -55,7 +94,7 @@ module.exports = async ({ win, js, step, settle }) => {
       const paragraph = "长引用内容".repeat(30) + "UnbrokenQuotedWord".repeat(35);
       // Desktop default and minimum content viewports; no exact aesthetic spacing.
       for (const [width, height] of [[1280, 820], [960, 640]]) {
-        win.setContentSize(width, height);
+        await resize(width, height);
         await mount(surface, `## ${heading}\n\n> ${paragraph}`);
         const layout = await js(`(() => {
           const root = document.querySelector('.message-markdown');

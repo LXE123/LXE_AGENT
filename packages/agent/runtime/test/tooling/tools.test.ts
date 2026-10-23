@@ -50,11 +50,10 @@ describe("tool registry exposure", () => {
     expect(activated).toEqual(["reports"]);
   });
 
-  test("does not authorize classified invocations: the CLI owns command scope", async () => {
+  test("does not authorize exec commands using skill ownership", async () => {
     const registry = new ToolRegistry();
     registry.register({
       ...definition("exec"),
-      classifyInvocation: () => ({ ownerSkills: ["ziniao-browser"] }),
     });
     const outOfScope = registry.createExposureState({ allowedSkills: new Set(["fba-shipment-create"]) });
     const context = {

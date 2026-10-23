@@ -1,3 +1,5 @@
+import { TurnStatistics, type CommandSkill } from "../statistics/turn-statistics";
+import type { SessionTitleService } from "../state/session-title";
 import { ExecutionPaths } from "../permissions/execution-paths";
 import { workspaceArtifactRoot } from "@lxe/core";
 import { join } from "node:path";
@@ -64,8 +66,6 @@ import type {
   RuntimeStore,
   AssistantMessageEvent,
   SystemPromptContext,
-  SkillActivationUsage,
-  SkillExecutionUsage,
   RuntimeTurnContextRecord,
   AssistantMessage,
   RuntimeUsage,
@@ -76,6 +76,7 @@ import type {
 
 export interface TypeScriptAgentRuntimeOptions {
   store: RuntimeStore;
+  sessionTitles?: SessionTitleService;
   provider?: RuntimeProvider;
   providerManager?: RuntimeProviderManager;
   wireTraceController?: RuntimeWireTraceControllerPort;
@@ -85,7 +86,7 @@ export interface TypeScriptAgentRuntimeOptions {
   onToolResult?: (session: string) => void;
   skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
   workspaceInstances?: RuntimeWorkspaceInstanceProvider;
-  resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
+  commandSkills?: () => Promise<readonly CommandSkill[]>;
   emitter: RuntimeEmitter;
   onSessionChanged?: (
     sessionId: string,
@@ -173,8 +174,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     message: RuntimeMessage,
     reason: string,
     turnId?: string,
+    titleInput?: string,
   ): Promise<void> {
-    await this.options.store.appendMessage(sessionId, message, reason, turnId);
+    await this.options.store.appendMessage(sessionId, message, reason, turnId, titleInput);
     if (reason.startsWith("tool_results")) this.options.onToolResult?.(sessionId);
     await this.notifySessionChanged(sessionId, "messages");
   }
@@ -213,6 +215,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     await Promise.allSettled([...this.active].map(async (handle) => {
       if (!handle.signal.aborted) this.logger.warn("runtime stopped with active turn");
     }));
+    await this.options.sessionTitles?.stop();
     const stopped = await Promise.allSettled([...(this.options.services ?? [])].reverse().map((service) => service.stop()));
     for (const result of stopped) if (result.status === "rejected") this.logger.error("runtime_service_stop_failed", { error: result.reason });
     await this.options.workspaceInstances?.disposeAll("runtime_stop");
@@ -249,11 +252,16 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     }
     const workspace = assertWorkspaceAvailable(session.workspace);
     const executionPaths = this.options.executionPaths ?? new ExecutionPaths(join(process.cwd(), "var"));
-    const providerSnapshot = this.options.providerManager?.acquire();
+    const configuredProvider = this.options.providerManager?.acquire(session.model_selection);
+    const providerSnapshot = configuredProvider ? { ...configuredProvider, provider: configuredProvider.provider.captureForTurn?.() ?? configuredProvider.provider } : undefined;
+    let titleRequested = false;
     const provider = providerSnapshot?.provider ?? this.options.provider;
     if (!provider) throw new Error("runtime provider is not configured");
-    const skillActivations = new Map<string, SkillActivationUsage>();
-    const skillExecutions: SkillExecutionUsage[] = [];
+    const statistics = new TurnStatistics({
+      directory: workspace.directory,
+      ...(this.options.commandSkills ? { commandSkills: this.options.commandSkills } : {}),
+      onError: error => this.logger.warn("turn_statistics_failed", { error }),
+    });
     const descriptor = providerSnapshot?.descriptor;
     const metricSource = String(job.source.platform ?? "").trim() === "desktop" ? job.source : session.source;
     const sourceExtra = metricSource.extra !== null && typeof metricSource.extra === "object" &&
@@ -300,9 +308,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let typingStarted = false;
     let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
     const startedAt = Date.now() / 1_000;
-    const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
     const emittedArtifactPaths = new Set<string>();
-    const toolRecoveryAttempts = new Map<string, number>();
     let displayEpoch: string | undefined;
     let displayMeasurement: import("./context-meter").ContextMeasurement | undefined;
     const saveDisplay = async (measurement = displayMeasurement): Promise<void> => {
@@ -369,9 +375,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           cache_creation_input_tokens: cacheCreationTokens,
           tool_calls: toolCalls,
           api_calls: apiCalls,
-          tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
-          activations: [...skillActivations.values()],
-          executions: skillExecutions,
+          ...await statistics.snapshot(),
         });
         await this.notifySessionChanged(job.session_id, "usage");
       } catch (cause) {
@@ -429,9 +433,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       await finalAnswerStreamer?.startPreparingContext();
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
       const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
-      const skillModule = (name: string): string => skillSnapshot
-        ? skillSnapshot.modules[name]?.trim() ?? ""
-        : this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
+      statistics.setSkills(skillSnapshot?.locations ?? {}, skillSnapshot?.modules ?? {});
       const exposureOptions = typeof this.options.toolExposure === "function"
         ? this.options.toolExposure()
         : this.options.toolExposure;
@@ -442,7 +444,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         platform: String(job.source.platform ?? "").trim(),
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames), skillLocations: skillSnapshot.locations } : {}),
         onSkillActivated: async (name) => {
-          skillActivations.set(name, { skill: name, module: skillModule(name) });
           await exposureOptions?.onSkillActivated?.(name);
         },
       });
@@ -467,6 +468,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           system: systemPrompt, tools: toolSchemas, toolChoice: heartbeat || isLastStep ? "none" : "auto",
         });
       const turnContext: RuntimeTurnContextRecord = {
+        ...(session.model_selection_version === undefined ? {} : { model_selection_version: session.model_selection_version }),
         turn_id: job.job_id,
         job_kind: heartbeat ? "heartbeat" : "turn",
         provider: descriptor?.name ?? "custom",
@@ -480,6 +482,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       };
       await this.options.store.appendTurnContext(job.session_id, turnContext);
       let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
+      const titleInput = heartbeat ? "" : job.user_content_blocks?.length
+        ? job.user_content_blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join(" ") : job.user_input;
       const userContent: RuntimeMessageContent = heartbeat
         ? heartbeatPrompt(pendingEvents)
         : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
@@ -499,7 +503,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       };
       const instructions = heartbeat ? [] : await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
         // Keep the submitted input in history when skill selection or loading fails.
-        await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id);
+        await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id, titleInput);
         throw error;
       });
       if (instructions.length) userMessage.invoked_skills = instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []);
@@ -518,7 +522,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
         pendingEventCount: pendingEvents.length,
       });
-      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id);
+      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id, titleInput);
       for (const instruction of instructions) await this.appendMessage(job.session_id, instruction, "skill_invocation", job.job_id);
       await saveDisplay(initialMeasurement);
       await finalAnswerStreamer?.updateContext(initialMeasurement);
@@ -648,11 +652,18 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               const request = providerRequest(attemptObserver, wireTrace);
               const estimatedInput = requestContextTokenEstimate(request.system, request.messages, request.tools);
               const requestId = randomUUID();
-              const response = structuredClone(await provider.turn(request));
+              if (!titleRequested && !heartbeat && providerSnapshot) {
+                titleRequested = true;
+                this.options.sessionTitles?.onMainRequest(job.session_id, job.message_id || job.job_id, providerSnapshot, userIdentity);
+              }
+              let requestImagesOmitted = false;
+              const response = structuredClone(await provider.turn({ ...request,
+                onRequestImagesOmitted: () => { requestImagesOmitted = true; },
+              }));
               delete response.contextTokenAnchor;
               const usage = response.usage;
               const actualInput = usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-              if (!isCancelled(handle) && ["stop", "length", "toolUse"].includes(response.stopReason) &&
+              if (!requestImagesOmitted && !isCancelled(handle) && ["stop", "length", "toolUse"].includes(response.stopReason) &&
                 usage.status === "complete" && [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0]
                   .every(value => Number.isSafeInteger(value) && value >= 0) && Number.isSafeInteger(actualInput) && actualInput > 0 &&
                 (!response.responseModel || response.responseModel === systemPromptContext.model)) {
@@ -778,14 +789,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           toolCalls += 1;
           const startedToolAt = Date.now();
           const definition = this.options.tools.definition(call.name);
-          const invocation = definition?.classifyInvocation?.(call.arguments);
-          const usageName = invocation?.usageName || call.name;
-          const commandId = invocation?.commandId?.trim() ?? "";
-          const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
-          const executionSkill = commandId ? String(invocation?.attributionSkill ?? "").trim() : "";
-          usage.calls += 1;
-          toolUsage.set(usageName, usage);
-          observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
+          statistics.observe(call.name, call.arguments, definition?.source !== "mcp");
+          observer.toolStarted(step + 1, call.name, call.id);
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
           let toolDisplayStatus: import("@lxe/protocol").ToolStepStatus = "success";
@@ -872,7 +877,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               }
             }
           } catch (cause) {
-            usage.errors += 1;
             toolStatus = "error";
             toolDisplayStatus = "error";
             const unknownFailure = unknownToolFailureDetails(call.name, cause);
@@ -880,13 +884,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             let modelMessage = JSON.stringify(unknownFailure, null, 2);
             if (cause instanceof ToolExecutionError) {
               displayMessage = cause.message;
-              if (cause.recoveryGroup) {
-                const attempt = (toolRecoveryAttempts.get(cause.recoveryGroup) ?? 0) + 1;
-                toolRecoveryAttempts.set(cause.recoveryGroup, attempt);
-                modelMessage = cause.modelContent(attempt);
-              } else {
-                modelMessage = cause.modelContent();
-              }
+              modelMessage = cause.modelContent();
             }
             toolDisplayOutput = { content: displayMessage };
             resultSlots[callIndex] = {
@@ -897,17 +895,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             };
           } finally {
             const durationMs = Date.now() - startedToolAt;
-            usage.duration_ms += durationMs;
-            if (executionSkill) {
-              skillExecutions.push({
-                skill: executionSkill,
-                module: skillModule(executionSkill),
-                command: commandId,
-                success: toolStatus === "success",
-                duration_ms: durationMs,
-              });
-            }
-            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, commandId || undefined);
+            statistics.finish(call.name, durationMs, toolStatus === "error");
+            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs);
             await finalAnswerStreamer?.pushToolFinish(call, toolDisplayStatus, durationMs, toolDisplayOutput);
           }
         };

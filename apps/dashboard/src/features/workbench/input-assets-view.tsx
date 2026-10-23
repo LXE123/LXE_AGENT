@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
+import { FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
 import type { DesktopInputAssetSlot } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
+import { WorkbenchPageHeader } from "./page-header";
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
@@ -21,7 +22,9 @@ export function useInputAssetSlots() {
     if (!desktop) return;
     setLoading(true);
     try {
-      setSlots(await desktop.listInputAssets());
+      const assets = await desktop.listInputAssets();
+      // Vietnam templates are managed in their own settings page.
+      setSlots(assets.filter(asset => asset.slot !== "vietnam_full_workbook"));
       setError("");
     } catch (cause) {
       setError(errorText(cause));
@@ -39,14 +42,12 @@ export function InputAssetsWorkbench({
   error,
   loading,
   onBack,
-  onOpenVietnamSettings,
   refresh,
   slots,
 }: {
   error: string;
   loading: boolean;
   onBack: () => void;
-  onOpenVietnamSettings: () => void;
   refresh: () => Promise<void>;
   slots: DesktopInputAssetSlot[] | null;
 }) {
@@ -63,26 +64,20 @@ export function InputAssetsWorkbench({
   };
 
   return (
-    <section className="workbench-tool-view">
-      <header className="workbench-tool-header">
-        <button className="workbench-back" onClick={onBack} type="button">
-          <ArrowLeft size={14} />
-          {t.workbenchIndex.back}
-        </button>
-        <p className="workbench-eyebrow">{copy.eyebrow}</p>
-        <h2>{copy.title}</h2>
-        <p className="workbench-index-subtitle">{copy.subtitle}</p>
-        <button className="workbench-refresh" disabled={loading} onClick={() => void refresh()} type="button">
+    <section className="workbench-tool-view workbench-detail input-assets-view" aria-labelledby="input-assets-title">
+      <WorkbenchPageHeader title={copy.title} titleId="input-assets-title" description={copy.subtitle} onBack={onBack}
+        actions={<button className="workbench-refresh" disabled={loading} onClick={() => void refresh()} type="button">
           {loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
           {loading ? copy.loading : copy.refresh}
-        </button>
-      </header>
+        </button>}
+        metadata={slots?.length ? <p className="workbench-detail-meta">{copy.slotSummary(slots.filter(slot => slot.current && !slot.current_error && !slot.manifest_error).length, slots.length)}</p> : null} />
 
-      {error ? <p className="workbench-error">{copy.loadError}: {error}</p> : null}
-      {revealError ? <p className="workbench-error">{revealError}</p> : null}
+      {error ? <p className="workbench-error" role="alert">{copy.loadError}: {error}</p> : null}
+      {revealError ? <p className="workbench-error" role="alert">{revealError}</p> : null}
 
-      <button className="workbench-refresh" onClick={onOpenVietnamSettings} type="button">{t.vietnamSettings.title}</button>
-      <div className="asset-slot-list">
+      {loading && !slots ? <p className="workbench-loading" role="status"><LoaderCircle className="spin" size={16} />{copy.loading}</p> : null}
+      {!loading && !error && slots?.length === 0 ? <p className="workbench-empty" role="status">{copy.noSlots}</p> : null}
+      <div className="asset-slot-list" aria-busy={loading}>
         {(slots ?? []).map((slot) => {
           return (
             <article className="asset-slot" key={slot.slot}>
@@ -100,9 +95,9 @@ export function InputAssetsWorkbench({
                 <strong>{copy.usedBy}</strong>
                 {slot.used_by.join(copy.usedBySeparator)}
               </p>
-              {slot.manifest_error ? <p className="workbench-error">{copy.integrityError}: {slot.manifest_error}</p> : null}
-              {slot.current_error ? <p className="workbench-error">{copy.integrityError}: {slot.current_error}</p> : null}
-              {slot.previous_error ? <p className="workbench-error">{copy.integrityError}: {slot.previous_error}</p> : null}
+              {slot.manifest_error ? <p className="workbench-error" role="alert">{copy.integrityError}: {slot.manifest_error}</p> : null}
+              {slot.current_error ? <p className="workbench-error" role="alert">{copy.integrityError}: {slot.current_error}</p> : null}
+              {slot.previous_error ? <p className="workbench-error" role="alert">{copy.integrityError}: {slot.previous_error}</p> : null}
               {slot.current || slot.previous ? (
                 <dl className="asset-slot-versions">
                   {slot.current ? (

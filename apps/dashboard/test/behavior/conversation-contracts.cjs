@@ -29,6 +29,51 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       const result=await js("JSON.parse(document.querySelector('#query-result').textContent)");
       assert.equal(result.actual,'race-second'); assert.equal(result.oldest,'g990');
     });
+    await step('compaction stays between streamed content and scrolls normally in every theme',async()=>{
+      const fixture=new URL('../features/sessions/window-fixture.html?compaction=1',url).href;
+      await win.loadURL(fixture);
+      await waitFor("Boolean(document.querySelector('.conversation-compaction-marker'))",'compaction marker');
+      const ordered=async()=>assert.deepEqual(await js("Array.from(document.querySelectorAll('[data-conversation-row]')).map(e=>e.dataset.conversationRow).filter(id=>['a:0','compaction:compact','b:0'].includes(id))"),['a:0','compaction:compact','b:0']);
+      await ordered();
+      await js("window.markerNode=document.querySelector('.conversation-compaction-marker')");
+      await textClick('Append after compaction');
+      await ordered();
+      assert.ok(await js("document.querySelector('[data-conversation-row=\"b:0\"]').textContent.includes('2 项检查')"));
+      await textClick('Save compaction history');
+      assert.ok(await js("markerNode===document.querySelector('.conversation-compaction-marker')"),'same DOM node through streaming and history handoff');
+      await win.loadURL(fixture+'&saved=1');
+      await waitFor("Boolean(document.querySelector('.conversation-compaction-marker'))",'refreshed marker');
+      for(const [theme,width] of [['light',1000],['dark',1000],['light',380],['dark',380]]) {
+        win.setSize(width,700);
+        await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`); await settle();
+        await ordered();
+        const info=await js(`(() => {
+          const marker=document.querySelector('.conversation-compaction-marker'), style=getComputedStyle(marker), rect=marker.getBoundingClientRect();
+          return {count:document.querySelectorAll('.conversation-compaction-marker').length,text:marker.textContent,
+            background:style.backgroundColor,border:style.borderTopWidth,position:style.position,controls:marker.querySelectorAll('button,a,input,summary').length,
+            fits:rect.right<=innerWidth&&rect.left>=0,after:document.querySelector('[data-conversation-row="b:0"]').getBoundingClientRect().top>=rect.bottom};
+        })()`);
+        assert.equal(info.count,1); assert.equal(info.text,'已压缩上下文 · 255 条消息');
+        assert.equal(info.background,'rgba(0, 0, 0, 0)'); assert.equal(info.border,'0px'); assert.equal(info.position,'static');
+        assert.equal(info.controls,0); assert.ok(info.fits&&info.after);
+        if(process.env.LXE_COMPACTION_SCREENSHOT) {
+          await js('document.fonts.ready.then(()=>undefined)'); await settle();
+          const rect=await js("document.querySelector('.conversation-transcript').getBoundingClientRect().toJSON()");
+          require('node:fs').writeFileSync(process.env.LXE_COMPACTION_SCREENSHOT.replace(/\.png$/,`-${theme}-${width}.png`),
+            (await win.webContents.capturePage({x:Math.floor(rect.x),y:Math.floor(rect.y),width:Math.floor(rect.width),height:Math.min(360,Math.floor(rect.height))})).toPNG());
+        }
+      }
+      await textClick('Long answer');
+      await js("{const root=document.querySelector('.conversation-transcript');root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-800}));root.scrollTop=0;root.dispatchEvent(new Event('scroll'))}"); await settle();
+      const before=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
+      await js("{const root=document.querySelector('.conversation-transcript');root.scrollTop=60;root.dispatchEvent(new Event('scroll'))}"); await settle();
+      const after=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
+      assert.ok(Math.abs(before-after-60)<3,'marker scrolls with content');
+      await textClick('Prepend compaction history');
+      await settle(); await settle();
+      const afterPrepend=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
+      assert.ok(Math.abs(afterPrepend-after)<3,'prepending preserves reading anchor');
+    });
     return;
   }
   await load('?contracts=1');
@@ -37,7 +82,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await settle();
     await click('[data-fixture-row=answer] .message-meta-copy');
     assert.ok((await js('copiedText')).includes('const answer = 42;'));
-    assert.ok(await js("document.querySelector('code .hljs-keyword')?.textContent==='const'"));
+    await waitFor("document.querySelector('code .hljs-keyword')?.textContent==='const'", 'code highlighting completed');
     const table = await js("({text:document.querySelector('td:last-child').textContent,width:document.documentElement.scrollWidth,viewport:innerWidth})");
     assert.equal(table.text,'long-cell-'.repeat(80));
     assert.ok(table.width<=table.viewport+1,'table does not overflow the page');
@@ -86,6 +131,9 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await js("behavior.ui.fail('models.thinking.update',false)");
     await focus('.conversation-thinking-level:last-of-type'); await key('Enter');
     await waitFor("document.querySelector('.conversation-thinking-level:last-of-type').getAttribute('aria-checked')==='true'",'keyboard thinking selection');
-    assert.deepEqual((await state()).calls.filter(c=>c.operation==='models.thinking.update').map(c=>c.input),[{level:'high'},{level:'high'}]);
+    assert.deepEqual((await state()).calls.filter(c=>c.operation==='models.thinking.update').map(c=>c.input),[
+      {level:'high',session_id:'Default chat',selection_version:0},
+      {level:'high',session_id:'Default chat',selection_version:0},
+    ]);
   });
 };

@@ -9,6 +9,8 @@ commands:
 license: MIT
 ---
 
+需要查询 lxeskill 产物目录时，运行 `lxeskill datasets list`；返回的 `dir` 相对于当前环境的 `artifact_root`。
+
 # Amazon Listing Optimizer
 
 本 Skill 是 LXE 正式维护的本地 Amazon Operations 模块，无需 Seller 账号或 API Key。数据来自 Amazon 公共商品页、搜索页和未公开的联想词接口，不代表 Amazon 官方授权数据；Amazon 可能返回 Robot Check、简化页面或变化后的 HTML，必须根据 `status`、`diagnostics.confidence`、`missing_fields` 和 `data_completeness` 判断结果是否可用。

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from services.vietnam_replenishment.workflow import generate_current_vietnam_recommendation
+from services.vietnam_replenishment.workflow import VietnamWorkflowError, generate_current_vietnam_recommendation
 from services.vietnam_replenishment.validation_diagnostics import validation_diagnostic
 from services.vietnam_replenishment.settings import config_json
 from shared.filesystem import display_path
@@ -21,10 +21,10 @@ def _failure(code: str, message: str) -> dict[str, Any]:
 
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Calculate supplied reports with an optional map and saved parameters."""
+    """Calculate supplied reports in the complete business workbook."""
     required = {"sales_file", "inventory_file", "products_file"}
-    if set(arguments) - (required | {"sku_map_file"}):
-        return _failure("invalid_arguments", "仅接受 sales_file、inventory_file、products_file 和可选 sku_map_file 文件路径")
+    if set(arguments) - (required | {"template_file"}):
+        return _failure("invalid_arguments", "仅接受三份报表和可选 template_file 文件路径")
     if required - set(arguments):
         return _failure("invalid_arguments", f"缺少必填报表路径: {', '.join(sorted(required - set(arguments)))}")
     for name, value in arguments.items():
@@ -38,6 +38,15 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"最终 XLSX 无效: {output}")
     except Exception as exc:  # noqa: BLE001 — report the observed, redacted failure
         detail = validation_diagnostic(exc)
+        if isinstance(exc, VietnamWorkflowError) and exc.code == "template_missing":
+            return {
+                **_failure("input_required", detail),
+                "recovery": {
+                    "next_action": "ask_user_to_upload_file", "field": "template_file",
+                    "accepted_extensions": [".xlsx"],
+                    "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。",
+                },
+            }
         return _failure(str(getattr(exc, "code", type(exc).__name__)), detail)
 
     return {
@@ -48,7 +57,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         "output_xlsx": str(display_path(output)),
         "config": config_json(result.config),
         "config_source": result.config_source,
-        "sku_map_source": result.sku_map_source,
+        "template_source": result.template_source,
         "source_files": public_reports(list(result.source_files), YACANG_REPORTS),
         "validation": result.validation,
+        "asset_sources": {"template_file": result.template_asset_source},
     }

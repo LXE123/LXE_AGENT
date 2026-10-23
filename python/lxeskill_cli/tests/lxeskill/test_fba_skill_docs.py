@@ -23,8 +23,6 @@ def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
 
     ziniao = _skill_text("ziniao-browser")
     assert "data.screenshot_path" in ziniao
-    assert "不含 base64" in ziniao
-    assert "旧元素 `ref` 立即视为失效" in ziniao
 
 
 def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() -> None:

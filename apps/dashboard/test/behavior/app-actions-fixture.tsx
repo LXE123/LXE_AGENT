@@ -5,12 +5,14 @@ import { useCurrentModelQuery, useModelsQuery, useToolsetsQuery, useConversation
 import { useConversationEvents } from "../../src/features/sessions/use-conversation-events";
 import { ConversationComposer } from "../../src/features/sessions/view";
 import { McpServicesView } from "../../src/features/integrations/view";
-import type { DesktopConversationActivityPayload, DesktopConversationEvent, DesktopConversationStreamEvent, McpServerPayload } from "@lxe/desktop-protocol";
+import type { DesktopConversationActivityPayload, DesktopConversationEvent, DesktopConversationStreamEvent, McpServerPayload, ModelPayload } from "@lxe/desktop-protocol";
 import { modelRow, modelOption } from "../features/models/source-fixtures";
 
 const models = () => [modelRow("deepseek", "local", "Local", [modelOption("first"), modelOption("second")]),
   modelRow("deepseek", "cloud", "Cloud", [modelOption("first")])];
 let current = models()[0]!;
+const sessionModels = new Map<string, ModelPayload>();
+const sessionModel = (id: string) => sessionModels.get(id) ?? { ...models()[0]!, session_id: id, selection_version: 0 };
 let server: McpServerPayload;
 let failure = "", held = "";
 let release: (() => void) | undefined;
@@ -24,6 +26,7 @@ export const actionFixture = {
   active: false,
   reset() {
     this.active = true; current = models()[0]!; failure = ""; held = ""; release = undefined; sends = 0; activities.clear();
+    sessionModels.clear();
     server = { name: "fixture-mcp", enabled: true, transport: "stdio", status: "ready", tool_count: 0, error: "", server_title: "Fixture MCP", connector_id: "", connector_name: "", connector_description: "", exposure: "", tools: [] };
   },
   fail(operation: string) { failure = operation; },
@@ -33,6 +36,7 @@ export const actionFixture = {
   thinking(level: string) { controls!.setCurrentThinkingLevel(level); },
   state() { return { sends, activityListeners: activityListeners.size, streamListeners: streamListeners.size }; },
   onActivity(listener: (event: DesktopConversationEvent) => void) { activityListeners.add(listener); return () => { activityListeners.delete(listener); }; },
+  activity(activity: DesktopConversationActivityPayload) { activityListeners.forEach(listener => listener({ activity: structuredClone(activity) })); },
   onStream(listener: (event: DesktopConversationStreamEvent) => void) { streamListeners.add(listener); return () => { streamListeners.delete(listener); }; },
   snapshot(id = "event-session", seq = 1, text = "a") {
     const activity: DesktopConversationActivityPayload = {
@@ -59,14 +63,26 @@ export const actionFixture = {
     if (held === call.operation) await new Promise<void>(resolve => { release = resolve; });
     if (failure === call.operation) throw new Error(`EACCES: fixture ${call.operation} rejected`);
     switch (call.operation) {
-      case "models.current": return structuredClone(current);
+      case "models.current": return structuredClone(call.input.session_id ? sessionModel(String(call.input.session_id)) : current);
       case "models.list": return { items: models().map(row => row.credential_source === current.credential_source ? { ...row, ...current } : row) };
       case "models.update": {
         const row = models().find(row => row.credential_source === call.input.credential_source)!;
-        current = { ...row, ...row.model_options.find(option => option.model === call.input.model)! };
-        return structuredClone(current);
+        const selected = { ...row, ...row.model_options.find(option => option.model === call.input.model)! };
+        if (call.input.session_id) {
+          const id = String(call.input.session_id);
+          const saved = { ...selected, session_id: id, selection_version: (sessionModel(id).selection_version ?? 0) + 1 };
+          sessionModels.set(id, saved); return structuredClone(saved);
+        }
+        current = selected; return structuredClone(current);
       }
-      case "models.thinking.update": current = { ...current, thinking_state: { ...current.thinking_state!, level: String(call.input.level) } }; return structuredClone(current);
+      case "models.thinking.update": {
+        const id = call.input.session_id ? String(call.input.session_id) : undefined;
+        const before = id ? sessionModel(id) : current;
+        const selected = { ...before, thinking_state: { ...before.thinking_state, level: String(call.input.level) },
+          ...(id ? { selection_version: (before.selection_version ?? 0) + 1 } : {}) };
+        if (id) sessionModels.set(id, selected); else current = selected;
+        return structuredClone(selected);
+      }
       case "toolsets.list": return { items: [{ name: "mcp", label: "MCP", enabled: true, tools: [], servers: [structuredClone(server)] }] };
       case "mcp.servers.update": server = { ...server, enabled: Boolean(call.input.enabled), status: call.input.enabled ? "ready" : "disabled" }; return structuredClone(server);
       case "sessions.activity": return structuredClone(activities.get(String(call.input.session_id)) ?? { session_id: call.input.session_id, active: null, latest: null, queued: [] });
@@ -77,22 +93,22 @@ export const actionFixture = {
   },
 };
 
-export function AppActionsFixture({ subscribed = true }: { subscribed?: boolean }) {
-  return <>{subscribed && <EventSubscription />}<ActionControls /></>;
+export function AppActionsFixture({ subscribed = true, sessionId }: { subscribed?: boolean; sessionId?: string }) {
+  return <>{subscribed && <EventSubscription />}<ActionControls sessionId={sessionId} /></>;
 }
 function EventSubscription() { useConversationEvents(); return null; }
-function ActionControls() {
+function ActionControls({ sessionId }: { sessionId?: string }) {
   const [error, setError] = useState("");
-  const currentQuery = useCurrentModelQuery();
+  const currentQuery = useCurrentModelQuery(true, sessionId);
   const modelsQuery = useModelsQuery();
   const toolsQuery = useToolsetsQuery();
   const activity = useConversationActivityQuery("event-session");
   const otherActivity = useConversationActivityQuery("other-session");
-  const actions = useModelActions({ current: currentQuery.data, models: modelsQuery.data?.items ?? [], onError: setError });
+  const actions = useModelActions({ current: currentQuery.data, sessionId, models: modelsQuery.data?.items ?? [], onError: setError });
   controls = actions;
   const mcp = useMcpActions(setError);
   return <>
-    <output id="action-state">{JSON.stringify({ model: currentQuery.data?.model, source: currentQuery.data?.credential_source,
+    <output id="action-state">{JSON.stringify({ sessionId, version: currentQuery.data?.selection_version, model: currentQuery.data?.model, source: currentQuery.data?.credential_source,
       thinking: currentQuery.data?.thinking_state?.level, modelSaving: actions.modelSaving, thinkingSaving: actions.thinkingSaving,
       models: modelsQuery.data?.items.map(item => ({ model: item.model, source: item.credential_source })),
       activity: activity.data, otherActivity: otherActivity.data })}</output>

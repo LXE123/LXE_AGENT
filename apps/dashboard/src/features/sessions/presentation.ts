@@ -2,6 +2,7 @@ import type { DesktopConversationActivityPayload, DesktopConversationSendPayload
 import type { DesktopConversationTurnPayload, SessionMessage, SessionArtifactPayload } from "../../api/payloads";
 import { isRecord } from "../../shared/content";
 import { finalResponseIndex, fallbackToolCallBlocks, readerFacingMessageText, toolOperations, type ToolOperation } from "./conversation";
+import { compactionBoundaries, restoreCompactionRows, type CompactionBoundary } from "./compaction-markers";
 
 export interface PendingMessage {
   pendingId: string; sessionId: string; text: string; createdAt: number;
@@ -9,7 +10,7 @@ export interface PendingMessage {
   turnId?: string; messageId?: string; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
-  id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta";
+  id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
   presentation?: "process" | "final";
   answerMeta?: { text: string; createdAt: number };
   message?: SessionMessage; operation?: ToolOperation;
@@ -29,6 +30,7 @@ type ArtifactOwner = { turnId: string; groups: Set<string>; files: Map<string, S
 export interface ConversationHistoryProjection {
   readonly source: readonly SessionMessage[];
   readonly baseRows: readonly ConversationRow[];
+  readonly compactions: readonly CompactionBoundary[];
   readonly rows: readonly ConversationRow[];
   readonly byId: ReadonlyMap<string, ConversationRow>;
   readonly byTurn: ReadonlyMap<string, readonly ConversationRow[]>;
@@ -92,6 +94,10 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
     const turnId = message.turn?.turn_id ?? "";
     const base = { groupId: message.display_group_id, turnId, createdAt: (message.created_at ?? 0) * 1000 };
     const messageId = String(message.id || message.display_id || message.display_group_id);
+    if (message.role === "system" && message.context_marker?.kind === "compaction") {
+      add({ ...base, turnId: "", id: `compaction:${message.display_id || message.display_group_id}`, kind: "compaction", message });
+      continue;
+    }
     if (message.role === "user") {
       add({ ...base, id: userDisplayId(message), kind: "message", message, status: "saved" });
     } else {
@@ -114,15 +120,17 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
       });
     }
   }
+  const compactions = compactionBoundaries(rows);
+  const baseRows = rows.filter(row => row.kind !== "compaction");
   const turnStatus = new Map(messages.flatMap((message) => message.turn?.status && !isInternalMessage(message) ? [[message.turn.turn_id, message] as const] : []));
   for (const [id, message] of turnStatus) {
-    rows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
+    baseRows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
   }
   const artifacts = collectTurnArtifacts(messages);
-  const ordered = appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), artifacts));
+  const ordered = restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(baseRows), artifacts)), compactions);
   const answerRows = new Map<string, ConversationRow | undefined>(rows.filter(row => row.presentation === "final").map(row => [answerRowId(row), undefined]));
   for (const row of ordered) if (row.kind === "answer_meta") answerRows.set(row.id, row);
-  return { source, baseRows: rows, rows: ordered, byId: new Map(ordered.map(row => [row.id, row])), byTurn,
+  return { source, baseRows, compactions, rows: ordered, byId: new Map(ordered.map(row => [row.id, row])), byTurn,
     shownTurns: new Set(ordered.map(row => row.turnId)), savedStatus, artifacts,
     artifactRows: new Map(ordered.filter(row => row.kind === "artifacts").map(row => [row.id, row])),
     answerRows };
@@ -161,7 +169,11 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
       if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.message) return { ...saved, ...part, groupId: saved.groupId, message: { ...saved.message!, content: part.message.content } };
       // A transcript call (or a yielded command result) is not an execution end.
       // Tool lifecycle state is authoritative independently of text refresh revisions.
-      if (part.liveTool) return { ...saved, ...part, groupId: saved.groupId, operation: undefined };
+      if (part.liveTool) return { ...saved, ...part, groupId: saved.groupId,
+        // Live previews may omit question arguments; accepted transcript answers
+        // can already render while the rest of the turn is still streaming.
+        operation: part.liveTool.name === "ask_user_question" && part.liveTool.status === "success" && saved.operation?.status === "success"
+          ? saved.operation : undefined };
       return { ...saved, presentation: part.presentation };
     });
     const partIds = new Set(parts.map((part) => part.id));
@@ -184,7 +196,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     }
     rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
   }
-  return appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers);
+  return restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers), projection.compactions);
 }
 
 /** Compatibility entry point for callers without a persistent display controller. */

@@ -1,3 +1,4 @@
+import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, legacyMessage, completeTool, replayReasoningDetails } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
@@ -180,8 +181,9 @@ export const buildCompletionsThinkingPayload = (descriptor: ProviderDescriptor):
 
 export function buildCompletionsRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "temperature">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "temperature" | "auxiliary">,
 ): Record<string, unknown> {
+  descriptor = auxiliaryDescriptor(descriptor, request);
   const toolsEnabled = request.toolChoice !== "none" && request.tools.length > 0;
   return {
     model: descriptor.model,

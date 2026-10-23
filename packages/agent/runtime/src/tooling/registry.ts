@@ -14,12 +14,6 @@ export interface ToolDefinition extends ToolSchema {
   ownerSkills?: string[];
   connectorName?: string;
   rawName?: string;
-  classifyInvocation?: (input: JsonObject) => {
-    usageName?: string;
-    commandId?: string;
-    ownerSkills?: string[];
-    attributionSkill?: string;
-  } | undefined;
   execute(input: JsonObject, context: {
     executionPolicy: ExecutionPolicy;
     handle: RuntimeHandle;
@@ -40,23 +34,6 @@ export interface ToolExposureOptions {
   allowedSkills?: ReadonlySet<string>;
   skillLocations?: Readonly<Record<string, string>>;
   onSkillActivated?: (skillName: string) => Promise<void> | void;
-}
-
-export type LxeSkillInvocationViolation =
-  | "direct_business_module"
-  | "python_module_wrapper"
-  | "not_standalone"
-  | "shell_composition";
-
-export interface LxeSkillInvocationErrorDetails extends JsonObject {
-  type: "lxeskill_invocation_error";
-  violations: LxeSkillInvocationViolation[];
-  required_command_shape: "lxeskill <command> [options]";
-  use_exec_cwd: true;
-  canonical_command_path?: string;
-  owner_skills?: string[];
-  describe_command?: string;
-  discovery_command?: "lxeskill list";
 }
 
 export type ToolExecutionErrorCode =
@@ -119,26 +96,17 @@ export class ToolExecutionError extends Error {
     readonly code: ToolExecutionErrorCode,
     message: string,
     readonly details?: JsonObject,
-    readonly recoveryGroup?: string,
   ) {
     super(message);
     this.name = "ToolExecutionError";
   }
 
-  modelContent(attempt?: number): string {
+  modelContent(): string {
     if (!this.details) return this.message;
-    const retryable = attempt === undefined || attempt <= 1;
     return JSON.stringify({
       ...structuredClone(this.details),
       code: this.code,
       message: this.message,
-      ...(attempt === undefined ? {} : {
-        attempt,
-        retryable,
-        next_action: retryable
-          ? "read_owner_skill_or_run_standalone_describe_then_retry_once"
-          : "stop_retrying_shell_variations_and_report",
-      }),
     }, null, 2);
   }
 }
@@ -291,10 +259,8 @@ export class ToolRegistry {
     if (context.exposureState && !context.exposureState.isExposed(name)) {
       throw new Error(`tool is not exposed for this turn: ${name}`);
     }
-    // Classified invocations (lxeskill commands) are not authorized here:
-    // the CLI is the single authority and rejects out-of-scope commands with
-    // a structured skill_not_in_scope error. The registry only gates tool
-    // exposure; classifyInvocation stays an attribution concern.
+    // Command-level authorization belongs to the called program.
+    // The registry only gates tool exposure.
     if (context.handle.signal.aborted) throw new DOMException("Turn cancelled", "AbortError");
     return definition.execute(input, context);
   }

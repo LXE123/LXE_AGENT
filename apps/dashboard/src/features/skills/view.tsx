@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  ChevronDown,
   Layers3,
   PackagePlus,
   Sparkles,
@@ -78,6 +79,7 @@ export function SkillsView({
               <span className="catalog-count-badge">
                 {t.common.countItems(formatNumber(maintenanceCommands.length), t.skills.commandUnit)}
               </span>
+              <ChevronDown aria-hidden className="catalog-section-chevron" size={16} />
             </button>
             <div className={maintenanceExpanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
               <div className="catalog-collapsible-inner">
@@ -120,6 +122,7 @@ export function SkillsView({
                 <span className="catalog-count-badge">
                   {t.common.countItems(formatNumber(group.skills.length), t.skills.itemUnit)}
                 </span>
+                <ChevronDown aria-hidden className="catalog-section-chevron" size={16} />
               </button>
               <div className={expanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
                 <div className="catalog-collapsible-inner">
@@ -136,12 +139,12 @@ export function SkillsView({
                             <h3 title={skill.name}>{isManagedSkill(skill) ? skill.name : t.skillDisplayName(skill.name)}</h3>
                           </div>
                           <p className="description">{skill.description}</p>
-                          {isManagedSkill(skill) && !skill.available ? <span className="pill">{
-                            !skill.enabled ? t.userSkills.disabled : t.userSkills.unavailable
-                          }</span> : null}
-                          {skill.source === "shared" ? <span className="pill">{t.userSkills.shared}</span> : null}
-                          {skill.commands.length || skill.references.length ? (
+                          {(isManagedSkill(skill) && !skill.available) || skill.source === "shared" || skill.commands.length || skill.references.length ? (
                             <div className="pill-row">
+                              {isManagedSkill(skill) && !skill.available ? <span className="pill">{
+                                !skill.enabled ? t.userSkills.disabled : t.userSkills.unavailable
+                              }</span> : null}
+                              {skill.source === "shared" ? <span className="pill">{t.userSkills.shared}</span> : null}
                               {skill.commands.length ? (
                                 <span className="pill">
                                   <TerminalSquare size={12} />

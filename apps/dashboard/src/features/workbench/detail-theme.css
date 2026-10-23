@@ -1,0 +1,171 @@
+/* LXE workbench adaptation: CDS purpose colors and field states, with
+   continuous settings rows, numbered workflow steps and file version lists. */
+.workbench-theme .workbench-detail {
+  width: min(1040px, 100%); max-width: 1040px; min-width: 0;
+  margin: 0 auto; gap: 0; font-size: .875rem; container-type: inline-size;
+}
+.workbench-theme .workbench-detail-header {
+  display: grid; gap: 10px; padding-bottom: 28px;
+  border-bottom: 1px solid var(--border); min-width: 0;
+}
+.workbench-theme .workbench-detail-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.workbench-theme .workbench-detail-heading h1 {
+  margin: 0; color: var(--text); font-size: 1.375rem; line-height: 1.5; font-weight: 600;
+}
+.workbench-theme .workbench-detail p.workbench-detail-description {
+  max-width: 76ch; margin: 0; color: var(--text-soft); font-size: .875rem; line-height: 1.7;
+}
+.workbench-theme .workbench-detail-meta {
+  margin: 0; color: var(--text-soft); font-size: .75rem; font-variant-numeric: tabular-nums;
+}
+.workbench-theme .workbench-detail button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 36px; max-width: 100%; padding: 7px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: transparent; color: var(--text);
+  font: inherit; font-size: .8125rem; font-weight: 500; line-height: 1.5;
+  box-shadow: none; cursor: pointer; overflow-wrap: anywhere;
+}
+.workbench-theme .workbench-detail button svg { flex-shrink: 0; }
+.workbench-theme .workbench-detail button:hover:not(:disabled) {
+  background: var(--row-hover); border-color: var(--border-strong);
+}
+.workbench-theme .workbench-detail :is(button, summary):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+.workbench-theme .workbench-detail button:disabled { opacity: .45; cursor: not-allowed; }
+.workbench-theme .workbench-detail button.workbench-back {
+  justify-self: start; min-height: 28px; margin: 0 0 10px -6px; padding: 3px 6px;
+  border-color: transparent; color: var(--text-soft); font-size: .75rem; font-weight: 400;
+}
+.workbench-theme .workbench-detail :is(.workbench-primary-button, .desktop-primary-button) {
+  background: var(--cds-primary); color: var(--cds-primary-ink); border-color: transparent;
+}
+.workbench-theme .workbench-detail :is(.workbench-primary-button, .desktop-primary-button):hover:not(:disabled) {
+  background: var(--cds-primary-hover); border-color: transparent;
+}
+.workbench-theme .workbench-detail :is(.workbench-error, .dashboard-query-notice) {
+  margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--danger-border); border-radius: 8px;
+  background: var(--danger-soft); color: var(--danger); font-size: .8125rem; line-height: 1.65;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.workbench-theme .workbench-detail .workbench-loading {
+  display: flex; align-items: center; gap: 8px; margin: 18px 0; color: var(--text-soft);
+}
+.workbench-theme .workbench-detail .workbench-tool-status {
+  margin: 16px 0 0; padding: 10px 14px; border-radius: 8px;
+  background: var(--success-soft); color: var(--success); font-size: .8125rem;
+}
+.workbench-theme .workbench-detail :is(.workbench-note, .workbench-disclaimer) {
+  margin: 20px 0 0; color: var(--text-soft); font-size: .75rem; line-height: 1.7;
+}
+
+/* Settings: the field, its label and its help text form a single row. */
+.workbench-theme .vietnam-settings-card {
+  padding: 28px 0; border: 0; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; box-shadow: none;
+}
+.workbench-theme .vietnam-settings-view h3 { font-size: .9375rem; font-weight: 500; }
+.workbench-theme .vietnam-settings-view p { color: var(--text-soft); }
+.workbench-theme .vietnam-template-card { gap: 14px; }
+.workbench-theme .vietnam-file-status {
+  padding: 12px 14px; border-radius: 8px; background: var(--cds-alpha-1);
+  overflow-wrap: anywhere; color: var(--text); font-size: .8125rem;
+}
+.workbench-theme .vietnam-file-updated { margin-left: auto; font-size: .75rem; color: var(--text-soft); }
+.workbench-theme .vietnam-parameters-card { padding-block: 0; }
+.workbench-theme .vietnam-setting-row { padding-block: 28px; gap: 28px; }
+.workbench-theme .vietnam-parameter-grid label { color: var(--text-soft); font-size: .8125rem; }
+.workbench-theme .vietnam-settings-view input {
+  height: 38px; border-radius: 8px; background: var(--cds-field); border-color: var(--border);
+}
+.workbench-theme .vietnam-settings-view input:hover:not(:disabled) { border-color: var(--border-strong); }
+.workbench-theme .vietnam-settings-view input:focus-visible {
+  outline: 0; border-color: var(--cds-accent); box-shadow: var(--cds-focus);
+}
+.workbench-theme .vietnam-settings-view input:disabled { opacity: .45; }
+.workbench-theme .vietnam-exchange { justify-content: flex-end; }
+.workbench-theme .vietnam-advanced summary { padding-block: 20px; color: var(--text); }
+.workbench-theme .vietnam-advanced .vietnam-setting-row { padding-top: 0; }
+.workbench-theme .vietnam-save { margin: 0; padding: 24px 0; }
+
+/* Media: restrained steps and status ink keep the files as the main content. */
+.workbench-theme .workbench-keyword {
+  justify-self: start; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--text-soft); min-width: 0; overflow-wrap: anywhere;
+}
+.workbench-theme .workbench-keyword code { white-space: normal; }
+.workbench-theme .workbench-card {
+  min-width: 0; padding: 28px 0; gap: 20px; border: 0; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; box-shadow: none;
+}
+.workbench-theme .workbench-step-heading > span { background: var(--cds-alpha-1); color: var(--text-soft); font-weight: 500; }
+.workbench-theme .workbench-step-heading h3 { font-size: .9375rem; font-weight: 500; }
+.workbench-theme .workbench-detail .workbench-source-actions button {
+  justify-content: flex-start; padding: 18px; min-height: 80px; text-align: left;
+}
+.workbench-theme .workbench-source-actions button > svg { color: var(--text-soft); }
+.workbench-theme .workbench-source-actions strong { font-size: .875rem; font-weight: 500; }
+.workbench-theme .workbench-source-actions small { font-size: .75rem; font-weight: 400; line-height: 1.6; }
+.workbench-theme .workbench-selection { background: var(--cds-alpha-1); padding: 12px 14px; border-radius: 8px; }
+.workbench-theme .workbench-selection strong { white-space: normal; overflow-wrap: anywhere; font-weight: 500; }
+.workbench-theme .workbench-rescan-button { justify-self: start; }
+.workbench-theme .workbench-progress { background: transparent; border-color: var(--border); border-radius: 8px; padding: 16px; }
+.workbench-theme .workbench-progress-track { background: var(--cds-alpha-2); height: 4px; }
+.workbench-theme .workbench-counts { gap: 0; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.workbench-theme .workbench-counts > div { background: transparent; border: 0; border-radius: 0; padding: 4px 16px; border-left: 1px solid var(--border); gap: 6px; }
+.workbench-theme .workbench-counts > div:first-child { padding-left: 0; border-left: 0; }
+.workbench-theme .workbench-counts strong { font-size: 1.375rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.workbench-theme .workbench-counts span { font-size: .75rem; }
+.workbench-theme .workbench-counts .status-failed strong { color: var(--danger); }
+.workbench-theme .workbench-table-shell { min-width: 0; max-width: 100%; border-radius: 8px; overflow-x: auto; }
+.workbench-theme .workbench-table { table-layout: fixed; }
+.workbench-theme .workbench-table th:first-child { width: 52%; }
+.workbench-theme .workbench-table :is(th, td) { padding: 12px; font-size: .75rem; }
+.workbench-theme .workbench-table th { font-weight: 500; color: var(--text-soft); }
+.workbench-theme .workbench-table td small { overflow-wrap: anywhere; white-space: pre-wrap; }
+.workbench-theme .workbench-status { border-radius: 5px; }
+.workbench-theme .workbench-status.status-unsupported { color: var(--text-soft); background: var(--cds-alpha-1); }
+.workbench-theme .workbench-detail .workbench-output-actions > button:first-child { white-space: normal; text-align: left; }
+.workbench-theme .workbench-complete { background: transparent; border: 0; border-radius: 0; padding: 0; }
+.workbench-theme .workbench-complete.has-failures { background: transparent; }
+.workbench-theme .workbench-complete strong { font-weight: 500; }
+.workbench-theme .workbench-platform-notice { margin-top: 20px; border-radius: 8px; }
+
+/* Assets: version labels and metadata carry hierarchy without nested cards. */
+.workbench-theme .asset-slot-list { gap: 0; min-width: 0; }
+.workbench-theme .asset-slot {
+  padding: 24px 0; border: 0; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; box-shadow: none; min-width: 0;
+}
+.workbench-theme .asset-slot-header { align-items: flex-start; }
+.workbench-theme .asset-slot-title { min-width: 0; gap: 6px 12px; }
+.workbench-theme .asset-slot-title h3 { font-size: .9375rem; font-weight: 500; }
+.workbench-theme .asset-slot-title code { color: var(--text-soft); overflow-wrap: anywhere; }
+.workbench-theme .asset-slot-used-by { color: var(--text-soft); font-size: .8125rem; margin-block: 8px 0; }
+.workbench-theme .asset-slot-used-by strong { font-weight: 400; }
+.workbench-theme .asset-slot-versions { border: 0; margin-top: 16px; padding: 0; gap: 12px; }
+.workbench-theme .asset-slot-versions > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 16px; }
+.workbench-theme .asset-slot-versions dt { width: auto; color: var(--text-soft); font-size: .75rem; }
+.workbench-theme .asset-slot-versions dd { display: grid; gap: 4px; min-width: 0; margin: 0; }
+.workbench-theme .asset-file-name { font-size: .8125rem; word-break: normal; overflow-wrap: anywhere; }
+.workbench-theme .asset-file-meta { color: var(--text-soft); line-height: 1.6; }
+.workbench-theme .asset-slot-previous { opacity: 1; color: var(--text-soft); }
+.workbench-theme .asset-slot-previous .asset-file-name { color: var(--text-soft); }
+.workbench-theme .asset-slot-empty { border: 0; margin: 16px 0 0; padding: 12px 14px; border-radius: 8px; background: var(--cds-alpha-1); }
+.workbench-theme .asset-slot-empty strong { font-weight: 500; color: var(--text-soft); }
+.workbench-theme .workbench-detail > .workbench-empty { margin: 20px 0; }
+
+@container (max-width: 620px) {
+  .workbench-theme .workbench-detail-heading { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+  .workbench-theme .workbench-detail-heading h1 { font-size: 1.25rem; }
+  .workbench-theme .vietnam-setting-row { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-block: 24px; }
+  .workbench-theme .vietnam-exchange { justify-content: flex-start; }
+  .workbench-theme .vietnam-file-updated { flex-basis: 100%; margin-left: 24px; }
+  .workbench-theme .workbench-source-actions { grid-template-columns: minmax(0, 1fr); }
+  .workbench-theme .workbench-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 0; }
+  .workbench-theme .workbench-counts > div:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .workbench-theme .asset-slot-header { flex-wrap: wrap; gap: 12px; }
+  .workbench-theme .asset-slot-versions > div { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+}

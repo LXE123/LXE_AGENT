@@ -9,6 +9,7 @@ import { UnifiedConversationRow } from "../../../src/features/sessions/view";
 import { conversationRows } from "../../../src/features/sessions/presentation";
 import { appendConversationWindow, prependConversationWindow, boundConversationWindow } from "../../../src/features/sessions/model";
 import type { SessionDetailPayload, SessionMessage } from "../../../src/api/payloads";
+import { compactionHistory, compactionLive, contentMessage } from "./compaction-fixture-data";
 import "../../../src/styles.css";
 const all: SessionMessage[] = Array.from({ length: 1000 }, (_, i) => ({
   display_group_id: `g${i}`, display_id: `g${i}:0`, role: i % 7 === 1 || i % 7 === 3 || i % 2 ? "assistant" : "user", created_at: i + 1,
@@ -93,6 +94,29 @@ function Fixture() {
       jumpToLatest={()=>setData(page(990,1000))} onVisibleGroups={setVisible} pageError=""/>
   </div>;
 }
+function CompactionFixture() {
+  const [seq, setSeq] = useState(1);
+  const [saved, setSaved] = useState(new URLSearchParams(location.search).has("saved"));
+  const [long, setLong] = useState(false);
+  const [older, setOlder] = useState(false);
+  const turn = compactionLive(seq);
+  const answer = `内容 B：压缩后继续生成，已完成 ${seq} 项检查。${long ? "\n\n后续内容继续出现在压缩提示下方。".repeat(50) : ""}`;
+  const part = turn.stream!.process_parts[1]!;
+  if (part.type === "text") part.text = answer;
+  const history = [...(older ? [{ ...contentMessage("older", "更早的内容。".repeat(30), 0.5), turn: { turn_id: "older", status: "completed" } }] : []), ...compactionHistory(), ...(saved ? [contentMessage("b", answer, 3)] : [])];
+  const rows = conversationRows(history, saved ? [] : [turn], [], true);
+  const setVisible = useCallback(() => {}, []);
+  return <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: 8 }}>
+      <button onClick={() => setSeq(value => value + 1)}>Append after compaction</button>
+      <button onClick={() => setSaved(true)}>Save compaction history</button>
+      <button onClick={() => setLong(true)}>Long answer</button>
+      <button onClick={() => setOlder(true)}>Prepend compaction history</button>
+    </div>
+    <ConversationWindow rows={rows} renderRow={row => <UnifiedConversationRow row={row} expanded={false} onToggle={() => {}} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop} />}
+      hasOlder={false} hasNewer={false} loadOlder={noop} loadNewer={noop} jumpToLatest={() => {}} onVisibleGroups={setVisible} pageError="" />
+  </div>;
+}
 const fixtureRoot=createRoot(document.getElementById("root")!);
-fixtureRoot.render(<QueryClientProvider client={queryClient}><Fixture/></QueryClientProvider>);
+fixtureRoot.render(<QueryClientProvider client={queryClient}>{new URLSearchParams(location.search).has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
 if (import.meta.hot) import.meta.hot.dispose(()=>fixtureRoot.unmount());

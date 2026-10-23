@@ -1,6 +1,6 @@
 ---
 name: southeast-asia-replenishment-workflow-map
-description: 介绍东南亚备货的能力、阶段关系，并在需求范围不明确时导航。明确的越南备货任务直接使用 vietnam-replenishment；明确的 ERP 导出任务直接使用对应导出 Skill，无需先读本 Map。
+description: 介绍东南亚备货的能力、阶段关系，并在需求范围不明确时导航。越南仓、菲律宾仓的数据导出未明确 ERP 时先询问雅仓或马帮 TMS。明确的越南备货任务直接使用 vietnam-replenishment；明确的 ERP 导出直接使用对应 Skill。
 type: replenishment
 ---
 
@@ -10,10 +10,10 @@ type: replenishment
 
 | 需求 | Skill | 支持范围与产出 |
 |---|---|---|
-| 越南备货 | `vietnam-replenishment` | 使用雅仓报表和 SKU 映射表完成计算、校验，交付含五张工作表的备货清单 |
+| 越南备货 | `vietnam-replenishment` | 使用雅仓报表和完整九表业务模板，按 SKU 从模板提取参数并完成计算、校验，交付九表备货清单 |
 | 雅仓数据导出 | `yacang-reports-export` | 库存动销、当前库存及全局产品资料；可独立交付，也可提供越南计算输入 |
 | 上马 ERP 数据导出 | `shangman-products-export` | 当前账号可见的商品、库存和销量原始 XLSX；后续备货计算尚未接通 |
-| 马帮 TMS 数据导出 | `mabang-tms-products-export` | 当前账号可见仓库的商品、库存和销量合并 XLSX；后续备货计算尚未接通 |
+| 马帮 TMS 数据导出 | `mabang-tms-products-export` | 菲律宾 PH1、越南 VN1 或明确选择的当前账号全部仓库；未指定仓库先询问，交付商品、库存和销量合并 XLSX；后续备货计算尚未接通 |
 
 数据范围由用户要求、账号和对应 Skill 决定，不推断平台固定对应某个国家。巴西数据另见独立的 `mabang-brazil-reports-export`，不属于东南亚能力，也不连接越南计算。
 
@@ -21,9 +21,17 @@ type: replenishment
 
 - 明确要计算或生成越南备货清单，直接读取 `vietnam-replenishment`。查询已有结果或解释参数也由该 Skill 说明，不能把查询当作重新生成。
 - 明确要导出某个 ERP 的数据，直接读取对应导出 Skill，只执行所需导出；登录衔接由该 Skill 说明。
+- ERP 来源优先于国家名称。雅仓菲律宾为 PH8805、越南为 VN8806；马帮 TMS 菲律宾为 PH1、越南为 VN1。国家相同不互相替代，马帮 ERP 与 TMS 也不混用。
+- 只要求导出越南仓或菲律宾仓数据、当前请求和同一任务都没有已确认来源时，先询问雅仓还是马帮 TMS；不能依据国家或其他任务最近使用的系统默认选择。已明确来源后使用对应 Skill 的仓库与报表规则，不改变雅仓单仓、多仓、默认四仓和全局产品资料能力。
 - 只问整体流程或支持范围时，依据本 Map 解释，不执行业务命令。
 - 要准备东南亚数据但来源不明确时，先确认上马、雅仓、马帮 TMS 或所需组合，不默认导出所有平台。要计算其他地区的备货时，说明当前仅支持相应数据采集，不把原始报表当作备货建议。
 - 只说“备货”且上下文无法判断业务模块时，先确认 Amazon 还是东南亚，不凭国家名称推断。Amazon 流程使用 `replenishment-workflow-map`。
+
+越南仓或菲律宾仓独立导出的来源不明时，桌面复用已有 `ask_user_question` 单选；该轮只提问，不排队或并行执行导出，等待明确选择后在后续轮次按对应 Skill 执行。非桌面渠道普通提问等待回复。空答案、跳过或取消均不授权导出，不替用户选择默认项。来源已确定但 TMS 仓库不明时，使用 TMS Skill 的 PH1、VN1、全部仓库问题。
+
+```json
+{"questions":[{"id":"erp","question":"请选择数据来源","multi_select":false,"options":[{"label":"雅仓"},{"label":"马帮 TMS"}]}]}
+```
 
 ## 阶段关系
 

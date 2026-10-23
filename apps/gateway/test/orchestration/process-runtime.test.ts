@@ -36,7 +36,6 @@ const resourcePaths = (root: string) => ({
   agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
-  lxeskillCatalogPath: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
   llmConfigRoot: join(root, "config", "llm"),
 });
 const agentJob = (): AgentJob => ({
@@ -160,12 +159,13 @@ describe("ProcessAgentRuntime", () => {
     await runtime.start();
     expect(runtime.isReady).toBe(true);
     expect(runtime.status()).toMatchObject({
-      lxeskillAvailable: true,
       logging: {
         local_file_enabled: true,
         file_path: "/tmp/runtime.log",
       },
     });
+    expect(runtime.status()).not.toHaveProperty("lxeskillAvailable");
+    expect(runtime.status()).not.toHaveProperty("lxeskillMessage");
     expect(await runtime.dashboardCall({ operation: "models.list", input: {} }))
       .toEqual({ items: [], total: 0 });
     expect(await runtime.resolveArtifact("session-1", "artifact-1")).toBe("/tmp/report.xlsx");
@@ -185,29 +185,6 @@ describe("ProcessAgentRuntime", () => {
     expect(runtime.status().state).toBe("stopped");
     expect(states).toContain("starting");
     expect(states).toContain("ready");
-  });
-
-  test("caches degraded lxeskill health without failing agent startup", async () => {
-    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
-    const runtime = new ProcessAgentRuntime({
-      command: process.execPath,
-      arguments: [fixture],
-      cwd: process.cwd(),
-      environment: { ...process.env, FAKE_LXESKILL_UNAVAILABLE: "1" },
-      ...resourcePaths(process.cwd()),
-      dataRoot: process.cwd(),
-      legacyWorkspace: testWorkspace,
-    });
-    runtimes.push(runtime);
-
-    await runtime.start();
-
-    expect(runtime.isReady).toBe(true);
-    expect(runtime.status()).toMatchObject({
-      state: "ready",
-      lxeskillAvailable: false,
-      lxeskillMessage: "No module named lxeskill",
-    });
   });
 
   test("starts fail-closed and updates Skill permissions without restarting", async () => {

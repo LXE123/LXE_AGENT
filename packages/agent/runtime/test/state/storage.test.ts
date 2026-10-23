@@ -33,6 +33,7 @@ describe("SqliteRuntimeStore", () => {
     await store.start();
     try {
       expect(store.getSessionPermissionMode("legacy")).toBe("danger-full-access");
+      store.registerWorkspace(testWorkspace.directory);
       const blank = store.createBlankSession(testWorkspace);
       expect(store.getSessionPermissionMode(String(blank.session_id))).toBe("workspace-write");
       store.setSessionPermissionMode(String(blank.session_id), "read-only");

@@ -387,6 +387,16 @@
 :root[data-theme=dark] .file-sidebar,:root[data-theme=dark] .file-document-toolbar,:root[data-theme=dark] .file-tab-strip {
   border-color:#ffffff18}
 
+/* The resize target sits before the divider, so it belongs to the chat canvas.
+   Keep its hit area and feedback while avoiding a panel-coloured strip there. */
+:root[data-theme=dark] .file-layout {
+  --tool-sidebar-bg:#212121}
+:root[data-theme=dark] .file-preview-resizer {
+  background:var(--conversation-bg)}
+:root[data-theme=dark] .file-sidebar {
+  background:var(--tool-sidebar-bg);
+  border-left-color:#373737}
+
 /* Reading controls follow LXE colours; heavyweight viewers own their scroll area. */
 .file-tab>button:last-child { visibility:hidden }
 .file-tab:is(.active,:hover,:focus-within)>button:last-child { visibility:visible }
@@ -456,10 +466,11 @@
 .file-open-split button:disabled { cursor:default; opacity:.45; }
 
 .tools-start { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; justify-content:safe center; align-items:center; gap:16px; padding:32px 24px; color:var(--muted); }
-.tools-start>svg { margin:0 0 16px; opacity:.5; }
 .tools-start>button { width:100%; max-width:420px; display:flex; align-items:center; gap:20px; padding:20px; border:1px solid var(--border); border-radius:16px; background:var(--surface,#8881); color:var(--text); text-align:left; cursor:pointer; }
+:where(:root[data-theme=dark]) .tools-start>button { background:#303030; border-color:#474747; }
 .tools-start>button:hover { background:#8882; }
-.tools-start>button>svg { color:var(--accent); flex:none; }
+.tools-start>button>svg { color:#000000; flex:none; }
+:where(:root[data-theme=dark]) .tools-start>button>svg { color:#b3b3b3; }
 .tools-start span { min-width:0; display:flex; flex-direction:column; gap:5px; }
 .tools-start strong { font-size:16px; font-weight:500; }
 .tools-start small { font-size:12px; color:var(--muted); }

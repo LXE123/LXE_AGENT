@@ -8,33 +8,31 @@ commands:
 
 # FBA Delivery CSV Download
 
-## Hard Rules
+## 输入与依赖
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 使用命令行选项传参，不接受 --input-json、--stdin-json 或旧命令别名。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
+- `delivery_no`：`SP` 开头的发货单号；缺少时先向用户确认。
+- 通过 `exec` 调用下方 lxeskill 命令，使用命令行选项传参。API 请求和凭据由 CLI 管理，回复使用其脱敏诊断。
+- CLI 使用当前配置的马帮账号和有效认证缓存；需要恢复认证时创建独立临时会话，桌面使用 Electron 认证窗口，独立 CLI 使用已绑定的 Chrome/Edge。
 
-- 只使用固定 CLI。
-- 不要直接拼马帮 API 请求，不要手写、复用或展示 bearer/freeToken。
-- 当前 v1 交付马帮导出的 CSV，不要转换成 xlsx。
-- CLI 可能运行几十秒；命令仍在运行时不要频繁轮询或重复启动。
-- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
-
-## Required Input
-
-- `delivery_no`: `SP` 开头的发货单号。
-- 缺少明确 `SP...` 发货单号时先追问，不要启动 CLI。
-
-## Command
+## 执行
 
 ```text
 lxeskill mabang delivery export --delivery-no <delivery_no>
 ```
 
-只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+CLI 可能运行几十秒；启动后等待同一次调用完成。
 
-## Result Handling
+## 结果处理
 
-- `success=true`：告诉用户 FBA 发货单 CSV 已下载完成，并提供 `csv_path`。
-- terminal `files` 非空时一次调用 `send_files(paths=<terminal.files>)`；不要直接发送未经校验的 `data.csv_path`。
-- `success=false`：只转述 `exception`。
+只把最后一条 `type="result"` 记录作为 terminal，先看 `ok`；业务字段位于 `data`，附件位于 `files`。
+
+- `ok=true`：交付马帮导出的原始 CSV，业务文件路径见 `data.csv_path`。`files` 是 CLI 校验后的交付列表，非空时一次调用 `send_files(paths=<terminal.files>)`。
+- `ok=false`：保留 `error.message` 中的实际诊断，说明已确认的失败阶段和观察结果。
+
+认证失败的 `error.message` 包含 `stage`、实际 URL、异常和 `auth_environment`；等待 FBA token 失败还包含 `details`：
+
+- `target_frame_missing`：等待期间没有匹配的页面 frame。
+- `storage_read_failed`：读取均失败。
+- `storage_value_empty`：有读取完成但未得到 token；结合 `read_error_count` 和 `last_read_error` 查看同时发生的读取异常。
+
+CLI 已负责认证恢复；认证获取或恢复失败时结束本次尝试并报告诊断。再次刷新会重新提交登录，需用户明确要求后再尝试。

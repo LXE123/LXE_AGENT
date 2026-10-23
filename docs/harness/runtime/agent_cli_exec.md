@@ -12,7 +12,7 @@ printf '%s\n' "检查这些日志" | bun apps/agent-cli/src/main.ts exec -
 bun apps/agent-cli/src/main.ts exec --json -C ./packages "检查类型边界"
 ```
 
-当前安装包不会把 `agent-cli` 加入系统 `PATH`。打包环境需要显式调用应用携带的可执行文件；系统命令安装和 GitHub Action 不属于 v1。
+当前安装包不会把 `agent-cli` 加入系统 `PATH`。打包环境需要显式调用应用携带的可执行文件；系统命令安装和 GitHub Action 尚未提供。
 
 ## 命令与输入
 
@@ -59,18 +59,24 @@ agent-cli exec resume [SESSION_ID | --last] [--json] [-C DIR] [-o FILE] [PROMPT|
 新建持久化 thread 使用 UUID，数据位于：
 
 ```text
-var/db/exec-sessions/<thread-id>/agent.sqlite3
-var/db/exec-sessions/<thread-id>/session_transcripts/<thread-id>.jsonl
+<data-root>/db/exec-sessions/<thread-id>/agent.sqlite3
+<data-root>/db/exec-sessions/<thread-id>/session_transcripts/<thread-id>.jsonl
 ```
+
+`<data-root>` 优先使用 `LXE_DATA_ROOT`；未设置时，源码运行默认使用仓库根下的 `var/`，独立调用打包程序默认使用资源根目录上一级的 `var/`。这与 Desktop 启动时解析并传入的用户数据目录不同，调用方应显式选择可写目录。路径解析见 [exec-paths.ts](../../../apps/agent-cli/src/exec-paths.ts)，Desktop 规则见 [程序与用户数据](../../desktop/data-location.md)。
 
 `exec resume <thread-id>` 复用历史和创建时的工作区。显式传入 `-C` 时必须与该不可变工作区一致。`exec resume --last` 只查当前 Git worktree，按最近活动时间选择没有被其他进程占用的 thread。
 
 每个 thread 目录有进程级独占锁；两个进程不能同时恢复同一 SQLite。进程已经消失的陈旧锁会在确认 PID 不存活后回收。`--ephemeral` 使用临时 SQLite，结束后删除，不能和 `resume` 同用。
 
-CLI 数据库绝不打开 Desktop 的 `var/db/agent.sqlite3`，保持一个 SQLite 只有一个写入者。
+CLI 为每个 thread 使用独立数据库，不复用 Desktop 的 `db/agent.sqlite3`；同一 thread 的并发恢复由上述独占锁控制。
 
-## 安全边界与暂缓项
+## 权限与执行边界
 
-v1 只适用于可信本地自动化。文件、搜索、文件交付、shell、Python、MCP 和业务工具直接继承 agent-cli 进程的宿主用户权限；workspace 只是默认路径，不是安全边界。Runtime 不提供 sandbox、初始化检查或失败回退，也不等同于 Codex sandbox。不要在不可信仓库、Prompt 或 CI 输入上把它当成安全边界。
+CLI 复用 `AgentRuntimeHost` 的权限服务。新建会话默认使用 Workspace Write，恢复会话保留已存储的权限模式。`write`、`edit` 检查写入路径；`exec` 根据权限模式配置操作系统级文件写入限制。Workspace Write 以固定工作区限制写入范围，不随命令的 cwd 扩大。
 
-`--output-schema`、图片参数、逐次模型覆盖、GitHub Action 和系统 `PATH` 安装暂缓，分别需要 Provider 结构化输出、附件加载、非持久配置覆盖和独立发布安全设计。
+独立 CLI 当前没有桌面的单次提权审批渠道，也没有切换权限模式的命令参数。受限模式需要可用的平台后端；缺失或失败会返回实际错误，不自动改成 Full access。平台限制、临时目录和权限覆盖范围统一见 [权限专题](permission-policy.md)，这些限制不等于读取、网络或完整进程隔离。
+
+一次性 CLI 在 turn 结束后关闭宿主，因此会清理该 Runtime 持有的命令进程。通用的取消、观察和进程终止规则见 [exec 生命周期](tools/README.md#cancel-与-exec-生命周期)。
+
+当前不支持 `--output-schema`、图片参数、逐次模型覆盖、GitHub Action 和系统 `PATH` 安装。

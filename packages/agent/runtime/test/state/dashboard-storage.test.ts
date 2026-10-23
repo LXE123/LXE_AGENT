@@ -1,16 +1,52 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { RuntimeMessage } from "../../src/engine/types";
-import { InvalidTranscriptCursorError, SqliteRuntimeStore } from "../../src/state/storage";
+import { InvalidTranscriptCursorError, SqliteRuntimeStore, transcriptDisplayPage } from "../../src/state/storage";
 import { removeTemporaryRoot } from "../temp-directory";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await removeTemporaryRoot(root);
+});
+
+test("old compaction events have identical indexed/direct markers without rewriting the transcript", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-compaction-display-")); roots.push(root);
+  const database = join(root, "agent.sqlite3");
+  let store = new SqliteRuntimeStore(database);
+  await store.start();
+  await store.ensureSession({ workspace: testWorkspace, session_id: "s", source: {} });
+  const events = [
+    { kind: "transcript_header", version: 2, session_id: "s", created_at: "x" },
+    { kind: "message", message: { role: "assistant", content: "A" }, ts: 1 },
+    { kind: "context_patch", patch_kind: "compaction", start: 0, delete_count: 0, insert_messages: [], compacted_count: 255, ts: 1 },
+    { kind: "context_patch", patch_kind: "compaction", start: 0, delete_count: 0, insert_messages: [], ts: 1 },
+    { kind: "message", message: { role: "assistant", content: "B" }, ts: 1 },
+    { kind: "context_reset", ts: 1 },
+    { kind: "memory_clear", ts: 1 },
+    { kind: "message", message: { role: "user", content: "[上下文已压缩：9 条消息 → 摘要]", context_marker: { kind: "compaction", compacted_count: 9 } }, ts: 1 },
+  ];
+  const path = join(root, "session_transcripts", "s.jsonl");
+  mkdirSync(join(root, "session_transcripts"), { recursive: true });
+  const original = events.map(event => JSON.stringify(event)).join("\n") + "\n";
+  writeFileSync(path, original);
+  try {
+    const direct = transcriptDisplayPage("s", events, { limit: 20 });
+    const fields = (messages: typeof direct.messages) => messages.map(({ display_id, display_group_id, role, content, context_marker }) => ({ display_id, display_group_id, role, content, context_marker }));
+    const indexed = await store.loadTranscriptDisplayPage("s", { limit: 20 });
+    expect(fields(indexed.messages)).toEqual(fields(direct.messages));
+    expect(indexed.messages.map(message => message.context_marker)).toEqual([
+      undefined, { kind: "compaction", compacted_count: 255 }, { kind: "compaction" }, undefined, undefined, undefined, undefined,
+    ]);
+    const latest = await store.loadTranscriptDisplayPage("s", { limit: 5 });
+    expect(latest.messages[0]?.context_marker).toEqual({ kind: "compaction" });
+    await store.stop(); store = new SqliteRuntimeStore(database); await store.start();
+    expect(fields((await store.loadTranscriptDisplayPage("s", { limit: 20 })).messages)).toEqual(fields(indexed.messages));
+    expect(readFileSync(path, "utf8")).toBe(original);
+  } finally { await store.stop(); }
 });
 
 describe("SqliteRuntimeStore dashboard queries", () => {
@@ -20,6 +56,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
     await store.start();
     const a = join(root, "repository", "a"), b = join(root, "repository", "b");
+    const aId = store.registerWorkspace(a).workspace_id, bId = store.registerWorkspace(b).workspace_id;
     try {
       for (let index = 0; index < 24; index++) {
         await store.ensureSession({ session_id: `a-${String(index).padStart(2, "0")}`, source: { platform: "desktop" },
@@ -30,14 +67,14 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       expect(store.listSessions({ limit: 10, offset: 0 }).items).toHaveLength(10);
       expect(store.listSessionWorkspaces().items.map(item => [item.directory, item.session_count]).sort())
         .toEqual([[a, 24], [b, 1]].sort());
-      const first = store.listSessions({ directory: a, limit: 10, offset: 0 });
-      const second = store.listSessions({ directory: a, limit: 10, offset: 10 });
+      const first = store.listSessions({ workspace_id: aId, limit: 10, offset: 0 });
+      const second = store.listSessions({ workspace_id: aId, limit: 10, offset: 10 });
       expect(first.total).toBe(24);
       expect(first.items[0]?.session_id).toBe("a-00");
       expect(second.items).toHaveLength(10);
       expect(new Set([...first.items, ...second.items].map(item => item.session_id)).size).toBe(20);
-      expect(store.listSessions({ directory: b, query: "desktop", limit: 10, offset: 0 }).items.map(item => item.session_id)).toEqual(["b"]);
-      expect(store.listSessions({ directory: b, query: "a-00", limit: 10, offset: 0 }).total).toBe(0);
+      expect(store.listSessions({ workspace_id: bId, query: "desktop", limit: 10, offset: 0 }).items.map(item => item.session_id)).toEqual(["b"]);
+      expect(store.listSessions({ workspace_id: bId, query: "a-00", limit: 10, offset: 0 }).total).toBe(0);
       // These directories deliberately do not exist: reading history needs no filesystem lookup.
       await store.deleteSession("b");
       expect(store.listSessionWorkspaces().items.find(item => item.directory === b)?.session_count).toBe(0);
@@ -458,6 +495,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       expect.objectContaining({
         role: "system",
         content: "[上下文已压缩：2 条消息 → 摘要]",
+        context_marker: { kind: "compaction", compacted_count: 2 },
         display_group_id: expect.any(String),
       }),
       expect.objectContaining({ role: "user", content: "after compaction", display_group_id: expect.any(String) }),

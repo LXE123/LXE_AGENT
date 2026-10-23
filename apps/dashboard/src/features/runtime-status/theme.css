@@ -1,0 +1,46 @@
+@import "../../shared/cds-theme.css";
+
+/* LXE adaptation: colors only; preserve popover placement, row geometry and
+   the existing healthy/progress/warning/neutral status classification. */
+.runtime-status-floating.runtime-status-theme {
+  --surface: var(--cds-surface-popover);
+  --focus-ring: var(--cds-accent);
+  --rate-bad: var(--danger);
+}
+:root .runtime-status-floating.runtime-status-theme .runtime-status-popover {
+  background: var(--cds-surface-popover);
+  border-color: var(--cds-alpha-2);
+  box-shadow: 0 18px 50px var(--shadow-strong), 0 2px 8px var(--shadow-soft);
+}
+:root .runtime-status-floating.runtime-status-theme .runtime-status-trigger {
+  --runtime-trigger-fill: var(--cds-surface-popover);
+  background: var(--runtime-trigger-fill);
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-ink);
+  box-shadow: 0 12px 30px var(--shadow-medium), 0 2px 7px var(--shadow-soft);
+}
+:root .runtime-status-floating.runtime-status-theme .runtime-status-trigger:hover {
+  --runtime-trigger-fill: color-mix(in srgb, var(--cds-surface-popover) 95%, var(--cds-ink));
+  border-color: var(--cds-alpha-3);
+  box-shadow: 0 15px 34px var(--shadow-medium), 0 2px 8px var(--shadow-soft);
+}
+.runtime-status-theme .runtime-status-trigger-dot { border-color: var(--runtime-trigger-fill); }
+
+/* Override legacy provider-tinted containers; the brand marks retain their
+   own artwork and colors, including Kimi's image and DeepSeek/Zhipu SVGs. */
+:root .runtime-status-floating.runtime-status-theme .runtime-status-popover .runtime-status-item .runtime-status-icon {
+  background: var(--cds-alpha-1);
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-secondary);
+  box-shadow: none;
+}
+:root .runtime-status-theme .runtime-status-item[data-provider]:not(.tone-warning):not(.tone-progress) .runtime-status-value-line strong {
+  color: var(--cds-ink);
+}
+:root .runtime-status-floating.runtime-status-theme .runtime-status-item:is(.tone-warning, .tone-progress) .runtime-status-value-line strong {
+  color: var(--runtime-tone);
+}
+.runtime-status-theme :is(.runtime-status-item, .home-panel-link):focus-visible {
+  outline: 2px solid var(--cds-accent);
+  outline-offset: 1px;
+}

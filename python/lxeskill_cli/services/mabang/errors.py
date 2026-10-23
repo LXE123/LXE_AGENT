@@ -9,6 +9,10 @@ class MabangAuthError(MabangApiError):
     pass
 
 
+class MabangAuthUnavailableError(MabangAuthError):
+    """Auth acquisition or recovery failed; business retries must not log in again."""
+
+
 class MabangRequestError(MabangApiError):
     pass
 

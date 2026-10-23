@@ -13,9 +13,9 @@ const dataRoot = mkdtempSync(join(tmpdir(), "lxe-questions-"));
 const workspace = { directory: root, worktree: root };
 const states = new Map<string, string>();
 const runtime = new ProcessAgentRuntime({
+  agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills",
   command: process.execPath, arguments: [resolve("apps/agent-cli/test/fixtures-user-questions.ts")], cwd: root,
   environment: { ...process.env, LOCAL_LOGS_ENABLED: "0", LOG_LEVEL: "ERROR" },
-  agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills", lxeskillCatalogPath: "/catalog",
   llmConfigRoot: "/llm", dataRoot, legacyWorkspace: workspace,
 });
 const scheduler = new SessionScheduler({ runtime: {
@@ -38,7 +38,7 @@ const vite = await createServer({ root: resolve("apps/dashboard"), server: { por
         let result: unknown;
         if (raw.operation === "fixture.start") {
           const id = raw.input.session_id;
-          const userInput = ["single", "all-single"].includes(raw.input.variant) ? `fixture:${raw.input.variant}` : "请帮我处理店铺";
+          const userInput = ["single", "all-single", "four"].includes(raw.input.variant) ? `fixture:${raw.input.variant}` : "请帮我处理店铺";
           await runtime.ensureSession({ session_id: id, source: { platform: "desktop" }, workspace });
           await scheduler.enqueue({ ...jobFixture, job_id: crypto.randomUUID(), session_id: id, message_id: crypto.randomUUID(),
             user_input: userInput, user_content_blocks: [{ type: "text", text: userInput }], source: { platform: "desktop" }, response_route_id: "", workspace });
@@ -52,6 +52,7 @@ const vite = await createServer({ root: resolve("apps/dashboard"), server: { por
         } else {
           const call = parseDashboardRpcCall(raw);
           if (call.operation === "sessions.stop") result = { stopped: await scheduler.requestStop(call.input.session_id, call.input.turn_id) };
+          else if (call.operation === "skills.list") result = { items: [], total: 0 };
           else if (call.operation === "sessions.answer" || call.operation === "sessions.questions" || call.operation === "sessions.detail" || call.operation === "sessions.list") {
             if (call.operation === "sessions.answer" && failAnswer) { failAnswer = false; throw new Error("Fixture transport disconnected before submit"); }
             result = await runtime.dashboardCall(call);

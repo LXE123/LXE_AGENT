@@ -4,9 +4,9 @@ import { readStoredExpanded } from "../../../src/shared/ui/use-stored-expanded";
 
 test("default status, custom names and empty-directory ordering are independent of sessions", () => {
   const rows = [
-    { ...emptyWorkspace("/old"), display_name: "My work", created_at: 1, last_active_at: 100 },
-    { ...emptyWorkspace("/new"), created_at: 5 },
-    { ...emptyWorkspace("/empty"), created_at: 200 },
+    { ...emptyWorkspace("/old"), workspace_id: "old", display_name: "My work", created_at: 1, last_active_at: 100 },
+    { ...emptyWorkspace("/new"), workspace_id: "new", created_at: 5 },
+    { ...emptyWorkspace("/empty"), workspace_id: "empty", created_at: 200 },
   ];
   expect(workspaceGroups(rows, "/new").map(row => row.directory)).toEqual(["/new", "/empty", "/old"]);
   expect(workspaceName("/new", rows, "/new", "默认工作区")).toBe("默认工作区");

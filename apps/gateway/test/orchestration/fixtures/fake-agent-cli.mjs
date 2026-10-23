@@ -31,7 +31,6 @@ for await (const line of input) {
     if (process.env.FAKE_SKILL_PERMISSION_PATH) {
       writeFileSync(process.env.FAKE_SKILL_PERMISSION_PATH, JSON.stringify(allowedSkillTypes), "utf8");
     }
-    const lxeskillAvailable = process.env.FAKE_LXESKILL_UNAVAILABLE !== "1";
     event({ type: "system.ready", payload: { state: "ready", logging: loggingStatus } });
     write({
       jsonrpc: "2.0",
@@ -39,8 +38,6 @@ for await (const line of input) {
       result: {
         protocol_version: protocolVersion,
         ready: true,
-        lxeskill_available: lxeskillAvailable,
-        lxeskill_message: lxeskillAvailable ? "" : "No module named lxeskill",
         logging: loggingStatus,
       },
     });

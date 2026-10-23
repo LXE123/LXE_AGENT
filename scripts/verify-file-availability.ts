@@ -18,7 +18,7 @@ app.whenReady().then(async () => {
     resolveWorkspaceDirectory: async () => root, resolveArtifact: async () => undefined,
     resolveAttachment: async (session, id) => session === "acceptance" && id === "history" ? join(root, "missing-original.png") : undefined,
     resolveImagePreview: async () => ({ source: "history", image: { type: "image", source: { type: "base64", media_type: "image/png", data: "aGlzdG9yeQ==" } } }),
-  }), new OfficePreviewCache(join(root, "cache"), join(root, "missing-node-engine"), "cli"), { openPath: path => shell.openPath(path), revealPath: path => shell.showItemInFolder(path) });
+  }), new OfficePreviewCache(join(root, "cache"), join(root, "missing-office-engine", "cli.js")), { openPath: path => shell.openPath(path), revealPath: path => shell.showItemInFolder(path) });
   const unregister = registerDesktopIpc({ isTrustedFileSender: event => event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame, fileCall: call => service.call(call), fileRead: (handle, relative) => service.read(handle, relative), fileReadText: (handle, range) => service.readText(handle, range) } as DesktopIpcApplication);
   const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload } });
   const execute = (code: string) => win.webContents.executeJavaScript(code);
@@ -55,7 +55,7 @@ app.whenReady().then(async () => {
     expectFailure(await call("stat", { ref: historyRef, original: true }), "not_found");
     expectFailure(await call("stat", { ref: { ...ref, path: "../escape.txt" } }), "invalid_reference");
     await writeFile(join(root, "broken.docx"), "Engine failure must not look like source deletion");
-    const engine = expectFailure(await call("prepare", { ref: { ...ref, path: "broken.docx" }, request_id: "engine" }), "unknown", "ENOENT");
+    const engine = expectFailure(await call("prepare", { ref: { ...ref, path: "broken.docx" }, request_id: "engine" }), "unknown", "Cannot find");
     assert.equal(await readFile(path, "utf8"), original);
     const report = { platform: process.platform, productionPreload: true, sandboxedRenderer: true, binaryUint8Array: true, moved, openMissing, permission, openFailure, engine, restoredKey: restored.value.key, historicalSourceMissing: true, sourceHash: createHash("sha256").update(await readFile(path)).digest("hex"), applications: applications.value.length };
     await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));

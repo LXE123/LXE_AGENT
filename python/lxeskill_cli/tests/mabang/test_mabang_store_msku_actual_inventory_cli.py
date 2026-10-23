@@ -63,13 +63,13 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
     }
 
 
-def test_auth_classification_preserves_actual_error(monkeypatch):
+def test_terminal_failure_preserves_actual_error_without_requesting_refresh(monkeypatch):
     from services.mabang.errors import MabangAuthError
     from services.mabang.official_api import OfficialApiError
-    for error, expected in [(OfficialApiError('店铺', '无匹配 profile_id=1403401'), False), (MabangAuthError('实际认证错误'), True)]:
+    for error in [OfficialApiError('店铺', '无匹配 profile_id=1403401'), MabangAuthError('实际认证错误')]:
         async def fail(name):
             raise error
         monkeypatch.setattr(cli, 'export_store_msku_actual_inventory', fail)
         payload = cli.run({'store_name': 'shop'})
-        assert payload['auth_refresh_required'] is expected
+        assert payload['auth_refresh_required'] is False
         assert payload['exception'] == str(error)

@@ -20,7 +20,7 @@ STOCK_COLUMNS = ("可售", "待入库", "预留", "在途", "待调仓", "调仓
 FINAL_SHIPPING_COLUMNS = (
     "MSKU", "ASIN", "本地SKU", "品名", "7天销量", "14天销量", "30天销量", "90天销量",
     "加权日销", "可售", "待入库", "预留", "计划入库", "在途", "待调仓", "调仓中",
-    "FBA总库存（马帮）", "未发出货件总计", "深圳可用库存", "建议运输方式（生成时）",
+    "FBA总库存（马帮）", "未发出货件总计", "深圳可用库存", "可销售天数", "建议运输方式（生成时）",
     "空运补货天数", "海运补货天数", "理论空运需求", "理论海运需求",
     "扣FBA后空运量", "扣FBA后海运量", "扣未关联货件后空运量", "扣未关联货件后海运量",
     "空运建议量", "海运建议量", "单件重量(g)", "预计总重量(kg)", "备注", "深圳库存缺口",
@@ -76,6 +76,34 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> dict[str, 
         params={"weighted_sales": dict(zip(("7d_weight", "14d_weight", "30d_weight"), inputs.weights))},
     )
     fba = sum(values[key] for key in STOCK_COLUMNS)
+    if not math.isfinite(daily) or daily < 0 or not math.isfinite(fba) or fba < 0:
+        raise ValueError(f"备货公式计算结果无效: MSKU={row.msku}, daily={daily!r}, fba={fba!r}")
+    calculated_sales_days = fba / daily if daily > 0 else None
+    if not math.isclose(daily, row.weighted_daily_sales, rel_tol=0, abs_tol=1e-9):
+        raise ValueError(
+            f"试算加权日销与正式计算不一致: MSKU={row.msku}, "
+            f"formula={daily}, calculated={row.weighted_daily_sales}"
+        )
+    if not math.isclose(fba, row.fba_total_inventory, rel_tol=0, abs_tol=1e-6):
+        raise ValueError(
+            f"试算FBA总库存与正式计算不一致: MSKU={row.msku}, "
+            f"formula={fba}, calculated={row.fba_total_inventory}"
+        )
+    # Inputs are reconciled above; validate formal days against their own inputs
+    # so division by low daily sales does not amplify an accepted stock difference.
+    expected_sales_days = (
+        row.fba_total_inventory / row.weighted_daily_sales if row.weighted_daily_sales > 0 else None
+    )
+    if (calculated_sales_days is None) != (row.sales_days is None) or (
+        (expected_sales_days is None) != (row.sales_days is None)
+    ) or (
+        expected_sales_days is not None
+        and not math.isclose(expected_sales_days, row.sales_days, rel_tol=0, abs_tol=1e-6)
+    ):
+        raise ValueError(
+            f"试算可销售天数与正式计算不一致: MSKU={row.msku}, "
+            f"formula={calculated_sales_days}, calculated={row.sales_days}, expected={expected_sales_days}"
+        )
     is_sea = row.sheet_name == "海运"
     air_days = (row.companion_air_days or 0) if is_sea else row.replenish_days
     sea_days = row.sea_days if is_sea else 0
@@ -106,12 +134,13 @@ def _initial_values(row: ReplenishmentRow, missing_snapshot: bool) -> dict[str, 
         **dict(zip(("E", "F", "G", "H"), (values[k] for k in SOURCE_VALUE_COLUMNS[:4]))),
         "I": daily, **dict(zip(("J", "K", "L", "M", "N", "O", "P"), (values[k] for k in SOURCE_VALUE_COLUMNS[4:]))),
         "Q": fba, "R": row.unlinked_quantity, "S": row.actual_inventory,
-        "T": "空运＋海运" if is_sea and air > 0 else row.sheet_name,
-        "U": air_days, "V": sea_days, "W": gross_air, "X": gross_sea,
-        "Y": air_fba, "Z": sea_fba, "AA": air_net, "AB": sea_net,
-        "AC": air, "AD": sea, "AE": row.weight_grams, "AF": weight, "AG": row.remark,
-        "AH": max(0, air + sea - row.actual_inventory) if row.actual_inventory is not None else None,
-        "AI": "正常", "AJ": "；".join(notes),
+        "T": calculated_sales_days,
+        "U": "空运＋海运" if is_sea and air > 0 else row.sheet_name,
+        "V": air_days, "W": sea_days, "X": gross_air, "Y": gross_sea,
+        "Z": air_fba, "AA": sea_fba, "AB": air_net, "AC": sea_net,
+        "AD": air, "AE": sea, "AF": row.weight_grams, "AG": weight, "AH": row.remark,
+        "AI": max(0, air + sea - row.actual_inventory) if row.actual_inventory is not None else None,
+        "AJ": "正常", "AK": "；".join(notes),
     }
     return public
 
@@ -143,30 +172,31 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         is_sea = row.sheet_name == "海运"
         weights = tuple(repr(float(weight)) for weight in inputs.weights)
         minimum = repr(float(inputs.minimum_sea_quantity))
-        valid = f'AI{r}="正常"'
+        valid = f'AJ{r}="正常"'
         # Each stage is independently visible; no cross-sheet lookup or hidden row IDs.
         formulas = {
             "I": f'E{r}/7*{weights[0]}+F{r}/14*{weights[1]}+G{r}/30*{weights[2]}',
             "Q": f'SUM(J{r}:L{r},N{r}:P{r})',
-            "AI": f'IFERROR(IF(AND(COUNT(E{r}:R{r},U{r}:V{r})=16,MIN(E{r}:R{r},U{r}:V{r})>=0,U{r}=INT(U{r}),V{r}=INT(V{r}),{"V" if is_sea else "U"}{r}>0),"正常","输入无效"),"输入无效")',
-            "W": f'IF({valid},ROUNDUP(I{r}*U{r},0),"")',
-            "X": f'IF({valid},MAX(0,ROUNDUP(I{r}*V{r},0)-W{r}),"")' if is_sea else f'IF({valid},0,"")',
-            "Y": f'IF({valid},MAX(0,ROUNDUP(W{r}-Q{r},0)),"")',
-            "Z": f'IF({valid},MAX(0,ROUNDUP(X{r}-MAX(0,Q{r}-W{r}),0)),"")',
-            "AA": f'IF({valid},MAX(0,ROUNDUP(Y{r}-R{r},0)),"")',
-            "AB": f'IF({valid},MAX(0,ROUNDUP(Z{r}-MAX(0,R{r}-Y{r}),0)),"")',
-            "AC": f'IF({valid},IF(AB{r}>={minimum},AA{r},0),"")' if is_sea else f'IF({valid},AA{r},"")',
-            "AD": f'IF({valid},IF(AB{r}>={minimum},AB{r},0),"")' if is_sea else f'IF({valid},0,"")',
-            "AF": f'IFERROR(IF(AND({valid},ISNUMBER(AE{r}),AE{r}>0),(AC{r}+AD{r})*AE{r}/1000,""),"")',
-            "AH": f'IFERROR(IF(AND({valid},COUNT(S{r},AC{r}:AD{r})=3),MAX(0,AC{r}+AD{r}-S{r}),""),"")',
+            "AJ": f'IFERROR(IF(AND(COUNT(E{r}:R{r},V{r}:W{r})=16,MIN(E{r}:R{r},V{r}:W{r})>=0,V{r}=INT(V{r}),W{r}=INT(W{r}),{"W" if is_sea else "V"}{r}>0),"正常","输入无效"),"输入无效")',
+            "T": f'IF({valid},IF(I{r}>0,Q{r}/I{r},""),"")',
+            "X": f'IF({valid},ROUNDUP(I{r}*V{r},0),"")',
+            "Y": f'IF({valid},MAX(0,ROUNDUP(I{r}*W{r},0)-X{r}),"")' if is_sea else f'IF({valid},0,"")',
+            "Z": f'IF({valid},MAX(0,ROUNDUP(X{r}-Q{r},0)),"")',
+            "AA": f'IF({valid},MAX(0,ROUNDUP(Y{r}-MAX(0,Q{r}-X{r}),0)),"")',
+            "AB": f'IF({valid},MAX(0,ROUNDUP(Z{r}-R{r},0)),"")',
+            "AC": f'IF({valid},MAX(0,ROUNDUP(AA{r}-MAX(0,R{r}-Z{r}),0)),"")',
+            "AD": f'IF({valid},IF(AC{r}>={minimum},AB{r},0),"")' if is_sea else f'IF({valid},AB{r},"")',
+            "AE": f'IF({valid},IF(AC{r}>={minimum},AC{r},0),"")' if is_sea else f'IF({valid},0,"")',
+            "AG": f'IFERROR(IF(AND({valid},ISNUMBER(AF{r}),AF{r}>0),(AD{r}+AE{r})*AF{r}/1000,""),"")',
+            "AI": f'IFERROR(IF(AND({valid},COUNT(S{r},AD{r}:AE{r})=3),MAX(0,AD{r}+AE{r}-S{r}),""),"")',
         }
-        sea_note = f'&IF(AND(AC{r}+AD{r}=0,AA{r}+AB{r}>0),"；海运最低件数条件未满足","")' if is_sea else ""
+        sea_note = f'&IF(AND(AD{r}+AE{r}=0,AB{r}+AC{r}>0),"；海运最低件数条件未满足","")' if is_sea else ""
         snapshot_note = '&"；未取得同日未关联货件快照，需核实当前试算数量"' if missing_snapshot else ""
-        formulas["AJ"] = (
+        formulas["AK"] = (
             f'IF({valid},"可试算"'
-            f'{sea_note}&IF(AC{r}+AD{r}=0,"；当前建议量为0","")'
-            f'&IF(AH{r}="","；深圳可用库存缺失或无效",IF(AH{r}>0,"；深圳库存不足",""))'
-            f'&IF(AF{r}="","；单件重量缺失或无效",""),'
+            f'{sea_note}&IF(AD{r}+AE{r}=0,"；当前建议量为0","")'
+            f'&IF(AI{r}="","；深圳可用库存缺失或无效",IF(AI{r}>0,"；深圳库存不足",""))'
+            f'&IF(AG{r}="","；单件重量缺失或无效",""),'
             f'"输入无效：销量、FBA库存、未关联货件须为非负数，补货天数须为有效整数"){snapshot_note}'
         )
         for column, formula in formulas.items():
@@ -178,21 +208,21 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
     sheet.sheet_view.showGridLines = False
     # A normal filter avoids Excel Table calculated-column autofill replacing
     # row-specific literal weights/thresholds when a user edits one formula.
-    sheet.auto_filter.ref = f"A2:AJ{end}"
+    sheet.auto_filter.ref = f"A2:AK{end}"
     if selected:
         numeric = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         numeric.showErrorMessage = True
         numeric.error = "请输入大于等于0的数值；不要清空必需输入。"
         sheet.add_data_validation(numeric)
-        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "AE"):
+        for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "AF"):
             numeric.add(f"{column}3:{column}{end}")
         days = DataValidation(type="whole", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         days.showErrorMessage = True
         days.error = "请输入大于等于0的整数；0表示不适用。"
         sheet.add_data_validation(days)
-        days.add(f"U3:V{end}")
-    input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 31, 33}
-    formula_columns = {9, 17, *range(23, 31), 32, 34, 35, 36}
+        days.add(f"V3:W{end}")
+    input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 22, 23, 32, 34}
+    formula_columns = {9, 17, 20, *range(24, 32), 33, 35, 36, 37}
     for index in range(1, len(FINAL_SHIPPING_COLUMNS) + 1):
         sheet.column_dimensions[get_column_letter(index)].width = 15
         header = sheet.cell(2, index)
@@ -207,9 +237,9 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
             cell.alignment = Alignment(vertical="center", wrap_text=True)
             if index in input_columns | formula_columns:
                 cell.fill = PatternFill("solid", fgColor="FFF2CC" if index in input_columns else "EAF2F8")
-            if index in (9, 31, 32):
+            if index in (9, 20, 32, 33):
                 cell.number_format = "#,##0.00"
-            elif 5 <= index <= 30 and index != 20 or index == 34:
+            elif 5 <= index <= 31 and index != 21 or index == 35:
                 cell.number_format = "#,##0.##"
     workbook.active = 0
     return caches

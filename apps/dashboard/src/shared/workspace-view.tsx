@@ -7,6 +7,7 @@ export function WorkspaceView<T extends string>({
   items,
   label,
   onSelect,
+  title,
 }: {
   activeView: T;
   actions?: ReactNode;
@@ -14,10 +15,12 @@ export function WorkspaceView<T extends string>({
   items: ReadonlyArray<{ id: T; label: string }>;
   label: string;
   onSelect: (view: T) => void;
+  title?: string;
 }) {
   return (
     <section className="workspace-view">
       <header className="workspace-view-header">
+        {title ? <h1>{title}</h1> : null}
         <div className="workspace-header-actions"><nav aria-label={label} className="workspace-subnav">
           {items.map((item) => (
             <button

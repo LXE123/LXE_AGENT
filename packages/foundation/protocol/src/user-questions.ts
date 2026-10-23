@@ -84,8 +84,8 @@ export function parseUserQuestions(value: unknown): UserQuestion[] {
     if (item.multi_select !== undefined && typeof item.multi_select !== "boolean") issue(`${path}.multi_select`, "must be a boolean");
     let options: UserQuestion["options"];
     if (item.options !== undefined) {
-      if (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > 8) {
-        issue(`${path}.options`, "must contain between 1 and 8 choices");
+      if (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > 4) {
+        issue(`${path}.options`, "must contain between 1 and 4 choices");
       } else {
         const labels = new Set<string>();
         options = [];

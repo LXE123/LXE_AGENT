@@ -5,6 +5,7 @@ import { useScrollFollowInput } from "./use-scroll-follow-input";
 import { processId } from "./process";
 import type { ConversationRow } from "./presentation";
 import { useUiText } from "../../shared/i18n";
+import "./conversation-theme.css";
 
 export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, jumpVersion = 0, retryLatest = false }: {
   connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
@@ -205,7 +206,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     </div>
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}
     {pageError ? <div className="message-page-error" role="alert">{pageError}<button onClick={() => retryLatest ? jumpToLatest() : void load(retryDirection.current)}>{t.sessionDetail.retryEarlier}</button></div> : null}
-    {!following || connection === "detached" ? <button className="conversation-jump-latest" type="button" onClick={() => {
+    {!following || connection === "detached" ? <button className="conversation-jump-latest conversation-chrome-theme" type="button" onClick={() => {
       scrollInput.clear(); resumeFollowing(); jumpToLatest();
     }}><ChevronDown size={14} />{t.conversation.jumpToLatest}</button> : null}
   </div>;

@@ -17,13 +17,7 @@ python-pptx 对动画、切换、SmartArt、嵌入对象及某些图表没有完
 
 ## 检查与交付
 
-保存后重新打开，核对页数、顺序、文字、图片、图表系列与数据，并执行结构检查：
-
-```text
-uv run --frozen python -m shared.office check "结果.pptx" --out "检查.json" --contains "结论" --count 6
-```
-
-检查器校验 ZIP/XML 和内部关系；`--contains` 可重复，匹配提取到的文本；`--count` 是幻灯片数。结构检查不能判断对象遮挡、字体溢出或图表外观。
+保存后重新用 python-pptx 打开，根据任务核对页数、顺序、文字、图片、图表系列与数据。需要检查特定文字或数量时，在任务脚本中编写对应断言；结构和内容检查不能判断对象遮挡、字体溢出或图表外观。
 
 根据改动和排版要求检查相关幻灯片，关注文本溢出、对象重叠、对齐、对比度、图片比例和图表可读性。模型支持图片输入时用 `read` 查看生成图片；不支持时完成其他检查，说明所需视觉检查的限制。确认预览包含目标内容，空白或损坏的图片不能作为视觉检查通过的证据。
 
@@ -31,12 +25,14 @@ uv run --frozen python -m shared.office check "结果.pptx" --out "检查.json" 
 
 ## 内置 Office 引擎
 
-```text
-uv run --frozen python -m shared.office capabilities --json
-uv run --frozen python -m shared.office render --input "结果.pptx" --output-dir "预览-v1" --pages 1,3 --dpi 144
-uv run --frozen python -m shared.office convert --input "结果.pptx" --output "结果.pdf"
+```sh
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" capabilities --json
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" render --input "结果.pptx" --output-dir "预览-v1" --pages 1,3 --dpi 144
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" convert --input "结果.pptx" --output "结果.pdf"
 ```
 
-需要引擎操作时先读取一次能力信息。入口使用宿主提供的内置 Node 和 Kit；失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在。`--pages` 从 1 开始，省略则渲染全部幻灯片。
+上述命令适用于 macOS 的 shell；Windows PowerShell 使用 `& $env:LXE_OFFICE_NODE $env:LXE_OFFICE_CLI`，后接相同参数。宿主通过这两个环境变量提供内置 Node 和 Kit CLI 的绝对路径，直接经 `exec` 调用。
+
+需要引擎操作时先读取一次能力信息。失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在。`--pages` 从 1 开始，省略则渲染全部幻灯片。
 
 读取返回 manifest 的图片路径和缺失字体诊断，使用系统已安装字体及引擎附带资源。复用同一版文稿的预览，源文件变化后再按需更新。静态图片/PDF 无法验证动画、切换和交互效果，也不保证与 Microsoft PowerPoint 的显示完全一致。

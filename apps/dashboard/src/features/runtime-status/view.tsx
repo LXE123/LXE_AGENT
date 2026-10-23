@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopCloudState, DesktopHealth } from "@lxe/desktop-protocol";
 import { Activity, Bot, Cloud, Radio, Server, X } from "lucide-react";
+import "./theme.css";
 
 import { useChannelHealthQuery } from "../../api/queries";
 import type { ModelPayload } from "../../api/payloads";
@@ -133,7 +134,7 @@ export function RuntimeStatusPopover({
   };
 
   return (
-    <div className="runtime-status-floating" ref={rootRef}>
+    <div className="runtime-status-floating runtime-status-theme" ref={rootRef}>
       {open ? (
         <section
           aria-labelledby="runtime-status-popover-title"

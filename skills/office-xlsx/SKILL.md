@@ -19,11 +19,7 @@ openpyxl 写入公式后不会计算结果。`data_only=True` 读取的是缓存
 
 ## 检查与交付
 
-```text
-uv run --frozen python -m shared.office check "结果.xlsx" --out "检查.json" --contains "汇总" --count 2
-```
-
-检查器检查 ZIP/XML、内部关系和工作表结构，输出工作表名、非空单元格及公式数量。`--contains` 可重复，匹配字符串单元格和表名，不检查数字或公式结果；`--count` 是工作表数量。结合任务源数据，另用 openpyxl 验证关键数值、类型、公式和合计。
+保存后重新用 openpyxl 打开，结合任务源数据检查工作表、关键数值、类型、公式和合计。需要检查特定单元格或工作表数量时，在任务脚本中编写对应断言。重算后分别以 `data_only=False` 和 `True` 检查公式及缓存结果。
 
 数据处理、公式和普通样式（加粗表头、数字格式）完成适用的数据检查即可交付。涉及排版、图表外观、打印布局或显示问题时，对相关区域做视觉检查。先确认当前模型支持图片输入，再生成预览并通过 `read` 查看。模型不支持图片时仍可完成请求的图片/PDF 导出，但应说明无法完成所需的视觉检查。
 
@@ -31,13 +27,15 @@ uv run --frozen python -m shared.office check "结果.xlsx" --out "检查.json" 
 
 ## 内置 Office 引擎
 
-```text
-uv run --frozen python -m shared.office capabilities --json
-uv run --frozen python -m shared.office recalculate --input "结果.xlsx" --output "结果-已重算.xlsx"
-uv run --frozen python -m shared.office render --input "结果.xlsx" --output-dir "预览-v1" --sheet "汇总" --range A1:H25 --dpi 144
-uv run --frozen python -m shared.office convert --input "结果.xlsx" --output "结果.pdf"
+```sh
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" capabilities --json
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" recalculate --input "结果.xlsx" --output "结果-已重算.xlsx"
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" render --input "结果.xlsx" --output-dir "预览-v1" --sheet "汇总" --range A1:H25 --dpi 144
+"$LXE_OFFICE_NODE" "$LXE_OFFICE_CLI" convert --input "结果.xlsx" --output "结果.pdf"
 ```
 
-需要引擎操作时先读取一次能力信息。入口使用宿主提供的内置 Node 和 Kit；失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在；检查新结果后再按用户原地修改要求替换原文件。
+上述命令适用于 macOS 的 shell；Windows PowerShell 使用 `& $env:LXE_OFFICE_NODE $env:LXE_OFFICE_CLI`，后接相同参数。宿主通过这两个环境变量提供内置 Node 和 Kit CLI 的绝对路径，直接经 `exec` 调用。
+
+需要引擎操作时先读取一次能力信息。失败时保留实际错误和可用源文件，不自动切换系统 LibreOffice。参数、输出和退出码沿用 Kit CLI，可用 `--timeout-ms` 设置超时。输出文件或目录必须尚不存在；检查新结果后再按用户原地修改要求替换原文件。
 
 工作表图片使用精确表名和单元格范围，涵盖需要检查的图表或绘图区域；`--pages` 用于物理页面，不代表工作表编号。PDF 遵循打印设置。读取返回的 manifest、分片位置和缺失字体诊断；较大区域可能分为多张图片。复用同一版文件的预览，修改源文件后再按需更新。渲染不会刷新原工作簿中的公式缓存。

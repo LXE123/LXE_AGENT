@@ -1,218 +1,219 @@
-/* Settings and dialogs opened from it share this palette, including body portals.
-   Keep it off the desktop frame so onboarding and the conversation retain theirs. */
-.desktop-settings-theme {
-  --bg: #fafaf9;
-  --bg-soft: #ffffff;
-  --surface: #ffffff;
-  --surface-muted: #f4f4f5;
-  --surface-subtle: #f4f4f5;
-  --row-hover: #f5f5f5;
-  --border: #e4e4e7;
-  --border-strong: #d4d4d8;
-  --text: #18181b;
-  --text-strong: #18181b;
-  --text-soft: #18181b;
-  --muted: #65656f;
-  --muted-light: #65656f;
-  --accent: #3f3f46;
-  --accent-strong: #18181b;
-  --accent-soft: #f4f4f5;
-  --accent-muted: #d4d4d8;
-  --settings-primary: #27272a;
-  --settings-primary-hover: #3f3f46;
-  --settings-primary-ink: #ffffff;
-  --settings-selected: var(--table-header-fill);
-  --settings-danger-action: #b42318;
-  --success: #287342;
-  --success-soft: #eef7f0;
-  --success-border: #c9e2d0;
-  --rate-good: var(--success);
-  --rate-good-soft: var(--success-soft);
-  --danger: #b42318;
-  --danger-soft: #fef3f2;
-  --danger-border: #fecdca;
-  --info: var(--text-soft);
-  --info-soft: var(--surface-muted);
-  --focus-ring: rgba(63, 63, 70, 0.2);
-  --scrim: rgba(24, 24, 27, 0.42);
-  --shadow-soft: rgba(24, 24, 27, 0.06);
-  --shadow-medium: rgba(24, 24, 27, 0.1);
-  --shadow-strong: rgba(24, 24, 27, 0.2);
-  --shadow-card: 0 1px 2px var(--shadow-soft), 0 6px 20px var(--shadow-soft);
-  --scrollbar-thumb: rgba(113, 113, 122, 0.26);
-  color: var(--text);
-}
+@import "../shared/cds-theme.css";
 
-:root[data-theme="dark"] .desktop-settings-theme {
-  --bg: #242424;
-  --bg-soft: #2c2c2c;
-  --surface: #2c2c2c;
-  --surface-muted: #333333;
-  --surface-subtle: #212121;
-  --row-hover: #333333;
-  --border: #414141;
-  --border-strong: #555555;
-  /* Share conversation text colours; navigation and labels use body brightness. */
-  --text: inherit;
-  --text-strong: inherit;
-  --text-soft: var(--text);
-  --muted: inherit;
-  --muted-light: var(--muted);
-  --accent: #d4d4d8;
-  --accent-strong: var(--text);
-  --accent-soft: #383838;
-  --accent-muted: #555555;
-  --settings-primary: #e4e4e7;
-  --settings-primary-hover: #f4f4f5;
-  --settings-primary-ink: #18181b;
-  --settings-selected: #383838;
-  --success: #8dca8d;
-  --success-soft: #253429;
-  --success-border: #3e5844;
-  --danger: #f28e85;
-  --danger-soft: #3d2827;
-  --danger-border: #693b38;
-  --focus-ring: rgba(212, 212, 216, 0.28);
-  --scrim: rgba(0, 0, 0, 0.56);
-  --shadow-soft: rgba(0, 0, 0, 0.2);
-  --shadow-medium: rgba(0, 0, 0, 0.28);
-  --shadow-strong: rgba(0, 0, 0, 0.42);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
-}
-
+/* One continuous settings surface: rail + content, with a persistent save row. */
 .desktop-settings-theme .desktop-settings-modal {
-  box-shadow: 0 24px 80px var(--shadow-strong);
-}
-
-.desktop-settings-theme .desktop-settings-content,
-.desktop-settings-theme .desktop-settings-modal > header {
-  background: var(--bg);
-}
-
-:root:not([data-theme="dark"]) .desktop-settings-theme
-  :is(.desktop-settings-nav, .desktop-settings-modal > footer) {
-  background: var(--bg);
-}
-
-.desktop-settings-theme :is(.desktop-health-card, .desktop-maintenance-panel,
-  .desktop-local-model-card, .desktop-usage-card, .desktop-logging-sink) {
+  position: relative;
+  width: min(1120px, calc(100vw - 64px));
+  height: min(800px, calc(100dvh - 80px));
+  max-height: calc(100dvh - 80px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
   background: var(--surface);
+  box-shadow: 0 24px 80px var(--shadow-strong), 0 2px 8px var(--shadow-medium);
 }
-
-.desktop-settings-theme .desktop-eyebrow {
+.desktop-settings-theme .desktop-settings-workspace { grid-template-columns: 228px minmax(0, 1fr); }
+.desktop-settings-theme .desktop-settings-dismiss {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  background: transparent;
   color: var(--muted);
 }
-
-.desktop-settings-theme .desktop-settings-nav-item:hover,
-.desktop-settings-theme .desktop-settings-nav-item:focus-visible {
-  background: var(--row-hover);
+.desktop-settings-theme .desktop-settings-nav {
+  gap: 16px;
+  padding: 24px 12px 16px;
+  background: var(--cds-surface-nav);
 }
-
-.desktop-settings-theme .desktop-settings-nav-item.active {
-  /* The transparent border preserves the label's existing horizontal position. */
-  border-left-color: transparent;
-  background: var(--settings-selected);
-  color: var(--text-strong);
+.desktop-settings-theme .desktop-settings-nav-title { margin: 0 12px; font-size: 1.125rem; font-weight: 600; }
+.desktop-settings-theme .desktop-settings-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  margin: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--cds-field);
+  color: var(--cds-muted);
 }
-
-.desktop-settings-theme .desktop-settings-nav-item.active > svg {
-  color: var(--text-strong);
+.desktop-settings-theme .desktop-settings-search:focus-within { border-color: transparent; box-shadow: var(--cds-focus); }
+.desktop-settings-theme .desktop-settings-search input {
+  width: 100%; min-width: 0; padding: 0; border: 0; outline: none;
+  background: transparent; color: var(--text); font: inherit; font-size: .8125rem;
 }
-
-.desktop-settings-theme .desktop-settings-nav-item.active small {
-  color: var(--muted);
-  opacity: 1;
+.desktop-settings-search input::-webkit-search-cancel-button { display: none; }
+.desktop-settings-search > svg { flex: none; }
+.desktop-settings-search button {
+  display: grid; place-items: center; flex: none; padding: 2px; border: 0;
+  background: transparent; color: inherit; cursor: pointer;
 }
+.desktop-settings-theme .desktop-settings-nav-list { flex: 1; gap: 16px; }
+.desktop-settings-nav-section { display: grid; align-content: start; gap: 3px; }
+.desktop-settings-theme .desktop-settings-nav-group {
+  margin: 0; padding: 0 12px 5px; color: var(--cds-muted);
+  font-size: .6875rem; font-weight: 500; letter-spacing: normal;
+}
+.desktop-settings-theme .desktop-settings-nav-item {
+  min-height: 38px; justify-content: start; gap: 10px; padding: 8px 12px;
+  border: 0; border-radius: 8px; color: var(--cds-secondary);
+}
+.desktop-settings-theme .desktop-settings-nav-item strong { font-size: .875rem; font-weight: 400; }
+.desktop-settings-theme .desktop-settings-nav-item > svg { width: 18px; height: 18px; color: currentColor; }
+/* Status remains available to assistive technology and via the item tooltip. */
+.desktop-settings-theme .desktop-settings-nav-item small {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.desktop-settings-theme .desktop-settings-nav-item:hover { background: var(--row-hover); color: var(--text); }
+.desktop-settings-theme .desktop-settings-nav-item.active { background: var(--cds-selected); color: var(--text); }
+.desktop-settings-theme .desktop-settings-nav-item.active strong { font-weight: 600; }
+.desktop-settings-theme .desktop-settings-nav-item.active > svg { color: inherit; }
+.desktop-settings-theme .desktop-settings-language { padding: 14px 10px 0; gap: 10px; font-weight: 400; font-size: .75rem; }
+.desktop-settings-search-empty { margin: 8px 12px; color: var(--muted); font-size: .8125rem; line-height: 1.6; }
+.desktop-settings-theme .desktop-settings-content {
+  padding: 38px 40px 40px;
+  background: var(--cds-surface-panel);
+  scrollbar-gutter: stable;
+}
+.desktop-settings-theme .desktop-settings-section { gap: 24px; }
+.desktop-settings-theme .desktop-section-heading { padding-right: 20px; margin-bottom: 8px; }
+.desktop-settings-theme .desktop-section-heading h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.5; }
+.desktop-settings-theme .desktop-section-heading p { margin-top: 8px; max-width: 60ch; color: var(--muted); font-size: .8125rem; line-height: 1.65; }
+.desktop-settings-theme .desktop-settings-modal > footer {
+  min-height: 60px; padding: 12px 28px; background: var(--surface);
+  border-top-color: var(--cds-alpha-1);
+}
+.desktop-settings-theme .desktop-version-updates { display: flex; align-items: center; gap: 12px; min-width: 0; margin-right: auto; }
+.desktop-settings-theme .desktop-eyebrow { color: var(--muted); letter-spacing: normal; }
 
+/* Settings use rows, with semantic hairlines separating related choices. */
+.desktop-settings-theme .desktop-field-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.desktop-settings-theme .desktop-field-grid > label {
+  display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 1.25fr);
+  align-items: center; gap: 20px; min-height: 80px; padding: 16px 0;
+  color: var(--text); font-size: .875rem; font-weight: 400;
+}
+.desktop-settings-theme .desktop-field-grid > label + label { border-top: 1px solid var(--cds-alpha-1); }
+.desktop-settings-theme .desktop-field-grid > label > span:first-child { line-height: 1.65; overflow-wrap: anywhere; }
+.desktop-settings-theme .desktop-local-model-card,
+.desktop-settings-theme .desktop-maintenance-panel {
+  padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.desktop-settings-theme .desktop-local-model-card { margin-bottom: 0; padding-bottom: 24px; border-bottom: 1px solid var(--cds-alpha-1); }
+.desktop-settings-theme .desktop-local-model-heading strong,
+.desktop-settings-theme .desktop-maintenance-heading strong { color: var(--text); font-size: .875rem; font-weight: 500; }
+.desktop-settings-theme .desktop-local-model-heading > div > span,
+.desktop-settings-theme .desktop-maintenance-heading span { color: var(--muted); font-size: .8125rem; }
+.desktop-settings-theme .desktop-form-hint { max-width: 65ch; font-size: .75rem; }
+.desktop-settings-theme .desktop-health-grid { grid-template-columns: 1fr; gap: 0; }
+.desktop-settings-theme .desktop-health-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: 64px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--cds-alpha-1);
+  border-radius: 0; background: transparent;
+}
+.desktop-settings-theme .desktop-health-card span { color: var(--text); font-size: .875rem; }
+.desktop-settings-theme .desktop-health-card strong { font-size: .8125rem; font-weight: 400; }
+.desktop-settings-theme .desktop-health-dot { width: 6px; height: 6px; box-shadow: none; }
+.desktop-settings-theme .desktop-maintenance-heading { padding-top: 8px; }
+.desktop-settings-theme :is(.desktop-usage-card, .desktop-logging-sink) { background: var(--surface-subtle); box-shadow: none; }
+
+/* Field states: normal alpha-2 ring, stronger hover, accent keyboard focus. */
+.desktop-settings-theme :is(.desktop-settings-content, .desktop-cloud-binding-dialog) :is(input, select, textarea) {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--cds-field); color: var(--text); font-size: .875rem;
+  transition: border-color 100ms, box-shadow 100ms;
+}
+.desktop-settings-theme :is(.desktop-settings-content, .desktop-cloud-binding-dialog) :is(input, select, textarea):hover:not(:disabled):not(:focus-visible) { border-color: var(--border-strong); }
+.desktop-settings-theme :is(.desktop-settings-content, .desktop-cloud-binding-dialog) :is(input, select, textarea):focus-visible {
+  outline: none; border-color: transparent; box-shadow: var(--cds-focus);
+}
+.desktop-settings-theme :is(input, textarea)::placeholder { color: var(--cds-muted); opacity: 1; }
+.desktop-settings-theme :is(button, summary, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.desktop-settings-theme :is(input, select, textarea):disabled { opacity: .4; cursor: not-allowed; }
+.desktop-settings-theme :is(.desktop-path-button, .desktop-path-input button, .desktop-restart-button,
+  .desktop-inline-settings, .desktop-log-directory button, .desktop-usage-refresh) { color: var(--text-soft); border-color: var(--border); background: transparent; }
+.desktop-settings-theme :is(.desktop-close-button, .desktop-path-button, .desktop-path-input button,
+  .desktop-restart-button, .desktop-inline-settings, .desktop-log-directory button, .desktop-usage-refresh):hover:not(:disabled) { background: var(--row-hover); color: var(--text); }
+
+.desktop-settings-theme .desktop-setting-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: 24px; min-height: 100px; padding: 20px 0;
+  border-bottom: 1px solid var(--cds-alpha-1);
+}
+.desktop-setting-copy strong { color: var(--text); font-size: .875rem; font-weight: 500; }
+.desktop-setting-copy p { margin: 6px 0 0; color: var(--muted); font-size: .8125rem; line-height: 1.65; }
+.desktop-settings-theme .desktop-appearance-panel { gap: 0; }
+.desktop-settings-theme .desktop-appearance-panel .desktop-section-heading { margin-bottom: 24px; }
+.desktop-settings-theme .desktop-appearance-options {
+  display: flex; gap: 2px; padding: 3px; border-radius: 8px;
+  background: var(--cds-alpha-1);
+}
+.desktop-settings-theme .desktop-appearance-option {
+  display: flex; align-items: center; justify-content: center; flex: 1;
+  min-width: 60px; min-height: 32px; padding: 6px 14px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); white-space: nowrap;
+}
+.desktop-settings-theme .desktop-appearance-option strong { font-size: .8125rem; font-weight: 400; }
+.desktop-settings-theme .desktop-appearance-option:hover { background: transparent; color: var(--text); }
 .desktop-settings-theme .desktop-appearance-option.active {
-  border-color: var(--border-strong);
-  background: var(--settings-selected);
-  color: var(--text-strong);
-  box-shadow: none;
+  background: var(--cds-thumb); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border), 0 1px 2px var(--shadow-soft);
 }
-
-.desktop-settings-theme :is(button, summary):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.desktop-settings-theme .desktop-erp-tabs {
+  width: 100%; margin-bottom: 28px; gap: 4px; padding: 0;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+  background: transparent; box-shadow: none;
 }
-
-.desktop-settings-theme :is(.desktop-restart-button, .desktop-close-button,
-  .desktop-path-button, .desktop-path-input button, .desktop-inline-settings,
-  .desktop-log-directory button, .desktop-usage-refresh) {
-  color: var(--text-soft);
+.desktop-settings-theme .desktop-erp-tabs .workspace-subnav-item {
+  padding: 10px 14px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent;
+  border-radius: 0; background: transparent; color: var(--muted); font-size: .8125rem;
 }
-
-.desktop-settings-theme :is(.desktop-restart-button, .desktop-close-button,
-  .desktop-path-button, .desktop-path-input button, .desktop-inline-settings,
-  .desktop-log-directory button, .desktop-usage-refresh):hover:not(:disabled) {
-  background: var(--row-hover);
-  color: var(--text-strong);
-}
-
-.desktop-settings-theme :is(.desktop-settings-content,
-  .desktop-cloud-binding-dialog) :is(input, select):focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
-.desktop-settings-theme :is(input, textarea)::placeholder {
-  color: var(--muted);
-  opacity: 1;
-}
-
+.desktop-settings-theme .desktop-erp-tabs .workspace-subnav-item.active { border-bottom-color: var(--text); color: var(--text); background: transparent; }
+.desktop-settings-theme .desktop-erp-tabs .workspace-subnav-item:hover { color: var(--text); background: var(--row-hover); }
+.desktop-settings-theme .desktop-appearance-badge { background: var(--cds-alpha-1); color: var(--muted); font-weight: 400; }
 .desktop-settings-theme .desktop-primary-button:not(.desktop-danger-button),
-.desktop-settings-theme .lxe-update-actions .lxe-update-primary {
-  background: var(--settings-primary);
-  border-color: var(--settings-primary);
-  color: var(--settings-primary-ink);
-}
-
+.desktop-settings-theme .lxe-update-actions .lxe-update-primary { background: var(--cds-primary); border-color: var(--cds-primary); color: var(--cds-primary-ink); }
 .desktop-settings-theme .desktop-primary-button:not(.desktop-danger-button):hover:not(:disabled),
-.desktop-settings-theme .lxe-update-primary:hover:not(:disabled) {
-  background: var(--settings-primary-hover);
-  border-color: var(--settings-primary-hover);
-}
-
+.desktop-settings-theme .lxe-update-primary:hover:not(:disabled) { background: var(--cds-primary-hover); border-color: var(--cds-primary-hover); }
 .desktop-settings-theme .desktop-primary-button:not(.desktop-danger-button):disabled,
-.desktop-settings-theme .lxe-update-primary:disabled {
-  background: var(--surface-muted);
-  border-color: var(--border);
-  color: var(--muted);
-  opacity: 1;
-}
+.desktop-settings-theme .lxe-update-primary:disabled { background: var(--surface-muted); border-color: var(--border); color: var(--cds-muted); opacity: 1; }
+/* The footer owns the primary action; credential edits remain secondary. */
+.desktop-settings-theme .desktop-local-model-actions .desktop-primary-button:not(.desktop-danger-button):not(:disabled) { background: var(--cds-field); border-color: var(--border); color: var(--text); }
+.desktop-settings-theme .desktop-local-model-actions .desktop-primary-button:not(.desktop-danger-button):hover:not(:disabled) { background: var(--row-hover); border-color: var(--border-strong); }
+.desktop-settings-theme .desktop-confirm-dialog footer .desktop-danger-button { background: var(--cds-danger-action); border-color: var(--cds-danger-action); color: #fff; }
+.desktop-settings-theme .desktop-confirm-dialog footer .desktop-danger-button:hover:not(:disabled) { background: var(--cds-danger-hover); border-color: var(--cds-danger-hover); }
+.desktop-settings-theme .lxe-update-dialog { box-shadow: 0 16px 60px var(--shadow-strong); }
+.desktop-settings-theme .device-permission-status.verified { color: var(--success); background: var(--success-soft); }
+.desktop-settings-theme .device-permission-status.cached { color: var(--warning); background: var(--warning-soft); }
+.desktop-settings-theme :is(.device-permission-status.denied, .device-permission-status.error) { color: var(--danger); background: var(--danger-soft); }
+.desktop-settings-theme .device-permission-change { background: var(--warning-soft); }
 
-.desktop-settings-theme .desktop-confirm-dialog footer .desktop-danger-button {
-  background: var(--settings-danger-action);
-  border-color: var(--settings-danger-action);
+@media (max-width: 800px) {
+  .desktop-settings-theme .desktop-settings-modal { width: calc(100vw - 32px); height: calc(100dvh - 40px); max-height: calc(100dvh - 40px); }
+  .desktop-settings-theme .desktop-settings-workspace { grid-template-columns: 184px minmax(0, 1fr); }
+  .desktop-settings-theme .desktop-settings-content { padding: 42px 24px 24px; }
+  .desktop-settings-theme .desktop-settings-nav { padding-inline: 8px; }
+  .desktop-settings-theme .desktop-field-grid > label { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .desktop-settings-theme .desktop-setting-row { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .desktop-settings-theme .desktop-appearance-options { width: fit-content; max-width: 100%; flex-wrap: wrap; }
+  .desktop-settings-theme .desktop-appearance-option { min-width: 0; padding-inline: 10px; }
 }
-
-.desktop-settings-theme .desktop-confirm-dialog footer .desktop-danger-button:hover:not(:disabled) {
-  background: #912018;
-  border-color: #912018;
+@media (max-width: 480px) {
+  .desktop-settings-theme .desktop-settings-modal { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 12px; }
+  .desktop-settings-theme .desktop-settings-workspace { grid-template-columns: 132px minmax(0, 1fr); }
+  .desktop-settings-theme .desktop-settings-nav { padding-inline: 4px; }
+  .desktop-settings-theme .desktop-settings-nav-item { gap: 6px; padding-inline: 8px; }
+  .desktop-settings-theme .desktop-settings-nav-item strong { font-size: .75rem; }
+  .desktop-settings-theme .desktop-settings-nav-item > svg { width: 15px; height: 15px; }
+  .desktop-settings-theme .desktop-settings-content { padding: 52px 14px 20px; }
+  .desktop-settings-theme .desktop-settings-modal > footer { padding: 10px 14px; gap: 8px; flex-wrap: wrap; }
+  .desktop-settings-theme .desktop-section-heading { flex-wrap: wrap; padding-right: 0; }
 }
-
-.desktop-settings-theme .lxe-update-dialog {
-  box-shadow: 0 16px 60px var(--shadow-strong);
-}
-
-/* Permission badges have explicit colours in the shared component. Resolve them
-   through the scoped semantic palette so they remain legible on dark cards. */
-.desktop-settings-theme .device-permission-status.verified {
-  color: var(--rate-good);
-  background: var(--success-soft);
-}
-
-.desktop-settings-theme .device-permission-status.cached {
-  color: var(--warning);
-  background: var(--warning-soft);
-}
-
-.desktop-settings-theme .device-permission-status.denied,
-.desktop-settings-theme .device-permission-status.error {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.desktop-settings-theme .device-permission-change {
-  background: var(--warning-soft);
+@media (prefers-reduced-motion: reduce) {
+  .desktop-settings-theme *, .desktop-settings-theme *::before, .desktop-settings-theme *::after { transition: none !important; animation: none !important; }
 }

@@ -2,11 +2,11 @@
 # wt-claim — persistent worktree pool for parallel agent development.
 #
 #   scripts/wt-claim <task-slug>            claim an idle slot on branch codex/<task-slug>
-#   scripts/wt-claim release <task-slug>    release the slot after merge
+#   scripts/wt-claim release <task-slug>    release a clean slot, keeping its branch
 #   scripts/wt-claim status                 list pool slots
 #
 # Slots live in .worktrees/pool-N and are never deleted; dependencies are
-# synced in place (bun/uv global caches make this seconds, not downloads).
+# synced in place using bun/uv caches when available.
 # Each slot keeps its own .venv — the editable install must point at the
 # slot's checkout, so never share or copy a .venv between worktrees.
 set -euo pipefail
@@ -67,9 +67,7 @@ cmd_claim() {
     fi
   done
 
-  # Reattach: the branch survived a release (e.g. the merge failed after the
-  # slot was freed). Check it out again instead of refusing, so recovery stays
-  # inside the pool workflow rather than forcing work in the main workspace.
+  # Reattach a retained branch so PR follow-up work resumes at its saved commit.
   local reattach=""
   git -C "$MAIN_ROOT" show-ref --verify --quiet "refs/heads/$branch" && reattach=1
 
@@ -106,10 +104,8 @@ cmd_release() {
     branch="$(slot_branch "$dir")"
     git -C "$dir" checkout --quiet --detach main
     rm -f "$dir.claim"
-    if [ -n "$branch" ] && ! git -C "$MAIN_ROOT" branch -d "$branch" 2>/dev/null; then
-      echo "note: branch $branch is not merged into main; kept (delete manually once merged)"
-    fi
     echo "released pool-$i"
+    [ -z "$branch" ] || echo "kept branch $branch"
     return 0
   done
   die "no slot claimed by: $slug"

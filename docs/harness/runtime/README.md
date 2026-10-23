@@ -1,60 +1,29 @@
-# TypeScript Runtime
+# Agent Runtime
 
-## 先说结论
+Runtime 是 agentcli 的执行核心，负责模型调用、上下文、工具执行、会话持久化、执行权限和统计。模块定位与协作边界见 [agentcli 架构](../../architecture/agentcli.md)；本目录说明具体运行机制。
 
-Runtime 是 Agent 的执行核心，负责一个 turn 里的 Context、模型调用、工具执行、streaming、持久化和 usage。它运行在私有 `agent-cli` 子进程中，不在 Electron Main 里直接运行。
+## 宿主与执行入口
 
-Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只返回执行事件和结果，不解析飞书事件，也不决定结果应该发到哪个聊天窗口。
+[`AgentRuntimeHost`](../../../apps/agent-cli/src/runtime-host.ts) 装配 Store、Provider、权限服务、SkillCatalog、工具与进程管理、MCP、统计上传和 Workspace 服务。桌面模式下，它运行在独立的 `agent-cli` 子进程中；Gateway 通过 [JSON-RPC 2.0](../../desktop/gateway/agent-protocol.md) 提交任务，使用 stdin/stdout 传输。
 
-Runtime package 提供执行核心，但不提供产品 composition root。真正的宿主装配位于 [`apps/agent-cli/src/runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：它创建 Store、Provider、Runtime、MCP、Python CLI、Workspace、Agent 工具和 DashboardService，并只向 NDJSON server 暴露最小宿主接口。Gateway 不依赖 Runtime package。
+[独立 CLI exec](agent_cli_exec.md) 复用同一个宿主，直接提交任务，并使用独立于桌面的会话数据库。Runtime 返回执行事件和结果；渠道路由、排队和最终发送位置由 Gateway 管理。
 
-同一个 composition root 也供一次性 [Agent CLI exec](agent_cli_exec.md) 复用。`exec` 直接调用宿主，不经过 Desktop 私有请求 envelope，并把 CLI 会话放在独立数据库中。
-
-## 主要职责
-
-| 领域 | Runtime 做什么 |
-| --- | --- |
-| Turn | 固定本轮 provider 与技能快照，每次工具调用解析会话权限，执行 step loop，返回 completed、cancelled 或 error |
-| Context | replay 历史、修复工具闭合、估算预算并按需压缩 |
-| Provider | 适配模型请求、处理 stream、retry、overflow 和 usage |
-| Tools | 管理 native、MCP、deferred 和 skill-owned 工具 |
-| Storage | 写 Agent SQLite、Transcript v2、usage 和可重建索引 |
-| Observability | 记录脱敏后的 turn、provider、tool trace |
-
-平台权限、session binding、排队和 response route 属于 Gateway。窗口、托盘、加密凭证和子进程生命周期属于 Electron Main。
-
-## 运行边界
-
-- Runtime 收到的任务已经带有稳定的 session、turn 和 response route 标识。
-- 每个 turn 开始时固定 provider、system prompt 和允许的 skill；工具 exposure 可以从下一 step 开始变化。
-- assistant tool call 先持久化；本批工具结果收集后，以同一 tool message 闭合并追加到 transcript。进程异常中断时由 replay 修复未完成调用。
-- cancel 会传给 provider、summary、MCP、问题等待和 exec/wait 的当前观察；已创建的 exec 仍由 Session 持有，未执行的 tool call 写明确的关闭结果。进程终止条件见 [工具生命周期](tools/README.md#cancel-与-exec-生命周期)。
-- 业务 Python 不作为常驻服务加载。模型只能通过 native `exec` 启动一条受 catalog 管理的 `lxeskill ...` 命令。
-- Runtime 只产生出站意图；真正的平台发送由 GatewayEmitter 完成。
-
-## 进程内生命周期
-
-`AgentRuntimeHost` 启动 Runtime 时，先打开 Agent store，再启动 process manager、维护任务和 MCP 等服务。任一服务启动失败时，已经启动的部分按反向顺序清理。
-
-桌面退出时，Gateway 先停止 ingress 和 active work，再关闭 `agent-cli`。Runtime 不自行接管或重放 Gateway 尚未完成的任务。
+模型通过通用 `exec` 调用 lxeskillCLI 等外部程序。Runtime 不加载业务 CLI 的 Python 模块或 `catalog.json`；针对 lxeskill 的统计适配通过公开命令查询归属，具体见 [Skill 与统计](../skill/README.md#读取调用与命令统计)。
 
 ## 专题导航
 
-- [Runtime Flow](runtime_flow.md)：从平台消息到最终 delivery 的端到端边界。
-- [Agent CLI exec](agent_cli_exec.md)：一次性脚本调用、输出、会话与安全边界。
-- [Turn Execution](turn_execution.md)：turn snapshot、provider、tool 和 final outcome。
-- [Turn Step Lifecycle](turn_step_lifecycle.md)：单个 step 的固定顺序。
-- [会话权限与工作区目录](permission-policy.md)：权限状态、统一策略、产物与临时目录。
-- [Workspace Instance](workspace_instances.md)：会话工作区、AGENTS 指令、缓存刷新和回收。
-- [Context](context/README.md)：history、预算、Transcript v2 和 compaction。
-- [Tools](tools/README.md)：工具可见性、执行、进程和业务命令边界。
+| 需要了解什么 | 主要维护位置 |
+| --- | --- |
+| 一次 turn 如何推进，step、工具、steering 和取消如何衔接 | [执行流程](turn_execution.md) |
+| Gateway 与 agentcli 如何通信 | [JSON-RPC 2.0 契约](../../desktop/gateway/agent-protocol.md) |
+| 进程如何装配、启动、停止与回滚 | [Gateway 与 Agent 生命周期](../../desktop/gateway/gateway_lifecycle.md) |
+| 历史如何组装、压缩和持久化 | [Context](context/README.md) |
+| 模型定义从哪里来，如何选用和适配 | [模型目录](../llm/provider_catalog.md)、[LLM 适配](../llm/README.md) |
+| 每个会话的模型选择如何保存 | [会话模型与 effort](session-models.md) |
+| 会话标题如何生成、改名与恢复 | [会话标题](session-titles.md) |
+| Tool 如何暴露、执行和管理进程 | [工具手册](tools/README.md) |
+| 文件写入范围、权限模式和单次提权 | [权限专题](permission-policy.md) |
+| 工作区指令与 Skill 元数据如何缓存、刷新 | [Workspace Instance](workspace_instances.md)、[Skill 手册](../skill/README.md) |
+| 状态、统计与诊断存在哪里 | [本地数据与存储](../../storage/README.md)、[统计上传](native-statistics-upload.md)、[日志与诊断](../../logging.md) |
 
-## 核心原则
-
-1. Runtime core 不持有 channel/出站平台 SDK，也不绕过 Gateway 直接发消息；Agent 主动访问飞书通过 `exec` 调用 `lark-cli`，操作说明可从 CLI 内嵌技能读取。
-2. 每次 provider request 使用闭合、可预算的 canonical history。
-3. Context 压缩失败时保留原历史，不做静默删除。
-4. 工具业务执行和 artifact delivery 分开，发送失败不重跑工具。
-5. 认证配置不作为模型上下文注入。Canonical transcript 可保留后续 replay 所需的 thinking signature 和 opaque data；它们不得原样进入日志、摘要和桌面展示。Transcript 包含会话内容，不能把它当作已脱敏日志。
-
-实现事实来源是 [Runtime source](/packages/agent/runtime/src)、[Agent Runtime host](/apps/agent-cli/src/runtime-host.ts) 和对应测试；桌面进程关系见 [Gateway](../gateway/README.md) 与 [Desktop 技术手册](../../desktop/README.md)。
+实现入口为 [`runtime.ts`](../../../packages/agent/runtime/src/engine/runtime.ts)。工具、策略与架构变更的审查要求统一见 [PR 审查规范](../../pr-review.md)。

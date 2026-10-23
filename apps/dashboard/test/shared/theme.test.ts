@@ -146,10 +146,12 @@ describe("dark palette", () => {
     expect(alpha("--shadow-strong", ':root[data-theme="dark"]')).toBeLessThanOrEqual(0.5);
   });
 
-  test("paints the transcript plane with --bg so cards have something to sit on", () => {
+  test("paints the transcript plane with the shared conversation canvas below cards", () => {
     // .conversation-view covers .content-panel-fill, so it - not the panel
     // beneath - is the plane the reader actually sees.
-    expect(styles).toMatch(/\.conversation-view \{[^}]*background:\s*var\(--bg\)/s);
+    expect(styles).toMatch(/\.conversation-view \{[^}]*background:\s*var\(--conversation-bg\)/s);
+    expect(styles).toMatch(/:root \{[^}]*--conversation-bg:\s*var\(--bg\)/s);
+    expect(luminance(dark["--conversation-bg"])).toBeLessThan(luminance(dark["--surface"]));
     expect(styles).not.toMatch(/\.conversation-view \{[^}]*background:\s*var\(--surface\)/s);
   });
 

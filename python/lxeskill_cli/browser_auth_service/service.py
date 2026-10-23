@@ -84,7 +84,11 @@ def _diagnostic(value: Any) -> str:
     else:
         if isinstance(parsed, (dict, list)):
             text = json.dumps(redact_json(parsed), ensure_ascii=False)
-    for secret in (mabang_settings.MABANG_PASSWORD, mabang_settings.MABANG_ACCOUNT):
+    for secret in (
+        mabang_settings.MABANG_PASSWORD,
+        mabang_settings.MABANG_ACCOUNT,
+        os.environ.get("LXE_AUTH_BROWSER_HOST_TOKEN", ""),
+    ):
         if secret:
             for encoded in {secret, quote(secret, safe=""), quote_plus(secret)}:
                 text = text.replace(encoded, "[REDACTED]")
@@ -100,22 +104,48 @@ def _diagnostic(value: Any) -> str:
     return text
 
 
+def _auth_environment(provider: str) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "session_scope": "isolated_temporary",
+        "shares_ziniao_session": False,
+        "description": "马帮认证使用独立临时会话；不复用个人浏览器或紫鸟登录态，在其他浏览器打开页面不会补充本次认证状态。",
+    }
+
+
+class FbaTokenReadError(RuntimeError):
+    def __init__(self, details: dict[str, Any]) -> None:
+        self.details = details
+        message = f"FBA 发货单页面未获取到 freeToken（reason={details['reason']}）"
+        if error := details.get("last_read_error"):
+            message += f"; last_read_error={error['exception_type']}: {error['message']}"
+        super().__init__(message)
+
+
 class BrowserAuthRefreshError(RuntimeError):
-    def __init__(self, *, stage: str, current_url: str, cause: Exception) -> None:
+    def __init__(
+        self, *, stage: str, current_url: str, cause: Exception, browser_provider: str = "not_selected",
+    ) -> None:
         self.stage = str(stage or "browser").strip()
         self.current_url = _diagnostic(current_url)
         self.exception_type = getattr(cause, "remote_exception_type", type(cause).__name__)
+        self.browser_provider = browser_provider
+        self.details = cause.details if isinstance(cause, FbaTokenReadError) else None
         message = _diagnostic(cause) or self.exception_type
         super().__init__(message)
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "success": False,
             "stage": self.stage,
             "current_url": self.current_url,
             "exception_type": self.exception_type,
             "message": str(self),
+            "auth_environment": _auth_environment(self.browser_provider),
         }
+        if self.details is not None:
+            payload["details"] = self.details
+        return payload
 
 
 @contextmanager
@@ -286,7 +316,10 @@ def _log_refresh_stage(
     )
 
 
-def _refresh_error(*, stage: str, current_url: str, cause: Exception, started_at: float | None = None) -> BrowserAuthRefreshError:
+def _refresh_error(
+    *, stage: str, current_url: str, cause: Exception,
+    started_at: float | None = None, browser_provider: str = "not_selected",
+) -> BrowserAuthRefreshError:
     _log_refresh_stage(
         stage=stage,
         status="failed",
@@ -294,7 +327,7 @@ def _refresh_error(*, stage: str, current_url: str, cause: Exception, started_at
         cause=cause,
         started_at=started_at,
     )
-    return BrowserAuthRefreshError(stage=stage, current_url=current_url, cause=cause)
+    return BrowserAuthRefreshError(stage=stage, current_url=current_url, cause=cause, browser_provider=browser_provider)
 
 
 def _resolve_account(account: str) -> str:
@@ -966,11 +999,14 @@ def _refresh_auth(
     stage = "browser"
     stage_started_at = time.monotonic()
     page = None
+    browser_provider = "not_selected"
     try:
         _clear_state_file(state_file)
         with ExitStack() as browser_resources:
             _log_refresh_stage(stage=stage, status="start", started_at=stage_started_at)
             connection = host_connection()
+            browser_provider = "electron_host" if connection else "bound_chromium"
+            logger.info(f"[BrowserAuth] auth_environment={json.dumps(_auth_environment(browser_provider), ensure_ascii=False)}")
             if connection:
                 from .host import HostContext
 
@@ -1005,9 +1041,7 @@ def _refresh_auth(
             stage_started_at = time.monotonic()
             _log_refresh_stage(stage=stage, status="start", current_url=target_url, started_at=stage_started_at)
             page.goto(target_url, wait_until="domcontentloaded")
-            token = _extract_token(page, token_origin, token_key)
-            if not token:
-                raise RuntimeError("FBA 发货单页面未获取到 freeToken")
+            _extract_token(page, token_origin, token_key)
             _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page), started_at=stage_started_at)
 
             stage = "wms"
@@ -1035,7 +1069,8 @@ def _refresh_auth(
                 validator=validate_final_state,
             )
             _log_refresh_stage(stage=stage, status="success", current_url=final_url, started_at=stage_started_at)
-    except BrowserAuthRefreshError:
+    except BrowserAuthRefreshError as exc:
+        exc.browser_provider = browser_provider
         raise
     except Exception as exc:
         raise _refresh_error(
@@ -1043,6 +1078,7 @@ def _refresh_auth(
             current_url=_page_url(page),
             cause=exc,
             started_at=stage_started_at,
+            browser_provider=browser_provider,
         ) from exc
 
     return {
@@ -1051,6 +1087,7 @@ def _refresh_auth(
         "source": "refresh",
         "final_url": final_url,
         "state_written": True,
+        "auth_environment": _auth_environment(browser_provider),
     }
 
 
@@ -1105,15 +1142,29 @@ def _extract_token(
 ) -> str:
     token_host = str(urlparse(str(token_origin or "").strip()).hostname or "").strip().lower()
     if not token_host:
-        return ""
+        raise ValueError(f"FBA token origin 缺少主机名: {_diagnostic(token_origin)}")
 
     deadline = time.monotonic() + max(0.0, float(wait_seconds or 0))
+    target_frame_seen = False
+    successful_reads = 0
+    read_error_count = 0
+    last_read_error = None
+    last_cause = None
     while True:
         for frame in _token_candidate_frames(page, token_host):
+            target_frame_seen = True
             try:
                 token = frame.evaluate("(key) => window.localStorage.getItem(key)", token_key)
-            except Exception:
+            except Exception as exc:
+                read_error_count += 1
+                last_cause = exc
+                last_read_error = {
+                    "frame_url": _diagnostic(_frame_url(frame)),
+                    "exception_type": getattr(exc, "remote_exception_type", type(exc).__name__),
+                    "message": _diagnostic(exc),
+                }
                 continue
+            successful_reads += 1
             if isinstance(token, str) and token.strip():
                 return token.strip()
 
@@ -1122,12 +1173,29 @@ def _extract_token(
             break
         page.wait_for_timeout(max(1, min(int(poll_interval_ms or 0), remaining_ms)))
 
-    logger.warning(
-        "[BrowserAuth] 未在 FBA token 页面读取到 localStorage: "
-        f"token_host={token_host} page_url={_diagnostic(_page_url(page))} "
-        f"frames={[_diagnostic(url) for url in _page_frame_urls(page)]}"
-    )
-    return ""
+    frame_urls = _page_frame_urls(page)
+    if not target_frame_seen:
+        reason = "target_frame_missing"
+    elif not successful_reads:
+        reason = "storage_read_failed"
+    else:
+        reason = "storage_value_empty"
+    details = {
+        "reason": reason,
+        "target_origin": _diagnostic(token_origin),
+        "storage_key": token_key,
+        "wait_seconds": max(0.0, float(wait_seconds or 0)),
+        "page_url": _diagnostic(_page_url(page)),
+        "frame_urls": [_diagnostic(url) for url in frame_urls[:20]],
+        "frame_urls_omitted": max(0, len(frame_urls) - 20),
+        "successful_reads": successful_reads,
+        "read_error_count": read_error_count,
+        "last_read_error": last_read_error,
+    }
+    # Keep transient frame retries, but never replace a persistent read error
+    # with a bare missing-token message at the timeout boundary.
+    logger.warning(f"[BrowserAuth] FBA storage diagnostics: {json.dumps(details, ensure_ascii=False)}")
+    raise FbaTokenReadError(details) from last_cause
 
 
 def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> tuple[str, str]:

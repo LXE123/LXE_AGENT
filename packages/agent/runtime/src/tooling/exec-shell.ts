@@ -169,9 +169,6 @@ export class ExecShellAdapter {
   normalizeCommand(root: string, rawCommand: string): string {
     const command = String(rawCommand ?? "").trim();
     if (!command) return "";
-    if (/(?:^|[\r\n]|&&|\|\||[;|])\s*(?:(?:uv(?:\.exe)?\s+run(?:\s+--frozen)?\s+)?(?:python3?(?:\.exe)?|py(?:\.exe)?)(?:\s+-[IB])*)\s+-m\s+(?:services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b/iu.test(command)) {
-      throw new Error("registered business Python modules must be called through lxeskill");
-    }
     const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
       || projectPythonPath(root, this.platform);
     const fileExists = this.options.fileExists ?? existsSync;
@@ -269,7 +266,6 @@ export class ExecShellAdapter {
       LXE_AGENT_SQLITE_DB_PATH: _agentDatabase,
       LXE_AGENT_SOUL_PATH: _agentSoulPath,
       LXE_USER_SKILLS_ROOT: _userSkillsRoot,
-      LXE_LXESKILL_CATALOG_PATH: _runtimeCatalogPath,
       LXE_LLM_CONFIG_ROOT: _llmConfigRoot,
       LXE_ROOT: _legacyRoot,
       LXE_RESOURCE_ROOT: _legacyResourceRoot,

@@ -1,7 +1,6 @@
-// Usage statistics view (turns / skills / tools aggregates).
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
-import { CircleX, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { BookOpen, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import {
@@ -10,7 +9,7 @@ import {
   useStatsOverviewQuery,
   useToolStatsQuery,
 } from "../../api/queries";
-import { EmptyState, FailureCount, SuccessRateCell } from "../../shared/components";
+import { EmptyState, FailureCount } from "../../shared/components";
 import { formatDate, formatDurationMs, formatNumber, skillTypeLabel } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { StatsOverviewPayload } from "../../api/payloads";
@@ -76,10 +75,21 @@ function UsageDailyChart({
 }) {
   const t = useUiText();
   const [tip, setTip] = useState<ChartTip | null>(null);
+  const [chartWidth, setChartWidth] = useState(0);
+  const [focusedDay, setFocusedDay] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
   const lastDaysRef = useRef(days);
   const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
+  const tabStop = filled.findIndex((entry) => entry.day === focusedDay);
+  useLayoutEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const observer = new ResizeObserver(([entry]) => setChartWidth(entry.contentRect.width));
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, [daily.length > 0]);
+  useLayoutEffect(() => { setTip(null); }, [days, mode, daily]);
   const { max, ticks } = chartTicks(
     Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
   );
@@ -212,9 +222,10 @@ function UsageDailyChart({
   if (!daily.length) {
     return null;
   }
-  const labelStep = Math.max(1, Math.ceil(filled.length / 15));
-  // Fewer days leaves more room per column; let the bars grow into it.
-  const barMaxWidth = days <= 7 ? 34 : days <= 30 ? 16 : 8;
+  const labelCount = Math.max(2, Math.min(15, Math.floor(chartWidth / 56)));
+  const labelStep = Math.max(1, Math.ceil(filled.length / labelCount));
+  // CDS chart marks cap at 24px; keep the 2px gap between paired series.
+  const barMaxWidth = days <= 7 ? 24 : days <= 30 ? 16 : 8;
   // Column centers in percent of the chart width, so the SVG overlay can use a
   // squashed 100x100 viewBox and still land on the right day.
   const linePoints = (values: number[]) =>
@@ -228,12 +239,22 @@ function UsageDailyChart({
   const turnsLinePoints = linePoints(filled.map((entry) => entry.turns));
   const executionsLinePoints = linePoints(filled.map((entry) => entry.executions));
   const showTip = (
-    event: ReactMouseEvent<HTMLDivElement>,
+    element: HTMLButtonElement,
     entry: StatsOverviewPayload["daily"][number]
   ) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(80, Math.min(window.innerWidth - 80, rect.left + rect.width / 2));
+    const rect = element.getBoundingClientRect();
+    const x = Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2));
     setTip({ x, y: rect.top, day: entry.day, turns: entry.turns, executions: entry.executions });
+  };
+  const moveFocus = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = event.key === "ArrowRight" ? Math.min(index + 1, filled.length - 1)
+      : event.key === "ArrowLeft" ? Math.max(index - 1, 0)
+      : event.key === "Home" ? 0
+      : event.key === "End" ? filled.length - 1 : null;
+    if (event.key === "Escape") setTip(null);
+    if (next === null) return;
+    event.preventDefault();
+    chartRef.current?.querySelectorAll<HTMLButtonElement>("[data-day]")[next]?.focus();
   };
   return (
     <div className="usage-chart-body">
@@ -245,16 +266,23 @@ function UsageDailyChart({
           </span>
         ))}
       </div>
-      <div className="usage-chart" role="img" aria-label={t.usage.dailyTitle} ref={chartRef}>
+      <div className="usage-chart" role="group" aria-label={t.usage.dailyTitle} ref={chartRef}>
         {filled.map((entry, index) => (
-          <div
+          <button
             className="usage-chart-day"
+            type="button"
             data-day={entry.day}
             key={entry.day}
-            onMouseEnter={(event) => showTip(event, entry)}
+            tabIndex={index === (tabStop < 0 ? filled.length - 1 : tabStop) ? 0 : -1}
+            aria-label={`${entry.day}, ${t.usage.dailyLegendTurns}: ${formatNumber(entry.turns)}, ${t.usage.dailyLegendExecutions}: ${formatNumber(entry.executions)}`}
+            onFocus={(event) => { setFocusedDay(entry.day); showTip(event.currentTarget, entry); }}
+            onBlur={() => setTip(null)}
+            onClick={(event) => showTip(event.currentTarget, entry)}
+            onKeyDown={(event) => moveFocus(event, index)}
+            onMouseEnter={(event) => showTip(event.currentTarget, entry)}
             onMouseLeave={() => setTip(null)}
           >
-            <div className="usage-chart-bars">
+            <span className="usage-chart-bars" aria-hidden="true">
               {mode === "bars" ? (
                 <>
                   <span
@@ -275,11 +303,11 @@ function UsageDailyChart({
                   />
                 </>
               ) : null}
-            </div>
-            <span className="usage-chart-label">
+            </span>
+            <span className="usage-chart-label" aria-hidden="true">
               {index % labelStep === 0 ? entry.day.slice(5) : ""}
             </span>
-          </div>
+          </button>
         ))}
       </div>
       {mode === "line" ? (
@@ -410,6 +438,7 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
             <button
               className={days === option ? "usage-range-button active" : "usage-range-button"}
               key={option}
+              aria-pressed={days === option}
               type="button"
               onClick={() => setDays(option)}
             >
@@ -428,8 +457,8 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
     { label: t.usage.totalsTurns, value: formatNumber(totals.turns), tone: "", icon: MessagesSquare },
     { label: t.usage.totalsErrorTurns, value: formatNumber(totals.error_turns), tone: dangerTone(totals.error_turns), icon: TriangleAlert },
     { label: t.usage.totalsToolCalls, value: formatNumber(totals.tool_calls), tone: "", icon: Wrench },
+    { label: t.usage.totalsReads, value: formatNumber(totals.skill_activations ?? 0), tone: "", icon: BookOpen },
     { label: t.usage.totalsExecutions, value: formatNumber(totals.skill_executions), tone: "", icon: Zap },
-    { label: t.usage.totalsFailures, value: formatNumber(totals.skill_failures), tone: dangerTone(totals.skill_failures), icon: CircleX },
     { label: t.usage.totalsTokens, value: formatNumber(totals.input_tokens + totals.output_tokens), tone: "", icon: Coins }
   ];
 
@@ -447,6 +476,7 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
           <button
             className={days === option ? "usage-range-button active" : "usage-range-button"}
             key={option}
+            aria-pressed={days === option}
             type="button"
             onClick={() => setDays(option)}
           >
@@ -479,6 +509,7 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
               <button
                 className={chartMode === "bars" ? "usage-range-button active" : "usage-range-button"}
                 type="button"
+                aria-pressed={chartMode === "bars"}
                 onClick={() => setChartMode("bars")}
               >
                 {t.usage.chartModeBars}
@@ -486,6 +517,7 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
               <button
                 className={chartMode === "line" ? "usage-range-button active" : "usage-range-button"}
                 type="button"
+                aria-pressed={chartMode === "line"}
                 onClick={() => setChartMode("line")}
               >
                 {t.usage.chartModeLine}
@@ -496,116 +528,106 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
         <UsageDailyChart daily={overview.daily} days={days} mode={chartMode} />
       </section>
 
-      {overview.modules.length ? (
-        <details className="usage-section usage-breakdown">
-          <summary>
-            <span>{t.usage.modulesTitle}</span>
-            <small>{t.common.countItems(formatNumber(overview.modules.length), t.usage.modulesTitle)}</small>
-          </summary>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnSkills}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnExecutions}</th>
-                  <th>{t.usage.columnFailures}</th>
-                  <th>{t.usage.columnSuccessRate}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.modules.map((module) => (
-                  <tr key={module.module || "-"}>
-                    <td>{skillTypeLabel(module.module, t)}</td>
-                    <td>{formatNumber(module.skills)}</td>
-                    <td>{formatNumber(module.turns)}</td>
-                    <td>{formatNumber(module.executions)}</td>
-                    <td><FailureCount value={module.failures} /></td>
-                    <td><SuccessRateCell executions={module.executions} failures={module.failures} /></td>
-                    <td>{formatDurationMs(module.executions > 0 ? module.duration_ms / module.executions : 0)}</td>
+      <div className="usage-breakdowns">
+        {overview.modules.length ? (
+          <details className="usage-section usage-breakdown">
+            <summary>
+              <span>{t.usage.modulesTitle}</span>
+              <small>{t.common.countItems(formatNumber(overview.modules.length), t.usage.modulesTitle)}</small>
+            </summary>
+            <div className="table-shell">
+              <table className="session-table usage-table">
+                <thead>
+                  <tr>
+                    <th>{t.usage.columnName}</th>
+                    <th>{t.usage.columnSkills}</th>
+                    <th>{t.usage.columnTurns}</th>
+                    <th>{t.usage.columnExecutions}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      ) : null}
+                </thead>
+                <tbody>
+                  {overview.modules.map((module) => (
+                    <tr key={module.module || "-"}>
+                      <td>{skillTypeLabel(module.module, t)}</td>
+                      <td>{formatNumber(module.skills)}</td>
+                      <td>{formatNumber(module.turns)}</td>
+                      <td>{formatNumber(module.executions)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        ) : null}
 
-      {skillStats.length ? (
-        <details className="usage-section usage-breakdown">
-          <summary>
-            <span>{t.usage.skillsTitle}</span>
-            <small>{t.common.countItems(formatNumber(skillStats.length), t.usage.skillsTitle)}</small>
-          </summary>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnActivations}</th>
-                  <th>{t.usage.columnExecutions}</th>
-                  <th>{t.usage.columnFailures}</th>
-                  <th>{t.usage.columnSuccessRate}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                  <th>{t.usage.columnLastUsed}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skillStats.map((skill) => (
-                  <tr key={skill.name}>
-                    <td title={skill.name}>{t.skillDisplayName(skill.name)}</td>
-                    <td>{formatNumber(skill.activations)}</td>
-                    <td>{formatNumber(skill.executions)}</td>
-                    <td><FailureCount value={skill.failures} /></td>
-                    <td><SuccessRateCell executions={skill.executions} failures={skill.failures} /></td>
-                    <td>{formatNumber(skill.execution_turns)}</td>
-                    <td>{formatDurationMs(skill.executions > 0 ? skill.duration_ms / skill.executions : 0)}</td>
-                    <td>{formatDate(skill.last_used_at)}</td>
+        {skillStats.length ? (
+          <details className="usage-section usage-breakdown">
+            <summary>
+              <span>{t.usage.skillsTitle}</span>
+              <small>{t.common.countItems(formatNumber(skillStats.length), t.usage.skillsTitle)}</small>
+            </summary>
+            <div className="table-shell">
+              <table className="session-table usage-table">
+                <thead>
+                  <tr>
+                    <th>{t.usage.columnName}</th>
+                    <th>{t.usage.columnActivations}</th>
+                    <th>{t.usage.columnExecutions}</th>
+                    <th>{t.usage.columnTurns}</th>
+                    <th>{t.usage.columnLastUsed}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      ) : null}
+                </thead>
+                <tbody>
+                  {skillStats.map((skill) => (
+                    <tr key={skill.name}>
+                      <td title={skill.name}>{t.skillDisplayName(skill.name)}</td>
+                      <td>{formatNumber(skill.activations)}</td>
+                      <td>{formatNumber(skill.executions)}</td>
+                      <td>{formatNumber(skill.execution_turns)}</td>
+                      <td>{formatDate(skill.last_used_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        ) : null}
 
-      {toolStats.length ? (
-        <details className="usage-section usage-breakdown">
-          <summary>
-            <span>{t.usage.toolsTitle}</span>
-            <small>{t.common.countItems(formatNumber(toolStats.length), t.usage.toolsTitle)}</small>
-          </summary>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnCalls}</th>
-                  <th>{t.usage.columnErrors}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                  <th>{t.usage.columnLastUsed}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {toolStats.map((tool) => (
-                  <tr key={tool.name}>
-                    <td>{tool.name}</td>
-                    <td>{formatNumber(tool.calls)}</td>
-                    <td><FailureCount value={tool.errors} /></td>
-                    <td>{formatNumber(tool.turns)}</td>
-                    <td>{formatDurationMs(tool.calls > 0 ? tool.duration_ms / tool.calls : 0)}</td>
-                    <td>{formatDate(tool.last_used_at)}</td>
+        {toolStats.length ? (
+          <details className="usage-section usage-breakdown">
+            <summary>
+              <span>{t.usage.toolsTitle}</span>
+              <small>{t.common.countItems(formatNumber(toolStats.length), t.usage.toolsTitle)}</small>
+            </summary>
+            <div className="table-shell">
+              <table className="session-table usage-table">
+                <thead>
+                  <tr>
+                    <th>{t.usage.columnName}</th>
+                    <th>{t.usage.columnCalls}</th>
+                    <th>{t.usage.columnErrors}</th>
+                    <th>{t.usage.columnTurns}</th>
+                    <th>{t.usage.columnAvgDuration}</th>
+                    <th>{t.usage.columnLastUsed}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      ) : null}
+                </thead>
+                <tbody>
+                  {toolStats.map((tool) => (
+                    <tr key={tool.name}>
+                      <td>{tool.name}</td>
+                      <td>{formatNumber(tool.calls)}</td>
+                      <td><FailureCount value={tool.errors} /></td>
+                      <td>{formatNumber(tool.turns)}</td>
+                      <td>{formatDurationMs(tool.calls > 0 ? tool.duration_ms / tool.calls : 0)}</td>
+                      <td>{formatDate(tool.last_used_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        ) : null}
+      </div>
     </div>
   );
 }

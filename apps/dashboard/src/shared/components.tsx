@@ -1,4 +1,3 @@
-// Small shared presentational components.
 import { Inbox } from "lucide-react";
 
 import { formatNumber } from "./format";

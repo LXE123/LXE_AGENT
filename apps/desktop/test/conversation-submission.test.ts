@@ -8,7 +8,7 @@ test("model submission reads screenshots only and strips draft previews", () => 
   const root = mkdtempSync(join(tmpdir(), "lxe-submission-"));
   try {
     const path = join(root, "screen.png"); writeFileSync(path, "screenshot fixture");
-    const common = { expires_at: 100, name: "screen.png", size_bytes: 18, media_type: "image/png", preview_data_url: "preview" };
+    const common = { name: "screen.png", size_bytes: 18, media_type: "image/png", preview_data_url: "preview" };
     const refs = prepareConversationAttachments([
       { ...common, attachment_id: "file", origin: "reference", path: join(root, "not-read.png") },
       { ...common, attachment_id: "screen", origin: "screenshot", path },

@@ -1,0 +1,13 @@
+{
+  "source": "2026-10-16 saved VN1 diagnostic output: pages 1-2 show body.datas, body.totalNum and body.pop; pages 3-5 show pop and row counts. Only pagination metadata is retained; replay inventory records are synthetic.",
+  "request": {"warehouseId": 12831, "pageSize": 1000},
+  "response_fields": {"records": "datas", "total": "totalNum", "pagination": "pop"},
+  "totalNum": 4208,
+  "pages": [
+    {"page": 1, "row_count": 1000, "pop": {"pageSize": 1000, "totalPage": 1, "totalNum": 4208}},
+    {"page": 2, "row_count": 1000, "pop": {"pageSize": 1000, "totalPage": 2, "totalNum": 4208}},
+    {"page": 3, "row_count": 1000, "pop": {"pageSize": 1000, "totalPage": 3, "totalNum": 4208}},
+    {"page": 4, "row_count": 1000, "pop": {"pageSize": 1000, "totalPage": 4, "totalNum": 4208}},
+    {"page": 5, "row_count": 208, "pop": {"pageSize": 1000, "totalPage": 5, "totalNum": 4208}}
+  ]
+}

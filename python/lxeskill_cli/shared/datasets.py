@@ -1,8 +1,8 @@
 """Artifact dataset registry — the single source of truth for artifact locations.
 
 The registry lives in ``lxeskill/catalog.json`` under the top-level ``datasets``
-key so that the Bun runtime reads the same contract when it builds the system
-prompt. Business modules must resolve output directories through
+key. Callers discover directories through ``lxeskill datasets list``.
+Business modules must resolve output directories through
 :func:`dataset_dir` instead of hardcoding directory names.
 """
 

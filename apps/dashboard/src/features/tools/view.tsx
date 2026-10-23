@@ -1,4 +1,4 @@
-import { Boxes, Plug, SlidersHorizontal, Wrench } from "lucide-react";
+import { Boxes, ChevronDown, Plug, SlidersHorizontal, Wrench } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
 import { formatNumber } from "../../shared/format";
@@ -66,6 +66,7 @@ export function ToolsView({
                 <span className="catalog-count-badge">
                   {t.common.countItems(formatNumber(toolset.tools.length), t.tools.itemUnit)}
                 </span>
+                <ChevronDown aria-hidden className="catalog-section-chevron" size={16} />
               </button>
               <div className={expanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
                 <div className="catalog-collapsible-inner">

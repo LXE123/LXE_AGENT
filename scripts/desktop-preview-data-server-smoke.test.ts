@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configureLogging } from "../packages/foundation/core/src/index";
 import { resolveDataServerRuntimeEnvironment } from "../apps/desktop/src/main/data-server-policy";
-import { MaintenanceScheduler } from "../packages/agent/runtime/src/operations/maintenance";
+import { TurnUsageSyncService } from "../packages/agent/runtime/src/operations/turn-usage-sync";
 import { SqliteRuntimeStore } from "../packages/agent/runtime/src/state/storage";
 
 const serveOnAvailablePort = (fetch: (request: Request) => Promise<Response>) => {
@@ -86,21 +86,10 @@ test("Scoped desktop environment uploads natively without sending or logging leg
   });
   const intervals: unknown[] = [];
   const initialTasks: Array<() => void> = [];
-  const scheduler = new MaintenanceScheduler({
+  const scheduler = new TurnUsageSyncService({
     environment,
-    authEnabled: false,
     store,
     gatewayId: "preview-gateway",
-    authRunner: {
-      execute: async () => ({
-        protocol_version: "1",
-        type: "result",
-        command: "auth refresh",
-        ok: true,
-        data: {},
-        files: [],
-      }),
-    },
     clock: {
       setTimeout: (callback, _delayMs) => {
         initialTasks.push(callback);
@@ -143,7 +132,7 @@ test("Scoped desktop environment uploads natively without sending or logging leg
       if (log.includes('"message":"data_sync_uploaded"')) break;
       await Bun.sleep(1);
     }
-    expect(log).toContain('"message":"maintenance_configured"');
+    expect(log).toContain('"message":"turn_usage_sync_configured"');
     expect(log).toContain('"data_sync_enabled":true');
     expect(log).toContain('"message":"data_sync_uploaded"');
     expect(log).toContain('"target":"cloud"');

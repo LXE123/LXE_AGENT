@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import "./conversation-theme.css";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { queryError, useStatsOverviewQuery } from "../../api/queries";
@@ -42,7 +43,7 @@ function Heatmap({ cells }: { cells: HeatmapCell[] }) {
           className="welcome-heatmap-cell"
           data-level={cell.level}
           key={cell.day}
-          title={t.welcome.heatmapDay(cell.day, formatNumber(cell.executions))}
+          title={t.welcome.heatmapDay(cell.day, formatNumber(cell.turns))}
         />
       ))}
     </div>
@@ -50,13 +51,10 @@ function Heatmap({ cells }: { cells: HeatmapCell[] }) {
 }
 
 function metricCards(t: UiText, summary: UsageSummary): { label: string; value: string }[] {
-  const percent = summary.successRate === null
-    ? "—"
-    : `${Math.round(summary.successRate * 100)}%`;
   return [
     { label: t.welcome.turns, value: formatCompactNumber(summary.turns) },
     { label: t.welcome.executions, value: formatCompactNumber(summary.executions) },
-    { label: t.welcome.successRate, value: percent },
+    { label: t.usage.totalsReads, value: formatCompactNumber(summary.reads) },
     { label: t.welcome.toolCalls, value: formatCompactNumber(summary.toolCalls) },
     { label: t.welcome.activeDays, value: t.welcome.days(formatNumber(summary.activeDays)) },
     { label: t.welcome.currentStreak, value: t.welcome.days(formatNumber(summary.currentStreak)) },
@@ -88,7 +86,7 @@ export function ConversationWelcome({ enabled = true }: { enabled?: boolean }) {
         </div>
       </header>
 
-      <div className="welcome-panel">
+      <div className="welcome-panel conversation-chrome-theme">
         <div className="welcome-panel-head">
           <span className="welcome-panel-title">{t.nav.usage}</span>
           <div aria-label={t.welcome.rangeAria} className="welcome-range" role="group">

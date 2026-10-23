@@ -6,6 +6,7 @@ Only ``current`` is ever handed to a command, and the model never sees
 """
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -70,6 +71,24 @@ def test_only_two_generations_are_kept(slot_root: Path, tmp_path: Path) -> None:
     assert [item.read_text(encoding="utf-8") for item in previous] == ["v2"]
 
 
+def test_read_only_source_can_be_synced_without_changing_its_metadata(slot_root, tmp_path):
+    source = _write(tmp_path / "read-only.xlsx", "template")
+    source.chmod(0o444)
+    before = source.stat()
+    try:
+        version = promote_asset("contract_template", source)
+        assert version.path.read_bytes() == source.read_bytes() == b"template"
+        assert version.path.stat().st_mtime_ns == before.st_mtime_ns
+        assert version.path.stat().st_mode & 0o200 == 0
+        assert source.stat().st_mode == before.st_mode
+        assert source.stat().st_mtime_ns == before.st_mtime_ns
+    finally:
+        source.chmod(0o600)
+        for path in slot_root.rglob("*"):
+            if path.is_file():
+                path.chmod(0o600)
+
+
 def test_identical_content_does_not_burn_the_rollback_slot(
     slot_root: Path, tmp_path: Path
 ) -> None:
@@ -95,6 +114,66 @@ def test_promotion_overwrites_an_existing_previous_generation(
 
 def test_empty_slot_reports_no_current_version(slot_root: Path) -> None:
     assert current_asset("export_tax_products") is None
+
+
+def test_failed_first_promotion_never_publishes_a_partial_file(slot_root, tmp_path, monkeypatch):
+    source = _write(tmp_path / "template.xlsx", "complete content")
+
+    def partial_copy(_source, destination):
+        Path(destination).write_text("partial")
+        raise OSError(5, "injected copy error")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(input_assets.shutil, "copyfile", partial_copy)
+        with pytest.raises(OSError, match="injected copy error"):
+            promote_asset("contract_template", source)
+    assert current_asset("contract_template") is None
+    assert not list(slot_dir("contract_template").iterdir())
+    assert promote_asset("contract_template", source).path.read_text() == "complete content"
+
+
+def test_failed_rollback_retains_good_copies_and_the_original_error(slot_root, tmp_path, monkeypatch):
+    for index in range(2):
+        promote_asset("contract_template", _write(tmp_path / f"v{index}.xlsx", f"v{index}"))
+    root = slot_dir("contract_template")
+    original_replace = input_assets.os.replace
+
+    def fail_current_replace(source, destination):
+        if Path(destination) == root / "current":
+            raise OSError(5, "injected current publication or rollback error")
+        return original_replace(source, destination)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(input_assets.os, "replace", fail_current_replace)
+        with pytest.raises(OSError, match="injected current publication") as raised:
+            promote_asset("contract_template", _write(tmp_path / "v2.xlsx", "v2"))
+    assert "retained copies" in raised.value.__notes__[0]
+    assert input_assets.previous_asset("contract_template").path.read_text() == "v1"
+    [staging] = list(root.glob(".promote-*"))
+    assert (staging / "previous" / "v0.xlsx").read_text() == "v0"
+
+
+@pytest.mark.parametrize("copy_fails", [False, True])
+def test_cleanup_failure_does_not_mask_promotion_result(slot_root, tmp_path, monkeypatch, copy_fails):
+    first = _write(tmp_path / "first.xlsx", "first")
+    second = _write(tmp_path / "second.xlsx", "second")
+    promote_asset("contract_template", first)
+
+    def fail_cleanup(_directory):
+        raise OSError(5, "injected cleanup error")
+
+    def fail_copy(_source, _destination):
+        raise OSError(5, "injected copy error")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(input_assets.shutil, "rmtree", fail_cleanup)
+        if copy_fails:
+            fault.setattr(input_assets.shutil, "copyfile", fail_copy)
+            with pytest.raises(OSError, match="injected copy error"):
+                promote_asset("contract_template", second)
+        else:
+            promote_asset("contract_template", second)
+    assert current_asset("contract_template").path.read_text() == ("first" if copy_fails else "second")
 
 
 def test_registered_slots_describe_business_name_and_usage() -> None:
@@ -159,7 +238,7 @@ def test_every_declared_slot_binding_is_registered_and_optional() -> None:
             )
 
 
-def test_every_registered_slot_is_bound_to_at_least_one_field() -> None:
+def test_every_registered_slot_has_a_binding_or_business_promotion_consumer() -> None:
     bound = {
         str((definition or {}).get("x-lxe-asset-slot") or "")
         for entry in CATALOG["entries"]
@@ -167,7 +246,24 @@ def test_every_registered_slot_is_bound_to_at_least_one_field() -> None:
     }
     command_slots = {slot for slot, entry in ASSETS.items() if entry.management == "command"}
     desktop_slots = {slot for slot, entry in ASSETS.items() if entry.management == "desktop"}
-    assert not command_slots - bound, f"registered but unused command slots: {sorted(command_slots - bound)}"
+    # Business settings may own promotion directly without binding a mutable
+    # current path to a calculation argument. Count actual imported API calls,
+    # not arbitrary slot-name strings or a country-specific exception list.
+    promoted = set()
+    for path in (REPO_ROOT / "python/lxeskill_cli/services").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "shared.input_assets" not in source:
+            continue
+        tree = ast.parse(source)
+        imports = {alias.asname or alias.name for node in ast.walk(tree)
+                   if isinstance(node, ast.ImportFrom) and node.module == "shared.input_assets"
+                   for alias in node.names if alias.name == "promote_asset"}
+        promoted.update(node.args[0].value for node in ast.walk(tree)
+                        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id in imports and node.args
+                        and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str))
+    unused = command_slots - bound - promoted
+    assert not unused, f"registered but unused command slots: {sorted(unused)}"
     assert not desktop_slots & bound, f"desktop-managed slots bound to commands: {sorted(desktop_slots & bound)}"
 
 

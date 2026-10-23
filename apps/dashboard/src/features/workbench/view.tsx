@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
   CheckCircle2,
   FileImage,
   Files,
@@ -18,6 +17,7 @@ import type {
   DesktopSyntheticPerformerTask,
 } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
+import { WorkbenchPageHeader } from "./page-header";
 
 const runningTask = (task: DesktopSyntheticPerformerTask | null): boolean =>
   task?.state === "queued" || task?.state === "running";
@@ -155,19 +155,9 @@ export function SyntheticPerformerWorkbench({ onBack }: { onBack: () => void }) 
   }
 
   return (
-    <section className="workbench-page" aria-labelledby="synthetic-performer-title">
-      <header className="workbench-header">
-        <div>
-          <button className="workbench-back" onClick={onBack} type="button">
-            <ArrowLeft size={14} />
-            {text.workbenchIndex.back}
-          </button>
-          <span>{t.eyebrow}</span>
-          <h2 id="synthetic-performer-title">{t.title}</h2>
-          <p>{t.subtitle}</p>
-        </div>
-        <div className="workbench-keyword"><Tag size={15} /><code>contains-synthetic-performer</code></div>
-      </header>
+    <section className="workbench-page workbench-detail" aria-labelledby="synthetic-performer-title">
+      <WorkbenchPageHeader title={t.title} titleId="synthetic-performer-title" description={t.subtitle} onBack={onBack}
+        metadata={<div className="workbench-keyword"><Tag size={14} aria-hidden /><code>contains-synthetic-performer</code></div>} />
 
       {!supported ? (
         <div className="workbench-platform-notice" role="status">
@@ -209,7 +199,7 @@ export function SyntheticPerformerWorkbench({ onBack }: { onBack: () => void }) 
           </label>
         ) : null}
         <button
-          className="workbench-primary-button"
+          className={scanComplete || task?.action === "apply" ? "workbench-rescan-button" : "workbench-primary-button"}
           disabled={!supported || !selection || busy}
           onClick={scan}
           type="button"
@@ -228,7 +218,7 @@ export function SyntheticPerformerWorkbench({ onBack }: { onBack: () => void }) 
             <div className="workbench-progress" aria-live="polite">
               <div><strong>{task.current_file || t.preparing}</strong><span>{t.progress(task.processed, task.total)}</span></div>
               {task.total > 0 ? (
-                <div className="workbench-progress-track"><i style={{ width: `${progress}%` }} /></div>
+                <div className="workbench-progress-track" role="progressbar" aria-label={t.progress(task.processed, task.total)} aria-valuemin={0} aria-valuemax={task.total} aria-valuenow={task.processed}><i style={{ width: `${progress}%` }} /></div>
               ) : <div />}
               <button onClick={cancel} type="button"><Square size={13} />{t.cancel}</button>
             </div>

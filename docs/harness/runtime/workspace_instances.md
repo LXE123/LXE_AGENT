@@ -10,18 +10,18 @@ Session 保存自己不可变的 `WorkspaceContext`，但同一个 Git worktree 
 
 Runtime 从 Agent store 读取 Session，验证 Job 携带的 Workspace 完全一致，并确认原目录仍然可用。之后取得一个 Workspace Lease：
 
-1. 固定本轮的 Skill、`AGENTS.md`、`SOUL.md` 和搜索服务。
+1. 固定本轮的 Skill 发现元数据、`AGENTS.md`、`SOUL.md` 和搜索服务；按需读取的 Skill 正文另见 [加载规则](../skill/README.md#目录加载与激活)。
 2. 用同一个 Snapshot 生成 System Prompt、工具暴露和文件搜索。
-3. 文件变化只会生成下一代 Snapshot，不会改变正在运行的 Turn。
+3. 文件变化只会生成下一代 Snapshot，不会替换本轮已取得的指令与发现元数据；模型主动读取文件仍会得到当时的文件内容。
 4. Turn 完成或失败后释放 Lease。
 
 同一 worktree 的不同 `directory` 共用核心 Instance，但 Instructions 视图不同。Runtime 只读取从 worktree 根到当前 directory 沿途的 `AGENTS.md`，按根到近处排列；不扫描当前 directory 以下的规则文件。
 
 ## 自动刷新
 
-Runtime 用文件监听快速发现 `AGENTS.md`、Skill、`SOUL.md` 和连接器状态变化。事件先标记缓存过期，经过短暂防抖后在旁边重建 Snapshot，成功后一次性替换。
+每次 Turn 取得 Lease 前先执行 Skill 的使用时刷新，再检查全局与工作区指令变化。Skill 正文和附属文件由 SkillCatalog 重新读取；`AGENTS.md` 等指令另有节流后的文件指纹检查。
 
-文件监听不是正确性的唯一依赖。每次 Turn 取得 Lease 前还有节流后的 size、mtime、inode/file-id 指纹检查；监听器漏报或平台不支持递归监听时，下一轮仍能发现变化。内部 Dashboard 诊断接口可以强制读取正文，用于排查时间戳和 watcher 异常，但产品不向用户提供 reload 命令或按钮。
+文件监听帮助发现指令、`SOUL.md` 等变化，事件先标记缓存过期，再重建 Snapshot；watcher 回调不重新扫描 Skill。显式刷新也会重新读取 Skill 与指令。Dashboard 内部诊断接口可强制刷新，产品没有单独的 reload 按钮。
 
 刷新失败时，有旧 Snapshot 就继续保留并在 Health/日志中告警；第一次加载没有可用旧版本时，本轮明确失败。Session 原目录已经删除或 Git worktree 发生变化时，不能靠旧缓存继续运行，也不能回退到新的默认工作区。
 
@@ -33,11 +33,8 @@ Instance 默认最多保留 32 个，空闲 30 分钟后可回收。正在被 Tu
 
 ## 持久化边界
 
-| 范围 | 保存内容 |
-| --- | --- |
-| global | Desktop 配置、Secrets、Provider、MCP、连接器设置 |
-| window | Dashboard 语言与窗口内导航偏好 |
-| workspace | 只有进程内 Instance，不落盘 |
-| session | WorkspaceContext、消息、Turn、pending event、exec 进程归属 |
+`WorkspaceInstance` 是进程内的指令、Skill 元数据与搜索缓存，不是工作区登记或会话记录本身。会话的 WorkspaceContext 与工作区登记由 Agent store 管理；完整数据分工见 [本地数据与存储](../../storage/README.md)。
 
-内部强制刷新入口是 Dashboard RPC `sessions.workspace.reload`，输入只包含 `session_id`。它只能通过 Session 找到已绑定 Workspace，不接受调用者提交目录。
+内部强制刷新入口是 Dashboard RPC `sessions.workspace.reload`，输入只包含 `session_id`，通过会话找到已绑定的工作区，不接受调用者另传目录。
+
+实现和验证入口：[Instance Manager](../../../packages/agent/runtime/src/workspace/instance-manager.ts)、[Workspace 测试](../../../packages/agent/runtime/test/workspace/instance-manager.test.ts)。

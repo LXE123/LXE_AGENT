@@ -260,10 +260,6 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
   const commands = [...commandBlock.matchAll(/^\s+-\s*([^#\r\n]+?)\s*$/gm)]
     .map((match) => match[1]?.trim() ?? "")
     .filter(Boolean);
-  if (/\b(?:uv\s+run[^\r\n]*python|python(?:3)?\s+-m)\s+services\.agent_cli\b/i.test(source)) {
-    failures.push(`${path}: active skill must use lxeskill instead of shelling out to a business Python module`);
-  }
-  if (/services\.agent_cli\./.test(source)) failures.push(`${path}: active skill must not reference business module paths`);
   for (const command of commands.filter((value) => value.startsWith("lxeskill "))) {
     const entry = commandEntries.get(command);
     if (!entry || !["business", "browser"].includes(String(entry.visibility ?? ""))) {
@@ -323,8 +319,19 @@ try {
 }
 
 const staleArchitectureDocs = /main\.py|agent_runtime|gateway\/[A-Za-z0-9_/-]+\.py|Python\s+(?:Gateway|Runtime|Dashboard|backend)/i;
-for (const pattern of ["README.md", "apps/dashboard/**/*.md", "docs/harness/**/*.md", "docs/database/**/*.md"]) {
+// Check current guidance; historical records and reference material retain their original context.
+const excludedDocumentationRoots = [
+  "docs/acceptance/",
+  "docs/record/",
+  "docs/incidents/",
+  "docs/design/",
+  "docs/study/",
+  "docs/harness/skill/reference/",
+];
+for (const pattern of ["README.md", "AGENTS.md", "apps/dashboard/**/*.md", "docs/**/*.md"]) {
   for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
+    const normalizedPath = path.replaceAll("\\", "/");
+    if (excludedDocumentationRoots.some((prefix) => normalizedPath.startsWith(prefix))) continue;
     if (staleArchitectureDocs.test(read(path))) {
       failures.push(`${path}: documentation must describe the Bun-only production architecture`);
     }

@@ -59,7 +59,7 @@ function SkillMoreMenu({ items }: { items: MenuItem[] }) {
 
 /** Shared presentation only; each source retains its existing query and mutation boundaries. */
 export function SkillDetailDialog({ skill, title, close, files, selectedFile, onSelectFile,
-  content, binary = false, truncated = false, loading = false, error, notice, footer }: {
+  content, binary = false, truncated = false, loading = false, error, notice, footer, themeClassName = "" }: {
   skill: SkillPayload;
   title: string;
   close: () => void;
@@ -73,6 +73,7 @@ export function SkillDetailDialog({ skill, title, close, files, selectedFile, on
   error?: string;
   notice?: ReactNode;
   footer?: ReactNode;
+  themeClassName?: string;
 }) {
   const t = useUiText();
   const [source, setSource] = useState(false);
@@ -97,7 +98,7 @@ export function SkillDetailDialog({ skill, title, close, files, selectedFile, on
   const readable = content !== undefined && !binary && !loading && !error;
   const sourceLabel = skill.source === "user" ? t.userSkills.userDirectory
     : skill.source === "shared" ? t.userSkills.shared : t.userSkills.official;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => {
+  return <div className={`modal-backdrop ${themeClassName}`} role="presentation" onMouseDown={event => {
     if (event.target === event.currentTarget) close();
   }}>
     <section className="modal skill-detail-modal" role="dialog" aria-modal="true" aria-label={title} ref={dialog} tabIndex={-1}>

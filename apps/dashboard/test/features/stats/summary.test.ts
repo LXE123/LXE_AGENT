@@ -52,7 +52,7 @@ describe("usage summary", () => {
       dayBefore(6), dayBefore(5), dayBefore(4), dayBefore(3),
       dayBefore(2), dayBefore(1), dayBefore(0),
     ]);
-    expect(summary.heatmap.map((cell) => cell.executions)).toEqual([0, 0, 5, 0, 0, 2, 3]);
+    expect(summary.heatmap.map((cell) => cell.turns)).toEqual([0, 0, 5, 0, 0, 2, 3]);
     expect(summary.activeDays).toBe(3);
     expect(summary.currentStreak).toBe(2);
     expect(summary.longestStreak).toBe(2);
@@ -80,20 +80,18 @@ describe("usage summary", () => {
     expect(summary.heatmap.map((cell) => cell.level)).toEqual([1, 2, 3, 4]);
   });
 
-  test("falls back to turns for a day that ran no skill", () => {
-    const summary = usageSummary(overview(2, [{ offset: 0, turns: 6, executions: 0 }]), TODAY)!;
+  test("uses turn counts even when a day has a different number of Skill calls", () => {
+    const summary = usageSummary(overview(2, [{ offset: 0, turns: 6, executions: 40 }]), TODAY)!;
 
-    expect(summary.heatmap.at(-1)?.executions).toBe(6);
+    expect(summary.heatmap.at(-1)?.turns).toBe(6);
     expect(summary.activeDays).toBe(1);
   });
 
-  // A rate needs something to divide: reporting 100% for an idle window would
-  // claim a success that never happened.
-  test("has no success rate until something has run", () => {
-    expect(usageSummary(overview(7, []), TODAY)!.successRate).toBeNull();
-
-    const ran = usageSummary(overview(7, [], { skill_executions: 40, skill_failures: 6 }), TODAY)!;
-    expect(ran.successRate).toBeCloseTo(0.85, 5);
+  test("carries read and command calls without deriving Skill outcomes", () => {
+    const result = usageSummary(overview(7, [], { skill_activations: 8, skill_executions: 40, skill_failures: 6 }), TODAY)!;
+    expect(result.reads).toBe(8);
+    expect(result.executions).toBe(40);
+    expect(result).not.toHaveProperty("successRate");
   });
 
   test("carries the busiest module and the peak hour through", () => {

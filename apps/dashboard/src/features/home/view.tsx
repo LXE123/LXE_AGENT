@@ -1,4 +1,5 @@
 // Landing view: last-24h overview with recent activity.
+import { ChevronRight } from "lucide-react";
 import {
   flattenSessionPages,
   queryError,
@@ -6,10 +7,26 @@ import {
   useSkillStatsQuery,
   useStatsOverviewQuery,
 } from "../../api/queries";
-import { SuccessRateCell } from "../../shared/components";
 import { formatDate, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { SessionPayload } from "../../api/payloads";
+
+function HomeQueryState({ error, loading, empty, onRetry }: {
+  error: unknown;
+  loading: boolean;
+  empty?: string;
+  onRetry: () => void;
+}) {
+  const t = useUiText();
+  return (
+    <div className={error ? "home-query-state is-error" : "home-query-state"} role="status">
+      {error ? <>
+        <span>{t.common.errorPrefix(t.errors.api, queryError(error))}</span>
+        <button className="home-panel-link" type="button" onClick={onRetry}>{t.home.retry}</button>
+      </> : loading ? t.common.loading : empty}
+    </div>
+  );
+}
 
 export function DashboardHome({
   enabled,
@@ -29,7 +46,6 @@ export function DashboardHome({
   const overview = overviewQuery.data;
   const skills = skillsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages).items.slice(0, 6);
-  const failed = enabled && overviewQuery.isError && skillsQuery.isError && sessionsQuery.isError;
   const backgroundError = enabled
     ? [overviewQuery, skillsQuery, sessionsQuery].find((current) => current.isRefetchError)?.error
     : undefined;
@@ -47,11 +63,7 @@ export function DashboardHome({
   const tiles = [
     { label: t.home.todayTurns, value: totals ? formatNumber(totals.turns) : "—", tone: "" },
     { label: t.home.todayExecutions, value: totals ? formatNumber(totals.skill_executions) : "—", tone: "" },
-    {
-      label: t.home.todayFailures,
-      value: totals ? formatNumber(totals.skill_failures) : "—",
-      tone: totals && totals.skill_failures > 0 ? "tone-danger" : "tone-zero"
-    },
+    { label: t.usage.totalsReads, value: totals ? formatNumber(totals.skill_activations ?? 0) : "—", tone: "" },
     {
       label: t.home.todayTokens,
       value: totals ? formatNumber(totals.input_tokens + totals.output_tokens) : "—",
@@ -61,8 +73,8 @@ export function DashboardHome({
   return (
     <section className="home-page" aria-labelledby="dashboard-home-title">
       <header className="home-hero">
-        <h2 id="dashboard-home-title">{greeting}</h2>
-        <p>{failed ? t.home.loadError : t.home.overviewHint}</p>
+        <h1 id="dashboard-home-title">{greeting}</h1>
+        <p>{t.home.overviewHint}</p>
       </header>
       {backgroundError ? (
         <div className="dashboard-query-notice" role="status">
@@ -72,7 +84,7 @@ export function DashboardHome({
         <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
       ) : null}
 
-      <div className="home-tiles">
+      <div className="home-tiles" aria-busy={overviewQuery.isPending}>
         {tiles.map((tile) => (
           <button
             className={tile.tone ? `home-tile ${tile.tone}` : "home-tile"}
@@ -85,13 +97,14 @@ export function DashboardHome({
           </button>
         ))}
       </div>
+      {!overview && <HomeQueryState error={overviewQuery.error} loading={overviewQuery.isPending} onRetry={() => { void overviewQuery.refetch(); }} />}
 
       <div className="home-columns">
-        <section className="home-panel">
+        <section className="home-panel" aria-labelledby="home-recent-title">
           <div className="home-panel-heading">
-            <h3>{t.home.recentSessions}</h3>
+            <h2 id="home-recent-title">{t.home.recentSessions}</h2>
             <button className="home-panel-link" type="button" onClick={onOpenSessions}>
-              {t.home.viewAllSessions}
+              {t.home.viewAllSessions}<ChevronRight aria-hidden="true" size={14} />
             </button>
           </div>
           {sessions.length ? (
@@ -112,15 +125,15 @@ export function DashboardHome({
               ))}
             </div>
           ) : (
-            <div className="home-empty">{t.home.noSessions}</div>
+            <HomeQueryState error={sessionsQuery.error} loading={sessionsQuery.isPending} empty={t.home.noSessions} onRetry={() => { void sessionsQuery.refetch(); }} />
           )}
         </section>
 
-        <section className="home-panel">
+        <section className="home-panel" aria-labelledby="home-skills-title">
           <div className="home-panel-heading">
-            <h3>{t.home.activeSkills}</h3>
+            <h2 id="home-skills-title">{t.home.activeSkills}</h2>
             <button className="home-panel-link" type="button" onClick={onOpenStats}>
-              {t.home.viewStats}
+              {t.home.viewStats}<ChevronRight aria-hidden="true" size={14} />
             </button>
           </div>
           {activeSkills.length ? (
@@ -129,18 +142,16 @@ export function DashboardHome({
                 <div className="home-skill-row" key={skill.name}>
                   <span className="home-skill-name" title={skill.name}>{t.skillDisplayName(skill.name)}</span>
                   <span className="home-skill-meta">
-                    <SuccessRateCell executions={skill.executions} failures={skill.failures} />
                     <span className="home-skill-count">{t.home.executionsUnit(formatNumber(skill.executions))}</span>
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="home-empty">{t.home.noSkills}</div>
+            <HomeQueryState error={skillsQuery.error} loading={skillsQuery.isPending} empty={t.home.noSkills} onRetry={() => { void skillsQuery.refetch(); }} />
           )}
         </section>
       </div>
-
     </section>
   );
 }

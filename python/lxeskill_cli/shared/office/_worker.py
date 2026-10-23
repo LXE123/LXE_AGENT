@@ -3,7 +3,7 @@
 import os
 import sys
 
-from .__main__ import main
+from ._runtime import run_kit
 
 
 if __name__ == "__main__":
@@ -20,4 +20,9 @@ if __name__ == "__main__":
         finally:
             job.close()
         del sys.argv[1:3]
-    raise SystemExit(main())
+    try:
+        code = run_kit(sys.argv[1:])
+    except (OSError, ValueError) as error:
+        print(f"{type(error).__name__}: {error}", file=sys.stderr)
+        code = 1
+    raise SystemExit(code)

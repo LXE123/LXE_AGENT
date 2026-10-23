@@ -26,7 +26,7 @@ Provider 只接收 name、description 和 input schema；handler、source metada
 
 所有 model name 在一个 registry 中全局唯一。重复注册直接抛错。MCP 名称先规范化 server/tool，再检查冲突并生成稳定唯一名；Dashboard 同时保留 raw/model mapping 便于诊断。
 
-`lxeskill` 业务命令不是独立 `ToolDefinition`；它们的 command path 来自版本化 catalog。Skill frontmatter 的 `commands` 必须引用 catalog 中归属于该 skill 的业务命令，模型统一通过 native `exec` 调用。
+`lxeskill` 业务命令不是独立 `ToolDefinition`，模型通过 `exec` 调用。命令契约由 lxeskillCLI 提供，agentcli 不加载其 `catalog.json`；调用与归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
 
 ## JSON Schema
 
@@ -36,7 +36,7 @@ Schema 应描述：
 
 - 必填参数和允许类型。
 - enum/范围/格式约束。
-- 相对路径的 workspace 基准与可接受的宿主绝对路径；workspace 不构成沙箱。
+- 相对路径的 workspace 基准与可接受的宿主绝对路径；路径解析与写入授权分别处理，写入范围见 [权限专题](../permission-policy.md)。
 - `exec` 的 command、cwd 与 `yield-time-ms`（250–30000ms）；没有 background 或默认硬超时。
 - `wait` 的 `exec_id`、`yield-time-ms`（5000–300000ms）与 `terminate`。
 - 互斥参数或调用前提。
@@ -45,7 +45,7 @@ Schema 应描述：
 
 ## 结构化提问 ask_user_question
 
-输入为 `questions`，结果为 `answers[{id, selected, custom?}]`。Bun Runtime 负责问题归属、验证、一次性结算和取消；工具等待不采用普通短超时。完整输入输出与桌面协议见 [结构化提问](../../tool/ask-user-question.md)。
+输入为 `questions`，结果为 `answers[{id, selected, custom?}]`。Bun Runtime 负责问题归属、验证、一次性结算和取消；工具等待不采用普通短超时。完整输入输出与桌面协议见 [结构化提问](ask-user-question.md)。
 
 ## 内容搜索 grep
 
@@ -141,9 +141,9 @@ State 记录 exposed names 与 active skills，不修改全局 registry。不同
 
 System prompt 只列允许的 skill manifest 路径。repository root 与 workspace root 分离时使用 manifest 的规范绝对路径；同根时保留 workspace-relative 路径。模型通过 read 加载某个 `SKILL.md` 后，coding read hook 验证该 manifest 在当前 allowed set，再激活 owner tools。
 
-`read`、`write`、`edit`、`ls`、`grep`、`find`、`send_files` 和 `exec.cwd` 都可显式访问 LXE Agent 进程用户有权访问的宿主路径。相对路径以 Session working directory 为基准；外部搜索和文件交付结果使用绝对路径。workspace、repository skills、用户 skills 与 runtime artifacts 的分类只用于展示和 Skill 激活，不提供读写隔离。
+相对路径以 Session working directory 为基准；外部搜索和文件交付结果使用绝对路径。workspace、repository skills、用户 skills 与 runtime artifacts 的路径分类用于展示和 Skill 激活，不授予写入权限。`exec`、`write`、`edit` 的写入限制由 [权限策略](../permission-policy.md)另行落实；读取、搜索和文件交付仍受宿主用户的操作系统权限约束。
 
-Repository skill 同名优先于用户 skill；重复同来源 name/command、越界 reference 或缺失文件导致 catalog error。激活事件进入 skill usage。
+Repository skill 同名优先于用户 skill；重复同来源 name/command、越界 reference 或缺失文件由 Skill 加载器校验。工具激活与调用统计分别处理，计数方式见 [Usage](tool_execution.md#usage)。
 
 ## MCP schema
 
@@ -155,4 +155,4 @@ Provider request 使用当前 step 的 snapshot。更新 schema 不迁移 transc
 
 ## 验证
 
-Tests 覆盖重复 name、direct/deferred exposure、skill activation、MCP naming、command catalog ownership 和 schema snapshot 时机。
+Tests 覆盖重复 name、direct/deferred exposure、skill activation、MCP naming 和 schema snapshot 时机。

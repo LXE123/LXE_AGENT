@@ -10,6 +10,7 @@ from lxeskill.business import ArtifactPathError, execute_module_json, load_catal
 from lxeskill.browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.input_assets import InputAssetError, current_asset, promote_asset
+from shared.datasets import load_datasets
 from shared.logging import get_logger, setup_logging
 from shared.repository import skills_root
 from shared.workspace import activate_project_workspace, resolve_workspace_input
@@ -170,6 +171,9 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
         index += 1
     if input_path and stdin_json:
         raise LxeSkillError("invalid_arguments", "choose only one of --input-json or --stdin-json", exit_code=EXIT_USAGE)
+    if entry.get("handler") == "mabang_auth" and (input_path or stdin_json):
+        # JSON input must not silently discard removed options such as --account.
+        _arguments_from_flags(entry, forwarded)
     if input_path:
         payload = json.loads(resolve_workspace_input(input_path).read_text(encoding="utf-8"))
     elif stdin_json:
@@ -212,8 +216,8 @@ def _field_is_conditionally_optional(
 def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Fill slot-backed fields from storage, and report where each value came from.
 
-    A caller-supplied path always wins and is promoted after the command
-    succeeds; only an omitted field falls back to the stored current version.
+    A caller-supplied path always wins; only an omitted field falls back to
+    the stored current version. Promotion follows the field's contract.
     """
     sources: dict[str, dict[str, str]] = {}
     properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
@@ -305,26 +309,15 @@ def _require_uploaded_file_inputs(entry: dict[str, Any], arguments: dict[str, An
         )
 
 
-def _execute_auth(arguments: dict[str, Any]) -> dict[str, Any]:
-    bootstrap_network_policy(label="lxeskill_auth", emit=logger.info)
+def _execute_mabang_auth() -> dict[str, Any]:
+    bootstrap_network_policy(label="lxeskill_mabang_auth", emit=logger.info)
+    from browser_auth_service.client import format_auth_failure
     from browser_auth_service.service import BrowserAuthRefreshError, refresh_auth
 
     try:
-        return refresh_auth(account=str(arguments.get("account") or ""))
+        return refresh_auth()
     except BrowserAuthRefreshError as exc:
-        payload = exc.to_payload()
-        raise RuntimeError(
-            "browser_auth_service 刷新失败: "
-            f"stage={payload['stage']} current_url={payload['current_url'] or '-'} "
-            f"exception_type={payload['exception_type']} error={payload['message']}"
-        ) from exc
-
-
-def _recovery_for_auth_failure(code: str, message: str) -> dict[str, str] | None:
-    text = f"{code} {message}".lower()
-    if not any(marker in text for marker in ("auth", "cookie", "login", "登录", "401", "403", "认证")):
-        return None
-    return {"command": "lxeskill auth refresh"}
+        raise RuntimeError(format_auth_failure(exc.to_payload(), operation="刷新")) from exc
 
 
 def _skill_scope() -> set[str] | None:
@@ -339,10 +332,7 @@ def _scope_allows(entry: dict[str, Any], scope: set[str] | None) -> bool:
     if scope is None:
         return True
     if str(entry.get("visibility") or "") in {"maintenance", "internal"}:
-        # Infrastructure commands stay reachable regardless of scope: recovery
-        # hints tell any business bot to run `lxeskill auth refresh` after an
-        # auth failure, and that self-healing path must not depend on which
-        # business skills the bot can see.
+        # Integration and maintenance commands are callable regardless of skill scope.
         return True
     owners = [str(owner).strip() for owner in list(entry.get("owner_skills") or []) if str(owner).strip()]
     if not owners:
@@ -368,15 +358,21 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     _require_uploaded_file_inputs(entry, arguments)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
-    if str(entry.get("handler") or "") == "auth":
+    if str(entry.get("handler") or "") == "mabang_auth":
+        if arguments:
+            raise LxeSkillError(
+                "invalid_arguments",
+                f"{command} does not accept arguments: {', '.join(arguments)}",
+                exit_code=EXIT_USAGE,
+            )
         try:
-            data = _execute_auth(arguments)
+            data = _execute_mabang_auth()
         except ValueError as exc:
             raise LxeSkillError("auth_environment_invalid", str(exc), exit_code=EXIT_ENVIRONMENT) from exc
         except RuntimeError as exc:
             raise LxeSkillError("auth_refresh_failed", str(exc), exit_code=EXIT_BUSINESS) from exc
         files: list[str] = []
-    elif str(entry.get("handler") or "") == "auth_browser":
+    elif str(entry.get("handler") or "") == "mabang_auth_browser":
         from browser_auth_service import binding
         from browser_auth_service.service import _diagnostic
 
@@ -402,7 +398,6 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                 exc.code,
                 str(exc),
                 exit_code=exit_code,
-                recovery=_recovery_for_auth_failure(exc.code, str(exc)),
             ) from exc
     else:
         if session_id:
@@ -420,6 +415,12 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         if asset_sources and isinstance(data, dict):
             data = {**data, "asset_sources": asset_sources}
         if not ok:
+            business_error = data.get("error") if isinstance(data, dict) else None
+            if isinstance(business_error, dict) and business_error.get("code") == "input_required":
+                raise LxeSkillError(
+                    "input_required", str(business_error["message"]),
+                    exit_code=EXIT_USAGE, recovery=data.get("recovery"),
+                )
             failure: dict[str, Any] = {
                     "type": "result",
                     "command": command,
@@ -431,13 +432,6 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                         "message": str((error or {}).get("message") or "business command failed"),
                     },
                 }
-            auth_refresh_required = data.get("auth_refresh_required") if isinstance(data, dict) else None
-            if isinstance(auth_refresh_required, bool):
-                recovery = {"command": "lxeskill auth refresh"} if auth_refresh_required else None
-            else:
-                recovery = _recovery_for_auth_failure(failure["error"]["code"], failure["error"]["message"])
-            if recovery:
-                failure["recovery"] = recovery
             _emit(failure)
             return EXIT_BUSINESS
     try:
@@ -501,6 +495,13 @@ def _main(argv: list[str] | None = None) -> int:
     _configure_stdio()
     setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)
+    entry: dict[str, Any] | None = None
+
+    def error_command() -> str:
+        # A resolved command's identity is its canonical path, never its option
+        # values (which may contain accidentally supplied credentials).
+        return _command_text(entry) if entry is not None else " ".join(arguments)
+
     try:
         catalog = load_catalog()
         if not arguments or arguments[0] in {"-h", "--help", "help"}:
@@ -510,13 +511,25 @@ def _main(argv: list[str] | None = None) -> int:
                     "command": "help",
                     "ok": True,
                     "data": {
-                        "usage": "lxeskill <list|describe|doctor|cloud-status|cloud-context|command> [options]",
+                        "usage": "lxeskill <list|describe|datasets list|doctor|cloud-status|cloud-context|command> [options]",
                         "input_modes": ["flags", "input-json", "stdin-json"],
                         "input_modes_note": "Supported modes depend on the command; use describe or command --help.",
                     },
                     "files": [],
                 }
             )
+            return 0
+        if arguments[:2] == ["datasets", "list"]:
+            if len(arguments) != 2:
+                raise LxeSkillError("invalid_arguments", f"unexpected arguments: {' '.join(arguments[2:])}", exit_code=EXIT_USAGE)
+            _emit({
+                "type": "result", "command": "datasets list", "ok": True,
+                "data": {"datasets": [
+                    {"id": key, "dir": dataset.dir, "holds": dataset.holds}
+                    for key, dataset in load_datasets().items()
+                ]},
+                "files": [],
+            })
             return 0
         if arguments[0] == "doctor":
             if len(arguments) != 1:
@@ -553,7 +566,7 @@ def _main(argv: list[str] | None = None) -> int:
     except LxeSkillError as exc:
         failure: dict[str, Any] = {
             "type": "result",
-            "command": " ".join(arguments),
+            "command": error_command(),
             "ok": False,
             "data": {},
             "files": [],
@@ -564,17 +577,17 @@ def _main(argv: list[str] | None = None) -> int:
         _emit(failure)
         return exc.exit_code
     except ArtifactPathError as exc:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_artifact_path", "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_artifact_path", "message": str(exc)}})
         return EXIT_BUSINESS
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})
         return EXIT_USAGE
     except KeyboardInterrupt:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "cancelled", "message": "command cancelled"}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "cancelled", "message": "command cancelled"}})
         return 130
     except Exception as exc:
         logger.exception("lxeskill command failed")
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": type(exc).__name__, "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": type(exc).__name__, "message": str(exc)}})
         return EXIT_INTERNAL
 
 

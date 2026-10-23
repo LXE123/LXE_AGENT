@@ -1,16 +1,17 @@
+import { projectWorkspaceData, workspaceRemoved } from "../../api/workspace-membership";
+import { projectSessionData } from "../../api/session-titles";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DashboardRpcResult, DesktopConversationActivityPayload, DesktopInputAttachmentPayload, SkillPayload } from "@lxe/desktop-protocol";
 import type { SessionPayload } from "../../api/payloads";
 import type { DashboardSection } from "../../shared/navigation";
 import { useUiText } from "../../shared/i18n";
-import { useStoredExpanded } from "../../shared/ui/use-stored-expanded";
 import { dashboardQueryKeys } from "../../api/query-keys";
 import { sessionActions } from "../../api/session-actions";
 import { flattenSessionPages, queryError, useSessionStatus, useSessionConversationQuery, useConversationActivityQuery, useSessionsInfiniteQuery, useSessionWorkspacesQuery, useUserQuestionsQuery, useApprovalsQuery } from "../../api/queries";
 import { ConversationDisplayController, sendConversationMessage } from "./display-controller";
 import { useConversationEntry } from "./use-conversation-entry";
-import { WORKSPACE_EXPANDED_STORAGE_KEY } from "./workspace-state";
+import { UNGROUPED_WORKSPACE, recentWorkspace, useWorkspaceExpanded } from "./workspace-state";
 import { acknowledgeConversationSend } from "./presentation";
 import { appendComposerDraftPrompt, prepareDraftMove } from "./composer-draft";
 import { moveConversationAttachments, forgetConversationAttachments } from "./attachment-draft";
@@ -35,6 +36,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
 }) {
   const t = useUiText();
   const queryClient = useQueryClient();
+  const [renamingSession, setRenamingSession] = useState<SessionPayload | null>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSessionId, updateSelectedSessionId] = useState("");
@@ -47,10 +49,10 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
   const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, dashboardRuntimeReady);
   const workspacesQuery = useSessionWorkspacesQuery(dashboardRuntimeReady);
-  const [expandedWorkspaces, setWorkspaceExpanded] = useStoredExpanded(WORKSPACE_EXPANDED_STORAGE_KEY);
+  const [expandedWorkspaces, setWorkspaceExpanded] = useWorkspaceExpanded(workspacesQuery.data?.items ?? [], workspacesQuery.isSuccess);
   const workspaceSelectionRevision = useRef(0);
   const creatingSession = useRef(0);
-  const deferredNewDirectory = useRef<string | undefined>(undefined);
+  const deferredNewWorkspace = useRef<string | undefined>(undefined);
   useLayoutEffect(() => { workspaceSelectionRevision.current++; }, [activeSection]);
   const sessionDetailQuery = useSessionConversationQuery(
     selectedSessionId,
@@ -94,46 +96,67 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   }, [activeSection, newConversation, selectedSessionId, sessions.items]);
 
   function openSession(session: SessionPayload) {
-    setWorkspaceExpanded(session.workspace.directory, true);
+    setWorkspaceExpanded(session.workspace_id ?? UNGROUPED_WORKSPACE, true);
     onEnterSessions();
     setSelectedSessionId(session.session_id);
     setNewConversation(session.blank === true);
   }
 
-  async function enterNewConversation(directory = defaultDirectory, carry = false): Promise<SessionPayload | undefined> {
+  function newWorkspaceId(explicit?: string): string | undefined {
+    const items = (workspacesQuery.data?.items ?? []).filter(item => !workspaceRemoved(item.workspace_id));
+    if (explicit !== undefined) {
+      if (workspaceRemoved(explicit)) throw new Error(t.workspaces.notFound);
+      return explicit;
+    }
+    const current = selectedSession?.workspace_id;
+    return items.find(item => item.workspace_id === current)?.workspace_id ?? recentWorkspace(items)?.workspace_id;
+  }
+
+  async function enterNewConversation(workspaceId?: string, carry = false): Promise<SessionPayload | undefined> {
+    const target = workspaceId ?? newWorkspaceId();
+    if (!target) throw new Error(t.workspaces.required);
     const revision = ++workspaceSelectionRevision.current;
     const before = conversationDisplay.getSnapshot().viewKey;
     creatingSession.current++;
     let session: SessionPayload;
-    try { session = await sessionActions.create(directory); }
+    try { session = await sessionActions.create(target); }
     finally { creatingSession.current--; }
-    if (revision !== workspaceSelectionRevision.current || before !== conversationDisplay.getSnapshot().viewKey) return;
+    if (workspaceRemoved(target) || revision !== workspaceSelectionRevision.current || before !== conversationDisplay.getSnapshot().viewKey) return;
     if (carry) {
       const move = prepareDraftMove(before, session.session_id);
       moveConversationAttachments(before, session.session_id);
       move();
     }
     setBlankSession(session);
-    setWorkspaceExpanded(session.workspace.directory, true);
+    setWorkspaceExpanded(session.workspace_id ?? UNGROUPED_WORKSPACE, true);
     onEnterSessions();
     setSelectedSessionId(session.session_id); setNewConversation(true);
     return session;
   }
-  function startNewConversation(directory = defaultDirectory): void {
-    if (!dashboardRuntimeReady) {
-      deferredNewDirectory.current = directory;
+  function startNewConversation(workspaceId?: string): void {
+    if (!dashboardRuntimeReady || !workspacesQuery.isSuccess) {
+      deferredNewWorkspace.current = workspaceId ?? "";
       onEnterSessions();
       setSelectedSessionId(""); setNewConversation(true);
       return;
     }
-    void enterNewConversation(directory).catch(cause => onError(queryError(cause)));
+    let target: string | undefined;
+    try { target = newWorkspaceId(workspaceId); } catch (cause) { onError(queryError(cause)); return; }
+    if (!target) {
+      onEnterSessions(); setSelectedSessionId(""); setNewConversation(true); setBlankSession(null);
+      return;
+    }
+    void enterNewConversation(target).catch(cause => onError(queryError(cause)));
   }
   useEffect(() => {
-    if (!dashboardRuntimeReady || activeSection !== "sessions" || !newConversation || selectedSessionId || !deferredNewDirectory.current) return;
-    const directory = deferredNewDirectory.current;
-    deferredNewDirectory.current = undefined;
-    void enterNewConversation(directory, true).catch(cause => onError(queryError(cause)));
-  }, [dashboardRuntimeReady, activeSection, newConversation, selectedSessionId]);
+    if (!dashboardRuntimeReady || activeSection !== "sessions" || !newConversation || selectedSessionId || deferredNewWorkspace.current === undefined || !workspacesQuery.isSuccess) return;
+    const workspaceId = deferredNewWorkspace.current;
+    deferredNewWorkspace.current = undefined;
+    try {
+      const target = newWorkspaceId(workspaceId || undefined);
+      if (target) void enterNewConversation(target, true).catch(cause => onError(queryError(cause)));
+    } catch (cause) { onError(queryError(cause)); }
+  }, [dashboardRuntimeReady, activeSection, newConversation, selectedSessionId, workspacesQuery.isSuccess]);
 
   async function chooseWorkspace(newDraft: boolean): Promise<void> {
     const revision = ++workspaceSelectionRevision.current;
@@ -141,21 +164,36 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     const stillCurrent = () => revision === workspaceSelectionRevision.current && conversationDisplay.getSnapshot().viewKey === before;
     const directory = await window.lxe!.desktop.selectWorkspace();
     if (!directory || !stillCurrent()) return;
+    await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.sessions.workspaces });
     const workspace = await sessionActions.registerWorkspace(directory);
+    if (workspaceRemoved(workspace.workspace_id)) return;
     queryClient.setQueryData<DashboardRpcResult<"sessions.workspaces">>(
       dashboardQueryKeys.sessions.workspaces,
-      current => ({ items: [...(current?.items ?? []).filter(item => item.directory !== workspace.directory), workspace] }),
+      current => ({ items: [...(current?.items ?? []).filter(item => item.workspace_id !== workspace.workspace_id), workspace] }),
     );
     if (!stillCurrent()) return;
-    await enterNewConversation(workspace.directory, !newDraft);
+    await enterNewConversation(workspace.workspace_id, !newDraft);
   }
 
-  async function renameWorkspace(directory: string, display_name: string): Promise<void> {
-    const workspace = await sessionActions.renameWorkspace(directory, display_name);
+  async function renameWorkspace(workspaceId: string, display_name: string): Promise<void> {
+    await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.sessions.workspaces });
+    const workspace = await sessionActions.renameWorkspace(workspaceId, display_name);
+    if (workspaceRemoved(workspaceId)) return;
     queryClient.setQueryData<DashboardRpcResult<"sessions.workspaces">>(
       dashboardQueryKeys.sessions.workspaces,
-      current => ({ items: [...(current?.items ?? []).filter(item => item.directory !== directory), workspace] }),
+      current => ({ items: [...(current?.items ?? []).filter(item => item.workspace_id !== workspaceId), workspace] }),
     );
+  }
+
+  async function deleteWorkspace(workspaceId: string): Promise<void> {
+    await sessionActions.deleteWorkspace(workspaceId);
+    await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+    queryClient.setQueriesData({ queryKey: dashboardQueryKeys.sessions.lists }, projectWorkspaceData);
+    queryClient.setQueriesData({ queryKey: dashboardQueryKeys.sessions.details }, projectWorkspaceData);
+    setBlankSession(current => current ? projectWorkspaceData(current) : current);
+    conversationDisplay.updateWorkspaceMembership();
+    if (selectedSession?.workspace_id === workspaceId) setWorkspaceExpanded(UNGROUPED_WORKSPACE, true);
+    void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
   }
 
   async function startSkillConversation(action: SkillConversationAction, skill?: SkillPayload) {
@@ -168,6 +206,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   }
 
   async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
+    if (!selectedSessionId) throw new Error(t.workspaces.required);
     const { result, ticket, selected } = await sendConversationMessage(conversationDisplay, text, attachments,
       sessionActions.send);
     queryClient.setQueryData<DesktopConversationActivityPayload>(
@@ -192,12 +231,21 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
   }
 
+  async function renameSession(session: SessionPayload, title: string): Promise<void> {
+    const accepted = await sessionActions.rename(session.session_id, title);
+    conversationDisplay.updateTitle(accepted);
+    queryClient.setQueriesData({ queryKey: dashboardQueryKeys.sessions.lists }, projectSessionData);
+    queryClient.setQueriesData({ queryKey: dashboardQueryKeys.sessions.detailSession(session.session_id) }, projectSessionData);
+    void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+  }
+
   async function deleteSession(session: SessionPayload): Promise<void> {
     await sessionActions.delete(session.session_id);
     forgetPreviewSession(session.session_id); forgetComposerEditor(session.session_id);
     forgetConversationAttachments(session.session_id);
     queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(session.session_id) });
     queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.activity(session.session_id) });
+    queryClient.removeQueries({ queryKey: dashboardQueryKeys.models.session(session.session_id) });
     if (selectedSessionId === session.session_id) startNewConversation();
     await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
   }
@@ -232,12 +280,25 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     ? sessionDetailQuery.display.activity ?? conversationActivityQuery.data ?? null
     : null;
 
+  useEffect(() => {
+    if (activeSection !== "sessions" || !dashboardRuntimeReady || newConversation || !selectedSession || selectedSession.blank) return;
+    const renameKey = (event: KeyboardEvent) => {
+      const primary = /Mac|iPhone|iPad/.test(navigator.platform) ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (event.code !== "KeyG" || !primary || !event.altKey || event.shiftKey || event.repeat || event.isComposing
+        || document.querySelector("[role='dialog'][aria-modal='true']")) return;
+      event.preventDefault(); setRenamingSession(selectedSession);
+    };
+    window.addEventListener("keydown", renameKey);
+    return () => window.removeEventListener("keydown", renameKey);
+  }, [activeSection, dashboardRuntimeReady, newConversation, selectedSession]);
+
   const sessionIndexActions = {
     onSearchClose: useLatestCallback(() => { setSessionSearchOpen(false); setQuery(""); }),
     onLoadMore: useLatestCallback(loadMoreSessions),
     onNew: useLatestCallback(startNewConversation),
     onOpen: useLatestCallback(openSession),
     onPin: useLatestCallback(setSessionPinned),
+    onRenameSession: useLatestCallback((session: SessionPayload) => { if (!session.blank) setRenamingSession(session); }),
     onDelete: useLatestCallback(deleteSession),
   };
   const selectedBusy = Boolean(conversationActivity?.active || conversationActivity?.queued.length);
@@ -246,12 +307,13 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   return {
     selection: { selectedSessionId, newConversation, selectedSession } as const,
     sidebar: {
+      renamingSession,
       expanded: expandedWorkspaces,
       display: sessionDetailQuery.display,
       currentBlank: newConversation ? blankSession : null,
       workspaces: workspacesQuery.data?.items ?? [],
       defaultDirectory,
-      activeDirectory: selectedSession?.workspace.directory ?? defaultDirectory,
+      activeWorkspaceId: selectedSession?.workspace_id ?? null,
       enabled: dashboardRuntimeReady,
       workspaceError: dashboardRuntimeReady ? queryError(workspacesQuery.error) : "",
       workspacesLoading: dashboardRuntimeReady && workspacesQuery.isPending,
@@ -293,16 +355,17 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       isRefetchError: current.isRefetchError, error: current.error,
     } as const)),
     actions: {
-      openSession, startNewConversation, renameWorkspace, startSkillConversation,
-      sendConversation, stopConversation, setSessionPinned, deleteSession,
+      openSession, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
+      sendConversation, stopConversation, setSessionPinned, deleteSession, renameSession,
+      cancelSessionRename: () => setRenamingSession(null),
       openConversationFile, revealConversationFile, openConversationAttachment,
       openSearch: handleSessionSearchToggle,
       changeSearch: (value: string) => setQuery(value),
-      expandWorkspace: (directory: string, expanded: boolean) => setWorkspaceExpanded(directory, expanded),
+      expandWorkspace: (id: string, expanded: boolean) => setWorkspaceExpanded(id, expanded),
       retryWorkspaces: () => { void workspacesQuery.refetch(); },
       chooseNewWorkspace: () => { void chooseWorkspace(true).catch(cause => onError(queryError(cause))); },
       chooseConversationWorkspace: () => chooseWorkspace(false),
-      switchConversationWorkspace: (directory: string) => { void enterNewConversation(directory, true).catch(cause => onError(queryError(cause))); },
+      switchConversationWorkspace: (id: string) => { void enterNewConversation(id, true).catch(cause => onError(queryError(cause))); },
       questionAnswered: () => { void questionsQuery.refetch(); },
       approvalChanged: () => { void approvalsQuery.refetch(); },
       loadOlder: sessionDetailQuery.fetchPreviousPage,

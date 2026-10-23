@@ -251,6 +251,33 @@ def test_private_input_json_error_keeps_actual_reason_without_echoing_input(monk
     assert "private" not in result["error"]["message"]
 
 
+def test_private_login_cli_consumes_only_stdin_and_returns_cli_evidence(monkeypatch, capsys):
+    from lxeskill import cli
+
+    monkeypatch.setattr(worker.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(REQUEST).encode())))
+    execute = Mock(return_value={"success": True, "status": "authenticated", "configured_login_submitted": True})
+    monkeypatch.setattr(worker, "run_private", execute)
+    assert cli.main(["logistics", "login-worker"]) == 0
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    execute.assert_called_once_with(REQUEST)
+    assert result["ok"] and result["data"]["configured_login_submitted"]
+    assert REQUEST["password"] not in json.dumps(result)
+
+
+def test_private_login_cli_rejects_password_flags_without_submitting(monkeypatch, capsys):
+    from lxeskill import cli
+
+    execute = Mock(side_effect=AssertionError("must not submit"))
+    monkeypatch.setattr(worker, "run_private", execute)
+    assert cli.main(["logistics", "login-worker", "--password", "must-not-echo-secret"]) != 0
+    output = capsys.readouterr().out
+    assert "must-not-echo-secret" not in output
+    result = json.loads(output.splitlines()[-1])
+    assert result["command"] == "logistics login-worker"
+    assert result["error"]["message"] == "unknown option: --password"
+    execute.assert_not_called()
+
+
 def test_actual_form_probe_checks_live_semantics_without_reading_input_values():
     bun = shutil.which("bun")
     assert bun

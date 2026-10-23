@@ -109,7 +109,10 @@ export const transcriptDisplayMarker = (event: JsonObject): JsonObject | undefin
   const kind = transcriptReplacementKind(event);
   if (kind === "compaction") {
     const count = Math.max(0, Math.trunc(Number(event.compacted_count ?? 0)));
-    return { role: "system", content: `[上下文已压缩：${count} 条消息 → 摘要]` };
+    const rawCount = event.compacted_count;
+    return { role: "system", content: `[上下文已压缩：${count} 条消息 → 摘要]`,
+      context_marker: { kind: "compaction", ...(typeof rawCount === "number" && Number.isSafeInteger(rawCount) && rawCount >= 0
+        ? { compacted_count: rawCount } : {}) } };
   }
   if (kind === "context_reset") return { role: "system", content: "[上下文已重置]" };
   if (kind === "memory_clear") return { role: "system", content: "[上下文记忆已清空]" };

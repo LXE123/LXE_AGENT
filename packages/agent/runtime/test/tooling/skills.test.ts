@@ -15,6 +15,61 @@ afterEach(() => {
 });
 
 describe("skill context", () => {
+  test("TMS skill indexes both countries and requires warehouse clarification", () => {
+    const root = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
+    catalog.forceRefresh();
+    const skill = catalog.get("mabang-tms-products-export")!;
+    expect(skill.commands).toEqual(["lxeskill mabang-tms products export"]);
+    for (const text of ["越南", "菲律宾", "未指定仓库先询问", "明确全部仓库才全仓导出"]) {
+      expect(skill.description).toContain(text);
+      expect(catalog.snapshot().prompt).toContain(text);
+    }
+    expect(skill.content).toContain("回答前不登录、不执行导出");
+    expect(skill.content).toContain("空答案、跳过或取消均不授权导出");
+    expect(skill.content).toContain("无参调用仅保留非 Agent CLI 的历史全仓兼容");
+    expect(skill.content).toContain("嵌套 `stock.warehouseId` 可能不同，不用于选仓");
+  });
+
+  test.each([
+    ["导出马帮 TMS 越南仓数据", "`--warehouse VN1`"],
+    ["导出马帮 TMS 菲律宾仓数据", "`--warehouse PH1`"],
+    ["导出马帮 TMS 全部仓库", "`--warehouse all`"],
+    ["导出马帮 TMS 数据，未指定仓库", "先询问菲律宾 PH1、越南 VN1 或当前账号全部仓库"],
+    ["导出雅仓越南仓数据", "`yacang-reports-export`，选择 `VN8806`"],
+    ["导出雅仓菲律宾仓数据", "`yacang-reports-export`，选择 `PH8805`"],
+    ["导出越南仓数据，未指定 ERP", "先询问雅仓还是马帮 TMS"],
+    ["导出菲律宾仓数据，未指定 ERP", "先询问雅仓还是马帮 TMS"],
+  ])("TMS routing contract: %s", (request, expected) => {
+    const content = readFileSync(join(repositoryRoot(import.meta.dir), "skills/mabang-tms-products-export/SKILL.md"), "utf8");
+    const row = content.split("\n").find(line => line.startsWith(`| ${request} |`));
+    expect(row).toContain(expected);
+  });
+
+  test("both ERP discovery entries prioritize the source over either country", () => {
+    const root = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
+    catalog.forceRefresh();
+    for (const name of ["mabang-tms-products-export", "yacang-reports-export"]) {
+      const skill = catalog.get(name)!;
+      for (const country of ["菲律宾", "越南"]) expect(skill.description).toContain(country);
+      expect(skill.description).toContain("仅指定国家先确认 ERP");
+      expect(catalog.snapshot().prompt).toContain(skill.description);
+      expect(skill.content).toContain("ERP 来源优先于国家名称");
+      expect(skill.content).toContain("空答案、跳过或取消均不授权导出");
+    }
+    const yacang = catalog.get("yacang-reports-export")!;
+    expect(yacang.commands).toEqual(["lxeskill yacang reports export"]);
+    expect(yacang.content).toContain("可重复，支持上表四仓，省略时默认四仓");
+    expect(yacang.content).toContain("全局导出，不能按仓筛选");
+    const map = catalog.get("southeast-asia-replenishment-workflow-map")!;
+    expect(map.description).toContain("越南仓、菲律宾仓");
+    expect(map.commands).toEqual([]);
+    const form = JSON.parse(map.content.match(/```json\r?\n([\s\S]*?)\r?\n```/)![1]!);
+    expect(form.questions).toEqual([{ id: "erp", question: "请选择数据来源", multi_select: false,
+      options: [{ label: "雅仓" }, { label: "马帮 TMS" }] }]);
+  });
+
   test("cached readers never touch disk; concurrent uses share a scan and failed refreshes can retry", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-skill-use-")); roots.push(root);
     const directory = join(root, "skills", "demo"); mkdirSync(directory, { recursive: true });
@@ -72,9 +127,11 @@ describe("skill context", () => {
     expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.commands).toEqual([
       "lxeskill vietnam replenishment calculate",
     ]);
-    expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.description).toContain("生成越南备货清单");
+    expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.description).toContain("完整九表备货清单");
     const vietnamPolicy = skills.find((skill) => skill.name === "vietnam-replenishment")?.content ?? "";
-    expect(vietnamPolicy).toContain("--sku-map");
+    expect(vietnamPolicy).toContain("--template-file");
+    expect(vietnamPolicy).toContain("九表模板");
+    expect(vietnamPolicy).not.toContain("--sku-map");
     expect(vietnamPolicy).toContain("parameters.json");
     expect(vietnamPolicy).toContain("sandbox_permissions");
     expect(vietnamPolicy).not.toContain("managed_lxeskill");
@@ -100,8 +157,8 @@ describe("skill context", () => {
     expect(prompt).toContain("demo");
     expect(prompt).toContain("skills/demo/SKILL.md");
     expect(prompt).toContain("Commands: lxeskill demo run");
-    expect(prompt).toContain("## lxeskill invocation contract");
-    expect(prompt).toContain("exec.cwd instead");
+    expect(prompt).not.toContain("## lxeskill invocation contract");
+    expect(prompt).not.toContain("exec.cwd instead");
     expect(prompt).not.toContain("managed_lxeskill");
     expect(prompt).not.toContain("blocked");
     expect(prompt).not.toContain("lxeskill hidden run");

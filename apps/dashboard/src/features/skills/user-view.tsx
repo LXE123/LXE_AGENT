@@ -20,7 +20,7 @@ function UserSkillPreview({ skill, close, onUse, onRecycled }: {
   const query = useUserSkillContentQuery(skill.id, path);
   const data = query.data;
   const mutation = useUserSkillMutation(onRecycled);
-  return <SkillDetailDialog skill={skill} title={skill.name} close={close}
+  return <SkillDetailDialog themeClassName="capabilities-theme" skill={skill} title={skill.name} close={close}
     files={(data?.files ?? manifestQuery.data?.files)?.map(file => file.path) ?? ["SKILL.md"]} selectedFile={path} onSelectFile={setPath}
     content={data?.content} binary={data?.binary} truncated={data?.truncated}
     loading={query.isPending} error={queryError(query.error)}

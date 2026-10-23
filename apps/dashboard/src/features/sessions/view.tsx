@@ -1,3 +1,6 @@
+import { projectSessionTitle } from "../../api/session-titles";
+import "./conversation-theme.css";
+import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
 import { ReferenceComposer } from "./ReferenceComposer";
 import { UserReferenceText } from "./UserReferenceText";
@@ -5,6 +8,7 @@ import { FileAvailabilityBadge } from "../file-preview/FileFailure";
 import { PreviewHeaderActions, usePreviewSidebar } from "../file-preview/Sidebar";
 import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { UserQuestionGate } from "./user-questions";
+import { questionAnswerSummary, UserQuestionSummary } from "./user-question-summary";
 import type { PendingUserQuestion, PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { conversationAttachments } from "./attachment-draft";
@@ -580,7 +584,7 @@ function TurnFileList({
           const isOpening = opening.has(file.artifact_id);
           const error = errors.get(file.artifact_id) ?? "";
           return (
-            <div className={error ? "turn-file-item has-error" : "turn-file-item"} key={file.artifact_id}>
+            <div className={`turn-file-item conversation-chrome-theme${error ? " has-error" : ""}`} key={file.artifact_id}>
               <button
                 aria-busy={isOpening}
                 aria-label={t.conversation.openFile(file.name)}
@@ -1276,8 +1280,8 @@ export function ConversationComposer({
   return (
     <div className={`conversation-composer ${dragActive ? "drag-active" : ""}`}>
       <ApprovalGate key={conversationKey} requests={approvals} ready={runtimeReady} onChanged={onApprovalChanged}>
-      {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
-      <div className="conversation-compose-box">
+      {dragActive ? <div className="conversation-drop-hint conversation-chrome-theme">{t.conversation.dropFiles}</div> : null}
+      <div className="conversation-compose-box conversation-chrome-theme">
         <UserQuestionGate request={runtimeReady ? question : undefined} conversationKey={runtimeReady ? conversationKey : "offline"} onAnswered={onQuestionAnswered}>
         {attachments.length ? (
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
@@ -1402,6 +1406,12 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
     : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
   if (row.kind === "status") return <ConversationStatus row={row} />;
+  if (row.kind === "compaction") {
+    const count = row.message?.context_marker?.compacted_count;
+    return <div className="conversation-compaction-marker">
+      <span>{t.conversation.contextCompacted(typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : undefined)}</span>
+    </div>;
+  }
   if (row.kind === "answer_meta") return <div className="answer-footer">
     <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
   </div>;
@@ -1414,6 +1424,8 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "tool") {
     const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
     if (!operation) return null;
+    const answers = questionAnswerSummary(operation);
+    if (answers) return <UserQuestionSummary items={answers} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
     return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
@@ -1443,7 +1455,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   const role = message.role;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);
-    return <div className="message-with-meta role-user has-sent-attachments">
+    return <div className="message-with-meta role-user has-sent-attachments conversation-chrome-theme">
       <SentAttachmentList attachments={message.attachments} sessionId={attachmentSessionId}
         ready={row.status !== "sending" && !row.error} onOpen={onOpenAttachment} />
       {text.trim() ? <article className="message-card role-user"><UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /></article> : null}
@@ -1452,7 +1464,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={text} />
     </div>;
   }
-  return <div className={`message-with-meta role-${role}`}>
+  return <div className={`message-with-meta role-${role}${role === "user" ? " conversation-chrome-theme" : ""}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
       <MessageContent content={message.content} message={message} />
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
@@ -1533,7 +1545,8 @@ export function SessionDetailView({
   onFollowingChange?: (following: boolean) => void;
 }) {
   const t = useUiText();
-  const session = detail?.session || fallbackSession;
+  const rawSession = detail?.session || fallbackSession;
+  const session = rawSession ? projectSessionTitle(rawSession) : rawSession;
   const messages = detail?.messages || [];
   const sessionKey = display?.viewKey ?? session?.session_id ?? "new";
   const rows = display?.rows ?? conversationRows(messages,
@@ -1606,6 +1619,7 @@ function SessionActionsMenu({
   onClose,
   onDelete,
   onPin,
+  onRename,
 }: {
   anchor: HTMLElement;
   deletingBlocked: boolean;
@@ -1615,12 +1629,13 @@ function SessionActionsMenu({
   onClose: (restoreFocus?: boolean) => void;
   onDelete: () => void;
   onPin: () => void;
+  onRename?: () => void;
 }) {
   const t = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
   const rect = anchor.getBoundingClientRect();
   const width = 150;
-  const estimatedHeight = error ? 113 : 82;
+  const estimatedHeight = error ? 147 : 116;
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
   const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
     ? rect.bottom + 5
@@ -1670,6 +1685,7 @@ function SessionActionsMenu({
       role="menu"
       style={{ left, top, width }}
     >
+      {onRename && !session.blank ? <button disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></button> : null}
       <button disabled={pending} onClick={onPin} role="menuitem" type="button">
         {session.pinned_at > 0 ? <PinOff size={12} /> : <Pin size={12} />}
         <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
@@ -1679,13 +1695,11 @@ function SessionActionsMenu({
         disabled={pending || deletingBlocked}
         onClick={onDelete}
         role="menuitem"
-        title={deletingBlocked ? t.sessions.deleteRunning : undefined}
         type="button"
       >
         <Trash2 size={12} />
         <span>{t.sessions.delete}</span>
       </button>
-      {deletingBlocked ? <p className="session-actions-hint">{t.sessions.deleteRunning}</p> : null}
       {error ? <p className="session-actions-error" role="alert">{error}</p> : null}
     </div>,
     document.body,
@@ -1753,6 +1767,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onNew,
   onOpen,
   onPin,
+  onRenameSession,
   onDelete,
   onTransientInteractionChange,
   visible = true,
@@ -1778,6 +1793,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onLoadMore: () => void;
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
+  onRenameSession?: (session: SessionPayload) => void;
   onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
   onDelete: (session: SessionPayload) => Promise<void>;
   onTransientInteractionChange?: (active: boolean) => void;
@@ -1890,7 +1906,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           onClick={() => onOpen(session)}
         >
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
-          <span className="primary-cell">{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
+          <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
         </button>
         <button
           aria-expanded={menuOpen}
@@ -1944,7 +1960,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       ) : null}
       {showTable ? (
         <div
-          className="session-index-list"
+          className={embedded && searchOpen ? "session-index-list sidebar-scroll-area" : "session-index-list"}
           onScroll={() => {
             closeMenu(false);
             maybeLoadMore();
@@ -1985,6 +2001,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
             closeMenu(false);
           }}
           onPin={() => void pinSelected()}
+          onRename={onRenameSession ? () => { const session = menu.session; closeMenu(); onRenameSession(session); } : undefined}
         />
       ) : null}
       {confirmation ? (

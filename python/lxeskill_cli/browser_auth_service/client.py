@@ -51,15 +51,21 @@ def _extract_protocol_payload(stdout_text: str) -> dict[str, Any]:
     return payload
 
 
-def _failure_message(payload: dict[str, Any], *, operation: str) -> str:
+def format_auth_failure(payload: dict[str, Any], *, operation: str) -> str:
     stage = str(payload.get("stage") or "browser").strip()
     current_url = str(payload.get("current_url") or "").strip() or "-"
     exception_type = str(payload.get("exception_type") or "Error").strip()
     message = str(payload.get("message") or f"browser_auth_service {operation}失败").strip()
-    return (
+    result = (
         f"browser_auth_service {operation}失败: stage={stage} current_url={current_url} "
         f"exception_type={exception_type} error={message}"
     )
+    # The service already redacts and bounds these diagnostics. Preserve them
+    # in error.message too: business commands propagate exceptions as text.
+    for key in ("auth_environment", "details"):
+        if isinstance(payload.get(key), dict):
+            result += f"; {key}={json.dumps(payload[key], ensure_ascii=False)}"
+    return result
 
 
 def _run_auth_command(command_name: str, account: str, *, failure_operation: str) -> dict[str, Any]:
@@ -89,7 +95,7 @@ def _run_auth_command(command_name: str, account: str, *, failure_operation: str
     payload = _extract_protocol_payload(stdout)
 
     if completed.returncode != 0 or not payload.get("success"):
-        message = _failure_message(payload, operation=failure_operation)
+        message = format_auth_failure(payload, operation=failure_operation)
         logger.error(f"[BrowserAuthClient] {message}")
         raise BrowserAuthClientError(message)
     return payload

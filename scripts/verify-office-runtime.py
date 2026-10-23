@@ -115,7 +115,7 @@ def main() -> None:
     runtime = args.runtime_root.resolve()
     env = dict(os.environ, LXE_OFFICE_NODE=str(runtime / "node" / ("node.exe" if os.name == "nt" else "node")),
                LXE_OFFICE_CLI=str(runtime / "office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js"))
-    command = [sys.executable, "-m", "shared.office"]
+    command = [env["LXE_OFFICE_NODE"], env["LXE_OFFICE_CLI"]]
     diagnostics = []
 
     def run(*arguments: str, failure: bool = False, environment: dict | None = None) -> dict:
@@ -133,9 +133,6 @@ def main() -> None:
     rendered_images = []
     failures = []
     for extension, path in files.items():
-        count = ["--count", "2"] if extension in {"xlsx", "pptx"} else []
-        contains = "汇总" if extension == "xlsx" else "Office 验证"
-        assert run("check", path.name, "--contains", contains, *count)["verdict"] == "pass"
         pdf = root / f"导出 {extension}.pdf"
         run("convert", "--input", path.name, "--output", pdf.name)
         assert pdf.read_bytes().startswith(b"%PDF") and pdf.stat().st_size > 1000
@@ -169,11 +166,27 @@ def main() -> None:
     assert load_workbook(recalculated)["保留"]["A1"].font.italic
     run("recalculate", "--input", files["xlsx"].name, "--output", files["xlsx"].name, failure=True)
 
+    # Exercise lxeskillCLI's private supervisor against the real engine too.
+    from shared.office.execution import run_kit_bounded
+
+    business_output = root / "业务适配重算.xlsx"
+    previous = {key: os.environ.get(key) for key in ("LXE_OFFICE_NODE", "LXE_OFFICE_CLI")}
+    try:
+        os.environ.update({key: env[key] for key in previous})
+        result = run_kit_bounded(["recalculate", "--input", str(files["xlsx"]), "--output", str(business_output)], timeout_seconds=300)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert load_workbook(business_output, data_only=False)["汇总"]["B4"].value == "=SUM(B2:B3)"
+        assert load_workbook(business_output, data_only=True)["汇总"]["B4"].value == 10
+        diagnostics.append({"operation": "business-adapter", "exitCode": result.returncode, "stdout": result.stdout, "stderr": result.stderr})
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
     broken = root / "损坏 文件.docx"
     broken.write_bytes(b"not a zip archive")
-    # The checker returns its failure report on stdout; the Kit returns errors on stderr.
-    result = subprocess.run([*command, "check", str(broken)], env=env, capture_output=True, text=True)
-    assert result.returncode == 1 and json.loads(result.stdout)["verdict"] == "fail"
     rejected = root / "不应生成.pdf"
     run("convert", "--input", broken.name, "--output", rejected.name, failure=True)
     assert not rejected.exists()
