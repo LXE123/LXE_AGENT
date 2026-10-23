@@ -118,6 +118,8 @@ const objectValue = (value: JsonValue | undefined): JsonObject | undefined =>
     ? (value as JsonObject)
     : undefined;
 
+export class SchedulerBusyError extends Error {}
+
 export class SessionScheduler {
   private readonly logger = createLogger("gateway.scheduler");
   private readonly runtime: RuntimePort;
@@ -174,7 +176,7 @@ export class SessionScheduler {
     if (!wasReady && ready) this.drain();
   }
 
-  async enqueue(job: AgentJob, options: { front?: boolean; beforeAccept?: () => Promise<void> } = {}): Promise<void> {
+  async enqueue(job: AgentJob, options: { front?: boolean; beforeAccept?: () => Promise<void>; onlyIfIdle?: boolean; assertCurrent?: () => void } = {}): Promise<void> {
     if (this.updateFenced) throw new Error("Application update is preparing; new tasks are blocked");
     const sessionId = clean(job.session_id);
     if (!sessionId) throw new Error("session_id required");
@@ -191,6 +193,11 @@ export class SessionScheduler {
         else this.admissions.delete(sessionId);
       }
     }
+    options.assertCurrent?.();
+    if (options.onlyIfIdle && (!this.runtimeReady || this.hasInflightWork(sessionId))) {
+      throw new SchedulerBusyError("会话正在使用中，稍后再试");
+    }
+    if (options.onlyIfIdle && (this.updateFenced || this.sessionDeletionFences.has(sessionId))) throw new SchedulerBusyError("应用更新或会话删除正在进行");
     const queue = this.pending.get(sessionId) ?? [];
     if (options.front) queue.unshift(job);
     else queue.push(job);

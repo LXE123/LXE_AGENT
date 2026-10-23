@@ -42,7 +42,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 25 as const;
+export const AGENT_PROTOCOL_VERSION = 26 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -444,6 +444,7 @@ export interface DesktopCloudActivationInput {
 }
 
 export type DesktopDashboardDataDomain =
+  | "automations"
   | "sessions"
   | "stats"
   | "channels"
@@ -1100,3 +1101,6 @@ export function isAgentEvent(message: AgentWireMessage): message is AgentNotific
 }
 
 export * from "./composer-references";
+
+export * from "./automations";
+export * from "./desktop-mcp";

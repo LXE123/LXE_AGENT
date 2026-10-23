@@ -30,6 +30,7 @@
 - [Desktop 技术手册](desktop/README.md)：桌面开发、配置与专题入口。
 - [构建、打包、安装与启动](desktop/packaging-pipeline.md)、[Windows 更新与发布](desktop/updates.md)：构建链路、发布操作和客户端更新。
 - [工作区与对话](desktop/conversation-window.md)、[输入框引用](desktop/composer-references.md)、[会话状态](desktop/session-status.md)、[结构化提问](harness/runtime/tools/ask-user-question.md)：对话交互及对应技术机制。
+- [定时任务与桌面 MCP](desktop/automations.md)：两种会话方式、调度、持久化与本机工具接口。
 - [侧边栏与文件预览](desktop/file-preview.md)：文件查看、手动终端与浏览器。
 - [Gateway](desktop/gateway/README.md)、[生命周期](desktop/gateway/gateway_lifecycle.md)：渠道接入、路由、调度、结果交付和启停及进程关系。
 - [Gateway ↔ agentcli 协议](desktop/gateway/agent-protocol.md)：JSON-RPC、握手、事件和错误。

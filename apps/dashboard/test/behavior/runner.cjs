@@ -751,7 +751,7 @@ app.whenReady().then(async () => {
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
       const railWidth = (await rect(".app-navigation")).width;
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 5);
+        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
         assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth);

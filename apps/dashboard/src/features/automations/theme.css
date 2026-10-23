@@ -1,0 +1,60 @@
+@import "../../shared/cds-theme.css";
+.automations-page { color:var(--text); background:var(--bg-soft); min-height:100%; padding:32px 36px; }
+.automations-header,.automation-detail-heading,.automation-editor header,.automation-editor footer { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.automations-header h1 { font-size:26px; letter-spacing:-.04em; margin:0 0 8px; }
+.automations-header p,.automation-muted { color:var(--text-soft); font-size:13px; line-height:1.6; }
+.automations-page button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid var(--border); border-radius:8px; padding:8px 12px; background:transparent; color:var(--text); font:inherit; cursor:pointer; }
+.automations-page button:hover { background:var(--row-hover); }
+.automations-page button:disabled { opacity:.5; cursor:default; }
+.automations-page .automation-primary { background:var(--cds-primary); color:var(--cds-primary-ink); border-color:transparent; }
+.automations-page .automation-primary:hover { background:var(--cds-primary-hover); }
+.automations-page :is(input,select,textarea) { box-sizing:border-box; width:100%; padding:9px 11px; color:var(--text); background:var(--bg-soft); border:1px solid var(--border-strong); border-radius:7px; font:inherit; }
+.automations-page :is(button,input,select,textarea):focus-visible { outline:none; box-shadow:var(--cds-focus); }
+.automations-body { display:grid; grid-template-columns:260px minmax(0,1fr); margin-top:28px; border-top:1px solid var(--border); min-height:60vh; }
+.automations-list { padding:22px 20px 20px 0; border-right:1px solid var(--border); }
+.automations-list>select { margin:10px 0 20px; }
+.automations-list .automation-row { width:100%; display:flex; flex-direction:column; align-items:stretch; gap:10px; text-align:left; margin-bottom:6px; padding:14px 12px; border-color:transparent; }
+.automation-row.selected { background:var(--cds-alpha-1); border-color:var(--border); }
+.automation-row>span:first-child { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.automation-row strong { overflow-wrap:anywhere; font-size:14px; font-weight:550; }
+.automation-row small { white-space:nowrap; font-size:11px; color:var(--text-soft); }
+.automation-row-time { color:var(--text-soft); font-size:12px; }
+.automation-detail { padding:28px 0 32px 32px; max-width:880px; min-width:0; }
+.automation-detail h2 { margin:9px 0 22px; font-size:24px; overflow-wrap:anywhere; }
+.automation-eyebrow { color:var(--text-soft); font-size:12px; }
+.automation-next { display:flex; gap:14px; padding:20px 0; border-block:1px solid var(--border); }
+.automation-next>svg { margin-top:4px; color:var(--accent); }
+.automation-next div { display:flex; flex-direction:column; gap:8px; overflow-wrap:anywhere; min-width:0; }
+.automation-next small,.automation-next span { color:var(--text-soft); font-size:12px; }
+.automation-next strong { font-size:19px; font-weight:500; }
+.automation-prompt { white-space:pre-wrap; line-height:1.8; font-size:14px; margin:22px 0; overflow-wrap:anywhere; }
+.automation-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.automation-detail h3 { margin:34px 0 8px; font-size:15px; }
+.automation-notice,.automation-error { border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.automation-notice { background:var(--cds-alpha-1); color:var(--text-soft); }
+.automation-error { color:var(--danger); background:var(--danger-soft); white-space:pre-wrap; }
+.automation-runs { list-style:none; padding:0; margin:18px 0; }
+.automation-runs li { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:16px 0; border-top:1px solid var(--border); }
+.automation-runs li>div:first-child { min-width:0; }
+.automation-runs strong { font-size:13px; font-weight:550; }
+.automation-runs span { display:block; font-size:12px; color:var(--text-soft); margin-top:7px; }
+.automation-runs button { font-size:12px; white-space:nowrap; }
+.automation-empty { padding:70px 15px; text-align:center; color:var(--text-soft); }
+.automation-empty h2 { color:var(--text); font-size:22px; }
+.automation-empty p { line-height:1.8; font-size:14px; margin-bottom:25px; }
+.automation-overlay { position:fixed; inset:0; z-index:120; background:rgb(0 0 0 / 35%); display:flex; justify-content:center; align-items:center; padding:25px; }
+.automation-editor { width:640px; max-height:calc(100vh - 50px); overflow:auto; background:var(--bg-soft); border:1px solid var(--border); border-radius:14px; padding:24px; box-shadow:0 15px 70px rgb(0 0 0 / 18%); }
+.automation-editor h2 { font-size:20px; margin:0; }
+.automation-editor form>label,.automation-fields>label { display:flex; flex-direction:column; gap:8px; font-size:13px; margin-top:18px; }
+.automation-editor small { color:var(--text-soft); font-size:12px; }
+.automation-editor fieldset { margin:22px 0 0; border:1px solid var(--border); border-radius:8px; padding:14px; }
+.automation-editor legend { font-size:13px; padding:0 5px; }
+.automation-radio { display:grid; grid-template-columns:18px 1fr; gap:6px 9px; align-items:center; font-size:13px; margin:4px 0 14px; }
+.automation-radio:last-child { margin-bottom:0; }
+.automation-radio input { width:auto; padding:0; }
+.automation-radio span { grid-column:2; font-size:12px; color:var(--text-soft); }
+.automation-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.automation-editor footer { border-top:1px solid var(--border); margin-top:22px; padding-top:18px; }
+.automation-editor footer>div { display:flex; gap:9px; }
+@media (max-width:900px) { .automations-page { padding:24px 18px; } .automations-body { grid-template-columns:210px minmax(0,1fr); } .automation-detail { padding-left:20px; } .automation-runs li { align-items:flex-start; flex-direction:column; } }
+@media (max-width:650px) { .automations-body { display:block; } .automations-list { border-right:0; border-bottom:1px solid var(--border); padding-right:0; max-height:260px; overflow:auto; } .automation-detail { padding-left:0; } .automation-fields { grid-template-columns:1fr; gap:0; } }

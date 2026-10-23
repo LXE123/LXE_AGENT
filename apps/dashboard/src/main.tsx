@@ -1,3 +1,4 @@
+import { AutomationsPage } from "./features/automations/AutomationsPage";
 import { VietnamSettingsWorkbench } from "./features/workbench/vietnam-settings-view";
 import { SessionSidebar } from "./features/sessions/SessionSidebar";
 import { ConversationPage } from "./features/sessions/ConversationPage";
@@ -16,6 +17,7 @@ import type {
 } from "@lxe/desktop-protocol";
 import {
   ChartColumn,
+  Clock3,
   BriefcaseBusiness,
   House,
   MessageSquareText,
@@ -146,7 +148,8 @@ function App({
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
     || activeSection === "workbench"
-    || activeSection === "sessions";
+    || activeSection === "sessions"
+    || activeSection === "automations";
   const activeQueries = activeSection === "sessions"
     ? [...workspace.queryStatus, modelsQuery, sessionModelQuery]
     : activeSection === "capabilities" && capabilityView === "models"
@@ -170,6 +173,7 @@ function App({
     { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
     { id: "workbench", label: t.nav.workbench, icon: <BriefcaseBusiness size={16} /> },
     { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
+    { id: "automations", label: language === "zh" ? "定时任务" : "Automations", icon: <Clock3 size={16} /> },
     { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
   ];
   const pageTitle = activeSection === "home"
@@ -258,6 +262,7 @@ function App({
                 }}
               />
             ) : null}
+            {activeSection === "automations" ? <AutomationsPage ready={dashboardRuntimeReady} onOpenSession={workspace.actions.openSessionRun} /> : null}
             {activeSection === "home" ? (
               <DashboardHome
                 enabled={dashboardRuntimeReady}

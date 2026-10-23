@@ -8,6 +8,7 @@
 | --- | --- |
 | 工作区、新对话、目录操作与历史窗口 | [工作区与对话](conversation-window.md) |
 | 输入框文件引用与技能选择 | [输入框引用](composer-references.md) |
+| 定时任务、两种会话方式与桌面 MCP | [定时任务与桌面 MCP](automations.md) |
 | 文件预览、手动终端与浏览器 | [侧边栏与文件预览](file-preview.md) |
 | 会话状态、问题卡片 | [会话状态](session-status.md)、[结构化提问](../harness/runtime/tools/ask-user-question.md) |
 | 进程启停、调度与通信 | [Gateway](gateway/README.md)、[生命周期](gateway/gateway_lifecycle.md)、[JSON-RPC 协议](gateway/agent-protocol.md) |

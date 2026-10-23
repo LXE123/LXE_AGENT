@@ -769,3 +769,17 @@ test("failed blank admission preserves retry and never starts a model turn", asy
   expect(h.runtime.started).toHaveLength(1);
   h.controller.dispose();
 });
+
+test("scheduled independent rounds always use their persisted fresh IDs, while reused rounds cannot join a busy chat", async () => {
+  const h=harness(["message1","route1","message2","route2","message3","route3"]);
+  try {
+    h.storage.sessions.set("blank",{session_id:"blank",blank:true,source:{platform:"desktop"},workspace:testWorkspace});
+    const first=await h.controller.send({text:"scheduled"},{id:"plan",session_id:"new-1",turn_id:"turn-1",fresh:true,assertCurrent(){}});
+    const second=await h.controller.send({text:"scheduled"},{id:"plan",session_id:"new-2",turn_id:"turn-2",fresh:true,assertCurrent(){}});
+    expect([first.session_id,second.session_id]).toEqual(["new-1","new-2"]);
+    expect(h.storage.sessions.get("blank")?.blank).toBe(true);
+    expect(h.runtime.started.map(job=>job.job_id)).toEqual(["turn-1","turn-2"]);
+    await expect(h.controller.send({session_id:"new-1",text:"reuse"},{id:"reuse",session_id:"new-1",turn_id:"turn-3",fresh:false,assertCurrent(){}})).rejects.toThrow("使用中");
+    expect(h.controller.activity("new-1").queued).toHaveLength(0);
+  } finally {h.controller.dispose();}
+});

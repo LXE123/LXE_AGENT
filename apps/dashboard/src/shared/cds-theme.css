@@ -3,7 +3,7 @@
    Assistant text and onboarding keep their themes.
    Rules: surface hierarchy, semantic ink, alpha borders, shared field states.
    Source: CDS tokens — vanilla, Rules / Theme ramps / Elevation / Purpose. */
-:is(.desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+:is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --cds-surface-nav: #fcfcfb;
   --cds-surface-panel: #ffffff;
   --cds-surface-popover: #ffffff;
@@ -66,7 +66,7 @@
   color-scheme: light;
 }
 
-:root[data-theme="dark"] :is(.desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+:root[data-theme="dark"] :is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --cds-surface-nav: #151515;
   --cds-surface-panel: #1a1a19;
   --cds-surface-popover: #232322;

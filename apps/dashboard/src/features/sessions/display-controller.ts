@@ -97,6 +97,12 @@ export class ConversationDisplayController {
     }
     this.publish();
   }
+  openHistory(page: SessionDetailPayload): void {
+    if (page.session.session_id !== this.state.sessionId) return;
+    this.window++; this.historyProjection = undefined; this.visible = [];
+    this.state = { ...this.state, detail: undefined, following: false };
+    this.receiveHistory(page, "older");
+  }
   setDraftDirectory(directory: string): void {
     if (this.state.sessionId || this.state.pending.some(item => !item.error)) return;
     this.draftDirectories.set(this.state.viewKey, directory);

@@ -1,3 +1,4 @@
+import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
 import { Pencil } from "lucide-react";
@@ -1183,6 +1184,7 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
+  useAutomationEditing(permissionSessionId, runtimeReady && (text.trim().length > 0 || attachments.length > 0));
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);

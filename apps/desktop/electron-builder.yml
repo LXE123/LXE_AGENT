@@ -13,9 +13,11 @@ directories:
 files:
   - dist/main.js
   - dist/preload.cjs
+  - dist/desktop-mcp.mjs
   - dist/pty-host.cjs
   - dist/pty-runtime/**/*
 asarUnpack:
+  - dist/desktop-mcp.mjs
   - dist/pty-host.cjs
   - dist/pty-runtime/**/*
 win:

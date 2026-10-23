@@ -350,3 +350,22 @@ test("company MCP rejects legacy authentication before creating a client", async
   }
   expect(clients).toBe(0);
 });
+
+test("managed caller metadata is host-injected only and desktop tools stay hidden from Feishu", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-managed-mcp-"));
+  const path=join(root,"mcp.yaml"); writeFileSync(path,"mcpServers:\n  managed:\n    enabled: true\n    command: echo\n  external:\n    enabled: true\n    command: echo\n");
+  const config=loadMcpConfig(path,{});const server=config.servers.find(server=>server.name==="managed")!;
+  server.callerMetadataKey="host/caller";server.platforms=["desktop"];
+  const calls: unknown[]=[];
+  const manager=new McpManager(config,{connect:async()=>({tools:[{name:"echo",description:"echo",inputSchema:{type:"object"}}],callTool:async(_name,_input,_signal,metadata)=>{calls.push(metadata);return {content:[],isError:false};},close:async()=>{}})});
+  const registry=new ToolRegistry();
+  const context={session_id:"s",turn_id:"t",tool_call_id:"c",platform:"desktop",workspace:testWorkspace,executionPolicy:policyFor(testWorkspace.directory),handle:{signal:new AbortController().signal,cancelled:false,drainSteering:()=>[],registerProcess:()=>()=>{}}};
+  try {
+    await manager.start(registry);
+    await registry.execute("mcp__managed__echo",{},context);
+    await registry.execute("mcp__external__echo",{},context);
+    expect(calls).toEqual([{"host/caller":{session_id:"s",turn_id:"t",tool_call_id:"c",platform:"desktop"}},undefined]);
+    await expect(registry.execute("mcp__managed__echo",{}, {...context,platform:"feishu"})).rejects.toThrow("platform");
+    expect(calls).toHaveLength(2);
+  } finally {await manager.stop();rmSync(root,{recursive:true,force:true});}
+});
