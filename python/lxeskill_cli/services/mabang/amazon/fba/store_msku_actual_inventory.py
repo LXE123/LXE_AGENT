@@ -8,8 +8,15 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
+from http.cookies import SimpleCookie
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile, is_zipfile
+
+from aiohttp import CookieJar
+from bs4 import BeautifulSoup
+from yarl import URL
 
 from .source_verification import product_key, unverified_reasons, load_verified_source, stamp_report
 
@@ -23,9 +30,14 @@ from shared.datasets import dataset_dir
 
 from .combo_sku import ComboComponent, ComboSku, normalize_sku_key
 
+from ... import auth_audit
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
+from ...official_api import diagnostic
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 DEFAULT_STORE_MSKU_DIR = dataset_dir("replenish_store_msku")
 DEFAULT_OUTPUT_DIR = dataset_dir("replenish_actual_inventory")
@@ -288,6 +300,18 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
     return path
 
 
+def _parse_source_file(path: Path) -> SourceMskuFile | None:
+    match = SOURCE_FILE_RE.match(path.name)
+    if not match:
+        return None
+    source_data_time = match.group("source_time")
+    try:
+        source_datetime = datetime.strptime(source_data_time, "%Y%m%d%H%M")
+    except ValueError:
+        return None
+    return SourceMskuFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime)
+
+
 def find_latest_store_msku_file(store_name: str, *, input_dir: str | Path | None = None) -> SourceMskuFile:
     clean_store_name = normalize_store_name(store_name)
     directory = _resolve_store_msku_dir(input_dir)
@@ -297,15 +321,9 @@ def find_latest_store_msku_file(store_name: str, *, input_dir: str | Path | None
 
     candidates: list[SourceMskuFile] = []
     for path in directory.glob(f"*-{safe_store_name}_*.xlsx"):
-        match = SOURCE_FILE_RE.match(path.name)
-        if not match:
-            continue
-        source_data_time = match.group("source_time")
-        try:
-            source_datetime = datetime.strptime(source_data_time, "%Y%m%d%H%M")
-        except ValueError:
-            continue
-        candidates.append(SourceMskuFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime))
+        source = _parse_source_file(path)
+        if source is not None:
+            candidates.append(source)
     if not candidates:
         raise StoreMskuActualInventoryError(f"未找到本地店铺MSKU数据文件: {clean_store_name}")
     return max(candidates, key=lambda item: (item.source_datetime, item.path.name))
@@ -390,13 +408,20 @@ def _private_amz_get_headers(cookie_header: str) -> dict[str, str]:
     }
 
 
+def _warehouse_response_diagnostic(text: str) -> str:
+    soup = BeautifulSoup(text, "html.parser")
+    for node in soup(["script", "style"]):
+        node.decompose()
+    return diagnostic(soup.get_text(" ", strip=True) or text or "empty response")
+
+
 async def _read_json_response(resp: Any, *, action: str) -> dict[str, Any]:
     status_code = int(getattr(resp, "status", 0) or 0)
     text = await resp.text()
     if status_code in AUTH_FAIL_STATUS:
         raise StoreMskuActualInventoryAuthError(f"{action}鉴权失败(status={status_code})")
     if status_code >= 400:
-        msg = text[:300] if text else "empty response"
+        msg = _warehouse_response_diagnostic(text)
         raise MabangRequestError(f"{action}请求失败(status={status_code}): {msg}")
 
     data: Any = None
@@ -411,31 +436,11 @@ async def _read_json_response(resp: Any, *, action: str) -> dict[str, Any]:
         except Exception:
             data = None
     if not isinstance(data, dict):
-        raise StoreMskuActualInventoryError(f"{action}返回非JSON对象")
+        raise StoreMskuActualInventoryError(f"{action}返回非JSON对象: {_warehouse_response_diagnostic(text)}")
     if data.get("success") is False:
-        message = _clean_text(data.get("msg") or data.get("message") or data.get("error") or "unknown")
-        raise StoreMskuActualInventoryError(f"{action}业务异常: {message}")
+        message = _clean_text(data.get("msg") or data.get("message") or data.get("error")) or diagnostic(data)
+        raise StoreMskuActualInventoryError(f"{action}业务异常: {diagnostic(message)}")
     return data
-
-
-async def _read_optional_json_response(resp: Any, *, action: str) -> dict[str, Any]:
-    status_code = int(getattr(resp, "status", 0) or 0)
-    text = await resp.text()
-    if status_code in AUTH_FAIL_STATUS:
-        raise StoreMskuActualInventoryAuthError(f"{action}鉴权失败(status={status_code})")
-    if status_code >= 400:
-        msg = text[:300] if text else "empty response"
-        raise MabangRequestError(f"{action}请求失败(status={status_code}): {msg}")
-    if not text:
-        return {}
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if isinstance(data, dict) and data.get("success") is False:
-        message = _clean_text(data.get("msg") or data.get("message") or data.get("error") or "unknown")
-        raise StoreMskuActualInventoryError(f"{action}业务异常: {message}")
-    return data if isinstance(data, dict) else {}
 
 
 async def _resolve_private_amz_cookie() -> str:
@@ -513,39 +518,138 @@ def _warehouse_search_form_data(stock_skus: list[str]) -> list[tuple[str, str]]:
     ]
 
 
-async def search_warehouse_stock(stock_skus: list[str]) -> None:
+def _warehouse_export_cookie_header(cookie_header: str, resp: Any) -> tuple[str, list[str]]:
+    response_cookies = getattr(resp, "cookies", None)
+    if not response_cookies:
+        return cookie_header, []
+    response_url = URL(str(getattr(resp, "url", _warehouse_search_url())))
+    export_url = URL(_warehouse_export_url())
+    jar = CookieJar()
+    jar.update_cookies(response_cookies, response_url=response_url)
+    applicable = jar.filter_cookies(export_url)
+    request_cookies = OrderedDict(
+        (name.strip(), value.strip())
+        for part in cookie_header.split(";")
+        for name, separator, value in [part.partition("=")]
+        if separator and name.strip()
+    )
+    for name, morsel in applicable.items():
+        request_cookies[name] = morsel.coded_value
+    for name, morsel in response_cookies.items():
+        if name in applicable:
+            continue
+        probe = SimpleCookie()
+        probe[name] = "scope-check"
+        for attribute in ("domain", "path", "secure"):
+            probe[name][attribute] = morsel[attribute]
+        scope_jar = CookieJar()
+        scope_jar.update_cookies(probe, response_url=response_url)
+        if name in scope_jar.filter_cookies(export_url):
+            request_cookies.pop(name, None)
+    return "; ".join(f"{name}={value}" for name, value in request_cookies.items()), list(applicable)
+
+
+def _validated_warehouse_search_token(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise StoreMskuActualInventoryError("库存SKU搜索未返回有效searchToken，已停止导出")
+    return value
+
+
+async def search_warehouse_stock(stock_skus: list[str]) -> tuple[str, str]:
     if not stock_skus:
-        return
+        return "", ""
     cookie_header = await _resolve_private_amz_cookie()
+    auth_audit.log_auth_material_consumed(
+        purpose="warehouse_stock_search", caller=__name__, auth_kind="cookie",
+        request_url=_warehouse_search_url(), cookie_header=cookie_header, session=erp_http_session,
+    )
     async with erp_http_session.post(
         _warehouse_search_url(),
         data=_warehouse_search_form_data(stock_skus),
         headers=_private_amz_post_headers(cookie_header),
     ) as resp:
-        await _read_optional_json_response(resp, action="库存SKU搜索")
+        payload = await _read_json_response(resp, action="库存SKU搜索")
+        page_html = payload.get("pageHtml")
+        page_state = (
+            "missing" if "pageHtml" not in payload else
+            "false" if page_html is False else
+            "html" if isinstance(page_html, str) and bool(page_html) else "other"
+        )
+        logger.info(
+            "[WarehouseStock] event=search_result warehouse_id=%s sku_count=%d "
+            "http_status=%d success=%s page_html=%s redirects=%d set_cookie=%s",
+            WAREHOUSE_ID, len(stock_skus), int(getattr(resp, "status", 0) or 0),
+            payload.get("success") is True, page_state, len(getattr(resp, "history", ()) or ()),
+            bool(getattr(resp, "cookies", None)),
+        )
+        if payload.get("success") is not True:
+            raise StoreMskuActualInventoryError(f"库存SKU搜索未确认成功: {diagnostic(payload)}")
+        search_token = _validated_warehouse_search_token(payload.get("searchToken"))
+        export_cookie_header, forwarded_names = _warehouse_export_cookie_header(cookie_header, resp)
+        logger.info(
+            "[WarehouseStock] event=session_continuity set_cookie_names=%s "
+            "forwarded_names=%s cookie_header_changed=%s",
+            list(getattr(resp, "cookies", {}) or {}), forwarded_names,
+            export_cookie_header != cookie_header,
+        )
+        return export_cookie_header, search_token
 
 
 async def download_warehouse_stock_xlsx(
     *,
     store_name: str,
     output_dir: str | Path | None = None,
+    cookie_header: str | None = None,
+    search_token: str,
 ) -> Path:
-    cookie_header = await _resolve_private_amz_cookie()
+    search_token = _validated_warehouse_search_token(search_token)
+    base_export_url = _warehouse_export_url()
+    export_url = str(URL(base_export_url).update_query(searchToken=search_token))
+    if cookie_header is None:
+        cookie_header = await _resolve_private_amz_cookie()
+    auth_audit.log_auth_material_consumed(
+        purpose="warehouse_stock_export", caller=__name__, auth_kind="cookie",
+        request_url=base_export_url, cookie_header=cookie_header, session=erp_http_session,
+    )
     directory = _resolve_output_dir(output_dir)
     target_path = directory / f"{_timestamp_text()}-{_safe_file_part(store_name)}_warehouse_stock.xlsx"
     async with erp_http_session.get(
-        _warehouse_export_url(),
+        export_url,
         headers=_private_amz_get_headers(cookie_header),
     ) as resp:
         status_code = int(getattr(resp, "status", 0) or 0)
         body = await resp.read()
+        zip_candidate = status_code < 400 and bool(body) and is_zipfile(BytesIO(body))
+        content_type = str(getattr(resp, "content_type", "") or "").lower()
+        content_kind = (
+            content_type if content_type in {"text/html", "application/json", "application/octet-stream",
+                                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+            else "other"
+        )
+        logger.info(
+            "[WarehouseStock] event=export_result warehouse_id=%s http_status=%d "
+            "content_type=%s bytes=%d zip_candidate=%s redirects=%d set_cookie=%s",
+            WAREHOUSE_ID, status_code, content_kind, len(body), zip_candidate,
+            len(getattr(resp, "history", ()) or ()), bool(getattr(resp, "cookies", None)),
+        )
         if status_code in AUTH_FAIL_STATUS:
             raise StoreMskuActualInventoryAuthError(f"库存SKU导出鉴权失败(status={status_code})")
         if status_code >= 400:
-            msg = body.decode("utf-8", errors="replace")[:300] if body else "empty response"
+            msg = _warehouse_response_diagnostic(body.decode("utf-8", errors="replace"))
             raise MabangRequestError(f"库存SKU导出请求失败(status={status_code}): {msg}")
         if not body:
             raise StoreMskuActualInventoryError("库存SKU导出返回空文件")
+    if not zip_candidate:
+        raise StoreMskuActualInventoryError(
+            f"库存SKU导出返回非XLSX内容: {_warehouse_response_diagnostic(body.decode('utf-8', errors='replace'))}"
+        )
+    with ZipFile(BytesIO(body)) as archive:
+        missing = {"[Content_Types].xml", "xl/workbook.xml"} - set(archive.namelist())
+        if missing:
+            raise StoreMskuActualInventoryError(f"库存SKU导出XLSX缺少工作簿成员: {', '.join(sorted(missing))}")
+        corrupt = archive.testzip()
+        if corrupt:
+            raise StoreMskuActualInventoryError(f"库存SKU导出ZIP成员校验失败: {diagnostic(corrupt)}")
     target_path.write_bytes(body)
     return target_path
 
@@ -837,11 +941,20 @@ def write_actual_inventory_xlsx(rows: list[ActualInventoryRow], output_path: str
 async def _export_store_msku_actual_inventory_once(
     store_name: str,
     *,
+    msku_source_xlsx_path: str | Path | None = None,
     input_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> ActualInventoryResult:
     clean_store_name = normalize_store_name(store_name)
-    source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
+    if msku_source_xlsx_path is None:
+        source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
+    else:
+        source_path = Path(msku_source_xlsx_path)
+        if not source_path.is_file():
+            raise FileNotFoundError(f"店铺MSKU数据Excel不存在: {source_path}")
+        source = _parse_source_file(source_path)
+        if source is None:
+            raise StoreMskuActualInventoryError(f"MSKU 源文件名无法识别源数据时间: {source_path.name}")
     verified_source = load_verified_source(source.path, store_name=clean_store_name)
     msku_rows = load_store_msku_rows(source.path, records=verified_source.records)
     unverified = unverified_reasons(verified_source.metadata)
@@ -856,9 +969,10 @@ async def _export_store_msku_actual_inventory_once(
         if not stock_skus:
             return {}
         with warehouse_export_lock():
-            await search_warehouse_stock(stock_skus)
+            export_cookie_header, search_token = await search_warehouse_stock(stock_skus)
             stock_xlsx_path = await download_warehouse_stock_xlsx(
                 store_name=clean_store_name, output_dir=output_directory,
+                cookie_header=export_cookie_header, search_token=search_token,
             )
             return parse_stock_inventory_xlsx(stock_xlsx_path)
 
@@ -897,11 +1011,12 @@ async def _export_store_msku_actual_inventory_once(
 async def export_store_msku_actual_inventory(
     store_name: str,
     *,
+    msku_source_xlsx_path: str | Path | None = None,
     input_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> ActualInventoryResult:
     return await _export_store_msku_actual_inventory_once(
-        store_name, input_dir=input_dir, output_dir=output_dir,
+        store_name, msku_source_xlsx_path=msku_source_xlsx_path, input_dir=input_dir, output_dir=output_dir,
     )
 
 

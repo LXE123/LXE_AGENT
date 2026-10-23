@@ -13,8 +13,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     store_name = str(arguments.get("store_name") or "").strip()
     store_id = str(arguments.get("store_id") or "").strip()
     id_type = str(arguments.get("id_type") or "").strip()
+    include_local_inventory = arguments.get("include_local_inventory") is True
     try:
-        result = asyncio.run(download_store_msku_excel(store_id, id_type, store_name=store_name))
+        kwargs: dict[str, Any] = {"store_name": store_name}
+        if include_local_inventory:
+            kwargs["include_local_inventory"] = True
+        result = asyncio.run(download_store_msku_excel(store_id, id_type, **kwargs))
         return result.to_payload()
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         payload = {

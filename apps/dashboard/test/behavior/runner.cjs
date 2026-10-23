@@ -90,6 +90,8 @@ app.whenReady().then(async () => {
       await require("./session-workspace.cjs")({js, step, settle, load, state, waitFor});
     } else if (suite === "app-actions" || suite === "conversation-events") {
       await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
+    } else if (suite === "amazon-final-restock-settings") {
+      await require("./amazon-final-restock-settings.cjs")({ js, step, waitFor, click, state });
     } else if (suite === "vietnam-settings") {
       const openSettings = async () => {
         await js("[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings')).click()");

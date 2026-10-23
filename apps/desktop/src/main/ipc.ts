@@ -1,4 +1,5 @@
 import { validateTitlebarMenu } from "./titlebar-menu";
+import { isAmazonFinalRestockSettings } from "./amazon-final-restock-settings";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
 import { app, dialog, ipcMain, shell } from "electron";
@@ -14,6 +15,7 @@ import type {
   DesktopInputAssetSlot,
   DesktopVietnamSettingsState,
   DesktopVietnamTemplateExportResult,
+  DesktopAmazonFinalRestockSettings,
   DesktopInputAttachmentPayload,
   DesktopDraftAttachmentPayload,
   DesktopLocalModelCredentialInput,
@@ -87,6 +89,8 @@ export interface DesktopIpcApplication {
   inputAssetSlotDirectory(slot: string): Promise<string>;
   getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
   saveVietnamParameters(input: unknown): Promise<DesktopVietnamSettingsState>;
+  getAmazonFinalRestockSettings(): Promise<DesktopAmazonFinalRestockSettings>;
+  saveAmazonFinalRestockSettings(input: unknown): Promise<DesktopAmazonFinalRestockSettings>;
   installVietnamTemplate(sourcePath: string): Promise<DesktopVietnamSettingsState>;
   exportVietnamTemplate(path: string): Promise<DesktopVietnamTemplateExportResult>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
@@ -271,6 +275,17 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.saveVietnamParameters, (event, input: unknown) => {
     trustedWorkspaceSender(event);
     return application.saveVietnamParameters(input);
+  });
+  ipcMain.handle(IPC_CHANNELS.getAmazonFinalRestockSettings, (event) => {
+    trustedWorkspaceSender(event);
+    return application.getAmazonFinalRestockSettings();
+  });
+  ipcMain.handle(IPC_CHANNELS.saveAmazonFinalRestockSettings, (event, input: unknown) => {
+    trustedWorkspaceSender(event);
+    if (!isAmazonFinalRestockSettings(input)) {
+      throw new Error("peak_boost_enabled must be a boolean; peak_boost_days must be null or an integer between 0 and 120");
+    }
+    return application.saveAmazonFinalRestockSettings(input);
   });
   ipcMain.handle(IPC_CHANNELS.uploadVietnamTemplate, async (event) => {
     trustedWorkspaceSender(event);

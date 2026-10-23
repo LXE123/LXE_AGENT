@@ -23,8 +23,8 @@ def _records(capsys) -> list[dict]:
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 47
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 41
+    assert len(catalog) == 49
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 43
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -135,7 +135,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 44
+    assert len(records[0]["data"]["commands"]) == 45
 
     assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
     records = _records(capsys)
@@ -188,11 +188,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 47,
-                "business_commands": 40,
-                "skill_files": 38,
-                "owner_skills": 30,
-                "command_declarations": 40,
+                "catalog_commands": 49,
+                "business_commands": 41,
+                "skill_files": 39,
+                "owner_skills": 31,
+                "command_declarations": 41,
             },
             "files": [],
         }

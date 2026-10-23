@@ -77,6 +77,14 @@
   font-variant-numeric: tabular-nums;
 }
 .vietnam-settings-view input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.amazon-peak-toggle { display: flex; justify-content: space-between; align-items: center; gap: 20px; cursor: pointer; }
+.amazon-peak-toggle-copy { display: flex; align-items: flex-start; gap: 12px; }
+.amazon-peak-toggle-copy > svg { color: var(--accent-strong); flex: 0 0 auto; margin-top: 2px; }
+.amazon-peak-toggle-copy strong, .amazon-peak-toggle-copy small { display: block; }
+.amazon-peak-toggle-copy small { margin-top: 5px; color: var(--muted); line-height: 1.5; }
+.amazon-peak-toggle input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--accent-strong); }
+.amazon-peak-days { display: flex; align-items: center; gap: 12px; }
+.amazon-peak-days input { width: 88px; }
 .vietnam-exchange { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .vietnam-exchange input { width: 128px; }
 .vietnam-save { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }

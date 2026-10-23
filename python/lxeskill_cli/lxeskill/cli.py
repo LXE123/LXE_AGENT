@@ -127,6 +127,12 @@ def _arguments_from_flags(entry: dict[str, Any], argv: list[str]) -> dict[str, A
             raise LxeSkillError("invalid_arguments", f"unknown option: --{raw_name}", exit_code=EXIT_USAGE)
         kind = property_schema.get("type")
         if kind == "boolean":
+            if separator and entry.get("name") == "mabang_generate_final_restock_recommendation" and name == "peak_boost_enabled":
+                raise LxeSkillError(
+                    "invalid_arguments",
+                    "--peak-boost-enabled accepts no value; omit the flag to disable seasonal boost",
+                    exit_code=EXIT_USAGE,
+                )
             arguments[name] = True
             index += 1
             continue

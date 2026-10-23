@@ -49,7 +49,14 @@ lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"
 ## 交付与后续
 
 - 单步任务成功后，用终态 `files` 一次调用 `send_files(paths=<terminal.files>)`。发送成功才说已交付；发送失败仅重试交付，不重新导出。没有路径时不猜文件位置。
-- 完整备货任务保留本轮快照，按流程进入计算 Skill，显式传入 `--unlinked-shipments-snapshot`；与本轮源表同店、同日，以 CLI 核验为准。中间文件保留，最终发送计算结果的 `files`。
+- 完整备货任务保留本轮快照，按已确定的流程进入对应计算 Skill，不切换备货类型：
+
+| 当前流程 | 继续使用的 Skill / 命令 | 货件快照参数 |
+|---|---|---|
+| 普通备货 | `replenishment-calculate` / `lxeskill replenish calculate` | `--unlinked-shipments-snapshot` |
+| Amazon 最终备货 | `replenishment-final-restock` / `lxeskill replenish final-restock generate` | `--unlinked-shipments-snapshot-path` |
+
+快照参数使用本轮成功返回的 `data.snapshot.snapshot_xlsx_path`，两种参数不能混用。通过 `lxeskill describe replenish calculate` 或 `lxeskill describe replenish final-restock generate` 查询对应命令的真实参数，其他输入按所属 Skill 传递。快照与本轮源表须同店、同日，以 CLI 核验为准。中间文件保留，最终发送计算结果的 `files`。
 - 回复店铺、三个状态的发货单张数、快照中的 MSKU 数和商品件数。说明这是备货扣减输入，不能宣称已完成备货建议，也不手工再扣一次。
 
 ## 失败与恢复

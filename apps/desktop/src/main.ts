@@ -1,4 +1,5 @@
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
+import { DesktopAmazonFinalRestockSettingsService } from "./main/amazon-final-restock-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
@@ -438,6 +439,10 @@ async function bootstrap(): Promise<void> {
     platform: process.platform, pythonPath: paths.managedPythonPath,
     dataRoot: paths.dataRoot, managedPath: paths.managedPath,
   });
+  const amazonFinalRestockSettings = new DesktopAmazonFinalRestockSettingsService({
+    platform: process.platform, pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath,
+  });
   const checkCloudAfterResume = (): void => { void cloud.check(); activeUpdates?.wake(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
@@ -637,6 +642,8 @@ async function bootstrap(): Promise<void> {
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     getVietnamSettings: () => vietnamSettings.read(),
+    getAmazonFinalRestockSettings: () => amazonFinalRestockSettings.read(),
+    saveAmazonFinalRestockSettings: input => amazonFinalRestockSettings.save(input),
     saveVietnamParameters: input => vietnamSettings.save(input),
     installVietnamTemplate: sourcePath => vietnamSettings.uploadTemplate(sourcePath),
     exportVietnamTemplate: path => vietnamSettings.exportTemplate(path),
