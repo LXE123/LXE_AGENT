@@ -29,7 +29,6 @@ const workspace = (root: string) => ({
 
 const initializePayload = (root: string) => ({
   protocol_version: AGENT_PROTOCOL_VERSION,
-  agent_soul_path: join(root, "SOUL.md"),
   skills_root: join(root, "skills"),
   user_skills_root: join(root, "user-skills"),
   llm_config_root: join(root, "config", "llm"),

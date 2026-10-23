@@ -74,7 +74,7 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 这类文件分成两种处理方式：Dashboard 使用的 HTML、CSS、图片和字体会先交给 Vite；其余产品文件主要经过白名单挑选后原样带进应用：
 
 - HTML、CSS、图片和字体。
-- `SOUL.md` 和各个 Skill。
+- 各个 Skill。
 - JSON、YAML 和环境默认配置。
 - Dashboard 构建后的静态文件。
 - 图标、许可证和第三方声明。
@@ -293,7 +293,6 @@ resources/
 │           ├── exiftool.exe
 │           └── exiftool_files/
 ├── wireguard/
-├── agent/SOUL.md
 ├── skills/
 ├── lxeskill/catalog.json
 ├── config/

@@ -42,7 +42,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 25 as const;
+export const AGENT_PROTOCOL_VERSION = 26 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -98,7 +98,6 @@ export class AgentProtocolError extends Error {
 
 export type AgentInitializePayload = {
   protocol_version: number;
-  agent_soul_path: string;
   skills_root: string;
   user_skills_root: string;
   llm_config_root: string;
@@ -828,7 +827,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       if (!Number.isSafeInteger(payload.protocol_version)) {
         throw new Error("agent protocol initialize.protocol_version must be an integer");
       }
-      requireText("agent_soul_path");
       requireText("skills_root");
       requireText("user_skills_root");
       requireText("llm_config_root");

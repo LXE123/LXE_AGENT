@@ -301,7 +301,6 @@ describe("desktop agent protocol", () => {
       method: "initialize",
       params: {
         protocol_version: AGENT_PROTOCOL_VERSION,
-        agent_soul_path: "/runtime/resources/agent/SOUL.md",
         skills_root: "/runtime/resources/skills",
         user_skills_root: "/home/tester/.agents/skills",
         llm_config_root: "/runtime/resources/config/llm",

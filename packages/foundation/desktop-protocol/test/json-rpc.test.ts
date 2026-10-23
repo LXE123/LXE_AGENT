@@ -9,7 +9,7 @@ import {
 
 const initialize = {
   protocol_version: AGENT_PROTOCOL_VERSION,
-  agent_soul_path: "/soul", skills_root: "/skills", user_skills_root: "/user-skills",
+  skills_root: "/skills", user_skills_root: "/user-skills",
   llm_config_root: "/llm", data_root: "/data",
   legacy_workspace: { directory: "/work", worktree: "/work" },
 };

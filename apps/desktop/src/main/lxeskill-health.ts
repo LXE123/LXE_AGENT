@@ -70,7 +70,7 @@ export class DesktopLxeSkillHealth {
     // Queue the subprocess so the caller can start the Agent independently.
     probe.done = Promise.resolve().then(async () => {
       if (controller.signal.aborted) return;
-      const { LXE_AGENT_SQLITE_DB_PATH: _agentDb, LXE_AGENT_SOUL_PATH: _soul,
+      const { LXE_AGENT_SQLITE_DB_PATH: _agentDb,
         LXE_USER_SKILLS_ROOT: _userSkills, ...environment } = this.options.environment;
       const result = await (this.options.execute ?? executeProbe)(this.options.pythonPath,
         ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "list"], {

@@ -55,7 +55,6 @@ import { loadAgentFeishuConfig } from "./feishu-runtime-config";
 type Environment = Record<string, string | undefined>;
 
 export interface AgentRuntimeHostOptions {
-  agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
   llmConfigRoot: string;
@@ -109,7 +108,6 @@ export function createAgentRuntimeHost(
   let managedLlmState = options.managedLlmState;
   const environment: Environment = {
     ...options.environment,
-    LXE_AGENT_SOUL_PATH: options.agentSoulPath,
     LXE_SKILLS_ROOT: options.skillsRoot,
     LXE_USER_SKILLS_ROOT: options.userSkillsRoot,
     LXE_LLM_CONFIG_ROOT: options.llmConfigRoot,
@@ -229,7 +227,6 @@ export function createAgentRuntimeHost(
   runtimeServices.push({ start: async () => {}, stop: async () => dashboardService.dispose() });
   workspaceInstances = new WorkspaceInstanceManager({
     createSearch: root => new WorkspaceSearchService(root, environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
-    soulPath: options.agentSoulPath,
     skillCatalog,
     skillOptions: () => ({ allowedTypes: allowedSkillTypes }),
   });
@@ -265,7 +262,6 @@ export function createAgentRuntimeHost(
       : {}),
     userSkillsRoot: options.userSkillsRoot,
     systemPrompt: (context) => buildSystemPrompt({
-      soul: context.workspaceSnapshot?.soul ?? "",
       workspace: context.workspace,
       platform: context.platform,
       provider: context.provider,

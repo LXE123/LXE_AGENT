@@ -195,8 +195,6 @@ if (brandingFiles.length === 0) {
 }
 for (const path of brandingFiles) requireResourceSourceFile(join(brandingRoot, path));
 
-const agentScope = scopeEntry("agent");
-const agentSource = join(repositoryRoot, String(agentScope.source.path ?? ""));
 const lxeSkillScope = scopeEntry("lxeskill");
 const lxeSkillSource = join(repositoryRoot, String(lxeSkillScope.source.path ?? ""));
 const legalScope = scopeEntry("legal");
@@ -235,7 +233,6 @@ const extraResources: BuilderFileSet[] = [
   },
   exactFileSet(agentCli, `${scopeEntry("runtime-agent-cli").target}/agent-cli.exe`),
   { from: dashboardRoot, to: scopeEntry("dashboard").target, filter: ["**/*"] },
-  exactFileSet(agentSource, agentScope.target),
   {
     from: join(repositoryRoot, skillsSource),
     to: skillsScope.target,

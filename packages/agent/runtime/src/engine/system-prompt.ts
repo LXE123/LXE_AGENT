@@ -26,7 +26,6 @@ const ATTACHMENTS = `Attachment metadata is context, not an implicit request to 
 const SKILLS = `When an explicit /skill-name reference supplies a <skill_content> block, follow those instructions without reloading that skill. Otherwise, when the user explicitly names an available skill, read its SKILL.md before following its instructions. Before replying, inspect the available skill descriptions. If exactly one skill clearly applies, read its SKILL.md and follow it. If several apply, choose the most specific. If none clearly applies, do not read a SKILL.md. Resolve relative paths from the skill directory and avoid unnecessary external API writes.`;
 
 export interface BuildSystemPromptOptions {
-  soul?: string;
   platform: string;
   provider: string;
   model: string;
@@ -38,9 +37,7 @@ export interface BuildSystemPromptOptions {
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-  const soul = options.soul?.trim() ?? "";
   const stable = [
-    soul ? `## Soul\n${soul}` : "",
     `## Safety & Boundaries\n${SAFETY}`,
     `## Communication\n${COMMUNICATION}`,
     `## Tool Call Style\n${TOOL_STYLE}`,
