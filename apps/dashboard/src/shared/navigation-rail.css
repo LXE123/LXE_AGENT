@@ -40,9 +40,33 @@
 }
 
 .navigation-rail-button > svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
+
+.navigation-icon-glyph, .navigation-icon-clock-hand {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+}
+.navigation-icon-module { transform-box: view-box; transform-origin: 17px 7px; }
+.navigation-icon-activity-bar { transform-box: view-box; transform-origin: 19px 20px; }
+.navigation-rail-button.active .navigation-icon-glyph { animation: navigation-arrive 180ms ease-out; }
+
+/* One short response per interaction. A clock animation does not imply a running task. */
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-home-door { animation: navigation-light 260ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-reply { animation: navigation-reply 260ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-work-panel { animation: navigation-panel 260ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-clock-hand { animation: navigation-clock 320ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-module { animation: navigation-module 320ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-activity-bar { animation: navigation-bar 320ms ease-out; }
+
+@keyframes navigation-arrive { from { transform: scale(.97); } to { transform: scale(1); } }
+@keyframes navigation-light { 0% { opacity: .65; } 55% { opacity: 1; } }
+@keyframes navigation-reply { from { transform: translateX(-.75px); } to { transform: translateX(0); } }
+@keyframes navigation-panel { 40% { transform: translateX(.75px); } }
+@keyframes navigation-clock { 45% { transform: rotate(12deg); } }
+@keyframes navigation-module { 45% { transform: rotate(8deg); } }
+@keyframes navigation-bar { 45% { transform: scaleY(.9); } }
 
 .navigation-rail-button:hover,
 .navigation-rail-button.active,
@@ -124,4 +148,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .navigation-rail-button { transition: none; }
+  .navigation-rail-button .navigation-icon * { animation: none !important; transition: none !important; }
 }

@@ -78,6 +78,8 @@ app.whenReady().then(async () => {
       await require("./markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "conversation-content" || suite === "conversation-window") {
       await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "navigation-rail") {
+      await require("./navigation-rail.cjs")({win, js, step, load, waitFor, click, key, focus, settle});
     } else if (suite === "dashboard-pages") {
       await require("./dashboard-pages.cjs")({win, js, step, load, waitFor, click, key, focus, settle, state});
     } else if (suite === "overview-pages") {

@@ -287,6 +287,7 @@ let composerLanguage: "en" | "zh" = "en";
 const dashboard = {
   async call(call: { operation: string; input: Record<string, unknown> }) {
     calls.push(structuredClone(call));
+    if (call.operation === "automations.list" || call.operation === "skills.user.list") return { items: [], total: 0 };
     if (homeMode) {
       const result = homeFixture.rpc(call.operation, call.input, workspaceSessions);
       if (result !== undefined) return result;

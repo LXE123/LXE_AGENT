@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import type { DashboardSection } from "./navigation";
+import { NavigationIcon } from "./navigation-icons";
 
 export function NavigationRail({ items, activeSection, label, onNavigate, footer }: {
-  items: Array<{ id: DashboardSection; label: string; icon: ReactNode }>;
+  items: Array<{ id: DashboardSection; label: string }>;
   activeSection: DashboardSection;
   label: string;
   onNavigate: (section: DashboardSection) => void;
@@ -18,7 +19,7 @@ export function NavigationRail({ items, activeSection, label, onNavigate, footer
         aria-current={activeSection === item.id ? "page" : undefined}
         onClick={() => onNavigate(item.id)}
       >
-        {item.icon}
+        <NavigationIcon section={item.id} />
         <span className="navigation-rail-tooltip" aria-hidden="true">{item.label}</span>
       </button>)}
     </nav>

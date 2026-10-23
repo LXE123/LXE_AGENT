@@ -11,6 +11,7 @@
 | 找到实际使用的变量与组件 | [实现与适配对照](lxe-adaptation.md)、[共享主题源码](../../../apps/dashboard/src/shared/cds-theme.css) |
 | 对照已确认规则与实现缺口 | [当前适配总表](current-adaptation.md) |
 | 检查定时任务页面的状态与验收 | [定时任务适配](automations.md) |
+| 检查主导航图标、动效与键盘操作 | [主导航图标与动效](navigation-rail.md) |
 | 核对最初引入的色彩表 | [变量说明](tokens/README.md)；其中快照对应指定历史版本，开发以生产源码为准 |
 
 ## 区分四类信息

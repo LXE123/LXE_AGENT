@@ -9,20 +9,11 @@ import { useModelActions } from "./api/model-actions";
 import { useMcpActions } from "./api/mcp-actions";
 import { useConversationEvents } from "./features/sessions/use-conversation-events";
 import { useEffect, useLayoutEffect, useState } from "react";
-import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   DesktopCloudState,
   DesktopHealth,
 } from "@lxe/desktop-protocol";
-import {
-  ChartColumn,
-  Clock3,
-  BriefcaseBusiness,
-  House,
-  MessageSquareText,
-  Sparkles,
-} from "lucide-react";
 
 import "./styles.css";
 import "./features/home/theme.css";
@@ -168,13 +159,13 @@ function App({
     : undefined;
   const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
 
-  const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
-    { id: "home", label: t.nav.home, icon: <House size={16} /> },
-    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
-    { id: "workbench", label: t.nav.workbench, icon: <BriefcaseBusiness size={16} /> },
-    { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
-    { id: "automations", label: language === "zh" ? "定时任务" : "Automations", icon: <Clock3 size={16} /> },
-    { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
+  const tabs: Array<{ id: DashboardSection; label: string }> = [
+    { id: "home", label: t.nav.home },
+    { id: "sessions", label: t.nav.sessions },
+    { id: "workbench", label: t.nav.workbench },
+    { id: "automations", label: language === "zh" ? "定时任务" : "Automations" },
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "activity", label: t.nav.activity },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
