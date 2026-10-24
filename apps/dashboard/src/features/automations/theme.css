@@ -165,3 +165,49 @@
   .automations-page .automation-editor { padding: 18px; }
   .automation-editor footer { gap: 10px; flex-wrap: wrap; }
 }
+
+/* Compact schedule editor: a quiet row hierarchy, with app-owned date/time pickers. */
+.automation-editor-fields > label:first-child { margin-top: 4px; }
+.automation-editor-fields > label:has(.automation-optional) { display: block; }
+.automation-editor-fields > label:has(.automation-optional) > input { display: block; margin-top: 8px; }
+.automation-optional { color: var(--muted-light); font-size: 12px; margin-left: 4px; }
+.automation-editor .automation-schedule { padding: 4px 16px; border-radius: 12px; }
+.automation-schedule-row { grid-template-columns: minmax(65px, 1fr) minmax(0, 280px); min-height: 52px; gap: 12px; padding: 6px 0; }
+.automation-editor .automation-schedule-row > select,
+.automation-editor .automation-schedule-row > input { text-align: right; background: transparent; border-color: transparent; }
+.automation-editor .automation-schedule-row > select:hover:not(:disabled),
+.automation-editor .automation-schedule-row > input:hover:not(:disabled) { background: var(--row-hover); border-color: var(--border); }
+.automation-editor .automation-schedule-row > select:user-invalid,
+.automation-editor .automation-schedule-row > input:user-invalid { border-color: var(--danger); }
+.automation-advanced { border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px; }
+.automation-basic-workspace { margin-top: 12px; padding: 0 16px; border: 1px solid var(--border); border-radius: 12px; }
+.automations-page .automation-advanced-toggle { margin: 16px 0 10px; padding: 6px 8px; border: 0; color: var(--text-soft); }
+.automation-advanced-toggle[aria-expanded=true] > svg { transform: rotate(180deg); }
+.automation-editor-note { margin: 14px 0 0; font-size: 12px; }
+.automation-sr-only { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
+.automation-picker { min-width: 0; justify-self: end; }
+.automations-page .automation-picker-trigger { border-color: transparent; color: var(--text-soft); justify-content: flex-end; max-width: 100%; text-align: right; }
+.automation-picker-popup { position: fixed; z-index: 2; width: min(220px, calc(100vw - 32px)); max-height: min(340px, calc(100vh - 32px)); overflow: auto; padding: 6px; background: var(--cds-surface-popover); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px var(--shadow-strong); }
+.automation-picker-popup [role=listbox] { display: flex; flex-direction: column; gap: 2px; }
+.automations-page .automation-picker-popup [role=option] { border: 0; justify-content: space-between; flex-shrink: 0; text-align: left; min-height: 34px; }
+.automations-page .automation-picker-popup [aria-selected=true] { background: var(--cds-selected); }
+.automation-calendar-popup { width: min(292px, calc(100vw - 32px)); padding: 12px; }
+.automation-calendar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 6px; }
+.automation-calendar-heading strong { font-size: 14px; font-weight: 500; }
+.automations-page .automation-calendar-heading button { padding: 4px; border: 0; min-height: 28px; }
+.automation-calendar-week, .automation-calendar [role=row] { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; text-align: center; }
+.automation-calendar-week { color: var(--muted-light); font-size: 12px; margin-bottom: 6px; }
+.automations-page .automation-calendar [role=gridcell] { padding: 2px; min-height: 34px; border: 0; font-variant-numeric: tabular-nums; }
+.automation-calendar [data-outside=true] { color: var(--muted-light); }
+.automations-page .automation-calendar [aria-current=date] { box-shadow: inset 0 0 0 1px var(--border); }
+.automation-time-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.automation-time-columns > div > span { display: block; color: var(--text-soft); font-size: 12px; padding: 6px 8px; }
+.automation-time-columns [role=listbox] { height: 220px; overflow: auto; padding: 4px; }
+.automations-page .automation-time-columns [role=option] { justify-content: center; font-variant-numeric: tabular-nums; }
+@media (max-width: 650px) {
+  .automation-schedule-row { grid-template-columns: minmax(52px, 1fr) minmax(0, 190px); }
+  .automation-editor .automation-schedule, .automation-advanced, .automation-basic-workspace { padding-inline: 10px; }
+}
+
+.automations-page .automation-picker-trigger:disabled { color: var(--cds-disabled-ink); background: var(--cds-disabled-fill); }
+.automation-editor .automation-schedule-row > :is(input, select):disabled { color: var(--cds-disabled-ink); background: var(--cds-disabled-fill); }

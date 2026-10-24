@@ -30,8 +30,7 @@ app.whenReady().then(async () => {
     await win.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
     await js("document.fonts.ready");
     if (scenario === "schedules") await wait("document.querySelectorAll('.automation-row').length >= 2");
-    else if (!["empty", "error", "loading"].includes(scenario)) await wait("document.querySelectorAll('.automation-row').length === 2");
-    if (!["empty", "error", "loading"].includes(scenario)) await wait(`document.querySelectorAll('.automation-row').length === ${["expired-once", "resume-error"].includes(scenario) ? 1 : 2}`);
+    else if (!["empty", "error", "loading"].includes(scenario)) await wait(`document.querySelectorAll('.automation-row').length === ${["expired-once", "resume-error"].includes(scenario) ? 1 : 2}`);
     await delay(120); off();
   }
   function off() { win.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 }); }
@@ -64,6 +63,12 @@ app.whenReady().then(async () => {
   async function type(selector, value) {
     await click(selector); win.webContents.selectAll(); await delay(30); await win.webContents.insertText(value); await delay(60);
   }
+  async function select(name, value) {
+    if (name === 'schedule') { await click('button[name=schedule]'); await click(`[role=option][data-value="${value}"]`); return; }
+    await js(`(() => { const e=document.querySelector('select[name=${name}]'); e.value=${JSON.stringify(value)}; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+    await delay(50);
+  }
+  const chooseWorkspace = () => select('workspace', 'workspace');
   async function measure(theme, state, selector) {
     const result = await js(`(() => { const e=document.querySelector(${JSON.stringify(selector)}),s=getComputedStyle(e),r=e.getBoundingClientRect();
       const token = name => { const p=document.createElement('span'); p.style.color=s.getPropertyValue(name); document.body.append(p); const c=getComputedStyle(p).color; p.remove(); return c; };
@@ -133,6 +138,8 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...p });
       await wait("document.querySelector('dialog')?.open");
       assert.equal(await js("document.activeElement.name"), "name");
+      assert.equal(await js("document.querySelector('input[name=name]').required"), false);
+      assert.equal(await js("document.querySelector('select[name=workspace]').value"), '', 'No workspace is selected implicitly');
       const dialog = await measure(theme, "dialog/surface", "dialog");
       const nameDefault = await measure(theme, "editor/field", name);
       assert.equal(dialog.background, dialog.expected.popover); assert.equal(nameDefault.background, nameDefault.expected.field); assert.ok(nameDefault.shadow.includes(dialog.background), "Focus knockout matches elevated surface");
@@ -146,19 +153,22 @@ app.whenReady().then(async () => {
       await js("document.querySelector('.automations-header button').focus()");
       assert.equal(await js("!!document.activeElement.closest('dialog')"), true);
       passed.push(`${theme}: modal surface/backdrop, autofocus, focus containment and reverse tab wrap`);
-      await click(save); await wait("document.querySelector('input[name=name]').matches(':user-invalid')");
-      const invalid = await measure(theme, "field/invalid+focus", name);
+      await click(save); await wait("document.querySelector('textarea[name=prompt]').matches(':user-invalid')");
+      const invalid = await measure(theme, "field/invalid+focus", prompt);
       assert.notEqual(invalid.shadow, nameDefault.shadow); await hover(name);
-      assert.equal((await measure(theme, "field/invalid+focus+hover", name)).shadow, invalid.shadow);
-      await click("dialog h2"); off(); const invalidRest = await measure(theme, "field/invalid", name);
-      await hover(name); assert.equal((await measure(theme, "field/invalid+hover", name)).border, invalidRest.border);
+      assert.equal((await measure(theme, "field/invalid+focus+hover", prompt)).shadow, invalid.shadow);
+      await click("dialog h2"); off(); const invalidRest = await measure(theme, "field/invalid", prompt);
+      await hover(name); assert.equal((await measure(theme, "field/invalid+hover", prompt)).border, invalidRest.border);
       await type(name, "每周运营复盘与异常跟进"); await type(prompt, "汇总运营变化，列出需要确认的异常，并将结果保存在对话中。");
       assert.equal((await measure(theme, "field/corrected", name)).invalid, false);
-      await tabTo("input[type=radio]:checked"); await key("Down");
+      await chooseWorkspace();
+      assert.equal(await js("!!document.querySelector('#automation-advanced')"), false);
+      await capture(`editor-basic-${theme}.png`);
+      await click('.automation-advanced-toggle');
+      await select('conversation', 'reuse');
       await wait("document.querySelector('select[name=session]')");
-      assert.equal(await js("document.querySelectorAll('input[type=radio]:checked').length"), 1);
-      await measure(theme, "radio/checked+focus", "input[type=radio]:checked");
-      await key("Up"); await wait("document.querySelector('select[name=workspace]')");
+      await tabTo('select[name=conversation]'); await measure(theme, "conversation/focus", "select[name=conversation]");
+      await select('conversation', 'new'); await wait("document.querySelector('select[name=workspace]')");
       await measure(theme, "select/default", "select[name=workspace]");
       await hover("select[name=workspace]"); await measure(theme, "select/hover", "select[name=workspace]");
       await tabTo("select[name=workspace]"); await measure(theme, "select/focus", "select[name=workspace]");
@@ -167,7 +177,7 @@ app.whenReady().then(async () => {
       await capture(`editor-${theme}.png`); await noOverflow();
       await key("Escape"); await wait("!document.querySelector('dialog')");
       assert.equal(await js("document.activeElement === document.querySelector('.automation-create')"), true);
-      passed.push(`${theme}: native validation/error precedence/correction, radio keyboard group, select/textarea focus, Escape restores opener`);
+      passed.push(`${theme}: optional name, explicit workspace, validation/correction, collapsed advanced options, select/textarea focus, Escape restores opener`);
       off(); await capture(`page-${theme}.png`);
       await click("button[aria-label='删除任务']"); await wait("document.querySelector('.automation-danger')");
       await measure(theme, "danger/default", ".automation-danger"); await hover(".automation-danger"); await measure(theme, "danger/hover", ".automation-danger");
@@ -191,7 +201,7 @@ app.whenReady().then(async () => {
       win.setContentSize(390, 844); await delay(100); await noOverflow(); await capture(`empty-narrow-${theme}.png`); win.setContentSize(1280, 1000); await delay(100);
       passed.push(`${theme}: full-page empty view has one create action and no inactive list/filter`);
       await click(create); await wait("document.querySelector('dialog')?.open");
-      await type(name, '第一个任务'); await type(prompt, '生成一份简报'); await click(save);
+      await type(name, '第一个任务'); await type(prompt, '生成一份简报'); await chooseWorkspace(); await click(save);
       await wait("document.querySelectorAll('.automation-row').length === 1");
       assert.equal(await js("document.querySelector('.automation-detail h2').textContent"), '第一个任务');
       assert.equal(await js("!!document.querySelector('.automations-list input')"), true);
@@ -208,7 +218,7 @@ app.whenReady().then(async () => {
       assert.equal(await js("!!document.querySelector('.automation-empty')"), false);
       passed.push(`${theme}: real fixture error retained, no false empty state`);
       await load(theme, "save-error"); await click(create); await wait("document.querySelector('dialog')?.open");
-      await type(name, "保存错误验收"); await type(prompt, "用于检查保存失败后的编辑和错误展示。"); await click(save);
+      await type(name, "保存错误验收"); await type(prompt, "用于检查保存失败后的编辑和错误展示。"); await chooseWorkspace(); await click(save);
       await wait("document.querySelector('dialog [role=alert]')");
       assert.match(await js("document.querySelector('dialog [role=alert]').textContent"), /schedule.start_at/);
       await measure(theme, "error/save failure", "dialog .automation-error");
@@ -262,10 +272,10 @@ app.whenReady().then(async () => {
 
       await load(theme, "pending"); await click(create); await wait("document.querySelector('dialog')?.open");
       await type(name, "保存中状态验收"); await type(prompt, "检查请求期间的字段和按钮状态。");
-      await js("(() => { const e=document.querySelector('select[name=schedule]'); e.value='weekly'; e.dispatchEvent(new Event('change',{bubbles:true})); })()");
+      await chooseWorkspace(); await click('.automation-advanced-toggle'); await select('schedule', 'weekly');
       await wait("document.querySelector('input[name=weekdays]:checked')");
       await click("dialog footer > button"); await wait("document.querySelector('dialog').getAttribute('aria-busy') === 'true'");
-      for (const selector of [name, prompt, "select[name=workspace]", "select[name=schedule]", "input[name=time]", "input[name=weekdays]:checked", "input[type=radio]:checked", save]) {
+      for (const selector of [name, prompt, "select[name=workspace]", "button[name=schedule]", "button[name=time]", "input[name=weekdays]:checked", "select[name=conversation]", save]) {
         const d = await measure(theme, "pending/disabled", selector); assert.equal(d.disabled, true); assert.equal(d.opacity, "1");
         assert.equal(d.color, d.expected.disabledInk); assert.equal(d.background, d.expected.disabledFill);
         await hover(selector); assert.equal((await measure(theme, "pending/disabled+hover", selector)).background, d.background);
@@ -280,7 +290,7 @@ app.whenReady().then(async () => {
       await tabTo(save); assert.equal(await js("document.activeElement.type"), "submit");
       passed.push(`${theme}: 390px page and dialog do not overflow; footer reachable by keyboard`);
       win.setContentSize(1280, 1000);
-      await require('./schedule-controls.cjs')({ theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed });
+      await require('./schedule-controls.cjs')({ select, chooseWorkspace, theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed });
     }
     assert.deepEqual(errors, []);
     console.log("LXE_AUTOMATIONS_CDS=" + JSON.stringify({ surface: 'desktop-shell', passed, measurements, screenshots, errors }));

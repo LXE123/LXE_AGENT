@@ -65,11 +65,58 @@ async function verifyStop(state: "running" | "queued") {
   } finally { await automations.close(); db.close(); }
 }
 
+async function verifyTaskOptions() {
+  const db = new DatabaseSync(":memory:"); const store = new NodeAutomationStore(db);
+  const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+  const runtime = { isReady: true, dashboardCall: async (call: typeof calls[number]) => {
+    calls.push(call);
+    switch (call.operation) {
+      case "sessions.workspaces": return { items: [{ workspace_id: "ws", directory: process.argv[2]! }] };
+      case "models.list": return { items: [{ provider: "p", credential_source: "local", selectable: true, model_options: [{ model: "m", thinking_levels: ["off", "high"] }] }] };
+      case "models.current": return { thinking_levels: ["off", "high"] };
+      case "models.update": case "models.thinking.update": return {};
+      case "titles.generate": return { title: "后台生成的名称" };
+      default: throw new Error(`Unexpected task options RPC ${call.operation}`);
+    }
+  } };
+  const prepared: string[] = [];
+  const composition = { parts: { conversations: { send: async (_input: unknown, admission: { session_id: string; prepareSession?(): Promise<void>; assertCurrent(): void }) => {
+    admission.assertCurrent(); await admission.prepareSession?.(); prepared.push(admission.session_id);
+  } }, sessionStatus: { flush: async () => {} } } };
+  const automation = new DesktopAutomations({ store, environment: {}, node: process.execPath, script: "unused", changed() {}, onError(error) { throw error; },
+    runtime: runtime as unknown as ConstructorParameters<typeof DesktopAutomations>[0]["runtime"],
+    composition: composition as unknown as ConstructorParameters<typeof DesktopAutomations>[0]["composition"] });
+  try {
+    automation.service.start(); await automation.service.tick();
+    const definition = { name: "", prompt: "生成报告", timezone: "UTC", schedule: { kind: "interval" as const, minutes: 60 },
+      target: { mode: "new" as const, workspace_id: "ws", effort: "high", model: { provider: "p", model: "m", credential_source: "local" as const } } };
+    const task = await automation.service.save({ definition });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(automation.service.get(task.id).name, "后台生成的名称");
+    assert.deepEqual(calls.find(call => call.operation === "titles.generate")?.input, { text: definition.prompt, model: definition.target.model });
+    assert.equal(prepared.length, 0);
+    const run = await automation.service.runNow(task.id);
+    assert.equal(run.dispatch_state, "accepted");
+    assert.deepEqual(calls.filter(call => ["models.update", "models.thinking.update"].includes(call.operation)), [
+      { operation: "models.update", input: { ...definition.target.model, session_id: run.session_id } },
+      { operation: "models.thinking.update", input: { level: "high", session_id: run.session_id } },
+    ]);
+    await assert.rejects(automation.service.save({ definition: { ...definition, target: { ...definition.target, effort: "unsupported" } } }), /思考强度/);
+    calls.length = 0;
+    const defaultModel = await automation.service.save({ definition: { ...definition, name: "手写名称", target: { mode: "new", workspace_id: "ws", effort: "off" } } });
+    const secondRun = await automation.service.runNow(defaultModel.id);
+    assert.equal(secondRun.dispatch_state, "accepted");
+    assert.equal(calls.some(call => call.operation === "titles.generate" || call.operation === "models.update"), false);
+    assert.deepEqual(calls.find(call => call.operation === "models.thinking.update")?.input, { level: "off", session_id: secondRun.session_id });
+  } finally { await automation.close(); db.close(); }
+}
+
 app.disableHardwareAcceleration();
 app.setPath("userData", join(process.argv[2]!, "profile"));
 app.whenReady().then(async () => {
   await verifyStop("running");
   await verifyStop("queued");
+  await verifyTaskOptions();
   console.log("automation-stop-routing-passed");
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

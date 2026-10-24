@@ -19,6 +19,10 @@ export class DesktopAutomations {
     timeWorker?: string; changed(): void; onError(error: unknown): void;
   }) {
     this.service = new AutomationService({ clock: new AutomationClock({ workerPath: options.timeWorker }), store: options.store, changed: options.changed, onError: options.onError,
+      generateName: async definition => (await options.runtime.dashboardCall({ operation: "titles.generate", input: {
+        text: definition.prompt, ...(definition.target.mode === "reuse" ? { session_id: definition.target.session_id }
+          : definition.target.model ? { model: definition.target.model } : {}),
+      } })).title,
       execution: {
         ready: () => options.runtime.isReady,
         validate: definition => this.validateTarget(definition),
@@ -58,11 +62,17 @@ export class DesktopAutomations {
       const workspace = workspaces.items.find(item => item.workspace_id === id);
       if (!workspace) throw new AutomationTargetMissingError("任务工作区已不存在");
       accessSync(workspace.directory, constants.R_OK | constants.W_OK | constants.X_OK);
+      let levels: string[] | undefined;
       if (definition.target.model) {
         const selected = definition.target.model;
         const models = await this.options.runtime.dashboardCall({ operation: "models.list", input: {} });
         const provider = models.items.find(item => item.provider === selected.provider && item.credential_source === selected.credential_source);
         if (!provider?.selectable || !provider.model_options.some(item => item.model === selected.model)) throw new Error("任务指定的模型不可用，请编辑任务选择可用模型");
+        levels = provider.model_options.find(item => item.model === selected.model)!.thinking_levels;
+      }
+      if (definition.target.effort !== undefined) {
+        levels ??= (await this.options.runtime.dashboardCall({ operation: "models.current", input: {} })).thinking_levels;
+        if (!levels.includes(definition.target.effort)) throw new Error("任务指定的思考强度不受当前模型支持，请重新选择");
       }
     }
   }
@@ -80,8 +90,9 @@ export class DesktopAutomations {
       text: `[定时任务：${run.definition.name}]\n\n${run.definition.prompt}`,
       client_message_id: `automation:${run.id}`,
     }, { id: run.automation_id, session_id: run.session_id, turn_id: run.turn_id, fresh: target.mode === "new", assertCurrent,
-      ...(target.mode === "new" && target.model ? { prepareSession: async () => {
-        await this.options.runtime.dashboardCall({ operation: "models.update", input: { ...target.model!, session_id: run.session_id } });
+      ...(target.mode === "new" && (target.model || target.effort !== undefined) ? { prepareSession: async () => {
+        if (target.model) await this.options.runtime.dashboardCall({ operation: "models.update", input: { ...target.model, session_id: run.session_id } });
+        if (target.effort !== undefined) await this.options.runtime.dashboardCall({ operation: "models.thinking.update", input: { level: target.effort, session_id: run.session_id } });
       } } : {}),
     });
     await this.options.composition.parts.sessionStatus?.flush();

@@ -6,7 +6,7 @@ export type AutomationSchedule =
 
 export type AutomationTarget =
   | { mode: "reuse"; session_id: string }
-  | { mode: "new"; workspace_id: string; model?: { provider: string; model: string; credential_source: "local" | "cloud" } };
+  | { mode: "new"; workspace_id: string; effort?: string; model?: { provider: string; model: string; credential_source: "local" | "cloud" } };
 
 export interface AutomationDefinition {
   name: string;
@@ -84,7 +84,7 @@ const integer = (value: unknown, name: string, min = 0, max = 8_640_000_000_000_
   return value;
 };
 
-export function parseAutomationDefinition(value: unknown): AutomationDefinition {
+export function parseAutomationDefinition(value: unknown, allowEmptyName = false): AutomationDefinition {
   const input = object(value);
   keys(input, ["name", "prompt", "timezone", "schedule", "target"]);
   const timezone = text(input.timezone, "timezone", 100);
@@ -112,8 +112,9 @@ export function parseAutomationDefinition(value: unknown): AutomationDefinition 
     keys(targetInput, ["mode", "session_id"]);
     target = { mode: "reuse", session_id: text(targetInput.session_id, "session_id", 128) };
   } else if (targetInput.mode === "new") {
-    keys(targetInput, ["mode", "workspace_id", "model"]);
+    keys(targetInput, ["mode", "workspace_id", "model", "effort"]);
     target = { mode: "new", workspace_id: text(targetInput.workspace_id, "workspace_id", 128) };
+    if (targetInput.effort !== undefined) target.effort = text(targetInput.effort, "effort", 64);
     if (targetInput.model !== undefined) {
       const model = object(targetInput.model);
       keys(model, ["provider", "model", "credential_source"]);
@@ -121,7 +122,7 @@ export function parseAutomationDefinition(value: unknown): AutomationDefinition 
       target.model = { provider: text(model.provider, "provider", 128), model: text(model.model, "model", 256), credential_source: model.credential_source };
     }
   } else throw new Error("target.mode must be new or reuse");
-  return { name: text(input.name, "name", 120), prompt: text(input.prompt, "prompt", 32768), timezone, schedule, target };
+  return { name: allowEmptyName && (input.name === undefined || typeof input.name === "string" && !input.name.trim()) ? "" : text(input.name, "name", 120), prompt: text(input.prompt, "prompt", 32768), timezone, schedule, target };
 }
 
 export function parseAutomationCall(operation: string, value: unknown): { [K in AutomationOperation]: { operation: K; input: AutomationRpcSpec[K]["input"] } }[AutomationOperation] {
@@ -131,7 +132,7 @@ export function parseAutomationCall(operation: string, value: unknown): { [K in 
     case "automations.save": {
       keys(input, ["definition", "id", "version"]);
       if ((input.id === undefined) !== (input.version === undefined)) throw new Error("Updating a task requires id and version");
-      return { operation, input: { definition: parseAutomationDefinition(input.definition), ...(input.id === undefined ? {} : { id: text(input.id, "id", 128), version: integer(input.version, "version", 1) }) } };
+      return { operation, input: { definition: parseAutomationDefinition(input.definition, true), ...(input.id === undefined ? {} : { id: text(input.id, "id", 128), version: integer(input.version, "version", 1) }) } };
     }
     case "automations.status":
       keys(input, ["id", "version", "status"]);
@@ -145,7 +146,7 @@ export function parseAutomationCall(operation: string, value: unknown): { [K in 
     case "automations.runs":
       keys(input, ["id", "limit"]); return { operation, input: { id: text(input.id, "id", 128), limit: input.limit === undefined ? 50 : integer(input.limit, "limit", 1, 200) } };
     case "automations.preview":
-      keys(input, ["definition"]); return { operation, input: { definition: parseAutomationDefinition(input.definition) } };
+      keys(input, ["definition"]); return { operation, input: { definition: parseAutomationDefinition(input.definition, true) } };
     case "automations.editing":
       keys(input, ["session_id", "editing"]);
       if (typeof input.editing !== "boolean") throw new Error("editing must be boolean");

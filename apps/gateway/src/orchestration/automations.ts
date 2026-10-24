@@ -20,6 +20,10 @@ const diagnostic = (error: unknown): string => String(sanitizeLogValueWithPolicy
   error instanceof Error ? error.message : String(error), { maxString: 4000 },
 ));
 
+const namedDefinition = (definition: AutomationDefinition): AutomationDefinition => ({ ...definition,
+  name: definition.name?.trim() || Array.from(definition.prompt.trim().replace(/\s+/gu, " ").replace(/[\p{Cc}\p{Cf}]/gu, "")).slice(0, 40).join("") || "定时任务",
+});
+
 export class AutomationService {
   private readonly clock: AutomationClock;
   private readonly now: () => number;
@@ -27,12 +31,14 @@ export class AutomationService {
   private timer?: ReturnType<typeof setInterval>;
   private ticking: Promise<void> | undefined;
   private stopped = true;
+  private namingEpoch = 0;
   private recovered = false;
   private readonly dispatching = new Set<string>();
   private readonly pendingDispatches = new Set<Promise<AutomationRun>>();
   private readonly editing = new Map<string, number>();
   constructor(private readonly options: {
     store: AutomationStore; execution: AutomationExecutionPort; now?: () => number;
+    generateName?: (definition: AutomationDefinition) => Promise<string>;
     clock?: AutomationClock; changed?: () => void; onError?: (error: unknown) => void;
   }) {
     this.clock = options.clock ?? new AutomationClock();
@@ -53,7 +59,8 @@ export class AutomationService {
     return task;
   }
   async save(input: { definition: AutomationDefinition; id?: string; version?: number }, assertCurrent?: () => void): Promise<Automation> {
-    const definition = parseAutomationDefinition(input.definition);
+    const autoName = !input.definition.name?.trim();
+    const definition = parseAutomationDefinition(namedDefinition(input.definition));
     validateAutomationTime(definition);
     if (definition.schedule.kind === "once" && definition.schedule.at <= this.now()) throw new Error("一次性任务请选择未来的时间");
     await this.options.execution.validate(definition);
@@ -71,7 +78,22 @@ export class AutomationService {
       created_at: previous?.created_at ?? now, updated_at: now };
     this.options.store.save(task, previous?.version ?? null);
     this.changed();
+    if (autoName && this.options.generateName) void this.generateName(task);
     return task;
+  }
+  private async generateName(saved: Automation): Promise<void> {
+    const epoch = this.namingEpoch;
+    try {
+      const name = (await this.options.generateName!(saved)).trim();
+      if (!name || name.length > 120) throw new Error("Generated task name must contain 1 to 120 characters");
+      if (epoch !== this.namingEpoch) return;
+      const current = this.options.store.get(saved.id);
+      // A name changes metadata only: never recompute the schedule or interrupt admission.
+      if (!current || current.status === "deleted" || current.version !== saved.version
+        || current.name !== saved.name || this.dispatching.has(saved.id)) return;
+      this.options.store.save({ ...current, name, version: current.version + 1, updated_at: this.now() }, current.version);
+      this.changed();
+    } catch (error) { this.options.onError?.(error); }
   }
   async setStatus(id: string, version: number, status: "active" | "paused", assertCurrent?: () => void): Promise<Automation> {
     let task = this.matching(id, version);
@@ -107,7 +129,7 @@ export class AutomationService {
     if (editing) this.editing.set(sessionId, this.now()); else this.editing.delete(sessionId);
   }
   async preview(definition: AutomationDefinition): Promise<{ times: number[]; jitter_seconds: number }> {
-    const task = parseAutomationDefinition(definition);
+    const task = parseAutomationDefinition(namedDefinition(definition));
     validateAutomationTime(task);
     return this.clock.preview(task, this.now());
   }
@@ -121,6 +143,7 @@ export class AutomationService {
   }
   async stop(): Promise<void> {
     this.stopped = true;
+    this.namingEpoch++;
     clearInterval(this.timer);
     await this.clock.close();
     await this.ticking;

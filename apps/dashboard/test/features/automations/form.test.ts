@@ -100,3 +100,10 @@ test("invalid visual inputs cannot create broadened or empty schedules", () => {
   expect(() => buildSchedule({ ...draft(), startDate: "2026-02-30" }, zone)).toThrow();
   expect(() => buildSchedule(draft(), "not-a-timezone")).toThrow();
 });
+
+test("new schedules default to daily at nine; switching to once uses the next whole local hour with rollover", () => {
+  const now = Date.parse("2026-12-31T15:47:00Z");
+  const initial = newScheduleDraft("Asia/Shanghai", now);
+  expect(initial).toMatchObject({ mode: "daily", time: "09:00", onceAt: "2027-01-01T00:00" });
+  expect(changeScheduleMode(initial, "once", "Asia/Shanghai", now + 7200000).onceAt).toBe("2027-01-01T02:00");
+});

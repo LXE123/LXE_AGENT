@@ -34,6 +34,7 @@ import {
   type ToolRegistry,
   type UserQuestionService,
   type SessionTitleService,
+  type TaskTitleService,
   type PermissionApprovalService,
 } from "@lxe/runtime";
 
@@ -43,6 +44,7 @@ type Environment = Record<string, string | undefined>;
 interface DashboardServiceOptions {
   questions?: UserQuestionService;
   sessionTitles?: SessionTitleService;
+  taskTitles?: TaskTitleService;
   approvals?: PermissionApprovalService;
   onPermissionChanged?: (sessionId: string) => Promise<void> | void;
   /** Writable desktop/source state. */
@@ -272,6 +274,17 @@ export class DashboardService {
       .map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item)) }),
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "titles.generate": async input => {
+      if (!this.options.taskTitles || !this.options.providerManager) return rpcError("unavailable", "Task title generation is unavailable");
+      let selection: RuntimeModelSelection | undefined;
+      if (input.session_id) {
+        const session = await this.options.store.getSession(input.session_id);
+        if (!session) return rpcError("not_found", `session not found: ${input.session_id}`);
+        selection = session.model_selection;
+      } else if (input.model) selection = { ...input.model, effort: "off", thinking_enabled: false };
+      const title = await this.options.taskTitles.generate(input.text, this.options.providerManager.acquire(selection));
+      return { title };
+    },
     "sessions.rename": async input => {
       if (!this.options.sessionTitles) return rpcError("unavailable", "Session titles are unavailable");
       await this.options.sessionTitles.rename(input.session_id, input.title);

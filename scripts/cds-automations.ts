@@ -15,7 +15,7 @@ let fixture: Awaited<ReturnType<typeof startAutomationFixture>> | undefined;
 let child: ReturnType<typeof Bun.spawn> | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 try {
-  fixture = await startAutomationFixture();
+  fixture = await startAutomationFixture(0);
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
   child = Bun.spawn([require(resolve(root, "apps/desktop/node_modules/electron")),
     // Electron on Windows rejects arguments after a URL; keep the URL last.
@@ -29,15 +29,11 @@ try {
   const result = stdout.split("\n").find(line => line.startsWith("LXE_AUTOMATIONS_CDS="));
   if (!result) throw new Error("Missing Electron verification result");
   const report = JSON.parse(result.slice("LXE_AUTOMATIONS_CDS=".length));
-  if (report.surface !== "desktop-shell" || report.passed.length < 36 || report.measurements.length < 106 || report.screenshots.length < 20) throw new Error("Incomplete automation desktop shell/state coverage");
+  if (report.surface !== "desktop-shell" || report.passed.length < 40 || report.measurements.length < 100 || report.screenshots.length < 24) throw new Error("Incomplete automation desktop shell/state coverage");
   console.log(`Automation CDS: ${report.passed.length} checks, ${report.measurements.length} state measurements, ${report.screenshots.length} screenshots passed.`);
   rmSync(resolve(output, "failure.png"), { force: true });
   const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
-    "apps/dashboard/src/features/automations/form.ts", "apps/dashboard/src/features/automations/ScheduleFields.tsx",
-  if (report.surface !== "desktop-shell" || report.passed.length < 32 || report.measurements.length < 86 || report.screenshots.length < 20) throw new Error("Incomplete automation desktop shell/state coverage");
-  console.log(`Automation CDS: ${report.passed.length} checks, ${report.measurements.length} state measurements, ${report.screenshots.length} screenshots passed.`);
-  rmSync(resolve(output, "failure.png"), { force: true });
-  const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
+    "apps/dashboard/src/features/automations/form.ts", "apps/dashboard/src/features/automations/ScheduleFields.tsx", "apps/dashboard/src/features/automations/SchedulePickers.tsx",
     "apps/dashboard/src/features/automations/AutomationResumeDialog.tsx",
     "apps/dashboard/src/shared/cds-theme.css", "apps/dashboard/src/styles.css", "apps/dashboard/src/main.tsx",
     "apps/dashboard/src/features/capabilities/theme.css", "apps/dashboard/src/shared/navigation-rail.css",
@@ -50,7 +46,7 @@ try {
   await Bun.write(reportPath, JSON.stringify({ status: "passed", verifiedAt: new Date().toISOString(), sourceHashFormat: "sha256-utf8-lf", sourceHashes,
     platform: process.platform, arch: process.arch, ...report,
     limitations: ["本机 Electron 加载完整桌面布局和生产页面，接口配合内存数据和模拟执行；未连接账号或执行真实任务，不代表安装包验收。",
-      "原生日期、选择器、单选框和复选框保留系统渲染；下拉选择通过 change 事件驱动生产表单，系统原生弹出层未验收。",
+      "创建表单的重复、日历和时间弹层使用真实鼠标/键盘；其余原生 select 通过 change 事件驱动，过期恢复的原生日期输入与系统弹出层未完整验收。",
       "不代表全站 CDS、全量读屏或触屏审计。"] }, null, 2) + "\n");
 } catch (cause) {
   await Bun.write(reportPath, JSON.stringify({ status: "failed", failedAt: new Date().toISOString(), error: String(cause) }, null, 2) + "\n");

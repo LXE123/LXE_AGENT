@@ -1,5 +1,5 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
-import { SessionTitleService } from "@lxe/runtime";
+import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -120,6 +120,7 @@ export function createAgentRuntimeHost(
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
+  const taskTitles = new TaskTitleService();
   const sessionTitles = new SessionTitleService({ store, onChanged: sessionId => options.onSessionChanged?.(sessionId, "title"), logger });
   const permissionPolicy = new PermissionPolicyService();
   const executionPaths = new ExecutionPaths(options.dataRoot);
@@ -203,7 +204,7 @@ export function createAgentRuntimeHost(
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
-    questions, approvals, sessionTitles,
+    questions, approvals, sessionTitles, taskTitles,
     onPermissionChanged: sessionId => options.onSessionChanged?.(sessionId, "permission"),
     stateRoot: options.dataRoot,
     llmConfigRoot: options.llmConfigRoot,
@@ -288,7 +289,7 @@ export function createAgentRuntimeHost(
     stop: async () => {
       const errors: unknown[] = [];
       // Audit failures must not leave processes or temporary grants alive.
-      for (const stop of [() => approvals.stop(), () => questions.stop(), () => runtime.stop(), () => deepseekFiles.close()]) {
+      for (const stop of [() => taskTitles.stop(), () => approvals.stop(), () => questions.stop(), () => runtime.stop(), () => deepseekFiles.close()]) {
         try { await stop(); } catch (error) { errors.push(error); }
       }
       started = false;

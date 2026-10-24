@@ -482,6 +482,10 @@ export interface WorkspaceSummaryPayload {
 }
 
 export interface DashboardRpcSpec extends AutomationRpcSpec {
+  "titles.generate": {
+    input: { text: string; session_id?: string; model?: { provider: string; model: string; credential_source: "local" | "cloud" } };
+    result: { title: string };
+  };
   "sessions.turn.lookup": {
     input: { session_id: string; turn_id: string };
     result: { state: import("@lxe/protocol/session-status").SessionRunPhase | "missing" };
@@ -748,6 +752,21 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   }
 
   switch (operation) {
+    case "titles.generate": {
+      exactKeys(input, ["text", "session_id", "model"], `${operation}.input`);
+      const text = textValue(input.text, `${operation}.text`)!;
+      if (text.length > 32768) return rpcError("titles.generate.text exceeds 32768 characters");
+      if (input.model !== undefined && input.session_id !== undefined) return rpcError("titles.generate accepts either model or session_id");
+      let model: DashboardRpcSpec["titles.generate"]["input"]["model"];
+      if (input.model !== undefined) {
+        const value = objectValue(input.model, "titles.generate.model");
+        exactKeys(value, ["provider", "model", "credential_source"], "titles.generate.model");
+        if (value.credential_source !== "local" && value.credential_source !== "cloud") return rpcError("Invalid title model credential_source");
+        model = { provider: textValue(value.provider, "provider")!, model: textValue(value.model, "model")!, credential_source: value.credential_source };
+      }
+      return { operation, input: { text, ...(model ? { model } : {}),
+        ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, "session_id")! }) } };
+    }
     case "sessions.turn.lookup":
       exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, "session_id")!, turn_id: textValue(input.turn_id, "turn_id")! } };

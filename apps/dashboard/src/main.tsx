@@ -254,7 +254,7 @@ function App({
                 }}
               />
             ) : null}
-            {activeSection === "automations" ? <AutomationsPage ready={dashboardRuntimeReady} onOpenSession={workspace.actions.openSessionRun} /> : null}
+            {activeSection === "automations" ? <AutomationsPage defaultWorkspaceId={workspace.sidebar.activeWorkspaceId} ready={dashboardRuntimeReady} onOpenSession={workspace.actions.openSessionRun} /> : null}
             {activeSection === "home" ? (
               <DashboardHome
                 enabled={dashboardRuntimeReady}

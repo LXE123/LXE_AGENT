@@ -31,7 +31,7 @@ export function newScheduleDraft(zone: string, now = Date.now()): ScheduleDraft 
   const today = Temporal.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO(zone);
   return { mode: "daily", frequency: "daily", every: 1, weekdays: [weekdays[today.dayOfWeek - 1]],
     monthDay: today.day, month: today.month, time: "09:00", startDate: today.toPlainDate().toString(),
-    onceAt: localTime(now + 3600_000, zone), minutes: 60 };
+    onceAt: localTime(today.add({ hours: 1 }).with({ minute: 0, second: 0, millisecond: 0 }).epochMilliseconds, zone), minutes: 60 };
 }
 
 const number = (text: string | undefined, fallback: number, min: number, max: number): number | null => {
@@ -78,9 +78,9 @@ export function scheduleDraft(definition: Pick<AutomationDefinition, "schedule" 
     time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}` };
 }
 
-export function changeScheduleMode(draft: ScheduleDraft, mode: ScheduleMode): ScheduleDraft {
+export function changeScheduleMode(draft: ScheduleDraft, mode: ScheduleMode, zone?: string, now = Date.now()): ScheduleDraft {
   const frequency = mode === "weekdays" ? "weekly" : Object.hasOwn(frequencies, mode) ? mode as Frequency : draft.frequency;
-  return { ...draft, mode, frequency, every: mode === "custom" ? draft.every : 1,
+  return { ...draft, ...(mode === "once" && draft.mode !== "once" && zone ? { onceAt: newScheduleDraft(zone, now).onceAt } : {}), mode, frequency, every: mode === "custom" ? draft.every : 1,
     weekdays: mode === "weekdays" ? ["MO", "TU", "WE", "TH", "FR"] : draft.weekdays };
 }
 
@@ -90,7 +90,10 @@ export function calendarFrequency(draft: ScheduleDraft): Frequency {
 
 export function buildSchedule(draft: ScheduleDraft, zone: string): AutomationSchedule {
   if (draft.mode === "preserved") throw new Error("请先选择重新设置时间。");
-  if (draft.mode === "once") return { kind: "once", at: instant(draft.onceAt, zone) };
+  if (draft.mode === "once") {
+    if (!draft.onceAt || !draft.onceAt.includes("T")) throw new Error("请选择执行日期和时间。");
+    return { kind: "once", at: instant(draft.onceAt, zone) };
+  }
   if (draft.mode === "interval") {
     if (!Number.isInteger(draft.minutes) || draft.minutes < 1 || draft.minutes > 525600) throw new Error("间隔需要是 1 至 525600 的整数分钟。");
     return { kind: "interval", minutes: draft.minutes };

@@ -1,15 +1,7 @@
 const assert = require('node:assert/strict');
 
-module.exports = async ({ theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed }) => {
+module.exports = async ({ select, chooseWorkspace, theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed }) => {
   const save = "button[type=submit]", preview = 'dialog footer > button';
-  const select = async (name, value) => {
-    const selector = `select[name=${name}]`;
-    await tabTo(selector); await hover(selector);
-    // Native OS select popups are outside offscreen Electron. Drive the production
-    // change handler here; hover/focus and all other controls use real input events.
-    await js(`(() => { const e=document.querySelector('${selector}'); if(![...e.options].some(o=>o.value===${JSON.stringify(value)})) throw Error('Missing option'); e.value=${JSON.stringify(value)}; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-    await wait(`document.querySelector('${selector}').value===${JSON.stringify(value)}`);
-  };
   const latest = operation => js(`window.automationFixtureCalls.filter(c=>c.operation===${JSON.stringify(operation)}).at(-1)?.input.definition`);
   const noRawRule = async () => {
     assert.doesNotMatch(await js("document.querySelector('.automations-page').innerText"), /RRULE|FREQ=|BYDAY=|BYHOUR=/);
@@ -27,7 +19,32 @@ module.exports = async ({ theme, win, js, load, wait, click, hover, key, tabTo, 
   const title = `可视化时间验收-${theme}`;
   await load(theme, 'empty'); await click('.automation-create');
   await wait("document.querySelector('dialog')?.open");
+  await type('textarea[name=prompt]', '自动总结运营数据。'); await chooseWorkspace();
+  await click('.automation-advanced-toggle');
+  await wait("document.querySelector('select[name=effort] option[value=high]')");
+  await select('effort', 'high'); await tabTo('select[name=effort]');
+  await measure(theme, 'effort/focus', 'select[name=effort]');
+  await click(save); await wait("!document.querySelector('dialog')");
+  await wait("document.querySelector('.automation-detail h2')?.textContent === '自动生成的运营简报'");
+  assert.equal((await latest('automations.save')).target.effort, 'high');
+  const named = (await api('automations.list')).items.find(t => t.name === '自动生成的运营简报');
+  assert.equal((await api('automations.runs', { id: named.id })).items.length, 0);
+  await click("button[aria-label='编辑任务']"); await wait("document.querySelector('dialog')?.open");
+  await click('.automation-advanced-toggle');
+  assert.equal(await js("document.querySelector('select[name=effort]').value"), 'high');
+  await select('model', JSON.stringify({ provider: 'fixture', model: 'simple', credential_source: 'local' }));
+  assert.equal(await js("document.querySelector('select[name=effort]').disabled"), true);
+  assert.equal(await js("document.querySelector('select[name=effort]').value"), '');
+  await measure(theme, 'effort/unsupported disabled', 'select[name=effort]');
+  await select('conversation', 'reuse');
+  assert.equal(await js("!!document.querySelector('select[name=effort]')"), false);
+  assert.match(await js("document.querySelector('#automation-advanced').textContent"), /思考强度沿用/);
+  await key('Escape'); await api('automations.delete', { id: named.id, version: named.version });
+  passed.push(`${theme}: blank name generated without execution; thinking choice persists, unsupported model resets and reuse inherits chat settings`);
+  await load(theme, 'empty'); await click('.automation-create');
+  await wait("document.querySelector('dialog')?.open");
   await type('input[name=name]', title); await type('textarea[name=prompt]', '汇总本周变化。');
+  await chooseWorkspace(); await click('.automation-advanced-toggle');
   await type('input[name=timezone]', 'Asia/Shanghai');
   for (const [mode, kind, frequency] of [['daily', 'rrule', 'DAILY'], ['weekdays', 'rrule', 'WEEKLY'], ['monthly', 'rrule', 'MONTHLY'], ['yearly', 'rrule', 'YEARLY'], ['interval', 'interval'], ['once', 'once']]) {
     await select('schedule', mode);
@@ -39,6 +56,19 @@ module.exports = async ({ theme, win, js, load, wait, click, hover, key, tabTo, 
     if (mode === 'once') assert.ok(definition.schedule.at > Date.now());
   }
   passed.push(`${theme}: visual presets and one-time/interval inputs preview through the real scheduler without exposing rule syntax`);
+
+  await click('button[name=onceDate]'); await wait("document.querySelector('[role=grid]')");
+  await measure(theme, 'calendar/surface', '.automation-calendar-popup');
+  await measure(theme, 'calendar/selected+focus', '[role=gridcell][aria-selected=true]');
+  await key('Right'); await key('Enter');
+  assert.equal(await js("!!document.querySelector('[role=grid]')"), false);
+  assert.equal(await js("document.activeElement.name"), 'onceDate');
+  await click('button[name=onceDate]'); await capture(`calendar-${theme}.png`); await noOverflow();
+  await key('Escape'); assert.equal(await js("document.querySelector('dialog').open"), true);
+  await click('button[name=onceTime]'); await wait("document.querySelector('.automation-time-columns')");
+  await capture(`time-${theme}.png`); await measure(theme, 'time/selected+focus', '.automation-time-columns [role=option][aria-selected=true]');
+  await key('Escape');
+  passed.push(`${theme}: calendar keyboard selection and popup-only Escape; explicit 24-hour/minute picker`);
 
   await select('schedule', 'custom'); await select('frequency', 'weekly');
   await type('input[name=every]', '2');
@@ -76,7 +106,7 @@ module.exports = async ({ theme, win, js, load, wait, click, hover, key, tabTo, 
   assert.deepEqual((await latest('automations.save')).schedule, definition.schedule);
   assert.match(await js("document.querySelector('.automation-next').textContent"), /每 2 周（周一、周五） 09:00/);
   await click("button[aria-label='编辑任务']"); await wait("document.querySelector('dialog')?.open");
-  assert.equal(await js("document.querySelector('select[name=schedule]').value"), 'custom');
+  assert.match(await js("document.querySelector('button[name=schedule]').textContent"), /自定义/);
   assert.equal(await js("document.querySelector('input[name=every]').value"), '2');
   assert.deepEqual(await js("[...document.querySelectorAll('input[name=weekdays]:checked')].map(e=>e.value)"), ['MO', 'FR']);
   await type('textarea[name=prompt]', '汇总本周变化，并列出异常。'); await click(save); await wait("!document.querySelector('dialog')");
@@ -90,15 +120,15 @@ module.exports = async ({ theme, win, js, load, wait, click, hover, key, tabTo, 
   const index = await js(`[...document.querySelectorAll('.automation-row')].findIndex(e=>e.textContent.includes(${JSON.stringify(imported.name)}))`);
   assert.ok(index >= 0); await click(`.automation-row:nth-of-type(${index + 1})`);
   await noRawRule(); await click("button[aria-label='编辑任务']"); await wait("document.querySelector('.automation-preserved-schedule')");
-  assert.equal(await js("!!document.querySelector('select[name=schedule],input[name=timezone]')"), false);
+  assert.equal(await js("!!document.querySelector('button[name=schedule],input[name=timezone]')"), false);
   const preserved = await showPreview(); assert.deepEqual(preserved.schedule, imported.schedule);
   await type('textarea[name=prompt]', '保留原来的执行日期，只更新任务内容。'); await click(save); await wait("!document.querySelector('dialog')");
   assert.deepEqual((await latest('automations.save')).schedule, imported.schedule);
   assert.equal((await latest('automations.save')).timezone, imported.timezone);
   passed.push(`${theme}: imported complex schedule previews and saves unchanged without a raw rule editor`);
   await click("button[aria-label='编辑任务']"); await wait("document.querySelector('.automation-preserved-schedule')");
-  await click('.automation-preserved-schedule button'); await wait("document.querySelector('select[name=schedule]')");
-  assert.equal(await js("document.querySelector('select[name=schedule]').value"), 'daily');
+  await click('.automation-preserved-schedule button'); await wait("document.querySelector('button[name=schedule]')");
+  assert.match(await js("document.querySelector('button[name=schedule]').textContent"), /每天/);
   await click(save); await wait("!document.querySelector('dialog')");
   assert.equal((await latest('automations.save')).schedule.rule, 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0');
   await noRawRule();

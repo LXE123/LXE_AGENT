@@ -19,13 +19,13 @@ class MemoryStore implements AutomationStore {
 const definition = (patch: Partial<AutomationDefinition> = {}): AutomationDefinition => ({ name: "每日报告", prompt: "输出报告", target: { mode: "new", workspace_id: "workspace" }, timezone: "Asia/Shanghai", schedule: { kind: "interval", minutes: 1 }, ...patch });
 const services: AutomationService[] = [];
 afterEach(async () => { for (const service of services.splice(0)) await service.stop(); });
-async function setup(store = new MemoryStore(), port: Partial<AutomationExecutionPort> = {}, clock?: AutomationClock) {
+async function setup(store = new MemoryStore(), port: Partial<AutomationExecutionPort> = {}, clock?: AutomationClock, naming: { generateName?: (definition: AutomationDefinition) => Promise<string>; onError?: (error: unknown) => void } = {}) {
   let now = Date.UTC(2026, 9, 23);
   const sent: AutomationRun[] = [], states = new Map<string, AutomationRunView["execution_state"]>();
   const execution: AutomationExecutionPort = { ready: () => true, validate: async () => {}, blockReason: async () => null,
     submit: async (run, current) => { current(); sent.push(run); states.set(run.turn_id, "running"); },
     observe: async run => states.get(run.turn_id) ?? "missing", ...port };
-  const service = new AutomationService({ store, execution, now: () => now, ...(clock ? { clock } : {}) }); services.push(service); service.start(); await service.tick();
+  const service = new AutomationService({ store, execution, ...naming, now: () => now, ...(clock ? { clock } : {}) }); services.push(service); service.start(); await service.tick();
   return { service, store, sent, states, execution, advance: (ms: number) => { now += ms; }, now: () => now };
 }
 test("100 due tasks launch three each tick, while independent running chats do not consume a concurrency slot", async () => {
@@ -200,4 +200,42 @@ test("cancel and concurrent edits still win while recurrence calculation is in f
   await f.service.setStatus(task.id, task.version, "paused"); release();
   await expect(resuming).rejects.toThrow("Task changed");
   expect(f.service.get(task.id).status).toBe("paused");
+});
+
+test("blank names save immediately and background naming preserves schedule state, including an admitted run", async () => {
+  const done = Promise.withResolvers<string>(); let calls = 0;
+  const f = await setup(undefined, {}, undefined, { generateName: async () => { calls++; return done.promise; } });
+  const task = await f.service.save({ definition: definition({ name: "", prompt: "汇总每天的运营数据" }) });
+  expect(task.name).toBe("汇总每天的运营数据"); expect(calls).toBe(1); expect(f.sent).toHaveLength(0);
+  f.advance(60_000); await f.service.tick();
+  const before = f.service.get(task.id);
+  done.resolve("每日运营简报"); await Bun.sleep(0);
+  const after = f.service.get(task.id);
+  expect(after).toEqual({ ...before, name: "每日运营简报", version: before.version + 1, updated_at: f.now() });
+  expect(f.sent).toHaveLength(1);
+  await f.service.save({ id: after.id, version: after.version, definition: definition({ name: "手写名称" }) });
+  expect(calls).toBe(1);
+});
+
+for (const action of ["edit", "delete", "pause", "shutdown"] as const) test(`late automatic name cannot overwrite ${action}`, async () => {
+  const done = Promise.withResolvers<string>();
+  const f = await setup(undefined, {}, undefined, { generateName: () => done.promise });
+  const task = await f.service.save({ definition: definition({ name: "" }) });
+  if (action === "edit") await f.service.save({ id: task.id, version: task.version, definition: definition({ name: "用户名称" }) });
+  if (action === "delete") f.service.delete(task.id, task.version);
+  if (action === "pause") await f.service.setStatus(task.id, task.version, "paused");
+  if (action === "shutdown") await f.service.stop();
+  const before = f.store.get(task.id);
+  done.resolve("迟到结果"); await Bun.sleep(0);
+  expect(f.store.get(task.id)).toEqual(before);
+});
+
+test("naming errors preserve the fallback and actual diagnostic without retrying or creating runs", async () => {
+  const errors: unknown[] = []; let calls = 0;
+  const f = await setup(undefined, {}, undefined, { generateName: async () => { calls++; throw Error("HTTP 401 provider rejected title request"); }, onError: error => errors.push(error) });
+  const task = await f.service.save({ definition: definition({ name: "" }) });
+  await Bun.sleep(0);
+  expect(f.service.get(task.id).name).toBe("输出报告");
+  expect(String(errors[0])).toContain("HTTP 401 provider rejected title request");
+  await f.service.tick(); expect(calls).toBe(1); expect(f.sent).toHaveLength(0);
 });

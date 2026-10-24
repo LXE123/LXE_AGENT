@@ -26,7 +26,7 @@ setDashboardTransportForTests({ async call(call) {
   }
   if (call.operation === "automations.save" && scenario === "save-error") throw new Error("Fixture: schedule.start_at is invalid: non-existent local time");
   if (call.operation === "automations.preview" && scenario === "pending") await new Promise(resolve => setTimeout(resolve, 4000));
-  if (!call.operation.startsWith("automations.") && !["sessions.workspaces", "sessions.detail", "models.list"].includes(call.operation)) {
+  if (!call.operation.startsWith("automations.") && !["sessions.workspaces", "sessions.detail", "models.list", "models.current"].includes(call.operation)) {
     return window.lxe!.dashboard.call(call);
   }
   if (scenario === "resume-error" && call.operation === "automations.status" && call.input.status === "active" && !failedResume) {
