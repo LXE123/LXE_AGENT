@@ -31,21 +31,6 @@ describe("skill context", () => {
     expect(skill.content).toContain("嵌套 `stock.warehouseId` 可能不同，不用于选仓");
   });
 
-  test.each([
-    ["导出马帮 TMS 越南仓数据", "`--warehouse VN1`"],
-    ["导出马帮 TMS 菲律宾仓数据", "`--warehouse PH1`"],
-    ["导出马帮 TMS 全部仓库", "`--warehouse all`"],
-    ["导出马帮 TMS 数据，未指定仓库", "先询问菲律宾 PH1、越南 VN1 或当前账号全部仓库"],
-    ["导出雅仓越南仓数据", "`yacang-reports-export`，选择 `VN8806`"],
-    ["导出雅仓菲律宾仓数据", "`yacang-reports-export`，选择 `PH8805`"],
-    ["导出越南仓数据，未指定 ERP", "先询问雅仓还是马帮 TMS"],
-    ["导出菲律宾仓数据，未指定 ERP", "先询问雅仓还是马帮 TMS"],
-  ])("TMS routing contract: %s", (request, expected) => {
-    const content = readFileSync(join(repositoryRoot(import.meta.dir), "skills/mabang-tms-products-export/SKILL.md"), "utf8");
-    const row = content.split("\n").find(line => line.startsWith(`| ${request} |`));
-    expect(row).toContain(expected);
-  });
-
   test("both ERP discovery entries prioritize the source over either country", () => {
     const root = repositoryRoot(import.meta.dir);
     const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });

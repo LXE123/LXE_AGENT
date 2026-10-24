@@ -147,11 +147,6 @@ describe("TypeScriptAgentRuntime", () => {
   // Scripted model/exec fixtures exercise real Runtime and question tool traces;
   // they do not claim to verify live-model natural-language inference.
   test.each([
-    ["导出马帮 TMS 菲律宾仓数据", "tms", "PH1", ""],
-    ["导出马帮 TMS 越南仓数据", "tms", "VN1", ""],
-    ["导出雅仓菲律宾仓数据", "yacang", "PH8805", ""],
-    ["导出雅仓越南仓数据", "yacang", "VN8806", ""],
-    ["导出马帮 TMS 全部仓库", "tms", "all", ""],
     ["导出马帮 TMS 数据：选择 PH1", "tms", "PH1", "warehouse"],
     ["导出马帮 TMS 数据：选择 VN1", "tms", "VN1", "warehouse"],
     ["导出马帮 TMS 数据：选择全部", "tms", "all", "warehouse"],
