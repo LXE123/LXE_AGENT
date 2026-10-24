@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -215,6 +216,10 @@ class _FakeSession:
         self.calls.append({"method": "GET", "url": url, **kwargs})
         return _FakeRequest(self.responses.pop(0))
 
+    def post(self, url: str, **kwargs) -> _FakeRequest:
+        self.calls.append({"method": "POST", "url": url, **kwargs})
+        return _FakeRequest(self.responses.pop(0))
+
 
 def test_each_fba_request_resolves_latest_token(monkeypatch) -> None:
     payloads = [
@@ -320,12 +325,12 @@ def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tm
 
     async def fake_run(target: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
         run_calls.append(target)
-        raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=403)")
+        raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=401)")
 
     monkeypatch.setattr(batch_delivery, "refresh_mabang_auth", fake_refresh)
     monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_once", fake_run)
 
-    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="status=403"):
+    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="status=401"):
         asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
     assert refresh_calls == ["fba_delivery_csv_download_auth_retry"]
@@ -349,3 +354,50 @@ def test_download_fba_delivery_csv_does_not_refresh_non_auth_errors(monkeypatch,
         asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
     assert refresh_calls == []
+
+
+@pytest.mark.parametrize("encoding", ["http", "json-int", "json-str"])
+@pytest.mark.parametrize("first_status,second_status", [(403, 200), (401, 200), (401, 401), (401, 403)])
+def test_single_delivery_pipeline_auth_boundary(monkeypatch, tmp_path, encoding, first_status, second_status):
+    def response(code):
+        if code == 200:
+            return _FakeResponse(_list_payload([{"id": 1, "delivery_no": "SP260508022"}]))
+        return (_FakeResponse({"msg": "actual rejection"}, status=code) if encoding == "http" else
+                _FakeResponse({"code": str(code) if encoding == "json-str" else code, "msg": "actual rejection"}))
+    session = _FakeSession([response(first_status), response(second_status)])
+    refresh = AsyncMock()
+    create = AsyncMock(return_value=370502)
+    wait = AsyncMock(return_value=batch_delivery.BatchDeliveryTask(370502, "hash", "file.csv", 2, "done", {}))
+    info = AsyncMock(return_value=batch_delivery.BatchDeliveryDownloadInfo(370502, "hash", "file.csv", "https://files.example.test/file.csv", {}))
+    download = AsyncMock(return_value=tmp_path / "file.csv")
+    monkeypatch.setattr(batch_delivery, "erp_http_session", session)
+    monkeypatch.setattr(batch_delivery, "get_fba_free_token", AsyncMock(return_value="fixture-token"))
+    monkeypatch.setattr(batch_delivery, "refresh_mabang_auth", refresh)
+    monkeypatch.setattr(batch_delivery, "create_delivery_export_task", create)
+    monkeypatch.setattr(batch_delivery, "wait_for_delivery_task", wait)
+    monkeypatch.setattr(batch_delivery, "request_download_info", info)
+    monkeypatch.setattr(batch_delivery, "download_csv_from_url", download)
+
+    if first_status == 401 and second_status == 200:
+        result = asyncio.run(batch_delivery.download_fba_delivery_csv("SP260508022", output_dir=tmp_path))
+        assert result.task_id == 370502
+        create.assert_awaited_once()
+        download.assert_awaited_once()
+    else:
+        final_status = second_status if first_status == 401 else first_status
+        expected = batch_delivery.BatchDeliveryApiAuthError if final_status == 401 else (
+            batch_delivery.MabangRequestError if encoding == "http" else batch_delivery.BatchDeliveryApiError)
+        marker = "status" if encoding == "http" else "code"
+        with pytest.raises(expected, match=f"{marker}={final_status}") as captured:
+            asyncio.run(batch_delivery.download_fba_delivery_csv("SP260508022", output_dir=tmp_path))
+        if final_status == 403:
+            assert not isinstance(captured.value, batch_delivery.BatchDeliveryApiAuthError)
+            assert "actual rejection" in str(captured.value)
+        for operation in (create, wait, info, download):
+            operation.assert_not_awaited()
+    assert len(session.calls) == (2 if first_status == 401 else 1)
+    assert not list(tmp_path.iterdir())
+    if first_status == 401:
+        refresh.assert_awaited_once_with(purpose="fba_delivery_csv_download_auth_retry")
+    else:
+        refresh.assert_not_awaited()

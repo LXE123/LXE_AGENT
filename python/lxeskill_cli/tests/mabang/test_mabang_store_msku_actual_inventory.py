@@ -5,6 +5,7 @@ import json
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -779,3 +780,46 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     assert sleep_calls == []
     assert _form_value(post_calls[0], "stockSkuStr") == "SKU-A\r\nSTOCK-A\r\nSTOCK-B\r\n"
     assert _form_value(post_calls[0], "warehouseIds[]") == "1014318"
+
+
+@pytest.mark.parametrize("stage", ["search", "export"])
+@pytest.mark.parametrize("first_status,second_status", [(403, 200), (401, 200), (401, 401), (401, 403)])
+def test_shenzhen_pipeline_http_auth_boundary(monkeypatch, tmp_path, stage, first_status, second_status):
+    source = tmp_path / "input" / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
+    row = dict.fromkeys(inv.SOURCE_COLUMNS, 0)
+    row.update({"MSKU": "M", "父ASIN": "P", "ASIN": "A", "本地SKU": "SKU-A",
+                "商品链接": "https://example.test/a"})
+    _write_xlsx(source, [row], columns=list(inv.SOURCE_COLUMNS))
+    _annotate_active_test_source(source)
+    stock_body = _stock_xlsx_bytes([{"库存SKU编号": "SKU-A", "可用库存量": 9}])
+    def attempt(status):
+        search = _FakeResponse({"success": True})
+        if status == 200:
+            return [search, _FakeResponse(body=stock_body)]
+        return ([search] if stage == "export" else []) + [
+            _FakeResponse(status=status, text_body="actual rejection", body=b"actual rejection")]
+    session = _FakeSession(attempt(first_status) + attempt(second_status))
+    refresh = AsyncMock()
+    monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(inv, "erp_http_session", session)
+    monkeypatch.setattr(inv, "external_http_session", session)
+    monkeypatch.setattr(inv, "refresh_mabang_auth", refresh)
+    kwargs = dict(input_dir=source.parent, output_dir=tmp_path / "output")
+
+    if first_status == 401 and second_status == 200:
+        result = asyncio.run(inv.export_store_msku_actual_inventory("Amazon-Lerxiuer-FR", **kwargs))
+        assert Path(result.shenzhen_warehouse_inventory_report_xlsx_path).is_file()
+    else:
+        final_status = second_status if first_status == 401 else first_status
+        expected = inv.StoreMskuActualInventoryAuthError if final_status == 401 else inv.MabangRequestError
+        with pytest.raises(expected, match=f"status={final_status}") as captured:
+            asyncio.run(inv.export_store_msku_actual_inventory("Amazon-Lerxiuer-FR", **kwargs))
+        if final_status == 403:
+            assert "actual rejection" in str(captured.value)
+        assert not list((tmp_path / "output").glob("*.xlsx"))
+    statuses = [first_status, second_status] if first_status == 401 else [first_status]
+    assert len(session.calls) == sum(len(attempt(status)) for status in statuses)
+    if first_status == 401:
+        refresh.assert_awaited_once_with(purpose="store_msku_actual_inventory_auth_retry")
+    else:
+        refresh.assert_not_awaited()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -370,3 +371,72 @@ def test_resolve_fba_store_returns_payload(monkeypatch) -> None:
         "parent_store_name": "",
         "source": "mabang_fba_store_resolver",
     }
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_fetch_stores_stops_http_rejection_without_refresh(monkeypatch, status):
+    html = '<li><input name="fbaWarehouseIds[]" value="101"><span class="texts">Shop</span></li>'
+    session = _FakeSession([_FakeResponse("actual server rejection", status=status), _FakeResponse(html)])
+    refresh = AsyncMock()
+    monkeypatch.setattr(stores, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(stores, "erp_http_session", session)
+    monkeypatch.setattr(stores, "refresh_mabang_auth", refresh)
+
+    with pytest.raises(stores.MabangRequestError, match=f"status={status}.*actual server rejection"):
+        asyncio.run(stores.fetch_fba_stores())
+    assert len(session.calls) == 1
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.parametrize("second_status", [200, 401, 403, 429])
+def test_fetch_stores_keeps_one_time_401_recovery(monkeypatch, second_status):
+    html = '<li><input name="fbaWarehouseIds[]" value="101"><span class="texts">Shop</span></li>'
+    session = _FakeSession([_FakeResponse("expired", status=401), _FakeResponse(html, status=second_status)])
+    refresh = AsyncMock()
+    monkeypatch.setattr(stores, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(stores, "erp_http_session", session)
+    monkeypatch.setattr(stores, "refresh_mabang_auth", refresh)
+
+    if second_status == 200:
+        assert asyncio.run(stores.fetch_fba_stores())[0].store_name == "Shop"
+    else:
+        expected = stores.FbaStoreResolverAuthError if second_status == 401 else stores.MabangRequestError
+        with pytest.raises(expected, match=f"status={second_status}"):
+            asyncio.run(stores.fetch_fba_stores())
+    assert len(session.calls) == 2
+    refresh.assert_awaited_once_with(purpose="fba_store_resolver_auth_retry")
+
+
+def test_fetch_stores_preserves_connection_failure_without_refresh(monkeypatch):
+    import aiohttp
+
+    failure = aiohttp.ClientConnectionError("captured connection failure")
+    class BrokenSession:
+        calls = 0
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            raise failure
+    session = BrokenSession()
+    refresh = AsyncMock()
+    monkeypatch.setattr(stores, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(stores, "erp_http_session", session)
+    monkeypatch.setattr(stores, "refresh_mabang_auth", refresh)
+
+    with pytest.raises(aiohttp.ClientConnectionError) as captured:
+        asyncio.run(stores.fetch_fba_stores())
+    assert captured.value is failure
+    assert session.calls == 1
+    refresh.assert_not_awaited()
+
+
+def test_fetch_stores_does_not_refresh_for_challenge_html(monkeypatch):
+    session = _FakeSession([_FakeResponse("<html>Security verification required</html>")])
+    refresh = AsyncMock()
+    monkeypatch.setattr(stores, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(stores, "erp_http_session", session)
+    monkeypatch.setattr(stores, "refresh_mabang_auth", refresh)
+
+    with pytest.raises(stores.FbaStoreResolverParseError, match="未解析到FBA店铺"):
+        asyncio.run(stores.fetch_fba_stores())
+    assert len(session.calls) == 1
+    refresh.assert_not_awaited()

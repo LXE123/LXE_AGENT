@@ -51,7 +51,7 @@ SOURCE_FILE_RE = re.compile(
     rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in STORE_MSKU_FILE_SUFFIXES)})\.xlsx$",
     re.IGNORECASE,
 )
-AUTH_FAIL_STATUS = {401, 403}
+AUTH_FAIL_STATUS = {401}
 SALES_COLUMNS = ("7天销量", "14天销量", "30天销量")
 FBA_STOCK_COLUMNS = ("可售", "待入库", "预留", "在途", "待调仓", "调仓中")
 SOURCE_COLUMNS = ("MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接", *SALES_COLUMNS, *FBA_STOCK_COLUMNS)

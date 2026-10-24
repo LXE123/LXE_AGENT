@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import types
+from unittest.mock import AsyncMock
 from io import BytesIO
 from pathlib import Path
 
@@ -354,7 +355,7 @@ def test_validate_store_msku_excel_headers_requires_core_columns(tmp_path) -> No
 
 
 def test_fetch_store_msku_ids_rejects_auth_failure(monkeypatch) -> None:
-    fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
+    fake_session = _FakeSession([_FakeResponse(status=401, text_body="expired")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
     monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
@@ -391,3 +392,45 @@ def test_export_store_msku_file_url_requires_gourl(monkeypatch) -> None:
                 ["1001"],
             )
         )
+
+
+@pytest.mark.parametrize("stage", ["ids", "export"])
+@pytest.mark.parametrize("first_status,second_status", [(403, 200), (401, 200), (401, 401), (401, 403)])
+def test_msku_pipeline_http_auth_boundary(monkeypatch, tmp_path, stage, first_status, second_status):
+    from services.mabang import export_common
+
+    _mock_active_shop(monkeypatch)
+    body = _xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-A"}],
+                       columns=["店铺名称", "MSKU", "ASIN", "本地SKU"])
+    def attempt(status):
+        ids = _FakeResponse({"success": True, "id": "1001"})
+        if status == 200:
+            return [ids, _FakeResponse({"success": True, "gourl": "https://files.example.test/store.xlsx"}),
+                    _FakeResponse(body=body)]
+        return ([ids] if stage == "export" else []) + [_FakeResponse(status=status, text_body="actual rejection")]
+    session = _FakeSession(attempt(first_status) + attempt(second_status))
+    refresh = AsyncMock()
+    monkeypatch.setattr(msku, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(msku, "erp_http_session", session)
+    monkeypatch.setattr(msku, "external_http_session", session)
+    monkeypatch.setattr(export_common, "refresh_mabang_auth", refresh)
+    kwargs = dict(store_name="Amazon-Lerxiuer-FR", output_dir=tmp_path)
+
+    if first_status == 401 and second_status == 200:
+        result = asyncio.run(msku.download_store_msku_excel("697456821", "shopId", **kwargs))
+        assert Path(result.xlsx_path).is_file()
+    else:
+        final_status = second_status if first_status == 401 else first_status
+        expected = msku.StoreMskuDownloadAuthError if final_status == 401 else msku.MabangRequestError
+        with pytest.raises(expected, match=f"status={final_status}") as captured:
+            asyncio.run(msku.download_store_msku_excel("697456821", "shopId", **kwargs))
+        if final_status == 403:
+            assert "actual rejection" in str(captured.value)
+        assert not list(tmp_path.glob("*.xlsx"))
+        assert not any(call["method"] == "GET" for call in session.calls)
+    statuses = [first_status, second_status] if first_status == 401 else [first_status]
+    assert len(session.calls) == sum(len(attempt(status)) for status in statuses)
+    if first_status == 401:
+        refresh.assert_awaited_once_with(purpose="private_amz_export_auth_retry")
+    else:
+        refresh.assert_not_awaited()
