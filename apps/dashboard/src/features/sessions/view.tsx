@@ -1,3 +1,4 @@
+import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
 import { Pencil } from "lucide-react";
@@ -1183,6 +1184,7 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
+  useAutomationEditing(permissionSessionId, runtimeReady && (text.trim().length > 0 || attachments.length > 0));
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);
@@ -1576,6 +1578,7 @@ export function SessionDetailView({
       </header>
       <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
         connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+        followingIntent={display?.following} historyTarget={display?.historyTarget}
         loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
         pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />

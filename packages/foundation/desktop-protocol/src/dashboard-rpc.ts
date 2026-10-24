@@ -1,3 +1,4 @@
+import { AUTOMATION_OPERATIONS, parseAutomationCall, type AutomationRpcSpec, type AutomationOperation } from "./automations";
 import { parsePermissionMode, type PermissionMode, type PendingApproval, type ApprovalDecision } from "@lxe/protocol";
 export type { PermissionMode, PendingApproval, ApprovalDecision } from "@lxe/protocol";
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
@@ -480,7 +481,11 @@ export interface WorkspaceSummaryPayload {
   last_active_at: number;
 }
 
-export interface DashboardRpcSpec {
+export interface DashboardRpcSpec extends AutomationRpcSpec {
+  "sessions.turn.lookup": {
+    input: { session_id: string; turn_id: string };
+    result: { state: import("@lxe/protocol/session-status").SessionRunPhase | "missing" };
+  };
   "sessions.create": {
     input: { workspace_id: string };
     result: SessionPayload;
@@ -508,7 +513,7 @@ export interface DashboardRpcSpec {
     result: SessionListPayload;
   };
   "sessions.detail": {
-    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string };
+    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string; message_turn_id?: string };
     result: SessionDetailPayload;
   };
   "sessions.execTasks": {
@@ -604,7 +609,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -737,7 +742,15 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     rpcError("Dashboard RPC input is too large");
   }
 
+  if (AUTOMATION_OPERATIONS.includes(operation as AutomationOperation)) {
+    try { return parseAutomationCall(String(operation), input); }
+    catch (error) { throw new DashboardRpcError("invalid_request", error instanceof Error ? error.message : String(error)); }
+  }
+
   switch (operation) {
+    case "sessions.turn.lookup":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, "session_id")!, turn_id: textValue(input.turn_id, "turn_id")! } };
     case "sessions.create":
     case "workspaces.delete":
       exactKeys(input, ["workspace_id"], `${operation}.input`);
@@ -777,8 +790,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         offset: integerValue(input.offset, `${operation}.offset`, 0, 0, Number.MAX_SAFE_INTEGER),
       } };
     case "sessions.detail": {
-      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after"], `${operation}.input`);
+      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after", "message_turn_id"], `${operation}.input`);
       if (input.message_before !== undefined && input.message_after !== undefined) rpcError("before and after are mutually exclusive");
+      if (input.message_turn_id !== undefined && (input.message_before !== undefined || input.message_after !== undefined)) rpcError("turn and page cursors are mutually exclusive");
+      const messageTurn = textValue(input.message_turn_id, `${operation}.message_turn_id`, { optional: true });
       const messageAfter = textValue(input.message_after, `${operation}.message_after`, { optional: true });
       const messageBefore = textValue(input.message_before, `${operation}.message_before`, { optional: true });
       return { operation, input: {
@@ -786,6 +801,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         message_limit: integerValue(input.message_limit, `${operation}.message_limit`, 10, 1, 200),
         ...(messageBefore === undefined ? {} : { message_before: messageBefore }),
         ...(messageAfter === undefined ? {} : { message_after: messageAfter }),
+        ...(messageTurn === undefined ? {} : { message_turn_id: messageTurn }),
       } };
     }
     case "sessions.rename":
@@ -944,7 +960,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "commands.list"
+  if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"

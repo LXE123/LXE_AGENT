@@ -66,7 +66,7 @@ export async function readModuleGraph(config, sourceRoot) {
 
 export function dashboardBoundaryViolations(graph) {
   const errors = [];
-  const transports = new Set(["api/client.ts", "api/queries.ts", "api/model-actions.ts", "api/mcp-actions.ts", "api/session-actions.ts"]);
+  const transports = new Set(["api/automation-actions.ts", "api/client.ts", "api/queries.ts", "api/model-actions.ts", "api/mcp-actions.ts", "api/session-actions.ts"]);
   const pages = new Set(["features/sessions/SessionSidebar.tsx", "features/sessions/ConversationPage.tsx", "features/capabilities/CapabilitiesPage.tsx"]);
   const privateState = new Set(["@tanstack/react-query", "features/sessions/display-controller.ts", "features/sessions/composer-draft.ts",
     "features/sessions/attachment-draft.ts", "features/sessions/live-stream.ts", "api/session-actions.ts"]);

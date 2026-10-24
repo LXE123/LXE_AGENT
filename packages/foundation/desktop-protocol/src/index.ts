@@ -443,6 +443,7 @@ export interface DesktopCloudActivationInput {
 }
 
 export type DesktopDashboardDataDomain =
+  | "automations"
   | "sessions"
   | "stats"
   | "channels"
@@ -1098,3 +1099,6 @@ export function isAgentEvent(message: AgentWireMessage): message is AgentNotific
 }
 
 export * from "./composer-references";
+
+export * from "./automations";
+export * from "./desktop-mcp";

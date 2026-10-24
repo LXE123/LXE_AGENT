@@ -6,6 +6,7 @@ import type {
 } from "@lxe/desktop-protocol";
 
 export const ALL_DASHBOARD_DATA_DOMAINS: readonly DesktopDashboardDataDomain[] = [
+  "automations",
   "sessions",
   "stats",
   "channels",

@@ -13,7 +13,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   const operations = async () => (await state()).calls.map(c => c.operation);
   await step('primary navigation, capability destinations and active-page query gates', async () => {
     await open();
-    assert.equal(await js("document.querySelectorAll('.navigation-rail-button').length"), 5);
+    assert.equal(await js("document.querySelectorAll('.navigation-rail-button').length"), 6);
     assert.equal((await operations()).includes('models.list'), false);
     assert.equal((await operations()).includes('toolsets.list'), false);
     assert.equal(await js("document.querySelectorAll('.home-session-row').length"), 6);

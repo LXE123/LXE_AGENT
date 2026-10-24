@@ -10,6 +10,8 @@
 | 查原话、来源版本与证据边界 | [来源与证据](evidence.md)、[CDS 原文](sources/cds-tokens-vanilla.original.md) |
 | 找到实际使用的变量与组件 | [实现与适配对照](lxe-adaptation.md)、[共享主题源码](../../../apps/dashboard/src/shared/cds-theme.css) |
 | 对照已确认规则与实现缺口 | [当前适配总表](current-adaptation.md) |
+| 检查定时任务页面的状态与验收 | [定时任务适配](automations.md) |
+| 检查主导航图标、动效与键盘操作 | [主导航图标与动效](navigation-rail.md) |
 | 核对最初引入的色彩表 | [变量说明](tokens/README.md)；其中快照对应指定历史版本，开发以生产源码为准 |
 
 ## 区分四类信息
@@ -42,6 +44,7 @@
 
 - `bun run cds:preview`：打开可交互的亮暗组件展示页，10 分钟后自动关闭，也可 Ctrl+C 结束。
 - `bun run cds:check`：用本地 Electron 检查组件状态，更新同一份展示截图与实测记录，结束后清理测试进程。
+- `bun run cds:check:automations`：用本地 Electron 验收生产定时任务页面，覆盖亮暗主题、字段、列表、按钮、弹窗、错误、禁用和窄屏，记录源码指纹与截图。
 - `bun run cds:docs`：核对原始出处片段，从 JSON 重建当前适配总表。
 
 当前展示覆盖设置原生输入框、会话导航行和工具调用条。它直接复用生产 CSS／组件；输入框错误探针与生产支持的状态分别标明。

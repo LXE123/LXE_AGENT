@@ -1,3 +1,4 @@
+import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { SessionTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -115,6 +116,7 @@ export function createAgentRuntimeHost(
     LXE_WORKSPACE_ROOT: join(options.dataRoot, "workspace"),
     PYTHONDONTWRITEBYTECODE: "1",
   };
+  const desktopMcp = takeDesktopMcpConfig(environment);
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
@@ -193,6 +195,10 @@ export function createAgentRuntimeHost(
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.yaml");
   const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
+  if (desktopMcp) {
+    if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");
+    mcpConfig.servers.push(desktopMcp);
+  }
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
@@ -210,7 +216,7 @@ export function createAgentRuntimeHost(
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: (sessionId) => processes.terminateSession(sessionId),
     setMcpEnabled: async (serverName, enabled) => {
-      setMcpServerEnabled(mcpConfigPath, serverName, enabled);
+      if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
       await mcpManager.setEnabled(serverName, enabled);
     },
     mcpStatus: (serverName) => mcpManager.status(serverName),

@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "types": ["bun", "vite/client"] },
-  "include": ["./*.ts", "./*.tsx", "../features/file-preview/*.ts", "../features/file-preview/*.tsx", "../features/workspace-apps/renderer.test.ts", "../features/workspace-apps/*.tsx", "../../src/vite-env.d.ts"]
+  "include": ["./*.ts", "./*.tsx", "../features/file-preview/*.ts", "../features/file-preview/*.tsx", "../features/workspace-apps/renderer.test.ts", "../features/workspace-apps/*.tsx", "../features/automations/fixture.tsx", "../../src/vite-env.d.ts"]
 }
