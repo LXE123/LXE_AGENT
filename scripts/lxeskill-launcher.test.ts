@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withExecutablePath } from "../packages/foundation/core/src/env";
+import { managedPythonEnvironment, withExecutablePath } from "../packages/foundation/core/src/env";
 import { ExecShellAdapter } from "../packages/agent/runtime/src/tooling/exec-shell";
 import { prepareLxeSkillLauncher } from "./prepare-lxeskill-launcher";
 
@@ -60,5 +60,22 @@ def main():
     }
     const failedSpec = shell.spawnSpec(shell.normalizeCommand(workspace, "lxeskill --fail"));
     expect(spawnSync(failedSpec.argv[0]!, failedSpec.argv.slice(1), { cwd: workspace, env }).status).toBe(23);
+    // A host that owns the managed runtime prepares its child environment before
+    // handing commands to exec. Test pollution separately from the clean package gate.
+    const foreign = join(root, "foreign");
+    mkdirSync(join(foreign, "lxeskill"), { recursive: true });
+    writeFileSync(join(foreign, "lxeskill", "__init__.py"), 'raise RuntimeError("FOREIGN_CHECKOUT_IMPORTED")\n');
+    for (const pollution of [{ PYTHONHOME: join(root, "missing-home") }, { PYTHONPATH: foreign }]) {
+      const controlled = managedPythonEnvironment({ ...env, ...pollution });
+      const direct = spawnSync(name, args, { cwd: workspace, env: controlled, encoding: "utf8" });
+      expect(direct.status).toBe(0);
+      expect(JSON.parse(direct.stdout)).toEqual(args);
+      const raw = new ExecShellAdapter({ environment: controlled }).normalizeCommand(workspace, "lxeskill list");
+      expect(raw).toBe("lxeskill list");
+      const spec = shell.spawnSpec(raw);
+      const execution = spawnSync(spec.argv[0]!, spec.argv.slice(1), { cwd: workspace, env: controlled, encoding: "utf8" });
+      expect(execution.status).toBe(0);
+      expect(JSON.parse(execution.stdout)).toEqual(["list"]);
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);

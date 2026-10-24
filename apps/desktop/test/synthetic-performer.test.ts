@@ -62,6 +62,30 @@ const waitForTerminal = (
 });
 
 describe("desktop synthetic performer service", () => {
+  test("does not pass another Python installation's settings to the media CLI", async () => {
+    const files = fixture(`
+if (process.env.PYTHONHOME || process.env.PYTHONPATH || process.env.PYTHONNOUSERSITE !== "1") throw Error("inherited Python configuration");
+console.log(JSON.stringify({protocol_version:"1",type:"result",command:"media synthetic-performer",ok:true,data:{items:[],counts:{}},files:[]}));
+`);
+    const source = join(files.sources, "sample.jpg"); writeFileSync(source, "fixture");
+    const service = new DesktopSyntheticPerformerService({
+      platform: process.platform, executablePath: files.python, commandArguments: files.commandArguments,
+      exifToolPath: files.exiftool, dataRoot: files.dataRoot, managedPath: files.root, onTaskChanged: () => {},
+    });
+    const previous = { PYTHONHOME: process.env.PYTHONHOME, PYTHONPATH: process.env.PYTHONPATH };
+    try {
+      process.env.PYTHONHOME = join(files.root, "foreign-home");
+      process.env.PYTHONPATH = join(files.root, "foreign-path");
+      const selection = service.registerSources("files", [source]);
+      service.start({ action: "scan", selection_id: selection.selection_id, recursive: false });
+      expect((await waitForTerminal(service)).state).toBe("completed");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  });
+
   test("keeps the public CLI command as the production default", () => {
     expect(syntheticPerformerCommandArguments).toEqual([
       "media",

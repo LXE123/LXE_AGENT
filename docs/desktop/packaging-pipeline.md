@@ -237,6 +237,8 @@ Windows 打包时，通过 `uv` 在临时、可迁移的构建环境中生成标
 
 桌面业务调用和健康检查使用入口的明确路径；agentcli 的 `exec` 和统计查询使用 PATH，不把 `lxeskill` 改写成 Python 命令。通用 Python 命令的解释器选择与这条 CLI 链路无关。入口构建见 [`prepare-lxeskill-launcher.ts`](../../scripts/prepare-lxeskill-launcher.ts)。打包完成后会在源码目录外、仅含随包工具的 PATH 上执行 `lxeskill list`，验证实际交付的入口。
 
+应用装配受管运行环境和直接调用 CLI 时，会清理继承的 `PYTHONHOME`、`PYTHONPATH` 等 Python 配置，再设置 UTF-8、禁用用户包等固定选项，避免其他 Python 安装或 checkout 干扰源码与打包入口。这属于子进程环境准备，不在 `exec` 中识别或改写 `lxeskill` 命令。标准 CLI 入口本身不等于 `python -I`；污染环境回归测试单独覆盖这条调用链。
+
 资源装配从模块各自的生产输出直接生成 `extraResources`。最终不携带 wheel 文件、旧冻结版 `runtime/lxeskill`、构建用 `uv.exe`、npm/npx 和 npm 缓存。Playwright 控制库复用私有 Node，移除其重复 Node；安装包不包含 `runtime/playwright` 浏览器目录。Electron 启动时执行 `lxeskill list` 检查 CLI 入口，打包成功不能代替这项检查，检查成功也不代表各业务服务均可用。
 
 ## 第三步：准备发布资源

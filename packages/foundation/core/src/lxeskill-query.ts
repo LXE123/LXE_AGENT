@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { sanitizeLogValue } from "./logging";
+import { managedPythonEnvironment } from "./env";
 
 export interface LxeSkillQueryOptions {
   executablePath?: string;
@@ -18,7 +19,7 @@ export async function queryLxeSkill(
   const args = command.split(" ");
   const execution = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(resolve => {
     execFile(file, args, {
-      cwd: options.cwd, env: environment, encoding: "utf8", windowsHide: true,
+      cwd: options.cwd, env: managedPythonEnvironment(environment), encoding: "utf8", windowsHide: true,
       timeout: options.timeoutMs ?? 5_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024,
     }, (error, stdout, stderr) => resolve({ error, stdout: String(stdout), stderr: String(stderr) }));
   });

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { resolveUserSkillsRoot, withExecutablePath } from "@lxe/core";
+import { resolveUserSkillsRoot, withExecutablePath, managedPythonEnvironment } from "@lxe/core";
 import { delimiter, dirname, join, resolve } from "node:path";
 
 type Environment = Record<string, string | undefined>;
@@ -113,7 +113,7 @@ export function execRuntimeEnvironment(
   environment: Environment = process.env,
 ): Environment {
   const temporaryRoot = join(paths.dataRoot, "tmp");
-  return withExecutablePath({
+  return withExecutablePath(managedPythonEnvironment({
     ...environment,
     LXE_SKILLS_ROOT: paths.skillsRoot,
     LXE_USER_SKILLS_ROOT: paths.userSkillsRoot,
@@ -134,8 +134,6 @@ export function execRuntimeEnvironment(
     TMP: temporaryRoot,
     TEMP: temporaryRoot,
     TMPDIR: temporaryRoot,
-    PYTHONDONTWRITEBYTECODE: "1",
-    PYTHONNOUSERSITE: "1",
     ...(paths.sourceRoot ? {
       LXE_SOURCE_ROOT: paths.sourceRoot,
       UV_PYTHON: paths.managedPythonPath,
@@ -144,5 +142,5 @@ export function execRuntimeEnvironment(
       PLAYWRIGHT_NODEJS_PATH: join(paths.resourceRoot, "runtime", "node", "node.exe"),
       NODE_PATH: join(paths.resourceRoot, "runtime", "node", "node_modules"),
     }),
-  }, paths.managedPath);
+  }), paths.managedPath);
 }

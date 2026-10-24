@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 
@@ -53,7 +54,7 @@ export class DesktopCloudContextClient implements CloudContextQuery {
   query(serverUrl: string, signal: AbortSignal): Promise<unknown> {
     if (!isAbsolute(this.options.executablePath)) return Promise.reject(new CloudContextError("LXE Skill CLI path must be absolute"));
     if (signal.aborted) return Promise.reject(new CloudContextError("cloud-context query cancelled", "cancelled"));
-    const environment: NodeJS.ProcessEnv = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1" };
+    const environment: NodeJS.ProcessEnv = {};
     // The CLI is launched by absolute path. No application credentials, proxy or PYTHONPATH inheritance.
     for (const key of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "LANG"]) {
       if (process.env[key]) environment[key] = process.env[key];
@@ -61,7 +62,7 @@ export class DesktopCloudContextClient implements CloudContextQuery {
     return new Promise((resolve, reject) => {
       const child = (this.options.spawn ?? spawn)(this.options.executablePath,
         ["cloud-context", "--server", serverUrl],
-        { cwd: this.options.cwd, env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+        { cwd: this.options.cwd, env: managedPythonEnvironment(environment), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
       const chunks: Buffer[] = [];
       let bytes = 0;
       let stderr = Buffer.alloc(0);

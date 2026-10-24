@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { execFile, type ExecFileOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -140,7 +141,7 @@ export class DesktopInputAssetsService {
       timeout,
       maxBuffer: MAX_OUTPUT_BYTES,
       windowsHide: true,
-      env: {
+      env: managedPythonEnvironment({
         ...process.env,
         LXE_DATA_ROOT: this.options.dataRoot,
         LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
@@ -150,11 +151,7 @@ export class DesktopInputAssetsService {
         TMP: temporaryRoot,
         TEMP: temporaryRoot,
         TMPDIR: temporaryRoot,
-        PYTHONDONTWRITEBYTECODE: "1",
-        PYTHONNOUSERSITE: "1",
-        PYTHONIOENCODING: "utf-8",
-        PYTHONUTF8: "1",
-      },
+      }),
     };
     const execution = this.options.execute
       ? await this.options.execute(args, options)

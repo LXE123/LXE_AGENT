@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -14,10 +15,10 @@ export class DesktopVietnamSettingsService {
     const args = ["vietnam", "replenishment", "settings", "--action", action, ...values];
     const options = {
       cwd: this.options.dataRoot, timeout: 180_000, maxBuffer: 1024 * 1024, windowsHide: true,
-      env: { ...process.env, LXE_DATA_ROOT: this.options.dataRoot,
+      env: managedPythonEnvironment({ ...process.env, LXE_DATA_ROOT: this.options.dataRoot,
         LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
         LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"), TMP: temporaryRoot, TEMP: temporaryRoot,
-        TMPDIR: temporaryRoot, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+        TMPDIR: temporaryRoot }),
     };
     const execution = this.options.execute ? await this.options.execute(args, options)
       : await new Promise<{ stdout: string; stderr: string; error: Error | null }>(resolve => {

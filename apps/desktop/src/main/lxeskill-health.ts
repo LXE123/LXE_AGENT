@@ -1,5 +1,5 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
-import { createLogger } from "@lxe/core";
+import { createLogger, managedPythonEnvironment } from "@lxe/core";
 import type { DesktopHealth } from "@lxe/desktop-protocol";
 import { redactAndBound } from "./input-assets";
 
@@ -74,7 +74,7 @@ export class DesktopLxeSkillHealth {
         LXE_USER_SKILLS_ROOT: _userSkills, ...environment } = this.options.environment;
       const result = await (this.options.execute ?? executeProbe)(this.options.executablePath,
         ["list"], {
-          cwd: this.options.dataRoot, env: environment, signal: controller.signal,
+          cwd: this.options.dataRoot, env: managedPythonEnvironment(environment), signal: controller.signal,
           timeout: this.options.timeoutMs ?? 30_000, killSignal: "SIGKILL",
           maxBuffer: 10 * 1024 * 1024, windowsHide: true, encoding: "utf8",
         });

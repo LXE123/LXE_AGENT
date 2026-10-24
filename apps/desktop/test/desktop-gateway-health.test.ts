@@ -35,7 +35,9 @@ describe("desktop lxeskill health", () => {
         expect(file).toContain("lxeskill");
         expect(args).toEqual(["list"]);
         expect(options.timeout).toBe(30_000);
-        expect(options.env).toEqual({ LXE_SQLITE_DB_PATH: "/business.sqlite3" });
+        expect(options.env).toMatchObject({ LXE_SQLITE_DB_PATH: "/business.sqlite3", PYTHONNOUSERSITE: "1" });
+        expect(options.env).not.toHaveProperty("LXE_AGENT_SQLITE_DB_PATH");
+        expect(options.env).not.toHaveProperty("LXE_USER_SKILLS_ROOT");
         return success();
       },
       onChanged: () => states.push(service.snapshot().state),

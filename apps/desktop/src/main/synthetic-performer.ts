@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { basename, dirname, join, posix, win32 } from "node:path";
@@ -275,7 +276,7 @@ export class DesktopSyntheticPerformerService {
         ?? syntheticPerformerCommandArguments,
       {
         cwd: this.options.dataRoot,
-        env: {
+        env: managedPythonEnvironment({
           ...process.env,
           LXE_DATA_ROOT: this.options.dataRoot,
           LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
@@ -286,11 +287,7 @@ export class DesktopSyntheticPerformerService {
           TMP: temporaryRoot,
           TEMP: temporaryRoot,
           TMPDIR: temporaryRoot,
-          PYTHONDONTWRITEBYTECODE: "1",
-          PYTHONNOUSERSITE: "1",
-          PYTHONIOENCODING: "utf-8",
-          PYTHONUTF8: "1",
-        },
+        }),
         stdio: ["pipe", "pipe", "pipe"],
         detached: this.options.platform === "darwin",
         windowsHide: true,
