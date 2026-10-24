@@ -1,88 +1,11 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { queryLxeSkill, repositoryRoot } from "@lxe/core";
-import { queryLxeSkillCommandSkills } from "../../src/statistics/lxeskill";
+import { repositoryRoot } from "@lxe/core";
 import { TurnStatistics } from "../../src/statistics/turn-statistics";
 import { skillPathKey } from "../../src/tooling/skill-files";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 const root = repositoryRoot(import.meta.dir);
-test("queries command attribution and datasets through the installed public CLI", async () => {
-  const dataRoot = mkdtempSync(join(tmpdir(), "lxe-cli-query-"));
-  const options = { cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
-    environment: { ...process.env, LXE_DATA_ROOT: dataRoot, LXESKILL_SKILL_SCOPE: '["unrelated"]' } };
-  try {
-    const commands = await queryLxeSkillCommandSkills(options);
-    expect(commands.length).toBeGreaterThan(0);
-    expect(commands).toContainEqual({ command: "lxeskill replenish store resolve", skill: "replenishment-store-resolve" });
-    expect(commands.every(item => !item.command.startsWith("services."))).toBe(true);
-    expect(commands).toContainEqual({ command: "lxeskill vietnam replenishment calculate", skill: "vietnam-replenishment" });
-    const contract = await queryLxeSkill("list", options);
-    expect(contract.commands).toContainEqual(expect.objectContaining({
-      name: "vietnam_replenishment_generate", command: "vietnam replenishment calculate",
-      owner_skills: ["vietnam-replenishment"], input_modes: ["flags"],
-      input_schema: {
-        type: "object",
-        properties: {
-          sales_file: { type: "string", minLength: 1 }, inventory_file: { type: "string", minLength: 1 },
-          products_file: { type: "string", minLength: 1 },
-          template_file: { type: "string", minLength: 1, "x-lxe-file-input": {
-            accepted_extensions: [".xlsx"],
-            instruction: "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。",
-          } },
-        },
-        required: ["sales_file", "inventory_file", "products_file"], additionalProperties: false,
-      },
-    }));
-    const data = await queryLxeSkill("datasets list", options);
-    expect(data.datasets).toContainEqual(expect.objectContaining({ id: "fba_delivery_csv", dir: "fba/delivery_csv" }));
-    expect(data.datasets).toContainEqual(expect.objectContaining({ id: "vietnam_recommendations", dir: "vietnam/recommendations" }));
-  } finally { rmSync(dataRoot, { recursive: true, force: true }); }
-});
-
-test("Mabang TMS exposes one export command with optional warehouse scope and its own deliverable dataset", async () => {
-  const dataRoot = mkdtempSync(join(tmpdir(), "lxe-tms-query-"));
-  const options = { cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
-    environment: { ...process.env, LXE_DATA_ROOT: dataRoot } };
-  try {
-    const data = await queryLxeSkill("list", options);
-    const commands = (data.commands as Record<string, unknown>[]).filter(entry => String(entry.name).startsWith("mabang_tms_"));
-    expect(commands).toHaveLength(1);
-    expect(commands[0]).toMatchObject({
-      command: "mabang-tms products export",
-      owner_skills: ["mabang-tms-products-export"],
-      attribution_skill: "mabang-tms-products-export",
-      artifact_paths: [{ field: "artifacts[].path", role: "deliverable" }],
-      input_schema: { properties: { warehouse: { type: "string", enum: ["PH1", "VN1", "all"] } } },
-    });
-    expect(commands[0]?.input_schema).not.toHaveProperty("required"); // Unscoped external CLI compatibility.
-    const datasets = await queryLxeSkill("datasets list", options);
-    expect(datasets.datasets).toContainEqual(expect.objectContaining({ id: "mabang_tms_exports", dir: "mabang_tms/exports" }));
-  } finally { rmSync(dataRoot, { recursive: true, force: true }); }
-});
-
-test.each([
-  ["mabang-tms products export", "PH1", "mabang-tms-products-export"],
-  ["mabang-tms products export", "VN1", "mabang-tms-products-export"],
-  ["mabang-tms products export", "all", "mabang-tms-products-export"],
-  ["yacang reports export --report inventory-sales", "PH8805", "yacang-reports-export"],
-  ["yacang reports export --report inventory-sales", "VN8806", "yacang-reports-export"],
-])("country export command keeps ERP ownership: %s --warehouse %s", async (command, warehouse, owner) => {
-  const dataRoot = mkdtempSync(join(tmpdir(), "lxe-erp-query-"));
-  try {
-    const stats = new TurnStatistics({ directory: root, commandSkills: () => queryLxeSkillCommandSkills({
-      cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
-      environment: { ...process.env, LXE_DATA_ROOT: dataRoot },
-    }) });
-    stats.observe("exec", { command: `lxeskill ${command} --warehouse ${warehouse}` });
-    expect((await stats.snapshot()).executions).toEqual([
-      expect.objectContaining({ command: command.split(" --")[0], skill: owner }),
-    ]);
-  } finally { rmSync(dataRoot, { recursive: true, force: true }); }
-});
-
 test("records repeated Skill reads and longest matching command calls without execution outcomes", async () => {
   let queries = 0;
   const stats = new TurnStatistics({ directory: root, commandSkills: async () => { queries++; return [

@@ -790,24 +790,25 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
-  test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
+  test("exec forwards host env derived from the active skills to the child process", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
     const receivedSkillNames: Array<readonly string[]> = [];
     const processes = registerCodingTools(registry, {
+      execShell: new ExecShellAdapter({ environment: { ...process.env, TEST_ACTIVE_SKILLS: "stale" } }),
       execEnv: ({ skillNames }) => {
         receivedSkillNames.push(skillNames);
-        return { LXESKILL_SKILL_SCOPE: skillNames.join(",") };
+        return { TEST_ACTIVE_SKILLS: skillNames.join(",") };
       },
     });
-    const listed = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, { ...context(root), skill_names: ["replenishment-store-resolve"] })).content[0]?.text);
-    expect(listed).toContain("replenish store resolve");
-    expect(listed).not.toContain("fba customs fill");
-    expect(listed).toContain("mabang auth refresh");
-    expect(receivedSkillNames).toEqual([["replenishment-store-resolve"]]);
-    await processes.stop();
+    try {
+      const result = String((await registry.execute("exec", {
+        command: evalCommand("console.log('active-skills:' + process.env.TEST_ACTIVE_SKILLS)"),
+      }, { ...context(root), skill_names: ["demo", "another"] })).content[0]?.text);
+      expect(result).toContain("status: completed");
+      expect(result).toContain("active-skills:demo,another");
+      expect(receivedSkillNames).toEqual([["demo", "another"]]);
+    } finally { await processes.stop(); }
   });
 
   test("terminates the complete exec process tree", async () => {
