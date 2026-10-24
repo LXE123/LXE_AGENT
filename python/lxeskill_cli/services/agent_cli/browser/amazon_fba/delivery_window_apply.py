@@ -48,7 +48,8 @@ was open), ``E10`` dry-run cancellation or modal closure failed.
 
 Argument contract (the catalog ``input_schema`` is the source of truth):
 
-- ``action`` (optional, default ``apply``) — ``discover`` scans every shipment
+- ``action`` (optional, default ``apply``) — ``readback`` only verifies the
+  current persisted week (even after the edit deadline); ``discover`` scans every shipment
   tab in the seed shipment's STA workflow without opening the edit modal;
   ``apply`` keeps the existing verified write path
 - ``store_id`` (required) — the Ziniao store to drive
@@ -59,7 +60,10 @@ Argument contract (the catalog ``input_schema`` is the source of truth):
 - ``target_date`` (required) — any day inside the wanted delivery week, e.g.
   ``2026-10-28`` or ``10.28``; the calendar week is Sunday→Saturday
 - ``apply`` (optional, default false) — false stops right after the modal is
-  read (dry run); true clicks the day cell and the confirm button
+  read and safely cancelled (dry run); true clicks the day cell and confirm
+- ``dry_run_id`` — required for apply=true, returned by a successful dry-run;
+  binds the exact plan and observed context, permits one execution attempt.
+  It is evidence of preparation, never evidence of human approval.
 - ``timeout_sec`` (optional, default 60) — page-level waits
 - ``plan_only`` (optional, default false) — validate the arguments only, never
   touch a browser
@@ -84,6 +88,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 from services.agent_cli._shared.browser_session import browser_session
 from services.agent_cli.browser.amazon_fba import delivery_window_list as dwl
+from services.agent_cli.browser.amazon_fba import delivery_window_preparation as preparation
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 from services.browser.workflows.amazon_fba_common import workflow_output_dir
 
@@ -149,6 +154,7 @@ _WAIT_INTERVAL_SECONDS = 0.5
 
 ACTION_APPLY = "apply"
 ACTION_DISCOVER = "discover"
+ACTION_READBACK = "readback"
 
 #: Sleep indirection so tests can drive the timeout branches instantly.
 _SLEEP: Callable[[float], None] = time.sleep
@@ -537,6 +543,13 @@ def _parse_timeout(args: Mapping[str, Any]) -> int:
     return timeout_sec
 
 
+def _target_handle(args: Mapping[str, Any]) -> str:
+    handle = _clean(args.get("target_handle"))
+    if len(handle) > 256:
+        raise DeliveryWindowApplyArgumentError("target_handle 长度不能超过 256")
+    return handle
+
+
 def plan_discover(arguments: Mapping[str, Any]) -> dict[str, Any]:
     """Validate a read-only workflow discovery request.
 
@@ -554,12 +567,15 @@ def plan_discover(arguments: Mapping[str, Any]) -> dict[str, Any]:
         )
     if bool(args.get("apply", False)):
         raise DeliveryWindowApplyArgumentError("action=discover 是只读操作，不能同时传 apply=true")
+    if args.get("dry_run_id"):
+        raise DeliveryWindowApplyArgumentError("action=discover 不接受 dry_run_id")
     return {
         "action": ACTION_DISCOVER,
         "store_id": base["store_id"],
         "page_url": base["page_url"],
         "shipment_ids": shipment_ids,
         "seed_shipment_id": shipment_ids[0],
+        "target_handle": _target_handle(args),
         "apply": False,
         "timeout_sec": timeout_sec,
         "plan_only": bool(base["plan_only"]),
@@ -573,6 +589,18 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
     ``delivery_window_list.plan_read`` so both commands share one contract.
     """
     args = dict(arguments or {})
+    action = _clean(args.get("action") or ACTION_APPLY).lower()
+    readback = action == ACTION_READBACK
+    if readback and (args.get("apply") or args.get("dry_run_id")):
+        raise DeliveryWindowApplyArgumentError("action=readback 是只读核验，不接受 apply 或 dry_run_id")
+    dry_run_id = ""
+    if args.get("apply") or args.get("dry_run_id"):
+        try:
+            dry_run_id = preparation.validate_id(args.get("dry_run_id"))
+        except ValueError as exc:
+            raise DeliveryWindowApplyArgumentError(str(exc)) from exc
+        if not args.get("apply"):
+            raise DeliveryWindowApplyArgumentError("dry_run_id 仅用于已批准的 apply=true")
     timeout_sec = _parse_timeout(args)
     base = dwl.plan_read(args)
 
@@ -589,7 +617,7 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
 
     target_date = parse_target_date(args.get("target_date"), today=today)
     start, end = calendar_week_span(target_date)
-    if end < today:
+    if end < today and not readback:
         raise DeliveryWindowApplyArgumentError(
             f"target_date {target_date.isoformat()} 所在的送达周 "
             f"{format_cn_window(start, end)} 已经过去（今天 {today.isoformat()}，按 UTC）；"
@@ -597,7 +625,7 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
         )
 
     return {
-        "action": ACTION_APPLY,
+        "action": ACTION_READBACK if readback else ACTION_APPLY,
         "store_id": base["store_id"],
         "page_url": base["page_url"],
         "shipment_ids": shipment_ids,
@@ -610,6 +638,8 @@ def plan_apply(arguments: Mapping[str, Any], *, now: _dt.datetime | None = None)
         },
         "target_date_input": _clean(args.get("target_date")),
         "apply": bool(args.get("apply", False)),
+        "dry_run_id": dry_run_id,
+        "target_handle": _target_handle(args),
         "timeout_sec": timeout_sec,
         "plan_only": bool(base["plan_only"]),
         "today": today.isoformat(),
@@ -1358,6 +1388,74 @@ def _read_page(driver: Any) -> str:
     return str(getattr(driver, "page_source", "") or "")
 
 
+def _utc_now() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+def observe_shipment(
+    driver: Any, plan: Mapping[str, Any], shipment_id: str, *, now: _dt.datetime,
+) -> dict[str, Any]:
+    """Read business facts together; never reuse elements or stale evidence."""
+    started = time.monotonic()
+    before = (_clean(driver.current_window_handle), _clean(driver.current_url))
+    html = _read_page(driver)
+    after = (_clean(driver.current_window_handle), _clean(driver.current_url))
+    if before != after or not before[0]:
+        _fail("context_changed", f"读取页面时上下文变化：before={before} after={after}")
+    url = urlsplit(after[1])
+    workflow_ids = parse_qs(url.query).get("wf", [])
+    if (_origin(after[1]) != _origin(str(plan["page_url"]))
+            or url.path != "/fba/sendtoamazon" or len(workflow_ids) != 1 or not workflow_ids[0]):
+        _fail("context_changed", f"当前页面不是目标站点的 STA 工作流程：{after[1]}")
+    tabs = read_tracking_tabs(html)
+    selected = select_tracking_tab(tabs, shipment_id)
+    if selected["status"] != "ok":
+        _fail("E2", f"{shipment_id}: {selected['reason']}")
+    index = int(selected["index"])
+    verdict = verify_tab_selection(tabs, index)
+    if tabs[index]["fba_ids"] != [shipment_id] or verdict["status"] != "ok":
+        _fail("E2", f"目标货件未唯一选中：shipment={shipment_id} tab={tabs[index]} verdict={verdict}")
+    soup = _soup(html)
+    modal = soup.select_one(MODAL_BODY_SELECTOR)
+    modal_open = modal is not None
+    modal_current = read_current_window_text(html) if modal_open else None
+    # A modal's selected/current week cannot prove a persisted page change.
+    if modal is not None:
+        modal.decompose()
+    current = read_current_window_text(str(soup))
+    grace_text = read_grace_text(html)
+    return {
+        "observation_id": uuid.uuid4().hex,
+        "observed_at": now.isoformat(timespec="milliseconds"),
+        "duration_ms": round((time.monotonic() - started) * 1000),
+        "store_id": plan["store_id"], "shipment_id": shipment_id,
+        "window_handle": after[0], "page_url": after[1], "workflow_id": workflow_ids[0],
+        "tab_index": index, "current_window_read": current,
+        "grace_text": grace_text, "grace": parse_grace_period(grace_text["text"], now=now),
+        "modal_open": modal_open, "modal_current_window_read": modal_current,
+        "legend_selected": read_legend_selected_text(html),
+        "update_button": read_update_button_state(html),
+    }
+
+
+def _observe_entry(
+    driver: Any, plan: Mapping[str, Any], shipment_id: str,
+    entry: dict[str, Any], phase: str, *, now: _dt.datetime | None = None,
+) -> dict[str, Any]:
+    entry.update(phase=phase, last_observation_valid=False)
+    observation = observe_shipment(driver, plan, shipment_id, now=now or _utc_now())
+    previous = entry.get("observations", [])
+    if previous:
+        expected = {key: previous[0][key] for key in ("window_handle", "page_url", "workflow_id")}
+        actual = {key: observation[key] for key in expected}
+        if actual != expected:
+            _fail("context_changed", f"操作期间页面上下文变化：expected={expected} actual={actual}")
+    observation["phase"] = phase
+    entry.setdefault("observations", []).append(observation)
+    entry["last_observation_valid"] = True
+    return observation
+
+
 def _click_selector(driver: Any, selector: str) -> bool:
     return bool(driver.execute_script(SHADOW_DOM_HELPERS_JS + _CLICK_SELECTOR_SCRIPT, selector))
 
@@ -1450,10 +1548,12 @@ class _Trail:
     """Step log, so the artifact shows what was actually done."""
 
     def __init__(self) -> None:
-        self.entries: list[dict[str, str]] = []
+        self.entries: list[dict[str, Any]] = []
+        self.started = time.monotonic()
 
     def note(self, step: str, detail: object = "") -> None:
-        self.entries.append({"step": str(step), "detail": _clean(detail)})
+        self.entries.append({"step": str(step), "detail": _clean(detail),
+                             "elapsed_ms": round((time.monotonic() - self.started) * 1000)})
 
 
 def _fail(code: str, message: str) -> None:
@@ -1504,6 +1604,7 @@ def _open_tracking_detail(
     detail_url: str,
     timeout_seconds: float,
     trail: _Trail,
+    require_editability: bool = True,
 ) -> None:
     def reveal_tabs() -> bool:
         _wait_until(
@@ -1576,7 +1677,7 @@ def _open_tracking_detail(
         readiness["grace_text"] = read_grace_text(html)
         return (
             readiness["current_window"]["status"] != WINDOW_MISSING
-            and bool(readiness["grace_text"]["text"])
+            and (not require_editability or bool(readiness["grace_text"]["text"]))
         )
 
     ready = bool(
@@ -1650,9 +1751,10 @@ def _read_editable_window(
     *,
     now: _dt.datetime,
     trail: _Trail,
+    observation: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    html = _read_page(driver)
-    grace_text = read_grace_text(html)
+    html = _read_page(driver) if observation is None else ""
+    grace_text = observation["grace_text"] if observation is not None else read_grace_text(html)
     grace = parse_grace_period(grace_text["text"], now=now)
     trail.note(
         "E3 可编辑截止",
@@ -1667,7 +1769,7 @@ def _read_editable_window(
             f"（页面文案: '{grace['raw']}'）",
         )
 
-    current = read_current_window_text(html)
+    current = observation["current_window_read"] if observation is not None else read_current_window_text(html)
     window = current["window"] if isinstance(current.get("window"), Mapping) else None
     trail.note(
         "E9 当前送达时段",
@@ -1752,20 +1854,48 @@ def _run_one_shipment(
         "steps": trail.entries,
     })
 
-    _open_tracking_detail(driver, detail_url=detail_url, timeout_seconds=timeout_seconds, trail=trail)
+    entry["phase"] = "locating"
+    _open_tracking_detail(driver, detail_url=detail_url, timeout_seconds=timeout_seconds, trail=trail,
+                          require_editability=plan.get("action") != ACTION_READBACK)
     tab = _select_shipment_tab(
         driver, shipment_id, timeout_seconds=timeout_seconds, trail=trail
     )
     entry["tab_index"] = tab["index"]
 
-    grace, current = _read_editable_window(driver, now=now, trail=trail)
+    observed = _observe_entry(driver, plan, shipment_id, entry, "identified", now=now)
+    if plan.get("action") == ACTION_READBACK:
+        current_read = observed["current_window_read"]
+        entry["applied_window_read"] = current_read
+        entry["applied_window"] = current_read["window"]
+        if observed["modal_open"]:
+            _fail("readback_unavailable", "编辑弹窗仍打开，不能用弹窗内容证明已保存时段")
+        if current_read["status"] != WINDOW_PARSED:
+            _fail("E9", f"只读核验无法解析当前时段：{current_read}")
+        matches = window_matches(current_read["window"], target_start, target_end)
+        entry.update(status="verified_target" if matches else "readback_mismatch",
+                     readback_required=False, phase="readback_complete")
+        trail.note("只读回读", f"target_matches={matches} raw={current_read['raw']}")
+        if not matches:
+            _fail("E8", f"当前页面时段与目标周不一致：{current_read['raw']}；未执行提交")
+        return entry
+
+    if observed["modal_open"]:
+        _fail("context_changed", "操作开始时编辑弹窗已打开，无法建立干净的改期上下文")
+    grace, current = _read_editable_window(driver, now=now, trail=trail, observation=observed)
     entry["grace"] = grace
     entry["current_window"] = current["window"]
     entry["current_window_read"] = current["read"]
 
+    if plan["apply"]:
+        expected = plan["preparation"]["shipments"][shipment_id]
+        actual = preparation.binding(observed)
+        if actual != expected:
+            _fail("preparation_changed", f"实时页面与 dry-run 不一致：expected={expected} actual={actual}")
+
     if window_matches(current["window"], target_start, target_end):
         trail.note("已完成", "页面上的送达时段已经是目标周，不做任何点击")
         entry["status"] = "already_target"
+        entry["phase"] = "complete"
         return entry
 
     if not _click_selector(driver, EDIT_LINK_SELECTOR):
@@ -1778,11 +1908,12 @@ def _run_one_shipment(
         _fail(
             "E4",
             f"点击编辑时段后 {MODAL_TIMEOUT_SECONDS} 秒内没等到弹窗（{MODAL_BODY_SELECTOR}）；"
-            "很可能是该货件被承运人预约锁定",
+            f"当前 URL: {driver.current_url}",
         )
     trail.note("E4 弹窗已打开", MODAL_BODY_SELECTOR)
 
-    modal_read = read_current_window_text(_read_page(driver))
+    modal_observation = _observe_entry(driver, plan, shipment_id, entry, "editor_open")
+    modal_read = modal_observation["modal_current_window_read"] or {"scope": "", "status": WINDOW_MISSING, "raw": "", "source": ""}
     entry["modal_current_window"] = modal_read["raw"]
     entry["modal_current_window_source"] = modal_read["source"]
     if modal_read["scope"] == "modal" and modal_read["status"] == WINDOW_PARSED:
@@ -1815,6 +1946,10 @@ def _run_one_shipment(
         entry["dry_run_modal_closed"] = bool(closed)
         if not closed:
             _fail("E10", "dry-run 点击取消后编辑弹窗仍未关闭，停止后续货件")
+        closed_observation = _observe_entry(driver, plan, shipment_id, entry, "dry_run_closed")
+        if (closed_observation["modal_open"] or not closed_observation["grace"]["editable"]
+                or preparation.binding(closed_observation) != preparation.binding(observed)):
+            _fail("context_changed", f"dry-run 收尾页面变化：before={observed} after={closed_observation}")
         entry["status"] = "dry_run_ready"
         return entry
 
@@ -1843,24 +1978,45 @@ def _run_one_shipment(
         )
     trail.note("E5 图例自检通过", f"legend='{legend['raw']}'")
 
-    button = read_update_button_state(_read_page(driver))
+    before_submit = _observe_entry(driver, plan, shipment_id, entry, "before_submit")
+    if preparation.binding(before_submit) != preparation.binding(observed):
+        _fail("preparation_changed", f"选择日期期间页面变化：expected={preparation.binding(observed)} actual={preparation.binding(before_submit)}")
+    if not before_submit["grace"]["editable"]:
+        _fail("E3", f"提交前可编辑截止时间已到：{before_submit['grace']}")
+    if not before_submit["modal_open"] or not window_matches(
+        before_submit["legend_selected"].get("window"), target_start, target_end
+    ):
+        _fail("E5", f"提交前弹窗或选中周发生变化：{before_submit['legend_selected']}")
+    button = before_submit["update_button"]
     entry["update_button"] = button
     if not button["present"]:
         _fail("E6", f"读不到确认按钮（{UPDATE_BUTTON_SELECTOR}）")
     if button["disabled"]:
         _fail(
             "E6",
-            f"确认按钮（'{button['label']}'）仍是 disabled，日历选择大概没被页面接受；不点它",
+            f"确认按钮（'{button['label']}'）仍是 disabled；不点它",
         )
     # Persist intent BEFORE dispatch. A disconnected response cannot prove
     # whether Amazon accepted the click; only a subsequent read can do that.
-    entry.update(status="pending_readback", confirmation_attempted=True, readback_required=True)
+    entry.update(status="pending_readback", confirmation_attempted=True, readback_required=True, phase="submitting")
     if checkpoint is not None:
         try:
             checkpoint()
         except Exception:
             entry.update(status="failed", confirmation_attempted=False, readback_required=False)
             raise
+    # Audit fsync can take time. Recheck after it and before dispatching a
+    # mutation, so an expired deadline or switched page cannot use old facts.
+    try:
+        dispatch = _observe_entry(driver, plan, shipment_id, entry, "dispatch_checked")
+        if (preparation.binding(dispatch) != preparation.binding(before_submit)
+                or not dispatch["grace"]["editable"] or not dispatch["modal_open"]
+                or not window_matches(dispatch["legend_selected"].get("window"), target_start, target_end)
+                or not dispatch["update_button"]["present"] or dispatch["update_button"]["disabled"]):
+            _fail("submission_changed", f"审计保存后页面不再满足提交条件：{dispatch}")
+    except Exception:
+        entry.update(status="failed", confirmation_attempted=False, readback_required=False)
+        raise
     if not _click_selector(driver, UPDATE_BUTTON_SELECTOR):
         entry.update(confirmation_attempted=False, readback_required=False)
         _fail("E6", f"确认按钮（{UPDATE_BUTTON_SELECTOR}）点击失败")
@@ -1869,13 +2025,25 @@ def _run_one_shipment(
     if checkpoint is not None:
         checkpoint()
 
-    applied_ok = _wait_until(
-        lambda: window_matches(
-            (read_current_window_text(_read_page(driver)).get("window")), target_start, target_end
-        ),
-        timeout_seconds=MODAL_CLOSE_TIMEOUT_SECONDS,
-    )
-    applied_read = read_current_window_text(_read_page(driver))
+    latest: dict[str, Any] = {}
+    entry.update(phase="reading_back", last_observation_valid=False)
+
+    def readback_matches() -> bool:
+        observation = observe_shipment(driver, plan, shipment_id, now=_utc_now())
+        latest["observation"] = observation
+        for key in ("window_handle", "page_url", "workflow_id"):
+            if observation[key] != observed[key]:
+                _fail("context_changed", f"提交后 {key} 变化：{observed[key]} -> {observation[key]}")
+        return not observation["modal_open"] and window_matches(
+            observation["current_window_read"].get("window"), target_start, target_end
+        )
+
+    applied_ok = _wait_until(readback_matches, timeout_seconds=MODAL_CLOSE_TIMEOUT_SECONDS)
+    final_observation = latest["observation"]
+    final_observation["phase"] = "reading_back"
+    entry["observations"].append(final_observation)
+    entry["last_observation_valid"] = True
+    applied_read = final_observation["current_window_read"]
     entry["applied_window"] = applied_read["window"]
     entry["applied_window_read"] = applied_read
     if not applied_ok:
@@ -1887,6 +2055,7 @@ def _run_one_shipment(
     trail.note("E8 回读通过", f"applied='{applied_read['raw']}'")
     entry["status"] = "applied"
     entry["readback_required"] = False
+    entry["phase"] = "complete"
     return entry
 
 
@@ -2205,10 +2374,13 @@ def _run_shipments(
     ]
     artifact_path = ""
     audit_error = ""
+    dry_run_id = str(plan.get("dry_run_id") or "")
+    readback = plan.get("action") == ACTION_READBACK
 
     def persist() -> None:
         nonlocal artifact_path, audit_error
         payload = {
+            "action": plan.get("action", ACTION_APPLY), "dry_run_id": dry_run_id,
             "store_id": plan["store_id"], "page_url": plan["page_url"],
             "apply": bool(plan["apply"]), "target_date": plan["target_date"],
             "target_window": plan["target_window"],
@@ -2221,7 +2393,10 @@ def _run_shipments(
             "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         }
         try:
-            artifact_path = _write_artifact(output_dir, payload, target_path=artifact_path or None)
+            artifact_path = _write_artifact(
+                output_dir, payload, target_path=artifact_path or None,
+                prefix="amazon-delivery-window-readback" if readback else "amazon-delivery-window-apply",
+            )
         except Exception as exc:  # preserve progress even when the disk fails
             audit_error = f"{type(exc).__name__}: {exc}"
             raise _HardFailure("audit_write_failed", audit_error) from exc
@@ -2232,6 +2407,12 @@ def _run_shipments(
         return _HardFailure("browser_exception", f"{type(exc).__name__}: {exc}")
 
     try:
+        if plan["apply"]:
+            try:
+                plan = {**plan, "preparation": preparation.load(output_dir, plan)}
+                preparation.claim(output_dir, dry_run_id)
+            except Exception as exc:
+                raise _HardFailure("preparation_invalid", f"{type(exc).__name__}: {exc}") from exc
         persist()
         navigation = dwl.navigate_to_page_if_needed(driver, str(plan["page_url"]))
         hub_trail.note(
@@ -2283,7 +2464,13 @@ def _run_shipments(
                     f"{shipment_id} 不在当前列表页的 {hub['row_count']} 行里；"
                     f"页面上的行: {candidates[:10]}{'…' if len(candidates) > 10 else ''}",
                 )
-            hub_status = _require_hub_status(row, shipment_id, trail)
+            if any(item["rowId"] == shipment_id for item in hub["duplicates"]):
+                _fail("E1", f"{shipment_id} 的列表字段重复，不能唯一定位货件")
+            if readback:
+                hub_status = {"order_status": _clean(row.get("order_status_text")),
+                              "unit_status": parse_unit_status(row.get("unit_status_text"))}
+            else:
+                hub_status = _require_hub_status(row, shipment_id, trail)
             _run_one_shipment(driver, plan, shipment_id, now=moment, trail=trail,
                               entry=entry, checkpoint=persist)
             entry["order_status"] = hub_status["order_status"]
@@ -2295,8 +2482,9 @@ def _run_shipments(
         except Exception as exc:
             failure = as_failure(exc)
             # A failed audit after verified success does not undo that success.
-            if entry["status"] not in {"applied", "already_target", "dry_run_ready"}:
+            if entry["status"] not in {"applied", "already_target", "dry_run_ready", "readback_mismatch"}:
                 entry["status"] = "pending_readback" if entry.get("readback_required") else "failed"
+                entry["last_observation_valid"] = False
             entry.update(failure_code=failure.code, failure_detail=failure.message)
             trail.note(failure.code, failure.message)
 
@@ -2307,8 +2495,15 @@ def _run_shipments(
 
     statuses = [str(item.get("status")) for item in shipments]
     finished = failure is None and all(
-        status in {"dry_run_ready", "already_target", "applied"} for status in statuses
+        status in {"dry_run_ready", "already_target", "applied", "verified_target"} for status in statuses
     )
+    if finished and not plan["apply"] and not readback and "dry_run_ready" in statuses:
+        try:
+            dry_run_id = preparation.create(output_dir, plan, shipments)
+            persist()
+        except Exception as exc:
+            failure = as_failure(exc)
+            finished = False
     if failure is not None:
         notice = (
             f"停在 {failure.code}: {failure.message}；"
@@ -2320,10 +2515,11 @@ def _run_shipments(
             f"目标周 {plan['target_window']['display']}；"
             + "；".join(
                 f"{item['fba_shipment_id']}: {item.get('status')}"
-                f"（当前 {item.get('current_window', {}).get('raw', '') or item.get('hub_window_text', '')}）"
+                f"（当前 {(item.get('applied_window') if readback else item.get('current_window') or {}).get('raw', '') or item.get('hub_window_text', '')}）"
                 for item in shipments
             )
-            + ("" if plan["apply"] else "；dry-run：未点日历、未点确认按钮")
+            + ("；只读回读：未打开编辑、未点日历、未提交" if readback else
+               "" if plan["apply"] else "；dry-run：未点日历、未点确认按钮")
         )
 
     return {
@@ -2332,10 +2528,11 @@ def _run_shipments(
         "exception": ("" if failure is None else f"{failure.code}: {failure.message}")
                      + (f"; audit_write_failed: {audit_error}" if audit_error and failure and failure.code != "audit_write_failed" else ""),
         "notice": notice,
-        "file_path": _artifact_entries(artifact_path) if artifact_path else [],
+        "file_path": _artifact_entries(artifact_path, key="delivery_window_readback" if readback else "delivery_window_apply") if artifact_path else [],
         "data": {
+            "action": plan.get("action", ACTION_APPLY), "dry_run_id": dry_run_id,
             "apply": bool(plan["apply"]),
-            "dry_run": not bool(plan["apply"]),
+            "dry_run": not bool(plan["apply"]) and not readback,
             "target_date": plan["target_date"],
             "target_window": plan["target_window"],
             "shipments": shipments,
@@ -2370,11 +2567,11 @@ def _payload(
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog ``input_schema`` is the argument contract."""
     action = _clean((arguments or {}).get("action") or ACTION_APPLY).lower()
-    if action not in {ACTION_APPLY, ACTION_DISCOVER}:
+    if action not in {ACTION_APPLY, ACTION_DISCOVER, ACTION_READBACK}:
         return _payload(
             success=False,
             finished=False,
-            exception=f"action 必须是 {ACTION_DISCOVER} 或 {ACTION_APPLY}，收到: {action or '(空)'}",
+            exception=f"action 必须是 {ACTION_DISCOVER}、{ACTION_APPLY} 或 {ACTION_READBACK}，收到: {action or '(空)'}",
         )
     try:
         plan = plan_discover(arguments) if action == ACTION_DISCOVER else plan_apply(arguments)
@@ -2401,14 +2598,31 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] | None = None
     try:
         output_dir = Path(workflow_output_dir(session_id))
+        target_handle = str(plan.get("target_handle") or "")
+        if plan["apply"]:
+            # Reject missing/changed/consumed evidence before browser attachment.
+            receipt = preparation.load(output_dir, plan)
+            handles = {item["window_handle"] for item in receipt["shipments"].values()}
+            if len(handles) != 1:
+                raise ValueError("dry-run 证据涉及多个浏览器标签页，无法唯一附着")
+            recorded_handle = handles.pop()
+            if target_handle and target_handle != recorded_handle:
+                raise ValueError("target_handle 与 dry-run 标签页不一致")
+            target_handle = recorded_handle
         with browser_session(
             session_id=session_id,
             context={"store_id": plan["store_id"]},
             output_dir=output_dir,
+            strict_attach=True,
+            target_host=str(urlsplit(str(plan["page_url"])).hostname or ""),
+            target_handle=target_handle,
         ) as session:
             driver = getattr(session, "driver", None)
             if driver is None:
                 raise RuntimeError("browser_session 没有提供 driver")
+            actual_store = str(getattr(session, "store_id", "") or "")
+            if actual_store != plan["store_id"]:
+                raise RuntimeError(f"browser_session 店铺不匹配：expected={plan['store_id']} actual={actual_store}")
             if action == ACTION_DISCOVER:
                 result = _run_discovery(driver, plan, output_dir=output_dir)
             else:

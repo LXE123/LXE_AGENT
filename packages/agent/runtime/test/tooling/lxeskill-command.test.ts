@@ -9,6 +9,25 @@ import { skillPathKey } from "../../src/tooling/skill-files";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 const root = repositoryRoot(import.meta.dir);
+test("delivery-window exposes preparation and readback through the public CLI", async () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), "lxe-delivery-window-query-"));
+  try {
+    const data = await queryLxeSkill("list", {
+      cwd: root,
+      pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+      environment: { ...process.env, LXE_DATA_ROOT: dataRoot },
+    });
+    const command = (data.commands as Array<Record<string, unknown>>)
+      .find(entry => entry.name === "amazon_fba_delivery_window_apply");
+    expect(command).toBeDefined();
+    expect(command!.owner_skills).toEqual(["fba-shipment-delivery-window"]);
+    expect(command!.session_mode).toBe("lxe_session");
+    const schema = command!.input_schema as { properties: Record<string, { enum?: string[]; pattern?: string }> };
+    expect(schema.properties.action?.enum).toEqual(["discover", "apply", "readback"]);
+    expect(schema.properties.dry_run_id?.pattern).toBe("^[0-9a-f]{32}$");
+  } finally { rmSync(dataRoot, { recursive: true, force: true }); }
+});
+
 test("logistics contracts expose account tabs and keep credentials out of public inputs", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "lxe-logistics-query-"));
   try {

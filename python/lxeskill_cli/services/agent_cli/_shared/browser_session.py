@@ -15,6 +15,9 @@ def browser_session(
     session_id: str,
     context: dict[str, Any] | None,
     output_dir: str | Path,
+    strict_attach: bool = False,
+    target_host: str = "",
+    target_handle: str = "",
 ) -> Iterator[WorkflowBrowserSession]:
     safe_session_id = str(session_id or "").strip()
     if not safe_session_id:
@@ -26,7 +29,11 @@ def browser_session(
         raise RuntimeError("context 缺少 store_id")
 
     with trace_context("agent_cli.browser_session", store_id=target_store_id):
-        with store_driver_session(target_store_id) as (store_session, driver):
+        attach_options = {}
+        if strict_attach or target_host or target_handle:
+            attach_options = {"strict_attach": strict_attach,
+                              "target_host": target_host, "target_handle": target_handle}
+        with store_driver_session(target_store_id, **attach_options) as (store_session, driver):
             yield WorkflowBrowserSession(
                 driver=driver,
                 output_dir=Path(output_dir),

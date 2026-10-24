@@ -15,13 +15,14 @@ commands:
 - Amazon 页面读取与交互只能走项目的官方配对 Selenium 链路。禁止使用 Playwright、Puppeteer、系统 ChromeDriver 或裸 CDP。
 - 先检查 terminal 顶层 `ok`。失败时停止，原样转述 `error.message` 和 `data.exception`；禁止用猜测替代实际错误。
 - 执行前按独立 `ziniao-browser` skill 获取真实 `store_id`、复用已运行店铺，并执行一次 `browser_snapshot`。快照必须显示目标站点的 Amazon「管理货件」页面；附着失败时停止。
+- 命令使用严格附着，不启动或重启店铺。默认要求 Amazon 域名标签页唯一；同域多页时，沿用本次快照确认的 `--target-handle <handle>`，在 discovery、dry-run 和 apply 中保持一致。真实写入未显式传 handle 时仍定位到 dry-run 实际记录的标签页，不能用第一张普通页面替代。
 - `page_url` 必须来自用户提供或本次真实快照中的 Amazon 货件列表绝对 URL。禁止根据店铺名猜站点或复用别的店铺 URL。
 - 两种改期模式都先用下述只读 discovery 确认完整 FBA 在当前目标店铺的真实页面中，并取得当前状态和时段；完成这一步后才进入物流/尾程查询或指定日期的改期准备。物流商配置不绑定 Amazon 店铺，也不能证明货件归属。
 - CLI 的 `shipment_ids` 只接受完整 FBA 货件号。完整编号是内部定位键，不是运营选择界面；不得要求运营记忆或手工输入它。
 - 只有列表页 `orderStatus` 精确为“已发货”的货件可以进入改期。`unitStatus`（例如 `0/172`）只作诊断，不得作为放行依据。
 - `apply=true` 是真实 Amazon 写操作。必须先用完全相同的店铺、页面 URL、货件号和目标日期完成 `apply=false` dry-run，向用户回显核对项，并得到一次明确批准。
 - 未得到批准时禁止传 `--apply`；不得把“页面可编辑”、用户最初提出改期或 discovery 结果当成最终写入批准。
-- 批准后只执行一次同参数 `apply=true`。失败时不自动重试、不换货件、不补点确认按钮。
+- 批准后只执行一次同参数 `apply=true`，并携带本次成功 dry-run 返回的 `dry_run_id`。准备编号绑定同一会话、店铺、页面、货件顺序和目标日期，每个编号只允许一次执行尝试；它证明做过预演，不代表用户批准。失败时不自动重试、不换货件、不补点确认按钮。
 - 成功只认该货件 `status="applied"` 且 `applied_window` 精确等于目标周；“点击成功”或命令退出码为 0 都不能替代页面回读。
 
 ## 两个确认点
@@ -121,6 +122,7 @@ lxeskill fba shipment delivery-window --store-id <store_id> --page-url <page_url
 - `order_status="已发货"`。
 - 内部完整 FBA 号、`current_window`、`target_window`、`grace.deadline` 均已返回并与用户选择一致。
 - `dry_run_ready` 时编辑弹窗已安全取消；没有点击日历或确认按钮。
+- 有待修改项时，`terminal.data.data.dry_run_id` 返回非空准备编号。保留该编号，真实写入时传回；不要自己生成编号、修改准备文件或使用另一个会话的编号。
 
 若为 `already_target`，直接告诉用户无需修改，不请求写入批准。
 
@@ -132,18 +134,36 @@ dry-run 是只读准备步骤，必须自动执行；不得先询问“是否预
 
 ### 4. 单次写入
 
-用户明确批准后，在原 dry-run 命令末尾加入 `--apply`，其它参数逐字保持不变：
+用户明确批准后，在原 dry-run 命令末尾加入 `--apply --dry-run-id <本次返回的准备编号>`，其它参数逐字保持不变：
 
 ```text
-lxeskill fba shipment delivery-window --store-id <store_id> --page-url <page_url> --shipment-ids <FBA_ID> --target-date <YYYY-MM-DD> --apply
+lxeskill fba shipment delivery-window --store-id <store_id> --page-url <page_url> --shipment-ids <FBA_ID> --target-date <YYYY-MM-DD> --dry-run-id <dry_run_id> --apply
 ```
 
 成功后回报 `status`、原时段、目标时段和页面回读的 `applied_window`。诊断 JSON 不属于默认交付附件，不主动调用 `send_files`；用户要求审计证据时再说明 terminal 返回的诊断路径。
 
+写入会实时核对店铺会话、浏览器标签页、STA 工作流程、完整 FBA、原时段和可编辑截止。与预演证据不一致时停止，不点击编辑入口。选择日期后、提交前还会重新观察页面并检查目标周、按钮和截止时间；旧观察不能授权后续点击。`context_changed` / `preparation_changed` 时报告实际差异；若用户仍需修改，应重新准备并核对新的 dry-run，再取得相应批准。
+
+### 5. 提交结果未知时只读回读
+
+`pending_readback` 不表示提交失败。沿用原店铺、页面、完整 FBA 和带年份目标日期，直接调用：
+
+```text
+lxeskill fba shipment delivery-window --action readback --store-id <store_id> --page-url <page_url> --shipment-ids <FBA_ID> --target-date <原YYYY-MM-DD>
+```
+
+此入口不传 `--apply` 或 `--dry-run-id`，不打开编辑弹窗、不选择日期、不提交；即使可编辑截止已过或货件已进入接收阶段，也可以核验当前时段。同域多页时，可用 `--target-handle` 指定本次核实的 Amazon 页面或原审计中记录的 handle；句柄失效则报告实际附着错误，不换页重试。只对需要回读的票执行，不把已成功或 `not_attempted` 的票重新混入执行。
+
+- `verified_target`：目标货件在真实页面上的当前时段与目标周一致。报告“只读核验一致”，不声称证明某次提交导致了该结果。
+- `readback_mismatch`：已读到当前时段，但与目标周不一致；报告实际读数，不再次提交。
+- 读取或身份核验失败：保留实际异常，仍不能确认提交结果，不用旧观察或弹窗内容代替。
+
+逐票诊断中 `phase` 标记执行阶段，`observations` 关联各次观察的页面身份、时段、弹窗及按钮读数，`steps[].elapsed_ms` 记录耗时。它们是执行证据，浏览器实时状态仍以本次 Selenium 读取为准。
+
 ## 失败处理
 
 - E1–E10 任一失败：停止并原样回传 `failure_code`、`failure_detail`、实际页面读数和 `exception`。E10 表示 dry-run 取消失败或弹窗未确认关闭，不能报告预演成功。
-- `status="pending_readback"` / `readback_required=true` 表示已进入提交阶段但结果尚未确认；修改批准已经包含提交后的必要回读，因此直接执行只读核验，不再请求第三次确认，但绝不能直接重试提交。已 `applied` 的票继续报告成功，不因后续票异常而丢弃。
+- `status="pending_readback"` / `readback_required=true` 表示已进入提交阶段但结果尚未确认；修改批准已经包含提交后的必要回读，因此直接执行上面的 `action=readback`，不再请求第三次确认，但绝不能直接重试提交。已 `applied` 的票继续报告成功，不因后续票异常而丢弃。
 - `audit_write_failed` 时停止后续处理，保留实际写盘异常及返回的逐票结果；附件可能只是最后一次成功保存的进度，不能将旧附件当成最终状态。
 - 多票请求中某票失败后，后续 `not_attempted` 不得另起命令补跑，除非用户重新明确要求。
 - 登录态、附着、店铺忙碌或页面结构异常：停止；不要自动重启店铺或改用其它浏览器自动化方案。

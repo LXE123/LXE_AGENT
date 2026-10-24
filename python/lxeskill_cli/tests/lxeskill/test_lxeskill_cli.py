@@ -812,3 +812,36 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
 def test_datasets_list_rejects_extra_arguments(capsys):
     assert lxeskill.main(["datasets", "list", "--unknown"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
+
+
+def test_delivery_window_exposes_preparation_and_readback_contract(capsys):
+    assert lxeskill.main(['describe', 'fba', 'shipment', 'delivery-window']) == 0
+    (record,) = _records(capsys)
+    properties = record['data']['input_schema']['properties']
+    assert properties['action']['enum'] == ['discover', 'apply', 'readback']
+    assert properties['dry_run_id']['pattern'] == '^[0-9a-f]{32}$'
+
+
+@pytest.mark.parametrize('action,extra', [
+    ('apply', ['--apply', '--dry-run-id', 'a' * 32]),
+    ('readback', []),
+])
+def test_delivery_window_routes_new_flags_to_business_cli(monkeypatch, capsys, action, extra):
+    captured = []
+
+    def execute(entry, arguments, session, **kwargs):
+        captured.append(arguments)
+        return True, [{'type': 'text', 'text': '{"success":true}'}], [], None
+
+    monkeypatch.setattr(lxeskill, 'execute_module_json', execute)
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    assert lxeskill.main(['fba', 'shipment', 'delivery-window', '--action', action,
+                          '--store-id', 'store-1', '--page-url', 'https://sellercentral.amazon.com/fba/inbound-shipment/summary',
+                          '--shipment-ids', 'FBA19NDSQ2SK', '--target-date', '2026-10-28', *extra]) == 0
+    assert captured[0]['action'] == action
+    if extra:
+        assert captured[0]['apply'] is True
+        assert captured[0]['dry_run_id'] == 'a' * 32
+    else:
+        assert not captured[0].get('apply')
+    assert _records(capsys)[-1]['ok'] is True

@@ -45,6 +45,7 @@ def _fast_waits(monkeypatch):
     monkeypatch.setattr(dwa, "MODAL_TIMEOUT_SECONDS", 0)
     monkeypatch.setattr(dwa, "LEGEND_TIMEOUT_SECONDS", 0)
     monkeypatch.setattr(dwa, "MODAL_CLOSE_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(dwa, "_utc_now", lambda: NOW)
 
 
 @pytest.fixture(scope="module")
@@ -669,6 +670,10 @@ class _ScriptedDriver:
         return self.state["url"]
 
     @property
+    def current_window_handle(self) -> str:
+        return self.state.get("window_handle", "amazon-tab")
+
+    @property
     def page_source(self) -> str:
         url = self.state["url"]
         if "/contents" in url:
@@ -799,10 +804,32 @@ def _plan(**overrides):
         "timeout_sec": 1,
     }
     arguments.update(overrides)
+    if arguments.get("apply"):
+        arguments.setdefault("dry_run_id", "a" * 32)
     return dwa.plan_apply(arguments, now=NOW)
 
 
+def _seed_preparation(driver, plan, tmp_path):
+    """An earlier completed dry-run, independent of the fault injected now."""
+    entries = []
+    for shipment_id in plan["shipment_ids"]:
+        selected_state = driver.shipment_states.get(shipment_id, {})
+        raw = selected_state.get("current_window", driver.state["current_window"])
+        window = dwa.dwl.parse_delivery_window(raw)
+        if window["status"] != "parsed":
+            window = dwa.dwl.parse_delivery_window(CURRENT_WINDOW)
+        entries.append({"fba_shipment_id": shipment_id, "status": "dry_run_ready", "observations": [{
+            "store_id": plan["store_id"], "shipment_id": shipment_id,
+            "window_handle": "amazon-tab", "page_url": f"{ORIGIN}/fba/sendtoamazon?wf={shipment_id}",
+            "workflow_id": shipment_id, "current_window_read": {"window": window},
+            "grace": dwa.parse_grace_period("在 2026年10月11日, 00:00 UTC 之前", now=NOW),
+        }]})
+    return dwa.preparation.create(tmp_path, {**plan, "apply": False}, entries)
+
+
 def _run(driver, plan, tmp_path):
+    if plan["apply"]:
+        plan = {**plan, "dry_run_id": _seed_preparation(driver, plan, tmp_path)}
     return dwa._run_shipments(driver, plan, output_dir=tmp_path, now=NOW)
 
 
@@ -1325,7 +1352,7 @@ def test_unclickable_edit_link_fails_e4(tmp_path):
 
 def test_modal_that_never_appears_fails_e4(tmp_path):
     driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, "600/602", CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
-    driver.state["modal_open"] = True  # the click will report success...
+    # The edit click reports success, but the modal never opens.
     original = driver.execute_script
 
     def dropping_modal(script, *args):
@@ -1515,10 +1542,11 @@ def test_run_reports_argument_errors_in_the_payload():
 
 def test_run_wires_the_session_and_carries_a_real_exception(monkeypatch, tmp_path):
     @contextmanager
-    def fake_browser_session(*, session_id, context, output_dir):
+    def fake_browser_session(*, session_id, context, output_dir, **attach_options):
         assert session_id == "session-1"
         assert context == {"store_id": "store-1"}
         assert Path(output_dir) == tmp_path
+        assert attach_options == {'strict_attach': True, 'target_host': 'sellercentral.amazon.com', 'target_handle': ''}
         yield SimpleNamespace(driver=None)
 
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-1")
@@ -1535,7 +1563,10 @@ def test_run_wires_the_session_and_carries_a_real_exception(monkeypatch, tmp_pat
 def _run_entrypoint(monkeypatch, tmp_path, driver, *, shipment_ids=None, cleanup_error=False):
     @contextmanager
     def fake_session(**kwargs):
-        yield SimpleNamespace(driver=driver)
+        assert kwargs['strict_attach'] is True
+        assert kwargs['target_host'] == 'sellercentral.amazon.com'
+        assert kwargs['target_handle'] == 'amazon-tab'
+        yield SimpleNamespace(driver=driver, store_id="store-1")
         if cleanup_error:
             raise WebDriverException("session cleanup failed")
 
@@ -1545,9 +1576,10 @@ def _run_entrypoint(monkeypatch, tmp_path, driver, *, shipment_ids=None, cleanup
     monkeypatch.setattr(dwa, "workflow_output_dir", lambda _: tmp_path)
     monkeypatch.setattr(dwa, "_run_shipments", lambda driver, plan, **kwargs:
                         original_run(driver, plan, now=NOW, **kwargs))
+    dry_run_id = _seed_preparation(driver, _plan(shipment_ids=shipment_ids or [SHIPMENT]), tmp_path)
     return dwa.run({"store_id": "store-1", "page_url": PAGE_URL,
                     "shipment_ids": shipment_ids or [SHIPMENT],
-                    "target_date": TARGET_DATE_INPUT, "apply": True, "timeout_sec": 1})
+                    "target_date": TARGET_DATE_INPUT, "apply": True, "dry_run_id": dry_run_id, "timeout_sec": 1})
 
 
 def test_driver_exception_keeps_applied_failed_and_unattempted_results(monkeypatch, tmp_path):
@@ -1708,3 +1740,282 @@ def test_hub_driver_exception_returns_unattempted_tickets_and_audit(monkeypatch,
     assert result["success"] is False and _entry(result)["status"] == "not_attempted"
     assert "WebDriverException" in result["exception"] and "hub navigation failed" in result["exception"]
     assert result["file_path"]
+
+
+# Browser observations, preparation binding, and recovery exercise the real
+# orchestration above; no live Amazon writes are performed by these tests.
+
+def test_apply_requires_preparation_before_attaching(monkeypatch):
+    monkeypatch.setattr(dwa, 'browser_session', lambda **_: pytest.fail('must not attach'))
+    result = dwa.run({'store_id': 'store-1', 'page_url': PAGE_URL,
+                      'shipment_ids': [SHIPMENT], 'target_date': TARGET_DATE_INPUT, 'apply': True})
+    assert not result['success']
+    assert 'dry_run_id' in result['exception']
+
+
+def test_dry_run_receipt_can_be_used_once_for_the_exact_plan(tmp_path):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    dry = dwa._run_shipments(driver, _plan(), output_dir=tmp_path, now=NOW)
+    assert dry['finished'] and len(dry['data']['dry_run_id']) == 32
+    plan = _plan(apply=True, dry_run_id=dry['data']['dry_run_id'])
+    result = dwa._run_shipments(driver, plan, output_dir=tmp_path, now=NOW)
+    assert _entry(result)['status'] == 'applied'
+    clicks = list(driver.clicks)
+    repeated = dwa._run_shipments(driver, plan, output_dir=tmp_path, now=NOW)
+    assert not repeated['success'] and '已执行过' in repeated['exception']
+    assert driver.clicks == clicks
+    assert len(_entry(result)['observations']) >= 4
+    assert _entry(result)['phase'] == 'complete'
+
+
+@pytest.mark.parametrize('change', ['date', 'store', 'url', 'order'])
+def test_preparation_rejects_changed_parameters_before_browser(tmp_path, monkeypatch, change):
+    ids = [SHIPMENT, SHIPMENT_B]
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(sid, '0/10', CURRENT_WINDOW) for sid in ids]), shipment_ids=ids)
+    plan = _plan(shipment_ids=ids)
+    dry_run_id = _seed_preparation(driver, plan, tmp_path)
+    args = {'store_id': 'store-1', 'page_url': PAGE_URL, 'shipment_ids': ids,
+            'target_date': TARGET_DATE_INPUT, 'dry_run_id': dry_run_id, 'apply': True}
+    if change == 'date':
+        args['target_date'] = '2026-10-29'  # even a different day in the same week
+    elif change == 'store':
+        args['store_id'] = 'store-2'
+    elif change == 'url':
+        args['page_url'] += '&other=1'
+    else:
+        args['shipment_ids'] = list(reversed(ids))
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    monkeypatch.setattr(dwa, 'workflow_output_dir', lambda _: tmp_path)
+    monkeypatch.setattr(dwa, 'browser_session', lambda **_: pytest.fail('must not attach'))
+    result = dwa.run(args)
+    assert not result['success'] and 'dry-run 不一致' in result['exception']
+
+
+@pytest.mark.parametrize('changed', ['window', 'deadline', 'handle', 'workflow'])
+def test_changed_page_evidence_stops_before_opening_editor(tmp_path, changed):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    dry = dwa._run_shipments(driver, _plan(), output_dir=tmp_path, now=NOW)
+    driver.clicks.clear()
+    if changed == 'window':
+        driver.state['current_window'] = '2026年10月18日 - 2026年10月24日'
+    elif changed == 'deadline':
+        driver.state['grace'] = '在 2026年10月12日, 00:00 UTC 之前'
+    elif changed == 'handle':
+        driver.state['window_handle'] = 'another-tab'
+    else:
+        original_get = driver.get
+        driver.get = lambda url: original_get(url.replace(f'wf={SHIPMENT}', 'wf=changed'))
+    result = dwa._run_shipments(driver, _plan(apply=True, dry_run_id=dry['data']['dry_run_id']),
+                                output_dir=tmp_path, now=NOW)
+    assert _entry(result)['failure_code'] == 'preparation_changed'
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_already_open_editor_is_not_reused(tmp_path):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    driver.state['modal_open'] = True
+    result = _run(driver, _plan(), tmp_path)
+    assert _entry(result)['failure_code'] == 'context_changed'
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not result['data']['dry_run_id']
+
+
+def test_target_tab_switch_before_submit_invalidates_observation(tmp_path):
+    ids = [SHIPMENT, SHIPMENT_B]
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(sid, '0/10', CURRENT_WINDOW) for sid in ids]), shipment_ids=ids)
+    original = driver.execute_script
+
+    def switch_tab(script, *args):
+        result = original(script, *args)
+        if 'labelPrefix' in script:
+            driver.state['selected_index'] = 1
+        return result
+
+    driver.execute_script = switch_tab
+    result = _run(driver, _plan(apply=True), tmp_path)
+    assert _entry(result)['failure_code'] == 'E2'
+    assert _entry(result)['last_observation_valid'] is False
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_deadline_is_checked_again_immediately_before_submit(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    original = driver.execute_script
+
+    def advance_clock(script, *args):
+        result = original(script, *args)
+        if 'labelPrefix' in script:
+            monkeypatch.setattr(dwa, '_utc_now', lambda: dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc))
+        return result
+
+    driver.execute_script = advance_clock
+    result = _run(driver, _plan(apply=True), tmp_path)
+    assert _entry(result)['failure_code'] == 'E3'
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_modal_text_cannot_fake_successful_readback(tmp_path):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    original = driver.execute_script
+
+    def stale_modal(script, *args):
+        result = original(script, *args)
+        if 'dispatchClick' in script and args[0] == dwa.UPDATE_BUTTON_SELECTOR:
+            driver.state.update(applied=False, modal_open=True, current_window=TARGET_WINDOW)
+            driver.shipment_states[SHIPMENT] = {'current_window': CURRENT_WINDOW}
+        return result
+
+    driver.execute_script = stale_modal
+    result = _run(driver, _plan(apply=True), tmp_path)
+    assert _entry(result)['status'] == 'pending_readback'
+    assert _entry(result)['applied_window']['raw'] == CURRENT_WINDOW
+    assert sum(click[0] == dwa.UPDATE_BUTTON_SELECTOR for click in driver.clicks) == 1
+
+
+def test_failed_snapshot_preserves_real_exception_and_invalidates_previous_read(tmp_path):
+    class Driver(_ScriptedDriver):
+        @property
+        def page_source(self):
+            if self.state['day_clicked']:
+                raise WebDriverException('specific snapshot transport failure')
+            return super().page_source
+
+    driver = Driver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    result = _run(driver, _plan(apply=True), tmp_path)
+    assert 'specific snapshot transport failure' in result['exception']
+    assert _entry(result)['last_observation_valid'] is False
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+@pytest.mark.parametrize('matches', [True, False])
+def test_readback_is_read_only_even_after_deadline_and_lifecycle_change(tmp_path, matches):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '10/10', CURRENT_WINDOW, '正在接收')]), shipment_ids=[SHIPMENT])
+    driver.state.update(current_window=TARGET_WINDOW if matches else CURRENT_WINDOW,
+                        grace='', with_edit_link=False)
+    later = dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc)
+    plan = dwa.plan_apply({'action': 'readback', 'store_id': 'store-1', 'page_url': PAGE_URL,
+                          'shipment_ids': [SHIPMENT], 'target_date': TARGET_DATE_INPUT, 'timeout_sec': 1}, now=later)
+    result = dwa._run_shipments(driver, plan, output_dir=tmp_path, now=later)
+    assert _entry(result)['status'] == ('verified_target' if matches else 'readback_mismatch')
+    assert result['success'] is matches
+    assert result['data']['dry_run'] is False
+    assert not result['data']['dry_run_id']
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not driver.clicked(dwa.CALENDAR_SELECTOR)
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+    assert _entry(result)['confirmation_attempted'] is False
+
+
+@pytest.mark.parametrize('extra', [{'apply': True}, {'dry_run_id': 'a' * 32}])
+def test_readback_rejects_write_arguments(extra):
+    with pytest.raises(dwa.DeliveryWindowApplyArgumentError, match='只读核验'):
+        _plan(action='readback', **extra)
+
+
+def test_preparation_claim_is_atomic_for_concurrent_executors(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    preparation_id = 'b' * 32
+
+    def claim(_):
+        try:
+            dwa.preparation.claim(tmp_path, preparation_id)
+            return True
+        except FileExistsError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(claim, range(2))) == [False, True]
+
+
+def test_page_changing_during_capture_is_rejected(tmp_path):
+    class Driver(_ScriptedDriver):
+        @property
+        def page_source(self):
+            html = super().page_source
+            self.state['window_handle'] = 'changed-during-read'
+            return html
+
+    driver = Driver(hub_cells=[], shipment_ids=[SHIPMENT])
+    driver.get(f'{ORIGIN}/fba/sendtoamazon?wf={SHIPMENT}')
+    with pytest.raises(dwa._HardFailure) as failure:
+        dwa.observe_shipment(driver, _plan(), SHIPMENT, now=NOW)
+    assert failure.value.code == 'context_changed'
+
+
+@pytest.mark.parametrize('mode', ['missing', 'corrupt', 'oversized'])
+def test_bad_preparation_is_rejected_before_attach_and_keeps_real_error(tmp_path, monkeypatch, mode):
+    preparation_id = 'c' * 32
+    path = tmp_path / f'delivery-window-preparation-{preparation_id}.json'
+    if mode == 'corrupt':
+        path.write_text('{ broken', encoding='utf-8')
+    elif mode == 'oversized':
+        path.write_bytes(b' ' * (dwa.preparation.MAX_RECEIPT_BYTES + 1))
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    monkeypatch.setattr(dwa, 'workflow_output_dir', lambda _: tmp_path)
+    monkeypatch.setattr(dwa, 'browser_session', lambda **_: pytest.fail('must not attach'))
+    result = dwa.run({'store_id': 'store-1', 'page_url': PAGE_URL, 'shipment_ids': [SHIPMENT],
+                      'target_date': TARGET_DATE_INPUT, 'apply': True, 'dry_run_id': preparation_id})
+    assert not result['success']
+    expected = {'missing': 'FileNotFoundError', 'corrupt': 'JSONDecodeError', 'oversized': '超过'}
+    assert expected[mode] in result['exception']
+
+
+def test_readback_entrypoint_strictly_attaches_and_reports_actual_page(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    driver.state['current_window'] = TARGET_WINDOW
+
+    @contextmanager
+    def session(**kwargs):
+        assert kwargs['strict_attach'] is True
+        assert kwargs['target_host'] == 'sellercentral.amazon.com'
+        assert kwargs['target_handle'] == 'amazon-tab'
+        yield SimpleNamespace(driver=driver, store_id='store-1')
+
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    monkeypatch.setattr(dwa, 'workflow_output_dir', lambda _: tmp_path)
+    monkeypatch.setattr(dwa, 'browser_session', session)
+    result = dwa.run({'action': 'readback', 'store_id': 'store-1', 'page_url': PAGE_URL,
+                      'shipment_ids': [SHIPMENT], 'target_date': TARGET_DATE_INPUT,
+                      'target_handle': 'amazon-tab', 'timeout_sec': 1})
+    assert result['success'] and _entry(result)['status'] == 'verified_target'
+    assert TARGET_WINDOW in result['notice']
+    assert CURRENT_WINDOW not in result['notice']
+    assert result['file_path'][0]['key'] == 'delivery_window_readback'
+    assert not driver.clicked(dwa.EDIT_LINK_SELECTOR)
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_session_with_another_store_is_rejected_before_navigation(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(hub_cells=[], shipment_ids=[SHIPMENT])
+
+    @contextmanager
+    def session(**kwargs):
+        yield SimpleNamespace(driver=driver, store_id='another-store')
+
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    monkeypatch.setattr(dwa, 'workflow_output_dir', lambda _: tmp_path)
+    monkeypatch.setattr(dwa, 'browser_session', session)
+    result = dwa.run({'action': 'readback', 'store_id': 'store-1', 'page_url': PAGE_URL,
+                      'shipment_ids': [SHIPMENT], 'target_date': TARGET_DATE_INPUT})
+    assert not result['success'] and 'another-store' in result['exception']
+    assert driver.opened == [] and driver.clicks == []
+
+
+def test_deadline_expiring_during_audit_does_not_dispatch_submit(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    original_write = dwa._write_artifact
+
+    def slow_audit(output_dir, payload, **kwargs):
+        result = original_write(output_dir, payload, **kwargs)
+        if any(item['status'] == 'pending_readback' for item in payload['shipments']):
+            monkeypatch.setattr(dwa, '_utc_now', lambda: dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc))
+        return result
+
+    monkeypatch.setattr(dwa, '_write_artifact', slow_audit)
+    result = _run(driver, _plan(apply=True), tmp_path)
+    entry = _entry(result)
+    assert entry['failure_code'] == 'submission_changed'
+    assert entry['confirmation_attempted'] is False and entry['readback_required'] is False
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)

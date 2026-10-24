@@ -41,7 +41,8 @@ def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() 
         ]
 
     schema = apply_entry["input_schema"]
-    assert schema["properties"]["action"]["enum"] == ["discover", "apply"]
+    assert schema["properties"]["action"]["enum"] == ["discover", "apply", "readback"]
+    assert schema["properties"]["dry_run_id"]["pattern"] == "^[0-9a-f]{32}$"
     assert schema["properties"]["apply"]["type"] == "boolean"
     assert schema["properties"]["timeout_sec"] == {
         "type": "integer",
@@ -65,6 +66,9 @@ def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() 
     assert "同一修改流程只执行一次 discovery" in skill
     assert "直接复用当前 DOM" in skill
     assert "不主动调用 `send_files`" in skill
+    assert "--dry-run-id <dry_run_id> --apply" in skill
+    assert "--action readback" in skill
+    assert "不代表用户批准" in skill
 
 
 def test_logistics_flow_has_only_login_and_write_confirmations() -> None:
