@@ -14,7 +14,6 @@ export interface AutomationExecutionPort {
   blockReason(task: Automation): Promise<string | null>;
   submit(run: AutomationRun, assertCurrent: () => void): Promise<void>;
   observe(run: AutomationRun): Promise<AutomationRunView["execution_state"] | "missing">;
-  resumeSession(sessionId: string): void;
 }
 
 const diagnostic = (error: unknown): string => String(sanitizeLogValueWithPolicy(
@@ -64,6 +63,7 @@ export class AutomationService {
     const time = await this.clock.next(definition, id, this.salt, now, now);
     assertCurrent?.();
     if (previous) previous = this.matching(previous.id, previous.version);
+    if (definition.schedule.kind === "once" && definition.schedule.at <= this.now()) throw new Error("一次性任务请选择未来的时间");
     if (!time) throw new Error("时间规则没有未来的运行时间");
     const task: Automation = { ...definition, id, version: (previous?.version ?? 0) + 1,
       status: previous?.status === "paused" ? "paused" : "active", schedule_anchor_at: now, next_nominal_at: time.nominal, next_run_at: time.due,
@@ -81,11 +81,11 @@ export class AutomationService {
       assertCurrent?.();
       task = this.matching(id, version);
       const now = this.now();
-      const time = task.schedule.kind === "once" ? { nominal: task.schedule.at, due: Math.max(now, task.schedule.at) }
+      if (task.schedule.kind === "once" && task.schedule.at <= now) throw new Error("原定时间已过，请重新选择执行时间");
+      const time = task.schedule.kind === "once" ? { nominal: task.schedule.at, due: task.schedule.at }
         : await this.clock.next(task, task.id, this.salt, now, now);
       assertCurrent?.(); task = this.matching(id, version);
       task = { ...task, status: time ? "active" : "finished", schedule_anchor_at: now, next_nominal_at: time?.nominal ?? null, next_run_at: time?.due ?? null };
-      if (task.target.mode === "reuse") this.options.execution.resumeSession(task.target.session_id);
     } else task = { ...task, status };
     task = { ...task, version: task.version + 1, updated_at: this.now(), recheck_at: null, blocked_reason: null };
     this.options.store.save(task, version);

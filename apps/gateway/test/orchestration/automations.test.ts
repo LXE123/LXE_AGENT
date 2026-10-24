@@ -24,7 +24,7 @@ async function setup(store = new MemoryStore(), port: Partial<AutomationExecutio
   const sent: AutomationRun[] = [], states = new Map<string, AutomationRunView["execution_state"]>();
   const execution: AutomationExecutionPort = { ready: () => true, validate: async () => {}, blockReason: async () => null,
     submit: async (run, current) => { current(); sent.push(run); states.set(run.turn_id, "running"); },
-    observe: async run => states.get(run.turn_id) ?? "missing", resumeSession() {}, ...port };
+    observe: async run => states.get(run.turn_id) ?? "missing", ...port };
   const service = new AutomationService({ store, execution, now: () => now, ...(clock ? { clock } : {}) }); services.push(service); service.start(); await service.tick();
   return { service, store, sent, states, execution, advance: (ms: number) => { now += ms; }, now: () => now };
 }
@@ -45,6 +45,45 @@ test("busy reuse coalesces missed intervals, slides from admission and never que
   busy = false; f.advance(60_000); await f.service.tick(); expect(f.sent).toHaveLength(1);
   expect(f.sent[0]!.session_id).toBe("chat"); expect(f.service.get(task.id).next_run_at).toBe(f.now() + 60_000);
   f.advance(30_000); await f.service.tick(); expect(f.sent).toHaveLength(1);
+});
+test("resuming an expired paused one-shot requires a future time and leaves the plan unchanged", async () => {
+  const f = await setup();
+  const task = await f.service.save({ definition: definition({ schedule: { kind: "once", at: f.now() + 60_000 } }) });
+  const paused = await f.service.setStatus(task.id, task.version, "paused");
+  f.advance(60_000);
+  await expect(f.service.setStatus(paused.id, paused.version, "active")).rejects.toThrow("原定时间已过，请重新选择执行时间");
+  expect(f.service.get(task.id)).toEqual(paused);
+  await f.service.tick(); expect(f.sent).toHaveLength(0);
+  const edited = await f.service.save({ id: task.id, version: paused.version,
+    definition: definition({ schedule: { kind: "once", at: f.now() + 120_000 } }) });
+  expect(edited.status).toBe("paused");
+  const resumed = await f.service.setStatus(edited.id, edited.version, "active");
+  expect(resumed.next_run_at).toBe(f.now() + 120_000);
+  await f.service.tick(); expect(f.sent).toHaveLength(0);
+  f.advance(120_000); await f.service.tick(); expect(f.sent).toHaveLength(1);
+  expect(f.service.get(task.id).status).toBe("finished");
+});
+test("expiry during target validation cannot resume or save an already elapsed one-shot", async () => {
+  const f = await setup();
+  const task = await f.service.save({ definition: definition({ schedule: { kind: "once", at: f.now() + 60_000 } }) });
+  const paused = await f.service.setStatus(task.id, task.version, "paused");
+  f.execution.validate = async () => { f.advance(60_000); };
+  await expect(f.service.setStatus(task.id, paused.version, "active")).rejects.toThrow("原定时间已过");
+  expect(f.service.get(task.id)).toEqual(paused);
+  await expect(f.service.save({ id: task.id, version: paused.version,
+    definition: definition({ schedule: { kind: "once", at: f.now() + 60_000 } }) })).rejects.toThrow("未来的时间");
+  expect(f.service.get(task.id)).toEqual(paused);
+});
+test("an enabled one-shot missed while offline still runs once on recovery", async () => {
+  const f = await setup();
+  const task = await f.service.save({ definition: definition({ schedule: { kind: "once", at: f.now() + 60_000 } }) });
+  await f.service.stop();
+  // Persisted next_run_at remains overdue when a new host starts.
+  f.store.save({ ...task, next_run_at: f.now() - 60_000, next_nominal_at: f.now() - 60_000,
+    schedule: { kind: "once", at: f.now() - 60_000 } }, task.version);
+  const g = await setup(f.store);
+  expect(g.sent).toHaveLength(1); expect(g.service.get(task.id).status).toBe("finished");
+  g.advance(120_000); await g.service.tick(); expect(g.sent).toHaveLength(1);
 });
 test("editing arriving during async admission defers; stale presence expires", async () => {
   const f = await setup();

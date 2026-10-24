@@ -34,6 +34,11 @@ try {
   rmSync(resolve(output, "failure.png"), { force: true });
   const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
     "apps/dashboard/src/features/automations/form.ts", "apps/dashboard/src/features/automations/ScheduleFields.tsx",
+  if (report.surface !== "desktop-shell" || report.passed.length < 32 || report.measurements.length < 86 || report.screenshots.length < 20) throw new Error("Incomplete automation desktop shell/state coverage");
+  console.log(`Automation CDS: ${report.passed.length} checks, ${report.measurements.length} state measurements, ${report.screenshots.length} screenshots passed.`);
+  rmSync(resolve(output, "failure.png"), { force: true });
+  const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
+    "apps/dashboard/src/features/automations/AutomationResumeDialog.tsx",
     "apps/dashboard/src/shared/cds-theme.css", "apps/dashboard/src/styles.css", "apps/dashboard/src/main.tsx",
     "apps/dashboard/src/features/capabilities/theme.css", "apps/dashboard/src/shared/navigation-rail.css",
     "apps/dashboard/test/behavior/renderer.tsx",

@@ -31,6 +31,7 @@ app.whenReady().then(async () => {
     await js("document.fonts.ready");
     if (scenario === "schedules") await wait("document.querySelectorAll('.automation-row').length >= 2");
     else if (!["empty", "error", "loading"].includes(scenario)) await wait("document.querySelectorAll('.automation-row').length === 2");
+    if (!["empty", "error", "loading"].includes(scenario)) await wait(`document.querySelectorAll('.automation-row').length === ${["expired-once", "resume-error"].includes(scenario) ? 1 : 2}`);
     await delay(120); off();
   }
   function off() { win.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 }); }
@@ -214,6 +215,50 @@ app.whenReady().then(async () => {
       assert.equal(await js("document.querySelector('input[name=name]').disabled"), false);
       await capture(`error-${theme}.png`);
       passed.push(`${theme}: save failure retains diagnostic and allows correction`);
+
+      for (const scenario of ["expired-once", "resume-error"]) {
+        await load(theme, scenario);
+        const resume = ".automation-detail > .automation-actions > button:nth-child(2)";
+        await click(resume); await wait("document.querySelector('dialog')?.open");
+        assert.equal(await js("document.activeElement.type"), "datetime-local");
+        assert.equal(await js("document.activeElement.value"), "");
+        assert.match(await js("document.querySelector('#automation-resume-notice').textContent"), /原定时间已过/);
+        assert.equal(await js("document.querySelector('dialog button[type=submit]').textContent"), "保存并恢复");
+        await noOverflow();
+        if (scenario === "expired-once") await capture(`resume-${scenario}-${theme}.png`);
+        await key("Escape"); await wait("!document.querySelector('dialog')");
+        assert.match(await js("document.querySelector('.automation-eyebrow').textContent"), /已暂停/);
+        assert.equal(await js("document.activeElement === document.querySelector(" + JSON.stringify(resume) + ")"), true);
+        await click(resume); await wait("document.querySelector('dialog')?.open");
+        await click(save);
+        assert.equal(await js("document.querySelector('input[type=datetime-local]').validity.valueMissing"), true);
+        async function dateInput(value) {
+          await js(`(() => { const input=document.querySelector('input[type=datetime-local]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)}); input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+        }
+        await dateInput(new Date(Date.now() - 3600_000).toISOString().slice(0, 16)); await click(save);
+        await wait("document.querySelector('dialog [role=alert]')");
+        assert.match(await js("document.querySelector('dialog [role=alert]').textContent"), /未来的时间/);
+        await dateInput(new Date(Date.now() + 3600_000).toISOString().slice(0, 16));
+        await click(save);
+        if (scenario === "resume-error") {
+          await wait("document.querySelector('dialog').getAttribute('aria-busy') === 'true'");
+          assert.equal(await js("document.querySelector('input[type=datetime-local]').matches(':disabled')"), true);
+          await key("Escape"); assert.equal(await js("document.querySelector('dialog').open"), true);
+          await wait("document.querySelector('dialog [role=alert]')?.textContent.includes('connection lost')");
+          assert.match(await js("document.querySelector('dialog [role=alert]').textContent"), /Fixture: connection lost/);
+          assert.equal(await js("document.querySelector('input[type=datetime-local]').disabled"), false);
+          await capture(`resume-${scenario}-${theme}.png`);
+          await click(save); // The successful save's version must be used on retry.
+        }
+        await wait("!document.querySelector('dialog')");
+        await wait("document.querySelector('.automation-eyebrow').textContent.includes('已启用')");
+        assert.equal(await js("document.querySelector('.automation-prompt').textContent"), "保留原提示词");
+        assert.equal(await js("document.querySelectorAll('.automation-runs li').length"), 0);
+        passed.push(`${theme}: ${scenario} requires a new future time; cancel preserves pause; save resumes without immediate execution`);
+        // The fixture service survives page reloads; remove this scenario's plan.
+        await click("button[aria-label='删除任务']"); await click('.automation-danger');
+        await wait("document.querySelector('.automation-empty-start')");
+      }
 
       await load(theme, "pending"); await click(create); await wait("document.querySelector('dialog')?.open");
       await type(name, "保存中状态验收"); await type(prompt, "检查请求期间的字段和按钮状态。");

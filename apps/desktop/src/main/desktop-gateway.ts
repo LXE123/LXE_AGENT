@@ -562,9 +562,7 @@ export class DesktopGateway {
       }
     }
     if (call.operation === "sessions.stop") {
-      const result = await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id);
-      if (result.stopped_turn_id || result.cleared_turn_ids.length) this.automations?.service.pauseSession(call.input.session_id, "用户已停止会话的自动执行；恢复任务后继续");
-      return result as DashboardRpcResult<O>;
+      return await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.activity") {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;

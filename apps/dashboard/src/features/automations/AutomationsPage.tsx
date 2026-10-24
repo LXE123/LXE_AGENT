@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AutomationResumeDialog } from "./AutomationResumeDialog";
 import { Clock3, Plus, Play, Pause, Pencil, Trash2, ArrowUpRight, X } from "lucide-react";
 import type { Automation, AutomationDefinition, AutomationRunView, SessionPayload } from "@lxe/desktop-protocol";
 import { automationActions } from "../../api/automation-actions";
@@ -19,6 +20,7 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [editor, setEditor] = useState<Automation | "new" | null>(null);
+  const [resuming, setResuming] = useState<Automation | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -32,6 +34,13 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
   async function act(action: () => Promise<unknown>) {
     setPending(true); setError("");
     try { await action(); await refresh(); } catch (cause) { setError(queryError(cause)); } finally { setPending(false); }
+  }
+  function toggleStatus(task: Automation) {
+    if (task.status === "paused" && task.schedule.kind === "once" && task.schedule.at <= Date.now()) {
+      setError(""); setResuming(task);
+      return;
+    }
+    void act(() => automationActions.status(task.id, task.version, task.status === "active" ? "paused" : "active"));
   }
   return <section className="automations-page">
     <header className="automations-header"><h1>定时任务</h1>{!empty && <button className="automation-create" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16} />新建任务</button>}</header>
@@ -52,19 +61,20 @@ export function AutomationsPage({ ready, onOpenSession }: { ready: boolean; onOp
         <p className="automation-prompt">{task.prompt}</p>
         <p id="automation-action-status" className="automation-muted" role="status">{pending ? "正在处理，请稍候…" : task.status === "finished" ? "计划已结束，编辑时间后可重新启用。" : ""}</p>
         <div className="automation-actions" aria-describedby="automation-action-status"><button disabled={!ready || pending || task.status === "finished"} onClick={() => void act(async () => { const run = await automationActions.run(task.id); if (run.error) throw new Error(run.error); })}><Play size={15}/>立即运行</button>
-          <button disabled={!ready || pending || task.status === "finished"} onClick={() => void act(() => automationActions.status(task.id, task.version, task.status === "active" ? "paused" : "active"))}><Pause size={15}/>{task.status === "active" ? "暂停计划" : "恢复计划"}</button>
+          <button disabled={!ready || pending || task.status === "finished"} onClick={() => toggleStatus(task)}><Pause size={15}/>{task.status === "active" ? "暂停计划" : "恢复计划"}</button>
           <button aria-label="删除任务" disabled={pending} onClick={() => setDeleting(true)}><Trash2 size={15}/></button></div>
         {deleting && <div className="automation-notice">删除此计划？已有对话和运行记录会保留。<div className="automation-actions"><button className="automation-danger" disabled={pending} onClick={() => void act(async () => { await automationActions.delete(task.id, task.version); setDeleting(false); })}>删除计划</button><button onClick={() => setDeleting(false)}>取消</button></div></div>}
-        <h3>运行记录</h3><p className="automation-muted">结果保存在对话中。暂停计划不会停止已启动的执行。</p>
+        <h3>运行记录</h3><p className="automation-muted">结果保存在对话中。停止本次执行不影响后续计划；暂停计划不会停止已启动的执行。</p>
         {runs.error && <p className="automation-error" role="alert">{queryError(runs.error)}</p>}
         {runs.isLoading && <p className="automation-muted" role="status">正在加载运行记录…</p>}
         {ready && !runs.isPending && !runs.error && !runs.data?.items.length && <p className="automation-muted">首次运行后，记录会出现在这里。</p>}
         <ol className="automation-runs">{runs.data?.items.map(run => <li key={run.id}><div><strong>{run.dispatch_state === "failed" ? "未能启动" : states[run.execution_state]}</strong><span>{date(run.created_at, run.definition.timezone)} · {run.trigger === "manual" ? "手动运行" : "按计划运行"}</span>{(run.error || run.execution_error) && <p className="automation-error">{run.error || run.execution_error}</p>}</div><div className="automation-actions">
-          {["running", "waiting_input", "waiting_approval"].includes(run.execution_state) && <button disabled={!ready || pending} onClick={() => void act(() => sessionActions.stop(run.session_id, run.turn_id))}>停止</button>}
+          {["running", "waiting_input", "waiting_approval"].includes(run.execution_state) && <button disabled={!ready || pending} onClick={() => void act(() => sessionActions.stop(run.session_id, run.turn_id))}>停止本次执行</button>}
           <button disabled={!ready || pending} onClick={() => void act(async () => { const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 }); await onOpenSession(detail.session, run.turn_id); })}>打开对话<ArrowUpRight size={14}/></button>
         </div></li>)}</ol>
       </> : <div className="automation-empty"><h2>没有匹配的任务</h2><p>调整搜索词或状态筛选，查看其他任务。</p></div>}
     </div></div>}
+    {resuming && <AutomationResumeDialog key={resuming.id} task={resuming} onClose={() => { setResuming(null); void refresh(); }} onSaved={async () => { setResuming(null); await refresh(); }}/>}
     {editor && <AutomationEditor key={editor === "new" ? "new" : editor.id} task={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} onSaved={async task => { select(task.id); setSearch(""); setFilter("all"); setEditor(null); await refresh(); }}/>}
   </section>;
 }

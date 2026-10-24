@@ -26,6 +26,23 @@ macOS 同时回归了修改的 SQLite / MCP 测试、新增 Electron 测试、�
 2026-10-24，基于 `e3274147` 的可视化时间表单改动，在同一台 Windows 实机的独立 worktree 复验。23 项定向测试通过，覆盖表单转换、实际日历计算、跨月／闰年／夏令时、旧组合计划保留，以及原有调度和协议契约；Dashboard 类型检查与生产构建通过。
 
 完整桌面页面的 CDS 检查扩展到 36 组、106 项状态测量、20 张截图，亮暗主题均验证时间预览、自定义周期和多个执行日、键盘复选、无效输入拦截、保存回读、旧规则无损编辑与明确重设。与 macOS 报告的 15 个受验源码指纹一致。系统原生下拉弹层未纳入离屏自动化，选项切换使用生产 `change` 事件；控件焦点、悬停、复选、输入和提交使用真实输入事件。本次只变更 Renderer 时间表单，没有重新执行上面的后台、安装包与真实任务验收。
+## 停止与一次性恢复调整（2026-10-24）
+
+在同一 Windows 实机的独立 worktree 验证源码提交 `e01c664d`（基线 `e3274147`）。本次覆盖：停止只结束当前执行、不暂停绑定计划；下一次定时回合在空闲后正常开始；恢复过期的一次性计划必须重新选择未来时间。
+
+- 11 个文件的 92 个定向测试通过，包含调度、停止后的再次派发、过期／异步校验竞争、已启用一次性计划的离线恢复，以及真实 Electron 停止 RPC 路由、SQLite、Worker 和桌面 MCP 回归。
+- 全仓类型检查及桌面构建通过。
+- 亮暗主题共 32 组检查、86 项状态测量、20 张截图通过。恢复弹窗覆盖空时间初始焦点、取消、必填和过期校验、请求期间禁用与禁止关闭、恢复失败保留实际诊断和重试。保存后只按新时间触发，提示词与对话设置保留。
+- macOS 同范围验证通过；两平台界面报告的 13 个源码指纹与当前文件一致。实际执行由 fixture 模拟，Electron、SQLite、管道和页面控件使用本机实现。
+
+复现本轮定向测试：
+
+```sh
+bun test apps/gateway/test/orchestration/automations.test.ts apps/gateway/test/orchestration/local-conversation.test.ts apps/gateway/test/orchestration/scheduler.test.ts apps/gateway/test/orchestration/heartbeat-bridge.test.ts apps/gateway/test/orchestration/router.test.ts apps/dashboard/test/features/automations/form.test.ts apps/desktop/test/automation-store.test.ts apps/desktop/test/automation-stop.test.ts apps/desktop/test/automation-electron.test.ts apps/desktop/test/automation-clock-bundle.test.ts apps/desktop/test/desktop-mcp.test.ts
+bun run typecheck
+bun run desktop:build
+bun run cds:check:automations
+```
 
 ## 实机发现并修复的测试问题
 
