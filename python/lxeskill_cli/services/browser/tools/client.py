@@ -62,6 +62,10 @@ def _text_content(result: ExecuteToolResult) -> list[dict[str, Any]]:
         output_parts.append(f"Page: {json.dumps(page_info, ensure_ascii=False)}")
 
     payload = dict(result.payload or {})
+    if result.tool_name == "ziniao_page" and payload.get("action") == "browser_tabs":
+        output_parts.append(f"Tabs JSON: {json.dumps(payload, ensure_ascii=False)}")
+    if result.tool_name == "ziniao_page" and payload.get("target_handle"):
+        output_parts.append(f"Target handle: {payload['target_handle']}")
     if result.tool_name == "ziniao_browser" and str(payload.get("action") or "").strip() == "get_status":
         status_data = dict(payload.get("data") or {})
         if status_data:

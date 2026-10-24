@@ -657,6 +657,42 @@ export interface DesktopInputAssetSlot {
   previous: DesktopInputAssetVersion | null;
 }
 
+export type DesktopLogisticsProviderId = "wesa" | "feiwo" | "yuntuo" | "tiantai" | "jiufang";
+export interface DesktopLogisticsProfileInput {
+  profile_id?: string;
+  display_name: string;
+  provider_id: DesktopLogisticsProviderId;
+  enabled: boolean;
+  /** Legacy company metadata. No longer a configuration input or login identity. */
+  account_name?: string | null;
+  login_username?: string | null;
+  /** Omitted: keep saved password. Null: clear it. String: replace it. Write-only. */
+  password?: string | null;
+}
+export interface DesktopLogisticsProfile extends Omit<DesktopLogisticsProfileInput, "password"> {
+  profile_id: string;
+  account_name: string | null;
+  login_username: string | null;
+  password_configured: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface DesktopLogisticsProviderSpec {
+  provider_id: DesktopLogisticsProviderId;
+  label: string;
+  transport: "ziniao_browser" | "public_http";
+  /** Execution-time browser requirement; profiles never bind to a store. */
+  requires_store: boolean;
+  /** Query adapter needs current-page company verification, not a settings field. */
+  requires_account_name: boolean;
+}
+export interface DesktopLogisticsSettingsState {
+  schema_version: 3;
+  revision: number;
+  profiles: DesktopLogisticsProfile[];
+  providers: DesktopLogisticsProviderSpec[];
+}
+
 export interface DesktopVietnamTemplateExportResult { path: string; }
 
 export interface DesktopVietnamParameters {
@@ -741,6 +777,9 @@ export interface LxeDesktopBridge {
     openSyntheticPerformerOutput(taskId: string): Promise<void>;
     listInputAssets(): Promise<DesktopInputAssetSlot[]>;
     revealInputAssetSlot(slot: string): Promise<void>;
+    getLogisticsSettings(): Promise<DesktopLogisticsSettingsState>;
+    saveLogisticsProfile(input: DesktopLogisticsProfileInput, expectedRevision: number): Promise<DesktopLogisticsSettingsState>;
+    deleteLogisticsProfile(profileId: string, expectedRevision: number): Promise<DesktopLogisticsSettingsState>;
     getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;

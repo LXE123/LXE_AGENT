@@ -23,8 +23,8 @@ def _records(capsys) -> list[dict]:
 def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     catalog = load_catalog()
 
-    assert len(catalog) == 47
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 41
+    assert len(catalog) == 59
+    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 53
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
@@ -135,7 +135,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 44
+    assert len(records[0]["data"]["commands"]) == 54
 
     assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
     records = _records(capsys)
@@ -188,11 +188,11 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "command": "doctor",
             "ok": True,
             "data": {
-                "catalog_commands": 47,
-                "business_commands": 40,
-                "skill_files": 38,
-                "owner_skills": 30,
-                "command_declarations": 40,
+                "catalog_commands": 59,
+                "business_commands": 50,
+                "skill_files": 41,
+                "owner_skills": 33,
+                "command_declarations": 50,
             },
             "files": [],
         }
@@ -553,6 +553,33 @@ def test_terminal_failure_never_instructs_another_auth_refresh(monkeypatch, caps
     assert '1403401' in record['error']['message']
 
 
+def test_delivery_window_list_failure_never_offers_mabang_auth_refresh(monkeypatch, capsys) -> None:
+    def fake_execute(*args, **kwargs):
+        payload = {
+            "success": False,
+            "auth_refresh_required": False,
+            "exception": "页面等待 60 秒后仍未读到货件行（0 行）",
+        }
+        return (
+            False,
+            [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+            [],
+            {"code": "business_cli_failed", "message": payload["exception"]},
+        )
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main([
+        "fba", "shipment", "delivery-window-list",
+        "--session-id", "session-1",
+        "--store-id", "store-1",
+        "--page-url", "https://sellercentral.amazon.com/manage/shipments",
+    ]) == lxeskill.EXIT_BUSINESS
+    record = _records(capsys)[0]
+    assert "recovery" not in record
+    assert record["data"]["auth_refresh_required"] is False
+
+
 def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:
     monkeypatch.setattr(lxeskill, "load_catalog", lambda: (_ for _ in ()).throw(RuntimeError("broken catalog")))
 
@@ -785,3 +812,36 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
 def test_datasets_list_rejects_extra_arguments(capsys):
     assert lxeskill.main(["datasets", "list", "--unknown"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
+
+
+def test_delivery_window_exposes_preparation_and_readback_contract(capsys):
+    assert lxeskill.main(['describe', 'fba', 'shipment', 'delivery-window']) == 0
+    (record,) = _records(capsys)
+    properties = record['data']['input_schema']['properties']
+    assert properties['action']['enum'] == ['discover', 'apply', 'readback']
+    assert properties['dry_run_id']['pattern'] == '^[0-9a-f]{32}$'
+
+
+@pytest.mark.parametrize('action,extra', [
+    ('apply', ['--apply', '--dry-run-id', 'a' * 32]),
+    ('readback', []),
+])
+def test_delivery_window_routes_new_flags_to_business_cli(monkeypatch, capsys, action, extra):
+    captured = []
+
+    def execute(entry, arguments, session, **kwargs):
+        captured.append(arguments)
+        return True, [{'type': 'text', 'text': '{"success":true}'}], [], None
+
+    monkeypatch.setattr(lxeskill, 'execute_module_json', execute)
+    monkeypatch.setenv('LXE_AGENT_SESSION_ID', 'test-session')
+    assert lxeskill.main(['fba', 'shipment', 'delivery-window', '--action', action,
+                          '--store-id', 'store-1', '--page-url', 'https://sellercentral.amazon.com/fba/inbound-shipment/summary',
+                          '--shipment-ids', 'FBA19NDSQ2SK', '--target-date', '2026-10-28', *extra]) == 0
+    assert captured[0]['action'] == action
+    if extra:
+        assert captured[0]['apply'] is True
+        assert captured[0]['dry_run_id'] == 'a' * 32
+    else:
+        assert not captured[0].get('apply')
+    assert _records(capsys)[-1]['ok'] is True

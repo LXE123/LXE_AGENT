@@ -25,6 +25,70 @@ def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
     assert "data.screenshot_path" in ziniao
 
 
+def test_delivery_window_skill_owns_two_session_commands_and_keeps_write_gate() -> None:
+    catalog = load_catalog()
+    list_entry = catalog["amazon_fba_delivery_window_list"]
+    apply_entry = catalog["amazon_fba_delivery_window_apply"]
+
+    assert list_entry["command_path"] == ["fba", "shipment", "delivery-window-list"]
+    assert apply_entry["command_path"] == ["fba", "shipment", "delivery-window"]
+    for entry in (list_entry, apply_entry):
+        assert entry["owner_skills"] == ["fba-shipment-delivery-window"]
+        assert entry["session_mode"] == "lxe_session"
+        assert entry["visibility"] == "business"
+        assert entry["artifact_paths"] == [
+            {"field": "file_path[].value", "role": "diagnostic"}
+        ]
+
+    schema = apply_entry["input_schema"]
+    assert schema["properties"]["action"]["enum"] == ["discover", "apply", "readback"]
+    assert schema["properties"]["dry_run_id"]["pattern"] == "^[0-9a-f]{32}$"
+    assert schema["properties"]["apply"]["type"] == "boolean"
+    assert schema["properties"]["timeout_sec"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600,
+    }
+    assert schema["required"] == ["store_id", "page_url", "shipment_ids"]
+
+    skill = _skill_text("fba-shipment-delivery-window")
+    frontmatter = skill.split("---", 2)[1]
+    assert frontmatter.count("lxeskill fba shipment delivery-window") == 2
+    assert "禁止直接执行 Python 模块" in skill
+    assert "必须先用完全相同的店铺、页面 URL、货件号和目标日期" in skill
+    assert "批准后只执行一次同参数 `apply=true`" in skill
+    assert 'status="applied"' in skill
+    assert "`applied_window` 精确等于目标周" in skill
+    assert "任何修改请求都必须先执行 discovery" in skill
+    assert "货件编号 1" in skill
+    assert "默认不展示 `fba_shipment_id`" in skill
+    assert "请选择要修改的货件编号（可多选）" in skill
+    assert "同一修改流程只执行一次 discovery" in skill
+    assert "直接复用当前 DOM" in skill
+    assert "不主动调用 `send_files`" in skill
+    assert "--dry-run-id <dry_run_id> --apply" in skill
+    assert "--action readback" in skill
+    assert "不代表用户批准" in skill
+
+
+def test_logistics_flow_has_only_login_and_write_confirmations() -> None:
+    logistics = _skill_text("fba-logistics-query")
+    delivery = _skill_text("fba-shipment-delivery-window")
+    carrier = (PROJECT_ROOT / "skills" / "fba-shipment-delivery-window" /
+               "references" / "carrier-evidence.md").read_text(encoding="utf-8")
+
+    assert "整条只读链最多一次登录确认" in logistics
+    assert "不得在物流商查询、尾程跳转、尾程搜索、页面读取或返回 Amazon 之间逐步询问" in logistics
+    assert "物流商查询成功并取得明确尾程单号后立即继续官方追踪" in logistics
+    assert "自动继续明确的后续页，不逐页询问用户" in logistics
+    assert "全流程最多保留两个确认点" in delivery
+    assert "登录确认" in delivery and "修改确认" in delivery
+    assert "dry-run 是只读准备步骤，必须自动执行" in delivery
+    assert "不再请求第三次确认" in delivery
+    assert "无需分别确认物流商查询、打开承运商页面、输入单号、读取结果或返回 Amazon" in carrier
+    assert "中间不再确认" in carrier
+
+
 def test_fba_docs_send_only_declared_deliverables() -> None:
     catalog = load_catalog()
     deliverable_owners = {

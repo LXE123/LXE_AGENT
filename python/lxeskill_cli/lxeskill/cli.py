@@ -495,6 +495,13 @@ def _main(argv: list[str] | None = None) -> int:
     _configure_stdio()
     setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)
+    entry: dict[str, Any] | None = None
+
+    def error_command() -> str:
+        # A resolved command's identity is its canonical path, never its option
+        # values (which may contain accidentally supplied credentials).
+        return _command_text(entry) if entry is not None else " ".join(arguments)
+
     try:
         catalog = load_catalog()
         if not arguments or arguments[0] in {"-h", "--help", "help"}:
@@ -559,7 +566,7 @@ def _main(argv: list[str] | None = None) -> int:
     except LxeSkillError as exc:
         failure: dict[str, Any] = {
             "type": "result",
-            "command": " ".join(arguments),
+            "command": error_command(),
             "ok": False,
             "data": {},
             "files": [],
@@ -570,17 +577,17 @@ def _main(argv: list[str] | None = None) -> int:
         _emit(failure)
         return exc.exit_code
     except ArtifactPathError as exc:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_artifact_path", "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_artifact_path", "message": str(exc)}})
         return EXIT_BUSINESS
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})
         return EXIT_USAGE
     except KeyboardInterrupt:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "cancelled", "message": "command cancelled"}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": "cancelled", "message": "command cancelled"}})
         return 130
     except Exception as exc:
         logger.exception("lxeskill command failed")
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": type(exc).__name__, "message": str(exc)}})
+        _emit({"type": "result", "command": error_command(), "ok": False, "data": {}, "files": [], "error": {"code": type(exc).__name__, "message": str(exc)}})
         return EXIT_INTERNAL
 
 

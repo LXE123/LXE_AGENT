@@ -34,5 +34,8 @@
   "ziniao-browser": "紫鸟浏览器",
   "office-xlsx": "Excel 工作簿",
   "office-docx": "Word 文档",
-  "office-pptx": "PowerPoint 演示文稿"
+  "office-pptx": "PowerPoint 演示文稿",
+  "fba-shipment-delivery-window": "FBA 送达时段调整",
+  "fba-logistics-query": "FBA 物流查询",
+  "jiufang-logistics-query": "九方物流查询"
 }

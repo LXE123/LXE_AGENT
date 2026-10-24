@@ -203,3 +203,52 @@ export function validateDraftImagePreviewVariant(value: unknown): "thumbnail" | 
   if (value !== "thumbnail" && value !== "expanded") throw new Error("Image preview variant must be thumbnail or expanded");
   return value;
 }
+
+const logisticsFields = (value: unknown, required: string[], optional: string[] = []): Record<string, unknown> => {
+  const item = objectValue(value, "Logistics input");
+  if (required.some(key => !Object.hasOwn(item, key)) || Object.keys(item).some(key => ![...required, ...optional].includes(key))) {
+    throw new Error(`Expected only fields: ${[...required, ...optional].join(", ")}`);
+  }
+  return item;
+};
+const logisticsText = (value: unknown, label: string, minimum: number, maximum: number): string => {
+  if (typeof value !== "string" || [...value].length < minimum || [...value].length > maximum || value !== value.trim() || /[\x00-\x1f]/u.test(value)) {
+    throw new Error(`Invalid logistics ${label}`);
+  }
+  return value;
+};
+export function validateLogisticsRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 9007199254740990) throw new Error("Invalid logistics revision");
+  return value;
+}
+export function validateLogisticsProfileId(value: unknown): string {
+  const id = logisticsText(value, "profile_id", 36, 36);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(id)) throw new Error("Invalid logistics UUID");
+  return id;
+}
+export function validateLogisticsProfileInput(value: unknown): import("@lxe/desktop-protocol").DesktopLogisticsProfileInput {
+  const input = logisticsFields(value, ["display_name", "provider_id", "enabled"], ["account_name", "profile_id", "login_username", "password"]);
+  const provider = input.provider_id;
+  if (typeof provider !== "string" || !["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"].includes(provider)) throw new Error("Unknown logistics provider");
+  if (typeof input.enabled !== "boolean") throw new Error("Logistics enabled must be boolean");
+  let account = input.account_name;
+  if (account != null) {
+    if (!["wesa", "tiantai"].includes(provider)) throw new Error("This provider does not use account_name");
+    account = logisticsText(account, "account_name", 2, 200);
+  }
+  const username = input.login_username == null ? input.login_username : logisticsText(input.login_username, "login_username", 1, 200);
+  if (input.password !== undefined && input.password !== null
+    && (typeof input.password !== "string" || !input.password.length || [...input.password].length > 1024 || /[\x00-\x1f]/u.test(input.password))) {
+    throw new Error("Invalid logistics password");
+  }
+  if (provider === "jiufang" && (username != null || typeof input.password === "string")) throw new Error("Public HTTP providers must not have login credentials");
+  return {
+    ...(input.profile_id === undefined ? {} : { profile_id: validateLogisticsProfileId(input.profile_id) }),
+    display_name: logisticsText(input.display_name, "display_name", 1, 80),
+    provider_id: provider as import("@lxe/desktop-protocol").DesktopLogisticsProviderId,
+    enabled: input.enabled,
+    ...(account === undefined ? {} : { account_name: account as string | null }),
+    ...(username === undefined ? {} : { login_username: username as string | null }),
+    ...(input.password === undefined ? {} : { password: input.password as string | null }),
+  };
+}

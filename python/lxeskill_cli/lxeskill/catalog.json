@@ -1,6 +1,191 @@
 {
   "protocol_version": "1",
   "entries": [
+    {
+      "name": "logistics_settings",
+      "command_path": ["logistics", "settings"],
+      "visibility": "internal", "session_mode": "none",
+      "module": "services.agent_cli.logistics.settings",
+      "owner_skills": [], "exposed": false, "timeout_ms": 260000, "input_modes": ["flags"],
+      "input_schema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["read", "snapshot", "save", "delete"]},
+        "request": {"type": "object"}
+      }, "required": ["action"], "additionalProperties": false}
+    },
+    {
+      "name": "logistics_login_worker",
+      "command_path": ["logistics", "login-worker"],
+      "visibility": "internal", "session_mode": "none",
+      "module": "services.agent_cli.logistics.login_worker",
+      "owner_skills": [], "exposed": false, "timeout_ms": 90000, "input_modes": ["flags"],
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "logistics_profiles",
+      "module": "services.agent_cli.logistics.profiles",
+      "command_path": ["logistics", "profiles"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-logistics-query", "jiufang-logistics-query"],
+      "attribution_skill": "fba-logistics-query",
+      "exposed": true, "timeout_ms": 30000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {"provider": {"type": "string", "enum": ["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"], "description": "可选物流商筛选；仅列出当前技能范围内的配置，不返回密码或凭据引用。"}},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_login",
+      "module": "services.agent_cli.logistics.login",
+      "command_path": ["logistics", "login"],
+      "visibility": "browser", "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true, "timeout_ms": 120000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {"type": "string", "minLength": 36, "maxLength": 36, "description": "logistics profiles 返回的启用配置 ID；Desktop 内部读取已保存凭据。"},
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "本次任务指定的已运行紫鸟环境；仅严格附着唯一物流域名，不启动、重启或自动退出账号。"}
+        },
+        "required": ["profile_id", "store_id"], "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_query",
+      "module": "services.agent_cli.logistics.query",
+      "command_path": ["logistics", "query"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-logistics-query", "jiufang-logistics-query"],
+      "attribution_skill": "fba-logistics-query",
+      "exposed": true, "timeout_ms": 360000, "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {"type": "string", "minLength": 36, "maxLength": 36, "description": "唯一启用配置 ID；路由只使用固定注册表，不按名称模糊选择。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "一个完整 FBA 标识，保留箱级后缀。"},
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "浏览器物流商本次执行环境，需真实 LXE 会话；九方禁止传入，不固定绑定账号。"},
+          "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "威飒/天泰当前页面核对的完整公司名；不是登录用户名。缺少时登录检查后暂停查询，先读快照确认。"},
+          "expected_warehouse": {"type": "string", "description": "可选原表目的仓代码，仅核对返回值。"},
+          "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "仅威飒和天泰支持；默认第1页，不自动扫描。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "仅九方和天泰支持；auto 识别末尾 U+6位数字，shipment 保留整个输入，box 要求该后缀。"},
+          "login_mode": {"type": "string", "enum": ["auto", "reuse"], "description": "威飒/天泰/云驼已保存凭据时默认 auto 检查登录；reuse 仅复用现有登录态。飞沃仅支持 reuse，九方不使用登录模式。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "仅天泰支持；browser_tabs 返回并经该页面快照核对公司的 handle。指定时默认 reuse，禁止 auto，不自动切换账号。"}
+        },
+        "required": ["profile_id", "fba"], "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_jiufang_query",
+      "module": "services.agent_cli.logistics.jiufang_query",
+      "command_path": ["logistics", "jiufang", "query"],
+      "visibility": "business",
+      "session_mode": "none",
+      "owner_skills": ["jiufang-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 90000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "一个完整 FBA 主号或箱级编号；保留原值，仅识别末尾 U+6位数字，返回 shipmentId 必须精确匹配主号。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "默认 auto，识别已验证箱号后缀；shipment 明确保留整个主号；box 要求 U+6位数字后缀。不按主号固定长度切分。"},
+          "expected_warehouse": {"type": "string", "description": "可选目的仓代码，仅核对返回目的仓，不参与请求筛选。"}
+        },
+        "required": ["fba"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_yuntuo_query",
+      "module": "services.agent_cli.logistics.yuntuo_query",
+      "command_path": ["logistics", "yuntuo", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；严格附着唯一云驼查询页面，不启动或重启。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "expected_warehouse": {"type": "string", "description": "原表目的仓，仅保留核对需求；当前接口不返回仓库代码。"}
+        },
+        "required": ["store_id", "fba"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_feiwo_query",
+      "module": "services.agent_cli.logistics.feiwo_query",
+      "command_path": ["logistics", "feiwo", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；仅严格附着唯一飞沃页面，不启动或重启。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "expected_warehouse": {"type": "string", "description": "原表目的仓，仅保留核对需求；当前接口不返回仓库代码，不能自动核实。"}
+        },
+        "required": ["store_id", "fba"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_tiantai_query",
+      "module": "services.agent_cli.logistics.tiantai_query",
+      "command_path": ["logistics", "tiantai", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；严格附着天泰页面，同域多页时须指定 target_handle，不启动或重启。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "browser_tabs 返回并经快照核对公司的实时页面 handle；页面关闭或域名变化即停，不回退其他页面。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "完整主号或箱号；保留原始输入，默认识别末尾 U+6位数字并以主号查询、精确核对返回 FBA，不证明单箱归属。"},
+          "identifier_kind": {"type": "string", "enum": ["auto", "shipment", "box"], "description": "默认 auto 仅拆分末尾 U+6位数字；shipment 保留整个输入；box 要求该后缀。不自动删除孤立的 U 或未知后缀。"},
+          "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "本次快照核对的天泰供应链公司账户全名；页面可见文本必须包含它。"},
+          "expected_warehouse": {"type": "string", "description": "原表中的目的仓代码；不作为请求过滤条件。当前样本未返回仓库，不能自动核实。"},
+          "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "默认 1；只读取明确指定的一页，不自动遍历。"}
+        },
+        "required": ["store_id", "fba", "account_name"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "logistics_wesa_query",
+      "module": "services.agent_cli.logistics.wesa_query",
+      "command_path": ["logistics", "wesa", "query"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "owner_skills": ["fba-logistics-query"],
+      "exposed": true,
+      "timeout_ms": 240000,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "maxLength": 256, "description": "已运行的紫鸟店铺 ID；仅严格附着，不启动或重启。"},
+          "fba": {"type": "string", "minLength": 10, "maxLength": 64, "description": "本次授权查询的一个完整 FBA 标识，保留箱级后缀。"},
+          "account_name": {"type": "string", "minLength": 2, "maxLength": 200, "description": "本次快照核对的威飒公司账户全名；页面可见文本必须包含它。"},
+          "expected_warehouse": {"type": "string", "description": "原表中的目的仓代码；不作为请求过滤条件，只核对结果。"},
+          "query_mode": {"type": "string", "enum": ["all", "delivered"], "description": "默认 all；分别复现已抓取的全部/已签收完整 Payload，不混合参数。"},
+          "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "默认 1；只读取明确指定的一页，不自动遍历。"}
+        },
+        "required": ["store_id", "fba", "account_name"],
+        "additionalProperties": false
+      }
+    },
     {"name": "mabang_brazil_overseas_export", "module": "services.agent_cli.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "mabang_tms_export_run", "module": "services.agent_cli.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "yacang_export_run", "module": "services.agent_cli.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
@@ -33,7 +218,25 @@
       "timeout_ms": 600000,
       "exposed": true,
       "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"}, "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上一次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["store_id"], "additionalProperties": false}
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["browser_tabs", "browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一。browser_tabs 须带 strict_attach 和 target_host，只列实时页面 handle/标题/脱敏 URL，再逐页 snapshot 核对公司；不用于 steps。交互前先 snapshot。"},
+          "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"},
+          "strict_attach": {"type": "boolean", "description": "仅附着已运行店铺，附着失败时停止，不启动或重启店铺。"},
+          "target_host": {"type": "string", "minLength": 1, "description": "目标标签页精确域名；未指定 target_handle 时须唯一，browser_tabs 列出全部匹配页。"},
+          "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "browser_tabs 返回的实时 handle；必须同时带 strict_attach 和 target_host，关闭或域名变化即停；批量动作只在顶层指定。"},
+          "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}},
+          "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"},
+          "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"},
+          "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"},
+          "text": {"type": "string", "description": "browser_type 输入文本。"},
+          "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"},
+          "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}
+        },
+        "required": ["store_id"],
+        "additionalProperties": false
+      }
     },
     {
       "name": "mabang_auth_refresh",
@@ -302,6 +505,24 @@
       "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_fba_delivery_window_list", "module": "services.agent_cli.browser.amazon_fba.delivery_window_list",
+      "command_path": ["fba", "shipment", "delivery-window-list"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-delivery-window"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "diagnostic"}],
+      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600}, "plan_only": {"type": "boolean"}}, "required": ["store_id", "page_url"], "additionalProperties": false},
+      "input_modes": ["flags"]
+    },
+    {
+      "name": "amazon_fba_delivery_window_apply", "module": "services.agent_cli.browser.amazon_fba.delivery_window_apply",
+      "command_path": ["fba", "shipment", "delivery-window"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-delivery-window"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "diagnostic"}],
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["discover", "apply", "readback"], "description": "默认 apply；先 discover 确认货件，再 dry-run 准备。readback 仅回读当前时段，不打开编辑或提交，允许核验已过期目标周。"}, "store_id": {"type": "string", "minLength": 1}, "page_url": {"type": "string", "minLength": 1}, "shipment_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^FBA[A-Z0-9]{7,}$"}}, "target_date": {"type": "string", "minLength": 1, "description": "apply/readback 时必填，推荐 YYYY-MM-DD；readback 请沿用原命令的完整日期。"}, "apply": {"type": "boolean", "description": "默认 false（dry-run）；只有人工核对并明确批准后，携带本会话 dry_run_id 才能传 true，每个编号仅执行一次。"}, "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600}, "plan_only": {"type": "boolean"}, "dry_run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "成功 dry-run 返回的准备编号；apply=true 必填，绑定同一店铺、页面、货件顺序和目标日期。不是人工批准凭据。"}, "target_handle": {"type": "string", "minLength": 1, "maxLength": 256, "description": "可选，指定本次实时核实的 Amazon 标签页；真实写入默认附着 dry-run 记录的标签页。"}}, "required": ["store_id", "page_url", "shipment_ids"], "additionalProperties": false},
+      "input_modes": ["flags"]
     },
     {"name": "mabang_download_fba_delivery_csv", "module": "services.agent_cli.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
     {"name": "mabang_download_wms_consignment_excel", "module": "services.agent_cli.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},

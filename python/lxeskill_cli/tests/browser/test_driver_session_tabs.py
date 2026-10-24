@@ -6,6 +6,7 @@ from services.browser.tools.driver_session import (
     is_normal_tab_url,
     list_browser_tabs,
     select_first_normal_tab,
+    select_unique_host_tab,
 )
 
 
@@ -74,6 +75,7 @@ def test_list_browser_tabs_reads_tabs_and_restores_original_handle() -> None:
         {"handle": "h2", "url": "https://sellercentral.amazon.com/fba/sendtoamazon", "title": "FBA"},
     ]
     assert driver.current_window_handle == "h2"
+    assert driver.switch_calls == ["h1", "h2"]
 
 
 def test_select_first_normal_tab_skips_devtools() -> None:
@@ -136,3 +138,244 @@ def test_select_first_normal_tab_can_select_blank_for_open_store() -> None:
 
     assert selected["handle"] == "h2"
     assert driver.current_window_handle == "h2"
+
+
+def test_select_unique_host_tab_selects_exact_host() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "https://sellercentral.amazon.com/home", "Amazon"),
+            ("h2", "http://wsaexp.nextsls.com/wos", "威飒"),
+        ]
+    )
+
+    selected = select_unique_host_tab(driver, "WSAEXP.NEXTSLS.COM.")
+
+    assert selected["handle"] == "h2"
+    assert driver.current_window_handle == "h2"
+    assert driver.switch_calls == ["h2"]
+
+
+def test_select_unique_host_tab_does_not_switch_when_the_only_tab_is_already_selected() -> None:
+    driver = _FakeDriver([("wesa", "http://wsaexp.nextsls.com/wos", "威飒")])
+
+    selected = select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    assert selected["handle"] == "wesa"
+    assert driver.switch_calls == []
+
+
+def test_select_unique_host_tab_checks_later_tabs_without_returning_to_the_original_first() -> None:
+    driver = _FakeDriver([
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+        ("wesa", "http://wsaexp.nextsls.com/wos", "威飒"),
+        ("feiwo", "http://feichi.nextsls.com/tracking", "飞沃"),
+    ])
+
+    selected = select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    assert selected["handle"] == "wesa"
+    assert driver.switch_calls == ["wesa", "feiwo", "wesa"]
+
+
+@pytest.mark.parametrize("extra_url,error", [
+    ("http://feichi.nextsls.com/tracking", "未找到域名为"),
+    ("http://wsaexp.nextsls.com/orders", "匹配到 2 个标签页"),
+])
+def test_host_selection_failure_restores_original_and_keeps_the_actual_tab_summary(extra_url, error) -> None:
+    pages = [("amazon", "https://sellercentral.amazon.com/home", "Amazon")]
+    if "wsaexp" in extra_url:
+        pages.append(("wesa", "http://wsaexp.nextsls.com/wos", "威飒"))
+    pages.append(("extra", extra_url, "其他页面"))
+    driver = _FakeDriver(pages)
+
+    with pytest.raises(RuntimeError, match=error) as caught:
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    assert extra_url in str(caught.value)
+    assert driver.current_window_handle == "amazon"
+    assert driver.switch_calls == [handle for handle, _url, _title in pages[1:]] + ["amazon"]
+
+
+def test_host_selection_checks_for_new_duplicate_tabs_on_every_call() -> None:
+    driver = _FakeDriver([
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+        ("wesa", "http://wsaexp.nextsls.com/wos", "威飒"),
+    ])
+    select_unique_host_tab(driver, "wsaexp.nextsls.com")
+    driver.pages["duplicate"] = {"url": "http://wsaexp.nextsls.com/orders", "title": "另一个威飒"}
+    driver.window_handles.append("duplicate")
+
+    with pytest.raises(RuntimeError, match="匹配到 2 个标签页"):
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    assert driver.current_window_handle == "wesa"
+
+
+@pytest.mark.parametrize("restore_fails", [False, True])
+def test_failed_target_selection_restores_original_or_reports_both_actual_errors(monkeypatch, restore_fails) -> None:
+    driver = _FakeDriver([
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+        ("wesa", "http://wsaexp.nextsls.com/wos", "威飒"),
+        ("feiwo", "http://feichi.nextsls.com/tracking", "飞沃"),
+    ])
+    switch = driver.switch_to.window
+    def fail_after_scan(handle):
+        if "feiwo" in driver.switch_calls:
+            if handle == "wesa":
+                raise RuntimeError("fixture target tab closed after scan")
+            if handle == "amazon" and restore_fails:
+                raise RuntimeError("fixture original tab unavailable")
+        switch(handle)
+    monkeypatch.setattr(driver.switch_to, "window", fail_after_scan)
+
+    with pytest.raises(RuntimeError) as caught:
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    assert "fixture target tab closed after scan" in str(caught.value)
+    if restore_fails:
+        assert "fixture original tab unavailable" in str(caught.value)
+        assert driver.current_window_handle == "feiwo"
+    else:
+        assert driver.current_window_handle == "amazon"
+
+
+def test_tab_scan_rechecks_context_after_a_switch_fails_after_taking_effect(monkeypatch) -> None:
+    driver = _FakeDriver([
+        ("wesa", "http://wsaexp.nextsls.com/wos", "威飒"),
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+    ], current_handle="amazon")
+    switch = driver.switch_to.window
+    def lose_switch_reply(handle):
+        switch(handle)
+        if handle == "wesa":
+            raise RuntimeError("fixture reply lost after switching")
+    monkeypatch.setattr(driver.switch_to, "window", lose_switch_reply)
+
+    tabs = list_browser_tabs(driver)
+
+    assert tabs[0]["url"] == ""
+    assert "fixture reply lost after switching" in tabs[0]["title"]
+    assert tabs[1] == {"handle": "amazon", "url": "https://sellercentral.amazon.com/home", "title": "Amazon"}
+    assert driver.current_window_handle == "amazon"
+    assert driver.switch_calls == ["wesa", "amazon"]
+
+
+def test_select_unique_host_tab_rejects_missing_host_with_real_tab_summary() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "https://sellercentral.amazon.com/home", "Amazon"),
+            ("h2", "http://feichi.nextsls.com/tracking", "飞沃"),
+        ],
+        current_handle="h2",
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+    message = str(exc_info.value)
+    assert "未找到域名为 wsaexp.nextsls.com" in message
+    assert "sellercentral.amazon.com" in message
+    assert "feichi.nextsls.com" in message
+    assert driver.current_window_handle == "h2"
+
+
+def test_select_unique_host_tab_rejects_ambiguous_matches() -> None:
+    driver = _FakeDriver(
+        [
+            ("h1", "http://wsaexp.nextsls.com/wos", "威飒 1"),
+            ("h2", "http://wsaexp.nextsls.com/wos/orders", "威飒 2"),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="匹配到 2 个标签页"):
+        select_unique_host_tab(driver, "wsaexp.nextsls.com")
+
+
+def test_explicit_handle_selects_each_same_host_page_without_fallback():
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    for handle in ("account-b", "account-a", "account-b"):
+        selected = select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle=handle)
+        assert selected["handle"] == driver.current_window_handle == handle
+    del driver.pages["account-a"]
+    driver.window_handles.remove("account-a")
+    with pytest.raises(RuntimeError, match="account-a"):
+        select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle="account-a")
+    assert driver.current_window_handle == "account-b"
+
+
+def test_explicit_handle_rechecks_host_instead_of_selecting_another_matching_page():
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "https://other.test/", "已导航"),
+    ])
+    with pytest.raises(RuntimeError, match="account-b"):
+        select_unique_host_tab(driver, "ttaiex.nextsls.com", target_handle="account-b")
+    assert driver.current_window_handle == "account-a"
+
+
+def test_tabs_command_exposes_handles_through_client_without_snapshotting_other_pages(monkeypatch, tmp_path):
+    import json
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from services.browser.tools import client, executor
+
+    driver = _FakeDriver([
+        ("amazon", "https://sellercentral.amazon.com/home", "Amazon"),
+        ("account-a", "http://ttaiex.nextsls.com/wos?token=secret#private", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    calls = []
+
+    @contextmanager
+    def attach(store_id, **kwargs):
+        calls.append((store_id, kwargs))
+        yield SimpleNamespace(browser_oauth=store_id, browser_name="fixture store", download_path="", browser_path=""), driver
+
+    monkeypatch.setattr(executor, "store_driver_session", attach)
+    monkeypatch.setattr(executor, "_artifacts_dir", lambda *_: tmp_path)
+    result = executor.execute_browser_tool(SimpleNamespace(session_id="test"), tool_name="ziniao_page",
+        arguments={"action": "browser_tabs", "store_id": "store", "strict_attach": True,
+                   "target_host": "ttaiex.nextsls.com"})
+    assert result.success, result.failure_reason
+    content = client._to_tool_execution_result(result).content[0]["text"]
+    data = json.loads(content.split("Tabs JSON: ")[1])
+    assert [tab["handle"] for tab in data["tabs"]] == ["account-a", "account-b"]
+    assert data["complete"] and "secret" not in content and "private" not in content
+    assert "amazon" not in content.lower()
+    assert calls == [("store", {"strict_attach": True, "target_host": ""})]
+    assert driver.current_window_handle == "amazon" and driver.close_calls == 0
+
+
+def test_tabs_command_preserves_actual_scan_error(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from services.browser.tools import dispatcher
+
+    driver = _FakeDriver([
+        ("account-a", "http://ttaiex.nextsls.com/wos", "天泰 A"),
+        ("account-b", "http://ttaiex.nextsls.com/wos", "天泰 B"),
+    ])
+    switch = driver.switch_to.window
+
+    def unavailable(handle):
+        if handle == "account-b":
+            raise RuntimeError("fixture tab disconnected")
+        switch(handle)
+
+    monkeypatch.setattr(driver.switch_to, "window", unavailable)
+    result = dispatcher.dispatch_ziniao_page(SimpleNamespace(driver=driver),
+        {"action": "browser_tabs", "store_id": "store", "target_host": "ttaiex.nextsls.com"}, output_dir=tmp_path)
+    assert result["payload"]["complete"] is False
+    assert "fixture tab disconnected" in result["payload"]["tabs"][1]["title"]
+
+
+def test_strict_tab_list_never_reports_an_inventory_error_as_an_empty_list():
+    class Disconnected:
+        @property
+        def window_handles(self):
+            raise RuntimeError("fixture handle inventory disconnected")
+
+    with pytest.raises(RuntimeError, match="fixture handle inventory disconnected"):
+        list_browser_tabs(Disconnected(), strict=True)

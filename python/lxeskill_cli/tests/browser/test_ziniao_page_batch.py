@@ -17,6 +17,36 @@ from services.browser.tools.schema import build_browser_tool_call
 STORE_ID = "store-1"
 
 
+@pytest.mark.parametrize("patch", [
+    {"target_handle": ""}, {"target_handle": "a b"}, {"target_handle": "x" * 257},
+    {"target_handle": 123}, {"strict_attach": False}, {"target_host": ""},
+])
+def test_explicit_page_handle_requires_valid_handle_and_strict_host(patch):
+    with pytest.raises(ValueError):
+        build_browser_tool_call(name="ziniao_page", arguments={"action": "browser_snapshot",
+            "store_id": STORE_ID, "strict_attach": True, "target_host": "ttaiex.nextsls.com",
+            "target_handle": "account-a", **patch})
+
+
+def test_batch_handle_is_top_level_only():
+    call = build_browser_tool_call(name="ziniao_page", arguments={"store_id": STORE_ID,
+        "strict_attach": True, "target_host": "ttaiex.nextsls.com", "target_handle": "account-a",
+        "steps": [{"action": "browser_snapshot"}]})
+    assert call.arguments["target_handle"] == "account-a"
+    for step in ({"action": "browser_tabs"}, {"action": "browser_snapshot", "target_handle": "account-b"}):
+        with pytest.raises(ValueError):
+            build_browser_tool_call(name="ziniao_page", arguments={"store_id": STORE_ID, "steps": [step]})
+
+
+@pytest.mark.parametrize("extra", [{}, {"target_host": "ttaiex.nextsls.com"}, {"strict_attach": True}])
+def test_tabs_require_explicit_host_and_reuse_only(extra):
+    with pytest.raises(ValueError):
+        build_browser_tool_call(name="ziniao_page", arguments={"action": "browser_tabs", "store_id": STORE_ID, **extra})
+
+
+# --- schema normalization ---
+
+
 def test_batch_normalizes_steps_and_propagates_store_id() -> None:
     call = build_browser_tool_call(
         name="ziniao_page",
@@ -34,6 +64,37 @@ def test_batch_normalizes_steps_and_propagates_store_id() -> None:
     assert [step["action"] for step in steps] == ["browser_click", "browser_type", "browser_snapshot"]
     assert all(step["store_id"] == STORE_ID for step in steps)
     assert "action" not in call.arguments
+
+
+def test_page_session_options_are_normalized_at_top_level() -> None:
+    call = build_browser_tool_call(
+        name="ziniao_page",
+        arguments={
+            "store_id": STORE_ID,
+            "strict_attach": True,
+            "target_host": "WSAEXP.NEXTSLS.COM.",
+            "steps": [{"action": "browser_snapshot"}],
+        },
+    )
+
+    assert call.arguments["strict_attach"] is True
+    assert call.arguments["target_host"] == "wsaexp.nextsls.com"
+    assert "strict_attach" not in call.arguments["steps"][0]
+    assert "target_host" not in call.arguments["steps"][0]
+
+
+@pytest.mark.parametrize("target_host", ["http://wsaexp.nextsls.com", "wsaexp.nextsls.com/wos", "wsaexp.nextsls.com:80"])
+def test_page_rejects_target_host_with_url_parts(target_host: str) -> None:
+    with pytest.raises(ValueError, match="hostname without scheme, port or path"):
+        build_browser_tool_call(
+            name="ziniao_page",
+            arguments={
+                "store_id": STORE_ID,
+                "strict_attach": True,
+                "target_host": target_host,
+                "action": "browser_snapshot",
+            },
+        )
 
 
 def test_batch_rejects_action_alongside_steps() -> None:
@@ -141,7 +202,8 @@ def _patch_batch_session(monkeypatch, session: _FakeSession, attach_calls: list[
     from contextlib import contextmanager
 
     @contextmanager
-    def fake_workflow_session(runtime, *, store_id, output_dir):
+    def fake_workflow_session(runtime, *, store_id, output_dir, **kwargs):
+        _ = kwargs
         attach_calls.append(store_id)
         yield session
 

@@ -1,0 +1,207 @@
+{
+  "message": "请求成功",
+  "result_code": 0,
+  "solution": "请求成功",
+  "traceId": "1792115656429TQulbeMJ",
+  "body": [
+    {
+      "carrier": "",
+      "destName": "US-美国",
+      "jobno": "999260910003548",
+      "referenceno": "FBA19P9T04B2",
+      "refno": "1Z16HE510305235582",
+      "transportno": "",
+      "podInfoDTOList": [
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "10/7快递已签收",
+          "scanCode": "HWYQS",
+          "scanDatetime": 1791387795000,
+          "scanStatus": "货物已签收",
+          "scanTime": "2026/10/07 23:43"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "UPS 设施处理",
+          "scanCode": "OO",
+          "scanDatetime": 1790714280000,
+          "scanStation": "US,Goodyear",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/30 04:38"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "抵达设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790706420000,
+          "scanStation": "US,Goodyear",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/30 02:27"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "离开设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790704200000,
+          "scanStation": "US,Phoenix",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/30 01:50"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "抵达设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790702460000,
+          "scanStation": "US,Phoenix",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/30 01:21"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "离开设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790681760000,
+          "scanStation": "US,Riverside",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/29 19:36"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "",
+          "scanCode": "FWS",
+          "scanDatetime": 1790611024000,
+          "scanStatus": "已交快递服务商",
+          "scanTime": "2026/09/28 23:57"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "抵达设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790610900000,
+          "scanStation": "US,Riverside",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/28 23:55"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "离开设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790608500000,
+          "scanStation": "US,Ontario",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/28 23:15"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "9-28拆柜",
+          "scanCode": "YCG",
+          "scanDatetime": 1790600223000,
+          "scanStatus": "已拆柜",
+          "scanTime": "2026/09/28 20:57"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "抵达设施",
+          "scanCode": "OO",
+          "scanDatetime": 1790585760000,
+          "scanStation": "US,Ontario",
+          "scanStatus": "派送其他状态",
+          "scanTime": "2026/09/28 16:56"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "9-28提柜，待拆柜",
+          "scanCode": "ZY",
+          "scanDatetime": 1790578452000,
+          "scanStatus": "已提柜",
+          "scanTime": "2026/09/28 14:54"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "9-28卸船，待提柜",
+          "scanCode": "YXC",
+          "scanDatetime": 1790569074000,
+          "scanStatus": "已卸船",
+          "scanTime": "2026/09/28 12:17"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "9-27到港，待卸船",
+          "scanCode": "OF",
+          "scanDatetime": 1790487737000,
+          "scanStatus": "已到港",
+          "scanTime": "2026/09/27 13:42"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "9-26清关已放行",
+          "scanCode": "HWYQGFX",
+          "scanDatetime": 1790425550000,
+          "scanStatus": "货物清关已放行",
+          "scanTime": "2026/09/26 20:25"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "实际开船时间2026.9.17 预计到港时间2026.9.27",
+          "scanCode": "YKC",
+          "scanDatetime": 1789611209000,
+          "scanStatus": "已开船",
+          "scanTime": "2026/09/17 10:13"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "大船晚开，预计9.17开船",
+          "scanCode": "CQYW",
+          "scanDatetime": 1789611189000,
+          "scanStatus": "船期延误",
+          "scanTime": "2026/09/17 10:13"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "国内报关已放行",
+          "scanCode": "GNBGFX",
+          "scanDatetime": 1789542435000,
+          "scanStatus": "国内报关放行",
+          "scanTime": "2026/09/16 15:07"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "ETD:2026-09-16 00:00:00,ETA:2026-09-27 00:00:00,船名/班列:DANIEL K. INOUYE,航/班次:101E,航线:CLX,目的港(站):LONG BEACH,起运港(站):SHANGHAI",
+          "scanCode": "YJKC",
+          "scanDatetime": 1789441559000,
+          "scanStatus": "预计开船时间",
+          "scanTime": "2026/09/15 11:05"
+        },
+        {
+          "ctrStation": "",
+          "isshow": 1,
+          "remark": "发件人已创建标签，但是 UPS 尚未收到包裹。",
+          "scanCode": "O1",
+          "scanDatetime": 1789147140000,
+          "scanStation": "US",
+          "scanStatus": "交货其他状态",
+          "scanTime": "2026/09/12 01:19"
+        }
+      ]
+    }
+  ]
+}
