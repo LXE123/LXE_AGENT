@@ -46,6 +46,13 @@ module.exports = async ({ select, chooseWorkspace, theme, win, js, load, wait, c
   await type('input[name=name]', title); await type('textarea[name=prompt]', '汇总本周变化。');
   await chooseWorkspace(); await click('.automation-advanced-toggle');
   await type('input[name=timezone]', 'Asia/Shanghai');
+  const beforeDateChange = await showPreview();
+  await click('button[name=startDate]'); await wait("document.querySelector('[role=grid]')");
+  await key('PageDown'); await key('Enter');
+  assert.equal(await js("[...document.querySelectorAll('dialog strong')].some(e=>e.textContent==='接下来的计划时间')"), false, 'Advanced calendar click must clear the old preview');
+  const afterDateChange = await showPreview();
+  assert.ok(afterDateChange.schedule.start_at > beforeDateChange.schedule.start_at);
+  passed.push(`${theme}: advanced start-date calendar clears stale preview and recalculates from the changed anchor`);
   for (const [mode, kind, frequency] of [['daily', 'rrule', 'DAILY'], ['weekdays', 'rrule', 'WEEKLY'], ['monthly', 'rrule', 'MONTHLY'], ['yearly', 'rrule', 'YEARLY'], ['interval', 'interval'], ['once', 'once']]) {
     await select('schedule', mode);
     if (mode === 'interval') await type('input[name=minutes]', '45');

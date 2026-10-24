@@ -64,6 +64,9 @@ export function scheduleDraft(definition: Pick<AutomationDefinition, "schedule" 
     ...(frequency === "monthly" || frequency === "yearly" ? ["BYMONTHDAY"] : []),
     ...(frequency === "yearly" ? ["BYMONTH"] : [])];
   if (Object.keys(fields).some(key => !allowed.includes(key)) || (fields.WKST && fields.WKST !== "MO")) return preserved;
+  // YEARLY with BYMONTHDAY but no BYMONTH expands across all months of eligible
+  // years. Filling in the anchor month would silently remove occurrences.
+  if (frequency === "yearly" && fields.BYMONTHDAY !== undefined && fields.BYMONTH === undefined) return preserved;
   const start = Temporal.Instant.fromEpochMilliseconds(anchor).toZonedDateTimeISO(timezone);
   const every = number(fields.INTERVAL, 1, 1, 999);
   const hour = number(fields.BYHOUR, start.hour, 0, 23), minute = number(fields.BYMINUTE, start.minute, 0, 59);

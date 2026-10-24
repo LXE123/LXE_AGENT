@@ -441,8 +441,13 @@ describe("desktop agent protocol", () => {
     ] as const) {
       expect(parseDashboardRpcCall({ operation, input: { ...fields, session_id: "a", selection_version: 0 } }).input)
         .toEqual({ ...fields, session_id: "a", selection_version: 0 });
+      for (const remember_default of [true, false]) {
+        expect(parseDashboardRpcCall({ operation, input: { ...fields, session_id: "a", remember_default } }).input)
+          .toEqual({ ...fields, session_id: "a", remember_default });
+      }
       for (const scope of [
         { selection_version: 1 }, { session_id: "" }, { session_id: null },
+        { remember_default: false }, { session_id: "a", remember_default: "false" }, { session_id: "a", remember_default: null },
         ...[-1, 0.5, "1", NaN, Number.MAX_SAFE_INTEGER + 1].map(selection_version => ({ session_id: "a", selection_version })),
       ]) expect(() => parseDashboardRpcCall({ operation, input: { ...fields, ...scope } })).toThrow();
     }

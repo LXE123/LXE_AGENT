@@ -157,7 +157,7 @@ function AutomationEditor({ task, onClose, onSaved, defaultWorkspaceId }: { task
           <label className="automation-schedule-row"><span>绑定对话</span><select name="session" required value={session} onChange={event => setSession(event.target.value)}><option value="">选择桌面对话</option>{session && !options.some(item => item.session_id === session) && <option value={session}>{session}</option>}{options.map(item => <option value={item.session_id} key={item.session_id}>{item.title || item.session_id}</option>)}</select></label>
           <p className="automation-schedule-row automation-muted">模型和思考强度沿用该对话的设置。</p>
         </>}
-        <ScheduleAdvanced value={schedule} zone={zone} onChange={setSchedule} onZoneChange={setZone}/>
+        <ScheduleAdvanced value={schedule} zone={zone} onChange={value => { setSchedule(value); setPreview(undefined); }} onZoneChange={value => { setZone(value); setPreview(undefined); }}/>
       </div>}
       </fieldset>
       {(error || workspaces.error || models.error || currentModel.error || sessions.error) && <p className="automation-error" role="alert">{error || queryError(workspaces.error || models.error || currentModel.error || sessions.error)}</p>}

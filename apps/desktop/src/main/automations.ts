@@ -91,8 +91,8 @@ export class DesktopAutomations {
       client_message_id: `automation:${run.id}`,
     }, { id: run.automation_id, session_id: run.session_id, turn_id: run.turn_id, fresh: target.mode === "new", assertCurrent,
       ...(target.mode === "new" && (target.model || target.effort !== undefined) ? { prepareSession: async () => {
-        if (target.model) await this.options.runtime.dashboardCall({ operation: "models.update", input: { ...target.model, session_id: run.session_id } });
-        if (target.effort !== undefined) await this.options.runtime.dashboardCall({ operation: "models.thinking.update", input: { level: target.effort, session_id: run.session_id } });
+        if (target.model) await this.options.runtime.dashboardCall({ operation: "models.update", input: { ...target.model, session_id: run.session_id, remember_default: false } });
+        if (target.effort !== undefined) await this.options.runtime.dashboardCall({ operation: "models.thinking.update", input: { level: target.effort, session_id: run.session_id, remember_default: false } });
       } } : {}),
     });
     await this.options.composition.parts.sessionStatus?.flush();

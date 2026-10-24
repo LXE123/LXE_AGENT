@@ -98,8 +98,8 @@ async function verifyTaskOptions() {
     const run = await automation.service.runNow(task.id);
     assert.equal(run.dispatch_state, "accepted");
     assert.deepEqual(calls.filter(call => ["models.update", "models.thinking.update"].includes(call.operation)), [
-      { operation: "models.update", input: { ...definition.target.model, session_id: run.session_id } },
-      { operation: "models.thinking.update", input: { level: "high", session_id: run.session_id } },
+      { operation: "models.update", input: { ...definition.target.model, session_id: run.session_id, remember_default: false } },
+      { operation: "models.thinking.update", input: { level: "high", session_id: run.session_id, remember_default: false } },
     ]);
     await assert.rejects(automation.service.save({ definition: { ...definition, target: { ...definition.target, effort: "unsupported" } } }), /思考强度/);
     calls.length = 0;
@@ -107,8 +107,23 @@ async function verifyTaskOptions() {
     const secondRun = await automation.service.runNow(defaultModel.id);
     assert.equal(secondRun.dispatch_state, "accepted");
     assert.equal(calls.some(call => call.operation === "titles.generate" || call.operation === "models.update"), false);
-    assert.deepEqual(calls.find(call => call.operation === "models.thinking.update")?.input, { level: "off", session_id: secondRun.session_id });
+    assert.deepEqual(calls.find(call => call.operation === "models.thinking.update")?.input, { level: "off", session_id: secondRun.session_id, remember_default: false });
   } finally { await automation.close(); db.close(); }
+}
+
+async function verifyModelPreferenceScope() {
+  const saved: unknown[][] = [];
+  const model = { provider: "p", model: "m", credential_source: "local", thinking_state: { level: "high" } };
+  const runtime = { isReady: true, dashboardCall: async () => model };
+  const gateway: DesktopGateway = Object.assign(Object.create(DesktopGateway.prototype), {
+    runtime, composition: {}, options: { config: { saveRuntimePreference: (...args: unknown[]) => saved.push(args) } },
+  });
+  await gateway.dashboardCall({ operation: "models.update", input: { provider: "p", model: "m", session_id: "chat", remember_default: false } });
+  await gateway.dashboardCall({ operation: "models.thinking.update", input: { level: "high", session_id: "chat", remember_default: false } });
+  assert.deepEqual(saved, []);
+  await gateway.dashboardCall({ operation: "models.update", input: { provider: "p", model: "m", session_id: "chat" } });
+  await gateway.dashboardCall({ operation: "models.thinking.update", input: { level: "high", session_id: "chat" } });
+  assert.deepEqual(saved, [["p", "m", "high", "local"], ["p", "m", "high", "local"]]);
 }
 
 app.disableHardwareAcceleration();
@@ -117,6 +132,7 @@ app.whenReady().then(async () => {
   await verifyStop("running");
   await verifyStop("queued");
   await verifyTaskOptions();
+  await verifyModelPreferenceScope();
   console.log("automation-stop-routing-passed");
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

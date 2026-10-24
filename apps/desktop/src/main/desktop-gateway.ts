@@ -616,7 +616,7 @@ export class DesktopGateway {
       } catch (error) { return { opened: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
-    if (call.operation === "models.update" || call.operation === "models.thinking.update") {
+    if ((call.operation === "models.update" || call.operation === "models.thinking.update") && call.input.remember_default !== false) {
       const model = result as unknown as {
         provider: string;
         model: string;

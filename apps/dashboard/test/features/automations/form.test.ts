@@ -83,6 +83,15 @@ test("complex, restricted and unrepresentable schedules are kept out of lossy fo
   expect(scheduleDraft(definition({ kind: "rrule", rule: "FREQ=DAILY", start_at: now + 30_000 })).mode).toBe("preserved");
 });
 
+test.each([1, 2])("yearly month-day expansion without BYMONTH is preserved at interval %s", every => {
+  const task = definition({ kind: "rrule", rule: `FREQ=YEARLY;INTERVAL=${every};BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0`, start_at: Date.parse("2026-10-01T00:00Z") }, "UTC");
+  expect(localTime(nextNominal(task, Date.parse("2026-10-01T12:00Z"))!, "UTC")).toBe("2026-11-01T09:00");
+  expect(localTime(nextNominal(task, Date.parse("2026-12-01T12:00Z"))!, "UTC")).toBe(`${2026 + every}-01-01T09:00`);
+  expect(scheduleDraft(task).mode).toBe("preserved");
+  expect(scheduleLabel(task)).toBe("已保存的自定义计划");
+  expect(() => buildSchedule({ ...scheduleDraft(task), time: "10:00" }, "UTC")).toThrow("重新设置时间");
+});
+
 test("one-time and interval schedules retain their distinct semantics", () => {
   const once = buildSchedule({ ...draft(), mode: "once", onceAt: "2026-10-25T10:20" }, zone);
   expect(once).toEqual({ kind: "once", at: Date.parse("2026-10-25T02:20:00Z") });

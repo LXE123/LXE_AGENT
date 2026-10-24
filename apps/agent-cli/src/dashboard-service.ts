@@ -631,7 +631,7 @@ export class DashboardService {
 
   private async selectSessionModel(input: {
     session_id: string; selection_version?: number; provider?: string; model?: string;
-    credential_source?: "local" | "cloud"; level?: string;
+    credential_source?: "local" | "cloud"; level?: string; remember_default?: boolean;
   }): Promise<JsonObject> {
     const current = await this.sessionCurrentModel(input.session_id);
     if (input.selection_version !== undefined && input.selection_version !== current.selection_version) {
@@ -657,20 +657,22 @@ export class DashboardService {
     const effort = normalizeThinkingEffort(requested, levels, fallback);
     const selection: RuntimeModelSelection = { provider, model, credential_source: source, effort,
       thinking_enabled: levels.length > 0 && effort !== "off" };
-    this.options.providerManager?.acquire(selection);
+    const selectedSnapshot = this.options.providerManager?.acquire(selection);
     const version = await this.options.store.setSessionModelSelection(input.session_id, selection,
       input.selection_version ?? Number(current.selection_version));
     const values = { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model, AGENT_LLM_CREDENTIAL_SOURCE: source,
       AGENT_LLM_THINKING_ENABLED: selection.thinking_enabled ? "1" : "0", AGENT_LLM_THINKING_EFFORT: effort };
-    // Remember the choice for new conversations only; existing ones resolve their own log.
-    let generation = 0;
-    try {
-      const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
-        thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
-      generation = snapshot?.generation ?? 0;
-      this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
-    } catch (error) {
-      createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+    // Interactive choices remember defaults; background task setup changes only its session.
+    let generation = selectedSnapshot?.generation ?? 0;
+    if (input.remember_default !== false) {
+      try {
+        const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
+          thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
+        generation = snapshot?.generation ?? 0;
+        this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
+      } catch (error) {
+        createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+      }
     }
     return { ...this.selectionPayload(selection), session_id: input.session_id, selection_version: version,
       generation, effective_from: "next_turn" };

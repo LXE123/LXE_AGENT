@@ -594,10 +594,10 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
   "models.list": { input: DashboardRpcEmptyInput; result: ApiList<ModelPayload> };
   "models.current": { input: { session_id?: string }; result: ModelPayload };
   "models.update": {
-    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number };
+    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number; remember_default?: boolean };
     result: ModelMutationPayload;
   };
-  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number }; result: ModelMutationPayload };
+  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number; remember_default?: boolean }; result: ModelMutationPayload };
 }
 
 export type DashboardRpcOperation = keyof DashboardRpcSpec;
@@ -720,6 +720,9 @@ const emptyInput = (input: Record<string, unknown>, operation: string): Dashboar
 };
 
 const modelSelectionScope = (input: Record<string, unknown>, operation: string) => {
+  if (input.remember_default !== undefined && input.session_id === undefined) {
+    throw new DashboardRpcError("invalid_request", `${operation}.remember_default requires a session`);
+  }
   if (input.selection_version !== undefined && (input.session_id === undefined
     || !Number.isSafeInteger(input.selection_version) || Number(input.selection_version) < 0)) {
     throw new DashboardRpcError("invalid_request", `${operation}.selection_version requires a session and a nonnegative integer`);
@@ -727,6 +730,7 @@ const modelSelectionScope = (input: Record<string, unknown>, operation: string) 
   return {
     ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
     ...(input.selection_version === undefined ? {} : { selection_version: Number(input.selection_version) }),
+    ...(input.remember_default === undefined ? {} : { remember_default: booleanValue(input.remember_default, `${operation}.remember_default`) }),
   };
 };
 
@@ -957,7 +961,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         days: integerValue(input.days, `${operation}.days`, 30, 1, 365),
       } };
     case "models.update":
-      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       if (input.credential_source !== undefined
         && input.credential_source !== "local"
         && input.credential_source !== "cloud") {
@@ -970,7 +974,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(input.credential_source === undefined ? {} : { credential_source: input.credential_source }),
       } };
     case "models.thinking.update":
-      exactKeys(input, ["level", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["level", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       return { operation, input: { level: textValue(input.level, `${operation}.level`)!, ...modelSelectionScope(input, operation) } };
     default:
       return rpcError(`unsupported Dashboard RPC operation: ${operation}`);
