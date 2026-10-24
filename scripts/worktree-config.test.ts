@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import fs from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DesktopConfigRepository } from "../apps/desktop/src/main/config-store/repository";
+import { DesktopLocalAuthStore } from "../apps/desktop/src/main/config-store/auth-store";
+import { cloneConfig, cloneSecrets } from "../apps/desktop/src/main/config-store/model";
 import { CONFIG_FILES, credentialProcess, prepareCredentials, syncWorktreeConfig } from "./worktree-config";
 
 const roots: string[] = [];
@@ -27,10 +31,10 @@ function fixture() {
 }
 const offline = () => {};
 
-describe("worktree test configuration", () => {
-  test("initializes only configuration and relocates checkout paths without changing source", () => {
+describe("worktree test configuration", async () => {
+  test("initializes only configuration and relocates checkout paths without changing source", async () => {
     const f = fixture(), original = readFileSync(join(f.source, "var/config/settings.json"));
-    const result = syncWorktreeConfig(f.source, f.target, "init", offline);
+    const result = await syncWorktreeConfig(f.source, f.target, "init", offline);
     expect(result.files).toHaveLength(4);
     const settings = JSON.parse(readFileSync(join(f.target, "var/config/settings.json"), "utf8"));
     expect(settings.workspace_root).toBe(join(f.target, "var/workspace"));
@@ -44,63 +48,136 @@ describe("worktree test configuration", () => {
     if (process.platform !== "win32") expect(statSync(join(f.target, ".env")).mode & 0o777).toBe(0o600);
   });
 
-  test("retains an existing configuration as a group instead of mixing accounts and passwords", () => {
+  test("retains an existing configuration as a group instead of mixing accounts and passwords", async () => {
     const f = fixture(); write(join(f.target, "var/config/settings.json"), '{"existing":true}');
-    const result = syncWorktreeConfig(f.source, f.target, "init", () => { throw Error("must not launch Electron"); });
+    const result = await syncWorktreeConfig(f.source, f.target, "init", async () => { throw Error("must not launch Electron"); });
     expect(result.status).toContain("retained");
     expect(result.files).toHaveLength(0);
     expect(existsSync(join(f.target, "var/config/secrets.bin"))).toBe(false);
     expect(readFileSync(join(f.target, "var/config/settings.json"), "utf8")).toBe('{"existing":true}');
   });
 
-  test("explicit refresh backs up all previous files and removes obsolete credentials", () => {
+  test("explicit refresh backs up all previous files and removes obsolete credentials", async () => {
     const f = fixture();
     for (const name of CONFIG_FILES) write(join(f.target, name), "previous fixture");
     rmSync(join(f.source, "var/config/auth.json"));
-    const result = syncWorktreeConfig(f.source, f.target, "refresh", offline);
+    const result = await syncWorktreeConfig(f.source, f.target, "refresh", offline);
     expect(result.backup).toBeDefined();
     for (const name of CONFIG_FILES) expect(readFileSync(join(result.backup!, name), "utf8")).toBe("previous fixture");
     expect(existsSync(join(f.target, "var/config/auth.json"))).toBe(false);
     expect(readFileSync(join(f.target, ".env"), "utf8")).toContain("FIXTURE_PASSWORD=");
   });
 
-  test("credential failure publishes no configuration and retains existing files", () => {
+  test("credential failure publishes no configuration and retains existing files", async () => {
     const f = fixture(); write(join(f.target, ".env"), "keep me");
-    expect(() => syncWorktreeConfig(f.source, f.target, "refresh", () => { throw Error("fixture decrypt failure"); })).toThrow("fixture decrypt failure");
+    await expect(syncWorktreeConfig(f.source, f.target, "refresh", async () => { throw Error("fixture decrypt failure"); })).rejects.toThrow("fixture decrypt failure");
     expect(readFileSync(join(f.target, ".env"), "utf8")).toBe("keep me");
     expect(existsSync(join(f.target, "var/config/settings.json"))).toBe(false);
     expect(readdirSync(dirname(f.target))).toEqual(["pool-1"]);
   });
 
-  test("detects edits to source or destination made during preparation", () => {
+  test("detects edits to source or destination made during preparation", async () => {
     for (const side of ["source", "target"] as const) {
       const f = fixture();
-      expect(() => syncWorktreeConfig(f.source, f.target, "init", () => write(join(f[side], ".env"), "edited concurrently"))).toThrow("changed during preparation");
+      await expect(syncWorktreeConfig(f.source, f.target, "init", () => write(join(f[side], ".env"), "edited concurrently"))).rejects.toThrow("changed during preparation");
       expect(existsSync(join(f.target, "var/config/settings.json"))).toBe(false);
       expect(readFileSync(join(f[side], ".env"), "utf8")).toBe("edited concurrently");
     }
   });
 
-  test("refuses symlinked configuration and active settings locks", () => {
+  test("refuses symlinked configuration and active settings locks", async () => {
     const f = fixture();
     symlinkSync(join(f.source, "var"), join(f.target, "var"), process.platform === "win32" ? "junction" : "dir");
-    expect(() => syncWorktreeConfig(f.source, f.target, "init", offline)).toThrow("symlink");
+    await expect(syncWorktreeConfig(f.source, f.target, "init", offline)).rejects.toThrow("symlink");
     rmSync(join(f.target, "var"));
     write(join(f.source, "var/config/settings.lock"), "fixture");
-    expect(() => syncWorktreeConfig(f.source, f.target, "init", offline)).toThrow("being updated");
+    await expect(syncWorktreeConfig(f.source, f.target, "init", offline)).rejects.toThrow("being updated");
   });
 
-  test("missing source configuration leaves existing destination untouched", () => {
+  test("missing source configuration leaves existing destination untouched", async () => {
     const f = fixture();
     for (const name of CONFIG_FILES) rmSync(join(f.source, name));
     write(join(f.target, ".env"), "keep me");
-    expect(syncWorktreeConfig(f.source, f.target, "refresh", offline).status).toContain("nothing changed");
+    expect((await syncWorktreeConfig(f.source, f.target, "refresh", offline)).status).toContain("nothing changed");
     expect(readFileSync(join(f.target, ".env"), "utf8")).toBe("keep me");
+  });
+
+  test.each(["source", "target"] as const)("a %s writer acquiring a lock during preparation prevents publication", async side => {
+    const f = fixture();
+    write(join(f.target, ".env"), "keep me");
+    const lock = join(f[side], "var/config/settings.lock");
+    let released = false;
+    await expect(syncWorktreeConfig(f.source, f.target, "refresh", () => {
+      fs.closeSync(fs.openSync(lock, "wx"));
+      return async () => { released = true; };
+    })).rejects.toThrow("being updated");
+    expect(released).toBe(true);
+    expect(existsSync(lock)).toBe(true); // Never remove another writer's lock.
+    expect(readFileSync(join(f.target, ".env"), "utf8")).toBe("keep me");
+    expect(existsSync(join(f.target, "var/config/settings.json"))).toBe(false);
+    expect(existsSync(`${f.target}.config-backups`)).toBe(false);
+  });
+
+  test.each([false, true])("desktop writers cannot interleave with publication (rollback=%s)", async rollback => {
+    const f = fixture();
+    for (const name of CONFIG_FILES) write(join(f.target, name), name.endsWith(".json") ? "{}" : "previous fixture");
+    const settings = join(f.target, "var/config/settings.json");
+    write(settings, JSON.stringify(cloneConfig()));
+    write(join(f.source, "var/config/settings.json"), JSON.stringify(cloneConfig()));
+    const previous = readFileSync(settings);
+    const repository = new DesktopConfigRepository(join(f.target, "var"), {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(value),
+      decryptString: value => value.toString(),
+    }, process.platform === "win32" ? "win32" : "darwin");
+    const candidate = repository.readConfig();
+    const auth = new DesktopLocalAuthStore(join(f.target, "var"), process.platform === "win32" ? "win32" : "darwin");
+    const checkWriters = () => {
+      expect(() => repository.commit(candidate, cloneSecrets())).toThrow("being updated");
+      expect(() => auth.save("deepseek", "fixture-key")).toThrow("being updated");
+    };
+    const rename = fs.renameSync, writeFile = fs.writeFileSync;
+    let publications = 0, restorations = 0, desktopHeld = false;
+    const renameSpy = spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (rollback && String(to) === join(f.target, "var/config/secrets.bin")) throw Error("fixture publication failure");
+      rename(from, to);
+      if (String(to) === settings) {
+        publications++;
+        expect(desktopHeld).toBe(true);
+        checkWriters();
+      }
+    });
+    const writeSpy = spyOn(fs, "writeFileSync").mockImplementation((...args) => {
+      if (String(args[0]) === settings) {
+        restorations++;
+        expect(desktopHeld).toBe(true);
+        checkWriters();
+      }
+      return writeFile(...args);
+    });
+    try {
+      const result = syncWorktreeConfig(f.source, f.target, "refresh", () => {
+        desktopHeld = true;
+        return async () => { desktopHeld = false; };
+      });
+      if (rollback) await expect(result).rejects.toThrow("fixture publication failure");
+      else await result;
+      expect(publications).toBe(1);
+      expect(restorations).toBe(rollback ? 1 : 0);
+    } finally { renameSpy.mockRestore(); writeSpy.mockRestore(); }
+    expect(desktopHeld).toBe(false);
+    for (const root of [f.source, f.target]) for (const name of ["settings.lock", "auth.lock"]) {
+      expect(existsSync(join(root, "var/config", name))).toBe(false);
+    }
+    if (rollback) expect(readFileSync(settings).equals(previous)).toBe(true);
+    // Normal desktop writes work again once the transaction finishes.
+    repository.readConfig();
+    repository.commit(candidate, cloneSecrets());
   });
 });
 
 // Opt in on a machine with Electron and OS secure storage. All secrets are fixtures.
-test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("real Electron re-encrypts credentials for new and existing profiles", () => {
+test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("real Electron re-encrypts credentials for new and existing profiles", async () => {
   const f = fixture();
   const packagePath = resolve(import.meta.dirname, "../apps/desktop/package.json");
   const electron = createRequire(packagePath)("electron") as string;
@@ -110,17 +187,61 @@ test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("real Electron re-encrypts
   const sourceProfile = join(f.source, "var/electron/user-data"), targetProfile = join(f.target, "var/electron/user-data");
   const sourceFile = join(f.source, "var/config/secrets.bin"), targetFile = join(f.target, "var/config/secrets.bin");
   const first = Buffer.from('{\n  "mabang_password": "fixture-中文🔑"\n}\n');
-  credentialProcess(electron, appName, "import", sourceProfile, sourceFile, first);
-  syncWorktreeConfig(f.source, f.target, "init", prepareCredentials);
-  expect(credentialProcess(electron, appName, "export", targetProfile, targetFile).equals(first)).toBe(true);
+  await credentialProcess(electron, appName, "import", sourceProfile, sourceFile, first);
+  await syncWorktreeConfig(f.source, f.target, "init", prepareCredentials);
+  expect((await credentialProcess(electron, appName, "export", targetProfile, targetFile)).equals(first)).toBe(true);
   const previousCipher = readFileSync(targetFile);
   const second = Buffer.from('{"mabang_password":"fixture-two"}');
-  credentialProcess(electron, appName, "import", sourceProfile, sourceFile, second);
-  const result = syncWorktreeConfig(f.source, f.target, "refresh", prepareCredentials);
-  expect(credentialProcess(electron, appName, "export", targetProfile, targetFile).equals(second)).toBe(true);
+  await credentialProcess(electron, appName, "import", sourceProfile, sourceFile, second);
+  const result = await syncWorktreeConfig(f.source, f.target, "refresh", prepareCredentials);
+  expect((await credentialProcess(electron, appName, "export", targetProfile, targetFile)).equals(second)).toBe(true);
   const oldFile = join(result.backup!, "var/config/secrets.bin");
   expect(readFileSync(oldFile).equals(previousCipher)).toBe(true);
-  expect(credentialProcess(electron, appName, "export", targetProfile, oldFile).equals(first)).toBe(true);
+  expect((await credentialProcess(electron, appName, "export", targetProfile, oldFile)).equals(first)).toBe(true);
+}, 120_000);
+
+test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("real desktop singleton stays held through publication and rollback", async () => {
+  const packagePath = resolve(import.meta.dirname, "../apps/desktop/package.json");
+  const electron = createRequire(packagePath)("electron") as string;
+  const appName = JSON.parse(readFileSync(packagePath, "utf8")).name;
+  for (const rollback of [false, true]) {
+    const f = fixture();
+    write(join(f.target, "apps/desktop/package.json"), JSON.stringify({ name: appName }));
+    write(join(f.target, "apps/desktop/node_modules/electron/index.js"), `module.exports = ${JSON.stringify(electron)};`);
+    write(join(f.target, "var/config/settings.json"), "{}");
+    rmSync(join(f.source, "var/config/secrets.bin"));
+    const profile = join(f.target, "var/electron/user-data"), probe = join(f.root, "probe.cjs");
+    write(probe, `const {app}=require('electron');app.setName(${JSON.stringify(appName)});app.setPath('userData',${JSON.stringify(profile)});app.disableHardwareAcceleration();if(!app.requestSingleInstanceLock())app.exit(73);else app.whenReady().then(()=>app.exit(0));`);
+    const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+    const probeLock = () => {
+      const result = spawnSync(electron, [probe], { env, encoding: "utf8", timeout: 15_000 });
+      if (result.error || result.signal) throw Error(`Singleton probe failed: ${result.error ?? result.signal}\n${result.stderr}`);
+      return result.status;
+    };
+    const settings = join(f.target, "var/config/settings.json");
+    const rename = fs.renameSync, writeFile = fs.writeFileSync;
+    let checked = 0;
+    const check = () => { checked++; expect(probeLock()).toBe(73); };
+    const renameSpy = spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      rename(from, to);
+      if (String(to) === settings) {
+        check();
+        if (rollback) throw Error("fixture publication failure");
+      }
+    });
+    const writeSpy = spyOn(fs, "writeFileSync").mockImplementation((...args) => {
+      if (String(args[0]) === settings) check();
+      return writeFile(...args);
+    });
+    try {
+      const result = syncWorktreeConfig(f.source, f.target, "refresh", prepareCredentials);
+      if (rollback) await expect(result).rejects.toThrow("fixture publication failure");
+      else await result;
+      expect(checked).toBe(rollback ? 2 : 1);
+    } finally { renameSpy.mockRestore(); writeSpy.mockRestore(); }
+    expect(probeLock()).toBe(0);
+    if (rollback) expect(readFileSync(settings, "utf8")).toBe("{}");
+  }
 }, 120_000);
 
 test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("refresh refuses a running worktree desktop and preserves its config", async () => {
@@ -146,7 +267,7 @@ test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("refresh refuses a running
       child.once("error", error => { clearTimeout(timer); reject(error); });
       child.once("exit", code => { clearTimeout(timer); reject(Error(`fixture desktop exited ${code}`)); });
     });
-    expect(() => syncWorktreeConfig(f.source, f.target, "refresh", prepareCredentials)).toThrow("desktop is running");
+    await expect(syncWorktreeConfig(f.source, f.target, "refresh", prepareCredentials)).rejects.toThrow("desktop is running");
     expect(readFileSync(join(f.target, ".env"), "utf8")).toBe("existing fixture\n");
     expect(existsSync(join(f.target, "var/config/settings.json"))).toBe(false);
   } finally { child.kill(); await exited; }

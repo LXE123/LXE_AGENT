@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -36,7 +36,7 @@ function assertUnchanged(root: string, before: Snapshot): void {
 
 function writePrivate(path: string, content: Buffer): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, content, { mode: 0o600 });
+  fs.writeFileSync(path, content, { mode: 0o600 });
   if (process.platform !== "win32") chmodSync(path, 0o600);
 }
 
@@ -57,13 +57,19 @@ export function relocateSettings(content: Buffer, source: string, target: string
   return Buffer.from(JSON.stringify(config, null, 2) + "\n");
 }
 
-export function credentialProcess(electron: string, appName: string, mode: "export" | "import" | "idle", profile: string, file: string, input?: Buffer): Buffer {
-  // Electron stdin is unreliable on Windows. Use an authenticated, encrypted
-  // handoff instead; neither plaintext nor the one-use key is stored on disk.
+async function startCredentialProcess(electron: string, appName: string, mode: "export" | "import" | "idle", profile: string, file: string, input?: Buffer): Promise<{ output: Buffer; close: () => Promise<void> }> {
+  // Electron stdin is unreliable on Windows. Only encrypted handoff files cross
+  // the process boundary; the helper keeps the desktop singleton until closed.
   const temporary = mkdtempSync(join(tmpdir(), "lxe-worktree-credential-"));
   const transfer = join(temporary, "transfer.bin"), key = randomBytes(32);
   const environment: NodeJS.ProcessEnv = { ...process.env, LXE_WORKTREE_TRANSFER_KEY: key.toString("base64") };
   delete environment.ELECTRON_RUN_AS_NODE;
+  const cleanup = () => {
+    key.fill(0);
+    delete environment.LXE_WORKTREE_TRANSFER_KEY;
+    rmSync(temporary, { recursive: true, force: true });
+  };
+  let close = async () => { cleanup(); };
   try {
     if (mode === "import") {
       if (!input?.length) throw new Error("Cannot import empty credentials");
@@ -71,26 +77,61 @@ export function credentialProcess(electron: string, appName: string, mode: "expo
       const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
       writePrivate(transfer, Buffer.concat([nonce, cipher.getAuthTag(), encrypted]));
     }
-    const result = spawnSync(electron, [join(import.meta.dirname, "worktree-credentials.cjs"), mode, appName, profile, file, transfer], {
-      env: environment, timeout: 90_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true,
+    const child = spawn(electron, [join(import.meta.dirname, "worktree-credentials.cjs"), mode, appName, profile, file, transfer, String(process.pid)], {
+      env: environment, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
     });
-    if (result.error || result.status !== 0) {
-      const diagnostic = result.error?.message || result.stderr?.toString().trim() || `exit=${result.status}, signal=${result.signal}`;
-      throw new Error(`Offline credential ${mode} failed: ${diagnostic}`);
+    let ready = false;
+    const exited = new Promise<void>(resolve => child.once("close", () => resolve()));
+    close = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let forced = false;
+      try {
+        if (child.exitCode === null && child.signalCode === null) {
+          if (ready) {
+            // A normal quit flushes Windows OSCrypt's profile key to Local State.
+            writePrivate(`${transfer}.close`, Buffer.alloc(0));
+            timer = setTimeout(() => { forced = true; child.kill(); }, 10_000);
+          } else child.kill();
+        }
+        await exited;
+        if (forced) throw new Error(`Offline credential ${mode} failed to quit within 10s`);
+      } finally { clearTimeout(timer); cleanup(); }
+    };
+    await new Promise<void>((resolve, reject) => {
+      let diagnostic = "", output = "";
+      const fail = (detail: string) => { clearTimeout(timer); reject(new Error(`Offline credential ${mode} failed: ${detail}`)); };
+      const timer = setTimeout(() => fail(`startup timed out after 90s\n${diagnostic}`), 90_000);
+      child.stderr.on("data", chunk => {
+        diagnostic += String(chunk);
+        if (diagnostic.length > 64 * 1024) diagnostic = `[stderr truncated to last 65536 characters]\n${diagnostic.slice(-64 * 1024)}`;
+      });
+      child.stdout.on("data", chunk => {
+        output = (output + String(chunk)).slice(-1024);
+        if (output.includes("LXE_WORKTREE_CREDENTIAL_READY\n")) { ready = true; clearTimeout(timer); resolve(); }
+      });
+      child.once("error", error => fail(error.message));
+      child.once("close", (code, signal) => fail(diagnostic.trim() || `exit=${code}, signal=${signal}`));
+    });
+    let output = Buffer.alloc(0);
+    if (mode === "export") {
+      const encrypted = readFileSync(transfer);
+      const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(0, 12));
+      decipher.setAuthTag(encrypted.subarray(12, 28));
+      output = Buffer.concat([decipher.update(encrypted.subarray(28)), decipher.final()]);
     }
-    if (mode !== "export") return Buffer.alloc(0);
-    const encrypted = readFileSync(transfer);
-    const decipher = createDecipheriv("aes-256-gcm", key, encrypted.subarray(0, 12));
-    decipher.setAuthTag(encrypted.subarray(12, 28));
-    return Buffer.concat([decipher.update(encrypted.subarray(28)), decipher.final()]);
-  } finally {
-    key.fill(0);
-    delete environment.LXE_WORKTREE_TRANSFER_KEY;
-    rmSync(temporary, { recursive: true, force: true });
+    return { output, close };
+  } catch (error) {
+    await close();
+    throw error;
   }
 }
 
-export function prepareCredentials(source: string, target: string, stage: string): void {
+export async function credentialProcess(electron: string, appName: string, mode: "export" | "import" | "idle", profile: string, file: string, input?: Buffer): Promise<Buffer> {
+  const helper = await startCredentialProcess(electron, appName, mode, profile, file, input);
+  try { return helper.output; } finally { await helper.close(); }
+}
+
+export async function prepareCredentials(source: string, target: string, stage: string): Promise<() => Promise<void>> {
   const packagePath = join(target, "apps/desktop/package.json");
   const electron = createRequire(packagePath)("electron") as string;
   const appName = JSON.parse(readFileSync(packagePath, "utf8")).name as string;
@@ -98,8 +139,7 @@ export function prepareCredentials(source: string, target: string, stage: string
   ordinaryPath(join(targetProfile, "Local State"));
   const encrypted = join(stage, "var/config/secrets.bin");
   if (!existsSync(encrypted)) {
-    credentialProcess(electron, appName, "idle", targetProfile, "");
-    return;
+    return (await startCredentialProcess(electron, appName, "idle", targetProfile, "")).close;
   }
   const sourceProfile = join(stage, "source-profile");
   mkdirSync(sourceProfile, { mode: 0o700 });
@@ -107,67 +147,95 @@ export function prepareCredentials(source: string, target: string, stage: string
   ordinaryPath(localState);
   // Windows OSCrypt needs the source profile key. Never replace the target profile key.
   if (existsSync(localState)) writePrivate(join(sourceProfile, "Local State"), readFileSync(localState));
-  const plaintext = credentialProcess(electron, appName, "export", sourceProfile, encrypted);
-  try { credentialProcess(electron, appName, "import", targetProfile, encrypted, plaintext); }
+  const plaintext = await credentialProcess(electron, appName, "export", sourceProfile, encrypted);
+  try { return (await startCredentialProcess(electron, appName, "import", targetProfile, encrypted, plaintext)).close; }
   finally { plaintext.fill(0); }
 }
 
-export function syncWorktreeConfig(source: string, target: string, mode: "init" | "refresh", credentials = prepareCredentials): { status: string; files: string[]; backup?: string } {
+// Use the same exclusive files as desktop writers. These sections are short and
+// synchronous; Electron startup must not consume their 30-second stale timeout.
+function withConfigLocks<T>(roots: string[], operation: () => T): T {
+  const locks: { path: string; descriptor: number }[] = [];
+  try {
+    for (const root of roots) for (const name of ["settings.lock", "auth.lock"]) {
+      const path = join(root, "var/config", name);
+      ordinaryPath(path);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      try { locks.push({ path, descriptor: openSync(path, "wx", 0o600) }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Configuration is being updated: ${path}`, { cause: error });
+        throw error;
+      }
+    }
+    return operation();
+  } finally {
+    for (const lock of locks.reverse()) { closeSync(lock.descriptor); rmSync(lock.path); }
+  }
+}
+
+type CredentialPreparation = (source: string, target: string, stage: string) => void | (() => Promise<void>) | Promise<void | (() => Promise<void>)>;
+
+export async function syncWorktreeConfig(source: string, target: string, mode: "init" | "refresh", credentials: CredentialPreparation = prepareCredentials): Promise<{ status: string; files: string[]; backup?: string }> {
   source = resolve(source); target = resolve(target);
   if (source === target) throw new Error("Configuration source and worktree must differ");
   ordinaryPath(source); ordinaryPath(target);
-  const previous = snapshot(target);
+  const previous = withConfigLocks([target], () => snapshot(target));
   if (mode === "init" && [...previous.values()].some(value => value !== undefined)) {
     return { status: "existing configuration retained; use refresh-config to replace it", files: [] };
   }
-  const incoming = snapshot(source);
+  const incoming = withConfigLocks([source], () => snapshot(source));
   if (![...incoming.values()].some(value => value !== undefined)) {
     return { status: "no source configuration found; nothing changed", files: [] };
   }
-  for (const root of [source, target]) for (const name of ["settings.lock", "auth.lock"]) {
-    if (existsSync(join(root, "var/config", name))) throw new Error(`Configuration is being updated: ${join(root, "var/config", name)}`);
-  }
   const stage = mkdtempSync(`${target}.config-stage-`);
   if (process.platform !== "win32") chmodSync(stage, 0o700);
-  let backup: string | undefined;
-  const published: string[] = [];
+  let releaseDesktop: void | (() => Promise<void>) = undefined;
   try {
     for (const [name, value] of incoming) {
       if (value !== undefined) writePrivate(join(stage, name), name.endsWith("settings.json") ? relocateSettings(value, source, target) : value);
     }
-    credentials(source, target, stage);
-    assertUnchanged(source, incoming); assertUnchanged(target, previous);
-    if ([...previous.values()].some(value => value !== undefined)) {
-      const backups = `${target}.config-backups`;
-      ordinaryPath(backups); mkdirSync(backups, { recursive: true, mode: 0o700 });
-      backup = mkdtempSync(join(backups, new Date().toISOString().replaceAll(/[:.]/g, "-") + "-"));
-      for (const [name, value] of previous) if (value !== undefined) writePrivate(join(backup, name), value);
-    }
-    for (const name of CONFIG_FILES) {
-      const destination = join(target, name);
-      ordinaryPath(destination);
-      published.push(name);
-      if (existsSync(join(stage, name))) {
-        mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-        renameSync(join(stage, name), destination);
-      } else if (mode === "refresh") rmSync(destination, { force: true });
-    }
-    return { status: mode === "init" ? "test configuration initialized" : "test configuration refreshed", files: CONFIG_FILES.filter(name => incoming.get(name) !== undefined), ...(backup ? { backup } : {}) };
-  } catch (error) {
-    for (const name of published.reverse()) {
-      const value = previous.get(name);
-      if (value === undefined) rmSync(join(target, name), { force: true });
-      else writePrivate(join(target, name), value);
-    }
-    throw error;
-  } finally { rmSync(stage, { recursive: true, force: true }); }
+    releaseDesktop = await credentials(source, target, stage);
+    return withConfigLocks([source, target], () => {
+      let backup: string | undefined;
+      const published: string[] = [];
+      try {
+        assertUnchanged(source, incoming); assertUnchanged(target, previous);
+        if ([...previous.values()].some(value => value !== undefined)) {
+          const backups = `${target}.config-backups`;
+          ordinaryPath(backups); mkdirSync(backups, { recursive: true, mode: 0o700 });
+          backup = mkdtempSync(join(backups, new Date().toISOString().replaceAll(/[:.]/g, "-") + "-"));
+          for (const [name, value] of previous) if (value !== undefined) writePrivate(join(backup, name), value);
+        }
+        for (const name of CONFIG_FILES) {
+          const destination = join(target, name);
+          ordinaryPath(destination);
+          published.push(name);
+          if (existsSync(join(stage, name))) {
+            mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+            fs.renameSync(join(stage, name), destination);
+          } else if (mode === "refresh") rmSync(destination, { force: true });
+        }
+        return { status: mode === "init" ? "test configuration initialized" : "test configuration refreshed", files: CONFIG_FILES.filter(name => incoming.get(name) !== undefined), ...(backup ? { backup } : {}) };
+      } catch (error) {
+        for (const name of published.reverse()) {
+          const value = previous.get(name);
+          if (value === undefined) rmSync(join(target, name), { force: true });
+          else writePrivate(join(target, name), value);
+        }
+        throw error;
+      }
+    });
+  } finally {
+    try { await releaseDesktop?.(); }
+    finally { rmSync(stage, { recursive: true, force: true }); }
+  }
 }
 
 if (import.meta.main) {
   try {
     const [source, target, mode] = process.argv.slice(2);
     if (!source || !target || !["init", "refresh"].includes(mode ?? "")) throw new Error("usage: worktree-config <main-root> <worktree> init|refresh");
-    const result = syncWorktreeConfig(source, target, mode as "init" | "refresh");
+    const result = await syncWorktreeConfig(source, target, mode as "init" | "refresh");
     console.log(`config: ${result.status}${result.files.length ? ` (${result.files.length} files)` : ""}`);
     if (result.backup) console.log(`previous configuration: ${result.backup}`);
   } catch (error) {

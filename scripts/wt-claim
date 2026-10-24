@@ -19,6 +19,19 @@ MAX_SLOTS="${WT_POOL_MAX:-4}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 die() { echo "wt-claim: $*" >&2; exit 1; }
 
+# Exclusive creation works without platform-specific flock utilities.
+lock_pool() {
+  local diagnostic
+  POOL_LOCK="$POOL_DIR/.wt-claim.lock"
+  mkdir -p "$POOL_DIR"
+  if ! diagnostic="$( (set -o noclobber; echo "$$" > "$POOL_LOCK") 2>&1)"; then
+    die "cannot acquire pool lock $POOL_LOCK; another wt-claim may be running, retry after it finishes. $diagnostic"
+  fi
+  trap 'rm -f "$POOL_LOCK"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 # The claim marker lives NEXT TO the slot (pool-N.claim), never inside it,
 # so claiming leaves the worktree perfectly clean.
 slot_slug() { cat "$1.claim" 2>/dev/null || true; }
@@ -56,6 +69,7 @@ cmd_status() {
 cmd_claim() {
   local slug="$1" branch dir i
   [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "task slug must be kebab-case: $slug"
+  lock_pool
   branch="codex/$slug"
 
   # Resume: slug already owns a slot.
@@ -101,6 +115,7 @@ cmd_claim() {
 
 cmd_release() {
   local slug="$1" dir i branch
+  lock_pool
   for i in $(seq 1 "$MAX_SLOTS"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
@@ -117,6 +132,7 @@ cmd_release() {
 
 cmd_refresh_config() {
   local slug="$1" dir i
+  lock_pool
   for i in $(seq 1 "$MAX_SLOTS"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue

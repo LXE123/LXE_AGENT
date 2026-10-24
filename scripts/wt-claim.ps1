@@ -60,6 +60,7 @@ function Sync-LxeWorktreeConfiguration([string]$Directory, [string]$Mode) {
     if ($LASTEXITCODE -ne 0) { throw "worktree configuration preparation failed with exit code $LASTEXITCODE (see diagnostic above)" }
 }
 
+$poolLock = $null
 try {
     $commonResult = @(& git rev-parse --path-format=absolute --git-common-dir 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "not inside a Git repository: $($commonResult -join [Environment]::NewLine)" }
@@ -83,6 +84,19 @@ try {
         }
         exit 0
     }
+
+    # CreateNew atomically excludes other Bash/PowerShell pool mutations.
+    [System.IO.Directory]::CreateDirectory($poolRoot) | Out-Null
+    $poolLockPath = Join-Path $poolRoot ".wt-claim.lock"
+    try {
+        $poolLock = [System.IO.File]::Open($poolLockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    }
+    catch {
+        throw "cannot acquire pool lock $poolLockPath; another wt-claim may be running, retry after it finishes. $($_.Exception.Message)"
+    }
+    $owner = [System.Text.Encoding]::UTF8.GetBytes("$PID`n")
+    $poolLock.Write($owner, 0, $owner.Length)
+    $poolLock.Flush()
 
     if ($Command -eq "refresh-config") {
         if ([string]::IsNullOrWhiteSpace($TaskSlug)) { throw "usage: wt-claim refresh-config <task-slug>" }
@@ -136,7 +150,7 @@ try {
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
-            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--detach", $directory, "main") | Out-Null
+            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--quiet", "--detach", $directory, "main") | Out-Null
         }
         elseif (Get-LxeSlotSlug $directory) {
             continue
@@ -164,4 +178,10 @@ try {
 catch {
     [Console]::Error.WriteLine("wt-claim: $($_.Exception.Message)")
     exit 1
+}
+finally {
+    if ($null -ne $poolLock) {
+        $poolLock.Dispose()
+        Remove-Item -LiteralPath $poolLockPath -Force
+    }
 }

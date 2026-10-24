@@ -1,9 +1,9 @@
 // Offline safeStorage bridge. Transfer files are encrypted using a one-use key.
 const { app, safeStorage } = require("electron");
-const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { createCipheriv, createDecipheriv, randomBytes } = require("node:crypto");
 const { resolve } = require("node:path");
-const [mode, appName, profile, file, transfer] = process.argv.slice(2);
+const [mode, appName, profile, file, transfer, parentPid] = process.argv.slice(2);
 if (!["export", "import", "idle"].includes(mode) || !appName || !profile || !transfer) throw Error("Invalid credential bridge arguments");
 const key = Buffer.from(process.env.LXE_WORKTREE_TRANSFER_KEY || "", "base64");
 delete process.env.LXE_WORKTREE_TRANSFER_KEY;
@@ -18,14 +18,13 @@ if (mode !== "export" && !app.requestSingleInstanceLock()) {
   app.exit(1);
 } else {
   app.whenReady().then(() => {
-    if (mode === "idle") { app.quit(); return; }
-    if (!safeStorage.isEncryptionAvailable()) throw Error("OS credential encryption is unavailable");
+    if (mode !== "idle" && !safeStorage.isEncryptionAvailable()) throw Error("OS credential encryption is unavailable");
     if (mode === "export") {
       const plaintext = safeStorage.decryptString(readFileSync(file));
       const nonce = randomBytes(12), cipher = createCipheriv("aes-256-gcm", key, nonce);
       const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
       writeFileSync(transfer, Buffer.concat([nonce, cipher.getAuthTag(), encrypted]), { mode: 0o600 });
-    } else {
+    } else if (mode === "import") {
       const transferred = readFileSync(transfer);
       const decipher = createDecipheriv("aes-256-gcm", key, transferred.subarray(0, 12));
       decipher.setAuthTag(transferred.subarray(12, 28));
@@ -38,6 +37,12 @@ if (mode !== "export" && !app.requestSingleInstanceLock()) {
       bytes.fill(0);
     }
     key.fill(0);
-    app.quit();
+    // Keep the singleton through the parent's publication or rollback.
+    setInterval(() => {
+      if (existsSync(`${transfer}.close`)) { app.quit(); return; }
+      try { process.kill(Number(parentPid), 0); }
+      catch (error) { if (error.code === "ESRCH") app.quit(); else throw error; }
+    }, 100);
+    process.stdout.write("LXE_WORKTREE_CREDENTIAL_READY\n");
   }).catch(error => { process.stderr.write(String(error.stack || error) + "\n"); app.exit(1); });
 }
