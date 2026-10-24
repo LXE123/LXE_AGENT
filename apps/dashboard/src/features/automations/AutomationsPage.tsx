@@ -1,0 +1,171 @@
+import { useLayoutEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AutomationResumeDialog } from "./AutomationResumeDialog";
+import { Clock3, Plus, Play, Pause, Pencil, Trash2, ArrowUpRight, X, ChevronDown } from "lucide-react";
+import type { Automation, AutomationDefinition, AutomationRunView, SessionPayload } from "@lxe/desktop-protocol";
+import { automationActions } from "../../api/automation-actions";
+import { sessionActions } from "../../api/session-actions";
+import { queryError, useCurrentModelQuery, useModelsQuery, useSessionWorkspacesQuery } from "../../api/queries";
+import { buildSchedule, newScheduleDraft, scheduleDraft, scheduleLabel } from "./form";
+import { ScheduleFields, ScheduleAdvanced } from "./ScheduleFields";
+import "./theme.css";
+
+const statuses = { active: "已启用", paused: "已暂停", finished: "计划已结束", deleted: "已删除" };
+const states: Record<AutomationRunView["execution_state"], string> = { queued: "等待执行", running: "执行中", stopping: "正在停止", waiting_input: "等待回答", waiting_approval: "等待审批", completed: "已完成", cancelled: "已停止", error: "执行失败", unknown: "状态待确认" };
+const date = (at: number | null, zone: string) => at === null ? "—" : new Intl.DateTimeFormat("zh-CN", { timeZone: zone, dateStyle: "medium", timeStyle: "short" }).format(at);
+
+export function AutomationsPage({ ready, onOpenSession, defaultWorkspaceId }: { ready: boolean; defaultWorkspaceId?: string | null; onOpenSession(session: SessionPayload, turnId: string): Promise<void> }) {
+  const client = useQueryClient();
+  const [selected, select] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [editor, setEditor] = useState<Automation | "new" | null>(null);
+  const [resuming, setResuming] = useState<Automation | null>(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const query = useQuery({ queryKey: ["automations", "list"], queryFn: () => automationActions.list(), refetchInterval: 15_000 });
+  const items = query.data?.items ?? [];
+  const empty = query.isSuccess && items.length === 0;
+  const visible = items.filter(item => (filter === "all" || item.status === filter) && `${item.name} ${item.prompt}`.toLowerCase().includes(search.toLowerCase()));
+  const task = visible.find(item => item.id === selected) ?? visible[0];
+  const runs = useQuery({ queryKey: ["automations", "runs", task?.id], queryFn: () => automationActions.runs(task!.id), enabled: ready && !!task, refetchInterval: 5_000 });
+  const refresh = () => client.invalidateQueries({ queryKey: ["automations"] });
+  async function act(action: () => Promise<unknown>) {
+    setPending(true); setError("");
+    try { await action(); await refresh(); } catch (cause) { setError(queryError(cause)); } finally { setPending(false); }
+  }
+  function toggleStatus(task: Automation) {
+    if (task.status === "paused" && task.schedule.kind === "once" && task.schedule.at <= Date.now()) {
+      setError(""); setResuming(task);
+      return;
+    }
+    void act(() => automationActions.status(task.id, task.version, task.status === "active" ? "paused" : "active"));
+  }
+  return <section className="automations-page">
+    <header className="automations-header"><h1>定时任务</h1>{!empty && <button className="automation-create" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16} />新建任务</button>}</header>
+    {!ready && <p id="automation-availability" className="automation-notice" role="status">Agent 尚未就绪，恢复连接后继续调度。应用退出期间不会执行任务。</p>}
+    {(error || query.error) && <p className="automation-error" role="alert">{error || queryError(query.error)}</p>}
+    {empty ? <div className="automation-empty automation-empty-start"><Clock3 size={28} aria-hidden="true"/><h2>暂无定时任务</h2><p>设置时间和提示词，让 Agent 按计划开始或继续对话。</p><button className="automation-create automation-primary" disabled={!ready} aria-describedby={!ready ? "automation-availability" : undefined} onClick={() => setEditor("new")}><Plus size={16}/>新建任务</button></div>
+    : !items.length ? (query.isPending ? <div className="automation-loading" role="status">正在加载定时任务…</div> : null)
+    : <div className="automations-body"><aside className="automations-list" aria-label="任务列表">
+      <input aria-label="搜索定时任务" placeholder="搜索任务" value={search} onChange={event => { setSearch(event.target.value); setDeleting(false); }} />
+      <select aria-label="任务状态筛选" value={filter} onChange={event => { setFilter(event.target.value); setDeleting(false); }}><option value="all">全部任务</option><option value="active">已启用</option><option value="paused">已暂停</option><option value="finished">计划已结束</option></select>
+      {query.isPending ? <p className="automation-muted" role="status">正在加载…</p> : visible.map(item => <button key={item.id} className={`automation-row ${task?.id === item.id ? "selected" : ""}`} aria-pressed={task?.id === item.id} onClick={() => { select(item.id); setDeleting(false); setError(""); }}><span><strong>{item.name}</strong><small>{statuses[item.status]}</small></span><span className="automation-row-time">{item.status === "active" ? date(item.next_run_at, item.timezone) : item.target.mode === "reuse" ? "沿用对话" : "每次新建对话"}</span></button>)}
+      {!visible.length && <p className="automation-muted">没有匹配的任务</p>}
+    </aside><div className="automation-detail">
+      {task ? <>
+        <div className="automation-detail-heading"><div><span className="automation-eyebrow">{task.target.mode === "reuse" ? "沿用对话" : "每次新建对话"} · {statuses[task.status]}</span><h2>{task.name}</h2></div><button aria-label="编辑任务" disabled={!ready || pending} onClick={() => setEditor(task)}><Pencil size={16} /></button></div>
+        <div className="automation-next"><Clock3 size={18}/><div><small>{task.status === "active" ? "下次运行" : "计划时间"}</small><strong>{date(task.next_run_at, task.timezone)}</strong><span>{task.timezone} · {scheduleLabel(task)}</span></div></div>
+        {task.blocked_reason && <p className="automation-notice" role="status">{task.blocked_reason}</p>}
+        <p className="automation-prompt">{task.prompt}</p>
+        <p id="automation-action-status" className="automation-muted" role="status">{pending ? "正在处理，请稍候…" : task.status === "finished" ? "计划已结束，编辑时间后可重新启用。" : ""}</p>
+        <div className="automation-actions" aria-describedby="automation-action-status"><button disabled={!ready || pending || task.status === "finished"} onClick={() => void act(async () => { const run = await automationActions.run(task.id); if (run.error) throw new Error(run.error); })}><Play size={15}/>立即运行</button>
+          <button disabled={!ready || pending || task.status === "finished"} onClick={() => toggleStatus(task)}><Pause size={15}/>{task.status === "active" ? "暂停计划" : "恢复计划"}</button>
+          <button aria-label="删除任务" disabled={pending} onClick={() => setDeleting(true)}><Trash2 size={15}/></button></div>
+        {deleting && <div className="automation-notice">删除此计划？已有对话和运行记录会保留。<div className="automation-actions"><button className="automation-danger" disabled={pending} onClick={() => void act(async () => { await automationActions.delete(task.id, task.version); setDeleting(false); })}>删除计划</button><button onClick={() => setDeleting(false)}>取消</button></div></div>}
+        <h3>运行记录</h3><p className="automation-muted">结果保存在对话中。停止本次执行不影响后续计划；暂停计划不会停止已启动的执行。</p>
+        {runs.error && <p className="automation-error" role="alert">{queryError(runs.error)}</p>}
+        {runs.isLoading && <p className="automation-muted" role="status">正在加载运行记录…</p>}
+        {ready && !runs.isPending && !runs.error && !runs.data?.items.length && <p className="automation-muted">首次运行后，记录会出现在这里。</p>}
+        <ol className="automation-runs">{runs.data?.items.map(run => <li key={run.id}><div><strong>{run.dispatch_state === "failed" ? "未能启动" : states[run.execution_state]}</strong><span>{date(run.created_at, run.definition.timezone)} · {run.trigger === "manual" ? "手动运行" : "按计划运行"}</span>{(run.error || run.execution_error) && <p className="automation-error">{run.error || run.execution_error}</p>}</div><div className="automation-actions">
+          {["running", "waiting_input", "waiting_approval"].includes(run.execution_state) && <button disabled={!ready || pending} onClick={() => void act(() => sessionActions.stop(run.session_id, run.turn_id))}>停止本次执行</button>}
+          <button disabled={!ready || pending} onClick={() => void act(async () => { const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 }); await onOpenSession(detail.session, run.turn_id); })}>打开对话<ArrowUpRight size={14}/></button>
+        </div></li>)}</ol>
+      </> : <div className="automation-empty"><h2>没有匹配的任务</h2><p>调整搜索词或状态筛选，查看其他任务。</p></div>}
+    </div></div>}
+    {resuming && <AutomationResumeDialog key={resuming.id} task={resuming} onClose={() => { setResuming(null); void refresh(); }} onSaved={async () => { setResuming(null); await refresh(); }}/>}
+    {editor && <AutomationEditor defaultWorkspaceId={defaultWorkspaceId} key={editor === "new" ? "new" : editor.id} task={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} onSaved={async task => { select(task.id); setSearch(""); setFilter("all"); setEditor(null); await refresh(); }}/>}
+  </section>;
+}
+
+function AutomationEditor({ task, onClose, onSaved, defaultWorkspaceId }: { task?: Automation; defaultWorkspaceId?: string | null; onClose(): void; onSaved(task: Automation): Promise<void> }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    // Close before React removes the dialog so native focus restoration still has its opener.
+    const element = dialog.current;
+    element?.showModal();
+    element?.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+    return () => element?.close();
+  }, []);
+  const [name, setName] = useState(task?.name ?? "");
+  const [prompt, setPrompt] = useState(task?.prompt ?? "");
+  const [mode, setMode] = useState<"new" | "reuse">(task?.target.mode ?? "new");
+  const [workspace, setWorkspace] = useState(task?.target.mode === "new" ? task.target.workspace_id : defaultWorkspaceId ?? "");
+  const [session, setSession] = useState(task?.target.mode === "reuse" ? task.target.session_id : "");
+  const [advanced, setAdvanced] = useState(false);
+  const [workspaceInBasics] = useState(!task && !defaultWorkspaceId);
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [model, setModel] = useState(task?.target.mode === "new" && task.target.model ? JSON.stringify(task.target.model) : "");
+  const [effort, setEffort] = useState(task?.target.mode === "new" ? task.target.effort ?? "" : "");
+  const [zone, setZone] = useState(task?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [initialSchedule] = useState(() => task ? scheduleDraft(task) : newScheduleDraft(zone));
+  const [schedule, setSchedule] = useState(initialSchedule);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<{ times: number[]; jitter_seconds: number }>();
+  const workspaces = useSessionWorkspacesQuery();
+  const models = useModelsQuery();
+  const currentModel = useCurrentModelQuery(mode === "new" || !!session, mode === "reuse" ? session : undefined);
+  const chosen = model ? JSON.parse(model) as { provider: string; model: string; credential_source: string } : undefined;
+  const selectedModel = chosen ? models.data?.items.find(item => item.provider === chosen.provider && item.credential_source === chosen.credential_source)?.model_options.find(item => item.model === chosen.model) : currentModel.data;
+  const levels = selectedModel?.thinking_levels ?? [];
+  const effortLabel = (level: string) => selectedModel?.thinking_level_labels[level] || ({ off: "关闭", low: "低", medium: "中", high: "高", max: "最高" } as Record<string, string>)[level] || level;
+  const sessions = useQuery({ queryKey: ["automations", "sessions", sessionSearch], queryFn: () => automationActions.sessions(sessionSearch), enabled: mode === "reuse" });
+  function definition(): AutomationDefinition {
+    if (mode === "new" && !workspace) { setAdvanced(true); throw new Error("请选择任务工作区。"); }
+    if (mode === "reuse" && !session) { setAdvanced(true); throw new Error("请选择要沿用的对话。"); }
+    if (mode === "new" && effort && !levels.includes(effort)) { setAdvanced(true); throw new Error("请选择当前模型支持的思考强度。"); }
+    return { name, prompt, timezone: zone, target: mode === "reuse" ? { mode, session_id: session } : { mode, workspace_id: workspace, ...(effort ? { effort } : {}), ...(model ? { model: JSON.parse(model) } : {}) },
+      // Preserve anchors, seconds and conditions exactly when only task content changes.
+      schedule: task && schedule === initialSchedule && zone === task.timezone ? task.schedule : buildSchedule(schedule, zone) };
+  }
+  async function submit(previewOnly: boolean) {
+    setError(""); setSaving(true);
+    try {
+      if (previewOnly) setPreview(await automationActions.preview(definition()));
+      else await onSaved(await automationActions.save({ definition: definition(), ...(task ? { id: task.id, version: task.version } : {}) }));
+    } catch (cause) { setError(queryError(cause)); } finally { setSaving(false); }
+  }
+  const workspaceField = <label className="automation-schedule-row"><span>工作区</span><select name="workspace" required value={workspace} onChange={event => setWorkspace(event.target.value)}><option value="">{workspaces.data?.items.length ? "选择工作区" : "请先在对话页添加工作区"}</option>{workspaces.data?.items.map(item => <option key={item.workspace_id} value={item.workspace_id}>{item.display_name || item.directory}</option>)}</select></label>;
+  const options = sessions.data?.items.filter(item => item.source_summary.platform === "desktop") ?? [];
+  return <dialog ref={dialog} tabIndex={-1} onKeyDown={event => {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled):not([tabindex='-1']), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")].filter(element => element.getClientRects().length > 0);
+    const first = controls[0], last = controls.at(-1);
+    if (!first) { event.preventDefault(); event.currentTarget.focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }} role="dialog" aria-modal="true" aria-labelledby="automation-editor-title" className="automation-editor" aria-busy={saving} onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}>
+    <header><h2 id="automation-editor-title">{task ? "编辑任务" : "新建定时任务"}</h2><button aria-label="关闭" disabled={saving} onClick={onClose}><X size={18}/></button></header>
+    <form onSubmit={event => { event.preventDefault(); void submit(false); }} onChange={() => setPreview(undefined)}>
+      <div className="automation-editor-scroll">
+      <fieldset className="automation-editor-fields" disabled={saving} aria-label="任务配置">
+      <label>任务名称 <span className="automation-optional">选填</span><input name="name" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="留空后根据任务内容自动生成"/></label>
+      <label>任务提示词<textarea name="prompt" required rows={4} maxLength={32768} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="告诉 Agent 要做什么，以及你希望得到的结果。"/></label>
+      <ScheduleFields value={schedule} zone={zone} onChange={value => { setSchedule(value); setPreview(undefined); }}/>
+      {workspaceInBasics && mode === "new" && <div className="automation-basic-workspace">{workspaceField}</div>}
+      <button type="button" className="automation-advanced-toggle" aria-expanded={advanced} aria-controls="automation-advanced" onClick={() => setAdvanced(!advanced)}>高级选项<ChevronDown size={15}/></button>
+      {advanced && <div id="automation-advanced" className="automation-advanced">
+        <label className="automation-schedule-row"><span>对话方式</span><select name="conversation" value={mode} onChange={event => setMode(event.target.value as "new" | "reuse")}><option value="new">每次新建对话</option><option value="reuse">沿用已有对话</option></select></label>
+        {mode === "new" ? <>
+          {!workspaceInBasics && workspaceField}
+          <label className="automation-schedule-row"><span>模型</span><select name="model" value={model} onChange={event => { setModel(event.target.value); setEffort(""); }}><option value="">默认模型</option>{models.data?.items.flatMap(provider => provider.model_options.map(option => { const value = JSON.stringify({ provider: provider.provider, model: option.model, credential_source: provider.credential_source }); return <option key={value} value={value} disabled={!provider.selectable}>{provider.label} · {option.model}</option>; }))}</select></label>
+          <label className="automation-schedule-row"><span>思考强度</span><select name="effort" value={effort} disabled={!levels.length && !effort} onChange={event => setEffort(event.target.value)}><option value="">{!selectedModel ? "正在读取模型设置…" : !levels.length ? selectedModel.capabilities.supports_thinking ? "由模型管理" : "不支持思考" : "跟随模型设置"}</option>{effort && !levels.includes(effort) && <option value={effort} disabled>{effort}（不可用，请重新选择）</option>}{levels.map(level => <option key={level} value={level}>{effortLabel(level)}</option>)}</select></label>
+        </> : <>
+          <label className="automation-schedule-row"><span>查找对话</span><input aria-label="查找对话" value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} placeholder="输入对话标题"/></label>
+          <label className="automation-schedule-row"><span>绑定对话</span><select name="session" required value={session} onChange={event => setSession(event.target.value)}><option value="">选择桌面对话</option>{session && !options.some(item => item.session_id === session) && <option value={session}>{session}</option>}{options.map(item => <option value={item.session_id} key={item.session_id}>{item.title || item.session_id}</option>)}</select></label>
+          <p className="automation-schedule-row automation-muted">模型和思考强度沿用该对话的设置。</p>
+        </>}
+        <ScheduleAdvanced value={schedule} zone={zone} onChange={value => { setSchedule(value); setPreview(undefined); }} onZoneChange={value => { setZone(value); setPreview(undefined); }}/>
+      </div>}
+      </fieldset>
+      {(error || workspaces.error || models.error || currentModel.error || sessions.error) && <p className="automation-error" role="alert">{error || queryError(workspaces.error || models.error || currentModel.error || sessions.error)}</p>}
+      {preview && <div className="automation-notice"><strong>接下来的计划时间</strong>{preview.times.map(time => <div key={time}>{date(time, zone)}</div>)}{preview.jitter_seconds > 0 && <small>实际触发会错开约 ±{preview.jitter_seconds} 秒，以分散同时间任务。</small>}</div>}
+      <p className="automation-muted automation-editor-note">应用保持运行时，任务会按所选时区执行。</p>
+      {saving && <p className="automation-muted" role="status">正在处理，请稍候…</p>}
+      </div>
+      <footer><button type="button" disabled={saving} onClick={event => { if (event.currentTarget.form?.reportValidity()) void submit(true); }}>预览时间</button><div><button type="button" disabled={saving} onClick={onClose}>取消</button><button className="automation-primary" disabled={saving} type="submit">{saving ? "处理中…" : "保存任务"}</button></div></footer>
+    </form>
+  </dialog>;
+}

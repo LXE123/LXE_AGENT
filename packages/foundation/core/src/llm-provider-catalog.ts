@@ -1,4 +1,4 @@
-import { parseManagedModelDefinition, type ManagedLlmState, type ManagedModelDefinition } from "./managed-llm";
+import { managedThinkingLevels, parseManagedModelDefinition, type ManagedLlmState, type ManagedModelDefinition } from "./managed-llm";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -302,7 +302,7 @@ export function managedModelSpec(definition: ManagedModelDefinition): LlmProvide
   return { id: m.model, contextWindowTokens: m.contextWindow, maxTokens: m.maxTokens,
     supportsVision: m.input.includes("image"), supportsThinking: m.reasoning, supportsTemperature: m.supportsTemperature,
     thinkingRequestStyle: m.thinkingStyle, ...(m.thinkingBudgetTokens === null ? {} : { thinkingBudgetTokens: m.thinkingBudgetTokens }),
-    toolStream: m.compat.zaiToolStream === true, thinkingLevels: Object.keys(m.thinkingLevelMap).filter(k => m.thinkingLevelMap[k] !== null), thinkingDefault: m.thinkingDefault };
+    toolStream: m.compat.zaiToolStream === true, thinkingLevels: managedThinkingLevels(m.thinkingLevelMap), thinkingDefault: m.thinkingDefault };
 }
 export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState): LlmProviderCatalog {
   if (!state || state.model_schema !== 3) return catalog;

@@ -627,3 +627,24 @@ test("recovery after a cancellation timeout never replays previously discarded s
  expect(runtime.started.map(row=>row.job_id)).toEqual(["active"]);
  await scheduler.enqueue(job("s1","explicit-new-task"));expect(runtime.started.at(-1)?.job_id).toBe("explicit-new-task");
 });
+
+test("automatic admission loses to a user message arriving during preparation", async () => {
+  const runtime = new RecordingRuntime(); const scheduler = new SessionScheduler({ runtime });
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const pending = scheduler.enqueue(job("same", "automatic"), { onlyIfIdle: true, beforeAccept: () => barrier });
+  const outcome = pending.then(() => null, error => error);
+  await tick(); await scheduler.enqueue(job("same", "user")); release();
+  expect(String(await outcome)).toMatch(/busy|occupied|空闲|使用/);
+  await tick(); expect(runtime.started.map(item => item.job_id)).toEqual(["user"]);
+  expect(scheduler.runStatuses().filter(item => item.turn_id === "automatic")).toHaveLength(0);
+});
+
+test("configuration cancellation is checked after asynchronous preparation", async () => {
+  const runtime = new RecordingRuntime(); const scheduler = new SessionScheduler({ runtime });
+  let cancelled = false;
+  await expect(scheduler.enqueue(job("same", "automatic"), { onlyIfIdle: true,
+    beforeAccept: async () => { cancelled = true; }, assertCurrent: () => { if (cancelled) throw new Error("task paused"); },
+  })).rejects.toThrow("task paused");
+  expect(runtime.started).toHaveLength(0);
+});

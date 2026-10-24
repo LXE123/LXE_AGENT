@@ -5,6 +5,7 @@ import { useUiText } from "../../shared/i18n";
 import type { useThreeStateSidebar } from "../../shared/use-three-state-sidebar";
 import type { SessionWorkspace } from "./use-session-workspace";
 import { WorkspacesIndex } from "./workspaces";
+import { useSidebarScrollbar } from "./use-sidebar-scrollbar";
 import "./sidebar-theme.css";
 
 type Props = Readonly<{
@@ -18,6 +19,7 @@ export function SessionSidebar({ sidebar, data, actions }: Props) {
   const sessionSidebarExpanded = sidebar.expanded;
   const sidebarMode = sidebar.mode;
   const sidebarVisible = sidebar.visible;
+  useSidebarScrollbar(sidebar.panelRef, sidebarVisible);
   useEffect(() => {
     if (!data.renamingSession) return;
     sidebar.onTransientInteractionChange(true);

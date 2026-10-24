@@ -48,6 +48,61 @@ module.exports = async ({ win, js, step, load, waitFor, click, delay, rect, move
     assert.equal(await js(`document.querySelector(${JSON.stringify(shop)}).getAttribute('aria-expanded')`), "true");
   });
 
+  await step("scrollbar follows scrolling and native dragging, not hover or focus", async () => {
+    // Native scrollbar press/release states need focus even in an offscreen test window.
+    win.webContents.debugger.attach("1.3");
+    await win.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+    const transparent = "rgba(0, 0, 0, 0)";
+    const thumb = () => js("getComputedStyle(document.querySelector('.workspace-index-scroll'), '::-webkit-scrollbar-thumb').backgroundColor");
+    const scrollTop = () => js("document.querySelector('.workspace-index-scroll').scrollTop");
+    const bounds = await rect(".workspace-index-scroll");
+    await js("document.querySelector('.workspace-index-scroll').scrollTop = 0");
+    await delay(1000);
+    const x = Math.round(bounds.left + 60), y = Math.round(bounds.top + 70);
+    move(x, y); await delay(100);
+    assert.equal(await thumb(), transparent, "hover alone must not reveal the scrollbar");
+    await click(".session-index-open");
+    assert.equal(await scrollTop(), 0, "focusing the visible row must not scroll");
+    assert.equal(await thumb(), transparent, "focus alone must not reveal the scrollbar");
+    const wheel = () => win.webContents.sendInputEvent({ type: "mouseWheel", x, y, deltaY: -90, canScroll: true });
+    wheel();
+    await waitFor("document.querySelector('.workspace-index-scroll').scrollTop > 0", "native wheel scroll");
+    assert.notEqual(await thumb(), transparent);
+    await delay(550);
+    const previous = await scrollTop();
+    wheel();
+    await waitFor(`document.querySelector('.workspace-index-scroll').scrollTop > ${previous}`, "second native wheel scroll");
+    await delay(350);
+    assert.notEqual(await thumb(), transparent, "continued scrolling restarts the idle delay");
+    await delay(1000);
+    assert.equal(await thumb(), transparent, "idle hides it even while the pointer stays inside");
+    assert.deepEqual(await rect(".workspace-index-scroll"), bounds, "show/hide must not change layout");
+
+    await js("document.querySelector('.workspace-index-scroll').scrollTop = 0");
+    await delay(1000);
+    const tx = Math.round(bounds.right - 4), ty = Math.round(bounds.top + 12);
+    move(tx, ty); await delay(100);
+    assert.equal(await thumb(), transparent, "hovering the native gutter must also stay hidden");
+    win.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, x: tx, y: ty });
+    move(tx, ty + 100);
+    await waitFor("document.querySelector('.workspace-index-scroll').scrollTop > 0", "native thumb drag");
+    await delay(1000);
+    assert.notEqual(await thumb(), transparent, "holding the thumb pauses auto-hide");
+    win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, x: tx, y: ty + 100 });
+    await delay(100);
+    assert.notEqual(await thumb(), transparent, "release starts a fresh idle delay");
+    await delay(1000);
+    assert.equal(await thumb(), transparent);
+
+    await js("document.querySelector('.workspace-index-scroll').scrollTop = 0");
+    await waitFor("Boolean(document.querySelector('.workspace-index-scroll[data-scrollbar-active]'))", "scroll activity before navigation");
+    await click(".tab-workbench");
+    assert.equal(await thumb(), transparent, "hiding the sidebar clears activity immediately");
+    await click(".tab-sessions");
+    assert.equal(await thumb(), transparent, "returning does not restore stale scroll activity");
+    win.webContents.debugger.detach();
+  });
+
   await step("leaving a hover peek cancels it without changing the collapsed preference", async () => {
     await click(".sidebar-toggle-button");
     move(800, 400); await delay(180);

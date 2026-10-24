@@ -44,6 +44,7 @@ test("actual MCP SDK initializes, lists and calls without tokens, then preserves
     const message = await request.json() as any; calls.push(message.method);
     if (denied) return Response.json({ detail: { code: "business_capability_denied", message: "actual sai hu denial" } }, { status: 403 });
     if (!Object.hasOwn(message, "id")) return new Response(null, { status: 202 });
+    if (message.method === "server/discover") return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
     const result = message.method === "initialize"
       ? { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
       : message.method === "tools/list" ? { tools: [{ name: "fixture_read", description: "fixture", inputSchema: { type: "object" } }] }

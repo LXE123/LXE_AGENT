@@ -18,6 +18,8 @@ stdout 只写协议消息，日志写 stderr。桌面 Renderer ↔ Electron 的 
 `initialize.params` 在资源路径、数据目录、工作区和技能权限之外必须携带对应的
 `protocol_version`；成功结果返回相同版本，不能从旧文档复制固定数字。
 
+当前业务协议为 v27：初始化不再传入 `agent_soul_path`，运行时不再依赖 `SOUL.md`。
+
 agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后才标记 ready。
 版本不匹配立即失败，不自动重启同一不兼容程序。初始化期间复用同一个 Promise，
 完成后重复初始化返回当前健康信息；初始化前只允许 `initialize` 与 `shutdown`。
@@ -123,3 +125,7 @@ runtime host 和会话存储为内存 fixture。HTTP 仅用于验收页面桥接
 不调用模型、不读写生产数据库。退出 fixture 服务会关闭子进程。
 
 该 fixture 验证消息、展示交接和取消；原生 IPC 与窗口行为另用 Electron fixture。问题卡片的真实窗口验收入口见 [结构化提问](../../harness/runtime/tools/ask-user-question.md#验证)。
+
+## 定时任务相关接口
+
+以下接口自桌面协议 v26 引入。`automations.*` 由 Electron 处理，Agent dashboard 入口明确拒绝；`sessions.turn.lookup` 由 Agent 返回某个 session/turn 的事实状态。`sessions.detail` 可用 `message_turn_id` 定位历史窗口，它与前后分页游标互斥。具体调度、MCP 与存储约定见 [定时任务](../automations.md)。

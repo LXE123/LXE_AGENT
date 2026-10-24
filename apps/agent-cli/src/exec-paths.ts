@@ -9,7 +9,6 @@ export interface ExecRuntimePaths {
   resourceRoot: string;
   projectRoot: string;
   dataRoot: string;
-  agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
   llmConfigRoot: string;
@@ -96,7 +95,6 @@ export function resolveExecRuntimePaths(
     resourceRoot,
     projectRoot,
     dataRoot,
-    agentSoulPath: packaged ? join(resourceRoot, "agent", "SOUL.md") : join(layoutRoot, "SOUL.md"),
     skillsRoot: join(resourceRoot, "skills"),
     userSkillsRoot,
     llmConfigRoot: join(resourceRoot, "config", "llm"),
@@ -117,7 +115,6 @@ export function execRuntimeEnvironment(
   const temporaryRoot = join(paths.dataRoot, "tmp");
   return {
     ...environment,
-    LXE_AGENT_SOUL_PATH: paths.agentSoulPath,
     LXE_SKILLS_ROOT: paths.skillsRoot,
     LXE_USER_SKILLS_ROOT: paths.userSkillsRoot,
     LXE_LLM_CONFIG_ROOT: paths.llmConfigRoot,

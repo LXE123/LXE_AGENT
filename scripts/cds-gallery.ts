@@ -1,7 +1,7 @@
 // Local documentation preview and bounded Chromium verification. No production RPC.
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve, sep, relative } from "node:path";
 import adaptation from "../docs/design/cds/current-adaptation.json";
@@ -16,11 +16,11 @@ const hash = async (file: string) => createHash("sha256").update(new Uint8Array(
 
 async function writeDocs() {
   const lines = ["# 当前 CDS 适配总表", "", `整理日期：${adaptation.reviewedOn}。${adaptation.scope}`, "",
-    "本表由 `current-adaptation.json` 生成。JSON 是本轮状态与证据的维护入口；旧截图、原始资料和历史变量快照保持原样。", "",
+    "本表由 `current-adaptation.json` 生成。JSON 维护状态与证据对应关系；当前样式以链接的生产源码为准，历史变化通过 Git 查阅。", "",
     "## 如何打开与验证", "",
     "从仓库根执行 `bun run cds:preview`，打开输出的本地网址。页面并排展示亮暗主题，可输入、选择、Tab 聚焦和展开工具结果；预览 10 分钟后自动关闭，也可 Ctrl+C 结束。",
     "执行 `bun run cds:check` 会构建相同页面、运行本地 Electron 交互检查、保存截图和实测值，并关闭测试进程。命令失败时不得沿用旧记录声称通过。",
-    "执行 `bun run cds:docs` 可从 JSON 重建本表并更新归档校验清单。", "",
+    "执行 `bun run cds:docs` 可核对原始出处片段并从 JSON 重建本表。", "",
     "入口源码：[展示页](../../../apps/dashboard/test/behavior/cds-gallery.tsx)、[布局样式](../../../apps/dashboard/test/behavior/cds-gallery.css)、[构建与验证](../../../scripts/cds-gallery.ts)。",
     "实测记录：[verification.json](showcase/verification.json)。记录内含实际源码 SHA-256、构建时 HEAD、浏览器版本与检查结果；后续代码改变需重新验证。", "",
     "## 证据等级", "",
@@ -66,25 +66,9 @@ async function evidenceCheck() {
   }
   return evidence.entries.length;
 }
-async function manifest() {
-  const files: string[] = [];
-  function scan(directory: string) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const file = resolve(directory, entry.name);
-      if (entry.isDirectory()) scan(file);
-      else if (entry.isFile() && file !== resolve(docs, "SHA256SUMS.txt")) files.push(file);
-    }
-  }
-  scan(docs);
-  if (files.length < 100) throw new Error(`Unexpected archive scope: ${files.length} files`);
-  const lines = await Promise.all(files.sort().map(async file => `${await hash(file)}  ${relative(docs, file).replaceAll("\\", "/")}`));
-  await Bun.write(resolve(docs, "SHA256SUMS.txt"), lines.join("\n") + "\n");
-  console.log(`Archive manifest: ${files.length} files`);
-}
-
 if (mode === "docs") {
   console.log(`Source excerpts verified: ${await evidenceCheck()}`);
-  await writeDocs(); await manifest();
+  await writeDocs();
 } else {
   const buildDir = mkdtempSync(resolve(tmpdir(), "lxe-cds-gallery-build-"));
   const profile = mkdtempSync(resolve(tmpdir(), "lxe-cds-gallery-profile-"));
@@ -152,7 +136,7 @@ if (mode === "docs") {
         sourceHead: head.stdout.toString().trim(), sourceIdentification: "HEAD is the pre-commit baseline; SHA-256 identifies the actual working files checked.",
         sourceHashes: fileHashes, evidenceExcerptsVerified: evidenceCount,
         ...report, limitations: adaptation.limitations }, null, 2) + "\n");
-      await writeDocs(); await manifest();
+      await writeDocs();
     }
   } catch (error) {
     if (mode === "check") {

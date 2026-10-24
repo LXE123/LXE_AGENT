@@ -1,3 +1,4 @@
+import { NodeAutomationStore } from "./automation-store";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -83,6 +84,7 @@ export class NodeGatewayStore implements Omit<
   "appendPendingEvent" | "hasPendingEvents"
 > {
   private database: DatabaseSync | undefined;
+  automations: NodeAutomationStore | undefined;
 
   constructor(readonly path: string, private readonly legacyWorkspace: WorkspaceContext) {}
 
@@ -142,6 +144,7 @@ export class NodeGatewayStore implements Omit<
       if (columns.some((column) => column.name === retiredWorkspaceColumn)) {
         database.exec(`ALTER TABLE gateway_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
       }
+      this.automations = new NodeAutomationStore(database);
       database.exec("COMMIT");
     } catch (error) {
       try { database.exec("ROLLBACK"); } catch { /* Preserve the migration failure. */ }
@@ -154,6 +157,7 @@ export class NodeGatewayStore implements Omit<
   stop(): void {
     this.database?.close();
     this.database = undefined;
+    this.automations = undefined;
   }
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {

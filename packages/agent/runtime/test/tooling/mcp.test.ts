@@ -71,6 +71,7 @@ describe("MCP manager", () => {
     ]);
     expect(config.servers.find((server) => server.name === "local")).toMatchObject({
       args: ["--json", "secret"], cwd: root, startupTimeoutMs: 10_000, toolTimeoutMs: 60_000, exposure: "deferred",
+      protocolMode: "auto",
     });
     const calls: string[] = [];
     const manager = new McpManager(config, {
@@ -159,7 +160,7 @@ describe("MCP manager", () => {
     await manager.stop();
   });
 
-  test("resolves secret headers only at connection time and paginates every remote tool", async () => {
+  test("resolves secret headers only at connection time and uses SDK list aggregation", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-http-"));
     roots.push(root);
     const path = join(root, "mcp.yaml");
@@ -194,24 +195,28 @@ describe("MCP manager", () => {
     });
     const cursors: Array<string | undefined> = [];
     let closed = false;
-    const connector = new OfficialMcpConnector(environment, () => ({
-      connect: async () => undefined,
-      close: async () => { closed = true; },
-      listTools: async (params) => {
-        cursors.push(params?.cursor);
-        return params?.cursor === "page-2"
-          ? { tools: [{ name: "second", inputSchema: { type: "object" } }] }
-          : { tools: [{ name: "first", inputSchema: { type: "object" } }], nextCursor: "page-2" };
-      },
-      callTool: async () => ({
-        content: [{ type: "text", text: "ok" }],
-        structuredContent: { count: 2 },
-        _meta: { trace: "safe" },
-        isError: false,
-      }),
-    }));
+    const connector = new OfficialMcpConnector(environment, options => {
+      expect(options.versionNegotiation).toEqual({ mode: "auto", probe: { timeoutMs: 2_000, maxRetries: 0 } });
+      return {
+        connect: async () => undefined,
+        close: async () => { closed = true; },
+        listTools: async (params) => {
+          cursors.push(params?.cursor);
+          return { tools: ["first", "second"].map(name => ({ name, inputSchema: { type: "object" as const } })) };
+        },
+        callTool: async () => ({
+          content: [{ type: "text", text: "ok" }],
+          structuredContent: { count: 2 },
+          _meta: { trace: "safe" },
+          isError: false,
+        }),
+        getProtocolEra: () => "modern",
+        getNegotiatedProtocolVersion: () => "2026-07-28",
+      };
+    });
     const connection = await connector.connect(server);
-    expect(cursors).toEqual([undefined, "page-2"]);
+    expect(cursors).toEqual([undefined]);
+    expect(connection.protocolVersion).toBe("2026-07-28");
     expect(connection.tools.map((tool) => tool.name)).toEqual(["first", "second"]);
     expect(await connection.callTool("first", {})).toEqual({
       content: [{ type: "text", text: "ok" }],
@@ -271,6 +276,64 @@ describe("MCP manager", () => {
   });
 });
 
+test("validates explicit protocol modes without changing existing YAML", () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-modes-"));
+  roots.push(root);
+  const path = join(root, "mcp.yaml");
+  for (const mode of ["auto", "legacy", "2026-07-28"] as const) {
+    writeFileSync(path, `mcpServers:\n  local:\n    command: example\n    protocol_mode: '${mode}'\n`);
+    expect(loadMcpConfig(path, {}).servers[0]?.protocolMode).toBe(mode);
+  }
+  writeFileSync(path, "mcpServers:\n  local:\n    command: example\n    protocol_mode: unknown\n");
+  expect(() => loadMcpConfig(path, {})).toThrow("unsupported MCP protocol_mode for local: unknown");
+});
+
+test("structured results remain model-readable including null and falsey values", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-values-"));
+  roots.push(root);
+  const path = join(root, "mcp.yaml");
+  writeFileSync(path, "mcpServers:\n  values:\n    command: fixture\n    enabled: true\n    exposure: direct\n");
+  const manager = new McpManager(loadMcpConfig(path, {}), { connect: async () => ({
+    tools: [{ name: "echo" }],
+    callTool: async (_name, input) => ({ content: [], structuredContent: input.value, isError: false }),
+    close: async () => {},
+  }) });
+  const registry = new ToolRegistry();
+  try {
+    await manager.start(registry);
+    for (const value of [null, false, 0, "", [], {}, [1, "two"]]) {
+      const result = await registry.execute("mcp__values__echo", { value }, {
+        session_id: "s1", workspace: testWorkspace, executionPolicy: policyFor(testWorkspace.directory),
+        handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} },
+      });
+      expect(result.content).toEqual([{ type: "text", text: `[MCP structured content]\n${JSON.stringify(value)}` }]);
+    }
+  } finally { await manager.stop(); }
+});
+
+test("tool failure status preserves actual text with redaction and explicit truncation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-errors-"));
+  roots.push(root);
+  const path = join(root, "mcp.yaml");
+  writeFileSync(path, "mcpServers:\n  errors:\n    command: fixture\n    enabled: true\n    exposure: direct\n");
+  const manager = new McpManager(loadMcpConfig(path, {}), { connect: async () => ({
+    tools: [{ name: "fail" }],
+    callTool: async () => ({ content: [{ type: "text", text: `actual upstream failure token=private-value ${"x".repeat(3_000)} end-of-error` }], isError: true }),
+    close: async () => {},
+  }) });
+  const registry = new ToolRegistry();
+  try {
+    await manager.start(registry);
+    await expect(registry.execute("mcp__errors__fail", {}, {
+      session_id: "s1", workspace: testWorkspace, executionPolicy: policyFor(testWorkspace.directory),
+      handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} },
+    })).rejects.toThrow("actual upstream failure");
+    const error = manager.status("errors").error;
+    expect(error).toContain("[redacted]"); expect(error).not.toContain("private-value");
+    expect(error).toContain("chars omitted"); expect(error).toContain("end-of-error");
+  } finally { await manager.stop(); }
+});
+
 test("company MCP rejects legacy authentication before creating a client", async () => {
   const defaults = loadMcpConfig("config/mcp_servers.default.yaml", {}).servers.find(server => server.name === "lxe-saihu")!;
   let clients = 0;
@@ -286,4 +349,23 @@ test("company MCP rejects legacy authentication before creating a client", async
     await expect(connector.connect({ ...defaults, enabled: true, ...override })).rejects.toThrow("Company Saihu MCP requires");
   }
   expect(clients).toBe(0);
+});
+
+test("managed caller metadata is host-injected only and desktop tools stay hidden from Feishu", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-managed-mcp-"));
+  const path=join(root,"mcp.yaml"); writeFileSync(path,"mcpServers:\n  managed:\n    enabled: true\n    command: echo\n  external:\n    enabled: true\n    command: echo\n");
+  const config=loadMcpConfig(path,{});const server=config.servers.find(server=>server.name==="managed")!;
+  server.callerMetadataKey="host/caller";server.platforms=["desktop"];
+  const calls: unknown[]=[];
+  const manager=new McpManager(config,{connect:async()=>({tools:[{name:"echo",description:"echo",inputSchema:{type:"object"}}],callTool:async(_name,_input,_signal,metadata)=>{calls.push(metadata);return {content:[],isError:false};},close:async()=>{}})});
+  const registry=new ToolRegistry();
+  const context={session_id:"s",turn_id:"t",tool_call_id:"c",platform:"desktop",workspace:testWorkspace,executionPolicy:policyFor(testWorkspace.directory),handle:{signal:new AbortController().signal,cancelled:false,drainSteering:()=>[],registerProcess:()=>()=>{}}};
+  try {
+    await manager.start(registry);
+    await registry.execute("mcp__managed__echo",{},context);
+    await registry.execute("mcp__external__echo",{},context);
+    expect(calls).toEqual([{"host/caller":{session_id:"s",turn_id:"t",tool_call_id:"c",platform:"desktop"}},undefined]);
+    await expect(registry.execute("mcp__managed__echo",{}, {...context,platform:"feishu"})).rejects.toThrow("platform");
+    expect(calls).toHaveLength(2);
+  } finally {await manager.stop();rmSync(root,{recursive:true,force:true});}
 });

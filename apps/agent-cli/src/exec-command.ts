@@ -436,7 +436,6 @@ export async function runExecCommand(
       const createHost = dependencies.createHost ?? createAgentRuntimeHost;
       const reporterForHost = reporter;
       host = createHost({
-        agentSoulPath: runtimePaths.agentSoulPath,
         skillsRoot: runtimePaths.skillsRoot,
         userSkillsRoot: runtimePaths.userSkillsRoot,
         llmConfigRoot: runtimePaths.llmConfigRoot,

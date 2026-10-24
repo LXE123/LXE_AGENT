@@ -1,24 +1,32 @@
 # LXE 如何适配 CDS
 
-本页主体记录 `d40cc1b8`（设置页）与 `7e2bef2d`（能力页、共享变量）的历史设计决定。它们是 CDS-inspired 实现，没有安装或调用官方 `@ant/cds` 组件库。**当前状态**请先看[适配总表](current-adaptation.md)和后续[案例](examples/README.md)，不要把下方历史覆盖范围当成今天的全貌。
+本页主体记录 `d40cc1b8`（设置页）与 `7e2bef2d`（能力页、共享变量）的历史设计决定。它们是 CDS-inspired 实现，没有安装或调用官方 `@ant/cds` 组件库。**当前状态**请先看[适配总表](current-adaptation.md)与下方生产源码入口，不要把历史设计记录当成今天的全貌。
 
-## 当前覆盖范围（2026-10-20）
+## 覆盖范围
 
-生产共享主题现在用于设置、能力、活动、工作台、首页、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。其余页面保留既有案例，未据此宣称完成全站状态审计。
+生产共享主题现在用于设置、能力、活动、工作台、首页、定时任务、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。定时任务的页面和控件状态单独记录于[定时任务适配与验收](automations.md)。其余页面从生产源码和实际界面核对，尚未完成全站状态审计。
 
-- 会话导航行选中使用背景 90% + 前景 10% 的不透明混色；设置导航暗色选中仍为白 15%，两者是不同局部适配。
+- 会话导航行选中使用不透明混色：浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题为 400 字重（2026-10-23 调整）。设置导航暗色选中仍为白 15%，两者是不同局部适配。
 - 工具调用条的悬停文字已统一，默认态、状态图标和焦点边框仍含旧变量；不能把它视为完整主题迁移。
 - 原变量快照仍对应 `7e2bef2d`，作为历史证据保留。当前生产源码是维护入口。
 
+权限审查卡片使用共享会话主题，操作标题、权限与原因层级、命令区及左右按钮是 LXE 适配；Claude 审批卡专用完整规则仍未确认。源码见下方入口。
+
 ## 实现入口
 
-| 职责 | 当前源码 | 归档快照 |
-| --- | --- | --- |
-| 共用色彩、亮暗主题和旧变量映射 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) | [变量快照](tokens/lxe-theme.snapshot.css) |
-| 设置页布局与控件 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) | [设置样式快照](examples/styles/settings-theme.snapshot.css) |
-| 能力页与相关详情弹层 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) | [能力样式快照](examples/styles/capabilities-theme.snapshot.css) |
+| 职责 | 当前源码 |
+| --- | --- |
+| 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
+| 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
+| 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
+| 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
+| 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
+| 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
+| 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |
+| 首页 | [home/theme.css](../../../apps/dashboard/src/features/home/theme.css) |
+| 活动与工作台 | [stats/theme.css](../../../apps/dashboard/src/features/stats/theme.css)、[workbench/detail-theme.css](../../../apps/dashboard/src/features/workbench/detail-theme.css) |
 
-页面样式快照保留原内容，包括原相对 `@import`；它们用于历史核对，不是从文档目录直接运行的页面。完整 JSX 和业务逻辑由 Git 中上述提交保存。
+组件和页面样式只在生产代码中维护，历史版本由 Git 保存。[变量表](tokens/README.md)保留最初引入时的快照及其版本说明。
 
 ## 规则如何落地
 
@@ -66,8 +74,8 @@
 
 ## 已验证到哪里
 
-两次实现做过定向类型／行为检查和真实 Electron 渲染检查，覆盖亮暗主题、能力四页及详情、键盘焦点、Escape、英文长文本和窄屏。截图和限制见[案例索引](examples/README.md)。
+两次实现做过定向类型／行为检查和真实 Electron 渲染检查，覆盖亮暗主题、能力四页及详情、键盘焦点、Escape、英文长文本和窄屏。历史验证记录通过 Git 查阅；当前组件检查范围见[适配总表](current-adaptation.md)。
 
 设置任务的全量验证通过。能力任务的全量验证中有一项未改动的文件预览测试首次超时，独立重跑通过；Python 部分另行完成，2401 通过、14 跳过。不能把首次全量运行描述成零失败。
 
-本次收藏任务只核对文件、哈希、引用和快照，不重新运行应用测试。没有据此宣称每个颜色组合都满足某个对比度标准；后续改变表面、文字大小或状态，需要针对实际组合检查。
+上述验证是对应实现阶段的记录；后续改变表面、文字大小或状态，需要检查受影响的实际组合，不能仅凭已有截图宣称全部通过。

@@ -52,7 +52,6 @@ export interface ProcessAgentRuntimeOptions {
   arguments?: string[];
   cwd: string;
   environment: Environment;
-  agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
   llmConfigRoot: string;
@@ -226,7 +225,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     try {
       this.remoteHealthSnapshot = objectValue(await this.request("initialize", {
         protocol_version: AGENT_PROTOCOL_VERSION,
-        agent_soul_path: this.options.agentSoulPath,
         skills_root: this.options.skillsRoot,
         user_skills_root: this.options.userSkillsRoot,
         llm_config_root: this.options.llmConfigRoot,

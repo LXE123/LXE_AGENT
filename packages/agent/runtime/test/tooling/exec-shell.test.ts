@@ -218,11 +218,10 @@ describe("ExecShellAdapter", () => {
     )).toBe("& 'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
   });
 
-  test("does not expose Bun-only SOUL, catalog, or LLM paths to Python commands", () => {
+  test("does not expose Bun-only user Skill or LLM paths to Python commands", () => {
     const shell = new ExecShellAdapter({
       platform: "darwin",
       environment: {
-        LXE_AGENT_SOUL_PATH: "/resources/agent/SOUL.md",
         LXE_SKILLS_ROOT: "/resources/skills",
         LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
@@ -236,7 +235,6 @@ describe("ExecShellAdapter", () => {
       sessionId: "s1", turnId: "t1", responseRouteId: "r1", execSessionId: "e1",
     });
 
-    expect(environment.LXE_AGENT_SOUL_PATH).toBeUndefined();
     expect(environment.LXE_USER_SKILLS_ROOT).toBeUndefined();
     expect(environment.LXE_LLM_CONFIG_ROOT).toBeUndefined();
     expect(environment.LXE_ROOT).toBeUndefined();

@@ -36,7 +36,25 @@ Process stdout/stderr 使用有界内存尾部和落盘截断机制。取消观�
 
 `McpManager` 读取 local YAML，替换环境占位并连接 enabled stdio 或 streamable-http server。每个 server 独立 startup timeout；失败只记录 server error，不阻塞 Runtime start。
 
+Runtime 使用官方 `@modelcontextprotocol/client` 2.3.1，支持 MCP `2026-07-28`，并兼容 SDK 支持的旧版服务。测试服务使用同版本 `@modelcontextprotocol/server`；生产运行不依赖测试服务。
+
+每个 server 可设置 `protocol_mode`：
+
+| 值 | 连接行为 |
+| --- | --- |
+| `auto`（默认） | 通过 `server/discover` 识别新版；按 SDK 协商规则连接旧版服务。 |
+| `legacy` | 直接使用旧版 `initialize` 握手，适用于不接受新版探测的服务。 |
+| `2026-07-28` | 要求服务支持该版本，不满足时连接失败。 |
+
+既有 YAML 不需要迁移，省略字段就是 `auto`。新版消息、版本信息和取消协议由 SDK 负责；不手工修改版本字符串来模拟支持。探测超时为 `min(2 秒, startup_timeout_s / 2)`，不重复探测，整个连接与工具发现仍受 startup timeout 限制。STDIO 自动协商可能先启动一个短暂的探测子进程；禁用、超时或退出会关闭探测及会话连接。
+
+认证失败、服务端异常和 HTTP 网络超时会保留实际错误，不通过回退旧版掩盖。赛狐连接继续使用原来的设备认证和直连适配，不添加 token 或 cookie。日志 `mcp_connected` 中的 `protocol_version`、`protocol_era` 记录实际协商结果；排查兼容问题时先查看连接错误和这些字段，再决定是否对该服务设置 `legacy`。
+
 Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更新 MCP status 并返回 tool error。Enable/disable 会注册或移除该 server definition，不在 Dashboard PATCH 时隐式调用模型。
+
+工具列表分页由 SDK 聚合。`structuredContent` 按 JSON 值保留，包括数组、`null`、`false`、`0` 和空字符串，并转为模型可读的结果文本进入现有历史流程。图片继续走既有归一化和持久化流程。工具返回 `isError=true` 或 SDK 抛错时均按失败处理；错误状态保留 SDK 的诊断 `data`，经过脱敏和带标记的长度截断，不用空结果代替实际错误。工具错误通过 Runtime 的结构化错误路径进入模型与历史，避免通用错误摘要再次静默截断；原异常保留在 `cause` 中。
+
+升级参考：[协议规范](https://modelcontextprotocol.io/specification/2026-07-28)、[SDK v2 迁移指南](https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2.html)、[协议协商](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions.html)。
 
 ## lxeskill 业务命令
 

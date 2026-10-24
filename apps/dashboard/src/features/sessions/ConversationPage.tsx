@@ -1,7 +1,6 @@
 import type { ComponentProps } from "react";
 import { FilePreviewLayout } from "../file-preview/Sidebar";
 import { useUiText } from "../../shared/i18n";
-import { EmptyState } from "../../shared/components";
 import { SessionDetailView } from "./view";
 import { WorkspaceControl } from "./workspaces";
 import type { SessionWorkspace } from "./use-session-workspace";
@@ -59,7 +58,9 @@ export function ConversationPage({ selection, conversation, workspace, actions, 
             onFollowingChange={actions.followingChanged}
           />
         ) : (
-          <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />
+          <div className="conversation-empty-state conversation-chrome-theme">
+            <p>{t.sessions.selectPrompt}</p>
+          </div>
         )}
       </FilePreviewLayout>
     </section>

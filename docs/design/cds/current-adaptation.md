@@ -1,14 +1,14 @@
 # 当前 CDS 适配总表
 
-整理日期：2026-10-20。首批：设置原生输入框、会话导航行、工具调用条。不是全站审计，也不是 Claude 全组件规范。
+整理日期：2026-10-20。本表：设置原生输入框、会话导航行、工具调用条；定时任务页面的独立状态矩阵与实测见 [定时任务适配](automations.md)。不是全站审计，也不是 Claude 全组件规范。
 
-本表由 `current-adaptation.json` 生成。JSON 是本轮状态与证据的维护入口；旧截图、原始资料和历史变量快照保持原样。
+本表由 `current-adaptation.json` 生成。JSON 维护状态与证据对应关系；当前样式以链接的生产源码为准，历史变化通过 Git 查阅。
 
 ## 如何打开与验证
 
 从仓库根执行 `bun run cds:preview`，打开输出的本地网址。页面并排展示亮暗主题，可输入、选择、Tab 聚焦和展开工具结果；预览 10 分钟后自动关闭，也可 Ctrl+C 结束。
 执行 `bun run cds:check` 会构建相同页面、运行本地 Electron 交互检查、保存截图和实测值，并关闭测试进程。命令失败时不得沿用旧记录声称通过。
-执行 `bun run cds:docs` 可从 JSON 重建本表并更新归档校验清单。
+执行 `bun run cds:docs` 可核对原始出处片段并从 JSON 重建本表。
 
 入口源码：[展示页](../../../apps/dashboard/test/behavior/cds-gallery.tsx)、[布局样式](../../../apps/dashboard/test/behavior/cds-gallery.css)、[构建与验证](../../../scripts/cds-gallery.ts)。
 实测记录：[verification.json](showcase/verification.json)。记录内含实际源码 SHA-256、构建时 HEAD、浏览器版本与检查结果；后续代码改变需重新验证。
@@ -58,16 +58,16 @@
 
 ## 导航行
 
-会话侧边栏的 SessionsIndex。此轮不覆盖所有设置导航、工作区标题或菜单状态。
+会话侧边栏的 SessionsIndex。30px 会话行、10px 工作区间距与文字层级是 LXE 适配；标题用满行宽，尾部以 20px 渐隐代替省略号。悬停、键盘聚焦或菜单打开时，菜单覆盖在右侧，渐隐终点内收 36px，文字位置不变。分组及搜索列表使用靠右的 8px 滚动条轨道，与行背景间隔 2px；滑块仅在滚动或拖动轨道时显示，停止约 800ms 后隐藏，鼠标移入及单纯聚焦不触发，拖动中保持显示，轨道宽度不变。这些尺寸与交互是 LXE 适配，不是已确认的 CDS 原始规则。当前实现见下方生产源码。组件状态实测见 showcase/verification.json，不是所有导航组件的完整审计。
 
 复用方式：**生产 SessionsIndex**。点击切换当前会话；悬停选中与未选中的行；用 Tab / Enter 导航。更多菜单沿用生产组件，动作只修改当前样本数据。
 
-源码：[view.tsx](../../../apps/dashboard/src/features/sessions/view.tsx)、[sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css)、[styles.css](../../../apps/dashboard/src/styles.css)
+源码：[view.tsx](../../../apps/dashboard/src/features/sessions/view.tsx)、[sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css)、[use-sidebar-scrollbar.ts](../../../apps/dashboard/src/features/sessions/use-sidebar-scrollbar.ts)、[styles.css](../../../apps/dashboard/src/styles.css)
 
 | 状态 | CDS 依据 | LXE 当前实现 | 分类 |
 | --- | --- | --- | --- |
-| 默认／悬停 | S1、S5-nav | 导航面 --cds-surface-nav；悬停为背景 95% + 前景 5% 的不透明混色。 | LXE 适配 |
-| 选中／选中＋悬停 | S5-nav | 背景 90% + 前景 10%；两种主题相同比例。与设置导航暗色白 15% 不同，是会话行的局部选择。 | LXE 适配 |
+| 默认／悬停 | S1、S5-nav | 导航面 --cds-surface-nav；悬停为背景 95% + 前景 5% 的不透明混色。会话标题 13px、400 字重，默认 secondary，悬停或键盘焦点为 ink。 | LXE 适配 |
+| 选中／选中＋悬停 | S5-nav | 浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题均为 400 字重。与设置导航暗色白 15% 不同，是会话行的局部选择。 | LXE 适配 |
 | 键盘焦点／选中＋焦点 | S1 | 使用现有导航焦点规则与蓝色 --focus-ring。 | LXE 适配 |
 | 禁用／错误行 | 无专用上游依据／本地接口 | 当前 SessionsIndex 没有整行 disabled 或 invalid 接口；运行结果状态图标是另一维度。 | 不适用 |
 

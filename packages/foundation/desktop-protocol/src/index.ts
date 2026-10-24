@@ -42,7 +42,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 25 as const;
+export const AGENT_PROTOCOL_VERSION = 27 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -98,7 +98,6 @@ export class AgentProtocolError extends Error {
 
 export type AgentInitializePayload = {
   protocol_version: number;
-  agent_soul_path: string;
   skills_root: string;
   user_skills_root: string;
   llm_config_root: string;
@@ -444,6 +443,7 @@ export interface DesktopCloudActivationInput {
 }
 
 export type DesktopDashboardDataDomain =
+  | "automations"
   | "sessions"
   | "stats"
   | "channels"
@@ -828,7 +828,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       if (!Number.isSafeInteger(payload.protocol_version)) {
         throw new Error("agent protocol initialize.protocol_version must be an integer");
       }
-      requireText("agent_soul_path");
       requireText("skills_root");
       requireText("user_skills_root");
       requireText("llm_config_root");
@@ -1100,3 +1099,6 @@ export function isAgentEvent(message: AgentWireMessage): message is AgentNotific
 }
 
 export * from "./composer-references";
+
+export * from "./automations";
+export * from "./desktop-mcp";
