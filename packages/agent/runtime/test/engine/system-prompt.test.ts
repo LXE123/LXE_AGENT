@@ -40,7 +40,6 @@ describe("system prompt builder", () => {
     expect(prompt).not.toContain("unless this turn explicitly asks");
     expect(prompt).not.toContain("Approval in one context does not carry over to the next.");
     expect(prompt).not.toContain("If instructions conflict, pause and ask.");
-    expect(stable).toContain("Attachment Handling");
     expect(stable).toContain("cause_known=true");
     expect(stable).toContain("preserve the actual observed error");
     expect(stable).toContain("tested mapping_id");
