@@ -40,14 +40,15 @@ def binding(observation: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def create(
-    output_dir: str | Path, plan: Mapping[str, Any], shipments: Sequence[Mapping[str, Any]]
+    output_dir: str | Path, plan: Mapping[str, Any], shipments: Sequence[Mapping[str, Any]],
+    *, preparation_id: str | None = None,
 ) -> str:
     """Only the caller's fully successful, safely cancelled dry-run reaches here."""
     if plan["apply"] or not shipments or any(
         item["status"] not in {"dry_run_ready", "already_target"} for item in shipments
     ):
         raise ValueError("不能从未完成的 dry-run 创建准备证据")
-    preparation_id = uuid.uuid4().hex
+    preparation_id = validate_id(preparation_id) if preparation_id else uuid.uuid4().hex
     receipt = {
         "version": 1, "dry_run_id": preparation_id, "plan": signature(plan),
         "shipments": {item["fba_shipment_id"]: binding(item["observations"][0]) for item in shipments},
@@ -58,11 +59,15 @@ def create(
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"delivery-window-preparation-{preparation_id}.json"
-    # Exclusive creation also avoids accidentally replacing earlier evidence.
-    with path.open("x", encoding="utf-8") as stream:
+    if path.exists():
+        raise FileExistsError(f"dry-run 准备证据已存在：{path}")
+    temporary = path.with_suffix(".tmp")
+    with temporary.open("x", encoding="utf-8") as stream:
         stream.write(serialized)
         stream.flush()
         os.fsync(stream.fileno())
+    # Readers only see complete evidence after its contents reach the disk.
+    os.replace(temporary, path)
     return preparation_id
 
 

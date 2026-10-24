@@ -2499,9 +2499,11 @@ def _run_shipments(
     )
     if finished and not plan["apply"] and not readback and "dry_run_ready" in statuses:
         try:
-            dry_run_id = preparation.create(output_dir, plan, shipments)
+            dry_run_id = uuid.uuid4().hex
             persist()
+            preparation.create(output_dir, plan, shipments, preparation_id=dry_run_id)
         except Exception as exc:
+            dry_run_id = ""
             failure = as_failure(exc)
             finished = False
     if failure is not None:

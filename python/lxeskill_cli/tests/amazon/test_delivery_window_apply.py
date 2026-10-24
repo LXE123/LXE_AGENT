@@ -2019,3 +2019,21 @@ def test_deadline_expiring_during_audit_does_not_dispatch_submit(tmp_path, monke
     assert entry['failure_code'] == 'submission_changed'
     assert entry['confirmation_attempted'] is False and entry['readback_required'] is False
     assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
+
+
+def test_failed_final_dry_run_audit_never_publishes_usable_preparation(tmp_path, monkeypatch):
+    driver = _ScriptedDriver(hub_cells=_hub_cells([(SHIPMENT, '0/10', CURRENT_WINDOW)]), shipment_ids=[SHIPMENT])
+    original_write = dwa._write_artifact
+
+    def fail_final_audit(output_dir, payload, **kwargs):
+        if payload.get('dry_run_id'):
+            raise OSError('actual final audit disk failure')
+        return original_write(output_dir, payload, **kwargs)
+
+    monkeypatch.setattr(dwa, '_write_artifact', fail_final_audit)
+    result = dwa._run_shipments(driver, _plan(), output_dir=tmp_path, now=NOW)
+    assert not result['success'] and not result['finished']
+    assert 'actual final audit disk failure' in result['exception']
+    assert result['data']['dry_run_id'] == ''
+    assert list(tmp_path.glob('delivery-window-preparation-*.json')) == []
+    assert not driver.clicked(dwa.UPDATE_BUTTON_SELECTOR)
