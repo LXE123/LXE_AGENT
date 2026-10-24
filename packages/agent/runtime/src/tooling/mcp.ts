@@ -13,6 +13,9 @@ export type McpProtocolMode = "auto" | "legacy" | "2026-07-28";
 
 export interface McpServerConfig {
   name: string;
+  /** Supplied only by the host, never loaded from user MCP configuration. */
+  callerMetadataKey?: string;
+  platforms?: readonly string[];
   enabled: boolean;
   transport: McpTransportKind;
   protocolMode?: McpProtocolMode;
@@ -48,7 +51,7 @@ export interface McpConnection {
   tools: McpRemoteTool[];
   protocolVersion?: string;
   protocolEra?: "modern" | "legacy";
-  callTool(name: string, arguments_: JsonObject, signal?: AbortSignal): Promise<McpCallResult>;
+  callTool(name: string, arguments_: JsonObject, signal?: AbortSignal, metadata?: JsonObject): Promise<McpCallResult>;
   close(): Promise<void>;
 }
 
@@ -296,8 +299,8 @@ export class OfficialMcpConnector implements McpConnector {
         tools,
         ...(protocolVersion === undefined ? {} : { protocolVersion }),
         ...(protocolEra === undefined ? {} : { protocolEra }),
-        callTool: async (name, arguments_, signal) => {
-          const result = await client.callTool({ name, arguments: arguments_ }, signal ? { signal } : {});
+        callTool: async (name, arguments_, signal, metadata) => {
+          const result = await client.callTool({ name, arguments: arguments_, ...(metadata ? { _meta: metadata } : {}) }, signal ? { signal } : {});
           const content = Array.isArray(result.content)
             ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
             : [];
@@ -504,12 +507,17 @@ export class McpManager {
         description: tool.description ?? "",
         input_schema: tool.inputSchema ?? { type: "object", properties: {} },
         source: "mcp",
+        ...(server.platforms ? { platforms: server.platforms } : {}),
         exposure: server.exposure === "direct" ? "direct" : "deferred",
         connectorName: server.name,
         execute: async (input, context) => {
           try {
+            if (server.platforms && (!context.platform || !server.platforms.includes(context.platform))) throw new Error("This MCP server is not available to this conversation source");
+            const metadata = server.callerMetadataKey ? { [server.callerMetadataKey]: {
+              session_id: context.session_id, turn_id: context.turn_id ?? "", tool_call_id: context.tool_call_id ?? "", platform: context.platform ?? "",
+            } } : undefined;
             const result = await withTimeout(
-              (signal) => connection.callTool(tool.name, input, signal),
+              (signal) => connection.callTool(tool.name, input, signal, metadata),
               server.toolTimeoutMs,
               `MCP tool ${server.name}/${tool.name}`,
               context.handle.signal,

@@ -102,6 +102,13 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     setNewConversation(session.blank === true);
   }
 
+  async function openSessionRun(session: SessionPayload, turnId: string): Promise<void> {
+    openSession(session);
+    const ticket = conversationDisplay.beginTargetHistory();
+    const page = await sessionActions.detail({ session_id: session.session_id, message_turn_id: turnId, message_limit: 10 });
+    conversationDisplay.openHistory(page, turnId, ticket);
+  }
+
   function newWorkspaceId(explicit?: string): string | undefined {
     const items = (workspacesQuery.data?.items ?? []).filter(item => !workspaceRemoved(item.workspace_id));
     if (explicit !== undefined) {
@@ -355,7 +362,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       isRefetchError: current.isRefetchError, error: current.error,
     } as const)),
     actions: {
-      openSession, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
+      openSession, openSessionRun, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
       sendConversation, stopConversation, setSessionPinned, deleteSession, renameSession,
       cancelSessionRename: () => setRenamingSession(null),
       openConversationFile, revealConversationFile, openConversationAttachment,

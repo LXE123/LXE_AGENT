@@ -4,7 +4,7 @@
 
 ## 覆盖范围
 
-生产共享主题现在用于设置、能力、活动、工作台、首页、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。其余页面从生产源码和实际界面核对，尚未完成全站状态审计。
+生产共享主题现在用于设置、能力、活动、工作台、首页、定时任务、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。定时任务的页面和控件状态单独记录于[定时任务适配与验收](automations.md)。其余页面从生产源码和实际界面核对，尚未完成全站状态审计。
 
 - 会话导航行选中使用不透明混色：浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题为 400 字重（2026-10-23 调整）。设置导航暗色选中仍为白 15%，两者是不同局部适配。
 - 工具调用条的悬停文字已统一，默认态、状态图标和焦点边框仍含旧变量；不能把它视为完整主题迁移。
@@ -19,6 +19,7 @@
 | 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
 | 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
 | 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
+| 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
 | 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
 | 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
 | 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |

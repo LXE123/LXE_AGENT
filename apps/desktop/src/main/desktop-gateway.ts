@@ -1,3 +1,5 @@
+import { DesktopAutomations } from "./automations";
+import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
 import { OfficePreviewCache } from "./file-preview/office-cache";
 import type { DesktopFileCall, DesktopFileOperations } from "@lxe/desktop-protocol";
@@ -132,6 +134,7 @@ export interface DesktopGatewayOptions {
 
 export class DesktopGateway {
   private updatePreparing = false;
+  private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
   private composition: DirectGatewayComposition | undefined;
   private runtime: ProcessAgentRuntime | undefined;
@@ -237,12 +240,12 @@ export class DesktopGateway {
     };
     void this.lxeskillHealth?.stop();
     this.lxeskillQueryOptions = {
-      pythonPath: this.options.paths.managedPythonPath, cwd: this.options.paths.dataRoot, environment,
+      pythonPath: this.options.paths.managedPythonPath, cwd: this.options.paths.dataRoot, environment: { ...environment },
     };
     this.lxeskillHealth = new DesktopLxeSkillHealth({
       pythonPath: this.options.paths.managedPythonPath,
       dataRoot: this.options.paths.dataRoot,
-      environment,
+      environment: { ...environment },
       recovery: this.options.packaged ? "Reinstall or rebuild LXE Agent"
         : `Run uv sync --frozen --all-groups --python 3.12.10 in ${this.options.paths.sourceRoot}`,
       onChanged: () => this.publishHealth(),
@@ -344,7 +347,19 @@ export class DesktopGateway {
     this.composition = composition;
     try {
       void this.lxeskillHealth.check();
+      this.automations = new DesktopAutomations({
+        timeWorker: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "automation-time-worker.mjs")
+          : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "automation-time-worker.mjs"),
+        store: store.automations!, composition, runtime, environment,
+        node: this.options.paths.officeNodePath,
+        script: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "desktop-mcp.mjs")
+          : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "desktop-mcp.mjs"),
+        changed: () => this.options.onDashboardInvalidated?.(["automations"], []),
+        onError: error => createLogger("desktop.automations").error("automation_dispatch_error", { error }),
+      });
+      await this.automations.openPipe();
       await composition.start();
+      this.automations.service.start();
       this.gatewayState = "ready";
       this.lastError = "";
       this.publishHealth();
@@ -353,6 +368,7 @@ export class DesktopGateway {
       this.lastError = error.message;
       this.gatewayState = "error";
       await Promise.allSettled([composition.stop()]);
+      await this.automations?.close(); this.automations = undefined;
       store.stop();
       this.composition = undefined;
       this.runtime = undefined;
@@ -378,6 +394,7 @@ export class DesktopGateway {
   }
 
   async stop(strict = false): Promise<void> {
+    await this.automations?.service.stop();
     await this.lxeskillHealth?.stop();
     await this.files?.dispose(); this.files = undefined;
     const composition = this.composition;
@@ -386,6 +403,7 @@ export class DesktopGateway {
     if (strict && composition?.parts.lifecycle.shutdownError) {
       throw new Error("更新前清理失败：" + composition.parts.lifecycle.shutdownError + "。请手动重启应用后重试");
     }
+    await this.automations?.close(); this.automations = undefined;
     this.composition = undefined;
     this.store?.stop();
     this.store = undefined;
@@ -397,6 +415,7 @@ export class DesktopGateway {
 
   async recoverAfterUpdate(): Promise<void> {
     if (this.runtime?.hasProcess) throw new Error("Agent process exit is unconfirmed; restart the application before retrying");
+    await this.automations?.close(); this.automations = undefined;
     this.composition = undefined;
     this.store?.stop(); this.store = undefined; this.runtime = undefined;
     await this.start();
@@ -471,7 +490,15 @@ export class DesktopGateway {
       if (!this.lxeskillQueryOptions) throw new Error("Desktop CLI configuration is not ready");
       return await listLxeSkillCommands(this.lxeskillQueryOptions) as DashboardRpcResult<O>;
     }
+    if (AUTOMATION_OPERATIONS.includes(call.operation as AutomationOperation)) {
+      if (!this.automations) throw new Error("Desktop automations are unavailable");
+      return await this.automations.call(call as DashboardRpcCall<AutomationOperation>) as DashboardRpcResult<O>;
+    }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
+    if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {
+      if (!this.automations) throw new Error("Desktop automations are unavailable");
+      return await this.automations.setMcpEnabled(call.input.enabled) as DashboardRpcResult<O>;
+    }
     if (call.operation === "channels.health") {
       const items = publicDashboardChannelHealth(
         await this.composition.parts.channels.healthSnapshot(),
@@ -500,6 +527,7 @@ export class DesktopGateway {
         const result = await this.runtime.dashboardCall(
           call as AgentDashboardRpcCall<"sessions.delete">,
         );
+        this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务");
         this.composition.parts.conversations.forgetSession(sessionId);
         this.composition.parts.runtimeState.forget(sessionId);
         return result as DashboardRpcResult<O>;
@@ -538,7 +566,9 @@ export class DesktopGateway {
       }
     }
     if (call.operation === "sessions.stop") {
-      return await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id) as DashboardRpcResult<O>;
+      const result = await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id);
+      if (result.stopped_turn_id || result.cleared_turn_ids.length) this.automations?.service.pauseSession(call.input.session_id, "用户已停止会话的自动执行；恢复任务后继续");
+      return result as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.activity") {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;

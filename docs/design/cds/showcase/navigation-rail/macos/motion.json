@@ -1,0 +1,430 @@
+{
+  "platform": "darwin",
+  "verifiedAt": "2026-10-23T15:48:42.311Z",
+  "measurements": [
+    {
+      "theme": "light",
+      "section": "home",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "section": "sessions",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "section": "workbench",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "section": "automations",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "section": "capabilities",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "section": "activity",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "home",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "sessions",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "workbench",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 260,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "automations",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "capabilities",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "section": "activity",
+      "timing": [
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 140,
+          "easing": "ease",
+          "endDelay": 0,
+          "fill": "backwards",
+          "iterationStart": 0,
+          "iterations": 1
+        },
+        {
+          "state": "running",
+          "delay": 0,
+          "direction": "normal",
+          "duration": 320,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1
+        }
+      ]
+    }
+  ]
+}

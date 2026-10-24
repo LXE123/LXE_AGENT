@@ -26,7 +26,8 @@ import { accessSync, constants } from "node:fs";
 import type { ChannelAdapter } from "../channels/registry";
 import type { OutboundRequest, ResponseRouteRecord } from "../state/models";
 import type { SessionRuntimeState } from "../state/session-state";
-import type { SchedulerJobStateEvent, SessionScheduler } from "./scheduler";
+import { SchedulerBusyError, type SchedulerJobStateEvent, type SessionScheduler } from "./scheduler";
+import { AutomationBlockedError } from "./automations";
 
 const DESKTOP_PLATFORM = "desktop";
 const DESKTOP_USER_ID = "desktop-local";
@@ -139,11 +140,15 @@ export class LocalConversationController {
     text: string;
     attachments?: LocalConversationAttachment[];
     client_message_id?: string;
+  }, automation?: {
+    id: string; session_id: string; turn_id: string; fresh: boolean;
+    assertCurrent(): void; prepareSession?(): Promise<void>;
   }): Promise<DesktopConversationSendPayload> {
     const text = clean(input.text);
     const attachments = input.attachments ?? [];
     if (!text && attachments.length === 0) throw new Error("message text or attachment required");
     let sessionId = clean(input.session_id);
+    if (automation && (automation.fresh ? Boolean(sessionId) : sessionId !== automation.session_id)) throw new AutomationBlockedError("任务目标与会话模式不一致");
     if (sessionId && input.directory !== undefined) throw new Error("Existing sessions cannot change workspace");
     if (sessionId && this.options.scheduler.isSessionDeletionFenced(sessionId)) {
       throw new Error(`session is being deleted: ${sessionId}`);
@@ -152,7 +157,7 @@ export class LocalConversationController {
     let session = sessionId ? await this.options.storage.getSession(sessionId) : undefined;
     if (sessionId && !session) throw new LocalConversationSessionNotFoundError(sessionId);
     if (!session) {
-      sessionId = this.id();
+      sessionId = automation?.session_id ?? this.id();
       const source = this.desktopSource(sessionId);
       const workspace = input.directory === undefined
         ? this.options.defaultWorkspace()
@@ -168,7 +173,11 @@ export class LocalConversationController {
       created = true;
     }
 
-    const turnId = this.id();
+    if (automation) {
+      automation.assertCurrent();
+      await automation.prepareSession?.();
+    }
+    const turnId = automation?.turn_id ?? this.id();
     const messageId = this.id();
     const responseRouteId = this.id();
     const source = this.desktopSource(sessionId);
@@ -215,7 +224,7 @@ export class LocalConversationController {
       sender_nick: "Desktop",
       workspace: session.workspace,
       source,
-      raw_data: { origin: DESKTOP_PLATFORM, ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}) },
+      raw_data: { origin: DESKTOP_PLATFORM, ...(automation ? { automation_id: automation.id } : {}), ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}) },
       user_content_blocks: userContentBlocks,
       diagnostics: [],
     };
@@ -241,16 +250,21 @@ export class LocalConversationController {
     };
     this.turns.set(turnId, turn);
     activity.queuedTurnIds.push(turnId);
-    this.options.runtimeState.resumeAutonomy(sessionId);
+    if (!automation) this.options.runtimeState.resumeAutonomy(sessionId);
     try {
-      await this.options.scheduler.enqueue(job, session.blank ? {
-        beforeAccept: () => this.options.storage.ensureSession({
+      await this.options.scheduler.enqueue(job, {
+        ...(session.blank ? { beforeAccept: () => this.options.storage.ensureSession({
           session_id: sessionId, source: session.source, workspace: session.workspace,
           entry_text: text || attachments[0]!.name,
-        }),
-      } : {});
+        }) } : {}),
+        ...(automation ? { onlyIfIdle: true, assertCurrent: () => {
+          automation.assertCurrent();
+          if (this.options.runtimeState.isAutonomySuspended(sessionId)) throw new AutomationBlockedError("会话的自动执行已暂停");
+        } } : {}),
+      });
     } catch (error) {
       this.removeTurn(sessionId, turnId);
+      if (automation && error instanceof SchedulerBusyError) throw new AutomationBlockedError(error.message, { cause: error });
       throw error;
     }
     return {

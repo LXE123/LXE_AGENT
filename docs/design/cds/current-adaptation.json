@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "reviewedOn": "2026-10-20",
-  "scope": "首批：设置原生输入框、会话导航行、工具调用条。不是全站审计，也不是 Claude 全组件规范。",
+  "scope": "本表：设置原生输入框、会话导航行、工具调用条；定时任务页面的独立状态矩阵与实测见 [定时任务适配](automations.md)。不是全站审计，也不是 Claude 全组件规范。",
   "upstreamVersion": "Claude.app 2.42304.0（已归档资源；未重新抓取当前安装版本）",
   "sources": [
     { "id": "S1", "file": "docs/design/cds/sources/cds-tokens-vanilla.original.md", "locator": "Token rule / Muted text rule / Purpose tokens", "kind": "原规则", "note": "生成的 CDS 文档；适用范围见 evidence.md。" },

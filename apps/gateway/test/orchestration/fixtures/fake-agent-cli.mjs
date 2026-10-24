@@ -9,7 +9,7 @@ if (process.env.FAKE_OWNED_CHILD_PID) {
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 25;
+const protocolVersion = 26;
 const event = ({ type, ...params }) => write({ jsonrpc: "2.0", method: type, params });
 let activeRunRequest;
 let steered = [];

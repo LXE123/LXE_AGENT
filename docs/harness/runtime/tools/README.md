@@ -11,7 +11,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/ls/send_files/exec/wait 等能力。
 - Desktop interaction：`ask_user_question` 只对真实来源为桌面的当前回合开放，返回答案后继续同一工具调用。
 - 外部命令：模型通过 `exec` 调用 `lxeskill`、`lark-cli` 等 CLI，不注册为独立的 model tool。lxeskill 的调用契约与统计归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
-- MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
+- MCP tools：从 enabled server 动态发现，可 direct 或 deferred。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
 

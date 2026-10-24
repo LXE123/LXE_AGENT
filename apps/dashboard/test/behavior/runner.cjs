@@ -78,6 +78,8 @@ app.whenReady().then(async () => {
       await require("./markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "conversation-content" || suite === "conversation-window") {
       await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "navigation-rail") {
+      await require("./navigation-rail.cjs")({win, js, step, load, waitFor, click, key, focus, settle});
     } else if (suite === "dashboard-pages") {
       await require("./dashboard-pages.cjs")({win, js, step, load, waitFor, click, key, focus, settle, state});
     } else if (suite === "overview-pages") {
@@ -753,7 +755,7 @@ app.whenReady().then(async () => {
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
       const railWidth = (await rect(".app-navigation")).width;
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 5);
+        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
         assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth);

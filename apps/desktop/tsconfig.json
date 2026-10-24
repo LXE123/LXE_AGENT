@@ -9,6 +9,7 @@
     "src/preload.ts",
     "src/ipc-channels.ts",
     "src/main",
+    "src/mcp",
     "scripts/**/*.ts"
   ]
 }

@@ -353,6 +353,7 @@ export interface DashboardSessionPageOptions {
   limit: number;
   before?: string;
   after?: string;
+  turnId?: string;
 }
 
 interface ReplayCacheEntry {
@@ -1533,6 +1534,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
     if (!this.usageStore) throw new Error("runtime store is not started");
     return this.usageStore;
   }
+  lookupTurn(sessionId: string, turnId: string): { state: import("@lxe/protocol/session-status").SessionRunPhase | "missing" } {
+    const terminal = this.getPrepared<{status: string}>("SELECT status FROM turn_usage WHERE session_id=? AND turn_id=?", sessionId, turnId);
+    if (terminal && (terminal.status === "completed" || terminal.status === "cancelled" || terminal.status === "error")) return { state: terminal.status };
+    const run = this.getPrepared<{state: import("@lxe/protocol/session-status").SessionRunPhase}>("SELECT state FROM agent_session_runs WHERE session_id=? AND turn_id=?", sessionId, turnId);
+    return { state: run?.state ?? "missing" };
+  }
+
   sessionStatus(request: SessionStatusRequest): SessionRunSummary[] {
     return new SessionStatusStore(this.db()).request(request);
   }
@@ -2086,7 +2094,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
     options: DashboardSessionPageOptions,
   ): Promise<TranscriptDisplayPage> {
     const total = state.display_group_count;
-    const { limit, start, end } = displayWindow(sessionId, total, options);
+    const target = options.turnId ? this.getPrepared<{ first_group: number | null }>(
+      "SELECT MIN(group_number) AS first_group FROM transcript_display_groups WHERE session_id=? AND turn_id=?", sessionId, options.turnId)?.first_group : null;
+    const window = displayWindow(sessionId, total, options);
+    const { limit } = window;
+    const start = target ?? window.start, end = target === null || target === undefined ? window.end : Math.min(total, start + limit);
     const groups = this.allPrepared<{
       group_number: number;
       byte_start: number;

@@ -1,3 +1,4 @@
+import { AutomationsPage } from "./features/automations/AutomationsPage";
 import { VietnamSettingsWorkbench } from "./features/workbench/vietnam-settings-view";
 import { SessionSidebar } from "./features/sessions/SessionSidebar";
 import { ConversationPage } from "./features/sessions/ConversationPage";
@@ -8,19 +9,11 @@ import { useModelActions } from "./api/model-actions";
 import { useMcpActions } from "./api/mcp-actions";
 import { useConversationEvents } from "./features/sessions/use-conversation-events";
 import { useEffect, useLayoutEffect, useState } from "react";
-import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   DesktopCloudState,
   DesktopHealth,
 } from "@lxe/desktop-protocol";
-import {
-  ChartColumn,
-  BriefcaseBusiness,
-  House,
-  MessageSquareText,
-  Sparkles,
-} from "lucide-react";
 
 import "./styles.css";
 import "./features/home/theme.css";
@@ -146,7 +139,8 @@ function App({
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
     || activeSection === "workbench"
-    || activeSection === "sessions";
+    || activeSection === "sessions"
+    || activeSection === "automations";
   const activeQueries = activeSection === "sessions"
     ? [...workspace.queryStatus, modelsQuery, sessionModelQuery]
     : activeSection === "capabilities" && capabilityView === "models"
@@ -165,12 +159,13 @@ function App({
     : undefined;
   const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
 
-  const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
-    { id: "home", label: t.nav.home, icon: <House size={16} /> },
-    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
-    { id: "workbench", label: t.nav.workbench, icon: <BriefcaseBusiness size={16} /> },
-    { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
-    { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
+  const tabs: Array<{ id: DashboardSection; label: string }> = [
+    { id: "home", label: t.nav.home },
+    { id: "sessions", label: t.nav.sessions },
+    { id: "workbench", label: t.nav.workbench },
+    { id: "automations", label: language === "zh" ? "定时任务" : "Automations" },
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "activity", label: t.nav.activity },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
@@ -230,6 +225,7 @@ function App({
             activeSection === "sessions" ? "content-panel-fill" : "",
             activeSection === "home" ? "home-theme" : "",
             activeSection === "capabilities" ? "capabilities-theme" : "",
+            activeSection === "automations" ? "automations-theme" : "",
             activeSection === "activity" ? "activity-theme" : "",
             activeSection === "workbench" ? "workbench-theme" : "",
           ].filter(Boolean).join(" ")}>
@@ -258,6 +254,7 @@ function App({
                 }}
               />
             ) : null}
+            {activeSection === "automations" ? <AutomationsPage ready={dashboardRuntimeReady} onOpenSession={workspace.actions.openSessionRun} /> : null}
             {activeSection === "home" ? (
               <DashboardHome
                 enabled={dashboardRuntimeReady}
