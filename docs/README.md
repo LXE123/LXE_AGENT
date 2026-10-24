@@ -65,6 +65,7 @@
 
 回答“当时为什么这样改，改了什么，验证到了哪里”。
 
+- [FBA 物流查询与送达时段项目状态](record/20261012-fba-logistics-delivery-window-handoff.md#46-改期可靠性优化归档与下一轮入口2026-10-24)：当前实现、PR、验收边界及下一轮恢复入口。
 - [验收记录](acceptance/README.md)：按主题查看已执行的验证、当时环境及未完成事项。
 - [事故记录](incidents/README.md)：已知事实、调查状态和待解决问题。
 - [历史分叉整合](record/repository-sync-integration.md)：Mac／Windows 来源提交与当时处理范围；日常操作见仓库同步手册。

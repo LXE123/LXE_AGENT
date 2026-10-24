@@ -1,15 +1,16 @@
 # 美国 FBA 物流查询与送达时段更新交接
 
-- 日期：2026-10-12；最新续档：2026-10-23。
-- 交互流程已收敛为最多两个确认点：需要提交物流凭据或账号不唯一时做一次登录确认；完整只读链自动完成物流商查询、UPS/FedEx 官方追踪、Amazon 时段对照和 dry-run，只有真实 Amazon 写入前再做一次修改确认。查询、跳转、输入单号和读取页面不再逐步确认，见第 41 节。
-- 天泰最新：用户回传自动登录通过，未明确是否两个配置均验收；新增真实返回行确认 `FBA15MN7QKMD / TAI10723968` 及 UPS 转单字段。天泰已在本地补齐九方此前确认的 `U+六位数字` 箱号拆分，`U` 属于箱号；见第 40 节，修复后的实页查询待复验。
-- PR #91 审查修复：旧 head `d2b1e37` 指出的异常结果丢失、严格附着生命周期和 dry-run 取消问题已在本地修复，定向回归 434 项通过、无跳过，见第 39 节；尚未推送或核验远端冲突状态。
-- 物流配置最新入口：[配置交接第 30 节](20261019-logistics-provider-settings-build.md#30-云驼自动登录归档及复测入口2026-10-21)；账号跨店铺复用的设计见第 23 节。独立账号、加密密码、移除公司名称输入及取消固定店铺绑定已实现；新增/编辑已改为独立弹窗，修复基线 `cec514c6`。不自行推送、更新 PR、合并或释放 worktree。
-- 状态：此前成果已归档并提交 PR #91，当前在线评审及远端状态未重新核验。威飒、飞沃、云驼、九方四家已有查询模块及各自真实证据；九方匿名查询与箱号拆分已通过澳大利亚样本及用户回传的两票加拿大验收。天泰查询命令已按真实“全部”请求及德国样本实现，本地契约验证通过，并在当前账户完成两次独立真实受控查询；第二账户仍待核验。合格实票的当前完整改期闭环仍待样本。执行顺序见第 27 节，指定 FBA 的定位与只读反馈以第 28 节为准，日期依据沿用第 26 节；第 25 节保留天泰查询证据。
-- 获取数据方向：物流优先通过已核实的查询接口取得数据并统一解析。威飒配置凭据登录已由用户回传验收；云驼配置凭据已经真实提交并进入 `/home`，登录页 div 控件、工作台路径及 U+00A0 标记均按实页证据修正，自动进入固定查询页及统一查询待下一轮复验；飞沃可直接查询，不要求先登录，也不列自动登录待办，见第 38 节。涉及紫鸟页面的一切自动化必须走官方配对 Selenium。九方已验证的匿名公开 HTTP 接口不需要浏览器、登录或会话，使用独立模块；不从这项验证推广到其他接口。不维护逐物流商固定 ref 点击模板，Amazon 专用适配器和业务门槛保留。
-- 下一轮入口：以第 42 节为最新恢复入口；第 35、37 节仅保留各阶段历史。优先复验天泰箱号拆分后的实页查询及两个账户覆盖，再复验云驼 `/home` → 固定查询页 → 统一查询。取得物流商转单号后自动继续 UPS/FedEx 官方只读追踪，不再为查询、跳转或 dry-run 逐步确认；真实 Amazon 写入仍须一次明确的修改确认。威飒本票已通过真实凭据登录、公司核对、统一查询、UPS 只读和改期 dry-run，无需重复这些已通过阶段；没有实际改期。飞沃直接查询，不等待自动登录开发。
-- 原交接代码基线：`8529df3c fix: avoid redundant FBA page navigation`，分支 `codex/fba-delivery-window`；原交接轮仅归档文档。
-- 查询命令本轮开发起点：`b8f714dc`；通用浏览器此前代码基线为 `25efb1c2`，其 129 项定向测试仍属历史结果。本轮新增命令、技能、真实响应投影 fixture 和定向测试；不合并或释放 worktree。
+- 日期：2026-10-12；最新续档：**2026-10-24**。
+- **下一轮从[第 46 节](#46-改期可靠性优化归档与下一轮入口2026-10-24)恢复。** 第 1–45 节保留各阶段事实；其中旧 head、未提交标记和“不推送、不更新 PR”的阶段说明，不代表当前状态。
+- 工作位置：`/Users/lxe-3/LXE_AGENT/.worktrees/pool-1`，分支 `codex/fba-delivery-window`。只在任务 worktree 开发，主工作区 `main` 未修改。
+- 实现基线：`0aa5888c`；已通过 `c9efabfb` 在任务分支同步上游 `e3274147`，解决唯一 Chromium 测试入口冲突。最近一次远端核验：2026-10-24，[PR #91](https://github.com/LXE123/LXE_AGENT/pull/91) 开放、head 为 `0aa5888c`、`mergeable=true / clean`，未合入 main；远端 CI 状态未取得。
+- 本轮改期优化已提交并推送：统一页面观察和身份核验；成功 dry-run 返回一次性 `dry_run_id`；新增只读 `action=readback`；严格附着已有店铺与目标标签页；审计写盘后、实际提交前重新核验；审计成功后才原子发布准备证据。人工修改批准仍保留，不能把准备编号当批准凭据。
+- 已有物流能力：威飒、飞沃、云驼、九方和天泰均有查询模块。物流账号跨店铺复用，凭据走 Desktop 私有通道；天泰支持同域页面发现及显式 handle 查询，没有自动退出或账号切换。配置历史见[配置构建说明](20261019-logistics-provider-settings-build.md)。
+- 本地验证：相关 Python 1324 passed / 4 skipped；最终证据发布修复后改期复验 192 passed；同步上游后相关 Bun 94 passed、Chromium 3 场景通过，全仓类型、协议及 TS 边界检查通过。各阶段范围见第 46 节，不能当作当前 head 全仓测试或真实页面验收。
+- 待实页验收：天泰主号与箱号及双账号 A/B/A 轮询；云驼 `/home` → 固定查询页 → 统一查询；Amazon 新准备编号流程、真实日历选择、提交及只读恢复。威飒已通过的同票登录、查询、UPS 只读和旧 dry-run 不重复，飞沃不要求先登录；历史 dry-run 不代替当前版本的新准备证据。
+- 仍缺独立 UPS/FedEx 查询命令及完整表格批量编排。现阶段由 AI 按 Skill 串联已提供的原子命令，官方尾程页面仍用配对 Selenium；不能把单票命令或建议规则称为完整自动化闭环。
+- 交互规则仍为最多两个确认点：确需提交凭据或账号不唯一时一次登录确认；完整只读链和 dry-run 连续执行，明确方案的真实 Amazon 写入前再一次修改确认。页面自动化只走官方配对 Selenium，不引入 Browser Use/CDP；本轮没有真实 Amazon 写入。
+- 工作区原有六个本地文件已逐字节恢复，未混入 PR；清单和保留备份见第 46 节。`.lxeagent/local-quality/` 继续忽略，不提交本地工具或新增共享 CI。
 
 ## 1 业务范围和已确认结论
 
@@ -1343,7 +1344,7 @@ lxeskill logistics query --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --sto
 
 ## 42 本轮归档与下一轮恢复入口（2026-10-23）
 
-本节是当前唯一最新恢复入口，续接第 39–41 节，不覆盖更早章节的历史证据。用户要求只在 `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 和分支 `codex/fba-delivery-window` 工作；不得修改主工作区，不推送、更新 PR、合并、释放 worktree 或执行真实 Amazon 写入。用户还明确要求本地质量工具不得进入 PR，因此 `.lxeagent/local-quality/` 继续保持忽略状态，不新增共享 CI 配置。
+本节记录 2026-10-23 当时的恢复入口，续接第 39–41 节；最新状态以第 46 节为准，以下保留历史证据。用户要求只在 `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 和分支 `codex/fba-delivery-window` 工作；不得修改主工作区，不推送、更新 PR、合并、释放 worktree 或执行真实 Amazon 写入。用户还明确要求本地质量工具不得进入 PR，因此 `.lxeagent/local-quality/` 继续保持忽略状态，不新增共享 CI 配置。
 
 ### 已完成及验证边界
 
@@ -1404,3 +1405,69 @@ lxeskill logistics query --profile-id ced8c364-23c7-46ef-b9e6-f7b93ea8e6f5 --sto
 完整源码检查的协议、生产边界和全仓类型检查通过；完整 Bun 测试 **2365 passed、10 skipped、0 failed**，包含物流配置 Chromium 场景。首次完整 Python 测试发现一个新增保密回归：CLI 拒绝 `--password` 后仍把错误命令参数放入回包。现对已解析命令只返回规范命令名，保留实际 `unknown option: --password`，不覆盖错误原因。修复后最终完整 Python 复验 **3305 passed、20 skipped**；CLI/infra/物流定向复验 **766 passed、4 skipped**，Bun 公开契约复验 **11 passed**。Desktop 最终成功标记校验另经 **35 项**定向复验和类型检查通过。相关基础 Ruff 通过。
 
 相对最新 upstream/main 的 PR 补丁 `diff --check` 通过；HEAD 到 main 的上游改动本身包含三处已有行末空行，不修改这些无关文件。依赖仅按上游锁文件同步，bun.lock、uv.lock 和 package.json 与 upstream/main 一致。本轮最终没有生产查询或 Amazon 写入；真实天泰双页面、云驼查询页续验和真实改期闭环的待验收边界不变。新增接口、配置交互及 Skill 指引按 `docs/pr-review.md` 提交人工审查，不自动合并。
+
+
+## 46 改期可靠性优化归档与下一轮入口（2026-10-24）
+
+本节替代第 42 节的恢复入口，续接第 43–45 节。当前重点已从代码开发转向实页验收和后续闭环补齐；没有执行真实物流查询、Amazon 写入或合并 PR。本次状态整理只更新文档，不重跑未变化代码的测试。
+
+### 代码、PR 和工作区
+
+| 项目 | 最近核实状态 |
+| --- | --- |
+| 任务目录 | `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` |
+| 任务分支 | `codex/fba-delivery-window` |
+| 当前实现 | `0aa5888c fix: publish delivery preparations after durable audit` |
+| 改期主体优化 | `9c3361f7 feat: bind delivery window writes to verified dry runs` |
+| 上游同步 | `c9efabfb` 合入 `e3274147`，只在任务分支操作；保留上游导航、会话窗口及本分支物流配置测试 |
+| 现有 PR | [LXE123/LXE_AGENT#91](https://github.com/LXE123/LXE_AGENT/pull/91)，来源 `Mr-cckrr:codex/fba-delivery-window` |
+| 最近远端观察 | 2026-10-24 开发轮结束时，head `0aa5888c408d325bb69e981dd4042e8ab942c335`，base `e3274147246d0bd0deb2c01b5c32f34cfd023b38`，开放且无合并冲突 |
+| 人工审核与 CI | PR 说明及[本轮验证评论](https://github.com/LXE123/LXE_AGENT/pull/91#issuecomment-6379206906)已更新；能力、契约与 Skill 变更仍需人工审核。Code Review 工具返回无法连接 GitHub，未取得远端 CI 结论；没有合入 main |
+
+本轮状态文档提交在实现基线之后，下一轮以实际 `git log` 和 `git status` 为准。不要为了“对齐基线”回退分支、覆盖本地改动或修改主工作区；开始新工作时按需重新核验远端状态。
+
+### 本轮已实现的关键行为
+
+1. **页面观察。** `observe_shipment` 一次读取中关联店铺、浏览器 handle、STA 工作流程、完整 FBA、当前时段、截止、弹窗、选中周及按钮状态；读前后检查 URL/handle，确认目标货件唯一选中。导航或页面变化、读取异常后不继续使用旧观察。
+2. **预演与写入绑定。** 完整成功且安全取消的 dry-run 才返回 `dry_run_id`；绑定同一会话内的店铺、列表 URL、显式 handle 参数、货件顺序、目标日期，以及实际页面的原时段与截止。真实 `--apply` 必须带编号，参数或实时证据变化就停止。准备编号只证明预演证据，不证明人工批准。
+3. **一次执行及审计。** 准备编号通过独占标记限制为一次执行尝试，包括并发调用；执行失败后不自动换编号重试。审计成功后才将完整准备文件原子发布，审计失败不留下可执行证据。提交前保存 `pending_readback`，审计写盘后还会重读页面，防止等待期间截止或页面改变；逐票保留观察、阶段及步骤耗时。
+4. **严格附着。** 改期及 discovery 显式复用运行中店铺，不启动或重启。支持 `--target-handle`；未显式指定时，真实写入仍定位 dry-run 记录的 handle。实际会话店铺 ID 不符、原页失效或域名不符就停止，不退回第一张普通页面。共享会话的其他调用者默认行为保持兼容。
+5. **只读恢复。** `action=readback` 精确定位目标货件后只读取当前时段，不打开编辑、不点日历、不提交；不受已过编辑截止或已进入接收阶段的写入资格门槛限制。`verified_target` 只证明当前页面与目标周一致；`readback_mismatch` 保留实际不一致；失败保留实际错误，不能自动重提。提交成功只认目标货件弹窗外页面的时段回读，弹窗中的选中周不能证明保存成功。
+
+实现入口：[改期执行器](../../python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_apply.py)、[准备证据](../../python/lxeskill_cli/services/agent_cli/browser/amazon_fba/delivery_window_preparation.py)、[共享浏览器会话](../../python/lxeskill_cli/services/agent_cli/_shared/browser_session.py)。执行步骤以当前 [改期 Skill](../../skills/fba-shipment-delivery-window/SKILL.md)、[物流查询 Skill](../../skills/fba-logistics-query/SKILL.md)及公开 `lxeskill describe ...` 契约为准，不直接执行内部 Python 模块。
+
+### 实际验证及证据边界
+
+| 阶段 | 实际结果与范围 |
+| --- | --- |
+| 主体优化后的 Python | 仓库根执行 `uv run --frozen pytest python/lxeskill_cli/tests/amazon python/lxeskill_cli/tests/browser python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra -q`：1324 passed、4 skipped；有 4 条已有 aiohttp DeprecationWarning |
+| 最终发布顺序修复后 | 两个 `test_delivery_window_apply.py` / `test_delivery_window_list.py` 改期定向文件：192 passed，包含审计保存失败不发布准备编号的回归 |
+| 同步上游后的 Bun | 公开 CLI 契约、Desktop 物流登录/配置、Desktop MCP、调度存储及桌面协议：94 passed、0 failed；沙箱内本地端口/socket 受限，沙箱外同命令复验通过 |
+| 同步上游后的 Chromium | `conversation-window`、`navigation-rail`、`logistics-settings` 三个场景 passed，其余 23 场景过滤未跑 |
+| 静态与集成检查 | 8 个 workspace 类型检查、4 份协议 schema 检查、TS 生产边界、相关 Python 基础 Ruff 和相对 `upstream/main` 的 PR 补丁检查通过 |
+
+第 45 节的完整 Python/Bun 属于旧实现基线，不能改写为本轮最终 head 全仓通过。本轮没有真实双账号隔离、最终尾程 ETA 或 Amazon 完整改期闭环的验收证据；真实日历日期按钮、月份翻页及确认按钮启用条件继续等待实页验证。
+
+### 必须保留的现有本地改动
+
+开发轮结束时以下六个文件与同步前逐字节一致，均未混入本轮功能提交；下一轮先重新读取状态，不能擅自还原、覆盖或顺手提交：
+
+- `apps/dashboard/test/behavior/logistics-settings.cjs`：原有末尾换行差异。
+- `python/lxeskill_cli/services/agent_cli/mabang/analyze_store_msku_sales.py`：原有 `Any` 导入。
+- `python/lxeskill_cli/services/agent_cli/mabang/build_amazon_restock_inventory_snapshot.py`：原有 `Any` 导入。
+- `python/lxeskill_cli/services/agent_cli/mabang/calculate_store_msku_replenishment.py`：原有 `Any` 导入。
+- `python/lxeskill_cli/tests/infra/test_filesystem_paths.py`：原有长路径测试修正，须单独审查。
+- `scripts/verify-branches.py`：未跟踪本地工具。
+
+本轮同步备份 `569b714b0d12b99b368e178bbc0ab6339f5b9301` 已 apply 并保留，不要再次自动 apply；它是恢复备份，不是待合入的功能。`.lxeagent/local-quality/` 仍为忽略的私有工具目录。
+
+### 下一轮按验收目标选择入口
+
+1. **先验新增改期准备能力。** 加载当前 worktree 代码；旧 Desktop 进程需重启加载，紫鸟店铺只复用运行态。先在明确的 Amazon 店铺做 discovery，按完整 FBA 取得当前时段，再自动参数自检和 dry-run。确认安全取消、返回准备编号、逐票观察正确；没有合格可编辑货件就保留待验收，不沿用旧日期或旧准备编号。
+2. **再验真实改期闭环。** 对合格货件回显本次原时段、目标日期/周及截止，取得一次明确批准后，用同参数加 `--dry-run-id <本次编号> --apply` 单次写入。若进入 `pending_readback`，沿用原店铺、完整 FBA 和带年份目标日期，直接用 `--action readback`；不传 `--apply` 或 `--dry-run-id`。同域多页可传本次核实的 `--target-handle`。只报告实际结果，不重复提交。
+3. **物流实页验收继续保留。** 天泰按第 43 节做列页、逐页公司快照、A/B/A 定向查询，以及主号/箱号复验；不能预先断言两个同域页面已隔离账号。云驼按第 37 节续验 `/home` → `/customer/trackquery/` → 统一 query + reuse，不退出当前账号。飞沃不等待自动登录开发；已通过的威飒相同阶段不重做。
+4. **后续开发仍有两项缺口。** 独立 UPS/FedEx 解析契约，以及表格导入、账号分组、逐票尾程证据、建议汇总与 dry-run 的完整批量编排尚未实现。用户选择开发这些能力时再推进；现阶段 AI 可以按 Skill 串联原子命令，不把缺少专用命令变成额外人工确认。
+
+### 下一轮可直接使用的提示词
+
+> 阅读 `AGENTS.md`、本交接开头及第 46 节，在 `/Users/lxe-3/LXE_AGENT/.worktrees/pool-1` 的 `codex/fba-delivery-window` 继续，不修改主工作区 main。先检查 `git status`、保护已列出的六个本地文件；实现基线为 `0aa5888c`，已同步上游 `e3274147` 并更新 PR #91。按我下一轮指定的目标继续实页验收或补齐闭环，不重复开发已经存在的准备编号、只读回读、严格附着或同域定向查询。页面自动化只走官方配对 Selenium；完整只读链和 dry-run 连续执行，真实改期仍需明确方案批准。apply 使用本次成功 dry-run 的编号，提交结果未知时只做 readback，绝不重提；不把本地模拟通过当作真实 Amazon 写入通过，也不自动合入 main 或释放 worktree。
