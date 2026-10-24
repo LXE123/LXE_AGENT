@@ -25,7 +25,6 @@ export class DesktopAutomations {
         blockReason: async task => {
           await this.validateTarget(task);
           if (task.target.mode === "new") return null;
-          if (options.composition.parts.runtimeState.isAutonomySuspended(task.target.session_id)) return "会话的自动执行已暂停，请恢复任务";
           if (options.composition.parts.scheduler.hasInflightWork(task.target.session_id)) return "会话正在使用中，稍后再试";
           const status = await options.composition.parts.sessionStatus!.list([task.target.session_id]);
           const current = status.items[0];
@@ -41,7 +40,6 @@ export class DesktopAutomations {
         },
         submit: (run, assertCurrent) => this.submit(run, assertCurrent),
         observe: run => this.observe(run),
-        resumeSession: id => { options.composition.parts.runtimeState.resumeAutonomy(id); },
       } });
   }
   private async validateTarget(definition: AutomationDefinition): Promise<void> {

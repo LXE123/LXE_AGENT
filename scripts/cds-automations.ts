@@ -29,10 +29,11 @@ try {
   const result = stdout.split("\n").find(line => line.startsWith("LXE_AUTOMATIONS_CDS="));
   if (!result) throw new Error("Missing Electron verification result");
   const report = JSON.parse(result.slice("LXE_AUTOMATIONS_CDS=".length));
-  if (report.surface !== "desktop-shell" || report.passed.length < 28 || report.measurements.length < 86 || report.screenshots.length < 16) throw new Error("Incomplete automation desktop shell/state coverage");
+  if (report.surface !== "desktop-shell" || report.passed.length < 32 || report.measurements.length < 86 || report.screenshots.length < 20) throw new Error("Incomplete automation desktop shell/state coverage");
   console.log(`Automation CDS: ${report.passed.length} checks, ${report.measurements.length} state measurements, ${report.screenshots.length} screenshots passed.`);
   rmSync(resolve(output, "failure.png"), { force: true });
   const files = ["apps/dashboard/src/features/automations/AutomationsPage.tsx", "apps/dashboard/src/features/automations/theme.css",
+    "apps/dashboard/src/features/automations/AutomationResumeDialog.tsx",
     "apps/dashboard/src/shared/cds-theme.css", "apps/dashboard/src/styles.css", "apps/dashboard/src/main.tsx",
     "apps/dashboard/src/features/capabilities/theme.css", "apps/dashboard/src/shared/navigation-rail.css",
     "apps/dashboard/test/behavior/renderer.tsx",

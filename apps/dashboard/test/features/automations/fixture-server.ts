@@ -9,7 +9,7 @@ import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
 export async function startAutomationFixture(port = 5212) {
 const db = new Database(":memory:");
 const store = new NodeAutomationStore(db as unknown as DatabaseSync);
-const service = new AutomationService({store,execution:{ready:()=>true,validate:async()=>{},blockReason:async()=>null,submit:async(_run,current)=>current(),observe:async()=>"completed",resumeSession(){}}});
+const service = new AutomationService({store,execution:{ready:()=>true,validate:async()=>{},blockReason:async()=>null,submit:async(_run,current)=>current(),observe:async()=>"completed"}});
 service.start(); await service.tick();
 const first = await service.save({definition:{name:"每日运营简报",prompt:"汇总昨天的运营数据，列出异常变化与需要关注的事项，并把完整报告保存在当前工作区。",timezone:"Asia/Shanghai",schedule:{kind:"rrule",rule:"FREQ=DAILY;BYHOUR=9;BYMINUTE=0",start_at:Date.now()},target:{mode:"new",workspace_id:"workspace"}}});
 await service.runNow(first.id);
@@ -19,7 +19,17 @@ const session = {session_id:"chat",title:"补货方案讨论",source_summary:{pl
 const server=await createServer({root:resolve("apps/dashboard"),server:{host:"127.0.0.1",port,strictPort:true},plugins:[{name:"automation-fixture",configureServer(vite){vite.middlewares.use("/__automations",async(req,res)=>{
   try { let body="";for await(const chunk of req)body+=chunk;const call=parseDashboardRpcCall(JSON.parse(body));let result:unknown;
     switch(call.operation){
-      case "automations.list":result={items:service.list()};break;
+      case "automations.list": {
+        if (req.url?.includes("expired_once=1")) {
+          const future = await service.save({ definition: { name: "过期的一次性任务", prompt: "保留原提示词", timezone: "UTC",
+            schedule: { kind: "once", at: Date.now() + 3600_000 }, target: { mode: "reuse", session_id: "chat" } } });
+          const paused = await service.setStatus(future.id, future.version, "paused");
+          const at = Date.now() - 3600_000;
+          store.save({ ...paused, schedule: { kind: "once", at }, next_run_at: at, next_nominal_at: at }, paused.version);
+          result = { items: [service.get(future.id)] };
+        } else result = { items: service.list() };
+        break;
+      }
       case "automations.save":result=await service.save(call.input);break;
       case "automations.status":result=await service.setStatus(call.input.id,call.input.version,call.input.status);break;
       case "automations.delete":service.delete(call.input.id,call.input.version);result={deleted:true};break;

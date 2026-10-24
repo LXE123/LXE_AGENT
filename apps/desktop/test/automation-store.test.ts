@@ -11,7 +11,7 @@ test("SQLite persists definitions, salt and immutable dispatch records; claims a
   const root = mkdtempSync(join(tmpdir(), "lxe-automation-db-")), path = join(root, "gateway.sqlite3");
   let db = new Database(path); let store = new NodeAutomationStore(db as unknown as DatabaseSync);
   const service = new AutomationService({ store, execution: { ready: () => true, validate: async () => {}, blockReason: async () => null,
-    submit: async (_run, current) => current(), observe: async () => "missing", resumeSession() {} } });
+    submit: async (_run, current) => current(), observe: async () => "missing" } });
   try {
     service.start(); await service.tick();
     const task = await service.save({ definition: { name: "test", prompt: "report", timezone: "Asia/Shanghai", target: { mode:"new", workspace_id:"ws" }, schedule:{ kind:"interval", minutes:60 } } });

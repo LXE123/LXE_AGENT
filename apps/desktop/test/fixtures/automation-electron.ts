@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
   const service = new AutomationService({ store, clock, now: () => now,
     execution: { ready: () => true, validate: async () => {}, blockReason: async () => null,
       submit: async (_run, current) => { current(); submits++; },
-      observe: async () => { observations++; return "missing"; }, resumeSession() {} } });
+      observe: async () => { observations++; return "missing"; } } });
   const definition = { name: "Windows 持久化", prompt: "fixture", timezone: "UTC", target: { mode: "new" as const, workspace_id: "ws" },
     schedule: { kind: "interval" as const, minutes: 60 } };
   try {
