@@ -385,27 +385,22 @@ describe("native coding tools", () => {
     }
   });
 
-  test("executes lxeskill with current environment and can retry after a failed command", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-coding-lxeskill-retry-"));
+  test("executes a subsequent command after a failed command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-exec-after-failure-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    let command = evalCommand("console.error('fixture CLI failure');process.exit(7)");
-    class FixtureShell extends ExecShellAdapter {
-      override normalizeCommand(cwd: string, input: string): string {
-        return input === "lxeskill list" ? command : super.normalizeCommand(cwd, input);
-      }
-    }
-    const processes = registerCodingTools(registry, {
-      execShell: new FixtureShell(),
-    });
+    const processes = registerCodingTools(registry, {});
     try {
-      const failed = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(failed).toContain("fixture CLI failure");
+      const failed = String((await registry.execute("exec", {
+        command: evalCommand("console.error('fixture command failure');process.exit(7)"),
+      }, context(root))).content[0]?.text);
+      expect(failed).toContain("fixture command failure");
       expect(failed).toContain("exit_code: 7");
-      command = evalCommand("console.log('fixture CLI repaired')");
-      const repaired = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(repaired).toContain("status: completed");
-      expect(repaired).toContain("fixture CLI repaired");
+      const succeeded = String((await registry.execute("exec", {
+        command: evalCommand("console.log('fixture command success')"),
+      }, context(root))).content[0]?.text);
+      expect(succeeded).toContain("status: completed");
+      expect(succeeded).toContain("fixture command success");
       expect(processes.snapshots()).toHaveLength(2);
     } finally {
       await processes.stop();
