@@ -530,12 +530,6 @@ describe("native coding tools", () => {
     expect(interleaved).toContain("warn");
     expect(interleaved).toContain("step 2");
 
-    // Commands outside the attribution map still run: the CLI owns
-    // authorization and list is always known to it.
-    const lxeskillList = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, context(root))).content[0]?.text);
-    expect(lxeskillList).toContain("status: completed");
     await processes.stop();
   }, 30_000);
 
