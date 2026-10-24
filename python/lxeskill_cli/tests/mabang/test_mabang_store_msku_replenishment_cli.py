@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from services.agent_cli.mabang import calculate_store_msku_replenishment as cli
+from services.commands.mabang import calculate_store_msku_replenishment as cli
 from services.mabang.amazon.fba.store_msku_replenishment import StoreMskuReplenishmentResult
 
 

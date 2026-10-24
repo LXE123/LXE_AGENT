@@ -1,3 +1,4 @@
+import { withExecutablePath } from "@lxe/core";
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
@@ -159,13 +160,6 @@ export class ExecShellAdapter {
     this.terminationGraceMs = Math.max(1, Math.trunc(options.terminationGraceMs ?? 2_000));
   }
 
-  lxeSkillArgv(root: string): string[] | undefined {
-    const fileExists = this.options.fileExists ?? existsSync;
-    const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
-      || projectPythonPath(root, this.platform);
-    return fileExists(python) ? [python, "-I", "-B", "-m", "lxeskill"] : undefined;
-  }
-
   normalizeCommand(root: string, rawCommand: string): string {
     const command = String(rawCommand ?? "").trim();
     if (!command) return "";
@@ -197,18 +191,6 @@ export class ExecShellAdapter {
         if (!fileExists(python)) throw new Error(`project Python is unavailable: ${python}`);
         return `${invokeExecutable(python)} -m pip${rest}`;
       }
-    }
-    const skill = command.match(/^lxeskill(?:\.cmd)?(?=\s|$)([\s\S]*)$/iu);
-    if (skill) {
-      const argv = this.lxeSkillArgv(root);
-      if (!argv) {
-        const managedPython = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim();
-        throw new Error(managedPython
-          ? `managed Python is unavailable: ${managedPython}`
-          : `project Python is unavailable: ${python}`);
-      }
-      const invocation = argv.map(quote).join(" ");
-      return `${this.platform === "win32" ? "& " : ""}${invocation}${String(skill[1] ?? "")}`;
     }
     return command;
   }
@@ -256,11 +238,7 @@ export class ExecShellAdapter {
 
   childEnvironment(root: string, context: ExecEnvironmentContext): Environment {
     const projectBin = projectBinPath(root, this.platform);
-    const pathSeparator = this.platform === "win32" ? ";" : ":";
-    const inheritedPath = this.environment.PATH ?? this.environment.Path ?? "";
     const managedPath = String(this.environment.LXE_MANAGED_PATH ?? "").trim();
-    const pathEntries = (managedPath ? [managedPath, inheritedPath] : [projectBin, inheritedPath])
-      .filter(Boolean);
     const projectVenv = projectVenvPath(root, this.platform);
     const {
       LXE_AGENT_SQLITE_DB_PATH: _agentDatabase,
@@ -271,8 +249,7 @@ export class ExecShellAdapter {
       ...childEnvironment
     } = this.environment;
     return {
-      ...childEnvironment,
-      PATH: pathEntries.join(pathSeparator),
+      ...withExecutablePath(childEnvironment, managedPath || projectBin, this.platform),
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.mabang import fill_customs_declaration as cli
+from services.commands.mabang import fill_customs_declaration as cli
 
 
 def _default_msku_for_sku(sku: object) -> str:

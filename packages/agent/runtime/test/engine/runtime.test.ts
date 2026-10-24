@@ -191,7 +191,7 @@ describe("TypeScriptAgentRuntime", () => {
     let modelCalls = 0;
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: [skill, yacang, map].join("\n"),
       commandSkills: () => queryLxeSkillCommandSkills({
-        cwd: workspace.directory, pythonPath: join(workspace.directory, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+        cwd: workspace.directory, executablePath: join(workspace.directory, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
         environment: process.env,
       }),
       logger: createLogger("test.tms.trace", { write: () => {} }),

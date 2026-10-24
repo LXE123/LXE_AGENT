@@ -422,7 +422,7 @@ describe("native coding tools", () => {
     }
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, { execShell: new FixtureShell() });
-    const commands = ["python -m lxeskill list", "python -m services.agent_cli.demo",
+    const commands = ["python -m lxeskill list", "python -m services.commands.demo",
       "lxeskill demo run && echo done", "lxeskill demo run > report.txt", "cd . && lxeskill list"];
     try {
       for (const command of commands) {
@@ -1165,15 +1165,14 @@ describe("native coding tools", () => {
       .toEqual([join(root, "src", "a.py")]);
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
     expect((await registry.execute("send_files", { paths: ["artifacts/a.txt"] }, context(root))).files).toHaveLength(1);
-    // Unknown commands pass through: authorization belongs to the CLI, which
-    // rejects them with a structured error. Here the temp root has neither a
-    // managed Python nor .venv, so normalization fails before any spawn.
-    await expect(registry.execute("exec", {
-      command: "lxeskill unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
-    await expect(registry.execute("exec", {
-      command: "lxeskill.cmd unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
+    // The shell/CLI reports missing or unknown commands; no Python prerequisite
+    // is imposed by the harness, even in a workspace without a .venv.
+    for (const command of ["lxeskill unknown command", "lxeskill.cmd unknown command"]) {
+      const result = await registry.execute("exec", { command }, context(root));
+      const output = String(result.content[0]?.text);
+      expect(output).toMatch(/exit_code: [1-9]\d*/u);
+      expect(output).not.toContain("project Python is unavailable");
+    }
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",
       "yield-time-ms": 120_000,

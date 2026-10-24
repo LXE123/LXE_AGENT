@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.mabang import customs_erp as cli
-from services.agent_cli.mabang.customs_prices import PriceMatchError, match_price, read_prices
+from services.commands.mabang import customs_erp as cli
+from services.commands.mabang.customs_prices import PriceMatchError, match_price, read_prices
 from test_customs_erp import setup  # Reuse the offline ERP/download fixture.
 from test_mabang_customs_declaration_fill_cli import _write_template
 

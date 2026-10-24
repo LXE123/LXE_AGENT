@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from services.browser.workflows import amazon_fba_shipment_files as fba_shipment_tools
-from services.agent_cli.mabang import download_wms_consignment_excel as cli
+from services.commands.mabang import download_wms_consignment_excel as cli
 from services.mabang.amazon.fba import consignment_excel as consignment_source
 import services.mabang.auth as mabang_auth
 import services.mabang.amazon.fba.wms as wms_module

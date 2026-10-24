@@ -16,7 +16,7 @@ const assetService = (
   roots.push(root);
   return new DesktopInputAssetsService({
     dataRoot: root,
-    pythonPath: process.execPath,
+    executablePath: process.execPath,
     managedPath: root,
     platform: process.platform,
     execute,

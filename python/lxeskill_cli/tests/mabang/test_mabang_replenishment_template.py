@@ -7,7 +7,7 @@ from mabang_test_helpers import _sheet_names
 
 import pytest
 
-from services.agent_cli.mabang import replenishment_template as cli
+from services.commands.mabang import replenishment_template as cli
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
 

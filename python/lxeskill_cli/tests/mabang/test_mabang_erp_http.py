@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import requests
 
-from services.agent_cli.mabang import erp_http
+from services.commands.mabang import erp_http
 
 
 class FakeResponse:

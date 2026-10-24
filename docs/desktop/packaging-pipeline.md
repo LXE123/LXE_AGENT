@@ -113,13 +113,13 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 
 主要是 LXE Skill CLI，也就是 `lxeskill`，以及它需要的 Python 依赖。
 
-Python 代码不能交给 V8 运行，所以它走自己的构建路线：先用 `uv build` 生成 wheel，再把 wheel 安装进应用携带的私有 Python。安装后 Agent 可以直接调用：
+Python 代码不能交给 V8 运行，所以它走自己的构建路线：先用 `uv build` 生成 wheel，再把 wheel 安装进应用携带的私有 Python。安装包提供独立的 `lxeskill` 命令入口，Electron 把入口所在目录加入子进程 PATH，Agent 按普通外部命令调用：
 
 ```text
-python.exe -I -m lxeskill ...
+lxeskill ...
 ```
 
-这样不需要用户安装 Python，也不需要临时修改 Python 的查找路径。`-I` 启用导入隔离，`-m` 按模块启动 CLI；运行时也设置 `PYTHONNOUSERSITE=1`，避免用户级 Python 配置和包污染运行环境。导入隔离不提供文件系统沙箱，工具的文件写入限制见 [权限专题](../harness/runtime/permission-policy.md)。
+这样不需要用户安装 Python，也不需要让 agentcli 了解 CLI 的 Python 启动方式。命令入口负责找到随包解释器；工具的文件写入限制仍由通用执行沙箱控制，见 [权限专题](../harness/runtime/permission-policy.md)。
 
 ## 整条流水线
 
@@ -232,6 +232,12 @@ build/desktop-publish/python-site-packages/
 ```
 
 electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Lib/site-packages`。因此每次打包都会带上当前 Python 源码，同时可以复用那套很大的基础 Python 解释器与依赖。基础缓存不保存项目 wheel，wheel 构建输出每次重新生成，避免发布旧业务代码。
+
+Windows 打包时，通过 `uv` 在临时、可迁移的构建环境中生成标准 `lxeskill.exe`，只取命令入口，放在 `runtime/python/python.exe` 旁边；入口按相对位置寻找解释器，不保留构建机绝对路径，也不分发这个临时环境。源码开发继续使用 `uv sync --frozen` 安装到各自 `.venv` 的入口。macOS 的私有运行时入口位于 `runtime/python/bin/lxeskill`，调用同目录的 `python3`。
+
+桌面业务调用和健康检查使用入口的明确路径；agentcli 的 `exec` 和统计查询使用 PATH，不把 `lxeskill` 改写成 Python 命令。通用 Python 命令的解释器选择与这条 CLI 链路无关。入口构建见 [`prepare-lxeskill-launcher.ts`](../../scripts/prepare-lxeskill-launcher.ts)。打包完成后会在源码目录外、仅含随包工具的 PATH 上执行 `lxeskill list`，验证实际交付的入口。
+
+应用装配受管运行环境和直接调用 CLI 时，会清理继承的 `PYTHONHOME`、`PYTHONPATH` 等 Python 配置，再设置 UTF-8、禁用用户包等固定选项，避免其他 Python 安装或 checkout 干扰源码与打包入口。这属于子进程环境准备，不在 `exec` 中识别或改写 `lxeskill` 命令。标准 CLI 入口本身不等于 `python -I`；污染环境回归测试单独覆盖这条调用链。
 
 资源装配从模块各自的生产输出直接生成 `extraResources`。最终不携带 wheel 文件、旧冻结版 `runtime/lxeskill`、构建用 `uv.exe`、npm/npx 和 npm 缓存。Playwright 控制库复用私有 Node，移除其重复 Node；安装包不包含 `runtime/playwright` 浏览器目录。Electron 启动时执行 `lxeskill list` 检查 CLI 入口，打包成功不能代替这项检查，检查成功也不代表各业务服务均可用。
 
@@ -370,7 +376,7 @@ LXE Agent/
 2. Main 确定程序资源和独立数据目录，取得单实例锁；首次启动先迁移旧数据，再初始化配置、日志和数据库。
 3. 配置完成后，Main 在自己的进程里启动 Gateway。
 4. Gateway 启动 `resources/runtime/agent-cli/agent-cli.exe` 子进程，通过 JSON-RPC 2.0 与它通信，使用 stdin/stdout 传输和 JSONL（NDJSON）分帧。
-5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 fd；马帮认证通过 Main 的受控服务操作独立 Electron 窗口，紫鸟使用用户配置的客户端和配对 Selenium。桌面媒体任务由 Main 直接启动私有 Python 和 ExifTool。
+5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 fd；马帮认证通过 Main 的受控服务操作独立 Electron 窗口，紫鸟使用用户配置的客户端和配对 Selenium。桌面媒体任务由 Main 调用 `lxeskill` 媒体命令，并使用 ExifTool。
 6. Main 创建 BrowserWindow，通过 Preload 暴露的白名单 IPC，让 Dashboard 与 Main、Gateway 和 Agent 交互。
 
 ```mermaid
@@ -385,7 +391,7 @@ flowchart LR
     AGENT --> LARK["lark-cli.exe<br/>内嵌飞书技能"]
     AGENT --> TOOLS["ripgrep / fd 等工具"]
     MAIN --> AUTH["马帮认证窗口 / 受控服务"]
-    MAIN --> MEDIA["工作台媒体任务<br/>私有 Python → ExifTool"]
+    MAIN --> MEDIA["工作台媒体任务<br/>lxeskill → ExifTool"]
 ```
 
 关闭窗口只会把应用隐藏到托盘，Gateway 和 Agent 仍可在后台工作。从托盘选择退出后，Main 才会依次停止 Gateway、Agent 和相关子进程。

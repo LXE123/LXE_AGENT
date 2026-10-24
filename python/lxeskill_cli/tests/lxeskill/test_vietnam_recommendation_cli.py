@@ -12,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 
 from lxeskill import cli as lxeskill
 from lxeskill.business import load_catalog
-from services.agent_cli.vietnam_replenishment import generate
+from services.commands.vietnam_replenishment import generate
 from services.vietnam_replenishment import settings, workflow
 from services.vietnam_replenishment.workflow import VietnamRecommendationRun
 from services.vietnam_replenishment.full_workbook import UNCHANGED
@@ -69,7 +69,7 @@ def _no_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_catalog_requires_three_reports_and_allows_one_run_template() -> None:
     entry = load_catalog()["vietnam_replenishment_generate"]
-    assert entry["module"] == "services.agent_cli.vietnam_replenishment.generate"
+    assert entry["module"] == "services.commands.vietnam_replenishment.generate"
     assert entry["command_path"] == COMMAND
     assert entry["session_mode"] == "none"
     assert entry["owner_skills"] == ["vietnam-replenishment"]

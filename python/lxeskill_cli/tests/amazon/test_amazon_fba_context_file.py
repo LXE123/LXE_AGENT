@@ -5,14 +5,14 @@ from typing import Any, get_type_hints
 
 import pytest
 
-from services.agent_cli._shared.context_json import parse_context_file_argument
-from services.agent_cli.browser.amazon_fba import (
+from services.commands._shared.context_json import parse_context_file_argument
+from services.commands.browser.amazon_fba import (
     confirm_own_carrier,
     enter_tracking_codes,
     prepare_multi_box_excel,
     prepare_upload,
 )
-from services.agent_cli.browser.amazon_fba._shared import run_stage
+from services.commands.browser.amazon_fba._shared import run_stage
 
 
 def _context_payload() -> dict[str, str]:

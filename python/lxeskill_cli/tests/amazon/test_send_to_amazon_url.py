@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import seller_central_url
-from services.agent_cli.browser.amazon_common import send_to_amazon
+from services.commands.browser.amazon_common import seller_central_url
+from services.commands.browser.amazon_common import send_to_amazon
 
 
 class _FakeDriver:

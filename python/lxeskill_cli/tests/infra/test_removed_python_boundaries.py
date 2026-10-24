@@ -15,7 +15,7 @@ REMOVED_SYMBOLS = {
         "_create_response_routes",
         "_create_turn_usage",
     ),
-    "python/lxeskill_cli/services/agent_cli/browser/amazon_fba/_shared.py": (
+    "python/lxeskill_cli/services/commands/browser/amazon_fba/_shared.py": (
         "resolve_response_route_id",
         "send_selected_result_files",
     ),
@@ -28,11 +28,11 @@ PROTECTED_SYMBOLS = {
     "python/lxeskill_cli/services/mabang/amazon/fba/amazon_fba_inventory.py": (
         "build_amazon_fba_inventory_snapshot",
     ),
-    "python/lxeskill_cli/services/agent_cli/mabang/fill_customs_declaration.py": (
+    "python/lxeskill_cli/services/commands/mabang/fill_customs_declaration.py": (
         "INPUT_HEADERS",
         "SOURCE_WORKSHEET_NAME",
     ),
-    "python/lxeskill_cli/services/agent_cli/mabang/fill_invoice_template.py": (
+    "python/lxeskill_cli/services/commands/mabang/fill_invoice_template.py": (
         "DELIVERY_MSKU_COLUMN",
         "INPUT_HEADERS",
         "MERGE_DETAIL_HEADERS",

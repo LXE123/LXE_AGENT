@@ -17,7 +17,7 @@ export interface DesktopPaths {
   dashboardRoot: string;
   agentCommand: string;
   agentArguments: string[];
-  lxeskillModulePath: string;
+  lxeskillExecutablePath: string;
   managedPythonPath: string;
   officeNodePath: string;
   officeCliPath: string;
@@ -82,9 +82,9 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const agentArguments = options.packaged
     ? []
     : [targetPath.join(sourceRoot, "apps", "agent-cli", "src", "main.ts")];
-  const lxeskillModulePath = options.packaged
-    ? targetPath.join(options.resourcesPath, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py")
-    : targetPath.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "__init__.py");
+  const lxeskillExecutablePath = options.packaged
+    ? targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "lxeskill.exe" : "bin/lxeskill")
+    : targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill");
   const managedPythonPath = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "python.exe" : "bin/python3")
     : targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -132,7 +132,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
       : targetPath.join(sourceRoot, "apps", "dashboard", "dist"),
     agentCommand,
     agentArguments,
-    lxeskillModulePath,
+    lxeskillExecutablePath,
     managedPythonPath,
     officeNodePath,
     officeCliPath,

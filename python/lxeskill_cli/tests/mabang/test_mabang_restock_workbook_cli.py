@@ -8,9 +8,9 @@ from mabang_test_helpers import _sheet_names
 
 import pytest
 
-from services.agent_cli.mabang import generate_restock_workbook as cli
-from services.agent_cli.mabang import generate_fba_restock_workbook as restock_cli
-from services.agent_cli.mabang import generate_purchase_batch_workbooks as batch_cli
+from services.commands.mabang import generate_restock_workbook as cli
+from services.commands.mabang import generate_fba_restock_workbook as restock_cli
+from services.commands.mabang import generate_purchase_batch_workbooks as batch_cli
 
 PURCHASE_COLUMNS = (
     "库存sku",

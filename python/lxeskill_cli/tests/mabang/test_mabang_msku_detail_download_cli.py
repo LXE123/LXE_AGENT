@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from services.agent_cli.mabang import download_msku_detail_excel as cli
+from services.commands.mabang import download_msku_detail_excel as cli
 from services.mabang.amazon.fba.msku_detail import MskuDetailExcelResult
 
 

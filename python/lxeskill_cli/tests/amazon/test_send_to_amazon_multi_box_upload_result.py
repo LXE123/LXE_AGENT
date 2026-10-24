@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.agent_cli.browser.amazon_common import send_to_amazon_multi_box as multi_box
+from services.commands.browser.amazon_common import send_to_amazon_multi_box as multi_box
 
 
 def test_read_step2_upload_result_prefers_warning_alert_rows(monkeypatch) -> None:

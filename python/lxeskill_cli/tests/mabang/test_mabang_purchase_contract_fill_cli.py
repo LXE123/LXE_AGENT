@@ -8,8 +8,8 @@ import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Border, PatternFill, Side
 
-from services.agent_cli.mabang import fill_purchase_contracts as cli
-from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
+from services.commands.mabang import fill_purchase_contracts as cli
+from services.commands.mabang import generate_restock_workbook as purchase_summary
 
 
 FORMAL_MANUFACTURER_COLUMNS = tuple(

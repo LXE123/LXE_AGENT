@@ -13,6 +13,7 @@ import {
   type DesktopBuilderConfiguration,
 } from "./desktop-builder-version";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
+import { prepareLxeSkillLauncher } from "./prepare-lxeskill-launcher";
 import {
   approvedSkillFile,
   readResourceScope,
@@ -161,6 +162,11 @@ const overlayLxeSkillModule = join(pythonOverlay, "lxeskill", "__init__.py");
 if (!existsSync(overlayLxeSkillModule)) {
   throw new Error(`Installed lxeskill publish overlay is missing: ${overlayLxeSkillModule}`);
 }
+const lxeSkillLauncher = join(publishRoot, "lxeskill.exe");
+prepareLxeSkillLauncher({
+  python: join(pythonRoot, "python.exe"), wheel: projectWheel,
+  uv: uvExecutable, destination: lxeSkillLauncher,
+});
 
 const skillsScope = scopeEntry("skills");
 const skillsSource = String(skillsScope.source.path ?? "");
@@ -203,6 +209,7 @@ const wireGuardTarget = scopeEntry("wireguard").target;
 const wireGuardResourceRoot = join(repositoryRoot, "apps", "desktop", "resources", "wireguard");
 
 const extraResources: BuilderFileSet[] = [
+  exactFileSet(lxeSkillLauncher, `${scopeEntry("runtime-python").target}/lxeskill.exe`),
   exactFileSet(join(repositoryRoot, "apps", "desktop", "resources", "data-migration-idle.ps1"), "data-migration-idle.ps1"),
   exactFileSet(join(repositoryRoot, "apps", "desktop", "resources", "app-update.yml"), "app-update.yml"),
   { from: execSandbox, to: scopeEntry("runtime-exec-sandbox").target, filter: ["**/*", "!node_modules/**/*"] },
@@ -220,7 +227,8 @@ const extraResources: BuilderFileSet[] = [
   {
     from: pythonOverlay,
     to: `${scopeEntry("runtime-python").target}/Lib/site-packages`,
-    filter: ["**/*"],
+    // Omit --target's build-path launcher; ship the relocatable entry above.
+    filter: ["**/*", "!bin/**/*"],
   },
   exactFileSet(larkCliExecutable, `${scopeEntry("runtime-tools").target}/lark-cli.exe`),
   exactFileSet(join(larkCliExecutable, "..", "lark-cli-LICENSE.txt"), "legal/lark-cli-LICENSE.txt"),

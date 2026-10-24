@@ -61,7 +61,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 业务能力不注册为独立 model tool。模型通过 native `exec` 执行 `lxeskill ...` 命令：
 
 - lxeskillCLI 内部的 `catalog.json` 决定 command path、owner skill、业务 module 和 artifact 声明。agentcli 不读取该文件。Electron 通过 `lxeskill list` 获取命令列表，模型按需使用 `list`、`describe`、`datasets list`。
-- `exec` 按通用权限与沙箱规则执行命令，不为 lxeskill 添加命令形状限制或 Python 模块拦截；推荐调用方式写在 Skill 中。
+- `exec` 按通用权限与沙箱规则执行命令，按 PATH 解析 `lxeskill`，不改写为指定 Python 启动，也不添加命令形状限制或 Python 模块拦截；推荐调用方式写在 Skill 中。
 - Desktop 下发服务器验证的业务权限决定允许的 skill types；`AgentRuntimeHost` 生成实际 skill scope，Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责命令授权、参数校验和业务 dispatch。
 - Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、yield observation、output limit、Session ownership 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
