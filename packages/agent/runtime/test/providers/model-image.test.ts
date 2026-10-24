@@ -2,15 +2,13 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { repositoryRoot } from "@lxe/core";
 import { detectReadImageMime, ModelImageProcessor, type ModelImageResult } from "../../src/providers/model-image";
 
 const MAX_BASE64_BYTES = 4.5 * 1024 * 1024;
 const BINARY_BOUNDARY = MAX_BASE64_BYTES / 4 * 3;
-const screenshot = (): Uint8Array => new Uint8Array(readFileSync(resolve(
-  repositoryRoot(import.meta.dir),
-  "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg",
-)));
+const fixtureJpeg = (): Uint8Array => new Uint8Array(readFileSync(
+  resolve(import.meta.dir, "../fixtures/color-pattern.jpg"),
+));
 
 const expectValidReadImage = async (result: ModelImageResult): Promise<void> => {
   expect(Buffer.from(result.bytes).toString("base64").length).toBeLessThan(MAX_BASE64_BYTES);
@@ -101,7 +99,7 @@ describe("ModelImageProcessor", () => {
   });
 
   test("preserves compliant JPEG bytes without converting to PNG", async () => {
-    const bytes = screenshot();
+    const bytes = fixtureJpeg();
     const result = await new ModelImageProcessor().process(bytes, "read");
     expect(result.bytes).toBe(bytes);
     expect(result.mediaType).toBe("image/jpeg");
@@ -144,7 +142,7 @@ describe("ModelImageProcessor", () => {
   });
 
   test("prefers a fitting PNG even when a fitting JPEG would be smaller", async () => {
-    const fixture = screenshot();
+    const fixture = fixtureJpeg();
     const oversized = await new Bun.Image(fixture).resize(2_600, 2_600, { fit: "inside" }).jpeg({ quality: 95 }).bytes();
     const result = await new ModelImageProcessor().process(oversized, "read");
     expect(result.mediaType).toBe("image/png");
@@ -224,7 +222,7 @@ describe("ModelImageProcessor", () => {
   });
 
   test("preserves the Feishu JPEG quality and resize profile", async () => {
-    const bytes = screenshot();
+    const bytes = fixtureJpeg();
     const result = await new ModelImageProcessor().process(bytes, "feishu");
     const scale = Math.min(1_024 / result.original.width, 1_024 / result.original.height, 1);
     const width = Math.max(1, Math.round(result.original.width * scale));

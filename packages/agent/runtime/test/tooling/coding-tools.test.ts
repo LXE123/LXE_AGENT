@@ -951,8 +951,7 @@ describe("native coding tools", () => {
   test("returns a decodable PNG with a bounded Base64 payload and accurate coordinates after resizing", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-image-resize-"));
     roots.push(root);
-    const fixture = readFileSync(join(projectRoot,
-      "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg"));
+    const fixture = readFileSync(join(import.meta.dir, "../fixtures/color-pattern.jpg"));
     const oversized = await new Bun.Image(fixture).resize(2_600, 2_600, { fit: "inside" }).jpeg({ quality: 95 }).bytes();
     const original = await new Bun.Image(oversized).metadata();
     writeFileSync(join(root, "screenshot.data"), oversized);
