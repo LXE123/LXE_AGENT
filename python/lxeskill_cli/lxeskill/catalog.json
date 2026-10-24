@@ -80,6 +80,26 @@
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
     },
     {
+      "name": "mabang_replenishment_v2_settings",
+      "command_path": ["replenish", "v2", "settings"],
+      "visibility": "internal",
+      "session_mode": "none",
+      "module": "services.agent_cli.mabang.replenishment_v2_settings",
+      "owner_skills": [],
+      "timeout_ms": 30000,
+      "exposed": false,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["read", "save"]},
+          "parameters": {"type": "object"}
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "vietnam_replenishment_settings",
       "command_path": ["vietnam", "replenishment", "settings"],
       "visibility": "internal",
@@ -338,8 +358,17 @@
       "owner_skills": ["replenishment-calculate"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "template": {"type": "string"}, "unlinked_shipments_snapshot": {"type": "string"}, "amazon_restock_inventory_snapshot": {"type": "string"}, "amazon_fba_inventory_snapshot": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
     },
+    {
+      "name": "mabang_generate_replenishment_v2", "module": "services.agent_cli.mabang.generate_replenishment_v2",
+      "command_path": ["replenish", "v2", "generate"],
+      "visibility": "business", "session_mode": "none", "owner_skills": ["replenishment-workflow-map"], "exposed": true,
+      "artifact_paths": [{"field": "output_xlsx_path", "role": "deliverable"}], "deliver_artifacts_on_failure": true,
+      "timeout_ms": 360000,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string", "minLength": 1}, "msku_source_xlsx_path": {"type": "string", "minLength": 1}, "shenzhen_inventory_report_xlsx_path": {"type": "string", "minLength": 1}, "unlinked_shipments_snapshot_path": {"type": "string", "minLength": 1}, "peak_boost_enabled": {"type": "boolean", "description": "本轮聊天明确开启时传裸开关 --peak-boost-enabled；明确关闭时传 --peak-boost-enabled=false；未指定时沿用页面设置。聊天选择不改写保存配置。"}, "peak_boost_days": {"type": "integer", "minimum": 0, "maximum": 120, "description": "本轮明确指定的加成天数，优先于页面保存值；单独指定天数即为本轮启用。无默认天数，启用时必须由本轮或页面提供。"}}, "required": ["store_name", "msku_source_xlsx_path", "shenzhen_inventory_report_xlsx_path", "unlinked_shipments_snapshot_path"], "additionalProperties": false},
+      "input_modes": ["flags"]
+    },
     {"name": "mabang_download_store_msku_excel", "module": "services.agent_cli.mabang.download_store_msku_excel", "command_path": ["mabang", "store", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.agent_cli.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]},
+    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.agent_cli.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "msku_source_xlsx_path": {"type": "string", "minLength": 1, "description": "MSKU 导出返回的源表路径；省略时保留按店铺选择本地最新源表的旧行为。"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]},
     {
       "name": "mabang_analyze_store_msku_sales", "module": "services.agent_cli.mabang.analyze_store_msku_sales",
       "command_path": ["replenish", "sales", "analyze"],
@@ -384,6 +413,7 @@
     "replenish_sales_analysis": {"dir": "replenish/sales_analysis", "holds": "店铺 MSKU 销量分析结果 Excel。", "legacy_dirs": ["mabang_store_msku_analysis"]},
     "replenish_actual_inventory": {"dir": "replenish/actual_inventory", "holds": "真实库存报表 Excel（含深圳仓库口径）。", "legacy_dirs": ["mabang_store_msku_inventory"]},
     "replenish_calculation": {"dir": "replenish/calculation", "holds": "补货计算结果 Excel。", "legacy_dirs": ["mabang_store_msku_replenishment"]},
+    "replenish_v2": {"dir": "replenish/final_restock_recommendation", "holds": "Amazon V2备货 35 列 mskulist XLSX（离线生成）。"},
     "replenish_algorithm_templates": {"dir": "replenish/algorithm_templates", "holds": "备货算法参数方案：templates.json 为自定义方案存档，editable/ 为用户可编辑的 xlsx。用户资产，勿随产物清理。", "legacy_dirs": ["mabang_replenishment_templates"]},
     "replenish_fba_inventory_snapshots": {"dir": "replenish/fba_inventory_snapshots", "holds": "亚马逊 FBA 库存快照。", "legacy_dirs": ["amazon_fba_inventory_snapshots"]},
     "replenish_restock_inventory_snapshots": {"dir": "replenish/restock_inventory_snapshots", "holds": "亚马逊补货库存快照 Excel。", "legacy_dirs": ["amazon_restock_inventory_snapshots"]},

@@ -122,7 +122,11 @@ describe("skill context", () => {
       return reference;
     }));
     expect(references).toHaveLength(5);
-    expect(skills.find((skill) => skill.name === "replenishment-workflow-map")?.commands).toEqual([]);
+    const workflowMap = skills.find((skill) => skill.name === "replenishment-workflow-map");
+    expect(workflowMap?.commands).toEqual(["lxeskill replenish v2 generate"]);
+    expect(skills.find((skill) => skill.name === "replenishment-final-restock")).toBeUndefined();
+    expect(skills.find((skill) => skill.name === "replenishment-calculate")?.commands)
+      .toEqual(["lxeskill replenish calculate"]);
     expect(skills.find((skill) => skill.name === "southeast-asia-replenishment-workflow-map")?.commands).toEqual([]);
     expect(skills.find((skill) => skill.name === "vietnam-replenishment")?.commands).toEqual([
       "lxeskill vietnam replenishment calculate",
@@ -138,6 +142,23 @@ describe("skill context", () => {
     expect(vietnamPolicy).not.toContain("lxeskill vietnam sku bind");
     expect(skills.find((skill) => skill.name === "shangman-products-export")?.commands).toEqual(["lxeskill shangman products export"]);
     expect(skills.find((skill) => skill.name === "shangman-login")?.commands).toHaveLength(4);
+  });
+
+  test("indexes one Amazon entry that owns V2 generation after the standalone skill is retired", () => {
+    const root = repositoryRoot(import.meta.dir);
+    const catalog = new SkillCatalog(root, join(root, "missing-user"), { sharedSkillsRoot: false });
+    catalog.forceRefresh();
+    const workflow = catalog.get("replenishment-workflow-map")!;
+    const ordinary = catalog.get("replenishment-calculate")!;
+    expect(workflow.commands).toEqual(["lxeskill replenish v2 generate"]);
+    expect(ordinary.commands).toEqual(["lxeskill replenish calculate"]);
+    expect(catalog.get("replenishment-sales-analyze")?.commands).toEqual(["lxeskill replenish sales analyze"]);
+    expect(catalog.get("replenishment-final-restock")).toBeUndefined();
+    expect(catalog.list().filter(skill => skill.commands.includes("lxeskill replenish v2 generate")))
+      .toEqual([workflow]);
+    const prompt = catalog.buildPrompt({ allowedTypes: new Set(["replenishment"]) }, root);
+    expect(prompt).toContain(workflow.description);
+    expect(prompt).not.toContain("replenishment-final-restock");
   });
 
   test("indexes allowed skill manifests and points the agent to their source", () => {

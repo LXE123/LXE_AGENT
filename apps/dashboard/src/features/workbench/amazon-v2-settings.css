@@ -1,0 +1,4 @@
+.amazon-peak-days { display: flex; align-items: center; gap: 12px; }
+.amazon-peak-days input { width: 88px; }
+.amazon-peak-toggle { display: flex; align-items: center; gap: 8px; }
+.amazon-peak-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }

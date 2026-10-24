@@ -872,52 +872,62 @@ async def _download_status_file(
     report_date: str | date | None,
     download_time: str,
 ) -> UnlinkedShipmentStatusResult:
-    logger.info("[UnlinkedShipments] %s 开始查询", spec.status_name)
-    total = await fetch_status_total(spec, store_id)
-    logger.info("[UnlinkedShipments] %s total=%d", spec.status_name, total)
-    if total <= 0:
-        logger.info("[UnlinkedShipments] %s total=0，跳过导出", spec.status_name)
-        return UnlinkedShipmentStatusResult(status_name=spec.status_name, total=0)
+    stage = "查询数量"
+    try:
+        logger.info("[UnlinkedShipments] %s 开始查询", spec.status_name)
+        total = await fetch_status_total(spec, store_id)
+        logger.info("[UnlinkedShipments] %s total=%d", spec.status_name, total)
+        if total <= 0:
+            logger.info("[UnlinkedShipments] %s total=0，跳过导出", spec.status_name)
+            return UnlinkedShipmentStatusResult(status_name=spec.status_name, total=0)
 
-    task_id = await create_unlinked_export_task(spec, store_id, report_date=report_date)
-    logger.info("[UnlinkedShipments] %s 创建导出任务: taskId=%d", spec.status_name, task_id)
-    task = await wait_for_delivery_task(
-        task_id,
-        timeout_sec=timeout_sec,
-        poll_interval_sec=poll_interval_sec,
-        progress_label=f"[UnlinkedShipments] {spec.status_name}",
-    )
-    logger.info(
-        "[UnlinkedShipments] %s 任务完成: taskId=%d fileHash=%s",
-        spec.status_name,
-        task.task_id,
-        task.file_hash,
-    )
-    download_info = await request_download_info(task.task_id, task.file_hash)
-    logger.info(
-        "[UnlinkedShipments] %s 获取下载地址成功: taskId=%d fileName=%s",
-        spec.status_name,
-        download_info.task_id,
-        download_info.file_name,
-    )
-    raw_path = await download_raw_file_from_url(
-        download_info.download_url,
-        store_name=store_name,
-        status_name=spec.status_name,
-        task_id=download_info.task_id,
-        file_name=download_info.file_name,
-        output_dir=output_dir,
-        download_time=download_time,
-    )
-    logger.info("[UnlinkedShipments] %s 下载完成: %s", spec.status_name, raw_path)
-    return UnlinkedShipmentStatusResult(
-        status_name=spec.status_name,
-        total=total,
-        task_id=download_info.task_id,
-        file_hash=download_info.file_hash,
-        file_name=download_info.file_name,
-        raw_file_path=str(raw_path),
-    )
+        stage = "创建导出任务"
+        task_id = await create_unlinked_export_task(spec, store_id, report_date=report_date)
+        logger.info("[UnlinkedShipments] %s 创建导出任务: taskId=%d", spec.status_name, task_id)
+        stage = "轮询导出任务"
+        task = await wait_for_delivery_task(
+            task_id,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            progress_label=f"[UnlinkedShipments] {spec.status_name}",
+        )
+        logger.info(
+            "[UnlinkedShipments] %s 任务完成: taskId=%d fileHash=%s",
+            spec.status_name,
+            task.task_id,
+            task.file_hash,
+        )
+        stage = "获取下载地址"
+        download_info = await request_download_info(task.task_id, task.file_hash)
+        logger.info(
+            "[UnlinkedShipments] %s 获取下载地址成功: taskId=%d fileName=%s",
+            spec.status_name,
+            download_info.task_id,
+            download_info.file_name,
+        )
+        stage = "下载文件"
+        raw_path = await download_raw_file_from_url(
+            download_info.download_url,
+            store_name=store_name,
+            status_name=spec.status_name,
+            task_id=download_info.task_id,
+            file_name=download_info.file_name,
+            output_dir=output_dir,
+            download_time=download_time,
+        )
+        logger.info("[UnlinkedShipments] %s 下载完成: %s", spec.status_name, raw_path)
+        return UnlinkedShipmentStatusResult(
+            status_name=spec.status_name,
+            total=total,
+            task_id=download_info.task_id,
+            file_hash=download_info.file_hash,
+            file_name=download_info.file_name,
+            raw_file_path=str(raw_path),
+        )
+    except Exception as exc:
+        # Keep auth exception types for the existing one-time refresh boundary.
+        exc.add_note(f"未关联货件状态={spec.status_name}，阶段={stage}")
+        raise
 
 
 async def _download_store_unlinked_shipments_once(

@@ -17,9 +17,15 @@ test("queries command attribution and datasets through the installed public CLI"
     const commands = await queryLxeSkillCommandSkills(options);
     expect(commands.length).toBeGreaterThan(0);
     expect(commands).toContainEqual({ command: "lxeskill replenish store resolve", skill: "replenishment-store-resolve" });
+    expect(commands).toContainEqual({ command: "lxeskill replenish calculate", skill: "replenishment-calculate" });
+    expect(commands).toContainEqual({ command: "lxeskill replenish v2 generate", skill: "replenishment-workflow-map" });
+    expect(commands.some(item => item.skill === "replenishment-final-restock")).toBe(false);
     expect(commands.every(item => !item.command.startsWith("services."))).toBe(true);
     expect(commands).toContainEqual({ command: "lxeskill vietnam replenishment calculate", skill: "vietnam-replenishment" });
     const contract = await queryLxeSkill("list", options);
+    expect(contract.commands).toContainEqual(expect.objectContaining({
+      name: "mabang_generate_replenishment_v2", command: "replenish v2 generate", owner_skills: ["replenishment-workflow-map"],
+    }));
     expect(contract.commands).toContainEqual(expect.objectContaining({
       name: "vietnam_replenishment_generate", command: "vietnam replenishment calculate",
       owner_skills: ["vietnam-replenishment"], input_modes: ["flags"],
@@ -39,6 +45,7 @@ test("queries command attribution and datasets through the installed public CLI"
     const data = await queryLxeSkill("datasets list", options);
     expect(data.datasets).toContainEqual(expect.objectContaining({ id: "fba_delivery_csv", dir: "fba/delivery_csv" }));
     expect(data.datasets).toContainEqual(expect.objectContaining({ id: "vietnam_recommendations", dir: "vietnam/recommendations" }));
+    expect(data.datasets).toContainEqual(expect.objectContaining({ id: "replenish_v2", dir: "replenish/final_restock_recommendation" }));
   } finally { rmSync(dataRoot, { recursive: true, force: true }); }
 });
 

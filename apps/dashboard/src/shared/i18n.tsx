@@ -183,6 +183,13 @@ export const ZH_TEXT = {
     save: "保存参数", saving: "正在保存…", saved: "参数已保存，下一次计算生效。", appliesNextRun: "保存后下一次计算生效，正在进行的计算不受影响。",
     loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用中打开越南备货设置。",
   },
+  amazonV2Settings: {
+    title: "亚马逊备货旺季加成", subtitle: "适用于亚马逊备货 V2 模板。",
+    enable: "启用旺季加成", days: "加成天数", daysHint: "开启时必填0～120天；聊天中指定的设置优先。",
+    requiredDays: "开启旺季加成时，请填写加成天数。", invalidDays: "加成天数须填写0～120的整数。", save: "保存设置",
+    saved: "旺季加成设置已保存。", saving: "正在保存…",
+    loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用工作台中打开亚马逊备货旺季加成。",
+  },
   workbenchIndex: {
     eyebrow: "工作台",
     title: "功能",
@@ -1102,6 +1109,13 @@ export const UI_TEXT: Record<Language, UiText> = {
       adjustment: (day: number) => `${day}-day adjustment`, adjustmentHint: "Daily sales = period sales ÷ (period days + adjustment). Defaults for 7, 15 and 30 days: 0, 0.8 and 0.8.",
       save: "Save parameters", saving: "Saving…", saved: "Parameters saved for the next run.", appliesNextRun: "Changes apply to the next calculation. Running calculations keep their original inputs.",
       loading: "Loading settings…", retry: "Retry", unavailable: "Open these settings in the desktop app.",
+    },
+    amazonV2Settings: {
+      title: "Amazon replenishment seasonal boost", subtitle: "Applies to the Amazon V2 replenishment template.",
+      enable: "Enable seasonal boost", days: "Boost days", daysHint: "When enabled, enter 0–120 days. Chat instructions take priority.",
+      requiredDays: "Enter boost days before enabling seasonal boost.", invalidDays: "Boost days must be an integer from 0 to 120.", save: "Save settings",
+      saved: "Seasonal boost settings saved.", saving: "Saving…",
+      loading: "Loading settings…", retry: "Retry", unavailable: "Open Amazon replenishment seasonal boost in the desktop workbench.",
     },
     workbenchIndex: {
       eyebrow: "Workbench",

@@ -5,6 +5,7 @@ from typing import Any
 
 from shared.logging import get_logger
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
+from services.mabang.official_api import diagnostic
 from services.mabang.amazon.fba.unlinked_shipments import (
     StoreUnlinkedShipmentDownloadResult,
     build_store_unlinked_shipments_snapshot,
@@ -70,5 +71,5 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         return {
             "success": False,
             "store_name": store_name,
-            "exception": _exception_text(exc),
+            "exception": diagnostic("\n".join([*getattr(exc, "__notes__", ()), _exception_text(exc)])),
         }

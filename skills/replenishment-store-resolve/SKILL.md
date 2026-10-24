@@ -12,14 +12,10 @@ commands:
 
 ## 执行与错误
 
-- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
-- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
-- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
-- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。不凭错误文本中的 401/403 或 ID 猜测认证失败。
-- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
-- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
-- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
-- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
+- 执行本 Skill 声明的 CLI；参数以 `lxeskill list`、`lxeskill describe <命令路径>` 为准。
+- 等待原会话完成，读取最后一条 `type="result"`：先看 `ok`，业务结果读 `data`，附件读 `files`；失败保留真实 `error.message` 和可用的 `data.context`。
+- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。
+- 完整备货由 `replenishment-workflow-map` 继续。单步文件任务成功后使用 `send_files(paths=<terminal.files>)` 交付；发送失败只重试交付。
 
 ## 使用与命令
 
@@ -34,7 +30,7 @@ lxeskill replenish store resolve
 
 ## 结果与下一步
 
-- 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务继续下载 MSKU。
+- 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务返回 `replenishment-workflow-map` 按已确定版本继续。
 - `id_type` 是网页请求字段，仅有 `fbaWarehouseIds[]`、`shopId` 两种。二者不能混用；`fbaWarehouseIds[]` 也可能属于单站点，不能据此认定多站点整组。
 - 网页下载及本轮源数据核验使用解析出的店铺、ID 和 id_type，不要求出现在官方店铺列表中；不由模型把网页仓库 ID 转成官方 sid。
 - 解析旧名称时使用 CLI 返回的规范结果，不删除名称里的国家文字来猜别名。

@@ -73,3 +73,18 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
         "raw_excel_deleted": True,
         "source": "mabang_store_msku_download",
     }
+
+
+def test_msku_export_adapter_uses_the_standard_export_contract(monkeypatch) -> None:
+    calls = []
+
+    async def fake_download(store_id: str, id_type: str, **kwargs):
+        calls.append((store_id, id_type, kwargs))
+        return StoreMskuExcelResult(
+            store_name="Amazon-Test", store_id=store_id, id_type=id_type,
+            id_count=1, xlsx_path="/tmp/source.xlsx", converted=True, raw_excel_deleted=True,
+        )
+
+    monkeypatch.setattr(cli, "download_store_msku_excel", fake_download)
+    cli.run({"store_id": "1", "id_type": "shopId", "store_name": "Amazon-Test"})
+    assert calls == [("1", "shopId", {"store_name": "Amazon-Test"})]

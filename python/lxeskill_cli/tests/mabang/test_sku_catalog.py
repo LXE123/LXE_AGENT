@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from services.mabang.amazon.fba import combo_sku as combo
 from services.mabang.amazon.fba import sku_catalog as catalog
 from services.mabang.official_api import OfficialApiError
+from services.mabang import official_api as http
 
 
 def stock_page(skus=(), cursor=""):
@@ -179,3 +181,92 @@ def test_combo_miss_only_after_complete_pagination(monkeypatch):
     assert [r.stock_type for r in result] == [2, None]
     assert result[0].components[0].quantity == .5
     assert set(calls) == {("C", 1), ("C", 2), ("U", 1), ("U", 2)}
+
+
+def test_query_timing_counts_real_transport_pages_without_logging_skus(monkeypatch, caplog):
+    monkeypatch.setenv("LXE_DATA_SERVER_URL", "https://private.test")
+    caplog.set_level("INFO", logger=catalog.__name__)
+    calls = []
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def request_json(self, method, path, *, json_body):
+            await asyncio.sleep(0)
+            body = json_body.copy()
+            calls.append((path, body))
+            if path.endswith("stock-skus/search"):
+                keys = body["stockSkuList"].split(",")
+                if len(keys) == 50:
+                    payload = stock_page(keys[25:] if body.get("cursor") else keys[:25],
+                                         "" if body.get("cursor") else "next")
+                else:
+                    payload = stock_page([key for key in keys if key.startswith("private-stock-")])
+            elif body["comboSku"] == "private-combo":
+                payload = combo_page("private-combo", total=21, page=body["page"], records=(
+                    [{"comboSku": f"similar-{i}"} for i in range(20)] if body["page"] == 1 else
+                    [{"comboSku": "private-combo", "comboProductDetail": [{"stockSku": "private-child", "quantity": 2}]}]
+                ))
+            else:
+                payload = combo_page(body["comboSku"], total=0)
+            return SimpleNamespace(status_code=200, payload=payload, headers={})
+
+    monkeypatch.setattr(http, "AsyncCloudClient", Client)
+    inputs = [*[f"private-stock-{i}" for i in range(51)], "private-combo", "private-missing"]
+    result = asyncio.run(catalog.fetch_local_sku_definitions([*inputs, " private-combo ", ""]))
+    assert [r.local_sku for r in result] == inputs
+    assert [r.stock_type for r in result] == [*[1] * 51, 2, None]
+    summaries = {}
+    for record in caplog.records:
+        message = record.getMessage()
+        if "[SkuCatalogTiming]" in message:
+            assert "status=success" in message
+            kind = message.split("query=", 1)[1].split()[0]
+            summaries[kind] = json.loads(message.split("metrics=", 1)[1])
+    assert set(summaries) == {"stock", "combo"}
+    for kind in summaries:
+        metrics = summaries[kind]
+        assert metrics["batch_count"] == 2
+        assert metrics["request_count"] == metrics["http_attempt_count"] == 3
+        assert metrics["client_count"] == (1 if kind == "stock" else 0)
+        assert metrics["retry_count"] == metrics["request_failure_count"] == metrics["http_failure_count"] == 0
+        assert metrics["average_request_ms"] == pytest.approx(metrics["total_request_ms"] / 3, abs=.001)
+        assert 0 <= metrics["total_http_ms"] <= metrics["total_request_ms"] + .001
+        assert metrics["wall_ms"] >= 0
+    assert len(calls) == 6
+    assert all(secret not in caplog.text for secret in (*inputs, "private-child", "private.test", "next"))
+
+
+def test_query_timing_preserves_stock_failure_and_stops_before_combos(monkeypatch, caplog):
+    monkeypatch.setenv("LXE_DATA_SERVER_URL", "https://private.test")
+    caplog.set_level("INFO", logger=catalog.__name__)
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def request_json(self, method, path, **kwargs):
+            assert path.endswith("stock-skus/search")
+            return SimpleNamespace(status_code=403, payload={"detail": "actual-denied"}, headers={})
+
+    monkeypatch.setattr(http, "AsyncCloudClient", Client)
+    with pytest.raises(OfficialApiError, match="actual-denied"):
+        asyncio.run(catalog.fetch_local_sku_definitions(["private-sku"]))
+    message = next(r.getMessage() for r in caplog.records if "[SkuCatalogTiming]" in r.getMessage())
+    assert "query=stock status=failed" in message
+    metrics = json.loads(message.split("metrics=", 1)[1])
+    assert metrics["request_count"] == metrics["request_failure_count"] == metrics["http_failure_count"] == 1
+    assert "query=combo" not in caplog.text and "private-sku" not in caplog.text and "actual-denied" not in caplog.text

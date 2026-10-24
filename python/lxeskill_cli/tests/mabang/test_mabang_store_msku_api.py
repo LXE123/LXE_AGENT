@@ -14,6 +14,22 @@ from services.mabang.amazon.fba import store_msku as msku
 from services.mabang.auth import MabangAuthContext
 
 
+def test_export_stage_logs_cancellation_and_preserves_exception(monkeypatch, caplog) -> None:
+    caplog.set_level("INFO", logger=msku.__name__)
+    monkeypatch.setattr(msku.time, "perf_counter", iter((10.0, 10.25)).__next__)
+    cancellation = asyncio.CancelledError("sensitive-cancel-marker")
+
+    with pytest.raises(asyncio.CancelledError) as caught:
+        with msku._timed_export_stage("verify_sku_types", sku_count=7):
+            raise cancellation
+
+    assert caught.value is cancellation
+    messages = [record.getMessage() for record in caplog.records if record.name == msku.__name__]
+    assert len(messages) == 1
+    assert "stage=verify_sku_types status=cancelled duration_ms=250" in messages[0]
+    assert "sensitive-cancel-marker" not in caplog.text
+
+
 def _write_xlsx(path: Path, *, columns: list[str] | None = None) -> Path:
     path.write_bytes(_xlsx_bytes([{"店铺名称": "Shop-A", "MSKU": "MSKU-A"}], columns=columns))
     return path
@@ -230,6 +246,11 @@ def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
     assert _form_value(call, "isMerage") == "2"
 
 
+def test_store_msku_header_validation_does_not_require_local_inventory(tmp_path: Path) -> None:
+    path = _write_xlsx(tmp_path / "source.xlsx", columns=list(msku.CORE_STORE_MSKU_HEADERS))
+    msku.validate_store_msku_excel_headers(path)
+
+
 def _mock_active_shop(monkeypatch):
     from services.mabang.amazon.fba.store_resolver import FbaStore
     from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot
@@ -241,8 +262,9 @@ def _mock_active_shop(monkeypatch):
     monkeypatch.setattr(msku, "fetch_sku_catalog_snapshot", snapshot)
 
 
-def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None:
+def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path, caplog) -> None:
     _mock_active_shop(monkeypatch)
+    caplog.set_level("INFO", logger=msku.__name__)
     fake_session = _FakeSession(
         [
             _FakeResponse({"success": True, "id": "1001,1002,1003"}),
@@ -279,6 +301,29 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
     assert Path(result.xlsx_path).is_file()
     assert len([call for call in fake_session.calls if call["method"] == "POST"]) == 2
     assert len([call for call in fake_session.calls if call["method"] == "GET"]) == 1
+    for stage in (
+        "resolve_store_export_scope",
+        "prepare_msku_list_auth",
+        "query_msku_ids",
+        "prepare_export_auth",
+        "submit_export_request",
+        "parse_download_address",
+        "download_file",
+        "save_downloaded_file",
+        "convert_or_normalize_file",
+        "validate_file_headers",
+        "read_source_local_skus",
+        "verify_sku_types",
+        "annotate_source_verification",
+        "publish_verified_file",
+    ):
+        assert f"stage={stage} status=success duration_ms=" in caplog.text
+    assert "'id_count': 3" in caplog.text
+    assert "'sku_count': 1" in caplog.text
+    assert "'bytes':" in caplog.text
+    assert "upload.example.test" not in caplog.text
+    assert "MSKU-A" not in caplog.text
+    assert "memcache-key" not in caplog.text
 
 
 def test_download_store_msku_excel_requires_store_name() -> None:

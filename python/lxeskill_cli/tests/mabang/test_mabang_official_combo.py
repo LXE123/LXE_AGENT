@@ -355,8 +355,13 @@ def transport(monkeypatch):
 
 def test_transport_auth_and_retries(transport):
     session, sleeps = transport([Response(429, {'detail': 'limited'}, headers={'Retry-After': '3'}), Response(503, raw='gateway unavailable'), Response(payload={'code': 200, 'data': {}})])
-    assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
+    metrics = http.RequestMetrics()
+    with http.observe_requests(metrics):
+        assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
     assert sleeps == [3, 2] and len(session.calls) == 3
+    assert metrics.request_count == metrics.client_count == 1
+    assert metrics.http_attempt_count == 3 and metrics.http_failure_count == metrics.retry_count == 2
+    assert metrics.request_failure_count == metrics.request_cancelled_count == 0
     url, kw = session.calls[0]
     assert url == 'http://data.test/api/v1/data-sources/mabang/shops/list'
     assert kw == {'json': {}}
@@ -364,11 +369,79 @@ def test_transport_auth_and_retries(transport):
 @pytest.mark.parametrize('status,payload', [(401, {'detail': 'denied'}), (403, {}), (422, {}), (502, {'detail': {'upstream': {'code': 500, 'message': 'real business failure'}}}), (200, {'code': 500, 'message': 'failed'}), (200, [])])
 def test_transport_no_retry_and_actual_error(transport, status, payload):
     session, sleeps = transport([Response(status, payload)])
-    with pytest.raises(http.OfficialApiError, match=f'HTTP {status}') as exc:
-        asyncio.run(http.post_json('combo-skus/search', {}, context='SKU=C page=2'))
+    metrics = http.RequestMetrics()
+    with http.observe_requests(metrics):
+        with pytest.raises(http.OfficialApiError, match=f'HTTP {status}') as exc:
+            asyncio.run(http.post_json('combo-skus/search', {}, context='SKU=C page=2'))
+    assert metrics.request_count == metrics.request_failure_count == metrics.http_attempt_count == metrics.http_failure_count == 1
+    assert metrics.retry_count == 0
     assert 'SKU=C page=2' in str(exc.value) and len(session.calls) == 1 and (sleeps == [])
     if status == 502:
         assert 'real business failure' in str(exc.value)
+
+
+def test_transport_metrics_isolate_concurrent_scopes_and_reset(transport):
+    session, _ = transport([Response(payload={'code': 200}) for _ in range(4)])
+
+    async def scenario():
+        barrier = asyncio.Event()
+        ready = 0
+
+        async def observed(count):
+            nonlocal ready
+            metrics = http.RequestMetrics()
+            with http.observe_requests(metrics):
+                ready += 1
+                if ready == 2:
+                    barrier.set()
+                await barrier.wait()
+                for _ in range(count):
+                    await http.post_json('stock-skus/search', {}, context='test')
+            return metrics
+
+        one, two = await asyncio.gather(observed(1), observed(2))
+        await http.post_json('stock-skus/search', {}, context='outside scope')
+        assert one.request_count == one.http_attempt_count == one.client_count == 1
+        assert two.request_count == two.http_attempt_count == two.client_count == 2
+
+    asyncio.run(scenario())
+    assert len(session.calls) == 4
+
+
+def test_transport_metrics_preserve_cancellation_and_client_cleanup(monkeypatch):
+    monkeypatch.setenv('LXE_DATA_SERVER_URL', 'https://data.test')
+    metrics = http.RequestMetrics()
+    closed = []
+
+    async def scenario():
+        started = asyncio.Event()
+
+        class Client:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                closed.append(True)
+
+            async def request_json(self, *args, **kwargs):
+                started.set()
+                await asyncio.Event().wait()
+
+        monkeypatch.setattr(http, 'AsyncCloudClient', Client)
+        with http.observe_requests(metrics):
+            task = asyncio.create_task(http.post_json('combo-skus/search', {}, context='test'))
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(scenario())
+    assert metrics.request_count == metrics.http_attempt_count == metrics.request_cancelled_count == 1
+    assert metrics.request_failure_count == metrics.retry_count == 0
+    assert closed == [True]
 
 def test_transport_exceptions_and_redaction(transport):
     session, sleeps = transport([aiohttp.ClientConnectionError('reset data-secret')] * 3)
@@ -397,6 +470,7 @@ def test_snapshot_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch
         calls.append('warehouse')
         if len(calls) == 1:
             raise inv.StoreMskuActualInventoryAuthError('expired cookie')
+        return '', 'synthetic-search-token'
     async def refresh(**kw):
         calls.append('refresh')
     async def download(**kw):

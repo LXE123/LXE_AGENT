@@ -51,6 +51,14 @@ describe("Dashboard information architecture", () => {
       section: "activity",
       activityView: "unknown",
     }, "tools").activityView).toBe("stats");
+    expect(dashboardRouteFromHistory({
+      section: "workbench",
+      workbenchView: "amazon-v2-settings",
+    }, "skills").workbenchView).toBe("amazon-v2-settings");
+    expect(dashboardRouteFromHistory({
+      section: "workbench",
+      workbenchView: "amazon-final-restock-settings",
+    }, "skills").workbenchView).toBe("index");
   });
 
   test("persists only valid capability views and fails safely without storage", () => {
