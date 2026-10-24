@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -44,7 +45,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const temporary = mkdtempSync(join(tmpdir(), "lxe wt-claim-"));
+  const temporary = realpathSync(mkdtempSync(join(tmpdir(), "lxe wt-claim-")));
   temporaryRoots.push(temporary);
   const root = join(temporary, "repository");
   const bin = join(temporary, "bin");
@@ -52,13 +53,14 @@ function fixture() {
   mkdirSync(bin);
   for (const command of ["bun", "uv"]) {
     writeFileSync(join(bin, command + (windows ? ".cmd" : "")), windows
-      ? "@echo off\r\nexit /b 0\r\n" : "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      ? command === "bun" ? `@echo off\r\nif "%~1"=="install" exit /b 0\r\n"${process.execPath}" %*\r\nexit /b %errorlevel%\r\n` : "@echo off\r\nexit /b 0\r\n"
+      : command === "bun" ? `#!/bin/sh\n[ "$1" = install ] && exit 0\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n` : "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   }
   git(root, "init", "-b", "main");
   git(root, "config", "user.name", "Worktree Test");
   git(root, "config", "user.email", "worktree-test@example.invalid");
   git(root, "config", "core.autocrlf", "false");
-  writeFileSync(join(root, ".gitignore"), ".worktrees/\n.venv/\n");
+  writeFileSync(join(root, ".gitignore"), ".worktrees/\n.venv/\nvar/\n.env\n");
   writeFileSync(join(root, "content.txt"), "main\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "initial");
@@ -138,4 +140,38 @@ describe(`wt-claim lifecycle (${windows ? "PowerShell" : "Bash"})`, () => {
     expect(git(f.slot, "rev-parse", "HEAD")).toBe(f.commit);
     expect(readFileSync(join(f.slot, file), "utf8")).toBe("unfinished work\n");
   }, 30_000);
+
+  test("resuming retains local config and refresh-config requires an owned slot", () => {
+    const f = fixture();
+    writeFileSync(join(f.root, ".env"), "FIXTURE=main\n");
+    writeFileSync(join(f.slot, ".env"), "FIXTURE=worktree\n");
+    const resumed = f.run("review");
+    expectSuccess(resumed);
+    expect(resumed.stdout).toContain("existing configuration retained");
+    expect(resumed.stdout.trim().split(/\r?\n/).at(-1)).toBe(f.slot);
+    expect(readFileSync(join(f.slot, ".env"), "utf8")).toBe("FIXTURE=worktree\n");
+    const unknown = f.run("refresh-config", "another-task");
+    expect(unknown.status).not.toBe(0);
+    expect(unknown.stderr).toContain("no slot claimed");
+  }, 30_000);
+
+  test.skipIf(process.env.LXE_TEST_CREDENTIALS !== "1")("native entrypoint initializes config and explicitly refreshes it", () => {
+    const f = fixture();
+    const packagePath = join(repositoryRoot, "apps/desktop/package.json");
+    const electron = createRequire(packagePath)("electron") as string;
+    mkdirSync(join(f.slot, "apps/desktop/node_modules/electron"), { recursive: true });
+    writeFileSync(join(f.slot, "apps/desktop/package.json"), JSON.stringify({ name: JSON.parse(readFileSync(packagePath, "utf8")).name }));
+    writeFileSync(join(f.slot, "apps/desktop/node_modules/electron/index.js"), `module.exports = ${JSON.stringify(electron)};`);
+    writeFileSync(join(f.root, ".env"), "FIXTURE=first\n");
+    const initialized = f.run("review");
+    expectSuccess(initialized);
+    expect(initialized.stdout).toContain("test configuration initialized (1 files)");
+    expect(readFileSync(join(f.slot, ".env"), "utf8")).toBe("FIXTURE=first\n");
+    writeFileSync(join(f.root, ".env"), "FIXTURE=second\n");
+    const refreshed = f.run("refresh-config", "review");
+    expectSuccess(refreshed);
+    expect(refreshed.stdout).toContain("test configuration refreshed");
+    expect(refreshed.stdout).toContain("previous configuration:");
+    expect(readFileSync(join(f.slot, ".env"), "utf8")).toBe("FIXTURE=second\n");
+  }, 120_000);
 });
