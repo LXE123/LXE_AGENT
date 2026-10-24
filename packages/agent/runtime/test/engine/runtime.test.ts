@@ -1885,10 +1885,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test.each(["report.xlsx", "马帮TMS-商品-菲律宾PH1仓-20261016-120000.xlsx",
-    "马帮TMS-商品-越南VN1仓-20261016-120000.xlsx", "马帮TMS-商品-全部仓库-20261016-120000.xlsx",
-    "马帮TMS-商品-越南VN1仓-部分导出-20261016-120000.xlsx",
-  ])("persists tool state patches and records emitted files as artifacts: %s", async filename => {
+  test.each(["report.xlsx", "测试 附件.xlsx"])("persists tool state patches and records emitted files as artifacts: %s", async filename => {
     const filePath = join(tmpdir(), filename);
     const responses: AssistantMessage[] = [
       messageFixture({
