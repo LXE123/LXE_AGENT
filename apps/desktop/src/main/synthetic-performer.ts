@@ -38,8 +38,8 @@ interface CliRecord {
 
 export interface DesktopSyntheticPerformerServiceOptions {
   platform: NodeJS.Platform;
-  pythonPath: string;
-  pythonArguments?: readonly string[];
+  executablePath: string;
+  commandArguments?: readonly string[];
   exifToolPath: string;
   dataRoot: string;
   managedPath: string;
@@ -47,11 +47,7 @@ export interface DesktopSyntheticPerformerServiceOptions {
   onStderr?: (line: string) => void;
 }
 
-export const syntheticPerformerPythonArguments = [
-  "-I",
-  "-B",
-  "-m",
-  "lxeskill",
+export const syntheticPerformerCommandArguments = [
   "media",
   "synthetic-performer",
   "--stdin-json",
@@ -246,7 +242,7 @@ export class DesktopSyntheticPerformerService {
     if (this.options.platform !== "win32" && this.options.platform !== "darwin") {
       throw new Error("Amazon AI person media tagging currently supports Windows and macOS only");
     }
-    if (!existsSync(this.options.pythonPath)) throw new Error(`Managed Python is unavailable: ${this.options.pythonPath}`);
+    if (!existsSync(this.options.executablePath)) throw new Error(`LXE Skill CLI is unavailable: ${this.options.executablePath}`);
     if (!existsSync(this.options.exifToolPath)) throw new Error(`ExifTool is unavailable: ${this.options.exifToolPath}`);
   }
 
@@ -274,9 +270,9 @@ export class DesktopSyntheticPerformerService {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
     const child = spawn(
-      this.options.pythonPath,
-      this.options.pythonArguments
-        ?? syntheticPerformerPythonArguments,
+      this.options.executablePath,
+      this.options.commandArguments
+        ?? syntheticPerformerCommandArguments,
       {
         cwd: this.options.dataRoot,
         env: {

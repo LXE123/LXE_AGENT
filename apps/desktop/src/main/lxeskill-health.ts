@@ -10,7 +10,7 @@ interface ProbeExecution {
 }
 
 interface LxeSkillHealthOptions {
-  pythonPath: string;
+  executablePath: string;
   dataRoot: string;
   environment: Record<string, string | undefined>;
   recovery: string;
@@ -72,8 +72,8 @@ export class DesktopLxeSkillHealth {
       if (controller.signal.aborted) return;
       const { LXE_AGENT_SQLITE_DB_PATH: _agentDb,
         LXE_USER_SKILLS_ROOT: _userSkills, ...environment } = this.options.environment;
-      const result = await (this.options.execute ?? executeProbe)(this.options.pythonPath,
-        ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "list"], {
+      const result = await (this.options.execute ?? executeProbe)(this.options.executablePath,
+        ["list"], {
           cwd: this.options.dataRoot, env: environment, signal: controller.signal,
           timeout: this.options.timeoutMs ?? 30_000, killSignal: "SIGKILL",
           maxBuffer: 10 * 1024 * 1024, windowsHide: true, encoding: "utf8",

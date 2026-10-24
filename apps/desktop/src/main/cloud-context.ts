@@ -48,19 +48,19 @@ export function parseContextResult(stdout: string, exitCode: number | null, stde
 
 /** Native bootstrap query: does not depend on gateway, skill permissions or desktop secrets. */
 export class DesktopCloudContextClient implements CloudContextQuery {
-  constructor(private readonly options: { pythonPath: string; cwd: string; timeoutMs?: number; spawn?: typeof spawn }) {}
+  constructor(private readonly options: { executablePath: string; cwd: string; timeoutMs?: number; spawn?: typeof spawn }) {}
 
   query(serverUrl: string, signal: AbortSignal): Promise<unknown> {
-    if (!isAbsolute(this.options.pythonPath)) return Promise.reject(new CloudContextError("Managed Python path must be absolute"));
+    if (!isAbsolute(this.options.executablePath)) return Promise.reject(new CloudContextError("LXE Skill CLI path must be absolute"));
     if (signal.aborted) return Promise.reject(new CloudContextError("cloud-context query cancelled", "cancelled"));
-    const environment: NodeJS.ProcessEnv = {};
-    // Python is launched by absolute path. No application credentials, proxy or PYTHONPATH inheritance.
+    const environment: NodeJS.ProcessEnv = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1" };
+    // The CLI is launched by absolute path. No application credentials, proxy or PYTHONPATH inheritance.
     for (const key of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "LANG"]) {
       if (process.env[key]) environment[key] = process.env[key];
     }
     return new Promise((resolve, reject) => {
-      const child = (this.options.spawn ?? spawn)(this.options.pythonPath,
-        ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "cloud-context", "--server", serverUrl],
+      const child = (this.options.spawn ?? spawn)(this.options.executablePath,
+        ["cloud-context", "--server", serverUrl],
         { cwd: this.options.cwd, env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
       const chunks: Buffer[] = [];
       let bytes = 0;

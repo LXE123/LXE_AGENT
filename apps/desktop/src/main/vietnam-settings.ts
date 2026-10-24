@@ -11,8 +11,7 @@ export class DesktopVietnamSettingsService {
   private async call<T = DesktopVietnamSettingsState>(action: "read" | "save" | "upload" | "export", ...values: string[]): Promise<T> {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
-    // Isolated mode ignores PYTHON* environment variables, so select UTF-8 explicitly.
-    const args = ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", action, ...values];
+    const args = ["vietnam", "replenishment", "settings", "--action", action, ...values];
     const options = {
       cwd: this.options.dataRoot, timeout: 180_000, maxBuffer: 1024 * 1024, windowsHide: true,
       env: { ...process.env, LXE_DATA_ROOT: this.options.dataRoot,
@@ -22,7 +21,7 @@ export class DesktopVietnamSettingsService {
     };
     const execution = this.options.execute ? await this.options.execute(args, options)
       : await new Promise<{ stdout: string; stderr: string; error: Error | null }>(resolve => {
-        execFile(this.options.pythonPath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
+        execFile(this.options.executablePath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
       });
     let result: { type?: string; ok?: boolean; data?: { success?: boolean; data?: T }; error?: { message?: string } } | undefined;
     const terminal = execution.stdout.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";

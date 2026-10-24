@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { sanitizeLogValue } from "./logging";
 
 export interface LxeSkillQueryOptions {
-  pythonPath?: string;
+  executablePath?: string;
   cwd: string;
   environment: Record<string, string | undefined>;
   timeoutMs?: number;
@@ -14,9 +14,8 @@ export async function queryLxeSkill(
   options: LxeSkillQueryOptions,
 ): Promise<Record<string, unknown>> {
   const { LXE_AGENT_SQLITE_DB_PATH: _agentDb, LXESKILL_SKILL_SCOPE: _scope, ...environment } = options.environment;
-  const python = options.pythonPath ?? environment.LXE_MANAGED_PYTHON;
-  const file = python || (process.platform === "win32" ? "lxeskill.cmd" : "lxeskill");
-  const args = [...(python ? ["-I", "-B", "-X", "utf8", "-m", "lxeskill"] : []), ...command.split(" ")];
+  const file = options.executablePath ?? (process.platform === "win32" ? "lxeskill.exe" : "lxeskill");
+  const args = command.split(" ");
   const execution = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(resolve => {
     execFile(file, args, {
       cwd: options.cwd, env: environment, encoding: "utf8", windowsHide: true,

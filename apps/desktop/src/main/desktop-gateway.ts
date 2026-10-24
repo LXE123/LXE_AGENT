@@ -26,7 +26,7 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import { createLogger, resolveWorkspaceContext } from "@lxe/core";
+import { createLogger, resolveWorkspaceContext, withExecutablePath } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
@@ -195,7 +195,7 @@ export class DesktopGateway {
       delete target.LXE_ROOT;
       delete target.LXE_RESOURCE_ROOT;
     }
-    const environment: Record<string, string | undefined> = {
+    const environment: Record<string, string | undefined> = withExecutablePath({
       ...withoutDataServerEnvironment(processEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
       LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
@@ -234,13 +234,13 @@ export class DesktopGateway {
         managedEnvironment: configuredEnvironment,
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
-    };
+    }, this.options.paths.managedPath);
     void this.lxeskillHealth?.stop();
     this.lxeskillQueryOptions = {
-      pythonPath: this.options.paths.managedPythonPath, cwd: this.options.paths.dataRoot, environment: { ...environment },
+      executablePath: this.options.paths.lxeskillExecutablePath, cwd: this.options.paths.dataRoot, environment: { ...environment },
     };
     this.lxeskillHealth = new DesktopLxeSkillHealth({
-      pythonPath: this.options.paths.managedPythonPath,
+      executablePath: this.options.paths.lxeskillExecutablePath,
       dataRoot: this.options.paths.dataRoot,
       environment: { ...environment },
       recovery: this.options.packaged ? "Reinstall or rebuild LXE Agent"

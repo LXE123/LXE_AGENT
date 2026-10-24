@@ -10,7 +10,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 const state = { directory: "/app/skill-data/vietnam-stock-recommendation", parameters: null, parameters_error: null, template: null, template_error: null };
 function service(execute?: DesktopInputAssetsOptions["execute"]) {
   const root = mkdtempSync(join(tmpdir(), "vietnam-settings-")); roots.push(root);
-  return new DesktopVietnamSettingsService({ dataRoot: root, pythonPath: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"), managedPath: "", platform: process.platform, execute });
+  return new DesktopVietnamSettingsService({ dataRoot: root, executablePath: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"), managedPath: "", platform: process.platform, execute });
 }
 test("settings use the lxeskill entrypoint and pass parameters and selections as single arguments", async () => {
   const calls: string[][] = [];
@@ -19,22 +19,22 @@ test("settings use the lxeskill entrypoint and pass parameters and selections as
     expect(options.env?.LXE_DATA_ROOT).toContain("vietnam-settings-");
     expect(options.env?.LXE_SQLITE_DB_PATH).toEndWith("lxeskill.sqlite3");
     expect(options.env?.LXE_WORKSPACE_ROOT).toEndWith("workspace");
-    return { stdout: JSON.stringify({ type: "result", ok: true, data: { success: true, data: args[10] === "export" ? { path: args[12] } : state } }), stderr: "", error: null };
+    return { stdout: JSON.stringify({ type: "result", ok: true, data: { success: true, data: args[4] === "export" ? { path: args[6] } : state } }), stderr: "", error: null };
   });
   await store.read();
   await store.save({ exchange_rate: "4200" });
   await store.uploadTemplate("/selected/中文 模板.xlsx");
   expect(await store.exportTemplate("D:\\中文 模板\\导出.xlsx")).toEqual({ path: "D:\\中文 模板\\导出.xlsx" });
   expect(calls).toEqual([
-    ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", "read"],
-    ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", "save", "--parameters", '{"exchange_rate":"4200"}'],
-    ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", "upload", "--path", "/selected/中文 模板.xlsx"],
-    ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", "export", "--path", "D:\\中文 模板\\导出.xlsx"],
+    ["vietnam", "replenishment", "settings", "--action", "read"],
+    ["vietnam", "replenishment", "settings", "--action", "save", "--parameters", '{"exchange_rate":"4200"}'],
+    ["vietnam", "replenishment", "settings", "--action", "upload", "--path", "/selected/中文 模板.xlsx"],
+    ["vietnam", "replenishment", "settings", "--action", "export", "--path", "D:\\中文 模板\\导出.xlsx"],
   ]);
 });
 test("actual Python settings survive new service instances without changing ERP configuration", async () => {
   const root = mkdtempSync(join(tmpdir(), "vietnam-settings-")); roots.push(root);
-  const options = { dataRoot: root, pythonPath: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"), managedPath: "", platform: process.platform };
+  const options = { dataRoot: root, executablePath: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"), managedPath: "", platform: process.platform };
   const first = new DesktopVietnamSettingsService(options);
   const initial = await first.read();
   expect(initial.parameters?.sales_weight_7d).toBe("0.6");
@@ -73,7 +73,7 @@ book.save(sys.argv[1])
 book.close()
 `, source]);
   const dataRoot = join(root, "app");
-  const store = new DesktopVietnamSettingsService({ dataRoot, pythonPath, managedPath: "", platform: process.platform });
+  const store = new DesktopVietnamSettingsService({ dataRoot, executablePath: join(process.cwd(), process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"), managedPath: "", platform: process.platform });
   const uploaded = await store.uploadTemplate(source);
   expect(uploaded.template?.file_name).toBe("中文 九表模板.xlsx");
   const invalid = join(root, "中文 坏表.xlsx");

@@ -11,7 +11,7 @@ import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 const root = repositoryRoot(import.meta.dir);
 test("queries command attribution and datasets through the installed public CLI", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "lxe-cli-query-"));
-  const options = { cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+  const options = { cwd: root, executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
     environment: { ...process.env, LXE_DATA_ROOT: dataRoot, LXESKILL_SKILL_SCOPE: '["unrelated"]' } };
   try {
     const commands = await queryLxeSkillCommandSkills(options);
@@ -44,7 +44,7 @@ test("queries command attribution and datasets through the installed public CLI"
 
 test("Mabang TMS exposes one export command with optional warehouse scope and its own deliverable dataset", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "lxe-tms-query-"));
-  const options = { cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+  const options = { cwd: root, executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
     environment: { ...process.env, LXE_DATA_ROOT: dataRoot } };
   try {
     const data = await queryLxeSkill("list", options);
@@ -73,7 +73,7 @@ test.each([
   const dataRoot = mkdtempSync(join(tmpdir(), "lxe-erp-query-"));
   try {
     const stats = new TurnStatistics({ directory: root, commandSkills: () => queryLxeSkillCommandSkills({
-      cwd: root, pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+      cwd: root, executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
       environment: { ...process.env, LXE_DATA_ROOT: dataRoot },
     }) });
     stats.observe("exec", { command: `lxeskill ${command} --warehouse ${warehouse}` });

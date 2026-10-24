@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { DesktopSyntheticPerformerTask } from "@lxe/desktop-protocol";
 import {
   DesktopSyntheticPerformerService,
-  syntheticPerformerPythonArguments,
+  syntheticPerformerCommandArguments,
   syntheticPerformerTaskDirectoryName,
 } from "../src/main/synthetic-performer";
 
@@ -37,7 +37,7 @@ const fixture = (scriptBody: string) => {
     root,
     runner,
     python: process.execPath,
-    pythonArguments: [runner],
+    commandArguments: [runner],
     exiftool,
     dataRoot,
     sources,
@@ -62,12 +62,8 @@ const waitForTerminal = (
 });
 
 describe("desktop synthetic performer service", () => {
-  test("keeps the managed Python CLI command as the production default", () => {
-    expect(syntheticPerformerPythonArguments).toEqual([
-      "-I",
-      "-B",
-      "-m",
-      "lxeskill",
+  test("keeps the public CLI command as the production default", () => {
+    expect(syntheticPerformerCommandArguments).toEqual([
       "media",
       "synthetic-performer",
       "--stdin-json",
@@ -89,8 +85,8 @@ console.log('{"protocol_version":"1","type":"result","command":"media synthetic-
     const updates: DesktopSyntheticPerformerTask[] = [];
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -124,8 +120,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -153,8 +149,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "linux",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -171,8 +167,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -210,8 +206,8 @@ setInterval(() => undefined, 30_000);
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "darwin",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -251,8 +247,8 @@ console.log('{"protocol_version":"1","type":"result","command":"media synthetic-
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      pythonPath: files.python,
-      pythonArguments: files.pythonArguments,
+      executablePath: files.python,
+      commandArguments: files.commandArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
