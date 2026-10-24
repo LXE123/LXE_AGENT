@@ -198,7 +198,6 @@ export class DesktopGateway {
     const environment: Record<string, string | undefined> = {
       ...withoutDataServerEnvironment(processEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
-      LXE_AGENT_SOUL_PATH: this.options.paths.agentSoulPath,
       LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
       LXE_USER_SKILLS_ROOT: this.options.paths.userSkillsRoot,
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
@@ -256,7 +255,6 @@ export class DesktopGateway {
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
       environment,
-      agentSoulPath: this.options.paths.agentSoulPath,
       skillsRoot: this.options.paths.skillsRoot,
       userSkillsRoot: this.options.paths.userSkillsRoot,
       llmConfigRoot: this.options.paths.llmConfigRoot,

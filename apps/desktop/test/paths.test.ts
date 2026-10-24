@@ -22,7 +22,6 @@ describe("desktop private runtime paths", () => {
     });
 
     expect(paths.resourceRoot).toBe(sourceRoot);
-    expect(paths.agentSoulPath).toBe(posix.join(sourceRoot, "SOUL.md"));
     expect(paths.skillsRoot).toBe(posix.join(sourceRoot, "skills"));
     expect(paths.userSkillsRoot).toBe(posix.join(sourceRoot, "var", "skills"));
     expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
@@ -56,7 +55,6 @@ describe("desktop private runtime paths", () => {
 
     expect(paths.projectRoot).toBe("D:\\Apps\\LXE Agent");
     expect(paths.resourceRoot).toBe(root);
-    expect(paths.agentSoulPath).toBe(win32.join(root, "agent", "SOUL.md"));
     expect(paths.skillsRoot).toBe(win32.join(root, "skills"));
     expect(paths.userSkillsRoot).toBe(win32.join(paths.dataRoot, "skills"));
     expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));

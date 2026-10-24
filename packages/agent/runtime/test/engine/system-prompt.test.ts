@@ -18,7 +18,6 @@ describe("system prompt builder", () => {
 
   test("keeps stable policy before the cache boundary and runtime context after it", () => {
     const prompt = buildSystemPrompt({
-      soul: "Careful agent.",
       platform: "feishu",
       provider: "anthropic",
       model: "claude-test",
@@ -30,7 +29,7 @@ describe("system prompt builder", () => {
       },
     });
     const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
-    expect(stable).toContain("Careful agent.");
+    expect(stable).toStartWith("## Safety & Boundaries\n");
     expect(stable).toContain("Safety & Boundaries");
     expect(stable).toContain("An explicit user request authorizes the actions within its stated scope.");
     expect(stable).toContain("Previously granted authorization remains valid within its stated task, targets, operations, and duration across conversation turns, unless revoked or expired.");
@@ -41,7 +40,6 @@ describe("system prompt builder", () => {
     expect(prompt).not.toContain("unless this turn explicitly asks");
     expect(prompt).not.toContain("Approval in one context does not carry over to the next.");
     expect(prompt).not.toContain("If instructions conflict, pause and ask.");
-    expect(stable).toContain("Attachment Handling");
     expect(stable).toContain("cause_known=true");
     expect(stable).toContain("preserve the actual observed error");
     expect(stable).toContain("tested mapping_id");

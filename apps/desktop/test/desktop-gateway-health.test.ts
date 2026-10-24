@@ -29,7 +29,7 @@ describe("desktop lxeskill health", () => {
     const states: string[] = [];
     let calls = 0;
     const service = serviceFor({
-      environment: { LXE_AGENT_SQLITE_DB_PATH: "/private/agent.sqlite3", LXE_AGENT_SOUL_PATH: "/private/soul", LXE_USER_SKILLS_ROOT: "/private/skills", LXE_SQLITE_DB_PATH: "/business.sqlite3" },
+      environment: { LXE_AGENT_SQLITE_DB_PATH: "/private/agent.sqlite3", LXE_USER_SKILLS_ROOT: "/private/skills", LXE_SQLITE_DB_PATH: "/business.sqlite3" },
       execute: async (file, args, options) => {
         calls++;
         expect(file).toContain("python");

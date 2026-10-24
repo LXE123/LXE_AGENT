@@ -775,7 +775,6 @@ describe("TypeScriptAgentRuntime", () => {
             loaded_at: 1,
             instructions_prompt: "Workspace rule",
             skills: Object.freeze({ names: Object.freeze([]), modules: Object.freeze({}), prompt: "" }),
-            soul: "Cached soul",
           }),
           release: () => { released += 1; },
         }),

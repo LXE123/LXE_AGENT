@@ -10,7 +10,7 @@ Session 保存自己不可变的 `WorkspaceContext`，但同一个 Git worktree 
 
 Runtime 从 Agent store 读取 Session，验证 Job 携带的 Workspace 完全一致，并确认原目录仍然可用。之后取得一个 Workspace Lease：
 
-1. 固定本轮的 Skill 发现元数据、`AGENTS.md`、`SOUL.md` 和搜索服务；按需读取的 Skill 正文另见 [加载规则](../skill/README.md#目录加载与激活)。
+1. 固定本轮的 Skill 发现元数据、`AGENTS.md` 和搜索服务；按需读取的 Skill 正文另见 [加载规则](../skill/README.md#目录加载与激活)。
 2. 用同一个 Snapshot 生成 System Prompt、工具暴露和文件搜索。
 3. 文件变化只会生成下一代 Snapshot，不会替换本轮已取得的指令与发现元数据；模型主动读取文件仍会得到当时的文件内容。
 4. Turn 完成或失败后释放 Lease。
@@ -19,9 +19,9 @@ Runtime 从 Agent store 读取 Session，验证 Job 携带的 Workspace 完全�
 
 ## 自动刷新
 
-每次 Turn 取得 Lease 前先执行 Skill 的使用时刷新，再检查全局与工作区指令变化。Skill 正文和附属文件由 SkillCatalog 重新读取；`AGENTS.md` 等指令另有节流后的文件指纹检查。
+每次 Turn 取得 Lease 前先执行 Skill 的使用时刷新，再检查 Skill 版本与工作区指令变化。Skill 正文和附属文件由 SkillCatalog 重新读取；`AGENTS.md` 等指令另有节流后的文件指纹检查。
 
-文件监听帮助发现指令、`SOUL.md` 等变化，事件先标记缓存过期，再重建 Snapshot；watcher 回调不重新扫描 Skill。显式刷新也会重新读取 Skill 与指令。Dashboard 内部诊断接口可强制刷新，产品没有单独的 reload 按钮。
+文件监听帮助发现 `AGENTS.md` 指令变化，事件先标记缓存过期，再重建 Snapshot；watcher 回调不重新扫描 Skill。显式刷新也会重新读取 Skill 与指令。Dashboard 内部诊断接口可强制刷新，产品没有单独的 reload 按钮。
 
 刷新失败时，有旧 Snapshot 就继续保留并在 Health/日志中告警；第一次加载没有可用旧版本时，本轮明确失败。Session 原目录已经删除或 Git worktree 发生变化时，不能靠旧缓存继续运行，也不能回退到新的默认工作区。
 

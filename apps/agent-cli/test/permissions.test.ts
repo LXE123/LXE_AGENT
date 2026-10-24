@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PermissionApprovalService, PermissionPolicyService, SqliteRuntimeStore, ToolRegistry, registerCodingTools, type ToolDefinition } from "@lxe/runtime";
@@ -56,11 +56,11 @@ test("dashboard mode and approval RPCs persist audit data, preserve pending targ
 
 test("host shutdown still stops processes and releases resources when approval audit cleanup fails", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-permission-shutdown-"));
-  const skills = join(root, "skills"), soul = join(root, "SOUL.md");
-  mkdirSync(skills); writeFileSync(soul, "Test instructions");
+  const skills = join(root, "skills");
+  mkdirSync(skills);
   const host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: { directory: root, worktree: root },
-    agentSoulPath: soul, skillsRoot: skills, userSkillsRoot: join(root, "user"),
+    skillsRoot: skills, userSkillsRoot: join(root, "user"),
     llmConfigRoot: join(repositoryRoot(import.meta.dir), "config", "llm"),
     environment: { LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     emitter: { emit: async () => {}, typing: async () => {} },
@@ -80,8 +80,8 @@ test("host shutdown still stops processes and releases resources when approval a
 
 test("Desktop host exposes exec without a managed lxeskill tool", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-exec-host-"));
-  const workspaceRoot = join(root, "workspace"), skills = join(root, "skills"), soul = join(root, "SOUL.md");
-  mkdirSync(workspaceRoot); mkdirSync(skills); writeFileSync(soul, "Synthetic test instructions");
+  const workspaceRoot = join(root, "workspace"), skills = join(root, "skills");
+  mkdirSync(workspaceRoot); mkdirSync(skills);
   let managed: ToolDefinition | undefined;
   const original = ToolRegistry.prototype.register;
   const registration = spyOn(ToolRegistry.prototype, "register").mockImplementation(function(this: ToolRegistry, definition) {
@@ -90,7 +90,7 @@ test("Desktop host exposes exec without a managed lxeskill tool", async () => {
   });
   const host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: { directory: workspaceRoot, worktree: workspaceRoot },
-    agentSoulPath: soul, skillsRoot: skills, userSkillsRoot: join(root, "user"),
+    skillsRoot: skills, userSkillsRoot: join(root, "user"),
     llmConfigRoot: join(repositoryRoot(import.meta.dir), "config", "llm"),
     environment: { LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0", LXE_MANAGED_PYTHON: process.execPath },
     emitter: { emit: async () => {}, typing: async () => {} },
