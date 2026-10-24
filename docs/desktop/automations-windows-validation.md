@@ -21,6 +21,24 @@ macOS 同时回归了修改的 SQLite / MCP 测试、新增 Electron 测试、�
 
 随后调整定时任务的桌面布局和空状态，两平台重新完成上述 CDS 验收、Dashboard 类型检查与构建。共享 Renderer fixture 的相关回归也重新通过：macOS 的页面、弹窗、就绪状态共 3 个测试，Windows 加上标题栏和菜单共 5 个测试。两平台报告记录的 12 个源码指纹一致。这次 UI 调整没有修改调度与持久化逻辑，因此没有重复运行上面的 118 个后台测试。
 
+## 停止与一次性恢复调整（2026-10-24）
+
+在同一 Windows 实机的独立 worktree 验证源码提交 `e01c664d`（基线 `e3274147`）。本次覆盖：停止只结束当前执行、不暂停绑定计划；下一次定时回合在空闲后正常开始；恢复过期的一次性计划必须重新选择未来时间。
+
+- 11 个文件的 92 个定向测试通过，包含调度、停止后的再次派发、过期／异步校验竞争、已启用一次性计划的离线恢复，以及真实 Electron 停止 RPC 路由、SQLite、Worker 和桌面 MCP 回归。
+- 全仓类型检查及桌面构建通过。
+- 亮暗主题共 32 组检查、86 项状态测量、20 张截图通过。恢复弹窗覆盖空时间初始焦点、取消、必填和过期校验、请求期间禁用与禁止关闭、恢复失败保留实际诊断和重试。保存后只按新时间触发，提示词与对话设置保留。
+- macOS 同范围验证通过；两平台界面报告的 13 个源码指纹与当前文件一致。实际执行由 fixture 模拟，Electron、SQLite、管道和页面控件使用本机实现。
+
+复现本轮定向测试：
+
+```sh
+bun test apps/gateway/test/orchestration/automations.test.ts apps/gateway/test/orchestration/local-conversation.test.ts apps/gateway/test/orchestration/scheduler.test.ts apps/gateway/test/orchestration/heartbeat-bridge.test.ts apps/gateway/test/orchestration/router.test.ts apps/dashboard/test/features/automations/form.test.ts apps/desktop/test/automation-store.test.ts apps/desktop/test/automation-stop.test.ts apps/desktop/test/automation-electron.test.ts apps/desktop/test/automation-clock-bundle.test.ts apps/desktop/test/desktop-mcp.test.ts
+bun run typecheck
+bun run desktop:build
+bun run cds:check:automations
+```
+
 ## 实机发现并修复的测试问题
 
 - CDS 脚本把输出目录放在 URL 参数后，Windows Electron 立即退出（255）。调整为 URL 最后，并按平台保存验收证据。
