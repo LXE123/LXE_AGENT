@@ -49,7 +49,7 @@
 
 ### lxeskillCLI
 
-- [命令与帮助](lxeskill-cli/commands.md)：业务分组导航、参数帮助、结构化查询及日志容错。
+- [lxeskill 命令手册](lxeskill-cli/commands.md)：按 FBA、备货、运营查找命令，查看用途、典型示例和参数帮助入口。
 
 - [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：桌面认证窗口、独立 CLI 浏览器绑定和排障。
 - [CLI 云端通信与自检](lxeskill-cli/cloud-access.md)：权限查询、连接诊断、公共 HTTP 模块和业务请求。

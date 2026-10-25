@@ -12,7 +12,7 @@ lxeskillCLI 是项目维护的独立业务命令行工具，使用 Python 实现
 
 - 解析命令和输入参数，将请求分发到对应处理模块。
 - 通过命令目录（Catalog）定义命令名称、参数结构、技能归属和产物声明。
-- 提供按 FBA、备货、运营分类的帮助导航，以及 `list`、`describe`、`doctor` 等发现与检查命令。数据采集随业务归类，现有命令名保持不变；用法见 [命令与帮助](../lxeskill-cli/commands.md)。
+- 提供按 FBA、备货、运营分类的帮助导航，以及 `list`、`describe`、`doctor` 等发现与检查命令。数据采集随业务归类，现有命令名保持不变；用法见 [lxeskill 命令手册](../lxeskill-cli/commands.md)。
 - 区分业务命令、浏览器命令、维护命令和内部命令。
 
 `catalog.json` 是 lxeskillCLI 内部维护的命令目录。调用方通过 `list`、`describe` 等 CLI 接口查询所需信息。
