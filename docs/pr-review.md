@@ -20,6 +20,8 @@ PR 标题与 commit 说明使用英语，commit 类型前缀遵循 [AGENTS.md](.
 
 技术检查应核对模块调用边界：Electron 与 agentcli 通过 JSON-RPC 2.0 通信；Electron 通过 lxeskillCLI 暴露的命令调用业务能力。
 
+修改 lxeskillCLI 命令时，检查命令定义与实际行为是否一致，并同步受影响的帮助、命令手册和配套 Skill。帮助与手册共用命令定义，维护方式见 [lxeskill 命令手册](lxeskill-cli/commands.md#维护这份手册)。
+
 修改文档时检查相关链接与过时引用；发布、安装和升级的验证入口见 [打包手册](desktop/packaging-pipeline.md)。
 
 AI 应说明发现的问题、实际验证结果和未确认事项。
@@ -60,7 +62,9 @@ AI 代为合并时须已有明确授权。确认远端 PR 已合并后，再同�
 
 ### 2.1 Skill 提供的工作上下文
 
-Skill 可以根据任务需要，向模型介绍 lxeskillCLI、Electron 等模块的内部结构、实现细节、数据组织和操作方法，帮助模型理解环境并使用工具完成任务。
+Skill 为 Agent 提供任务知识、工作上下文和命令使用指引，具体操作由调用的工具或程序执行。例如，lxeskillCLI 的配套 Skill 介绍业务任务的做法，lxeskillCLI 通过 `lxeskill` 命令执行对应的业务操作。
+
+Skill 也可以根据任务需要，向模型介绍 lxeskillCLI、Electron 等模块的内部结构、实现细节、数据组织和操作方法，帮助模型理解环境并使用工具完成任务。
 
 这些说明属于提供给模型的工作上下文，本身不构成程序模块之间的耦合。模型根据上下文自主使用通用 Tool，不改变各模块的职责和数据归属。
 
@@ -95,4 +99,4 @@ Skill 可以根据任务需要，向模型介绍 lxeskillCLI、Electron 等模�
 - 修改业务规则、计算公式或计算口径。
 - 新增或改变业务命令提供的能力及操作范围。
 
-模块说明见 [lxeskillCLI 模块介绍](architecture/lxeskill-cli.md)。
+配套 Skill、命令描述与使用指引的人工审核按 [第 2 节共同要求](#2-各模块共同的人工审核项)执行；模块职责与业务分类见 [lxeskillCLI 模块介绍](architecture/lxeskill-cli.md)。
