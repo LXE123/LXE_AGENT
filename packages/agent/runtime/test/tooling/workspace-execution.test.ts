@@ -20,15 +20,14 @@ test("real Python children keep session artifacts, venv, temporary files and out
   writeFileSync(join(cwd, "probe.py"), `
 import json, os, sys, tempfile
 from pathlib import Path
-from shared.workspace import activate_project_workspace, artifact_root, internal_root
-from lxeskill.business import allowed_output_file
-activate_project_workspace()
-output = artifact_root() / 'probe.txt'
+artifacts = Path(os.environ['LXE_WORKSPACE_ROOT']) / '.lxeagent' / 'artifacts'
+artifacts.mkdir(parents=True, exist_ok=True)
+output = artifacts / 'probe.txt'
 output.write_text('result', encoding='utf-8')
 with tempfile.NamedTemporaryFile() as temporary:
-    print(json.dumps(dict(workspace=os.environ['LXE_WORKSPACE_ROOT'], artifacts=str(artifact_root()),
-        output=str(allowed_output_file(str(output))), internal=str(internal_root()), temporary=temporary.name,
-        venv=sys.prefix, cwd=str(Path.cwd()), scope=os.environ.get('LXESKILL_SKILL_SCOPE'),
+    print(json.dumps(dict(workspace=os.environ['LXE_WORKSPACE_ROOT'], artifacts=str(artifacts),
+        output=str(output), temporary=temporary.name,
+        venv=sys.prefix, cwd=str(Path.cwd()),
         agent_db=os.environ.get('LXE_AGENT_SQLITE_DB_PATH'),
         tmp=[os.environ[name] for name in ['TMP', 'TEMP', 'TMPDIR']])) )
 print('x' * 50000)
@@ -38,8 +37,7 @@ print('x' * 50000)
   const processes = registerCodingTools(registry, {
     executionPaths,
     execShell: new ExecShellAdapter({ environment: { ...process.env, LXE_DATA_ROOT: dataRoot,
-      LXE_AGENT_SQLITE_DB_PATH: join(dataRoot, "db", "agent.sqlite3"), LXESKILL_SKILL_SCOPE: "stale" } }),
-    execEnv: () => ({ LXESKILL_SKILL_SCOPE: "selected" }),
+      LXE_AGENT_SQLITE_DB_PATH: join(dataRoot, "db", "agent.sqlite3") } }),
   });
   const policies = new PermissionPolicyService();
   try {
@@ -60,8 +58,8 @@ print('x' * 50000)
       const transcript = readFileSync(spillPath, "utf8");
       const record = JSON.parse(transcript.match(/^\{.+\}$/mu)![0]);
       expect(record).toMatchObject({ workspace: executionPolicy.workspaceRoot, artifacts: executionPaths.artifactRoot(executionPolicy),
-        output: join(executionPaths.artifactRoot(executionPolicy), "probe.txt"), internal: join(dataRoot, "lxeskill"),
-        venv: join(worktree, ".venv"), cwd, scope: "selected", agent_db: null,
+        output: join(executionPaths.artifactRoot(executionPolicy), "probe.txt"),
+        venv: join(worktree, ".venv"), cwd, agent_db: null,
         tmp: Array(3).fill(executionPaths.temporaryDirectory(executionPolicy)) });
       expect(pathContains(executionPaths.temporaryDirectory(executionPolicy), record.temporary)).toBe(true);
       expect(readFileSync(record.output, "utf8")).toBe("result");

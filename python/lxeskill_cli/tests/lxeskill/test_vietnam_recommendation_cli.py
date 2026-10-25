@@ -67,7 +67,7 @@ def _no_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(generate, "generate_current_vietnam_recommendation", unexpected)
 
 
-def test_catalog_requires_three_reports_and_allows_one_run_template() -> None:
+def test_catalog_requires_three_reports_and_allows_one_run_template(monkeypatch, capsys) -> None:
     entry = load_catalog()["vietnam_replenishment_generate"]
     assert entry["module"] == "services.commands.vietnam_replenishment.generate"
     assert entry["command_path"] == COMMAND
@@ -86,6 +86,13 @@ def test_catalog_requires_three_reports_and_allows_one_run_template() -> None:
     assert entry["artifact_paths"] == [{"field": "output_xlsx", "role": "deliverable"}]
     assert entry.get("deliver_artifacts_on_failure") is not True
     assert load_input_assets()["vietnam_full_workbook"].management == "command"
+    monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
+    assert lxeskill.main([*COMMAND, "--help"]) == 0
+    public = _record(capsys)["data"]
+    assert public["input_schema"] == entry["input_schema"]
+    assert public["input_modes"] == ["flags"]
+    assert public["owner_skills"] == ["vietnam-replenishment"]
+    assert public["attribution_skill"] == "vietnam-replenishment"
 
 
 @pytest.mark.parametrize("arguments", [

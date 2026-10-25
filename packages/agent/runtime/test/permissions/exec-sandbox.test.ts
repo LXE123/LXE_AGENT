@@ -226,31 +226,34 @@ nativeTest("project Python writes artifacts and private temp but cannot write th
   expect(existsSync(join(paths.outputDirectory(p), "escaped"))).toBe(false);
 }, 30_000);
 
-nativeTest("lxeskill preserves its real outside-state error and runs only after explicit full-access approval", async () => {
+nativeTest("exec preserves the real outside-write error and succeeds only after explicit full-access approval", async () => {
   const { root, workspace, policy, paths } = fixture();
-  const dataRoot = join(root, "cli-state");
+  const outside = join(root, "outside.txt"), script = join(workspace, "write.cjs");
+  writeFileSync(script, `require('node:fs').writeFileSync(${JSON.stringify(outside)}, 'approved');`);
+  const command = invokeNode(script);
   const approvals = new PermissionApprovalService({ changed() {}, audit: async () => {} });
   const registry = new ToolRegistry();
-  const processes = registerCodingTools(registry, { executionPaths: paths, approvals,
-    execShell: new ExecShellAdapter({ environment: { ...process.env, LXE_DATA_ROOT: dataRoot, LOCAL_LOGS_ENABLED: "0", PYTHONDONTWRITEBYTECODE: "1" } }) });
+  const processes = registerCodingTools(registry, { executionPaths: paths, approvals });
   managers.push(processes);
-  const context = { session_id: policy("workspace-write").sessionId, turn_id: "turn", tool_call_id: "cli", platform: "desktop",
+  const context = { session_id: policy("workspace-write").sessionId, turn_id: "turn", tool_call_id: "write", platform: "desktop",
     executionPolicy: policy("workspace-write"), workspace: workspaceFor(workspace, process.cwd()),
     handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} } };
   try {
-    const denied = await registry.execute("exec", { command: "lxeskill list", "yield-time-ms": 10000 }, context);
+    const denied = await registry.execute("exec", { command, "yield-time-ms": 10000 }, context);
     const output = String(denied.content[0]?.text);
     expect(output).toContain("status: failed");
-    expect(output).toMatch(/PermissionError|EACCES|Operation not permitted|Access is denied/i);
-    expect(existsSync(join(dataRoot, "lxeskill"))).toBe(false);
-    const call = registry.execute("exec", { command: "lxeskill list", "yield-time-ms": 10000, sandbox_permissions: "danger-full-access", justification: "Initialize the requested CLI state" }, context);
+    expect(output).toMatch(/EACCES|EPERM/);
+    expect(existsSync(outside)).toBe(false);
+    const call = registry.execute("exec", { command, "yield-time-ms": 10000, sandbox_permissions: "danger-full-access", justification: "Write the requested outside file" }, context);
     const deadline = Date.now() + 2000;
     while (!approvals.snapshot().length && Date.now() < deadline) await Bun.sleep(1);
+    expect(approvals.snapshot()).toHaveLength(1);
     const request = approvals.snapshot()[0]!;
-    expect(request.tool).toBe("exec"); expect(existsSync(join(dataRoot, "lxeskill"))).toBe(false);
+    expect(request.tool).toBe("exec"); expect(existsSync(outside)).toBe(false);
     await approvals.decide({ session_id: context.session_id, request_id: request.request_id, decision: "allow" });
     const allowed = await call;
     expect(String(allowed.content[0]?.text)).toContain("status: completed");
-    expect(existsSync(join(dataRoot, "lxeskill"))).toBe(true);
+    expect(readFileSync(outside, "utf8")).toBe("approved");
+    expect(context.executionPolicy.mode).toBe("workspace-write");
   } finally { await approvals.stop(); }
 }, 30000);
