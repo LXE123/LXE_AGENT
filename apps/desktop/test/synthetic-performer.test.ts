@@ -69,7 +69,7 @@ console.log(JSON.stringify({protocol_version:"1",type:"result",command:"media sy
 `);
     const source = join(files.sources, "sample.jpg"); writeFileSync(source, "fixture");
     const service = new DesktopSyntheticPerformerService({
-      platform: process.platform, executablePath: files.python, commandArguments: files.commandArguments,
+      platform: "win32", executablePath: files.python, commandArguments: files.commandArguments,
       exifToolPath: files.exiftool, dataRoot: files.dataRoot, managedPath: files.root, onTaskChanged: () => {},
     });
     const previous = { PYTHONHOME: process.env.PYTHONHOME, PYTHONPATH: process.env.PYTHONPATH };

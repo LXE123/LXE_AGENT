@@ -131,6 +131,8 @@ Logger writers, traces, retention cleanup and local-file sinks must never change
 
 Retention cleanup deletes only managed dated log directories older than the configured period. It must not traverse unrelated user paths. File sinks are flushed during orderly shutdown and fatal-error handling so the final diagnostic record is not lost.
 
+Python CLI help bypasses workspace and logging initialization. Normal Python commands report file creation/write failures to stderr and disable only the failed file sink, preserving console diagnostics and the business outcome. Details: [CLI commands and help](lxeskill-cli/commands.md).
+
 `agent-cli serve` and business CLI commands reserve stdout for their JSON protocol. Their diagnostics go through logging/stderr; writing log prose to stdout would corrupt agent parsing.
 
 ## Troubleshooting

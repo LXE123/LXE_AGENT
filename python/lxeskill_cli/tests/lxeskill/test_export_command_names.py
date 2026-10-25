@@ -90,7 +90,7 @@ def test_new_commands_dispatch_with_flags_only(name, old, new, aliases, options,
     assert not entry.get("legacy_aliases")
     assert entry["owner_skills"] == ["vietnam-replenishment" if new.startswith("vietnam") else new.replace(" ", "-")]
     assert cli.main([*new.split(), "--help"]) == 0
-    assert json.loads(capsys.readouterr().out)["data"]["input_modes"] == ["flags"]
+    assert "输入：仅支持命令行参数。" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("name,old,new,aliases,options", CASES)

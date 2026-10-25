@@ -87,7 +87,7 @@ def test_catalog_requires_three_reports_and_allows_one_run_template(monkeypatch,
     assert entry.get("deliver_artifacts_on_failure") is not True
     assert load_input_assets()["vietnam_full_workbook"].management == "command"
     monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
-    assert lxeskill.main([*COMMAND, "--help"]) == 0
+    assert lxeskill.main(["describe", *COMMAND]) == 0
     public = _record(capsys)["data"]
     assert public["input_schema"] == entry["input_schema"]
     assert public["input_modes"] == ["flags"]

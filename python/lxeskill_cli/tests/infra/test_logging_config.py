@@ -467,3 +467,70 @@ def test_production_modules_do_not_import_legacy_global_logger() -> None:
             offenders.append(relative)
 
     assert offenders == []
+
+
+def test_unwritable_log_directory_preserves_console_and_real_error(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv('LXE_DATA_ROOT', str(tmp_path))
+    monkeypatch.setenv('LOCAL_LOGS_ENABLED', '1')
+    # Portable real OS error on macOS and Windows, without touching user ACLs.
+    (tmp_path / 'logs').write_text('occupied')
+    setup_logging()
+    assert len(_managed_handlers()) == 1
+    logging.getLogger('shared.other').warning('business still runs')
+    result = capsys.readouterr()
+    assert result.out == ''
+    assert 'logging_sink_failed' in result.err
+    assert 'FileExistsError' in result.err or 'NotADirectoryError' in result.err
+    assert 'business still runs' in result.err
+    assert (tmp_path / 'logs').read_text() == 'occupied'
+
+
+@pytest.mark.parametrize('operation', ['write', 'flush'])
+def test_late_log_write_failure_disables_only_that_file_and_reports_once(operation, tmp_path, capsys):
+    handler = logging_config._build_runtime_file_handler(tmp_path / 'runtime.log')
+    handler.stream.close()
+    class FailingStream:
+        def write(self, text):
+            if operation == 'write':
+                raise PermissionError(13, 'fixture write denied')
+        def flush(self):
+            if operation == 'flush':
+                raise OSError(28, 'fixture disk full')
+        def close(self):
+            pass
+    handler.stream = FailingStream()
+    record = logging.LogRecord('test', logging.INFO, __file__, 1, 'PRIVATE_BUSINESS_PAYLOAD', (), None)
+    try:
+        handler.handle(record)
+        handler.handle(record)
+    finally:
+        handler.close()
+    result = capsys.readouterr()
+    assert result.out == ''
+    assert result.err.count('logging_sink_failed') == 1
+    assert ('fixture write denied' if operation == 'write' else 'fixture disk full') in result.err
+    assert 'PRIVATE_BUSINESS_PAYLOAD' not in result.err
+
+
+def test_failed_business_result_is_not_replaced_by_logging_failure(monkeypatch, tmp_path, capsys):
+    from lxeskill import cli
+    monkeypatch.setenv('LXE_DATA_ROOT', str(tmp_path))
+    monkeypatch.setenv('LXE_WORKSPACE_ROOT', str(tmp_path / 'workspace'))
+    monkeypatch.setenv('LOCAL_LOGS_ENABLED', '1')
+    (tmp_path / 'logs').write_text('occupied')
+    monkeypatch.setattr(cli, '_run_entry', lambda *args: (_ for _ in ()).throw(RuntimeError('actual fixture business failure')))
+    assert cli.main(['mabang', 'delivery', 'export', '--delivery-no', 'SP1']) == cli.EXIT_INTERNAL
+    result = capsys.readouterr()
+    import json
+    assert json.loads(result.out)['error']['message'] == 'actual fixture business failure'
+    assert 'logging_sink_failed' in result.err
+
+
+def test_file_failure_diagnostic_redacts_secrets_and_marks_truncation(monkeypatch, capsys):
+    monkeypatch.setenv('MABANG_PASSWORD', 'fixture-private-password')
+    logging_config._report_file_failure('runtime.log', PermissionError('fixture-private-password ' + 'x' * 3000))
+    text = capsys.readouterr().err
+    assert 'fixture-private-password' not in text
+    assert '[REDACTED]' in text
+    assert 'PermissionError' in text
+    assert '[truncated]' in text

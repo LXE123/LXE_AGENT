@@ -8,6 +8,7 @@ from typing import Any
 
 from lxeskill.business import ArtifactPathError, execute_module_json, load_catalog
 from lxeskill.browser import BrowserCliError, execute_browser_command
+from lxeskill.help import help_target, render_help
 from shared.infra.net import bootstrap_network_policy
 from shared.input_assets import InputAssetError, current_asset, promote_asset
 from shared.datasets import load_datasets
@@ -473,6 +474,8 @@ def _run_doctor(catalog: dict[str, dict[str, Any]]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if help_target(arguments) is not None:
+        return _main(arguments)
     if arguments and arguments[0] in {"cloud-status", "cloud-context"}:
         # Self discovery must not initialize business workspaces, logs or desktop state.
         from lxeskill.cloud_status import run_cloud_status
@@ -487,30 +490,21 @@ def main(argv: list[str] | None = None) -> int:
                 "data": {}, "files": [], "error": {"code": "cancelled", "message": "command cancelled"}}, 130
         _emit(result)
         return exit_code
-    activate_project_workspace()
     return _main(arguments)
 
 
 def _main(argv: list[str] | None = None) -> int:
     _configure_stdio()
-    setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)
     try:
         catalog = load_catalog()
-        if not arguments or arguments[0] in {"-h", "--help", "help"}:
-            _emit(
-                {
-                    "type": "result",
-                    "command": "help",
-                    "ok": True,
-                    "data": {
-                        "usage": "lxeskill <list|describe|datasets list|doctor|cloud-status|cloud-context|command> [options]",
-                        "input_modes": ["flags", "input-json", "stdin-json"],
-                        "input_modes_note": "Supported modes depend on the command; use describe or command --help.",
-                    },
-                    "files": [],
-                }
-            )
+        target = help_target(arguments)
+        if target is not None:
+            try:
+                text = render_help(target, catalog, business_navigation=bool(arguments and arguments[0] == "help"))
+            except ValueError as exc:
+                raise LxeSkillError("unknown_command", str(exc), exit_code=EXIT_USAGE) from exc
+            sys.stdout.write(text + "\n")
             return 0
         if arguments[:2] == ["datasets", "list"]:
             if len(arguments) != 2:
@@ -548,13 +542,9 @@ def _main(argv: list[str] | None = None) -> int:
             _require_in_scope(entry)
             _emit({"type": "result", "command": "describe", "ok": True, "data": _public_entry(entry), "files": []})
             return 0
-        if arguments[-1] in {"-h", "--help"}:
-            entry, remaining = _resolve_entry(arguments[:-1], catalog)
-            if remaining:
-                raise LxeSkillError("invalid_arguments", f"unexpected arguments: {' '.join(remaining)}", exit_code=EXIT_USAGE)
-            _emit({"type": "result", "command": f"{_command_text(entry)} help", "ok": True, "data": _public_entry(entry), "files": []})
-            return 0
         entry, remaining = _resolve_entry(arguments, catalog)
+        activate_project_workspace()
+        setup_logging()
         return _run_entry(entry, remaining)
     except LxeSkillError as exc:
         failure: dict[str, Any] = {

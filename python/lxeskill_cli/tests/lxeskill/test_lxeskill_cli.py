@@ -129,7 +129,7 @@ def test_auth_refresh_final_error_preserves_stage_url_type_and_real_message(monk
     assert "Locator.click: Element is not visible" in message
 
 
-def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
+def test_list_and_describe_write_one_terminal_jsonl_record(capsys) -> None:
     assert lxeskill.main(["list"]) == 0
     records = _records(capsys)
     assert len(records) == 1
@@ -137,7 +137,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert records[0]["ok"] is True
     assert len(records[0]["data"]["commands"]) == 44
 
-    assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
+    assert lxeskill.main(["describe", "fba", "customs", "preview"]) == 0
     records = _records(capsys)
     assert len(records) == 1
     assert records[0]["data"]["command"] == "fba customs preview"

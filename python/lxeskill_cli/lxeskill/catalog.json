@@ -1,15 +1,15 @@
 {
   "protocol_version": "1",
   "entries": [
-    {"name": "mabang_brazil_overseas_export", "module": "services.commands.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "mabang_tms_export_run", "module": "services.commands.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "yacang_export_run", "module": "services.commands.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "vietnam_replenishment_generate", "module": "services.commands.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。"}}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "shangman_goods_export", "command_path": ["shangman", "products", "export"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.goods_export", "owner_skills": ["shangman-products-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}], "input_modes": ["flags"]},
-    {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}]},
-    {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}},
-    {"name": "shangman_login_status", "command_path": ["shangman", "login", "status"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_status", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
-    {"name": "shangman_login_clear", "command_path": ["shangman", "login", "clear"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_clear", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}},
+    {"name": "mabang_brazil_overseas_export", "module": "services.commands.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮巴西海外仓报表", "examples": ["lxeskill mabang brazil reports export --report inventory-sales"]}},
+    {"name": "mabang_tms_export_run", "module": "services.commands.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮 TMS 商品、库存和销量", "examples": ["lxeskill mabang-tms products export --warehouse VN1"]}},
+    {"name": "yacang_export_run", "module": "services.commands.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出雅仓报表", "examples": ["lxeskill yacang reports export --report inventory-sales --warehouse VN8806"]}},
+    {"name": "vietnam_replenishment_generate", "module": "services.commands.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。"}}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "计算越南补货并生成备货清单", "examples": ["lxeskill vietnam replenishment calculate --sales-file 销量.xlsx --inventory-file 库存.xlsx --products-file 商品.xlsx"]}},
+    {"name": "shangman_goods_export", "command_path": ["shangman", "products", "export"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.goods_export", "owner_skills": ["shangman-products-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}], "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出上马商品、库存和销量", "examples": ["lxeskill shangman products export"]}},
+    {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}], "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "准备登录并获取验证码", "examples": ["lxeskill shangman login prepare"]}},
+    {"name": "shangman_login_submit", "command_path": ["shangman", "login", "submit"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_submit", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {"challenge_id": {"type": "string", "minLength": 1}, "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128}}, "additionalProperties": false, "required": ["challenge_id", "captcha_code"]}, "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "提交验证码", "examples": ["lxeskill shangman login submit --challenge-id <挑战ID> --captcha-code <验证码>"]}},
+    {"name": "shangman_login_status", "command_path": ["shangman", "login", "status"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_status", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "查询登录状态", "examples": ["lxeskill shangman login status"]}},
+    {"name": "shangman_login_clear", "command_path": ["shangman", "login", "clear"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_clear", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "清除登录状态", "examples": ["lxeskill shangman login clear"]}},
     {
       "name": "ziniao_browser",
       "command_path": ["browser", "store"],
@@ -21,7 +21,7 @@
       "timeout_ms": 600000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status --store-id <店铺ID>"]}},
     {
       "name": "ziniao_page",
       "command_path": ["browser", "page"],
@@ -34,7 +34,7 @@
       "exposed": true,
       "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"}, "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上一次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["store_id"], "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "浏览器操作", "summary": "读取或操作紫鸟浏览器页面", "examples": ["lxeskill browser page --store-id <店铺ID> --action browser_snapshot"]}},
     {
       "name": "mabang_auth_refresh",
       "command_path": ["mabang", "auth", "refresh"],
@@ -45,7 +45,7 @@
       "timeout_ms": 180000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "马帮认证维护", "summary": "强制刷新已配置账号的马帮 ERP 登录态", "examples": ["lxeskill mabang auth refresh"]}},
     {
       "name": "mabang_auth_browser_bind",
       "command_path": ["mabang", "auth", "browser", "bind"],
@@ -56,7 +56,7 @@
       "timeout_ms": 60000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {"executable": {"type": "string", "minLength": 1}}, "required": ["executable"], "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "马帮认证维护", "summary": "绑定独立 CLI 的认证浏览器", "examples": ["lxeskill mabang auth browser bind --executable \"<Chrome或Edge可执行文件路径>\""]}},
     {
       "name": "mabang_auth_browser_status",
       "command_path": ["mabang", "auth", "browser", "status"],
@@ -67,7 +67,7 @@
       "timeout_ms": 10000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "马帮认证维护", "summary": "查询认证浏览器绑定状态", "examples": ["lxeskill mabang auth browser status"]}},
     {
       "name": "mabang_auth_browser_unbind",
       "command_path": ["mabang", "auth", "browser", "unbind"],
@@ -78,7 +78,7 @@
       "timeout_ms": 10000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "马帮认证维护", "summary": "移除认证浏览器绑定", "examples": ["lxeskill mabang auth browser unbind"]}},
     {
       "name": "vietnam_replenishment_settings",
       "command_path": ["vietnam", "replenishment", "settings"],
@@ -99,7 +99,7 @@
         "required": ["action"],
         "additionalProperties": false
       }
-    },
+    , "help": {"group": "replenishment", "section": "应用集成", "summary": "查询和维护越南备货参数", "examples": ["lxeskill vietnam replenishment settings --action read"]}},
     {
       "name": "assets_inspect",
       "command_path": ["assets", "list"],
@@ -111,7 +111,7 @@
       "timeout_ms": 30000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list"]}}, "additionalProperties": false}
-    },
+    , "help": {"group": "common", "section": "应用集成", "summary": "查询长期输入资料的配置与状态", "examples": ["lxeskill assets list"]}},
     {
       "name": "media_synthetic_performer",
       "command_path": ["media", "synthetic-performer"],
@@ -133,7 +133,7 @@
         "required": ["action", "sources"],
         "additionalProperties": false
       }
-    },
+    , "help": {"group": "operations", "section": "应用集成", "summary": "扫描或写入图片、视频的 AI 人物标签", "examples": ["lxeskill media synthetic-performer --action scan --sources \"<媒体路径>\""]}},
     {
       "name": "amazon_operations_analyze_listing",
       "command_path": ["amazon", "listing", "analyze"],
@@ -146,7 +146,7 @@
       "timeout_ms": 60000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"asin": {"type": "string", "pattern": "^[A-Z0-9]{10}$", "description": "Amazon.com ASIN，10 位字母或数字。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}}, "required": ["asin"], "additionalProperties": false}
-    },
+    , "help": {"group": "operations", "section": "Amazon 运营", "summary": "分析 Listing", "examples": ["lxeskill amazon listing analyze --asin <ASIN>"]}},
     {
       "name": "amazon_operations_analyze_reviews",
       "command_path": ["amazon", "reviews", "analyze"],
@@ -159,7 +159,7 @@
       "timeout_ms": 60000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"asin": {"type": "string", "pattern": "^[A-Z0-9]{10}$", "description": "Amazon.com ASIN，10 位字母或数字。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}, "pages": {"type": "integer", "minimum": 1, "maximum": 3, "description": "最近评论页数，默认 1，最多 3。"}}, "required": ["asin"], "additionalProperties": false}
-    },
+    , "help": {"group": "operations", "section": "Amazon 运营", "summary": "分析商品评价", "examples": ["lxeskill amazon reviews analyze --asin <ASIN>"]}},
     {
       "name": "amazon_operations_research_keywords",
       "command_path": ["amazon", "keywords", "research"],
@@ -172,7 +172,7 @@
       "timeout_ms": 180000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"seed": {"type": "string", "minLength": 1, "maxLength": 200, "description": "用于 Amazon autocomplete 扩展的种子关键词。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}, "depth": {"type": "integer", "minimum": 1, "maximum": 2, "description": "扩展深度，默认 1，最多 2。"}}, "required": ["seed"], "additionalProperties": false}
-    },
+    , "help": {"group": "operations", "section": "Amazon 运营", "summary": "研究关键词", "examples": ["lxeskill amazon keywords research --seed \"travel bag\""]}},
     {
       "name": "amazon_operations_research_competitors",
       "command_path": ["amazon", "competitors", "research"],
@@ -185,7 +185,7 @@
       "timeout_ms": 60000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Amazon.com 竞品搜索词。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "返回竞品数，默认 10，最多 10。"}}, "required": ["query"], "additionalProperties": false}
-    },
+    , "help": {"group": "operations", "section": "Amazon 运营", "summary": "查找与分析竞品", "examples": ["lxeskill amazon competitors research --query \"travel bag\""]}},
     {
       "name": "mabang_preview_customs_declaration",
       "command_path": ["fba", "customs", "preview"],
@@ -198,7 +198,7 @@
       "timeout_ms": 600000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传报关资料模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "customs_template"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "预览报关资料与缺货情况", "examples": ["lxeskill fba customs preview --input-xlsx 备货单.xlsx"]}},
     {
       "name": "mabang_fill_customs_declaration",
       "command_path": ["fba", "customs", "fill"],
@@ -211,7 +211,7 @@
       "timeout_ms": 600000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"preview_path": {"type": "string"}, "input_xlsx": {"type": "array", "items": {"type": "string"}, "description": "旧参数：请先调用 customs preview。"}}, "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "使用已确认的预览生成报关资料", "examples": ["lxeskill fba customs fill --preview-path preview.json"]}},
     {
       "name": "mabang_summarize_fba_delivery_tax_sku",
       "command_path": ["fba", "export-tax", "delivery-summary"],
@@ -221,7 +221,7 @@
       "module": "services.commands.mabang.summarize_fba_delivery_tax_sku",
       "owner_skills": ["fba-export-tax-delivery-summary"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products"}}, "required": ["delivery_no"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "汇总发货单退税产品", "examples": ["lxeskill fba export-tax delivery-summary --delivery-no SP260919007"]}},
     {
       "name": "mabang_import_export_tax_products",
       "command_path": ["fba", "export-tax", "products-import"],
@@ -231,7 +231,7 @@
       "module": "services.commands.mabang.import_export_tax_products",
       "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传当前出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products", "x-lxe-asset-output-field": "output_xlsx"}}, "required": ["sku"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "维护退税产品白名单", "examples": ["lxeskill fba export-tax products-import --sku <SKU>"]}},
     {
       "name": "mabang_fill_invoice_template",
       "command_path": ["fba", "invoice", "fill"],
@@ -241,8 +241,8 @@
       "module": "services.commands.mabang.fill_invoice_template",
       "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "invoice_template"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
-    },
-    {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"]},
+    , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "填写发票模板", "examples": ["lxeskill fba invoice fill --input-xlsx 备货单.xlsx"]}},
+    {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载发货单 MSKU 明细", "examples": ["lxeskill mabang delivery msku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.commands.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
@@ -250,7 +250,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-purchase-summary-create"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}, "gross_margin": {"type": ["number", "string"]}, "preview": {"type": "boolean"}, "inventory_deduction_mode": {"type": "string", "enum": ["none"], "description": "仅当用户明确要求不抵扣库存、不使用留存库存或全量采购时传 none；普通采购必须省略，禁止根据库存数量自行推断。"}, "confirm_unmatched_sku_token": {"type": "string"}, "confirm_inventory_quote_id": {"type": "string"}, "replace_batch_id": {"type": "string"}, "expected_version_no": {"type": "integer"}, "change_reason": {"type": "string"}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "采购与备货单据", "summary": "生成采购汇总、备货单和合同", "examples": ["lxeskill fba purchase summary-create --delivery-no SP260919007 --gross-margin 0.2 --preview"]}},
     {
       "name": "mabang_regenerate_purchase_files", "module": "services.commands.mabang.regenerate_purchase_files",
       "command_path": ["fba", "purchase", "files-regenerate"],
@@ -258,7 +258,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-purchase-files-regenerate"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"batch_no": {"type": "string"}, "gross_margin": {"type": ["number", "string"], "default": "0.3"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["batch_no"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "采购与备货单据", "summary": "按已有采购批次重新生成文件", "examples": ["lxeskill fba purchase files-regenerate --batch-no <采购批次号>"]}},
     {
       "name": "mabang_generate_fba_restock_workbook", "module": "services.commands.mabang.generate_fba_restock_workbook",
       "command_path": ["fba", "restock", "workbook-create"],
@@ -266,7 +266,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-restock-workbook-create"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "采购与备货单据", "summary": "生成单 SP 备货单（兼容入口）", "examples": ["lxeskill fba restock workbook-create --delivery-no SP260919007 --gross-margin 0.2"]}},
     {
       "name": "amazon_fba_confirm_own_carrier", "module": "services.commands.browser.amazon_fba.confirm_own_carrier",
       "command_path": ["fba", "shipment", "confirm-own-carrier"],
@@ -275,7 +275,7 @@
       "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "确认自选承运人", "examples": ["lxeskill fba shipment confirm-own-carrier --context-file context.json"]}},
     {
       "name": "amazon_fba_enter_tracking_codes", "module": "services.commands.browser.amazon_fba.enter_tracking_codes",
       "command_path": ["fba", "shipment", "enter-tracking-codes"],
@@ -284,7 +284,7 @@
       "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "填写追踪号", "examples": ["lxeskill fba shipment enter-tracking-codes --context-file context.json"]}},
     {
       "name": "amazon_fba_prepare_multi_box_excel", "module": "services.commands.browser.amazon_fba.prepare_multi_box_excel",
       "command_path": ["fba", "shipment", "prepare-multi-box"],
@@ -293,7 +293,7 @@
       "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
-    },
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "准备多包装箱文件", "examples": ["lxeskill fba shipment prepare-multi-box --context-file context.json"]}},
     {
       "name": "amazon_fba_prepare_upload", "module": "services.commands.browser.amazon_fba.prepare_upload",
       "command_path": ["fba", "shipment", "prepare-upload"],
@@ -302,9 +302,9 @@
       "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
-    },
-    {"name": "mabang_download_fba_delivery_csv", "module": "services.commands.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "mabang_download_wms_consignment_excel", "module": "services.commands.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "准备货件上传", "examples": ["lxeskill fba shipment prepare-upload --context-file context.json"]}},
+    {"name": "mabang_download_fba_delivery_csv", "module": "services.commands.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "description": "SP 开头的发货单号"}, "timeout_seconds": {"type": "number", "description": "等待导出结果的超时时间（秒）", "default": 180}, "poll_interval_seconds": {"type": "number", "description": "查询导出进度的间隔（秒）", "default": 10}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 FBA 发货单原始 SKU CSV", "examples": ["lxeskill mabang delivery export --delivery-no SP260919007"], "notes": ["执行下载前须配置马帮账号与密码，CLI 按需获取或恢复登录态。", "成功结果中的 data.csv_path 为 CSV 路径，files 为可交付文件列表。"]}},
+    {"name": "mabang_download_wms_consignment_excel", "module": "services.commands.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 WMS 托运单装箱 Excel", "examples": ["lxeskill mabang delivery packing-list export --delivery-no SP260919007"]}},
     {
       "name": "mabang_erp_packing_upload", "module": "services.commands.mabang.erp_packing_upload",
       "command_path": ["fba", "erp", "packing-upload"],
@@ -312,8 +312,8 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
-    },
-    {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-inventory-sku-export"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"]},
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览并确认实际发货量上传到 ERP", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007"]}},
+    {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-inventory-sku-export"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "按本地发货单 CSV 下载库存 SKU 数据", "examples": ["lxeskill mabang delivery inventory-sku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_replenishment_template", "module": "services.commands.mabang.replenishment_template", "positional": ["action"],
       "command_path": ["replenish", "template"],
@@ -321,7 +321,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-algorithm-config-manage"], "artifact_paths": [{"field": "deliverable_xlsx_path", "role": "deliverable"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"]}, "template": {"type": "string"}, "xlsx": {"type": "string"}, "name": {"type": "string"}}, "required": ["action"], "additionalProperties": false}
-    },
+    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "管理备货算法参数方案", "examples": ["lxeskill replenish template list"]}},
     {
       "name": "mabang_build_amazon_restock_inventory_snapshot", "module": "services.commands.mabang.build_amazon_restock_inventory_snapshot",
       "command_path": ["replenish", "inventory", "restock-snapshot-build"],
@@ -329,7 +329,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-amazon-restock-inventory-snapshot"], "artifact_paths": [{"field": "snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "csv": {"type": "string"}, "output_dir": {"type": "string"}, "msku_xlsx": {"type": "string"}, "msku_dir": {"type": "string"}}, "required": ["store_name", "csv"], "additionalProperties": false}
-    },
+    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "解析亚马逊补充库存 CSV", "examples": ["lxeskill replenish inventory restock-snapshot-build --store-name <店铺名> --csv 补充库存.csv"]}},
     {
       "name": "mabang_calculate_store_msku_replenishment", "module": "services.commands.mabang.calculate_store_msku_replenishment",
       "command_path": ["replenish", "calculate"],
@@ -337,9 +337,9 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-calculate"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "template": {"type": "string"}, "unlinked_shipments_snapshot": {"type": "string"}, "amazon_restock_inventory_snapshot": {"type": "string"}, "amazon_fba_inventory_snapshot": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
-    },
-    {"name": "mabang_download_store_msku_excel", "module": "services.commands.mabang.download_store_msku_excel", "command_path": ["mabang", "store", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}, "input_modes": ["flags"]},
-    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.commands.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]},
+    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "计算备货建议", "examples": ["lxeskill replenish calculate --store-name <店铺名>"]}},
+    {"name": "mabang_download_store_msku_excel", "module": "services.commands.mabang.download_store_msku_excel", "command_path": ["mabang", "store", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "下载店铺 MSKU 数据", "examples": ["lxeskill mabang store msku export --store-id <店铺ID> --store-name <店铺名>"]}},
+    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.commands.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "生成深圳仓真实库存报告", "examples": ["lxeskill mabang store shenzhen-inventory export --store-name <店铺名>"]}},
     {
       "name": "mabang_analyze_store_msku_sales", "module": "services.commands.mabang.analyze_store_msku_sales",
       "command_path": ["replenish", "sales", "analyze"],
@@ -347,7 +347,7 @@
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-sales-analyze"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
-    },
+    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "分析销量", "examples": ["lxeskill replenish sales analyze --store-name <店铺名>"]}},
     {
       "name": "mabang_resolve_fba_store", "module": "services.commands.mabang.resolve_fba_store",
       "command_path": ["replenish", "store", "resolve"],
@@ -358,8 +358,8 @@
       "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}],
       "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}
-    },
-    {"name": "mabang_download_store_unlinked_shipments", "module": "services.commands.mabang.download_store_unlinked_shipments", "command_path": ["mabang", "store", "unlinked-shipments", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-unlinked-shipments-export"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"]}
+    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "解析马帮店铺名称与 ID", "examples": ["lxeskill replenish store resolve --store-name <店铺名>"]}},
+    {"name": "mabang_download_store_unlinked_shipments", "module": "services.commands.mabang.download_store_unlinked_shipments", "command_path": ["mabang", "store", "unlinked-shipments", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-unlinked-shipments-export"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "下载未关联货件并生成快照", "examples": ["lxeskill mabang store unlinked-shipments export --store-name <店铺名>"]}}
   ],
   "datasets": {
     "mabang_brazil_exports": {"dir": "mabang/brazil/exports", "holds": "巴西库存 XLSX 及调拨原始分批 XLS，按账号与运行隔离。"},

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { queryLxeSkill } from "../src/lxeskill-query";
-import { withExecutablePath } from "../src/env";
+import { queryLxeSkill } from "@lxe/core";
+import { withExecutablePath } from "@lxe/core";
 
 test("statistics queries use PATH even when a configured Python does not exist", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-query-path-"));

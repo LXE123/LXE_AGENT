@@ -49,6 +49,8 @@
 
 ### lxeskillCLI
 
+- [命令与帮助](lxeskill-cli/commands.md)：业务分组导航、参数帮助、结构化查询及日志容错。
+
 - [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：桌面认证窗口、独立 CLI 浏览器绑定和排障。
 - [CLI 云端通信与自检](lxeskill-cli/cloud-access.md)：权限查询、连接诊断、公共 HTTP 模块和业务请求。
 - [越南备货实现说明](lxeskill-cli/vietnam-replenishment.md)：输入快照、设置保存、校验和工作簿生成。
