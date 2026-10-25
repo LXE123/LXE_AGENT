@@ -39,7 +39,7 @@
 
 ### agentcli
 
-- [Skill 手册](harness/skill/README.md)：发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA](../skills/fba-workflow-map/SKILL.md)和 [补货](../skills/replenishment-workflow-map/SKILL.md)入口查找。
+- [Skill 手册](harness/skill/README.md)：编写要求、发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA](../skills/fba-workflow-map/SKILL.md)和 [补货](../skills/replenishment-workflow-map/SKILL.md)入口查找。
 - [Runtime](harness/runtime/README.md)、[执行流程](harness/runtime/turn_execution.md)：宿主装配与回合执行。
 - [上下文](harness/runtime/context/README.md)：消息、组装、压缩与持久化。
 - [工具](harness/runtime/tools/README.md)、[权限专题](harness/runtime/permission-policy.md)：注册、执行、写入范围与单次审批。

@@ -1,6 +1,25 @@
 # Skill 手册
 
-Skill 为模型提供任务知识与工作上下文。任务指引保存在各自的 `SKILL.md` 及附属文件中；本篇维护发现、加载、管理和统计机制。Skill 与程序模块依赖的区别见 [PR 审查规范](../../pr-review.md)。
+Skill 为模型提供任务知识与工作上下文。任务指引保存在各自的 `SKILL.md` 及附属文件中；本篇维护编写要求及发现、加载、管理和统计机制。Skill 与程序模块依赖的区别见 [PR 审查规范](../../pr-review.md#21-skill-提供的工作上下文)。
+
+## Skill 编写要求
+
+Skill 按主要用途分为**指导 Skill**和**业务流程 Skill**。
+
+**1. 指导 Skill**
+
+说明某类事情应该怎么做，提供适用场景、操作方法、工具用法和必要注意事项，供不同任务复用。
+
+**2. 业务流程 Skill**
+
+围绕具体业务任务，重点讲清两件事：
+
+- **数据源是什么**：需要哪些数据或资料，从哪里获取。
+- **产出什么**：使用这些数据完成什么业务目标，交付什么结果。
+
+**3. 共同要求**
+
+- 讲清正确用法和必要上下文即可，避免针对个别误判不断追加禁止事项。
 
 ## 来源与发现
 
@@ -40,7 +59,7 @@ Skill 中的资源路径以该 Skill 所在目录为基准。普通工具的相�
 
 ## 业务指引与 CLI
 
-业务 Skill 说明工作步骤、输入、依赖及命令用法，必要时也可以介绍模块内部结构作为工作上下文。lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`、`lxeskill describe ...`、`lxeskill datasets list` 按需查询。Agent 工具使用通用执行权限和进程规则，不直接加载 `catalog.json`。
+lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`、`lxeskill describe ...`、`lxeskill datasets list` 按需查询。Agent 工具使用通用执行权限和进程规则，不直接加载 `catalog.json`。
 
 完整业务说明只维护在 [`skills/`](../../../skills) 中，可从 [FBA 工作流](../../../skills/fba-workflow-map/SKILL.md)、[Amazon 补货工作流](../../../skills/replenishment-workflow-map/SKILL.md)、[东南亚备货工作流](../../../skills/southeast-asia-replenishment-workflow-map/SKILL.md)等入口查找，或使用桌面 Skill 列表查看当前可用项。项目不内置的外部 CLI 可从自身文档查询用法。外部平台原始资料保留在 [reference/](reference/README.md)，不代替当前运行指引。
 
