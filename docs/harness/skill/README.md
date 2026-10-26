@@ -22,11 +22,11 @@ Skill 为模型提供任务知识与工作上下文。任务指引保存在各�
 
 这里的 **Agent SkillCatalog** 是从 Skill 文件生成的目录；**lxeskillCLI 的 `catalog.json`** 是业务 CLI 内部维护的命令契约，两者不是同一个 Catalog。
 
-通常先把可用 Skill 的名称、类型、简介、指引路径等简要信息加入提示词，模型按任务需要用 `read` 读取正文。读取当前允许的 manifest 路径可以激活该 Skill 的 owner tools；新增工具从下一 step 开始可见。
+通常先把可用 Skill 的名称、类型、简介、`SKILL.md` 的绝对路径等简要信息加入提示词，模型按任务需要用 `read` 读取正文。通用使用指引只在 Skill 列表开头提供一份。读取当前允许的 manifest 路径可以激活该 Skill 的 owner tools；新增工具从下一 step 开始可见。
 
 用户在输入中明确指定 `/skill-name` 时，Runtime 也可加载对应正文，作为 `<skill_content>` 工作上下文追加，并激活该 Skill。显式选择、读取文件和执行业务命令是不同动作，不能把它们都算作一次业务执行。
 
-Skill 中的资源路径以该 Skill 所在目录为基准。普通工具的相对文件路径仍以会话工作区为基准；读取随包 Skill 时应使用目录给出的实际路径。
+Skill 正文引用的相对资源路径，以该 Skill 所在目录为基准，由模型转换为绝对路径后用于工具调用。普通工具收到相对文件路径时仍以会话工作区为基准。
 
 ## 用户 Skill 管理
 
