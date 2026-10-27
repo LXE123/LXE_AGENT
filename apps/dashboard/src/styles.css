@@ -11299,6 +11299,7 @@ pre {
 }
 
 .conversation-process-toggle > .live-progress-status {
+  width: auto;
   padding: 0;
 }
 

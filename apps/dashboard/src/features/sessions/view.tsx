@@ -1351,7 +1351,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   const [clock, setClock] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
   const elapsedMs = active && row.startedAt && row.startedAt > 0 ? clock - row.startedAt : row.elapsedMs ?? 0;
