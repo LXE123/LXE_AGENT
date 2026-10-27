@@ -1703,18 +1703,20 @@ function SessionDeleteDialog({
   const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const title = session.title || t.common.unnamedSession;
   return createPortal(
-    <div className="session-delete-backdrop">
+    <div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
       <section
         aria-labelledby="session-delete-title"
+        aria-describedby="session-delete-description session-delete-note"
         aria-modal="true"
-        className="session-delete-dialog"
+        aria-busy={pending}
+        className="session-delete-dialog session-delete-confirm-dialog"
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
         <h2 id="session-delete-title">{t.sessions.deleteTitle}</h2>
-        <p>{t.sessions.deletePrompt(title)}</p>
-        <p className="session-delete-note">{t.sessions.deleteNote}</p>
+        <p id="session-delete-description">{t.sessions.deletePrompt(title)}</p>
+        <p id="session-delete-note" className="session-delete-note">{t.sessions.deleteNote}</p>
         {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
         <footer>
           <button disabled={pending} onClick={onCancel} type="button">{t.sessions.cancelDelete}</button>
