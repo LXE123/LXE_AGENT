@@ -58,6 +58,6 @@ CompositionEvent 和带 `isComposing` 的 KeyboardEvent，覆盖 React 事件处
 `isComposing`、绕过当前模型查询的运行时开关、去掉欢迎页的 `enabled` 传递。
 这些临时变更已还原。
 
-新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（6）和 Markdown（7）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。
+新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（8）和 Markdown（7）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。
 
 `conversation-window` 在尺寸观测后的同一动画帧检查阅读位置和底部距离，捕捉“先偏移、下一帧恢复”的抖动；还检查流式追加时旧段落的 DOM、文字和阅读位置保持稳定。只检查最终位置会漏掉这类错帧。这些测试验证布局和节点变化，不代表已验证 GPU 字体绘制。

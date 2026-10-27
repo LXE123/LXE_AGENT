@@ -94,6 +94,8 @@ function block(text: string, node: RootContent, offset: number, streaming: boole
  *
  * Definitions are document-wide (even inside a quote/list). Once present, use
  * one document so references and footnote numbering retain their semantics.
+ * Top-level indented code also keeps the document path: its entry/exit can
+ * depend on a preceding container, so the source suffix is not self-contained.
  * Settlement and non-prefix edits reparse the document; unchanged blocks are
  * reused, including their keys. This state is a disposable rendering cache.
  */
@@ -122,15 +124,15 @@ export function advanceMarkdown(
       && cached.deferDiagrams === part.deferDiagrams && cached.pendingMath === part.pendingMath ? cached : part;
   };
   const wholeDocument = (): MarkdownSnapshot => {
-    // Rendering the whole source is intentional here: a late definition can
-    // change links anywhere earlier in the document, not just the last block.
-    // Keep the ordinary renderer here, including already completed diagrams.
+    // Preserve document-wide references and contextual block boundaries with
+    // the ordinary renderer, including already completed diagrams.
     const part = reuse({ start: 0, text: source, deferDiagrams: false });
     return { source, streaming, committed: streaming ? [] : [part], frontier: streaming ? [part] : [], held: "", pendingStart: 0, documentContext: true };
   };
   if (documentContext) return wholeDocument();
   let tree = parse(tail);
-  if (someNode(tree, node => node.type === "definition" || node.type === "footnoteDefinition")) return wholeDocument();
+  if (someNode(tree, node => node.type === "definition" || node.type === "footnoteDefinition")
+    || tree.children.some(node => node.type === "code" && !fence(tail.slice(blockStart(tail, node))))) return wholeDocument();
   const held = streaming ? heldTail(tail, tree) : "";
   const visible = held ? tail.slice(0, -held.length) : tail;
   if (held) tree = parse(visible);
@@ -141,11 +143,6 @@ export function advanceMarkdown(
       if (!/[\r\n]/.test(visible.slice(next.position!.start.offset!))) break;
       count = i;
     }
-    // CommonMark's indented-code exit affects the immediately following
-    // block (a bare '-' can be paragraph text, not an empty list). Keep that
-    // predecessor until its successor is also ready to commit.
-    const preceding = tree.children[count - 1];
-    if (preceding?.type === "code" && !fence(visible.slice(blockStart(visible, preceding)))) count--;
   }
   const frontier: MarkdownBlock[] = [];
   tree.children.forEach((node, i) => {

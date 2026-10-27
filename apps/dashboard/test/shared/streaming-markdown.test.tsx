@@ -31,6 +31,8 @@ const samples = {
   referenceContinuation: "[link]\n\n[link]:\n  https://example.com\n  \"multi-line title\"\n\nAfter\n",
   tabs: "Before\n\n\tindented\n\tmore\n\n- item\n\t- child\n\nAfter\n",
   codeExit: "Before\n\n    code\n\n-\nNext\n\nAfter\n\nFinal\n",
+  quotedCodeExit: "> quoted\n>\n    code\n2. item\nTail",
+  quotedCodeSplit: ">\n    a\n\n    b\nTail",
 };
 
 describe("incremental conversation Markdown", () => {
