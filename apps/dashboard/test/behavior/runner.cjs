@@ -74,6 +74,8 @@ app.whenReady().then(async () => {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "session-titles") {
       await require("./session-titles.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
+    } else if (suite === "streaming-markdown") {
+      await require("./streaming-markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "markdown") {
       await require("./markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "conversation-content" || suite === "conversation-window") {

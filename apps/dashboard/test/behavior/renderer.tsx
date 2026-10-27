@@ -445,6 +445,11 @@ const fixture = {
       <MarkdownFixture surface={surface} content={content} />
     </I18nContext.Provider>));
   },
+  updateMarkdown(surface: MarkdownSurface, content: string, status?: string) {
+    flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}>
+      <MarkdownFixture surface={surface} content={content} status={status} />
+    </I18nContext.Provider>));
+  },
   session: sessionFixture,
   mountSessionWorkspace() {
     reset(); history.replaceState({ section: "sessions" }, "");

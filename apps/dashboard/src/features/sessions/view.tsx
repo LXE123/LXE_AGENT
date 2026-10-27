@@ -19,7 +19,7 @@ import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
+import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import {
   ArrowUp,
   Brain,
@@ -77,11 +77,6 @@ import type {
   SessionPayload
 } from "../../api/payloads";
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
-import {
-  markdownComponents,
-  markdownRehypePlugins,
-  markdownRemarkPlugins,
-} from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
@@ -196,26 +191,7 @@ function StatTile({
   );
 }
 
-const MessageMarkdown = React.memo(function MessageMarkdown({
-  text,
-}: {
-  text: string;
-}) {
-  const visibleText = text;
-  return (
-    <div className="message-markdown">
-      <ReactMarkdown
-        components={markdownComponents}
-        rehypePlugins={markdownRehypePlugins}
-        remarkPlugins={markdownRemarkPlugins}
-      >
-        {visibleText}
-      </ReactMarkdown>
-    </div>
-  );
-});
-
-function MessageBlock({ block }: { block: unknown }) {
+function MessageBlock({ block, isStreaming = false }: { block: unknown; isStreaming?: boolean }) {
   const t = useUiText();
   if (!isRecord(block)) {
     return (
@@ -224,7 +200,7 @@ function MessageBlock({ block }: { block: unknown }) {
   }
   const type = String(block.type || "unknown");
   if (type === "text") {
-    return <MessageMarkdown text={String(block.text || "")} />;
+    return <MessageMarkdown text={String(block.text || "")} isStreaming={isStreaming} />;
   }
   if (type === "thinking") {
     return <ThinkingBlock block={block} />;
@@ -450,16 +426,16 @@ function ToolCallArguments({ operation }: { operation: ToolOperation }) {
   );
 }
 
-function MessageContent({ content, message }: { content: unknown; message: SessionMessage }) {
+function MessageContent({ content, message, isStreaming = false }: { content: unknown; message: SessionMessage; isStreaming?: boolean }) {
   const t = useUiText();
   const toolCalls = message.tool_calls;
   return (
     <div className="message-content">
-      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} /> : null}
+      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} isStreaming={isStreaming} /> : null}
       {Array.isArray(content) ? (
         <div className="message-block-list">
           {content.map((block, index) => (
-            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} />
+            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} isStreaming={isStreaming} />
           ))}
         </div>
       ) : null}
@@ -1440,6 +1416,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       {expanded ? <div className="tool-op-body">{row.operation ? defaultToolOperationBody(operation) : <LiveToolOperationBody operation={operation} />}</div> : null}
     </li></ul></section>;
   }
+  const isStreaming = row.status === "streaming";
   const message = row.message!;
   const blocks = Array.isArray(message.content) ? message.content : [];
   const thinking = blocks.length === 1 && isRecord(blocks[0]) && ["thinking", "redacted_thinking"].includes(String(blocks[0].type)) ? blocks[0] : undefined;
@@ -1449,11 +1426,11 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     {thinking.redacted || thinking.type === "redacted_thinking" ? <div className="process-thinking-text redacted">{t.message.redactedThinking}</div> : null}
   </div>;
   if (row.presentation === "process" && message.role === "assistant") return <div className="timeline-text process-message-content">
-    <MessageContent content={message.content} message={message} />
+    <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
     {row.status === "error" ? <div role="status">{stateLabel}</div> : null}
     {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
   </div>;
-  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} /></article>;
+  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);
@@ -1468,7 +1445,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   }
   return <div className={`message-with-meta role-${role}${role === "user" ? " conversation-chrome-theme" : ""}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
-      <MessageContent content={message.content} message={message} />
+      <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
       {role === "user" && ["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}

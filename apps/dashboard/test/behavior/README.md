@@ -20,6 +20,8 @@ bun run --cwd apps/dashboard typecheck
 
 测试覆盖以下场景：
 
+- **流式 Markdown（5）**：持续追加和完成后保留旧节点、文字选区与表格横向滚动；过程文本与最终正文都接收流式状态；完成、错误和取消释放暂存文本；未完成 Mermaid/公式显示源码，闭合后沿用原有渲染；后文引用定义、文本替换及新消息不复用过期内容。用 `--test-name-pattern streaming-markdown` 定向运行。
+
 - **工作区删除（7）**：确认、取消、防重复提交、实际错误及重试、删除后焦点恢复；保留当前运行会话、排队消息和草稿；未分组分页；同目录重新登记获得新身份，不接回旧会话；最后一个工作区删除及刷新后不恢复；无工作区时先选目录再新建，取消保留草稿；迟到的新建、改名和列表结果不能恢复已删除分组。可用 `--test-name-pattern workspace-deletion` 定向运行，设置 `LXE_WORKSPACE_DELETE_SCREENSHOT=/tmp/workspace-delete.png` 保存浅色和深色窄窗口截图。事务回滚、旧登记迁移和重启持久性由 Runtime 测试覆盖。
 
 - **会话标题（5）**：菜单、双击和快捷键入口；首次全选、中文输入法 Enter、保存期间防重复及禁止关闭；真实错误和草稿保留、重试、同名保存；空白会话禁用、刷新与搜索同步；浅色、深色和窄窗口。可用 `--test-name-pattern session-titles` 定向运行，设置 `LXE_SESSION_TITLE_SCREENSHOT=/tmp/title.png` 保存布局截图。

@@ -58,10 +58,13 @@
         "rehype-katex": "^7.0.1",
         "remark-gfm": "^4.0.1",
         "remark-math": "^6.0.0",
+        "remark-parse": "11.0.0",
+        "unified": "11.0.5",
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
       },
       "devDependencies": {
         "@types/bun": "1.4.2",
+        "@types/mdast": "4.0.4",
         "@types/papaparse": "5.3.16",
         "@types/react": "^19.2.7",
         "@types/react-dom": "^19.2.3",
