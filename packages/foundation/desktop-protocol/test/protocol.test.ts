@@ -310,12 +310,11 @@ describe("desktop agent protocol", () => {
     };
     expect(parseAgentWireMessage(JSON.stringify(request))).toMatchObject(request);
 
-    const retiredField = ["server", "scope"].join("_");
     expect(() => parseAgentWireMessage(JSON.stringify({
       ...request,
       params: {
         ...request.params,
-        legacy_workspace: { ...request.params.legacy_workspace, [retiredField]: "local" },
+        legacy_workspace: { ...request.params.legacy_workspace, unexpected_field: true },
       },
     }))).toThrow("unsupported fields");
     expect(() => parseAgentWireMessage(JSON.stringify({

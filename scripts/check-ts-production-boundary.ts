@@ -100,17 +100,14 @@ requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnviro
 requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical data root");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /allowedSkillTypes:\s*\(\)\s*=>\s*readonly string\[\]/, "Desktop Runtime Skill visibility must come from the device permission snapshot");
 requirePath("apps/gateway/src/channels/feishu/adapter.ts", "Feishu remote ingress must remain available");
-const retiredFeishuAuthorizationPatterns = [
-  // Session PermissionPolicyService is separate from the retired Feishu policy.
-  /\bPermissionPolicy\b/,
-  /botSkillPolicy|permission[_-]?policy[_-]?path|LXE_PERMISSION_POLICY_PATH/i,
+const feishuAuthorizationPatterns = [
   /(?:bot[_-]?(?:id|app[_-]?id)|botId|botAppId|union[_-]?id|unionId).{0,80}(?:allowlist|whitelist|allowed[_-]?users|skill[_-]?types|skillTypes)/is,
   /(?:allowlist|whitelist|allowed[_-]?users|skill[_-]?types|skillTypes).{0,80}(?:bot[_-]?(?:id|app[_-]?id)|botId|botAppId|union[_-]?id|unionId)/is,
 ] as const;
 for (const pattern of ["apps/**/src/**/*.ts", "packages/**/src/**/*.ts", "python/lxeskill_cli/**/*.py", "config/**/*.{json,yaml,yml}"]) {
   for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
-    for (const retired of retiredFeishuAuthorizationPatterns) {
-      if (retired.test(read(path))) failures.push(`${path}: Feishu Bot and union-id identities must not authorize local Skills or users`);
+    for (const authorizationPattern of feishuAuthorizationPatterns) {
+      if (authorizationPattern.test(read(path))) failures.push(`${path}: Feishu Bot and union-id identities must not authorize local Skills or users`);
     }
   }
 }

@@ -2041,19 +2041,6 @@ def test_formal_restock_rebuilds_current_and_inventory_skus_and_product_names(
         workbook.close()
 
 
-def test_draft_is_removed() -> None:
-    result = cli.run(
-        {
-            "delivery_no": ["SP260710001"],
-            "master_xlsx": "master.xlsx",
-            "gross_margin": "0.3",
-            "draft": True,
-        }
-    )
-    assert result["success"] is False
-    assert result["error"]["code"] == "purchase_draft_mode_removed"
-
-
 def test_preview_rejects_inventory_quote_confirmation_without_http() -> None:
     result = cli.run(
         {

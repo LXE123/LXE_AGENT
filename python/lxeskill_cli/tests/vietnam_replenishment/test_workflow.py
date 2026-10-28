@@ -71,8 +71,6 @@ def _sources() -> VietnamSources:
 
 
 def test_missing_template_fails_before_loading_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (store.data_directory()).mkdir(parents=True)
-    (store.data_directory() / "sku-map.xlsx").write_bytes(b"obsolete")
     monkeypatch.setattr(workflow, "load_vietnam_files", lambda **_paths: pytest.fail("Reports must not load"))
     with pytest.raises(workflow.VietnamWorkflowError, match="九表模板") as caught:
         workflow.generate_current_vietnam_recommendation(
@@ -108,12 +106,10 @@ def test_1904_chat_or_legacy_current_fails_before_reports(tmp_path, monkeypatch,
     assert saved.path.read_bytes() == before
 
 
-def test_template_fields_reach_generator_without_old_map(
+def test_template_fields_reach_generator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     template = _template(tmp_path / "template.xlsx")
-    (store.data_directory()).mkdir(parents=True)
-    (store.data_directory() / "sku-map.xlsx").write_bytes(b"obsolete")
     monkeypatch.setattr(workflow, "load_vietnam_files", lambda **_paths: _sources())
     monkeypatch.setattr(workflow, "dataset_dir", lambda *parts: tmp_path / "artifacts" / parts[-1])
 

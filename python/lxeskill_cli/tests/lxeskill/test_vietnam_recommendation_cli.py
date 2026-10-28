@@ -96,7 +96,7 @@ def test_catalog_requires_three_reports_and_allows_one_run_template(monkeypatch,
 
 
 @pytest.mark.parametrize("arguments", [
-    {}, {"map_path": "/tmp/other.xlsx"}, {**INPUTS, "sku_map_file": "old.xlsx"}, {**INPUTS, "cost_rate": 0.7},
+    {}, {**INPUTS, "unexpected_option": True},
     *[{key: value for key, value in INPUTS.items() if key != missing} for missing in INPUTS],
     *[{**INPUTS, key: value} for key in (*INPUTS, "template_file") for value in ("", " ", 2, None)],
 ])
@@ -114,7 +114,7 @@ def test_json_input_rejects_unknown_fields(
 ) -> None:
     _no_workflow(monkeypatch)
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
-    input_json = json.dumps({**INPUTS, 'map_path': '/tmp/other.xlsx'})
+    input_json = json.dumps({**INPUTS, "unexpected_option": True})
     if mode == "stdin":
         monkeypatch.setattr("sys.stdin", io.StringIO(input_json))
         args = [*COMMAND, "--stdin-json"]

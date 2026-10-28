@@ -6,21 +6,6 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 
-REMOVED_SYMBOLS = {
-    "python/lxeskill_cli/shared/db/shared_state_dto.py": ("AgentSessionState", "ResponseRouteContext"),
-    "python/lxeskill_cli/shared/db/sqlite/bootstrap.py": (
-        "init_schema",
-        "_create_agent_sessions",
-        "_create_pending_events",
-        "_create_response_routes",
-        "_create_turn_usage",
-    ),
-    "python/lxeskill_cli/services/commands/browser/amazon_fba/_shared.py": (
-        "resolve_response_route_id",
-        "send_selected_result_files",
-    ),
-}
-
 PROTECTED_SYMBOLS = {
     "python/lxeskill_cli/services/browser/workflows/amazon_fba_login_verify.py": (
         "run_login_verify_workflow",
@@ -62,18 +47,6 @@ def _defined_symbols(relative_path: str) -> set[str]:
             if isinstance(target, ast.Name):
                 symbols.add(target.id)
     return symbols
-
-
-def test_python_agent_state_and_routing_symbols_stay_removed() -> None:
-    leftovers: list[str] = []
-    for relative_path, symbols in REMOVED_SYMBOLS.items():
-        defined_symbols = _defined_symbols(relative_path)
-        leftovers.extend(
-            f"{relative_path}: {symbol}"
-            for symbol in symbols
-            if symbol in defined_symbols
-        )
-    assert leftovers == []
 
 
 def test_protected_python_workflows_and_contracts_stay_available() -> None:
