@@ -9,7 +9,6 @@
   --rate-warn: var(--warning);
   --rate-bad: var(--danger);
 }
-.app-shell.sidebar-collapsed .content-panel.home-theme { border-top-left-radius: var(--app-panel-radius); }
 .home-theme .home-page {
   width: min(920px, 100%); padding: 18px 0 0; gap: 22px;
   container: home-content / inline-size;

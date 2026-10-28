@@ -1553,38 +1553,40 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header>
-      <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
-        connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
-        followingIntent={display?.following} historyTarget={display?.historyTarget}
-        loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
-        pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
-        empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
-          : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-          : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
-      <div className="conversation-composer-dock">
-        <ConversationComposer
-          permissionSessionId={session?.session_id ?? ""}
-          permissionMode={session?.permission_mode ?? "workspace-write"}
-          approvals={approvals} onApprovalChanged={onApprovalChanged}
-          question={question}
-          onQuestionAnswered={onQuestionAnswered}
-          contextDetail={detail}
-          activity={activity}
-          conversationKey={sessionKey}
-          currentModel={currentModel}
-          modelLoading={modelLoading}
-          models={models}
-          modelSaving={modelSaving}
-          thinkingSaving={thinkingSaving}
-          onModelChange={onModelChange}
-          onThinkingLevelChange={onThinkingLevelChange}
-          runtimeReady={runtimeReady}
-          runtimeUnavailableMessage={runtimeUnavailableMessage}
-          onSend={onSend}
-          onStop={onStop}
-        />
+      <div className="conversation-body">
+        <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+          connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+          followingIntent={display?.following} historyTarget={display?.historyTarget}
+          loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
+          pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
+          empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
+            : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
+            : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
+          renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
+        <div className="conversation-composer-dock">
+          <ConversationComposer
+            permissionSessionId={session?.session_id ?? ""}
+            permissionMode={session?.permission_mode ?? "workspace-write"}
+            approvals={approvals} onApprovalChanged={onApprovalChanged}
+            question={question}
+            onQuestionAnswered={onQuestionAnswered}
+            contextDetail={detail}
+            activity={activity}
+            conversationKey={sessionKey}
+            currentModel={currentModel}
+            modelLoading={modelLoading}
+            models={models}
+            modelSaving={modelSaving}
+            thinkingSaving={thinkingSaving}
+            onModelChange={onModelChange}
+            onThinkingLevelChange={onThinkingLevelChange}
+            runtimeReady={runtimeReady}
+            runtimeUnavailableMessage={runtimeUnavailableMessage}
+            onSend={onSend}
+            onStop={onStop}
+          />
+        </div>
       </div>
     </div>
   );
