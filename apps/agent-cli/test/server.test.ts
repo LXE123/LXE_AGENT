@@ -418,22 +418,6 @@ describe("AgentProtocolServer", () => {
     expect(output[0]).toMatchObject({ id: "health-1", error: { code: -32001 } });
   });
 
-  test("rejects the removed pop_pending_events command", async () => {
-    const output: Array<AgentResponse | AgentEvent> = [];
-    const server = new AgentProtocolServer({ write: (message) => { collect(output, message); } });
-    await server.accept(JSON.stringify({
-      jsonrpc: "2.0",
-      id: "pop-1",
-      method: "pop_pending_events",
-      params: { session_id: "session-1" },
-    }));
-    expect(output).toHaveLength(1);
-    const response = output[0];
-    expect(response && !("type" in response) && "error" in response).toBe(true);
-    expect(response && !("type" in response) && "error" in response ? response.error.message : "")
-      .toContain("Unknown method:");
-  });
-
   test("run_turn returns steering the runtime never consumed", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const root = process.cwd();
@@ -523,20 +507,17 @@ describe("AgentProtocolServer", () => {
     await server.shutdown();
   });
 
-  test("rejects the removed health command", async () => {
+  test("rejects unknown methods", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { collect(output, message); } });
     await server.accept(JSON.stringify({
       jsonrpc: "2.0",
-      id: "health-1",
-      method: "health",
+      id: "unknown-1",
+      method: "unknown_method",
       params: {},
     }));
     expect(output).toHaveLength(1);
-    const response = output[0];
-    expect(response && !("type" in response) && "error" in response).toBe(true);
-    expect(response && !("type" in response) && "error" in response ? response.error.message : "")
-      .toContain("Unknown method:");
+    expect(output[0]).toMatchObject({ id: "unknown-1", error: { code: -32601 } });
   });
 
   test("propagates Dashboard RPC errors through the agent error envelope", async () => {

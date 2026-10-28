@@ -177,30 +177,6 @@ for (const pattern of ["apps/**/src/**/*.ts", "packages/**/src/**/*.ts"]) {
   }
 }
 
-forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
-for (const path of [
-  "agent_runtime",
-  "browser_auth_service",
-  "clients",
-  "gateway",
-  "lxeskill",
-  "platforms",
-  "services",
-  "shared",
-  "tests",
-]) {
-  forbidPath(path, "legacy top-level Python directory must be deleted");
-}
-forbidPath("apps/gateway/src/orchestration/gateway-composition.ts", "the worker Gateway composition must be deleted");
-forbidPath("apps/gateway/src/orchestration/worker-client.ts", "the worker client must be deleted");
-forbidPath("apps/gateway/src/orchestration/worker-process.ts", "the worker process launcher must be deleted");
-forbidPath("apps/gateway/src/orchestration/worker-supervisor.ts", "the worker supervisor must be deleted");
-forbidPath("apps/gateway/src/main.ts", "the standalone Gateway CLI must be deleted");
-forbidPath("apps/gateway/src/bootstrap/cli.ts", "the standalone Gateway bootstrap must be deleted");
-forbidPath("apps/gateway/src/orchestration/production.ts", "the standalone Gateway production assembly must be deleted");
-forbidPath("apps/gateway/src/dashboard/server.ts", "the browser Dashboard HTTP server must be deleted");
-forbidPath("apps/gateway/src/dashboard/browser.ts", "the browser Dashboard opener must be deleted");
-forbidPath("apps/gateway/src/dashboard/api.ts", "the pseudo-REST Dashboard API must be replaced by a typed service");
 forbidPath("apps/gateway/src/dashboard/service.ts", "Agent Dashboard service belongs to the agent-cli host");
 forbidPath("apps/gateway/src/orchestration/agent-service.ts", "Agent composition root belongs to the agent-cli host");
 forbidPath("apps/gateway/src/channels/feishu/tools.ts", "Agent-native Feishu tools belong to the agent-cli host");

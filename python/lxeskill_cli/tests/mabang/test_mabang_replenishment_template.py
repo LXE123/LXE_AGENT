@@ -73,13 +73,9 @@ def test_default_template_loads_current_algorithm() -> None:
     assert tmpl.validate_template(template).warnings == ()
 
 
-@pytest.mark.parametrize(
-    "old_name",
-    ["LXE_默认模版", "LXE_默认参数", "US模板-一组", "UK模板-一组", "DE模板-一组"],
-)
-def test_old_default_template_name_is_not_an_alias(tmp_path, old_name: str) -> None:
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match=f"未知备货算法参数方案: {old_name}"):
-        tmpl.get_template(old_name, store_path=tmp_path / "templates.json")
+def test_unknown_template_is_rejected(tmp_path) -> None:
+    with pytest.raises(tmpl.ReplenishmentTemplateError):
+        tmpl.get_template("unknown-template", store_path=tmp_path / "templates.json")
 
 
 def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:

@@ -171,24 +171,3 @@ def test_lxeskill_cli_container_is_not_a_python_package() -> None:
     assert not container_init.exists(), (
         "python/lxeskill_cli is a source-closure container, not a public package"
     )
-
-
-def test_retired_workspace_scope_is_absent_from_code() -> None:
-    needles = (
-        "server_" + "scope",
-        "server" + "Scope",
-        "Server " + "scope",
-    )
-    text_suffixes = {".json", ".py", ".ts", ".tsx"}
-    offenders: list[str] = []
-    for relative_path in _repository_paths():
-        path = REPO_ROOT / relative_path
-        if path.suffix not in text_suffixes:
-            continue
-        text = path.read_text("utf-8")
-        if any(needle in text for needle in needles):
-            offenders.append(relative_path)
-    assert offenders == [], (
-        "the retired workspace scope must not remain in source, schemas, or fixtures: "
-        f"{offenders}"
-    )

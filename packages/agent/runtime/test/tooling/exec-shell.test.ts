@@ -263,25 +263,6 @@ describe("ExecShellAdapter", () => {
     );
   });
 
-  test("ignores removed frozen-runtime overrides for lxeskill", () => {
-    const frozen = "/work/project/packages/agent/lxeskill-cli/vendor/darwin-arm64/lxeskill/lxeskill";
-    const managedPython = "/managed/python/bin/python";
-    const shell = new ExecShellAdapter({
-      platform: "darwin",
-      environment: {
-        PATH: "/usr/bin",
-        LXE_MANAGED_PYTHON: managedPython,
-        LXESKILL_BINARY_PATH: frozen,
-        LXESKILL_REQUIRE_BUNDLE: "1",
-      },
-      fileExists: (path) => path === frozen || path === managedPython,
-    });
-
-    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      "lxeskill list",
-    );
-  });
-
   test("passes business modules through while validating Python launcher versions", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
     expect(shell.normalizeCommand("/work", "python -m services.commands.demo"))

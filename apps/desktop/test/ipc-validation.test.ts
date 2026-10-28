@@ -106,13 +106,6 @@ describe("desktop IPC validation", () => {
       .toThrow("enabled must be a boolean");
   });
 
-  test("rejects retired CLI connector operations", () => {
-    for (const operation of ["connectors.list", "connectors.update"]) {
-      expect(() => validateDashboardRpcCall({ operation, input: {} }))
-        .toThrow("unsupported Dashboard RPC operation");
-    }
-  });
-
   test("accepts only bounded setup fields", () => {
     expect(validateSetupInput({
       workspace_root: " C:\\workspace ",

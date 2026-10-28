@@ -98,10 +98,10 @@ def test_cli_round_trip_uses_shared_storage_and_preserves_failed_upload(tmp_path
     assert output.read_bytes() == source.read_bytes()
 
 
-def test_settings_cli_rejects_retired_export_kind(tmp_path, capsys):
-    assert cli.main([*COMMAND, "--action", "export", "--kind", "template", "--path", str(tmp_path / "out.xlsx")]) == cli.EXIT_USAGE
+def test_settings_cli_rejects_unknown_options_before_creating_output(tmp_path, capsys):
+    assert cli.main([*COMMAND, "--action", "export", "--unknown-option", "value", "--path", str(tmp_path / "out.xlsx")]) == cli.EXIT_USAGE
     result = json.loads(capsys.readouterr().out)
-    assert "unknown option: --kind" in result["error"]["message"]
+    assert result["error"]["code"] == "invalid_arguments"
     assert not (tmp_path / "out.xlsx").exists()
 
 
