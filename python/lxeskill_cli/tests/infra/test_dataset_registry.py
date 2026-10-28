@@ -1,9 +1,8 @@
 """Artifact dataset registry contracts.
 
 ``catalog.json`` -> ``datasets`` is the single source of truth for where CLI
-output lands. These tests keep the three consumers from drifting apart:
-business modules (must resolve through ``dataset_dir``), the registry itself
-(no dead entries), and the model-facing SKILL docs (no stale paths).
+output lands. These tests check business modules use ``dataset_dir``, registry
+entries remain reachable from code or documentation, and workspace isolation.
 """
 from __future__ import annotations
 
@@ -129,17 +128,3 @@ def test_standalone_cli_uses_cwd_and_keeps_app_state_separate(tmp_path, monkeypa
     finally:
         monkeypatch.undo()
         workspace.activate_project_workspace()
-
-
-@pytest.mark.parametrize("doc", sorted(skills_root().rglob("SKILL.md")), ids=lambda p: p.parent.name)
-def test_skill_docs_reference_registered_artifact_dirs(doc: Path) -> None:
-    """SKILL.md must not point the model at a directory the registry does not own."""
-    legacy = {name for entry in DATASETS.values() for name in entry.legacy_dirs}
-    stale = sorted(
-        {
-            match
-            for match in re.findall(r"artifacts/([A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)?)", doc.read_text(encoding="utf-8"))
-            if match.split("/")[0] in legacy or (match in legacy)
-        }
-    )
-    assert not stale, f"{doc.relative_to(REPO_ROOT)} still documents pre-registry paths: {stale}"

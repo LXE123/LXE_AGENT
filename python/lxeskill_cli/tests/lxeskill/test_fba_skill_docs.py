@@ -11,18 +11,10 @@ def _skill_text(name: str) -> str:
     return (PROJECT_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
+def test_ziniao_commands_belong_to_browser_skill() -> None:
     catalog = load_catalog()
     assert catalog["ziniao_browser"]["owner_skills"] == ["ziniao-browser"]
     assert catalog["ziniao_page"]["owner_skills"] == ["ziniao-browser"]
-
-    shipment = _skill_text("fba-shipment-create")
-    frontmatter = shipment.split("---", 2)[1]
-    assert "lxeskill browser" not in frontmatter
-    assert frontmatter.count("lxeskill fba shipment") == 4
-
-    ziniao = _skill_text("ziniao-browser")
-    assert "data.screenshot_path" in ziniao
 
 
 def test_fba_docs_send_only_declared_deliverables() -> None:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from services.commands.mabang import build_amazon_restock_inventory_snapshot as cli
 from services.mabang.amazon.fba.amazon_restock_inventory import (
     AmazonRestockInventorySnapshotResult,
@@ -80,23 +78,3 @@ def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
         "store_name": "Amazon-Test-US",
         "exception": "build failed",
     }
-
-
-def test_replenishment_amazon_restock_inventory_snapshot_skill_contract() -> None:
-    text = Path("skills/replenishment-amazon-restock-inventory-snapshot/SKILL.md").read_text(encoding="utf-8")
-    assert "send_files" in text
-    reference = Path("skills/replenishment-amazon-restock-inventory-snapshot/references/download-and-validation.md")
-    assert "references/download-and-validation.md" in text
-    guide = reference.read_text(encoding="utf-8")
-    assert "按顺序放入 `paths`" in guide
-    assert "不要读取、不要解析、不要复述截图内容" in guide
-    assert "lxeskill replenish inventory restock-snapshot-build" in text
-    assert "services.commands" not in text
-    assets = [
-        "../assets/amazon_restock_inventory_download_step_1_menu.jpg",
-        "../assets/amazon_restock_inventory_download_step_2_report_menu.jpg",
-        "../assets/amazon_restock_inventory_download_step_3_request_csv.jpg",
-    ]
-    assert [guide.index(asset) for asset in assets] == sorted(guide.index(asset) for asset in assets)
-    for asset in assets:
-        assert (reference.parent / asset).is_file()

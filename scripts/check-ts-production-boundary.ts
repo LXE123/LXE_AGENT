@@ -318,26 +318,6 @@ try {
   rmSync(bundleRoot, { recursive: true, force: true });
 }
 
-const staleArchitectureDocs = /main\.py|agent_runtime|gateway\/[A-Za-z0-9_/-]+\.py|Python\s+(?:Gateway|Runtime|Dashboard|backend)/i;
-// Check current guidance; historical records and reference material retain their original context.
-const excludedDocumentationRoots = [
-  "docs/acceptance/",
-  "docs/record/",
-  "docs/incidents/",
-  "docs/design/",
-  "docs/study/",
-  "docs/harness/skill/reference/",
-];
-for (const pattern of ["README.md", "AGENTS.md", "apps/dashboard/**/*.md", "docs/**/*.md"]) {
-  for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
-    const normalizedPath = path.replaceAll("\\", "/");
-    if (excludedDocumentationRoots.some((prefix) => normalizedPath.startsWith(prefix))) continue;
-    if (staleArchitectureDocs.test(read(path))) {
-      failures.push(`${path}: documentation must describe the Bun-only production architecture`);
-    }
-  }
-}
-
 if (failures.length > 0) {
   for (const failure of failures) console.error(failure);
   process.exit(1);

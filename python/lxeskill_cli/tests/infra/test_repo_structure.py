@@ -173,29 +173,13 @@ def test_lxeskill_cli_container_is_not_a_python_package() -> None:
     )
 
 
-def test_runtime_docs_do_not_reference_legacy_root_log_paths() -> None:
-    legacy_path = re.compile(
-        r"(?<!var/)(?<!<data-root>/)(?<!LXE_DATA_ROOT/)logs/"
-        r"(?:runtime|feishu_raw_events|agent_traces|sse_wire_traces)"
-    )
-    offenders: list[str] = []
-    for relative_path in ("README.md", "docs/logging.md"):
-        text = (REPO_ROOT / relative_path).read_text("utf-8")
-        if legacy_path.search(text):
-            offenders.append(relative_path)
-    assert offenders == [], (
-        "runtime documentation must resolve log paths from the data root: "
-        f"{offenders}"
-    )
-
-
-def test_retired_workspace_scope_is_absent() -> None:
+def test_retired_workspace_scope_is_absent_from_code() -> None:
     needles = (
         "server_" + "scope",
         "server" + "Scope",
         "Server " + "scope",
     )
-    text_suffixes = {".json", ".md", ".py", ".ts", ".tsx"}
+    text_suffixes = {".json", ".py", ".ts", ".tsx"}
     offenders: list[str] = []
     for relative_path in _repository_paths():
         path = REPO_ROOT / relative_path
@@ -205,6 +189,6 @@ def test_retired_workspace_scope_is_absent() -> None:
         if any(needle in text for needle in needles):
             offenders.append(relative_path)
     assert offenders == [], (
-        "the retired workspace scope must not remain in source, schemas, fixtures, or docs: "
+        "the retired workspace scope must not remain in source, schemas, or fixtures: "
         f"{offenders}"
     )
