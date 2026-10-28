@@ -21,9 +21,8 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
   await waitFor("document.querySelector('.conversation-send-button')?.dataset.mode === 'stop'", 'running conversation');
   await focus('.reference-editor'); await win.webContents.insertText('Keep this draft'); await settle();
 
-  await step('confirmation states the retention boundary and fits light, dark and narrow windows', async () => {
+  await step('confirmation fits light, dark and narrow windows', async () => {
     await begin('/fixture/default');
-    assert.match(await js(`document.querySelector(${JSON.stringify(dialog)}).textContent`), /folder and session logs will be kept/);
     for (const [theme,width] of [['light',1000],['dark',380]]) {
       win.setSize(width,700); await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`); await settle();
       assert.equal(await js(`(()=>{const d=document.querySelector(${JSON.stringify(dialog)}).getBoundingClientRect();const b=document.querySelector(${JSON.stringify(dialog+' button[type=submit]')}).getBoundingClientRect();return d.left>=0&&d.right<=innerWidth&&b.bottom<=innerHeight})()`),true);

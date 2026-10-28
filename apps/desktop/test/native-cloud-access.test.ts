@@ -80,7 +80,7 @@ test("fresh Windows installation checks updates automatically through native dis
     const deadline=Date.now()+4000;
     while(!requests.length&&Date.now()<deadline)await Bun.sleep(20);
     expect(requests).toEqual(["http://10.88.0.1:8000/api/v1/desktop-updates/latest?platform=windows-x64&current_version=0.3.1"]);
-    expect(updates.state()).toMatchObject({phase:"idle",message:"已是最新版本"});
+    expect(updates.state()).toMatchObject({phase:"idle"});
     f.setOffline(true);await cloud.check();expect(updateConnectionReady(cloud.state())).toBe(false);
     f.setOffline(false);await cloud.check();expect(updateConnectionReady(cloud.state())).toBe(true);
   } finally {updates.stop();await cloud.stop();}

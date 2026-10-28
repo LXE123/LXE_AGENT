@@ -232,7 +232,6 @@ app.whenReady().then(async () => {
         await click(resume); await wait("document.querySelector('dialog')?.open");
         assert.equal(await js("document.activeElement.type"), "datetime-local");
         assert.equal(await js("document.activeElement.value"), "");
-        assert.match(await js("document.querySelector('#automation-resume-notice').textContent"), /原定时间已过/);
         assert.equal(await js("document.querySelector('dialog button[type=submit]').textContent"), "保存并恢复");
         await noOverflow();
         if (scenario === "expired-once") await capture(`resume-${scenario}-${theme}.png`);

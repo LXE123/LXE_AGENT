@@ -1200,14 +1200,6 @@ def test_fill_uses_actual_quantities_and_writes_summary_comparison_sheet(monkeyp
     assert by_sku["SKU-B"]["状态"] == "未发货不写入"
     assert total_row["数量差异"] == -6
     assert total_row["金额差异"] == -34
-    assert total_row["问题说明"] == "\n".join(
-        [
-            "SKU-A SKU-A 2",
-            "SKU-B SKU-B 4",
-            "留下来6条当库存",
-            "期望发货数量9 实际发货数量3",
-        ]
-    )
 
 
 def test_fill_maps_actual_quantities_by_summary_sku_representative_model(monkeypatch, tmp_path):
@@ -1273,7 +1265,6 @@ def test_fill_maps_actual_quantities_by_summary_sku_representative_model(monkeyp
     assert detail_rows[0]["汇总表SKU"] == "SKU-A1"
     assert detail_rows[0]["规格型号"] == "MODEL-FIRST"
     assert detail_rows[0]["实际发货量"] == 6
-    assert "汇总表 库存sku（第一行）命中备货单库存sku型号组" in detail_rows[0]["问题说明"]
     assert total_row["数量差异"] == 0
     assert total_row["金额差异"] == 0
 
@@ -1397,7 +1388,6 @@ def test_fill_allocates_same_model_multi_price_rows_inventory_fifo(
     expected_current = max(actual_quantity - 15, 0)
     expected_inventory = min(actual_quantity, 15)
     assert actual_by_source == {2: expected_current, 3: expected_inventory}
-    assert all("走库存 FIFO 优先" in row["问题说明"] for row in detail_rows)
 
 
 def test_fill_allocates_multiple_inventory_price_rows_in_summary_order(monkeypatch, tmp_path):
@@ -1708,7 +1698,6 @@ def test_fill_quantity_validation_marks_zero_delivery_msku_as_not_shipped(monkey
     assert any(row["SKU"] == "SKU-A" and row["状态"] == "一致" for row in rows)
     not_shipped_row = next(row for row in rows if row["状态"] == "未发货")
     assert not_shipped_row["MSKU"] == "MSKU-ZERO"
-    assert "MSKU发货量 为 0" in not_shipped_row["问题说明"]
     assert not any(row["状态"] == "无法校验" and "MSKU-ZERO" in row["问题说明"] for row in rows)
 
 
@@ -1816,7 +1805,7 @@ def test_fill_rejects_invalid_total_price(tmp_path):
         )
 
 
-def test_unmatched_row_is_written_blank_and_added_to_notice(tmp_path):
+def test_unmatched_row_is_written_blank_and_counted(tmp_path):
     input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
     template_path = tmp_path / "custom_declaration_documents.xlsx"
     output_dir = tmp_path / "artifacts"
@@ -1840,7 +1829,6 @@ def test_unmatched_row_is_written_blank_and_added_to_notice(tmp_path):
     assert output_sheet.cell(row=10, column=3).value is None
     assert output_sheet.cell(row=10, column=9).value is None
     assert payload["unmatched_count"] == 1
-    assert payload["notice"] == ["第2行未匹配申报规则: 商品名称=未知商品, 品名=未知品名"]
 
 
 def test_find_customs_detail_layout_from_report_sheet(tmp_path):

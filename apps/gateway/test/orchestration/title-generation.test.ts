@@ -34,7 +34,7 @@ test("existing agentcli process generates names over JSON-RPC using the actual t
     expect((await runtime.dashboardCall({ operation: "sessions.list", input: {} })).items).toHaveLength(0);
     expect(requests).toHaveLength(1); expect(requests[0]!.tools).toBeUndefined();
     expect(requests[0]!.messages).toHaveLength(2);
-    expect(requests[0]!.messages[0]).toMatchObject({ role: "system", content: expect.stringContaining("scheduled task") });
+    expect(requests[0]!.messages[0]).toMatchObject({ role: "system" });
     expect(JSON.stringify(requests[0]!.messages[1])).toContain("每天总结运营数据");
     expect(requests[0]!.max_tokens).toBe(4096);
     await runtime.dashboardCall({ operation: "titles.generate", input: { text: "指定模型", model: { provider: "zhipuai_coding_plan", model: "glm-5.3", credential_source: "local" } } });

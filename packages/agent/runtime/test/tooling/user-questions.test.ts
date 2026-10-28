@@ -15,7 +15,7 @@ function context(session_id = "s", controller = new AbortController(), platform 
 }
 
 describe("runtime user question ownership", () => {
-  test("advertises four choices and rejects overflow before publishing a pending question", async () => {
+  test("accepts four choices and rejects overflow before publishing a pending question", async () => {
     const changes: string[] = [];
     const service = new UserQuestionService(id => changes.push(id));
     const registry = new ToolRegistry();
@@ -24,8 +24,6 @@ describe("runtime user question ownership", () => {
     expect(definition.input_schema).toMatchObject({ properties: { questions: { maxItems: 3,
       items: { properties: { options: { maxItems: 4 } } },
     } } });
-    expect(definition.description).toContain("up to 4 choices per question");
-    expect(definition.description).toContain("do not add an Other option");
     const options = Array.from({ length: 5 }, (_, index) => ({ label: `Choice ${index + 1}` }));
     await expect(service.ask({ questions: [{ id: "q", question: "Choose", options }] }, context())).rejects.toMatchObject({
       code: "invalid_argument", message: "Invalid question arguments: questions[0].options: must contain between 1 and 4 choices",

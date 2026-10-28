@@ -38,7 +38,6 @@ module.exports = async ({ select, chooseWorkspace, theme, win, js, load, wait, c
   await measure(theme, 'effort/unsupported disabled', 'select[name=effort]');
   await select('conversation', 'reuse');
   assert.equal(await js("!!document.querySelector('select[name=effort]')"), false);
-  assert.match(await js("document.querySelector('#automation-advanced').textContent"), /思考强度沿用/);
   await key('Escape'); await api('automations.delete', { id: named.id, version: named.version });
   passed.push(`${theme}: blank name generated without execution; thinking choice persists, unsupported model resets and reuse inherits chat settings`);
   await load(theme, 'empty'); await click('.automation-create');

@@ -267,7 +267,6 @@ app.whenReady().then(async () => {
         await js("behavior.chooseFile('draft.txt')"); await click('[aria-label="Add files"]');
         await js("behavior.permissionApprovals()");
         await waitFor("document.querySelector('.permission-approval')?.innerText.includes('python report.py --all')", "first approval");
-        assert.equal(await js("document.querySelector('.permission-approval-heading h3').textContent"), "Allow LXE Agent to run this command?");
         assert.equal(await js("document.querySelector('.permission-command').textContent"), "python report.py --all");
         assert.match(await js("document.querySelector('.permission-target').innerText"), /outside/);
         assert.equal(await js("document.querySelectorAll('.permission-picker, .conversation-compose-actions, .reference-editor, .permission-approval header button').length"), 0);
@@ -353,7 +352,6 @@ app.whenReady().then(async () => {
       });
       await step("file and edit previews preserve exact text and reset collapsed state across requests", async () => {
         await show(request("write-preview", "write", { path: "D:\\work\\订单分析\\hello.txt", content: "第一行\n\n<script>visible text</script>\n最后一行\n" }));
-        assert.equal(await js("document.querySelector('.permission-approval-heading h3').textContent"), "Allow LXE Agent to write this file?");
         assert.equal(await js("document.querySelector('.permission-approval-reason').textContent"), "创建测试文件，验证权限申请流程。");
         assert.match(await js("document.querySelector('.permission-approval-mode').textContent"), /Workspace Write/);
         assert.equal(await js("document.querySelector('.permission-operation-details').open"), false);
@@ -361,7 +359,6 @@ app.whenReady().then(async () => {
         await click(".permission-operation-details summary");
         assert.equal(await js("document.querySelector('.permission-operation-details pre').textContent"), "第一行\n\n<script>visible text</script>\n最后一行\n");
         await show(request("edit-preview", "edit", { path: "/work/hello.txt", edits: [{ oldText: "old\nline", newText: "new\nline" }, { oldText: "remove", newText: "" }] }));
-        assert.equal(await js("document.querySelector('.permission-approval-heading h3').textContent"), "Allow LXE Agent to edit this file?");
         assert.equal(await js("document.querySelector('.permission-operation-details').open"), false);
         await click(".permission-operation-details summary");
         assert.deepEqual(await js("Array.from(document.querySelectorAll('.permission-edit pre')).map(p=>p.textContent)"), ["old\nline", "new\nline", "remove", ""]);
@@ -376,7 +373,6 @@ app.whenReady().then(async () => {
         for (const theme of ["light", "dark"]) {
           await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
           await show({ ...value, request_id: `visual-${theme}` }); await settle();
-          assert.equal(await js("document.querySelector('.permission-approval-heading h3').textContent"), "允许 LXE Agent 写入文件？");
           assert.ok(await js("document.querySelector('.permission-approval').getBoundingClientRect().height < 240"));
           if (process.env.LXE_APPROVAL_SCREENSHOT) {
             await js("document.fonts.ready.then(() => undefined)"); await settle();

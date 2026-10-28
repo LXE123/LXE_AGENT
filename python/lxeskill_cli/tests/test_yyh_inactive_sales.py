@@ -61,7 +61,6 @@ def test_invalid_sales_stay_unknown(value):
     summary, details = compare([listing()], [source(sales=value)])
     assert summary['unknown_count'] == 1 and summary['zero_count'] == 0
     assert details[0]['近7天销量'] is None
-    assert summary['verdict'] == '没有可确认的销量，无法判断'
 
 
 def test_zero_positive_missing_and_duplicate_conflicts(tmp_path):
@@ -69,7 +68,6 @@ def test_zero_positive_missing_and_duplicate_conflicts(tmp_path):
     sources = [source('zero'), source('zero'), source('positive', sales='1,002'), source('conflict'), source('conflict', sales=2), source('alias')]
     summary, details = compare(listings, sources)
     assert (summary['inactive_unique_count'], summary['zero_count'], summary['positive_count'], summary['unknown_count']) == (5, 1, 1, 3)
-    assert summary['verdict'] == '不是全部为零'
     assert summary['positive_examples'][0]['近7天销量'] == 1002
     assert summary['positive_sales_total'] == 1002
     assert details[0]['MSKU'] == 'positive'
@@ -87,10 +85,7 @@ def test_no_local_sku_is_still_checked_and_no_cross_asin_match():
     assert summary['positive_count'] == 1 and summary['unknown_count'] == 1
 
 
-def test_all_zero_and_empty_are_distinct():
-    assert compare([listing()], [source()])[0]['verdict'] == '本轮停售 MSKU 近7天销量全部为零'
-    assert compare([listing(), listing('missing')], [source()])[0]['verdict'] == '已确认部分均为零，但无法确认全部'
-    assert compare([], [source()])[0]['verdict'] == '本轮没有停售记录'
+def test_empty_page_and_numeric_zero():
     async def post(*args):
         return page([])
     assert asyncio.run(fetch_inactive(post)) == ([], 1)

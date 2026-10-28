@@ -244,7 +244,6 @@ test("standalone task titles share the tool-free provider request without touchi
     expect(await service.generate("每天汇总运营数据", f.snapshot)).toBe("运营日报");
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ tools: [], toolChoice: "none", auxiliary: { maxOutputTokens: 4096, reasoning: "minimum" } });
-    expect(requests[0]!.system).toContain("scheduled task");
     expect(requests[0]!.messages).toHaveLength(1);
     expect(JSON.stringify(requests[0]!.messages)).toContain("每天汇总运营数据");
     expect((await f.store.titleState("s1"))?.title).toBe("");

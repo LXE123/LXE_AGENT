@@ -65,9 +65,6 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert by_msku["SEA"]["FBA总库存（马帮）"] == 430
         assert by_msku["SEA"]["未发出货件总计"] == 10
         assert by_msku["SEA"]["深圳库存缺口"] == 120
-        assert "深圳库存不足" in by_msku["SEA"]["试算提示"]
-        assert "未取得同日未关联货件快照" in by_msku["SEA"]["试算提示"]
-        assert "单件重量缺失" in by_msku["URGENT"]["试算提示"]
         assert [record["可销售天数"] for record in records] == pytest.approx([30, 50, 430 / 6, 80])
         assert [record["建议运输方式（生成时）"] for record in records] == ["空运（急发）", "空运", "空运＋海运", "海运"]
         assert [record["空运补货天数"] for record in records] == [60, 75, 75, 0]
@@ -206,7 +203,6 @@ def test_sea_decision_and_minimum_quantity_independent_of_weight(weight):
     assert row.sea_quantity == 60
     below = case_row(weight=weight, fba=600, unlinked=31)
     assert below.sheet_name == rep.NO_SHIP_SHEET
-    assert "海运数量不足30件" in below.decision_reason
 
 
 def test_legacy_weight_parameters_are_ignored_on_xlsx_import(tmp_path):

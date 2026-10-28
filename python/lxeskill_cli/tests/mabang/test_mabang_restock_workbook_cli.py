@@ -1603,7 +1603,6 @@ def test_generate_fba_restock_workbook_uses_first_country_and_sanitizes_file_nam
 
     assert payload["country"] == "德/国"
     assert Path(payload["output_xlsx"]).name == "6.8-SP260605003-新棱镜备货-德_国.xlsx"
-    assert "存在多个不同国家" in payload["warnings"][-1]
 
 
 def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_path):

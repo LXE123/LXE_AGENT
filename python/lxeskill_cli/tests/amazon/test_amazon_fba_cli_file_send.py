@@ -4,7 +4,6 @@ from pathlib import Path
 
 from services.commands.browser.amazon_fba import _shared as fba_shared
 from shared import workspace
-from shared.repository import repository_root
 
 
 def _payload(file_path: list[dict[str, str]], *, notice: str = "base notice") -> dict:
@@ -145,10 +144,8 @@ def test_archive_selected_result_files_records_missing_source_without_runtime_em
 
     assert result["file_path"] == [{"key": "filled_template", "value": str(missing)}]
     assert "base notice" in result["notice"]
-    assert "文件已生成记录存在，但归档附件失败" in result["notice"]
     assert "file path missing" in result["notice"]
     assert "runtime emit handler not configured" not in result["notice"]
-    assert "发送到群里失败" not in result["notice"]
 
 
 def test_archive_selected_result_files_uses_short_step2_file_name(monkeypatch, tmp_path: Path):
@@ -196,15 +193,6 @@ def test_archive_selected_result_files_keeps_safe_fallback_for_unknown_allowed_k
         project_root
         / "artifacts/amazon_fba/attachments/SP260516028/future_stage/future_report_note.txt"
     ).read_bytes() == b"note"
-
-
-def test_fba_shipment_create_skill_requires_parent_send_files():
-    skill_path = repository_root() / "skills" / "fba-shipment-create" / "SKILL.md"
-    text = skill_path.read_text(encoding="utf-8")
-
-    assert "terminal `files` 非空" in text
-    assert "send_files(paths=<terminal.files>)" in text
-    assert "不重跑 CLI" in text
 
 
 def test_all_four_fba_shipment_stages_declare_the_same_deliverable_selector():

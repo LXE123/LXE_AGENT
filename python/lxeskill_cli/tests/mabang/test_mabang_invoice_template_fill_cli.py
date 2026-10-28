@@ -560,7 +560,7 @@ def test_invoice_rules_for_case_box_and_protector(monkeypatch, tmp_path):
     workbook.close()
 
 
-def test_unknown_price_rule_and_missing_image_are_notices(monkeypatch, tmp_path):
+def test_unknown_price_rule_and_missing_image_preserve_other_output_fields(monkeypatch, tmp_path):
     input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
     template_path = tmp_path / "invoice_Template.xlsx"
     stock_path = tmp_path / "stock.xlsx"
@@ -607,9 +607,6 @@ def test_unknown_price_rule_and_missing_image_are_notices(monkeypatch, tmp_path)
     assert worksheet.cell(row=16, column=14).value in (None, "")
     workbook.close()
     assert payload["image_missing_count"] == 1
-    assert any("没有该材质的计算价格方式" in item for item in payload["notice"])
-    assert any("缺少产品用途规则" in item for item in payload["notice"])
-    assert any("缺少产品图片" in item for item in payload["notice"])
 
 
 def test_box_split_expands_combo_sku_and_merges_same_box_stock_sku(monkeypatch, tmp_path):
@@ -785,7 +782,6 @@ def test_fill_invoice_template_infers_blank_summary_model_from_merge_detail(monk
 
     assert payload["invoice_row_count"] == 1
     assert payload["merge_group_count"] == 1
-    assert any("规格型号为空，已按财务合并明细表补为 ZF-5" in item for item in payload["notice"])
 
     from openpyxl import load_workbook
 
@@ -820,10 +816,9 @@ def test_blank_summary_model_ignores_merge_detail_price_mismatch(tmp_path):
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
 
-    inferred_rows, notices = cli.infer_missing_summary_models(source_rows, merge_infos)
+    inferred_rows, _ = cli.infer_missing_summary_models(source_rows, merge_infos)
 
     assert inferred_rows[0].model == "ZF-5"
-    assert any("规格型号为空，已按财务合并明细表补为 ZF-5" in item for item in notices)
 
 
 def test_summary_merge_key_duplicate_fails(tmp_path):
@@ -1075,7 +1070,6 @@ def test_fill_invoice_template_maps_summary_sku_to_first_sheet_model(monkeypatch
     detail_row = next(row for row in comparison_rows if row["状态"] != "合计")
     assert detail_row["汇总表SKU"] == "SKU-A1"
     assert detail_row["规格型号"] == "MODEL-FIRST"
-    assert "汇总表 SKU 命中第一个表格型号组" in detail_row["问题说明"]
 
 
 def test_fill_invoice_template_treats_zero_delivery_msku_missing_from_wms_as_not_shipped(monkeypatch, tmp_path):

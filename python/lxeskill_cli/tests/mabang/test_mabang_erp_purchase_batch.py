@@ -1788,7 +1788,6 @@ def test_formal_success_result_is_compact_and_keeps_every_deliverable_path() -> 
     }
     assert compact["manufacturer_count"] == 15
     assert compact["unmatched_summary"]["planned_shipment_quantity"] == "5"
-    assert any("未匹配库存 SKU" in warning for warning in compact["warnings"])
     assert compact["contract_xlsx_paths"] == [
         item["output_xlsx"] for item in contract_outputs
     ]

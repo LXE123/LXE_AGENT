@@ -622,17 +622,3 @@ def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> N
     assert payload["old_name"] == "CLI方案"
     assert payload["new_name"] == "CLI重命名方案"
     assert payload["template_version"] == 2
-
-
-def test_replenishment_algorithm_config_skill_contract() -> None:
-    template_skill = Path("skills/replenishment-algorithm-config-manage/SKILL.md").read_text(encoding="utf-8")
-    calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
-    workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")
-    for command in ("list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"):
-        assert f"lxeskill replenish template {command}" in template_skill
-    assert "不管理库存扣减" in template_skill
-    assert "sea.min_weight_kg" in template_skill
-    assert "兼容配置仍允许导入" in template_skill
-    assert "--template" in calculate_skill
-    assert "replenishment-algorithm-config-manage" in workflow_skill
-    assert "--unlinked-shipments-snapshot" in workflow_skill

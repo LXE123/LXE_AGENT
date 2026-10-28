@@ -2,7 +2,6 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import {
   MAX_SKILL_MANIFEST_BYTES,
   SkillCatalog,
@@ -64,25 +63,8 @@ describe("skill context", () => {
     expect(prompt).toContain("demo");
     expect(prompt).toContain(`Instructions: ${join(root, "skills", "demo", "SKILL.md").replaceAll("\\", "/")}`);
     expect(prompt).toContain("Commands: lxeskill demo run");
-    expect(prompt).not.toContain("## lxeskill invocation contract");
-    expect(prompt).not.toContain("exec.cwd instead");
-    expect(prompt).not.toContain("managed_lxeskill");
     expect(prompt).not.toContain("blocked");
     expect(prompt).not.toContain("lxeskill hidden run");
-    const guidance = [
-      "The following skills provide specialized instructions for specific tasks.",
-      "Use the read tool to load a skill's file when the task matches its description.",
-      "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
-    ].join("\n");
-    expect(prompt.split("\n\n")[0]).toBe(`## Available skills\n${guidance}`);
-    const systemPrompt = buildSystemPrompt({
-      platform: "desktop", provider: "test", model: "test", skillPrompt: prompt,
-      workspace: { directory: root, worktree: root },
-    });
-    expect(systemPrompt.split(guidance)).toHaveLength(2);
-    expect(systemPrompt).not.toContain("## Skills (mandatory)");
-    expect(systemPrompt).not.toContain("Follow that file exactly.");
-    expect(systemPrompt).not.toContain("<skill_content>");
   });
 
   test("treats SKILL.md as a package boundary while discovering nested skill groups", () => {

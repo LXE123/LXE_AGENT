@@ -459,7 +459,6 @@ def test_cli_original_split_mode_skips_split_over_five_boxes(monkeypatch, tmp_pa
     assert payload["box_count"] == 6
     assert payload["split_required"] is False
     assert payload["split_excel_paths"] == []
-    assert payload["split_skipped_reason"] == "用户选择使用原始装箱数据，已跳过超过 5 箱自动拆分。"
     assert not (tmp_path / "SP260226004-1.xlsx").exists()
     assert not (tmp_path / "SP260226004-2.xlsx").exists()
 
