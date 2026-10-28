@@ -351,28 +351,34 @@ button {
   padding-top: 0;
 }
 
-/* A continuous caption edge: the sidebar, page and resize affordance meet at
-   the same baseline. The chat header occupies this caption space on macOS. */
-.desktop-platform-darwin .app-shell::after {
-  content: "";
-  position: absolute;
-  z-index: 26;
-  top: calc(var(--app-titlebar-height) - 1px);
-  inset-inline: 0;
-  height: 1px;
-  background: var(--app-chrome-border);
-  pointer-events: none;
-}
-
-.desktop-platform-darwin .app-shell > .main-panel > .content-panel {
-  border-top-left-radius: 0;
-}
-
+/* Keep the navigation rail joined to the caption around the sidebar's curved
+   corner. Only the docked sidebar/content junction gets the caption divider. */
 @media (min-width: 921px) {
   .desktop-platform-darwin .app-sidebar.is-expanded {
-    border-top: 0;
-    border-right-color: var(--app-chrome-border);
-    border-radius: 0;
+    border-color: var(--app-chrome-border);
+  }
+
+  .desktop-platform-darwin .app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable)::before,
+  .desktop-platform-darwin .app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable)::after {
+    content: "";
+    position: absolute;
+    z-index: 26;
+    left: calc(var(--app-navigation-width) + var(--app-sidebar-width) - 1px);
+    background: var(--app-chrome-border);
+    pointer-events: none;
+  }
+
+  /* A short decorative rule, separate from the resize target below it. */
+  .desktop-platform-darwin .app-shell::before {
+    top: calc((var(--app-titlebar-height) - 16px) / 2);
+    width: 1px;
+    height: 16px;
+  }
+
+  .desktop-platform-darwin .app-shell::after {
+    top: var(--app-titlebar-height);
+    right: 0;
+    height: 1px;
   }
 }
 
