@@ -757,7 +757,7 @@ app.whenReady().then(async () => {
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
         assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
-        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
+        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 42)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth);
         assert.equal((await rect(".main-panel")).left, railWidth + 256);
         assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
@@ -865,6 +865,18 @@ app.whenReady().then(async () => {
                 assert.equal((await rect(".main-panel")).top, 40);
                 assert.equal((await rect(".app-navigation")).top, 40);
                 assert.ok((await rect(".conversation-header-actions")).right > 1200 - 138);
+              }
+              if (open) {
+                const sidebar = await rect(".app-sidebar"), resize = await rect(".sidebar-resizer");
+                assert.ok(Math.abs(resize.top - sidebar.top) < 0.02, `${platform}: resize starts below caption`);
+                assert.ok(Math.abs(resize.bottom - sidebar.bottom) < 0.02);
+                if (platform === "darwin") {
+                  assert.ok(Math.abs((await rect(".conversation-header")).bottom - sidebar.top) < 0.02, "chat header meets sidebar edge");
+                  assert.equal(await js(`document.elementFromPoint(${resize.left + resize.width / 2}, ${sidebar.top / 2})?.closest('.sidebar-resizer') !== null`), false, "caption must not become a sidebar resize target");
+                  await click(".tab-home");
+                  assert.ok(Math.abs((await rect(".content-panel")).top - sidebar.top) < 0.02, "home canvas meets the same caption edge");
+                  await click(".tab-sessions");
+                }
               }
             }
           }

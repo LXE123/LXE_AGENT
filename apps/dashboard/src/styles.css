@@ -322,7 +322,7 @@ button {
   top: 0;
   left: env(titlebar-area-x, 0px);
   width: env(titlebar-area-width, 100%);
-  height: env(titlebar-area-height, 40px);
+  height: env(titlebar-area-height, var(--app-titlebar-height, 40px));
   app-region: drag;
   -webkit-app-region: drag;
   user-select: none;
@@ -338,7 +338,7 @@ button {
 }
 
 .desktop-window-frame .main-panel {
-  padding-top: 40px;
+  padding-top: var(--app-titlebar-height);
 }
 
 .desktop-platform-darwin:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
@@ -349,6 +349,31 @@ button {
 
 .desktop-platform-darwin .app-shell.sessions-focus > .main-panel {
   padding-top: 0;
+}
+
+/* A continuous caption edge: the sidebar, page and resize affordance meet at
+   the same baseline. The chat header occupies this caption space on macOS. */
+.desktop-platform-darwin .app-shell::after {
+  content: "";
+  position: absolute;
+  z-index: 26;
+  top: calc(var(--app-titlebar-height) - 1px);
+  inset-inline: 0;
+  height: 1px;
+  background: var(--app-chrome-border);
+  pointer-events: none;
+}
+
+.desktop-platform-darwin .app-shell > .main-panel > .content-panel {
+  border-top-left-radius: 0;
+}
+
+@media (min-width: 921px) {
+  .desktop-platform-darwin .app-sidebar.is-expanded {
+    border-top: 0;
+    border-right-color: var(--app-chrome-border);
+    border-radius: 0;
+  }
 }
 
 .desktop-loading,
@@ -2052,10 +2077,11 @@ button {
   line-height: 1.45;
 }
 
-.desktop-platform-win32,
+.desktop-window-frame,
 .app-shell {
   --app-navigation-width: 53.2px;
-  --app-titlebar-height: 41.8px;
+  --app-titlebar-height: 42px;
+  --app-chrome-border: color-mix(in srgb, var(--text-strong) 10%, transparent);
   --app-sidebar-width: 256px;
   --app-panel-radius: 14px;
   --sidebar-control-left: calc(var(--app-navigation-width) + 8px);
@@ -2103,7 +2129,7 @@ button {
 .sidebar-resizer {
   position: absolute;
   z-index: 25;
-  inset-block: 0;
+  inset-block: var(--app-titlebar-height) 0;
   left: calc(var(--app-navigation-width) + var(--app-sidebar-width) - 3px);
   width: 6px;
   outline: none;
@@ -8748,9 +8774,7 @@ pre {
   align-items: center;
   gap: 9px;
   padding: calc((var(--app-titlebar-height) - 30px) / 2) 18px;
-  /* No rule underneath. A line has to be drawn because the content is sliced
-     off at a hard edge; fading it out instead removes the thing the line was
-     there to explain. The fade lives on .conversation-scroll-area::before. */
+  /* The macOS shell draws the shared caption edge; retain the transcript fade. */
   border-bottom: 0;
   background: var(--bg);
   backdrop-filter: none;
