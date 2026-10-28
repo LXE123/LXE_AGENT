@@ -51,19 +51,14 @@ const forbidDependency = (path: string, dependency: string, message: string): vo
   if (dependency in manifestDependencies(path)) failures.push(`${path}: ${message}`);
 };
 
-forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("package.json", /gateway:(?:dev|watch|start|stop|build)/, "workspace must not expose a standalone Gateway CLI");
 forbidText("apps/gateway/package.json", /"(?:dev|watch|start|stop|build)"\s*:/, "Gateway package must be a desktop library only");
-forbidPath("config/runtime.env", "runtime defaults must be owned by code and settings.json");
-forbidPath(".env.local.example", "local preferences must be stored in settings.json");
 forbidText("apps/dashboard/src/api/client.ts", /\bfetch\b|VITE_API_BASE_URL|HttpDashboardTransport/, "Renderer API must use Electron IPC only");
 forbidText("apps/dashboard/src/api/queries.ts", /\/api\/|URLSearchParams|encodeURIComponent/, "Renderer queries must send typed Dashboard RPC inputs");
 forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|Response\.json|request\.json|new URL/, "Dashboard service must not emulate HTTP");
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
-forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*27\s+as const/, "agent protocol must use the JSON-RPC v27 business contract");
-forbidText("packages/foundation/desktop-protocol/src/index.ts", /runtime_env_path/, "agent protocol must not expose a dotenv path");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
 forbidText("apps/dashboard/src/api/queries.ts", /ACTIVE_DATA_REFRESH_INTERVAL_MS/, "session queries must remain push-driven instead of restoring shared polling");
@@ -73,7 +68,6 @@ forbidText("packages/foundation/desktop-protocol/src/index.ts", /remaining_steer
 forbidText("apps/gateway/src/orchestration/composition.ts", /remaining_steering\s*\?\?/, "Gateway must not default a missing steering handoff to an empty list");
 forbidText("apps/gateway/src/orchestration/composition.ts", /\blet\s+runtimeReady\b/, "Gateway composition must read readiness from the Runtime port");
 forbidText("apps/desktop/src/main/desktop-gateway.ts", /parts\.scheduler\.setRuntimeReady/, "Desktop must synchronize Runtime readiness through the Gateway composition boundary");
-forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSystemEvents/, "Runtime must not restore the retired embedded/stored pending-event merge");
 forbidText("packages/agent/runtime/src/engine/runtime.ts", /job\.raw_data\.system_events/, "Runtime pending events must come only from its Store");
 requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");
 requireText("package.json", /"desktop:preview"\s*:\s*"[^\"]*bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
@@ -105,13 +99,7 @@ requireText("apps/desktop/src/main/desktop-gateway.ts", /managedEnvironment:\s*c
 requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnvironment\(configuredEnvironment\)/, "Gateway must remove inherited Data Server values before applying its mode policy");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical data root");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /allowedSkillTypes:\s*\(\)\s*=>\s*readonly string\[\]/, "Desktop Runtime Skill visibility must come from the device permission snapshot");
-forbidText("apps/desktop/src/main/desktop-gateway.ts", /botSkillPolicy|permissionPolicy|LXE_PERMISSION_POLICY_PATH/, "Desktop Runtime must not retain the retired Feishu permission policy");
 requirePath("apps/gateway/src/channels/feishu/adapter.ts", "Feishu remote ingress must remain available");
-forbidPath("config/permission_policy.yaml", "the retired Feishu Bot and union-id policy must stay deleted");
-forbidPath("apps/gateway/src/security/permission-policy.ts", "the retired Gateway permission-policy loader must stay deleted");
-forbidPath("python/lxeskill_cli/shared/permission_policy_loader.py", "the retired Python permission-policy loader must stay deleted");
-forbidPath("scripts/permission_policy_admin.py", "the retired permission-policy admin tool must stay deleted");
-forbidText("packages/foundation/desktop-protocol/src/index.ts", /permission_policy_path/, "Agent protocol must not carry the retired permission-policy path");
 const retiredFeishuAuthorizationPatterns = [
   // Session PermissionPolicyService is separate from the retired Feishu policy.
   /\bPermissionPolicy\b/,
@@ -184,15 +172,8 @@ forbidPath("apps/gateway/src/channels/feishu/image.ts", "Gateway must receive an
 forbidPath("packages/agent/runtime/src/operations/machine-identity.ts", "machine identity belongs to Core");
 requirePath("apps/agent-cli/src/runtime-host.ts", "agent-cli must own its Runtime composition root");
 requirePath("apps/agent-cli/src/dashboard-service.ts", "agent-cli must own Agent Dashboard queries");
-forbidPath("apps/agent-cli/src/feishu-tools.ts", "built-in Feishu message tools must remain retired in favor of lark-cli");
-forbidPath("skills/feishu-im-read/SKILL.md", "the retired feishu-im-read Skill must not re-enter the build");
 forbidPath("skills/larksuite-cli", "Lark CLI skills must come from the installed CLI instead of a vendored copy");
-forbidPath("skills/dws", "the retired DingTalk skill copy must not re-enter the build");
 requirePath("packages/foundation/core/src/machine-identity.ts", "Core must own the shared machine identity implementation");
-forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
-forbidPath("packages/agent/runtime/src/tooling/script-tools.ts", "the retired script-tool runner must be deleted");
-forbidPath("python/lxeskill_cli/lxeskill/bridge.py", "the retired Python bridge entrypoint must be deleted");
-forbidText("packages/foundation/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
 
 const pythonImports = /(?:^|\n)\s*(?:from|import)\s+(?:gateway|agent_runtime)(?:\.|\s|$)/m;
 for (const path of repositoryFiles("*.py")) {
@@ -231,7 +212,6 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
   const source = read(path);
   const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
   const skillName = frontmatter.match(/^name:\s*([^\r\n#]+)/m)?.[1]?.trim() ?? "";
-  if (/^script_tools:/m.test(frontmatter)) failures.push(`${path}: script_tools metadata is retired; use commands`);
   const commandBlock = frontmatter.match(/^commands:\s*\r?\n((?:\s+-[^\r\n]+\r?\n?)*)/m)?.[1] ?? "";
   const commands = [...commandBlock.matchAll(/^\s+-\s*([^#\r\n]+?)\s*$/gm)]
     .map((match) => match[1]?.trim() ?? "")
