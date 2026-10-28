@@ -213,7 +213,6 @@ lxeskill describe mabang delivery export
 
 ```bash
 uv run --frozen python scripts/generate-lxeskill-command-docs.py
-uv run --frozen python scripts/generate-lxeskill-command-docs.py --check
 ```
 
-生成脚本只更新标记区域；`--check` 检查清单是否与当前定义一致，不修改文件。Skill 负责介绍任务知识和工作流程，具体命令用法在这里查阅。
+生成脚本只更新标记区域。Skill 负责介绍任务知识和工作流程，具体命令用法在这里查阅。

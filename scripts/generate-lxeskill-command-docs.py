@@ -39,8 +39,7 @@ def render_reference() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Check without writing the document")
-    args = parser.parse_args()
+    parser.parse_args()
     current = DOCUMENT.read_text(encoding="utf-8")
     if current.count(BEGIN) != 1 or current.count(END) != 1:
         raise ValueError("The handbook must contain exactly one pair of generated-region markers")
@@ -50,9 +49,6 @@ def main() -> int:
     if current == updated:
         print("Command handbook is up to date.")
         return 0
-    if args.check:
-        print("Command handbook is stale. Run: uv run --frozen python scripts/generate-lxeskill-command-docs.py")
-        return 1
     DOCUMENT.write_text(updated, encoding="utf-8", newline="\n")
     print(f"Updated {DOCUMENT}")
     return 0

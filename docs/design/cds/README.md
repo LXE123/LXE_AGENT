@@ -45,6 +45,6 @@
 - `bun run cds:preview`：打开可交互的亮暗组件展示页，10 分钟后自动关闭，也可 Ctrl+C 结束。
 - `bun run cds:check`：用本地 Electron 检查组件状态，更新同一份展示截图与实测记录，结束后清理测试进程。
 - `bun run cds:check:automations`：用本地 Electron 验收生产定时任务页面，覆盖亮暗主题、字段、列表、按钮、弹窗、错误、禁用和窄屏，记录源码指纹与截图。
-- `bun run cds:docs`：核对原始出处片段，从 JSON 重建当前适配总表。
+- `bun run cds:docs`：从 JSON 重建当前适配总表。
 
 当前展示覆盖设置原生输入框、会话导航行和工具调用条。它直接复用生产 CSS／组件；输入框错误探针与生产支持的状态分别标明。
