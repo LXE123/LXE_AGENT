@@ -1,3 +1,4 @@
+import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
 import { Pencil } from "lucide-react";
@@ -18,7 +19,7 @@ import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
+import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import {
   ArrowUp,
   Brain,
@@ -76,11 +77,6 @@ import type {
   SessionPayload
 } from "../../api/payloads";
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
-import {
-  markdownComponents,
-  markdownRehypePlugins,
-  markdownRemarkPlugins,
-} from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
@@ -195,26 +191,7 @@ function StatTile({
   );
 }
 
-const MessageMarkdown = React.memo(function MessageMarkdown({
-  text,
-}: {
-  text: string;
-}) {
-  const visibleText = text;
-  return (
-    <div className="message-markdown">
-      <ReactMarkdown
-        components={markdownComponents}
-        rehypePlugins={markdownRehypePlugins}
-        remarkPlugins={markdownRemarkPlugins}
-      >
-        {visibleText}
-      </ReactMarkdown>
-    </div>
-  );
-});
-
-function MessageBlock({ block }: { block: unknown }) {
+function MessageBlock({ block, isStreaming = false }: { block: unknown; isStreaming?: boolean }) {
   const t = useUiText();
   if (!isRecord(block)) {
     return (
@@ -223,7 +200,7 @@ function MessageBlock({ block }: { block: unknown }) {
   }
   const type = String(block.type || "unknown");
   if (type === "text") {
-    return <MessageMarkdown text={String(block.text || "")} />;
+    return <MessageMarkdown text={String(block.text || "")} isStreaming={isStreaming} />;
   }
   if (type === "thinking") {
     return <ThinkingBlock block={block} />;
@@ -449,16 +426,16 @@ function ToolCallArguments({ operation }: { operation: ToolOperation }) {
   );
 }
 
-function MessageContent({ content, message }: { content: unknown; message: SessionMessage }) {
+function MessageContent({ content, message, isStreaming = false }: { content: unknown; message: SessionMessage; isStreaming?: boolean }) {
   const t = useUiText();
   const toolCalls = message.tool_calls;
   return (
     <div className="message-content">
-      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} /> : null}
+      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} isStreaming={isStreaming} /> : null}
       {Array.isArray(content) ? (
         <div className="message-block-list">
           {content.map((block, index) => (
-            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} />
+            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} isStreaming={isStreaming} />
           ))}
         </div>
       ) : null}
@@ -1183,6 +1160,7 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
+  useAutomationEditing(permissionSessionId, runtimeReady && (text.trim().length > 0 || attachments.length > 0));
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);
@@ -1373,7 +1351,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   const [clock, setClock] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
   const elapsedMs = active && row.startedAt && row.startedAt > 0 ? clock - row.startedAt : row.elapsedMs ?? 0;
@@ -1438,6 +1416,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       {expanded ? <div className="tool-op-body">{row.operation ? defaultToolOperationBody(operation) : <LiveToolOperationBody operation={operation} />}</div> : null}
     </li></ul></section>;
   }
+  const isStreaming = row.status === "streaming";
   const message = row.message!;
   const blocks = Array.isArray(message.content) ? message.content : [];
   const thinking = blocks.length === 1 && isRecord(blocks[0]) && ["thinking", "redacted_thinking"].includes(String(blocks[0].type)) ? blocks[0] : undefined;
@@ -1447,11 +1426,11 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     {thinking.redacted || thinking.type === "redacted_thinking" ? <div className="process-thinking-text redacted">{t.message.redactedThinking}</div> : null}
   </div>;
   if (row.presentation === "process" && message.role === "assistant") return <div className="timeline-text process-message-content">
-    <MessageContent content={message.content} message={message} />
+    <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
     {row.status === "error" ? <div role="status">{stateLabel}</div> : null}
     {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
   </div>;
-  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} /></article>;
+  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);
@@ -1466,7 +1445,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   }
   return <div className={`message-with-meta role-${role}${role === "user" ? " conversation-chrome-theme" : ""}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
-      <MessageContent content={message.content} message={message} />
+      <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
       {role === "user" && ["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
@@ -1574,37 +1553,40 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header>
-      <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
-        connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
-        loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
-        pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
-        empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
-          : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-          : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
-      <div className="conversation-composer-dock">
-        <ConversationComposer
-          permissionSessionId={session?.session_id ?? ""}
-          permissionMode={session?.permission_mode ?? "workspace-write"}
-          approvals={approvals} onApprovalChanged={onApprovalChanged}
-          question={question}
-          onQuestionAnswered={onQuestionAnswered}
-          contextDetail={detail}
-          activity={activity}
-          conversationKey={sessionKey}
-          currentModel={currentModel}
-          modelLoading={modelLoading}
-          models={models}
-          modelSaving={modelSaving}
-          thinkingSaving={thinkingSaving}
-          onModelChange={onModelChange}
-          onThinkingLevelChange={onThinkingLevelChange}
-          runtimeReady={runtimeReady}
-          runtimeUnavailableMessage={runtimeUnavailableMessage}
-          onSend={onSend}
-          onStop={onStop}
-        />
+      <div className="conversation-body">
+        <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+          connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+          followingIntent={display?.following} historyTarget={display?.historyTarget}
+          loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
+          pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
+          empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
+            : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
+            : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
+          renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
+        <div className="conversation-composer-dock">
+          <ConversationComposer
+            permissionSessionId={session?.session_id ?? ""}
+            permissionMode={session?.permission_mode ?? "workspace-write"}
+            approvals={approvals} onApprovalChanged={onApprovalChanged}
+            question={question}
+            onQuestionAnswered={onQuestionAnswered}
+            contextDetail={detail}
+            activity={activity}
+            conversationKey={sessionKey}
+            currentModel={currentModel}
+            modelLoading={modelLoading}
+            models={models}
+            modelSaving={modelSaving}
+            thinkingSaving={thinkingSaving}
+            onModelChange={onModelChange}
+            onThinkingLevelChange={onThinkingLevelChange}
+            runtimeReady={runtimeReady}
+            runtimeUnavailableMessage={runtimeUnavailableMessage}
+            onSend={onSend}
+            onStop={onStop}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1723,18 +1705,20 @@ function SessionDeleteDialog({
   const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const title = session.title || t.common.unnamedSession;
   return createPortal(
-    <div className="session-delete-backdrop">
+    <div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
       <section
         aria-labelledby="session-delete-title"
+        aria-describedby="session-delete-description session-delete-note"
         aria-modal="true"
-        className="session-delete-dialog"
+        aria-busy={pending}
+        className="session-delete-dialog session-delete-confirm-dialog"
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
         <h2 id="session-delete-title">{t.sessions.deleteTitle}</h2>
-        <p>{t.sessions.deletePrompt(title)}</p>
-        <p className="session-delete-note">{t.sessions.deleteNote}</p>
+        <p id="session-delete-description">{t.sessions.deletePrompt(title)}</p>
+        <p id="session-delete-note" className="session-delete-note">{t.sessions.deleteNote}</p>
         {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
         <footer>
           <button disabled={pending} onClick={onCancel} type="button">{t.sessions.cancelDelete}</button>
@@ -1960,7 +1944,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       ) : null}
       {showTable ? (
         <div
-          className="session-index-list"
+          className={embedded && searchOpen ? "session-index-list sidebar-scroll-area" : "session-index-list"}
           onScroll={() => {
             closeMenu(false);
             maybeLoadMore();

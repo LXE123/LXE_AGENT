@@ -6,7 +6,7 @@ type: amazon_fba
 
 # FBA Workflow Map
 
-本 skill 只负责解释和路由；执行请求必须切到具体业务 skill。
+根据用户任务说明相关子流程，再按下表转到具体业务 Skill 或管理员入口执行。
 
 ## Terminology
 
@@ -20,7 +20,7 @@ type: amazon_fba
 | 合同汇总模板 | 用户提供的采购合同模板 xlsx，一个 sheet 对应一个公司/厂家 | `fba-purchase-summary-create` |
 | Amazon FBA 创建货件 | 在 Seller Central 上传装箱并推进四阶段流程 | `fba-shipment-create` |
 
-只有 `SP...` 单号但没有说明“发货单”或“装箱/WMS/托运单”时，先追问用途，不要猜。
+只有 `SP...` 单号但没有说明“发货单”或“装箱/WMS/托运单”时，先确认用途。
 
 ## Skill Map
 
@@ -81,8 +81,8 @@ flowchart TD
 | 发货单数据 | `mabang-delivery-export` |
 | 装箱与货件创建 | `mabang-delivery-packing-list-export` -> `ziniao-browser` -> `fba-shipment-create` |
 | ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
-| ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
-| ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次；Agent 不执行 |
+| ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次 |
+| ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单售价 + 最新发货单 CSV -> ERP 只读计算；结合 WMS 箱重，预览各型号缺货，经用户确认后生成 |
 | 采购文件预览 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 只读计算（默认 FIFO；用户明确要求时可不扣库存）-> `fba-purchase-summary-create --preview` 生成带占位合同号的完整预览文件；不创建批次或占库存 |
@@ -91,13 +91,8 @@ flowchart TD
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
-ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关，不作为 ERP 实发量上传来源。
+马帮下载步骤使用配置的马帮账号，由 CLI 管理认证；后续 Amazon Seller Central 货件创建使用紫鸟中的卖家店铺会话。
 
-日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`，不能自行推断，也不需要每次固定询问。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，但正式执行必须重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 只作为单 SP 备货单兼容入口，旧采购汇总表不再提供单独生成合同的入口。
+ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关。
 
-## Answering Rules
-
-- 先说明相关子流程，再指出下一步具体 skill。
-- 不从本 skill 运行命令；执行时切到目标业务 skill。
-- 期初库存和历史库存补录都没有业务 Skill：前者只能由后端服务器管理员执行一次性 CLI，后者只能在 ERP“留存库存”页由管理员预览并确认。
-- 用户只给 `SP...` 时，必须区分 FBA 发货单 CSV 和 WMS 装箱 Excel。
+日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，正式执行重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 作为单 SP 备货单兼容入口。

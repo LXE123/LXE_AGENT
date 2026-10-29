@@ -50,13 +50,7 @@ def main() -> int:
         return 1
     except Exception as exc:
         json.dump(
-            {
-                "success": False,
-                "stage": "browser",
-                "current_url": "",
-                "exception_type": type(exc).__name__,
-                "message": str(exc),
-            },
+            BrowserAuthRefreshError(stage="browser", current_url="", cause=exc).to_payload(),
             sys.stdout,
             ensure_ascii=False,
         )

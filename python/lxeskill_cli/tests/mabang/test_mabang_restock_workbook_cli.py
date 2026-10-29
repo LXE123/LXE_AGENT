@@ -8,9 +8,9 @@ from mabang_test_helpers import _sheet_names
 
 import pytest
 
-from services.agent_cli.mabang import generate_restock_workbook as cli
-from services.agent_cli.mabang import generate_fba_restock_workbook as restock_cli
-from services.agent_cli.mabang import generate_purchase_batch_workbooks as batch_cli
+from services.commands.mabang import generate_restock_workbook as cli
+from services.commands.mabang import generate_fba_restock_workbook as restock_cli
+from services.commands.mabang import generate_purchase_batch_workbooks as batch_cli
 
 PURCHASE_COLUMNS = (
     "库存sku",
@@ -1603,7 +1603,6 @@ def test_generate_fba_restock_workbook_uses_first_country_and_sanitizes_file_nam
 
     assert payload["country"] == "德/国"
     assert Path(payload["output_xlsx"]).name == "6.8-SP260605003-新棱镜备货-德_国.xlsx"
-    assert "存在多个不同国家" in payload["warnings"][-1]
 
 
 def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_path):

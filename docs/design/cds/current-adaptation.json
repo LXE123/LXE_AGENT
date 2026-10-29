@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "reviewedOn": "2026-10-20",
-  "scope": "首批：设置原生输入框、会话导航行、工具调用条。不是全站审计，也不是 Claude 全组件规范。",
+  "scope": "本表：设置原生输入框、会话导航行、工具调用条；定时任务页面的独立状态矩阵与实测见 [定时任务适配](automations.md)。不是全站审计，也不是 Claude 全组件规范。",
   "upstreamVersion": "Claude.app 2.42304.0（已归档资源；未重新抓取当前安装版本）",
   "sources": [
     { "id": "S1", "file": "docs/design/cds/sources/cds-tokens-vanilla.original.md", "locator": "Token rule / Muted text rule / Purpose tokens", "kind": "原规则", "note": "生成的 CDS 文档；适用范围见 evidence.md。" },
@@ -28,13 +28,13 @@
     {
       "id": "navigation",
       "title": "导航行",
-      "scope": "会话侧边栏的 SessionsIndex。此轮不覆盖所有设置导航、工作区标题或菜单状态。",
-      "implementation": ["apps/dashboard/src/features/sessions/view.tsx", "apps/dashboard/src/features/sessions/sidebar-theme.css", "apps/dashboard/src/styles.css"],
+      "scope": "会话侧边栏的 SessionsIndex。30px 会话行、10px 工作区间距与文字层级是 LXE 适配；标题用满行宽，尾部以 20px 渐隐代替省略号。悬停、键盘聚焦或菜单打开时，菜单覆盖在右侧，渐隐终点内收 36px，文字位置不变。分组及搜索列表使用靠右的 8px 滚动条轨道，与行背景间隔 2px；滑块仅在滚动或拖动轨道时显示，停止约 800ms 后隐藏，鼠标移入及单纯聚焦不触发，拖动中保持显示，轨道宽度不变。这些尺寸与交互是 LXE 适配，不是已确认的 CDS 原始规则。当前实现见下方生产源码。组件状态实测见 showcase/verification.json，不是所有导航组件的完整审计。",
+      "implementation": ["apps/dashboard/src/features/sessions/view.tsx", "apps/dashboard/src/features/sessions/sidebar-theme.css", "apps/dashboard/src/features/sessions/use-sidebar-scrollbar.ts", "apps/dashboard/src/styles.css"],
       "reuse": "生产 SessionsIndex",
       "instructions": "点击切换当前会话；悬停选中与未选中的行；用 Tab / Enter 导航。更多菜单沿用生产组件，动作只修改当前样本数据。",
       "states": [
-        { "id": "navigation-default", "label": "默认／悬停", "upstream": ["S1", "S5-nav"], "lxe": "导航面 --cds-surface-nav；悬停为背景 95% + 前景 5% 的不透明混色。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme / .session-index-item:hover", "verification": "读取表面、文字和行悬停背景；点击能切换选中。" },
-        { "id": "navigation-selected", "label": "选中／选中＋悬停", "upstream": ["S5-nav"], "lxe": "背景 90% + 前景 10%；两种主题相同比例。与设置导航暗色白 15% 不同，是会话行的局部选择。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme .session-index-item.active", "verification": "选中持续显示 aria-current=page；移入鼠标保持选中背景。" },
+        { "id": "navigation-default", "label": "默认／悬停", "upstream": ["S1", "S5-nav"], "lxe": "导航面 --cds-surface-nav；悬停为背景 95% + 前景 5% 的不透明混色。会话标题 13px、400 字重，默认 secondary，悬停或键盘焦点为 ink。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme / .session-index-item:hover", "verification": "读取表面、文字和行悬停背景；点击能切换选中。" },
+        { "id": "navigation-selected", "label": "选中／选中＋悬停", "upstream": ["S5-nav"], "lxe": "浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题均为 400 字重。与设置导航暗色白 15% 不同，是会话行的局部选择。", "classification": "LXE 适配", "selector": ".app-sidebar.conversation-chrome-theme .session-index-item.active", "verification": "选中持续显示 aria-current=page；移入鼠标保持选中背景。" },
         { "id": "navigation-focus", "label": "键盘焦点／选中＋焦点", "upstream": ["S1"], "lxe": "使用现有导航焦点规则与蓝色 --focus-ring。", "classification": "LXE 适配", "selector": ".session-index-open:focus-visible", "verification": "真实 Tab 聚焦、Enter 选中，读取 outline；不把程序添加 class 当成焦点。" },
         { "id": "navigation-na", "label": "禁用／错误行", "upstream": [], "lxe": "当前 SessionsIndex 没有整行 disabled 或 invalid 接口；运行结果状态图标是另一维度。", "classification": "不适用", "selector": "SessionsIndex props", "verification": "不伪造整行禁用／错误样本；会话状态图标不在本轮范围。" }
       ],

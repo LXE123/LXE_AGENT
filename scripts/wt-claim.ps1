@@ -55,6 +55,12 @@ function Sync-LxeWorktreeDependencies([string]$Directory) {
     Write-Output "deps synced in ${seconds}s (bun install + uv sync, warm caches)"
 }
 
+function Sync-LxeWorktreeConfiguration([string]$Directory, [string]$Mode) {
+    & bun (Join-Path $PSScriptRoot "worktree-config.ts") $mainRoot $Directory $Mode
+    if ($LASTEXITCODE -ne 0) { throw "worktree configuration preparation failed with exit code $LASTEXITCODE (see diagnostic above)" }
+}
+
+$poolLock = $null
 try {
     $commonResult = @(& git rev-parse --path-format=absolute --git-common-dir 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "not inside a Git repository: $($commonResult -join [Environment]::NewLine)" }
@@ -79,6 +85,31 @@ try {
         exit 0
     }
 
+    # CreateNew atomically excludes other Bash/PowerShell pool mutations.
+    [System.IO.Directory]::CreateDirectory($poolRoot) | Out-Null
+    $poolLockPath = Join-Path $poolRoot ".wt-claim.lock"
+    try {
+        $poolLock = [System.IO.File]::Open($poolLockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    }
+    catch {
+        throw "cannot acquire pool lock $poolLockPath; another wt-claim may be running, retry after it finishes. $($_.Exception.Message)"
+    }
+    $owner = [System.Text.Encoding]::UTF8.GetBytes("$PID`n")
+    $poolLock.Write($owner, 0, $owner.Length)
+    $poolLock.Flush()
+
+    if ($Command -eq "refresh-config") {
+        if ([string]::IsNullOrWhiteSpace($TaskSlug)) { throw "usage: wt-claim refresh-config <task-slug>" }
+        for ($index = 1; $index -le $maxSlots; $index += 1) {
+            $directory = Join-Path $poolRoot "pool-$index"
+            if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $TaskSlug) {
+                Sync-LxeWorktreeConfiguration $directory "refresh"
+                exit 0
+            }
+        }
+        throw "no slot claimed by: $TaskSlug"
+    }
+
     if ($Command -eq "release") {
         if ([string]::IsNullOrWhiteSpace($TaskSlug)) { throw "usage: wt-claim release <task-slug>" }
         for ($index = 1; $index -le $maxSlots; $index += 1) {
@@ -97,7 +128,7 @@ try {
     }
 
     $slug = $Command
-    if ([string]::IsNullOrWhiteSpace($slug)) { throw "usage: wt-claim <task-slug> | release <task-slug> | status" }
+    if ([string]::IsNullOrWhiteSpace($slug)) { throw "usage: wt-claim <task-slug> | release <task-slug> | refresh-config <task-slug> | status" }
     if ($slug -notmatch "^[a-z0-9][a-z0-9-]*$") { throw "task slug must be kebab-case: $slug" }
     $branchName = "codex/$slug"
 
@@ -105,6 +136,7 @@ try {
         $directory = Join-Path $poolRoot "pool-$index"
         if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $slug) {
             Sync-LxeWorktreeDependencies $directory
+            Sync-LxeWorktreeConfiguration $directory "init"
             Write-Output "resumed pool-$index on $(Get-LxeSlotBranch $directory)"
             Write-Output $directory
             exit 0
@@ -118,7 +150,7 @@ try {
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
-            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--detach", $directory, "main") | Out-Null
+            Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--quiet", "--detach", $directory, "main") | Out-Null
         }
         elseif (Get-LxeSlotSlug $directory) {
             continue
@@ -135,6 +167,7 @@ try {
         }
         [System.IO.File]::WriteAllText("$directory.claim", "$slug`n", [System.Text.UTF8Encoding]::new($false))
         Sync-LxeWorktreeDependencies $directory
+        Sync-LxeWorktreeConfiguration $directory "init"
         $verb = if ($reattach) { "reattached" } else { "claimed" }
         Write-Output "$verb pool-$index on $branchName"
         Write-Output $directory
@@ -145,4 +178,10 @@ try {
 catch {
     [Console]::Error.WriteLine("wt-claim: $($_.Exception.Message)")
     exit 1
+}
+finally {
+    if ($null -ne $poolLock) {
+        $poolLock.Dispose()
+        Remove-Item -LiteralPath $poolLockPath -Force
+    }
 }

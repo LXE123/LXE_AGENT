@@ -90,4 +90,4 @@
 
 离线替身另曾复现两个同批反例：提问在前时跳过后继续 exec；exec 在前时可在选择前执行。对应公共用例及 18 项扩展回归归属独立 [Runtime PR #9](https://github.com/Arsenal20262/LXE_AGENT/pull/9)，在 #95 合并时未集成；临时加载该实现得到的 35 项通过不算正式集成，也不把测试去重描述为修复。
 
-#95 保留 TMS 自身 19 个固定轨迹和问答/附件契约。main 的[提问契约](../harness/tool/ask-user-question.md)仍是普通串行分派：回答或跳过后继续同批剩余调用。Skill 要求先澄清再导出，不等于 Runtime 保证提问独占；完整 Electron UI、跨渠道真实交付及所有未来模型响应均未由上述样本证明。
+#95 保留 TMS 自身 19 个固定轨迹和问答/附件契约。main 的[提问契约](../harness/runtime/tools/ask-user-question.md)仍是普通串行分派：回答或跳过后继续同批剩余调用。Skill 要求先澄清再导出，不等于 Runtime 保证提问独占；完整 Electron UI、跨渠道真实交付及所有未来模型响应均未由上述样本证明。

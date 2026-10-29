@@ -31,12 +31,12 @@ describe("device context bridge", () => {
     expect(parsed.desktop_features).toEqual([]);
     expect(() => parseDeviceContext(fixtureContext(), "device-b", "10.88.0.8", 100)).toThrow("identity mismatch");
   });
-  test("actual managed Python only queries context, with no credentials or workspace side effects", async () => {
+  test("actual CLI only queries context, with no credentials or workspace side effects", async () => {
     const calls: { url: string; headers: Headers }[] = [];
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => { calls.push({ url: request.url, headers: new Headers(request.headers) }); return Response.json(fixtureContext()); } });
     const root = mkdtempSync(join(tmpdir(), "lxe-context-bridge-"));
     try {
-      const client = new DesktopCloudContextClient({ pythonPath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"), cwd: root });
+      const client = new DesktopCloudContextClient({ executablePath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"), cwd: root });
       expect(await client.query(`http://127.0.0.1:${server.port}`, new AbortController().signal)).toEqual(fixtureContext());
       expect(calls.length).toBe(1);
       expect(new URL(calls[0]!.url).pathname).toBe("/api/v1/device-context");
@@ -48,7 +48,7 @@ describe("device context bridge", () => {
   });
   test("actual subprocess timeout and cancellation close pending queries", async () => {
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Promise<Response>(() => {}) });
-    const client = new DesktopCloudContextClient({ pythonPath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"), cwd: process.cwd(), timeoutMs: 100 });
+    const client = new DesktopCloudContextClient({ executablePath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"), cwd: process.cwd(), timeoutMs: 100 });
     try {
       await expect(client.query(`http://127.0.0.1:${server.port}`, new AbortController().signal)).rejects.toThrow("timed out");
       const controller = new AbortController();
@@ -68,13 +68,13 @@ test("bridge bounds stdout, strips credential environment and reaps the cancelle
   const kill = child.kill;
   child.kill = () => { killed++; return kill(); };
   const fakeSpawn = ((path: string, args: string[], options: any) => {
-    expect(path).toBe(join(process.cwd(), "python.exe"));
-    expect(args).toEqual(["-I", "-B", "-X", "utf8", "-m", "lxeskill", "cloud-context", "--server", "http://localhost"]);
+    expect(path).toBe(join(process.cwd(), "lxeskill.exe"));
+    expect(args).toEqual(["cloud-context", "--server", "http://localhost"]);
     expect(Object.keys(options.env).some((key) => /LXE_|TOKEN|SECRET|PASSWORD|PROXY|PYTHONPATH/u.test(key))).toBe(false);
     queueMicrotask(() => child.stdout.write(Buffer.alloc(2 * 1024 * 1024 + 1)));
     return child;
   }) as unknown as typeof spawn;
-  const client = new DesktopCloudContextClient({ pythonPath: join(process.cwd(), "python.exe"), cwd: process.cwd(), spawn: fakeSpawn });
+  const client = new DesktopCloudContextClient({ executablePath: join(process.cwd(), "lxeskill.exe"), cwd: process.cwd(), spawn: fakeSpawn });
   await expect(client.query("http://localhost", new AbortController().signal)).rejects.toThrow("exceeded 2 MiB");
   expect(killed).toBe(1);
   expect(child.stdout.listenerCount("data")).toBe(0);
@@ -86,6 +86,6 @@ test("bridge bounds stderr and preserves an explicit truncation marker on invali
     queueMicrotask(() => { child.stderr.write(Buffer.alloc(10_000, 120)); child.emit("close", 1); });
     return child;
   }) as unknown as typeof spawn;
-  const client = new DesktopCloudContextClient({ pythonPath: join(process.cwd(), "python.exe"), cwd: process.cwd(), spawn: fakeSpawn });
+  const client = new DesktopCloudContextClient({ executablePath: join(process.cwd(), "lxeskill.exe"), cwd: process.cwd(), spawn: fakeSpawn });
   await expect(client.query("http://localhost", new AbortController().signal)).rejects.toThrow("[truncated]");
 });

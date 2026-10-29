@@ -322,7 +322,7 @@ button {
   top: 0;
   left: env(titlebar-area-x, 0px);
   width: env(titlebar-area-width, 100%);
-  height: env(titlebar-area-height, 40px);
+  height: env(titlebar-area-height, var(--app-titlebar-height, 40px));
   app-region: drag;
   -webkit-app-region: drag;
   user-select: none;
@@ -338,7 +338,7 @@ button {
 }
 
 .desktop-window-frame .main-panel {
-  padding-top: 40px;
+  padding-top: var(--app-titlebar-height);
 }
 
 .desktop-platform-darwin:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
@@ -349,6 +349,37 @@ button {
 
 .desktop-platform-darwin .app-shell.sessions-focus > .main-panel {
   padding-top: 0;
+}
+
+/* Keep the navigation rail joined to the caption around the sidebar's curved
+   corner. Only the docked sidebar/content junction gets the caption divider. */
+@media (min-width: 921px) {
+  .desktop-platform-darwin .app-sidebar.is-expanded {
+    border-color: var(--app-chrome-border);
+  }
+
+  .desktop-platform-darwin .app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable)::before,
+  .desktop-platform-darwin .app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable)::after {
+    content: "";
+    position: absolute;
+    z-index: 26;
+    left: calc(var(--app-navigation-width) + var(--app-sidebar-width) - 1px);
+    background: var(--app-chrome-border);
+    pointer-events: none;
+  }
+
+  /* A short decorative rule, separate from the resize target below it. */
+  .desktop-platform-darwin .app-shell::before {
+    top: calc((var(--app-titlebar-height) - 16px) / 2);
+    width: 1px;
+    height: 16px;
+  }
+
+  .desktop-platform-darwin .app-shell::after {
+    top: var(--app-titlebar-height);
+    right: 0;
+    height: 1px;
+  }
 }
 
 .desktop-loading,
@@ -2052,12 +2083,14 @@ button {
   line-height: 1.45;
 }
 
-.desktop-platform-win32,
+.desktop-window-frame,
 .app-shell {
   --app-navigation-width: 53.2px;
-  --app-titlebar-height: 41.8px;
+  --app-titlebar-height: 42px;
+  --app-chrome-border: color-mix(in srgb, var(--text-strong) 10%, transparent);
   --app-sidebar-width: 256px;
   --app-panel-radius: 14px;
+  --app-content-corner-radius: 0px;
   --sidebar-control-left: calc(var(--app-navigation-width) + 8px);
   --navigation-bg: var(--bg);
   --sidebar-bg: var(--bg);
@@ -2084,14 +2117,12 @@ button {
   transition: grid-template-columns 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
+/* The shell assigns the leading corner to whichever canvas adjoins the rail.
+   Pages and the conversation body consume the same state below. */
 .app-shell.sidebar-collapsed,
 .app-shell.sidebar-unavailable {
   grid-template-columns: var(--app-navigation-width) 0 minmax(0, 1fr);
-}
-
-/* When the session list is absent, the page owns the same leading corner. */
-.app-shell.sidebar-unavailable > .main-panel > .content-panel {
-  border-top-left-radius: var(--app-panel-radius);
+  --app-content-corner-radius: var(--app-panel-radius);
 }
 
 /* Keep the list mounted for scroll/search state, but remove all off-page chrome. */
@@ -2103,7 +2134,7 @@ button {
 .sidebar-resizer {
   position: absolute;
   z-index: 25;
-  inset-block: 0;
+  inset-block: var(--app-titlebar-height) 0;
   left: calc(var(--app-navigation-width) + var(--app-sidebar-width) - 3px);
   width: 6px;
   outline: none;
@@ -2687,11 +2718,14 @@ h1 {
   overflow: auto;
   padding: 24px 28px 92px;
   background: transparent;
+  border-top-left-radius: var(--app-content-corner-radius, 0px);
 }
 
 /* The conversation owns its own scrolling, so this panel must not scroll too. */
 .content-panel-fill {
   overflow: hidden;
+  /* Its embedded conversation header is part of the caption, not the canvas. */
+  border-top-left-radius: 0;
 }
 
 .workspace-view {
@@ -6486,7 +6520,7 @@ code {
 
 /* Pixel-checked dark chat colours. Keep the palette local: the sidebar,
    composer, user bubbles, tool output and other Markdown viewers retain theirs. */
-:root[data-theme="dark"] :is(.conversation-view, .conversation-scroll-area, .conversation-feed) {
+:root[data-theme="dark"] :is(.conversation-scroll-area, .conversation-feed) {
   background-color: var(--conversation-bg);
 }
 
@@ -7016,6 +7050,7 @@ pre {
   .app-shell,
   .app-shell.sidebar-collapsed {
     grid-template-columns: var(--app-navigation-width) 0 minmax(0, 1fr);
+    --app-content-corner-radius: var(--app-panel-radius);
   }
 
   .sidebar-dismiss {
@@ -8728,11 +8763,22 @@ pre {
   opacity: 0.6;
 }
 
-/* Share the chat canvas with the dock and edge fades to avoid visible seams.
-   Cards, including the input card, keep their own surface colours. */
+/* The caption and exposed corner share the shell background. The body owns
+   the chat canvas, including the dock and scroll fades, below the caption. */
 .conversation-view {
   position: relative;
   overflow: hidden;
+  background: var(--bg);
+}
+
+.conversation-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-top-left-radius: var(--app-content-corner-radius, 0px);
   background: var(--conversation-bg);
 }
 
@@ -8748,9 +8794,7 @@ pre {
   align-items: center;
   gap: 9px;
   padding: calc((var(--app-titlebar-height) - 30px) / 2) 18px;
-  /* No rule underneath. A line has to be drawn because the content is sliced
-     off at a hard edge; fading it out instead removes the thing the line was
-     there to explain. The fade lives on .conversation-scroll-area::before. */
+  /* The macOS shell draws the shared caption edge; retain the transcript fade. */
   border-bottom: 0;
   background: var(--bg);
   backdrop-filter: none;
@@ -11299,6 +11343,7 @@ pre {
 }
 
 .conversation-process-toggle > .live-progress-status {
+  width: auto;
   padding: 0;
 }
 

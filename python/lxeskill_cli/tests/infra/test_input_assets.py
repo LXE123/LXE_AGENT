@@ -184,15 +184,11 @@ def test_registered_slots_describe_business_name_and_usage() -> None:
     assert all(asset.display_name and asset.used_by for asset in ASSETS.values())
 
 
-def test_retired_vietnam_slots_are_not_registered_or_inspected(slot_root: Path) -> None:
-    retired = {"vietnam_replenishment_template", "vietnam_sku_parameter_map"}
-    assert ASSETS and retired.isdisjoint(ASSETS)
+def test_inspect_lists_registered_slots_without_creating_storage(slot_root: Path) -> None:
+    assert ASSETS
     inspected = inspect_assets({})
     assert inspected["success"] is True
     assert {item["slot"] for item in inspected["slots"]} == set(ASSETS)
-    for slot in retired:
-        with pytest.raises(InputAssetError, match="unknown input asset slot"):
-            current_asset(slot)
     assert not slot_root.exists()
 
 

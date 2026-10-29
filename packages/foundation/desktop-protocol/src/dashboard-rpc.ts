@@ -1,3 +1,4 @@
+import { AUTOMATION_OPERATIONS, parseAutomationCall, type AutomationRpcSpec, type AutomationOperation } from "./automations";
 import { parsePermissionMode, type PermissionMode, type PendingApproval, type ApprovalDecision } from "@lxe/protocol";
 export type { PermissionMode, PendingApproval, ApprovalDecision } from "@lxe/protocol";
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
@@ -480,7 +481,15 @@ export interface WorkspaceSummaryPayload {
   last_active_at: number;
 }
 
-export interface DashboardRpcSpec {
+export interface DashboardRpcSpec extends AutomationRpcSpec {
+  "titles.generate": {
+    input: { text: string; session_id?: string; model?: { provider: string; model: string; credential_source: "local" | "cloud" } };
+    result: { title: string };
+  };
+  "sessions.turn.lookup": {
+    input: { session_id: string; turn_id: string };
+    result: { state: import("@lxe/protocol/session-status").SessionRunPhase | "missing" };
+  };
   "sessions.create": {
     input: { workspace_id: string };
     result: SessionPayload;
@@ -508,7 +517,7 @@ export interface DashboardRpcSpec {
     result: SessionListPayload;
   };
   "sessions.detail": {
-    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string };
+    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string; message_turn_id?: string };
     result: SessionDetailPayload;
   };
   "sessions.execTasks": {
@@ -585,10 +594,10 @@ export interface DashboardRpcSpec {
   "models.list": { input: DashboardRpcEmptyInput; result: ApiList<ModelPayload> };
   "models.current": { input: { session_id?: string }; result: ModelPayload };
   "models.update": {
-    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number };
+    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number; remember_default?: boolean };
     result: ModelMutationPayload;
   };
-  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number }; result: ModelMutationPayload };
+  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number; remember_default?: boolean }; result: ModelMutationPayload };
 }
 
 export type DashboardRpcOperation = keyof DashboardRpcSpec;
@@ -604,7 +613,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -711,6 +720,9 @@ const emptyInput = (input: Record<string, unknown>, operation: string): Dashboar
 };
 
 const modelSelectionScope = (input: Record<string, unknown>, operation: string) => {
+  if (input.remember_default !== undefined && input.session_id === undefined) {
+    throw new DashboardRpcError("invalid_request", `${operation}.remember_default requires a session`);
+  }
   if (input.selection_version !== undefined && (input.session_id === undefined
     || !Number.isSafeInteger(input.selection_version) || Number(input.selection_version) < 0)) {
     throw new DashboardRpcError("invalid_request", `${operation}.selection_version requires a session and a nonnegative integer`);
@@ -718,6 +730,7 @@ const modelSelectionScope = (input: Record<string, unknown>, operation: string) 
   return {
     ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
     ...(input.selection_version === undefined ? {} : { selection_version: Number(input.selection_version) }),
+    ...(input.remember_default === undefined ? {} : { remember_default: booleanValue(input.remember_default, `${operation}.remember_default`) }),
   };
 };
 
@@ -737,7 +750,30 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     rpcError("Dashboard RPC input is too large");
   }
 
+  if (AUTOMATION_OPERATIONS.includes(operation as AutomationOperation)) {
+    try { return parseAutomationCall(String(operation), input); }
+    catch (error) { throw new DashboardRpcError("invalid_request", error instanceof Error ? error.message : String(error)); }
+  }
+
   switch (operation) {
+    case "titles.generate": {
+      exactKeys(input, ["text", "session_id", "model"], `${operation}.input`);
+      const text = textValue(input.text, `${operation}.text`)!;
+      if (text.length > 32768) return rpcError("titles.generate.text exceeds 32768 characters");
+      if (input.model !== undefined && input.session_id !== undefined) return rpcError("titles.generate accepts either model or session_id");
+      let model: DashboardRpcSpec["titles.generate"]["input"]["model"];
+      if (input.model !== undefined) {
+        const value = objectValue(input.model, "titles.generate.model");
+        exactKeys(value, ["provider", "model", "credential_source"], "titles.generate.model");
+        if (value.credential_source !== "local" && value.credential_source !== "cloud") return rpcError("Invalid title model credential_source");
+        model = { provider: textValue(value.provider, "provider")!, model: textValue(value.model, "model")!, credential_source: value.credential_source };
+      }
+      return { operation, input: { text, ...(model ? { model } : {}),
+        ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, "session_id")! }) } };
+    }
+    case "sessions.turn.lookup":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, "session_id")!, turn_id: textValue(input.turn_id, "turn_id")! } };
     case "sessions.create":
     case "workspaces.delete":
       exactKeys(input, ["workspace_id"], `${operation}.input`);
@@ -777,8 +813,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         offset: integerValue(input.offset, `${operation}.offset`, 0, 0, Number.MAX_SAFE_INTEGER),
       } };
     case "sessions.detail": {
-      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after"], `${operation}.input`);
+      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after", "message_turn_id"], `${operation}.input`);
       if (input.message_before !== undefined && input.message_after !== undefined) rpcError("before and after are mutually exclusive");
+      if (input.message_turn_id !== undefined && (input.message_before !== undefined || input.message_after !== undefined)) rpcError("turn and page cursors are mutually exclusive");
+      const messageTurn = textValue(input.message_turn_id, `${operation}.message_turn_id`, { optional: true });
       const messageAfter = textValue(input.message_after, `${operation}.message_after`, { optional: true });
       const messageBefore = textValue(input.message_before, `${operation}.message_before`, { optional: true });
       return { operation, input: {
@@ -786,6 +824,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         message_limit: integerValue(input.message_limit, `${operation}.message_limit`, 10, 1, 200),
         ...(messageBefore === undefined ? {} : { message_before: messageBefore }),
         ...(messageAfter === undefined ? {} : { message_after: messageAfter }),
+        ...(messageTurn === undefined ? {} : { message_turn_id: messageTurn }),
       } };
     }
     case "sessions.rename":
@@ -922,7 +961,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         days: integerValue(input.days, `${operation}.days`, 30, 1, 365),
       } };
     case "models.update":
-      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       if (input.credential_source !== undefined
         && input.credential_source !== "local"
         && input.credential_source !== "cloud") {
@@ -935,7 +974,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(input.credential_source === undefined ? {} : { credential_source: input.credential_source }),
       } };
     case "models.thinking.update":
-      exactKeys(input, ["level", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["level", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       return { operation, input: { level: textValue(input.level, `${operation}.level`)!, ...modelSelectionScope(input, operation) } };
     default:
       return rpcError(`unsupported Dashboard RPC operation: ${operation}`);
@@ -944,7 +983,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "commands.list"
+  if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"

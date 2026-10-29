@@ -10,6 +10,21 @@ import pytest
 from lxeskill.business import load_catalog
 
 
+def test_ziniao_commands_belong_to_browser_skill() -> None:
+    catalog = load_catalog()
+    assert catalog["ziniao_browser"]["owner_skills"] == ["ziniao-browser"]
+    assert catalog["ziniao_page"]["owner_skills"] == ["ziniao-browser"]
+
+
+def test_purchase_command_accepts_only_explicit_no_deduction_mode() -> None:
+    catalog = load_catalog()
+    schema = catalog["mabang_generate_purchase_batch_workbooks"]["input_schema"]
+    deduction_mode = schema["properties"]["inventory_deduction_mode"]
+
+    assert deduction_mode["enum"] == ["none"]
+    assert "inventory_deduction_mode" not in schema["required"]
+
+
 def _command(entry: dict[str, Any]) -> str:
     return " ".join(str(part) for part in entry["command_path"])
 

@@ -119,7 +119,7 @@ describe("ExecShellAdapter", () => {
     }).shellProfile()).toEqual({ kind: "windows-powershell" });
   });
 
-  test("normalizes Python, pip, and lxeskill with platform-safe quoting", () => {
+  test("normalizes Python and pip with platform-safe quoting", () => {
     const posix = new ExecShellAdapter({
       platform: "darwin",
       fileExists: (path) => path.endsWith("/.venv/bin/python"),
@@ -131,7 +131,7 @@ describe("ExecShellAdapter", () => {
       "'/work/demo/.venv/bin/python' -m pip install demo",
     );
     expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase summary-create --input-json args.json")).toBe(
-      "'/work/demo/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase summary-create --input-json args.json",
+      "lxeskill fba purchase summary-create --input-json args.json",
     );
 
     const windows = new ExecShellAdapter({
@@ -145,7 +145,7 @@ describe("ExecShellAdapter", () => {
       "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m pip install demo",
     );
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
-      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-I' '-B' '-m' 'lxeskill' list",
+      "lxeskill list",
     );
   });
 
@@ -156,7 +156,7 @@ describe("ExecShellAdapter", () => {
       fileExists: (path) => path.endsWith("/.venv/bin/python"),
     });
     expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      "'/work/project/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' list",
+      "lxeskill list",
     );
     expect(shell.childEnvironment("/work/project", {
       workspaceDirectory: "/work/project", temporaryDirectory: "/host/tmp/tools/session",
@@ -167,7 +167,7 @@ describe("ExecShellAdapter", () => {
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
   });
 
-  test("uses the explicit managed Python path without a generic resource root", () => {
+  test("does not rewrite lxeskill when managed Python is configured", () => {
     const resourcePython = "/resources/lxe/.venv/bin/python";
     const shell = new ExecShellAdapter({
       platform: "darwin",
@@ -175,17 +175,10 @@ describe("ExecShellAdapter", () => {
       fileExists: (path) => path === resourcePython,
     });
 
-    expect(shell.lxeSkillArgv("/Users/demo/Documents/LXE Agent")).toEqual([
-      resourcePython,
-      "-I",
-      "-B",
-      "-m",
-      "lxeskill",
-    ]);
     expect(shell.normalizeCommand(
       "/Users/demo/Documents/LXE Agent",
       "lxeskill list",
-    )).toBe("'/resources/lxe/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' list");
+    )).toBe("lxeskill list");
   });
 
   test("keeps desktop managed tools ahead of the user workspace", () => {
@@ -218,11 +211,10 @@ describe("ExecShellAdapter", () => {
     )).toBe("& 'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
   });
 
-  test("does not expose Bun-only SOUL, catalog, or LLM paths to Python commands", () => {
+  test("does not expose Bun-only user Skill or LLM paths to Python commands", () => {
     const shell = new ExecShellAdapter({
       platform: "darwin",
       environment: {
-        LXE_AGENT_SOUL_PATH: "/resources/agent/SOUL.md",
         LXE_SKILLS_ROOT: "/resources/skills",
         LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
@@ -236,7 +228,6 @@ describe("ExecShellAdapter", () => {
       sessionId: "s1", turnId: "t1", responseRouteId: "r1", execSessionId: "e1",
     });
 
-    expect(environment.LXE_AGENT_SOUL_PATH).toBeUndefined();
     expect(environment.LXE_USER_SKILLS_ROOT).toBeUndefined();
     expect(environment.LXE_LLM_CONFIG_ROOT).toBeUndefined();
     expect(environment.LXE_ROOT).toBeUndefined();
@@ -268,44 +259,18 @@ describe("ExecShellAdapter", () => {
       "/workspace",
       "lxeskill fba purchase summary-create --help",
     )).toBe(
-      "'/managed/python/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase summary-create --help",
-    );
-  });
-
-  test("uses managed Python and ignores removed frozen-runtime overrides", () => {
-    const frozen = "/work/project/packages/agent/lxeskill-cli/vendor/darwin-arm64/lxeskill/lxeskill";
-    const managedPython = "/managed/python/bin/python";
-    const shell = new ExecShellAdapter({
-      platform: "darwin",
-      environment: {
-        PATH: "/usr/bin",
-        LXE_MANAGED_PYTHON: managedPython,
-        LXESKILL_BINARY_PATH: frozen,
-        LXESKILL_REQUIRE_BUNDLE: "1",
-      },
-      fileExists: (path) => path === frozen || path === managedPython,
-    });
-
-    expect(shell.lxeSkillArgv("/work/project")).toEqual([
-      managedPython,
-      "-I",
-      "-B",
-      "-m",
-      "lxeskill",
-    ]);
-    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      `'/managed/python/bin/python' '-I' '-B' '-m' 'lxeskill' list`,
+      "lxeskill fba purchase summary-create --help",
     );
   });
 
   test("passes business modules through while validating Python launcher versions", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
-    expect(shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))
-      .toBe("'/work/.venv/bin/python' -m services.agent_cli.demo");
-    expect(shell.normalizeCommand("/work", "cd . && python -m services.agent_cli.demo"))
-      .toBe("cd . && python -m services.agent_cli.demo");
-    expect(shell.normalizeCommand("/work", "echo services.agent_cli.demo"))
-      .toBe("echo services.agent_cli.demo");
+    expect(shell.normalizeCommand("/work", "python -m services.commands.demo"))
+      .toBe("'/work/.venv/bin/python' -m services.commands.demo");
+    expect(shell.normalizeCommand("/work", "cd . && python -m services.commands.demo"))
+      .toBe("cd . && python -m services.commands.demo");
+    expect(shell.normalizeCommand("/work", "echo services.commands.demo"))
+      .toBe("echo services.commands.demo");
     expect(shell.normalizeCommand("/work", "(Get-Command lxeskill).Source"))
       .toBe("(Get-Command lxeskill).Source");
     expect(shell.normalizeCommand("/work", "where lxeskill"))

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mabang_test_helpers import _xlsx_bytes
-from services.agent_cli.mabang import download_store_msku_excel as cli
+from services.commands.mabang import download_store_msku_excel as cli
 from services.mabang.amazon.fba import store_msku as msku
 from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot, LocalSkuDefinition
 from services.mabang.amazon.fba.store_resolver import FbaStore, parse_fba_store_options

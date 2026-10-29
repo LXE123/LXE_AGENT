@@ -4,6 +4,7 @@
 
 ## 桌面交互与文件
 
+- [对话界面历史验证](conversation-window-validation.md)：原生附件、历史窗口、过程折叠与排版；原记录未统一注明日期和提交。
 - [输入框引用](composer-references-acceptance.md)：文件与 Skill 引用、候选菜单及两平台验证。
 - [文件预览](file-preview-acceptance.md)：HTML、文档查看器及文件失效状态。
 - [工作区用应用打开](20261002-workspace-applications.md)：应用检测、原生启动、图标及两平台验证。
@@ -18,6 +19,12 @@
 - [Windows 更新，2026-09-21](desktop-updates-validation-20260921.md)：旧实现的验证结果与当时未完成事项。
 - [统计与独立飞书网关迁移](native-statistics-acceptance-2026-09-21.md)：历史归属、验证和发布边界。
 - [赛狐设备鉴权](saihu-device-access-20260921.md)：本地验证、真实服务器读取和部署范围。
+
+## 云端接入与权限迁移
+
+- [桌面云端接入，2026-09 至 10 月](cloud-access-20260922-20261005.md)：自动发现、权限展示、模型和网页登录的历史验证。
+- [凭据与权限迁移，2026-09-22](cloud-migrations-20260922.md)：旧业务 Token 清理、备货类型改名和统计失败恢复。
+- [CLI 云端通信历史说明](cli-cloud-access.md)：原记录未注明日期，保留业务验收范围与未完成项。
 
 ## 业务导出
 

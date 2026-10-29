@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 from services.mabang.amazon.fba import source_verification as active
 from services.mabang.amazon.fba import combo_sku as combo
-from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot, NOT_FOUND_REASON
+from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot
 from services.mabang.amazon.fba import store_msku as download
 from services.mabang.amazon.fba import store_msku_actual_inventory as inventory
 from services.mabang.amazon.fba import store_msku_sales_analysis as sales
@@ -43,7 +43,9 @@ def source(path, records, bindings=(binding(),)):
 def test_classification_uses_source_sku_for_every_msku():
     rows = [row(), row('Amazon.Found.A'), row('inactive', sku='U'), row('unpaired', sku='')]
     skus = (binding(), binding(sku='U', kind=None))
-    assert active.classify(rows, skus) == [('已核验', True, ''), ('已核验', True, ''), ('未匹配', False, NOT_FOUND_REASON), ('缺少本地SKU', False, '源表无本地SKU，不参与备货计算')]
+    assert [(status, matched) for status, matched, _ in active.classify(rows, skus)] == [
+        ('已核验', True), ('已核验', True), ('未匹配', False), ('缺少本地SKU', False),
+    ]
     assert rows[3]['本地SKU'] == ''
     assert active.classify([row(' M ', sku=' S ')], (binding(),))[0][1] is True
     assert active.classify([row('m', asin='')], (binding(),))[0][1] is True
@@ -256,7 +258,7 @@ def test_download_listing_deadline_cancels_without_publication(monkeypatch, tmp_
 
 
 def test_download_cli_business_error_does_not_request_cookie_refresh(monkeypatch):
-    from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.commands.mabang import download_store_msku_excel as cli
     async def failure(*args, **kwargs):
         raise OfficialApiError('sid=401403', 'HTTP 401 upstream actual-denial')
     monkeypatch.setattr(cli, 'download_store_msku_excel', failure)

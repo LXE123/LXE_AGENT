@@ -34,6 +34,7 @@ import {
   type ToolRegistry,
   type UserQuestionService,
   type SessionTitleService,
+  type TaskTitleService,
   type PermissionApprovalService,
 } from "@lxe/runtime";
 
@@ -43,6 +44,7 @@ type Environment = Record<string, string | undefined>;
 interface DashboardServiceOptions {
   questions?: UserQuestionService;
   sessionTitles?: SessionTitleService;
+  taskTitles?: TaskTitleService;
   approvals?: PermissionApprovalService;
   onPermissionChanged?: (sessionId: string) => Promise<void> | void;
   /** Writable desktop/source state. */
@@ -233,6 +235,7 @@ export class DashboardService {
   private readonly skillCatalog: SkillCatalog;
   private readonly userSkillFiles: UserSkillFiles;
   private readonly handlers: AgentDashboardRpcHandlers = {
+    "sessions.turn.lookup": input => this.options.store.lookupTurn(input.session_id, input.turn_id),
     "sessions.create": input => {
       const registration = this.options.store.getWorkspace(input.workspace_id) ?? rpcError("not_found", "workspace not found");
       const workspace = resolveWorkspaceContext(registration.directory);
@@ -271,6 +274,17 @@ export class DashboardService {
       .map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item)) }),
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "titles.generate": async input => {
+      if (!this.options.taskTitles || !this.options.providerManager) return rpcError("unavailable", "Task title generation is unavailable");
+      let selection: RuntimeModelSelection | undefined;
+      if (input.session_id) {
+        const session = await this.options.store.getSession(input.session_id);
+        if (!session) return rpcError("not_found", `session not found: ${input.session_id}`);
+        selection = session.model_selection;
+      } else if (input.model) selection = { ...input.model, effort: "off", thinking_enabled: false };
+      const title = await this.options.taskTitles.generate(input.text, this.options.providerManager.acquire(selection));
+      return { title };
+    },
     "sessions.rename": async input => {
       if (!this.options.sessionTitles) return rpcError("unavailable", "Session titles are unavailable");
       await this.options.sessionTitles.rename(input.session_id, input.title);
@@ -404,6 +418,7 @@ export class DashboardService {
         limit: integer(input.message_limit, 10, 1, 200),
         ...(input.message_before === undefined ? {} : { before: input.message_before }),
         ...(input.message_after === undefined ? {} : { after: input.message_after }),
+        ...(input.message_turn_id === undefined ? {} : { turnId: input.message_turn_id }),
       });
     } catch (error) {
       if (error instanceof InvalidTranscriptCursorError) rpcError("invalid_argument", error.message);
@@ -616,7 +631,7 @@ export class DashboardService {
 
   private async selectSessionModel(input: {
     session_id: string; selection_version?: number; provider?: string; model?: string;
-    credential_source?: "local" | "cloud"; level?: string;
+    credential_source?: "local" | "cloud"; level?: string; remember_default?: boolean;
   }): Promise<JsonObject> {
     const current = await this.sessionCurrentModel(input.session_id);
     if (input.selection_version !== undefined && input.selection_version !== current.selection_version) {
@@ -642,20 +657,22 @@ export class DashboardService {
     const effort = normalizeThinkingEffort(requested, levels, fallback);
     const selection: RuntimeModelSelection = { provider, model, credential_source: source, effort,
       thinking_enabled: levels.length > 0 && effort !== "off" };
-    this.options.providerManager?.acquire(selection);
+    const selectedSnapshot = this.options.providerManager?.acquire(selection);
     const version = await this.options.store.setSessionModelSelection(input.session_id, selection,
       input.selection_version ?? Number(current.selection_version));
     const values = { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model, AGENT_LLM_CREDENTIAL_SOURCE: source,
       AGENT_LLM_THINKING_ENABLED: selection.thinking_enabled ? "1" : "0", AGENT_LLM_THINKING_EFFORT: effort };
-    // Remember the choice for new conversations only; existing ones resolve their own log.
-    let generation = 0;
-    try {
-      const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
-        thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
-      generation = snapshot?.generation ?? 0;
-      this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
-    } catch (error) {
-      createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+    // Interactive choices remember defaults; background task setup changes only its session.
+    let generation = selectedSnapshot?.generation ?? 0;
+    if (input.remember_default !== false) {
+      try {
+        const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
+          thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
+        generation = snapshot?.generation ?? 0;
+        this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
+      } catch (error) {
+        createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+      }
     }
     return { ...this.selectionPayload(selection), session_id: input.session_id, selection_version: version,
       generation, effective_from: "next_turn" };

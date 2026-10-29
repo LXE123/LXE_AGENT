@@ -35,8 +35,8 @@ afterEach(() => {
 describe("desktop resource scope", () => {
   test("assigns every packaged owner without overlapping targets", () => {
     const scope = validateResourceScope(repositoryRoot);
-    expect(scopeEntryForPath(scope, "agent/SOUL.md", "win32-x64")).toMatchObject({
-      owner: "bun-agent-runtime",
+    expect(scopeEntryForPath(scope, "skills/demo/SKILL.md", "win32-x64")).toMatchObject({
+      owner: "bun-skill-runtime",
     });
     expect(scopeEntryForPath(scope, "runtime/python/python.exe", "win32-x64")).toMatchObject({
       owner: "managed-python-runtime",
@@ -57,7 +57,7 @@ describe("desktop resource scope", () => {
     expect(() => validateResourceScope(repositoryRoot, incompleteOwner)).toThrow("entry is incomplete");
 
     const overlappingTarget = structuredClone(scope);
-    overlappingTarget.resources.find(entry => entry.id === "skills")!.target = "agent";
+    overlappingTarget.resources.find(entry => entry.id === "skills")!.target = "config/skills";
     expect(() => validateResourceScope(repositoryRoot, overlappingTarget)).toThrow("targets overlap");
 
     const invalidKind = structuredClone(scope);

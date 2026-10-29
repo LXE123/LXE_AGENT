@@ -22,6 +22,9 @@
   height: calc(100dvh - var(--desktop-caption-height));
 }
 
+/* The entire shell already starts below the Windows caption. */
+.desktop-platform-win32 .sidebar-resizer { top: 0; }
+
 .desktop-platform-win32 .app-navigation,
 .desktop-platform-win32 .main-panel {
   height: 100%;

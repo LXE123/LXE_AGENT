@@ -15,7 +15,7 @@
 | 单独准备 Mac 工具 | `bun run desktop:tools:mac` | 项目私有的 ExifTool 13.59 和 fd 10.5.0；开发和预览会自动执行 |
 | 单独准备文件搜索工具 | `bun run desktop:tools:fd` | 当前平台的固定版本 fd 10.5.0 |
 | 只检查源码 | `bun run verify:source` | 类型检查、Bun 测试和 Python 测试结果，不生成安装包 |
-| 准备 Windows 私有运行环境 | `bun run desktop:runtime:win` | 可重复使用的 Node、Python、浏览器等受管 Runtime |
+| 准备 Windows 私有运行环境 | `bun run desktop:runtime:win` | 可重复使用的 Node、Python、Office 和命令行工具等受管 Runtime |
 | 快速检查真实打包目录 | `bun run desktop:pack:win` | `dist/desktop-unpacked/win-unpacked/LXE Agent.exe` |
 | 生成 Windows 安装程序 | `bun run desktop:dist:win` | `dist/desktop/LXE-Agent-<version>-windows-x64.exe` |
 | 构建正式候选 | `bun run release:build` | 同步冻结依赖、准备 fd、完整验证、生成 NSIS 并记录当前候选 |
@@ -37,7 +37,7 @@ Mac 第一次运行 `desktop:dev` 或 `desktop:preview` 时，会自动下载约
 
 正式安装包的版本和更新说明来自已提交的 `config/desktop-release.json`。构建不会自动加版本，也不会修改仓库的占位版本；通过 `LXE_DESKTOP_PRODUCT_VERSION` 注入 electron-builder。源码和说明必须已提交，构建中不得改变。
 
-日常发布使用 `bun run release:build` 和 `bun run release:publish`：前者同步冻结依赖、验证和打包并记录当前候选；后者校验并展示候选后等待输入 `y` 发布。构建失败或中断不回退旧包，源码变化后需重新构建。详见 [Windows 更新与发布](../desktop-updates.md)。
+日常发布使用 `bun run release:build` 和 `bun run release:publish`：前者同步冻结依赖、验证和打包并记录当前候选；后者校验并展示候选后等待输入 `y` 发布。构建失败或中断不回退旧包，源码变化后需重新构建。详见 [Windows 更新与发布](updates.md)。
 
 `desktop:dist:win` 保留为独立 NSIS 打包入口，生成候选但不更新默认待发布记录。`desktop:pack:win` 是开发用 Unpacked 路线，仍使用本地开发版本选择文件，不属于正式发布流程。
 
@@ -74,7 +74,7 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 这类文件分成两种处理方式：Dashboard 使用的 HTML、CSS、图片和字体会先交给 Vite；其余产品文件主要经过白名单挑选后原样带进应用：
 
 - HTML、CSS、图片和字体。
-- `SOUL.md` 和各个 Skill。
+- 各个 Skill。
 - JSON、YAML 和环境默认配置。
 - Dashboard 构建后的静态文件。
 - 图标、许可证和第三方声明。
@@ -93,11 +93,14 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 
 - 私有 Node.js。
 - 私有 Python。
+- LibreOffice Kit 及其完整运行依赖，放在 `runtime/office`；版本、准备和验证见 [Office 文件能力](../office-runtime.md)。
 - Electron 提供桌面马帮认证窗口；独立 CLI 使用用户绑定的 Chrome/Edge。安装包保留 Playwright 控制库，不携带独立 Chromium。
 - ripgrep 和 fd。
 - ExifTool，用来读取和写入图片、视频元数据。
 - WireGuard 安装包和受控配置脚本。
 - 独立的 Lark CLI 可执行文件，内嵌飞书技能说明。
+
+此外，发布资源阶段会构建 Windows 执行沙箱启动器及其依赖，放在 `runtime/exec-sandbox`，使用随包 Node 运行。写入限制与平台边界见 [权限专题](../harness/runtime/permission-policy.md#临时目录与执行后端)。
 
 这里的“私有”是指它们跟着 LXE Agent 一起分发，只供 LXE Agent 的子进程使用，不依赖用户电脑是否提前安装，也不会修改系统 `PATH`。
 
@@ -110,20 +113,20 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 
 主要是 LXE Skill CLI，也就是 `lxeskill`，以及它需要的 Python 依赖。
 
-Python 代码不能交给 V8 运行，所以它走自己的构建路线：先用 `uv build` 生成 wheel，再把 wheel 安装进应用携带的私有 Python。安装后 Agent 可以直接调用：
+Python 代码不能交给 V8 运行，所以它走自己的构建路线：先用 `uv build` 生成 wheel，再把 wheel 安装进应用携带的私有 Python。安装包提供独立的 `lxeskill` 命令入口，Electron 把入口所在目录加入子进程 PATH，Agent 按普通外部命令调用：
 
 ```text
-python.exe -I -m lxeskill ...
+lxeskill ...
 ```
 
-这样不需要用户安装 Python，也不需要临时修改 Python 的查找路径。
+这样不需要用户安装 Python，也不需要让 agentcli 了解 CLI 的 Python 启动方式。命令入口负责找到随包解释器；工具的文件写入限制仍由通用执行沙箱控制，见 [权限专题](../harness/runtime/permission-policy.md)。
 
 ## 整条流水线
 
 ```mermaid
 flowchart TD
     SOURCE["五类输入<br/>TS/TSX、资源、JS 依赖、外部 Runtime、Python"]
-    RUNTIME["准备受管 Runtime<br/>Node、Python、ripgrep、fd、ExifTool、WireGuard"]
+    RUNTIME["准备受管 Runtime<br/>Node、Python、Office、命令行工具、WireGuard"]
     JS["构建 JS/TS<br/>Main、Preload、Dashboard、Agent CLI"]
     PY["构建 Python wheel<br/>安装进私有 Python overlay"]
     INPUTS["准备发布输入<br/>挑选 Skills、配置、品牌和法律文件"]
@@ -146,11 +149,11 @@ flowchart TD
 
 ## 第一步：准备受管 Runtime
 
-Windows 打包首先准备应用自带的运行环境，包括 Node、Python、ripgrep、fd 和 ExifTool。WireGuard MSI 也会在这个阶段单独准备。
+Windows 打包首先准备应用自带的运行环境，包括 Node、Python、Office、ripgrep、fd、ExifTool 和 Lark CLI。WireGuard MSI 也会在这个阶段单独准备。
 
 第一次联网构建需要下载这些固定版本的文件。准备完成后会保存在本地缓存中，后续构建可以直接复用，避免每次都重新下载几百 MiB 的 Runtime。
 
-这一步只是在准备“底座”，还没有把当前 LXE 项目代码装进去。这样修改一行业务代码时，不需要重新复制整套 Python 和浏览器。
+这一步只是在准备“底座”，还没有把当前 LXE 项目代码装进去。这样修改一行业务代码时，不需要重新下载整套 Python、Office 和命令行工具。
 
 对应命令是：
 
@@ -228,7 +231,13 @@ dist/agent-cli/agent-cli.exe
 build/desktop-publish/python-site-packages/
 ```
 
-electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Lib/site-packages`。因此每次打包都会带上当前 Python 源码，同时可以复用那套很大的基础 Python Runtime。基础缓存不保存项目 wheel，wheel 构建输出每次重新生成，避免发布旧业务代码。
+electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Lib/site-packages`。因此每次打包都会带上当前 Python 源码，同时可以复用那套很大的基础 Python 解释器与依赖。基础缓存不保存项目 wheel，wheel 构建输出每次重新生成，避免发布旧业务代码。
+
+Windows 打包时，通过 `uv` 在临时、可迁移的构建环境中生成标准 `lxeskill.exe`，只取命令入口，放在 `runtime/python/python.exe` 旁边；入口按相对位置寻找解释器，不保留构建机绝对路径，也不分发这个临时环境。源码开发继续使用 `uv sync --frozen` 安装到各自 `.venv` 的入口。macOS 的私有运行时入口位于 `runtime/python/bin/lxeskill`，调用同目录的 `python3`。
+
+桌面业务调用和健康检查使用入口的明确路径；agentcli 的 `exec` 和统计查询使用 PATH，不把 `lxeskill` 改写成 Python 命令。通用 Python 命令的解释器选择与这条 CLI 链路无关。入口构建见 [`prepare-lxeskill-launcher.ts`](../../scripts/prepare-lxeskill-launcher.ts)。打包完成后会在源码目录外、仅含随包工具的 PATH 上执行 `lxeskill list`，验证实际交付的入口。
+
+应用装配受管运行环境和直接调用 CLI 时，会清理继承的 `PYTHONHOME`、`PYTHONPATH` 等 Python 配置，再设置 UTF-8、禁用用户包等固定选项，避免其他 Python 安装或 checkout 干扰源码与打包入口。这属于子进程环境准备，不在 `exec` 中识别或改写 `lxeskill` 命令。标准 CLI 入口本身不等于 `python -I`；污染环境回归测试单独覆盖这条调用链。
 
 资源装配从模块各自的生产输出直接生成 `extraResources`。最终不携带 wheel 文件、旧冻结版 `runtime/lxeskill`、构建用 `uv.exe`、npm/npx 和 npm 缓存。Playwright 控制库复用私有 Node，移除其重复 Node；安装包不包含 `runtime/playwright` 浏览器目录。Electron 启动时执行 `lxeskill list` 检查 CLI 入口，打包成功不能代替这项检查，检查成功也不代表各业务服务均可用。
 
@@ -236,7 +245,7 @@ electron-builder 组装时，再把这个 overlay 合并到私有 Python 的 `Li
 
 这一步不再编译业务代码，主要做两件事：
 
-1. 检查 Main、Preload、Dashboard、Agent CLI、wheel 和各个 Runtime 是否已经存在。
+1. 检查 Main、Preload、Dashboard、Agent CLI、wheel 和各个 Runtime，并构建 Windows exec 沙箱启动器、安装当前项目的 Python overlay。
 2. 根据产品资源范围，生成一份给 electron-builder 使用的配置。
 
 资源采用白名单选择。要放进安装包的 Skill、配置、品牌图片和法律文件都会明确列出；本机凭证、会话、日志、缓存和业务数据不是输入。
@@ -268,7 +277,7 @@ preload.cjs
 
 飞书 CLI 从官方固定版本的 Windows x64 ZIP 下载，核对锁文件中的 SHA256 后解压，将 `lark-cli.exe` 准备到 `build/desktop-runtime/win32-x64/tools/`。`extraResources` 直接复制该程序到 `resources/runtime/tools/`，许可证复制到 `resources/legal/lark-cli-LICENSE.txt`。不再通过 npm 安装飞书，也不复制整个 `node_modules` 来携带它。
 
-electron-builder 的 `afterPack` 在资源复制完成、生成安装器之前，清除系统工具 PATH 并运行包内飞书 CLI，检查固定版本、技能列表和 `lark-doc` 内嵌说明；缺失或执行失败会中止打包。这些检查不登录、不调用飞书业务 API。Windows 打包需要在 Windows 主机执行。
+electron-builder 的 `afterPack` 在资源复制完成、生成安装器之前，检查包内飞书 CLI、文件预览资源和 Office。飞书检查清除系统工具 PATH，验证固定版本、技能列表和 `lark-doc` 内嵌说明；Office 检查完整资源并执行实际文件处理。缺失或执行失败会中止打包。入口见 [verify-packaged-office.cjs](../../scripts/verify-packaged-office.cjs)，不登录或调用飞书业务 API；Windows 打包需要在 Windows 主机执行。
 
 主要目录如下：
 
@@ -279,6 +288,8 @@ resources/
 ├── runtime/
 │   ├── agent-cli/agent-cli.exe
 │   ├── node/
+│   ├── office/
+│   ├── exec-sandbox/
 │   ├── python/
 │   └── tools/
 │       ├── rg.exe
@@ -288,13 +299,14 @@ resources/
 │           ├── exiftool.exe
 │           └── exiftool_files/
 ├── wireguard/
-├── agent/SOUL.md
 ├── skills/
 ├── lxeskill/catalog.json
 ├── config/
 ├── branding/
 └── legal/
 ```
+
+以上为主要资源目录，完整复制范围以 [资源白名单](../../config/desktop-packaging/resource-scope.json)和准备脚本为准。
 
 Dashboard 放在 `resources/dashboard`，因为 Main 要通过 `app://lxe/` 按文件加载页面。Agent CLI、Python、Node 和其他工具放在 ASAR 外，是因为操作系统或子进程需要直接访问和执行它们。
 
@@ -364,7 +376,7 @@ LXE Agent/
 2. Main 确定程序资源和独立数据目录，取得单实例锁；首次启动先迁移旧数据，再初始化配置、日志和数据库。
 3. 配置完成后，Main 在自己的进程里启动 Gateway。
 4. Gateway 启动 `resources/runtime/agent-cli/agent-cli.exe` 子进程，通过 JSON-RPC 2.0 与它通信，使用 stdin/stdout 传输和 JSONL（NDJSON）分帧。
-5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 fd；马帮认证通过 Main 的受控服务操作独立 Electron 窗口，紫鸟使用用户配置的客户端和配对 Selenium。桌面媒体任务由 Main 直接启动私有 Python 和 ExifTool。
+5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 fd；马帮认证通过 Main 的受控服务操作独立 Electron 窗口，紫鸟使用用户配置的客户端和配对 Selenium。桌面媒体任务由 Main 调用 `lxeskill` 媒体命令，并使用 ExifTool。
 6. Main 创建 BrowserWindow，通过 Preload 暴露的白名单 IPC，让 Dashboard 与 Main、Gateway 和 Agent 交互。
 
 ```mermaid
@@ -379,7 +391,7 @@ flowchart LR
     AGENT --> LARK["lark-cli.exe<br/>内嵌飞书技能"]
     AGENT --> TOOLS["ripgrep / fd 等工具"]
     MAIN --> AUTH["马帮认证窗口 / 受控服务"]
-    MAIN --> MEDIA["工作台媒体任务<br/>私有 Python → ExifTool"]
+    MAIN --> MEDIA["工作台媒体任务<br/>lxeskill → ExifTool"]
 ```
 
 关闭窗口只会把应用隐藏到托盘，Gateway 和 Agent 仍可在后台工作。从托盘选择退出后，Main 才会依次停止 Gateway、Agent 和相关子进程。
@@ -408,7 +420,7 @@ flowchart LR
 bun run release:build
 ```
 
-这个命令先检查 Windows x64 平台和干净源码，同步冻结依赖并执行 `desktop:tools:fd`，再执行一次 `verify:source`，最后执行一次 `desktop:dist:win` 并记录当前候选。这样全新工作区也能在真实 `find` 测试开始前获得 fd，不必提前准备整套 Node、Python 和浏览器；完整 Runtime 仍在打包阶段准备，同一批生产代码只构建一次。
+这个命令先检查 Windows x64 平台和干净源码，同步冻结依赖并执行 `desktop:tools:fd`，再执行一次 `verify:source`，最后执行一次 `desktop:dist:win` 并记录当前候选。这样全新工作区也能在真实 `find` 测试开始前获得 fd，不必提前准备整套 Node、Python 和 Office；完整 Runtime 仍在打包阶段准备，同一批生产代码只构建一次。
 
 ## 当前自动门禁和人工边界
 
@@ -420,7 +432,7 @@ desktop-resource-sizes.json
 
 报告记录解包后文件的字节总量和文件数，按 Electron、Python、Node、Office、Agent CLI 等分类。报告版本为 `schema_version: 2`，不再包含 `budgets` 字段。体积只用于观察，不设固定上限，也不会因为体积增长阻止打包。
 
-资源检查仍要求：
+资源体积报告中的检查要求：
 
 - 不携带独立的 Playwright Chromium 浏览器目录内容。
 - Python 的 Playwright driver 不携带重复的 Node 可执行文件。
@@ -434,7 +446,7 @@ desktop-resource-sizes.json
 - 快捷方式能启动应用。
 - 首次配置和 Dashboard 正常。
 - Gateway、Agent CLI 和 `lxeskill` 健康状态正常。
-- 覆盖升级后 `var` 数据仍然存在。
+- 覆盖升级后实际用户数据目录中的数据库、配置和文件保留；从旧安装目录 `var/` 升级时，另检查迁移与回退，见 [程序与用户数据](data-location.md)。
 - 卸载及旧删除参数均保留用户数据；卸载旧副本不会移除新安装的注册信息和快捷方式。
 - 公司云端设备场景下的 WireGuard UAC 和隧道配置正常。
 - 工作台能分别处理一张图片和一个视频，输出文件带有目标标签，而且原文件没有变化。

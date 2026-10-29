@@ -385,27 +385,22 @@ describe("native coding tools", () => {
     }
   });
 
-  test("executes lxeskill with current environment and can retry after a failed command", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-coding-lxeskill-retry-"));
+  test("executes a subsequent command after a failed command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-exec-after-failure-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    let command = evalCommand("console.error('fixture CLI failure');process.exit(7)");
-    class FixtureShell extends ExecShellAdapter {
-      override normalizeCommand(cwd: string, input: string): string {
-        return input === "lxeskill list" ? command : super.normalizeCommand(cwd, input);
-      }
-    }
-    const processes = registerCodingTools(registry, {
-      execShell: new FixtureShell(),
-    });
+    const processes = registerCodingTools(registry, {});
     try {
-      const failed = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(failed).toContain("fixture CLI failure");
+      const failed = String((await registry.execute("exec", {
+        command: evalCommand("console.error('fixture command failure');process.exit(7)"),
+      }, context(root))).content[0]?.text);
+      expect(failed).toContain("fixture command failure");
       expect(failed).toContain("exit_code: 7");
-      command = evalCommand("console.log('fixture CLI repaired')");
-      const repaired = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(repaired).toContain("status: completed");
-      expect(repaired).toContain("fixture CLI repaired");
+      const succeeded = String((await registry.execute("exec", {
+        command: evalCommand("console.log('fixture command success')"),
+      }, context(root))).content[0]?.text);
+      expect(succeeded).toContain("status: completed");
+      expect(succeeded).toContain("fixture command success");
       expect(processes.snapshots()).toHaveLength(2);
     } finally {
       await processes.stop();
@@ -422,7 +417,7 @@ describe("native coding tools", () => {
     }
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, { execShell: new FixtureShell() });
-    const commands = ["python -m lxeskill list", "python -m services.agent_cli.demo",
+    const commands = ["python -m lxeskill list", "python -m services.commands.demo",
       "lxeskill demo run && echo done", "lxeskill demo run > report.txt", "cd . && lxeskill list"];
     try {
       for (const command of commands) {
@@ -530,12 +525,6 @@ describe("native coding tools", () => {
     expect(interleaved).toContain("warn");
     expect(interleaved).toContain("step 2");
 
-    // Commands outside the attribution map still run: the CLI owns
-    // authorization and list is always known to it.
-    const lxeskillList = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, context(root))).content[0]?.text);
-    expect(lxeskillList).toContain("status: completed");
     await processes.stop();
   }, 30_000);
 
@@ -796,24 +785,25 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
-  test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
+  test("exec forwards host env derived from the active skills to the child process", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
     const receivedSkillNames: Array<readonly string[]> = [];
     const processes = registerCodingTools(registry, {
+      execShell: new ExecShellAdapter({ environment: { ...process.env, TEST_ACTIVE_SKILLS: "stale" } }),
       execEnv: ({ skillNames }) => {
         receivedSkillNames.push(skillNames);
-        return { LXESKILL_SKILL_SCOPE: skillNames.join(",") };
+        return { TEST_ACTIVE_SKILLS: skillNames.join(",") };
       },
     });
-    const listed = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, { ...context(root), skill_names: ["replenishment-store-resolve"] })).content[0]?.text);
-    expect(listed).toContain("replenish store resolve");
-    expect(listed).not.toContain("fba customs fill");
-    expect(listed).toContain("mabang auth refresh");
-    expect(receivedSkillNames).toEqual([["replenishment-store-resolve"]]);
-    await processes.stop();
+    try {
+      const result = String((await registry.execute("exec", {
+        command: evalCommand("console.log('active-skills:' + process.env.TEST_ACTIVE_SKILLS)"),
+      }, { ...context(root), skill_names: ["demo", "another"] })).content[0]?.text);
+      expect(result).toContain("status: completed");
+      expect(result).toContain("active-skills:demo,another");
+      expect(receivedSkillNames).toEqual([["demo", "another"]]);
+    } finally { await processes.stop(); }
   });
 
   test("terminates the complete exec process tree", async () => {
@@ -956,8 +946,7 @@ describe("native coding tools", () => {
   test("returns a decodable PNG with a bounded Base64 payload and accurate coordinates after resizing", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-image-resize-"));
     roots.push(root);
-    const fixture = readFileSync(join(projectRoot,
-      "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg"));
+    const fixture = readFileSync(join(import.meta.dir, "../fixtures/color-pattern.jpg"));
     const oversized = await new Bun.Image(fixture).resize(2_600, 2_600, { fit: "inside" }).jpeg({ quality: 95 }).bytes();
     const original = await new Bun.Image(oversized).metadata();
     writeFileSync(join(root, "screenshot.data"), oversized);
@@ -1165,15 +1154,14 @@ describe("native coding tools", () => {
       .toEqual([join(root, "src", "a.py")]);
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
     expect((await registry.execute("send_files", { paths: ["artifacts/a.txt"] }, context(root))).files).toHaveLength(1);
-    // Unknown commands pass through: authorization belongs to the CLI, which
-    // rejects them with a structured error. Here the temp root has neither a
-    // managed Python nor .venv, so normalization fails before any spawn.
-    await expect(registry.execute("exec", {
-      command: "lxeskill unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
-    await expect(registry.execute("exec", {
-      command: "lxeskill.cmd unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
+    // The shell/CLI reports missing or unknown commands; no Python prerequisite
+    // is imposed by the harness, even in a workspace without a .venv.
+    for (const command of ["lxeskill unknown command", "lxeskill.cmd unknown command"]) {
+      const result = await registry.execute("exec", { command }, context(root));
+      const output = String(result.content[0]?.text);
+      expect(output).toMatch(/exit_code: [1-9]\d*/u);
+      expect(output).not.toContain("project Python is unavailable");
+    }
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",
       "yield-time-ms": 120_000,

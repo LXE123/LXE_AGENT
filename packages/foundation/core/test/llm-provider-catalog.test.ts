@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadLlmProviderCatalog } from "../src/llm-provider-catalog";
+import { loadLlmProviderCatalog, managedModelSpec } from "../src/llm-provider-catalog";
+import { modelDefinition } from "./managed-v3-fixtures";
 
 const roots: string[] = [];
 
@@ -51,6 +52,27 @@ const catalogRoot = (...providers: Array<Record<string, unknown>>): string => {
 };
 
 describe("LLM Provider Catalog", () => {
+  test("managed effort order does not depend on published mapping key order", () => {
+    // The live menu exposed this map as Low / Max / Off / High.
+    for (const order of [["low", "max", "off", "high"], ["high", "low", "max", "off"], ["max", "high", "low", "off"]]) {
+      const definition = modelDefinition("deepseek", "deepseek-v4-flash");
+      definition.thinkingLevelMap = Object.fromEntries(order.map(level => [level, level]));
+      const before = structuredClone(definition);
+      const model = managedModelSpec(definition);
+      expect(model.thinkingLevels).toEqual(["off", "low", "high", "max"]);
+      expect(model.thinkingDefault).toBe("low");
+      expect(definition).toEqual(before);
+    }
+  });
+
+  test("managed effort ordering retains aliases and excludes unsupported levels", () => {
+    const definition = modelDefinition("deepseek", "deepseek-v4-flash");
+    definition.thinkingLevelMap = { max: "high", medium: "medium", off: "none", high: null, low: "low", xhigh: "high", minimal: "low" };
+    const before = structuredClone(definition);
+    expect(managedModelSpec(definition).thinkingLevels).toEqual(["off", "minimal", "low", "medium", "xhigh", "max"]);
+    expect(definition).toEqual(before);
+  });
+
   test("discovers a third shipped provider without a code registration", () => {
     const root = catalogRoot(
       provider("one", { desktop_default: true }),

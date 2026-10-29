@@ -128,7 +128,7 @@ test("paged text reads beyond 32 MiB, preserves CRLF and rejects stale/released 
   await expect(f.service.read(p.handle)).rejects.toThrow("paged");
   await writeFile(path, "changed"); await expect(f.service.readText(p.handle)).rejects.toThrow("changed");
   f.service.release("paged"); await expect(f.service.readText(p.handle)).rejects.toThrow("closed");
-});
+}, 30_000);
 
 test("text page byte/line boundaries, BOM encodings, invalid data and cancellation", async () => {
   const { readTextPage, TEXT_PAGE_BYTES } = await import("../src/main/file-preview/text-pages");

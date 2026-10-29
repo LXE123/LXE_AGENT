@@ -12,11 +12,11 @@ def _write_repository_markers(root: Path) -> None:
     (root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
 
-def test_legacy_lxe_root_does_not_redirect_source_discovery(tmp_path: Path) -> None:
+def test_finds_repository_from_source_markers(tmp_path: Path) -> None:
     root = tmp_path / "安装目录 中文"
     _write_repository_markers(root)
 
-    assert find_repository_root(root, environment={"LXE_ROOT": str(tmp_path / "missing")}) == root
+    assert find_repository_root(root) == root
 
 
 def test_explicit_owned_skill_path_does_not_require_repository_markers(tmp_path: Path) -> None:

@@ -46,7 +46,7 @@ agentcli 与 lxeskillCLI 分别管理自己的数据，通过 CLI 契约协作�
 正式桌面安装包面向 **Windows x64**，使用完整 NSIS 安装程序，随包提供运行所需的 Node.js、Python、Office 引擎和命令行工具。macOS 支持源码开发与生产页面预览，尚无正式签名、公证的安装包流水线。
 
 1. 安装并启动桌面应用，设置默认工作区。
-2. 使用公司云端提供的模型，或在设置中配置受支持的个人模型 API Key。已有公司网络连接时的自动模型发现见 [自动云端访问](docs/desktop-native-cloud-access.md)。
+2. 使用公司云端提供的模型，或在设置中配置受支持的个人模型 API Key。已有公司网络连接时的自动模型发现见 [自动云端访问](docs/desktop/cloud-access.md)。
 3. 根据任务需要配置业务集成，在桌面对话中发起任务，或通过已接入的飞书渠道使用。
 
 关闭窗口后应用继续在托盘运行；完整退出使用托盘菜单。紫鸟业务需要用户配置的紫鸟客户端，桌面马帮认证使用 Electron 认证窗口。详细操作见 [Desktop 技术手册](docs/desktop/README.md)。
@@ -77,14 +77,14 @@ bun run desktop:dev
 
 ## 文档
 
-- [PR 审查规范](docs/pr-review.md)：团队协作流程、AI 技术检查与人工审核要求。
+- [PR 审查规范](docs/pr-review.md)：团队协作流程、共同审查重点与合并要求。
 - [架构简介](docs/architecture/README.md)：三模块关系、数据归属及各模块介绍。
 - [文档入口](docs/README.md)：专题手册、架构契约、验收记录和外部参考。
 - [Desktop 技术手册](docs/desktop/README.md)：界面、进程、配置与开发方式。
-- [Gateway ↔ Agent 协议](docs/harness/gateway/agent-protocol.md)：JSON-RPC 2.0 通信契约。
+- [Gateway ↔ Agent 协议](docs/desktop/gateway/agent-protocol.md)：JSON-RPC 2.0 通信契约。
 - [Agent Runtime](docs/harness/runtime/README.md)：执行循环、上下文、会话与工具。
-- [Skill 手册](docs/harness/skill/README.md)与[当前 Skill 清单](docs/harness/skill/current_skill_catalog.md)：发现机制、CLI 契约与业务能力。
-- [文件预览侧栏](docs/file-preview.md)与[Office 文件能力](docs/office-runtime.md)：桌面预览和文件处理。
+- [Skill 手册](docs/harness/skill/README.md)：发现、管理与统计机制；具体任务指引见 [skills/](skills)。
+- [文件预览侧栏](docs/desktop/file-preview.md)与[Office 文件能力](docs/office-runtime.md)：桌面预览和文件处理。
 
 ## License
 

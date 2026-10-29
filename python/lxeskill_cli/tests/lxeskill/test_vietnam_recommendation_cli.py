@@ -12,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 
 from lxeskill import cli as lxeskill
 from lxeskill.business import load_catalog
-from services.agent_cli.vietnam_replenishment import generate
+from services.commands.vietnam_replenishment import generate
 from services.vietnam_replenishment import settings, workflow
 from services.vietnam_replenishment.workflow import VietnamRecommendationRun
 from services.vietnam_replenishment.full_workbook import UNCHANGED
@@ -67,9 +67,9 @@ def _no_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(generate, "generate_current_vietnam_recommendation", unexpected)
 
 
-def test_catalog_requires_three_reports_and_allows_one_run_template() -> None:
+def test_catalog_requires_three_reports_and_allows_one_run_template(monkeypatch, capsys) -> None:
     entry = load_catalog()["vietnam_replenishment_generate"]
-    assert entry["module"] == "services.agent_cli.vietnam_replenishment.generate"
+    assert entry["module"] == "services.commands.vietnam_replenishment.generate"
     assert entry["command_path"] == COMMAND
     assert entry["session_mode"] == "none"
     assert entry["owner_skills"] == ["vietnam-replenishment"]
@@ -86,10 +86,17 @@ def test_catalog_requires_three_reports_and_allows_one_run_template() -> None:
     assert entry["artifact_paths"] == [{"field": "output_xlsx", "role": "deliverable"}]
     assert entry.get("deliver_artifacts_on_failure") is not True
     assert load_input_assets()["vietnam_full_workbook"].management == "command"
+    monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
+    assert lxeskill.main(["describe", *COMMAND]) == 0
+    public = _record(capsys)["data"]
+    assert public["input_schema"] == entry["input_schema"]
+    assert public["input_modes"] == ["flags"]
+    assert public["owner_skills"] == ["vietnam-replenishment"]
+    assert public["attribution_skill"] == "vietnam-replenishment"
 
 
 @pytest.mark.parametrize("arguments", [
-    {}, {"map_path": "/tmp/other.xlsx"}, {**INPUTS, "sku_map_file": "old.xlsx"}, {**INPUTS, "cost_rate": 0.7},
+    {}, {**INPUTS, "unexpected_option": True},
     *[{key: value for key, value in INPUTS.items() if key != missing} for missing in INPUTS],
     *[{**INPUTS, key: value} for key in (*INPUTS, "template_file") for value in ("", " ", 2, None)],
 ])
@@ -107,7 +114,7 @@ def test_json_input_rejects_unknown_fields(
 ) -> None:
     _no_workflow(monkeypatch)
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
-    input_json = json.dumps({**INPUTS, 'map_path': '/tmp/other.xlsx'})
+    input_json = json.dumps({**INPUTS, "unexpected_option": True})
     if mode == "stdin":
         monkeypatch.setattr("sys.stdin", io.StringIO(input_json))
         args = [*COMMAND, "--stdin-json"]

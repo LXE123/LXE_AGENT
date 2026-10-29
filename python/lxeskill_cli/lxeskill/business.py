@@ -89,19 +89,19 @@ def load_catalog() -> dict[str, dict[str, Any]]:
             modules.add(module)
             expected = (
                 f"mabang_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.mabang.")
+                if module.startswith("services.commands.mabang.")
                 else f"mabang_tms_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.mabang_tms.")
+                if module.startswith("services.commands.mabang_tms.")
                 else f"yacang_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.yacang.")
+                if module.startswith("services.commands.yacang.")
                 else f"vietnam_replenishment_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.vietnam_replenishment.")
+                if module.startswith("services.commands.vietnam_replenishment.")
                 else f"shangman_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.shangman.")
+                if module.startswith("services.commands.shangman.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.browser.amazon_fba.")
+                if module.startswith("services.commands.browser.amazon_fba.")
                 else f"amazon_operations_{module.rsplit('.', 1)[-1]}"
-                if module.startswith("services.agent_cli.amazon_operations.")
+                if module.startswith("services.commands.amazon_operations.")
                 else f"media_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.media.")
                 else f"assets_{module.rsplit('.', 1)[-1]}"

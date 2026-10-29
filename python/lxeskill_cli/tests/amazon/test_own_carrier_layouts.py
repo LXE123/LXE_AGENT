@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import own_carrier
+from services.commands.browser.amazon_common import own_carrier
 
 
 def test_detect_own_carrier_layout_phase_3_2_takes_priority(monkeypatch) -> None:

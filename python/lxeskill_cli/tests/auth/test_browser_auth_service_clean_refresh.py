@@ -196,6 +196,7 @@ def test_refresh_always_runs_one_complete_clean_route(tmp_path: Path, monkeypatc
         "source": "refresh",
         "final_url": f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page",
         "state_written": True,
+        "auth_environment": service._auth_environment("bound_chromium"),
     }
     assert "scope" not in result
     assert "free_token" not in result
@@ -358,6 +359,7 @@ def test_credentials_failure_is_structured(monkeypatch) -> None:
         "current_url": "",
         "exception_type": "ValueError",
         "message": "Mabang 密码为空",
+        "auth_environment": service._auth_environment("not_selected"),
     }
 
 
@@ -516,6 +518,7 @@ def test_wms_stage_reports_entry_without_href() -> None:
         "current_url": service.FBA_HOME_URL,
         "exception_type": "RuntimeError",
         "message": f"FBA 首页 WMS 入口缺少 href: {service.FBA_LOGISTICS_WMS_ENTRY_TEXT}",
+        "auth_environment": service._auth_environment("not_selected"),
     }
 
 
@@ -560,6 +563,7 @@ def test_wms_stage_preserves_direct_navigation_error() -> None:
         "current_url": service.FBA_HOME_URL,
         "exception_type": "FakePlaywrightError",
         "message": "Page.goto: net::ERR_CONNECTION_RESET",
+        "auth_environment": service._auth_environment("not_selected"),
     }
 
 
@@ -606,4 +610,5 @@ def test_wms_stage_reports_redirect_timeout(monkeypatch) -> None:
         "current_url": jump_url,
         "exception_type": "RuntimeError",
         "message": f"WMS 跳转超时，当前URL: {jump_url}",
+        "auth_environment": service._auth_environment("not_selected"),
     }

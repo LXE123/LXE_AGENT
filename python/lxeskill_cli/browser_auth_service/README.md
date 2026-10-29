@@ -99,6 +99,23 @@ stderr 会实时输出各阶段的开始、成功、实际 URL 或真实错误�
 - `state_written`
 - 失败时的 `stage`、`current_url`、`exception_type` 和 `message`
 
+实际刷新成功或失败的结果还包含 `auth_environment`：`provider=electron_host` 表示选择了桌面
+Electron 宿主，`bound_chromium` 表示选择了独立 CLI 的绑定浏览器路线，`not_selected` 表示尚未
+完成选择（例如凭据或宿主配置检查失败）。它描述选择的路线，不表示浏览器一定已启动。
+`session_scope=isolated_temporary`、`shares_ziniao_session=false` 说明认证会话独立；在个人浏览器
+或紫鸟里登录、打开页面，都不会补充本次认证状态。`ensure` 直接复用缓存时没有启动浏览器，不返回这项。
+
+FBA token 等待失败的 `details` 会区分以下观察结果，而不猜测页面改版等原因：
+
+- `target_frame_missing`：等待期间未发现目标域 frame。
+- `storage_read_failed`：尝试读取，但没有一次读取成功。
+- `storage_value_empty`：至少一次读取完成，但没有取得非空 token；可能同时存在其他读取异常。
+
+其中包含目标 origin、存储 key、等待预算、页面/frame URL、成功读取次数、异常次数，以及最后一次
+真实读取异常的类型、消息和 frame URL。异常先脱敏，过长消息标记截断，frame URL 最多返回 20 条并注明省略数。
+瞬时 frame 异常仍允许在原等待预算内恢复；最终失败不会再被压成单独一句“未获取到 freeToken”。
+公共 `lxeskill` 手动刷新与业务命令把这些信息一起保留在终态 `error.message` 中，兼容业务层的文本错误传递。
+
 日志中各阶段的成功、失败记录均带 `elapsed_ms`；`stage=refresh` 记录本次刷新的总耗时。
 手动刷新总耗时包含账号锁等待；自动 `ensure` 的锁等待单独记录为 `waited_ms`，刷新计时从取得锁后开始。
 耗时仅进入日志，不增加 CLI JSON 或状态文件字段。URL 中的认证参数、密码和 Token 会脱敏，过长诊断会显式标注截断。

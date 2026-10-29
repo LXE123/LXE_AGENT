@@ -12,10 +12,9 @@ describe("protocol contracts", () => {
     const { validateAgentJob, validateEmitRequest } = await loadProtocol();
 
     expect(validateAgentJob(validAgentJob)).toBe(true);
-    const retiredField = ["server", "scope"].join("_");
     expect(validateAgentJob({
       ...validAgentJob,
-      workspace: { ...validAgentJob.workspace, [retiredField]: "local" },
+      workspace: { ...validAgentJob.workspace, unexpected_field: true },
     })).toBe(false);
     expect(validateEmitRequest(validEmitRequest)).toBe(true);
     expect(validateEmitRequest({ ...validEmitRequest, turn_id: "" })).toBe(false);

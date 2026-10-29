@@ -1,0 +1,144 @@
+const assert = require('node:assert/strict');
+
+module.exports = async ({ select, chooseWorkspace, theme, win, js, load, wait, click, hover, key, tabTo, type, measure, capture, noOverflow, passed }) => {
+  const save = "button[type=submit]", preview = 'dialog footer > button';
+  const latest = operation => js(`window.automationFixtureCalls.filter(c=>c.operation===${JSON.stringify(operation)}).at(-1)?.input.definition`);
+  const noRawRule = async () => {
+    assert.doesNotMatch(await js("document.querySelector('.automations-page').innerText"), /RRULE|FREQ=|BYDAY=|BYHOUR=/);
+    assert.equal(await js("!!document.querySelector('input[name=rrule],textarea[name=rrule]')"), false);
+  };
+  const showPreview = async () => {
+    await click(preview);
+    await wait("[...document.querySelectorAll('dialog strong')].some(e=>e.textContent==='接下来的计划时间')");
+    assert.equal(await js("!!document.querySelector('dialog [role=alert]')"), false);
+    await noRawRule();
+    return latest('automations.preview');
+  };
+  // Fixtures may import schedules that cannot be authored through the visual UI.
+  const api = (operation, input = {}) => js(`(async()=>{const r=await fetch('/__automations',{method:'POST',body:JSON.stringify(${JSON.stringify({ operation, input })})});if(!r.ok)throw Error(await r.text());return r.json()})()`);
+  const title = `可视化时间验收-${theme}`;
+  await load(theme, 'empty'); await click('.automation-create');
+  await wait("document.querySelector('dialog')?.open");
+  await type('textarea[name=prompt]', '自动总结运营数据。'); await chooseWorkspace();
+  await click('.automation-advanced-toggle');
+  await wait("document.querySelector('select[name=effort] option[value=high]')");
+  await select('effort', 'high'); await tabTo('select[name=effort]');
+  await measure(theme, 'effort/focus', 'select[name=effort]');
+  await click(save); await wait("!document.querySelector('dialog')");
+  await wait("document.querySelector('.automation-detail h2')?.textContent === '自动生成的运营简报'");
+  assert.equal((await latest('automations.save')).target.effort, 'high');
+  const named = (await api('automations.list')).items.find(t => t.name === '自动生成的运营简报');
+  assert.equal((await api('automations.runs', { id: named.id })).items.length, 0);
+  await click("button[aria-label='编辑任务']"); await wait("document.querySelector('dialog')?.open");
+  await click('.automation-advanced-toggle');
+  assert.equal(await js("document.querySelector('select[name=effort]').value"), 'high');
+  await select('model', JSON.stringify({ provider: 'fixture', model: 'simple', credential_source: 'local' }));
+  assert.equal(await js("document.querySelector('select[name=effort]').disabled"), true);
+  assert.equal(await js("document.querySelector('select[name=effort]').value"), '');
+  await measure(theme, 'effort/unsupported disabled', 'select[name=effort]');
+  await select('conversation', 'reuse');
+  assert.equal(await js("!!document.querySelector('select[name=effort]')"), false);
+  await key('Escape'); await api('automations.delete', { id: named.id, version: named.version });
+  passed.push(`${theme}: blank name generated without execution; thinking choice persists, unsupported model resets and reuse inherits chat settings`);
+  await load(theme, 'empty'); await click('.automation-create');
+  await wait("document.querySelector('dialog')?.open");
+  await type('input[name=name]', title); await type('textarea[name=prompt]', '汇总本周变化。');
+  await chooseWorkspace(); await click('.automation-advanced-toggle');
+  await type('input[name=timezone]', 'Asia/Shanghai');
+  const beforeDateChange = await showPreview();
+  await click('button[name=startDate]'); await wait("document.querySelector('[role=grid]')");
+  await key('PageDown'); await key('Enter');
+  assert.equal(await js("[...document.querySelectorAll('dialog strong')].some(e=>e.textContent==='接下来的计划时间')"), false, 'Advanced calendar click must clear the old preview');
+  const afterDateChange = await showPreview();
+  assert.ok(afterDateChange.schedule.start_at > beforeDateChange.schedule.start_at);
+  passed.push(`${theme}: advanced start-date calendar clears stale preview and recalculates from the changed anchor`);
+  for (const [mode, kind, frequency] of [['daily', 'rrule', 'DAILY'], ['weekdays', 'rrule', 'WEEKLY'], ['monthly', 'rrule', 'MONTHLY'], ['yearly', 'rrule', 'YEARLY'], ['interval', 'interval'], ['once', 'once']]) {
+    await select('schedule', mode);
+    if (mode === 'interval') await type('input[name=minutes]', '45');
+    const definition = await showPreview();
+    assert.equal(definition.schedule.kind, kind);
+    if (frequency) assert.match(definition.schedule.rule, new RegExp(`FREQ=${frequency}`));
+    if (mode === 'interval') assert.equal(definition.schedule.minutes, 45);
+    if (mode === 'once') assert.ok(definition.schedule.at > Date.now());
+  }
+  passed.push(`${theme}: visual presets and one-time/interval inputs preview through the real scheduler without exposing rule syntax`);
+
+  await click('button[name=onceDate]'); await wait("document.querySelector('[role=grid]')");
+  await measure(theme, 'calendar/surface', '.automation-calendar-popup');
+  await measure(theme, 'calendar/selected+focus', '[role=gridcell][aria-selected=true]');
+  await key('Right'); await key('Enter');
+  assert.equal(await js("!!document.querySelector('[role=grid]')"), false);
+  assert.equal(await js("document.activeElement.name"), 'onceDate');
+  await click('button[name=onceDate]'); await capture(`calendar-${theme}.png`); await noOverflow();
+  await key('Escape'); assert.equal(await js("document.querySelector('dialog').open"), true);
+  await click('button[name=onceTime]'); await wait("document.querySelector('.automation-time-columns')");
+  await capture(`time-${theme}.png`); await measure(theme, 'time/selected+focus', '.automation-time-columns [role=option][aria-selected=true]');
+  await key('Escape');
+  passed.push(`${theme}: calendar keyboard selection and popup-only Escape; explicit 24-hour/minute picker`);
+
+  await select('schedule', 'custom'); await select('frequency', 'weekly');
+  await type('input[name=every]', '2');
+  for (const day of ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']) {
+    const wanted = ['MO', 'FR'].includes(day), selector = `input[name=weekdays][value=${day}]`;
+    if (await js(`document.querySelector('${selector}').checked`) !== wanted) await click(selector);
+  }
+  const day = 'input[name=weekdays][value=MO]';
+  await tabTo(day); await key('Space');
+  assert.equal(await js(`document.querySelector('${day}').checked`), false, 'Space clears the selected weekday');
+  await key('Space');
+  assert.equal(await js(`document.querySelector('${day}').checked`), true);
+  const checked = await measure(theme, 'schedule/weekday checked+focus', day);
+  assert.match(checked.outline, /solid/);
+  await hover(day); await measure(theme, 'schedule/weekday checked+hover', day);
+  await tabTo('input[name=every]'); const intervalFocus = await measure(theme, 'schedule/interval focus', 'input[name=every]');
+  assert.notEqual(intervalFocus.shadow, 'none');
+  const definition = await showPreview();
+  assert.equal(definition.schedule.rule, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;BYHOUR=9;BYMINUTE=0');
+  await type('input[name=every]', '0');
+  assert.equal(await js("[...document.querySelectorAll('dialog strong')].some(e=>e.textContent==='接下来的计划时间')"), false, 'Changing schedule clears stale preview');
+  const count = await js("window.automationFixtureCalls.filter(c=>c.operation==='automations.save').length");
+  await click(save); assert.equal(await js("document.querySelector('input[name=every]').matches(':user-invalid')"), true);
+  assert.equal(await js("window.automationFixtureCalls.filter(c=>c.operation==='automations.save').length"), count);
+  await measure(theme, 'schedule/invalid interval', 'input[name=every]');
+  await type('input[name=every]', '2');
+  await click(day); await click('input[name=weekdays][value=FR]'); await click(save);
+  assert.equal(await js("document.querySelector('input[name=weekdays]').matches(':user-invalid')"), true);
+  assert.equal(await js("window.automationFixtureCalls.filter(c=>c.operation==='automations.save').length"), count);
+  await click(day); await click('input[name=weekdays][value=FR]');
+  await noRawRule(); await noOverflow(); await capture(`schedule-${theme}.png`);
+  win.setContentSize(390, 844); await noOverflow(); await capture(`schedule-narrow-${theme}.png`);
+  win.setContentSize(1280, 1000);
+  await click(save); await wait("!document.querySelector('dialog')");
+  assert.deepEqual((await latest('automations.save')).schedule, definition.schedule);
+  assert.match(await js("document.querySelector('.automation-next').textContent"), /每 2 周（周一、周五） 09:00/);
+  await click("button[aria-label='编辑任务']"); await wait("document.querySelector('dialog')?.open");
+  assert.match(await js("document.querySelector('button[name=schedule]').textContent"), /自定义/);
+  assert.equal(await js("document.querySelector('input[name=every]').value"), '2');
+  assert.deepEqual(await js("[...document.querySelectorAll('input[name=weekdays]:checked')].map(e=>e.value)"), ['MO', 'FR']);
+  await type('textarea[name=prompt]', '汇总本周变化，并列出异常。'); await click(save); await wait("!document.querySelector('dialog')");
+  assert.deepEqual((await latest('automations.save')).schedule, definition.schedule);
+  passed.push(`${theme}: custom weekday keyboard controls, invalid inputs, preview invalidation, narrow layout and save/edit round-trip`);
+
+  const imported = { name: `组合计划-${theme}`, prompt: '每月首个周一运行三次。', timezone: 'Asia/Shanghai', target: { mode: 'new', workspace_id: 'workspace' },
+    schedule: { kind: 'rrule', rule: 'FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1;COUNT=3;BYHOUR=9;BYMINUTE=0', start_at: Math.floor(Date.now() / 60000) * 60000 } };
+  const complex = await api('automations.save', { definition: imported });
+  await load(theme, 'schedules');
+  const index = await js(`[...document.querySelectorAll('.automation-row')].findIndex(e=>e.textContent.includes(${JSON.stringify(imported.name)}))`);
+  assert.ok(index >= 0); await click(`.automation-row:nth-of-type(${index + 1})`);
+  await noRawRule(); await click("button[aria-label='编辑任务']"); await wait("document.querySelector('.automation-preserved-schedule')");
+  assert.equal(await js("!!document.querySelector('button[name=schedule],input[name=timezone]')"), false);
+  const preserved = await showPreview(); assert.deepEqual(preserved.schedule, imported.schedule);
+  await type('textarea[name=prompt]', '保留原来的执行日期，只更新任务内容。'); await click(save); await wait("!document.querySelector('dialog')");
+  assert.deepEqual((await latest('automations.save')).schedule, imported.schedule);
+  assert.equal((await latest('automations.save')).timezone, imported.timezone);
+  passed.push(`${theme}: imported complex schedule previews and saves unchanged without a raw rule editor`);
+  await click("button[aria-label='编辑任务']"); await wait("document.querySelector('.automation-preserved-schedule')");
+  await click('.automation-preserved-schedule button'); await wait("document.querySelector('button[name=schedule]')");
+  assert.match(await js("document.querySelector('button[name=schedule]').textContent"), /每天/);
+  await click(save); await wait("!document.querySelector('dialog')");
+  assert.equal((await latest('automations.save')).schedule.rule, 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0');
+  await noRawRule();
+  passed.push(`${theme}: explicitly replacing a preserved schedule creates the selected visual schedule`);
+  const tasks = await api('automations.list');
+  for (const task of tasks.items.filter(t => t.name === title || t.id === complex.id)) await api('automations.delete', { id: task.id, version: task.version });
+};

@@ -51,4 +51,4 @@ Node API 验收直接使用生产预览适配，验证缓存复用、原文不�
 - `windows/cli/`、`windows/api/report.json`、`windows/service/report.json`：Windows 实测产物与报告。
 - `windows/package.log`、`windows/packaged-api-report.json`：Windows 解包构建、随包 CLI 与包内资源 Node API 验收。
 
-重跑入口见 [Office 文件能力](../office-runtime.md) 和 [文件预览侧栏](../file-preview.md)。本记录描述开发环境、Windows 解包产物及文件处理验收；不代表重新验证了安装器、系统缺失 VC++ 的安装流程或所有 Office 格式特性。
+重跑入口见 [Office 文件能力](../office-runtime.md) 和 [文件预览侧栏](../desktop/file-preview.md)。本记录描述开发环境、Windows 解包产物及文件处理验收；不代表重新验证了安装器、系统缺失 VC++ 的安装流程或所有 Office 格式特性。

@@ -74,10 +74,14 @@ app.whenReady().then(async () => {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "session-titles") {
       await require("./session-titles.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
+    } else if (suite === "streaming-markdown") {
+      await require("./streaming-markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "markdown") {
       await require("./markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "conversation-content" || suite === "conversation-window") {
       await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "navigation-rail") {
+      await require("./navigation-rail.cjs")({win, js, step, load, waitFor, click, key, focus, settle});
     } else if (suite === "dashboard-pages") {
       await require("./dashboard-pages.cjs")({win, js, step, load, waitFor, click, key, focus, settle, state});
     } else if (suite === "overview-pages") {
@@ -348,6 +352,8 @@ app.whenReady().then(async () => {
       });
       await step("file and edit previews preserve exact text and reset collapsed state across requests", async () => {
         await show(request("write-preview", "write", { path: "D:\\work\\订单分析\\hello.txt", content: "第一行\n\n<script>visible text</script>\n最后一行\n" }));
+        assert.equal(await js("document.querySelector('.permission-approval-reason').textContent"), "创建测试文件，验证权限申请流程。");
+        assert.match(await js("document.querySelector('.permission-approval-mode').textContent"), /Workspace Write/);
         assert.equal(await js("document.querySelector('.permission-operation-details').open"), false);
         assert.equal(await js("document.querySelector('.permission-target code').textContent"), "D:\\work\\订单分析\\hello.txt");
         await click(".permission-operation-details summary");
@@ -367,7 +373,6 @@ app.whenReady().then(async () => {
         for (const theme of ["light", "dark"]) {
           await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
           await show({ ...value, request_id: `visual-${theme}` }); await settle();
-          assert.match(await js("document.querySelector('.permission-approval-status').innerText"), /等待审批/);
           assert.ok(await js("document.querySelector('.permission-approval').getBoundingClientRect().height < 240"));
           if (process.env.LXE_APPROVAL_SCREENSHOT) {
             await js("document.fonts.ready.then(() => undefined)"); await settle();
@@ -742,13 +747,22 @@ app.whenReady().then(async () => {
       const rect = selector => js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`);
       const move = (x, y) => win.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(x), y: Math.round(y) });
       const expanded = () => js("document.querySelector('.app-sidebar').classList.contains('is-expanded')");
+      // Hit-test the exposed corner, not just border-radius: a square child
+      // background can otherwise paint over a correctly rounded parent.
+      const assertCorner = async (selector, rounded, label) => {
+        const { left, top } = await rect(selector);
+        // Include layers beneath an open drawer/peek when checking its canvas.
+        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => document.querySelector(${JSON.stringify(selector)}).contains(el))`);
+        assert.equal(await inside(1, 1), !rounded, `${label}: corner cutout`);
+        assert.equal(await inside(16, 16), true, `${label}: canvas inside corner`);
+      };
       await load(sidebarQuery);
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
       const railWidth = (await rect(".app-navigation")).width;
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 5);
+        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
-        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
+        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 42)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth);
         assert.equal((await rect(".main-panel")).left, railWidth + 256);
         assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
@@ -788,6 +802,7 @@ app.whenReady().then(async () => {
         move(toggle.left + 10, toggle.top + 10);
         await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "hover peek");
         assert.equal((await rect(".main-panel")).left, railWidth);
+        await assertCorner(".conversation-body", true, "hover peek keeps the chat corner");
         const search = await rect(".sidebar-search-button");
         move(search.left + 10, search.top + 10);
         await click(".sidebar-search-button");
@@ -823,6 +838,7 @@ app.whenReady().then(async () => {
       await step("narrow windows use a dismissible drawer while keeping the rail accessible", async () => {
         win.setContentSize(800, 900); await delay(250);
         assert.equal((await rect(".main-panel")).left, railWidth);
+        await assertCorner(".conversation-body", true, "narrow chat behind drawer");
         assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-dismiss')).display"), "block");
         const panel = await rect(".app-sidebar");
         assert.ok(panel.left > railWidth && panel.right < 800);
@@ -857,6 +873,24 @@ app.whenReady().then(async () => {
                 assert.equal((await rect(".app-navigation")).top, 40);
                 assert.ok((await rect(".conversation-header-actions")).right > 1200 - 138);
               }
+              const body = await rect(".conversation-body"), header = await rect(".conversation-header");
+              assert.ok(Math.abs(body.top - header.bottom) < 0.02, "chat canvas begins below its caption");
+              await assertCorner(".conversation-body", !open, `${platform} ${theme} chat ${open}`);
+              await click(".tab-home");
+              await assertCorner(".content-panel", !open, `${platform} ${theme} home ${open}`);
+              await click(".tab-sessions");
+              if (open) {
+                const sidebar = await rect(".app-sidebar"), resize = await rect(".sidebar-resizer");
+                assert.ok(Math.abs(resize.top - sidebar.top) < 0.02, `${platform}: resize starts below caption`);
+                assert.ok(Math.abs(resize.bottom - sidebar.bottom) < 0.02);
+                if (platform === "darwin") {
+                  assert.ok(Math.abs((await rect(".conversation-header")).bottom - sidebar.top) < 0.02, "chat header meets sidebar edge");
+                  assert.equal(await js(`document.elementFromPoint(${resize.left + resize.width / 2}, ${sidebar.top / 2})?.closest('.sidebar-resizer') !== null`), false, "caption must not become a sidebar resize target");
+                  await click(".tab-home");
+                  assert.ok(Math.abs((await rect(".content-panel")).top - sidebar.top) < 0.02, "home canvas meets the same caption edge");
+                  await click(".tab-sessions");
+                }
+              }
             }
           }
         }
@@ -871,8 +905,10 @@ app.whenReady().then(async () => {
           await js("document.documentElement.dataset.theme='light'"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-light.png"), (await win.webContents.capturePage()).toPNG());
           await click(".sidebar-toggle-button"); await delay(220);
-          await js("document.documentElement.dataset.theme='dark'");
+          await js("document.documentElement.dataset.theme='dark'"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed.png"), (await win.webContents.capturePage()).toPNG());
+          await js("document.documentElement.dataset.theme='light'"); await delay(250);
+          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed-light.png"), (await win.webContents.capturePage()).toPNG());
           await click(".sidebar-toggle-button");
           await click(".tab-capabilities"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-capabilities.png"), (await win.webContents.capturePage()).toPNG());

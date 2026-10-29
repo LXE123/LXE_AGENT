@@ -54,20 +54,9 @@ def _env_keys(path: Path) -> set[str]:
     return keys
 
 
-def test_python_runtime_does_not_load_dotenv_files() -> None:
-    root = repository_root()
-    assert not (root / "python" / "lxeskill_cli" / "shared" / "env_files.py").exists()
-    env_config = (root / "python" / "lxeskill_cli" / "shared" / "env_config.py").read_text(encoding="utf-8")
-    assert "load_project_env" not in env_config
-    assert ".env.local" not in env_config
-    assert "runtime.env" not in env_config
-
-
-def test_only_secret_development_template_remains() -> None:
+def test_development_template_contains_only_secret_keys() -> None:
     root = repository_root()
     example_keys = _env_keys(root / ".env.example")
 
-    assert not (root / ".env.local.example").exists()
-    assert not (root / "config" / "runtime.env").exists()
     assert example_keys == SECRET_ENV_KEYS
     assert NON_SECRET_SETTINGS_KEYS.isdisjoint(example_keys)

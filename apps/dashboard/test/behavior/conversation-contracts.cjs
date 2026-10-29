@@ -2,6 +2,84 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('resize compensation and row positions agree before the same paint',async()=>{
+      for(const theme of ['light','dark']){
+        await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
+        await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest rows');
+        await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.fonts.ready`);
+        await settle();
+        await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);
+        await settle();
+        // Give the virtualizer a forward direction without resuming bottom follow.
+        await js("document.querySelector('.conversation-transcript').scrollTop+=1");await settle();
+        const result=await js(`(async()=>{
+          const root=document.querySelector('.conversation-transcript'),top=root.getBoundingClientRect().top;
+          const rows=[...root.querySelectorAll('[data-conversation-row]')];
+          const anchor=rows.find(e=>e.getBoundingClientRect().bottom>top);
+          const previous=rows[rows.indexOf(anchor)-1];
+          if(!previous)throw new Error('Missing a mounted row above the reading anchor');
+          const initial=anchor.getBoundingClientRect().top-top,scroll=root.scrollTop,samples=[];
+          const read=()=>samples.push({offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+          // The production observer queues its measurement into rAF. Sample after
+          // it in that same frame: checking only the settled position misses a flash.
+          const observer=new ResizeObserver(()=>requestAnimationFrame(read));
+          observer.observe(previous,{box:'border-box'});
+          const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
+          try{
+            await delay(80);
+            for(let i=0;i<8;i++){
+              previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
+              await delay(80);
+            }
+            return {initial,scroll,samples};
+          }finally{observer.disconnect();previous.style.paddingBottom=original;}
+        })()`);
+        assert.ok(result.samples.length>=9,`${theme}: measured every resize`);
+        assert.ok(result.samples.some(s=>s.scroll===result.scroll+4),`${theme}: compensation actually ran`);
+        assert.ok(result.samples.every(s=>s.connected&&Math.abs(s.offset-result.initial)<0.5),
+          `${theme}: intermediate-frame reading displacement: ${JSON.stringify(result)}`);
+      }
+    });
+    await step('streaming preserves earlier text while reading and follows the fully sized feed',async()=>{
+      await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
+      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');await settle();
+      await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);await settle();
+      const reading=await js(`(async()=>{
+        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]');
+        const paragraph=row.querySelector('.message-markdown p'),top=paragraph.getBoundingClientRect().top,scroll=root.scrollTop;
+        const samples=[],mutations=[],initialLength=row.textContent.length;
+        const observer=new MutationObserver(records=>mutations.push(...records.map(record=>record.type)));
+        observer.observe(paragraph,{subtree:true,characterData:true,childList:true});
+        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
+        try{
+          for(let i=0;i<12;i++){
+            append.click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            samples.push({offset:paragraph.getBoundingClientRect().top-top,scroll:root.scrollTop-scroll,
+              same:paragraph===row.querySelector('.message-markdown p'),connected:paragraph.isConnected});
+          }
+          return {samples,mutations,initialLength,length:row.textContent.length};
+        }finally{observer.disconnect();}
+      })()`);
+      assert.ok(reading.length>reading.initialLength+1000,'stream actually appended text');
+      assert.deepEqual(reading.mutations,[],'completed paragraph is not rewritten');
+      assert.ok(reading.samples.every(s=>s.same&&s.connected&&Math.abs(s.offset)<0.5&&s.scroll===0),JSON.stringify(reading));
+      await click('.conversation-jump-latest');
+      await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
+      const following=await js(`(async()=>{
+        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
+        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
+        observer.observe(row,{box:'border-box'});
+        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
+        try{
+          await new Promise(resolve=>setTimeout(resolve,80));
+          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
+          return samples;
+        }finally{observer.disconnect();}
+      })()`);
+      assert.ok(following.length>=9,'measured each streaming resize');
+      assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
+    });
     await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
     await waitFor("document.querySelectorAll('[data-conversation-row]').length>0",'virtual conversation');
     await step('pending-to-persisted handoff retains the visible message node',async()=>{
@@ -28,6 +106,57 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await new Promise(resolve=>setTimeout(resolve,350));
       const result=await js("JSON.parse(document.querySelector('#query-result').textContent)");
       assert.equal(result.actual,'race-second'); assert.equal(result.oldest,'g990');
+    });
+    await step('opening historical runs before latest arrives pins the target until user scrolls',async()=>{
+      win.setSize(1000,700);
+      await win.loadURL(new URL('../features/sessions/window-fixture.html?run-history=1',url).href);
+      await waitFor("Boolean(document.querySelector('#run-state'))",'run fixture');
+      const read=()=>js("JSON.parse(document.querySelector('#run-state').textContent)");
+      await textClick('Open short run'); await settle();
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      assert.ok(await js("Boolean(document.querySelector('[data-display-group=g100]'))"));
+      await textClick('Refresh latest'); await settle();
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      await click('.conversation-jump-latest');
+      await waitFor("JSON.parse(document.querySelector('#run-state').textContent).following",'explicit jump resumes following');
+      assert.ok(await js("Boolean(document.querySelector('[data-display-group=g999]'))"));
+      await textClick('Open long run'); await settle(); await settle();
+      const offset=await js("document.querySelector('[data-display-group=g105]').getBoundingClientRect().top-document.querySelector('.conversation-transcript').getBoundingClientRect().top");
+      assert.ok(Math.abs(offset)<3,`target run is anchored at the top: ${offset}`);
+      assert.deepEqual(await read(),{older:0,newer:0,staleAccepted:false,following:false,connection:'detached'});
+      await js("{const root=document.querySelector('.conversation-transcript');root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:800}));root.scrollTop=root.scrollHeight;root.dispatchEvent(new Event('scroll'))}");
+      await waitFor("JSON.parse(document.querySelector('#run-state').textContent).newer>0",'user scroll enables pagination');
+    });
+    await step('paging follows scroll position when tall rows keep the virtual range unchanged',async()=>{
+      for(const direction of ['older','newer']) {
+        await win.loadURL(new URL(`../features/sessions/window-fixture.html?pagination=${direction}`,url).href);
+        await waitFor("document.querySelectorAll('[data-conversation-row]').length>0",'long conversation rows');
+        await settle(); await settle();
+        // Leave follow mode before approaching the edge. Jumping directly to
+        // zero in the same event, as older tests did, hides this regression.
+        await js(`{
+          const root=document.querySelector('.conversation-transcript');
+          root.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-40}));
+          root.scrollTop=${direction==='older'?'300':'root.scrollHeight-root.clientHeight-300'};
+          root.dispatchEvent(new Event('scroll'));
+        }`);
+        await settle(); await settle();
+        await textClick('Enable paging');
+        const before=await js("({range:[...document.querySelectorAll('[data-index]')].map(e=>e.dataset.index),requests:JSON.parse(document.querySelector('#pagination-metrics').textContent).requests,top:document.querySelector('.conversation-transcript').scrollTop,bottom:document.querySelector('.conversation-transcript').scrollHeight-document.querySelector('.conversation-transcript').clientHeight-document.querySelector('.conversation-transcript').scrollTop})");
+        assert.equal(before.requests,0,`${direction}: no request outside the paging boundary`);
+        assert.deepEqual(before.range,['0','1','2','3'],'both messages and their metadata are already mounted');
+        assert.ok(before.top>120&&before.bottom>120,'test starts away from both paging boundaries');
+        await js(`{
+          const root=document.querySelector('.conversation-transcript');
+          root.scrollTop=${direction==='older'?'0':'root.scrollHeight-root.clientHeight'};
+          root.dispatchEvent(new Event('scroll'));
+          window.boundaryRange=[...document.querySelectorAll('[data-index]')].map(e=>e.dataset.index);
+        }`);
+        assert.deepEqual(await js('boundaryRange'),before.range,'edge reached without changing the mounted rows');
+        await waitFor("JSON.parse(document.querySelector('#pagination-metrics').textContent).loaded",`${direction} page loaded inside unchanged virtual range`);
+        assert.equal(await js("JSON.parse(document.querySelector('#pagination-metrics').textContent).requests"),1,'one page request');
+        assert.ok(await js(`Boolean(document.querySelector('[data-display-group="page-${direction==='older'?1:4}"]'))`),'returned page renders');
+      }
     });
     await step('compaction stays between streamed content and scrolls normally in every theme',async()=>{
       const fixture=new URL('../features/sessions/window-fixture.html?compaction=1',url).href;

@@ -6,7 +6,7 @@ import json
 import threading
 
 import pytest
-from services.agent_cli.mabang import erp_http, erp_packing_upload
+from services.commands.mabang import erp_http, erp_packing_upload
 from services.mabang import official_api
 from shared.infra.cloud_async import AsyncCloudClient
 

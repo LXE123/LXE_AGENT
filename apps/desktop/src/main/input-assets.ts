@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { execFile, type ExecFileOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ type AssetCommandExecutor = (args: string[], options: ExecFileOptions) => Promis
 
 export interface DesktopInputAssetsOptions {
   dataRoot: string;
-  pythonPath: string;
+  executablePath: string;
   managedPath: string;
   platform: NodeJS.Platform;
   execute?: AssetCommandExecutor;
@@ -116,9 +117,9 @@ const slotValue = (value: unknown): DesktopInputAssetSlot | null => {
   };
 };
 
-const executeFile = (pythonPath: string, args: string[], options: ExecFileOptions): Promise<AssetCommandExecution> =>
+const executeFile = (executablePath: string, args: string[], options: ExecFileOptions): Promise<AssetCommandExecution> =>
   new Promise(resolve => {
-    execFile(pythonPath, args, options, (error, stdout, stderr) => {
+    execFile(executablePath, args, options, (error, stdout, stderr) => {
       resolve({ error, stdout: String(stdout), stderr: String(stderr) });
     });
   });
@@ -128,19 +129,19 @@ export class DesktopInputAssetsService {
   constructor(private readonly options: DesktopInputAssetsOptions) {}
 
   private async runAssetCommand(command: string[], flags: string[], timeout: number): Promise<Record<string, unknown>> {
-    if (!existsSync(this.options.pythonPath)) {
-      throw new Error(`Managed Python is unavailable: ${this.options.pythonPath}`);
+    if (!existsSync(this.options.executablePath)) {
+      throw new Error(`LXE Skill CLI is unavailable: ${this.options.executablePath}`);
     }
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
     const separator = this.options.platform === "win32" ? ";" : ":";
-    const args = ["-I", "-B", "-m", "lxeskill", ...command, ...flags];
+    const args = [...command, ...flags];
     const options: ExecFileOptions = {
       cwd: this.options.dataRoot,
       timeout,
       maxBuffer: MAX_OUTPUT_BYTES,
       windowsHide: true,
-      env: {
+      env: managedPythonEnvironment({
         ...process.env,
         LXE_DATA_ROOT: this.options.dataRoot,
         LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
@@ -150,15 +151,11 @@ export class DesktopInputAssetsService {
         TMP: temporaryRoot,
         TEMP: temporaryRoot,
         TMPDIR: temporaryRoot,
-        PYTHONDONTWRITEBYTECODE: "1",
-        PYTHONNOUSERSITE: "1",
-        PYTHONIOENCODING: "utf-8",
-        PYTHONUTF8: "1",
-      },
+      }),
     };
     const execution = this.options.execute
       ? await this.options.execute(args, options)
-      : await executeFile(this.options.pythonPath, args, options);
+      : await executeFile(this.options.executablePath, args, options);
     const record = parseLastResult(execution.stdout);
     const data = objectValue(record?.data);
     if (execution.error || record?.ok !== true || data?.success === false) {

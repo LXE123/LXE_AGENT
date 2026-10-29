@@ -600,7 +600,7 @@ def test_cli_retains_partial_artifact_without_auth_material(monkeypatch, tmp_pat
     import json
     from lxeskill import cli
     from lxeskill import business
-    from services.agent_cli.mabang_tms import export_run
+    from services.commands.mabang_tms import export_run
     output = tmp_path / 'partial.xlsx'
     output.write_bytes(workbook([values(record(1))]))
     monkeypatch.setattr(business, 'artifact_root', lambda: tmp_path)

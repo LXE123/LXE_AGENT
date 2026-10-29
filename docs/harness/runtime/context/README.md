@@ -1,56 +1,28 @@
 # Runtime Context
 
-## 目的
+上下文模块决定每次模型请求携带哪些历史、系统提示与工具定义，并在历史过长时压缩模型视图。一次 turn 可以多次组装、估算和压缩上下文；原始记录与当前模型视图的关系由 transcript 管理。
 
-Context subsystem 决定 provider 实际看见哪些 system、message、tool schema 和 image 信息，并保证 replay、steering、tool closure 与 compaction 后仍可继续执行。它不是简单的 prompt 拼接器，而是会影响长期模型视图的状态边界。
+## 专题分工
 
-事实来源是 [`packages/agent/runtime/src/engine/context.ts`](/packages/agent/runtime/src/engine/context.ts)、[`runtime.ts`](/packages/agent/runtime/src/engine/runtime.ts) 和 [`storage.ts`](/packages/agent/runtime/src/state/storage.ts)。
+| 问题 | 主要维护位置 |
+| --- | --- |
+| 统一消息、工具调用与结果如何表示和闭合 | [Canonical Message](canonical_message.md) |
+| 每轮固定什么，每步重新组装什么 | [Context Assembly](context_assembly.md) |
+| 如何估算预算、裁剪工具输出和压缩历史 | [Pruning and Compaction](context_pruning_compaction.md) |
+| 历史如何落盘、恢复，图片如何保存 | [Context Persistence](context_persistence.md) |
 
-## 专题导航
+## 与执行循环的关系
 
-- [Canonical Message](canonical_message.md)：message/block 形态与 closure 修复。
-- [Context Assembly](context_assembly.md)：turn/step 组装顺序和完整请求预算。
-- [Pruning and Compaction](context_pruning_compaction.md)：tool result、image、summary 与 overflow recovery。
-- [Context Persistence](context_persistence.md)：Transcript v2、`context_patch`、模型 replay 和 Dashboard 审计视图。
+1. **Turn 开始**：恢复当前模型视图，追加用户输入及必要的 Skill 工作上下文。
+2. **每个 step 前**：取得当前可见工具与环境，归一化消息、修复工具闭合、估算请求预算，按需压缩；模型返回后执行工具并追加结果。
+3. **Turn 结束**：可以再次整理长期模型视图。收尾维护失败只记录 warning，不撤销已交付答案。
 
-## 请求预算
+具体执行和错误分支见 [Runtime 执行流程](../turn_execution.md)。预算默认值只在压缩专题维护，实际窗口来自当前模型定义；有匹配的供应商 usage 时，还会校准本地估算。
 
-预算包含：
+## 持久化边界
 
-```text
-system prompt
-+ canonical messages
-+ exposed tool schemas
-+ image fixed estimates
-```
+压缩通过追加 `context_patch` 更新模型视图，不改写原始 JSONL 行。压缩可能将早期消息或当前长 turn 的前半段替换为摘要；是否仍在模型视图中，与原文是否留在 transcript 中，是两件事。
 
-默认 context window 为 256k token，预留 output 20k；90% soft threshold 提前触发 compaction。单个 image 固定估算 1600 token，单步 tool result 文本预算 10k，最近 raw turn 目标保留约 20k。
+图片在 transcript 中保留原始内容，不因被模型处理过一次就删除。展示、摘要和供应商请求使用各自的投影。思考签名与不透明数据的保存和展示边界见 [Canonical Message](canonical_message.md)。
 
-实际 context window 优先使用当前 provider descriptor。生产路径不按 message 数量或固定字符数静默删除历史。
-
-## 三个时间点
-
-### Turn 输入
-
-Storage replay canonical history，Runtime append 当前 user message。历史已处理 image 在持久化时已经占位，本轮新 image 仍可见。
-
-### Step 前
-
-ContextPipeline sanitize closure、计算完整预算，并按 `pre_call` 或 `overflow` 触发 summary。tool schemas 每 step 重新捕获，因此 exposure 变化从下一 step 生效。
-
-### Turn 后
-
-post-turn maintenance 在 final delivery 后执行，可以追加 `context_patch` 整理长期模型视图。失败只记录 warning，不撤销已交付答案。
-
-## 核心不变量
-
-1. Canonical history 中 tool use 必须有对应 result。
-2. Compaction 只能追加最小 `context_patch`，不能改写旧 JSONL 行。
-3. 摘要失败、为空或未降低 token 时保留原 messages。
-4. encrypted thinking data 不进入 summary、日志或平台展示。
-5. 当前用户请求在 mid-turn compaction 中逐字保留。
-6. Image 只在第一次模型处理时携带原始数据。
-
-## 非目标
-
-Context 不负责 provider-specific payload adaptation、平台 card rendering、session permission 或 tool handler timeout。这些分别属于 provider、Gateway、Router 和 tool runtime。
+上下文模块不负责渠道发送、文件写入权限或工具进程控制，这些分别见 [Gateway](../../../desktop/gateway/README.md)、[权限专题](../permission-policy.md)和[工具手册](../tools/README.md)。摘要提示词与策略变更的审查要求统一见 [PR 审查规范](../../../pr-review.md)。

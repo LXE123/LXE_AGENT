@@ -2,7 +2,7 @@
 
 本文汇总 [PR #90](https://github.com/LXE123/LXE_AGENT/pull/90) 合并时的证据。作者开发阶段的文件与故障验证来自[原始交接记录](https://github.com/LXE123/LXE_AGENT/blob/5b6fa0bb2d4d76062eb24d34b79177b166ddce05/docs/harness/vietnam-stock-recommendation/handoff-nine-sheet-export.md)；最终跨平台结果来自[维护者合并前验证](https://github.com/LXE123/LXE_AGENT/pull/90#issuecomment-6288831699)。本次整理未重新执行计算或访问生产 ERP。
 
-当前实现见[越南备货实现说明](../harness/vietnam-stock-recommendation/calculation.md)，操作步骤见[越南 Skill](../../skills/vietnam-replenishment/SKILL.md)。历史测试只证明对应版本，不累加为当前测试数。
+当前实现见[越南备货实现说明](../lxeskill-cli/vietnam-replenishment.md)，操作步骤见[越南 Skill](../../skills/vietnam-replenishment/SKILL.md)。历史测试只证明对应版本，不累加为当前测试数。
 
 ## 最终版本与跨平台验证
 

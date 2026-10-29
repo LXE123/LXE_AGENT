@@ -10,12 +10,10 @@ import pytest
 
 import shared.logging as logging_config
 from shared.logging import reset_log_context, set_log_context, setup_logging
-from shared.repository import repository_root
 
 
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _TRACKED_LOGGERS = (
-    "bot_logger",
     "browser_auth_service.service",
     "browser_auth_service.client",
     "services.browser.tools",
@@ -29,7 +27,6 @@ _TRACKED_LOGGERS = (
     "lark_oapi",
     "aiohttp",
 )
-_PROJECT_ROOT = repository_root()
 
 
 @pytest.fixture(autouse=True)
@@ -130,14 +127,14 @@ def test_setup_logging_applies_scoped_log_levels(monkeypatch) -> None:
     assert logging.getLogger("services.mabang.auth").isEnabledFor(logging.WARNING)
 
 
-def test_legacy_bot_logger_is_caplog_compatible(caplog) -> None:
+def test_module_logger_is_caplog_compatible(caplog) -> None:
     setup_logging()
-    caplog.set_level(logging.INFO, logger="bot_logger")
+    caplog.set_level(logging.INFO, logger="shared.other")
 
-    logger = logging.getLogger("bot_logger")
-    logger.info("legacy compatibility message")
+    logger = logging.getLogger("shared.other")
+    logger.info("module log message")
 
-    assert "legacy compatibility message" in caplog.text
+    assert "module log message" in caplog.text
     assert logger.handlers == []
     assert logger.propagate is True
 
@@ -263,55 +260,6 @@ def test_runtime_log_level_defaults_to_debug_and_can_be_overridden(tmp_path, mon
 
     assert runtime_handler.level == logging.WARNING
     assert logging.getLogger().level == logging.INFO
-
-
-def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
-    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-
-    setup_logging()
-    console_handler = next(
-        handler
-        for handler in _managed_handlers()
-        if not isinstance(handler, logging.FileHandler)
-    )
-    stream = io.StringIO()
-    old_stream = console_handler.setStream(stream)
-    try:
-        access_logger = logging.getLogger("uvicorn.access")
-        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/channels/health", "1.1", 200)
-        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/channels/health", "1.1", 503)
-        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/sessions", "1.1", 200)
-        for handler in _managed_handlers():
-            handler.flush()
-    finally:
-        console_handler.setStream(old_stream)
-
-    console_output = stream.getvalue()
-    assert 'GET /api/channels/health HTTP/1.1" 200' not in console_output
-    assert 'GET /api/channels/health HTTP/1.1" 503' in console_output
-    assert 'GET /api/sessions HTTP/1.1" 200' in console_output
-
-    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
-    runtime_output = runtime_path.read_text(encoding="utf-8")
-    assert 'GET /api/channels/health HTTP/1.1" 200' in runtime_output
-    assert 'GET /api/channels/health HTTP/1.1" 503' in runtime_output
-    assert 'GET /api/sessions HTTP/1.1" 200' in runtime_output
-
-
-def test_retired_log_format_environment_is_ignored(monkeypatch) -> None:
-    monkeypatch.setenv("LOG_FORMAT", "json")
-
-    setup_logging()
-    stream = io.StringIO()
-    handler = _managed_handlers()[0]
-    old_stream = handler.setStream(stream)
-    try:
-        logging.getLogger("gateway.emitter").info("fallback message")
-    finally:
-        handler.setStream(old_stream)
-
-    assert "[gateway.emitter]" in stream.getvalue()
 
 
 def test_log_context_is_added_to_managed_output_only_when_present() -> None:
@@ -453,17 +401,68 @@ def test_browser_auth_file_logging_requires_local_logs(tmp_path, monkeypatch) ->
     assert list((tmp_path / "logs" / "browser_auth_service").glob("*/*.log")) == []
 
 
-def test_production_modules_do_not_import_legacy_global_logger() -> None:
-    offenders: list[str] = []
-    for path in sorted(_PROJECT_ROOT.rglob("*.py")):
-        relative = path.relative_to(_PROJECT_ROOT).as_posix()
-        if relative.startswith((".git/", ".venv/", "__pycache__/")):
-            continue
-        if relative == "python/lxeskill_cli/shared/logging.py":
-            continue
-        text = path.read_text(encoding="utf-8")
-        legacy_import = "from shared.logging import " + "logger"
-        if legacy_import in text:
-            offenders.append(relative)
+def test_unwritable_log_directory_preserves_console_and_real_error(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv('LXE_DATA_ROOT', str(tmp_path))
+    monkeypatch.setenv('LOCAL_LOGS_ENABLED', '1')
+    # Portable real OS error on macOS and Windows, without touching user ACLs.
+    (tmp_path / 'logs').write_text('occupied')
+    setup_logging()
+    assert len(_managed_handlers()) == 1
+    logging.getLogger('shared.other').warning('business still runs')
+    result = capsys.readouterr()
+    assert result.out == ''
+    assert 'logging_sink_failed' in result.err
+    assert 'FileExistsError' in result.err or 'NotADirectoryError' in result.err
+    assert 'business still runs' in result.err
+    assert (tmp_path / 'logs').read_text() == 'occupied'
 
-    assert offenders == []
+
+@pytest.mark.parametrize('operation', ['write', 'flush'])
+def test_late_log_write_failure_disables_only_that_file_and_reports_once(operation, tmp_path, capsys):
+    handler = logging_config._build_runtime_file_handler(tmp_path / 'runtime.log')
+    handler.stream.close()
+    class FailingStream:
+        def write(self, text):
+            if operation == 'write':
+                raise PermissionError(13, 'fixture write denied')
+        def flush(self):
+            if operation == 'flush':
+                raise OSError(28, 'fixture disk full')
+        def close(self):
+            pass
+    handler.stream = FailingStream()
+    record = logging.LogRecord('test', logging.INFO, __file__, 1, 'PRIVATE_BUSINESS_PAYLOAD', (), None)
+    try:
+        handler.handle(record)
+        handler.handle(record)
+    finally:
+        handler.close()
+    result = capsys.readouterr()
+    assert result.out == ''
+    assert result.err.count('logging_sink_failed') == 1
+    assert ('fixture write denied' if operation == 'write' else 'fixture disk full') in result.err
+    assert 'PRIVATE_BUSINESS_PAYLOAD' not in result.err
+
+
+def test_failed_business_result_is_not_replaced_by_logging_failure(monkeypatch, tmp_path, capsys):
+    from lxeskill import cli
+    monkeypatch.setenv('LXE_DATA_ROOT', str(tmp_path))
+    monkeypatch.setenv('LXE_WORKSPACE_ROOT', str(tmp_path / 'workspace'))
+    monkeypatch.setenv('LOCAL_LOGS_ENABLED', '1')
+    (tmp_path / 'logs').write_text('occupied')
+    monkeypatch.setattr(cli, '_run_entry', lambda *args: (_ for _ in ()).throw(RuntimeError('actual fixture business failure')))
+    assert cli.main(['mabang', 'delivery', 'export', '--delivery-no', 'SP1']) == cli.EXIT_INTERNAL
+    result = capsys.readouterr()
+    import json
+    assert json.loads(result.out)['error']['message'] == 'actual fixture business failure'
+    assert 'logging_sink_failed' in result.err
+
+
+def test_file_failure_diagnostic_redacts_secrets_and_marks_truncation(monkeypatch, capsys):
+    monkeypatch.setenv('MABANG_PASSWORD', 'fixture-private-password')
+    logging_config._report_file_failure('runtime.log', PermissionError('fixture-private-password ' + 'x' * 3000))
+    text = capsys.readouterr().err
+    assert 'fixture-private-password' not in text
+    assert '[REDACTED]' in text
+    assert 'PermissionError' in text
+    assert '[truncated]' in text

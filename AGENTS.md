@@ -6,7 +6,7 @@
 - **agentcli**：独立的 Agent Harness。`apps/agent-cli` 是命令行宿主，`packages/agent/runtime` 是 Bun Agent 执行核心，负责模型调用、上下文、工具、会话、执行权限和统计。
 - **lxeskillCLI**：`python/lxeskill_cli` 中按次启动的业务 CLI，通过 `lxeskill` 暴露业务命令，独立管理业务数据、配置和文件产出。
 - **Skill**：`skills/` 存放通用和业务指引，为模型提供任务知识与工作上下文。
-- **文档**：[README](README.md#架构) 提供整体架构，[docs/README.md](docs/README.md) 是专题入口；`docs/harness/` 包含运行时、CLI 契约和外部平台参考。
+- **文档**：[README](README.md#架构) 提供整体架构，[docs/README.md](docs/README.md) 是专题入口；Electron、agentcli 和 lxeskillCLI 的技术手册分别位于 `docs/desktop/`、`docs/harness/` 和 `docs/lxeskill-cli/`，共享能力与外部参考从文档入口查阅。
 
 ## 模块协作与 Skill 工作上下文
 
@@ -17,6 +17,8 @@
 - Electron 预览使用 LibreOffice Kit 的 Node API；模型通过 `exec` 调用 Kit CLI；lxeskillCLI 通过内部适配调用 Kit CLI 完成业务文件处理。详见 [Office 文件能力](docs/office-runtime.md)。
 
 Skill 可以根据任务需要，向模型介绍 Electron、lxeskillCLI 等模块的内部结构、实现细节、数据组织和操作方法。这些说明属于工作上下文，本身不构成程序模块之间的耦合，也不改变各模块的职责和数据归属。模型按任务使用通用 Tool 时，遵循任务要求和执行权限。
+
+编写 Skill 时，优先讲清输入、依赖和正确执行路径，不要针对每次误判不断追加禁止事项。
 
 审查 Skill 时关注指引是否准确、是否有助于任务；实现变化后同步更新相关指引。审查程序模块依赖时，关注生产代码是否绕过约定接口、直接依赖其他模块的内部实现或存储结构。
 
@@ -75,7 +77,7 @@ When you receive an instruction:
 | **chore** | 构建过程或辅助工具的变动（如更新依赖） | 无 |
 | **ci** | 持续集成配置文件或脚本的变动 | 无 |
 
-版本列仅供发布时参考，不表示每个 commit 都要升级版本。正式版本和更新说明由发布者在 `config/desktop-release.json` 中显式设置；commit 类型不会自动递增版本。详见 [Windows 更新与发布](docs/desktop-updates.md)。
+版本列仅供发布时参考，不表示每个 commit 都要升级版本。正式版本和更新说明由发布者在 `config/desktop-release.json` 中显式设置；commit 类型不会自动递增版本。详见 [Windows 更新与发布](docs/desktop/updates.md)。
 
 ## DOCS 规范
 

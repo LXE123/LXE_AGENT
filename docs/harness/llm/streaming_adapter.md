@@ -1,6 +1,6 @@
 # Streaming Adapter
 
-三类 Provider 使用各自的协议适配器，将响应归一化为共享 AssistantMessage 和流事件。选择入口见 [LLM 适配](README.md)，完整内容索引与事件契约见 [统一模型消息流](../assistant-message-stream.md)。
+三类 Provider 使用各自的协议适配器，将响应归一化为共享 AssistantMessage 和流事件。选择入口见 [LLM 适配](README.md)，完整内容索引与事件契约见 [统一模型消息流](assistant-message-stream.md)。
 
 ## 输入与输出
 
@@ -26,6 +26,6 @@
 
 ## 诊断与持久化
 
-日志和 wire trace 对凭据、Cookie、签名、不透明推理数据、base64 和过长载荷做脱敏及截断。可读的文本或思考增量可能出现在显式启用的诊断 trace 中，详见 [日志契约](../logger.md)。
+日志和 wire trace 对凭据、Cookie、签名、不透明推理数据、base64 和过长载荷做脱敏及截断。可读的文本或思考增量可能出现在显式启用的诊断 trace 中，详见 [日志契约](../../logging.md)。
 
 Transcript 为后续 replay 保存必要的模型内容；它不是日志脱敏后的副本。用户展示、模型上下文和诊断输出分别处理，错误不得用无事实依据的通用提示覆盖。

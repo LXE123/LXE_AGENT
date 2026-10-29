@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  parseServerDevicePermission,
   parseDeviceContext,
   parseServerDevicePermissionV2,
   parseStoredDevicePermission,
@@ -41,24 +40,6 @@ describe("device permission snapshots", () => {
     expect(parseStoredDevicePermission({ device_id: "device-1", permission_schema: 2, permission_profile: null,
       permission_version: 3, profile_revision: 0, profile_labels: {}, allowed_skill_types: [], desktop_features: [], verified_at: 123 }))
       .toMatchObject({ allowed_skill_types: [], permission_profile: null });
-  });
-
-  test("keeps the frozen v1 profile projection for legacy servers", () => {
-    expect(parseServerDevicePermission({
-      permission_profile: "fba",
-      permission_version: 3,
-      allowed_skill_types: ["default", "amazon_fba", "ziniao_browser"],
-    }, "device-1", 123)).toEqual({
-      device_id: "device-1",
-      permission_schema: 1,
-      permission_profile: "fba",
-      permission_version: 3,
-      profile_revision: 1,
-      profile_labels: { "zh-CN": "FBA", "en-US": "FBA" },
-      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
-      desktop_features: ["erp_dashboard"],
-      verified_at: 123,
-    });
   });
 
   test("accepts an unknown server-owned v2 profile without expanding it locally", () => {

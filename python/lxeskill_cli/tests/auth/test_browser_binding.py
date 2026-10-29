@@ -106,7 +106,10 @@ def test_host_refresh_uses_same_complete_route_without_playwright(tmp_path, monk
     monkeypatch.setattr(service, "host_connection", lambda: ("http://127.0.0.1:1", "token"))
     monkeypatch.setattr(host, "HostContext", lambda connection, headless: context)
     monkeypatch.setattr(service, "sync_playwright", lambda: pytest.fail("host must not start Playwright"))
-    assert service.refresh_auth()["state_written"]
+    result = service.refresh_auth()
+    assert result["state_written"]
+    assert result["auth_environment"]["provider"] == "electron_host"
+    assert result["auth_environment"]["shares_ziniao_session"] is False
     assert events == ["login", "inventory", "fba", "free-token", "wms", "storage-state", "context-close"]
     assert service._require_complete_auth_material(json.loads(state.read_text()))
 
@@ -122,6 +125,7 @@ def test_host_failure_has_no_system_browser_fallback(tmp_path, monkeypatch):
         raise ConnectionRefusedError("connection refused by host")
     monkeypatch.setattr(host, "HostContext", refused)
     monkeypatch.setattr(service, "sync_playwright", lambda: pytest.fail("no fallback"))
-    with pytest.raises(service.BrowserAuthRefreshError, match="connection refused by host"):
+    with pytest.raises(service.BrowserAuthRefreshError, match="connection refused by host") as captured:
         service.refresh_auth()
+    assert captured.value.to_payload()["auth_environment"]["provider"] == "electron_host"
     assert not state.exists()

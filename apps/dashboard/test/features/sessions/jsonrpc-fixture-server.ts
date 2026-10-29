@@ -11,7 +11,7 @@ const sessions = new Map<string, Awaited<ReturnType<LocalConversationStorage["ge
 let sessionId = "";
 let conversations!: LocalConversationController;
 const runtime = new ProcessAgentRuntime({
-  agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills",
+  skillsRoot: "/skills", userSkillsRoot: "/user-skills",
   command: process.execPath, arguments: [resolve(root, "apps/agent-cli/test/fixtures-jsonrpc-ui.ts")],
   cwd: root, environment: { ...process.env },
   llmConfigRoot: "/llm", dataRoot: root, legacyWorkspace: workspace,

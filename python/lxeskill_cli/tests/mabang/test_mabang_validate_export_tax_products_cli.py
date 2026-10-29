@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.agent_cli.mabang import validate_export_tax_products as cli
+from services.commands.mabang import validate_export_tax_products as cli
 
 
 def _write_products(

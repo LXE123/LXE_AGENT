@@ -1,6 +1,6 @@
 # Office 文件能力
 
-三个独立 skill 位于 `skills/office-xlsx`、`skills/office-docx`、`skills/office-pptx`。现有 skill 加载器按需读取正文，模型用已有的 `exec` 执行 Python 和 Kit CLI、`read` 查看图片、`send_files` 交付文件。没有新增模型工具或 `lxeskill` 业务命令。桌面内查看文件的交互见[文件预览侧栏](file-preview.md)。
+三个独立 skill 位于 `skills/office-xlsx`、`skills/office-docx`、`skills/office-pptx`。现有 skill 加载器按需读取正文，模型用已有的 `exec` 执行 Python 和 Kit CLI、`read` 查看图片、`send_files` 交付文件。没有新增模型工具或 `lxeskill` 业务命令。桌面内查看文件的交互见[文件预览侧栏](desktop/file-preview.md)。
 
 ## 分工与入口
 
@@ -61,6 +61,6 @@ Office 的 manifest、锁文件、VC++ 安装器锁及准备脚本进入运行�
 
 `scripts/verify-office-api.ts` 用 Bun 构建为 Node ESM（`electron` 保持 external）后，由目标平台的 Electron 执行，参数依次为上述样本目录、运行环境目录和输出目录。它验证真实 Node API 预览、缓存、损坏文件、取消后恢复、超时和资源释放，记录 Electron 与 Node 版本。
 
-本次两平台结果见 [Office 接口简化与 Kit 0.1.5 验收](acceptance/office-integration-20261020.md)。
+接口简化时的两平台验证结果见 [Office 接口简化与 Kit 0.1.5 验收](acceptance/office-integration-20261020.md)。
 
 每次验收保留 `diagnostics.json`、产物和 `report.json`；报告记录当前解释器路径，区分开发环境与实际随包环境。原始 Kit 的缺失字体诊断保留在操作结果中。VC++ 缺失场景需在干净环境验证，或在明确授权后进行受控卸载、安装和恢复测试，并记录实际安装退出码与重启要求。
