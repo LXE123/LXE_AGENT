@@ -32,11 +32,11 @@ from xml.sax.saxutils import XMLGenerator
 from xml.sax.xmlreader import AttributesImpl
 
 
-APP_ID = os.environ.get("FEISHU_APP_ID", "")
-APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
+APP_ID = os.environ.get("STOCK_SYNC_FEISHU_APP_ID", "")
+APP_SECRET = os.environ.get("STOCK_SYNC_FEISHU_APP_SECRET", "")
 API = "https://open.feishu.cn/open-apis"
 DEST_DIR = None
-FOLDER_TOKEN = os.environ.get("FEISHU_FOLDER_TOKEN", "")
+FOLDER_TOKEN = os.environ.get("STOCK_SYNC_FEISHU_FOLDER_TOKEN", "")
 IMAGE_HEADER = "图片"
 TIMEZONE = timezone(timedelta(hours=8), "Asia/Shanghai")
 TOKEN_ERROR_CODES = {99991661, 99991663, 99991664, 99991668}
@@ -75,11 +75,15 @@ def _json_request(url, method="GET", data=None, headers=None, attempts=3):
             request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
             with urllib.request.urlopen(request, timeout=60) as response:
                 return json.load(response)
-        except urllib.error.HTTPError:
-            raise
+        except urllib.error.HTTPError as exc:
+            if (exc.code != 429 and exc.code < 500) or attempt == attempts:
+                raise
+            log("请求失败 HTTP %s，%d 秒后重试 %d/%d" % (exc.code, 2 ** (attempt - 1), attempt, attempts))
+            _backoff(attempt)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             if attempt == attempts:
-                raise RuntimeError("%s %s 失败: %s" % (method, url, exc)) from exc
+                safe_url = urllib.parse.urlsplit(url)._replace(query="", fragment="").geturl()
+                raise RuntimeError("%s %s 失败: %s" % (method, safe_url, exc)) from exc
             log("请求失败，%d 秒后重试 %d/%d: %s" % (2 ** (attempt - 1), attempt, attempts, exc))
             _backoff(attempt)
 
@@ -109,7 +113,7 @@ def _authorized_json(path, params=None):
     token = get_token()
     for attempt in range(1, 4):
         try:
-            data = _json_request(url, headers={"Authorization": "Bearer " + token}, attempts=1)
+            data = _json_request(url, headers={"Authorization": "Bearer " + token}, attempts=3)
             if data.get("code") in TOKEN_ERROR_CODES:
                 token = get_token(force=True, stale_token=token)
                 continue
@@ -119,20 +123,14 @@ def _authorized_json(path, params=None):
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
                 token = get_token(force=True, stale_token=token)
-            elif attempt == 3 or exc.code < 500:
-                raise RuntimeError("飞书请求失败 HTTP %s: %s" % (exc.code, path)) from exc
             else:
-                _backoff(attempt)
-        except (urllib.error.URLError, TimeoutError) as exc:
-            if attempt == 3:
-                raise RuntimeError("飞书请求失败: %s" % exc) from exc
-            _backoff(attempt)
+                raise RuntimeError("飞书请求失败 HTTP %s: %s" % (exc.code, path)) from exc
     raise RuntimeError("飞书授权失败: %s" % path)
 
 
 def get_cloud_files():
     """分页列出云端文件夹，返回 {文件名: file_token}。"""
-    missing = [name for name, value in (("FEISHU_APP_ID", APP_ID), ("FEISHU_APP_SECRET", APP_SECRET), ("FEISHU_FOLDER_TOKEN", FOLDER_TOKEN)) if not value]
+    missing = [name for name, value in (("STOCK_SYNC_FEISHU_APP_ID", APP_ID), ("STOCK_SYNC_FEISHU_APP_SECRET", APP_SECRET), ("STOCK_SYNC_FEISHU_FOLDER_TOKEN", FOLDER_TOKEN)) if not value]
     if missing:
         raise RuntimeError("缺少配置: " + ", ".join(missing))
     files = {}
@@ -143,7 +141,11 @@ def get_cloud_files():
             params["page_token"] = page_token
         data = _authorized_json("/drive/v1/files", params)
         page = data.get("data", {})
-        files.update({item["name"]: item["token"] for item in page.get("files", [])})
+        for item in page.get("files", []):
+            name, token = item["name"], item["token"]
+            if name in MAPPING and name in files and files[name] != token:
+                raise RuntimeError("飞书文件夹中存在重复的目标文件名: %s" % name)
+            files[name] = token
         if not page.get("has_more"):
             return files
         page_token = page.get("next_page_token") or page.get("page_token")
