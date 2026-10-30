@@ -2,9 +2,9 @@
   "schema_version": 1,
   "platform": "win32-x64",
   "node": {
-    "version": "22.22.2",
-    "archive_url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-win-x64.zip",
-    "archive_root": "node-v22.22.2-win-x64",
+    "version": "22.23.4",
+    "archive_url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip",
+    "archive_root": "node-v22.23.4-win-x64",
     "npm_version": "10.9.7",
     "packages": {}
   },
