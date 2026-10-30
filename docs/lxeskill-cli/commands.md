@@ -93,6 +93,7 @@ $ lxeskill help replenishment
 备货：库存与销量采集、分析和补货计算
 
 东南亚及巴西备货：
+  feishu stock-lists sync          同步飞书备货清单
   mabang brazil reports export     导出马帮巴西海外仓报表
   mabang-tms products export       导出马帮 TMS 商品、库存和销量
   yacang reports export            导出雅仓报表
