@@ -2,9 +2,9 @@
 
 截图路径相对于本参考文件目录；调用 send_files 前将 assets 路径解析为实际文件绝对路径。
 
-本 skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。用户需要下载指引时，按美国站示例引导：
+本 Skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。用户需要下载指引时，以目标店铺对应站点的 Seller Central 页面为准：
 
-1. 打开美国站补充库存报告入口：`https://sellercentral.amazon.com/reportcentral/RestockReport/1`
+1. 进入目标店铺对应站点的补充库存报告页面。美国站入口示例：`https://sellercentral.amazon.com/reportcentral/RestockReport/1`
 2. 或从 Seller Central 进入：`库存 -> 亚马逊物流库存 -> 报告 -> 补货报告`
 3. 在 `亚马逊配送报告 / 补充库存` 页面点击 `请求下载 .csv 文件`
 4. 报告生成后，在对应 `.csv` 行点击 `下载`

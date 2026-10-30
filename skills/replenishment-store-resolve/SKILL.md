@@ -1,6 +1,6 @@
 ---
 name: replenishment-store-resolve
-description: 解析马帮 Amazon 店铺名称、网页查询 ID 和真实候选。用于备货前确认店铺、查询店铺 ID 或处理模糊名称；解析结果可能为整组，下载时仍须限定单站点。
+description: 查询马帮 Amazon 真实店铺列表、解析店铺名称和网页查询ID。用于未指定店铺时提供选择、处理模糊名称或核对ID；备货前选定单站点。
 type: replenishment
 commands:
   - lxeskill replenish store resolve
@@ -12,32 +12,28 @@ commands:
 
 ## 执行与错误
 
-- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
-- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
-- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
-- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。不凭错误文本中的 401/403 或 ID 猜测认证失败。
-- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
-- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
-- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
-- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
+- 执行本 Skill 声明的 CLI；参数以 `lxeskill list`、`lxeskill describe <命令路径>` 为准。
+- 等待原会话完成，读取最后一条 `type="result"`：先看 `ok`，业务结果读 `data`，附件读 `files`；失败保留真实 `error.message` 和可用的 `data.context`。
+- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。
+- 完整备货由 `replenishment-workflow-map` 继续。单步文件任务成功后使用 `send_files(paths=<terminal.files>)` 交付；发送失败只重试交付。
 
 ## 使用与命令
 
-用户给模糊店铺名、需要网页下载 ID 或查看候选时使用；这里不是紫鸟店铺 ID。
+用户未指定具体店铺、给模糊店铺名、需要网页下载 ID 或查看候选时使用；这里不是紫鸟店铺 ID。
 
 ```text
 lxeskill replenish store resolve --store-name "<店铺名>"
 lxeskill replenish store resolve
 ```
 
-省略店铺名时列出全部店铺，不代表已选择店铺。
+省略店铺名时返回数量及 `data.xlsx_path`，具体候选在该文件的“店铺列表”工作表，列为“店铺名称”“ID”“ID类型”“父级店铺名称”。完整备货内读取文件，依据用户已有的站点／名称线索缩小范围，通过 `ask_user_question` 展示真实店铺选项；每题最多4项，较多时先按真实父级店铺分组选择，再选到单站点。用户选中后保留对应名称、ID与ID类型，返回主流程复用。
 
 ## 结果与下一步
 
-- 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务继续下载 MSKU。
+- 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务返回 `replenishment-workflow-map` 按已确定版本继续。
 - `id_type` 是网页请求字段，仅有 `fbaWarehouseIds[]`、`shopId` 两种。二者不能混用；`fbaWarehouseIds[]` 也可能属于单站点，不能据此认定多站点整组。
 - 网页下载及本轮源数据核验使用解析出的店铺、ID 和 id_type，不要求出现在官方店铺列表中；不由模型把网页仓库 ID 转成官方 sid。
 - 解析旧名称时使用 CLI 返回的规范结果，不删除名称里的国家文字来猜别名。
-- 失败有 `data.candidates`：展示候选供用户选择，不自动选第一个；候选文件从 terminal files 交付。
-- 成功列出全部店铺时交付文件，简述数量，不把列表成功当作目标店铺匹配成功。
+- 返回 `data.candidates` 或 `data.candidates_xlsx_path` 时，读取真实候选并按上述方式选择。
+- 单独查询全部店铺时交付列表文件并简述数量；完整备货任务内用该文件确认店铺，选定后继续主流程。
 - 多站点范围最终由 MSKU 下载入口依据真实父子关系判断；整组不能进入下载与备货。

@@ -114,6 +114,7 @@ def test_full_source_sales_and_verified_inventory_reuse(monkeypatch, tmp_path):
         return {'code': 200, 'data': {'page': 1, 'rowsPerPage': 20, 'total': 1, 'data': [{'comboSku': 'C', 'comboProductDetail': [{'stockSku': 'S', 'quantity': 2}]}]}}
     async def search(skus):
         assert skus == ['S']
+        return '', 'synthetic-search-token'
     async def warehouse(**kwargs):
         return tmp_path/'stock.xlsx'
     monkeypatch.setattr(combo, 'post_json', post)

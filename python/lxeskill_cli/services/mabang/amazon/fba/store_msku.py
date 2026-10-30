@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Iterator
 
 from services.mabang import config as mabang_settings
 from services.mabang.official_api import OfficialApiError
@@ -22,6 +24,7 @@ from services.mabang.export_common import (
     build_private_amz_headers,
     run_export_pipeline,
 )
+from shared.logging import get_logger
 from services.mabang.export_common import (
     clean_text as _clean_text,
 )
@@ -47,6 +50,39 @@ from .combo_sku import OFFICIAL_LOOKUP_TIMEOUT_SECONDS
 from .sku_catalog import fetch_sku_catalog_snapshot
 from .source_verification import annotate_source, read_source_local_skus
 
+logger = get_logger(__name__)
+
+
+@contextmanager
+def _timed_export_stage(stage: str, **initial_fields: Any) -> Iterator[dict[str, Any]]:
+    started = time.perf_counter()
+    fields = dict(initial_fields)
+    try:
+        yield fields
+    except asyncio.CancelledError:
+        logger.warning(
+            "[StoreMskuExport] stage=%s status=cancelled duration_ms=%d",
+            stage,
+            round((time.perf_counter() - started) * 1000),
+        )
+        raise
+    except Exception as exc:
+        logger.warning(
+            "[StoreMskuExport] stage=%s status=failed duration_ms=%d error_type=%s fields=%s",
+            stage,
+            round((time.perf_counter() - started) * 1000),
+            type(exc).__name__,
+            fields,
+        )
+        raise
+    else:
+        logger.info(
+            "[StoreMskuExport] stage=%s status=success duration_ms=%d fields=%s",
+            stage,
+            round((time.perf_counter() - started) * 1000),
+            fields,
+        )
+
 DEFAULT_LISTSEARCH_URL = "https://private-amz.mabangerp.com/index.php?mod=fbanew.listsearch"
 DEFAULT_FBA_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.doFbaExportFile"
 DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
@@ -54,7 +90,7 @@ DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
 DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = dataset_dir("replenish_store_msku")
-AUTH_FAIL_STATUS = {401, 403}
+AUTH_FAIL_STATUS = {401}
 SOURCE = "mabang_store_msku_download"
 STORE_MSKU_FILE_SUFFIX = "店铺MSKU数据"
 CORE_STORE_MSKU_HEADERS = ("MSKU", "ASIN", "本地SKU")
@@ -321,26 +357,33 @@ async def fetch_store_msku_ids(
     store_id: str,
     id_type: str,
 ) -> list[str]:
-    auth = await resolve_store_msku_auth()
-    headers = _request_headers(
-        auth.private_amz_cookie_header,
-        origin=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_ORIGIN", DEFAULT_PRIVATE_AMZ_ORIGIN),
-        referer=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_REFERER", DEFAULT_PRIVATE_AMZ_REFERER),
-    )
-    async with erp_http_session.post(
-        _listsearch_url(),
-        data=_step1_form_data(store_id, id_type),
-        headers=headers,
-    ) as resp:
-        payload = await _read_store_msku_json(resp, action="店铺MSKU列表查询")
-    return parse_store_msku_ids(payload)
+    with _timed_export_stage("prepare_msku_list_auth"):
+        auth = await resolve_store_msku_auth()
+        headers = _request_headers(
+            auth.private_amz_cookie_header,
+            origin=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_ORIGIN", DEFAULT_PRIVATE_AMZ_ORIGIN),
+            referer=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_REFERER", DEFAULT_PRIVATE_AMZ_REFERER),
+        )
+    with _timed_export_stage("query_msku_ids") as stage:
+        async with erp_http_session.post(
+            _listsearch_url(),
+            data=_step1_form_data(store_id, id_type),
+            headers=headers,
+        ) as resp:
+            stage["http_status"] = int(getattr(resp, "status", 0) or 0)
+            payload = await _read_store_msku_json(resp, action="店铺MSKU列表查询")
+        ids = parse_store_msku_ids(payload)
+        stage["id_count"] = len(ids)
+        return ids
 
 
 def _ids_lines(ids: list[str]) -> str:
     return "\r\n".join(ids)
 
 
-def _step2_form_data(ids: list[str], *, memcache_key: str) -> list[tuple[str, str]]:
+def _step2_form_data(
+    ids: list[str], *, memcache_key: str,
+) -> list[tuple[str, str]]:
     clean_ids = [_clean_text(item) for item in ids if _clean_text(item)]
     if not clean_ids:
         raise ValueError("id 不能为空")
@@ -349,8 +392,10 @@ def _step2_form_data(ids: list[str], *, memcache_key: str) -> list[tuple[str, st
         ("backUrl", ""),
         ("orderIds", _ids_lines(clean_ids)),
     ]
-    form.extend(("fieldlabel", uq) for uq in STORE_MSKU_FIELDLABELS)
-    for name, uq, map_text in STORE_MSKU_EXPORT_FIELD_DEFS:
+    fieldlabels = STORE_MSKU_FIELDLABELS
+    fields = STORE_MSKU_EXPORT_FIELD_DEFS
+    form.extend(("fieldlabel", uq) for uq in fieldlabels)
+    for name, uq, map_text in fields:
         form.extend(
             [
                 ("map-name[]", name),
@@ -390,19 +435,28 @@ def parse_store_msku_export_gourl(payload: dict[str, Any]) -> str:
 async def export_store_msku_file_url(
     ids: list[str],
 ) -> str:
-    auth = await resolve_store_msku_auth()
-    headers = _request_headers(
-        auth.private_cookie_header,
-        origin=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_ORIGIN", DEFAULT_PRIVATE_ORIGIN),
-        referer=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_REFERER", DEFAULT_PRIVATE_REFERER),
-    )
-    async with erp_http_session.post(
-        _fba_export_url(),
-        data=_step2_form_data(ids, memcache_key=auth.memcache_key),
-        headers=headers,
-    ) as resp:
-        payload = await _read_store_msku_json(resp, action="店铺MSKU导出")
-    return parse_store_msku_export_gourl(payload)
+    with _timed_export_stage("prepare_export_auth"):
+        auth = await resolve_store_msku_auth()
+        headers = _request_headers(
+            auth.private_cookie_header,
+            origin=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_ORIGIN", DEFAULT_PRIVATE_ORIGIN),
+            referer=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_REFERER", DEFAULT_PRIVATE_REFERER),
+        )
+    with _timed_export_stage(
+        "submit_export_request",
+        id_count=len(ids),
+    ) as stage:
+        async with erp_http_session.post(
+            _fba_export_url(),
+            data=_step2_form_data(ids, memcache_key=auth.memcache_key),
+            headers=headers,
+        ) as resp:
+            stage["http_status"] = int(getattr(resp, "status", 0) or 0)
+            payload = await _read_store_msku_json(resp, action="店铺MSKU导出")
+    with _timed_export_stage("parse_download_address") as stage:
+        file_url = parse_store_msku_export_gourl(payload)
+        stage["download_address_received"] = bool(file_url)
+        return file_url
 
 
 async def download_store_msku_excel_from_url(
@@ -422,16 +476,20 @@ async def download_store_msku_excel_from_url(
     headers = {
         "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,*/*"
     }
-    async with external_http_session.get(url, headers=headers) as resp:
-        status_code = int(getattr(resp, "status", 0) or 0)
-        body = await resp.read()
-        if status_code >= 400:
-            msg = body.decode("utf-8", errors="replace")[:300] if body else "empty response"
-            raise MabangRequestError(f"下载店铺MSKU数据Excel失败(status={status_code}): {msg}")
-        if not body:
-            raise StoreMskuDownloadError("下载店铺MSKU数据Excel返回空文件")
+    with _timed_export_stage("download_file", format=target_path.suffix.lower()) as stage:
+        async with external_http_session.get(url, headers=headers) as resp:
+            status_code = int(getattr(resp, "status", 0) or 0)
+            stage["http_status"] = status_code
+            body = await resp.read()
+            stage["bytes"] = len(body)
+            if status_code >= 400:
+                msg = body.decode("utf-8", errors="replace")[:300] if body else "empty response"
+                raise MabangRequestError(f"下载店铺MSKU数据Excel失败(status={status_code}): {msg}")
+            if not body:
+                raise StoreMskuDownloadError("下载店铺MSKU数据Excel返回空文件")
 
-    target_path.write_bytes(body)
+    with _timed_export_stage("save_downloaded_file", bytes=len(body)):
+        target_path.write_bytes(body)
     return target_path
 
 
@@ -537,8 +595,13 @@ async def download_store_msku_excel(
     clean_store_name = normalize_store_name(store_name)
 
     def transform_result(ids: list[str], excel_path: Path) -> StoreMskuExcelResult:
-        xlsx_path, converted, raw_excel_deleted = normalize_store_msku_excel(excel_path)
-        validate_store_msku_excel_headers(xlsx_path)
+        with _timed_export_stage("convert_or_normalize_file", input_format=excel_path.suffix.lower()) as stage:
+            xlsx_path, converted, raw_excel_deleted = normalize_store_msku_excel(excel_path)
+            stage["converted"] = converted
+            stage["raw_excel_deleted"] = raw_excel_deleted
+            stage["output_format"] = xlsx_path.suffix.lower()
+        with _timed_export_stage("validate_file_headers", required_column_count=len(CORE_STORE_MSKU_HEADERS)):
+            validate_store_msku_excel_headers(xlsx_path)
         return StoreMskuExcelResult(
             store_name=clean_store_name,
             store_id=clean_store_id,
@@ -566,31 +629,43 @@ async def download_store_msku_excel(
         )
 
     # Determine group scope from the same authoritative HTML hierarchy as download IDs.
-    stores = await fetch_fba_stores()
-    matches = [item for item in stores if item.store_id == clean_store_id and item.id_type == clean_id_type
-               and clean_store_name in (item.store_name, *item.legacy_names)]
-    if len(matches) != 1:
-        raise StoreMskuDownloadError(f"下载店铺名称与网页 ID 未唯一对应: name={clean_store_name}, id={clean_store_id}, id_type={clean_id_type}")
-    children = [
-        item for item in stores
-        if item.parent_store_id == clean_store_id and item.parent_id_type == clean_id_type
-    ]
-    if children:
-        raise StoreMskuGroupNotSupportedError(matches[0], children)
+    with _timed_export_stage("resolve_store_export_scope") as stage:
+        stores = await fetch_fba_stores()
+        stage["store_candidate_count"] = len(stores)
+        matches = [item for item in stores if item.store_id == clean_store_id and item.id_type == clean_id_type
+                   and clean_store_name in (item.store_name, *item.legacy_names)]
+        if len(matches) != 1:
+            raise StoreMskuDownloadError(f"下载店铺名称与网页 ID 未唯一对应: name={clean_store_name}, id={clean_store_id}, id_type={clean_id_type}")
+        children = [
+            item for item in stores
+            if item.parent_store_id == clean_store_id and item.parent_id_type == clean_id_type
+        ]
+        stage["child_store_count"] = len(children)
+        if children:
+            raise StoreMskuGroupNotSupportedError(matches[0], children)
     directory = _resolve_output_dir(output_dir)
     with TemporaryDirectory(prefix=".verified-msku-", dir=directory) as staging:
         result = await download(Path(staging))
         staged_path = Path(result.xlsx_path)
         try:
-            async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
-                snapshot = await fetch_sku_catalog_snapshot(matches[0], read_source_local_skus(staged_path))
+            with _timed_export_stage("read_source_local_skus") as stage:
+                local_skus = read_source_local_skus(staged_path)
+                stage["sku_count"] = len(local_skus)
+            with _timed_export_stage("verify_sku_types", sku_count=len(local_skus)):
+                async with asyncio.timeout(OFFICIAL_LOOKUP_TIMEOUT_SECONDS):
+                    snapshot = await fetch_sku_catalog_snapshot(matches[0], local_skus)
         except TimeoutError as exc:
             raise OfficialApiError(f"店铺={clean_store_name}", f"商品 SKU 类型官方查询超过 {OFFICIAL_LOOKUP_TIMEOUT_SECONDS} 秒: {type(exc).__name__}: {exc}") from exc
-        metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
+        with _timed_export_stage("annotate_source_verification") as stage:
+            metadata = annotate_source(staged_path, snapshot, requested_store_name=clean_store_name)
+            stage["row_count"] = metadata.get("original_row_count", 0)
+            stage["verified_row_count"] = metadata.get("binding_verified_row_count", 0)
+            stage["unverified_row_count"] = metadata.get("binding_unverified_row_count", 0)
         counts = {key: metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")}
         target = directory / staged_path.name
         # Atomic publication with no overwrite, including repeated downloads in one minute.
-        os.link(staged_path, target)
+        with _timed_export_stage("publish_verified_file"):
+            os.link(staged_path, target)
         return replace(result, xlsx_path=str(target), binding_counts=counts)
 
 

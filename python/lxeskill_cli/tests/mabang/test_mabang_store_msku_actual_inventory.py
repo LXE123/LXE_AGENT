@@ -3,10 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 from decimal import Decimal
-from io import BytesIO
+from http.cookies import SimpleCookie
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
+from yarl import URL
 
 import pytest
+import aiohttp
+from aiohttp import web
 
 from mabang_test_helpers import _annotate_active_test_source, _form_value, _form_values, _sheet_names, _xlsx_bytes
 from services.mabang.amazon.fba import store_msku_actual_inventory as inv
@@ -25,6 +29,9 @@ def _write_xlsx(path: Path, rows: list[dict], *, columns: list[str]) -> Path:
 
 def _stock_xlsx_bytes(rows: list[dict]) -> bytes:
     return _xlsx_bytes(rows, columns=["库存SKU编号", "可用库存量"])
+
+
+SEARCH_TOKEN = "synthetic-search-token"
 
 
 def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, tmp_path):
@@ -51,6 +58,7 @@ def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, 
     stock_path.write_bytes(_stock_xlsx_bytes([{'库存SKU编号': 'S', '可用库存量': 100}]))
     async def search(skus):
         assert skus == ['S']
+        return "", SEARCH_TOKEN
     async def download(**kwargs):
         return stock_path
     monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
@@ -79,8 +87,19 @@ class _FakeResponse:
         status: int = 200,
         body: bytes = b"",
         text_body: str | None = None,
+        content_type: str = "",
+        redirect_count: int = 0,
+        sets_cookie: bool = False,
+        set_cookie_header: str | None = None,
     ) -> None:
         self.status = status
+        self.content_type = content_type
+        self.history = (object(),) * redirect_count
+        self.cookies = SimpleCookie()
+        if set_cookie_header:
+            self.cookies.load(set_cookie_header)
+        elif sets_cookie:
+            self.cookies.load("PHPSESSID=never-log-this-cookie; Path=/")
         self._payload = dict(payload or {})
         self._body = body
         self._text_body = text_body
@@ -221,6 +240,150 @@ def test_warehouse_search_form_uses_fixed_warehouse_and_crlf_skus() -> None:
     assert _form_value({"data": form}, "statusIN[]") == "3"
 
 
+# Captured 2026-10-14 warehouse export error; only line endings/trailing spaces normalized.
+WAREHOUSE_ERROR_HTML = (Path(__file__).parent / "fixtures/warehouse_search_overwritten.html").read_bytes()
+WAREHOUSE_ERROR = "查询条件已被新的搜索覆盖，请重新搜索后再导出"
+
+
+def test_warehouse_html_error_is_not_published_as_xlsx(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "202610141356-shop_warehouse_stock.xlsx"
+    original = _stock_xlsx_bytes([{"库存SKU编号": "S", "可用库存量": 8}])
+    path.write_bytes(original)
+    session = _FakeSession([_FakeResponse(body=WAREHOUSE_ERROR_HTML)])
+    monkeypatch.setattr(inv, "erp_http_session", session)
+    monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(inv, "_timestamp_text", lambda: "202610141356")
+    with pytest.raises(inv.StoreMskuActualInventoryError, match=WAREHOUSE_ERROR):
+        asyncio.run(inv.download_warehouse_stock_xlsx(
+            store_name="shop", output_dir=tmp_path, search_token=SEARCH_TOKEN,
+        ))
+    assert path.read_bytes() == original
+    assert len(session.calls) == 1
+
+
+def test_warehouse_search_failure_stops_before_download(monkeypatch, tmp_path) -> None:
+    response = _FakeResponse(payload={"success": False, "message": WAREHOUSE_ERROR})
+    _assert_warehouse_pipeline(monkeypatch, tmp_path, [response], succeeds=False, calls=1, expected=WAREHOUSE_ERROR)
+
+
+def test_warehouse_pipeline_forwards_current_search_token_in_export_url(monkeypatch, tmp_path, caplog) -> None:
+    token = "synthetic+token/&=?"
+    monkeypatch.setattr(inv, "_warehouse_export_url", lambda: inv.DEFAULT_WAREHOUSE_EXPORT_URL + "&searchToken=stale")
+    with caplog.at_level("INFO"):
+        session = _assert_warehouse_pipeline(monkeypatch, tmp_path, [
+            _FakeResponse(payload={"success": True, "searchToken": token}),
+            _FakeResponse(body=_stock_xlsx_bytes([{"库存SKU编号": "S", "可用库存量": 8}])),
+        ], succeeds=True, calls=2)
+    export_url = URL(str(session.calls[1]["url"]))
+    assert export_url.query["searchToken"] == token
+    assert export_url.query.getall("searchToken") == [token]
+    assert export_url.query["mod"] == "warehouse.doexportwarehousestock"
+    assert export_url.query["flag"] == "1"
+    assert token not in caplog.text
+
+
+def test_warehouse_missing_or_invalid_search_token_stops_before_export(monkeypatch, tmp_path) -> None:
+    _assert_warehouse_pipeline(monkeypatch, tmp_path, [
+        _FakeResponse(payload={"success": True}),
+    ], succeeds=False, calls=1, expected="searchToken")
+
+
+def test_warehouse_http_session_carries_search_cookie_without_shared_cookie_jar(monkeypatch, tmp_path) -> None:
+    received: list[tuple[str, bool]] = []
+    workbook = _stock_xlsx_bytes([{"库存SKU编号": "S", "可用库存量": 8}])
+
+    async def search(request: web.Request) -> web.Response:
+        received.append(("search", "PHPSESSID=sid" in request.headers.get("Cookie", "")))
+        response = web.json_response({"success": True, "pageHtml": False, "searchToken": SEARCH_TOKEN})
+        response.set_cookie("PHPSESSID", "rotated-test-session", path="/")
+        return response
+
+    async def export(request: web.Request) -> web.Response:
+        received.append((
+            "export",
+            "PHPSESSID=rotated-test-session" in request.headers.get("Cookie", "")
+            and request.query.get("searchToken") == SEARCH_TOKEN,
+        ))
+        return web.Response(body=workbook, content_type="application/octet-stream")
+
+    async def run() -> None:
+        app = web.Application()
+        app.router.add_post("/search", search)
+        app.router.add_get("/export", export)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "localhost", 0)
+        await site.start()
+        sockets = list(getattr(site._server, "sockets", []) or [])
+        assert sockets
+        base_url = f"http://localhost:{int(sockets[0].getsockname()[1])}"
+        monkeypatch.setattr(inv, "_warehouse_search_url", lambda: f"{base_url}/search")
+        monkeypatch.setattr(inv, "_warehouse_export_url", lambda: f"{base_url}/export")
+        monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
+        try:
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
+                monkeypatch.setattr(inv, "erp_http_session", session)
+                cookie_header, search_token = await inv.search_warehouse_stock(["S"])
+                output = await inv.download_warehouse_stock_xlsx(
+                    store_name="shop", output_dir=tmp_path,
+                    cookie_header=cookie_header, search_token=search_token,
+                )
+                assert output.read_bytes() == workbook
+                assert not session.cookie_jar.filter_cookies(f"{base_url}/export")
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(run())
+    assert received == [("search", True), ("export", True)]
+
+
+def _assert_warehouse_pipeline(
+    monkeypatch, tmp_path, responses, *, succeeds, calls, expected="", auth_context=_fake_auth_context,
+) -> _FakeSession:
+    from test_source_verification import row, source
+
+    source(tmp_path / "source/202610141349-shop_店铺MSKU数据.xlsx", [row(**{
+        "父ASIN": "P", "商品链接": "https://example.test/A",
+        **dict.fromkeys((*inv.SALES_COLUMNS, *inv.FBA_STOCK_COLUMNS), 0),
+    })])
+    session = _FakeSession(responses)
+    monkeypatch.setattr(inv, "erp_http_session", session)
+    monkeypatch.setattr(inv, "get_auth_context", auth_context)
+
+    async def unexpected_refresh(**kwargs):
+        pytest.fail("业务错误不得刷新认证或重试")
+
+    monkeypatch.setattr(inv, "refresh_mabang_auth", unexpected_refresh)
+    operation = inv.export_store_msku_actual_inventory("shop", input_dir=tmp_path / "source", output_dir=tmp_path / "output")
+    if succeeds:
+        result = asyncio.run(operation)
+        assert Path(result.shenzhen_warehouse_inventory_report_xlsx_path).is_file()
+        assert result.source_msku_data_time == "202610141349"
+    else:
+        with pytest.raises(inv.StoreMskuActualInventoryError, match=expected):
+            asyncio.run(operation)
+        assert not list((tmp_path / "output").glob("*.xlsx"))
+    assert len(session.calls) == calls
+    return session
+
+
+def test_warehouse_error_diagnostic_reuses_redaction_and_explicit_truncation(monkeypatch, tmp_path) -> None:
+    secret = "synthetic-warehouse-test-key"
+    monkeypatch.setenv("LXE_DATA_SERVER_API_KEY", secret)
+    body = f"<html><p>{WAREHOUSE_ERROR}; token={secret}; {'x' * 5000}</p></html>".encode()
+    monkeypatch.setattr(inv, "erp_http_session", _FakeSession([_FakeResponse(body=body)]))
+    monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
+    with pytest.raises(inv.StoreMskuActualInventoryError) as error:
+        asyncio.run(inv.download_warehouse_stock_xlsx(
+            store_name="shop", output_dir=tmp_path, search_token=SEARCH_TOKEN,
+        ))
+    assert WAREHOUSE_ERROR in str(error.value)
+    assert secret not in str(error.value)
+    assert "[REDACTED]" in str(error.value)
+    assert "[truncated " in str(error.value)
+    assert not list(tmp_path.glob("*.xlsx"))
+
+
 def test_parse_stock_inventory_sums_duplicate_stock_sku_rows(tmp_path) -> None:
     xlsx_path = tmp_path / "stock.xlsx"
     xlsx_path.write_bytes(
@@ -238,6 +401,21 @@ def test_parse_stock_inventory_sums_duplicate_stock_sku_rows(tmp_path) -> None:
     assert result == {
         "STOCK-A": Decimal("5"),
         "STOCK-B": Decimal("12"),
+    }
+
+
+def test_parse_stock_inventory_uses_available_quantity_when_bin_quantity_differs(tmp_path) -> None:
+    path = tmp_path / "stock.xlsx"
+    path.write_bytes(_xlsx_bytes(
+        [
+            {"库存SKU编号": "A", "可用库存量": -11499, "仓位库存": 6013},
+            {"库存SKU编号": "B", "可用库存量": 0, "仓位库存": 0},
+            {"库存SKU编号": "C", "可用库存量": -2, "仓位库存": None},
+        ],
+        columns=["库存SKU编号", "可用库存量", "仓位库存"],
+    ))
+    assert inv.parse_stock_inventory_xlsx(path) == {
+        "A": Decimal("-11499"), "B": Decimal("0"), "C": Decimal("-2"),
     }
 
 
@@ -629,7 +807,8 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
     assert _column_fill_colors(output_path, "无库存数据", "真实库存（深圳仓库）数量") == ["00000000", "00000000", "00000000"]
 
 
-def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("explicit_source", [False, True])
+def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatch, tmp_path, explicit_source) -> None:
     source_path = tmp_path / "input" / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
@@ -703,7 +882,7 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     _annotate_active_test_source(source_path)
     fake_session = _FakeSession(
         [
-            _FakeResponse({"success": True}),
+            _FakeResponse({"success": True, "searchToken": SEARCH_TOKEN}),
             _FakeResponse(
                 body=_stock_xlsx_bytes(
                     [
@@ -726,11 +905,17 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
+    source_kwargs = {}
+    if explicit_source:
+        source_path.with_name("202605261530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx").write_bytes(source_path.read_bytes())
+        monkeypatch.setattr(inv, "find_latest_store_msku_file", Mock(side_effect=AssertionError("显式源表不得选择历史最新文件")))
+        source_kwargs["msku_source_xlsx_path"] = source_path
     result = asyncio.run(
         inv.export_store_msku_actual_inventory(
             "Amazon-Lerxiuer-FR",
             input_dir=tmp_path / "input",
             output_dir=tmp_path / "output",
+            **source_kwargs,
         )
     )
 
@@ -779,3 +964,36 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     assert sleep_calls == []
     assert _form_value(post_calls[0], "stockSkuStr") == "SKU-A\r\nSTOCK-A\r\nSTOCK-B\r\n"
     assert _form_value(post_calls[0], "warehouseIds[]") == "1014318"
+
+
+def test_explicit_source_failure_never_uses_latest_or_queries_warehouse(monkeypatch, tmp_path):
+    from test_source_verification import source, row
+
+    selected = source(tmp_path / "202610141100-shop_店铺MSKU数据.xlsx", [row()])
+    latest = Mock(side_effect=AssertionError("must not substitute historical input"))
+    search = AsyncMock(side_effect=AssertionError("must not query after source rejection"))
+    monkeypatch.setattr(inv, "find_latest_store_msku_file", latest)
+    monkeypatch.setattr(inv, "search_warehouse_stock", search)
+    with pytest.raises(Exception, match="店铺不一致"):
+        asyncio.run(inv.export_store_msku_actual_inventory(
+            "other-shop", msku_source_xlsx_path=selected, output_dir=tmp_path / "out",
+        ))
+    latest.assert_not_called()
+    search.assert_not_called()
+    assert not (tmp_path / "out").exists()
+
+
+def test_shenzhen_pipeline_http_auth_boundary(monkeypatch, tmp_path):
+    refresh = AsyncMock()
+    from test_source_verification import source, row
+    record = row(**dict.fromkeys((*inv.SALES_COLUMNS, *inv.FBA_STOCK_COLUMNS), 0))
+    selected = source(tmp_path / "202610141100-shop_店铺MSKU数据.xlsx", [record])
+    monkeypatch.setattr(inv, "refresh_mabang_auth", refresh)
+    session = _FakeSession([_FakeResponse({"success": True, "searchToken": SEARCH_TOKEN}), _FakeResponse(status=403, text_body="actual rejection", body=b"actual rejection")])
+    monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(inv, "erp_http_session", session)
+    with pytest.raises(inv.MabangRequestError, match="status=403.*actual rejection"):
+        asyncio.run(inv.export_store_msku_actual_inventory("shop", msku_source_xlsx_path=selected, output_dir=tmp_path / "out"))
+    assert len(session.calls) == 2
+    refresh.assert_not_awaited()
+    assert not list(tmp_path.rglob("*真实库存*.xlsx"))

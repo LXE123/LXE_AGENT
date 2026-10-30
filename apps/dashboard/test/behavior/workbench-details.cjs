@@ -5,7 +5,7 @@ const { join } = require("node:path");
 module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) => {
   const open = async (index, language = "zh") => {
     await load(`?app=1&workspaces=1&contracts=1&workbench-fixture=1&section=workbench&platform=darwin&language=${language}`);
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 3", "directory ready");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 4", "directory ready");
     await click(`.workbench-tool-card:nth-child(${index})`);
     await waitFor("Boolean(document.querySelector('.workbench-detail h1'))", "detail ready");
   };
@@ -46,7 +46,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await win.setContentSize(1200, 900);
   });
   await step("media states preserve actual errors, progress, result counts and the output action", async () => {
-    await open(2); await themes("media-start");
+    await open(3); await themes("media-start");
     await click('.workbench-source-actions button'); await click('.workbench-primary-button');
     await js("behavior.workbenchMedia('running')"); await settle();
     assert.equal(await js("document.querySelector('[role=progressbar]').getAttribute('aria-valuenow')"), "2");
@@ -65,7 +65,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await capture("media-complete-dark", true);
     await click('.workbench-complete button');
     assert.ok((await state()).calls.some(c => c.operation === "openSyntheticPerformerOutput" && c.input === "task-handle"));
-    await win.setContentSize(480, 900); await open(2, "en");
+    await win.setContentSize(480, 900); await open(3, "en");
     await js("behavior.workbenchMedia('scan')"); await settle();
     await capture("media-narrow-en");
     await capture("media-results-narrow-en", true);
@@ -73,7 +73,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await win.setContentSize(1200, 900);
   });
   await step("assets show current, previous, empty and error states and preserve refresh and reveal", async () => {
-    await open(3);
+    await open(4);
     await waitFor("document.querySelectorAll('.asset-slot').length===5", "assets ready");
     assert.equal(await js("document.querySelector('#input-assets-title').textContent"), "FBA模版与数据源");
     assert.equal(await js("document.querySelector('.input-assets-view').textContent.includes('越南备货设置')"), false);
@@ -102,9 +102,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(await js("Boolean(document.querySelector('.workbench-empty[role=status]'))"));
     await capture("assets-empty-dark");
     await click('.workbench-back');
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===3", "directory restored");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
     assert.equal(await js("document.querySelector('.workbench-tool-card:last-child .workbench-tool-name').textContent"), "FBA模版与数据源");
-    await win.setContentSize(480, 900); await open(3, "en");
+    await win.setContentSize(480, 900); await open(4, "en");
     await waitFor("document.querySelectorAll('.asset-slot').length===5", "narrow assets ready");
     await capture("assets-narrow-en");
     await win.setContentSize(1200, 900);

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -81,6 +82,82 @@ def _load_snapshot_records(path: Path, sheet_name: str) -> list[dict]:
         return [dict(zip(headers, values, strict=False)) for values in worksheet.iter_rows(min_row=2, values_only=True)]
     finally:
         workbook.close()
+
+
+@pytest.mark.parametrize("source_kind", ["raw", "snapshot"])
+@pytest.mark.parametrize("quantity", ["invalid", "NaN", "Infinity", "-Infinity", -1, "", None, True])
+def test_shipment_quantity_rejects_invalid_row_in_mixed_file(tmp_path, source_kind, quantity):
+    from openpyxl import Workbook
+
+    field = "MSKU发货量" if source_kind == "raw" else "未关联数量"
+    path = tmp_path / f"{source_kind}.xlsx"
+    book = Workbook()
+    sheet = book.active
+    sheet.title = ship.SNAPSHOT_SUMMARY_SHEET if source_kind == "snapshot" else "原始货件"
+    sheet.append(["店铺", "MSKU", field])
+    sheet.append(["Amazon-Test", "GOOD", 17])
+    sheet.append(["Amazon-Test", "BAD", quantity])
+    book.save(path)
+    book.close()
+
+    with pytest.raises(ship.UnlinkedShipmentError) as error:
+        if source_kind == "raw":
+            ship.build_store_unlinked_shipments_snapshot([path], store_name="Amazon-Test", output_dir=tmp_path / "output")
+        else:
+            ship.load_unlinked_shipment_quantities(path, store_name="Amazon-Test")
+    message = str(error.value)
+    assert "BAD" in message and field in message and str(path) in message
+    assert not list((tmp_path / "output").glob("*.xlsx"))
+
+
+def test_raw_and_snapshot_quantities_preserve_numeric_zero_and_valid_numbers(tmp_path):
+    from openpyxl import Workbook
+
+    path = tmp_path / "raw.xlsx"
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["店铺", "MSKU", "MSKU发货量"])
+    for msku, quantity in [("ZERO", 0), ("TEXT-ZERO", "0"), ("WHOLE", 17), ("FRACTION", "2.5")]:
+        sheet.append(["Amazon-Test", msku, quantity])
+    book.save(path)
+    book.close()
+    snapshot = ship.build_store_unlinked_shipments_snapshot([path], store_name="Amazon-Test", output_dir=tmp_path / "output")
+    assert snapshot.total_unlinked_quantity == 19.5
+    assert ship.load_unlinked_shipment_quantities(snapshot.snapshot_xlsx_path, store_name="Amazon-Test") == {
+        "ZERO": 0, "TEXT-ZERO": 0, "WHOLE": 17, "FRACTION": 2.5,
+    }
+    # A saved snapshot can explicitly carry a genuine zero without an unknown value.
+    saved = tmp_path / "snapshot.csv"
+    saved.write_text("店铺,MSKU,未关联数量\nAmazon-Test,ZERO,0\n", encoding="utf-8")
+    assert ship.load_unlinked_shipment_quantities(saved, store_name="Amazon-Test") == {"ZERO": 0}
+
+
+def test_zero_quantity_download_is_not_a_confirmed_empty_query(tmp_path):
+    raw = _write_raw_csv(tmp_path / "raw.csv", [{"店铺": "Amazon-Test", "MSKU": "ZERO", "MSKU发货量": 0}])
+    query = ship.StoreUnlinkedShipmentDownloadResult("Amazon-Test", 10, "202610261000", [
+        ship.UnlinkedShipmentStatusResult(spec.status_name, int(index == 0), raw_file_path=str(raw) if index == 0 else "")
+        for index, spec in enumerate(ship.UNLINKED_SHIPMENT_STATUS_SPECS)
+    ])
+    snapshot = ship.build_store_unlinked_shipments_snapshot(
+        [raw], store_name="Amazon-Test", output_dir=tmp_path / "output", snapshot_time="202610261100", query_result=query,
+    )
+    assert snapshot.confirmed_empty is False
+    assert snapshot.detail_count == snapshot.msku_count == 1
+    assert snapshot.total_unlinked_quantity == 0
+    assert ship.load_unlinked_shipment_quantities(snapshot.snapshot_xlsx_path, store_name="Amazon-Test") == {"ZERO": 0}
+
+
+@pytest.mark.parametrize("source_kind", ["raw", "snapshot"])
+def test_shipment_quantity_missing_column_is_not_zero(tmp_path, source_kind):
+    path = tmp_path / "missing.csv"
+    path.write_text("店铺,MSKU\nAmazon-Test,BAD\n", encoding="utf-8")
+    with pytest.raises(ship.UnlinkedShipmentError) as error:
+        if source_kind == "raw":
+            ship.build_store_unlinked_shipments_snapshot([path], store_name="Amazon-Test", output_dir=tmp_path / "output")
+        else:
+            ship.load_unlinked_shipment_quantities(path, store_name="Amazon-Test")
+    assert str(path) in str(error.value)
+    assert ("MSKU发货量" if source_kind == "raw" else "未关联数量") in str(error.value)
 
 
 def test_build_store_unlinked_shipments_snapshot_aggregates_raw_csv(tmp_path) -> None:
@@ -577,7 +654,7 @@ def test_download_store_unlinked_shipments_refreshes_once_after_mid_flow_auth_fa
     async def fake_run(clean_store_name: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
         run_calls.append(clean_store_name)
         if len(run_calls) == 1:
-            raise ship.BatchDeliveryApiAuthError("查询WMS待装箱发货单鉴权失败(status=403)")
+            raise ship.BatchDeliveryApiAuthError("查询WMS待装箱发货单鉴权失败(status=401)")
         return ship.StoreUnlinkedShipmentDownloadResult(
             store_name=clean_store_name,
             store_id=697476809,
@@ -636,3 +713,22 @@ def test_download_store_unlinked_shipments_does_not_retry_more_than_once(monkeyp
 
     assert refresh_calls == ["fba_unlinked_shipments_download_auth_retry"]
     assert run_calls == ["Amazon-Test-US", "Amazon-Test-US"]
+
+
+def test_shipments_pipeline_auth_boundary(monkeypatch, tmp_path):
+    session = _FakeSession([_FakeResponse({"code": 200, "data": {"data": []}}),
+                            _FakeResponse({"msg": "actual rejection"}, status=403)])
+    refresh, create, download = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(ship, "erp_http_session", session)
+    monkeypatch.setattr(ship, "get_fba_free_token", AsyncMock(return_value="fixture-token"))
+    monkeypatch.setattr(ship, "refresh_mabang_auth", refresh)
+    monkeypatch.setattr(ship, "resolve_shop_option", AsyncMock(return_value=ship.ShopOption(10, "Shop", {})))
+    monkeypatch.setattr(ship, "create_unlinked_export_task", create)
+    monkeypatch.setattr(ship, "download_raw_file_from_url", download)
+    with pytest.raises(ship.MabangRequestError, match="status=403.*actual rejection"):
+        asyncio.run(ship.download_store_unlinked_shipments("Shop", output_dir=tmp_path))
+    assert len(session.calls) == 2  # Stop at the failed status, without starting later exports.
+    refresh.assert_not_awaited()
+    create.assert_not_awaited()
+    download.assert_not_awaited()
+    assert not list(tmp_path.iterdir())

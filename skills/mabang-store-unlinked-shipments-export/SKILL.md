@@ -49,7 +49,7 @@ lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"
 ## 交付与后续
 
 - 单步任务成功后，用终态 `files` 一次调用 `send_files(paths=<terminal.files>)`。发送成功才说已交付；发送失败仅重试交付，不重新导出。没有路径时不猜文件位置。
-- 完整备货任务保留本轮快照，按流程进入计算 Skill，显式传入 `--unlinked-shipments-snapshot`；与本轮源表同店、同日，以 CLI 核验为准。中间文件保留，最终发送计算结果的 `files`。
+- 完整任务保留本轮 `data.snapshot.snapshot_xlsx_path`，返回 `replenishment-workflow-map` 按已确定的V1、V2或两种版本继续计算和交付。快照与源表须同店、同日，以各计算器核验为准。
 - 回复店铺、三个状态的发货单张数、快照中的 MSKU 数和商品件数。说明这是备货扣减输入，不能宣称已完成备货建议，也不手工再扣一次。
 
 ## 失败与恢复

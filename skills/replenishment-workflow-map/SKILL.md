@@ -1,56 +1,67 @@
 ---
 name: replenishment-workflow-map
-description: Amazon 备货流程介绍与完整任务编排入口。用户要求为 Amazon 店铺完成备货、生成完整补货建议，或询问该流程的步骤与缺失数据时使用；按业务 Skill 完成本轮采集、核验、计算和交付。单步请求直接使用对应技能。明确的越南备货使用 vietnam-replenishment；东南亚整体流程与范围导航见 southeast-asia-replenishment-workflow-map。
+description: Amazon备货唯一完整编排入口，按用户意图生成V1普通备货、V2备货或两种版本。未确定店铺时查询真实候选供用户选择；复用同轮马帮数据，分别计算、检查和交付，版本仍不明确时确认一次。
 type: replenishment
+commands:
+  - lxeskill replenish v2 generate
 ---
 
-# Amazon 备货流程介绍与完整任务编排
+# Amazon 备货
 
-## 执行与错误
+## 用途
 
-- 读取目标业务 Skill 后，通过 `exec` 调用该业务 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
-- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
-- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
-- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。不凭错误文本中的 401/403 或 ID 猜测认证失败。
-- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
-- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
-- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
-- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
+统一负责 Amazon 备货的版本选择、取数、计算和交付。V1沿用原算法及多Sheet报表；V2使用14个公式字段生成35列单工作表。用户可要求一个版本或同时要求两种。
 
-## 入口与范围
+| 版本 | 产物 |
+|---|---|
+| V1普通备货 | 原参数方案和算法生成的多Sheet报表。 |
+| V2备货 | `replenish v2 generate` 生成的35列 `mskulist` 工作表。 |
 
-- 本入口及下面的业务步骤用于 Amazon 备货。明确的越南备货直接读取 `vietnam-replenishment`，明确的 ERP 导出直接读取对应导出 Skill；东南亚整体流程与范围导航见 `southeast-asia-replenishment-workflow-map`。不将上马原始报表接入本流程。用户只说“备货”且上下文无法判断业务模块时，先询问是 Amazon 还是东南亚，不凭国家名称推断。
-- 用户询问流程时解释关系，不执行命令。
-- 用户说“帮某店铺做备货/生成补货建议”且未限制只做单步时，承担完整任务，默认重新采集本轮数据；用户明确要求复用时才使用已有合格数据。
-- 仅下载、仅销量分析、仅查库存、仅管理参数或明确基于指定输入计算，属于单步任务。读取对应业务 Skill 后执行，不把单步请求扩大为完整流程。
-- 本入口不重复声明业务命令；每个步骤先读对应 Skill，使用它声明的 CLI。不要为了完整任务一次性加载所有参考文档。
+## 输入
 
-## 完整任务
+- 输入：Amazon备货需求及目标版本（V1、V2或两种），店铺可直接提供或通过下方候选选定。“普通备货”对应V1，“两种都要”对应同时生成V1和V2。
+- 可选：V1参数方案，默认“默认”；V2旺季加成和天数，页面初始关闭，未提旺季时使用页面设置，本轮聊天明确要求优先。
+- 明确指定V1、V2或两种时直接沿用，不重复确认。版本不明确时先结合本轮上下文判断；仍无法确定时只询问一次，并等待明确回答。
+- 模糊店铺名交给店铺解析能力核对真实候选；缺少具体店铺时走下方店铺确认路径，平台或业务不明确时确认业务。
 
-| 顺序 | 业务 Skill | 本轮应保留的结果 |
+## 依赖
+
+共用 `replenishment-store-resolve`、`mabang-store-msku-export`、`mabang-store-shenzhen-inventory-export` 和 `mabang-store-unlinked-shipments-export`。V1另使用 `replenishment-sales-analyze`；V2由工作簿公式计算销量趋势。V1参数方案由 `replenishment-algorithm-config-manage` 管理，Seller Central可选库存对照由 `replenishment-amazon-restock-inventory-snapshot` 提供。
+
+调用前读取对应取数Skill；V1计算读取 `replenishment-calculate`，V2生成命令由本Skill提供。运行前用 `lxeskill list` 和 `lxeskill describe <命令路径>` 查询当前公开参数；文件发送使用 `send_files`。
+
+## 店铺确认
+
+- 本轮上下文尚未确定具体店铺（例如只说“亚马逊美国”）时，先读取 `replenishment-store-resolve`，执行不带店铺名的 `lxeskill replenish store resolve`，读取返回的 `data.xlsx_path` 店铺列表。
+- 按用户已给出的国家／站点或名称线索缩小候选；使用 `ask_user_question` 将真实店铺名列为选项，同名时用父级店铺名称或ID区分。每题最多4个选项，候选较多时先按列表中的“父级店铺名称”选择实际店铺组，再选择具体店铺；仍过多时确认名称线索缩小范围。
+- 店铺组确认后继续选到单站点。选中后复用本次列表的 `store_name`、`store_id`、`id_type` 进入MSKU导出；已确定的店铺、版本直接沿用。只把尚缺的信息交给用户确认，自定义文字使用提问卡内置输入。
+
+## 执行
+
+完整任务默认采集本轮数据；当前任务已有同轮合格输入时复用，并只补缺失或不匹配的数据。双版本共用同一轮已核验MSKU、深圳报告和货件快照，各取一次；V1另生成销量报告，V2不依赖该报告。
+
+| 顺序 | 能力与调用 | 输出交接 |
 |---|---|---|
-| 1 | `replenishment-store-resolve` | 规范店铺名、网页 ID 和 id_type；候选需用户选择 |
-| 2 | `mabang-store-msku-export` | 新 MSKU XLSX、源时间、原始/核验通过/未通过行数 |
-| 3 | `replenishment-sales-analyze` | 基于本轮源表的销量报告及源时间 |
-| 4 | `mabang-store-shenzhen-inventory-export` | 基于同一源表的深圳库存报告及源时间 |
-| 5 | `mabang-store-unlinked-shipments-export` | 本轮完整查询成功的快照路径、confirmed_empty |
-| 6 | `replenishment-calculate` | 显式传本轮快照，生成最终报表 |
-| 7 | 交付 | 发送最后计算 terminal 的 files，并确认发送成功 |
+| 1 | `replenishment-store-resolve`：已提供名称时运行 `lxeskill replenish store resolve --store-name "<用户店铺名>"`；缺少名称时使用上方列表选择路径。 | 保留选定单站点的规范 `store_name`、`store_id`、`id_type`；已有本轮解析／选店结果时复用。 |
+| 2 | `mabang-store-msku-export`：`lxeskill mabang store msku export --store-id "<store_id>" --id-type "<id_type>" --store-name "<规范店铺名>"` | 保留本轮 `data.xlsx_path` 及行数；源时间由后续同源报告交叉核对。 |
+| 3，仅V1或双版本 | `replenishment-sales-analyze`：`lxeskill replenish sales analyze --store-name "<规范店铺名>"` | 保留 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time`；确认来源为步骤2的本轮源表。 |
+| 4 | `mabang-store-shenzhen-inventory-export`：`lxeskill mabang store shenzhen-inventory export --store-name "<规范店铺名>" --msku-source-xlsx-path "<步骤2源表路径>"` | 保留 `data.shenzhen_warehouse_inventory_report_xlsx_path`、`source_msku_xlsx_path`、`source_msku_data_time`；调用步骤5前核对其来源指向步骤2本轮文件。 |
+| 5 | `mabang-store-unlinked-shipments-export`：`lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"` | 确认三类状态均成功；保留快照路径和 `confirmed_empty`。已确认的空快照按0货件处理。 |
+| 6 | 按下表分别运行所需版本 | 每版保留自己的命令终态、结果文件和错误。 |
+| 7 | 对每版检查通过的文件执行 `send_files(paths=<该版terminal.files>)` | 独立交付并分别记录发送结果。 |
 
-- 默认参数方案为“默认”；用户已指定的方案贯穿整轮，不反复询问。用户要求改方案时使用 `replenishment-algorithm-config-manage`。
-- 多站点整组必须选择具体子站点；不能从名称或 id_type 猜范围、自动选择或拆任务。
-- 使用步骤返回的规范名称和路径，不重命名历史文件，不跨名称混选文件。销量与库存的时间和源数据核验必须属于本轮，时间相同不等于可混用，最终以 CLI 核验为准。
-- 计算必须显式传入步骤 5 返回的 `--unlinked-shipments-snapshot "<路径>"`，不让自动查找替代本轮结果。
-- 货件查询失败、快照失败、状态不完整时，停止正式建议；保留已成功产物和实际错误，不按零货件继续，不拿旧快照替代失败查询。
-- `snapshot.confirmed_empty=true` 表示三个状态均成功查询且记录数为零；这是有效快照，正常计算扣减 0，不再下载一次。
-- 某一步仍在运行，等待原会话。恢复任务只继续未完成步骤；源数据变更、核验失效或跨日不兼容时重新采集，不能改文件日期冒充同源。
-- 原始数应等于绑定核验通过数加未通过数；没有通过核验的记录时不查询仓库或生成备货建议，可交付源表、全量销量及库存异常明细。
-- 亚马逊补充库存仅在用户明确要求时使用 `replenishment-amazon-restock-inventory-snapshot`，作为对照输入。
+| 版本 | 计算调用与交接 |
+|---|---|
+| V1 | 读取 `replenishment-calculate` 后运行：`lxeskill replenish calculate --store-name "<规范店铺名>" --unlinked-shipments-snapshot "<步骤5快照路径>" [--template "<方案名>"]`。V1按原CLI读取并核验销量和深圳报告；核对返回的 `sales_analysis_xlsx_path`、`actual_inventory_xlsx_path`、`source_data_time` 属于本轮步骤3、4。 |
+| V2 | 本Skill运行：`lxeskill replenish v2 generate --store-name "<规范店铺名>" --msku-source-xlsx-path "<步骤2源表路径>" --shenzhen-inventory-report-xlsx-path "<步骤4深圳报告路径>" --unlinked-shipments-snapshot-path "<步骤5快照路径>" [--peak-boost-enabled] [--peak-boost-days <0～120>]`。未提旺季时省略两个参数，沿用页面保存的开关和天数。聊天明确开启时传裸开关 `--peak-boost-enabled`，明确关闭时传 `--peak-boost-enabled=false`；聊天指定天数时传 `--peak-boost-days <0～120>`，单独指定天数即启用，明确关闭仍优先。启用没有默认天数；若命令报告缺少天数，询问用户后复用本轮数据重算。本轮覆盖不改写页面设置。 |
 
-## 单步与复用
+V2使用同轮MSKU、深圳库存报告和货件快照，核验来源指纹、店铺、批次及MSKU覆盖。生成 `mskulist` 工作表的35列和全部MSKU行，每行写入14个公式字段，包括I“销量趋势”、J“加权日销”和AI“可供天数”；商品类型核验未通过的行也保留。
 
-单步任务的前置数据不足时，给出对应缺失步骤；完整任务则直接补齐已授权的前置步骤。用户指定复用时保留其选择，但过期数据要说明时间；核验失败不能混用旧版 Active 范围和新版全量文件。失败后的恢复以本轮成功产物为依据，不默认从第一步重跑。
+V2的AG“本地库存”读取深圳报告的“真实库存（深圳仓库）数量”。普通SKU及组合SKU沿用该报告已有的匹配和组件配比计算结果；正数、真实0和有限负数按报告保留，`uq122`不作为来源或必需输入。深圳库存未知时AG留空，仍保留所有MSKU及公式，生成带“库存待核对”的文件并返回 `success=false`、terminal `ok=false`；`data.unknown_inventory_examples`用于运营核对。这是运营确认前的临时规则，只供核对，不作V2正式交付。AH、AD、AI及空海运公式沿用现有计算规则，不新增AG扣减。
 
-## 完成标准
+## 结果
 
-最终报表生成且实际发送成功才算交付完成。回复店铺、源时间、参数方案、原始/参与/排除范围、建议分类及货件确认情况；无需罗列内部 ID 或全部中间路径。因某步失败停止时说明已完成、失败步骤、实际错误和所需下一步，不宣称整轮成功。
+- 读取每步最后一条 `type="result"`；运行中等待原会话。共用取数、认证或来源失败时，停止依赖该输入的版本；`ok=false`时保留实际错误及已有诊断文件。双版本中的独立计算或交付失败不覆盖另一版结果。
+- V1保留原核验、过滤规则和多Sheet产物。销量分析或V1计算失败仅停止V1；若已选择V2且共享输入合格，继续V2必要的共享取数、全MSKU计算及检查。V2未知库存或计算失败也不阻止已满足前提的V1计算和正式交付；此临时规则不影响V1。
+- V2完成Office Kit重算、35列和14公式检查及Excel错误检查后，检查 `data.output_xlsx_path`、公式错误数、源数据时间和terminal `files`。只有terminal `ok=true`、`data.formula_error_count=0`、来源检查和Office Kit均通过，才进入正式交付；失败附件只作诊断。认证、来源或Office失败时保留真实错误并停止。
+- 各版本只有自身数据、计算和检查通过，且文件实际发送成功，才算该版本正式交付。分别说明V1/V2产物、来源时间、交付状态及失败原因；不把一版成功称为两版全部成功。发送失败只重试该版文件交付。

@@ -57,6 +57,8 @@ describe("preload bridge", () => {
       "uploadVietnamTemplate",
       "exportVietnamTemplate",
       "getVietnamSettings",
+      "getAmazonV2Settings",
+      "saveAmazonV2Settings",
       "saveVietnamParameters",
       "saveLocalModelCredential",
       "saveSetup",
@@ -72,6 +74,8 @@ describe("preload bridge", () => {
       "startSyntheticPerformerTask",
     ].sort());
     expect(bridge.desktop.platform).toBe("win32");
+    expect(IPC_CHANNELS.getAmazonV2Settings).toBe("lxe:desktop:amazon-v2-settings:read");
+    expect(IPC_CHANNELS.saveAmazonV2Settings).toBe("lxe:desktop:amazon-v2-settings:save");
     await bridge.dashboard.call({ operation: "models.list", input: {} });
     await bridge.desktop.saveLocalModelCredential({ provider: "deepseek", api_key: "local-key" });
     await bridge.desktop.deleteLocalModelCredential("deepseek");
@@ -79,6 +83,8 @@ describe("preload bridge", () => {
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
     await bridge.desktop.prepareCloudDependencies();
     await bridge.desktop.getCloudState();
+    await bridge.desktop.getAmazonV2Settings();
+    await bridge.desktop.saveAmazonV2Settings({ peak_boost_enabled: false, peak_boost_days: 20 });
     await bridge.desktop.retryCloudConnection();
     await bridge.desktop.openCloudDestination("erp_dashboard");
     await bridge.desktop.selectZiniaoApp();
@@ -199,6 +205,8 @@ describe("preload bridge", () => {
       IPC_CHANNELS.activateCloudEnrollment,
       IPC_CHANNELS.prepareCloudDependencies,
       IPC_CHANNELS.getCloudState,
+      IPC_CHANNELS.getAmazonV2Settings,
+      IPC_CHANNELS.saveAmazonV2Settings,
       IPC_CHANNELS.retryCloudConnection,
       IPC_CHANNELS.openCloudDestination,
       IPC_CHANNELS.selectZiniaoApp,
@@ -221,18 +229,19 @@ describe("preload bridge", () => {
       IPC_CHANNELS.clearCloudModelCache,
     ]);
     expect(invocations.find(call => call.channel === IPC_CHANNELS.stageDroppedConversationFiles)?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[22]?.arguments).toEqual([["attachment-1"]]);
-    expect(invocations[23]?.arguments).toEqual(["attachment-1"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.discardConversationFiles)?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.previewDraftConversationFile)?.arguments).toEqual(["attachment-1"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.saveAmazonV2Settings)?.arguments).toEqual([{ peak_boost_enabled: false, peak_boost_days: 20 }]);
     expect(invocations[1]?.arguments).toEqual([{ provider: "deepseek", api_key: "local-key" }]);
     expect(invocations[2]?.arguments).toEqual(["deepseek"]);
     expect(invocations[4]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[8]?.arguments).toEqual(["erp_dashboard"]);
-    expect(invocations[16]?.arguments).toEqual([{
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.openCloudDestination)?.arguments).toEqual(["erp_dashboard"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.startSyntheticPerformerTask)?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,
     }]);
-    expect(invocations[12]?.arguments).toEqual(["dark"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.applyAppearance)?.arguments).toEqual(["dark"]);
   });
 });
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+
 
 from services.commands.mabang import export_store_msku_actual_inventory as cli
 from services.mabang.amazon.fba.store_msku_actual_inventory import ActualInventoryResult
@@ -73,3 +76,26 @@ def test_terminal_failure_preserves_actual_error_without_requesting_refresh(monk
         payload = cli.run({'store_name': 'shop'})
         assert payload['auth_refresh_required'] is False
         assert payload['exception'] == str(error)
+
+
+def test_explicit_source_flag_reaches_service_through_standard_terminal(monkeypatch, tmp_path, capsys):
+    from lxeskill import cli as lxeskill
+    seen = []
+
+    async def export(store_name, **kwargs):
+        seen.append((store_name, kwargs))
+        raise FileNotFoundError("指定源表不存在，不得回退")
+
+    monkeypatch.setattr(cli, "export_store_msku_actual_inventory", export)
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "mabang-store-shenzhen-inventory-export")
+    monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
+    path = str(tmp_path / "指定源表.xlsx")
+    assert lxeskill.main([
+        "mabang", "store", "shenzhen-inventory", "export", "--store-name", "shop",
+        "--msku-source-xlsx-path", path,
+    ]) == lxeskill.EXIT_BUSINESS
+    assert seen == [("shop", {"msku_source_xlsx_path": path})]
+    terminal = json.loads(capsys.readouterr().out.strip())
+    assert terminal["ok"] is False and terminal["files"] == []
+    assert "指定源表不存在" in terminal["error"]["message"]
+    assert terminal["data"]["auth_refresh_required"] is False

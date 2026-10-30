@@ -1,6 +1,6 @@
 ---
 name: replenishment-calculate
-description: 基于本地销量分析报告、真实库存（深圳仓库）报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
+description: Amazon备货V1单步计算能力，基于本地销量分析报告、深圳真实库存报告和同日货件快照，保留原参数方案、算法和多Sheet报表。完整任务、版本选择和交付由 replenishment-workflow-map 编排；已有合格输入可按本Skill复算。
 type: replenishment
 commands:
   - lxeskill replenish calculate
@@ -10,22 +10,20 @@ references:
 
 需要查询 lxeskill 产物目录时，运行 `lxeskill datasets list`；返回的 `dir` 相对于当前环境的 `artifact_root`。
 
-# Amazon 备货计算与最终交付
+# Amazon 备货V1计算
 
 ## 执行与错误
 
-- 通过 `exec` 调用本 Skill 声明的 CLI；不手工拼 API、不猜 ID 或凭据、不直接执行 Python 业务模块。
-- 只把最后一条 `type="result"` 当作 terminal：先看 `ok`，业务字段读 `data`，附件读 `files`；失败保留 `error.message` 和相关 `data.context`，不把业务示例当成完整 terminal。
-- 命令返回运行中/session running 时等待同一会话，不重复启动下载或导出。
-- 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。不凭错误文本中的 401/403 或 ID 猜测认证失败。
-- 店铺歧义展示真实候选供选择；绑定冲突、分页异常、数据服务权限错误停止。文件占用时提示关闭对应文件后重试，不删除目标。
-- 业务执行中不修改安装目录脚本、依赖或历史报表绕过错误；用户另行要求源码修复时按开发任务处理。
-- 完整备货任务按 `replenishment-workflow-map` 连续推进；单步请求只执行指定步骤，缺前置数据时说明缺什么及下一步，不自行扩展为完整备货。
-- 单步文件任务成功后调用 `send_files(paths=<terminal.files>)`；完整任务的中间文件保留，到最终计算完成才发送最终 terminal `files`。没有附件时不猜路径。发送成功才说已交付，发送失败只重试交付，不重跑业务。
+- 执行本 Skill 声明的 CLI；参数以 `lxeskill list`、`lxeskill describe <命令路径>` 为准。
+- 等待原会话完成，读取最后一条 `type="result"`：先看 `ok`，业务结果读 `data`，附件读 `files`；失败保留真实 `error.message` 和可用的 `data.context`。
+- 本地输入、来源或参数核验失败时说明实际错误与恢复所需输入；文件占用时提示关闭对应文件后重试。
+- 完整备货由 `replenishment-workflow-map` 继续。独立单步只执行本步骤；有附件时使用 `send_files(paths=<terminal.files>)` 交付，发送失败只重试交付。
 
 ## 使用与命令
 
-完整备货请求先读 `replenishment-workflow-map`，自动完成本轮数据采集；明确只用已有输入重算时执行本步骤。参数方案默认“默认”，用户指定时沿用。
+本Skill负责V1（普通备货）的计算。完整任务由 `replenishment-workflow-map` 按已确定版本安排；明确只用已有合格输入重算时执行本步骤，版本与其他步骤均返回主入口处理。
+
+输入规范店铺名、本轮货件快照及可选参数方案；销量与深圳报告沿用原CLI按店铺选择并核验的方式。参数方案默认“默认”，用户指定时沿用。
 
 ```text
 lxeskill replenish calculate --store-name "<规范店铺名>" --unlinked-shipments-snapshot "<本轮快照路径>" [--template "<参数方案名>"]

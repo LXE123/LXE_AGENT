@@ -109,6 +109,7 @@ Amazon 备货：
   replenish template                          管理备货算法参数方案
   replenish inventory restock-snapshot-build  解析亚马逊补充库存 CSV
   replenish calculate                         计算备货建议
+  replenish v2 generate                       生成 Amazon V2 备货建议
   mabang store msku export                    下载店铺 MSKU 数据
   mabang store shenzhen-inventory export      生成深圳仓真实库存报告
   replenish sales analyze                     分析销量

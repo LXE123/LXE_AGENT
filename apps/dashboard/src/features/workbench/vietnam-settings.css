@@ -1,3 +1,5 @@
+@import "./detail-theme.css";
+
 .vietnam-settings-view {
   max-width: 840px;
   gap: 16px;
@@ -62,25 +64,8 @@
 .vietnam-setting-copy { display: grid; gap: 6px; }
 .vietnam-parameter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .vietnam-parameter-grid label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.vietnam-settings-view input {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg);
-  color: var(--text-strong);
-  font: inherit;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-}
-.vietnam-settings-view input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .vietnam-exchange { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .vietnam-exchange input { width: 128px; }
-.vietnam-save { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
-.vietnam-save button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
 .vietnam-save span { color: var(--muted); font-size: 12px; line-height: 1.6; }
 
 @container (max-width: 620px) {

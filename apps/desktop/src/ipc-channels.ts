@@ -51,6 +51,8 @@ export const IPC_CHANNELS = {
   exportVietnamTemplate: "lxe:desktop:vietnam:export-template",
   getVietnamSettings: "lxe:desktop:vietnam:read",
   saveVietnamParameters: "lxe:desktop:vietnam:save",
+  getAmazonV2Settings: "lxe:desktop:amazon-v2-settings:read",
+  saveAmazonV2Settings: "lxe:desktop:amazon-v2-settings:save",
   syntheticPerformerTaskChanged: "lxe:desktop:synthetic-performer:task-changed",
   cloudStateChanged: "lxe:desktop:cloud-state-changed",
   conversationEvent: "lxe:desktop:conversation-event",

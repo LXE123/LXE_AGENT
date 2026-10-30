@@ -242,22 +242,20 @@ def safe_timeout_sec(value: float | int | str | None) -> float:
     return max(0.0, number)
 
 
-def _number(value: Any) -> float:
-    if value is None:
-        return 0.0
-    if isinstance(value, bool):
-        return float(int(value))
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return 0.0 if math.isnan(number) else number
-    text = _clean_text(value).replace(",", "")
-    if not text or text.lower() == "nan":
-        return 0.0
+def _number(value: Any, *, msku: str, field: str, source: str | Path) -> float:
+    context = f"MSKU={msku}, field={field}, source={source}"
+    text = "" if value is None else str(value).strip()
+    if not text:
+        raise UnlinkedShipmentError(f"货件数量不能为空: {context}")
     try:
-        number = float(text)
-    except (TypeError, ValueError):
-        return 0.0
-    return 0.0 if math.isnan(number) else number
+        number = float(text.replace(",", ""))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnlinkedShipmentError(f"货件数量必须为有限数字: {context}") from exc
+    if isinstance(value, bool) or not math.isfinite(number):
+        raise UnlinkedShipmentError(f"货件数量必须为有限数字: {context}")
+    if number < 0:
+        raise UnlinkedShipmentError(f"货件数量不能为负数: {context}")
+    return number
 
 
 def _display_quantity(value: float) -> int | float:
@@ -346,18 +344,11 @@ def _raw_detail_rows(raw_file_paths: list[str | Path], *, store_name: str | None
                 continue
             store = _clean_text(record.get("店铺")) or clean_store_name
             msku = _clean_text(record.get("MSKU"))
-            quantity_text = _clean_text(record.get("MSKU发货量"))
             if not store or not msku:
                 continue
             if clean_store_name and store != clean_store_name:
                 raise UnlinkedShipmentError(f"原生文件店铺不匹配: expected={clean_store_name}, actual={store}, file={source_path}")
-            if not quantity_text:
-                raise UnlinkedShipmentError(f"原生文件缺少MSKU发货量: MSKU={msku}, file={source_path}")
-            quantity = _number(quantity_text)
-            if quantity < 0:
-                raise UnlinkedShipmentError(f"原生文件MSKU发货量不能为负数: MSKU={msku}, quantity={quantity_text}, file={source_path}")
-            if quantity <= 0:
-                continue
+            quantity = _number(record.get("MSKU发货量"), msku=msku, field="MSKU发货量", source=source_path)
             detail_rows.append(
                 {
                     "店铺": store,
@@ -403,7 +394,9 @@ def summarize_unlinked_shipment_details(detail_rows: list[dict[str, Any]]) -> li
                 "_source_files": [],
             },
         )
-        group["未关联数量"] += _number(row.get("未关联数量"))
+        group["未关联数量"] += _number(
+            row.get("未关联数量"), msku=key[1], field="未关联数量", source=_clean_text(row.get("source_file")),
+        )
         group["明细行数"] += 1
         group["_statuses"].append(_clean_text(row.get("状态")))
         route = _clean_text(row.get("物流渠道")) or _clean_text(row.get("物流方式"))
@@ -517,7 +510,10 @@ def build_store_unlinked_shipments_snapshot(
         raw_file_count=len(paths),
         detail_count=len(detail_rows),
         msku_count=len(summary_rows),
-        total_unlinked_quantity=sum(_number(row.get("未关联数量")) for row in summary_rows),
+        total_unlinked_quantity=sum(
+            _number(row.get("未关联数量"), msku=row["MSKU"], field="未关联数量", source=target_path)
+            for row in summary_rows
+        ),
         confirmed_empty=bool(verification and verification["confirmed_empty"]),
     )
 
@@ -650,9 +646,7 @@ def load_unlinked_shipment_quantities(path: str | Path, *, store_name: str | Non
         msku = _clean_text(record.get("MSKU"))
         if not msku:
             continue
-        quantity = _number(record.get("未关联数量"))
-        if quantity < 0:
-            raise UnlinkedShipmentError(f"未关联货件快照数量不能为负数: MSKU={msku}")
+        quantity = _number(record.get("未关联数量"), msku=msku, field="未关联数量", source=path)
         quantities[msku] = quantities.get(msku, 0.0) + quantity
     return quantities
 
@@ -872,52 +866,62 @@ async def _download_status_file(
     report_date: str | date | None,
     download_time: str,
 ) -> UnlinkedShipmentStatusResult:
-    logger.info("[UnlinkedShipments] %s 开始查询", spec.status_name)
-    total = await fetch_status_total(spec, store_id)
-    logger.info("[UnlinkedShipments] %s total=%d", spec.status_name, total)
-    if total <= 0:
-        logger.info("[UnlinkedShipments] %s total=0，跳过导出", spec.status_name)
-        return UnlinkedShipmentStatusResult(status_name=spec.status_name, total=0)
+    stage = "查询数量"
+    try:
+        logger.info("[UnlinkedShipments] %s 开始查询", spec.status_name)
+        total = await fetch_status_total(spec, store_id)
+        logger.info("[UnlinkedShipments] %s total=%d", spec.status_name, total)
+        if total <= 0:
+            logger.info("[UnlinkedShipments] %s total=0，跳过导出", spec.status_name)
+            return UnlinkedShipmentStatusResult(status_name=spec.status_name, total=0)
 
-    task_id = await create_unlinked_export_task(spec, store_id, report_date=report_date)
-    logger.info("[UnlinkedShipments] %s 创建导出任务: taskId=%d", spec.status_name, task_id)
-    task = await wait_for_delivery_task(
-        task_id,
-        timeout_sec=timeout_sec,
-        poll_interval_sec=poll_interval_sec,
-        progress_label=f"[UnlinkedShipments] {spec.status_name}",
-    )
-    logger.info(
-        "[UnlinkedShipments] %s 任务完成: taskId=%d fileHash=%s",
-        spec.status_name,
-        task.task_id,
-        task.file_hash,
-    )
-    download_info = await request_download_info(task.task_id, task.file_hash)
-    logger.info(
-        "[UnlinkedShipments] %s 获取下载地址成功: taskId=%d fileName=%s",
-        spec.status_name,
-        download_info.task_id,
-        download_info.file_name,
-    )
-    raw_path = await download_raw_file_from_url(
-        download_info.download_url,
-        store_name=store_name,
-        status_name=spec.status_name,
-        task_id=download_info.task_id,
-        file_name=download_info.file_name,
-        output_dir=output_dir,
-        download_time=download_time,
-    )
-    logger.info("[UnlinkedShipments] %s 下载完成: %s", spec.status_name, raw_path)
-    return UnlinkedShipmentStatusResult(
-        status_name=spec.status_name,
-        total=total,
-        task_id=download_info.task_id,
-        file_hash=download_info.file_hash,
-        file_name=download_info.file_name,
-        raw_file_path=str(raw_path),
-    )
+        stage = "创建导出任务"
+        task_id = await create_unlinked_export_task(spec, store_id, report_date=report_date)
+        logger.info("[UnlinkedShipments] %s 创建导出任务: taskId=%d", spec.status_name, task_id)
+        stage = "轮询导出任务"
+        task = await wait_for_delivery_task(
+            task_id,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            progress_label=f"[UnlinkedShipments] {spec.status_name}",
+        )
+        logger.info(
+            "[UnlinkedShipments] %s 任务完成: taskId=%d fileHash=%s",
+            spec.status_name,
+            task.task_id,
+            task.file_hash,
+        )
+        stage = "获取下载地址"
+        download_info = await request_download_info(task.task_id, task.file_hash)
+        logger.info(
+            "[UnlinkedShipments] %s 获取下载地址成功: taskId=%d fileName=%s",
+            spec.status_name,
+            download_info.task_id,
+            download_info.file_name,
+        )
+        stage = "下载文件"
+        raw_path = await download_raw_file_from_url(
+            download_info.download_url,
+            store_name=store_name,
+            status_name=spec.status_name,
+            task_id=download_info.task_id,
+            file_name=download_info.file_name,
+            output_dir=output_dir,
+            download_time=download_time,
+        )
+        logger.info("[UnlinkedShipments] %s 下载完成: %s", spec.status_name, raw_path)
+        return UnlinkedShipmentStatusResult(
+            status_name=spec.status_name,
+            total=total,
+            task_id=download_info.task_id,
+            file_hash=download_info.file_hash,
+            file_name=download_info.file_name,
+            raw_file_path=str(raw_path),
+        )
+    except Exception as exc:
+        # Keep auth exception types for the existing one-time refresh boundary.
+        exc.add_note(f"未关联货件状态={spec.status_name}，阶段={stage}")
+        raise
 
 
 async def _download_store_unlinked_shipments_once(

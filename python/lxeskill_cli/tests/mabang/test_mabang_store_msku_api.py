@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import types
+from unittest.mock import AsyncMock
 from io import BytesIO
 from pathlib import Path
 
@@ -230,6 +231,11 @@ def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
     assert _form_value(call, "isMerage") == "2"
 
 
+def test_store_msku_header_validation_does_not_require_local_inventory(tmp_path: Path) -> None:
+    path = _write_xlsx(tmp_path / "source.xlsx", columns=list(msku.CORE_STORE_MSKU_HEADERS))
+    msku.validate_store_msku_excel_headers(path)
+
+
 def _mock_active_shop(monkeypatch):
     from services.mabang.amazon.fba.store_resolver import FbaStore
     from services.mabang.amazon.fba.sku_catalog import SkuCatalogSnapshot
@@ -241,8 +247,9 @@ def _mock_active_shop(monkeypatch):
     monkeypatch.setattr(msku, "fetch_sku_catalog_snapshot", snapshot)
 
 
-def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None:
+def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path, caplog) -> None:
     _mock_active_shop(monkeypatch)
+    caplog.set_level("INFO", logger=msku.__name__)
     fake_session = _FakeSession(
         [
             _FakeResponse({"success": True, "id": "1001,1002,1003"}),
@@ -279,6 +286,29 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
     assert Path(result.xlsx_path).is_file()
     assert len([call for call in fake_session.calls if call["method"] == "POST"]) == 2
     assert len([call for call in fake_session.calls if call["method"] == "GET"]) == 1
+    for stage in (
+        "resolve_store_export_scope",
+        "prepare_msku_list_auth",
+        "query_msku_ids",
+        "prepare_export_auth",
+        "submit_export_request",
+        "parse_download_address",
+        "download_file",
+        "save_downloaded_file",
+        "convert_or_normalize_file",
+        "validate_file_headers",
+        "read_source_local_skus",
+        "verify_sku_types",
+        "annotate_source_verification",
+        "publish_verified_file",
+    ):
+        assert f"stage={stage} status=success duration_ms=" in caplog.text
+    assert "'id_count': 3" in caplog.text
+    assert "'sku_count': 1" in caplog.text
+    assert "'bytes':" in caplog.text
+    assert "upload.example.test" not in caplog.text
+    assert "MSKU-A" not in caplog.text
+    assert "memcache-key" not in caplog.text
 
 
 def test_download_store_msku_excel_requires_store_name() -> None:
@@ -354,7 +384,7 @@ def test_validate_store_msku_excel_headers_requires_core_columns(tmp_path) -> No
 
 
 def test_fetch_store_msku_ids_rejects_auth_failure(monkeypatch) -> None:
-    fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
+    fake_session = _FakeSession([_FakeResponse(status=401, text_body="expired")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
     monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
@@ -391,3 +421,19 @@ def test_export_store_msku_file_url_requires_gourl(monkeypatch) -> None:
                 ["1001"],
             )
         )
+
+
+def test_msku_pipeline_http_auth_boundary(monkeypatch, tmp_path):
+    refresh = AsyncMock()
+    from services.mabang import export_common
+    _mock_active_shop(monkeypatch)
+    monkeypatch.setattr(export_common, "refresh_mabang_auth", refresh)
+    session = _FakeSession([_FakeResponse({"success": True, "id": "1001"}), _FakeResponse(status=403, text_body="actual rejection")])
+    monkeypatch.setattr(msku, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(msku, "erp_http_session", session)
+    with pytest.raises(msku.MabangRequestError, match="status=403.*actual rejection"):
+        asyncio.run(msku.download_store_msku_excel("697456821", "shopId", store_name="Amazon-Lerxiuer-FR", output_dir=tmp_path))
+    assert len(session.calls) == 2
+    refresh.assert_not_awaited()
+    assert not list(tmp_path.rglob("*.xlsx"))
+    assert not any(call["method"] == "GET" for call in session.calls)

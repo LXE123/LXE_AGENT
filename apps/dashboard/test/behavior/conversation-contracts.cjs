@@ -43,7 +43,8 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     });
     await step('streaming preserves earlier text while reading and follows the fully sized feed',async()=>{
       await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
-      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');await settle();
+      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');
+      await js('document.fonts.ready.then(()=>undefined)');await settle();
       await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);await settle();
       const reading=await js(`(async()=>{
         const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]');
