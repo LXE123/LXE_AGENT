@@ -81,7 +81,7 @@ Desktop 升级启动时，把实际数据目录下的旧 `<data-root>/artifacts/
 
 Windows 原生沙箱测试需设置 `LXE_EXEC_SANDBOX_NATIVE_TEST=1` 并提供 Node 和已构建的 runner；使用独立工作区及专用夹具，不对真实业务目录修改 ACL。
 
-验证范围与执行要求统一遵循 [AGENTS.md](../../../AGENTS.md#工具链)，以上是按改动选用的测试入口。
+验证范围与执行要求统一遵循 [AGENTS.md](../../../AGENTS.md#工具链与验证)，以上是按改动选用的测试入口。
 
 ## 实现入口
 

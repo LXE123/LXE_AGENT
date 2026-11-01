@@ -10,7 +10,7 @@
 
 一个 PR 尽可能聚焦一个问题，让未参与开发的人也能理解和评审。说明改动缘由、内容和预期影响，保留必要的决策与限制。
 
-PR 标题与 commit 说明使用英语，commit 类型前缀遵循 [AGENTS.md](../AGENTS.md#commit-规范)。
+PR 标题与 commit 说明使用英语，commit 类型前缀遵循 [AGENTS.md](../AGENTS.md#开发pr-与文档规范)。
 
 每次更新 PR 后，补充一条简洁、可独立理解的 comment，说明本次改动和验证情况。
 
