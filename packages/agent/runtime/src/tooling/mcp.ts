@@ -1,4 +1,3 @@
-import { saihuNativeFetch } from "./saihu-native-http";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Client, ProtocolError, SdkError, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
@@ -245,16 +244,7 @@ export class OfficialMcpConnector implements McpConnector {
   ) {}
 
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
-    const nativeSaihu = server.transport === "streamable-http" && server.name === "lxe-saihu";
-    const configurationError = "Company Saihu MCP requires X-LXE-Client: cli without credentials; update its configuration";
-    if (nativeSaihu && (server.bearerTokenEnvVar
-      || [...Object.keys(server.headers), ...Object.keys(server.envHeaders)].some(key => /^(authorization|cookie|proxy-authorization)$/iu.test(key)))) {
-      throw new Error(configurationError);
-    }
     const headers = server.transport === "streamable-http" ? resolveMcpHttpHeaders(server, this.environment) : {};
-    if (nativeSaihu && !Object.entries(headers).some(([key, value]) => key.toLowerCase() === "x-lxe-client" && value === "cli")) {
-      throw new Error(configurationError);
-    }
     signal?.throwIfAborted();
     const mode = server.protocolMode ?? "auto";
     const client = this.clientFactory({
@@ -272,7 +262,6 @@ export class OfficialMcpConnector implements McpConnector {
       })
       : new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: { headers },
-        ...(nativeSaihu ? { fetch: saihuNativeFetch(server.url) } : {}),
       });
     // During v2 discovery the transport is not yet attached to Client. Closing
     // only Client would let the sibling probe finish and spawn a session later.

@@ -1,12 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { saihuNativeFetch } from "../../src/tooling/saihu-native-http";
-import { OfficialMcpConnector, loadMcpConfig } from "../../src/tooling/mcp";
+import { nativeCloudFetch } from "../../src/tooling/cloud-http";
 
 test("native fetch omits secrets, cookies, proxies and redirects while retaining real errors", async () => {
   const calls: Headers[] = [];
@@ -17,9 +14,9 @@ test("native fetch omits secrets, cookies, proxies and redirects while retaining
   const url = `http://127.0.0.1:${server.port}/mcp/`;
   try {
     // A fresh Bun process sees the proxy environment before fetch initializes.
-    const modulePath = join(process.cwd(), "packages/agent/runtime/src/tooling/saihu-native-http.ts");
-    const script = `import { saihuNativeFetch } from ${JSON.stringify(modulePath)};
-      const request = saihuNativeFetch(${JSON.stringify(url)});
+    const modulePath = join(process.cwd(), "packages/agent/runtime/src/tooling/cloud-http.ts");
+    const script = `import { nativeCloudFetch } from ${JSON.stringify(modulePath)};
+      const request = nativeCloudFetch(${JSON.stringify(url)});
       for (let i=0;i<2;i++) { const r=await request(${JSON.stringify(url)}, {headers:{Authorization:'Bearer secret',Cookie:'private=value','Mcp-Session-Id':'session'}});
         if(r.status!==307 || await r.text()!=='actual upstream redirect') process.exit(1); }`;
     const child = Bun.spawn([process.execPath, "-e", script], { env: { ...process.env,
@@ -31,43 +28,8 @@ test("native fetch omits secrets, cookies, proxies and redirects while retaining
       expect(headers.get("authorization")).toBeNull(); expect(headers.get("cookie")).toBeNull();
       expect(headers.get("x-lxe-client")).toBe("cli"); expect(headers.get("mcp-session-id")).toBe("session");
     }
-    await expect(saihuNativeFetch(url)(url + "other")).rejects.toThrow("target changed");
+    await expect(nativeCloudFetch(url)(url + "other")).rejects.toThrow("target changed");
   } finally { server.stop(true); }
-});
-
-test("actual MCP SDK initializes, lists and calls without tokens, then preserves next-request denial", async () => {
-  const calls: string[] = []; let denied = false;
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    expect(request.headers.get("x-lxe-client")).toBe("cli");
-    expect(request.headers.get("authorization")).toBeNull(); expect(request.headers.get("cookie")).toBeNull();
-    if (request.method !== "POST") return new Response(null, { status: 405 });
-    const message = await request.json() as any; calls.push(message.method);
-    if (denied) return Response.json({ detail: { code: "business_capability_denied", message: "actual sai hu denial" } }, { status: 403 });
-    if (!Object.hasOwn(message, "id")) return new Response(null, { status: 202 });
-    if (message.method === "server/discover") return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
-    const result = message.method === "initialize"
-      ? { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
-      : message.method === "tools/list" ? { tools: [{ name: "fixture_read", description: "fixture", inputSchema: { type: "object" } }] }
-      : { content: [{ type: "text", text: "actual fixture result" }] };
-    return Response.json({ jsonrpc: "2.0", id: message.id, result });
-  } });
-  const root = mkdtempSync(join(tmpdir(), "lxe-native-mcp-"));
-  let connection;
-  try {
-    const path = join(root, "mcp.yaml");
-    writeFileSync(path, `mcpServers:\n  lxe-saihu:\n    enabled: true\n    type: streamable-http\n    url: http://127.0.0.1:${server.port}/mcp/\n    headers: {X-LXE-Client: cli}\n`);
-    const config = loadMcpConfig(path, {}).servers[0]!;
-    connection = await new OfficialMcpConnector({}).connect(config);
-    expect(connection.tools.map(t => t.name)).toEqual(["fixture_read"]);
-    expect((await connection.callTool("fixture_read", {})).content[0]?.text).toBe("actual fixture result");
-    denied = true;
-    // Bun 1.4.2 Windows can crash when the async matcher owns an HTTP stream error.
-    let deniedError: unknown;
-    try { await connection.callTool("fixture_read", {}); } catch (error) { deniedError = error; }
-    expect(deniedError).toBeInstanceOf(Error);
-    expect(String(deniedError)).toContain("actual sai hu denial");
-    expect(calls.filter(method => method === "tools/call")).toHaveLength(2);
-  } finally { await connection?.close(); server.stop(true); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("native fetch cancellation closes a pending stream", async () => {
@@ -75,7 +37,7 @@ test("native fetch cancellation closes a pending stream", async () => {
   const url = `http://127.0.0.1:${server.port}/mcp/`;
   try {
     const controller = new AbortController();
-    const pending = saihuNativeFetch(url)(url, { signal: controller.signal });
+    const pending = nativeCloudFetch(url)(url, { signal: controller.signal });
     controller.abort();
     let cancelled: unknown;
     try { await pending; } catch (error) { cancelled = error; }
@@ -99,7 +61,7 @@ test("direct transport streams SSE, decodes compressed errors and cancels an act
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp/`;
   try {
     const abort = new AbortController();
-    const response = await saihuNativeFetch(url)(url, { signal: abort.signal });
+    const response = await nativeCloudFetch(url)(url, { signal: abort.signal });
     const reader = response.body!.getReader();
     expect(new TextDecoder().decode((await reader.read()).value)).toContain("data: first");
     const next = reader.read(); abort.abort();
@@ -109,7 +71,7 @@ test("direct transport streams SSE, decodes compressed errors and cancels an act
     try { await next; } catch (error) { rejection = error; }
     expect(rejection).toBeInstanceOf(Error);
     mode = "error";
-    const error = await saihuNativeFetch(url)(url);
+    const error = await nativeCloudFetch(url)(url);
     expect(error.status).toBe(502); expect(await error.text()).toBe("actual compressed failure");
     expect(error.headers.get("content-encoding")).toBeNull();
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }

@@ -8,7 +8,7 @@
 
 建立或更换受管连接仍需接入包：v5 用于受管 WireGuard，v4 用于已有手工隧道或更换凭据。Windows 通过 UAC 安装或复用隧道，关闭桌面不卸载系统隧道；macOS 源码环境见 [WireGuard 服务](macos-wireguard-service.md)。旧身份的恢复流程见 [身份迁移](identity-migration.md)。
 
-自动识别不会伪造接入配置、激活本目录或自动开启统计上传、赛狐 MCP。统计启用仍由本目录接入配置决定；MCP 有自己的开关。各目录分别保存配置和缓存，不复制聊天、工作区、实例 ID 或上传进度。
+自动识别不会伪造接入配置、激活本目录或自动开启统计上传。统计启用仍由本目录接入配置决定；赛狐专用 MCP 已暂时撤下，已有配置的处理见[停用说明](../saihu-device-access.md)。各目录分别保存配置和缓存，不复制聊天、工作区、实例 ID 或上传进度。
 
 ## 调用链与职责
 
@@ -19,7 +19,7 @@
 | 公司模型凭据 | Main → `GET /api/v1/device-access/llm-credential` | Main 按模型领取并交给 Agent 模型调用链 |
 | ERP／管理后台登录 | Main → `POST /api/v1/device-access/browser-handoff` | 外部浏览器兑换一次性交接码 |
 | 业务 API | lxeskillCLI 自行请求服务器 | CLI 处理业务结果，服务器逐次鉴权 |
-| 统计与赛狐 MCP | agentcli 分别通过自己的上传服务和 MCP 连接访问服务器 | 见 [统计上传](../harness/runtime/native-statistics-upload.md)与 [赛狐 MCP](../saihu-device-access.md) |
+| 统计上传 | agentcli 通过自己的上传服务访问服务器 | 见 [统计上传](../harness/runtime/native-statistics-upload.md) |
 
 这些原生公司请求使用 `X-LXE-Client: cli`，不携带旧业务 Token、Authorization 或 Cookie，不使用系统代理，不跟随重定向。该请求头是公开标记，设备身份由服务器根据实际 WireGuard 来源识别。接入包激活、身份检查和旧身份迁移仍有独立的凭据流程，不能把两条链路混为一谈。
 

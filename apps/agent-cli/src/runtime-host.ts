@@ -1,4 +1,5 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
+import { retireLegacySaihuMcp } from "./mcp-config-migration";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -195,6 +196,9 @@ export function createAgentRuntimeHost(
   registerToolSearch(tools);
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.yaml");
+  if (retireLegacySaihuMcp(mcpConfigPath, options.dataRoot)) {
+    logger.info("legacy_saihu_mcp_retired", { config_path: mcpConfigPath });
+  }
   const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
   if (desktopMcp) {
     if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");

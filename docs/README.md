@@ -45,7 +45,7 @@
 - [工具](harness/runtime/tools/README.md)、[权限专题](harness/runtime/permission-policy.md)：注册、执行、写入范围与单次审批。
 - [LLM 适配](harness/llm/README.md)、[模型目录与选择](harness/llm/provider_catalog.md)：协议适配、流式响应及本地／公司模型配置。
 - [Agent CLI exec](harness/runtime/agent_cli_exec.md)：一次性终端调用与独立会话存储。
-- [统计上传](harness/runtime/native-statistics-upload.md)：用量同步、确认和失败恢复；[赛狐 MCP](saihu-device-access.md)：连接配置与设备鉴权。
+- [统计上传](harness/runtime/native-statistics-upload.md)：用量同步、确认和失败恢复；[赛狐 MCP 停用](saihu-device-access.md)：旧配置备份与停用、共享能力及后续接回边界。
 
 ### lxeskillCLI
 
