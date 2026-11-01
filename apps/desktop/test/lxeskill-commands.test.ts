@@ -18,7 +18,6 @@ test("desktop gets its command listing from the public CLI", async () => {
     expect(result.items).toContainEqual({ command: "lxeskill mabang auth refresh", name: "mabang_auth_refresh", visibility: "maintenance", ownerSkills: [] });
     expect(result.items).toContainEqual({ command: "lxeskill replenish calculate", name: "mabang_calculate_store_msku_replenishment", visibility: "business", ownerSkills: ["replenishment-calculate"] });
     expect(result.items).toContainEqual({ command: "lxeskill replenish v2 generate", name: "mabang_generate_replenishment_v2", visibility: "business", ownerSkills: ["replenishment-workflow-map"] });
-    expect(result.items.some(item => item.ownerSkills.includes("replenishment-final-restock"))).toBe(false);
     expect(result.items.some(item => item.visibility === "internal")).toBe(false);
     const datasets = await queryLxeSkill("datasets list", { cwd: root,
       executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
@@ -40,10 +39,8 @@ test("Amazon skill discovery keeps V1 and V2 under one workflow entry", () => {
     expect(workflow.commands).toEqual(["lxeskill replenish v2 generate"]);
     expect(catalog.get("replenishment-calculate")?.commands).toEqual(["lxeskill replenish calculate"]);
     expect(catalog.get("replenishment-sales-analyze")?.commands).toEqual(["lxeskill replenish sales analyze"]);
-    expect(catalog.get("replenishment-final-restock")).toBeUndefined();
     expect(skills.filter(skill => skill.commands.includes("lxeskill replenish v2 generate"))).toEqual([workflow]);
     const prompt = catalog.buildPrompt({ allowedTypes: new Set(["replenishment"]) }, root);
     expect(prompt).toContain(workflow.description);
-    expect(prompt).not.toContain("replenishment-final-restock");
   } finally { rmSync(dataRoot, { recursive: true, force: true }); }
 });

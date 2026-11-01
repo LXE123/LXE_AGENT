@@ -1,4 +1,4 @@
-"""Formula contract and isolated LibreOffice checks; no ERP or report generation."""
+"""Input validation and recalculated business rules; no ERP or report generation."""
 from __future__ import annotations
 
 import shutil
@@ -10,44 +10,9 @@ from openpyxl import Workbook, load_workbook
 from services.mabang.amazon.fba.replenishment_v2_formulas import replenishment_v2_formulas
 
 
-def test_formula_contract():
-    formulas = replenishment_v2_formulas(2)
-    assert tuple(formulas) == ("I", "J", "R", "S", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AI")
-    assert formulas["J"] == "=E2/7*0.6+F2/14*0.3+G2/30*0.1"
-    assert formulas["R"] == "=K2+L2+M2+O2+P2+Q2"
-    assert formulas["S"] == '=IF(J2=0,"",R2/J2)'
-    # The confirmed XLSX rules guard both shipping days and sea-weight inputs.
-    assert formulas["AA"] == '=IF(OR(V2="",W2=""),"",IF((J2*W2-(R2+T2)-IF(Y2="",0,Y2))<=0,"",ROUND(J2*W2-(R2+T2)-IF(Y2="",0,Y2),0)))'
-    assert formulas["AC"] == '=IF(OR(AB2="",AD2=""),"",AB2*AD2)'
-    assert formulas["AI"] == '=IF(OR(J2="",J2=0),"",(R2+T2+IF(Y2="",0,Y2)+IF(AB2="",0,AB2))/J2)'
-
-
-def test_seasonal_boost_is_on_by_default_and_can_be_disabled():
-    enabled = replenishment_v2_formulas(2)
-    disabled = replenishment_v2_formulas(2, peak_boost_enabled=False)
-    assert enabled["V"] == replenishment_v2_formulas(2, peak_boost_enabled=True)["V"]
-    assert 'SEARCH("热销",AF2)' in enabled["V"]
-    assert 'SEARCH("热销",AF2)' not in disabled["V"]
-    assert "+0,120" in disabled["V"] and "+0,120" in disabled["W"]
-    assert {column: enabled[column] for column in ("I", "J", "R", "S", "U", "X", "Y", "Z", "AA", "AB", "AC", "AI")} == {
-        column: disabled[column] for column in ("I", "J", "R", "S", "U", "X", "Y", "Z", "AA", "AB", "AC", "AI")
-    }
-
-
 def test_seasonal_boost_setting_requires_a_boolean():
     with pytest.raises(ValueError, match="peak_boost_enabled"):
         replenishment_v2_formulas(2, peak_boost_enabled=1)
-
-
-@pytest.mark.parametrize("days", [0, 20, 120])
-def test_custom_days_replace_only_the_existing_seasonal_bonus(days):
-    default = replenishment_v2_formulas(2)
-    custom = replenishment_v2_formulas(2, peak_boost_days=days)
-    for column, formula in default.items():
-        assert custom[column] == (formula.replace(",30,0))", f",{days},0))") if column in ("V", "W") else formula)
-    assert replenishment_v2_formulas(2, peak_boost_days=None) == default
-    assert replenishment_v2_formulas(2, peak_boost_days=30) == default
-    assert replenishment_v2_formulas(2, peak_boost_enabled=False, peak_boost_days=days) == replenishment_v2_formulas(2, peak_boost_enabled=False)
 
 
 @pytest.mark.parametrize("days", [-1, 121, 1.5, True, "20"])

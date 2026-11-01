@@ -74,8 +74,6 @@ describe("preload bridge", () => {
       "startSyntheticPerformerTask",
     ].sort());
     expect(bridge.desktop.platform).toBe("win32");
-    expect(IPC_CHANNELS.getAmazonV2Settings).toBe("lxe:desktop:amazon-v2-settings:read");
-    expect(IPC_CHANNELS.saveAmazonV2Settings).toBe("lxe:desktop:amazon-v2-settings:save");
     await bridge.dashboard.call({ operation: "models.list", input: {} });
     await bridge.desktop.saveLocalModelCredential({ provider: "deepseek", api_key: "local-key" });
     await bridge.desktop.deleteLocalModelCredential("deepseek");

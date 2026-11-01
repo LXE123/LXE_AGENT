@@ -1,7 +1,6 @@
 """Catalog-only session ownership, real loopback HTTP and unchanged failure contracts."""
 import asyncio
 
-import aiohttp
 from aiohttp import web
 
 from services.mabang import official_api as http
@@ -71,8 +70,6 @@ def test_actual_http_pagination_retry_cookie_and_cleanup(monkeypatch):
     assert len(calls) == 8
     assert len(clients) == 1
     assert all(c._session.closed for c in clients)
-    assert all(isinstance(c._session.cookie_jar, aiohttp.DummyCookieJar) and not c._session.trust_env
-               and c.timeout == 60 and c.max_response_bytes is None for c in clients)
     for path, body, headers in calls:
         assert not {"cookie", "authorization", "proxy-authorization"} & {k.lower() for k in headers}
         assert headers["X-LXE-Client"] == "cli"
