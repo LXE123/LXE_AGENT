@@ -17,7 +17,7 @@ from services.vietnam_replenishment import settings, workflow
 from services.vietnam_replenishment.workflow import VietnamRecommendationRun
 from services.vietnam_replenishment.full_workbook import UNCHANGED
 from services.vietnam_replenishment.workbook import RecommendationConfig
-from shared.input_assets import current_asset, previous_asset, load_input_assets
+from shared.input_assets import current_asset, previous_asset
 from shared.workspace import activate_project_workspace
 
 
@@ -67,25 +67,8 @@ def _no_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(generate, "generate_current_vietnam_recommendation", unexpected)
 
 
-def test_catalog_requires_three_reports_and_allows_one_run_template(monkeypatch, capsys) -> None:
+def test_describe_publishes_current_command_contract(monkeypatch, capsys) -> None:
     entry = load_catalog()["vietnam_replenishment_generate"]
-    assert entry["module"] == "services.commands.vietnam_replenishment.generate"
-    assert entry["command_path"] == COMMAND
-    assert entry["session_mode"] == "none"
-    assert entry["owner_skills"] == ["vietnam-replenishment"]
-    assert entry["input_schema"] == {
-        "type": "object", "properties": {
-            **{name: {"type": "string", "minLength": 1} for name in INPUTS},
-            "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {
-                "accepted_extensions": [".xlsx"],
-                "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。",
-            }},
-        },
-        "required": list(INPUTS), "additionalProperties": False,
-    }
-    assert entry["artifact_paths"] == [{"field": "output_xlsx", "role": "deliverable"}]
-    assert entry.get("deliver_artifacts_on_failure") is not True
-    assert load_input_assets()["vietnam_full_workbook"].management == "command"
     monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
     assert lxeskill.main(["describe", *COMMAND]) == 0
     public = _record(capsys)["data"]

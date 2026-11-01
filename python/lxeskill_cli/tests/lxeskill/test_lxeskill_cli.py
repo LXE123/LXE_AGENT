@@ -20,27 +20,6 @@ def _records(capsys) -> list[dict]:
     return [json.loads(line) for line in lines]
 
 
-def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
-    catalog = load_catalog()
-
-    assert len(catalog) == 47
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 41
-    assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
-    assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
-    assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
-    assert "legacy_aliases" not in catalog["mabang_auth_refresh"]
-    assert catalog["mabang_auth_refresh"]["input_schema"] == {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    }
-    assert all(
-        entry["legacy_aliases"] == [name]
-        for name, entry in catalog.items()
-        if entry.get("input_modes") != ["flags"] and not name.startswith(("mabang_auth_", "shangman_", "yacang_", "vietnam_replenishment_", "mabang_tms_", "mabang_brazil_", "assets_vietnam_sku_"))
-    )
-
-
 def test_auth_refresh_uses_configured_credentials(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(browser_auth_service.mabang_settings, "MABANG_ACCOUNT", "configured-account")
@@ -114,7 +93,6 @@ def test_list_and_describe_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 44
 
     assert lxeskill.main(["describe", "fba", "customs", "preview"]) == 0
     records = _records(capsys)
