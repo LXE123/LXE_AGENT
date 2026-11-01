@@ -591,7 +591,6 @@ export class DesktopSetupService {
       LXE_MANAGED_LLM_CREDENTIAL_REVISION: managedCredential?.credential_revision ?? "",
       LXE_MANAGED_LLM_INVALID_REVISION: managedCredential?.invalid_revision ?? "",
       ...config.output_directories,
-      ZINIAO_REGISTER_PLANNER_TOOLS: ziniaoConfigured ? "1" : "0",
       ZINIAO_COMPANY: ziniaoConfigured ? ziniao.company : "",
       ZINIAO_USERNAME: ziniaoConfigured ? ziniao.username : "",
       ZINIAO_PASSWORD: ziniaoConfigured ? secrets.ziniao_password : "",

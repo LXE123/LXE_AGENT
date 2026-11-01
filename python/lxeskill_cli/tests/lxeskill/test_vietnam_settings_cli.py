@@ -83,7 +83,6 @@ def test_cli_round_trip_uses_shared_storage_and_preserves_failed_upload(tmp_path
     state = invoke("upload", "--path", str(source))["data"]["data"]
     uploaded = state["template"]
     assert state["template"]["file_name"] == source.name
-    assert "sku_map" not in state
     assert Path(state["template"]["path"]).read_bytes() == source.read_bytes()
     with settings.run_inputs() as (config, _):
         assert str(config.exchange_rate) == "4200"

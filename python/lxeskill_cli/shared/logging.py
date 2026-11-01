@@ -29,8 +29,6 @@ _BROWSER_AUTH_LOGGER_PREFIXES = (
 )
 _LOG_CONTEXT: ContextVar[tuple[str, str]] = ContextVar("lxe_agent_log_context", default=("", ""))
 
-logger = logging.getLogger("bot_logger")
-
 
 def get_logger(name: str | None = None) -> logging.Logger:
     safe_name = str(name or "").strip()
@@ -100,26 +98,6 @@ class _LoggerPrefixFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         name = str(record.name or "").strip()
         return any(name == prefix or name.startswith(f"{prefix}.") for prefix in self._prefixes)
-
-
-class _ConsoleAccessFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.name != "uvicorn.access":
-            return True
-        args = record.args
-        if not isinstance(args, tuple) or len(args) < 5:
-            return True
-        method = str(args[1] or "").strip().upper()
-        path = str(args[2] or "").partition("?")[0]
-        try:
-            status_code = int(args[4])
-        except (TypeError, ValueError):
-            return True
-        return not (
-            method == "GET"
-            and path == "/api/channels/health"
-            and 200 <= status_code < 300
-        )
 
 
 class _HumanReadableFormatter(logging.Formatter):
@@ -192,7 +170,6 @@ def _build_stderr_handler() -> logging.Handler:
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
     handler.setLevel(_console_level())
     handler.addFilter(_LogContextFilter())
-    handler.addFilter(_ConsoleAccessFilter())
     handler.setFormatter(_console_formatter())
     return handler
 
@@ -288,10 +265,6 @@ def setup_logging() -> None:
         root.addHandler(handler)
     root.setLevel(min(handler.level for handler in managed_handlers))
 
-    logger.propagate = True
-    logger.setLevel(logging.NOTSET)
-    _remove_managed_handlers(logger)
-
     for name in _THIRD_PARTY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
@@ -299,4 +272,4 @@ def setup_logging() -> None:
         logging.getLogger(name).setLevel(level)
 
 
-__all__ = ["get_logger", "logger", "reset_log_context", "set_log_context", "setup_logging"]
+__all__ = ["get_logger", "reset_log_context", "set_log_context", "setup_logging"]

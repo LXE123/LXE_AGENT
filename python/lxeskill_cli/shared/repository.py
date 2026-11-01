@@ -16,13 +16,8 @@ def _is_repository_root(candidate: Path) -> bool:
     )
 
 
-def find_repository_root(
-    start: str | Path | None = None,
-    *,
-    environment: Mapping[str, str] | None = None,
-) -> Path:
+def find_repository_root(start: str | Path | None = None) -> Path:
     """Locate a source checkout. Published runtimes must use explicit resource paths."""
-    del environment  # Retained only for source-call compatibility; generic roots are unsupported.
     origin = Path(start) if start is not None else Path(__file__)
     resolved = origin.expanduser().resolve()
     current = resolved if resolved.is_dir() else resolved.parent

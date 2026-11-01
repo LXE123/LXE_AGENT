@@ -119,7 +119,6 @@ describe("DesktopConfigStore", () => {
     }
     const environment = store.environment();
     expect(environment).toMatchObject({
-      ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
       LXE_FEISHU_GATEWAY_ENABLED: "1",
