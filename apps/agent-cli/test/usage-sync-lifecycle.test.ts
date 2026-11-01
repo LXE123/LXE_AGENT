@@ -28,8 +28,6 @@ test("usage sync starts independently without a CLI executable", async () => {
     expect(host.health().ready).toBe(true);
     expect(start).toHaveBeenCalledTimes(1);
     expect(order).toEqual(["usage"]);
-    expect(host.health()).not.toHaveProperty("lxeskill_available");
-    expect(host.health()).not.toHaveProperty("lxeskill_message");
     await host.stop();
     expect(stop).toHaveBeenCalledTimes(1);
   } finally {

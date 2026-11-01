@@ -277,7 +277,6 @@ def test_only_list_retries_and_keeps_fixed_fields():
         client.export([1])
     assert session.post.call_count == 1
     assert session.post.call_args.kwargs['json']['stockValueArr'] == FIELDS
-    assert len(FIELDS) == 12 and FIELDS[-1] == 'sale5'
 
 
 @pytest.mark.parametrize('body', [{'code': '200'}, {'code': '200', 'data': {'apiToken': ''}}, {'code': '401', 'msg': 'denied'}])

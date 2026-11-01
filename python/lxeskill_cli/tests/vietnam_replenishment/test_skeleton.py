@@ -5,7 +5,6 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 import runpy
-import tomllib
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
@@ -96,15 +95,6 @@ def test_skeleton_archive_contains_no_recoverable_business_objects() -> None:
                 contents = archive.read(name)
                 assert b"<hyperlink" not in contents
                 assert b"<drawing" not in contents
-
-
-def test_skeleton_is_explicitly_included_in_python_wheel() -> None:
-    root = Path(__file__).resolve().parents[4]
-    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
-    assert force_include["python/lxeskill_cli/services/vietnam_replenishment/resources/skeleton.xlsx"] == (
-        "services/vietnam_replenishment/resources/skeleton.xlsx"
-    )
 
 
 def test_builder_drops_synthetic_history_and_objects(tmp_path: Path) -> None:

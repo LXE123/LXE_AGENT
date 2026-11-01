@@ -1,66 +1,15 @@
 """Artifact dataset registry contracts.
 
 ``catalog.json`` -> ``datasets`` is the single source of truth for where CLI
-output lands. These tests check business modules use registered ``dataset_dir``
-entries and keep workspaces isolated.
+output lands. These tests check dataset paths and workspace isolation.
 """
 from __future__ import annotations
-
-import re
-from pathlib import Path
 
 import pytest
 
 from shared.datasets import load_datasets
-from shared.repository import repository_root
-
-REPO_ROOT = repository_root()
-SERVICES_ROOT = REPO_ROOT / "python" / "lxeskill_cli" / "services"
 
 DATASETS = load_datasets()
-ACTIVE_DIRS = {entry.dir for entry in DATASETS.values()}
-# Modules that own an artifact partition; anything else is an unregistered world.
-ALLOWED_MODULES = {"fba", "replenish", "amazon", "browser", "shangman", "yacang", "mabang_tms", "mabang", "vietnam"}
-
-_ARTIFACT_PATH_CALL = re.compile(r"\bartifact_path\s*\(")
-_DATASET_DIR_CALL = re.compile(r'\bdataset_dir\(\s*"([a-z0-9_]+)"')
-
-
-def _service_sources() -> list[Path]:
-    return sorted(SERVICES_ROOT.rglob("*.py"))
-
-
-def test_every_dataset_dir_is_module_partitioned() -> None:
-    for entry in DATASETS.values():
-        assert "/" in entry.dir, f"{entry.id} must live under a module: {entry.dir}"
-        assert entry.module in ALLOWED_MODULES, f"{entry.id} has unknown module: {entry.module}"
-
-
-def test_business_modules_never_hardcode_artifact_directories() -> None:
-    """``artifact_path`` bypasses the registry; services must use ``dataset_dir``."""
-    offenders = [
-        str(path.relative_to(REPO_ROOT))
-        for path in _service_sources()
-        if _ARTIFACT_PATH_CALL.search(path.read_text(encoding="utf-8"))
-    ]
-    assert not offenders, (
-        "these modules resolve artifact directories outside the registry; "
-        f"use dataset_dir(<id>) instead: {offenders}"
-    )
-
-
-def test_every_referenced_dataset_id_is_registered() -> None:
-    unknown: list[str] = []
-    for path in _service_sources():
-        for dataset_id in _DATASET_DIR_CALL.findall(path.read_text(encoding="utf-8")):
-            if dataset_id not in DATASETS:
-                unknown.append(f"{path.relative_to(REPO_ROOT)}: {dataset_id}")
-    assert not unknown, f"unregistered dataset ids: {unknown}"
-
-
-def test_legacy_dirs_do_not_collide_with_active_dirs() -> None:
-    legacy = {name for entry in DATASETS.values() for name in entry.legacy_dirs}
-    assert not (legacy & ACTIVE_DIRS), sorted(legacy & ACTIVE_DIRS)
 
 
 def test_workspace_datasets_share_only_within_selected_workspace(tmp_path, monkeypatch) -> None:

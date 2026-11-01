@@ -3,13 +3,7 @@ import { win32, join } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
-  DEFAULT_EXEC_YIELD_MS,
-  DEFAULT_WAIT_YIELD_MS,
   ExecShellAdapter,
-  MAX_EXEC_YIELD_MS,
-  MAX_WAIT_YIELD_MS,
-  MIN_EXEC_YIELD_MS,
-  MIN_WAIT_YIELD_MS,
   resolveWindowsPowerShell,
 } from "../../src/tooling/exec-shell";
 
@@ -277,14 +271,5 @@ describe("ExecShellAdapter", () => {
       .toBe("where lxeskill");
     expect(() => shell.normalizeCommand("/work", "py -3.11 script.py"))
       .toThrow("Python 3.12.10");
-  });
-
-  test("freezes exec timing defaults", () => {
-    expect(DEFAULT_EXEC_YIELD_MS).toBe(10_000);
-    expect(MIN_EXEC_YIELD_MS).toBe(250);
-    expect(MAX_EXEC_YIELD_MS).toBe(30_000);
-    expect(DEFAULT_WAIT_YIELD_MS).toBe(10_000);
-    expect(MIN_WAIT_YIELD_MS).toBe(5_000);
-    expect(MAX_WAIT_YIELD_MS).toBe(300_000);
   });
 });

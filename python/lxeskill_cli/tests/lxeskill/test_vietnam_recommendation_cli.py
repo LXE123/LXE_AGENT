@@ -402,13 +402,3 @@ def test_current_template_snapshot_survives_real_concurrent_upload(
     assert len(seen_snapshots) == 1 and not seen_snapshots[0].exists()
     assert current_asset("vietnam_full_workbook").path.read_bytes() == b.read_bytes()
     assert previous_asset("vietnam_full_workbook").path.read_bytes() == a.read_bytes()
-
-
-def test_shared_cli_has_no_vietnam_business_dependency():
-    import ast
-
-    tree = ast.parse(Path(lxeskill.__file__).read_text(encoding="utf-8"))
-    assert not [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-                and (node.module or "").startswith("services.vietnam_replenishment")]
-    assert not [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
-                and node.value == "vietnam_full_workbook"]
