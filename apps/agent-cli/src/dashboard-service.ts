@@ -493,7 +493,7 @@ export class DashboardService {
     for (const server of this.options.mcpConfig.servers) {
       const tools = this.options.tools.definitionsSnapshot()
         .filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map(payload);
-      groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools, servers: [this.mcpServer(server)] });
+      groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools });
     }
     return groups;
   }

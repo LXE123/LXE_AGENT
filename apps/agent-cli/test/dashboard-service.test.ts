@@ -453,6 +453,8 @@ describe("DashboardService", () => {
     expect(await call({ operation: "skills.content", input: { name: "demo" } })).toMatchObject({ content: expect.stringContaining("# Demo") });
     const toolsets = await call({ operation: "toolsets.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(toolsets.items.find((item) => item.name === "coding")).toMatchObject({ tools: [{ name: "demo_tool" }] });
+    expect(toolsets.items.find((item) => item.name === "mcp:inventory")).toMatchObject({ enabled: true, tools: [] });
+    expect(toolsets.items.every(item => !Object.hasOwn(item, "servers"))).toBe(true);
     const mcp = await call({ operation: "mcp.servers.list", input: {} }) as Record<string, unknown>;
     expect(mcp).toMatchObject({
       items: [{ connector_id: "inventory-connector", connector_name: "Inventory Connector", connector_description: "Reads inventory", tool_count: 7 }],

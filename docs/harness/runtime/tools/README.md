@@ -48,6 +48,7 @@ Definition 注册与模型可见是两个不同阶段。Registry 保存所有可
 - `exposure=deferred` 的工具先隐藏，命中 `tool_search` 后可见。
 - 有 `ownerSkills` 的工具要求至少一个 owner skill 已激活。
 - MCP 服务的启用状态由 MCP manager 管理。
+- Dashboard 工具页通过 `toolsets.list` 读取工具分组，连接页通过 `mcp.servers.list` 独立读取服务状态。启停后刷新两份查询；工具分组不携带服务器列表，停用或没有工具的服务仍可在连接页管理。
 
 平台过滤依据本轮任务来源，不根据会话最初来自哪里判断。Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的工具从下一 provider request 生效。
 

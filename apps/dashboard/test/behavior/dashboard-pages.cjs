@@ -24,8 +24,13 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.deepEqual(await js("Array.from(document.querySelectorAll('.workspace-subnav button')).map(e=>e.textContent)"), ['Skills', 'Tools', 'MCP services', 'Models']);
     await textClick('Tools', '.workspace-subnav');
     await waitFor("document.querySelector('.workspace-view-content')?.textContent.includes('fixture_lookup')", 'MCP tool in Tools');
+    assert.equal((await operations()).includes('mcp.servers.list'), false, 'Tools only reads the tool catalog');
+    const catalogReads = (await operations()).filter(op => op === 'toolsets.list').length;
     await textClick('MCP services', '.workspace-subnav');
     await waitFor("document.querySelector('.workspace-view-content')?.textContent.includes('Fixture server')", 'MCP server in MCP services');
+    assert.ok((await operations()).includes('mcp.servers.list'));
+    assert.equal((await operations()).filter(op => op === 'toolsets.list').length, catalogReads);
+    assert.equal(await js("document.querySelectorAll('.connection-row').length"), 2, 'disabled servers without tools remain visible');
     assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
     await textClick('Models', '.workspace-subnav');
     await waitFor("Boolean(document.querySelector('.model-card'))", 'models loaded');
@@ -77,7 +82,11 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     } finally { win.webContents.debugger.detach(); }
   });
   await step('MCP toggle blocks duplicate saves, rolls back errors and persists a retry', async () => {
-    await open('capabilities'); await textClick('MCP services', '.workspace-subnav');
+    await open('capabilities');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("document.body.textContent.includes('fixture_lookup')", 'cache tool catalog before toggle');
+    const catalogReads = (await operations()).filter(op => op === 'toolsets.list').length;
+    await textClick('MCP services', '.workspace-subnav');
     await js("behavior.ui.hold('mcp.servers.update');behavior.ui.fail('mcp.servers.update',true)");
     await textClick('Disable', '.workspace-view-content');
     assert.equal(await js("document.querySelector('.workspace-view-content button').disabled"), true);
@@ -88,6 +97,20 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("document.querySelector('.workspace-view-content button')?.textContent==='Enable'", 'MCP disabled');
     assert.deepEqual((await state()).calls.filter(c=>c.operation==='mcp.servers.update').map(c=>c.input),
       [{name:'fixture-server',enabled:false},{name:'fixture-server',enabled:false}]);
+    assert.equal((await operations()).filter(op => op === 'toolsets.list').length, catalogReads, 'inactive tool catalog is not fetched on toggle');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("Boolean(document.querySelector('.tools-catalog')) && !document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')", 'cached tools refreshed after MCP disable');
+    assert.ok((await operations()).filter(op => op === 'toolsets.list').length > catalogReads);
+    assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
+  });
+  await step('MCP list failures are shown independently of tool catalog data', async () => {
+    await open('capabilities');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("document.body.textContent.includes('fixture_lookup')", 'tool catalog loaded');
+    await js("behavior.ui.fail('mcp.servers.list',true)");
+    await textClick('MCP services', '.workspace-subnav');
+    await waitFor("document.querySelector('.connections-page')?.textContent.includes('EACCES: fixture mcp.servers.list denied')", 'MCP list error');
+    assert.equal(await js("document.querySelectorAll('.connection-row').length"), 0);
   });
   const settings = async () => { await open(); await click('.sidebar-settings-button'); await waitFor("Boolean(document.querySelector('.desktop-settings-modal'))", 'settings dialog'); };
   await step('sidebar, onboarding and fatal recovery load the same bundled application logo', async () => {

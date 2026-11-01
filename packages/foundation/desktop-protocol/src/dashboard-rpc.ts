@@ -373,7 +373,6 @@ export type ToolsetPayload = {
   label: string;
   enabled: boolean;
   tools: ToolPayload[];
-  servers?: McpServerPayload[];
 };
 
 export type McpServerListPayload = ApiList<McpServerPayload> & {

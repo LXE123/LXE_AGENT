@@ -42,6 +42,9 @@ export const dashboardQueryKeys = {
   tools: {
     all: ["tools"] as const,
   },
+  mcpServers: {
+    all: ["mcp-servers"] as const,
+  },
   commands: {
     all: ["commands"] as const,
   },
