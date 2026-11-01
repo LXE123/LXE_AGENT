@@ -18,9 +18,7 @@
 
 Skill 可以根据任务需要，向模型介绍 Electron、lxeskillCLI 等模块的内部结构、实现细节、数据组织和操作方法。这些说明属于工作上下文，本身不构成程序模块之间的耦合，也不改变各模块的职责和数据归属。模型按任务使用通用 Tool 时，遵循任务要求和执行权限。
 
-编写 Skill 时，优先讲清输入、依赖和正确执行路径，不要针对每次误判不断追加禁止事项。
-
-审查 Skill 时关注指引是否准确、是否有助于任务；实现变化后同步更新相关指引。审查程序模块依赖时，关注生产代码是否绕过约定接口、直接依赖其他模块的内部实现或存储结构。
+编写 Skill 时，优先讲清输入、依赖和正确执行路径，不要针对每次误判不断追加禁止事项。审查 Skill 时关注指引是否准确、是否有助于任务；实现变化后同步更新相关指引。审查程序模块依赖时，关注生产代码是否绕过约定接口、直接依赖其他模块的内部实现或存储结构。
 
 ## 红线（违反 = 生产事故）
 
@@ -38,47 +36,22 @@ When you receive an instruction:
 2. If the instruction is ambiguous, ask for clarification.
 3. Otherwise, carry out the instruction.
 
-## 工具链
+## 工具链与验证
 
-- **依赖管理与源码开发**：Python 使用 `uv`，不直接用 pip 管理依赖；JS/TS 使用 `bun`，不使用 npm/yarn 管理依赖。安装分别执行 `uv sync --frozen` 和 `bun install --frozen-lockfile`，依赖版本以声明文件和 lockfile 为准。
-- **运行时调用**：按被调用程序的接口要求执行。上面的开发工具约定不禁止产品使用 Node.js、随包 Python 或其他运行时，例如 Kit CLI 使用独立 Node.js；不要为了统一开发工具而改写已有运行接口。
+- **依赖管理与源码开发**：Python 使用 `uv`（不直接用 pip 管理依赖）；JS/TS 使用 `bun`（不使用 npm/yarn 管理依赖）。安装分别执行 `uv sync --frozen` 和 `bun install --frozen-lockfile`，依赖版本以声明文件和 lockfile 为准。
+- **运行时调用**：按被调用程序的接口要求执行。上面的开发工具约定不禁止产品使用 Node.js、随包 Python 或其他运行时（例如 Kit CLI 使用独立 Node.js）；不要为了统一开发工具而改写已有运行接口。
+- **Windows 编辑安全**：修改含中文、emoji 或其他非 ASCII 文本的文件时，优先使用宿主内置文件编辑工具；若必须用脚本处理，使用 `uv run --frozen python -X utf8` 显式指定 UTF-8 读写。**严禁**使用 PowerShell 做临时性的整文件重写或重定向（会损坏编码、破坏字符串和 docstring）。
+- **测试与验证路径**：测试必须从仓库根目录运行（从子目录运行会因相对路径假失败）。
+  - Python 定向测试：`uv run --frozen pytest <测试文件或目录>`
+  - JS/TS 定向测试：`bun test <测试文件或目录>`
+  - 命令契约联动测试：agentcli 的统计适配通过 `lxeskill list` 查询命令归属。修改命令契约时，两端定向测试都要跑：`uv run --frozen pytest python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra` 加 `bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts`。
+- **警惕假通过（验证必须拿真实结果）**：管道会吞掉退出码（`cmd | tail` 的退出码是 tail 的，不是 cmd 的——用 `set -o pipefail` 或先落盘再查 `$?`）；扫描类校验匹配到空集也会"通过"（cwd 漂移、glob 写错时扫了 0 个文件照样报绿）。报告通过之前，先确认命令真的执行了、扫描真的扫到了东西。
+- **验证范围**：按改动的实际影响范围完成必要验证，局部改动优先做定向检查；影响广泛或难以界定时再扩大验证范围，必要时运行全量验证。合并前确认验证仍适用于当前代码和最新基线，避免无变化的重复验证。
 - **Obsidian 协作**：需要访问 Obsidian 时，先发现当前机器上的 CLI 路径，并用 `obsidian vaults` 确认 Vault，不要写死安装位置或笔记目录。若 CLI 已安装且应用正在运行，但沙箱因看不到应用 IPC 而误报未运行，申请在沙箱外执行，并将命令前缀限制为实际 CLI 路径；若未安装或未启用 CLI，明确说明，并在已知 Vault 路径时回退为直接读写 Markdown，否则询问用户。默认只读；只有用户明确要求维护笔记时才执行写操作，不执行 `eval` 或插件管理命令。
-- 测试必须从仓库根运行，Python 定向测试使用 `uv run --frozen pytest <测试文件或目录>`。从子目录运行会因相对路径假失败。
-- **验证必须拿真实结果，警惕假通过**：管道会吞掉退出码（`cmd | tail` 的退出码是 tail 的，不是 cmd 的——用 `set -o pipefail` 或先落盘再查 `$?`）；扫描类校验匹配到空集也会"通过"（cwd 漂移、glob 写错时扫了 0 个文件照样报绿）。报告通过之前，先确认命令真的执行了、扫描真的扫到了东西。
-- agentcli 的统计适配通过 `lxeskill list` 查询命令归属。修改命令契约时，两端定向测试都要跑：`uv run --frozen pytest python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra` 加 `bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts`。
-- 按改动的实际影响范围完成必要验证，局部改动优先做定向检查；影响广泛或难以界定时，再扩大验证范围，必要时运行全量验证。合并前确认验证仍适用于当前代码和最新基线，避免无变化的重复验证。
 
-## 开发与 PR 流程
+## 开发、PR 与文档规范
 
-- 所有仓库改动在任务分支完成，通过 PR 合并到 `main`。主工作区保持在 `main`，用于同步和检查。
-- AI 根据任务情况选择合适的工作区；需要独立 worktree 时，通过 `scripts/wt-claim` 或 Windows 版本 `scripts/wt-claim.ps1` 领取和归还，不占用其他任务的工作区。用法见 [worktree 脚本说明](scripts/README.md#worktree-池)。
-- 修改和提交前检查 `git status`，保护已有改动，只提交当前任务涉及的内容。
-- 按改动范围完成必要验证，并遵循 [PR 审查规范](docs/pr-review.md)。AI 说明实际验证结果和未确认事项；需要人工审核的改动，经审核通过后合并。
-- 修改已提交、推送并创建 PR 后，可以归还干净的 worktree，保留任务分支；需要继续修改时重新领取。
-- AI 代为合并 PR 时，需要已有明确授权。
-
-## Windows 编辑安全
-
-- 在 Windows 上，**不要**对含中文、emoji 或其他非 ASCII 文本的 Python 文件做临时性的 PowerShell 整文件重写——会损坏编码、破坏字符串和 docstring。
-
-## commit 规范
-
-- commit 备注用英语，按以下类型开头：
-
-| 类型 | 说明 | 版本选择参考 |
-| :--- | :--- | :--- |
-| **feat** | 新增功能 (Feature) | `Minor` |
-| **fix** | 修复 Bug | `Patch` |
-| **docs** | 仅文档修改 | 无 |
-| **style** | 不影响代码含义的修改（空格、格式化、分号等） | 无 |
-| **refactor** | 代码重构（既不是修复 Bug 也不是新增功能） | 无 |
-| **perf** | 提高性能的修改 | `Patch` |
-| **test** | 添加或修改测试用例 | 无 |
-| **chore** | 构建过程或辅助工具的变动（如更新依赖） | 无 |
-| **ci** | 持续集成配置文件或脚本的变动 | 无 |
-
-版本列仅供发布时参考，不表示每个 commit 都要升级版本。正式版本和更新说明由发布者在 `config/desktop-release.json` 中显式设置；commit 类型不会自动递增版本。详见 [Windows 更新与发布](docs/desktop/updates.md)。
-
-## DOCS 规范
-
-- 如果编写文档，分清主次，重点多讲，细枝末节少讲，多用大白话。
+- **分支与 Worktree**：所有仓库改动在任务分支完成，通过 PR 合并到 `main`。主工作区保持在 `main` 用于同步和检查。需要独立 worktree 时，通过 `scripts/wt-claim`（Windows 为 `scripts/wt-claim.ps1`）领取和归还，不占用其他任务的工作区，用法见 [worktree 脚本说明](scripts/README.md#worktree-池)。
+- **提交与 PR 审查**：修改和提交前检查 `git status`，保护已有改动，只提交当前任务涉及的内容。遵循 [PR 审查规范](docs/pr-review.md)，说明实际验证结果和未确认事项；需要人工审核的改动，经审核通过后合并。修改已提交、推送并创建 PR 后，可以归还干净的 worktree 并保留任务分支；需要继续修改时重新领取。AI 代为合并 PR 需有明确授权。
+- **Commit 规范**：使用英文，遵循 Conventional Commits 格式（允许类型：`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`）。Commit 类型不会自动递增版本号；正式版本和更新说明由发布者在 `config/desktop-release.json` 中显式设置（详见 [Windows 更新与发布](docs/desktop/updates.md)）。
+- **文档规范**：编写文档时分清主次，重点多讲，细枝末节少讲，多用大白话。
