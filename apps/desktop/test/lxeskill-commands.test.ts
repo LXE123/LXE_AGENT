@@ -23,7 +23,7 @@ test("desktop gets its command listing from the public CLI", async () => {
       executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
       environment: { ...process.env, LXE_DATA_ROOT: dataRoot },
     });
-    expect(datasets.datasets).toContainEqual(expect.objectContaining({ id: "replenish_v2", dir: "replenish/final_restock_recommendation" }));
+    expect(datasets.datasets).toContainEqual(expect.objectContaining({ id: "replenish_v2", dir: "replenish/v2" }));
   } finally { rmSync(dataRoot, { recursive: true, force: true }); }
 });
 

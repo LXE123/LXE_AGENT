@@ -405,7 +405,7 @@
     "replenish_sales_analysis": {"dir": "replenish/sales_analysis", "holds": "店铺 MSKU 销量分析结果 Excel。", "legacy_dirs": ["mabang_store_msku_analysis"]},
     "replenish_actual_inventory": {"dir": "replenish/actual_inventory", "holds": "真实库存报表 Excel（含深圳仓库口径）。", "legacy_dirs": ["mabang_store_msku_inventory"]},
     "replenish_calculation": {"dir": "replenish/calculation", "holds": "补货计算结果 Excel。", "legacy_dirs": ["mabang_store_msku_replenishment"]},
-    "replenish_v2": {"dir": "replenish/final_restock_recommendation", "holds": "Amazon V2备货 35 列 mskulist XLSX（离线生成）。"},
+    "replenish_v2": {"dir": "replenish/v2", "holds": "Amazon V2备货 35 列 mskulist XLSX（离线生成）。"},
     "replenish_algorithm_templates": {"dir": "replenish/algorithm_templates", "holds": "备货算法参数方案：templates.json 为自定义方案存档，editable/ 为用户可编辑的 xlsx。用户资产，勿随产物清理。", "legacy_dirs": ["mabang_replenishment_templates"]},
     "replenish_fba_inventory_snapshots": {"dir": "replenish/fba_inventory_snapshots", "holds": "亚马逊 FBA 库存快照。", "legacy_dirs": ["amazon_fba_inventory_snapshots"]},
     "replenish_restock_inventory_snapshots": {"dir": "replenish/restock_inventory_snapshots", "holds": "亚马逊补货库存快照 Excel。", "legacy_dirs": ["amazon_restock_inventory_snapshots"]},

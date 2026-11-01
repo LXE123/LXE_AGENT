@@ -15,6 +15,11 @@ def test_seasonal_boost_setting_requires_a_boolean():
         replenishment_v2_formulas(2, peak_boost_enabled=1)
 
 
+def test_enabled_boost_requires_days():
+    with pytest.raises(ValueError, match="peak_boost_days"):
+        replenishment_v2_formulas(2, peak_boost_enabled=True)
+
+
 @pytest.mark.parametrize("days", [-1, 121, 1.5, True, "20"])
 def test_formula_rejects_invalid_custom_days(days):
     with pytest.raises(ValueError, match="peak_boost_days"):
@@ -114,7 +119,10 @@ for source, target in (("X", "Y"), ("AA", "AB")):
         CASES.append((f"round-{target}-{quantity}", {source: quantity}, {target: expected}))
 
 
-CASES = [(name, inputs, expected, {}) for name, inputs, expected in CASES]
+CASES = [(name, inputs, expected, {"peak_boost_enabled": True, "peak_boost_days": 30})
+         for name, inputs, expected in CASES]
+CASES.append(("boost-off-by-default", {"I": "平稳", "J": 11, "S": 80, "AF": "热销"},
+              {"V": 90, "W": 95}, {}))
 for enabled, days, remark, expected in [
     (False, 20, "热销", (90, 95)), (True, 20, "热销", (110, 115)),
     (True, 0, "热销", (90, 95)), (True, 120, "热销", (120, 120)),
@@ -148,7 +156,7 @@ def recalculated_cases(tmp_path_factory):
     book.close()
     output = root / "recalculated"
     output.mkdir()
-    # Validation oracle only. Production Office execution belongs to PR2.
+    # Use real LibreOffice evaluation instead of comparing formula text.
     result = subprocess.run(
         [executable, f"-env:UserInstallation={(root / 'profile').as_uri()}", "--headless",
          "--convert-to", "xlsx", "--outdir", str(output), str(source)],

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import os
 from pathlib import Path
 from shutil import copyfile
 import subprocess
@@ -379,41 +380,48 @@ def test_inventory_number_parser_preserves_unknown_and_signed_values():
         v2_workbook._optional_number("NaN", context="深圳库存", allow_negative=True)
 
 
-@pytest.mark.parametrize("saved,override,enabled,days", [
-    ((False, None), {}, False, 0),
-    ((True, 20), {}, True, 20),
-    ((False, 20), {"peak_boost_enabled": True}, True, 20),
-    ((True, 20), {"peak_boost_enabled": False, "peak_boost_days": 40}, False, 40),
-    ((False, None), {"peak_boost_days": 15}, True, 15),
+@pytest.fixture
+def office_runtime():
+    if not os.environ.get("LXE_OFFICE_NODE") or not os.environ.get("LXE_OFFICE_CLI"):
+        pytest.skip("Office Kit is not configured; real recalculation remains NOT VERIFIED")
+
+
+@pytest.mark.parametrize("saved,override,expected_days", [
+    ((False, None), {}, (90, 95)),
+    ((True, 20), {}, (110, 115)),
+    ((False, 20), {"peak_boost_enabled": True}, (110, 115)),
+    ((True, 20), {"peak_boost_enabled": False, "peak_boost_days": 40}, (90, 95)),
+    ((False, None), {"peak_boost_days": 15}, (105, 110)),
 ])
-def test_saved_settings_and_chat_override_change_only_this_run(tmp_path, monkeypatch, saved, override, enabled, days):
+def test_saved_settings_and_chat_override_change_only_this_run(tmp_path, office_runtime, saved, override, expected_days):
     parameters = dict(zip(("peak_boost_enabled", "peak_boost_days"), saved))
     settings.save_parameters(parameters)
-    monkeypatch.setattr(v2_workbook, "_recalculate", copyfile)
-    monkeypatch.setattr(v2_workbook, "_inspect_recalculated", lambda *_a, **_k: (0, ()))
-    result = _generate(tmp_path, **override)
-    book = load_workbook(result.output_xlsx_path)
-    expected = replenishment_v2_formulas(2, peak_boost_enabled=enabled, peak_boost_days=days)
+    rows = _source_rows()
+    rows[0]["备注"] = "热销"
+    source = _write_source(tmp_path / "202610131000-Amazon-Test_店铺MSKU数据.xlsx", rows)
+    result = _generate(tmp_path, source_path=source, **override)
+    book = load_workbook(result.output_xlsx_path, data_only=True)
     try:
-        assert [book.active[f"{col}2"].value for col in ("V", "W")] == [expected["V"], expected["W"]]
+        assert tuple(book.active[f"{col}2"].value for col in ("V", "W")) == expected_days
     finally:
         book.close()
     assert settings.read_state() == parameters
 
 
-def test_running_generation_uses_its_settings_snapshot(tmp_path, monkeypatch):
+def test_running_generation_uses_its_settings_snapshot(tmp_path, monkeypatch, office_runtime):
     settings.save_parameters({"peak_boost_enabled": True, "peak_boost_days": 20})
     write_book = v2_workbook._write_workbook
     def change_setting_then_write(path, rows, **parameters):
         settings.save_parameters({"peak_boost_enabled": True, "peak_boost_days": 40})
         write_book(path, rows, **parameters)
     monkeypatch.setattr(v2_workbook, "_write_workbook", change_setting_then_write)
-    monkeypatch.setattr(v2_workbook, "_recalculate", copyfile)
-    monkeypatch.setattr(v2_workbook, "_inspect_recalculated", lambda *_a, **_k: (0, ()))
-    result = _generate(tmp_path)
-    book = load_workbook(result.output_xlsx_path)
+    rows = _source_rows()
+    rows[0]["备注"] = "热销"
+    source = _write_source(tmp_path / "202610131000-Amazon-Test_店铺MSKU数据.xlsx", rows)
+    result = _generate(tmp_path, source_path=source)
+    book = load_workbook(result.output_xlsx_path, data_only=True)
     try:
-        assert book.active["V2"].value == replenishment_v2_formulas(2, peak_boost_days=20)["V"]
+        assert (book.active["V2"].value, book.active["W2"].value) == (110, 115)
     finally:
         book.close()
     assert settings.read_state()["peak_boost_days"] == 40

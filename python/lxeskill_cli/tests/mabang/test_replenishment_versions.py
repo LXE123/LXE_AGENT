@@ -145,7 +145,7 @@ def test_same_batch_supports_independent_version_cli_results(tmp_path, monkeypat
         assert v2["files"] == []
         if scenario == "invalid-shipments":
             assert "SEA-1" in v2["error"]["message"]
-            assert not list((artifacts / "final_restock_recommendation").glob("*.xlsx"))
+            assert not list((artifacts / "v2").glob("*.xlsx"))
     else:
         assert v2_code == 0 and v2["ok"] is True
         assert v2["data"]["unknown_inventory_count"] == 0

@@ -57,7 +57,7 @@ describe("Dashboard information architecture", () => {
     }, "skills").workbenchView).toBe("amazon-v2-settings");
     expect(dashboardRouteFromHistory({
       section: "workbench",
-      workbenchView: "amazon-final-restock-settings",
+      workbenchView: "unknown",
     }, "skills").workbenchView).toBe("index");
   });
 

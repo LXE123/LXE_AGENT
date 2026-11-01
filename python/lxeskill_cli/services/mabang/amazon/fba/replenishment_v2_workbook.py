@@ -385,7 +385,7 @@ def _rows_for_workbook(
 
 
 def _write_workbook(
-    path: Path, rows: list[dict[str, Any]], *, peak_boost_enabled: bool = True, peak_boost_days: int | None = None,
+    path: Path, rows: list[dict[str, Any]], *, peak_boost_enabled: bool = False, peak_boost_days: int | None = None,
 ) -> None:
     workbook = Workbook()
     worksheet = workbook.active
@@ -543,8 +543,6 @@ def generate_replenishment_v2(
     days = settings["peak_boost_days"] if peak_boost_days is None else peak_boost_days
     if enabled and days is None:
         raise ValueError("启用旺季加成时必须填写加成天数（0～120的整数），或在本轮聊天中指定")
-    # Pass a concrete value to the existing formula helper; never use its legacy 30-day default.
-    days = 0 if days is None else days
     replenishment_v2_formulas(2, peak_boost_enabled=enabled, peak_boost_days=days)
     settings = {"peak_boost_enabled": enabled, "peak_boost_days": days}
     source_path = _path(msku_source_xlsx_path, label="MSKU 源文件")
