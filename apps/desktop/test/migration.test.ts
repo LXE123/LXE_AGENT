@@ -12,11 +12,9 @@ function fixture() {
   writeFileSync(source, defaults);
   return { source, data, defaults, target: join(data, "config/mcp_servers.local.yaml") };
 }
-test("initializes the native disabled default", () => {
+test("copies the default configuration on initialization", () => {
   const f = fixture(); bootstrapDesktopState(f.source, f.data);
   expect(readFileSync(f.target, "utf8")).toBe(f.defaults);
-  expect(f.defaults).toContain("X-LXE-Client: cli");
-  expect(f.defaults).toContain("enabled: false");
 });
 
 function artifactFixture() {

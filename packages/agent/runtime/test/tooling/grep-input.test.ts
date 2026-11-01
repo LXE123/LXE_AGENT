@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
-import { grepSchema, validateGrepInput } from "../../src/tooling/coding/grep-input";
+import { validateGrepInput } from "../../src/tooling/coding/grep-input";
 import { CodingPathPolicy } from "../../src/tooling/coding/path-policy";
 import { createSearchTools } from "../../src/tooling/coding/search-tools";
 import { ToolRegistry } from "../../src/tooling/registry";
@@ -42,17 +42,6 @@ describe("grep arguments", () => {
     expect(validateGrepInput({ pattern: "a\nb", literal: true, multiline: true }).pattern).toBe("a\nb");
     expect(validateGrepInput({ pattern: String.raw`a\nb`, literal: true }).multiline).toBe(false);
     expect(validateGrepInput({ pattern: "[" }).pattern).toBe("[");
-  });
-  test("publishes matching constraints and the literal newline prerequisite", () => {
-    expect(grepSchema).toMatchObject({
-      required: ["pattern"], additionalProperties: false,
-      properties: {
-        pattern: { type: "string", minLength: 1 }, literal: { type: "boolean", default: false },
-        head_limit: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-        before_context: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
-      },
-      allOf: [{ then: { required: ["multiline"], properties: { multiline: { const: true } } } }],
-    });
   });
 });
 

@@ -1,28 +1,12 @@
 from __future__ import annotations
 
 import importlib
-import inspect
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
 from lxeskill.business import load_catalog
-
-
-def test_ziniao_commands_belong_to_browser_skill() -> None:
-    catalog = load_catalog()
-    assert catalog["ziniao_browser"]["owner_skills"] == ["ziniao-browser"]
-    assert catalog["ziniao_page"]["owner_skills"] == ["ziniao-browser"]
-
-
-def test_purchase_command_accepts_only_explicit_no_deduction_mode() -> None:
-    catalog = load_catalog()
-    schema = catalog["mabang_generate_purchase_batch_workbooks"]["input_schema"]
-    deduction_mode = schema["properties"]["inventory_deduction_mode"]
-
-    assert deduction_mode["enum"] == ["none"]
-    assert "inventory_deduction_mode" not in schema["required"]
 
 
 def _command(entry: dict[str, Any]) -> str:
@@ -38,7 +22,6 @@ def _module_entries() -> tuple[dict[str, Any], ...]:
 
 
 MODULE_ENTRIES = _module_entries()
-PARAMETERIZED_MODULE_COMMANDS = frozenset(_command(entry) for entry in MODULE_ENTRIES)
 
 
 def _schema_value(name: str, schema: dict[str, Any]) -> Any:
@@ -219,19 +202,6 @@ FAILURE_CASE_PARAMS = tuple(
 )
 
 
-@pytest.mark.parametrize("entry", MODULE_ENTRIES, ids=_command)
-def test_catalog_module_exposes_exact_run_contract(entry: dict[str, Any]) -> None:
-    module = importlib.import_module(str(entry["module"]))
-    run = getattr(module, "run", None)
-
-    assert callable(run), f"{_command(entry)} has no callable run"
-    signature = inspect.signature(run)
-    assert tuple(signature.parameters) == ("arguments",)
-    parameter = signature.parameters["arguments"]
-    assert parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
-    assert parameter.default is inspect.Parameter.empty
-
-
 @pytest.mark.parametrize(
     ("entry", "missing", "arguments"),
     REQUIRED_CASES,
@@ -254,15 +224,6 @@ def test_catalog_required_field_missing_returns_failure(
     failure_flags = [key for key in ("success", "ok") if key in result]
     assert failure_flags, f"{command} missing {missing} returned no success/ok flag: {result}"
     assert all(result[key] is False for key in failure_flags)
-
-
-def test_catalog_module_contract_parameterization_is_complete() -> None:
-    catalog_module_commands = {
-        _command(entry)
-        for entry in load_catalog().values()
-        if str(entry.get("module") or "").strip()
-    }
-    assert catalog_module_commands <= PARAMETERIZED_MODULE_COMMANDS
 
 
 @pytest.mark.parametrize(

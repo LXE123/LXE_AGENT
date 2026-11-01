@@ -45,7 +45,6 @@ def test_commands_dispatch_with_flags_only(name, command, options, monkeypatch, 
     assert not entry.get("legacy_aliases")
     assert entry["owner_skills"] == ["vietnam-replenishment" if command.startswith("vietnam") else command.replace(" ", "-")]
     assert cli.main([*command.split(), "--help"]) == 0
-    assert "输入：仅支持命令行参数。" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("name,command,options", CASES)

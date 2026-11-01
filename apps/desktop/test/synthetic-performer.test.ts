@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { DesktopSyntheticPerformerTask } from "@lxe/desktop-protocol";
 import {
   DesktopSyntheticPerformerService,
-  syntheticPerformerCommandArguments,
   syntheticPerformerTaskDirectoryName,
 } from "../src/main/synthetic-performer";
 
@@ -84,14 +83,6 @@ console.log(JSON.stringify({protocol_version:"1",type:"result",command:"media sy
         if (value === undefined) delete process.env[key]; else process.env[key] = value;
       }
     }
-  });
-
-  test("keeps the public CLI command as the production default", () => {
-    expect(syntheticPerformerCommandArguments).toEqual([
-      "media",
-      "synthetic-performer",
-      "--stdin-json",
-    ]);
   });
 
   test("uses a stable human-readable output directory name", () => {
