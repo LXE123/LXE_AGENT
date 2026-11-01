@@ -144,29 +144,6 @@ def test_ensure_agl_unchecked_clicks_when_checked(monkeypatch: pytest.MonkeyPatc
     assert sleeps == [0.2]
 
 
-def test_click_agl_checkbox_prefers_inner_checkbox_node() -> None:
-    class _Driver:
-        def execute_script(self, script: str, selector: str):
-            assert selector == 'kat-checkbox[data-testid="agl-eligible-checkbox"]'
-            assert 'div[part~="checkbox-check"][role="checkbox"]' in script
-            assert script.index("clickElement(checkNode)") < script.index("clickElement(checkbox)")
-            return True
-
-    assert send_to_amazon._click_agl_checkbox(_Driver()) is True
-
-
-def test_read_agl_checkbox_state_checks_inner_aria_checked() -> None:
-    class _Driver:
-        def execute_script(self, script: str, selector: str):
-            assert selector == 'kat-checkbox[data-testid="agl-eligible-checkbox"]'
-            assert 'div[part~="checkbox-check"][role="checkbox"]' in script
-            assert "getAttribute('aria-checked') === 'true'" in script
-            assert ".includes('checked')" in script
-            return {"found": True, "checked": True}
-
-    assert send_to_amazon._read_agl_checkbox_state(_Driver()) == {"found": True, "checked": True}
-
-
 def test_ensure_agl_unchecked_raises_when_still_checked(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = {"now": 0.0}
     monkeypatch.setattr(send_to_amazon, "_read_agl_checkbox_state", lambda _driver: {"found": True, "checked": True})

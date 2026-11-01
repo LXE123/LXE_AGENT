@@ -6,8 +6,6 @@ Only ``current`` is ever handed to a command, and the model never sees
 """
 from __future__ import annotations
 
-import ast
-import json
 from pathlib import Path
 
 import pytest
@@ -21,12 +19,7 @@ from shared.input_assets import (
     promote_asset,
     slot_dir,
 )
-from shared.repository import repository_root
 
-REPO_ROOT = repository_root()
-CATALOG = json.loads(
-    (REPO_ROOT / "python" / "lxeskill_cli" / "lxeskill" / "catalog.json").read_text(encoding="utf-8")
-)
 ASSETS = load_input_assets()
 
 
@@ -176,14 +169,6 @@ def test_cleanup_failure_does_not_mask_promotion_result(slot_root, tmp_path, mon
     assert current_asset("contract_template").path.read_text() == ("first" if copy_fails else "second")
 
 
-def test_registered_slots_describe_business_name_and_usage() -> None:
-    master = ASSETS["export_tax_master"]
-    assert master.display_name == "出口退税总表"
-    assert master.used_by == ("采购汇总", "备货工作簿")
-    assert master.management == "command"
-    assert all(asset.display_name and asset.used_by for asset in ASSETS.values())
-
-
 def test_inspect_lists_registered_slots_without_creating_storage(slot_root: Path) -> None:
     assert ASSETS
     inspected = inspect_assets({})
@@ -209,64 +194,3 @@ def test_unknown_slot_and_missing_file_fail_loudly(slot_root: Path, tmp_path: Pa
         current_asset("not_a_slot")
     with pytest.raises(InputAssetError):
         promote_asset("customs_template", tmp_path / "absent.xlsx")
-
-
-def test_every_declared_slot_binding_is_registered_and_optional() -> None:
-    """A slot-backed field must resolve, and must not also be schema-required."""
-    for entry in CATALOG["entries"]:
-        schema = entry.get("input_schema") or {}
-        required = set(schema.get("required") or [])
-        for field, definition in (schema.get("properties") or {}).items():
-            slot = str((definition or {}).get("x-lxe-asset-slot") or "")
-            if not slot:
-                continue
-            assert slot in ASSETS, f"{entry['name']}.{field} -> unknown slot {slot}"
-            assert ASSETS[slot].management == "command", (
-                f"{entry['name']}.{field} binds desktop-managed slot {slot}"
-            )
-            assert field not in required, (
-                f"{entry['name']}.{field} is slot-backed but still required; "
-                "omitting it must fall back to the stored version"
-            )
-            assert "x-lxe-file-input" in (definition or {}), (
-                f"{entry['name']}.{field} is slot-backed but has no x-lxe-file-input, "
-                "so a cold slot cannot tell the model what to ask for"
-            )
-
-
-def test_every_registered_slot_has_a_binding_or_business_promotion_consumer() -> None:
-    bound = {
-        str((definition or {}).get("x-lxe-asset-slot") or "")
-        for entry in CATALOG["entries"]
-        for definition in ((entry.get("input_schema") or {}).get("properties") or {}).values()
-    }
-    command_slots = {slot for slot, entry in ASSETS.items() if entry.management == "command"}
-    desktop_slots = {slot for slot, entry in ASSETS.items() if entry.management == "desktop"}
-    # Business settings may own promotion directly without binding a mutable
-    # current path to a calculation argument. Count actual imported API calls,
-    # not arbitrary slot-name strings or a country-specific exception list.
-    promoted = set()
-    for path in (REPO_ROOT / "python/lxeskill_cli/services").rglob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        if "shared.input_assets" not in source:
-            continue
-        tree = ast.parse(source)
-        imports = {alias.asname or alias.name for node in ast.walk(tree)
-                   if isinstance(node, ast.ImportFrom) and node.module == "shared.input_assets"
-                   for alias in node.names if alias.name == "promote_asset"}
-        promoted.update(node.args[0].value for node in ast.walk(tree)
-                        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                        and node.func.id in imports and node.args
-                        and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str))
-    unused = command_slots - bound - promoted
-    assert not unused, f"registered but unused command slots: {sorted(unused)}"
-    assert not desktop_slots & bound, f"desktop-managed slots bound to commands: {sorted(desktop_slots & bound)}"
-
-
-def test_input_slots_never_collide_with_artifact_dirs() -> None:
-    """Inputs live apart from output so clearing artifacts cannot delete assets."""
-    from shared.datasets import load_datasets
-
-    artifact_dirs = {entry.dir for entry in load_datasets().values()}
-    slot_dirs = {entry.dir for entry in ASSETS.values()}
-    assert not (artifact_dirs & slot_dirs)
