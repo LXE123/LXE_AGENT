@@ -21,7 +21,7 @@
 
 ## 本地开发
 
-在仓库根目录安装锁定的 Bun 和 uv 依赖，版本来源为 [package.json](../../package.json)、[pyproject.toml](../../pyproject.toml) 和锁文件。macOS 还需要独立 Node.js >=22.19，Windows 使用准备脚本提供的私有 Node。每个 checkout 和 worktree 使用自己的 `.venv`，具体约定见 [AGENTS.md](../../AGENTS.md#工具链)。
+在仓库根目录安装锁定的 Bun 和 uv 依赖，版本来源为 [package.json](../../package.json)、[pyproject.toml](../../pyproject.toml) 和锁文件。macOS 还需要独立 Node.js >=22.19，Windows 使用准备脚本提供的私有 Node。每个 checkout 和 worktree 使用自己的 `.venv`，具体约定见 [AGENTS.md](../../AGENTS.md#工具链与验证)。
 
 ```sh
 bun install --frozen-lockfile
@@ -38,7 +38,7 @@ uv sync --frozen --all-groups --python 3.12.10
 
 源码资源位于 `build/desktop-runtime/<平台>-<架构>/`，Windows 沙箱启动器位于 `build/exec-sandbox/`。资源准备与 Desktop 共用路径解析；具体输入、缓存和打包布局见 [打包手册](packaging-pipeline.md)。
 
-验证范围按 [AGENTS.md](../../AGENTS.md#工具链)选择。新 checkout 执行真实 `find` 测试前先运行 `bun run desktop:tools:fd`；正式发布的构建和验收要求见 [Windows 更新与发布](updates.md)。
+验证范围按 [AGENTS.md](../../AGENTS.md#工具链与验证)选择。新 checkout 执行真实 `find` 测试前先运行 `bun run desktop:tools:fd`；正式发布的构建和验收要求见 [Windows 更新与发布](updates.md)。
 
 独立 TUI 的安装和运行说明以 [`lxe-agent-TUI` 分支](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI)为准。`main` 也提供 [一次性 Agent CLI exec](../harness/runtime/agent_cli_exec.md)，可独立从终端调用。
 

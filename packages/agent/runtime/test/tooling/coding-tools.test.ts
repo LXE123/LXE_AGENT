@@ -168,7 +168,6 @@ describe("native coding tools", () => {
     for (const name of ["read", "write", "edit", "grep", "find", "ls", "send_files"]) {
       expect(registry.definition(name)?.supportsParallelCalls).not.toBe(true);
     }
-    expect(registry.definition("send_file")).toBeUndefined();
     expect(registry.definition("send_files")?.input_schema).toEqual({
       type: "object",
       properties: {

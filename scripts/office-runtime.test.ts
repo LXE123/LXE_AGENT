@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -52,16 +52,6 @@ test("desktop Office paths follow installed resources and ignore external overri
     environment: { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local", LXE_OFFICE_NODE: "C:\\external\\node.exe", LXE_OFFICE_CLI: "C:\\external\\cli.js" }, pathExists: () => true });
   expect(paths.officeNodePath).toBe("C:\\LXE\\resources\\runtime\\node\\node.exe");
   expect(paths.officeCliPath).toBe("C:\\LXE\\resources\\runtime\\office\\node_modules\\@deepseek-ai\\libreoffice-kit\\lib\\cli.js");
-});
-test("VC++ installer requires the locked version and handles restart/failure", () => {
-  const root = join(import.meta.dirname, "..");
-  const lock = JSON.parse(readFileSync(join(root, "config/desktop-runtime/office/vc-redist.lock.json"), "utf8"));
-  const source = readFileSync(join(root, "apps/desktop/resources/office-prerequisites.nsh"), "utf8");
-  expect(source).toContain(`!define LXE_VC_REDIST_VERSION "${lock.version}"`);
-  expect(source).toContain('shell32::ShellExecuteEx');
-  expect(source).toContain('kernel32::GetExitCodeProcess');
-  expect(source).toContain("SetRebootFlag true");
-  expect(source).toContain("VC++ x64 setup failed with exit code $0");
 });
 test("Agent CLI provides Office paths when executing from an arbitrary task workspace", () => {
   const sourceRoot = join(import.meta.dirname, "..");

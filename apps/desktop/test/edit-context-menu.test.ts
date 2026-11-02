@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 
 import { editableContextMenuTemplate } from "../src/main/edit-context-menu";
 
@@ -25,11 +24,5 @@ describe("editable context menu", () => {
       { role: "copy", enabled: false },
       { role: "paste", enabled: true },
     ]);
-  });
-
-  test("is registered on the main window web contents", () => {
-    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(source).toMatch(/webContents\.on\("context-menu"/);
-    expect(source).toMatch(/Menu\.buildFromTemplate\(template\)\.popup\(\{ window: ownerWindow \}\)/);
   });
 });

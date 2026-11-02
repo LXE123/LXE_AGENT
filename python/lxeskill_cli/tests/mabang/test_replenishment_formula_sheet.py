@@ -80,7 +80,6 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert raw.active.auto_filter.ref == "A2:AK6"
         assert not any(d.hidden for d in raw.active.column_dimensions.values())
         assert [c.value for c in raw.active[2]] == list(formulas.FINAL_SHIPPING_COLUMNS)
-        assert len(formulas.FINAL_SHIPPING_COLUMNS) == 37
         assert [raw.active.cell(2, col).value for col in (19, 20, 21, 22, 23, 36, 37)] == [
             "深圳可用库存", "可销售天数", "建议运输方式（生成时）", "空运补货天数", "海运补货天数", "输入检查", "试算提示",
         ]

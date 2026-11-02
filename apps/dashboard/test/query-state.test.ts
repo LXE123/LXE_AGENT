@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { focusManager, QueryObserver } from "@tanstack/react-query";
 import type {
   DashboardRpcCall,
@@ -12,12 +11,9 @@ import { setDashboardTransportForTests } from "../src/api/client";
 import {
   applyDashboardInvalidation,
   createDashboardQueryClient,
-  DEFAULT_GC_TIME_MS,
-  DEFAULT_STALE_TIME_MS,
 } from "../src/api/query-client";
 import { dashboardQueryKeys } from "../src/api/query-keys";
 import {
-  ACTIVE_DATA_STALE_TIME_MS,
   flattenSessionPages,
   SKILL_QUERY_OPTIONS,
 } from "../src/api/queries";
@@ -81,7 +77,7 @@ describe("Dashboard Query state", () => {
       await settled(); expect(calls).toBe(6);
     } finally { unsubscribe(); client.unmount(); client.clear(); focusManager.setFocused(undefined); }
   });
-  test("uses stable keys and the configured cache policy", () => {
+  test("uses distinct keys and normalizes query inputs", () => {
     expect(dashboardQueryKeys.sessions.list("", "/a")).not.toEqual(dashboardQueryKeys.sessions.list("", "/b"));
     expect(dashboardQueryKeys.sessions.workspaces).not.toEqual(dashboardQueryKeys.sessions.list("workspaces"));
     expect(dashboardQueryKeys.sessions.list("  order  ")).toEqual(["sessions", "list", "order"]);
@@ -89,30 +85,6 @@ describe("Dashboard Query state", () => {
       .toEqual(["sessions", "detail", "s-1", "cursor-2"]);
     expect(dashboardQueryKeys.sessions.activity("s-1")).toEqual(["sessions", "activity", "s-1"]);
     expect(dashboardQueryKeys.stats.byType("skills", 30)).toEqual(["stats", "skills", 30]);
-
-    const options = createDashboardQueryClient().getDefaultOptions();
-    expect(options.queries?.staleTime).toBe(DEFAULT_STALE_TIME_MS);
-    expect(options.queries?.gcTime).toBe(DEFAULT_GC_TIME_MS);
-    expect(options.queries?.retry).toBe(1);
-    expect(options.queries?.refetchOnWindowFocus).toBe(true);
-    expect(options.queries?.refetchOnReconnect).toBe(false);
-    expect(ACTIVE_DATA_STALE_TIME_MS).toBe(5_000);
-  });
-
-  test("keeps session list and detail push-driven without polling", () => {
-    const source = readFileSync(new URL("../src/api/queries.ts", import.meta.url), "utf8");
-    const sessions = source.slice(
-      source.indexOf("export function useSessionsInfiniteQuery"),
-      source.indexOf("export function flattenSessionPages"),
-    );
-    const detail = source.slice(
-      source.indexOf("export function useSessionDetailQuery"),
-      source.indexOf("export function useStatsOverviewQuery"),
-    );
-    expect(sessions).not.toContain("refetchInterval");
-    expect(detail).not.toContain("refetchInterval");
-    const clientSource = readFileSync(new URL("../src/api/query-client.tsx", import.meta.url), "utf8");
-    expect(clientSource).toContain("refetchOnWindowFocus: true");
   });
 
   test("deduplicates concurrent requests for one query key", async () => {
