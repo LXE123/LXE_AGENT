@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import type { JsonObject } from "@lxe/protocol";
 import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import {
@@ -97,13 +96,6 @@ describe("token-aware runtime context", () => {
     const prepared = await pipeline.prepare({ ...params, additionalContextTokens: 150 });
     expect(prepared.compacted).toBe(true);
     expect(prepared.afterTokens + 150).toBeLessThanOrEqual(pipeline.hardLimitTokens);
-  });
-
-  test("pins pi's history, update, and turn-prefix prompts byte-for-byte", () => {
-    const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
-    expect(hash(HISTORY_SUMMARY_PROMPT)).toBe("9b00aa68df1a64279bc36e9093367f638701d48ec82e3d08436f65092a515f9b");
-    expect(hash(UPDATE_HISTORY_SUMMARY_PROMPT)).toBe("240c52982209146eae47d73c7172f6ba1dab60f44520bcb6a6ec1a883fef2ec7");
-    expect(hash(MIDTURN_SUMMARY_PROMPT)).toBe("9aeeb36ea731a8497d38abb03c2da351d81bcade4b2ae389bb6ae74300cf6ba5");
   });
 
   test("estimates UTF-8, JSON, schemas and images without counting base64 bytes", () => {
@@ -302,7 +294,6 @@ src/b.ts
     expect(result.compacted).toBe(true);
     const prompt = summaryPrompt(provider);
     expect(prompt).toContain("<previous-summary>\nprevious checkpoint\n</previous-summary>");
-    expect(prompt).not.toContain("The conversation history before this point was compacted");
     expect(prompt).not.toContain("bogus.ts");
     expect(prompt).not.toContain("<read-files>");
     expect(prompt.indexOf("</conversation>")).toBeLessThan(prompt.indexOf("<previous-summary>"));

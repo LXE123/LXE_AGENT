@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -35,21 +35,18 @@ afterEach(() => {
 describe("desktop resource scope", () => {
   test("assigns every packaged owner without overlapping targets", () => {
     const scope = validateResourceScope(repositoryRoot);
-    expect(scopeEntryForPath(scope, "agent/SOUL.md", "win32-x64")).toMatchObject({
-      owner: "bun-agent-runtime",
+    expect(scopeEntryForPath(scope, "skills/demo/SKILL.md", "win32-x64")).toMatchObject({
+      owner: "bun-skill-runtime",
     });
     expect(scopeEntryForPath(scope, "runtime/python/python.exe", "win32-x64")).toMatchObject({
       owner: "managed-python-runtime",
     });
-    const rawScope = readFileSync(resolve(repositoryRoot, "config/desktop-packaging/resource-scope.json"), "utf8");
-    expect(rawScope).not.toMatch(/"(?:policy|integrity)"/u);
     expect(() => scopeEntryForPath(scope, "docs/internal.md", "win32-x64"))
       .toThrow("exactly one owner");
   });
 
   test("keeps scope reading separate from complete declaration validation", () => {
     const scope = readResourceScope(repositoryRoot);
-    expect(scope.schema_version).toBe(2);
     expect(validateResourceScope(repositoryRoot, structuredClone(scope))).toEqual(scope);
 
     const incompleteOwner = structuredClone(scope);
@@ -57,7 +54,7 @@ describe("desktop resource scope", () => {
     expect(() => validateResourceScope(repositoryRoot, incompleteOwner)).toThrow("entry is incomplete");
 
     const overlappingTarget = structuredClone(scope);
-    overlappingTarget.resources.find(entry => entry.id === "skills")!.target = "agent";
+    overlappingTarget.resources.find(entry => entry.id === "skills")!.target = "config/skills";
     expect(() => validateResourceScope(repositoryRoot, overlappingTarget)).toThrow("targets overlap");
 
     const invalidKind = structuredClone(scope);
@@ -117,23 +114,6 @@ describe("desktop resource scope", () => {
 
     expect(approvedSkillFile(root, "skills/one/scripts/testing.py")).toBe(true);
     expect(approvedSkillFile(root, "skills/one/scripts/tool_test.py")).toBe(false);
-  });
-
-  test("discovers only the validated LLM catalog and exact supplemental configuration", () => {
-    const scope = validateResourceScope(repositoryRoot);
-    const config = scope.resources.find((entry) => entry.id === "config");
-    expect(config?.source).toMatchObject({ kind: "llm-catalog", path: "config/llm" });
-    expect(selectedLlmCatalogFiles(repositoryRoot, String(config?.source.path))).toEqual([
-      "config/llm/auth-profiles.json",
-      "config/llm/providers/deepseek.json",
-      "config/llm/providers/kimi-coding.json",
-      "config/llm/providers/openrouter.json",
-      "config/llm/providers/zhipuai-coding-plan.json",
-      "config/llm/providers/zhipuai.json",
-    ]);
-    expect(config?.source.paths).toEqual(["config/mcp_servers.default.yaml"]);
-    expect(readFileSync(resolve(repositoryRoot, "config/mcp_servers.default.yaml"), "utf8"))
-      .toContain("mcpServers:");
   });
 
   test("packages new top-level provider specs without admitting unrelated or nested files", () => {

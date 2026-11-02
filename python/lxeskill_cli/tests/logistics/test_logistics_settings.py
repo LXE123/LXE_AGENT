@@ -10,8 +10,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from services.agent_cli.logistics import settings
-from services.agent_cli.logistics.provider_registry import PROVIDERS
+from services.commands.logistics import settings
+from services.commands.logistics.provider_registry import PROVIDERS
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +36,7 @@ def test_first_read_persists_and_registry_matches_real_adapter_modules():
     assert {p.provider_id for p in PROVIDERS} == {"wesa", "feiwo", "yuntuo", "tiantai", "jiufang"}
     import importlib
     for spec in PROVIDERS:
-        assert callable(importlib.import_module(f"services.agent_cli.logistics.{spec.provider_id}_query").run)
+        assert callable(importlib.import_module(f"services.commands.logistics.{spec.provider_id}_query").run)
 
 
 @pytest.mark.parametrize("provider", ["wesa", "feiwo", "yuntuo", "tiantai", "jiufang"])
@@ -155,7 +155,7 @@ def test_concurrent_processes_only_one_revision_wins():
     settings.read_snapshot()
     request = json.dumps(profile())
     code = """import json,sys
-from services.agent_cli.logistics.settings import save_profile
+from services.commands.logistics.settings import save_profile
 try:
  save_profile(json.loads(sys.argv[1]), 0)
  print('saved')
@@ -182,7 +182,7 @@ def guarded(name, *args, **kwargs):
   raise AssertionError('Settings must not discover or attach stores: ' + name)
  return original_import(name, *args, **kwargs)
 builtins.__import__ = guarded
-from services.agent_cli.logistics import settings
+from services.commands.logistics import settings
 raise SystemExit(settings.main())
 """
     def run(action, request=None):
@@ -237,7 +237,7 @@ def test_timestamp_comparison_handles_optional_fractional_seconds():
 def test_private_entrypoint_reports_corrupt_json_before_any_store_api():
     settings.read_snapshot()
     target().write_text("{broken")
-    child = subprocess.run([sys.executable, "-I", "-B", "-m", "services.agent_cli.logistics.settings", "read"], capture_output=True, text=True, timeout=10)
+    child = subprocess.run([sys.executable, "-I", "-B", "-m", "services.commands.logistics.settings", "read"], capture_output=True, text=True, timeout=10)
     assert child.returncode == 1
     message = json.loads(child.stdout)["error"]
     assert "JSONDecodeError" in message and "property name" in message

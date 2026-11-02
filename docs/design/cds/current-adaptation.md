@@ -8,7 +8,7 @@
 
 从仓库根执行 `bun run cds:preview`，打开输出的本地网址。页面并排展示亮暗主题，可输入、选择、Tab 聚焦和展开工具结果；预览 10 分钟后自动关闭，也可 Ctrl+C 结束。
 执行 `bun run cds:check` 会构建相同页面、运行本地 Electron 交互检查、保存截图和实测值，并关闭测试进程。命令失败时不得沿用旧记录声称通过。
-执行 `bun run cds:docs` 可核对原始出处片段并从 JSON 重建本表。
+执行 `bun run cds:docs` 可从 JSON 重建本表。
 
 入口源码：[展示页](../../../apps/dashboard/test/behavior/cds-gallery.tsx)、[布局样式](../../../apps/dashboard/test/behavior/cds-gallery.css)、[构建与验证](../../../scripts/cds-gallery.ts)。
 实测记录：[verification.json](showcase/verification.json)。记录内含实际源码 SHA-256、构建时 HEAD、浏览器版本与检查结果；后续代码改变需重新验证。
@@ -122,7 +122,6 @@ UnifiedConversationRow 的 tool 分支，置于生产 conversation-feed 作用�
 - 导航行与工具调用条直接导入生产 React 组件。上下文表面与主题作用域保留；样本外框、说明、检查器属于展示页。
 - 展示页使用独立 iframe 隔离亮暗主题，避免把根节点主题选择器错误地套到局部容器。
 - 检查包含输入框的错误＋焦点、导航的选中＋悬停／焦点、五类工具条状态的悬停／焦点／展开；禁用导航与禁用工具条标为不适用，不篡改 DOM 伪造接口。
-- 原始出处通过 source.slice(start, end) 与 excerpt 完整匹配校验；缺失证据不会由截图或测试通过来替代。
 
 ## 待补证据清单
 

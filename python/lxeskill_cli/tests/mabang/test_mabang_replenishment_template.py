@@ -7,7 +7,7 @@ from mabang_test_helpers import _sheet_names
 
 import pytest
 
-from services.agent_cli.mabang import replenishment_template as cli
+from services.commands.mabang import replenishment_template as cli
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
 
@@ -73,13 +73,9 @@ def test_default_template_loads_current_algorithm() -> None:
     assert tmpl.validate_template(template).warnings == ()
 
 
-@pytest.mark.parametrize(
-    "old_name",
-    ["LXE_默认模版", "LXE_默认参数", "US模板-一组", "UK模板-一组", "DE模板-一组"],
-)
-def test_old_default_template_name_is_not_an_alias(tmp_path, old_name: str) -> None:
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match=f"未知备货算法参数方案: {old_name}"):
-        tmpl.get_template(old_name, store_path=tmp_path / "templates.json")
+def test_unknown_template_is_rejected(tmp_path) -> None:
+    with pytest.raises(tmpl.ReplenishmentTemplateError):
+        tmpl.get_template("unknown-template", store_path=tmp_path / "templates.json")
 
 
 def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
@@ -622,17 +618,3 @@ def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> N
     assert payload["old_name"] == "CLI方案"
     assert payload["new_name"] == "CLI重命名方案"
     assert payload["template_version"] == 2
-
-
-def test_replenishment_algorithm_config_skill_contract() -> None:
-    template_skill = Path("skills/replenishment-algorithm-config-manage/SKILL.md").read_text(encoding="utf-8")
-    calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
-    workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")
-    for command in ("list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"):
-        assert f"lxeskill replenish template {command}" in template_skill
-    assert "不管理库存扣减" in template_skill
-    assert "sea.min_weight_kg" in template_skill
-    assert "兼容配置仍允许导入" in template_skill
-    assert "--template" in calculate_skill
-    assert "replenishment-algorithm-config-manage" in workflow_skill
-    assert "--unlinked-shipments-snapshot" in workflow_skill

@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from lxeskill import cli
-from services.agent_cli.logistics import jiufang_query as jf
+from services.commands.logistics import jiufang_query as jf
 
 
 def fixture(name="single"):

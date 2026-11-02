@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from lxeskill import cli
-from services.agent_cli.logistics import tiantai_query as tiantai
+from services.commands.logistics import tiantai_query as tiantai
 
 
 FBA = "FBA15MPDN5VF"

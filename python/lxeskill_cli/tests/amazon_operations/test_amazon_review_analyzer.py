@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
-from services.agent_cli.amazon_operations import _shared
-from services.agent_cli.amazon_operations import analyze_listing
-from services.agent_cli.amazon_operations import analyze_reviews
+from services.commands.amazon_operations import _shared
+from services.commands.amazon_operations import analyze_listing
+from services.commands.amazon_operations import analyze_reviews
 
 
 INPUT_ASIN = "B000000001"

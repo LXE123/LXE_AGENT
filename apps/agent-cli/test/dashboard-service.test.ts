@@ -18,8 +18,8 @@ afterEach(() => {
 });
 
 describe("DashboardService", () => {
-  test("ignores legacy CLI connector state across all skill sources while retaining skill permissions", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-retired-connectors-"));
+  test("applies permissions and enabled state across all skill sources", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-skill-sources-"));
     roots.push(root);
     const official = join(root, "skills"), user = join(root, "user"), shared = join(root, "shared");
     for (const [base, name, type] of [
@@ -32,18 +32,13 @@ describe("DashboardService", () => {
       mkdirSync(join(base!, name!), { recursive: true });
       writeFileSync(join(base!, name!, "SKILL.md"), `---\nname: ${name}\ntype: ${type}\ndescription: CLI fixture\n---\n# ${name}\n`);
     }
-    const config = join(root, "config", "connector-states.local.json");
-    mkdirSync(join(root, "config"));
-    writeFileSync(config, JSON.stringify({ enabled: [], userDisabled: ["feishu", "dingtalk"] }));
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"), { legacyWorkspace: workspaceFor(root) });
     const service = new DashboardService({ stateRoot: root, llmConfigRoot: join(root, "llm"),
       skillsRoot: official, userSkillsRoot: user, sharedSkillsRoot: shared,
-      environment: { LXE_CONNECTOR_STATE_PATH: config }, store, tools: new ToolRegistry(),
+      environment: {}, store, tools: new ToolRegistry(),
       mcpConfig: { servers: [] }, allowedSkillTypes: new Set(["default"]) });
     const names = async () => (await service.call({ operation: "skills.list", input: {} })).items.map(item => item.name).sort();
     try {
-      expect(await names()).toEqual(["dingtalk-chat", "dws", "lark-im", "lark-meeting"]);
-      writeFileSync(config, "obsolete malformed config");
       expect(await names()).toEqual(["dingtalk-chat", "dws", "lark-im", "lark-meeting"]);
       expect(await service.call({ operation: "skills.content", input: { name: "lark-im" } }))
         .toMatchObject({ name: "lark-im", content: expect.stringContaining("# lark-im") });

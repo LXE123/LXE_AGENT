@@ -24,6 +24,7 @@ module.exports = async context => {
   require("./file-preview-resources.cjs").verifyFilePreviewResources(join(context.appOutDir, "resources", "dashboard"));
   if (context.electronPlatformName !== "win32") return;
   if (process.platform !== "win32") throw new Error("Packaged Office validation requires Windows");
+  require("./verify-packaged-lxeskill.cjs").verifyPackagedLxeSkill(context.appOutDir);
   verifyPackagedOffice(context.appOutDir);
 };
 module.exports.verifyPackagedOffice = verifyPackagedOffice;

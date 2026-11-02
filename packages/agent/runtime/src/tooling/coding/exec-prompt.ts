@@ -75,7 +75,7 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
     shellLine(profile),
     "Commands follow the current environment permission mode for local file writes. Changing cwd does not expand the fixed workspace boundary. This policy does not restrict networking.",
     "",
-    "Environment: python and pip resolve to this project's .venv; lxeskill uses the configured Python environment.",
+    "Environment: python and pip use the configured interpreter or this project's .venv. External commands are resolved through PATH.",
     "Use the cwd parameter for the working directory instead of cd.",
     "",
     chainingLine(profile),

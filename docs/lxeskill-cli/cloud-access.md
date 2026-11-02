@@ -52,7 +52,7 @@ ERP 请求需要服务器的 `erp` 能力及相应动作权限，马帮查询需
 上线前确认服务器支持对应原生业务接口，再更新 CLI；回滚不兼容的服务端前先协调客户端版本，不添加隐式凭据回退。旧客户端的兼容方式由服务器维护，本 CLI 不申请旧业务 Token。
 
 - [CLI 分流入口](../../python/lxeskill_cli/lxeskill/cli.py)、[权限查询](../../python/lxeskill_cli/lxeskill/cloud_context.py)、[连接自检](../../python/lxeskill_cli/lxeskill/cloud_status.py)。
-- [ERP HTTP 适配](../../python/lxeskill_cli/services/agent_cli/mabang/erp_http.py)、[异步马帮查询](../../python/lxeskill_cli/services/mabang/official_api.py)。
+- [ERP HTTP 适配](../../python/lxeskill_cli/services/commands/mabang/erp_http.py)、[异步马帮查询](../../python/lxeskill_cli/services/mabang/official_api.py)。
 - [查询测试](../../python/lxeskill_cli/tests/lxeskill/test_cloud_context.py)、[自检测试](../../python/lxeskill_cli/tests/lxeskill/test_cloud_status.py)、[通信测试](../../python/lxeskill_cli/tests/infra/test_cloud_client.py)、[业务传输测试](../../python/lxeskill_cli/tests/infra/test_cloud_business_transport.py)。
 
 原业务验收的证据范围和未完成项见 [历史说明](../acceptance/cli-cloud-access.md)。线上权限变更验收应使用明确的测试设备并恢复配置，不修改共享模板影响其他设备。

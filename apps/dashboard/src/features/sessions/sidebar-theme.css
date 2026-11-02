@@ -98,7 +98,7 @@
   border-radius: 8px;
 }
 .app-sidebar.conversation-chrome-theme .session-index-item:is(:hover, :focus-within, .menu-open) {
-  --sidebar-title-end: 36px;
+  --sidebar-title-end: 32px;
 }
 .app-sidebar.conversation-chrome-theme .session-index-item.menu-open {
   background: var(--sidebar-hover);
@@ -136,7 +136,7 @@
 .app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-item .session-index-actions {
   position: absolute;
   top: 50%;
-  right: 4px;
+  right: 0;
   width: 28px;
   height: 28px;
   transform: translateY(-50%);

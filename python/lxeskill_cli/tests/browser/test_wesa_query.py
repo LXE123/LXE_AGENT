@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from lxeskill import cli
-from services.agent_cli.logistics import wesa_query as wesa
+from services.commands.logistics import wesa_query as wesa
 
 FBA = "FBA19PWM5L6T"
 ACCOUNT = "深圳市新棱镜贸易有限公司"

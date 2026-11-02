@@ -1,14 +1,14 @@
 import { UnifiedConversationRow } from "../../src/features/sessions/view";
 import { SkillDetailDialog } from "../../src/shared/ui/skill-detail-dialog";
 
-export type MarkdownSurface = "conversation" | "streaming" | "skill";
+export type MarkdownSurface = "conversation" | "streaming" | "streaming-process" | "skill";
 const noop = () => {};
 const unusedFileAction = async () => { throw new Error("Markdown fixture has no files to open"); };
 
 // Exercise both production Markdown consumers, including their real wrappers.
 // Use an attached document: SKILL.md intentionally omits its opening H1 and
 // already has dedicated coverage in shared/skill-preview.test.tsx.
-export function MarkdownFixture({ surface, content }: { surface: MarkdownSurface; content: string }) {
+export function MarkdownFixture({ surface, content, status }: { surface: MarkdownSurface; content: string; status?: string }) {
   if (surface === "skill") return <SkillDetailDialog
     title="Markdown preview" skill={{ name: "markdown-fixture", type: "default", description: "",
       location: "/skills/markdown-fixture/SKILL.md", commands: [], references: [] }}
@@ -16,10 +16,10 @@ export function MarkdownFixture({ surface, content }: { surface: MarkdownSurface
   />;
   return <main className="conversation-feed" aria-label="Conversation preview">
     <UnifiedConversationRow row={{ id: "markdown-message", groupId: "markdown-group", turnId: "markdown-turn",
-      kind: "message", presentation: surface === "streaming" ? "process" : "final", createdAt: 1,
-      status: surface === "streaming" ? "running" : "completed",
+      kind: "message", presentation: surface === "streaming-process" ? "process" : "final", createdAt: 1,
+      status: status ?? (surface.startsWith("streaming") ? "streaming" : "completed"),
       message: { role: "assistant", display_group_id: "markdown-group",
-        content: surface === "streaming" ? [{ type: "text", text: content }] : content } }}
+        content: [{ type: "text", text: content }] } }}
       expanded={false} onToggle={noop} onOpenFile={unusedFileAction}
       onRevealFile={unusedFileAction} onOpenAttachment={unusedFileAction} />
   </main>;

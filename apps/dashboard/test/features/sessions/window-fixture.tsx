@@ -148,6 +148,36 @@ function RunHistoryFixture() {
       loadOlder={() => load("older")} loadNewer={() => load("newer")} pageError="" jumpToLatest={controller.jumpToLatest} />
   </div>;
 }
+// Tall rows keep the overscan range unchanged across a paging boundary.
+function PaginationFixture() {
+  const direction = new URLSearchParams(location.search).get("pagination");
+  const makeMessage = (index: number): SessionMessage => ({
+    display_group_id: `page-${index}`, display_id: `page-${index}:0`,
+    role: "assistant", created_at: index + 1,
+    content: `History ${index}\n\n${"A long paragraph keeps this message taller than the viewport.\n\n".repeat(40)}`,
+  });
+  const [messages, setMessages] = useState(() => [makeMessage(2), makeMessage(3)]);
+  const [requests, setRequests] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
+  const loadPage = useCallback(async () => {
+    setRequests(count => count + 1);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    setMessages(current => direction === "older" ? [makeMessage(1), ...current] : [...current, makeMessage(4)]);
+    setLoaded(true);
+  }, [direction]);
+  const setVisible = useCallback(() => {}, []);
+  return <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <button onClick={() => setReady(true)}>Enable paging</button>
+    <span id="pagination-metrics">{JSON.stringify({ requests, loaded })}</span>
+    <ConversationWindow rows={conversationRows(messages, [], [])}
+      renderRow={row => <UnifiedConversationRow row={row} expanded={false} onToggle={() => {}} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop} />}
+      hasOlder={ready && direction === "older" && !loaded} hasNewer={ready && direction === "newer" && !loaded}
+      loadOlder={loadPage} loadNewer={loadPage} onVisibleGroups={setVisible} jumpToLatest={() => {}}
+      connection={direction === "newer" ? "detached" : "attached"} pageError="" />
+  </div>;
+}
 const fixtureRoot=createRoot(document.getElementById("root")!);
-fixtureRoot.render(<QueryClientProvider client={queryClient}>{new URLSearchParams(location.search).has("run-history") ? <RunHistoryFixture /> : new URLSearchParams(location.search).has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
+const fixtureParams = new URLSearchParams(location.search);
+fixtureRoot.render(<QueryClientProvider client={queryClient}>{fixtureParams.has("run-history") ? <RunHistoryFixture /> : fixtureParams.has("pagination") ? <PaginationFixture /> : fixtureParams.has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
 if (import.meta.hot) import.meta.hot.dispose(()=>fixtureRoot.unmount());

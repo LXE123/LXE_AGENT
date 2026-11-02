@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 from selenium.common.exceptions import TimeoutException
 
-from services.agent_cli.logistics import login_worker as worker
+from services.commands.logistics import login_worker as worker
 
 REQUEST = {"provider_id": "wesa", "store_id": "test-store", "login_username": "fixture-user", "password": 'fixture-"password"'}
 ORIGIN = "http://wsaexp.nextsls.com"

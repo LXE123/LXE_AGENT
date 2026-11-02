@@ -234,3 +234,34 @@ test("a crash between the first input and its title does not retitle from the se
   f.service.onMainRequest("s1", "m2", f.snapshot); await Bun.sleep(10);
   expect(requests).toBe(0);
 });
+
+test("standalone task titles share the tool-free provider request without touching session state", async () => {
+  const { TaskTitleService } = await import("../../src/state/session-title");
+  const requests: RuntimeProviderRequest[] = [];
+  const f = await fixture(async request => { requests.push(request); return response("**运营日报**"); });
+  const service = new TaskTitleService();
+  try {
+    expect(await service.generate("每天汇总运营数据", f.snapshot)).toBe("运营日报");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ tools: [], toolChoice: "none", auxiliary: { maxOutputTokens: 4096, reasoning: "minimum" } });
+    expect(requests[0]!.messages).toHaveLength(1);
+    expect(JSON.stringify(requests[0]!.messages)).toContain("每天汇总运营数据");
+    expect((await f.store.titleState("s1"))?.title).toBe("");
+    expect(await f.store.loadMessages("s1")).toHaveLength(0);
+  } finally { await service.stop(); }
+});
+
+test("standalone title timeout and service shutdown abort the provider, including providers that ignore cancellation", async () => {
+  const { TaskTitleService } = await import("../../src/state/session-title");
+  let signal!: AbortSignal;
+  const f = await fixture(async request => { signal = request.signal; return new Promise(() => {}); });
+  const timed = new TaskTitleService(10);
+  await expect(timed.generate("test", f.snapshot)).rejects.toThrow("timed out");
+  expect(signal.aborted).toBe(true);
+  const service = new TaskTitleService();
+  const call = service.generate("test", f.snapshot);
+  const rejected = call.catch(error => error);
+  await service.stop(); expect(String(await rejected)).toContain("service stopped");
+  expect(signal.aborted).toBe(true);
+  await expect(service.generate("test", f.snapshot)).rejects.toThrow("service stopped");
+});

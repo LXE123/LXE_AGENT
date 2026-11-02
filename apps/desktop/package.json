@@ -23,6 +23,7 @@
     "node-pty": "1.2.0-beta.15"
   },
   "devDependencies": {
+    "@types/bun": "1.4.2",
     "@types/node": "24.10.1",
     "electron": "43.7.0",
     "electron-builder": "26.0.12",

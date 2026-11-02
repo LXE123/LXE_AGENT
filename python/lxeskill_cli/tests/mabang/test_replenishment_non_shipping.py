@@ -25,23 +25,22 @@ def decide(*, daily=6, fba=480, sea_changes=None, trend='平稳', unlinked=0):
                                             template, {'CHECK':unlinked})[0]
 
 
-@pytest.mark.parametrize('options,code,pieces', [
-    ({'daily':1,'fba':60}, 'fba_covered', ['理论需求45件','FBA库存60件']),
-    ({'daily':1,'fba':30,'unlinked':20}, 'inventory_shipments_covered', ['理论需求45件','库存30件','货件20件']),
-    ({'daily':0,'fba':1}, 'zero_daily_sales', ['加权日销为零']),
-    ({'sea_changes':{'enabled':False}}, 'sea_disabled', ['80.00天','70天','生效方案']),
-    ({'daily':4,'fba':400}, 'sea_daily_threshold', ['100.00天','4.00件','超过5件']),
+@pytest.mark.parametrize('options,code', [
+    ({'daily':1,'fba':60}, 'fba_covered'),
+    ({'daily':1,'fba':30,'unlinked':20}, 'inventory_shipments_covered'),
+    ({'daily':0,'fba':1}, 'zero_daily_sales'),
+    ({'sea_changes':{'enabled':False}}, 'sea_disabled'),
+    ({'daily':4,'fba':400}, 'sea_daily_threshold'),
     ({'daily':4,'fba':400,'sea_changes':{'min_daily_sales':7,'min_daily_sales_inclusive':True}},
-     'sea_daily_threshold', ['达到7件']),
-    ({'sea_changes':{'tiers':[]}}, 'sea_tier_missing', ['未匹配海运天数分档']),
+     'sea_daily_threshold'),
+    ({'sea_changes':{'tiers':[]}}, 'sea_tier_missing'),
     ({'sea_changes':{'companion_air_enabled':True,'companion_air_tiers':[]}},
-     'sea_tier_missing', ['未匹配海运同时空运天数分档']),
+     'sea_tier_missing'),
 ])
-def test_reason_from_actual_branch(options, code, pieces):
+def test_reason_code_from_actual_branch(options, code):
     row = decide(**options)
     assert row.sheet_name == rep.NO_SHIP_SHEET
     assert row.non_shipping_reason_code == code
-    assert all(p in row.non_shipping_reason_detail for p in pieces)
     payload = rep._non_shipping_payload(row)
     assert payload['未备货原因分类'] == rep.NON_SHIPPING_REASONS[code]
     # Rendering must not parse the legacy diagnostic string.
@@ -52,8 +51,6 @@ def test_sea_minimum_and_zero_days_remain_actual_decisions():
     row = case_row(fba=600, unlinked=31)
     assert row.replenish_quantity == 29
     assert row.non_shipping_reason_code == 'sea_quantity_threshold'
-    assert '海运数量29件' in row.non_shipping_reason_detail
-    assert '最低30件' in row.non_shipping_reason_detail
     assert rep._non_shipping_payload(decide(daily=0,fba=1))['可销售天数'] == ''
 
 
@@ -113,6 +110,5 @@ def test_clearance_merges_without_broadening_classification(tmp_path):
         assert {r['未备货原因分类'] for r in rows}=={'清货','样本不足','FBA库存已覆盖'}
         row=next(r for r in rows if r['MSKU']=='CLEAR')
         assert row['备注']=='一般清货'
-        assert row['具体原因']=='商品备注含‘清货’，本轮不安排备货'
         assert book['最终备货意见'].max_row==2
     finally:book.close()

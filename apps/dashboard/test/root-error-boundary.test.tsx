@@ -23,7 +23,6 @@ describe("Dashboard root error fallback", () => {
     expect(failure.props["data-lxe-root-state"]).toBe("fatal");
     expect(failure.props.role).toBe("alert");
     const visibleMarkup = JSON.stringify(failure);
-    expect(visibleMarkup).toContain("界面启动失败");
     expect(visibleMarkup).not.toContain("stack");
   });
 

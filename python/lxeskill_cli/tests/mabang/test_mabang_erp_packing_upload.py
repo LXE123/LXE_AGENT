@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from services.agent_cli.mabang import erp_packing_upload as cli
+from services.commands.mabang import erp_packing_upload as cli
 
 
 class FakeResponse:

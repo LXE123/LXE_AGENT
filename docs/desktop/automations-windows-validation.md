@@ -21,6 +21,48 @@ macOS 同时回归了修改的 SQLite / MCP 测试、新增 Electron 测试、�
 
 随后调整定时任务的桌面布局和空状态，两平台重新完成上述 CDS 验收、Dashboard 类型检查与构建。共享 Renderer fixture 的相关回归也重新通过：macOS 的页面、弹窗、就绪状态共 3 个测试，Windows 加上标题栏和菜单共 5 个测试。两平台报告记录的 12 个源码指纹一致。这次 UI 调整没有修改调度与持久化逻辑，因此没有重复运行上面的 118 个后台测试。
 
+## 可视化时间表单复验
+
+2026-10-24，基于 `e3274147` 的可视化时间表单改动，在同一台 Windows 实机的独立 worktree 复验。23 项定向测试通过，覆盖表单转换、实际日历计算、跨月／闰年／夏令时、旧组合计划保留，以及原有调度和协议契约；Dashboard 类型检查与生产构建通过。
+
+完整桌面页面的 CDS 检查扩展到 36 组、106 项状态测量、20 张截图，亮暗主题均验证时间预览、自定义周期和多个执行日、键盘复选、无效输入拦截、保存回读、旧规则无损编辑与明确重设。与 macOS 报告的 15 个受验源码指纹一致。系统原生下拉弹层未纳入离屏自动化，选项切换使用生产 `change` 事件；控件焦点、悬停、复选、输入和提交使用真实输入事件。本次只变更 Renderer 时间表单，没有重新执行上面的后台、安装包与真实任务验收。
+## 停止与一次性恢复调整（2026-10-24）
+
+在同一 Windows 实机的独立 worktree 验证源码提交 `e01c664d`（基线 `e3274147`）。本次覆盖：停止只结束当前执行、不暂停绑定计划；下一次定时回合在空闲后正常开始；恢复过期的一次性计划必须重新选择未来时间。
+
+- 11 个文件的 92 个定向测试通过，包含调度、停止后的再次派发、过期／异步校验竞争、已启用一次性计划的离线恢复，以及真实 Electron 停止 RPC 路由、SQLite、Worker 和桌面 MCP 回归。
+- 全仓类型检查及桌面构建通过。
+- 亮暗主题共 32 组检查、86 项状态测量、20 张截图通过。恢复弹窗覆盖空时间初始焦点、取消、必填和过期校验、请求期间禁用与禁止关闭、恢复失败保留实际诊断和重试。保存后只按新时间触发，提示词与对话设置保留。
+- macOS 同范围验证通过；两平台界面报告的 13 个源码指纹与当前文件一致。实际执行由 fixture 模拟，Electron、SQLite、管道和页面控件使用本机实现。
+
+复现本轮定向测试：
+
+```sh
+bun test apps/gateway/test/orchestration/automations.test.ts apps/gateway/test/orchestration/local-conversation.test.ts apps/gateway/test/orchestration/scheduler.test.ts apps/gateway/test/orchestration/heartbeat-bridge.test.ts apps/gateway/test/orchestration/router.test.ts apps/dashboard/test/features/automations/form.test.ts apps/desktop/test/automation-store.test.ts apps/desktop/test/automation-stop.test.ts apps/desktop/test/automation-electron.test.ts apps/desktop/test/automation-clock-bundle.test.ts apps/desktop/test/desktop-mcp.test.ts
+bun run typecheck
+bun run desktop:build
+bun run cds:check:automations
+```
+
+## 创建表单、自动命名与思考强度复验（2026-10-24）
+
+PR #121 整合 #123 后，基于源码提交 `776d2973` 在同一 Windows 实机的独立 worktree 验证；macOS arm64 对相同源码验证通过。两端均使用锁定依赖、临时数据和模拟模型，没有连接真实业务账号。
+
+- 18 个文件、145 项定向测试全部通过。包含停止／恢复回归、命名失败与迟到竞争、真实 agentcli JSON-RPC → 本地 HTTP 模型请求，以及真实 Electron 主进程在提交回合前应用任务的模型和思考强度。
+- 命名请求确认复用同一个 agentcli PID、不创建会话、不携带工具；保留认证错误并脱敏，辅助请求不改变默认模型。显式思考档位会保存和回读，关闭思考也能正确传递；不支持的档位在保存阶段拒绝。
+- 两端全仓类型、TypeScript 生产边界、协议生成一致性检查、桌面和 agentcli 源码构建均通过。
+- 每平台 CDS 44 组检查、116 项状态测量、30 张截图通过；17 个受验源码指纹与当前源码及另一平台报告一致。覆盖简洁基础区、高级选项、选填名称后台生成、明确选择工作区、思考强度、应用日历／24 小时时间弹层、亮暗主题、焦点／错误／禁用、窄屏，以及过期一次性恢复。
+
+本次 Windows 从 GitHub 拉取遇到 TLS 握手失败，改经 SSH 传递 Git bundle；未关闭证书校验，受验提交和源码指纹保持一致。界面使用真实 Electron 加载生产页面、内存 RPC fixture；模型为本机 HTTP fixture。安装包、真实供应商/业务执行、整机休眠和托盘长时间运行仍不属于本轮验收。
+
+## 合并前审查修复复验（2026-10-24）
+
+基于 `a4115feb`，macOS arm64 和同一 Windows 10 x64 实机均通过 19 个文件的 172 项定向测试、全仓类型检查、TypeScript 生产边界和协议一致性检查，以及 desktop / agentcli 源码构建。随后同步的 main `4e4cab0c` 仅更新架构和审查流程文档，受验源码与依赖没有变化。
+
+本次补齐三个反例：任务的模型和思考强度只影响其会话，Runtime 全局默认及桌面持久偏好不变；高级日历修改开始日期后清除旧预览并按新时间保存；未指定月份的年度 BYMONTHDAY 规则保留原语义，包括多年间隔。回归分别使用实际 DashboardService、SQLite 和 Provider 管理器，真实 Electron RPC 路由与日历键盘事件，以及实际调度器计算。
+
+两平台 CDS 均通过 46 组检查、116 项状态测量、30 张截图；17 个源码指纹与当前文件及另一平台报告一致。后台模型和业务仍使用 fixture，未扩大到真实业务、安装包、整机休眠或托盘长驻验收。
+
 ## 实机发现并修复的测试问题
 
 - CDS 脚本把输出目录放在 URL 参数后，Windows Electron 立即退出（255）。调整为 URL 最后，并按平台保存验收证据。

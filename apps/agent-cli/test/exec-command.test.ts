@@ -32,7 +32,6 @@ const pathsFor = (root: string): ExecRuntimePaths => ({
   resourceRoot: root,
   projectRoot: root,
   dataRoot: join(root, "var"),
-  agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
   llmConfigRoot: join(root, "config", "llm"),

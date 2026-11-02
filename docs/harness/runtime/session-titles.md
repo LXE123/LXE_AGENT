@@ -29,6 +29,14 @@
 - 模型输出取第一条非空行并去掉整行星号强调。工具调用、长度上限、空输出、超时和请求异常保留原标题并记录实际错误，不自动重试。
 - 辅助调用的内容与用量不计入主回复、上下文占用和回答页脚。
 
+## 定时任务名称
+
+桌面通过已有 agentcli 的 `titles.generate({text, model? | session_id?})` 生成任务名称。`TaskTitleService` 与会话标题共用 `generateTitleText` 的 Provider 调用、输出清洗和辅助推理控制；系统提示改为命名定时任务，用户输入仅作为数据，不运行 Agent 工具循环。输入最多 32768 字符，输出仍按 80 UTF-8 字节清洗，超时为 20 秒，Runtime 关闭会取消请求。单次模型选择不修改全局或会话设置；任务的思考强度不影响这次辅助请求。
+
+任务名称由 Electron 保存，agentcli 不创建会话、不写会话标题事件。短名称、用户编辑优先、版本检查和失败回退见[定时任务](../../desktop/automations.md)。会话标题的原有 4096 字节输入限制和 60 秒超时保持不变。
+
 ## 验证
 
 定向测试包含 `session-title.test.ts`、`session-title-controls.test.ts`、Renderer 的 `session-titles` 组，以及协议和 Dashboard 服务用例。Electron 组使用生产 UI 与内存 RPC fixture，覆盖三个入口、IME、失败重试、重复提交、刷新、搜索及浅色／深色窄窗口。`LXE_SESSION_TITLE_SCREENSHOT` 可保存布局截图。
+
+`apps/gateway/test/orchestration/title-generation.test.ts` 启动真实 agentcli 和本地模拟 HTTP 模型，检查同一进程的 JSON-RPC 请求、模型选择、无会话副作用、无工具、输出预算和认证错误脱敏；不连接真实供应商账号。

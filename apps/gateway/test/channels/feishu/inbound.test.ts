@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FEISHU_CONVERTER_TYPES,
   FeishuInboundNormalizer,
   convertFeishuMessage,
   snapshotMessageEvent,
@@ -515,7 +514,6 @@ describe("Feishu inbound normalization", () => {
       const converted = await convertFeishuMessage(snapshot);
       expect(converted.message || converted.resources.length > 0 || converted.diagnostics.length > 0).toBeTruthy();
     }
-    expect(FEISHU_CONVERTER_TYPES).toEqual(expect.arrayContaining(Object.keys(fixtures)));
     const unknown = snapshotMessageEvent(baseEvent({
       message_id: "om_unknown", message_type: "future_type", content: JSON.stringify({ text: "future payload" }),
     }))!;

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.agent_cli._shared import browser_session as sessions
+from services.commands._shared import browser_session as sessions
 
 
 @pytest.mark.parametrize('strict', [False, True])

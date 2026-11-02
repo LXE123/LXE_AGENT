@@ -1,6 +1,7 @@
 import {
   closeSync,
   existsSync,
+  fsyncSync,
   openSync,
   mkdirSync,
   readFileSync,
@@ -10,7 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopPlatform } from "@lxe/desktop-protocol";
@@ -31,6 +32,22 @@ export interface SafeStoragePort {
   decryptString(value: Buffer): string;
 }
 
+export interface DesktopConfigFileIo {
+  write(descriptor: number, value: Buffer): void;
+  sync(descriptor: number): void;
+  rename(source: string, target: string): void;
+}
+
+const fileIo: DesktopConfigFileIo = {
+  write: writeFileSync,
+  sync: fsyncSync,
+  rename: renameSync,
+};
+
+const persistenceError = (message: string, errors: unknown[]): AggregateError =>
+  new AggregateError(errors, `${message}: ${errors.map(error =>
+    error instanceof Error ? error.message : String(error)).join("; ")}`, { cause: errors[0] });
+
 export class DesktopConfigRepository {
   private readonly configPath: string;
   private readonly legacyConfigPath: string;
@@ -47,6 +64,7 @@ export class DesktopConfigRepository {
     private readonly catalog: LlmProviderCatalog = loadLlmProviderCatalog(
       join(repositoryRoot(dirname(fileURLToPath(import.meta.url))), "config", "llm"),
     ),
+    private readonly io: DesktopConfigFileIo = fileIo,
   ) {
     this.configPath = join(dataRoot, "config", "settings.json");
     this.legacyConfigPath = join(dataRoot, "config", "desktop.json");
@@ -90,18 +108,25 @@ export class DesktopConfigRepository {
   commit(config: DesktopConfig, secrets: DesktopSecrets): void {
     this.withFileLock(() => {
       this.assertConfigUnchanged();
-      const previousConfig = this.readRaw(this.configPath);
+      this.requireSafeStorage();
+      // Finish fallible preparation before replacing either live file.
+      const nextConfig = Buffer.from(`${JSON.stringify(config, null, 2)}\n`, "utf8");
+      const nextSecrets = this.safeStorage.encryptString(JSON.stringify(secrets));
       const previousSecrets = this.readRaw(this.secretsPath);
+      this.writeRaw(this.secretsPath, nextSecrets);
       try {
-        this.writeSecrets(secrets);
-        this.writeJson(this.configPath, config);
-        this.observeConfig(this.readRaw(this.configPath));
+        this.writeRaw(this.configPath, nextConfig);
       } catch (error) {
-        this.restoreRaw(this.configPath, previousConfig);
-        this.restoreRaw(this.secretsPath, previousSecrets);
-        this.observeConfig(previousConfig);
+        // The atomic settings write failed without replacing settings.json.
+        // Only secrets were published; do not rewrite untouched configuration.
+        try {
+          this.restoreRaw(this.secretsPath, previousSecrets);
+        } catch (rollbackError) {
+          throw persistenceError("Configuration save and credential rollback failed", [error, rollbackError]);
+        }
         throw error;
       }
+      this.observeConfig(nextConfig);
     });
   }
 
@@ -172,22 +197,37 @@ export class DesktopConfigRepository {
       rmSync(path, { force: true });
       return;
     }
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, value);
-  }
-
-  private writeSecrets(secrets: DesktopSecrets): void {
-    this.requireSafeStorage();
-    mkdirSync(dirname(this.secretsPath), { recursive: true });
-    const temporary = `${this.secretsPath}.${process.pid}.tmp`;
-    writeFileSync(temporary, this.safeStorage.encryptString(JSON.stringify(secrets)));
-    renameSync(temporary, this.secretsPath);
+    this.writeRaw(path, value);
   }
 
   private writeJson(path: string, value: unknown): void {
+    this.writeRaw(path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8"));
+  }
+
+  private writeRaw(path: string, value: Buffer): void {
     mkdirSync(dirname(path), { recursive: true });
-    const temporary = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    renameSync(temporary, path);
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    let descriptor: number | undefined;
+    let created = false;
+    try {
+      descriptor = openSync(temporary, "wx", 0o600);
+      created = true;
+      this.io.write(descriptor, value);
+      this.io.sync(descriptor);
+      const closing = descriptor;
+      descriptor = undefined;
+      closeSync(closing);
+      this.io.rename(temporary, path);
+    } catch (error) {
+      const errors = [error];
+      if (descriptor !== undefined) {
+        try { closeSync(descriptor); } catch (closeError) { errors.push(closeError); }
+      }
+      if (created) {
+        try { rmSync(temporary, { force: true }); } catch (cleanupError) { errors.push(cleanupError); }
+      }
+      if (errors.length > 1) throw persistenceError(`Configuration file cleanup failed (${path})`, errors);
+      throw error;
+    }
   }
 }

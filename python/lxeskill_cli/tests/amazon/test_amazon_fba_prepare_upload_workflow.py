@@ -49,7 +49,6 @@ def test_prepare_upload_waits_for_step1_inventory_confirmation_before_success(tm
     )
 
     assert result["finished"] is True
-    assert "第一阶段完成" in result["notice"]
     assert "已确认要发送的库存" in result["notice"]
     assert calls[-2:] == ["upload_template", "advance_multi_box_entry"]
     assert sites == [site.upper()]

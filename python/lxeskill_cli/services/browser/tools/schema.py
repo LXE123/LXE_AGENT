@@ -49,106 +49,6 @@ _ZINIAO_PAGE_ACTIONS = (
 )
 
 
-_BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "ziniao_browser",
-        "description": (
-            "Manage Ziniao store lifecycle. "
-            "Use get_status first; if the store is already running, reuse store_id instead of open_store. "
-            "Use open_store to start a non-running store, and exit_store to stop one."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "description": "Browser action to run.",
-                    "enum": list(_ZINIAO_BROWSER_ACTIONS),
-                },
-                "store_id": {
-                    "type": "string",
-                    "description": "Target store oauth from get_status. Required by open_store and exit_store.",
-                },
-            },
-            "required": ["action"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "ziniao_page",
-        "description": (
-            "Control one Ziniao store page. "
-            "Every action requires store_id. Observe with browser_snapshot/browser_vision, "
-            "then interact with browser_click/browser_type/browser_navigate/browser_scroll."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "description": "Page action to run.",
-                    "enum": list(_ZINIAO_PAGE_ACTIONS),
-                },
-                "store_id": {
-                    "type": "string",
-                    "description": "Target store oauth.",
-                },
-                "strict_attach": {
-                    "type": "boolean",
-                    "description": "Reuse an already-running store and stop on attach failure without starting or restarting it.",
-                },
-                "target_host": {
-                    "type": "string",
-                    "description": "Exact hostname; requires a unique tab unless a live target_handle is supplied. browser_tabs lists every matching tab.",
-                },
-                "target_handle": {
-                    "type": "string",
-                    "description": "Live handle returned by browser_tabs; requires strict_attach and target_host. Never falls back to another tab.",
-                },
-                "full": {
-                    "type": "boolean",
-                    "description": "Return a more complete page snapshot. Used by browser_snapshot.",
-                },
-                "url": {
-                    "type": "string",
-                    "description": "Absolute URL used by browser_navigate.",
-                },
-                "ref": {
-                    "type": "string",
-                    "description": "Element ref returned by browser_snapshot. Used by browser_click and browser_type.",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Text typed into the target input. Used by browser_type.",
-                },
-                "direction": {
-                    "type": "string",
-                    "description": "Scroll direction used by browser_scroll.",
-                    "enum": ["up", "down"],
-                },
-                "pixels": {
-                    "type": "integer",
-                    "description": "Approximate scroll distance used by browser_scroll.",
-                    "minimum": 100,
-                    "maximum": 4000,
-                },
-            },
-            "required": ["action", "store_id"],
-            "additionalProperties": False,
-        },
-    },
-)
-
-_TOOL_SCHEMA_MAP = {
-    str(item.get("name") or "").strip(): dict(item)
-    for item in _BROWSER_TOOL_SCHEMAS
-}
-
-
-def browser_tool_names() -> tuple[str, ...]:
-    return tuple(_TOOL_SCHEMA_MAP.keys())
-
-
 def _normalize_ziniao_browser_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     action = _clean_text(arguments.get("action"), 40)
     if action not in _ZINIAO_BROWSER_ACTIONS:
@@ -320,7 +220,7 @@ def build_browser_tool_call(
     raw: dict[str, Any] | None = None,
 ) -> ToolCall:
     tool_name = _clean_text(name, 60)
-    if tool_name not in _TOOL_SCHEMA_MAP:
+    if tool_name not in {"ziniao_browser", "ziniao_page"}:
         raise ValueError(f"Unknown browser tool: {name}")
 
     source = dict(arguments or {})
@@ -342,6 +242,5 @@ def build_browser_tool_call(
 
 
 __all__ = [
-    "browser_tool_names",
     "build_browser_tool_call",
 ]

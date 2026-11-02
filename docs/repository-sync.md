@@ -11,4 +11,4 @@ GitHub 的 `main` 是共同基线。默认在 Mac 开发；Windows 用于平台�
 
 ## 历史整合记录
 
-早期 Mac／Windows 分叉整合的提交、处理和验证范围见 [历史记录](record/repository-sync-integration.md)。日常验证按改动的实际影响范围执行，遵循 [AGENTS.md](../AGENTS.md#工具链)。
+早期 Mac／Windows 分叉整合的提交、处理和验证范围见 [历史记录](record/repository-sync-integration.md)。日常验证按改动的实际影响范围执行，遵循 [AGENTS.md](../AGENTS.md#工具链与验证)。

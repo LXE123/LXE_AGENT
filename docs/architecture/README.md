@@ -17,7 +17,7 @@ flowchart TB
     E["Electron<br/>用户入口 · 桌面界面 · Main / Gateway"]
     A["agentcli<br/>Agent Harness"]
     L["lxeskillCLI<br/>业务命令行工具"]
-    K["LibreOffice Kit 0.1.5<br/>转换 · 渲染 · 公式重算"]
+    K["LibreOffice Kit<br/>转换 · 渲染 · 公式重算"]
 
     E <-->|"JSON-RPC 2.0"| A
     E -->|"调用暴露的业务命令"| L
@@ -28,11 +28,11 @@ flowchart TB
     L -->|"内部适配调用 Kit CLI<br/>业务文件重算"| K
 ```
 
-| 模块              | 主要职责                                                 |
-| --------------- | ---------------------------------------------------- |
-| **Electron**    | 面向用户的应用入口，提供统一交互界面；负责侧边栏与文件预览、系统集成、配置与进程管理，以及 Gateway 的任务接入、调度和结果交付。 |
-| **agentcli**    | 承载 Agent 执行核心，负责模型调用、上下文、工具执行、会话状态和执行权限。             |
-| **lxeskillCLI** | 通过暴露的命令提供业务能力，负责业务计算、外部系统操作和文件产出。                |
+| 模块 | 主要职责 | 主要代码位置 |
+| --- | --- | --- |
+| **Electron** | 面向用户的应用入口，提供统一交互界面；负责侧边栏与文件预览、系统集成、配置与进程管理，以及 Gateway 的任务接入、调度和结果交付。 | `apps/dashboard`、`apps/desktop`、`apps/gateway` |
+| **agentcli** | 承载 Agent 执行核心，负责模型调用、上下文、工具执行、会话状态和执行权限。 | `apps/agent-cli`、`packages/agent/runtime` |
+| **lxeskillCLI** | 通过暴露的命令提供业务能力，负责业务计算、外部系统操作和文件产出。 | `python/lxeskill_cli` |
 
 模块之间通过明确的接口协作：
 

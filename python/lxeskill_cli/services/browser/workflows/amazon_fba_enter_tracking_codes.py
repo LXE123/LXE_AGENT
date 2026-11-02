@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code
-from services.agent_cli.browser.amazon_common.shipment_tracking import (
+from services.commands.browser.amazon_common.region_switch import normalize_site_code
+from services.commands.browser.amazon_common.shipment_tracking import (
     enter_tracking_codes,
     probe_tracking_input_ready,
 )

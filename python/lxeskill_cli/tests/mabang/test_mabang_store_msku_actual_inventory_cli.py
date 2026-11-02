@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from services.agent_cli.mabang import export_store_msku_actual_inventory as cli
+from services.commands.mabang import export_store_msku_actual_inventory as cli
 from services.mabang.amazon.fba.store_msku_actual_inventory import ActualInventoryResult
 
 

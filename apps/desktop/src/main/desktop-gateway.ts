@@ -26,7 +26,7 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import { createLogger, resolveWorkspaceContext } from "@lxe/core";
+import { createLogger, resolveWorkspaceContext, withExecutablePath, managedPythonEnvironment } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
@@ -196,10 +196,9 @@ export class DesktopGateway {
       delete target.LXE_ROOT;
       delete target.LXE_RESOURCE_ROOT;
     }
-    const environment: Record<string, string | undefined> = {
+    const environment: Record<string, string | undefined> = withExecutablePath(managedPythonEnvironment({
       ...withoutDataServerEnvironment(processEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
-      LXE_AGENT_SOUL_PATH: this.options.paths.agentSoulPath,
       LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
       LXE_USER_SKILLS_ROOT: this.options.paths.userSkillsRoot,
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
@@ -237,13 +236,13 @@ export class DesktopGateway {
         managedEnvironment: configuredEnvironment,
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
-    };
+    }), this.options.paths.managedPath);
     void this.lxeskillHealth?.stop();
     this.lxeskillQueryOptions = {
-      pythonPath: this.options.paths.managedPythonPath, cwd: this.options.paths.dataRoot, environment: { ...environment },
+      executablePath: this.options.paths.lxeskillExecutablePath, cwd: this.options.paths.dataRoot, environment: { ...environment },
     };
     this.lxeskillHealth = new DesktopLxeSkillHealth({
-      pythonPath: this.options.paths.managedPythonPath,
+      executablePath: this.options.paths.lxeskillExecutablePath,
       dataRoot: this.options.paths.dataRoot,
       environment: { ...environment },
       recovery: this.options.packaged ? "Reinstall or rebuild LXE Agent"
@@ -258,7 +257,6 @@ export class DesktopGateway {
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
       environment,
-      agentSoulPath: this.options.paths.agentSoulPath,
       skillsRoot: this.options.paths.skillsRoot,
       userSkillsRoot: this.options.paths.userSkillsRoot,
       llmConfigRoot: this.options.paths.llmConfigRoot,
@@ -566,9 +564,7 @@ export class DesktopGateway {
       }
     }
     if (call.operation === "sessions.stop") {
-      const result = await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id);
-      if (result.stopped_turn_id || result.cleared_turn_ids.length) this.automations?.service.pauseSession(call.input.session_id, "用户已停止会话的自动执行；恢复任务后继续");
-      return result as DashboardRpcResult<O>;
+      return await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.activity") {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;
@@ -622,7 +618,7 @@ export class DesktopGateway {
       } catch (error) { return { opened: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
-    if (call.operation === "models.update" || call.operation === "models.thinking.update") {
+    if ((call.operation === "models.update" || call.operation === "models.thinking.update") && call.input.remember_default !== false) {
       const model = result as unknown as {
         provider: string;
         model: string;

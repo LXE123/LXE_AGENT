@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from lxeskill import business, cli as lxeskill
-from services.agent_cli.mabang import import_export_tax_products as cli
-from services.agent_cli.mabang import summarize_fba_delivery_tax_sku as summary_cli
+from services.commands.mabang import import_export_tax_products as cli
+from services.commands.mabang import summarize_fba_delivery_tax_sku as summary_cli
 from shared import input_assets
 
 

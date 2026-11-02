@@ -4,6 +4,7 @@
 #   scripts/wt-claim <task-slug>            claim an idle slot on branch codex/<task-slug>
 #   scripts/wt-claim release <task-slug>    release a clean slot, keeping its branch
 #   scripts/wt-claim status                 list pool slots
+#   scripts/wt-claim refresh-config <task-slug>  replace test config from main, with backup
 #
 # Slots live in .worktrees/pool-N and are never deleted; dependencies are
 # synced in place using bun/uv caches when available.
@@ -15,7 +16,21 @@ COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
 MAIN_ROOT="$(dirname "$COMMON_DIR")"
 POOL_DIR="$MAIN_ROOT/.worktrees"
 MAX_SLOTS="${WT_POOL_MAX:-4}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 die() { echo "wt-claim: $*" >&2; exit 1; }
+
+# Exclusive creation works without platform-specific flock utilities.
+lock_pool() {
+  local diagnostic
+  POOL_LOCK="$POOL_DIR/.wt-claim.lock"
+  mkdir -p "$POOL_DIR"
+  if ! diagnostic="$( (set -o noclobber; echo "$$" > "$POOL_LOCK") 2>&1)"; then
+    die "cannot acquire pool lock $POOL_LOCK; another wt-claim may be running, retry after it finishes. $diagnostic"
+  fi
+  trap 'rm -f "$POOL_LOCK"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
 
 # The claim marker lives NEXT TO the slot (pool-N.claim), never inside it,
 # so claiming leaves the worktree perfectly clean.
@@ -29,7 +44,7 @@ sync_deps() {
   local dir="$1" started ended
   started="$(date +%s)"
   (cd "$dir" && bun install --frozen-lockfile >/dev/null)
-  (cd "$dir" && uv sync --frozen >/dev/null 2>&1)
+  (cd "$dir" && uv sync --frozen >/dev/null)
   ended="$(date +%s)"
   echo "deps synced in $((ended - started))s (bun install + uv sync, warm caches)"
 }
@@ -54,6 +69,7 @@ cmd_status() {
 cmd_claim() {
   local slug="$1" branch dir i
   [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "task slug must be kebab-case: $slug"
+  lock_pool
   branch="codex/$slug"
 
   # Resume: slug already owns a slot.
@@ -61,6 +77,7 @@ cmd_claim() {
     dir="$POOL_DIR/pool-$i"
     if [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ]; then
       sync_deps "$dir"
+      bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" init
       echo "resumed pool-$i on $(slot_branch "$dir")"
       echo "$dir"
       return 0
@@ -88,6 +105,7 @@ cmd_claim() {
     fi
     echo "$slug" > "$dir.claim"
     sync_deps "$dir"
+    bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" init
     echo "$([ -n "$reattach" ] && echo reattached || echo claimed) pool-$i on $branch"
     echo "$dir"
     return 0
@@ -97,6 +115,7 @@ cmd_claim() {
 
 cmd_release() {
   local slug="$1" dir i branch
+  lock_pool
   for i in $(seq 1 "$MAX_SLOTS"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
@@ -111,9 +130,22 @@ cmd_release() {
   die "no slot claimed by: $slug"
 }
 
+cmd_refresh_config() {
+  local slug="$1" dir i
+  lock_pool
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
+    bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" refresh
+    return 0
+  done
+  die "no slot claimed by: $slug"
+}
+
 case "${1:-}" in
   status) cmd_status ;;
+  refresh-config) [ -n "${2:-}" ] || die "usage: wt-claim refresh-config <task-slug>"; cmd_refresh_config "$2" ;;
   release) [ -n "${2:-}" ] || die "usage: wt-claim release <task-slug>"; cmd_release "$2" ;;
-  "") die "usage: wt-claim <task-slug> | release <task-slug> | status" ;;
+  "") die "usage: wt-claim <task-slug> | release <task-slug> | refresh-config <task-slug> | status" ;;
   *) cmd_claim "$1" ;;
 esac

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from services.agent_cli.browser.amazon_common.own_carrier import (
+from services.commands.browser.amazon_common.own_carrier import (
     confirm_own_carrier_shipment,
     probe_own_carrier_ready,
 )
-from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code
+from services.commands.browser.amazon_common.region_switch import normalize_site_code
 from services.browser.models.protocol import bind_event_writer
 from services.browser.workflows.amazon_fba_common import (
     WorkflowBrowserSession,

@@ -277,7 +277,6 @@ def test_only_list_retries_and_keeps_fixed_fields():
         client.export([1])
     assert session.post.call_count == 1
     assert session.post.call_args.kwargs['json']['stockValueArr'] == FIELDS
-    assert len(FIELDS) == 12 and FIELDS[-1] == 'sale5'
 
 
 @pytest.mark.parametrize('body', [{'code': '200'}, {'code': '200', 'data': {'apiToken': ''}}, {'code': '401', 'msg': 'denied'}])
@@ -600,7 +599,7 @@ def test_cli_retains_partial_artifact_without_auth_material(monkeypatch, tmp_pat
     import json
     from lxeskill import cli
     from lxeskill import business
-    from services.agent_cli.mabang_tms import export_run
+    from services.commands.mabang_tms import export_run
     output = tmp_path / 'partial.xlsx'
     output.write_bytes(workbook([values(record(1))]))
     monkeypatch.setattr(business, 'artifact_root', lambda: tmp_path)

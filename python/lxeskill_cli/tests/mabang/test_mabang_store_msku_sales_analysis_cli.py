@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from services.agent_cli.mabang import analyze_store_msku_sales as cli
+from services.commands.mabang import analyze_store_msku_sales as cli
 from services.mabang.amazon.fba.store_msku_sales_analysis import StoreMskuSalesAnalysisResult
 
 

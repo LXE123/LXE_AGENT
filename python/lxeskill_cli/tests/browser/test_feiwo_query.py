@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from lxeskill import cli
-from services.agent_cli.logistics import feiwo_query as feiwo
+from services.commands.logistics import feiwo_query as feiwo
 
 FBA = "FBA191GB5WTM"
 ARGS = {"store_id": "test-store", "fba": FBA}

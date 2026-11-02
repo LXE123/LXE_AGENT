@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from lxeskill import cli
-from services.agent_cli.logistics import yuntuo_query as yuntuo
+from services.commands.logistics import yuntuo_query as yuntuo
 
 FBA = "FBA19P9T04B2"
 ARGS = {"store_id": "test-store", "fba": FBA}

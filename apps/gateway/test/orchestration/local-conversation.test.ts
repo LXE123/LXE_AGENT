@@ -80,6 +80,7 @@ class MemoryStorage implements LocalConversationStorage {
 
 function harness(ids: string[]) {
   const runtime = new RecordingRuntime();
+  const runtimeState = new SessionRuntimeState();
   const storage = new MemoryStorage();
   const events: SchedulerJobStateEvent[] = [];
   const activities: unknown[] = [];
@@ -96,7 +97,7 @@ function harness(ids: string[]) {
   controller = new LocalConversationController({
     storage,
     scheduler,
-    runtimeState: new SessionRuntimeState(),
+    runtimeState,
     defaultWorkspace: () => testWorkspace,
     onActivity: (activity) => activities.push(activity),
     onStreamBatch: (batch) => streamBatches.push(batch),
@@ -107,7 +108,7 @@ function harness(ids: string[]) {
     },
     now: () => (clock.value += 1),
   });
-  return { runtime, storage, scheduler, controller, events, activities, streamBatches, clock };
+  return { runtime, runtimeState, storage, scheduler, controller, events, activities, streamBatches, clock };
 }
 
 const externalJob = (sessionId: string): AgentJob => ({
@@ -782,4 +783,29 @@ test("scheduled independent rounds always use their persisted fresh IDs, while r
     await expect(h.controller.send({session_id:"new-1",text:"reuse"},{id:"reuse",session_id:"new-1",turn_id:"turn-3",fresh:false,assertCurrent(){}})).rejects.toThrow("使用中");
     expect(h.controller.activity("new-1").queued).toHaveLength(0);
   } finally {h.controller.dispose();}
+});
+
+test("stopping a turn suppresses its continuation but allows the next scheduled turn after settlement", async () => {
+  const h = harness(["turn", "message", "route", "busy-message", "busy-route", "rejected-message", "rejected-route", "next-message", "next-route"]);
+  h.storage.sessions.set("chat", { session_id: "chat", source: { platform: "desktop" }, workspace: testWorkspace });
+  try {
+    await h.controller.send({ session_id: "chat", text: "manual turn" });
+    await h.controller.stop("chat", "turn");
+    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
+    const next = { id: "plan", session_id: "chat", turn_id: "next", fresh: false, assertCurrent() {} };
+    await expect(h.controller.send({ session_id: "chat", text: "still stopping" }, next)).rejects.toThrow("使用中");
+    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "turn",
+      payload: { session_id: "chat", job_id: "turn", status: "cancelled" } });
+    let checks = 0;
+    await expect(h.controller.send({ session_id: "chat", text: "revoked plan" }, { ...next,
+      assertCurrent() { if (++checks === 2) throw new Error("fixture paused during admission"); },
+    })).rejects.toThrow("paused during admission");
+    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
+    await h.controller.send({ session_id: "chat", text: "next scheduled turn" }, next);
+    expect(h.runtime.started.map(job => job.job_id)).toEqual(["turn", "next"]);
+    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(false);
+    await expect(h.controller.stop("chat", "turn")).rejects.toThrow("no longer active");
+    expect(h.runtime.cancelled).toEqual(["turn"]);
+  } finally { h.controller.dispose(); }
 });

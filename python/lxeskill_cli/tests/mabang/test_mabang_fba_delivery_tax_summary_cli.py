@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.agent_cli.mabang import summarize_fba_delivery_tax_sku as cli
+from services.commands.mabang import summarize_fba_delivery_tax_sku as cli
 from services.mabang.amazon.fba.batch_delivery import BatchDeliveryCsvResult
 
 

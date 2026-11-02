@@ -9,9 +9,6 @@ describe("Feishu config", () => {
       FEISHU_APP_SECRET: "secret_1234567890",
       FEISHU_API_HOST: "https://open.larksuite.com/open-apis",
       LXE_FEISHU_GATEWAY_ENABLED: "false",
-      LXE_FEISHU_WS_AUTO_RESTART_ENABLED: "false",
-      LXE_FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: "123",
-      FEISHU_RAW_EVENT_DUMP_DIR: "/tmp/ignored-feishu-events",
     });
     expect(config.appId).toBe("cli_1234567890abcdef");
     expect(config.apiHost).toBe("https://open.larksuite.com/open-apis");
@@ -33,11 +30,9 @@ describe("Feishu config", () => {
     }));
   });
 
-  test("keeps the gateway compatibility key but ignores retired restart tuning", () => {
+  test("accepts the supported gateway environment alias", () => {
     const config = loadFeishuConfig({
       FEISHU_GATEWAY_ENABLED: "false",
-      FEISHU_WS_AUTO_RESTART_ENABLED: "false",
-      FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: "123",
     });
     expect(config.gatewayEnabled).toBe(false);
     expect(config.autoRestartEnabled).toBe(true);

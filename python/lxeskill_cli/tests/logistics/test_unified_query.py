@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from services.agent_cli.logistics import login, profiles, query, settings
+from services.commands.logistics import login, profiles, query, settings
 
 
 @pytest.fixture

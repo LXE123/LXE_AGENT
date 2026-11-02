@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.agent_cli.browser.amazon_fba import delivery_window_list as dwl
+from services.commands.browser.amazon_fba import delivery_window_list as dwl
 
 PAGE_URL = "https://sellercentral.amazon.com/fba/inbound-shipment/summary/contents"
 

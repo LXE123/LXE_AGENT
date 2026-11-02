@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 from selenium.common.exceptions import WebDriverException
 
-from services.agent_cli.browser.amazon_fba import delivery_window_apply as dwa
+from services.commands.browser.amazon_fba import delivery_window_apply as dwa
 
 FIXTURE = Path(__file__).parent / "fixtures" / "delivery_window_modal.sanitized.html"
 
@@ -151,7 +151,7 @@ def test_parse_calendar_month_label_rejects_incomplete_labels(label):
 
 
 def test_window_matches_requires_a_parsed_exact_window():
-    from services.agent_cli.browser.amazon_fba import delivery_window_list as dwl
+    from services.commands.browser.amazon_fba import delivery_window_list as dwl
 
     parsed = dwl.parse_delivery_window("2026年10月25日 - 2026年10月31日")
     assert dwa.window_matches(parsed, dt.date(2026, 10, 25), dt.date(2026, 10, 31)) is True

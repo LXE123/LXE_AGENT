@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.agent_cli._shared import browser_session as browser_session_module
+from services.commands._shared import browser_session as browser_session_module
 from services.browser.store import store_driver_session as store_driver_session_module
 from services.browser.tools import dispatcher, driver_session, executor
 from shared.process_lock import InterProcessLockTimeout

@@ -216,8 +216,9 @@ function orderRows(rows: ConversationRow[]): ConversationRow[] {
     if (a.turnId && a.turnId === b.turnId) {
       if (a.message?.role === "user" && b.message?.role !== "user") return -1;
       if (b.message?.role === "user" && a.message?.role !== "user") return 1;
-      if (a.kind === "status") return 1;
-      if (b.kind === "status") return -1;
+      // Process headers consume this row; direct answers keep it above the body.
+      if (a.kind === "status" && b.kind !== "status") return -1;
+      if (b.kind === "status" && a.kind !== "status") return 1;
     }
     return 0;
   });

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.mabang import customs_erp as cli
-from services.agent_cli.mabang.customs_prices import read_prices, match_price
+from services.commands.mabang import customs_erp as cli
+from services.commands.mabang.customs_prices import read_prices, match_price
 from test_mabang_customs_declaration_fill_cli import _write_template, _write_consignment_excel
 
 
@@ -240,7 +240,7 @@ def test_duplicate_sp_rejected_before_download(setup):
 
 
 def test_alias_retry_downloads_actual_packing_sp(setup, monkeypatch):
-    from services.agent_cli.mabang.erp_http import ErpHttpError
+    from services.commands.mabang.erp_http import ErpHttpError
     args, erp, downloads, calls, _ = setup
     erp["shipments"][0]["packing_sp_no"] = "SP999"
     existing = cli.request_json

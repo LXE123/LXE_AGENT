@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from services.agent_cli.browser.amazon_common.login_verify import verify_seller_central_login
+from services.commands.browser.amazon_common.login_verify import verify_seller_central_login
 from services.browser.workflows.amazon_fba_common import (
     WorkflowBrowserSession,
     exception_text as _exception_text,

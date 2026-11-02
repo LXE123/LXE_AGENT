@@ -33,7 +33,6 @@ const removeTemporaryRoot = async (root: string): Promise<void> => {
   }
 };
 const resourcePaths = (root: string) => ({
-  agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
   llmConfigRoot: join(root, "config", "llm"),

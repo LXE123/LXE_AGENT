@@ -61,7 +61,7 @@ Definition 注册与模型可见是两个不同阶段。Registry 保存所有可
 
 `exec`、`write`、`edit` 使用当前调用取得的会话权限策略。权限模式、生效时机、单次提权和平台限制统一见 [会话权限与工作区目录](../permission-policy.md)。
 
-Skill 为模型提供工作上下文，具体操作通过工具执行。Skill 指引与程序模块依赖的区别，见 [PR 审查规范](../../../pr-review.md#21-skill-提供的工作上下文)。
+Skill 为模型提供工作上下文，具体操作通过工具执行。编写与审查要求见 [PR 审查规范](../../../pr-review.md#21-skill-编写与审查要求)。
 
 ## Cancel 与 exec 生命周期
 

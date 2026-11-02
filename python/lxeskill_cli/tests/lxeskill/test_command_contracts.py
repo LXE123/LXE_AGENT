@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +22,6 @@ def _module_entries() -> tuple[dict[str, Any], ...]:
 
 
 MODULE_ENTRIES = _module_entries()
-PARAMETERIZED_MODULE_COMMANDS = frozenset(_command(entry) for entry in MODULE_ENTRIES)
 
 
 def _schema_value(name: str, schema: dict[str, Any]) -> Any:
@@ -204,19 +202,6 @@ FAILURE_CASE_PARAMS = tuple(
 )
 
 
-@pytest.mark.parametrize("entry", MODULE_ENTRIES, ids=_command)
-def test_catalog_module_exposes_exact_run_contract(entry: dict[str, Any]) -> None:
-    module = importlib.import_module(str(entry["module"]))
-    run = getattr(module, "run", None)
-
-    assert callable(run), f"{_command(entry)} has no callable run"
-    signature = inspect.signature(run)
-    assert tuple(signature.parameters) == ("arguments",)
-    parameter = signature.parameters["arguments"]
-    assert parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
-    assert parameter.default is inspect.Parameter.empty
-
-
 @pytest.mark.parametrize(
     ("entry", "missing", "arguments"),
     REQUIRED_CASES,
@@ -239,15 +224,6 @@ def test_catalog_required_field_missing_returns_failure(
     failure_flags = [key for key in ("success", "ok") if key in result]
     assert failure_flags, f"{command} missing {missing} returned no success/ok flag: {result}"
     assert all(result[key] is False for key in failure_flags)
-
-
-def test_catalog_module_contract_parameterization_is_complete() -> None:
-    catalog_module_commands = {
-        _command(entry)
-        for entry in load_catalog().values()
-        if str(entry.get("module") or "").strip()
-    }
-    assert catalog_module_commands <= PARAMETERIZED_MODULE_COMMANDS
 
 
 @pytest.mark.parametrize(

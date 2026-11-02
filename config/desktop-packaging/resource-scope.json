@@ -9,13 +9,6 @@
       "platforms": ["win32-x64"]
     },
     {
-      "id": "agent",
-      "owner": "bun-agent-runtime",
-      "source": { "kind": "file", "path": "SOUL.md" },
-      "target": "agent/SOUL.md",
-      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"]
-    },
-    {
       "id": "skills",
       "owner": "bun-skill-runtime",
       "source": { "kind": "skill-tree", "path": "skills" },

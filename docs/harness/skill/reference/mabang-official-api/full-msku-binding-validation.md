@@ -13,7 +13,7 @@
 - 历史 Active 文件不修改，也不自动迁移。新计算需重新下载，生成同轮新版销量与库存报表。核验不一致立即失败。
 - 无可计算记录时不生成备货建议；仍可输出全量销量及库存异常明细。保留下载原子发布、最终报表原子发布、真实错误和现有超时。
 
-真实模型 Skill 行为回放由用户验收，不作为本次代码合并阻塞，也不调用外部模型代测。
+本次验收未调用真实模型，覆盖范围为下述 CLI、报表和界面检查。
 
 ## YYH-US 验收（2026-09-08）
 
@@ -39,4 +39,4 @@ Mac 与 Windows 新包对同一输入生成的全部 Sheet、单元格、公式�
 
 定向验证 220 项通过（Mac 跳过 Windows 占用测试），Windows 232 项通过。最终 rebase 后协议生成检查、TS 边界、类型检查及 Bun 全量 1444 项通过；Python 全量 1510 项通过、2 项跳过、54 个子测试通过，另有一条旧测试仍读取已删除“空运”页。将该断言改为核对首张试算表后，所在货件快照模块 40 项全部通过；本次仅修正测试，产品代码未变化，不重复运行全量测试。
 
-本轮可复查产物保存在主工作区 `var/validation/replenish-skill-workflow/full-scope/`，包含 `acceptance.json`、`verification.json`、`binding-exclusions.csv`、各步骤日志及独立报表。模型 Skill 回放仍由用户自行验收。
+本轮可复查产物保存在主工作区 `var/validation/replenish-skill-workflow/full-scope/`，包含 `acceptance.json`、`verification.json`、`binding-exclusions.csv`、各步骤日志及独立报表。

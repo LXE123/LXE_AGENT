@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.logistics import yuntuo_parser as yuntuo
+from services.commands.logistics import yuntuo_parser as yuntuo
 
 FBA = "FBA19P9T04B2"
 

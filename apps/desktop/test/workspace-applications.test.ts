@@ -2,7 +2,6 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { catalog } from '../src/main/workspace-apps/catalog';
 import { ApplicationResolver, type ResolvedApp } from '../src/main/workspace-apps/resolver';
 import { WorkspaceApplications } from '../src/main/workspace-apps/service';
 import { externalEnvironment, launchArgs, launchDetached, run } from '../src/main/workspace-apps/process';
@@ -10,12 +9,6 @@ import { readRegistry } from '../src/main/workspace-apps/registry';
 const roots: string[] = [];
 async function root() { const path = await mkdtemp(join(tmpdir(),'lxe-workspace-app-')); roots.push(path); return path; }
 afterEach(async () => { await Promise.all(roots.splice(0).map(p => rm(p,{recursive:true,force:true}))); });
-const app = (id: string) => catalog.find(item => item.id === id)!;
-test('catalog preserves dsh macOS and Windows order, locators and 31 entries', () => {
-  expect(catalog).toHaveLength(31); expect(new Set(catalog.map(a=>a.id)).size).toBe(31);
-  expect(catalog.slice(0,2).map(a=>a.id)).toEqual(['finder','explorer']);
-  expect(catalog.every(a => Object.keys(a.platforms).every(p => ['darwin','win32'].includes(p)))).toBe(true);
-});
 test('macOS checks known bundle names, ignores absent apps and keeps ordered deduplicated results', async () => {
   const path=await root(); await mkdir(join(path,'Visual Studio Code.app')); await mkdir(join(path,'Cursor.app'));
   const resolver=new ApplicationResolver({platform:'darwin', applicationRoots:[path,path], execute:async()=>'/Library/Developer/CommandLineTools'});

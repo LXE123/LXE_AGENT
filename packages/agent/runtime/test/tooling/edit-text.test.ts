@@ -16,14 +16,10 @@ describe("edit input", () => {
     { path: "a", edits: [{ oldText: 2, newText: "x" }] },
     { path: "a", edits: [{ oldText: "x", newText: null }] },
     { path: "a", edits: [{ oldText: "x", newText: 0 }] },
-    { path: "a", edits: [{ oldText: "x", newText: "y", replace_all: true }] },
+    { path: "a", edits: [{ oldText: "x", newText: "y", extra: true }] },
     { path: "a", edits: [{ oldText: "x", newText: "y" }], extra: true },
   ].map((input) => [input]))("rejects invalid input %#", (input) => {
     expect(() => validateEditInput(input)).toThrow();
-  });
-  test("explains the new interface for legacy calls", () => {
-    expect(() => validateEditInput({ file_path: "a", old_string: "x", new_string: "y" }))
-      .toThrow('Use {"path":"src/app.ts","edits":');
   });
 });
 

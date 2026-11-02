@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.agent_cli.mabang import resolve_fba_store as cli
+from services.commands.mabang import resolve_fba_store as cli
 from services.mabang.amazon.fba.store_resolver import (
     FbaStore,
     FbaStoreAmbiguousError,

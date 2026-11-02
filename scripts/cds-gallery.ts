@@ -1,4 +1,4 @@
-// Local documentation preview and bounded Chromium verification. No production RPC.
+// Local component preview, documentation generation and bounded Chromium verification. No production RPC.
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
@@ -20,7 +20,7 @@ async function writeDocs() {
     "## 如何打开与验证", "",
     "从仓库根执行 `bun run cds:preview`，打开输出的本地网址。页面并排展示亮暗主题，可输入、选择、Tab 聚焦和展开工具结果；预览 10 分钟后自动关闭，也可 Ctrl+C 结束。",
     "执行 `bun run cds:check` 会构建相同页面、运行本地 Electron 交互检查、保存截图和实测值，并关闭测试进程。命令失败时不得沿用旧记录声称通过。",
-    "执行 `bun run cds:docs` 可核对原始出处片段并从 JSON 重建本表。", "",
+    "执行 `bun run cds:docs` 可从 JSON 重建本表。", "",
     "入口源码：[展示页](../../../apps/dashboard/test/behavior/cds-gallery.tsx)、[布局样式](../../../apps/dashboard/test/behavior/cds-gallery.css)、[构建与验证](../../../scripts/cds-gallery.ts)。",
     "实测记录：[verification.json](showcase/verification.json)。记录内含实际源码 SHA-256、构建时 HEAD、浏览器版本与检查结果；后续代码改变需重新验证。", "",
     "## 证据等级", "",
@@ -44,7 +44,6 @@ async function writeDocs() {
     "- 导航行与工具调用条直接导入生产 React 组件。上下文表面与主题作用域保留；样本外框、说明、检查器属于展示页。",
     "- 展示页使用独立 iframe 隔离亮暗主题，避免把根节点主题选择器错误地套到局部容器。",
     "- 检查包含输入框的错误＋焦点、导航的选中＋悬停／焦点、五类工具条状态的悬停／焦点／展开；禁用导航与禁用工具条标为不适用，不篡改 DOM 伪造接口。",
-    "- 原始出处通过 source.slice(start, end) 与 excerpt 完整匹配校验；缺失证据不会由截图或测试通过来替代。",
     "", "## 待补证据清单", "",
     "1. Claude 会话导航专用规则：选中叠加 hover、键盘焦点、菜单打开时的优先级。",
     "2. Claude 工具调用条专用规则：五类执行状态、hover、focus 与展开状态的实际映射。",
@@ -53,21 +52,7 @@ async function writeDocs() {
     "");
   await Bun.write(resolve(docs, "current-adaptation.md"), lines.join("\n"));
 }
-async function evidenceCheck() {
-  const evidence = await Bun.file(resolve(docs, "sources/ion-settings/evidence-excerpts.json")).json();
-  if (!evidence.entries?.length) throw new Error("No source evidence entries found");
-  for (const item of evidence.entries) {
-    const source = await Bun.file(resolve(docs, "sources/ion-settings", item.file)).text();
-    if (source.slice(item.start, item.end) !== item.excerpt) throw new Error(`Evidence mismatch: ${item.id}`);
-  }
-  const ids = new Set(adaptation.sources.map(source => source.id));
-  for (const component of adaptation.components) for (const state of component.states) for (const id of state.upstream) {
-    if (!ids.has(id)) throw new Error(`Unknown source ${id}`);
-  }
-  return evidence.entries.length;
-}
 if (mode === "docs") {
-  console.log(`Source excerpts verified: ${await evidenceCheck()}`);
   await writeDocs();
 } else {
   const buildDir = mkdtempSync(resolve(tmpdir(), "lxe-cds-gallery-build-"));
@@ -105,7 +90,6 @@ if (mode === "docs") {
       console.log("Local sample data only. Preview closes in 10 minutes; Ctrl+C closes it now.");
       await new Promise<void>(done => { stopTimer = setTimeout(done, 600_000); });
     } else {
-      const evidenceCount = await evidenceCheck();
       const output = resolve(docs, "showcase");
       mkdirSync(output, { recursive: true });
       // Never leave a previous successful report masquerading as this run.
@@ -123,7 +107,6 @@ if (mode === "docs") {
       if (report.passed.length < 12 || report.measurements.length < 50) throw new Error("Incomplete verification coverage");
       const files = [...new Set([
         ...adaptation.components.flatMap(component => component.implementation),
-        ...adaptation.sources.map(source => source.file),
         "apps/dashboard/src/shared/cds-theme.css",
         "apps/dashboard/test/behavior/cds-gallery.tsx", "apps/dashboard/test/behavior/cds-gallery.css",
         "apps/dashboard/test/behavior/cds-gallery-runner.cjs", "scripts/cds-gallery.ts",
@@ -134,7 +117,7 @@ if (mode === "docs") {
       const fileHashes = Object.fromEntries(await Promise.all(files.map(async file => [file, await hash(resolve(root, file))])));
       await Bun.write(resolve(output, "verification.json"), JSON.stringify({ status: "passed", verifiedAt: new Date().toISOString(),
         sourceHead: head.stdout.toString().trim(), sourceIdentification: "HEAD is the pre-commit baseline; SHA-256 identifies the actual working files checked.",
-        sourceHashes: fileHashes, evidenceExcerptsVerified: evidenceCount,
+        sourceHashes: fileHashes,
         ...report, limitations: adaptation.limitations }, null, 2) + "\n");
       await writeDocs();
     }

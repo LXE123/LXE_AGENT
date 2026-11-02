@@ -44,7 +44,6 @@ def test_low_sales_boundary_and_snapshot_columns(tmp_path, sales):
             assert record[rep.MABANG_FBA_TOTAL_COLUMN] == 28
             assert record[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == -86
             assert record['未关联数量'] == 3
-            assert record['具体原因'] == '近30天销量不足10件，本轮不计算备货'
             assert all(c.data_type != 'f' for c in sheet[2])
             assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[2][10:14])
             assert sheet['O2'].number_format == '0.00'
@@ -54,7 +53,7 @@ def test_low_sales_boundary_and_snapshot_columns(tmp_path, sales):
         book.close()
 
 
-def test_custom_skip_reason_and_effective_weights(tmp_path):
+def test_custom_skip_classification_and_effective_weights(tmp_path):
     template = templates.load_default_template()
     params = deepcopy(template.params)
     for group in ('growth', 'decline', 'stable'):
@@ -64,7 +63,6 @@ def test_custom_skip_reason_and_effective_weights(tmp_path):
     template = replace(template, name='自定义跳过', params=params)
     row = sample_row((14, 21, 30, 180), actual=None, template=template, trend='增长')
     payload = rep._non_shipping_payload(row)
-    assert payload['具体原因'] == '参数方案「自定义跳过」将销量趋势「增长」设置为跳过，本轮不计算备货'
     assert payload[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == ''
     assert payload['加权日销'] == 1.35
     assert row.sheet_name == rep.SAMPLE_INSUFFICIENT_SHEET

@@ -25,7 +25,7 @@ function runningOutput(key:string,seq:number,text:string):DesktopConversationTur
       display_metrics:{status:"running",phase:"generating_answer",elapsed_ms:0,model:"fixture",input_tokens:0,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0,context_tokens:0,context_window_tokens:1000}}};
 }
 let serial=0, sendState: "completed"|"error"|"cancelled"|"transport-error"="completed", failNextPage=false, pageDelay=15, activityDelay=0;
-const session=(id:string):SessionPayload=>({session_id:id,title:"展示控制器 fixture",source:{},source_summary:{platform:"desktop",chat_type:"dm"},workspace:{directory:"/fixture",worktree:"/fixture"},model:"fixture",reasoning_effort:"",model_config:{},pinned_at:0,created_at:1,last_active_at:1,message_count:0,tool_call_count:0,input_tokens:0,output_tokens:0,api_call_count:0});
+const session=(id:string):SessionPayload=>({session_id:id,permission_mode:"workspace-write",title:"展示控制器 fixture",source:{},source_summary:{platform:"desktop",chat_type:"dm"},workspace:{directory:"/fixture",worktree:"/fixture"},model:"fixture",reasoning_effort:"",model_config:{},pinned_at:0,created_at:1,last_active_at:1,message_count:0,tool_call_count:0,input_tokens:0,output_tokens:0,api_call_count:0});
 function page(id:string,before?:string,after?:string):SessionDetailPayload{
   const messages=records.get(id)??[];
   const groups=[...new Set(messages.map(message=>message.display_group_id))];
@@ -40,6 +40,7 @@ const push=(id:string,turn:DesktopConversationTurnPayload)=>{
   activities.set(id,value);client.setQueryData(dashboardQueryKeys.sessions.activity(id),value);
 };
 setDashboardTransportForTests({call:async(call)=>{
+  if(call.operation==="skills.list")return {items:[],total:0} as never;
   if(call.operation==="sessions.attachment.preview")return {data_url:"data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#d4c4ac"/><text x="20" y="55">Fixture image</text></svg>')} as never;
   if(call.operation==="sessions.detail"){
     const input=call.input as {session_id:string;message_before?:string;message_after?:string};

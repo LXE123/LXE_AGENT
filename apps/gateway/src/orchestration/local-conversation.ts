@@ -257,10 +257,7 @@ export class LocalConversationController {
           session_id: sessionId, source: session.source, workspace: session.workspace,
           entry_text: text || attachments[0]!.name,
         }) } : {}),
-        ...(automation ? { onlyIfIdle: true, assertCurrent: () => {
-          automation.assertCurrent();
-          if (this.options.runtimeState.isAutonomySuspended(sessionId)) throw new AutomationBlockedError("会话的自动执行已暂停");
-        } } : {}),
+        ...(automation ? { onlyIfIdle: true, assertCurrent: automation.assertCurrent } : {}),
       });
     } catch (error) {
       this.removeTurn(sessionId, turnId);
@@ -343,6 +340,9 @@ export class LocalConversationController {
     if (event.state === "queued") {
       turn.payload.state = "queued";
     } else if (event.state === "running") {
+      // A scheduled run is a new turn. A user stop still suppresses continuation
+      // of the old turn until the next turn is actually admitted and starts.
+      if (event.job.raw_data.automation_id) this.options.runtimeState.resumeAutonomy(sessionId);
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       activity.activeTurnId = turnId;
       turn.payload.state = "running";

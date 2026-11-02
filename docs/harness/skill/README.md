@@ -1,6 +1,6 @@
 # Skill 手册
 
-Skill 为模型提供任务知识与工作上下文。任务指引保存在各自的 `SKILL.md` 及附属文件中；本篇维护发现、加载、管理和统计机制。Skill 与程序模块依赖的区别见 [PR 审查规范](../../pr-review.md)。
+Skill 为模型提供任务知识与工作上下文。任务指引保存在各自的 `SKILL.md` 及附属文件中；本篇维护发现、加载、管理和统计机制。编写与审查要求见 [PR 审查规范](../../pr-review.md#21-skill-编写与审查要求)。
 
 ## 来源与发现
 
@@ -22,11 +22,11 @@ Skill 为模型提供任务知识与工作上下文。任务指引保存在各�
 
 这里的 **Agent SkillCatalog** 是从 Skill 文件生成的目录；**lxeskillCLI 的 `catalog.json`** 是业务 CLI 内部维护的命令契约，两者不是同一个 Catalog。
 
-通常先把可用 Skill 的名称、类型、简介、指引路径等简要信息加入提示词，模型按任务需要用 `read` 读取正文。读取当前允许的 manifest 路径可以激活该 Skill 的 owner tools；新增工具从下一 step 开始可见。
+通常先把可用 Skill 的名称、类型、简介、`SKILL.md` 的绝对路径等简要信息加入提示词，模型按任务需要用 `read` 读取正文。通用使用指引只在 Skill 列表开头提供一份。读取当前允许的 manifest 路径可以激活该 Skill 的 owner tools；新增工具从下一 step 开始可见。
 
 用户在输入中明确指定 `/skill-name` 时，Runtime 也可加载对应正文，作为 `<skill_content>` 工作上下文追加，并激活该 Skill。显式选择、读取文件和执行业务命令是不同动作，不能把它们都算作一次业务执行。
 
-Skill 中的资源路径以该 Skill 所在目录为基准。普通工具的相对文件路径仍以会话工作区为基准；读取随包 Skill 时应使用目录给出的实际路径。
+Skill 正文引用的相对资源路径，以该 Skill 所在目录为基准，由模型转换为绝对路径后用于工具调用。普通工具收到相对文件路径时仍以会话工作区为基准。
 
 ## 用户 Skill 管理
 
@@ -40,7 +40,7 @@ Skill 中的资源路径以该 Skill 所在目录为基准。普通工具的相�
 
 ## 业务指引与 CLI
 
-业务 Skill 说明工作步骤、输入、依赖及命令用法，必要时也可以介绍模块内部结构作为工作上下文。lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`、`lxeskill describe ...`、`lxeskill datasets list` 按需查询。Agent 工具使用通用执行权限和进程规则，不直接加载 `catalog.json`。
+lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`、`lxeskill describe ...`、`lxeskill datasets list` 按需查询。Agent 工具使用通用执行权限和进程规则，不直接加载 `catalog.json`。
 
 完整业务说明只维护在 [`skills/`](../../../skills) 中，可从 [FBA 工作流](../../../skills/fba-workflow-map/SKILL.md)、[Amazon 补货工作流](../../../skills/replenishment-workflow-map/SKILL.md)、[东南亚备货工作流](../../../skills/southeast-asia-replenishment-workflow-map/SKILL.md)等入口查找，或使用桌面 Skill 列表查看当前可用项。项目不内置的外部 CLI 可从自身文档查询用法。外部平台原始资料保留在 [reference/](reference/README.md)，不代替当前运行指引。
 

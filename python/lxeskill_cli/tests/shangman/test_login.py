@@ -25,7 +25,6 @@ def context(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, "_artifact_root", tmp_path / "artifacts")
     for key, value in zip(("TENANT_ID", "USERNAME", "PROCESSED_PASSWORD"), ("tenant-123", "operator-456", "password-789")):
         monkeypatch.setenv("LXE_SHANGMAN_" + key, value)
-    monkeypatch.delenv("LXE_SHANGMAN_PROD_ENABLED", raising=False)
     credentials = Credentials.from_environment()
     return credentials, AuthStore(credentials)
 
@@ -157,8 +156,7 @@ def test_desktop_revision_invalidates_old_process(context, monkeypatch):
         configured.save(LoginToken("late", 300))
 
 
-def test_retired_switch_does_not_block_login_and_credentials_are_still_required(context, monkeypatch):
-    monkeypatch.setenv("LXE_SHANGMAN_PROD_ENABLED", "false")
+def test_login_requires_credentials(context, monkeypatch):
     async def captcha(self):
         return "actual-key", png()
     monkeypatch.setattr(AuthClient, "captcha", captcha)
@@ -302,12 +300,7 @@ def test_http_boundary_preserves_response_and_never_retries(context, monkeypatch
         thread.join()
 
 
-@pytest.mark.parametrize("legacy", [None, "Basic obsolete-value"])
-def test_client_identity_needs_no_account_configuration(context, monkeypatch, legacy):
-    if legacy is None:
-        monkeypatch.delenv("LXE_SHANGMAN_BASIC_AUTH", raising=False)
-    else:
-        monkeypatch.setenv("LXE_SHANGMAN_BASIC_AUTH", legacy)
+def test_client_identity_needs_no_account_configuration(context):
     c = Credentials.from_environment()
     assert c.basic_auth == "Basic " + base64.b64encode(b"saber:saber_secret").decode()
     assert c.fingerprint == context[0].fingerprint
