@@ -73,9 +73,12 @@ export function useModelActions({ current, models, sessionId, onError }: {
   });
 
   const scope = sessionId ? { session_id: sessionId, selection_version: current?.selection_version } : {};
-  function setCurrentThinkingLevel(level: string) {
-    if (!current || modelSaving || thinkingSaving || !current.thinking_state.editable) return;
-    mutation.mutate({ ...scope, kind: "thinking", level, optimistic: modelWithThinkingLevel(current, level) });
+  function setCurrentThinkingLevel(level: string): Promise<void> {
+    if (!current || modelSaving || thinkingSaving || !current.thinking_state.editable) return Promise.resolve();
+    // UI gesture previews need a completion signal, including very fast failures.
+    // The mutation's onError retains and displays the actual server error.
+    return mutation.mutateAsync({ ...scope, kind: "thinking", level, optimistic: modelWithThinkingLevel(current, level) })
+      .then(() => undefined, () => undefined);
   }
   function setCurrentModel(provider: string, model: string, credential_source: "local" | "cloud") {
     if (modelSaving || thinkingSaving) return;

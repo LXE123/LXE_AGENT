@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { SessionRenameDialog } from "./session-rename";
 import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { useUiText } from "../../shared/i18n";
@@ -9,12 +9,14 @@ import { useSidebarScrollbar } from "./use-sidebar-scrollbar";
 import "./sidebar-theme.css";
 
 type Props = Readonly<{
+  navigation: ReactNode;
+  footer: ReactNode;
   sidebar: ReturnType<typeof useThreeStateSidebar>;
   data: SessionWorkspace["sidebar"];
   actions: Pick<SessionWorkspace["actions"], "openSearch" | "expandWorkspace" | "renameWorkspace" | "deleteWorkspace" | "retryWorkspaces" | "chooseNewWorkspace" | "changeSearch" | "sessionIndex" | "renameSession" | "cancelSessionRename">;
 }>;
 
-export function SessionSidebar({ sidebar, data, actions }: Props) {
+export function SessionSidebar({ sidebar, data, actions, navigation, footer }: Props) {
   const t = useUiText();
   const sessionSidebarExpanded = sidebar.expanded;
   const sidebarMode = sidebar.mode;
@@ -58,11 +60,9 @@ export function SessionSidebar({ sidebar, data, actions }: Props) {
     /> : null}
     <aside
       hidden={!sidebar.available}
-      aria-hidden={!sidebarVisible}
       aria-label={t.workspaces.title}
       className={`app-sidebar conversation-chrome-theme is-${sidebarMode}`}
       id="app-sidebar"
-      inert={!sidebarVisible}
       ref={sidebar.panelRef}
       {...sidebar.panelProps}
     >
@@ -83,9 +83,11 @@ export function SessionSidebar({ sidebar, data, actions }: Props) {
           <Search size={17} />
         </button>
       </div>
-      <div className="sidebar-session-section">
+      {navigation}
+      <div className="sidebar-session-section" hidden={!sidebarVisible}>
         <WorkspacesIndex
           {...data}
+          hideNewButton
           onExpandedChange={actions.expandWorkspace}
           onRename={actions.renameWorkspace}
           onDeleteWorkspace={actions.deleteWorkspace}
@@ -97,6 +99,7 @@ export function SessionSidebar({ sidebar, data, actions }: Props) {
           visible={sidebarVisible}
         />
       </div>
+      {footer}
     </aside>
   </>;
 }

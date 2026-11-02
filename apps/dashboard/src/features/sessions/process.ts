@@ -21,8 +21,8 @@ export function reconcileProcesses(previous: Map<string, ProcessState>, headers:
     const old = previous.get(header.id);
     if (old?.status === status) continue;
     if (result === previous) result = new Map(previous);
-    const terminal = ["completed", "error", "cancelled"].includes(status);
-    result.set(header.id, { status, expanded: !old || terminal ? status !== "completed" : old.expanded });
+    // Details are opt-in; streaming and terminal updates keep the reader's choice.
+    result.set(header.id, { status, expanded: old?.expanded ?? false });
   }
   return result;
 }

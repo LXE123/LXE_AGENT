@@ -11,6 +11,7 @@ import { WorkspaceActionsMenu, WorkspaceDeleteDialog, WorkspaceRenameDialog } fr
 
 type IndexProps = ComponentProps<typeof SessionsIndex>;
 type WorkspaceIndexProps = Omit<IndexProps, "onNew"> & {
+  hideNewButton?: boolean;
   currentBlank?: import("@lxe/desktop-protocol").SessionPayload | null;
   expanded: Record<string, boolean>;
   onExpandedChange: (id: string, expanded: boolean) => void;
@@ -80,7 +81,7 @@ export function WorkspacesIndex(props: WorkspaceIndexProps) {
   }, [menu]);
   const closeDelete = useCallback((deleted = false) => {
     setDeleting(null);
-    if (deleted) requestAnimationFrame(() => newButton.current?.focus());
+    if (deleted) requestAnimationFrame(() => (newButton.current ?? document.querySelector<HTMLButtonElement>(".tab-sessions"))?.focus());
   }, []);
   useEffect(() => { if (!props.visible || props.searchOpen) setMenu(null); }, [props.visible, props.searchOpen]);
   useEffect(() => {
@@ -89,7 +90,7 @@ export function WorkspacesIndex(props: WorkspaceIndexProps) {
     return () => props.onTransientInteractionChange?.(false);
   }, [Boolean(menu || renaming || deleting), props.onTransientInteractionChange]);
   return <div className="workspace-index">
-    <button ref={newButton} className="session-new-button" type="button" onClick={() => props.onNew()} aria-label={t.sessions.newConversationAria}><Plus size={16} />{t.sessions.newConversation}</button>
+    {!props.hideNewButton ? <button ref={newButton} className="session-new-button" type="button" onClick={() => props.onNew()} aria-label={t.sessions.newConversationAria}><Plus size={16} />{t.sessions.newConversation}</button> : null}
     <div className="workspace-index-heading"><span>{t.workspaces.title}</span>
       <button type="button" className="workspace-icon-button" disabled={!props.enabled} title={t.workspaces.choose} aria-label={t.workspaces.choose} onClick={props.onChoose}><FolderPlus size={18} /></button>
     </div>
@@ -138,7 +139,6 @@ export function WorkspaceControl({ directory, workspaceId, workspaces, defaultDi
   }
   return <div className="conversation-workspace">
     <div className="conversation-workspace-row">
-      <FolderOpen size={15} aria-hidden="true" />
       <select aria-label={t.workspaces.choose} title={directory} value={current?.workspace_id ?? ""} disabled={disabled} onChange={event => onChange(event.target.value)}>
         {!current ? <option value="">{directory ? `${directoryName(directory)} · ${t.workspaces.ungrouped}` : t.workspaces.choose}</option> : null}
         {groups.map(item => <option key={item.workspace_id} value={item.workspace_id}>{workspaceLabel(item.directory, groups, defaultDirectory, t.workspaces.defaultName)}{item.directory === defaultDirectory ? ` (${t.workspaces.defaultBadge})` : ""}</option>)}

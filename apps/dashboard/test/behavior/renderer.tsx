@@ -581,6 +581,6 @@ if (params.has("app")) {
   if (workspaceMode) Object.assign(health, { gateway: params.get("runtime") === "offline" ? "starting" : "ready",
     agent_cli: params.get("runtime") === "offline" ? "starting" : "ready", workspace_root: "/fixture/default" });
   complete = params.get("complete") !== "false";
-  history.replaceState({ section: params.get("section") || "home" }, "");
+  history.replaceState(params.has("fresh") ? null : { section: params.get("section") || "home" }, "");
   await import("../../src/main");
 }

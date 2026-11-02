@@ -20,25 +20,32 @@ test("history hides all process, keeps final text and user IDs; reopening preser
   expect(visibleProcessRows(rows,headers,state).map(row=>row.id)).toEqual(["user:client","process:turn","first:0","first:1","tool:turn:call","last:0","last:1","answer-meta:turn:turn"]);
   expect(rows.find(row=>row.id==="last:1")?.message?.attachments).toHaveLength(1);
 });
-test("completion collapses once, repeated persisted terminal never overwrites manual reopening",()=>{
+test("running details start collapsed and manual choice survives every status update",()=>{
   const header={id:"process:turn",kind:"process",status:"running"} as ConversationRow;
   let state=reconcileProcesses(new Map(),[header]);
-  expect(state.get(header.id)?.expanded).toBe(true);
-  state.set(header.id,{status:"running",expanded:false});
-  expect(reconcileProcesses(state,[header])).toBe(state);
-  state=reconcileProcesses(state,[{...header,status:"completed"}]);
   expect(state.get(header.id)?.expanded).toBe(false);
-  state.set(header.id,{status:"completed",expanded:true});
-  expect(reconcileProcesses(state,[{...header,status:"completed"}])).toBe(state);
-  expect(state.get(header.id)?.expanded).toBe(true);
+  expect(reconcileProcesses(state,[header])).toBe(state);
+  state.set(header.id,{status:"running",expanded:true});
+  for(const status of ["stopping","completed","error","cancelled"]){
+    state=reconcileProcesses(state,[{...header,status}]);
+    expect(state.get(header.id)).toEqual({status,expanded:true});
+    expect(reconcileProcesses(state,[{...header,status}])).toBe(state);
+  }
+  state.set(header.id,{status:"running",expanded:false});
+  state=reconcileProcesses(state,[{...header,status:"error"}]);
+  expect(state.get(header.id)?.expanded).toBe(false);
 });
-test("failed and cancelled history remains expanded and terminal status survives in header",()=>{
-  for(const status of ["error","cancelled"]){
+test("every initial status hides details while preserving state, final answer and user message",()=>{
+  for(const status of ["queued","running","stopping","completed","error","cancelled"]){
     const rows=conversationRows(history(status),[],[]), headers=processHeaders(rows);
     const state=reconcileProcesses(new Map(),headers);
-    expect(state.get("process:turn")?.expanded).toBe(true);
+    expect(state.get("process:turn")?.expanded).toBe(false);
     expect(headers[0]?.status).toBe(status);
-    expect(visibleProcessRows(rows,headers,state).some(row=>row.id==="last:1")).toBe(true);
+    const visible=visibleProcessRows(rows,headers,state);
+    expect(visible.some(row=>row.message?.role==="user")).toBe(true);
+    expect(visible.some(row=>row.kind==="process")).toBe(true);
+    expect(visible.some(row=>row.presentation==="process")).toBe(false);
+    if(status==="completed") expect(visible.some(row=>row.id==="last:1")).toBe(true);
   }
 });
 test("a final-only reply has no empty process toggle",()=>{
@@ -59,7 +66,7 @@ test("live classification wins over partial history and preserves failed attempt
   expect(rows.find(row=>row.id==="first:0")?.presentation).toBe("process");
   expect(rows.find(row=>row.id==="last:1")?.presentation).toBe("final");
   const headers=processHeaders(rows), states=reconcileProcesses(new Map(),headers);
-  expect(states.get("process:turn")?.expanded).toBe(true);
+  expect(states.get("process:turn")?.expanded).toBe(false);
   const completed=conversationRows(partial,[{...turn,state:"completed",settled_at:100}],[]);
   const completedHeaders=processHeaders(completed);
   const closed=reconcileProcesses(states,completedHeaders);

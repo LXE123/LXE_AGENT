@@ -23,6 +23,7 @@ import "./features/workbench/index-theme.css";
 import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
+import "./shared/task-layout.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
 import { DashboardQueryProvider } from "./api/query-client";
 import {
@@ -94,7 +95,7 @@ function App({
     : "";
   const [error, setError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
-  const sidebarAvailable = activeSection === "home" || activeSection === "sessions";
+  const sidebarAvailable = true;
   const sidebar = useThreeStateSidebar(browserStorage(), sidebarAvailable);
   const dashboardRuntimeReady = desktopHealth.gateway === "ready"
     && desktopHealth.agent_cli === "ready";
@@ -105,6 +106,9 @@ function App({
   });
   const { selectedSessionId, newConversation, selectedSession } = workspace.selection;
   const { openSession, startSkillConversation } = workspace.actions;
+  // Only a fresh launch enters a new task; explicit routes and history keep their destination.
+  const [startOnTask] = useState(() => !window.history.state?.section && !window.history.state?.tab);
+  useEffect(() => { if (startOnTask) workspace.actions.startNewConversation(); }, [startOnTask]);
   const capabilitiesOpen = activeSection === "capabilities";
   const modelsQuery = useModelsQuery(
     dashboardRuntimeReady
@@ -160,12 +164,12 @@ function App({
   const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
 
   const tabs: Array<{ id: DashboardSection; label: string }> = [
-    { id: "home", label: t.nav.home },
-    { id: "sessions", label: t.nav.sessions },
+    { id: "sessions", label: t.taskStart.newTask },
+    { id: "capabilities", label: t.taskStart.capabilities },
     { id: "workbench", label: t.nav.workbench },
     { id: "automations", label: language === "zh" ? "定时任务" : "Automations" },
-    { id: "capabilities", label: t.nav.capabilities },
-    { id: "activity", label: t.nav.activity },
+    { id: "home", label: t.taskStart.overview },
+    { id: "activity", label: t.nav.usage },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
@@ -202,14 +206,11 @@ function App({
   return (
     <>
       <main className={shellClassName}>
-        <NavigationRail
-          items={tabs}
-          activeSection={activeSection}
-          label={t.nav.aria}
-          onNavigate={openDashboardSection}
-          footer={<SidebarStatus onOpen={() => onOpenDesktopSettings?.("status")} />}
-        />
-        <SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions} />
+        <SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions}
+          navigation={<NavigationRail items={tabs} activeSection={activeSection} label={t.nav.aria}
+            onNavigate={section => { sidebar.dismissPeek(); if (section === "sessions") workspace.actions.startNewConversation(); else openDashboardSection(section); }}
+            footer={null} />}
+          footer={<SidebarStatus onOpen={() => onOpenDesktopSettings?.("status")} />} />
 
         <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
           {!showDashboardHome && !hasEmbeddedPageHeader ? (

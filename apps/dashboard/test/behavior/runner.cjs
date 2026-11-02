@@ -70,7 +70,9 @@ app.whenReady().then(async () => {
   };
   try {
     await load();
-    if (suite === "workspace-deletion") {
+    if (suite === "process-details") {
+      await require("./process-details.cjs")({win,url,js,step,waitFor,click,key,focus,settle});
+    } else if (suite === "workspace-deletion") {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "session-titles") {
       await require("./session-titles.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
@@ -742,155 +744,12 @@ app.whenReady().then(async () => {
         assert.match(placeholder, /model/i);
         assert.deepEqual((await state()).calls.filter(call => call.operation.includes(".")), []);
         await js("behavior.setHealth({gateway:'ready',agent_cli:'ready'})");
-        await waitFor("document.querySelectorAll('.welcome-metrics dd').length > 0", "welcome statistics after runtime recovery");
+        await waitFor("Boolean(document.querySelector('.task-start-composer .task-templates'))", "task landing after runtime recovery");
         assert.equal(await js("(document.querySelector('.reference-editor').contentEditable === 'false')"), false);
-        assert.equal(await js("document.querySelector('.welcome-metrics dd').textContent"), "7");
+        assert.equal(await js("document.querySelectorAll('.task-templates button').length"), 4);
       });
     } else if (suite === "sidebar") {
-      const sidebarQuery = "?app=1&workspaces=1&section=sessions";
-      const rect = selector => js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`);
-      const move = (x, y) => win.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(x), y: Math.round(y) });
-      const expanded = () => js("document.querySelector('.app-sidebar').classList.contains('is-expanded')");
-      await load(sidebarQuery);
-      await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
-      const railWidth = (await rect(".app-navigation")).width;
-      await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
-        assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
-        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
-        assert.equal((await rect(".app-sidebar")).left, railWidth);
-        assert.equal((await rect(".main-panel")).left, railWidth + 256);
-        assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
-        await click(".tab-home");
-        assert.equal(await js("document.querySelector('.tab-home').getAttribute('aria-current')"), "page");
-        assert.equal(await expanded(), true);
-        await click(".tab-sessions");
-        assert.equal(await expanded(), true);
-      });
-      await require("./sidebar-context.cjs")({win, js, step, load, waitFor, click, delay, rect, move, railWidth});
-      await step("collapsing only hides the list; navigation and settings remain usable", async () => {
-        await click(".sidebar-toggle-button"); await delay(220);
-        assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
-        assert.equal((await rect(".main-panel")).left, railWidth);
-        await click(".tab-home"); await click(".tab-sessions");
-        assert.equal(await expanded(), false);
-        await click(".sidebar-settings-button");
-        assert.equal(await js("document.querySelector('.desktop-settings-modal').contains(document.activeElement)"), true);
-        await key("Escape");
-        assert.equal(await js("document.activeElement.matches('.sidebar-settings-button')"), true);
-        const rail = await rect(".app-navigation"), settings = await rect(".sidebar-settings-button");
-        assert.ok(settings.left >= rail.left && settings.right <= rail.right);
-        await js("window.lxe.desktop.getUpdateState=async()=>({phase:'ready'});undefined");
-        await waitFor("Boolean(document.querySelector('.lxe-update-button.is-ready'))", "update available");
-        const update = await rect(".lxe-update-button");
-        move(update.left + 10, update.top + 10); await delay(200);
-        assert.ok((await rect(".lxe-update-button")).right <= rail.right, "update control fits the rail on hover");
-        assert.equal(await js("getComputedStyle(document.querySelector('.lxe-update-label')).display"), "none");
-        await click(".lxe-update-button");
-        assert.equal(await js("Boolean(document.querySelector('.lxe-update-dialog'))"), true);
-        await key("Escape");
-        await js("window.lxe.desktop.getUpdateState=async()=>({phase:'unsupported'});undefined");
-      });
-      await step("hover peek and search are usable without shifting the main content", async () => {
-        move(800, 400); await delay(180);
-        const toggle = await rect(".sidebar-toggle-button");
-        move(toggle.left + 10, toggle.top + 10);
-        await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "hover peek");
-        assert.equal((await rect(".main-panel")).left, railWidth);
-        const search = await rect(".sidebar-search-button");
-        move(search.left + 10, search.top + 10);
-        await click(".sidebar-search-button");
-        await waitFor("document.activeElement.matches('.search-box input')", "search focused in peek");
-        await win.webContents.insertText("Archived project"); await settle();
-        await waitFor("document.querySelector('.session-workspace-result')?.textContent === '/fixture/archive'", "search works in peek");
-        await focus(".sidebar-toggle-button"); await key("Escape"); await delay(150);
-        assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
-      });
-      await step("dragged list width and expansion persist across reload independently of the rail", async () => {
-        move(800, 400); await delay(180);
-        await click(".sidebar-toggle-button"); await delay(220);
-        const handle = await rect(".sidebar-resizer"), before = await rect(".app-sidebar");
-        const x = Math.round(handle.left + handle.width / 2);
-        move(x, 300);
-        win.webContents.sendInputEvent({ type: "mouseDown", button: "left", x, y: 300, clickCount: 1 });
-        await settle();
-        win.webContents.sendInputEvent({ type: "mouseMove", button: "left", modifiers: ["leftButtonDown"], x: x + 60, y: 300 });
-        await settle();
-        win.webContents.sendInputEvent({ type: "mouseUp", button: "left", x: x + 60, y: 300, clickCount: 1 });
-        await settle();
-        assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), Math.round(before.width + 60),
-          JSON.stringify({ handle, before, after: await rect(".app-sidebar") }));
-        await load(sidebarQuery);
-        await waitFor("document.querySelectorAll('.workspace-group').length === 3", "reloaded list");
-        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${railWidth + before.width + 60}`, "restored width animation completed");
-        assert.equal(await expanded(), true);
-        assert.equal((await rect(".app-sidebar")).width, before.width + 60);
-        assert.equal((await rect(".main-panel")).left, railWidth + before.width + 60);
-        await focus(".sidebar-resizer"); await key("Left");
-        assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), before.width + 50);
-      });
-      await step("narrow windows use a dismissible drawer while keeping the rail accessible", async () => {
-        win.setContentSize(800, 900); await delay(250);
-        assert.equal((await rect(".main-panel")).left, railWidth);
-        assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-dismiss')).display"), "block");
-        const panel = await rect(".app-sidebar");
-        assert.ok(panel.left > railWidth && panel.right < 800);
-        await click(".sidebar-dismiss"); await delay(220);
-        assert.equal(await expanded(), false);
-        assert.equal(await js("document.documentElement.scrollWidth > innerWidth"), false);
-        await click(".tab-home");
-        assert.equal(await js("document.querySelector('.tab-home').getAttribute('aria-current')"), "page");
-        await click(".tab-sessions");
-        win.setContentSize(1200, 900); await delay(250);
-      });
-      await step("both desktop title-bar layouts keep controls and list clear in either theme", async () => {
-        const original = await js("document.querySelector('.desktop-window-frame').className");
-        for (const platform of ["darwin", "win32"]) {
-          await js(`document.querySelector('.desktop-window-frame').className='desktop-window-frame desktop-platform-${platform}'`);
-          for (const theme of ["dark", "light"]) {
-            await js(`document.documentElement.dataset.theme='${theme}'`);
-            for (const open of [false, true]) {
-              if (await expanded() !== open) await click(".sidebar-toggle-button");
-              await delay(220);
-              const toggle = await rect(".sidebar-toggle-button"), title = await rect(".conversation-header-copy");
-              assert.ok(platform === "win32" ? title.top >= 40 : title.left >= toggle.right, `${platform} ${theme} ${open}: title avoids toggle`);
-              assert.ok((await rect(".navigation-rail-button")).top >= 44);
-              assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-toggle-button')).webkitAppRegion"), "no-drag");
-              if (platform === "darwin") {
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "no-drag");
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header-copy')).webkitAppRegion"), "drag");
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header button')).webkitAppRegion"), "no-drag");
-              }
-              if (platform === "win32") {
-                assert.equal((await rect(".main-panel")).top, 40);
-                assert.equal((await rect(".app-navigation")).top, 40);
-                assert.ok((await rect(".conversation-header-actions")).right > 1200 - 138);
-              }
-            }
-          }
-        }
-        await js(`document.querySelector('.desktop-window-frame').className=${JSON.stringify(original)}`);
-        if (process.env.LXE_SIDEBAR_SCREENSHOT) {
-          await load(sidebarQuery + "&language=zh");
-          await waitFor("document.querySelectorAll('.workspace-group').length === 3", "preview loaded");
-          await click('.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-group-toggle');
-          await waitFor("document.querySelectorAll('.session-index-item').length > 10", "preview sessions");
-          await js("document.documentElement.dataset.theme='dark'"); await delay(250);
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
-          await js("document.documentElement.dataset.theme='light'"); await delay(250);
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-light.png"), (await win.webContents.capturePage()).toPNG());
-          await click(".sidebar-toggle-button"); await delay(220);
-          await js("document.documentElement.dataset.theme='dark'");
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed.png"), (await win.webContents.capturePage()).toPNG());
-          await click(".sidebar-toggle-button");
-          await click(".tab-capabilities"); await delay(250);
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-capabilities.png"), (await win.webContents.capturePage()).toPNG());
-          await js("document.documentElement.dataset.theme='light'"); await delay(250);
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-capabilities-light.png"), (await win.webContents.capturePage()).toPNG());
-          await click(".tab-home"); await delay(250);
-          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-home.png"), (await win.webContents.capturePage()).toPNG());
-        }
-      });
+      await require("./sidebar-context.cjs")({win,js,step,load,waitFor,click,delay,focus,key,settle});
     } else if (suite === "windows-titlebar" || suite === "windows-menu") {
       await require("./titlebar-contracts.cjs")({suite,win,js,step,load,waitFor,click,key,focus,settle,delay});
     } else if (suite === "workspaces") {

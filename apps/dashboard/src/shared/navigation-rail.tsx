@@ -14,13 +14,14 @@ export function NavigationRail({ items, activeSection, label, onNavigate, footer
       {items.map(item => <button
         key={item.id}
         type="button"
-        className={`navigation-rail-button tab-${item.id}${activeSection === item.id ? " active" : ""}`}
+        className={`navigation-rail-button tab-${item.id}${item.id === "sessions" ? " session-new-button" : ""}${activeSection === item.id ? " active" : ""}`}
+        title={item.label}
         aria-label={item.label}
         aria-current={activeSection === item.id ? "page" : undefined}
         onClick={() => onNavigate(item.id)}
       >
         <NavigationIcon section={item.id} />
-        <span className="navigation-rail-tooltip" aria-hidden="true">{item.label}</span>
+        <span className="navigation-rail-label" aria-hidden="true">{item.label}</span>
       </button>)}
     </nav>
     {footer}

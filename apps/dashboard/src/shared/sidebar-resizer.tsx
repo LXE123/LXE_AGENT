@@ -20,8 +20,7 @@ export function SidebarResizer({ expanded, storage }: { expanded: boolean; stora
 
   useLayoutEffect(() => {
     const shell = handle.current!.parentElement!;
-    const measure = () => setRoom(shell.clientWidth
-      - (shell.querySelector(".app-navigation")?.getBoundingClientRect().width ?? 0));
+    const measure = () => setRoom(shell.clientWidth);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(shell);

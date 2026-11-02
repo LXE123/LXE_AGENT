@@ -43,12 +43,13 @@ export function useThreeStateSidebar(storage?: Storage, available = true) {
   ), []);
 
   const hidePeek = useCallback(() => {
-    if (panelRef.current?.contains(document.activeElement)) {
+    if (collapsed && panelRef.current?.contains(document.activeElement)
+      && document.activeElement?.closest(".sidebar-session-section, .sidebar-list-header")) {
       (document.activeElement as HTMLElement).blur();
     }
     keyboardModeRef.current = false;
     setPeekOpen(false);
-  }, []);
+  }, [collapsed]);
 
   // Route visibility is temporary; it must not overwrite the user's preference.
   useLayoutEffect(() => {
@@ -195,6 +196,7 @@ export function useThreeStateSidebar(storage?: Storage, available = true) {
   return {
     available,
     collapsed,
+    dismissPeek: hidePeek,
     controlProps,
     expanded,
     mode,

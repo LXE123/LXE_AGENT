@@ -57,6 +57,10 @@
 - [Office 文件能力](office-runtime.md)：Electron、模型与业务 CLI 的 Office 接口及运行依赖。
 - [本地数据与存储](storage/README.md)、[日志与诊断](logging.md)：存储布局、备份和排障。
 
+### 界面设计
+
+- [Agent 桌面界面改版](design/agent-ui-refresh.md)：先改布局、确认效果，再统一 Radix + LXE 公共组件的阶段安排与验收标准。
+
 ### 参考资料
 
 [平台参考资料](harness/skill/reference/README.md)保存供应商 API、真实响应和紫鸟自动化约束；[CDS 设计资料库](design/cds/README.md)保存设计来源与 LXE 适配案例；[Codex 工具载荷研究](study/codex-code-mode-tool-payload.md)记录外部项目研究。原始材料说明来源和证据范围，不能代替当前项目手册或运行时 Skill。

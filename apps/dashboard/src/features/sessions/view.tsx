@@ -23,6 +23,8 @@ import ReactMarkdown from "react-markdown";
 import {
   ArrowUp,
   Brain,
+  Zap,
+  RotateCcw,
   Cloud,
   Check,
   CheckCircle2,
@@ -817,18 +819,25 @@ function ConversationThinkingPicker({
   current: ModelPayload | null;
   disabled: boolean;
   saving: boolean;
-  onChange: (level: string) => void;
+  onChange: (level: string) => void | Promise<void>;
 }) {
   const t = useUiText();
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragRatio, setDragRatio] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ model: string; level: string } | null>(null);
+  const pointerStart = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const levels = current?.thinking_levels ?? [];
   const selectedLevel = current?.thinking_state?.level || current?.thinking_default || levels[0] || "";
-  const selectedLabel = current ? modelThinkingLevelLabel(current, selectedLevel) : "-";
+  const modelKey = `${current?.session_id ?? ""}:${current?.provider}:${current?.credential_source}:${current?.model}`;
+  const displayLevel = preview?.model === modelKey ? preview.level : selectedLevel;
+  const selectedLabel = current ? modelThinkingLevelLabel(current, displayLevel) : "-";
+  useEffect(() => {
+    if (preview && (preview.model !== modelKey || preview.level === selectedLevel)) setPreview(null);
+  }, [modelKey, selectedLevel, preview]);
   const editable = Boolean(current?.thinking_state?.editable && levels.length > 1);
 
   useEffect(() => {
@@ -863,18 +872,27 @@ function ConversationThinkingPicker({
 
   if (!current || levels.length === 0) return null;
 
-  const selectedIndex = Math.max(0, levels.indexOf(selectedLevel));
+  const selectedIndex = Math.max(0, levels.indexOf(displayLevel));
 
-  // Notches are pinned to the rail's two ends: the first level sits at 0% and
-  // the last at 100%, so the extremes stay close to the track edges.
+  // The center rail is inset by the thumb radius, so its outer edges line up
+  // with the visible track at both extremes.
   const notchPosition = (index: number): number => (
     levels.length > 1 ? (index / (levels.length - 1)) * 100 : 50
   );
 
+  const displayedRatio = dragging && dragRatio !== null ? dragRatio : notchPosition(selectedIndex) / 100;
+  const defaultLevel = current.thinking_default || levels[0];
+
   // Clicking or dragging on the track keeps the menu open so the knob can be
   // slid across notches; the menu still closes on outside pointerdown/Escape.
   const applyLevel = (level: string) => {
-    if (level !== selectedLevel) onChange(level);
+    if (disabled || saving) return;
+    if (level === selectedLevel) { setPreview(null); return; }
+    // Keep the gesture's destination until the optimistic cache catches up.
+    const target = { model: modelKey, level };
+    setPreview(target);
+    const clearPreview = () => setPreview(value => value === target ? null : value);
+    void Promise.resolve(onChange(level)).then(clearPreview, clearPreview);
   };
 
   const ratioAtClientX = (clientX: number): number | null => {
@@ -899,21 +917,26 @@ function ConversationThinkingPicker({
   const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (disabled || saving) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    pointerStart.current = event.clientX;
+  };
+
+  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId) || pointerStart.current === null) return;
+    if (Math.abs(event.clientX - pointerStart.current) < 3 && !dragging) return;
     setDragging(true);
     slideToClientX(event);
   };
 
-  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    slideToClientX(event);
+  const cancelDragging = () => {
+    pointerStart.current = null;
+    setDragging(false);
+    setDragRatio(null);
   };
-
-  const cancelDragging = () => setDragging(false);
 
   const finishDragging = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    const ratio = slideToClientX(event);
-    setDragging(false);
+    const ratio = ratioAtClientX(event.clientX);
+    cancelDragging();
     if (ratio === null) return;
     const level = levels[Math.round(ratio * (levels.length - 1))];
     if (level) applyLevel(level);
@@ -925,6 +948,7 @@ function ConversationThinkingPicker({
         aria-expanded={editable ? open : undefined}
         aria-haspopup={editable ? "menu" : undefined}
         aria-label={`${t.models.thinkingEffort}: ${selectedLabel}`}
+        aria-busy={saving}
         className="conversation-thinking-trigger"
         disabled={disabled || saving || !editable}
         onClick={() => setOpen((value) => !value)}
@@ -932,32 +956,32 @@ function ConversationThinkingPicker({
         title={editable ? t.models.thinkingEffectiveNextTurn : t.models.providerManaged}
         type="button"
       >
-        <span>{selectedLabel}</span>
-        {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
+        <span className="conversation-thinking-label">
+          <span>{selectedLabel}</span>
+          {levels.map(level => <span aria-hidden className="conversation-thinking-label-measure" key={level}>
+            {modelThinkingLevelLabel(current, level)}
+          </span>)}
+        </span>
       </button>
       {open ? (
         <div aria-label={t.models.thinkingEffort} className="conversation-thinking-menu" role="menu">
           <div className="conversation-thinking-heading">
-            <span>
-              {t.models.thinkingEffort} <strong>{selectedLabel}</strong>
-            </span>
-            <button
-              aria-label={t.models.thinkingEffortHint}
-              className="conversation-thinking-help"
-              type="button"
-            >
-              <CircleHelp aria-hidden size={13} />
+            <button aria-label={t.models.thinkingEffortHint} className="conversation-thinking-help" type="button">
+              <Zap aria-hidden size={15} />
               <span className="conversation-thinking-tooltip" role="tooltip">
-                <strong>{t.models.thinkingEffort}</strong>
-                <span>{t.models.thinkingEffortHint}</span>
+                <strong>{t.models.thinkingEffortHint}</strong>
                 <small>{t.models.thinkingEffectiveNextTurn}</small>
               </span>
             </button>
+            <strong aria-label={`${t.models.thinkingEffort}: ${selectedLabel}`}>{selectedLabel}</strong>
+            <button type="button" className="conversation-thinking-reset"
+              aria-label={t.models.resetThinkingEffort} title={t.models.resetThinkingEffort}
+              disabled={disabled || saving || !defaultLevel || !levels.includes(defaultLevel) || displayLevel === defaultLevel}
+              onClick={() => { if (defaultLevel) applyLevel(defaultLevel); }}>
+              <RotateCcw aria-hidden size={15} />
+            </button>
           </div>
-          <div aria-hidden className="conversation-thinking-scale-labels">
-            <span>{t.models.faster}</span>
-            <span>{t.models.smarter}</span>
-          </div>
+          <p className="conversation-thinking-model" title={current.model}>{current.model}</p>
           <div
             className={dragging ? "conversation-thinking-levels dragging" : "conversation-thinking-levels"}
             onLostPointerCapture={cancelDragging}
@@ -966,14 +990,17 @@ function ConversationThinkingPicker({
             onPointerMove={handleTrackPointerMove}
             onPointerUp={finishDragging}
           >
+            <span aria-hidden className={`conversation-thinking-fill${dragging ? " dragging" : ""}`}
+              style={{ width: `calc(${displayedRatio * 100}% + var(--thinking-thumb-radius) * ${1 - 2 * displayedRatio})` }} />
             <div className="conversation-thinking-cells" ref={trackRef}>
               {levels.map((level, index) => {
-                const selected = level === selectedLevel;
+                const selected = level === displayLevel;
                 const label = modelThinkingLevelLabel(current, level);
                 return (
                   <button
                     aria-checked={selected}
                     aria-label={label}
+                    data-reached={index <= selectedIndex || undefined}
                     className={selected ? "conversation-thinking-level selected" : "conversation-thinking-level"}
                     disabled={saving}
                     key={level}
@@ -1131,6 +1158,7 @@ function ConversationContextMeter({
 }
 
 export function ConversationComposer({
+  landing = false, workspaceControl,
   permissionMode = "workspace-write", permissionSessionId,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   contextDetail,
@@ -1148,6 +1176,8 @@ export function ConversationComposer({
   onSend,
   onStop,
 }: {
+  landing?: boolean;
+  workspaceControl?: React.ReactNode;
   approvals?: PendingApproval[];
   onApprovalChanged?: () => void;
   question?: PendingUserQuestion;
@@ -1280,7 +1310,13 @@ export function ConversationComposer({
     }
   };
   return (
-    <div className={`conversation-composer ${dragActive ? "drag-active" : ""}`}>
+    <div className={`conversation-composer ${landing ? "task-start-composer" : ""} ${dragActive ? "drag-active" : ""}`}>
+      {landing ? <ConversationWelcome disabled={!runtimeReady || sending} onPrompt={prompt => {
+        const next = text ? `${text}\n\n${prompt}` : prompt;
+        if (next.length > 8192) { setError(t.conversation.characterCount(formatNumber(next.length), formatNumber(8192))); return; }
+        setText(next);
+        textareaRef.current?.focus();
+      }} /> : null}
       <ApprovalGate key={conversationKey} requests={approvals} ready={runtimeReady} onChanged={onApprovalChanged}>
       {dragActive ? <div className="conversation-drop-hint conversation-chrome-theme">{t.conversation.dropFiles}</div> : null}
       <div className="conversation-compose-box conversation-chrome-theme">
@@ -1290,7 +1326,7 @@ export function ConversationComposer({
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
-          disabled={!runtimeReady} placeholder={runtimeReady ? t.conversation.placeholder : runtimeUnavailableMessage}
+          disabled={!runtimeReady} placeholder={runtimeReady ? landing ? t.taskStart.placeholder : t.conversation.placeholder : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1315,7 +1351,7 @@ export function ConversationComposer({
             <PermissionPicker key={conversationKey} sessionId={permissionSessionId ?? conversationKey} initialMode={permissionMode} ready={runtimeReady} />
             {!runtimeReady ? <span className="conversation-input-hint">{runtimeUnavailableMessage}</span> : null}
           </div>
-          <div className="conversation-compose-trailing">
+          <div className="conversation-compose-trailing" data-selection-pending={modelSaving || thinkingSaving || undefined}>
             <ConversationContextMeter activity={activity} currentModel={currentModel} detail={contextDetail} />
             <ConversationModelPicker
               current={currentModel}
@@ -1326,6 +1362,7 @@ export function ConversationComposer({
               saving={modelSaving}
             />
             <ConversationThinkingPicker
+              key={conversationKey}
               current={currentModel}
               disabled={!runtimeReady || sending || modelSaving || thinkingSaving}
               onChange={onThinkingLevelChange}
@@ -1365,6 +1402,8 @@ export function ConversationComposer({
       ) : null}
       {error ? <div className="conversation-compose-error" role="alert">{error}</div> : null}
       </ApprovalGate>
+      {landing ? <div className="task-start-workspace">{workspaceControl}</div> : null}
+      {landing ? <p className="task-start-hint">{t.taskStart.hint}</p> : null}
     </div>
   );
 }
@@ -1386,7 +1425,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
       case "thinking": return t.conversation.thinking;
       case "running_tool": return t.conversation.runningTool;
       case "generating_answer": return t.conversation.generatingAnswer;
-      default: return t.conversation.preparingContext;
+      default: return t.conversation.processing;
     }
   };
   const label = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
@@ -1418,8 +1457,11 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
   </div>;
   if (row.kind === "process") return <button type="button" className="conversation-process-toggle"
-    aria-expanded={expanded} onClick={() => onToggle(row.id)}>
-    <ConversationStatus row={row} /><ChevronRight size={14} style={{transform: expanded ? "rotate(90deg)" : undefined}} />
+    aria-expanded={expanded} title={expanded ? t.conversation.collapseProcess : t.conversation.expandProcess}
+    onClick={() => onToggle(row.id)}>
+    <ConversationStatus row={row} />
+    <span className="conversation-process-hint">{expanded ? t.conversation.collapseProcess : t.conversation.expandProcess}</span>
+    <ChevronRight aria-hidden size={14} style={{transform: expanded ? "rotate(90deg)" : undefined}} />
   </button>;
   if (row.kind === "artifacts") return <TurnFileList sessionId={attachmentSessionId} files={row.artifacts ?? []} onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
   if (row.kind === "image_views") return <ImageViewGroup rows={row.imageRows ?? []} sessionId={attachmentSessionId} />;
@@ -1557,14 +1599,15 @@ export function SessionDetailView({
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
   const toggleRow = useCallback((id: string) => setExpandedRows((current) => new Map(current).set(id, !current.get(id))), []);
+  const landing = newConversation && rows.length === 0 && !loading && display?.loadState !== "loading" && !error && !display?.error;
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
-    <div className="session-detail conversation-view">
+    <div className={`session-detail conversation-view${landing ? " task-start-view" : ""}`}>
       <header className="conversation-header">
         {/* Keep title and actions in the two grid columns; a third sibling
             would create another row in the native title bar. */}
         <div className="conversation-header-copy">
-          {newConversation ? workspaceControl : (
+          {newConversation ? landing ? null : workspaceControl : (
             <>
               <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
               <h2 title={title}>{title}</h2>
@@ -1576,18 +1619,19 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header>
-      <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+      {!landing ? <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
         connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
         followingIntent={display?.following} historyTarget={display?.historyTarget}
         loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
         pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
         empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
           : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-          : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
+          : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
         renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
+          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} /> : null}
       <div className="conversation-composer-dock">
         <ConversationComposer
+          landing={landing} workspaceControl={workspaceControl}
           permissionSessionId={session?.session_id ?? ""}
           permissionMode={session?.permission_mode ?? "workspace-write"}
           approvals={approvals} onApprovalChanged={onApprovalChanged}

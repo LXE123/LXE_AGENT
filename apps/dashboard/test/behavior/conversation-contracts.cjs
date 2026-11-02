@@ -155,5 +155,46 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
+    await waitFor("!document.querySelector('.conversation-thinking-trigger').disabled",'keyboard save settled');
+    await waitFor("document.querySelector('.conversation-thinking-knob').getAnimations().length===0",'knob reached the upper endpoint');
+    const upperEndpoint=await js("(()=>{const thumb=document.querySelector('.conversation-thinking-knob').getBoundingClientRect(),track=document.querySelector('.conversation-thinking-levels').getBoundingClientRect();return {gap:track.right-thumb.right,width:thumb.width,height:thumb.height}})()");
+    assert.ok(Math.abs(upperEndpoint.gap)<1,JSON.stringify(upperEndpoint));
+    assert.equal(upperEndpoint.width,upperEndpoint.height,'thumb is circular');
+    const beforeDrag=(await state()).calls.filter(c=>c.operation==='models.thinking.update').length;
+    await js("behavior.ui.hold('models.thinking.update')");
+    const rail=await js("(()=>{const r=document.querySelector('.conversation-thinking-cells').getBoundingClientRect();return {x:r.left,width:r.width,y:r.top+r.height/2}})()");
+    win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(rail.x+rail.width),y:Math.round(rail.y)});
+    win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:Math.round(rail.x+rail.width),y:Math.round(rail.y)});
+    win.webContents.sendInputEvent({type:'mouseMove',button:'left',modifiers:['leftButtonDown'],x:Math.round(rail.x+rail.width*.37),y:Math.round(rail.y)});
+    await waitFor("document.querySelector('.conversation-thinking-knob').classList.contains('dragging')",'drag follows the pointer');
+    assert.equal(await js("getComputedStyle(document.querySelector('.conversation-thinking-knob')).transitionDuration"),'0s');
+    assert.equal((await state()).calls.filter(c=>c.operation==='models.thinking.update').length,beforeDrag,'drag moves do not save');
+    win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:Math.round(rail.x+rail.width*.37),y:Math.round(rail.y)});
+    await waitFor("document.querySelectorAll('.conversation-thinking-level')[1].getAttribute('aria-checked')==='true'",'release snaps to the nearest level');
+    assert.equal((await state()).calls.filter(c=>c.operation==='models.thinking.update').length,beforeDrag+1);
+    assert.equal(await js("document.querySelectorAll('.conversation-thinking-picker .conversation-spinner').length"),0,'no save spinner');
+    assert.equal(await js("getComputedStyle(document.querySelector('.conversation-thinking-knob')).transitionDuration"),'0.2s');
+    assert.equal(await js(`(()=>{const ctx=document.createElement('canvas').getContext('2d');ctx.fillStyle=getComputedStyle(document.querySelector('.conversation-thinking-fill')).backgroundColor;const actual=ctx.fillStyle;ctx.fillStyle=getComputedStyle(document.querySelector('.app-shell')).getPropertyValue('--task-accent').trim();return actual===ctx.fillStyle})()`),true,'slider uses the app accent');
+    await js("behavior.ui.release('models.thinking.update')");
+    await waitFor("!document.querySelector('.conversation-thinking-trigger').disabled",'drag save settled');
+    await focus('.conversation-thinking-level:first-of-type'); await key('Enter');
+    await waitFor("!document.querySelector('.conversation-thinking-trigger').disabled && document.querySelector('.conversation-thinking-knob').getAnimations().length===0",'lower endpoint saved');
+    const lowerEndpoint=await js("(()=>{const thumb=document.querySelector('.conversation-thinking-knob').getBoundingClientRect(),track=document.querySelector('.conversation-thinking-levels').getBoundingClientRect();return thumb.left-track.left})()");
+    assert.ok(Math.abs(lowerEndpoint)<1,'lower endpoint gap '+lowerEndpoint);
+    await click('.conversation-thinking-reset');
+    await waitFor("!document.querySelector('.conversation-thinking-trigger').disabled && document.querySelectorAll('.conversation-thinking-level')[1].getAttribute('aria-checked')==='true'",'reset restores the model default');
+    await waitFor("document.querySelector('.conversation-thinking-knob').getAnimations().length===0",'reset animation settled');
+    assert.equal(await js("document.querySelector('.conversation-thinking-reset').disabled"),true);
+    if(process.env.LXE_THINKING_CAPTURE) {
+      const rect=await js("(()=>{const r=document.querySelector('.conversation-thinking-menu').getBoundingClientRect();return {x:Math.max(0,Math.floor(r.x)-10),y:Math.max(0,Math.floor(r.y)-10),width:Math.ceil(r.width)+20,height:Math.ceil(r.height)+20}})()");
+      require('node:fs').writeFileSync(process.env.LXE_THINKING_CAPTURE,(await win.webContents.capturePage(rect)).toPNG());
+    }
+    win.webContents.debugger.attach('1.3');
+    try {
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+      await settle();
+      assert.equal(await js("getComputedStyle(document.querySelector('.conversation-thinking-knob')).transitionDuration"),'0s');
+      assert.equal(await js("getComputedStyle(document.querySelector('.conversation-thinking-fill')).transitionDuration"),'0s');
+    } finally {win.webContents.debugger.detach();}
   });
 };

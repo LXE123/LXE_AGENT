@@ -1,0 +1,223 @@
+/* First-stage desktop layout. Component behavior remains in the existing UI. */
+.app-shell {
+  --app-navigation-width: 0px;
+  --sidebar-control-left: 14px;
+  --task-canvas: #ffffff;
+  --task-sidebar: #f5f8fa;
+  --task-ink: #172a32;
+  --task-muted: #647680;
+  --task-border: #dfe8ec;
+  --task-accent: #007c5c;
+  --task-accent-ink: #ffffff;
+  --task-accent-soft: #e3f6ed;
+  --task-hover-bg: #d3e9df;
+  --task-hover-ink: #173e2f;
+  --task-selected-bg: #b9dfcb;
+  --task-selected-ink: #124430;
+  --task-active-hover: #a5d5ba;
+  --task-surface: #ffffff;
+  --task-workspace: #f3f8f7;
+  --task-template-blue: #2563eb;
+  --task-template-purple: #8055d9;
+  --task-template-orange: #b85a0c;
+  --conversation-bg: var(--task-canvas);
+  grid-template-columns: var(--app-sidebar-width) 0 minmax(0, 1fr);
+  background: var(--task-sidebar);
+}
+:root[data-theme="dark"] .app-shell {
+  --task-canvas: #171e23;
+  --task-sidebar: #1d272e;
+  --task-ink: #edf5f8;
+  --task-muted: #a3b6c1;
+  --task-border: #34454f;
+  --task-accent: #5edab1;
+  --task-accent-ink: #102a23;
+  --task-accent-soft: #203e35;
+  --task-hover-bg: #314f43;
+  --task-hover-ink: #edfff6;
+  --task-selected-bg: #285540;
+  --task-selected-ink: #dffff0;
+  --task-active-hover: #326b50;
+  --task-surface: #222e36;
+  --task-workspace: #1b2d2c;
+  --task-template-blue: #85b0ff;
+  --task-template-purple: #bb9bf6;
+  --task-template-orange: #edab72;
+}
+.app-shell.sidebar-collapsed { grid-template-columns: 60px 0 minmax(0, 1fr); }
+.app-shell > .app-sidebar.conversation-chrome-theme {
+  --sidebar-bg: var(--task-sidebar);
+  --sidebar-border: var(--task-border);
+  --sidebar-ink: var(--task-ink);
+  --sidebar-ink-soft: var(--task-muted);
+  --sidebar-active: var(--task-selected-bg);
+  --cds-ink: var(--task-ink);
+  --cds-secondary: var(--task-muted);
+  --cds-muted: var(--task-muted);
+  --sidebar-label: var(--task-muted);
+  --sidebar-hover: var(--task-hover-bg);
+  grid-column: 1;
+  grid-row: 1;
+  height: 100%;
+  margin-top: 0;
+  padding: calc(var(--app-titlebar-height) + 20px) 14px 12px;
+  border-top: 0;
+  border-right: 1px solid var(--task-border);
+  border-radius: 0;
+}
+.app-shell .sidebar-list-header { min-height: 48px; margin-bottom: 20px; }
+.app-shell .sidebar-list-header > span { font-size: 1.125rem; font-weight: 650; letter-spacing: -.035em; color: var(--task-ink); }
+.app-shell .app-sidebar > .app-navigation {
+  width: 100%; height: auto; flex: 0 0 auto; padding: 0;
+  align-items: stretch; background: transparent; color: var(--task-ink);
+}
+.app-shell .navigation-rail-list { gap: 4px; }
+.app-shell .navigation-rail-button {
+  display: flex; width: 100%; height: 40px; gap: 12px; justify-content: flex-start;
+  padding: 0 12px; border-radius: 9px; font: inherit; font-size: .875rem; text-align: left;
+}
+.app-shell .navigation-rail-button > svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.app-shell .navigation-rail-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .navigation-rail-button.active { background: var(--sidebar-active); color: var(--task-selected-ink); }
+.app-shell .navigation-rail-button.tab-sessions { margin-bottom: 8px; background: var(--task-accent); color: var(--task-accent-ink); font-weight: 600; }
+.app-shell .navigation-rail-button:hover { background: var(--task-hover-bg); color: var(--task-hover-ink); }
+.app-shell .navigation-rail-button.active:not(.tab-sessions):hover { background: var(--task-active-hover); color: var(--task-hover-ink); }
+.app-shell .navigation-rail-button.tab-sessions:hover { background: color-mix(in srgb, var(--task-accent) 88%, var(--task-ink)); color: var(--task-accent-ink); }
+.app-shell .navigation-rail-button:focus-visible { outline-color: var(--task-accent); }
+.app-shell .app-sidebar .sidebar-session-section { flex: 1; min-height: 0; margin-top: 20px; }
+.app-shell .sidebar-session-section[hidden] { display: none; }
+.app-shell .app-sidebar .workspace-index-heading { margin-top: 0; }
+.app-shell .app-sidebar > .sidebar-status-card {
+  display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between;
+  width: 100%; margin-top: 12px; padding: 12px 4px 0; border: 0;
+  border-top: 1px solid var(--task-border); border-radius: 0; background: transparent;
+}
+.app-shell .sidebar-settings-button { display: flex; align-items: center; min-width: 0; gap: 10px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--task-ink); cursor: pointer; }
+.app-shell .sidebar-settings-button:hover { background: var(--sidebar-hover); }
+.app-shell .sidebar-settings-button:focus-visible { outline: 2px solid var(--task-accent); }
+.app-shell .sidebar-status-copy { font-size: .8125rem; }
+.app-shell .app-sidebar.is-collapsed {
+  position: relative; inset: auto; width: 60px; max-height: none;
+  padding-inline: 10px; opacity: 1; visibility: visible; pointer-events: auto; transform: none; box-shadow: none;
+}
+.app-shell .app-sidebar.is-collapsed .sidebar-list-header { visibility: hidden; }
+.app-shell .app-sidebar.is-collapsed .navigation-rail-button { width: 40px; padding: 0; justify-content: center; }
+.app-shell .app-sidebar.is-collapsed :is(.navigation-rail-label, .sidebar-status-copy) { display: none; }
+.app-shell .app-sidebar.is-collapsed > .sidebar-status-card { flex-direction: column-reverse; margin-top: auto; gap: 12px; }
+.app-shell .app-sidebar.is-peek { position: fixed; top: 8px; left: 8px; height: calc(100vh - 16px); max-height: none; border: 1px solid var(--task-border); border-radius: 14px; }
+.app-shell .main-panel > .content-panel { border-radius: 0; }
+.app-shell .main-panel .conversation-view .conversation-header { background: var(--task-canvas); }
+.app-shell .conversation-compose-box { border-radius: 20px; padding: 12px; }
+.app-shell .conversation-view .conversation-compose-box.conversation-chrome-theme {
+  --cds-surface-popover: var(--task-surface);
+  --cds-ink: var(--task-ink);
+  --cds-secondary: var(--task-muted);
+  --cds-muted: var(--task-muted);
+  --cds-accent: var(--task-accent);
+  --cds-accent-tint: var(--task-accent-soft);
+  --cds-primary: var(--task-accent);
+  --cds-primary-ink: var(--task-accent-ink);
+  --cds-primary-hover: color-mix(in srgb, var(--task-accent) 88%, var(--task-ink));
+}
+.app-shell .conversation-chrome-theme .conversation-send-button[data-mode="send"]:disabled {
+  background: var(--task-accent-soft); color: color-mix(in srgb, var(--task-accent) 65%, var(--task-muted));
+}
+.app-shell .conversation-send-button { width: 36px; height: 36px; border-radius: 50%; }
+.app-shell .task-start-view .conversation-composer-dock {
+  display: flex; flex: 1; min-height: 0; align-items: safe center;
+  padding: 32px clamp(20px, 5vw, 76px) 64px; overflow: auto; background: var(--task-canvas);
+}
+.app-shell .task-start-composer {
+  --task-composer-gap: 5px;
+  --task-workspace-overlap: 24px;
+  width: min(880px, 100%); gap: var(--task-composer-gap);
+}
+.task-welcome { margin-bottom: 20px; }
+.task-welcome-heading { margin-bottom: clamp(36px, 7vh, 72px); text-align: center; }
+.task-welcome-heading h1 { margin: 0; font-size: clamp(1.75rem, 3vw, 2.5rem); font-weight: 650; line-height: 1.35; letter-spacing: -.04em; color: var(--task-ink); }
+.task-welcome-heading p { margin: 14px 0 0; font-size: .9375rem; line-height: 1.6; color: var(--task-muted); }
+.task-templates { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.task-templates button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 14px; border: 1px solid var(--task-border); border-radius: 999px; background: var(--task-surface); color: var(--task-ink); font: inherit; font-size: .8125rem; cursor: pointer; }
+/* Categories add small, distinct accents; the task canvas stays quiet. */
+.task-templates button { --template-ink: var(--task-accent); }
+.task-templates button:nth-child(2) { --template-ink: var(--task-template-blue); }
+.task-templates button:nth-child(3) { --template-ink: var(--task-template-purple); }
+.task-templates button:nth-child(4) { --template-ink: var(--task-template-orange); }
+.task-templates button > svg { color: var(--template-ink); }
+.task-templates button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--template-ink) 16%, var(--task-surface));
+  border-color: color-mix(in srgb, var(--template-ink) 65%, var(--task-border));
+}
+.task-templates button:focus-visible { outline: 2px solid var(--task-accent); outline-offset: 3px; }
+.task-templates button:disabled { opacity: .5; cursor: default; }
+.app-shell .task-start-composer .conversation-compose-box { position: relative; z-index: 1; padding: 20px 16px 14px; border: 1px solid var(--task-border); border-radius: 24px; box-shadow: 0 8px 28px rgb(29 75 93 / 6%); }
+.app-shell .task-start-composer .reference-editor { min-height: 128px; max-height: 240px; padding: 4px 6px 16px; font-size: 1rem; line-height: 1.7; }
+.task-start-workspace {
+  --muted: var(--task-muted); --border: var(--task-border); --surface: var(--task-surface); --text: var(--task-ink);
+  position: relative; z-index: 0;
+  padding: 12px 16px; border-radius: 0 0 20px 20px; background: var(--task-workspace);
+}
+/* Join only adjacent surfaces; errors, queues and approval cards keep their space. */
+.task-start-composer > .conversation-compose-box + .task-start-workspace {
+  margin-top: calc(0px - var(--task-workspace-overlap) - var(--task-composer-gap));
+  padding-top: calc(var(--task-workspace-overlap) + 12px);
+}
+.task-start-workspace .conversation-workspace { padding: 0; border: 0; }
+.task-start-workspace .conversation-workspace-row { flex-wrap: wrap; }
+.task-start-workspace .conversation-workspace-row select { max-width: 65%; }
+.task-start-hint { margin: 24px 0 0; color: var(--task-muted); font-size: .75rem; line-height: 1.6; text-align: center; }
+@media (max-width: 900px) {
+  .app-shell, .app-shell.sidebar-collapsed { grid-template-columns: 60px 0 minmax(0, 1fr); }
+  .app-shell > .app-sidebar.is-expanded { position: fixed; z-index: 23; top: 0; left: 0; max-width: calc(100vw - 48px); }
+  .app-shell .sidebar-resizer { display: none; }
+  .app-shell .sidebar-dismiss { inset: 0 0 0 60px; }
+  .app-shell .task-start-view .conversation-composer-dock { padding: 28px 16px; }
+  .task-welcome-heading { margin-bottom: 30px; }
+  .task-welcome-heading p { font-size: .8125rem; }
+  .task-templates { gap: 6px; }
+  .task-templates button { padding: 7px 10px; font-size: .75rem; }
+  .app-shell .task-start-composer .conversation-compose-box { padding: 14px 10px 10px; border-radius: 18px; }
+  .app-shell .task-start-composer .reference-editor { min-height: 110px; font-size: .875rem; }
+  .app-shell .conversation-compose-actions { flex-wrap: wrap; gap: 8px; }
+  .app-shell .conversation-compose-leading { flex-basis: 100%; }
+  .app-shell .conversation-compose-trailing { flex: 1 0 100%; justify-content: flex-end; flex-wrap: nowrap; }
+  .app-shell .conversation-model-trigger { max-width: 145px; }
+}
+@media (max-height: 600px) {
+  .app-shell > .app-sidebar.conversation-chrome-theme { padding-top: calc(var(--app-titlebar-height) + 4px); }
+  .app-shell .sidebar-list-header { margin-bottom: 4px; }
+  .app-shell .navigation-rail-list { gap: 0; }
+  .app-shell .navigation-rail-button { height: 34px; }
+  .app-shell .app-sidebar .sidebar-session-section { margin-top: 8px; }
+  .task-welcome-heading { margin-bottom: 24px; }
+  .app-shell .task-start-view .conversation-composer-dock { padding-block: 20px; }
+}
+
+.app-shell .app-sidebar.is-collapsed .lxe-update-slot { width: 40px; justify-content: center; }
+.app-shell .app-sidebar.is-collapsed .lxe-update-button.is-ready { max-width: 32px; }
+.app-shell .app-sidebar.is-collapsed .lxe-update-label { display: none; }
+.app-shell .app-sidebar.is-collapsed .lxe-update-button.is-ready > svg { display: block; }
+
+.app-shell .app-sidebar .session-index-item.active .primary-cell { color: var(--task-selected-ink); }
+.app-shell .app-sidebar .session-index-item.active .session-index-icon:not([data-session-state]) { border-color: var(--task-selected-ink); opacity: 1; }
+
+:root[data-theme="dark"] .app-shell > .app-sidebar.conversation-chrome-theme {
+  --sidebar-active: var(--task-selected-bg);
+}
+
+/* Hover feedback uses its own surface so it stays distinct from selection. */
+.app-shell .app-sidebar .session-index-item.active:hover {
+  background: var(--task-active-hover);
+}
+.app-shell .app-sidebar .session-index-item:hover .primary-cell,
+.app-shell .app-sidebar .workspace-group-header:hover .workspace-group-toggle,
+.app-shell .app-sidebar .workspace-icon-button:hover,
+.app-shell .sidebar-settings-button:hover {
+  color: var(--task-hover-ink);
+}
+.app-shell .app-sidebar .session-index-item:hover .session-index-icon:not([data-session-state]) {
+  opacity: 1; border-color: var(--task-hover-ink);
+}
+:root .app-shell .conversation-compose-box :is(.conversation-model-trigger, .conversation-thinking-trigger, .conversation-attach-button):hover:not(:disabled) {
+  background: var(--task-hover-bg); color: var(--task-hover-ink);
+}

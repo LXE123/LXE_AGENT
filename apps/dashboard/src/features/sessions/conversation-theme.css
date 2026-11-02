@@ -121,3 +121,69 @@
   --heatmap-level-3: color-mix(in srgb, var(--cds-accent) 76%, var(--cds-surface-panel));
   --heatmap-level-4: var(--cds-accent);
 }
+
+.conversation-process-hint { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.conversation-process-toggle:hover .conversation-process-hint { color: var(--text); }
+
+/* Pending selection saves lock controls without fading or moving their labels. */
+.conversation-compose-trailing[data-selection-pending] :is(.conversation-model-trigger, .conversation-thinking-trigger):disabled {
+  opacity: 1;
+}
+.conversation-thinking-trigger > .conversation-thinking-label { display: grid; }
+.conversation-thinking-label > span { grid-area: 1 / 1; }
+.conversation-thinking-label-measure { visibility: hidden; }
+
+/* A full-width notch track with an inset center rail keeps the circular thumb
+   flush with either end. Filling the outer track avoids unfilled end caps. */
+.conversation-thinking-picker {
+  --thinking-accent: var(--task-accent, var(--accent));
+  --thinking-easing: cubic-bezier(.22, .8, .25, 1);
+  --thinking-thumb-radius: 14px;
+}
+.conversation-thinking-picker .conversation-thinking-menu {
+  width: min(254px, calc(100vw - 52px)); padding: 12px; gap: 8px; border-radius: 18px;
+}
+.conversation-thinking-picker .conversation-thinking-heading {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) 24px; align-items: center;
+}
+.conversation-thinking-picker .conversation-thinking-heading > strong { color: var(--thinking-accent); text-align: center; font-size: .9375rem; }
+.conversation-thinking-picker .conversation-thinking-help,
+.conversation-thinking-reset {
+  display: grid; place-items: center; width: 24px; height: 24px; margin: 0; padding: 0;
+  border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer;
+}
+.conversation-thinking-reset:disabled { opacity: .45; cursor: default; }
+.conversation-thinking-reset:hover:not(:disabled),
+.conversation-thinking-picker .conversation-thinking-help:hover { color: var(--thinking-accent); background: var(--row-hover); }
+.conversation-thinking-reset:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.conversation-thinking-help .conversation-thinking-tooltip { left: 0; right: auto; }
+.conversation-thinking-model {
+  overflow: hidden; margin: -2px 0 8px; color: var(--muted); font-size: .8125rem;
+  line-height: 1.5; text-align: center; text-overflow: ellipsis; white-space: nowrap;
+}
+.conversation-thinking-picker .conversation-thinking-levels {
+  position: relative; padding: 0; min-height: 24px; background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.conversation-thinking-picker .conversation-thinking-cells { height: 24px; margin-inline: var(--thinking-thumb-radius); }
+.conversation-thinking-fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: 999px 0 0 999px; pointer-events: none;
+  background: var(--thinking-accent); transition: width 200ms var(--thinking-easing);
+}
+.conversation-thinking-picker .conversation-thinking-level { width: 28px; height: 28px; }
+.conversation-thinking-picker .conversation-thinking-dot { background: var(--muted-light); }
+.conversation-thinking-picker .conversation-thinking-level[data-reached] .conversation-thinking-dot {
+  background: color-mix(in srgb, var(--surface) 55%, var(--thinking-accent));
+}
+.conversation-thinking-picker .conversation-thinking-level:hover:not(:disabled) .conversation-thinking-dot { background: var(--thinking-accent); }
+.conversation-thinking-picker .conversation-thinking-knob {
+  width: calc(var(--thinking-thumb-radius) * 2); height: calc(var(--thinking-thumb-radius) * 2);
+  border-radius: 50%; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%); transition: left 200ms var(--thinking-easing);
+}
+.conversation-thinking-picker .conversation-thinking-knob.dragging,
+.conversation-thinking-fill.dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .conversation-thinking-picker .conversation-thinking-knob,
+  .conversation-thinking-fill { transition: none; }
+}

@@ -45,7 +45,8 @@ module.exports = async ({suite,win,js,step,load,waitFor,click,key,focus,settle,d
           await waitFor("Boolean(document.querySelector('.windows-titlebar-menu'))", "fresh caption mounted");
           await js(`document.documentElement.dataset.theme='${theme}'`);
           for (let i=0;i<2;i++) {
-            assert.equal((await rect('.app-navigation')).top, await captionBottom());
+            assert.equal((await rect('.app-sidebar')).top, await captionBottom());
+            assert.ok((await rect('.app-navigation')).top >= await captionBottom());
             assert.equal((await rect('.main-panel')).top, await captionBottom());
             const toggle = await rect('.sidebar-toggle-button');
             assert.ok(toggle.top>=0 && toggle.bottom<=await captionBottom());

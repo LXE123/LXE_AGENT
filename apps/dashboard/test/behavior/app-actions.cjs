@@ -30,15 +30,25 @@ module.exports = async ({suite, js, step, settle, click, type, focus, key, state
     });
     await step('thinking saves prevent submission and recover from rejected changes', async () => {
       await type('keep thinking draft');
+      const pickerAppearance = () => js(`['.conversation-compose-trailing .conversation-model-trigger','.conversation-thinking-trigger'].map(selector=>{
+        const e=document.querySelector(selector),r=e.getBoundingClientRect(),style=getComputedStyle(e);
+        return {x:r.x,width:r.width,opacity:style.opacity,font:style.font};
+      })`);
+      const beforeSaving = await pickerAppearance();
       await js('behavior.actions.hold("models.thinking.update"); behavior.actions.thinking("high")');
       await waitFor('JSON.parse(document.querySelector("#action-state").textContent).thinkingSaving', 'thinking saving');
       assert.equal((await current()).thinking,'high');
+      assert.deepEqual(await pickerAppearance(),beforeSaving,'thinking save must not fade labels or shift the toolbar');
+
       await key('Enter'); assert.equal(await js('behavior.actions.state().sends'),1);
       await js('behavior.actions.release()');
       await waitFor('!JSON.parse(document.querySelector("#action-state").textContent).thinkingSaving','thinking accepted');
+      assert.deepEqual(await pickerAppearance(),beforeSaving,'accepted thinking level keeps the same label footprint');
+
       await js('behavior.actions.fail("models.thinking.update"); behavior.actions.thinking("low")');
       await waitFor('document.querySelector("#action-error").textContent.includes("models.thinking.update")','thinking rejected');
       assert.equal((await current()).thinking,'high');
+      await waitFor("document.querySelector('.conversation-thinking-trigger').getAttribute('aria-label').includes('High')",'fast failure restores the visible effort label');
       await js('behavior.actions.fail("")');
     });
     await step('missing model is rejected locally and equal model names retain credential identity', async () => {

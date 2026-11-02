@@ -1,53 +1,32 @@
 const assert = require("node:assert/strict");
-
-module.exports = async ({ win, js, step, load, waitFor, click, delay, rect, move, railWidth }) => {
-  const preference = () => js("localStorage.getItem('lxe.dashboard.sidebar.expanded')");
-  const absent = async () => {
-    await waitFor(`document.querySelector('.main-panel')?.getBoundingClientRect().left === ${railWidth}`, "content uses the released sidebar space");
-    assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility()"), false);
-    assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
-    assert.equal(await js("document.querySelector('.sidebar-toggle-button').checkVisibility()"), false);
-    assert.equal(await js("document.querySelector('.sidebar-resizer').checkVisibility()"), false);
-    assert.equal(await js("Boolean(document.querySelector('.sidebar-dismiss'))"), false);
-    assert.equal(await js("document.querySelector('.navigation-rail-button').checkVisibility()"), true);
-    assert.equal(await js("document.documentElement.scrollWidth > innerWidth"), false);
-  };
-
-  await step("only Home and Sessions show the list, preserving selection, groups and scroll", async () => {
-    const shop = '.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
-    await click(shop);
-    await waitFor("document.querySelectorAll('.session-index-item').length > 10", "scrollable session list");
-    await click('.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-load-more');
-    await waitFor("document.querySelectorAll('.session-index-item').length > 20", "second page creates real overflow");
-    const saved = await js(`(() => {
-      const list = document.querySelector('.workspace-index-scroll');
-      window.sidebarListBeforeNavigation = list;
-      list.scrollTop = 150;
-      return {scroll: list.scrollTop, session: document.querySelector('.reference-editor').dataset.session};
-    })()`);
-    assert.ok(saved.scroll > 0, "the fixture must actually exercise scroll preservation");
-    const before = await preference();
-    for (const section of ["workbench", "capabilities", "activity"]) {
-      await click(".tab-" + section);
-      await absent();
-      assert.equal(await preference(), before, "route hiding must not persist a collapse");
-      if (section === "capabilities") {
-        for (let i = 0; i < 4; i++) {
-          await js(`document.querySelectorAll('.workspace-subnav button')[${i}].click()`);
-          await absent();
-        }
-      }
-    }
-    await click(".tab-home");
-    assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility()"), true);
-    await click(".tab-sessions");
-    await waitFor("Boolean(document.querySelector('.reference-editor'))", "conversation restored");
-    assert.equal(await js("document.querySelector('.reference-editor').dataset.session"), saved.session);
-    assert.equal(await js("document.querySelector('.workspace-index-scroll') === window.sidebarListBeforeNavigation"), true);
-    assert.equal(await js("document.querySelector('.workspace-index-scroll').scrollTop"), saved.scroll);
-    assert.equal(await js(`document.querySelector(${JSON.stringify(shop)}).getAttribute('aria-expanded')`), "true");
+module.exports = async ({ win, js, step, load, waitFor, click, delay, focus, key, settle }) => {
+  const sidebarQuery = "?app=1&workspaces=1&section=sessions";
+  const rect = selector => js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`);
+  const move = (x,y) => win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(x),y:Math.round(y)});
+  const expanded = () => js("document.querySelector('.app-sidebar').classList.contains('is-expanded')");
+  await load(sidebarQuery);
+  await waitFor("document.querySelectorAll('.workspace-group').length===3", 'workspaces');
+  await step('one sidebar owns navigation, workspace list and settings', async () => {
+    assert.equal(await js("document.querySelectorAll('.app-sidebar .navigation-rail-button').length"),6);
+    assert.equal((await rect('.app-sidebar')).left,0);
+    assert.equal((await rect('.main-panel')).left,256);
+    assert.ok((await rect('.workspace-index-scroll')).height > 100);
   });
-
+  await step('workspace groups and scrolling survive navigation to other pages', async () => {
+    await click('.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-group-toggle');
+    await waitFor("document.querySelectorAll('.session-index-item').length>10",'shop loaded');
+    await click('.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-load-more');
+    await waitFor("document.querySelectorAll('.session-index-item').length>20",'second page');
+    const before=await js("(()=>{const e=document.querySelector('.workspace-index-scroll');window.savedSidebarList=e;e.scrollTop=100;return e.scrollTop})()");
+    assert.ok(before>0);
+    for(const route of ['workbench','capabilities','activity','home']) {
+      await click('.tab-'+route);
+      assert.equal(await js("document.querySelector('.workspace-index-scroll')===window.savedSidebarList"),true);
+      assert.equal(await js("document.querySelector('.workspace-index-scroll').scrollTop"),before);
+    }
+    await click('.session-index-open');
+    await waitFor("Boolean(document.querySelector('.reference-editor'))",'history restored');
+  });
   await step("scrollbar follows scrolling and native dragging, not hover or focus", async () => {
     // Native scrollbar press/release states need focus even in an offscreen test window.
     win.webContents.debugger.attach("1.3");
@@ -96,65 +75,99 @@ module.exports = async ({ win, js, step, load, waitFor, click, delay, rect, move
 
     await js("document.querySelector('.workspace-index-scroll').scrollTop = 0");
     await waitFor("Boolean(document.querySelector('.workspace-index-scroll[data-scrollbar-active]'))", "scroll activity before navigation");
-    await click(".tab-workbench");
-    assert.equal(await thumb(), transparent, "hiding the sidebar clears activity immediately");
-    await click(".tab-sessions");
+    await click(".sidebar-toggle-button");
+    assert.equal(await thumb(), transparent, "hiding the list clears activity immediately");
+    await click(".sidebar-toggle-button");
     assert.equal(await thumb(), transparent, "returning does not restore stale scroll activity");
     win.webContents.debugger.detach();
   });
 
-  await step("leaving a hover peek cancels it without changing the collapsed preference", async () => {
-    await click(".sidebar-toggle-button");
-    move(800, 400); await delay(180);
-    const toggle = await rect(".sidebar-toggle-button");
-    move(toggle.left + 10, toggle.top + 10);
-    await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "peek opened");
-    const before = await preference();
-    await click(".tab-capabilities");
-    await absent();
-    move(toggle.left + 10, toggle.top + 10); await delay(220);
-    assert.equal(await js("document.querySelector('.app-shell').classList.contains('sidebar-peeking')"), false);
-    assert.equal(await preference(), before);
-    await click(".tab-sessions");
-    assert.equal(await js("document.querySelector('.app-sidebar').classList.contains('is-collapsed')"), true);
-    assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility({visibilityProperty: true})"), false);
-    // A pending hover timer must also be discarded if navigation wins the race.
-    move(800, 400); await delay(180);
-    move(toggle.left + 10, toggle.top + 10);
-    await click(".tab-workbench");
-    await delay(220); await absent();
-    await click(".tab-home");
-    assert.equal(await js("document.querySelector('.app-sidebar').classList.contains('is-collapsed')"), true);
-    assert.equal(await preference(), before);
-    await click(".tab-sessions");
-    await click(".sidebar-toggle-button");
+  await step('compact sidebar retains navigable icons, settings focus and update actions', async () => {
+    await click('.sidebar-toggle-button'); move(800,400); await delay(240);
+    assert.equal(await expanded(),false);
+    assert.equal((await rect('.main-panel')).left,60);
+    assert.equal(await js("document.querySelector('.app-sidebar').inert"),false);
+    assert.equal(await js("document.querySelector('.sidebar-session-section').checkVisibility()"),false);
+    await click('.sidebar-settings-button'); await key('Escape'); await delay(180);
+    assert.equal(await js("document.activeElement.matches('.sidebar-settings-button')"),true);
+    await js("window.lxe.desktop.getUpdateState=async()=>({phase:'ready'});undefined");
+    await waitFor("Boolean(document.querySelector('.lxe-update-button.is-ready'))",'update ready');
+    assert.ok((await rect('.lxe-update-button')).right<=60);
+    await click('.lxe-update-button');
+    assert.equal(await js("Boolean(document.querySelector('.lxe-update-dialog'))"),true);
+    await key('Escape'); await js("window.lxe.desktop.getUpdateState=async()=>({phase:'unsupported'});undefined");
   });
-
-  await step("direct entry, browser history and narrow drawers honor the same page scope", async () => {
-    const before = await preference();
-    await load("?app=1&workspaces=1&section=capabilities");
-    await absent();
-    assert.equal(await preference(), before);
-    await click(".tab-home");
-    assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility()"), true);
-    await js("history.back()");
-    await waitFor("document.querySelector('.tab-capabilities').getAttribute('aria-current') === 'page'", "history restores capabilities");
-    await absent();
-    await js("history.forward()");
-    await waitFor("document.querySelector('.tab-home').getAttribute('aria-current') === 'page'", "history restores Home");
-    assert.equal(await preference(), before);
-    win.setContentSize(800, 900); await delay(250);
-    assert.equal(await js("document.querySelector('.sidebar-dismiss').checkVisibility()"), true);
-    await click(".tab-capabilities"); await absent();
-    await click(".sidebar-settings-button");
-    await waitFor("Boolean(document.querySelector('.desktop-settings-modal'))", "global settings still reachable");
-    await click(".desktop-settings-dismiss");
-    await click(".tab-sessions");
-    assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility()"), true);
-    assert.equal(await preference(), before);
-    win.setContentSize(1200, 900); await delay(250);
-    await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list restored");
-    const shop = '.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
-    if (await js(`document.querySelector(${JSON.stringify(shop)}).getAttribute('aria-expanded') === 'true'`)) await click(shop);
+  await step('hover peek and search do not shift the content and Escape restores compact mode', async () => {
+    move(800,400); await delay(180); const t=await rect('.sidebar-toggle-button'); move(t.left+10,t.top+10);
+    await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')",'peek');
+    assert.equal((await rect('.main-panel')).left,60);
+    await click('.sidebar-search-button');
+    await waitFor("document.activeElement.matches('.search-box input')",'search');
+    await win.webContents.insertText('Archived project');
+    await waitFor("document.querySelector('.session-workspace-result')?.textContent==='/fixture/archive'",'search result');
+    await focus('.sidebar-toggle-button'); await key('Escape'); await delay(180);
+    assert.equal(await expanded(),false);
+  });
+      await step("dragged list width and expansion persist across reload independently of the rail", async () => {
+        move(800, 400); await delay(180);
+        await click(".sidebar-toggle-button"); await delay(220);
+        const handle = await rect(".sidebar-resizer"), before = await rect(".app-sidebar");
+        const x = Math.round(handle.left + handle.width / 2);
+        move(x, 300);
+        win.webContents.sendInputEvent({ type: "mouseDown", button: "left", x, y: 300, clickCount: 1 });
+        await settle();
+        win.webContents.sendInputEvent({ type: "mouseMove", button: "left", modifiers: ["leftButtonDown"], x: x + 60, y: 300 });
+        await settle();
+        win.webContents.sendInputEvent({ type: "mouseUp", button: "left", x: x + 60, y: 300, clickCount: 1 });
+        await settle();
+        assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), Math.round(before.width + 60),
+          JSON.stringify({ handle, before, after: await rect(".app-sidebar") }));
+        await load(sidebarQuery);
+        await waitFor("document.querySelectorAll('.workspace-group').length === 3", "reloaded list");
+        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${before.width + 60}`, "restored width animation completed");
+        assert.equal(await expanded(), true);
+        assert.equal((await rect(".app-sidebar")).width, before.width + 60);
+        assert.equal((await rect(".main-panel")).left, before.width + 60);
+        await focus(".sidebar-resizer"); await key("Left");
+        assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), before.width + 50);
+      });
+  await step('narrow windows use a dismissible drawer with a compact navigation fallback', async () => {
+    win.setContentSize(800,900); await delay(250);
+    assert.equal((await rect('.main-panel')).left,60);
+    assert.equal(await js("document.querySelector('.sidebar-dismiss').checkVisibility()"),true);
+    assert.equal((await rect('.app-sidebar')).left,0);
+    await click('.sidebar-dismiss'); move(700,500); await delay(220);
+    assert.equal(await expanded(),false);
+    assert.equal(await js("document.documentElement.scrollWidth>innerWidth"),false);
+    win.setContentSize(1200,900); await delay(250);
+  });
+  await step('navigation closes a peek without changing the collapsed preference', async () => {
+    const t=await rect('.sidebar-toggle-button'); move(t.left+10,t.top+10);
+    await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')",'peek');
+    await click('.tab-capabilities'); move(800,400); await delay(200);
+    assert.equal(await js("document.querySelector('.app-sidebar').classList.contains('is-collapsed')"),true);
+    assert.equal(await js("localStorage.getItem('lxe.dashboard.sidebar.expanded')"),'false');
+  });
+  await step('browser history keeps the sidebar preference and destinations', async () => {
+    await click('.tab-home'); await js('history.back()');
+    await waitFor("document.querySelector('.tab-capabilities').getAttribute('aria-current')==='page'",'back');
+    await js('history.forward()');
+    await waitFor("document.querySelector('.tab-home').getAttribute('aria-current')==='page'",'forward');
+    assert.equal(await expanded(),false);
+  });
+  await step('both caption layouts keep the new sidebar and task controls usable', async () => {
+    await load('?app=1&workspaces=1&fresh=1');
+    await waitFor("Boolean(document.querySelector('.task-start-view'))", 'fresh launch starts a task');
+    assert.equal(await js("behavior.state().calls.filter(c=>c.operation==='sessions.create').length"), 1);
+    for(const platform of ['darwin','win32']) {
+      await load(sidebarQuery+'&platform='+platform);
+      await waitFor("Boolean(document.querySelector('.app-sidebar'))",'sidebar');
+      await click('.tab-sessions');
+      await waitFor("Boolean(document.querySelector('.task-start-view'))",'task');
+      const toggle=await rect('.sidebar-toggle-button');
+      assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-toggle-button')).webkitAppRegion"),'no-drag');
+      assert.ok((await rect('.navigation-rail-button')).top>=toggle.bottom);
+      assert.equal(await js("document.documentElement.scrollHeight>innerHeight"),false);
+    }
   });
 };
