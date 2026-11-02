@@ -23,7 +23,7 @@ function service(password: string, execution = { stdout: '{"success":true,"statu
   const reference = credentials.write({ provider_id: provider, login_username: "fixture-user", password });
   const profile = { profile_id: request.profile_id, provider_id: provider, login_username: "fixture-user", enabled: true, credential_id: reference };
   const calls: { args: string[]; environment: NodeJS.ProcessEnv; stdin: string }[] = [];
-  const instance = new DesktopLogisticsSettingsService({ dataRoot: root, pythonPath: "python", managedPath: "", platform: process.platform,
+  const instance = new DesktopLogisticsSettingsService({ dataRoot: root, executablePath: "lxeskill", managedPath: "", platform: process.platform,
     safeStorage, environment: () => ({}),
     execute: async () => ({ stdout: JSON.stringify({ type: "result", ok: true, data: { success: true, data: { schema_version: 3, revision: 3, profiles: [profile], providers: [] } } }), stderr: "", error: null }),
     executeLogin: async (args, environment, stdin) => {
@@ -42,7 +42,7 @@ test("password goes only through private worker stdin, never argv/environment/RP
   const h = service(password, { stdout: JSON.stringify({ success: true, status: "authenticated", configured_login_submitted: true, profile_identity_verified: false }), stderr: "", error: null });
   expect(await h.instance.ensureLogin(request)).toEqual({ success: true, status: "authenticated", configured_login_submitted: true, profile_identity_verified: false });
   expect(h.calls).toHaveLength(1);
-  expect(h.calls[0]!.args).toEqual(["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "login-worker"]);
+  expect(h.calls[0]!.args).toEqual(["logistics", "login-worker"]);
   expect(JSON.stringify(h.calls[0]!.args)).not.toContain(password);
   expect(JSON.stringify(h.calls[0]!.environment)).not.toContain(password);
   expect(h.calls[0]!.environment.LXE_AGENT_SESSION_ID).toBe("lxe-test");

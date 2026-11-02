@@ -29,7 +29,7 @@ const safeStorage = {
 };
 function service(execute: DesktopInputAssetsOptions["execute"]) {
   const root = mkdtempSync(join(tmpdir(), "logistics-settings-")); roots.push(root);
-  return new DesktopLogisticsSettingsService({ dataRoot: root, pythonPath: "python", managedPath: "", platform: process.platform,
+  return new DesktopLogisticsSettingsService({ dataRoot: root, executablePath: "lxeskill", managedPath: "", platform: process.platform,
     environment: () => ({ ZINIAO_PASSWORD: "environment-only-credential", ZINIAO_COMPANY: "fixture-company" }), execute, safeStorage });
 }
 test("fixed internal CLI contract, revision and environment-only credentials", async () => {
@@ -45,8 +45,8 @@ test("fixed internal CLI contract, revision and environment-only credentials", a
   });
   await store.read(); await store.save(input, 0);
   await store.delete("00000000-0000-0000-0000-000000000001", 0);
-  expect(calls.map(call => call.slice(0, 10))).toEqual(["read", "snapshot", "save", "snapshot", "delete"].map(action => ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "settings", "--action", action]));
-  expect(JSON.parse(calls[2]![11]!)).toEqual({ input: { ...input, login_username: null, credential_id: null }, expected_revision: 0 });
+  expect(calls.map(call => call.slice(0, 4))).toEqual(["read", "snapshot", "save", "snapshot", "delete"].map(action => ["logistics", "settings", "--action", action]));
+  expect(JSON.parse(calls[2]![5]!)).toEqual({ input: { ...input, login_username: null, credential_id: null }, expected_revision: 0 });
 });
 test.each([
   { stdout: "broken-json", stderr: "", error: null },
@@ -113,16 +113,16 @@ function integrated(storage = safeStorage) {
   let failSave: "before" | "after" | null = null;
   const requests: string[] = [];
   const make = () => new DesktopLogisticsSettingsService({ dataRoot: root,
-    pythonPath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"),
+    executablePath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"),
     managedPath: "", platform: process.platform, environment: () => ({}), safeStorage: storage,
     async execute(args, options) {
       requests.push(JSON.stringify({ args, env: options.env }));
-      if (args[9] === "save" && failSave === "before") return { stdout: "", stderr: "fixture save denied", error: new Error("exit 1") };
-      const child = Bun.spawn([join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"),
+      if (args[3] === "save" && failSave === "before") return { stdout: "", stderr: "fixture save denied", error: new Error("exit 1") };
+      const child = Bun.spawn([join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"),
         ...args],
       { cwd: options.cwd, env: options.env, stdout: "pipe", stderr: "pipe" });
       const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-      if (args[9] === "save" && failSave === "after") return { stdout: "", stderr: "fixture response lost after save", error: new Error("timeout") };
+      if (args[3] === "save" && failSave === "after") return { stdout: "", stderr: "fixture response lost after save", error: new Error("timeout") };
       return { stdout, stderr, error: exit === 0 ? null : new Error(`exit ${exit}`) };
     } });
   return { root, make, store: make(), requests, fail(value: typeof failSave) { failSave = value; },

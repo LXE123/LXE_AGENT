@@ -344,7 +344,7 @@ async function bootstrap(): Promise<void> {
   await authBrowserHost.start();
   activeAuthBrowserHost = authBrowserHost;
   const logisticsSettings = new DesktopLogisticsSettingsService({
-    platform: process.platform, pythonPath: paths.managedPythonPath,
+    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
     dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(), safeStorage,
   });
   activeLogisticsSettings = logisticsSettings;

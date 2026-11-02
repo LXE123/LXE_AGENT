@@ -1,3 +1,4 @@
+import { managedPythonEnvironment } from "@lxe/core";
 import { execFile, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -26,10 +27,10 @@ export class DesktopLogisticsSettingsService {
   private async call(action: "read" | "snapshot" | "save" | "delete", request?: object): Promise<StoredState> {
     const temporaryRoot = join(this.options.dataRoot, "tmp");
     mkdirSync(temporaryRoot, { recursive: true });
-    const args = ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "settings", "--action", action,
+    const args = ["logistics", "settings", "--action", action,
       ...(request ? ["--request", JSON.stringify(request)] : [])];
-    const environment = { ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
-      TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+    const environment = managedPythonEnvironment({ ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
+      TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" });
     const safe = (message: string): string => {
       for (const [name, value] of Object.entries(environment)) {
         if (value && /PASSWORD|SECRET|TOKEN|COOKIE|API_KEY|AUTHORIZATION/iu.test(name)) message = message.replaceAll(value, "[redacted]");
@@ -41,7 +42,7 @@ export class DesktopLogisticsSettingsService {
     try {
       execution = this.options.execute ? await this.options.execute(args, options)
         : await new Promise<{ stdout: string; stderr: string; error: Error | null }>(resolve => {
-          execFile(this.options.pythonPath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
+          execFile(this.options.executablePath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
         });
     } catch (error) { throw new Error(safe(error instanceof Error ? error.message : String(error))); }
     let terminal: { type?: string; ok?: boolean; data?: { success?: boolean; data?: StoredState }; error?: { message?: string } } | undefined;
@@ -108,17 +109,17 @@ export class DesktopLogisticsSettingsService {
       if (credential.provider_id !== profile.provider_id || credential.login_username !== profile.login_username) throw new Error("Encrypted credential identity does not match the logistics profile");
       if (this.loginStopping) throw new Error("Logistics login service is stopping");
       signal?.throwIfAborted();
-      const args = ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "logistics", "login-worker"];
+      const args = ["logistics", "login-worker"];
       const temporaryRoot = join(this.options.dataRoot, "tmp");
       mkdirSync(temporaryRoot, { recursive: true });
-      const environment = { ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
+      const environment = managedPythonEnvironment({ ...process.env, ...this.options.environment(), LXE_DATA_ROOT: this.options.dataRoot,
         LXE_AGENT_SESSION_ID: request.session_id, TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot,
-        PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+        PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" });
       const stdin = JSON.stringify({ provider_id: profile.provider_id, store_id: request.store_id,
         login_username: credential.login_username, password });
       const execution = this.options.executeLogin ? await this.options.executeLogin(args, environment, stdin)
         : await new Promise<LoginExecution>(resolve => {
-          const child = execFile(this.options.pythonPath, args, { cwd: this.options.dataRoot, env: environment,
+          const child = execFile(this.options.executablePath, args, { cwd: this.options.dataRoot, env: environment,
             timeout: 90_000, maxBuffer: 64 * 1024, windowsHide: true, signal }, (error, stdout, stderr) => {
             this.loginChildren.delete(child); resolve({ error, stdout, stderr });
           });
