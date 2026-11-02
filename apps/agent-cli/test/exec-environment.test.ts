@@ -14,6 +14,10 @@ test("generic exec environment works without an installed Python or business CLI
     const paths = resolveExecRuntimePaths({ environment: inherited, moduleDirectory: root });
     expect(existsSync(paths.managedPythonPath)).toBe(false);
     const environment = execRuntimeEnvironment(paths, join(root, "agent.sqlite3"), inherited);
+    expect(environment.LXE_MCP_CONFIG_PATH).toBe(join(root, "config", "mcp_servers.local.json"));
+    const explicitMcp = join(root, "custom-mcp.json");
+    expect(execRuntimeEnvironment(paths, join(root, "agent.sqlite3"), { ...inherited, LXE_MCP_CONFIG_PATH: explicitMcp }).LXE_MCP_CONFIG_PATH)
+      .toBe(explicitMcp);
     const shell = new ExecShellAdapter({ environment });
     const command = "echo fixture";
     expect(shell.normalizeCommand(root, command)).toBe(command);

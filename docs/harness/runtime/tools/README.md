@@ -20,6 +20,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - [Tool Schema](tool_schema.md)：definition、命名、JSON schema 和 exposure。
 - [Tool Execution](tool_execution.md)：dispatch、cancel、result、artifact 与错误语义。
 - [Ask User Question](ask-user-question.md)：问题卡片、专用答复接口和失效规则。
+- [MCP](mcp.md)：JSON 配置、连接器、连接管理与工具适配。
 
 ## 常用行为
 
@@ -36,7 +37,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - [`registry.ts`](../../../../packages/agent/runtime/src/tooling/registry.ts)：工具注册与 exposure state。
 - [`coding/register.ts`](../../../../packages/agent/runtime/src/tooling/coding/register.ts)：文件、搜索、exec/wait 和文件交付工具的装配入口。
 - [`statistics/`](../../../../packages/agent/runtime/src/statistics/)：独立的调用统计与 `lxeskill list` 归属查询。
-- [`mcp.ts`](../../../../packages/agent/runtime/src/tooling/mcp.ts)：MCP 配置、连接和工具注册。
+- [`mcp.ts`](../../../../../packages/agent/runtime/src/tooling/mcp.ts)：MCP 公共入口，实现拆分在同级 `mcp/` 目录。
 - [`skills.ts`](../../../../packages/agent/runtime/src/tooling/skills.ts)：Skill 发现与提示词内容。
 - [`runtime-host.ts`](../../../../apps/agent-cli/src/runtime-host.ts)：工具、MCP、工作区和 CLI scope 的宿主装配。
 

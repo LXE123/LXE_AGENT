@@ -19,7 +19,6 @@ import type { JsonObject } from "@lxe/protocol";
 import { createLogger, loadLlmProviderCatalog, normalizeProviderKey, type LlmProviderSpec } from "@lxe/core";
 import {
   InvalidTranscriptCursorError,
-  mcpServerPrefix,
   normalizeThinkingEffort,
   providerPreferencePatch,
   readProviderPreference,
@@ -64,6 +63,7 @@ interface DashboardServiceOptions {
   terminateSession?: (sessionId: string) => Promise<void> | void;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
   mcpStatus?: (serverName: string) => {
+    state?: string;
     connected: boolean;
     error: string;
     toolCount?: number;
@@ -492,7 +492,7 @@ export class DashboardService {
     }] : [];
     for (const server of this.options.mcpConfig.servers) {
       const tools = this.options.tools.definitionsSnapshot()
-        .filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map(payload);
+        .filter((tool) => tool.source === "mcp" && tool.connectorName === server.name).map(payload);
       groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools });
     }
     return groups;
@@ -501,12 +501,12 @@ export class DashboardService {
   private mcpServer(server: McpConfig["servers"][number]): JsonObject {
     const live = this.options.mcpStatus?.(server.name);
     const toolCount = live?.toolCount
-      ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).length;
+      ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.source === "mcp" && tool.connectorName === server.name).length;
     return {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      status: !server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured",
+      status: live?.state ?? (!server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured"),
       tool_count: toolCount,
       error: live?.error ?? "",
       server_title: server.connectorName,
@@ -527,8 +527,8 @@ export class DashboardService {
     const { name, enabled } = input;
     const server = this.options.mcpConfig.servers.find((item) => item.name === name);
     if (!server) rpcError("not_found", "MCP server not found");
-    server.enabled = enabled;
-    await this.options.setMcpEnabled?.(name, enabled);
+    if (this.options.setMcpEnabled) await this.options.setMcpEnabled(name, enabled);
+    else server.enabled = enabled;
     return this.mcpServer(server);
   }
 

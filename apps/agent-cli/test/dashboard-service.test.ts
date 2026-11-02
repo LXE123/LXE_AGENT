@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionTitleService, SkillCatalog, SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
+import { loadMcpConfig, McpManager, SessionTitleService, SkillCatalog, SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import type { AgentDashboardRpcCall, UserSkillPayload } from "@lxe/desktop-protocol";
 import {
   DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES,
@@ -18,6 +18,44 @@ afterEach(() => {
 });
 
 describe("DashboardService", () => {
+  test("MCP status follows the manager and a failed config write does not flip the live switch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-mcp-dashboard-")); roots.push(root);
+    const path = join(root, "mcp.json");
+    writeFileSync(path, JSON.stringify({ servers: { fixture: { enabled: true, command: "fixture" } } }));
+    const config = loadMcpConfig(path, {}), tools = new ToolRegistry();
+    let disconnected = () => {};
+    let rejectWrite = true;
+    const manager = new McpManager(config, { connect: async () => ({
+      tools: [{ name: "echo" }], onClose: listener => { disconnected = listener; return () => {}; },
+      callTool: async () => ({ content: [], isError: false }), close: async () => {},
+    }) });
+    const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+    const service = new DashboardService({
+      stateRoot: root, llmConfigRoot: root, skillsRoot: root, userSkillsRoot: root, sharedSkillsRoot: false,
+      environment: {}, store, tools, mcpConfig: config, mcpStatus: name => manager.status(name),
+      setMcpEnabled: async (name, enabled) => {
+        if (rejectWrite) throw new Error("EACCES: actual configuration write denied");
+        await manager.setEnabled(name, enabled);
+      },
+    });
+    const list = () => service.call({ operation: "mcp.servers.list", input: {} });
+    try {
+      const startup = manager.start(tools);
+      expect(await list()).toMatchObject({ items: [{ status: "connecting" }] });
+      await startup;
+      expect(await list()).toMatchObject({ items: [{ status: "ready", tool_count: 1 }] });
+      await expect(service.call({ operation: "mcp.servers.update", input: { name: "fixture", enabled: false } }))
+        .rejects.toThrow("EACCES");
+      expect(await list()).toMatchObject({ items: [{ enabled: true, status: "ready" }] });
+      disconnected();
+      expect(await list()).toMatchObject({ items: [{ status: "disconnected", tool_count: 0, tools: [] }] });
+      expect(await service.call({ operation: "toolsets.list", input: {} })).toMatchObject({ items: [{ name: "mcp:fixture", tools: [] }] });
+      rejectWrite = false;
+      expect(await service.call({ operation: "mcp.servers.update", input: { name: "fixture", enabled: false } }))
+        .toMatchObject({ enabled: false, status: "disabled" });
+    } finally { await manager.stop(); await service.dispose(); await store.stop(); }
+  });
+
   test("applies permissions and enabled state across all skill sources", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-skill-sources-"));
     roots.push(root);

@@ -208,7 +208,7 @@ export class DesktopGateway {
       TEMP: join(this.options.paths.dataRoot, "tmp"),
       TMPDIR: join(this.options.paths.dataRoot, "tmp"),
       AGENT_SESSION_BINDINGS_PATH: join(this.options.paths.dataRoot, "db", "sessions.json"),
-      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.yaml"),
+      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.json"),
       LXE_MANAGED_PATH: this.options.paths.managedPath,
       LXE_FD_PATH: this.options.paths.fdPath,
       LXE_MANAGED_PYTHON: this.options.paths.managedPythonPath,

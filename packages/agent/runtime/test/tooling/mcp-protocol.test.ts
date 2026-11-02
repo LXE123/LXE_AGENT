@@ -170,6 +170,24 @@ test("disabling and stopping established stdio connections removes tools and rea
   } finally { await manager.stop(); await fixture.cleanup(); }
 });
 
+test("an established stdio child exiting passively invalidates tools and can be manually reconnected", async () => {
+  const fixture = stdioFixture("modern");
+  const manager = new McpManager({ servers: [fixture.server] });
+  const registry = new ToolRegistry();
+  try {
+    await manager.start(registry);
+    expect(manager.status("fixture").state).toBe("ready");
+    const pids = [...new Set(fixture.trace().map(entry => entry.pid))].filter(pid => !exited(pid));
+    expect(pids.length).toBeGreaterThan(0);
+    for (const pid of pids) process.kill(pid, "SIGTERM");
+    await eventually(() => manager.status("fixture").state === "disconnected");
+    expect(registry.schemas()).toEqual([]);
+    await manager.reconnect("fixture");
+    expect(manager.status("fixture")).toMatchObject({ state: "ready", connected: true, toolCount: 2 });
+    expect(registry.schemas()).toHaveLength(2);
+  } finally { await manager.stop(); await fixture.cleanup(); }
+});
+
 for (const mode of ["exit-on-probe", "exit-on-call"]) {
   test(`stdio handles ${mode} without leaving a child`, async () => {
     const fixture = stdioFixture(mode);

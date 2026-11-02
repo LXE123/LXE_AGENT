@@ -70,7 +70,7 @@ flowchart LR
 
 内置服务名 `lxe_desktop`，使用官方 SDK v2 的 STDIO 服务入口，客户端固定协商新版协议。独立进程只负责 MCP 协议适配，业务逻辑仍在 Electron；Windows 通过随机命名管道，macOS/Linux 通过私有临时目录的 Unix socket 连接。每次请求有 1 MiB 大小上限和 30 秒超时，取消及关闭会清理连接。
 
-启动时 Electron 注入命令、脚本、管道地址和随机凭据。agentcli 取得托管配置后从普通执行环境和 `process.env` 移除这些值；其他 CLI、exec 和第三方 MCP 不继承凭据。凭据不写入 YAML 或命令参数。服务可在 MCP 管理页启停，偏好存在桌面数据库；关闭 MCP 不关闭定时调度或任务页。
+启动时 Electron 注入命令、脚本、管道地址和随机凭据。agentcli 取得托管配置后从普通执行环境和 `process.env` 移除这些值；其他 CLI、exec 和第三方 MCP 不继承凭据。凭据不写入用户 MCP JSON 配置或命令参数。服务可在 MCP 管理页启停，偏好存在桌面数据库；关闭 MCP 不关闭定时调度或任务页。
 
 只对桌面来源暴露四个工具，采用已有 deferred 工具发现机制：
 

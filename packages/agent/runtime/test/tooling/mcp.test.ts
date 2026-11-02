@@ -19,35 +19,48 @@ afterEach(() => {
 
 describe("MCP manager", () => {
   test("ships an empty external MCP server template", () => {
-    expect(loadMcpConfig("config/mcp_servers.default.yaml", {}).servers).toEqual([]);
+    expect(loadMcpConfig("config/mcp_servers.default.json", {}).servers).toEqual([]);
   });
 
-  test("loads existing YAML shape, registers enabled tools, and closes clients", async () => {
+  test("loads JSON configuration, registers enabled tools, and closes clients", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-"));
     roots.push(root);
-    const path = join(root, "mcp.yaml");
-    writeFileSync(path, [
-      "mcpServers:",
-      "  local:",
-      "    enabled: true",
-      "    type: stdio",
-      "    command: tool-server",
-      "    args: [--json, '${TOKEN}']",
-      "    env: {MCP_TOKEN: '${TOKEN}'}",
-      "    cwd: '${WORKSPACE}'",
-      "    enabled_tools: [echo, skip]",
-      "    disabled_tools: [skip]",
-      "    exposure: deferred",
-      "  off:",
-      "    enabled: false",
-      "    type: streamable-http",
-      "    url: http://127.0.0.1/mcp",
-      "  bad:",
-      "    enabled: true",
-      "    type: stdio",
-      "    command: missing-server",
-      "",
-    ].join("\n"), "utf8");
+    const path = join(root, "mcp.json");
+    writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "local": {
+          "enabled": true,
+          "type": "stdio",
+          "command": "tool-server",
+          "args": [
+            "--json",
+            "${TOKEN}"
+          ],
+          "env": {
+            "MCP_TOKEN": "${TOKEN}"
+          },
+          "cwd": "${WORKSPACE}",
+          "enabled_tools": [
+            "echo",
+            "skip"
+          ],
+          "disabled_tools": [
+            "skip"
+          ],
+          "exposure": "deferred"
+        },
+        "off": {
+          "enabled": false,
+          "type": "streamable-http",
+          "url": "http://127.0.0.1/mcp"
+        },
+        "bad": {
+          "enabled": true,
+          "type": "stdio",
+          "command": "missing-server"
+        }
+      }
+    }), "utf8");
     const config = loadMcpConfig(path, { TOKEN: "secret", WORKSPACE: root });
     expect(config.servers.map((server) => [server.name, server.enabled, server.transport])).toEqual([
       ["bad", true, "stdio"],
@@ -99,24 +112,33 @@ describe("MCP manager", () => {
   test("rejects missing placeholders and isolates startup/tool timeouts", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-timeout-"));
     roots.push(root);
-    const missing = join(root, "missing.yaml");
-    writeFileSync(missing, "mcpServers:\n  bad:\n    enabled: true\n    command: '${MISSING}'\n", "utf8");
+    const missing = join(root, "missing.json");
+    writeFileSync(missing, JSON.stringify({
+      "mcpServers": {
+        "bad": {
+          "enabled": true,
+          "command": "${MISSING}"
+        }
+      }
+    }), "utf8");
     expect(() => loadMcpConfig(missing, {})).toThrow("missing environment variable MISSING");
 
-    const path = join(root, "timeout.yaml");
-    writeFileSync(path, [
-      "mcpServers:",
-      "  slow-start:",
-      "    enabled: true",
-      "    command: ignored",
-      "    startup_timeout_s: 0.01",
-      "  slow-tool:",
-      "    enabled: true",
-      "    command: ignored",
-      "    tool_timeout_s: 0.01",
-      "    exposure: direct",
-      "",
-    ].join("\n"), "utf8");
+    const path = join(root, "timeout.json");
+    writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "slow-start": {
+          "enabled": true,
+          "command": "ignored",
+          "startup_timeout_s": 0.01
+        },
+        "slow-tool": {
+          "enabled": true,
+          "command": "ignored",
+          "tool_timeout_s": 0.01,
+          "exposure": "direct"
+        }
+      }
+    }), "utf8");
     const config = loadMcpConfig(path, {});
     const manager = new McpManager(config, {
       connect: async (server) => {
@@ -148,21 +170,26 @@ describe("MCP manager", () => {
   test("resolves secret headers only at connection time and uses SDK list aggregation", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-http-"));
     roots.push(root);
-    const path = join(root, "mcp.yaml");
-    writeFileSync(path, [
-      "mcpServers:",
-      "  remote:",
-      "    enabled: true",
-      "    transport: streamable-http",
-      "    url: https://mcp.example.test/api",
-      "    headers: {X-Static: '${STATIC_VALUE}'}",
-      "    env_headers: {X-Environment: MCP_ENV_HEADER}",
-      "    bearer_token_env_var: MCP_BEARER",
-      "    connector_id: inventory",
-      "    connector_name: Inventory Connector",
-      "    connector_description: Reads inventory safely",
-      "",
-    ].join("\n"), "utf8");
+    const path = join(root, "mcp.json");
+    writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "remote": {
+          "enabled": true,
+          "transport": "streamable-http",
+          "url": "https://mcp.example.test/api",
+          "headers": {
+            "X-Static": "${STATIC_VALUE}"
+          },
+          "env_headers": {
+            "X-Environment": "MCP_ENV_HEADER"
+          },
+          "bearer_token_env_var": "MCP_BEARER",
+          "connector_id": "inventory",
+          "connector_name": "Inventory Connector",
+          "connector_description": "Reads inventory safely"
+        }
+      }
+    }), "utf8");
     const environment = { STATIC_VALUE: "static-secret", MCP_ENV_HEADER: "env-secret", MCP_BEARER: "bearer-secret" };
     const server = loadMcpConfig(path, environment).servers[0]!;
     expect(server.headers).toEqual({ "X-Static": "${STATIC_VALUE}" });
@@ -261,23 +288,38 @@ describe("MCP manager", () => {
   });
 });
 
-test("validates explicit protocol modes without changing existing YAML", () => {
+test("validates explicit protocol modes without changing JSON fields", () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-mcp-modes-"));
   roots.push(root);
-  const path = join(root, "mcp.yaml");
+  const path = join(root, "mcp.json");
   for (const mode of ["auto", "legacy", "2026-07-28"] as const) {
-    writeFileSync(path, `mcpServers:\n  local:\n    command: example\n    protocol_mode: '${mode}'\n`);
+    writeFileSync(path, JSON.stringify({ servers: { local: { command: "example", protocol_mode: mode } } }));
     expect(loadMcpConfig(path, {}).servers[0]?.protocolMode).toBe(mode);
   }
-  writeFileSync(path, "mcpServers:\n  local:\n    command: example\n    protocol_mode: unknown\n");
+  writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "local": {
+          "command": "example",
+          "protocol_mode": "unknown"
+        }
+      }
+    }));
   expect(() => loadMcpConfig(path, {})).toThrow("unsupported MCP protocol_mode for local: unknown");
 });
 
 test("structured results remain model-readable including null and falsey values", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-mcp-values-"));
   roots.push(root);
-  const path = join(root, "mcp.yaml");
-  writeFileSync(path, "mcpServers:\n  values:\n    command: fixture\n    enabled: true\n    exposure: direct\n");
+  const path = join(root, "mcp.json");
+  writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "values": {
+          "command": "fixture",
+          "enabled": true,
+          "exposure": "direct"
+        }
+      }
+    }));
   const manager = new McpManager(loadMcpConfig(path, {}), { connect: async () => ({
     tools: [{ name: "echo" }],
     callTool: async (_name, input) => ({ content: [], structuredContent: input.value, isError: false }),
@@ -299,8 +341,16 @@ test("structured results remain model-readable including null and falsey values"
 test("tool failure status preserves actual text with redaction and explicit truncation", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-mcp-errors-"));
   roots.push(root);
-  const path = join(root, "mcp.yaml");
-  writeFileSync(path, "mcpServers:\n  errors:\n    command: fixture\n    enabled: true\n    exposure: direct\n");
+  const path = join(root, "mcp.json");
+  writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "errors": {
+          "command": "fixture",
+          "enabled": true,
+          "exposure": "direct"
+        }
+      }
+    }));
   const manager = new McpManager(loadMcpConfig(path, {}), { connect: async () => ({
     tools: [{ name: "fail" }],
     callTool: async () => ({ content: [{ type: "text", text: `actual upstream failure token=private-value ${"x".repeat(3_000)} end-of-error` }], isError: true }),
@@ -321,7 +371,18 @@ test("tool failure status preserves actual text with redaction and explicit trun
 
 test("managed caller metadata is host-injected only and desktop tools stay hidden from Feishu", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-managed-mcp-"));
-  const path=join(root,"mcp.yaml"); writeFileSync(path,"mcpServers:\n  managed:\n    enabled: true\n    command: echo\n  external:\n    enabled: true\n    command: echo\n");
+  const path=join(root,"mcp.json"); writeFileSync(path, JSON.stringify({
+      "mcpServers": {
+        "managed": {
+          "enabled": true,
+          "command": "echo"
+        },
+        "external": {
+          "enabled": true,
+          "command": "echo"
+        }
+      }
+    }));
   const config=loadMcpConfig(path,{});const server=config.servers.find(server=>server.name==="managed")!;
   server.callerMetadataKey="host/caller";server.platforms=["desktop"];
   const calls: unknown[]=[];
