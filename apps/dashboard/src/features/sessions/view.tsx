@@ -65,7 +65,7 @@ import {
   toolOperations,
 } from "./conversation";
 import type { ToolOperation } from "./conversation";
-import { formatCompactNumber, formatMessageTime, formatNumber } from "../../shared/format";
+import { formatCompactNumber, formatMessageTime, formatNumber, formatSessionActivityTime } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type {
   DesktopConversationActivityPayload,
@@ -1779,6 +1779,8 @@ function SessionDeleteDialog({
 
 export const SessionsIndex = React.memo(function SessionsIndex({
   embedded = false,
+  showStatusIcon = true,
+  showActivityTime = false,
   sessions,
   query,
   searchOpen,
@@ -1806,6 +1808,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   statusError = "",
 }: {
   embedded?: boolean;
+  showStatusIcon?: boolean;
+  showActivityTime?: boolean;
   sessions: SessionPayload[];
   query: string;
   searchOpen: boolean;
@@ -1835,6 +1839,13 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   const t = useUiText();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionListRef = useRef<HTMLDivElement>(null);
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!showActivityTime || !visible) return;
+    setNow(Date.now() / 1000);
+    const timer = window.setInterval(() => setNow(Date.now() / 1000), 60_000);
+    return () => window.clearInterval(timer);
+  }, [showActivityTime, visible]);
   const trimmedQuery = query.trim();
   const emptyLabel = trimmedQuery ? t.sessions.emptySearch : embedded ? t.workspaces.empty : t.sessions.empty;
   const showTable = sessions.length > 0;
@@ -1923,18 +1934,21 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     const failure=statusError||summary?.error;
     const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
     const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
+    const activityAt = session.last_active_at || session.created_at;
+    const activityTime = showActivityTime && !session.blank ? formatSessionActivityTime(activityAt, t, now) : "";
     return (
       <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
         <button
           aria-current={selected ? "page" : undefined}
           aria-label={`${sessionTitle} · ${statusLabel}`}
-          className="session-index-open"
+          className={`session-index-open${activityTime ? " has-activity-time" : ""}`}
           title={sessionTitle}
           type="button"
           onClick={() => onOpen(session)}
         >
-          <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
+          {showStatusIcon ? <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} /> : null}
           <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
+          {activityTime ? <time className="session-index-time" dateTime={new Date(activityAt * 1000).toISOString()} title={new Date(activityAt * 1000).toLocaleString(t.sessions.timeLocale)}>{activityTime}</time> : null}
         </button>
         <button
           aria-expanded={menuOpen}

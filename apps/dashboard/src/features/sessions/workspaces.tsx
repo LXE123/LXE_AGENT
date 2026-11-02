@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ComponentProps } from "react";
 import { FolderOpen, FolderPlus, MoreHorizontal, Plus } from "lucide-react";
 import { flattenSessionPages, queryError, useSessionsInfiniteQuery, useSessionStatus } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
@@ -37,6 +37,18 @@ function WorkspaceGroup({ workspace, label, props, onActions }: {
   const id = workspace?.workspace_id ?? null;
   const key = id ?? UNGROUPED_WORKSPACE;
   const expanded = props.expanded[key] ?? (id === props.activeWorkspaceId || workspace?.directory === props.defaultDirectory);
+  const contentId = useId();
+  const [contentMounted, setContentMounted] = useState(expanded);
+  useEffect(() => {
+    if (expanded) {
+      setContentMounted(true);
+      return;
+    }
+    // Keep the rows during the exit transition; stop hidden menus and polling immediately.
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
+    const timer = window.setTimeout(() => setContentMounted(false), delay);
+    return () => window.clearTimeout(timer);
+  }, [expanded]);
   // Ungrouped needs its first page even when collapsed to know whether it exists.
   const query = useSessionsInfiniteQuery("", props.enabled && (expanded || !workspace), id);
   const sessions = flattenSessionPages(query.data?.pages);
@@ -45,7 +57,7 @@ function WorkspaceGroup({ workspace, label, props, onActions }: {
   if (!workspace && !sessions.items.length && !blank && !query.isError) return null;
   return <section data-workspace-directory={workspace?.directory} data-workspace-id={key} className="workspace-group">
     <div className="workspace-group-header">
-      <button type="button" className="workspace-group-toggle" aria-expanded={expanded} title={workspace?.directory} onClick={() => props.onExpandedChange(key, !expanded)}>
+      <button type="button" className="workspace-group-toggle" aria-expanded={expanded} aria-controls={contentId} title={workspace?.directory} onClick={() => props.onExpandedChange(key, !expanded)}>
         <span>{label}</span>
         {workspace?.directory === props.defaultDirectory ? <small className="workspace-default-badge">{t.workspaces.defaultBadge}</small> : null}
       </button>
@@ -56,15 +68,19 @@ function WorkspaceGroup({ workspace, label, props, onActions }: {
         <button type="button" className="workspace-icon-button" title={t.workspaces.newIn(label)} aria-label={t.workspaces.newIn(label)} onClick={() => props.onNew(workspace.workspace_id)}><Plus size={16} /></button>
       </> : null}
     </div>
-    {expanded ? <div className="workspace-group-sessions">
-      <SessionsIndex {...props} embedded searchOpen={false} query="" sessions={blank ? [{ ...blank, title: t.conversation.newTitle }, ...sessions.items.filter(item => item.session_id !== blank.session_id)] : sessions.items}
-        statuses={statuses.items} statusUnavailable={!statuses.ready} statusError={statuses.error}
-        initialLoading={props.enabled && query.isPending} loadingMore={query.isFetchingNextPage}
-        error={queryError(query.error)} loadMoreError={query.isFetchNextPageError ? queryError(query.error) : ""}
-        hasMore={Boolean(query.hasNextPage)} onLoadMore={() => void query.fetchNextPage()}
-        onNew={() => props.onNew(id ?? undefined)} />
-      {query.isError && !sessions.items.length ? <button className="workspace-load-more" type="button" onClick={() => void query.refetch()}>{t.workspaces.retry}</button> : null}
-    </div> : null}
+    <div id={contentId} className="workspace-group-collapse" data-expanded={expanded} inert={!expanded} aria-hidden={!expanded}>
+      <div className="workspace-group-sessions">
+        {expanded || contentMounted ? <>
+          <SessionsIndex {...props} embedded showStatusIcon={false} showActivityTime visible={props.visible !== false && expanded} searchOpen={false} query="" sessions={blank ? [{ ...blank, title: t.conversation.newTitle }, ...sessions.items.filter(item => item.session_id !== blank.session_id)] : sessions.items}
+            statuses={statuses.items} statusUnavailable={!statuses.ready} statusError={statuses.error}
+            initialLoading={props.enabled && query.isPending} loadingMore={query.isFetchingNextPage}
+            error={queryError(query.error)} loadMoreError={query.isFetchNextPageError ? queryError(query.error) : ""}
+            hasMore={Boolean(query.hasNextPage)} onLoadMore={() => void query.fetchNextPage()}
+            onNew={() => props.onNew(id ?? undefined)} />
+          {query.isError && !sessions.items.length ? <button className="workspace-load-more" type="button" onClick={() => void query.refetch()}>{t.workspaces.retry}</button> : null}
+        </> : null}
+      </div>
+    </div>
   </section>;
 }
 
@@ -94,7 +110,7 @@ export function WorkspacesIndex(props: WorkspaceIndexProps) {
     <div className="workspace-index-heading"><span>{t.workspaces.title}</span>
       <button type="button" className="workspace-icon-button" disabled={!props.enabled} title={t.workspaces.choose} aria-label={t.workspaces.choose} onClick={props.onChoose}><FolderPlus size={18} /></button>
     </div>
-    {props.searchOpen ? <SessionsIndex {...props} embedded onNew={() => props.onNew()} /> : <div className="workspace-index-scroll sidebar-scroll-area" onScroll={() => setMenu(null)}>
+    {props.searchOpen ? <SessionsIndex {...props} embedded showStatusIcon={false} showActivityTime onNew={() => props.onNew()} /> : <div className="workspace-index-scroll sidebar-scroll-area" onScroll={() => setMenu(null)}>
       {props.workspaceError ? <div className="workspace-error" role="alert">{props.workspaceError}<button type="button" onClick={props.onRetryWorkspaces}>{t.workspaces.retry}</button></div> : null}
       {props.workspacesLoading ? <div className="workspace-loading" role="status">{t.sessions.loading}</div> : null}
       {groups.map(group => <WorkspaceGroup key={group.workspace_id} workspace={group}

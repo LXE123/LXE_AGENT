@@ -293,6 +293,8 @@ export const ZH_TEXT = {
     unknown: "unknown"
   },
   sessions: {
+    timeLocale: "zh-CN",
+    justNow: "刚刚",
     title: "会话",
     newConversation: "新对话",
     newConversationAria: "创建新对话",
@@ -1244,6 +1246,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       unknown: "unknown"
     },
     sessions: {
+      timeLocale: "en-US",
+      justNow: "Just now",
       title: "Sessions",
       newConversation: "New chat",
       newConversationAria: "Start a new chat",

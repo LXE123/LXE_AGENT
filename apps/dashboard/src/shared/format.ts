@@ -24,6 +24,18 @@ export function formatMessageTime(value: number): string {
   }).format(new Date(timestamp * 1000));
 }
 
+export function formatSessionActivityTime(value: number, t: UiText, now = Date.now() / 1000): string {
+  if (!Number.isFinite(value) || value <= 0 || !Number.isFinite(new Date(value * 1000).getTime())) return "";
+  const elapsed = Math.max(0, now - value);
+  if (elapsed < 60) return t.sessions.justNow;
+  const [seconds, unit]: [number, Intl.RelativeTimeFormatUnit] = elapsed < 3600 ? [60, "minute"]
+    : elapsed < 86400 ? [3600, "hour"]
+    : elapsed < 30 * 86400 ? [86400, "day"]
+    : elapsed < 365 * 86400 ? [30 * 86400, "month"] : [365 * 86400, "year"];
+  return new Intl.RelativeTimeFormat(t.sessions.timeLocale, { numeric: "always", style: "short" })
+    .format(-Math.floor(elapsed / seconds), unit);
+}
+
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(Math.max(0, Number(value) || 0));
 }
