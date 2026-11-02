@@ -203,6 +203,8 @@ async def _post_with_client(client, endpoint: str, body: dict[str, Any], *, cont
         try:
             response = await _request_json(client, endpoint, body, metrics)
         except CloudConnectionError as exc:
+            if exc.http_status in (403, 429):
+                raise OfficialApiError(context, f"HTTP {exc.http_status}: {exc}") from exc
             if exc.retryable and attempt + 1 < MAX_ATTEMPTS:
                 await asyncio.sleep(2 ** attempt)
                 continue

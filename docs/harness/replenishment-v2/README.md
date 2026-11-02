@@ -44,3 +44,9 @@ uv run --frozen pytest python/lxeskill_cli/tests/mabang/test_replenishment_v2_fo
 公式测试需要 LibreOffice，完整工作簿测试还需要当前 checkout 的 Office Kit 运行时。缺失导致的跳过不能算作重算通过。测试应检查实际返回值、CLI 终态、文件状态和重算数值，不通过扫描源码或复述公式文本证明业务正确。
 
 具体提交的验证结果记录在 PR。离线测试与 Office 重算不代表真实模型选路、生产 ERP、完整桌面聊天、外部附件发送、原生 Windows 或 Microsoft Excel 已验收。
+
+## 本轮交接（2026-11-02）
+
+- PR #117 工作区 `codex/amazon-replenishment-unification`，本轮基于 `11b1094d`。`official_api.py` 对已收到 403/429 后读取正文失败的请求停止重试，保留状态与实际异常；`test_sku_catalog_session.py` 补充该调用链及已结束会话的回归。
+- 从仓库根目录用当前 checkout 的 uv 环境运行网络、认证和会话测试 119 项通过；使用本地 Office Kit 的取数及双版本测试 40 项通过。会话测试移除状态判断的内存故障注入按预期失败。
+- 使用 `LXE_OFFICE_NODE`、`LXE_OFFICE_CLI` 指向本地桌面运行时；本机 HTTP 测试只使用回环地址。生产 ERP 和真实文件发送未验证，后续由维护者审查。
