@@ -1,3 +1,6 @@
+import { SessionListRow } from "./session-list-row";
+import { ActionMenu, ActionMenuItem } from "../../shared/ui/action-menu";
+import { Dialog } from "../../shared/ui/dialog";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
@@ -18,7 +21,6 @@ import { SentAttachmentList } from "./sent-attachments";
 import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-attachment-display";
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import {
   ArrowUp,
@@ -39,7 +41,6 @@ import {
   Info,
   LoaderCircle,
   MessageSquareText,
-  MoreVertical,
   PackageCheck,
   Paperclip,
   Plus,
@@ -65,7 +66,7 @@ import {
   toolOperations,
 } from "./conversation";
 import type { ToolOperation } from "./conversation";
-import { formatCompactNumber, formatMessageTime, formatNumber, formatSessionActivityTime } from "../../shared/format";
+import { formatCompactNumber, formatMessageTime, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type {
   DesktopConversationActivityPayload,
@@ -79,7 +80,6 @@ import type {
   SessionPayload
 } from "../../api/payloads";
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
-import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   conversationModelChoices,
@@ -1658,65 +1658,13 @@ function SessionActionsMenu({
   onRename?: () => void;
 }) {
   const t = useUiText();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const rect = anchor.getBoundingClientRect();
-  const width = 150;
-  const estimatedHeight = error ? 147 : 116;
-  const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
-  const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
-    ? rect.bottom + 5
-    : Math.max(8, rect.top - estimatedHeight - 5);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus();
-    });
-    const pointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !menuRef.current?.contains(target) && !anchor.contains(target)) {
-        onClose(false);
-      }
-    };
-    document.addEventListener("pointerdown", pointerDown);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("pointerdown", pointerDown);
-    };
-  }, [anchor, onClose]);
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? [])];
-    if (!items.length) return;
-    event.preventDefault();
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    const next = event.key === "Home" ? 0
-      : event.key === "End" ? items.length - 1
-        : event.key === "ArrowDown" ? (current + 1 + items.length) % items.length
-          : (current - 1 + items.length) % items.length;
-    items[next]?.focus();
-  }
-
-  return createPortal(
-    <div
-      aria-label={t.sessions.actionsFor(session.title || t.common.unnamedSession)}
-      className="session-actions-menu"
-      onKeyDown={handleKeyDown}
-      ref={menuRef}
-      role="menu"
-      style={{ left, top, width }}
-    >
-      {onRename && !session.blank ? <button disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></button> : null}
-      <button disabled={pending} onClick={onPin} role="menuitem" type="button">
+  return <ActionMenu anchor={anchor} label={t.sessions.actionsFor(session.title || t.common.unnamedSession)} onClose={onClose}>
+      {onRename && !session.blank ? <ActionMenuItem disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></ActionMenuItem> : null}
+      <ActionMenuItem disabled={pending} onClick={onPin} role="menuitem" type="button">
         {session.pinned_at > 0 ? <PinOff size={12} /> : <Pin size={12} />}
         <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
-      </button>
-      <button
+      </ActionMenuItem>
+      <ActionMenuItem
         className="danger"
         disabled={pending || deletingBlocked}
         onClick={onDelete}
@@ -1725,11 +1673,9 @@ function SessionActionsMenu({
       >
         <Trash2 size={12} />
         <span>{t.sessions.delete}</span>
-      </button>
+      </ActionMenuItem>
       {error ? <p className="session-actions-error" role="alert">{error}</p> : null}
-    </div>,
-    document.body,
-  );
+  </ActionMenu>;
 }
 
 function SessionDeleteDialog({
@@ -1746,17 +1692,15 @@ function SessionDeleteDialog({
   onConfirm: () => void;
 }) {
   const t = useUiText();
-  const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const title = session.title || t.common.unnamedSession;
-  return createPortal(
-    <div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
+  return <Dialog onClose={onCancel} busy={pending} descriptionId="session-delete-description session-delete-note"
+    backdropClassName="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
       <section
         aria-labelledby="session-delete-title"
         aria-describedby="session-delete-description session-delete-note"
         aria-modal="true"
         aria-busy={pending}
         className="session-delete-dialog session-delete-confirm-dialog"
-        ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
@@ -1772,9 +1716,7 @@ function SessionDeleteDialog({
           </button>
         </footer>
       </section>
-    </div>,
-    document.body,
-  );
+  </Dialog>;
 }
 
 export const SessionsIndex = React.memo(function SessionsIndex({
@@ -1927,46 +1869,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   }
 
   const renderSession = (session: SessionPayload) => {
-    const selected = selectedSessionId === session.session_id;
-    const sessionTitle = session.title || t.common.unnamedSession;
-    const menuOpen = menu?.session.session_id === session.session_id;
-    const summary=statuses?.get(session.session_id);
-    const failure=statusError||summary?.error;
-    const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
-    const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
-    const activityAt = session.last_active_at || session.created_at;
-    const activityTime = showActivityTime && !session.blank ? formatSessionActivityTime(activityAt, t, now) : "";
-    return (
-      <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
-        <button
-          aria-current={selected ? "page" : undefined}
-          aria-label={`${sessionTitle} · ${statusLabel}`}
-          className={`session-index-open${activityTime ? " has-activity-time" : ""}`}
-          title={sessionTitle}
-          type="button"
-          onClick={() => onOpen(session)}
-        >
-          {showStatusIcon ? <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} /> : null}
-          <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
-          {activityTime ? <time className="session-index-time" dateTime={new Date(activityAt * 1000).toISOString()} title={new Date(activityAt * 1000).toLocaleString(t.sessions.timeLocale)}>{activityTime}</time> : null}
-        </button>
-        <button
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          aria-label={t.sessions.actionsFor(sessionTitle)}
-          className="session-index-actions"
-          onClick={(event) => {
-            event.stopPropagation();
-            setActionError("");
-            setMenu(menuOpen ? null : { anchor: event.currentTarget, session });
-          }}
-          title={t.sessions.actionsFor(sessionTitle)}
-          type="button"
-        >
-          <MoreVertical size={15} />
-        </button>
-      </div>
-    );
+    const summary = statuses?.get(session.session_id);
+    const failure = statusError || summary?.error;
+    const state = statusUnavailable || failure || statuses && !summary ? "unavailable"
+      : summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state ?? "idle";
+    const statusLabel = failure ? `${t.sessionStatus.syncError}: ${failure}` : t.sessionStatus[state];
+    return <SessionListRow key={session.session_id} session={session} selected={selectedSessionId === session.session_id}
+      menuOpen={menu?.session.session_id === session.session_id} status={state} statusLabel={statusLabel}
+      showStatusIcon={showStatusIcon} showActivityTime={showActivityTime} searching={Boolean(trimmedQuery)} now={now}
+      onOpen={() => onOpen(session)} onRename={() => onRenameSession?.(session)}
+      onActions={anchor => { setActionError(""); setMenu(menu?.session.session_id === session.session_id ? null : { anchor, session }); }} />;
   };
 
   return (
@@ -2040,7 +1952,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           onDelete={() => {
             if (blockedIds.has(menu.session.session_id)) return;
             setConfirmation(menu.session);
-            closeMenu(false);
+            closeMenu();
           }}
           onPin={() => void pinSelected()}
           onRename={onRenameSession ? () => { const session = menu.session; closeMenu(); onRenameSession(session); } : undefined}

@@ -72,6 +72,8 @@ app.whenReady().then(async () => {
     await load();
     if (suite === "process-details") {
       await require("./process-details.cjs")({win,url,js,step,waitFor,click,key,focus,settle});
+    } else if (suite === "sidebar-components") {
+      await require("./sidebar-components.cjs")({win,js,step,load,waitFor,click,key,focus,settle});
     } else if (suite === "workspace-deletion") {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "session-titles") {

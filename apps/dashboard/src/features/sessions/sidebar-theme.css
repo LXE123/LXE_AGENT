@@ -103,13 +103,7 @@
 .app-sidebar.conversation-chrome-theme .session-index-item.menu-open {
   background: var(--sidebar-hover);
 }
-.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-open {
-  min-height: var(--sidebar-row-height);
-  grid-template-columns: var(--sidebar-icon-column) minmax(0, 1fr);
-  gap: 8px;
-  padding: 5px 0 5px var(--sidebar-row-pad);
-  border-radius: 8px;
-}
+
 .app-sidebar.conversation-chrome-theme .session-index-icon {
   justify-self: center;
 }

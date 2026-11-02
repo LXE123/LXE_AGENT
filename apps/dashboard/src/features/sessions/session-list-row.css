@@ -1,0 +1,7 @@
+.lxe-session-row .session-index-open { grid-template-columns: var(--sidebar-icon-column, 5px) minmax(0, 1fr); }
+.lxe-session-row.without-status .session-index-open { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.lxe-session-row.with-activity-time .session-index-open { grid-template-columns: var(--sidebar-icon-column, 5px) minmax(0, 1fr) auto; column-gap: 8px; padding-right: 8px; }
+.lxe-session-row.without-status.with-activity-time .session-index-open { grid-template-columns: minmax(0, 1fr) auto; }
+.app-sidebar .lxe-session-row .session-index-open { min-height: var(--sidebar-row-height); padding-block: 5px; padding-left: var(--workspace-session-indent, var(--sidebar-row-pad)); border-radius: 8px; }
+.lxe-session-row .session-index-time { color: var(--sidebar-ink-soft, var(--muted)); font-size: .6875rem; font-weight: 400; white-space: nowrap; }
+.lxe-session-row:is(:hover, :focus-within, .menu-open) .session-index-time { opacity: 0; }

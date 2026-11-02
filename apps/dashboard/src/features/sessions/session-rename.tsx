@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { SessionPayload } from "@lxe/desktop-protocol";
 import { queryError } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
-import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { Dialog } from "../../shared/ui/dialog";
 
 export function SessionRenameDialog({ session, onClose, onRename }: {
   session: SessionPayload; onClose: () => void; onRename: (session: SessionPayload, title: string) => Promise<void>;
@@ -15,13 +14,13 @@ export function SessionRenameDialog({ session, onClose, onRename }: {
   const saving = useRef(false);
   const composing = useRef(false);
   const close = () => { if (!saving.current) onClose(); };
-  const ref = useDialogFocus<HTMLFormElement>(true, close);
+  const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     const frame = requestAnimationFrame(() => ref.current?.querySelector("input")?.select());
     return () => cancelAnimationFrame(frame);
   }, [ref]);
   useEffect(() => { if (error && !pending) ref.current?.querySelector("input")?.focus(); }, [error, pending, ref]);
-  return createPortal(<div className="session-delete-backdrop">
+  return <Dialog onClose={close} busy={pending}>
     <form className="session-delete-dialog workspace-rename-dialog" ref={ref} role="dialog" aria-modal="true"
       aria-labelledby="session-rename-title" tabIndex={-1} onSubmit={event => {
         event.preventDefault();
@@ -42,5 +41,5 @@ export function SessionRenameDialog({ session, onClose, onRename }: {
         <button type="submit" disabled={pending || !title.trim()}>{pending ? t.workspaces.saving : t.workspaces.save}</button>
       </footer>
     </form>
-  </div>, document.body);
+  </Dialog>;
 }

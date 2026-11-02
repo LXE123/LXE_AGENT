@@ -1,0 +1,15 @@
+:root { --lxe-control-radius: 5px; --lxe-collapse-duration: 200ms; --lxe-sidebar-row-indent: 20px; --lxe-sidebar-group-gap: 12px; }
+.lxe-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: var(--lxe-control-radius); background: transparent; color: var(--sidebar-ink-soft, var(--muted)); cursor: pointer; }
+.lxe-icon-button:hover { color: var(--sidebar-ink, var(--text)); background: var(--sidebar-hover, var(--row-hover)); }
+.lxe-icon-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.lxe-icon-button:disabled { opacity: .45; cursor: default; }
+.lxe-collapsible-content { overflow: hidden; }
+.lxe-collapsible-content[data-state="open"] { animation: lxe-collapse-open var(--lxe-collapse-duration, 200ms) ease; }
+.lxe-collapsible-content[data-state="closed"] { animation: lxe-collapse-close var(--lxe-collapse-duration, 200ms) ease; }
+@keyframes lxe-collapse-open { from { height: 0; opacity: 0; } to { height: var(--radix-collapsible-content-height); opacity: 1; } }
+@keyframes lxe-collapse-close { from { height: var(--radix-collapsible-content-height); opacity: 1; } to { height: 0; opacity: 0; } }
+.session-actions-menu.lxe-action-menu { position: relative; width: 150px; max-width: calc(100vw - 16px); max-height: var(--radix-popper-available-height); overflow-y: auto; }
+.lxe-action-menu [data-highlighted] { background: var(--row-hover); outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .lxe-collapsible-content { animation: none; }
+}

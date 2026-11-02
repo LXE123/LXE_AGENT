@@ -1,40 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { queryError } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
-import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { Dialog } from "../../shared/ui/dialog";
+import { ActionMenu, ActionMenuItem } from "../../shared/ui/action-menu";
 import type { SessionWorkspace } from "./workspace-state";
 
 export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
   anchor: HTMLElement; onClose: (restoreFocus?: boolean) => void; onRename: () => void; onDelete: () => void;
 }) {
   const t = useUiText();
-  const ref = useRef<HTMLDivElement>(null);
-  const rect = anchor.getBoundingClientRect();
-  useEffect(() => {
-    ref.current?.querySelector("button")?.focus();
-    const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !ref.current?.contains(event.target) && !anchor.contains(event.target)) onClose(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [anchor, onClose]);
-  return createPortal(<div className="session-actions-menu" ref={ref} role="menu" aria-label={t.workspaces.actions}
-    style={{ width: 150, left: Math.max(8, Math.min(innerWidth - 158, rect.right - 150)), top: Math.max(8, Math.min(innerHeight - 88, rect.bottom + 5)) }}
-    onKeyDown={event => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-      if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-        event.preventDefault();
-        const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
-        const index = items.indexOf(document.activeElement as HTMLButtonElement);
-        items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + items.length) % items.length]?.focus();
-      }
-      if (event.key === "Tab") onClose(false);
-    }}>
-    <button role="menuitem" type="button" onClick={onRename}><Pencil size={13} />{t.workspaces.rename}</button>
-    <button className="danger" role="menuitem" type="button" onClick={onDelete}><Trash2 size={13} />{t.workspaces.delete}</button>
-  </div>, document.body);
+  return <ActionMenu anchor={anchor} label={t.workspaces.actions} onClose={onClose}>
+    <ActionMenuItem onClick={onRename}><Pencil size={13} />{t.workspaces.rename}</ActionMenuItem>
+    <ActionMenuItem className="danger" onClick={onDelete}><Trash2 size={13} />{t.workspaces.delete}</ActionMenuItem>
+  </ActionMenu>;
 }
 
 export function WorkspaceRenameDialog({ workspace, onClose, onRename }: {
@@ -46,9 +25,8 @@ export function WorkspaceRenameDialog({ workspace, onClose, onRename }: {
   const saving = useRef(false);
   const [error, setError] = useState("");
   const close = () => { if (!saving.current) onClose(); };
-  const ref = useDialogFocus<HTMLFormElement>(true, close);
-  return createPortal(<div className="session-delete-backdrop">
-    <form className="session-delete-dialog workspace-rename-dialog" ref={ref} role="dialog" aria-modal="true"
+  return <Dialog onClose={close} busy={pending}>
+    <form className="session-delete-dialog workspace-rename-dialog" role="dialog" aria-modal="true"
       aria-labelledby="workspace-rename-title" tabIndex={-1} onSubmit={event => {
         event.preventDefault();
         if (saving.current) return;
@@ -68,7 +46,7 @@ export function WorkspaceRenameDialog({ workspace, onClose, onRename }: {
         <button type="submit" disabled={pending}>{pending ? t.workspaces.saving : t.workspaces.save}</button>
       </footer>
     </form>
-  </div>, document.body);
+  </Dialog>;
 }
 
 export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, onDelete }: {
@@ -81,10 +59,9 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
   const [error, setError] = useState("");
   const saving = useRef(false);
   const close = () => { if (!saving.current) onClose(); };
-  const ref = useDialogFocus<HTMLFormElement>(true, close);
   useEffect(() => { if (accepted && committed) onClose(true); }, [accepted, committed, onClose]);
-  return createPortal(<div className="session-delete-backdrop">
-    <form className="session-delete-dialog" ref={ref} role="dialog" aria-modal="true"
+  return <Dialog onClose={close} busy={pending}>
+    <form className="session-delete-dialog" role="dialog" aria-modal="true"
       aria-labelledby="workspace-delete-title" tabIndex={-1} onSubmit={event => {
         event.preventDefault();
         if (saving.current) return;
@@ -101,5 +78,5 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
         <button className="danger" type="submit" disabled={pending}>{pending ? t.workspaces.deleting : t.workspaces.delete}</button>
       </footer>
     </form>
-  </div>, document.body);
+  </Dialog>;
 }

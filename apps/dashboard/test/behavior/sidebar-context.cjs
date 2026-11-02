@@ -17,6 +17,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, delay, focus, key
     await waitFor("document.querySelectorAll('.session-index-item').length>10",'shop loaded');
     await click('.workspace-group[data-workspace-directory="/fixture/shop"] .workspace-load-more');
     await waitFor("document.querySelectorAll('.session-index-item').length>20",'second page');
+    await waitFor("!Array.from(document.querySelectorAll('.workspace-group-collapse')).some(panel=>panel.getAnimations().some(animation=>animation.playState==='running'))", 'workspace expansion finished');
     const before=await js("(()=>{const e=document.querySelector('.workspace-index-scroll');window.savedSidebarList=e;e.scrollTop=100;return e.scrollTop})()");
     assert.ok(before>0);
     for(const route of ['workbench','capabilities','activity','home']) {
