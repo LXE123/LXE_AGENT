@@ -15,8 +15,7 @@
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
-    "@lxe/runtime": "workspace:*",
-    "yaml": "2.8.1"
+    "@lxe/runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
