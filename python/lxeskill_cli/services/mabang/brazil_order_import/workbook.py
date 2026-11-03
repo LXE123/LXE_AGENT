@@ -72,33 +72,11 @@ def _shipping_candidates(sheet: Any, today: date) -> list[tuple[str, str, date]]
     return candidates
 
 
-def _is_yellow_header(cell: Any) -> bool:
-    fill = cell.fill
-    if fill.fill_type != "solid":
-        return False
-    color = fill.fgColor
-    if color.type == "indexed":
-        return color.indexed == 5
-    if color.type != "rgb" or not color.rgb:
-        return False
-    rgb = color.rgb[-6:]
-    try:
-        red, green, blue = (int(rgb[offset:offset + 2], 16) for offset in (0, 2, 4))
-    except ValueError:
-        return False
-    return red >= 220 and green >= 180 and blue <= 220 and blue + 25 < min(red, green)
-
-
 def select_shipping_column(sheet: Any, today: date, override: str | None = None) -> tuple[str, str, date]:
     candidates = _shipping_candidates(sheet, today)
-    highlighted = [
-        candidate for candidate in candidates
-        if _is_yellow_header(sheet.cell(1, column_index_from_string(candidate[0])))
-    ]
-    priority = highlighted or candidates
-    minimum_distance = min(abs((candidate_date - today).days) for _, _, candidate_date in priority)
+    minimum_distance = min(abs((candidate_date - today).days) for _, _, candidate_date in candidates)
     nearest = [
-        candidate for candidate in priority
+        candidate for candidate in candidates
         if abs((candidate[2] - today).days) == minimum_distance
     ]
     if override is not None:
@@ -106,20 +84,16 @@ def select_shipping_column(sheet: Any, today: date, override: str | None = None)
         selected = [candidate for candidate in nearest if candidate[0] == column]
         if not selected:
             options = ", ".join(f"{item[0]} ({item[1]})" for item in nearest)
-            if highlighted:
-                raise BrazilOrderWorkbookError(
-                    f"指定的海运列 {column} 不是标黄优先列中的最近日期列；当前优先候选列为: {options}"
-                )
             raise BrazilOrderWorkbookError(f"指定的海运列 {column} 不是最近日期列；当前最近日期列为: {options}")
         return selected[0]
     if len(nearest) != 1:
         options = ", ".join(f"{item[0]} ({item[1]})" for item in nearest)
-        prefix = "标黄海运列中的最近日期并列" if highlighted else "最近海运日期并列"
-        raise BrazilOrderWorkbookError(f"{prefix}，请人工选择其中一列: {options}")
+        raise BrazilOrderWorkbookError(f"最近海运日期并列，请人工选择其中一列: {options}")
     return nearest[0]
 
 
 def _source_rows(input_path: Path, today: date, shipping_column: str | None) -> tuple[list[tuple[str, Any]], str, str, date]:
+    formula_workbook = None
     try:
         workbook = load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:
@@ -133,27 +107,38 @@ def _source_rows(input_path: Path, today: date, shipping_column: str | None) -> 
             raise BrazilOrderWorkbookError(f"巴西工作表 F1 必须是 SKU 表头，当前为: {sku_header!r}")
         selected_column, header, selected_date = select_shipping_column(sheet, today, shipping_column)
         quantity_column_number = column_index_from_string(selected_column)
+        formula_workbook = load_workbook(input_path, read_only=True, data_only=False)
+        formula_sheet = formula_workbook[SOURCE_SHEET]
+        row_options = {
+            "min_row": 2,
+            "max_row": sheet.max_row,
+            "min_col": SKU_COLUMN,
+            "max_col": quantity_column_number,
+        }
+        values_rows = sheet.iter_rows(**row_options, values_only=True)
+        formula_rows = formula_sheet.iter_rows(**row_options)
         rows: list[tuple[str, Any]] = []
-        for row_number, values in enumerate(
-            sheet.iter_rows(
-                min_row=2,
-                max_row=sheet.max_row,
-                min_col=SKU_COLUMN,
-                max_col=quantity_column_number,
-                values_only=True,
-            ),
-            start=2,
-        ):
+        for row_number, (values, formula_cells) in enumerate(zip(values_rows, formula_rows, strict=True), start=2):
             sku_value = values[0]
+            if sku_value is None and formula_cells[0].data_type == "f":
+                raise BrazilOrderWorkbookError(f"巴西工作表 F{row_number} 公式没有缓存结果，请重新计算并保存备货清单")
             if sku_value is None or (isinstance(sku_value, str) and not sku_value.strip()):
                 continue
             if not isinstance(sku_value, str):
                 raise BrazilOrderWorkbookError(f"巴西工作表 F{row_number} SKU 必须是文本: {sku_value!r}")
-            rows.append((sku_value, values[quantity_column_number - SKU_COLUMN]))
+            quantity_index = quantity_column_number - SKU_COLUMN
+            quantity = values[quantity_index]
+            if quantity is None and formula_cells[quantity_index].data_type == "f":
+                raise BrazilOrderWorkbookError(
+                    f"巴西工作表 {selected_column}{row_number} 公式没有缓存结果，请重新计算并保存备货清单"
+                )
+            rows.append((sku_value, quantity))
         if not rows:
             raise BrazilOrderWorkbookError("巴西工作表 F 列没有非空 SKU")
         return rows, selected_column, header, selected_date
     finally:
+        if formula_workbook is not None:
+            formula_workbook.close()
         workbook.close()
 
 
