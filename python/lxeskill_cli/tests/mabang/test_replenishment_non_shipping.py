@@ -64,13 +64,13 @@ def test_merge_preserves_records_and_sorts_on_daily_sales(tmp_path):
         assert rep.NO_SHIP_SHEET not in book.sheetnames and rep.SAMPLE_INSUFFICIENT_SHEET not in book.sheetnames
         assert book.sheetnames == ['最终备货意见','本轮不备货','链接备货汇总']
         sheet = book[rep.NON_SHIPPING_SHEET]
-        data = list(sheet.iter_rows(min_row=3, values_only=True))
+        data = list(sheet.iter_rows(min_row=2, values_only=True))
         assert [(r[0],r[1]) for r in data] == [('HIGH','ASIN-CHECK'),('SAME','A'),('SAME','B'),('A','ASIN-LOW')]
         assert len(data)==4 and sheet.max_column==39
-        assert sheet.auto_filter.ref == 'A2:AM6'
-        assert sheet.freeze_panes == 'E3'
+        assert sheet.auto_filter.ref == 'A1:AM5'
+        assert sheet.freeze_panes == 'E2'
         assert {r[-2] for r in data} == {'样本不足','未达海运日销门槛','FBA库存已覆盖'}
-        assert sheet['T3'].number_format=='0.00'
+        assert sheet['T2'].number_format=='0.00'
     finally:book.close()
 
 
@@ -78,9 +78,9 @@ def test_empty_merged_sheet_keeps_aligned_headers(tmp_path):
     book = load_workbook(rep.write_replenishment_report([], tmp_path/'empty.xlsx'))
     try:
         sheet=book[rep.NON_SHIPPING_SHEET]
-        assert sheet.max_row==2
-        assert [c.value for c in sheet[2]][:-2]==[c.value for c in book['最终备货意见'][2]]
-        assert sheet.auto_filter.ref=='A2:AM2'
+        assert sheet.max_row==1
+        assert [c.value for c in sheet[1]][:-2]==[c.value for c in book['最终备货意见'][1]]
+        assert sheet.auto_filter.ref=='A1:AM1'
     finally:book.close()
 
 
@@ -105,14 +105,14 @@ def test_clearance_merges_without_broadening_classification(tmp_path):
     book=load_workbook(rep.write_replenishment_report([clear,low,no_ship],tmp_path/'clear.xlsx'),data_only=True)
     try:
         assert book.sheetnames==['最终备货意见','本轮不备货','链接备货汇总']
-        it=book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=2,values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
+        it=book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=1,values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
         assert len(rows)==3
         assert {r['未备货原因分类'] for r in rows}=={'清货','样本不足','FBA库存已覆盖'}
         row=next(r for r in rows if r['MSKU']=='CLEAR')
         assert row['备注']=='一般清货'
         assert clear.replenish_quantity > 0
         assert all((r['空运建议量'],r['海运建议量'])==(0,0) for r in rows)
-        assert book['最终备货意见'].max_row==2
+        assert book['最终备货意见'].max_row==1
     finally:book.close()
 
 
@@ -126,10 +126,10 @@ def test_aligned_columns_preserve_source_values_and_snapshot_decision(tmp_path):
     book = load_workbook(path, data_only=True)
     try:
         shipping, excluded = book['最终备货意见'], book['本轮不备货']
-        headers = [c.value for c in excluded[2]]
-        assert headers[:-2] == [c.value for c in shipping[2]]
+        headers = [c.value for c in excluded[1]]
+        assert headers[:-2] == [c.value for c in shipping[1]]
         assert headers[-2:] == ['未备货原因分类', '具体原因']
-        record = dict(zip(headers, (c.value for c in excluded[3])))
+        record = dict(zip(headers, (c.value for c in excluded[2])))
         assert record['品名'] == '=2+2'
         assert [record[k] for k in ('7天销量','14天销量','30天销量','90天销量')] == [7,14,30,90]
         assert [record[k] for k in ('可售','待入库','预留','计划入库','在途','待调仓','调仓中')] == [10,11,12,999,8,9,10]
@@ -140,5 +140,5 @@ def test_aligned_columns_preserve_source_values_and_snapshot_decision(tmp_path):
         assert 'FBA库存60件已覆盖' in record['具体原因']
         assert record['理论空运需求'] is None
         assert record['理论海运需求'] is None
-        assert shipping['AD3'].value == 10 and shipping['AE3'].value == 210
+        assert shipping['AD2'].value == 10 and shipping['AE2'].value == 210
     finally:book.close()

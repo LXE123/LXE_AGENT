@@ -57,8 +57,8 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
     raw = load_workbook(path, data_only=False)
     try:
         sheet = book[formulas.FINAL_SHIPPING_SHEET]
-        headers = [cell.value for cell in sheet[2]]
-        records = [dict(zip(headers, values)) for values in sheet.iter_rows(min_row=3, values_only=True)]
+        headers = [cell.value for cell in sheet[1]]
+        records = [dict(zip(headers, values)) for values in sheet.iter_rows(min_row=2, values_only=True)]
         by_msku = {record["MSKU"]: record for record in records}
         assert [record["MSKU"] for record in records] == ["URGENT", "AIR", "SEA", "SEA-ONLY"]
         assert [(record["空运建议量"], record["海运建议量"]) for record in records] == [(90, 0), (130, 0), (10, 210), (0, 60)]
@@ -77,33 +77,33 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert _read_info(book)[0] == metadata
         assert raw.calculation.calcMode == "auto"
         assert raw.active.title == formulas.FINAL_SHIPPING_SHEET
-        assert raw.active.freeze_panes == "E3"
+        assert raw.active.freeze_panes == "E2"
         assert not raw.active.tables
-        assert raw.active.auto_filter.ref == "A2:AK6"
+        assert raw.active.auto_filter.ref == "A1:AK5"
         assert not any(d.hidden for d in raw.active.column_dimensions.values())
-        assert [c.value for c in raw.active[2]] == list(formulas.FINAL_SHIPPING_COLUMNS)
-        assert [raw.active.cell(2, col).value for col in (19, 20, 21, 22, 23, 36, 37)] == [
+        assert [c.value for c in raw.active[1]] == list(formulas.FINAL_SHIPPING_COLUMNS)
+        assert [raw.active.cell(1, col).value for col in (19, 20, 21, 22, 23, 36, 37)] == [
             "深圳可用库存", "可销售天数", "建议运输方式（生成时）", "空运补货天数", "海运补货天数", "输入检查", "试算提示",
         ]
-        for address in ("I3", "Q3", "T3", "X3", "Y3", "Z3", "AA3", "AB3", "AC3", "AD3", "AE3", "AG3", "AI3", "AJ3", "AK3"):
+        for address in ("I2", "Q2", "T2", "X2", "Y2", "Z2", "AA2", "AB2", "AC2", "AD2", "AE2", "AG2", "AI2", "AJ2", "AK2"):
             assert raw.active[address].data_type == "f"
-        assert raw.active["T3"].value == '=IF(AJ3="正常",IF(I3>0,Q3/I3,""),"")'
-        assert raw.active["T3"].number_format == "#,##0.00"
-        assert raw.active["AD3"].number_format == "#,##0.##"  # Air quantity, immediately before sea quantity.
-        assert raw.active["AE3"].number_format == "#,##0.##"  # Sea quantity.
-        assert raw.active["AF3"].number_format == "#,##0.00"  # Single-item grams, immediately after quantity.
-        assert raw.active["AG3"].number_format == "#,##0.00"  # Total kilograms retain their existing format.
-        assert raw.active["E3"].fill != raw.active["X3"].fill
-        assert raw.active["T3"].fill.fgColor.rgb == raw.active["X3"].fill.fgColor.rgb == "00EAF2F8"
+        assert raw.active["T2"].value == '=IF(AJ2="正常",IF(I2>0,Q2/I2,""),"")'
+        assert raw.active["T2"].number_format == "#,##0.00"
+        assert raw.active["AD2"].number_format == "#,##0.##"  # Air quantity, immediately before sea quantity.
+        assert raw.active["AE2"].number_format == "#,##0.##"  # Sea quantity.
+        assert raw.active["AF2"].number_format == "#,##0.00"  # Single-item grams, immediately after quantity.
+        assert raw.active["AG2"].number_format == "#,##0.00"  # Total kilograms retain their existing format.
+        assert raw.active["E2"].fill != raw.active["X2"].fill
+        assert raw.active["T2"].fill.fgColor.rgb == raw.active["X2"].fill.fgColor.rgb == "00EAF2F8"
         assert raw.active.column_dimensions["T"].width == 15
-        assert all(raw.active[address].fill.fgColor.rgb == "00FFF2CC" for address in ("S3", "V3", "W3", "AF3", "AH3"))
-        assert raw.active["U3"].fill.patternType is None
-        assert "COUNT(E3:R3,V3:W3)=16" in raw.active["AJ3"].value
-        assert "T3" not in raw.active["AJ3"].value
+        assert all(raw.active[address].fill.fgColor.rgb == "00FFF2CC" for address in ("S2", "V2", "W2", "AF2", "AH2"))
+        assert raw.active["U2"].fill.patternType is None
+        assert "COUNT(E2:R2,V2:W2)=16" in raw.active["AJ2"].value
+        assert "T2" not in raw.active["AJ2"].value
         validation_ranges = {str(validation.sqref) for validation in raw.active.data_validations.dataValidation}
-        assert "V3:W6" in validation_ranges
+        assert "V2:W5" in validation_ranges
         decimal_validation = next(v for v in raw.active.data_validations.dataValidation if v.type == "decimal")
-        assert "AF3:AF6" in str(decimal_validation.sqref)
+        assert "AF2:AF5" in str(decimal_validation.sqref)
         for ws in raw:
             for cells in ws:
                 for cell in cells:
@@ -118,18 +118,18 @@ def test_formulas_cached_initial_values_and_metadata(tmp_path):
         assert archive.testzip() is None
         ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
         worksheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
-        assert worksheet.find("s:autoFilter", ns).attrib["ref"] == "A2:AK6"
+        assert worksheet.find("s:autoFilter", ns).attrib["ref"] == "A1:AK5"
         assert worksheet.find("s:tableParts", ns) is None
 
 
 
-def test_empty_shipping_sheet_retains_instruction_and_headers(tmp_path):
+def test_empty_shipping_sheet_retains_headers(tmp_path):
     path = rep.write_replenishment_report([], tmp_path / "empty.xlsx")
     book = load_workbook(path)
     try:
-        assert book.active.max_row == 2
+        assert book.active.max_row == 1
         assert not book.active.tables
-        assert book.active.auto_filter.ref == "A2:AK2"
+        assert book.active.auto_filter.ref == "A1:AK1"
     finally:
         book.close()
 
@@ -149,10 +149,10 @@ def test_weighted_sales_integer_boundary_uses_formal_evaluation_order(tmp_path):
     path = rep.write_replenishment_report([row], tmp_path / "boundary.xlsx")
     book = load_workbook(path, data_only=True)
     try:
-        assert book[formulas.FINAL_SHIPPING_SHEET]["I3"].value == row.weighted_daily_sales
-        assert book[formulas.FINAL_SHIPPING_SHEET]["AD3"].value == 102
-        assert book[formulas.FINAL_SHIPPING_SHEET]["AE3"].value == 0
-        assert book[formulas.FINAL_SHIPPING_SHEET]["X3"].value == 184
+        assert book[formulas.FINAL_SHIPPING_SHEET]["I2"].value == row.weighted_daily_sales
+        assert book[formulas.FINAL_SHIPPING_SHEET]["AD2"].value == 102
+        assert book[formulas.FINAL_SHIPPING_SHEET]["AE2"].value == 0
+        assert book[formulas.FINAL_SHIPPING_SHEET]["X2"].value == 184
         assert not {rep.AIR_URGENT_SHEET, rep.AIR_SHEET, rep.SEA_SHEET} & set(book.sheetnames)
     finally:
         book.close()
@@ -228,7 +228,7 @@ def test_fractional_deductions_keep_each_rounding_stage(tmp_path):
     path = rep.write_replenishment_report([row], tmp_path / "rounding.xlsx")
     book = load_workbook(path, data_only=True)
     try:
-        assert book.active["AD3"].value == 150
+        assert book.active["AD2"].value == 150
     finally:
         book.close()
 
@@ -260,13 +260,13 @@ def test_formula_uses_effective_special_weights_with_nonuniform_sales(tmp_path):
     book = load_workbook(path, data_only=True)
     raw = load_workbook(path, data_only=False)
     try:
-        assert book.active["I3"].value == pytest.approx(9.2)
-        assert book.active["Q3"].value == 300
-        assert book.active["T3"].value == pytest.approx(row.sales_days)
-        assert book.active["AD3"].value == row.replenish_quantity
-        assert book.active["H3"].value == 999
-        assert raw.active["T3"].value == '=IF(AJ3="正常",IF(I3>0,Q3/I3,""),"")'
-        assert raw.active["T3"].number_format == "#,##0.00"
+        assert book.active["I2"].value == pytest.approx(9.2)
+        assert book.active["Q2"].value == 300
+        assert book.active["T2"].value == pytest.approx(row.sales_days)
+        assert book.active["AD2"].value == row.replenish_quantity
+        assert book.active["H2"].value == 999
+        assert raw.active["T2"].value == '=IF(AJ2="正常",IF(I2>0,Q2/I2,""),"")'
+        assert raw.active["T2"].number_format == "#,##0.00"
     finally:
         book.close()
         raw.close()
@@ -289,13 +289,13 @@ def test_sales_days_formula_uses_final_70_20_10_weights(tmp_path):
     book = load_workbook(path, data_only=True)
     raw = load_workbook(path, data_only=False)
     try:
-        assert book.active["I3"].value == pytest.approx(8.1)
-        assert book.active["Q3"].value == 10
+        assert book.active["I2"].value == pytest.approx(8.1)
+        assert book.active["Q2"].value == 10
         assert row.sales_days == pytest.approx(10 / 8.1)
-        assert book.active["T3"].value == pytest.approx(10 / 8.1)
-        assert raw.active["I3"].value == "=E3/7*0.7+F3/14*0.2+G3/30*0.1"
-        assert raw.active["T3"].value == '=IF(AJ3="正常",IF(I3>0,Q3/I3,""),"")'
-        assert raw.active["T3"].number_format == "#,##0.00"
+        assert book.active["T2"].value == pytest.approx(10 / 8.1)
+        assert raw.active["I2"].value == "=E2/7*0.7+F2/14*0.2+G2/30*0.1"
+        assert raw.active["T2"].value == '=IF(AJ2="正常",IF(I2>0,Q2/I2,""),"")'
+        assert raw.active["T2"].number_format == "#,##0.00"
     finally:
         book.close()
         raw.close()
@@ -315,9 +315,9 @@ def test_zero_daily_sales_keeps_blank_days_on_non_shipping_sheet(tmp_path, sourc
     book = load_workbook(path, data_only=True)
     try:
         assert row.sales_days is None
-        assert book[formulas.FINAL_SHIPPING_SHEET].max_row == 2
-        headers = [cell.value for cell in book[rep.NON_SHIPPING_SHEET][2]]
-        record = dict(zip(headers, next(book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=3, values_only=True))))
+        assert book[formulas.FINAL_SHIPPING_SHEET].max_row == 1
+        headers = [cell.value for cell in book[rep.NON_SHIPPING_SHEET][1]]
+        record = dict(zip(headers, next(book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=2, values_only=True))))
         assert record["MSKU"] == "ZERO-DAILY"
         assert record["可销售天数"] in (None, "")
     finally:
@@ -331,9 +331,9 @@ def test_sales_days_less_than_one_keeps_fractional_cache(tmp_path):
     book = load_workbook(path, data_only=True)
     raw = load_workbook(path, data_only=False)
     try:
-        assert book.active["T3"].value == pytest.approx(0.85)
-        assert raw.active["T3"].value == '=IF(AJ3="正常",IF(I3>0,Q3/I3,""),"")'
-        assert raw.active["T3"].number_format == "#,##0.00"
+        assert book.active["T2"].value == pytest.approx(0.85)
+        assert raw.active["T2"].value == '=IF(AJ2="正常",IF(I2>0,Q2/I2,""),"")'
+        assert raw.active["T2"].number_format == "#,##0.00"
     finally:
         book.close()
         raw.close()
@@ -346,8 +346,8 @@ def test_sales_days_libreoffice_recalculation_preserves_precision_and_matches_in
     path = rep.write_replenishment_report([row], tmp_path / "recalc-source.xlsx")
     source_values = load_workbook(path, data_only=True)
     try:
-        initial_cache = source_values.active["T3"].value
-        initial_values = {cell.coordinate: cell.value for cell in source_values.active[3]}
+        initial_cache = source_values.active["T2"].value
+        initial_values = {cell.coordinate: cell.value for cell in source_values.active[2]}
         assert row.sales_days == pytest.approx(fba / daily, rel=0, abs=1e-12)
         assert initial_cache == pytest.approx(source_fba / daily, rel=0, abs=1e-12)
     finally:
@@ -359,9 +359,9 @@ def test_sales_days_libreoffice_recalculation_preserves_precision_and_matches_in
     output_dir.mkdir()
     edits = {
         "initial": {},
-        "sales-edited": {"E3": 70},
-        "stock-edited": {"J3": 400},
-        "zero-sales": {"E3": 0, "F3": 0, "G3": 0},
+        "sales-edited": {"E2": 70},
+        "stock-edited": {"J2": 400},
+        "zero-sales": {"E2": 0, "F2": 0, "G2": 0},
     }
     for name, values in edits.items():
         target = input_dir / f"{name}.xlsx"
@@ -392,7 +392,7 @@ def test_sales_days_libreoffice_recalculation_preserves_precision_and_matches_in
         workbook = load_workbook(output_dir / f"{name}.xlsx", data_only=True)
         try:
             sheet = workbook[formulas.FINAL_SHIPPING_SHEET]
-            calculated[name] = sheet["T3"].value
+            calculated[name] = sheet["T2"].value
             assert not any(cell.data_type == "e" for cells in sheet for cell in cells)
             if name == "initial":
                 for address, expected in initial_values.items():
@@ -416,13 +416,13 @@ def test_sales_days_accepts_existing_stock_tolerance(tmp_path, daily, source_fba
     book = load_workbook(path, data_only=True)
     try:
         sheet = book[formulas.FINAL_SHIPPING_SHEET]
-        assert sheet["T3"].value == pytest.approx(source_fba / daily, rel=0, abs=1e-12)
-        assert sheet["T3"].value - row.sales_days == pytest.approx((source_fba - 0.25) / daily, rel=0, abs=1e-12)
-        assert sheet["I3"].value == row.weighted_daily_sales
-        assert sheet["Q3"].value == source_fba
-        assert sheet["U3"].value == row.sheet_name
-        assert sheet["AD3"].value == row.replenish_quantity
-        assert sheet["AE3"].value == 0
+        assert sheet["T2"].value == pytest.approx(source_fba / daily, rel=0, abs=1e-12)
+        assert sheet["T2"].value - row.sales_days == pytest.approx((source_fba - 0.25) / daily, rel=0, abs=1e-12)
+        assert sheet["I2"].value == row.weighted_daily_sales
+        assert sheet["Q2"].value == source_fba
+        assert sheet["U2"].value == row.sheet_name
+        assert sheet["AD2"].value == row.replenish_quantity
+        assert sheet["AE2"].value == 0
     finally:
         book.close()
     assert row == original
@@ -491,16 +491,16 @@ def test_stock_gap_column_cached_and_sort_keys_preserved(tmp_path, stock, expect
     path=rep.write_replenishment_report([row],tmp_path/'gap.xlsx')
     book=load_workbook(path,data_only=True);raw=load_workbook(path)
     try:
-        assert book.active['AI2'].value=='深圳库存缺口'
-        assert book.active['AI3'].value==expected
-        assert book.active['AD3'].value==130 and book.active['AE3'].value==0
-        assert '记录标识' not in [c.value for c in book.active[2]]
-        assert raw.active['AI3'].data_type=='f'
-        assert 'COUNT(S3,AD3:AE3)=3' in raw.active['AI3'].value
+        assert book.active['AI1'].value=='深圳库存缺口'
+        assert book.active['AI2'].value==expected
+        assert book.active['AD2'].value==130 and book.active['AE2'].value==0
+        assert '记录标识' not in [c.value for c in book.active[1]]
+        assert raw.active['AI2'].data_type=='f'
+        assert 'COUNT(S2,AD2:AE2)=3' in raw.active['AI2'].value
         assert not any(d.hidden for d in raw.active.column_dimensions.values())
-        assert raw.active['AI3'].fill.fgColor.rgb==raw.active['AD3'].fill.fgColor.rgb=='00EAF2F8'
-        assert raw.active.auto_filter.ref=='A2:AK3'
-        assert raw.active['AD3'].value=='=IF(AJ3="正常",AB3,"")'
+        assert raw.active['AI2'].fill.fgColor.rgb==raw.active['AD2'].fill.fgColor.rgb=='00EAF2F8'
+        assert raw.active.auto_filter.ref=='A1:AK2'
+        assert raw.active['AD2'].value=='=IF(AJ2="正常",AB2,"")'
     finally:book.close();raw.close()
 
 
@@ -509,12 +509,12 @@ def test_visible_deduction_stages_use_only_same_row_cells(tmp_path):
     path = rep.write_replenishment_report([row], tmp_path/'stages.xlsx')
     raw = load_workbook(path);cached = load_workbook(path,data_only=True)
     try:
-        assert [cached.active.cell(3,c).value for c in range(24,32)] == [450,210,20,210,10,210,10,210]
-        assert raw.active['X3'].value == '=IF(AJ3="正常",ROUNDUP(I3*V3,0),"")'
-        assert raw.active['AB3'].value == '=IF(AJ3="正常",MAX(0,ROUNDUP(Z3-R3,0)),"")'
-        assert raw.active['AC3'].value == '=IF(AJ3="正常",MAX(0,ROUNDUP(AA3-MAX(0,R3-Z3),0)),"")'
-        assert 'AC3>=30.0' in raw.active['AE3'].value
-        assert raw.active['AH3'].data_type == 's'
+        assert [cached.active.cell(2,c).value for c in range(24,32)] == [450,210,20,210,10,210,10,210]
+        assert raw.active['X2'].value == '=IF(AJ2="正常",ROUNDUP(I2*V2,0),"")'
+        assert raw.active['AB2'].value == '=IF(AJ2="正常",MAX(0,ROUNDUP(Z2-R2,0)),"")'
+        assert raw.active['AC2'].value == '=IF(AJ2="正常",MAX(0,ROUNDUP(AA2-MAX(0,R2-Z2),0)),"")'
+        assert 'AC2>=30.0' in raw.active['AE2'].value
+        assert raw.active['AH2'].data_type == 's'
     finally:raw.close();cached.close()
 
 
@@ -524,6 +524,6 @@ def test_effective_weights_are_literal_and_row_specific(tmp_path):
     book = load_workbook(path)
     try:
         a,b,c=row.formula_inputs.weights
-        assert book.active['I3'].value == f'=E3/7*{float(a)!r}+F3/14*{float(b)!r}+G3/30*{float(c)!r}'
-        assert len(book.active['AD3'].value) < 80
+        assert book.active['I2'].value == f'=E2/7*{float(a)!r}+F2/14*{float(b)!r}+G2/30*{float(c)!r}'
+        assert len(book.active['AD2'].value) < 80
     finally:book.close()

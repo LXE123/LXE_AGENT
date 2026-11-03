@@ -31,6 +31,7 @@ def test_cli_publishes_all_rows_with_real_calculated_values(tmp_path, office):
     hashes = [hashlib.sha256(path.read_bytes()).digest() for path in inputs]
     result = generate(inputs)
     assert result["ok"] and result["files"] == [result["data"]["output_xlsx_path"]]
+    assert Path(result["files"][0]).name.endswith("-Amazon-Test_备货建议-v2.xlsx")
     actual = cells(result["files"][0])
     assert set(actual) == {"SEA", "CLEAR", "COMBO"}
     sea = actual["SEA"]
@@ -139,7 +140,7 @@ def test_unknown_inventory_is_delivered_and_preserves_previous_success(tmp_path,
     assert result["ok"] and "error" not in result
     assert result["data"]["unknown_inventory_count"] == 1
     diagnostic = Path(result["data"]["output_xlsx_path"])
-    assert "库存待核对" in diagnostic.name
+    assert diagnostic.name.endswith("-Amazon-Test_库存待核对_备货建议-v2.xlsx")
     assert result["files"] == [str(diagnostic)] and diagnostic != published
     assert cells(diagnostic)["SEA"]["AG"] is None
     assert cells(diagnostic)["SEA"]["AB"] == 60

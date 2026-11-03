@@ -33,19 +33,19 @@ def test_low_sales_boundary_and_snapshot_columns(tmp_path, sales):
     book = load_workbook(path)
     try:
         sheet = book[rep.NON_SHIPPING_SHEET]
-        assert [c.value for c in sheet[2]][:-2] == [c.value for c in book['最终备货意见'][2]]
-        assert sheet.freeze_panes == 'E3'
-        assert sheet.max_row == 3
+        assert [c.value for c in sheet[1]][:-2] == [c.value for c in book['最终备货意见'][1]]
+        assert sheet.freeze_panes == 'E2'
+        assert sheet.max_row == 2
         if sales[2] < 10:
-            assert sheet.auto_filter.ref == 'A2:AM3'
-            record = dict(zip((c.value for c in sheet[2]), (c.value for c in sheet[3])))
+            assert sheet.auto_filter.ref == 'A1:AM2'
+            record = dict(zip((c.value for c in sheet[1]), (c.value for c in sheet[2])))
             assert [record[k] for k in SOURCE_VALUE_COLUMNS[:4]] == list(sales)
             assert record['加权日销'] == pytest.approx(row.weighted_daily_sales)
             assert record['FBA总库存（马帮）'] == 28
             assert record['深圳可用库存'] == -86
             assert record['未发出货件总计'] == 3
-            assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[3][4:8])
-            assert sheet['I3'].number_format == '0.00'
+            assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[2][4:8])
+            assert sheet['I2'].number_format == '0.00'
         assert all(d.height == 15 for d in sheet.row_dimensions.values())
         assert all(d.width == 15 for d in sheet.column_dimensions.values())
     finally:

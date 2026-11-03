@@ -55,7 +55,7 @@ LEGACY_STOCK_ACTUAL_INVENTORY_SHEET = "真实库存-库存sku"
 LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN = "链接真实库存（深圳仓库）汇总"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
-REPLENISHMENT_REPORT_SUFFIX = "备货建议"
+REPLENISHMENT_REPORT_SUFFIX = "备货建议-v1"
 DETAIL_SHEET = "MSKU明细"
 SUMMARY_SHEET = "链接备货汇总"
 INVENTORY_SHORTAGE_SHEET = "真实库存（深圳仓库）不足"
@@ -1242,28 +1242,24 @@ def _non_shipping_sort_key(row: ReplenishmentRow) -> tuple[float, str, str, str,
     return (-row.weighted_daily_sales, row.parent_asin, row.msku, row.asin, row.local_sku)
 
 
-def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]], *, note: str = "") -> None:
-    if note:
-        worksheet.append([note])
-    header_row = 2 if note else 1
+def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     worksheet.append(list(headers))
     for row in rows:
         worksheet.append([row.get(header, "") for header in headers])
         for cell in worksheet[worksheet.max_row]:
             if isinstance(cell.value, str):
                 cell.data_type = "s"
-    worksheet.freeze_panes = f"A{header_row + 1}"
-    if rows or note:
-        worksheet.auto_filter.ref = f"A{header_row}:{worksheet.cell(worksheet.max_row, len(headers)).coordinate}"
+    worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = f"A1:{worksheet.cell(worksheet.max_row, len(headers)).coordinate}"
     worksheet.sheet_format.defaultRowHeight = EXCEL_ROW_HEIGHT
     for row_index in range(1, worksheet.max_row + 1):
         worksheet.row_dimensions[row_index].height = EXCEL_ROW_HEIGHT
     for index, header in enumerate(headers, start=1):
         if header in TWO_DECIMAL_COLUMNS:
-            for cells in worksheet.iter_rows(min_row=header_row + 1, min_col=index, max_col=index):
+            for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
                 cells[0].number_format = "0.00"
         elif header in INTEGER_COLUMNS or header in SOURCE_VALUE_COLUMNS:
-            for cells in worksheet.iter_rows(min_row=header_row + 1, min_col=index, max_col=index):
+            for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
                 value = cells[0].value
                 if isinstance(value, float) and not value.is_integer():
                     cells[0].number_format = "0.00"
@@ -1319,12 +1315,9 @@ def write_replenishment_report(
             for index, (sheet_name, headers, payload_rows) in enumerate(specs):
                 worksheet = workbook.active if index == 0 else workbook.create_sheet()
                 worksheet.title = sheet_name
-                _write_table(worksheet, headers, payload_rows, note=(
-                    "生成时快照；未计算的补货过程项留空，最终建议量为0。不备货原因见末尾两列。"
-                    if sheet_name == NON_SHIPPING_SHEET else ""
-                ))
+                _write_table(worksheet, headers, payload_rows)
                 if sheet_name == NON_SHIPPING_SHEET:
-                    worksheet.freeze_panes = "E3"
+                    worksheet.freeze_panes = "E2"
             from openpyxl.workbook.properties import CalcProperties
             caches = write_formula_sheet(workbook, rows, missing_snapshot=missing_unlinked_snapshot)
             workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)

@@ -18,7 +18,7 @@ def isolated(tmp_path, monkeypatch):
 def records(path, sheet="最终备货意见"):
     book = load_workbook(path, data_only=True)
     try:
-        values = book[sheet].iter_rows(min_row=2, values_only=True)
+        values = book[sheet].iter_rows(min_row=1, values_only=True)
         headers = next(values)
         return {row[0]: dict(zip(headers, row)) for row in values}
     finally:
@@ -36,6 +36,7 @@ def test_v1_calculates_from_explicit_source_without_sales_report(tmp_path, templ
     result = generate(inputs, "--template", template, version="v1")
     data = result["data"]
     assert result["ok"] and result["files"] == [data["output_xlsx_path"]]
+    assert Path(result["files"][0]).name == "202610131000-Amazon-Test_备货建议-v1.xlsx"
     assert data["version"] == "v1" and data["row_count"] == 3
     assert data["source_data_time"] == "202610131000"
     assert [data[k] for k in ("msku_source_xlsx_path", "shenzhen_inventory_report_xlsx_path", "unlinked_shipments_snapshot_path")] == list(map(str,inputs))
@@ -122,7 +123,7 @@ def test_duplicate_msku_rows_calculate_individually_and_warn(tmp_path, version, 
     book = load_workbook(result["files"][0], data_only=True)
     try:
         ws = book["最终备货意见"] if version == "v1" else book.active
-        header_row = 2 if version == "v1" else 1
+        header_row = 1
         headers = [cell.value for cell in ws[header_row]]
         rows = [dict(zip(headers, row)) for row in ws.iter_rows(min_row=header_row + 1, values_only=True)]
         assert len(rows) == 2
@@ -168,7 +169,7 @@ def test_asin_descriptions_do_not_change_msku_matching(tmp_path, version):
     book = load_workbook(result["files"][0], data_only=True)
     try:
         ws = book["最终备货意见"] if version == "v1" else book.active
-        header_row = 2 if version == "v1" else 1
+        header_row = 1
         record = dict(zip((cell.value for cell in ws[header_row]), (cell.value for cell in ws[header_row + 1])))
         assert (record["MSKU"], record["ASIN"]) == ("SEA", "ASIN-SEA")
         if version == "v1":

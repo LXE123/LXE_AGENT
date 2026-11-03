@@ -37,7 +37,7 @@ from shared.office.execution import run_kit_bounded
 
 
 WORKSHEET_NAME = "mskulist"
-OUTPUT_FILENAME_SUFFIX = "补货最新.xlsx"
+OUTPUT_FILENAME_SUFFIX = "备货建议-v2.xlsx"
 OFFICE_TIMEOUT_SECONDS = 300
 MAX_DIAGNOSTIC_CHARACTERS = 2000
 MAX_ERROR_EXAMPLES = 20
@@ -482,7 +482,7 @@ def _output_path(store_name: str, *, output_dir: str | Path | None) -> Path:
         else dataset_dir("replenish_v2")
     )
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{date.today():%Y%m%d}{clean_name}{OUTPUT_FILENAME_SUFFIX}"
+    return directory / f"{date.today():%Y%m%d}-{clean_name}_{OUTPUT_FILENAME_SUFFIX}"
 
 
 def generate_replenishment_v2(
@@ -551,12 +551,11 @@ def generate_replenishment_v2(
             recalculated_path,
             rows=rows,
         )
-        if formula_error_count:
-            published_path = output_path.with_name(f"{output_path.stem}-公式错误诊断{output_path.suffix}")
-        elif unknown_inventory_rows:
-            published_path = output_path.with_name(f"{output_path.stem}-库存待核对{output_path.suffix}")
-        else:
-            published_path = output_path
+        status = "公式错误诊断" if formula_error_count else "库存待核对" if unknown_inventory_rows else ""
+        published_path = output_path
+        if status:
+            prefix = output_path.name.removesuffix(OUTPUT_FILENAME_SUFFIX)
+            published_path = output_path.with_name(f"{prefix}{status}_{OUTPUT_FILENAME_SUFFIX}")
         os.replace(recalculated_path, published_path)
 
     return ReplenishmentV2WorkbookResult(
