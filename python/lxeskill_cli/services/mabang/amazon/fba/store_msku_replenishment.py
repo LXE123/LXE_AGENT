@@ -154,10 +154,7 @@ DETAIL_COLUMNS = (
 )
 NON_SHIPPING_SHEET = "本轮不备货"
 NON_SHIPPING_COLUMNS = (
-    "MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "备注",
-    "子SKU", "商品链接", "SKU类型", "7天销量", "14天销量", "30天销量", "90天销量",
-    "加权日销", "可销售天数", MABANG_FBA_TOTAL_COLUMN, ACTUAL_INVENTORY_QUANTITY_COLUMN,
-    "未关联数量", "未备货原因分类", "具体原因",
+    *FINAL_SHIPPING_COLUMNS, "未备货原因分类", "具体原因",
 )
 
 NON_SHIPPING_REASONS = {
@@ -298,6 +295,8 @@ TWO_DECIMAL_COLUMNS = {
     "销量趋势速率",
     "单品重量(g)",
     "预计总重量kg",
+    "单件重量(g)",
+    "预计总重量(kg)",
     "最大加权日销",
     "合计加权日销",
     "最小可销售天数",
@@ -1580,42 +1579,59 @@ def _non_shipping_payload(row: ReplenishmentRow) -> dict[str, Any]:
     context = f"MSKU={row.msku}, 父ASIN={row.parent_asin}, ASIN={row.asin}, 本地SKU={row.local_sku}"
     if row.formula_inputs is None:
         raise StoreMskuReplenishmentError(f"本轮不备货明细缺少同源销量输入: {context}")
-    sales = {
+    source_values = {
         column: source_number(row.formula_inputs.values.get(column), context=f"{context}, column={column}")
-        for column in SOURCE_VALUE_COLUMNS[:4]
+        for column in SOURCE_VALUE_COLUMNS
     }
     if row.non_shipping_reason_code not in NON_SHIPPING_REASONS or not row.non_shipping_reason_detail:
         raise StoreMskuReplenishmentError(
             f"本轮不备货明细缺少有效原因: {context}, code={row.non_shipping_reason_code!r}"
         )
     payload = {
-        **row.to_detail_payload(), **sales,
+        **source_values,
+        "MSKU": row.msku, "ASIN": row.asin, "本地SKU": row.local_sku,
+        "品名": row.local_sku_name or row.product_name,
+        "加权日销": row.weighted_daily_sales, "可销售天数": row.sales_days,
+        "FBA总库存（马帮）": row.fba_total_inventory,
+        "未发出货件总计": row.unlinked_quantity, "深圳可用库存": row.actual_inventory,
+        "建议运输方式（生成时）": NON_SHIPPING_SHEET,
+        # Excluded rows may retain intermediate quantities (e.g. clearance).
+        # Only the final decision belongs in the recommendation columns.
+        "空运建议量": 0, "海运建议量": 0,
+        "单件重量(g)": row.weight_grams, "备注": row.remark,
+        "试算提示": "生成时快照，不参与试算",
         "未备货原因分类": NON_SHIPPING_REASONS[row.non_shipping_reason_code],
         "具体原因": row.non_shipping_reason_detail,
     }
-    return {column: payload[column] for column in NON_SHIPPING_COLUMNS}
+    return {column: payload.get(column) for column in NON_SHIPPING_COLUMNS}
 
 
 def _non_shipping_sort_key(row: ReplenishmentRow) -> tuple[float, str, str, str, str]:
     return (-row.weighted_daily_sales, row.parent_asin, row.msku, row.asin, row.local_sku)
 
 
-def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
+def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]], *, note: str = "") -> None:
+    if note:
+        worksheet.append([note])
+    header_row = 2 if note else 1
     worksheet.append(list(headers))
     for row in rows:
         worksheet.append([row.get(header, "") for header in headers])
-    worksheet.freeze_panes = "A2"
-    if rows:
-        worksheet.auto_filter.ref = worksheet.dimensions
+        for cell in worksheet[worksheet.max_row]:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
+    worksheet.freeze_panes = f"A{header_row + 1}"
+    if rows or note:
+        worksheet.auto_filter.ref = f"A{header_row}:{worksheet.cell(worksheet.max_row, len(headers)).coordinate}"
     worksheet.sheet_format.defaultRowHeight = EXCEL_ROW_HEIGHT
     for row_index in range(1, worksheet.max_row + 1):
         worksheet.row_dimensions[row_index].height = EXCEL_ROW_HEIGHT
     for index, header in enumerate(headers, start=1):
         if header in TWO_DECIMAL_COLUMNS:
-            for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
+            for cells in worksheet.iter_rows(min_row=header_row + 1, min_col=index, max_col=index):
                 cells[0].number_format = "0.00"
-        elif header in INTEGER_COLUMNS or header in SOURCE_VALUE_COLUMNS[:4]:
-            for cells in worksheet.iter_rows(min_row=2, min_col=index, max_col=index):
+        elif header in INTEGER_COLUMNS or header in SOURCE_VALUE_COLUMNS:
+            for cells in worksheet.iter_rows(min_row=header_row + 1, min_col=index, max_col=index):
                 value = cells[0].value
                 if isinstance(value, float) and not value.is_integer():
                     cells[0].number_format = "0.00"
@@ -1671,7 +1687,12 @@ def write_replenishment_report(
             for index, (sheet_name, headers, payload_rows) in enumerate(specs):
                 worksheet = workbook.active if index == 0 else workbook.create_sheet()
                 worksheet.title = sheet_name
-                _write_table(worksheet, headers, payload_rows)
+                _write_table(worksheet, headers, payload_rows, note=(
+                    "生成时快照；未计算的补货过程项留空，最终建议量为0。不备货原因见末尾两列。"
+                    if sheet_name == NON_SHIPPING_SHEET else ""
+                ))
+                if sheet_name == NON_SHIPPING_SHEET:
+                    worksheet.freeze_panes = "E3"
             from openpyxl.workbook.properties import CalcProperties
             caches = write_formula_sheet(workbook, rows, missing_snapshot=missing_unlinked_snapshot)
             workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)

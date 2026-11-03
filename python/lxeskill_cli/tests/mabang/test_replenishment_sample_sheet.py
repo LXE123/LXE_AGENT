@@ -32,21 +32,19 @@ def test_low_sales_boundary_and_snapshot_columns(tmp_path, sales):
     book = load_workbook(path)
     try:
         sheet = book[rep.NON_SHIPPING_SHEET]
-        assert [c.value for c in sheet[1]] == list(rep.NON_SHIPPING_COLUMNS)
-        assert sheet.max_column == 21
-        assert sheet.freeze_panes == 'A2'
-        assert sheet.max_row == 2
+        assert [c.value for c in sheet[2]][:-2] == [c.value for c in book['最终备货意见'][2]]
+        assert sheet.freeze_panes == 'E3'
+        assert sheet.max_row == 3
         if sales[2] < 10:
-            assert sheet.auto_filter.ref == 'A1:U2'
-            record = dict(zip(rep.NON_SHIPPING_COLUMNS, (c.value for c in sheet[2])))
+            assert sheet.auto_filter.ref == 'A2:AM3'
+            record = dict(zip((c.value for c in sheet[2]), (c.value for c in sheet[3])))
             assert [record[k] for k in SOURCE_VALUE_COLUMNS[:4]] == list(sales)
-            assert record['加权日销'] == round(row.weighted_daily_sales, 2)
-            assert record[rep.MABANG_FBA_TOTAL_COLUMN] == 28
-            assert record[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == -86
-            assert record['未关联数量'] == 3
-            assert all(c.data_type != 'f' for c in sheet[2])
-            assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[2][10:14])
-            assert sheet['O2'].number_format == '0.00'
+            assert record['加权日销'] == pytest.approx(row.weighted_daily_sales)
+            assert record['FBA总库存（马帮）'] == 28
+            assert record['深圳可用库存'] == -86
+            assert record['未发出货件总计'] == 3
+            assert all(c.data_type == 'n' and c.number_format == '0' for c in sheet[3][4:8])
+            assert sheet['I3'].number_format == '0.00'
         assert all(d.height == 15 for d in sheet.row_dimensions.values())
         assert all(d.width == 15 for d in sheet.column_dimensions.values())
     finally:
@@ -63,7 +61,7 @@ def test_custom_skip_classification_and_effective_weights(tmp_path):
     template = replace(template, name='自定义跳过', params=params)
     row = sample_row((14, 21, 30, 180), actual=None, template=template, trend='增长')
     payload = rep._non_shipping_payload(row)
-    assert payload[rep.ACTUAL_INVENTORY_QUANTITY_COLUMN] == ''
+    assert payload['深圳可用库存'] is None
     assert payload['加权日销'] == 1.35
     assert row.sheet_name == rep.SAMPLE_INSUFFICIENT_SHEET
 

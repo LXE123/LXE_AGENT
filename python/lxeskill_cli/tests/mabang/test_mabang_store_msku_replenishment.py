@@ -57,8 +57,9 @@ def _load_records(path: Path, sheet_name: str) -> list[dict]:
     workbook = load_workbook(path, data_only=True)
     try:
         worksheet = workbook[sheet_name]
-        headers = [cell.value for cell in worksheet[2 if sheet_name == "最终备货意见" else 1]]
-        return [dict(zip(headers, values, strict=False)) for values in worksheet.iter_rows(min_row=3 if sheet_name == "最终备货意见" else 2, values_only=True)]
+        header_row = 2 if sheet_name in {"最终备货意见", "本轮不备货"} else 1
+        headers = [cell.value for cell in worksheet[header_row]]
+        return [dict(zip(headers, values, strict=False)) for values in worksheet.iter_rows(min_row=header_row + 1, values_only=True)]
     finally:
         workbook.close()
 
@@ -69,7 +70,7 @@ def _headers(path: Path, sheet_name: str) -> list[str]:
     workbook = load_workbook(path, read_only=True)
     try:
         worksheet = workbook[sheet_name]
-        return [cell.value for cell in worksheet[2 if sheet_name == "最终备货意见" else 1]]
+        return [cell.value for cell in worksheet[2 if sheet_name in {"最终备货意见", "本轮不备货"} else 1]]
     finally:
         workbook.close()
 
@@ -642,8 +643,7 @@ def test_replenishment_rules_and_report_output(tmp_path, calculated_details) -> 
 
     sample_rows = [r for r in _load_records(report_path, "本轮不备货") if r["MSKU"] == "SAMPLE-1"]
     assert sample_rows[0]["MSKU"] == "SAMPLE-1"
-    assert sample_rows[0]["本地SKU名称"] == "样本不足本地名"
-    assert sample_rows[0]["产品名称"] == "Sample Product"
+    assert sample_rows[0]["品名"] == "样本不足本地名"
     assert _headers(report_path, "本轮不备货") == list(repl.NON_SHIPPING_COLUMNS)
     assert [sample_rows[0][k] for k in ("7天销量", "14天销量", "30天销量", "90天销量")] == [56, 112, 240, 720]
 

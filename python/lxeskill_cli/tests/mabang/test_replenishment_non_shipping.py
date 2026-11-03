@@ -51,7 +51,7 @@ def test_sea_minimum_and_zero_days_remain_actual_decisions():
     row = case_row(fba=600, unlinked=31)
     assert row.replenish_quantity == 29
     assert row.non_shipping_reason_code == 'sea_quantity_threshold'
-    assert rep._non_shipping_payload(decide(daily=0,fba=1))['可销售天数'] == ''
+    assert rep._non_shipping_payload(decide(daily=0,fba=1))['可销售天数'] is None
 
 
 def test_merge_preserves_records_and_sorts_on_daily_sales(tmp_path):
@@ -64,23 +64,23 @@ def test_merge_preserves_records_and_sorts_on_daily_sales(tmp_path):
         assert rep.NO_SHIP_SHEET not in book.sheetnames and rep.SAMPLE_INSUFFICIENT_SHEET not in book.sheetnames
         assert book.sheetnames == ['最终备货意见','本轮不备货','链接备货汇总']
         sheet = book[rep.NON_SHIPPING_SHEET]
-        data = list(sheet.iter_rows(min_row=2, values_only=True))
-        assert [(r[0],r[2]) for r in data] == [(r.msku,r.asin) for r in sorted(rows,key=rep._non_shipping_sort_key)]
-        assert len(data)==4 and sheet.max_column==21
-        assert sheet.auto_filter.ref == 'A1:U5'
-        assert sheet.freeze_panes == 'A2'
-        assert {r[19] for r in data} == {'样本不足','未达海运日销门槛','FBA库存已覆盖'}
-        assert not any(c.data_type=='f' for cells in sheet for c in cells)
-        assert sheet['P2'].number_format=='0.00'
+        data = list(sheet.iter_rows(min_row=3, values_only=True))
+        assert [(r[0],r[1]) for r in data] == [('HIGH','ASIN-CHECK'),('SAME','A'),('SAME','B'),('A','ASIN-LOW')]
+        assert len(data)==4 and sheet.max_column==39
+        assert sheet.auto_filter.ref == 'A2:AM6'
+        assert sheet.freeze_panes == 'E3'
+        assert {r[-2] for r in data} == {'样本不足','未达海运日销门槛','FBA库存已覆盖'}
+        assert sheet['T3'].number_format=='0.00'
     finally:book.close()
 
 
-def test_empty_merged_sheet_has_only_header(tmp_path):
+def test_empty_merged_sheet_keeps_aligned_headers(tmp_path):
     book = load_workbook(rep.write_replenishment_report([], tmp_path/'empty.xlsx'))
     try:
         sheet=book[rep.NON_SHIPPING_SHEET]
-        assert sheet.max_row==1
-        assert [c.value for c in sheet[1]]==list(rep.NON_SHIPPING_COLUMNS)
+        assert sheet.max_row==2
+        assert [c.value for c in sheet[2]][:-2]==[c.value for c in book['最终备货意见'][2]]
+        assert sheet.auto_filter.ref=='A2:AM2'
     finally:book.close()
 
 
@@ -105,10 +105,40 @@ def test_clearance_merges_without_broadening_classification(tmp_path):
     book=load_workbook(rep.write_replenishment_report([clear,low,no_ship],tmp_path/'clear.xlsx'),data_only=True)
     try:
         assert book.sheetnames==['最终备货意见','本轮不备货','链接备货汇总']
-        it=book[rep.NON_SHIPPING_SHEET].iter_rows(values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
+        it=book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=2,values_only=True);h=next(it);rows=[dict(zip(h,r)) for r in it]
         assert len(rows)==3
         assert {r['未备货原因分类'] for r in rows}=={'清货','样本不足','FBA库存已覆盖'}
         row=next(r for r in rows if r['MSKU']=='CLEAR')
         assert row['备注']=='一般清货'
+        assert clear.replenish_quantity > 0
+        assert all((r['空运建议量'],r['海运建议量'])==(0,0) for r in rows)
         assert book['最终备货意见'].max_row==2
+    finally:book.close()
+
+
+def test_aligned_columns_preserve_source_values_and_snapshot_decision(tmp_path):
+    row = decide(daily=1, fba=60, unlinked=7)
+    values = {**row.formula_inputs.values, '可售':10, '待入库':11, '预留':12,
+              '计划入库':999, '在途':8, '待调仓':9, '调仓中':10}
+    row = replace(row, local_sku_name='=2+2', actual_inventory=-86, weight_grams=250,
+                  formula_inputs=replace(row.formula_inputs, values=values))
+    path = rep.write_replenishment_report([case_row('SHIP'), row], tmp_path/'aligned.xlsx')
+    book = load_workbook(path, data_only=True)
+    try:
+        shipping, excluded = book['最终备货意见'], book['本轮不备货']
+        headers = [c.value for c in excluded[2]]
+        assert headers[:-2] == [c.value for c in shipping[2]]
+        assert headers[-2:] == ['未备货原因分类', '具体原因']
+        record = dict(zip(headers, (c.value for c in excluded[3])))
+        assert record['品名'] == '=2+2'
+        assert [record[k] for k in ('7天销量','14天销量','30天销量','90天销量')] == [7,14,30,90]
+        assert [record[k] for k in ('可售','待入库','预留','计划入库','在途','待调仓','调仓中')] == [10,11,12,999,8,9,10]
+        assert [record[k] for k in ('加权日销','FBA总库存（马帮）','未发出货件总计','深圳可用库存','可销售天数','单件重量(g)')] == pytest.approx([1,60,7,-86,60,250])
+        assert (record['空运建议量'],record['海运建议量']) == (0,0)
+        assert record['建议运输方式（生成时）'] == '本轮不备货'
+        assert record['未备货原因分类'] == 'FBA库存已覆盖'
+        assert 'FBA库存60件已覆盖' in record['具体原因']
+        assert record['理论空运需求'] is None
+        assert record['理论海运需求'] is None
+        assert shipping['AD3'].value == 10 and shipping['AE3'].value == 210
     finally:book.close()

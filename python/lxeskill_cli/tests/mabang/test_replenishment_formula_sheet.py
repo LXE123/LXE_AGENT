@@ -315,8 +315,8 @@ def test_zero_daily_sales_keeps_blank_days_on_non_shipping_sheet(tmp_path, sourc
     try:
         assert row.sales_days is None
         assert book[formulas.FINAL_SHIPPING_SHEET].max_row == 2
-        headers = [cell.value for cell in book[rep.NON_SHIPPING_SHEET][1]]
-        record = dict(zip(headers, next(book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=2, values_only=True))))
+        headers = [cell.value for cell in book[rep.NON_SHIPPING_SHEET][2]]
+        record = dict(zip(headers, next(book[rep.NON_SHIPPING_SHEET].iter_rows(min_row=3, values_only=True))))
         assert record["MSKU"] == "ZERO-DAILY"
         assert record["可销售天数"] in (None, "")
     finally:
