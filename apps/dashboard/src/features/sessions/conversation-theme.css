@@ -1,7 +1,70 @@
 @import "../../shared/cds-theme.css";
 
-/* CDS purpose tokens applied to LXE's delete confirmation. Scope this portal
-   explicitly; workspace/rename/permission dialogs retain their own styles. */
+/* Tool chrome shares CDS surfaces and ink. Syntax colors belong to the shared
+   conversation code palette in styles.css, independent of these UI tokens. */
+.tool-turn-group.conversation-chrome-theme .tool-op-name {
+  color: var(--cds-muted);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-argument {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:is(:hover, :focus-visible) {
+  background: transparent;
+}
+.tool-turn-group.conversation-chrome-theme .tool-op:not(.state-error) .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-name {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-argument {
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op.state-error .tool-op-name,
+.tool-turn-group.conversation-chrome-theme .result-block.error .block-title-main {
+  color: var(--danger);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-body {
+  background: var(--cds-surface-panel);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button {
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button:is(:hover, :focus-visible) {
+  border-color: var(--cds-alpha-3);
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme :is(.tool-op-summary, .tool-result-button):focus-visible {
+  outline-color: var(--cds-accent);
+}
+
+/* Process disclosures use color feedback with the ordinary arrow cursor.
+   Keep error text semantic, including while the disclosure is hovered. */
+.live-progress-status.conversation-chrome-theme,
+.conversation-process-toggle.conversation-chrome-theme {
+  color: var(--cds-secondary);
+}
+.conversation-process-toggle.conversation-chrome-theme {
+  cursor: default;
+}
+.conversation-process-toggle.conversation-chrome-theme > .live-progress-status:not(.state-error) {
+  color: inherit;
+}
+.conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) {
+  color: var(--cds-ink);
+}
+.conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) .live-progress-elapsed {
+  color: inherit;
+}
+.conversation-process-toggle.conversation-chrome-theme:focus-visible {
+  outline: 2px solid var(--cds-accent);
+  outline-offset: 2px;
+}
+.live-progress-status.conversation-chrome-theme.state-error {
+  color: var(--danger);
+}
+
+/* Session and workspace deletion share this CDS confirmation style.
+   Rename and permission dialogs retain their own styles. */
 .session-delete-backdrop.session-delete-confirm-backdrop { padding: 16px; }
 .session-delete-dialog.session-delete-confirm-dialog {
   width: min(440px, 100%);

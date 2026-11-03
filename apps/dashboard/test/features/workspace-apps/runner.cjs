@@ -27,7 +27,8 @@ app.whenReady().then(async()=>{
    await wait("document.querySelectorAll('.workspace-open-split button[aria-label*=Code]').length===3",'shared selection');
    assert.deepEqual(await js('fixture.calls.find(c=>c.directory)'),{directory:'/first',id:'vscode'});
    assert.equal(await js("localStorage.getItem('lxe.workspace-open.application.v1')"),'vscode');
-   assert.equal(await js("document.querySelectorAll('.conversation-workspace-label').length"),1);
+   assert.equal(await js("document.querySelectorAll('#existing .conversation-workspace-label').length"),0);
+   assert.ok(await js("document.querySelector('#existing .workspace-open-split button').title.endsWith('/first')"));
   });
   await step('Popup keyboard navigation, focus return and browser occlusion',async()=>{
    assert.equal(visibleBrowser(),true,'native browser visible before menu');

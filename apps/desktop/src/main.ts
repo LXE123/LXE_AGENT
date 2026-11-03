@@ -689,7 +689,7 @@ async function bootstrap(): Promise<void> {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: "#faf8f5",
+    backgroundColor: DESKTOP_TITLEBAR_COLOURS.light.color,
     webPreferences: {
       preload: join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
