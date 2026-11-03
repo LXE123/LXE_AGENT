@@ -16,6 +16,8 @@
 
 删除会话与删除工作区共用确认弹窗样式：使用弹层表面、alpha 边框、主／次文字和危险操作按钮 token。会话删除保留永久删除历史但不删除附件与产物的说明；工作区删除分别说明从列表移除，以及保留文件夹与会话、会话归入“未分组”的结果。440px 最大宽度、24px 内边距、18px 标题和 32px 按钮是 LXE 的布局选择，不代表已取得 Claude 删除弹窗的完整规范。样式位于 `conversation-theme.css`；重命名和权限弹窗沿用各自样式。
 
+右侧工具侧栏通过 `tool-sidebar-theme` 接入共享 CDS 色板：侧栏底色、标签栏、开始页入口、文件树、阅读与浏览器工具栏统一表面、文字、alpha 边框、悬停、禁用与蓝色键盘焦点；文件打开菜单和错误通知在 portal 上显式接入主题。终端的底色、普通文字、光标与选区随主题更新，复用已有终端实例和输出缓冲，保留 ANSI 语义色。网页、PDF 和表格原始内容保留自身颜色。宽度、布局、字号、间距、圆角和操作流程沿用原实现；这些是 LXE 的配色适配，不是已取得 Claude 工具侧栏的完整规范。
+
 ## 实现入口
 
 顶部标题栏与最左侧主导航共用应用外框配色：浅色 `#f7f7f6`，暗色 `#1a1a19`，与会话列表保留轻微层次差。图标使用 CDS 主／次文字，悬停为 5% alpha，选中为浅色主文字 6%／暗色白色 10%，键盘焦点使用蓝色。Windows 原生标题栏同步同一底色与图标色。具体数值是 LXE 适配，不代表 Claude 标题栏的完整规范。
@@ -31,6 +33,7 @@
 | 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
 | 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
 | 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
+| 右侧工具侧栏与文件打开菜单 | [sidebar.css](../../../apps/dashboard/src/features/file-preview/sidebar.css)、[Sidebar.tsx](../../../apps/dashboard/src/features/file-preview/Sidebar.tsx)、[ToolPanels.tsx](../../../apps/dashboard/src/features/file-preview/ToolPanels.tsx)、[OpenFileButton.tsx](../../../apps/dashboard/src/features/file-preview/OpenFileButton.tsx) |
 | 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |
 | 首页 | [home/theme.css](../../../apps/dashboard/src/features/home/theme.css) |
 | 活动与工作台 | [stats/theme.css](../../../apps/dashboard/src/features/stats/theme.css)、[workbench/detail-theme.css](../../../apps/dashboard/src/features/workbench/detail-theme.css) |

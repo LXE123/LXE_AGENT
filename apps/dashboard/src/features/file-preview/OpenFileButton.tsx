@@ -59,7 +59,7 @@ export function OpenFileButton({ file, label = false }: { file: SessionFileRef; 
       </button>
       {!missing && !(loaded && !error && !apps.length) ? <button ref={toggle} type="button" disabled={busy} aria-label={t.apps} aria-haspopup="menu" aria-expanded={menu} onClick={() => { setMenu(!menu); if (!menu) void load(); }}><ChevronDown size={12} /></button> : null}
     </div>
-    {menu ? createPortal(<div className="file-open-menu" role="menu" ref={menuRef} onBlur={e => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget) && !anchor.current?.contains(e.relatedTarget)) setMenu(false); }} style={{ position: "fixed", ...position }} onKeyDown={e => {
+    {menu ? createPortal(<div className="file-open-menu tool-sidebar-theme" role="menu" ref={menuRef} onBlur={e => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget) && !anchor.current?.contains(e.relatedTarget)) setMenu(false); }} style={{ position: "fixed", ...position }} onKeyDown={e => {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault(); const items = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), summary")].filter(item => item.getClientRects().length > 0);
         const index = items.indexOf(document.activeElement as HTMLElement); items[(index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
@@ -76,5 +76,5 @@ export function OpenFileButton({ file, label = false }: { file: SessionFileRef; 
 function FileActionNotice({ failure, close }: { failure: FileFailure; close(): void }) {
   const t = useUiText().filePreview, summary = useFailureSummary(failure), [paused, setPaused] = useState(false);
   useEffect(() => { if (paused) return; const timer = setTimeout(close, 6000); return () => clearTimeout(timer); }, [failure, paused, close]);
-  return createPortal(<div className="file-action-notice" role="status" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setPaused(false); }}><p>{summary}<button aria-label={t.close} onClick={close}>×</button></p><ErrorDetails failure={failure} /></div>, document.body);
+  return createPortal(<div className="file-action-notice tool-sidebar-theme" role="status" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setPaused(false); }}><p>{summary}<button aria-label={t.close} onClick={close}>×</button></p><ErrorDetails failure={failure} /></div>, document.body);
 }
