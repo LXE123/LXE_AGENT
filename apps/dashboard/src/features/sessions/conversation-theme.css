@@ -63,8 +63,8 @@
   color: var(--danger);
 }
 
-/* CDS purpose tokens applied to LXE's delete confirmation. Scope this portal
-   explicitly; workspace/rename/permission dialogs retain their own styles. */
+/* Session and workspace deletion share this CDS confirmation style.
+   Rename and permission dialogs retain their own styles. */
 .session-delete-backdrop.session-delete-confirm-backdrop { padding: 16px; }
 .session-delete-dialog.session-delete-confirm-dialog {
   width: min(440px, 100%);
