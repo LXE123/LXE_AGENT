@@ -16,9 +16,14 @@
 
 ## 实现入口
 
+顶部标题栏与最左侧主导航共用应用外框配色：浅色 `#f7f7f6`，暗色 `#1a1a19`，与会话列表保留轻微层次差。图标使用 CDS 主／次文字，悬停为 5% alpha，选中为浅色主文字 6%／暗色白色 10%，键盘焦点使用蓝色。Windows 原生标题栏同步同一底色与图标色。具体数值是 LXE 适配，不代表 Claude 标题栏的完整规范。
+
+外框只从共享主题取得色板，在标题栏控件内映射旧变量；不会把 `--bg`、`--text` 等别名覆盖到整个应用。几何尺寸、圆角、分隔线位置和主导航动效仍由原实现管理。
+
 | 职责 | 当前源码 |
 | --- | --- |
 | 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
+| 标题栏与主导航外框 | [app-chrome.css](../../../apps/dashboard/src/shared/app-chrome.css)、[navigation-rail.css](../../../apps/dashboard/src/shared/navigation-rail.css)、[window-options.ts](../../../apps/desktop/src/main/window-options.ts) |
 | 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
 | 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
 | 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |

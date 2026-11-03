@@ -3,10 +3,13 @@
    Assistant text and onboarding keep their themes.
    Rules: surface hierarchy, semantic ink, alpha borders, shared field states.
    Source: CDS tokens — vanilla, Rules / Theme ramps / Elevation / Purpose. */
-:is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+/* The shell shares the palette only. Keep legacy aliases scoped to migrated
+   components so adopting chrome colors does not recolor page content. */
+:is(.desktop-window-frame, .app-shell, .automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --cds-surface-nav: #fcfcfb;
   --cds-surface-panel: #ffffff;
   --cds-surface-popover: #ffffff;
+  --cds-surface-chrome: #f7f7f6;
   --cds-ink: #0b0b0b;
   --cds-secondary: #52514e;
   --cds-muted: #898781;
@@ -27,6 +30,9 @@
   --cds-danger-action: #b42318;
   --cds-danger-hover: #912018;
   --cds-focus: 0 0 0 1px var(--cds-surface-panel), 0 0 0 3px var(--cds-accent);
+}
+
+:is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --bg: var(--cds-surface-nav);
   --bg-soft: var(--cds-surface-panel);
   --surface: var(--cds-surface-panel);
@@ -68,10 +74,11 @@
   color-scheme: light;
 }
 
-:root[data-theme="dark"] :is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
+:root[data-theme="dark"] :is(.desktop-window-frame, .app-shell, .automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --cds-surface-nav: #151515;
   --cds-surface-panel: #1a1a19;
   --cds-surface-popover: #232322;
+  --cds-surface-chrome: #1a1a19;
   --cds-ink: #f5f4ed;
   --cds-secondary: #bfbdb5;
   --cds-muted: #9c9a92;
@@ -87,6 +94,9 @@
   --cds-accent-tint: rgb(109 167 236 / 14%);
   --cds-primary-ink: #0b0b0b;
   --cds-danger-action: #b42318;
+}
+
+:root[data-theme="dark"] :is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --success: #8dca8d;
   --success-soft: #253429;
   --success-border: #3e5844;

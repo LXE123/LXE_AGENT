@@ -11,7 +11,7 @@
   min-height: 0;
   padding: calc(var(--app-titlebar-height) + 6px) 6.6px 12px;
   background: var(--navigation-bg);
-  color: var(--sidebar-ink-soft);
+  color: var(--app-chrome-secondary);
 }
 
 .navigation-rail-list {
@@ -69,15 +69,19 @@
 @keyframes navigation-bar { 45% { transform: scaleY(.9); } }
 
 .navigation-rail-button:hover,
-.navigation-rail-button.active,
 .app-navigation .sidebar-settings-button:hover {
-  background: var(--sidebar-active);
-  color: var(--sidebar-ink);
+  background: var(--app-chrome-hover);
+  color: var(--app-chrome-ink);
+}
+
+.navigation-rail-button.active {
+  background: var(--app-chrome-selected);
+  color: var(--app-chrome-ink);
 }
 
 .navigation-rail-button:focus-visible,
 .app-navigation .sidebar-settings-button:focus-visible {
-  outline: 2px solid var(--sidebar-accent);
+  outline: 2px solid var(--app-chrome-focus);
   outline-offset: 2px;
 }
 
@@ -86,10 +90,10 @@
   top: 50%;
   left: calc(100% + 10px);
   padding: 6px 10px;
-  border: 1px solid var(--sidebar-border);
+  border: 1px solid var(--app-chrome-border);
   border-radius: 8px;
-  background: var(--navigation-bg);
-  color: var(--sidebar-ink);
+  background: var(--cds-surface-popover);
+  color: var(--app-chrome-ink);
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.4;

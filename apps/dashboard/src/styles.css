@@ -220,7 +220,6 @@ button {
    the "chrome recedes, content is the stage" relationship survives the switch. */
 :root[data-theme="dark"] .app-shell,
 :root[data-theme="dark"] .desktop-platform-win32 {
-  --navigation-bg: #242322;
   --sidebar-bg: #1c1b1a;
   --sidebar-border: rgba(255, 255, 255, 0.065);
   --sidebar-ink: #eee8df;
@@ -2087,12 +2086,10 @@ button {
 .app-shell {
   --app-navigation-width: 53.2px;
   --app-titlebar-height: 42px;
-  --app-chrome-border: color-mix(in srgb, var(--text-strong) 10%, transparent);
   --app-sidebar-width: 256px;
   --app-panel-radius: 14px;
   --app-content-corner-radius: 0px;
   --sidebar-control-left: calc(var(--app-navigation-width) + 8px);
-  --navigation-bg: var(--bg);
   --sidebar-bg: var(--bg);
   --sidebar-border: var(--border);
   --sidebar-ink: var(--text);
