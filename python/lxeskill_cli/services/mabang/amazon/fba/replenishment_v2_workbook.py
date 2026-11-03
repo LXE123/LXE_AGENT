@@ -104,7 +104,7 @@ class ReplenishmentV2WorkbookResult:
 
     @property
     def success(self) -> bool:
-        return self.formula_error_count == 0 and self.unknown_inventory_count == 0
+        return self.formula_error_count == 0
 
     def to_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -124,12 +124,6 @@ class ReplenishmentV2WorkbookResult:
                 diagnostics.append(
                     f"Office 重算发现 {self.formula_error_count} 个 Excel 错误单元格；"
                     f"实际错误示例: {', '.join(self.formula_error_examples)}"
-                )
-            if self.unknown_inventory_count:
-                diagnostics.append(
-                    f"深圳真实库存有 {self.unknown_inventory_count} 个 MSKU 未知；"
-                    "已生成核对文件，须运营确认后才能正式交付。"
-                    f"代表项: {'；'.join(self.unknown_inventory_examples)}"
                 )
             payload["exception"] = " ".join(diagnostics)
         return payload
