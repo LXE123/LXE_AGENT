@@ -12,7 +12,7 @@ const profile = mkdtempSync(join(tmpdir(), "lxe-manual-native-")); app.setPath("
 const wait = async (condition: () => unknown | Promise<unknown>, label: string) => { const deadline = Date.now() + 20000; while (Date.now() < deadline) { if (await condition()) return; await delay(40); } throw new Error(`Timed out: ${label}`); };
 void app.whenReady().then(async () => {
   const root = resolve(process.argv[3]!), workspace = join(profile, "工作区 space"); mkdirSync(workspace); writeFileSync(join(workspace, "cwd-marker.txt"), "workspace marker");
-  const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
   const service = new ManualToolsService(() => win, root, async id => id === "missing" ? undefined : id === "isolated" ? profile : workspace); service.register();
   win.on("hide", () => service.browsers.hide()); win.webContents.on("did-start-loading", () => service.browsers.hide());
   const server = createServer((request, response) => {
@@ -31,6 +31,9 @@ void app.whenReady().then(async () => {
     await click('[aria-label="工具侧栏"]'); await wait(() => js("!!document.querySelector('.tools-start')"), "Start"); passed.push("Start on first open");
     await delay(400);
     writeFileSync(join(profile, "start.png"), (await win.webContents.capturePage()).toPNG());
+    await js("document.documentElement.dataset.theme='dark'"); await delay(100);
+    writeFileSync(join(profile, "start-dark.png"), (await win.webContents.capturePage()).toPNG());
+    await js("document.documentElement.dataset.theme='light'");
     await click('.tools-start button:nth-of-type(1)'); await wait(() => js("document.body.innerText.includes('notes.txt')"), "files"); passed.push("direct workspace file entry");
     await click('[aria-label="新标签页"]'); await click('.tools-start button:nth-of-type(2)');
     await wait(() => js("!!document.querySelector('.xterm-helper-textarea')"), "terminal mount");
@@ -40,6 +43,16 @@ void app.whenReady().then(async () => {
     const command = process.platform === "win32" ? "Write-Output ('LXE_' + 'READY'); Write-Output ('CWD_' + (Test-Path cwd-marker.txt))\r" : "printf '%s%s\\n' 'LXE_' 'READY'; pwd\r";
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: command } });
     await wait(() => terminal().output.includes("LXE_READY") && (process.platform === "win32" ? terminal().output.includes("CWD_True") : terminal().output.includes(workspace)), "executed shell command and Unicode cwd").catch(error => { console.error(JSON.stringify(terminal())); throw error; }); passed.push("real PTY and workspace cwd");
+    await wait(() => js("document.querySelector('.xterm-screen')?.innerText.includes('LXE_READY')"), "terminal output rendered");
+    await js("window.originalTerminalScreen=document.querySelector('.xterm-screen')");
+    for (const [theme, background, foreground] of [["dark", "rgb(21, 21, 21)", "rgb(245, 244, 237)"], ["light", "rgb(252, 252, 251)", "rgb(11, 11, 11)"]]) {
+      await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+      await wait(() => js(`getComputedStyle(document.querySelector('.xterm-scrollable-element')).backgroundColor===${JSON.stringify(background)} && getComputedStyle(document.querySelector('.xterm-rows')).color===${JSON.stringify(foreground)}`), `terminal ${theme} theme`);
+      assert.ok(await js("document.querySelector('.xterm-screen')===window.originalTerminalScreen && window.originalTerminalScreen.innerText.includes('LXE_READY')"), "theme switch preserves the terminal renderer and output");
+      assert.equal(terminal().exited, false);
+      writeFileSync(join(profile, `terminal-${theme}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    passed.push("terminal theme changes preserve renderer and output");
     await js("document.querySelector('.xterm-helper-textarea').focus()");
     const unicodeCommand = process.platform === "win32" ? "Write-Output ('中文' + '输入')" : "printf '%s%s\\n' '中文' '输入'";
     for (const char of unicodeCommand) win.webContents.sendInputEvent({ type: "char", keyCode: char });
@@ -75,11 +88,14 @@ void app.whenReady().then(async () => {
     await js("{ const overlay = document.createElement('div'); overlay.id = 'sidebar-peek'; overlay.className = 'app-sidebar is-peek'; document.body.append(overlay); }");
     await wait(() => !activeGuest(), "sidebar peek hides page");
     await js("document.querySelector('#sidebar-peek').remove()"); await wait(() => Boolean(activeGuest()), "peek dismissal");
-    win.setSize(1000, 700); await delay(200); assert(activeGuest()!.getBounds().width > 200); passed.push("native bounds and modal visibility");
+    win.setSize(1000, 700); await wait(() => (activeGuest()?.getBounds().width ?? 0) > 200, "native bounds after resize"); passed.push("native bounds and modal visibility");
     win.webContents.setZoomFactor(1.25);
-    await js("window.dispatchEvent(new Event('resize'))"); await delay(200);
-    const rectangle = await js("JSON.stringify(document.querySelector('.tool-browser-viewport').getBoundingClientRect())");
-    assert(Math.abs(activeGuest()!.getBounds().x - JSON.parse(rectangle).x * 1.25) <= 1); passed.push("window zoom bounds");
+    await js("window.dispatchEvent(new Event('resize'))");
+    await wait(async () => {
+      const bounds = activeGuest()?.getBounds();
+      const left = await js("document.querySelector('.tool-browser-viewport')?.getBoundingClientRect().left");
+      return bounds && typeof left === "number" && Math.abs(bounds.x - left * 1.25) <= 1;
+    }, "native bounds after zoom"); passed.push("window zoom bounds");
     await wc.executeJavaScript("document.querySelector('#download').click()"); await wait(() => service.browsers.get("a", browserId)?.error.includes("Downloads are disabled"), "download denied"); passed.push("downloads blocked");
     await assert.rejects(service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: "file:///etc/passwd" } }), /HTTP/);
     await assert.rejects(service.call({ operation: "terminal.write", input: { sessionId: "b", id: terminalId, data: "no" } }), /another session/); passed.push("ownership and URL checks");
@@ -99,5 +115,9 @@ void app.whenReady().then(async () => {
     win.destroy(); await service.stop(); server.close();
     console.log("LXE_MANUAL_RESULT=" + JSON.stringify({ passed, screenshot: join(profile, "tools.png") }));
     app.exit(0);
-  } catch (error) { console.error(error); win.destroy(); try { await service.stop(); } catch (cleanup) { console.error(cleanup); } server.close(); app.exit(1); }
+  } catch (error) {
+    console.error(error); console.error(JSON.stringify({ passed, profile }));
+    console.error(await js("JSON.stringify({visible:document.visibilityState,screen:document.querySelector('.xterm-screen')?.textContent,error:document.querySelector('.tool-error')?.textContent})").catch(String));
+    win.destroy(); try { await service.stop(); } catch (cleanup) { console.error(cleanup); } server.close(); app.exit(1);
+  }
 });

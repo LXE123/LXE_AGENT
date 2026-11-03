@@ -114,7 +114,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
     <div className="file-layout-main">{children}</div>
     {layout.shown && sessionId ? <>
       {!full ? <div className="file-preview-resizer" role="separator" tabIndex={0} aria-label={t.resize} aria-orientation="vertical" aria-valuenow={Math.round(width)} aria-valuemin={320} aria-valuemax={Math.max(320, room - 400)} onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); update(l => ({ ...l, width: Math.max(320, Math.min(room - 400, width + (e.key === "ArrowLeft" ? 20 : -20))) })); } }} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) update(l => ({ ...l, width: Math.max(320, Math.min(room - 400, (frame.current?.getBoundingClientRect().right ?? 0) - e.clientX)) })); }} onPointerUp={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }} /> : null}
-      <aside className="file-sidebar" tabIndex={-1} aria-label={t.toggle} onKeyDown={e => {
+      <aside className="file-sidebar tool-sidebar-theme" tabIndex={-1} aria-label={t.toggle} onKeyDown={e => {
         if (document.querySelector('[role="menu"], [role="dialog"]')) return;
         const mac = window.lxe?.desktop?.platform === "darwin" || /Mac/.test(navigator.platform);
         if (!(mac ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;

@@ -1368,7 +1368,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   const label = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
     : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued
     : row.status === "stopping" ? t.conversation.stopping : phaseLabel();
-  return <div aria-live={row.status === "error" ? "assertive" : "polite"} className={`live-progress-status state-${row.status}`}>
+  return <div aria-live={row.status === "error" ? "assertive" : "polite"} className={`live-progress-status conversation-chrome-theme state-${row.status}`}>
     {active ? <LoaderCircle className="conversation-spinner" size={13} /> : null}
     <span className="live-progress-label">{row.kind === "process" && row.status === "completed" ? t.conversation.processCompleted(elapsedMs >= 1_000 ? formatConversationDuration(elapsedMs) : "") : label}</span>
     {elapsedMs >= 1_000 && !(row.kind === "process" && row.status === "completed") ? <span className="live-progress-elapsed">{formatConversationDuration(elapsedMs)}</span> : null}
@@ -1393,7 +1393,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "answer_meta") return <div className="answer-footer">
     <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
   </div>;
-  if (row.kind === "process") return <button type="button" className="conversation-process-toggle"
+  if (row.kind === "process") return <button type="button" className="conversation-process-toggle conversation-chrome-theme"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>
     <ConversationStatus row={row} /><ChevronRight size={14} style={{transform: expanded ? "rotate(90deg)" : undefined}} />
   </button>;
@@ -1406,7 +1406,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     if (answers) return <UserQuestionSummary items={answers} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
-    return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
+    return <section className="tool-turn-group embedded single conversation-chrome-theme"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
       <button className="tool-op-summary" type="button" aria-expanded={expanded} onClick={() => onToggle(row.id)}>
         <span className="tool-op-name">{t.message.toolActions[operation.action]}</span><span className="tool-op-argument">{operation.target}</span>
         <span className="tool-status-icon" role="img" aria-label={statusLabel} title={statusLabel} data-tool-status={operation.status}>

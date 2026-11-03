@@ -11,18 +11,15 @@ export type DesktopAppearance = "light" | "dark";
  * macOS keeps its controls under the system's appearance and needs nothing
  * here. Windows takes the colour from us once and holds it, so a strip left at
  * the light theme's value stays light behind a dark page — matching the
- * renderer's `--bg` and `--text-soft` is what keeps it part of the window.
+ * renderer's `--cds-surface-chrome` and `--cds-secondary` keeps it part of the window.
  */
 export const DESKTOP_TITLEBAR_COLOURS: Record<DesktopAppearance, { color: string; symbolColor: string }> = {
-  light: { color: "#fafaf9", symbolColor: "#5d544a" },
-  dark: { color: "#242322", symbolColor: "#a89d90" },
+  light: { color: "#f7f7f6", symbolColor: "#52514e" },
+  dark: { color: "#1a1a19", symbolColor: "#bfbdb5" },
 };
 
-/** Match the renderer's page background and caption text in each theme. */
-export const WINDOWS_TITLEBAR_COLOURS: typeof DESKTOP_TITLEBAR_COLOURS = {
-  light: { color: "#fafaf9", symbolColor: "#5d544a" },
-  dark: { color: "#242322", symbolColor: "#cbc0b4" },
-};
+/** Native Windows caption buttons use the same chrome palette as the renderer. */
+export const WINDOWS_TITLEBAR_COLOURS = DESKTOP_TITLEBAR_COLOURS;
 
 type WindowAppearance = Pick<
   BrowserWindowConstructorOptions,

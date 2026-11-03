@@ -313,7 +313,8 @@ export const ZH_TEXT = {
   },
   workspaces: {
     delete: "删除工作区",
-    deletePrompt: (name: string) => "将把“" + name + "”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。",
+    deletePrompt: (name: string) => "将把“" + name + "”从工作区列表中移除。",
+    deleteNote: "文件夹与会话记录会保留，其会话将显示在“未分组”下。",
     deleting: "正在删除工作区…",
     ungrouped: "未分组",
     required: "请先选择工作区。",
@@ -1233,7 +1234,8 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     workspaces: {
       delete: "Delete workspace",
-      deletePrompt: (name: string) => "This removes “" + name + "” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.",
+      deletePrompt: (name: string) => "This removes “" + name + "” from the workspace list.",
+      deleteNote: "The folder and session logs will be kept. Its sessions will appear under Ungrouped.",
       deleting: "Deleting workspace…",
       ungrouped: "Ungrouped",
       required: "Select a workspace first.",
