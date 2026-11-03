@@ -21,21 +21,17 @@ from services.mabang.amazon.fba.replenishment_v2_formulas import replenishment_v
 from services.mabang.amazon.fba.replenishment_v2_settings import read_state as read_replenishment_v2_settings
 from services.mabang.amazon.fba.source_verification import (
     SHEET as SOURCE_VERIFICATION_SHEET,
-    load_verified_source,
-    read_report_metadata,
 )
 from services.mabang.amazon.fba.store_msku_actual_inventory import (
     ACTUAL_INVENTORY_QUANTITY_COLUMN,
     NO_INVENTORY_DATA_SHEET,
     NO_LOCAL_SKU_SHEET,
-    SOURCE_FILE_RE,
 )
 from services.mabang.amazon.fba.store_msku_replenishment import (
     parse_weight_grams,
-    validate_unlinked_shipments_snapshot_same_day,
 )
 from services.mabang.amazon.fba.combo_sku import normalize_sku_key
-from services.mabang.amazon.fba.unlinked_shipments import load_unlinked_shipment_quantities
+from .replenishment_inputs import ReplenishmentInputs
 from shared.datasets import dataset_dir
 from shared.office.execution import run_kit_bounded
 
@@ -93,8 +89,7 @@ class ReplenishmentV2WorkbookError(ValueError):
 
 @dataclass(frozen=True)
 class ReplenishmentV2WorkbookResult:
-    store_name: str
-    source_data_time: str
+    inputs: ReplenishmentInputs
     output_xlsx_path: str
     row_count: int
     formula_error_count: int
@@ -109,8 +104,8 @@ class ReplenishmentV2WorkbookResult:
     def to_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "success": self.success,
-            "store_name": self.store_name,
-            "source_data_time": self.source_data_time,
+            **self.inputs.to_payload(),
+            "version": "v2",
             "output_xlsx_path": self.output_xlsx_path,
             "row_count": self.row_count,
             "formula_error_count": self.formula_error_count,
@@ -142,13 +137,6 @@ def _text(value: Any) -> str:
         return ""
     text = str(value).strip()
     return "" if text.lower() == "nan" else text
-
-
-def _path(path: str | Path, *, label: str) -> Path:
-    value = Path(path).expanduser()
-    if not value.is_file():
-        raise FileNotFoundError(f"{label}不存在: {value}")
-    return value.resolve(strict=True)
 
 
 def _strict_number(value: Any, *, row_number: int, column: str) -> int | float:
@@ -184,15 +172,6 @@ def _optional_number(value: Any, *, context: str, allow_negative: bool = False) 
         requirement = "有限数" if allow_negative else "有限非负数"
         raise ReplenishmentV2WorkbookError(f"{context} 必须是{requirement}: {value!r}")
     return int(number) if number == number.to_integral_value() else float(number)
-
-
-def _source_time(source_path: Path) -> str:
-    match = SOURCE_FILE_RE.match(source_path.name)
-    if not match:
-        raise ReplenishmentV2WorkbookError(
-            f"MSKU 源文件名无法识别源数据时间: {source_path.name}"
-        )
-    return match.group("source_time")
 
 
 def _unique_source_rows(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -302,9 +281,7 @@ def _load_shenzhen_rows(
     return by_key
 
 
-def _shipment_quantities(path: Path, *, store_name: str, source_data_time: str) -> dict[str, int | float]:
-    validate_unlinked_shipments_snapshot_same_day(path, source_data_time)
-    quantities = load_unlinked_shipment_quantities(path, store_name=store_name)
+def _shipment_quantities(quantities: dict[str, float]) -> dict[str, int | float]:
     normalized: dict[str, int | float] = {}
     original_for_key: dict[str, str] = {}
     for raw_msku, quantity in quantities.items():
@@ -324,12 +301,12 @@ def _shipment_quantities(path: Path, *, store_name: str, source_data_time: str) 
 def _rows_for_workbook(
     records: list[dict[str, Any]],
     *,
+    source_keys: set[str],
     store_name: str,
     inventory_by_key: dict[str, ShenzhenInventoryRow],
     shipment_by_key: dict[str, int | float],
 ) -> list[dict[str, Any]]:
-    _, source_by_key = _unique_source_rows(records)
-    extra_shipments = shipment_by_key.keys() - source_by_key.keys()
+    extra_shipments = shipment_by_key.keys() - source_keys
     if extra_shipments:
         raise ReplenishmentV2WorkbookError(
             f"未关联货件快照含源表没有的 MSKU: {sorted(extra_shipments)[:10]!r}"
@@ -520,19 +497,14 @@ def _output_path(store_name: str, *, output_dir: str | Path | None) -> Path:
 
 
 def generate_replenishment_v2(
-    store_name: str,
+    inputs: ReplenishmentInputs,
     *,
-    msku_source_xlsx_path: str | Path,
-    shenzhen_inventory_report_xlsx_path: str | Path,
-    unlinked_shipments_snapshot_path: str | Path,
     output_dir: str | Path | None = None,
     peak_boost_enabled: bool | None = None,
     peak_boost_days: int | None = None,
 ) -> ReplenishmentV2WorkbookResult:
     """Validate same-batch offline inputs, then write and recalculate one workbook."""
-    clean_store_name = _text(store_name)
-    if not clean_store_name:
-        raise ReplenishmentV2WorkbookError("store_name 不能为空")
+    clean_store_name = inputs.store_name
     settings = read_replenishment_v2_settings()
     if peak_boost_enabled is not None and type(peak_boost_enabled) is not bool:
         raise ValueError("peak_boost_enabled must be a bool or None")
@@ -545,29 +517,13 @@ def generate_replenishment_v2(
         raise ValueError("启用旺季加成时必须填写加成天数（0～120的整数），或在本轮聊天中指定")
     replenishment_v2_formulas(2, peak_boost_enabled=enabled, peak_boost_days=days)
     settings = {"peak_boost_enabled": enabled, "peak_boost_days": days}
-    source_path = _path(msku_source_xlsx_path, label="MSKU 源文件")
-    inventory_path = _path(shenzhen_inventory_report_xlsx_path, label="深圳库存报告")
-    snapshot_path = _path(unlinked_shipments_snapshot_path, label="未关联货件快照")
-
-    verified_source = load_verified_source(source_path, store_name=clean_store_name)
-    inventory_metadata = read_report_metadata(inventory_path)
-    if inventory_metadata != verified_source.metadata:
-        raise ReplenishmentV2WorkbookError(
-            "深圳库存报告与本次 MSKU 源文件核验批次不一致；请使用同一源文件重新导出"
-        )
-    source_data_time = _source_time(source_path)
-    records, source_by_key = _unique_source_rows(verified_source.records)
-    inventory_by_key = _load_shenzhen_rows(
-        inventory_path,
-        expected_keys=set(source_by_key),
-    )
-    shipment_by_key = _shipment_quantities(
-        snapshot_path,
-        store_name=clean_store_name,
-        source_data_time=source_data_time,
-    )
+    records, source_by_key = _unique_source_rows(inputs.source.records)
+    source_keys = set(source_by_key)
+    inventory_by_key = _load_shenzhen_rows(inputs.inventory_path, expected_keys=source_keys)
+    shipment_by_key = _shipment_quantities(inputs.shipments)
     rows = _rows_for_workbook(
         records,
+        source_keys=source_keys,
         store_name=clean_store_name,
         inventory_by_key=inventory_by_key,
         shipment_by_key=shipment_by_key,
@@ -616,8 +572,7 @@ def generate_replenishment_v2(
         os.replace(recalculated_path, published_path)
 
     return ReplenishmentV2WorkbookResult(
-        store_name=clean_store_name,
-        source_data_time=source_data_time,
+        inputs=inputs,
         output_xlsx_path=str(published_path),
         row_count=len(rows),
         formula_error_count=formula_error_count,

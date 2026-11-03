@@ -1,12 +1,12 @@
 # Amazon V2 备货
 
-V1 和 V2 由 `replenishment-workflow-map` 统一编排，分别计算和交付。V1 使用原销量分析、筛选、算法及多 Sheet 模板；V2 保留全部 MSKU，生成 35 列的 `mskulist` 工作表。
+V1 和 V2 由 `replenishment-workflow-map` 统一编排，分别计算和交付。V1 在内部从源表计算销量指标，沿用原筛选、算法及多 Sheet 模板；V2 保留全部 MSKU，生成 35 列的 `mskulist` 工作表。
 
 ## 数据与命令
 
 两版复用同轮合格的 MSKU 源表、深圳真实库存报告和三类未关联货件快照。V2 生成阶段离线读取这三份文件，不重新获取数据。V1 的计算结果已经过滤过行，不能充当 V2 的原始输入。
 
-- `lxeskill replenish v2 generate`：公开生成命令，接受店铺名及三份文件路径；参数详情通过 `lxeskill describe replenish v2 generate` 查询。
+- `lxeskill replenish calculate --version v2`：统一生成命令，接受店铺名及三份文件路径；V1 使用相同参数并选择 `--version v1`；参数详情通过 `lxeskill describe replenish calculate` 查询。
 - `lxeskill replenish v2 settings`：供 Desktop 调用的 internal 命令，读写旺季设置。
 - 产物使用 `replenish_v2` dataset，目录为当前产物根下的 `replenish/v2/`；目录根由 lxeskillCLI 管理，可通过 `lxeskill datasets list` 查询。
 

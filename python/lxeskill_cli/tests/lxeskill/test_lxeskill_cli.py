@@ -718,3 +718,9 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
 def test_datasets_list_rejects_extra_arguments(capsys):
     assert lxeskill.main(["datasets", "list", "--unknown"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize("flag, expected", [("--enabled", True), ("--enabled=true", True), ("--enabled=false", False)])
+def test_boolean_flags_respect_explicit_values_for_any_command(flag, expected):
+    entry = {"name": "example", "input_schema": {"properties": {"enabled": {"type": "boolean"}}}}
+    assert lxeskill._arguments_from_flags(entry, [flag]) == {"enabled": expected}

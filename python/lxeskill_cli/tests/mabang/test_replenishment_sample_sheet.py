@@ -1,3 +1,4 @@
+from test_mabang_store_msku_replenishment import _read_sales_details
 from copy import deepcopy
 from dataclasses import replace
 
@@ -98,7 +99,7 @@ def test_numeric_strings_come_from_matching_sales_input(tmp_path):
         book.save(path)
     finally:
         book.close()
-    details = rep.load_sales_details(path)
+    details = _read_sales_details(path)
     key = ('SAMPLE-1', 'PARENT-SAMPLE', 'ASIN-S', 'SKU-S')
     inv = replace(_inventory_input_row('SAMPLE-1', fba_total_inventory=80),
                   parent_asin=key[1], asin=key[2], local_sku=key[3])

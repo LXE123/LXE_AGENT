@@ -24,7 +24,6 @@
   "fba-workflow-map": "FBA 流程导览",
   "replenishment-algorithm-config-manage": "Amazon 备货算法参数管理",
   "replenishment-amazon-restock-inventory-snapshot": "亚马逊补充库存报告解析",
-  "replenishment-calculate": "Amazon 备货建议计算",
   "mabang-store-msku-export": "Amazon 店铺 MSKU 数据下载",
   "mabang-store-shenzhen-inventory-export": "Amazon 备货深圳仓真实库存报告",
   "replenishment-sales-analyze": "Amazon 店铺销量分析",

@@ -90,12 +90,10 @@ def test_corrupt_confirmation_is_rejected(tmp_path, key, value):
         ship.load_unlinked_shipment_quantities(path, store_name="Amazon-Test")
 
 
-def test_empty_snapshot_cannot_be_renamed_or_used_for_another_store_or_day(tmp_path):
+def test_empty_snapshot_cannot_be_renamed_or_used_for_another_store(tmp_path):
     path = Path(build(tmp_path).snapshot_xlsx_path)
     with pytest.raises(RuntimeError, match="店铺不一致"):
         ship.load_unlinked_shipment_quantities(path, store_name="Other")
-    with pytest.raises(rep.StoreMskuReplenishmentError, match="日期不一致"):
-        rep.validate_unlinked_shipments_snapshot_same_day(path, "202605261800")
     other = tmp_path / path.name.replace("20260525", "20260526")
     other.write_bytes(path.read_bytes())
     with pytest.raises(RuntimeError, match="时间.*不一致"):
@@ -143,25 +141,24 @@ def test_snapshot_failure_preserves_previous_file(tmp_path, monkeypatch, existin
     assert not list(tmp_path.glob(".replenishment-*"))
 
 
-def test_later_confirmed_empty_supersedes_old_nonzero_in_calculation(tmp_path):
-    sales, inventory, snapshots = (tmp_path / name for name in ("sales", "inventory", "snapshots"))
-    _write_sales_report(sales / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
-    snapshots.mkdir()
-    ship.write_unlinked_shipments_snapshot([{"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 20}], [],
-                                          snapshots / "202605251200-Amazon-Test_未关联货件快照.xlsx")
-    zero = build(snapshots)
-    result = rep.calculate_store_msku_replenishment("Amazon-Test", sales_analysis_dir=sales,
-        actual_inventory_dir=inventory, output_dir=tmp_path / "reports", unlinked_shipments_snapshot_dir=snapshots)
-    assert result.unlinked_shipments_snapshot_path == zero.snapshot_xlsx_path
-    assert not result.unlinked_shipments_snapshot_warning
-    book = load_workbook(result.report_xlsx_path, data_only=True)
+def test_explicit_empty_snapshot_does_not_deduct_other_local_shipments(tmp_path):
+    from replenishment_cases import STORE, batch
+    from services.mabang.amazon.fba.replenishment_inputs import load_replenishment_inputs
+    source, inventory, _ = batch(tmp_path / "nonempty", shipment_rows=[("SEA",20)])
+    zero = batch(tmp_path / "empty")[2]
+    inputs = load_replenishment_inputs(STORE, msku_source_xlsx_path=source,
+        shenzhen_inventory_report_xlsx_path=inventory, unlinked_shipments_snapshot_path=zero)
+    result = rep.calculate_store_msku_replenishment(inputs, output_dir=tmp_path / "reports")
+    assert result.to_payload()["unlinked_shipments_snapshot_path"] == str(zero)
+    book = load_workbook(result.output_xlsx_path, data_only=True)
     try:
-        rows = list(book["最终备货意见"].iter_rows(min_row=2, values_only=True)); cols = {v:i for i,v in enumerate(rows[0])}
-        row = next(row for row in rows[1:] if row[cols["MSKU"]] == "AIR-1")
-        assert row[cols["未发出货件总计"]] == 0
-        assert row[cols["空运建议量"]] == 60
-    finally: book.close()
+        values = book["最终备货意见"].iter_rows(min_row=2, values_only=True)
+        headers = next(values)
+        row = dict(zip(headers, next(values)))
+        assert row["未发出货件总计"] == 0
+        assert row["海运建议量"] == 60
+    finally:
+        book.close()
 
 
 def test_cli_query_failure_does_not_build_snapshot(monkeypatch):

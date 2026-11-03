@@ -114,7 +114,7 @@ def cli(*arguments, expected=0):
     return terminals[0]
 
 
-def generate(inputs, *options, expected=0):
-    return cli("replenish", "v2", "generate", "--store-name", STORE,
+def generate(inputs, *options, expected=0, version="v2"):
+    return cli("replenish", "calculate", "--version", version, "--store-name", STORE,
                "--msku-source-xlsx-path", inputs[0], "--shenzhen-inventory-report-xlsx-path", inputs[1],
                "--unlinked-shipments-snapshot-path", inputs[2], *options, expected=expected)

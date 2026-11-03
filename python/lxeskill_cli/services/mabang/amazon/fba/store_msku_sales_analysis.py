@@ -265,7 +265,10 @@ def _append_metrics(row: dict[str, Any], metrics: SalesMetrics) -> dict[str, Any
     return row
 
 
-def _analyze_msku_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def analyze_msku_rows(records: list[dict[str, Any]], *, headers: list[str]) -> list[dict[str, Any]]:
+    missing = [column for column in REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise StoreMskuSalesAnalysisError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
     analyzed: list[dict[str, Any]] = []
     for record in records:
         row = dict(record)
@@ -438,10 +441,7 @@ def analyze_store_msku_sales(
     source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
     verified_source = load_verified_source(source.path, store_name=clean_store_name)
     original_headers, records = verified_source.headers, verified_source.records
-    missing = [column for column in REQUIRED_COLUMNS if column not in original_headers]
-    if missing:
-        raise StoreMskuSalesAnalysisError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
-    msku_rows = _analyze_msku_rows(records)
+    msku_rows = analyze_msku_rows(records, headers=original_headers)
     link_rows = _summarize_links(records)
     asin_rows = _summarize_asins(records)
 

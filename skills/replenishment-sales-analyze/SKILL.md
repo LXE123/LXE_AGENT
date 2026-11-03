@@ -31,9 +31,9 @@ lxeskill replenish sales analyze --store-name "<规范店铺名>"
 
 ## 结果与下一步
 
-- 成功记录 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time` 及参与范围，完整任务返回 `replenishment-workflow-map` 按已确定版本继续，单步交付报告。V1依赖本报告，V2不依赖。
+- 成功记录 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time` 及参与范围，完整任务返回 `replenishment-workflow-map` 按已确定版本继续，单步交付报告。备货计算直接使用 MSKU 源表，两版均不依赖本报告。
 - 源表必须具有新版源数据核验信息。MSKU、ASIN、链接三个维度均汇总完整 XLSX 的全部记录，包括库存和组合商品接口都未命中的记录；绑定核验只限制备货计算范围。
-- 隐藏源数据核验信息随报告传递，同源库存和计算依赖它。旧版无核验源表需重新下载，不能自动当成新版全量源表。
+- 隐藏源数据核验信息随报告传递，用于核对本报告来源。旧版无核验源表需重新下载，不能自动当成新版全量源表。
 - `data_is_stale=true` 时说明源时间；用户明确选择旧数据则尊重选择。完整任务默认重新采集，不能拿旧报告替代本轮结果。
 - CLI 报重复售卖项或输入冲突时保留真实错误，不自行去重、改表或补零。
 - 报告结构与字段解释按需读 [references/report.md](references/report.md)。

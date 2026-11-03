@@ -175,7 +175,7 @@ FAILURE_CASES = {
         ),
     ),
     "replenish calculate": (
-        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+        FailureCase({}, {"store_name": "", "version": None}, "version 必须为 v1 或 v2"),
     ),
     "replenish sales analyze": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),

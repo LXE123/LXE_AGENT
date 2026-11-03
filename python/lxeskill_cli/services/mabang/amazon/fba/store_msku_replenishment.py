@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from .report_staging import staged_report_path
-from .source_verification import product_key, unverified_reasons, read_report_metadata, require_matching_reports, stamp_report
+from .replenishment_inputs import ReplenishmentInputs
+from .store_msku_sales_analysis import analyze_msku_rows
+from .source_verification import product_key, unverified_reasons, read_report_metadata, stamp_report
 from .replenishment_formula_sheet import (
     FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
     ShippingFormulaInputs, cache_formula_values, shipping_quantities, source_number, write_formula_sheet,
@@ -42,54 +44,27 @@ from services.mabang.amazon.fba.replenishment_template import (
     validate_template,
 )
 from services.mabang.amazon.fba.store_msku_actual_inventory import (
-    ACTUAL_INVENTORY_FILE_SUFFIX,
     ACTUAL_INVENTORY_QUANTITY_COLUMN,
     COMBO_ACTUAL_INVENTORY_SHEET,
     STOCK_ACTUAL_INVENTORY_SHEET,
-)
-from services.mabang.amazon.fba.unlinked_shipments import (
-    DEFAULT_SNAPSHOT_DIR as DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
-)
-from services.mabang.amazon.fba.unlinked_shipments import (
-    load_unlinked_shipment_quantities,
 )
 from services.mabang.export_common import clean_text as _clean_text
 from services.mabang.export_common import safe_store_msku_file_part as _safe_file_part
 from shared.datasets import dataset_dir
 
 AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
-DEFAULT_SALES_ANALYSIS_DIR = dataset_dir("replenish_sales_analysis")
-DEFAULT_ACTUAL_INVENTORY_DIR = dataset_dir("replenish_actual_inventory")
 DEFAULT_OUTPUT_DIR = dataset_dir("replenish_calculation")
 SOURCE = "mabang_store_msku_replenishment"
 SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
 MABANG_FBA_TOTAL_COLUMN = "FBA 总库存（马帮数据）"
 PARAMETER_SCHEME_NAME_COLUMN = "参数方案名称"
-LEGACY_ACTUAL_INVENTORY_FILE_SUFFIX = "真实库存"
 LEGACY_ACTUAL_INVENTORY_QUANTITY_COLUMN = "真实库存数量"
 LEGACY_COMBO_ACTUAL_INVENTORY_SHEET = "真实库存-组合sku"
 LEGACY_STOCK_ACTUAL_INVENTORY_SHEET = "真实库存-库存sku"
 LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN = "链接真实库存（深圳仓库）汇总"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
-SALES_REPORT_SUFFIXES = ("销量分析", "sales_analysis")
-INVENTORY_REPORT_SUFFIXES = (ACTUAL_INVENTORY_FILE_SUFFIX, LEGACY_ACTUAL_INVENTORY_FILE_SUFFIX, "actual_inventory")
-UNLINKED_SNAPSHOT_SUFFIXES = ("未关联货件快照", "unlinked_shipments_snapshot")
 REPLENISHMENT_REPORT_SUFFIX = "备货建议"
-SALES_REPORT_RE = re.compile(
-    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in SALES_REPORT_SUFFIXES)})\.xlsx$",
-    re.IGNORECASE,
-)
-INVENTORY_REPORT_RE = re.compile(
-    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in INVENTORY_REPORT_SUFFIXES)})\.xlsx$",
-    re.IGNORECASE,
-)
-UNLINKED_SNAPSHOT_RE = re.compile(
-    rf"^(?P<snapshot_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in UNLINKED_SNAPSHOT_SUFFIXES)})\.xlsx$",
-    re.IGNORECASE,
-)
-UNLINKED_SNAPSHOT_MISSING_WARNING = "未找到与备货数据同日的未关联货件快照，本次未扣减未关联货件"
-UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING = "未找到与备货数据同日的未关联货件快照，已忽略非同日未关联货件快照，本次未扣减未关联货件"
 AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊物流库存]和未关联货件）"
 AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊补充库存]和未关联货件）"
 DETAIL_SHEET = "MSKU明细"
@@ -333,29 +308,6 @@ class StoreMskuReplenishmentError(ValueError):
 
 
 @dataclass(frozen=True)
-class ReportFile:
-    path: Path
-    source_data_time: str
-    source_datetime: datetime
-    suffix: str = ""
-
-
-@dataclass(frozen=True)
-class MatchedReports:
-    source_data_time: str
-    sales_analysis_path: Path
-    actual_inventory_path: Path
-
-
-@dataclass(frozen=True)
-class UnlinkedSnapshotFile:
-    path: Path
-    snapshot_time: str
-    snapshot_datetime: datetime
-    store_part: str
-
-
-@dataclass(frozen=True)
 class SalesDetail:
     trend: str
     weight_grams: float | None
@@ -470,10 +422,7 @@ class ReplenishmentRow:
 
 @dataclass(frozen=True)
 class StoreMskuReplenishmentResult:
-    store_name: str
-    source_data_time: str
-    sales_analysis_xlsx_path: str
-    actual_inventory_xlsx_path: str
+    inputs: ReplenishmentInputs
     template_name: str
     template_version: int
     row_count: int
@@ -484,9 +433,7 @@ class StoreMskuReplenishmentResult:
     clearance_count: int
     no_ship_count: int
     sample_insufficient_count: int
-    report_xlsx_path: str
-    unlinked_shipments_snapshot_path: str = ""
-    unlinked_shipments_snapshot_warning: str = ""
+    output_xlsx_path: str
     amazon_restock_inventory_snapshot_path: str = ""
     amazon_restock_inventory_validation: dict[str, Any] | None = None
     amazon_fba_inventory_snapshot_path: str = ""
@@ -497,10 +444,8 @@ class StoreMskuReplenishmentResult:
     def to_payload(self) -> dict[str, Any]:
         payload = {
             "success": True,
-            "store_name": self.store_name,
-            "source_data_time": self.source_data_time,
-            "sales_analysis_xlsx_path": self.sales_analysis_xlsx_path,
-            "actual_inventory_xlsx_path": self.actual_inventory_xlsx_path,
+            **self.inputs.to_payload(),
+            "version": "v1",
             "template_name": self.template_name,
             "template_version": self.template_version,
             "row_count": self.row_count,
@@ -511,14 +456,10 @@ class StoreMskuReplenishmentResult:
             "clearance_count": self.clearance_count,
             "no_ship_count": self.no_ship_count,
             "sample_insufficient_count": self.sample_insufficient_count,
-            "report_xlsx_path": self.report_xlsx_path,
+            "output_xlsx_path": self.output_xlsx_path,
             "source": self.source,
             **self.binding_counts,
         }
-        if self.unlinked_shipments_snapshot_path:
-            payload["unlinked_shipments_snapshot_path"] = self.unlinked_shipments_snapshot_path
-        if self.unlinked_shipments_snapshot_warning:
-            payload["unlinked_shipments_snapshot_warning"] = self.unlinked_shipments_snapshot_warning
         if self.amazon_restock_inventory_snapshot_path:
             payload["amazon_restock_inventory_snapshot_path"] = self.amazon_restock_inventory_snapshot_path
         if self.amazon_restock_inventory_validation:
@@ -530,36 +471,8 @@ class StoreMskuReplenishmentResult:
         return payload
 
 
-def _safe_unlinked_snapshot_store_part(value: Any) -> str:
-    text = _clean_text(value)
-    text = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", text)
-    text = re.sub(r"\s+", "_", text)
-    return text.strip(" ._-") or "store"
-
-
-def normalize_store_name(value: Any) -> str:
-    store_name = _clean_text(value)
-    if not store_name:
-        raise ValueError("store_name 不能为空")
-    return store_name
-
-
 def _configured_path(name: str, default: Path) -> Path:
     return mabang_settings.configured_path(name, default)
-
-
-def _sales_analysis_dir(input_dir: str | Path | None = None) -> Path:
-    return Path(input_dir) if input_dir is not None else _configured_path(
-        "MABANG_STORE_MSKU_ANALYSIS_OUTPUT_DIR",
-        DEFAULT_SALES_ANALYSIS_DIR,
-    )
-
-
-def _actual_inventory_dir(input_dir: str | Path | None = None) -> Path:
-    return Path(input_dir) if input_dir is not None else _configured_path(
-        "MABANG_STORE_MSKU_INVENTORY_OUTPUT_DIR",
-        DEFAULT_ACTUAL_INVENTORY_DIR,
-    )
 
 
 def _output_dir(output_dir: str | Path | None = None) -> Path:
@@ -569,13 +482,6 @@ def _output_dir(output_dir: str | Path | None = None) -> Path:
     )
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _unlinked_shipments_snapshot_dir(input_dir: str | Path | None = None) -> Path:
-    return Path(input_dir) if input_dir is not None else _configured_path(
-        "MABANG_FBA_UNLINKED_SHIPMENTS_SNAPSHOT_DIR",
-        DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
-    )
 
 
 def _number(value: Any) -> float:
@@ -667,118 +573,6 @@ def _product_url_prefix(value: Any, asin: Any) -> str:
     return url[: slash_index + 1]
 
 
-def _parse_report_file(path: Path, pattern: re.Pattern[str]) -> ReportFile | None:
-    match = pattern.match(path.name)
-    if not match:
-        return None
-    source_data_time = match.group("source_time")
-    try:
-        source_datetime = datetime.strptime(source_data_time, "%Y%m%d%H%M")
-    except ValueError:
-        return None
-    suffix_match = re.match(r"^\d{12}-.+_(?P<suffix>.+)\.xlsx$", path.name, re.IGNORECASE)
-    suffix = suffix_match.group("suffix") if suffix_match else ""
-    return ReportFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime, suffix=suffix)
-
-
-def _parse_unlinked_snapshot_file(path: Path) -> UnlinkedSnapshotFile | None:
-    match = UNLINKED_SNAPSHOT_RE.match(path.name)
-    if not match:
-        return None
-    snapshot_time = match.group("snapshot_time")
-    try:
-        snapshot_datetime = datetime.strptime(snapshot_time, "%Y%m%d%H%M")
-    except ValueError:
-        return None
-    return UnlinkedSnapshotFile(
-        path=path,
-        snapshot_time=snapshot_time,
-        snapshot_datetime=snapshot_datetime,
-        store_part=match.group("store"),
-    )
-
-
-def _find_report_files(directory: Path, pattern: re.Pattern[str], safe_store_name: str) -> list[ReportFile]:
-    if not directory.is_dir():
-        return []
-    reports: list[ReportFile] = []
-    for path in directory.glob(f"*-{safe_store_name}_*.xlsx"):
-        parsed = _parse_report_file(path, pattern)
-        if parsed is not None:
-            reports.append(parsed)
-    return reports
-
-
-def _report_suffix_priority(report: ReportFile, suffixes: tuple[str, ...]) -> int:
-    try:
-        return suffixes.index(report.suffix)
-    except ValueError:
-        return len(suffixes)
-
-
-def _best_reports_by_time(reports: list[ReportFile], suffixes: tuple[str, ...]) -> dict[str, ReportFile]:
-    result: dict[str, ReportFile] = {}
-    for report in sorted(
-        reports,
-        key=lambda item: (
-            item.source_data_time,
-            -_report_suffix_priority(item, suffixes),
-            item.path.name,
-        ),
-    ):
-        current = result.get(report.source_data_time)
-        if current is None or _report_suffix_priority(report, suffixes) < _report_suffix_priority(current, suffixes):
-            result[report.source_data_time] = report
-    return result
-
-
-def find_same_day_unlinked_shipments_snapshot(
-    store_name: str,
-    source_data_time: str,
-    *,
-    snapshot_dir: str | Path | None = None,
-) -> tuple[Path | None, str]:
-    source_date = _clean_text(source_data_time)[:8]
-    clean_store_name = normalize_store_name(store_name)
-    expected_store_part = _safe_unlinked_snapshot_store_part(clean_store_name)
-    directory = _unlinked_shipments_snapshot_dir(snapshot_dir)
-    if not directory.is_dir():
-        return None, UNLINKED_SNAPSHOT_MISSING_WARNING
-
-    candidates: list[UnlinkedSnapshotFile] = []
-    ignored_dates: list[UnlinkedSnapshotFile] = []
-    for path in directory.glob(f"*-{expected_store_part}_*.xlsx"):
-        parsed = _parse_unlinked_snapshot_file(path)
-        if parsed is None or parsed.store_part != expected_store_part:
-            continue
-        if parsed.snapshot_time[:8] == source_date:
-            candidates.append(parsed)
-        else:
-            ignored_dates.append(parsed)
-
-    if candidates:
-        selected = sorted(candidates, key=lambda item: item.snapshot_time, reverse=True)[0]
-        return selected.path, ""
-    if ignored_dates:
-        return None, UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING
-    return None, UNLINKED_SNAPSHOT_MISSING_WARNING
-
-
-def validate_unlinked_shipments_snapshot_same_day(path: str | Path, source_data_time: str) -> Path:
-    source_date = _clean_text(source_data_time)[:8]
-    snapshot_path = Path(path)
-    parsed = _parse_unlinked_snapshot_file(snapshot_path)
-    if parsed is None:
-        raise StoreMskuReplenishmentError(f"未关联货件快照文件名无法识别日期: {snapshot_path}")
-    snapshot_date = parsed.snapshot_time[:8]
-    if snapshot_date != source_date:
-        raise StoreMskuReplenishmentError(
-            f"未关联货件快照日期与备货数据日期不一致: source_date={source_date}, "
-            f"snapshot_date={snapshot_date}, path={snapshot_path}"
-        )
-    return snapshot_path
-
-
 def validate_amazon_fba_inventory_snapshot_date(snapshot_date: str, source_data_time: str) -> None:
     clean_snapshot_date = _clean_text(snapshot_date)
     source_date = _clean_text(source_data_time)[:8]
@@ -797,34 +591,6 @@ def validate_amazon_fba_inventory_snapshot_date(snapshot_date: str, source_data_
             "亚马逊物流库存快照日期与备货数据日期相差超过1天: "
             f"snapshot_date={clean_snapshot_date}, source_data_date={source_date}"
         )
-
-
-def find_matching_report_files(
-    store_name: str,
-    *,
-    sales_analysis_dir: str | Path | None = None,
-    actual_inventory_dir: str | Path | None = None,
-) -> MatchedReports:
-    clean_store_name = normalize_store_name(store_name)
-    safe_store_name = _safe_file_part(clean_store_name)
-    sales_reports = _find_report_files(_sales_analysis_dir(sales_analysis_dir), SALES_REPORT_RE, safe_store_name)
-    inventory_reports = _find_report_files(_actual_inventory_dir(actual_inventory_dir), INVENTORY_REPORT_RE, safe_store_name)
-    sales_by_time = _best_reports_by_time(sales_reports, SALES_REPORT_SUFFIXES)
-    inventory_by_time = _best_reports_by_time(inventory_reports, INVENTORY_REPORT_SUFFIXES)
-    common_times = sorted(set(sales_by_time) & set(inventory_by_time), reverse=True)
-    if not common_times:
-        sales_times = ", ".join(sorted(sales_by_time, reverse=True)[:5]) or "无"
-        inventory_times = ", ".join(sorted(inventory_by_time, reverse=True)[:5]) or "无"
-        raise StoreMskuReplenishmentError(
-            f"未找到同源时间的销量分析和真实库存（深圳仓库）报表: store={clean_store_name}, "
-            f"sales_times={sales_times}, inventory_times={inventory_times}"
-        )
-    source_data_time = common_times[0]
-    return MatchedReports(
-        source_data_time=source_data_time,
-        sales_analysis_path=sales_by_time[source_data_time].path,
-        actual_inventory_path=inventory_by_time[source_data_time].path,
-    )
 
 
 def _headers_and_rows(xlsx_path: str | Path, sheet_name: str) -> tuple[list[str], list[dict[str, Any]]]:
@@ -954,17 +720,16 @@ def parse_weight_grams(value: Any) -> float | None:
     return number if number > 0 else None
 
 
-def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str], SalesDetail]:
-    source_path = Path(xlsx_path)
-    headers, records = _headers_and_rows(source_path, DETAIL_SHEET)
-    _require_columns(headers, SALES_REQUIRED_COLUMNS, path=source_path, sheet_name=DETAIL_SHEET)
-    _require_columns(headers, SOURCE_VALUE_COLUMNS, path=source_path, sheet_name=DETAIL_SHEET)
+def sales_details_from_records(records: list[dict[str, Any]]) -> dict[tuple[str, str, str, str], SalesDetail]:
     details: dict[tuple[str, str, str, str], SalesDetail] = {}
     for record in records:
+        missing = [column for column in (*SALES_REQUIRED_COLUMNS, *SOURCE_VALUE_COLUMNS) if column not in record]
+        if missing:
+            raise StoreMskuReplenishmentError(f"MSKU源数据缺少列: {', '.join(dict.fromkeys(missing))}")
         key = _row_key(record)
         if key in details:
             raise StoreMskuReplenishmentError(
-                f"销量分析MSKU明细存在重复行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
+                f"MSKU源数据存在重复行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
             )
         source_values = {
             column: source_number(record.get(column), context=f"MSKU={key[0]}, column={column}")
@@ -1447,7 +1212,7 @@ def calculate_replenishment_rows(
         sales_detail = sales_details.get(key)
         if sales_detail is None:
             raise StoreMskuReplenishmentError(
-                f"销量分析MSKU明细缺少匹配行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
+                f"MSKU源数据缺少匹配行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
             )
         replenishment_row = calculate_replenishment_row(
             row,
@@ -1723,47 +1488,19 @@ def _shortage_sort_key(row: dict[str, Any]) -> tuple[float, str, str]:
 
 
 def calculate_store_msku_replenishment(
-    store_name: str,
+    inputs: ReplenishmentInputs,
     *,
     template_name: str | None = None,
-    sales_analysis_dir: str | Path | None = None,
-    actual_inventory_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
-    unlinked_shipments_snapshot_path: str | Path | None = None,
-    unlinked_shipments_snapshot_dir: str | Path | None = None,
     amazon_restock_inventory_snapshot_path: str | Path | None = None,
     amazon_fba_inventory_snapshot_path: str | Path | None = None,
 ) -> StoreMskuReplenishmentResult:
-    clean_store_name = normalize_store_name(store_name)
+    clean_store_name = inputs.store_name
     template = validate_template(get_template(template_name or DEFAULT_TEMPLATE_NAME)).template
-    reports = find_matching_report_files(
-        clean_store_name,
-        sales_analysis_dir=sales_analysis_dir,
-        actual_inventory_dir=actual_inventory_dir,
-    )
-    source_metadata = require_matching_reports(reports.sales_analysis_path, reports.actual_inventory_path, store_name=clean_store_name)
-    inventory_rows = load_inventory_rows(reports.actual_inventory_path)
+    inventory_rows = load_inventory_rows(inputs.inventory_path)
     if not inventory_rows:
         raise StoreMskuReplenishmentError("无可计算记录：没有通过绑定核验且具备库存数据的 MSKU")
-    sales_details = load_sales_details(reports.sales_analysis_path)
-    requested_snapshot_path = _clean_text(unlinked_shipments_snapshot_path)
-    unlinked_snapshot_warning = ""
-    if requested_snapshot_path:
-        selected_snapshot_path: Path | None = validate_unlinked_shipments_snapshot_same_day(
-            requested_snapshot_path,
-            reports.source_data_time,
-        )
-    else:
-        selected_snapshot_path, unlinked_snapshot_warning = find_same_day_unlinked_shipments_snapshot(
-            clean_store_name,
-            reports.source_data_time,
-            snapshot_dir=unlinked_shipments_snapshot_dir,
-        )
-    unlinked_quantities = (
-        load_unlinked_shipment_quantities(selected_snapshot_path, store_name=clean_store_name)
-        if selected_snapshot_path
-        else {}
-    )
+    sales_details = sales_details_from_records(analyze_msku_rows(inputs.source.records, headers=inputs.source.headers))
     requested_amazon_restock_snapshot_path = _clean_text(amazon_restock_inventory_snapshot_path)
     amazon_restock_snapshot_data = (
         load_amazon_restock_inventory_snapshot(requested_amazon_restock_snapshot_path, store_name=clean_store_name)
@@ -1773,7 +1510,7 @@ def calculate_store_msku_replenishment(
     if amazon_restock_snapshot_data is not None:
         validate_amazon_fba_inventory_snapshot_date(
             amazon_restock_snapshot_data.snapshot_date,
-            reports.source_data_time,
+            inputs.source_data_time,
         )
     requested_amazon_snapshot_path = _clean_text(amazon_fba_inventory_snapshot_path)
     amazon_snapshot_data = (
@@ -1784,13 +1521,13 @@ def calculate_store_msku_replenishment(
     if amazon_snapshot_data is not None:
         validate_amazon_fba_inventory_snapshot_date(
             amazon_snapshot_data.snapshot_date,
-            reports.source_data_time,
+            inputs.source_data_time,
         )
     replenishment_rows = calculate_replenishment_rows(
         inventory_rows,
         sales_details,
         template,
-        unlinked_quantities,
+        inputs.shipments,
         amazon_restock_inventory_quantities=(
             amazon_restock_snapshot_data.quantities_by_msku
             if amazon_restock_snapshot_data is not None
@@ -1802,19 +1539,15 @@ def calculate_store_msku_replenishment(
             else None
         ),
     )
-    report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
+    report_path = _output_dir(output_dir) / f"{inputs.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(
-        replenishment_rows, report_path, source_metadata=source_metadata,
-        missing_unlinked_snapshot=bool(unlinked_snapshot_warning),
+        replenishment_rows, report_path, source_metadata=inputs.source.metadata,
     )
     summary_rows = summarize_links(replenishment_rows)
 
     return StoreMskuReplenishmentResult(
-        binding_counts={key: source_metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")},
-        store_name=clean_store_name,
-        source_data_time=reports.source_data_time,
-        sales_analysis_xlsx_path=str(reports.sales_analysis_path),
-        actual_inventory_xlsx_path=str(reports.actual_inventory_path),
+        binding_counts={key: inputs.source.metadata[key] for key in ("original_row_count", "binding_verified_row_count", "binding_unverified_row_count")},
+        inputs=inputs,
         template_name=template.name,
         template_version=template.version,
         row_count=len(replenishment_rows),
@@ -1825,9 +1558,7 @@ def calculate_store_msku_replenishment(
         clearance_count=sum(1 for row in replenishment_rows if row.sheet_name == CLEARANCE_SHEET),
         no_ship_count=sum(1 for row in replenishment_rows if row.sheet_name == NO_SHIP_SHEET),
         sample_insufficient_count=sum(1 for row in replenishment_rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET),
-        report_xlsx_path=str(report_path),
-        unlinked_shipments_snapshot_path=str(selected_snapshot_path or ""),
-        unlinked_shipments_snapshot_warning=unlinked_snapshot_warning,
+        output_xlsx_path=str(report_path),
         amazon_restock_inventory_snapshot_path=requested_amazon_restock_snapshot_path,
         amazon_restock_inventory_validation=(
             amazon_restock_snapshot_data.validation.to_payload()
@@ -1856,18 +1587,13 @@ __all__ = [
     "NO_SHIP_SHEET",
     "REPORT_SHEETS",
     "SAMPLE_INSUFFICIENT_SHEET",
-    "SALES_REPORT_SUFFIXES",
     "SEA_SHEET",
-    "INVENTORY_REPORT_SUFFIXES",
     "REPLENISHMENT_REPORT_SUFFIX",
     "SOURCE",
     "SOURCE_FBA_TOTAL_COLUMN",
     "MABANG_FBA_TOTAL_COLUMN",
     "SUMMARY_COLUMNS",
     "SUMMARY_SHEET",
-    "UNLINKED_SNAPSHOT_SUFFIXES",
-    "UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING",
-    "UNLINKED_SNAPSHOT_MISSING_WARNING",
     "InventoryInputRow",
     "ReplenishmentRow",
     "SalesDetail",
@@ -1876,15 +1602,11 @@ __all__ = [
     "calculate_replenishment_row",
     "calculate_replenishment_rows",
     "calculate_store_msku_replenishment",
-    "find_matching_report_files",
-    "find_same_day_unlinked_shipments_snapshot",
     "inventory_shortage_rows",
     "load_inventory_rows",
-    "load_sales_details",
-    "normalize_store_name",
+    "sales_details_from_records",
     "parse_weight_grams",
     "summarize_links",
     "validate_amazon_fba_inventory_snapshot_date",
-    "validate_unlinked_shipments_snapshot_same_day",
     "write_replenishment_report",
 ]

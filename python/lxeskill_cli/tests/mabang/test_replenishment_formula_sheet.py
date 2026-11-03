@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from test_mabang_store_msku_replenishment import _read_sales_details
+
 import math
 import shutil
 import subprocess
@@ -169,12 +171,12 @@ def test_source_values_are_not_silently_zeroed(tmp_path, value):
     book.save(path)
     book.close()
     with pytest.raises(ValueError, match="备货公式输入无效"):
-        rep.load_sales_details(path)
+        _read_sales_details(path)
 
 
 def test_load_source_columns_and_detect_missing_columns(tmp_path):
     path = _write_sales_report(tmp_path / "source.xlsx")
-    details = rep.load_sales_details(path)
+    details = _read_sales_details(path)
     first = next(iter(details.values()))
     assert first.source_values["90天销量"] == 540
     assert first.source_values["待调仓"] == 0.0
@@ -184,12 +186,12 @@ def test_load_source_columns_and_detect_missing_columns(tmp_path):
     book.save(path)
     book.close()
     with pytest.raises(ValueError, match="90天销量"):
-        rep.load_sales_details(path)
+        _read_sales_details(path)
 
 
 def test_source_stock_total_must_match_inventory_report(tmp_path):
     path = _write_sales_report(tmp_path / "source.xlsx")
-    details = rep.load_sales_details(path)
+    details = _read_sales_details(path)
     row = replace(_inventory_input_row("SEA-1", fba_total_inventory=999), parent_asin="PARENT-SEA", asin="ASIN-SEA", local_sku="COMBO-SEA")
     with pytest.raises(ValueError, match="库存分项与真实库存报表不一致"):
         rep.calculate_replenishment_rows([row], details)

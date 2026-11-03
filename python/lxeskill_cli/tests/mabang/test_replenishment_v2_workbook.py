@@ -111,7 +111,7 @@ def test_cli_rejects_inconsistent_inputs_without_publishing(tmp_path, problem, d
 
 def test_wrong_scope_and_wrong_store_do_not_deliver_a_workbook(tmp_path, monkeypatch):
     inputs = batch(tmp_path)
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-calculate")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-sales-analyze")
     blocked = generate(inputs, expected=3)
     assert blocked["error"]["code"] == "skill_not_in_scope" and blocked["files"] == []
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
@@ -168,19 +168,16 @@ def test_office_process_failure_preserves_output_and_actual_diagnostic(tmp_path,
 def test_same_files_still_work_for_v1_when_v2_inventory_is_unknown(tmp_path, monkeypatch, office):
     artifact_root = tmp_path / ".lxeagent/artifacts/replenish"
     inputs = batch(artifact_root)
-    for key, folder in (("MABANG_STORE_MSKU_OUTPUT_DIR", "store_msku"),
-                        ("MABANG_STORE_MSKU_ANALYSIS_OUTPUT_DIR", "sales"),
-                        ("MABANG_STORE_MSKU_INVENTORY_OUTPUT_DIR", "actual_inventory"),
-                        ("MABANG_STORE_MSKU_REPLENISHMENT_OUTPUT_DIR", "v1")):
-        monkeypatch.setenv(key, str(artifact_root / folder))
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-sales-analyze")
-    assert cli("replenish", "sales", "analyze", "--store-name", STORE)["ok"]
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-calculate")
-    v1 = cli("replenish", "calculate", "--store-name", STORE, "--unlinked-shipments-snapshot", inputs[2])
+    v1 = generate(inputs, version="v1")
+    for key, path in zip(("msku_source_xlsx_path", "shenzhen_inventory_report_xlsx_path", "unlinked_shipments_snapshot_path"), inputs):
+        assert v1["data"][key] == str(path)
+    assert v1["data"]["version"] == "v1"
     artifact = Path(v1["files"][0])
     original = artifact.read_bytes()
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
     edit_cell(inputs[1], "真实库存（深圳仓库）数量", None, sheet="真实库存（深圳仓库）-库存sku")
     result = generate(inputs)
     assert result["ok"] and result["data"]["unknown_inventory_count"] == 1
+    assert result["data"]["version"] == "v2"
+    assert [result["data"][key] for key in ("msku_source_xlsx_path", "shenzhen_inventory_report_xlsx_path", "unlinked_shipments_snapshot_path")] == list(map(str, inputs))
     assert artifact.read_bytes() == original
