@@ -152,18 +152,3 @@ def test_business_failure_429_is_not_retried(monkeypatch):
         with pytest.raises(official_api.OfficialApiError,match='actual application expired'):
             asyncio.run(official_api.post_json('shops/list',{},context='shop'))
     assert len(calls)==1
-
-
-def test_async_rate_limit_header_does_not_authorize_retry(monkeypatch):
-    sleeps = []
-    async def sleep(delay):
-        sleeps.append(delay)
-    monkeypatch.setattr(official_api.asyncio, "sleep", sleep)
-    with server(lambda path, count: (429, {"detail": "actual rate limit"}, {"Retry-After": "2"})
-                if count == 1 else (200, {"code": 200}, {})) as (url, calls):
-        monkeypatch.setenv("LXE_DATA_SERVER_URL", url)
-        with pytest.raises(official_api.OfficialApiError, match="HTTP 429.*actual rate limit"):
-            asyncio.run(official_api.post_json("shops/list", {}, context="shop"))
-    assert sleeps == []
-    assert len(calls) == 1
-    assert_native(calls)

@@ -4,7 +4,7 @@ V1 和 V2 由 `replenishment-workflow-map` 统一编排，分别计算和交付�
 
 ## 数据与命令
 
-两版复用同轮合格的 MSKU 源表、深圳真实库存报告和三类未关联货件快照。V2 生成阶段离线读取这三份文件，不重新取数。V1 的计算结果已经过滤过行，不能充当 V2 的原始输入。
+两版复用同轮合格的 MSKU 源表、深圳真实库存报告和三类未关联货件快照。V2 生成阶段离线读取这三份文件，不重新获取数据。V1 的计算结果已经过滤过行，不能充当 V2 的原始输入。
 
 - `lxeskill replenish v2 generate`：公开生成命令，接受店铺名及三份文件路径；参数详情通过 `lxeskill describe replenish v2 generate` 查询。
 - `lxeskill replenish v2 settings`：供 Desktop 调用的 internal 命令，读写旺季设置。
@@ -38,15 +38,12 @@ V2 尚未发布，按首次发布设计：配置只存一份 `skill-data/amazon-
 从仓库根目录使用本 checkout 独立的 uv 环境执行：
 
 ```sh
-uv run --frozen pytest python/lxeskill_cli/tests/mabang/test_replenishment_v2_formulas.py python/lxeskill_cli/tests/mabang/test_replenishment_v2_settings.py python/lxeskill_cli/tests/mabang/test_replenishment_v2_workbook.py python/lxeskill_cli/tests/mabang/test_replenishment_v2_shenzhen_delivery.py python/lxeskill_cli/tests/mabang/test_replenishment_versions.py python/lxeskill_cli/tests/lxeskill/test_replenishment_v2_settings_cli.py
+uv run --frozen pytest python/lxeskill_cli/tests/mabang/test_replenishment_v2_formulas.py python/lxeskill_cli/tests/mabang/test_replenishment_v2_settings.py python/lxeskill_cli/tests/mabang/test_replenishment_v2_workbook.py python/lxeskill_cli/tests/mabang/test_replenishment_inputs.py python/lxeskill_cli/tests/mabang/test_replenishment_http.py
+bun test apps/desktop/test/amazon-v2-settings.test.ts
 ```
 
-公式测试需要 LibreOffice，完整工作簿测试还需要当前 checkout 的 Office Kit 运行时。缺失导致的跳过不能算作重算通过。测试应检查实际返回值、CLI 终态、文件状态和重算数值，不通过扫描源码或复述公式文本证明业务正确。
+公式和工作簿测试需要当前 checkout 的 Office Kit 运行时，通过 `LXE_OFFICE_NODE`、`LXE_OFFICE_CLI` 指定。缺失导致的跳过不能算作重算通过。
+
+测试直接检查公式重算数值、真实 CLI 终态与交付文件、配置保存后的磁盘状态，以及回环 HTTP 的请求和响应。工作簿测试还会修改已交付表格的销量再重算，确认建议随输入变化。网络替身只用于外部接口和凭据获取，业务流程及 Office 不替换为 Mock。桌面设置服务真正启动 CLI；页面交互和 IPC 宿主胶水记录实际客户端冒烟结果。
 
 具体提交的验证结果记录在 PR。离线测试与 Office 重算不代表真实模型选路、生产 ERP、完整桌面聊天、外部附件发送、原生 Windows 或 Microsoft Excel 已验收。
-
-## 本轮交接（2026-11-02）
-
-- PR #117 工作区 `codex/amazon-replenishment-unification`，本轮基于 `11b1094d`。`official_api.py` 对已收到 403/429 后读取正文失败的请求停止重试，保留状态与实际异常；`test_sku_catalog_session.py` 补充该调用链及已结束会话的回归。
-- 从仓库根目录用当前 checkout 的 uv 环境运行网络、认证和会话测试 119 项通过；使用本地 Office Kit 的取数及双版本测试 40 项通过。会话测试移除状态判断的内存故障注入按预期失败。
-- 使用 `LXE_OFFICE_NODE`、`LXE_OFFICE_CLI` 指向本地桌面运行时；本机 HTTP 测试只使用回环地址。生产 ERP 和真实文件发送未验证，后续由维护者审查。

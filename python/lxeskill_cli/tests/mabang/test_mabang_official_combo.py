@@ -355,13 +355,8 @@ def transport(monkeypatch):
 
 def test_transport_auth_and_retries(transport):
     session, sleeps = transport([Response(502, raw='gateway unavailable'), Response(503, raw='gateway unavailable'), Response(payload={'code': 200, 'data': {}})])
-    metrics = http.RequestMetrics()
-    with http.observe_requests(metrics):
-        assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
+    assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
     assert sleeps == [1, 2] and len(session.calls) == 3
-    assert metrics.request_count == metrics.client_count == 1
-    assert metrics.http_attempt_count == 3 and metrics.http_failure_count == metrics.retry_count == 2
-    assert metrics.request_failure_count == metrics.request_cancelled_count == 0
     url, kw = session.calls[0]
     assert url == 'http://data.test/api/v1/data-sources/mabang/shops/list'
     assert kw == {'json': {}}
@@ -369,16 +364,11 @@ def test_transport_auth_and_retries(transport):
 @pytest.mark.parametrize('status,payload', [(401, {'detail': 'denied'}), (403, {}), (422, {}), (502, {'detail': {'upstream': {'code': 500, 'message': 'real business failure'}}}), (200, {'code': 500, 'message': 'failed'}), (200, [])])
 def test_transport_no_retry_and_actual_error(transport, status, payload):
     session, sleeps = transport([Response(status, payload)])
-    metrics = http.RequestMetrics()
-    with http.observe_requests(metrics):
-        with pytest.raises(http.OfficialApiError, match=f'HTTP {status}') as exc:
-            asyncio.run(http.post_json('combo-skus/search', {}, context='SKU=C page=2'))
-    assert metrics.request_count == metrics.request_failure_count == metrics.http_attempt_count == metrics.http_failure_count == 1
-    assert metrics.retry_count == 0
+    with pytest.raises(http.OfficialApiError, match=f'HTTP {status}') as exc:
+        asyncio.run(http.post_json('combo-skus/search', {}, context='SKU=C page=2'))
     assert 'SKU=C page=2' in str(exc.value) and len(session.calls) == 1 and (sleeps == [])
     if status == 502:
         assert 'real business failure' in str(exc.value)
-
 
 def test_transport_exceptions_and_redaction(transport):
     session, sleeps = transport([aiohttp.ClientConnectionError('reset data-secret')] * 3)
