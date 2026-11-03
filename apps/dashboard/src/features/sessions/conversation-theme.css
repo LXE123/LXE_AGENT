@@ -1,5 +1,42 @@
 @import "../../shared/cds-theme.css";
 
+/* Tool chrome shares CDS surfaces and ink. Syntax colors belong to the shared
+   conversation code palette in styles.css, independent of these UI tokens. */
+.tool-turn-group.conversation-chrome-theme .tool-op-name {
+  color: var(--cds-muted);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-argument {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:is(:hover, :focus-visible) {
+  background: transparent;
+}
+.tool-turn-group.conversation-chrome-theme .tool-op:not(.state-error) .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-name {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-argument {
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op.state-error .tool-op-name,
+.tool-turn-group.conversation-chrome-theme .result-block.error .block-title-main {
+  color: var(--danger);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-body {
+  background: var(--cds-surface-panel);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button {
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button:is(:hover, :focus-visible) {
+  border-color: var(--cds-alpha-3);
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme :is(.tool-op-summary, .tool-result-button):focus-visible {
+  outline-color: var(--cds-accent);
+}
+
 /* Process disclosures use color feedback with the ordinary arrow cursor.
    Keep error text semantic, including while the disclosure is hovered. */
 .live-progress-status.conversation-chrome-theme,

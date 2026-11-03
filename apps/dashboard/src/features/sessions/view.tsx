@@ -1406,7 +1406,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     if (answers) return <UserQuestionSummary items={answers} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
-    return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
+    return <section className="tool-turn-group embedded single conversation-chrome-theme"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
       <button className="tool-op-summary" type="button" aria-expanded={expanded} onClick={() => onToggle(row.id)}>
         <span className="tool-op-name">{t.message.toolActions[operation.action]}</span><span className="tool-op-argument">{operation.target}</span>
         <span className="tool-status-icon" role="img" aria-label={statusLabel} title={statusLabel} data-tool-status={operation.status}>

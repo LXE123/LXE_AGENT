@@ -93,7 +93,7 @@ function Tools() {
         </div>;
       })}
     </div>
-    <p className="sample-gap">缺口：未确认 Claude 工具条专用规则；默认配色和焦点边框仍含旧主题变量。当前分支没有禁用接口。</p>
+    <p className="sample-gap">当前工具条和展开详情已使用 CDS 配色，语法高亮与回答正文共用。缺口：未确认 Claude 工具条专用完整规则；当前分支没有禁用接口。</p>
   </div>;
 }
 
