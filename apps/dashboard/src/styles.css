@@ -6472,8 +6472,8 @@ code {
   font-weight: 650;
 }
 
-/* Conversation code palette: Markdown fences, tool commands and readable
-   source results share these rules. File previews and skill docs stay separate. */
+/* Shared code palette: conversation fences, tool commands, source results and
+   file previews use the same token colors. Prose and skill docs stay separate. */
 :root:not([data-theme="dark"]) .conversation-feed .message-markdown code:not(pre code) {
   border: 1px solid #dadada;
   background: #f0f0ef;
@@ -6486,36 +6486,36 @@ code {
   color: #1a1a1a;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block {
   color: #1a1a1a;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-comment, .hljs-quote) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-comment, .hljs-quote) {
   color: #999;
   font-style: normal;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-number, .hljs-function, .hljs-operator) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-number, .hljs-function, .hljs-operator) {
   color: #c6631b;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-string, .hljs-regexp, .hljs-addition) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-string, .hljs-regexp, .hljs-addition) {
   color: #1f9e3c;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-type) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-type) {
   color: #0273e7;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr, .hljs-attribute, .hljs-property, .hljs-params, .hljs-symbol) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr, .hljs-attribute, .hljs-property, .hljs-params, .hljs-symbol) {
   color: #1a1a1a;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block :is(.hljs-punctuation, .hljs-meta) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-punctuation, .hljs-meta) {
   color: #737373;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .code-block .hljs-deletion {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block .hljs-deletion {
   color: #8e2726;
 }
 
@@ -6575,63 +6575,63 @@ code {
 }
 
 /* Preserve the Markdown palette independently of enclosing UI theme aliases. */
-:root[data-theme="dark"] .conversation-feed .code-block {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block {
   color: #d3d7df;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-comment, .hljs-quote) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-comment, .hljs-quote) {
   color: #8e857c;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-selector-tag, .hljs-literal, .hljs-doctag) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-selector-tag, .hljs-literal, .hljs-doctag) {
   color: #efad8a;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block .hljs-regexp {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-regexp {
   color: #8dca8d;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr) {
   color: #dfb268;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
   color: #9bcbe8;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-attribute, .hljs-meta, .hljs-symbol) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-attribute, .hljs-meta, .hljs-symbol) {
   color: #cfad7c;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block .hljs-keyword {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-keyword {
   color: #cc7bf4;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-title, .hljs-built_in) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-title, .hljs-built_in) {
   color: #70b8ff;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-type, .hljs-params) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-type, .hljs-params) {
   color: #fbae60;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block.language-typescript :is(.hljs-built_in, .hljs-params .hljs-attr) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block.language-typescript :is(.hljs-built_in, .hljs-params .hljs-attr) {
   color: #fbae60;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block :is(.hljs-string, .hljs-addition) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-string, .hljs-addition) {
   color: #9ce963;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block .hljs-number {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-number {
   color: #5eedee;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block.language-json .hljs-attr {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block.language-json .hljs-attr {
   color: #ebecf0;
 }
 
-:root[data-theme="dark"] .conversation-feed .code-block .hljs-deletion {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-deletion {
   color: #f57b85;
 }
 
