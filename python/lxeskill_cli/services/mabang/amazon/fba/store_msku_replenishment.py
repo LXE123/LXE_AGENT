@@ -1487,9 +1487,6 @@ def calculate_store_msku_replenishment(
     for row in inventory_rows:
         inventory_by_msku.setdefault(normalize_sku_key(row.msku), []).append(row)
     source_rows = analyze_msku_rows(inputs.source.records, headers=inputs.source.headers)
-    # Keep the existing report and link-summary order while retaining every source row.
-    inventory_order = {msku: index for index, msku in enumerate(inventory_by_msku)}
-    source_rows.sort(key=lambda record: inventory_order.get(normalize_sku_key(record.get("MSKU")), len(inventory_order)))
     source_local_skus: dict[str, set[str]] = {}
     for record in source_rows:
         source_local_skus.setdefault(normalize_sku_key(record.get("MSKU")), set()).add(normalize_sku_key(record.get("本地SKU")))
