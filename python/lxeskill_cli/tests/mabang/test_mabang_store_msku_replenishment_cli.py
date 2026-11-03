@@ -14,7 +14,7 @@ from test_mabang_store_msku_replenishment import (
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
     monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     monkeypatch.delenv("LXE_AGENT_SESSION_ID", raising=False)
 
 

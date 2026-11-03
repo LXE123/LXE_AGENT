@@ -1,6 +1,6 @@
 # Amazon V2 备货
 
-V1 和 V2 由 `replenishment-workflow-map` 统一编排，分别计算和交付。V1 在内部从源表计算销量指标，沿用原筛选、算法及多 Sheet 模板；V2 保留全部 MSKU，生成 35 列的 `mskulist` 工作表。
+V1 和 V2 由 `amazon-replenishment` 统一编排，分别计算和交付。V1 在内部从源表计算销量指标，沿用原筛选、算法及多 Sheet 模板；V2 保留全部 MSKU，生成 35 列的 `mskulist` 工作表。
 
 ## 数据与命令
 

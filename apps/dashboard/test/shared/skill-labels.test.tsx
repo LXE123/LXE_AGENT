@@ -24,7 +24,7 @@ describe("official skill labels", () => {
 
   test("renders only supplied skills across old and new client inventories", () => {
     const b = { ...skill, name: "fba-restock-workbook-create", location: "/skills/fba-restock-workbook-create/SKILL.md" };
-    const c = { ...skill, name: "replenishment-workflow-map", location: "/skills/replenishment-workflow-map/SKILL.md" };
+    const c = { ...skill, name: "amazon-replenishment", location: "/skills/amazon-replenishment/SKILL.md" };
     for (const [inventory, absent] of [[ [skill, b], c ], [ [skill, c], b ]] as const) {
       const html = renderToStaticMarkup(<SkillsView skills={[...inventory]} commands={[]} onOpen={() => undefined} />);
       for (const item of inventory) expect(html).toContain(labels[item.name as keyof typeof labels]);

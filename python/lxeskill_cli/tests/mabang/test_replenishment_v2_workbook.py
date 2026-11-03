@@ -15,7 +15,7 @@ from shared.office.execution import run_kit_bounded
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
     monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     monkeypatch.delenv("LXE_AGENT_SESSION_ID", raising=False)
 
 
@@ -108,10 +108,10 @@ def test_cli_rejects_inconsistent_inputs_without_publishing(tmp_path, problem, d
 
 def test_wrong_scope_and_wrong_store_do_not_deliver_a_workbook(tmp_path, monkeypatch):
     inputs = batch(tmp_path)
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-sales-analyze")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "mabang-store-msku-export")
     blocked = generate(inputs, expected=3)
     assert blocked["error"]["code"] == "skill_not_in_scope" and blocked["files"] == []
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     wrong_store = generate(inputs, "--store-name", "Other-Store", expected=4)
     assert "店铺不一致" in wrong_store["error"]["message"] and wrong_store["files"] == []
 
@@ -171,7 +171,7 @@ def test_same_files_still_work_for_v1_when_v2_inventory_is_unknown(tmp_path, mon
     assert v1["data"]["version"] == "v1"
     artifact = Path(v1["files"][0])
     original = artifact.read_bytes()
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     edit_cell(inputs[1], "真实库存（深圳仓库）数量", None, sheet="真实库存（深圳仓库）-库存sku")
     result = generate(inputs)
     assert result["ok"] and result["data"]["unknown_inventory_count"] == 1

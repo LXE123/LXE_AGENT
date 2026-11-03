@@ -619,7 +619,7 @@ def test_declared_artifact_rejects_missing_and_symlink_escape(tmp_path) -> None:
 
 
 def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-store-resolve")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     assert lxeskill.main(["list"]) == 0
     (record,) = _records(capsys)
     commands = {item["command"] for item in record["data"]["commands"]}

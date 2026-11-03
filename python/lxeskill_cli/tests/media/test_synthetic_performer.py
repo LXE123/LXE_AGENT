@@ -221,7 +221,7 @@ def test_real_exiftool_preserves_media_payloads_and_existing_keywords(tmp_path: 
     shutil.copy2(repository / "apps/desktop/build/icon-win.png", source / "图标.png")
     shutil.copy2(
         repository
-        / "skills/replenishment-amazon-restock-inventory-snapshot/assets"
+        / "skills/amazon-replenishment/assets"
         / "amazon_restock_inventory_download_step_1_menu.jpg",
         source / "已有关键词.jpg",
     )

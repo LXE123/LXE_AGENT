@@ -714,7 +714,7 @@ describe("TypeScriptAgentRuntime", () => {
   });
 
   test("counts every skill read request and command call independently of execution results", async () => {
-    const skillPath = join(process.cwd(), "skills/replenishment-store-resolve/SKILL.md");
+    const skillPath = join(process.cwd(), "skills/amazon-replenishment/SKILL.md");
     const store = new MemoryStore();
     const tools = new ToolRegistry();
     const executionSkillNames: Array<readonly string[]> = [];
@@ -726,7 +726,7 @@ describe("TypeScriptAgentRuntime", () => {
       description: "read skill",
       input_schema: { type: "object" },
       execute: async (_input, context) => {
-        await context.exposureState?.activateSkill("replenishment-store-resolve");
+        await context.exposureState?.activateSkill("amazon-replenishment");
         return { content: [{ type: "text", text: "skill loaded" }] };
       },
     });
@@ -755,7 +755,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
       store,
       tools,
-      commandSkills: async () => [{ command: "lxeskill replenish store resolve", skill: "replenishment-store-resolve" }],
+      commandSkills: async () => [{ command: "lxeskill replenish store resolve", skill: "amazon-replenishment" }],
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
       systemPrompt: (context) => {
@@ -765,10 +765,10 @@ describe("TypeScriptAgentRuntime", () => {
       skillSnapshot: () => {
         snapshotCalls += 1;
         return {
-          names: ["replenishment-store-resolve"],
-          prompt: "skills: replenishment-store-resolve",
-          locations: { [skillPathKey(skillPath)]: "replenishment-store-resolve" },
-          modules: { "replenishment-store-resolve": "replenishment" },
+          names: ["amazon-replenishment"],
+          prompt: "skills: amazon-replenishment",
+          locations: { [skillPathKey(skillPath)]: "amazon-replenishment" },
+          modules: { "amazon-replenishment": "replenishment" },
         };
       },
     });
@@ -780,17 +780,17 @@ describe("TypeScriptAgentRuntime", () => {
 
     expect(snapshotCalls).toBe(2);
     expect(promptSkillNames).toEqual([
-      "skills: replenishment-store-resolve",
-      "skills: replenishment-store-resolve",
+      "skills: amazon-replenishment",
+      "skills: amazon-replenishment",
     ]);
     expect(executionSkillNames).toEqual([
-      ["replenishment-store-resolve"],
-      ["replenishment-store-resolve"],
+      ["amazon-replenishment"],
+      ["amazon-replenishment"],
     ]);
     expect(store.metrics[0]?.activations).toEqual([{
-      skill: "replenishment-store-resolve",
+      skill: "amazon-replenishment",
       module: "replenishment",
-    }, { skill: "replenishment-store-resolve", module: "replenishment" }]);
+    }, { skill: "amazon-replenishment", module: "replenishment" }]);
     expect(store.metrics[0]?.executions).toEqual([]);
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "exec",
@@ -800,12 +800,12 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.metrics[1]?.activations).toEqual([]);
     expect(store.metrics[1]?.executions).toEqual([
       expect.objectContaining({
-        skill: "replenishment-store-resolve",
+        skill: "amazon-replenishment",
         module: "replenishment",
         command: "replenish store resolve",
       }),
       expect.objectContaining({
-        skill: "replenishment-store-resolve",
+        skill: "amazon-replenishment",
         module: "replenishment",
         command: "replenish store resolve",
       }),

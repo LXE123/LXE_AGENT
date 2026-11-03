@@ -53,6 +53,6 @@ test("attributes both replenishment versions through the real CLI contract", asy
   }) });
   for (const version of ["v1", "v2"]) stats.observe("exec", { command: `lxeskill replenish calculate --version ${version}` });
   expect((await stats.snapshot()).executions).toMatchObject(Array(2).fill({
-    skill: "replenishment-workflow-map", command: "replenish calculate",
+    skill: "amazon-replenishment", command: "replenish calculate",
   }));
 });

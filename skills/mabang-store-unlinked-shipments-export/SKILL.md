@@ -17,11 +17,11 @@ references:
 - 执行本 Skill 声明的 CLI；参数以 `lxeskill list`、`lxeskill describe <命令路径>` 为准。
 - 等待原会话完成，读取最后一条 `type="result"`：先看 `ok`，业务结果读 `data`，附件读 `files`；失败保留真实 `error.message` 和可用的 `data.context`。
 - 马帮业务命令在内部按需恢复认证。命令终态失败后保留实际诊断，不额外刷新或重试业务；需要再次尝试时先由用户决定。
-- 完整备货由 `replenishment-workflow-map` 继续。单步文件任务成功后使用 `send_files(paths=<terminal.files>)` 交付；发送失败只重试交付。
+- 完整备货由 `amazon-replenishment` 继续。单步文件任务成功后使用 `send_files(paths=<terminal.files>)` 交付；发送失败只重试交付。
 
 ## 范围与命令
 
-这里的“未关联货件”包含 **WMS待配货、WMS待装箱、待关联货件** 三个状态（页面上“待关联货件”为 0 不代表另外两个状态为空）。模糊店铺名先读 `replenishment-store-resolve`。
+这里的“未关联货件”包含 **WMS待配货、WMS待装箱、待关联货件** 三个状态（页面上“待关联货件”为 0 不代表另外两个状态为空）。模糊店铺名先读 `amazon-replenishment` 解析店铺。
 
 ```text
 lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"
@@ -41,5 +41,5 @@ lxeskill mabang store unlinked-shipments export --store-name "<规范店铺名>"
 
 - `confirmed_empty=false`：存在未关联发货单并已生成快照（允许部分状态为 0）。
 - `confirmed_empty=true`：三个状态均成功查询且单据张数全为 0，已生成有效的零货件快照；正常进入备货计算按 0 扣减，不重复下载。
-- 单步查询成功后交付 `terminal.files`，回复店铺名、三个状态的发货单张数、快照 MSKU 数和商品总件数，并说明该快照为备货扣减输入。完整备货保留 `data.snapshot.snapshot_xlsx_path` 返回 `replenishment-workflow-map` 继续。
+- 单步查询成功后交付 `terminal.files`，回复店铺名、三个状态的发货单张数、快照 MSKU 数和商品总件数，并说明该快照为备货扣减输入。完整备货保留 `data.snapshot.snapshot_xlsx_path` 返回 `amazon-replenishment` 继续。
 - `data.download_result` 存在而 `ok=false` 表示原生文件已下载但快照生成失败，不可当作可用快照，也不把内层路径冒充 `files`。任一状态查询缺失或快照不可用时停止正式备货计算，不按 0 扣减或回退旧快照。返回结构示例见 [返回参考](references/results.md)。
