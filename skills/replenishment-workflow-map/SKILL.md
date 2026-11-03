@@ -10,11 +10,11 @@ commands:
 
 ## 用途
 
-统一负责 Amazon 备货的版本选择、取数、计算和交付。V1沿用原算法及多Sheet报表；V2使用14个公式字段生成35列单工作表。用户可要求一个版本或同时要求两种。
+统一负责 Amazon 备货的版本选择、取数、计算和交付。V1按所选参数方案进行销量分析和备货计算，生成多Sheet报表；V2使用14个公式字段计算，生成35列单工作表。用户可要求一个版本或同时要求两种。
 
 | 版本 | 产物 |
 |---|---|
-| V1普通备货 | 原参数方案和算法生成的多Sheet报表。 |
+| V1普通备货 | 按所选参数方案计算并生成多Sheet报表。 |
 | V2备货 | `replenish v2 generate` 生成的35列 `mskulist` 工作表。 |
 
 ## 输入
@@ -52,16 +52,16 @@ commands:
 
 | 版本 | 计算调用与交接 |
 |---|---|
-| V1 | 读取 `replenishment-calculate` 后运行：`lxeskill replenish calculate --store-name "<规范店铺名>" --unlinked-shipments-snapshot "<步骤5快照路径>" [--template "<方案名>"]`。V1按原CLI读取并核验销量和深圳报告；核对返回的 `sales_analysis_xlsx_path`、`actual_inventory_xlsx_path`、`source_data_time` 属于本轮步骤3、4。 |
+| V1 | 读取 `replenishment-calculate` 后运行：`lxeskill replenish calculate --store-name "<规范店铺名>" --unlinked-shipments-snapshot "<步骤5快照路径>" [--template "<方案名>"]`。按用户选择的参数方案执行计算，并核对返回的 `sales_analysis_xlsx_path`、`actual_inventory_xlsx_path`、`source_data_time` 与本轮步骤3、4的数据一致。 |
 | V2 | 本Skill运行：`lxeskill replenish v2 generate --store-name "<规范店铺名>" --msku-source-xlsx-path "<步骤2源表路径>" --shenzhen-inventory-report-xlsx-path "<步骤4深圳报告路径>" --unlinked-shipments-snapshot-path "<步骤5快照路径>" [--peak-boost-enabled] [--peak-boost-days <0～120>]`。未提旺季时省略两个参数，沿用页面保存的开关和天数。聊天明确开启时传裸开关 `--peak-boost-enabled`，明确关闭时传 `--peak-boost-enabled=false`；聊天指定天数时传 `--peak-boost-days <0～120>`，单独指定天数即启用，明确关闭仍优先。启用没有默认天数；若命令报告缺少天数，询问用户后复用本轮数据重算。本轮覆盖不改写页面设置。 |
 
 V2使用同轮MSKU、深圳库存报告和货件快照，核验来源指纹、店铺、批次及MSKU覆盖。生成 `mskulist` 工作表的35列和全部MSKU行，每行写入14个公式字段，包括I“销量趋势”、J“加权日销”和AI“可供天数”；商品类型核验未通过的行也保留。
 
-V2的AG“本地库存”读取深圳报告的“真实库存（深圳仓库）数量”。普通SKU及组合SKU沿用该报告已有的匹配和组件配比计算结果；正数、真实0和有限负数按报告保留，`uq122`不作为来源或必需输入。深圳库存未知时AG留空，仍保留所有MSKU及公式，生成带“库存待核对”的文件并返回 `success=false`、terminal `ok=false`；`data.unknown_inventory_examples`用于运营核对。这是运营确认前的临时规则，只供核对，不作V2正式交付。AH、AD、AI及空海运公式沿用现有计算规则，不新增AG扣减。
+V2的AG“本地库存”读取深圳报告的“真实库存（深圳仓库）数量”。普通SKU及组合SKU沿用该报告已有的匹配和组件配比计算结果；正数、真实0和有限负数按报告保留，`uq122`不作为来源或必需输入。深圳库存未知时AG留空，仍保留所有MSKU及公式；来源核验、Office重算和公式错误检查通过后，照常交付带“库存待核对”标记的文件。通过 `data.unknown_inventory_count` 和 `data.unknown_inventory_examples`告知待核对情况，不因库存未知暂停或询问是否发送。AH、AD、AI及空海运公式沿用现有计算规则，不新增AG扣减。
 
 ## 结果
 
 - 读取每步最后一条 `type="result"`；运行中等待原会话。共用取数、认证或来源失败时，停止依赖该输入的版本；`ok=false`时保留实际错误及已有诊断文件。双版本中的独立计算或交付失败不覆盖另一版结果。
-- V1保留原核验、过滤规则和多Sheet产物。销量分析或V1计算失败仅停止V1；若已选择V2且共享输入合格，继续V2必要的共享取数、全MSKU计算及检查。V2未知库存或计算失败也不阻止已满足前提的V1计算和正式交付；此临时规则不影响V1。
-- V2完成Office Kit重算、35列和14公式检查及Excel错误检查后，检查 `data.output_xlsx_path`、公式错误数、源数据时间和terminal `files`。只有terminal `ok=true`、`data.formula_error_count=0`、来源检查和Office Kit均通过，才进入正式交付；失败附件只作诊断。认证、来源或Office失败时保留真实错误并停止。
+- V1按自身的数据核验和商品筛选规则生成多Sheet报表。销量分析或V1计算失败仅停止V1；若已选择V2且共享输入合格，继续V2必要的共享取数、全MSKU计算及检查。V2未知库存或计算失败也不阻止已满足前提的V1计算和正式交付；此临时规则不影响V1。
+- V2完成Office Kit重算、35列和14公式检查及Excel错误检查后，检查 `data.output_xlsx_path`、公式错误数、源数据时间和terminal `files`。只有terminal `ok=true`、`data.formula_error_count=0`、来源检查和Office Kit均通过，才交付文件；存在库存待核对行时一并告知数量和代表项。来源不一致、公式错误或Office失败时保留真实错误并停止，失败附件只作诊断。
 - 各版本只有自身数据、计算和检查通过，且文件实际发送成功，才算该版本正式交付。分别说明V1/V2产物、来源时间、交付状态及失败原因；不把一版成功称为两版全部成功。发送失败只重试该版文件交付。

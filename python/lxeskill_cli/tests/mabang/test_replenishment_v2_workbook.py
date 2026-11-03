@@ -122,7 +122,8 @@ def test_wrong_scope_and_wrong_store_do_not_deliver_a_workbook(tmp_path, monkeyp
 def test_unbound_and_missing_stock_rows_remain_in_diagnostic_workbook(tmp_path, office):
     inputs = batch(tmp_path, rows=[product(), product("UNBOUND", **{"本地SKU": ""}),
                                   product("MISSING", **{"本地SKU": "UNKNOWN"})])
-    result = generate(inputs, expected=4)
+    result = generate(inputs)
+    assert result["ok"]
     assert result["data"]["unknown_inventory_count"] == 2
     rows = cells(result["files"][0])
     assert set(rows) == {"SEA", "UNBOUND", "MISSING"}
@@ -131,17 +132,18 @@ def test_unbound_and_missing_stock_rows_remain_in_diagnostic_workbook(tmp_path, 
     assert rows["MISSING"]["J"] == 6 and rows["UNBOUND"]["AB"] == 60
 
 
-def test_unknown_inventory_returns_diagnostic_and_preserves_previous_success(tmp_path, office):
+def test_unknown_inventory_is_delivered_and_preserves_previous_success(tmp_path, office):
     source, report, snapshot = batch(tmp_path)
     success = generate((source, report, snapshot))
     published = Path(success["files"][0])
     original = published.read_bytes()
     edit_cell(report, "真实库存（深圳仓库）数量", None, sheet="真实库存（深圳仓库）-库存sku")
-    failed = generate((source, report, snapshot), expected=4)
-    assert not failed["ok"] and failed["data"]["unknown_inventory_count"] == 1
-    assert "SEA" in failed["error"]["message"] and "库存" in failed["error"]["message"]
-    diagnostic = Path(failed["data"]["output_xlsx_path"])
-    assert failed["files"] == [str(diagnostic)] and diagnostic != published
+    result = generate((source, report, snapshot))
+    assert result["ok"] and "error" not in result
+    assert result["data"]["unknown_inventory_count"] == 1
+    diagnostic = Path(result["data"]["output_xlsx_path"])
+    assert "库存待核对" in diagnostic.name
+    assert result["files"] == [str(diagnostic)] and diagnostic != published
     assert cells(diagnostic)["SEA"]["AG"] is None
     assert cells(diagnostic)["SEA"]["AB"] == 60
     assert published.read_bytes() == original
@@ -163,7 +165,7 @@ def test_office_process_failure_preserves_output_and_actual_diagnostic(tmp_path,
     assert published.read_bytes() == original
 
 
-def test_same_files_still_work_for_v1_when_v2_is_blocked(tmp_path, monkeypatch, office):
+def test_same_files_still_work_for_v1_when_v2_inventory_is_unknown(tmp_path, monkeypatch, office):
     artifact_root = tmp_path / ".lxeagent/artifacts/replenish"
     inputs = batch(artifact_root)
     for key, folder in (("MABANG_STORE_MSKU_OUTPUT_DIR", "store_msku"),
@@ -179,5 +181,6 @@ def test_same_files_still_work_for_v1_when_v2_is_blocked(tmp_path, monkeypatch, 
     original = artifact.read_bytes()
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-workflow-map")
     edit_cell(inputs[1], "真实库存（深圳仓库）数量", None, sheet="真实库存（深圳仓库）-库存sku")
-    assert generate(inputs, expected=4)["data"]["unknown_inventory_count"] == 1
+    result = generate(inputs)
+    assert result["ok"] and result["data"]["unknown_inventory_count"] == 1
     assert artifact.read_bytes() == original
