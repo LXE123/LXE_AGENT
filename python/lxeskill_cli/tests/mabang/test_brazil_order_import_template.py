@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Color, PatternFill
 
 from lxeskill import cli
 from services.commands.mabang import brazil_order_import_generate as command
@@ -81,6 +83,76 @@ def test_generator_rebuilds_rows_from_source_and_preserves_blank_quantity(tmp_pa
     check.close()
 
 
+@pytest.mark.parametrize("coordinate", ["F2", "BD2"])
+def test_formula_without_cached_value_reports_cell_and_does_not_generate(tmp_path, coordinate):
+    source = tmp_path / "source.xlsx"
+    output = tmp_path / "output.xlsx"
+    source_workbook(source)
+    workbook = load_workbook(source)
+    workbook["巴西"][coordinate] = '= "SKU-A"' if coordinate == "F2" else "=10+20"
+    workbook.save(source)
+    workbook.close()
+
+    with pytest.raises(BrazilOrderWorkbookError, match=coordinate):
+        generate_order_workbook(source, output, today=date(2026, 11, 3))
+    assert not output.exists()
+
+
+def test_cached_formula_and_literal_equals_sku_are_preserved(tmp_path):
+    source = tmp_path / "source.xlsx"
+    output = tmp_path / "output.xlsx"
+    source_workbook(source)
+    workbook = load_workbook(source)
+    sheet = workbook["巴西"]
+    sheet["F2"] = "=SKU-A"
+    sheet["F2"].data_type = "s"
+    sheet["BD2"] = "=10+20"
+    workbook.save(source)
+    workbook.close()
+
+    # openpyxl does not calculate formulas: supply a numeric Excel-style cache.
+    updated = BytesIO()
+    with ZipFile(source) as original, ZipFile(updated, "w") as archive:
+        for item in original.infolist():
+            data = original.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                assert data.count(b"<f>10+20</f><v></v>") == 1
+                data = data.replace(b"<f>10+20</f><v></v>", b"<f>10+20</f><v>30</v>")
+            archive.writestr(item, data)
+    source.write_bytes(updated.getvalue())
+
+    generate_order_workbook(source, output, today=date(2026, 11, 3))
+    result = load_workbook(output, data_only=True)
+    assert result["订单标准模板"]["D2"].value == "=SKU-A"
+    assert result["订单标准模板"]["T2"].value == 30
+    assert result["订单标准模板"]["T3"].value is None
+    result.close()
+
+
+@pytest.mark.parametrize("fill", [None, PatternFill(fill_type="solid", fgColor="FFFFFF00"),
+                                 PatternFill(fill_type="solid", fgColor=Color(indexed=13))])
+def test_closest_date_wins_regardless_of_header_color(tmp_path, fill):
+    source = tmp_path / "source.xlsx"
+    output = tmp_path / "output.xlsx"
+    source_workbook(source)
+    workbook = load_workbook(source)
+    sheet = workbook["巴西"]
+    sheet["AT1"] = "11/19海运"
+    sheet["AU1"] = "12/20海运"
+    if fill:
+        sheet["AT1"].fill = fill
+        sheet["AU1"].fill = fill
+    sheet["AT2"] = 88
+    workbook.save(source)
+    workbook.close()
+
+    result = generate_order_workbook(source, output, today=date(2026, 11, 3))
+    check = load_workbook(output, data_only=True)
+    assert result["shipping_column"] == "BD"
+    assert check["订单标准模板"]["T2"].value == 10
+    check.close()
+
+
 def test_shipping_date_tie_requires_explicit_nearest_column(shipping_sheet):
     with pytest.raises(BrazilOrderWorkbookError, match="最近海运日期并列.*AW.*AX"):
         select_shipping_column(shipping_sheet, date(2026, 8, 24))
@@ -92,27 +164,30 @@ def test_shipping_date_tie_requires_explicit_nearest_column(shipping_sheet):
         select_shipping_column(shipping_sheet, date(2026, 11, 3), "AX")
 
 
-def test_yellow_shipping_header_takes_priority_over_closer_unhighlighted_date(shipping_sheet):
-    shipping_sheet["AT1"] = "11/10海运"
-    shipping_sheet["AT1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+def test_closest_shipping_date_can_be_in_the_future(shipping_sheet):
+    shipping_sheet["AT1"] = "11/4海运"
+    shipping_sheet["BD1"] = "10/31海运"
+    shipping_sheet["BD1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
 
     assert select_shipping_column(shipping_sheet, date(2026, 11, 3)) == (
-        "AT", "11/10海运", date(2026, 11, 10)
+        "AT", "11/4海运", date(2026, 11, 4)
     )
 
 
-def test_yellow_shipping_date_tie_requires_choice_among_yellow_columns(shipping_sheet):
+def test_equal_distance_dates_require_choice_even_if_one_is_yellow(shipping_sheet):
+    shipping_sheet["AW1"] = "11/2海运"
+    shipping_sheet["AX1"] = "11/4海运"
+    shipping_sheet["BD1"] = "10/30海运"
     yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
     shipping_sheet["AW1"].fill = yellow
-    shipping_sheet["AX1"].fill = yellow
 
-    with pytest.raises(BrazilOrderWorkbookError, match="标黄海运列中的最近日期并列.*AW.*AX"):
-        select_shipping_column(shipping_sheet, date(2026, 8, 24))
-    assert select_shipping_column(shipping_sheet, date(2026, 8, 24), "AX") == (
-        "AX", "8/24B海运", date(2026, 8, 24)
+    with pytest.raises(BrazilOrderWorkbookError, match="最近海运日期并列.*AW.*AX"):
+        select_shipping_column(shipping_sheet, date(2026, 11, 3))
+    assert select_shipping_column(shipping_sheet, date(2026, 11, 3), "AX") == (
+        "AX", "11/4海运", date(2026, 11, 4)
     )
-    with pytest.raises(BrazilOrderWorkbookError, match="标黄优先列中的最近日期列"):
-        select_shipping_column(shipping_sheet, date(2026, 8, 24), "AT")
+    with pytest.raises(BrazilOrderWorkbookError, match="不是最近日期列"):
+        select_shipping_column(shipping_sheet, date(2026, 11, 3), "AT")
 
 
 def test_month_day_header_uses_nearest_year_across_new_year(shipping_sheet):
