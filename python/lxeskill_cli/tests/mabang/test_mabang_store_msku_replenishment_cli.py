@@ -102,11 +102,11 @@ def test_failure_preserves_previous_v1_output(tmp_path):
 @pytest.mark.parametrize("column", ["7天销量", "商品链接", "单品重量(g)(cm)"])
 def test_v1_missing_source_columns_do_not_turn_into_defaults(column):
     from services.mabang.amazon.fba.store_msku_sales_analysis import analyze_msku_rows
-    from services.mabang.amazon.fba.store_msku_replenishment import sales_details_from_records
+    from services.mabang.amazon.fba.store_msku_replenishment import sales_detail_from_record
     row = product()
     del row[column]
     with pytest.raises(ValueError) as error:
-        sales_details_from_records(analyze_msku_rows([row], headers=list(row)))
+        sales_detail_from_record(analyze_msku_rows([row], headers=list(row))[0])
     assert column in str(error.value)
 
 
@@ -122,3 +122,75 @@ def test_optional_amazon_comparison_preserves_execution_and_validates_dates(tmp_
         assert result["data"][f"amazon_{kind}_inventory_snapshot_path"] == str(snapshot)
         assert result["data"][f"amazon_{kind}_inventory_validation"]["amazon_sku_match_ratio"] == .8
         assert records(result["files"][0])["SEA"]["海运建议量"] == 60
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("second", [
+    {},
+    {"7天销量": 84, "14天销量": 168, "30天销量": 360, "可售": 900},
+    {"本地SKU": "C", "7天销量": 84, "14天销量": 168, "30天销量": 360, "可售": 900},
+])
+def test_duplicate_msku_rows_calculate_individually_and_warn(tmp_path, version, second):
+    inputs = batch(tmp_path, rows=[product(), product(**second)], shipment_rows=[("SEA", 10)])
+    result = generate(inputs, version=version)
+    assert result["ok"] and result["data"]["row_count"] == 2
+    assert any("SEA（2行）" in warning and "数量可能重复累计" in warning
+               for warning in result["data"]["warnings"])
+    book = load_workbook(result["files"][0], data_only=True)
+    try:
+        ws = book["最终备货意见"] if version == "v1" else book.active
+        header_row = 2 if version == "v1" else 1
+        headers = [cell.value for cell in ws[header_row]]
+        rows = [dict(zip(headers, row)) for row in ws.iter_rows(min_row=header_row + 1, values_only=True)]
+        assert len(rows) == 2
+        assert all(row["MSKU"] == "SEA" and row["未发出货件总计"] == 10 for row in rows)
+        inventory_column = "深圳可用库存" if version == "v1" else "本地库存"
+        sea_column = "海运建议量" if version == "v1" else "海运实际"
+        air_column = "空运建议量" if version == "v1" else "空运实际"
+        # Daily sales 6/12, sea coverage 90/95 days, minus FBA 480/930 and 10 pending units.
+        # V2 allocates 140 of the second row's 200 units to air before sea.
+        expected_second = (84, 930, 7 if second.get("本地SKU") == "C" else 12,
+                           200 if version == "v1" else 60, 0 if version == "v1" else 140)
+        expected_first = (42, 480, 12, 50, 0)
+        assert sorted((row["7天销量"], row["FBA总库存（马帮）"], row[inventory_column],
+                       row[sea_column], row[air_column] or 0) for row in rows) == [
+            expected_first, expected_second if second else expected_first]
+        if version == "v1":
+            summary = book["链接备货汇总"]
+            record = dict(zip((cell.value for cell in summary[1]), (cell.value for cell in summary[2])))
+            assert (record["MSKU数"], record["链接未关联数量汇总"], record["总补货量"]) == (2, 20, 250 if second else 100)
+    finally:
+        book.close()
+
+
+@pytest.mark.parametrize("column,value,message", [
+    ("MSKU", "OTHER", "缺少匹配行"),
+    ("本地SKU", "OTHER", "缺少匹配行"),
+    ("FBA总库存", 999, "库存分项与真实库存报表不一致"),
+])
+def test_v1_inventory_mismatch_still_reports_actual_cause(tmp_path, column, value, message):
+    inputs = batch(tmp_path)
+    edit_cell(inputs[1], column, value, sheet="真实库存（深圳仓库）-库存sku")
+    result = generate(inputs, version="v1", expected=4)
+    assert message in result["error"]["message"] and result["files"] == []
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_asin_descriptions_do_not_change_msku_matching(tmp_path, version):
+    inputs = batch(tmp_path)
+    for column in ("父ASIN", "ASIN"):
+        edit_cell(inputs[1], column, "different-description", sheet="真实库存（深圳仓库）-库存sku")
+    result = generate(inputs, version=version)
+    assert result["ok"] and result["data"]["warnings"] == []
+    book = load_workbook(result["files"][0], data_only=True)
+    try:
+        ws = book["最终备货意见"] if version == "v1" else book.active
+        header_row = 2 if version == "v1" else 1
+        record = dict(zip((cell.value for cell in ws[header_row]), (cell.value for cell in ws[header_row + 1])))
+        assert (record["MSKU"], record["ASIN"]) == ("SEA", "ASIN-SEA")
+        if version == "v1":
+            assert book["链接备货汇总"]["A2"].value == "PARENT"
+        else:
+            assert record["父ASIN"] == "PARENT"
+    finally:
+        book.close()

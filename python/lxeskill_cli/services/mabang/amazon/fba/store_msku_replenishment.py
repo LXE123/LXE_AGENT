@@ -11,7 +11,8 @@ from typing import Any
 from .report_staging import staged_report_path
 from .replenishment_inputs import ReplenishmentInputs
 from .store_msku_sales_analysis import analyze_msku_rows
-from .source_verification import product_key, unverified_reasons, read_report_metadata, stamp_report
+from .source_verification import unverified_local_sku_reasons, read_report_metadata, stamp_report
+from .combo_sku import normalize_sku_key
 from .replenishment_formula_sheet import (
     FINAL_SHIPPING_COLUMNS, FINAL_SHIPPING_SHEET, SOURCE_VALUE_COLUMNS, STOCK_COLUMNS,
     ShippingFormulaInputs, cache_formula_values, shipping_quantities, source_number, write_formula_sheet,
@@ -537,18 +538,6 @@ def _display_optional_int(value: int | None) -> int | str:
     return "" if value is None else int(value)
 
 
-def _row_key(row: dict[str, Any] | InventoryInputRow) -> tuple[str, str, str, str]:
-    """Match blank source parents to the inventory reader's display placeholder."""
-    if isinstance(row, InventoryInputRow):
-        return (row.msku, _clean_text(row.parent_asin) or "未填写父ASIN", row.asin, row.local_sku)
-    return (
-        _clean_text(row.get("MSKU")),
-        _clean_text(row.get("父ASIN")) or "未填写父ASIN",
-        _clean_text(row.get("ASIN")),
-        _clean_text(row.get("本地SKU")),
-    )
-
-
 def _extract_product_url(value: Any) -> str:
     match = URL_RE.search(_clean_text(value))
     if not match:
@@ -676,13 +665,13 @@ def _first_record_value(record: dict[str, Any], columns: tuple[str, ...]) -> Any
 def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
     source_path = Path(xlsx_path)
     rows: list[InventoryInputRow] = []
-    excluded = unverified_reasons(read_report_metadata(source_path))
+    excluded = unverified_local_sku_reasons(read_report_metadata(source_path))
     for sheet_names, sku_type in INVENTORY_SHEET_GROUPS:
         sheet_name, headers, records = _headers_and_rows_any(source_path, sheet_names)
         _require_columns(headers, INVENTORY_REQUIRED_COLUMNS, path=source_path, sheet_name=sheet_name)
         _require_any_column(headers, INVENTORY_QUANTITY_COLUMNS, path=source_path, sheet_name=sheet_name)
         for record in records:
-            if product_key(record) in excluded:
+            if normalize_sku_key(record.get("本地SKU")) in excluded:
                 continue
             rows.append(
                 InventoryInputRow(
@@ -720,31 +709,25 @@ def parse_weight_grams(value: Any) -> float | None:
     return number if number > 0 else None
 
 
-def sales_details_from_records(records: list[dict[str, Any]]) -> dict[tuple[str, str, str, str], SalesDetail]:
-    details: dict[tuple[str, str, str, str], SalesDetail] = {}
-    for record in records:
-        missing = [column for column in (*SALES_REQUIRED_COLUMNS, *SOURCE_VALUE_COLUMNS) if column not in record]
-        if missing:
-            raise StoreMskuReplenishmentError(f"MSKU源数据缺少列: {', '.join(dict.fromkeys(missing))}")
-        key = _row_key(record)
-        if key in details:
-            raise StoreMskuReplenishmentError(
-                f"MSKU源数据存在重复行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
-            )
-        source_values = {
-            column: source_number(record.get(column), context=f"MSKU={key[0]}, column={column}")
-            for column in SOURCE_VALUE_COLUMNS
-        }
-        details[key] = SalesDetail(
-            trend=_clean_text(record.get("销量趋势")),
-            trend_rate=_optional_number(record.get("销量趋势速率")),
-            weight_grams=parse_weight_grams(record.get("单品重量(g)(cm)")),
-            sales_7d=source_values["7天销量"],
-            sales_14d=source_values["14天销量"],
-            sales_30d=source_values["30天销量"],
-            source_values=source_values,
-        )
-    return details
+def sales_detail_from_record(record: dict[str, Any]) -> SalesDetail:
+    """Calculate one source row without collapsing repeated MSKUs."""
+    missing = [column for column in (*SALES_REQUIRED_COLUMNS, *SOURCE_VALUE_COLUMNS) if column not in record]
+    if missing:
+        raise StoreMskuReplenishmentError(f"MSKU源数据缺少列: {', '.join(dict.fromkeys(missing))}")
+    key = normalize_sku_key(record.get("MSKU"))
+    source_values = {
+        column: source_number(record.get(column), context=f"MSKU={key}, column={column}")
+        for column in SOURCE_VALUE_COLUMNS
+    }
+    return SalesDetail(
+        trend=_clean_text(record.get("销量趋势")),
+        trend_rate=_optional_number(record.get("销量趋势速率")),
+        weight_grams=parse_weight_grams(record.get("单品重量(g)(cm)")),
+        sales_7d=source_values["7天销量"],
+        sales_14d=source_values["14天销量"],
+        sales_30d=source_values["30天销量"],
+        source_values=source_values,
+    )
 
 
 def _safe_unlinked_quantity(value: float | int | None) -> float:
@@ -1194,7 +1177,7 @@ def calculate_replenishment_row(
 
 def calculate_replenishment_rows(
     inventory_rows: list[InventoryInputRow],
-    sales_details: dict[tuple[str, str, str, str], SalesDetail],
+    sales_details: dict[str, SalesDetail],
     template: ReplenishmentTemplate | None = None,
     unlinked_quantities: dict[str, float] | None = None,
     amazon_restock_inventory_quantities: dict[str, float] | None = None,
@@ -1202,17 +1185,17 @@ def calculate_replenishment_rows(
 ) -> list[ReplenishmentRow]:
     result: list[ReplenishmentRow] = []
     active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
-    quantity_by_msku = dict(unlinked_quantities or {})
-    amazon_restock_quantity_by_msku = dict(amazon_restock_inventory_quantities or {})
-    amazon_quantity_by_msku = dict(amazon_fba_inventory_quantities or {})
+    quantity_by_msku = unlinked_quantities or {}
+    amazon_restock_quantity_by_msku = amazon_restock_inventory_quantities or {}
+    amazon_quantity_by_msku = amazon_fba_inventory_quantities or {}
     use_amazon_restock_inventory = amazon_restock_inventory_quantities is not None
     use_amazon_fba_inventory = amazon_fba_inventory_quantities is not None
     for row in inventory_rows:
-        key = _row_key(row)
+        key = normalize_sku_key(row.msku)
         sales_detail = sales_details.get(key)
         if sales_detail is None:
             raise StoreMskuReplenishmentError(
-                f"MSKU源数据缺少匹配行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
+                f"MSKU源数据缺少匹配行: MSKU={row.msku}"
             )
         replenishment_row = calculate_replenishment_row(
             row,
@@ -1500,7 +1483,19 @@ def calculate_store_msku_replenishment(
     inventory_rows = load_inventory_rows(inputs.inventory_path)
     if not inventory_rows:
         raise StoreMskuReplenishmentError("无可计算记录：没有通过绑定核验且具备库存数据的 MSKU")
-    sales_details = sales_details_from_records(analyze_msku_rows(inputs.source.records, headers=inputs.source.headers))
+    inventory_by_msku: dict[str, list[InventoryInputRow]] = {}
+    for row in inventory_rows:
+        inventory_by_msku.setdefault(normalize_sku_key(row.msku), []).append(row)
+    source_rows = analyze_msku_rows(inputs.source.records, headers=inputs.source.headers)
+    # Keep the existing report and link-summary order while retaining every source row.
+    inventory_order = {msku: index for index, msku in enumerate(inventory_by_msku)}
+    source_rows.sort(key=lambda record: inventory_order.get(normalize_sku_key(record.get("MSKU")), len(inventory_order)))
+    source_local_skus: dict[str, set[str]] = {}
+    for record in source_rows:
+        source_local_skus.setdefault(normalize_sku_key(record.get("MSKU")), set()).add(normalize_sku_key(record.get("本地SKU")))
+    for row in inventory_rows:
+        if normalize_sku_key(row.local_sku) not in source_local_skus.get(normalize_sku_key(row.msku), set()):
+            raise StoreMskuReplenishmentError(f"MSKU源数据缺少匹配行: MSKU={row.msku}, 本地SKU={row.local_sku}")
     requested_amazon_restock_snapshot_path = _clean_text(amazon_restock_inventory_snapshot_path)
     amazon_restock_snapshot_data = (
         load_amazon_restock_inventory_snapshot(requested_amazon_restock_snapshot_path, store_name=clean_store_name)
@@ -1523,22 +1518,27 @@ def calculate_store_msku_replenishment(
             amazon_snapshot_data.snapshot_date,
             inputs.source_data_time,
         )
-    replenishment_rows = calculate_replenishment_rows(
-        inventory_rows,
-        sales_details,
-        template,
-        inputs.shipments,
-        amazon_restock_inventory_quantities=(
-            amazon_restock_snapshot_data.quantities_by_msku
-            if amazon_restock_snapshot_data is not None
-            else None
-        ),
-        amazon_fba_inventory_quantities=(
-            amazon_snapshot_data.quantities_by_msku
-            if amazon_snapshot_data is not None
-            else None
-        ),
-    )
+    replenishment_rows = []
+    for record in source_rows:
+        detail = sales_detail_from_record(record)
+        key = normalize_sku_key(record.get("MSKU"))
+        # MSKU identifies the listing; local SKU selects this row's warehouse stock.
+        candidates = [row for row in inventory_by_msku.get(key, [])
+                      if normalize_sku_key(row.local_sku) == normalize_sku_key(record.get("本地SKU"))]
+        if not candidates:
+            continue  # V1 retains its binding/known-inventory filter.
+        fba = sum(detail.source_values[column] for column in STOCK_COLUMNS)
+        inventory = next((row for row in candidates if math.isclose(row.fba_total_inventory, fba, rel_tol=0, abs_tol=1e-6)), candidates[0])
+        inventory = replace(inventory, msku=_clean_text(record.get("MSKU")),
+            parent_asin=_clean_text(record.get("父ASIN")) or "未填写父ASIN",
+            asin=_clean_text(record.get("ASIN")), local_sku_name=_clean_text(record.get("本地SKU名称")),
+            product_name=_clean_text(record.get("产品名称")), remark=_clean_text(record.get("备注")),
+            product_link=_clean_text(record.get("商品链接")))
+        replenishment_rows.extend(calculate_replenishment_rows(
+            [inventory], {key: detail}, template, inputs.shipments,
+            amazon_restock_inventory_quantities=amazon_restock_snapshot_data.quantities_by_msku if amazon_restock_snapshot_data else None,
+            amazon_fba_inventory_quantities=amazon_snapshot_data.quantities_by_msku if amazon_snapshot_data else None,
+        ))
     report_path = _output_dir(output_dir) / f"{inputs.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(
         replenishment_rows, report_path, source_metadata=inputs.source.metadata,
@@ -1604,7 +1604,7 @@ __all__ = [
     "calculate_store_msku_replenishment",
     "inventory_shortage_rows",
     "load_inventory_rows",
-    "sales_details_from_records",
+    "sales_detail_from_record",
     "parse_weight_grams",
     "summarize_links",
     "validate_amazon_fba_inventory_snapshot_date",

@@ -21,7 +21,7 @@ def decide(*, daily=6, fba=480, sea_changes=None, trend='平稳', unlinked=0):
                    '90天销量': daily*90, '可售': fba})
     inv = _inventory_input_row('CHECK', fba_total_inventory=fba)
     detail = rep.SalesDetail(trend, None, daily*7, daily*14, daily*30, source_values=values)
-    return rep.calculate_replenishment_rows([inv], {(inv.msku,inv.parent_asin,inv.asin,inv.local_sku):detail},
+    return rep.calculate_replenishment_rows([inv], {inv.msku:detail},
                                             template, {'CHECK':unlinked})[0]
 
 

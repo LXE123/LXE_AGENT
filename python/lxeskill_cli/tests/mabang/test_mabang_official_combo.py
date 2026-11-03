@@ -89,10 +89,10 @@ def test_found_with_valid_combo_binding_is_still_a_combo():
     assert skipped == set()
 
 
-def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
-    found = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '', remark='原备注')
+def test_unknown_local_sku_does_not_exclude_verified_duplicate_msku():
+    found = inv.StoreMskuRow('normal', '', 'A', 'U', '', remark='原备注')
     normal = inv.StoreMskuRow('normal', '', 'A', 'S', '')
-    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_rows={inv.product_key(found): "SKU类型未核验"})
+    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_local_skus={found.local_sku: "SKU类型未核验"})
     assert rows[0].actual_inventory is None
     assert rows[1].actual_inventory == 100
     assert '原备注' in rows[0].remark and 'SKU类型未核验' in rows[0].remark

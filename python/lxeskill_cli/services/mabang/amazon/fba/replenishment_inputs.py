@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from .source_verification import VerifiedSource, load_verified_source, read_report_metadata
+from .source_verification import duplicate_msku_warnings, VerifiedSource, load_verified_source, read_report_metadata
 from .store_msku_actual_inventory import SOURCE_FILE_RE
 from .unlinked_shipments import load_unlinked_shipment_quantities
 
@@ -22,6 +22,7 @@ class ReplenishmentInputs:
     def to_payload(self) -> dict:
         return {
             "store_name": self.store_name,
+            "warnings": duplicate_msku_warnings(self.source.records),
             "source_data_time": self.source_data_time,
             "msku_source_xlsx_path": str(self.source_path),
             "shenzhen_inventory_report_xlsx_path": str(self.inventory_path),

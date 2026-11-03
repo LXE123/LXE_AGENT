@@ -12,6 +12,8 @@ V1 和 V2 由 `replenishment-workflow-map` 统一编排，分别计算和交付�
 
 来源校验复用原有来源指纹、店铺、批次、MSKU 身份和覆盖检查。这些业务校验用于防止错店、错批次或漏数据。
 
+单店单站点以 MSKU 标识售卖项。每条源记录使用自己的销量和库存分项，按 MSKU 对应货件、本地 SKU 关联仓库商品；ASIN、父 ASIN 用于展示和汇总。输入出现重复 MSKU 时继续逐行计算、保留各行，在 `data.warnings` 提示数量可能重复累计，不自行去重或停止。V1 原有绑定与已知库存筛选、V2 全行交付规则不变。独立销量分析遵循同一重复处理规则。源核验记录仍保留原始描述字段供来源审计。
+
 ## 计算与交付
 
 `replenishment_v2_formulas` 生成 I/J/R/S/U/V/W/X/Y/Z/AA/AB/AC/AI 共 14 个公式，`replenishment_v2_workbook` 负责映射、写表和调用 Office Kit 重算。公式由 Office 执行，不维护第二套 Python 数值算法。

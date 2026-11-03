@@ -33,7 +33,7 @@ def case_row(msku="ITEM", *, daily=6, fba=430, unlinked=10, weight=100, template
         params["shipping"]["air_sales_days_lte"] = 70
         template = replace(template, name="test-companion", params=params)
     return rep.calculate_replenishment_rows(
-        [inventory], {(msku, inventory.parent_asin, inventory.asin, inventory.local_sku): detail},
+        [inventory], {msku: detail},
         template, {msku: unlinked},
     )[0]
 
@@ -143,8 +143,7 @@ def test_weighted_sales_integer_boundary_uses_formal_evaluation_order(tmp_path):
                    "90天销量": 181.0, "可售": 31.0, "预留": 2.0,
                    "在途": 45.0, "待调仓": 2.0, "调仓中": 2.0})
     detail = rep.SalesDetail("增长", 100, 18, 33, 61, source_values=values)
-    key = (inventory.msku, inventory.parent_asin, inventory.asin, inventory.local_sku)
-    row = rep.calculate_replenishment_rows([inventory], {key: detail}, templates.load_default_template())[0]
+    row = rep.calculate_replenishment_rows([inventory], {inventory.msku: detail}, templates.load_default_template())[0]
     assert row.replenish_days == 75
     assert row.replenish_quantity == 102
     path = rep.write_replenishment_report([row], tmp_path / "boundary.xlsx")
@@ -253,7 +252,7 @@ def test_formula_uses_effective_special_weights_with_nonuniform_sales(tmp_path):
     values = dict.fromkeys(formulas.SOURCE_VALUE_COLUMNS, 0.0)
     values.update({"7天销量": 42, "14天销量": 112, "30天销量": 300, "90天销量": 999, "可售": 300})
     detail = rep.SalesDetail("平稳", None, 42, 112, 300, source_values=values)
-    row = rep.calculate_replenishment_rows([inventory], {rep._row_key(inventory): detail}, replace(template, params=params))[0]
+    row = rep.calculate_replenishment_rows([inventory], {inventory.msku: detail}, replace(template, params=params))[0]
     assert row.formula_inputs.weights == (0.1, 0.2, 0.7)
     assert row.weighted_daily_sales == pytest.approx(9.2)
     assert row.sales_days == pytest.approx(300 / 9.2)
@@ -282,7 +281,7 @@ def test_sales_days_formula_uses_final_70_20_10_weights(tmp_path):
     values.update({"7天销量": 70, "14天销量": 70, "30天销量": 30, "90天销量": 999, "可售": 10})
     detail = rep.SalesDetail("平稳", None, 70, 70, 30, source_values=values)
     row = rep.calculate_replenishment_rows(
-        [inventory], {rep._row_key(inventory): detail}, replace(template, name="70/20/10", params=params),
+        [inventory], {inventory.msku: detail}, replace(template, name="70/20/10", params=params),
     )[0]
     assert row.formula_inputs.weights == (0.7, 0.2, 0.1)
     assert row.weighted_daily_sales == pytest.approx(8.1)
@@ -308,7 +307,7 @@ def test_zero_daily_sales_keeps_blank_days_on_non_shipping_sheet(tmp_path, sourc
     values = dict.fromkeys(formulas.SOURCE_VALUE_COLUMNS, 0.0)
     values["可售"] = source_fba
     detail = rep.SalesDetail("平稳", None, 0, 0, 0, source_values=values)
-    row = rep.calculate_replenishment_rows([inventory], {rep._row_key(inventory): detail})[0]
+    row = rep.calculate_replenishment_rows([inventory], {inventory.msku: detail})[0]
     assert formulas._initial_values(row, False)["T"] is None
     with pytest.raises(ValueError, match="试算可销售天数与正式计算不一致"):
         formulas._initial_values(replace(row, sales_days=0), False)

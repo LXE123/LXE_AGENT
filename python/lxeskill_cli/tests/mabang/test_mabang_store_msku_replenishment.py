@@ -38,7 +38,8 @@ def _read_sales_details(path):
     try:
         values = book["MSKU明细"].iter_rows(values_only=True)
         headers = next(values)
-        return repl.sales_details_from_records([dict(zip(headers, row)) for row in values])
+        return {record["MSKU"]: repl.sales_detail_from_record(record)
+                for record in (dict(zip(headers, row)) for row in values)}
     finally:
         book.close()
 

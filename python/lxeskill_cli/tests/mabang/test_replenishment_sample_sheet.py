@@ -20,7 +20,7 @@ def sample_row(sales=(2, 4, 9, 81), *, actual=-86, template=None, trend=None):
     metrics = compute_sales_metrics(*sales[:3])
     detail = rep.SalesDetail(trend or metrics.trend, None, *sales[:3], source_values=values)
     return rep.calculate_replenishment_rows(
-        [inv], {(inv.msku, inv.parent_asin, inv.asin, inv.local_sku): detail},
+        [inv], {inv.msku: detail},
         template or templates.load_default_template(), {'LOW': 3},
     )[0]
 
@@ -100,15 +100,13 @@ def test_numeric_strings_come_from_matching_sales_input(tmp_path):
     finally:
         book.close()
     details = _read_sales_details(path)
-    key = ('SAMPLE-1', 'PARENT-SAMPLE', 'ASIN-S', 'SKU-S')
     inv = replace(_inventory_input_row('SAMPLE-1', fba_total_inventory=80),
-                  parent_asin=key[1], asin=key[2], local_sku=key[3])
-    # Same MSKU with a different complete key must keep its own source values.
-    other = replace(inv, asin='ASIN-OTHER')
-    other_key = (other.msku, other.parent_asin, other.asin, other.local_sku)
-    details[other_key] = replace(details[key], sales_7d=0, sales_14d=0, sales_30d=0,
-                                source_values={**details[key].source_values, **dict.fromkeys(SOURCE_VALUE_COLUMNS[:4], 0)})
-    rows = rep.calculate_replenishment_rows([inv, other], details)
+                  parent_asin='PARENT-SAMPLE', asin='ASIN-S', local_sku='SKU-S')
+    # Different MSKUs can share an ASIN and local SKU while keeping their own sales.
+    other = replace(inv, msku='SAMPLE-2')
+    details[other.msku] = replace(details[inv.msku], sales_7d=0, sales_14d=0, sales_30d=0,
+                                source_values={**details[inv.msku].source_values, **dict.fromkeys(SOURCE_VALUE_COLUMNS[:4], 0)})
+    rows = rep.calculate_replenishment_rows([inv, other], dict(reversed(list(details.items()))))
     payloads = [rep._non_shipping_payload(row) for row in rows]
     assert [payloads[0][k] for k in SOURCE_VALUE_COLUMNS[:4]] == [1, 2, 9, 1200]
     assert [payloads[1][k] for k in SOURCE_VALUE_COLUMNS[:4]] == [0, 0, 0, 0]

@@ -74,7 +74,7 @@ def test_saved_and_per_run_settings_change_workbook_without_changing_saved_state
 
 @pytest.mark.parametrize("problem,diagnostic", [
     ("source-changed", "发生变化"), ("other-batch", "批次"), ("missing-msku", "覆盖"),
-    ("duplicate-msku", "重复"), ("other-day", "日期"), ("orphan-shipment", "源表没有"),
+    ("other-day", "日期"), ("orphan-shipment", "源表没有"),
     ("unknown-sales", "可售"), ("invalid-weight", "AD重量"), ("invalid-shipment", "未关联数量"),
 ])
 def test_cli_rejects_inconsistent_inputs_without_publishing(tmp_path, problem, diagnostic):
@@ -94,13 +94,10 @@ def test_cli_rejects_inconsistent_inputs_without_publishing(tmp_path, problem, d
         report = batch(tmp_path / "different")[1]
     elif problem == "invalid-shipment":
         edit_cell(snapshot, "未关联数量", "invalid")
-    elif problem in {"missing-msku", "duplicate-msku"}:
+    elif problem == "missing-msku":
         book = load_workbook(report)
         ws = book["真实库存（深圳仓库）-库存sku"]
-        if problem == "missing-msku":
-            ws.delete_rows(2)
-        else:
-            ws.append([cell.value for cell in ws[2]])
+        ws.delete_rows(2)
         book.save(report)
         book.close()
     result = generate((source, report, snapshot), expected=4)

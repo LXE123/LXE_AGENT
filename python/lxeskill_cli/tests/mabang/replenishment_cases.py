@@ -87,7 +87,7 @@ def batch(root, *, rows=None, stocks=None, shipment_rows=None, snapshot_time="20
     report_rows, _ = inventory.calculate_inventory_rows(
         inventory.load_store_msku_rows(source, records=verified.records), combo_map=verified.combo_map,
         stock_quantities=stocks if stocks is not None else {"S": Decimal(12), "A": Decimal(20), "B": Decimal(21)},
-        unverified_rows=provenance.unverified_reasons(verified.metadata),
+        unverified_local_skus=provenance.unverified_local_sku_reasons(verified.metadata),
     )
     report = inventory.write_actual_inventory_xlsx(
         report_rows, root / "actual_inventory/202610131000-Amazon-Test_真实库存（深圳仓库）.xlsx")

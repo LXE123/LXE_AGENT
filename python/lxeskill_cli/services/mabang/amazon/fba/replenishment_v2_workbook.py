@@ -174,10 +174,10 @@ def _optional_number(value: Any, *, context: str, allow_negative: bool = False) 
     return int(number) if number == number.to_integral_value() else float(number)
 
 
-def _unique_source_rows(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+def _validate_source_rows(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
     if not records:
         raise ReplenishmentV2WorkbookError("MSKU 源文件没有数据行")
-    by_key: dict[str, dict[str, Any]] = {}
+    keys: set[str] = set()
     for index, record in enumerate(records, start=2):
         missing = [column for column in SOURCE_REQUIRED_COLUMNS if column not in record]
         if missing:
@@ -188,22 +188,17 @@ def _unique_source_rows(records: list[dict[str, Any]]) -> tuple[list[dict[str, A
         key = normalize_sku_key(msku)
         if not key:
             raise ReplenishmentV2WorkbookError(f"MSKU 源表第 {index} 行没有 MSKU")
-        if key in by_key:
-            previous = _text(by_key[key].get("MSKU"))
-            raise ReplenishmentV2WorkbookError(
-                f"MSKU 源表存在重复 MSKU: {previous!r}、{msku!r}"
-            )
-        by_key[key] = record
-    return records, by_key
+        keys.add(key)
+    return records, keys
 
 
 def _load_shenzhen_rows(
     report_path: Path,
     *,
     expected_keys: set[str],
-) -> dict[str, ShenzhenInventoryRow]:
+) -> dict[str, list[ShenzhenInventoryRow]]:
     workbook = load_workbook(report_path, read_only=True, data_only=True)
-    by_key: dict[str, ShenzhenInventoryRow] = {}
+    by_key: dict[str, list[ShenzhenInventoryRow]] = {}
     try:
         business_sheets = [
             sheet for sheet in workbook.worksheets
@@ -232,10 +227,6 @@ def _load_shenzhen_rows(
                     raise ReplenishmentV2WorkbookError(
                         f"深圳库存报告工作表 {sheet.title} 第 {row_number} 行有数据但没有 MSKU"
                     )
-                if key in by_key:
-                    raise ReplenishmentV2WorkbookError(
-                        f"深圳库存报告存在重复 MSKU: {msku!r}"
-                    )
                 actual = cells[indexes[ACTUAL_INVENTORY_QUANTITY_COLUMN]] if indexes[ACTUAL_INVENTORY_QUANTITY_COLUMN] < len(cells) else None
                 quantity = _optional_number(
                     actual, context=f"深圳库存报告 MSKU={msku} 库存", allow_negative=True,
@@ -255,12 +246,12 @@ def _load_shenzhen_rows(
                         reason += f"；原报告备注={remark}"
                 else:
                     reason = ""
-                by_key[key] = ShenzhenInventoryRow(
+                by_key.setdefault(key, []).append(ShenzhenInventoryRow(
                     actual_inventory=quantity,
                     local_sku=_text(local_sku),
                     report_sheet=sheet.title,
                     report_reason=reason,
-                )
+                ))
     except ReplenishmentV2WorkbookError:
         raise
     except Exception as exc:
@@ -283,18 +274,13 @@ def _load_shenzhen_rows(
 
 def _shipment_quantities(quantities: dict[str, float]) -> dict[str, int | float]:
     normalized: dict[str, int | float] = {}
-    original_for_key: dict[str, str] = {}
     for raw_msku, quantity in quantities.items():
         msku = _text(raw_msku)
         key = normalize_sku_key(msku)
         if not key:
             raise ReplenishmentV2WorkbookError("未关联货件快照存在没有 MSKU 的汇总行")
-        if key in normalized:
-            raise ReplenishmentV2WorkbookError(
-                f"未关联货件快照 MSKU 规范化后重复: {original_for_key[key]!r}、{msku!r}"
-            )
-        normalized[key] = _optional_number(quantity, context=f"未关联货件快照 MSKU={msku} 数量") or 0
-        original_for_key[key] = msku
+        value = _optional_number(quantity, context=f"未关联货件快照 MSKU={msku} 数量") or 0
+        normalized[key] = normalized.get(key, 0) + value
     return normalized
 
 
@@ -303,7 +289,7 @@ def _rows_for_workbook(
     *,
     source_keys: set[str],
     store_name: str,
-    inventory_by_key: dict[str, ShenzhenInventoryRow],
+    inventory_by_key: dict[str, list[ShenzhenInventoryRow]],
     shipment_by_key: dict[str, int | float],
 ) -> list[dict[str, Any]]:
     extra_shipments = shipment_by_key.keys() - source_keys
@@ -345,8 +331,11 @@ def _rows_for_workbook(
             )
         out["单件重量(g)"] = parsed_weight
         out["未发出货件总计"] = shipment_by_key.get(key, 0)
-        report_row = inventory_by_key[key]
         source_local_sku = _text(record.get("本地SKU"))
+        report_row = next((row for row in inventory_by_key[key]
+                           if normalize_sku_key(row.local_sku) == normalize_sku_key(source_local_sku)), None)
+        if report_row is None:
+            raise ReplenishmentV2WorkbookError(f"深圳库存报告缺少源表本地SKU: MSKU={msku}, 本地SKU={source_local_sku}")
         out["本地库存"] = report_row.actual_inventory
         out["本地SKU"] = report_row.local_sku or source_local_sku
         out["_inventory_unknown_reason"] = report_row.report_reason if report_row.actual_inventory is None else ""
@@ -517,8 +506,7 @@ def generate_replenishment_v2(
         raise ValueError("启用旺季加成时必须填写加成天数（0～120的整数），或在本轮聊天中指定")
     replenishment_v2_formulas(2, peak_boost_enabled=enabled, peak_boost_days=days)
     settings = {"peak_boost_enabled": enabled, "peak_boost_days": days}
-    records, source_by_key = _unique_source_rows(inputs.source.records)
-    source_keys = set(source_by_key)
+    records, source_keys = _validate_source_rows(inputs.source.records)
     inventory_by_key = _load_shenzhen_rows(inputs.inventory_path, expected_keys=source_keys)
     shipment_by_key = _shipment_quantities(inputs.shipments)
     rows = _rows_for_workbook(

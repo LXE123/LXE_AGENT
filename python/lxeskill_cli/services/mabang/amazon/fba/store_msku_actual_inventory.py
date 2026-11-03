@@ -18,7 +18,7 @@ from aiohttp import CookieJar
 from bs4 import BeautifulSoup
 from yarl import URL
 
-from .source_verification import product_key, unverified_reasons, load_verified_source, stamp_report
+from .source_verification import unverified_local_sku_reasons, load_verified_source, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
@@ -746,7 +746,7 @@ def calculate_inventory_rows(
     *,
     combo_map: dict[str, ComboSku],
     stock_quantities: dict[str, Decimal],
-    unverified_rows: dict[tuple[str, str, str, str], str] | None = None,
+    unverified_local_skus: dict[str, str] | None = None,
 ) -> tuple[list[ActualInventoryRow], list[str]]:
     missing: OrderedDict[str, str] = OrderedDict()
     result_rows: list[ActualInventoryRow] = []
@@ -759,11 +759,11 @@ def calculate_inventory_rows(
         actual_inventory: Decimal | None
         child_skus = ""
         remark = row.remark
-        verified = not unverified_rows or product_key(row) not in unverified_rows
+        verified = not unverified_local_skus or local_key not in unverified_local_skus
         if not verified:
             actual_inventory = None
             is_combo_sku = False
-            remark = "；".join(filter(None, [remark, unverified_rows[product_key(row)]]))
+            remark = "；".join(filter(None, [remark, unverified_local_skus[local_key]]))
         elif not local_key:
             actual_inventory = None
         elif combo is None:
@@ -957,8 +957,8 @@ async def _export_store_msku_actual_inventory_once(
             raise StoreMskuActualInventoryError(f"MSKU 源文件名无法识别源数据时间: {source_path.name}")
     verified_source = load_verified_source(source.path, store_name=clean_store_name)
     msku_rows = load_store_msku_rows(source.path, records=verified_source.records)
-    unverified = unverified_reasons(verified_source.metadata)
-    verified_rows = [row for row in msku_rows if product_key(row) not in unverified]
+    unverified = unverified_local_sku_reasons(verified_source.metadata)
+    verified_rows = [row for row in msku_rows if normalize_sku_key(row.local_sku) not in unverified]
     local_skus = _unique_text([row.local_sku for row in verified_rows])
 
     output_directory = _resolve_output_dir(output_dir)
@@ -985,7 +985,7 @@ async def _export_store_msku_actual_inventory_once(
         msku_rows,
         combo_map=combo_map,
         stock_quantities=stock_quantities,
-        unverified_rows=unverified,
+        unverified_local_skus=unverified,
     )
     inventory_groups = split_inventory_rows(inventory_rows)
 
