@@ -45,6 +45,13 @@
   border-radius: 50%;
 }
 
+.app-navigation .sidebar-status-icon {
+  /* The PNG has transparent outer padding. Fill it with the mark's own
+     backing color so its rectangular image bounds cannot flatten the circle. */
+  background: #f8f4f1;
+  overflow: hidden;
+}
+
 .navigation-rail-button > svg {
   width: 22px;
   height: 22px;
