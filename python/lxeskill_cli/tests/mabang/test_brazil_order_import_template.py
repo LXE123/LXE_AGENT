@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
+import json
 from pathlib import Path
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import pytest
@@ -11,6 +13,7 @@ from openpyxl.styles import Color, PatternFill
 
 from lxeskill import cli
 from services.commands.mabang import brazil_order_import_generate as command
+from services.mabang.brazil_order_import import workflow
 from services.mabang.brazil_order_import.workbook import (
     BrazilOrderWorkbookError,
     generate_order_workbook,
@@ -84,7 +87,8 @@ def test_generator_rebuilds_rows_from_source_and_preserves_blank_quantity(tmp_pa
 
 
 @pytest.mark.parametrize("coordinate", ["F2", "BD2"])
-def test_formula_without_cached_value_reports_cell_and_does_not_generate(tmp_path, coordinate):
+@pytest.mark.parametrize("existing_output", [False, True])
+def test_formula_without_cached_value_reports_cell_and_does_not_generate(tmp_path, coordinate, existing_output):
     source = tmp_path / "source.xlsx"
     output = tmp_path / "output.xlsx"
     source_workbook(source)
@@ -92,41 +96,92 @@ def test_formula_without_cached_value_reports_cell_and_does_not_generate(tmp_pat
     workbook["巴西"][coordinate] = '= "SKU-A"' if coordinate == "F2" else "=10+20"
     workbook.save(source)
     workbook.close()
+    if existing_output:
+        output.write_bytes(b"existing output")
 
-    with pytest.raises(BrazilOrderWorkbookError, match=coordinate):
+    with pytest.raises(BrazilOrderWorkbookError, match=rf"{coordinate}.*公式.*缓存.*重新计算"):
         generate_order_workbook(source, output, today=date(2026, 11, 3))
-    assert not output.exists()
+    if existing_output:
+        assert output.read_bytes() == b"existing output"
+    else:
+        assert not output.exists()
+    assert not list(tmp_path.glob(".output-*.xlsx"))
 
 
-def test_cached_formula_and_literal_equals_sku_are_preserved(tmp_path):
+@pytest.mark.parametrize("quantity", [0, 30])
+def test_cached_formula_and_literal_equals_sku_are_preserved(tmp_path, quantity):
     source = tmp_path / "source.xlsx"
     output = tmp_path / "output.xlsx"
     source_workbook(source)
     workbook = load_workbook(source)
     sheet = workbook["巴西"]
-    sheet["F2"] = "=SKU-A"
-    sheet["F2"].data_type = "s"
-    sheet["BD2"] = "=10+20"
+    sheet["F2"] = '="SKU-CACHED"'
+    sheet["BD2"] = f"={quantity}"
+    sheet["F4"] = "=SKU-LITERAL"
+    sheet["F4"].data_type = "s"
+    # An uncached formula in an unused shipping column is irrelevant to this export.
+    sheet["AT2"] = "=1+1"
     workbook.save(source)
     workbook.close()
 
-    # openpyxl does not calculate formulas: supply a numeric Excel-style cache.
+    # openpyxl does not calculate formulas: supply Excel-style string/numeric caches.
     updated = BytesIO()
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
     with ZipFile(source) as original, ZipFile(updated, "w") as archive:
         for item in original.infolist():
             data = original.read(item.filename)
             if item.filename == "xl/worksheets/sheet1.xml":
-                assert data.count(b"<f>10+20</f><v></v>") == 1
-                data = data.replace(b"<f>10+20</f><v></v>", b"<f>10+20</f><v>30</v>")
+                root = ElementTree.fromstring(data)
+                for coordinate, value in {"F2": "SKU-CACHED", "BD2": quantity}.items():
+                    cell = root.find(f".//{namespace}c[@r='{coordinate}']")
+                    assert cell is not None and cell.find(f"{namespace}f") is not None
+                    cell.set("t", "str" if isinstance(value, str) else "n")
+                    cached = cell.find(f"{namespace}v")
+                    assert cached is not None
+                    cached.text = str(value)
+                data = ElementTree.tostring(root, encoding="utf-8")
             archive.writestr(item, data)
     source.write_bytes(updated.getvalue())
 
-    generate_order_workbook(source, output, today=date(2026, 11, 3))
-    result = load_workbook(output, data_only=True)
-    assert result["订单标准模板"]["D2"].value == "=SKU-A"
-    assert result["订单标准模板"]["T2"].value == 30
-    assert result["订单标准模板"]["T3"].value is None
-    result.close()
+    metadata = generate_order_workbook(source, output, today=date(2026, 11, 3))
+    result = load_workbook(output, data_only=False)
+    try:
+        sheet = result["订单标准模板"]
+        assert [(sheet.cell(row, 4).value, sheet.cell(row, 20).value) for row in (2, 3, 4)] == [
+            ("SKU-CACHED", quantity), ("=SKU-LITERAL", None), ("SKU-A", 30),
+        ]
+        assert sheet["D3"].data_type == "s"
+        assert metadata["sku_count"] == 3
+        assert metadata["quantity_value_count"] == 2
+    finally:
+        result.close()
+
+
+def test_cli_reports_uncached_formula_without_deliverables(monkeypatch, tmp_path, capsys):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 3, tzinfo=tz)
+
+    source = tmp_path / "source.xlsx"
+    source_workbook(source)
+    workbook = load_workbook(source)
+    workbook["巴西"]["BD2"] = "=10+20"
+    workbook.save(source)
+    workbook.close()
+    monkeypatch.setattr(workflow, "datetime", FixedDatetime)
+    monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
+    monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
+
+    assert cli.main(["mabang", "brazil", "order-import", "generate", "--input-xlsx", str(source)]) != 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["ok"] is False
+    assert result["files"] == []
+    assert "BD2" in result["error"]["message"]
+    assert "重新计算" in result["error"]["message"]
+    assert "validation" not in result["data"]
+    assert list(tmp_path.rglob("*.xlsx")) == [source]
 
 
 @pytest.mark.parametrize("fill", [None, PatternFill(fill_type="solid", fgColor="FFFFFF00"),
