@@ -1001,7 +1001,7 @@ app.whenReady().then(async () => {
         await focus(".search-box input"); await win.webContents.insertText("Archived project"); await settle();
         await waitFor("document.querySelector('.session-workspace-result')?.textContent === '/fixture/archive'", "search directory label");
         await click(".session-index-open");
-        await waitFor("document.querySelector('.conversation-workspace-name')?.textContent === 'archive'", "existing chat directory");
+        await waitFor("document.querySelector('.conversation-workspace.is-readonly .workspace-open-split button')?.title.endsWith('/fixture/archive')", "existing chat directory");
         assert.equal(await js("Boolean(document.querySelector('.conversation-workspace select'))"), false);
         await click(".conversation-workspace .workspace-open-split button:first-child");
         assert.equal((await state()).calls.findLast(call => call.operation === "openWorkspace").input, "/fixture/archive");
@@ -1018,7 +1018,7 @@ app.whenReady().then(async () => {
         await waitFor('Boolean(document.querySelector(' + JSON.stringify(group('/fixture/empty')) + '))', 'empty registration after reload');
         assert.equal(await expanded('/fixture/empty'), 'true');
       });
-      await step('rename failure keeps input, retry updates sidebar, selector and conversation title', async () => {
+      await step('rename failure keeps input, retry updates sidebar and selector while preserving the conversation directory', async () => {
         await beginRename('/fixture/archive');
         await js('behavior.failRename(true)');
         await enterName('  采购项目  ');
@@ -1030,7 +1030,7 @@ app.whenReady().then(async () => {
         assert.equal(await label('/fixture/archive'), '采购项目');
         if (await expanded('/fixture/archive') !== 'true') await click(group('/fixture/archive') + ' .workspace-group-toggle');
         await click(group('/fixture/archive') + ' .session-index-open');
-        await waitFor('document.querySelector(".conversation-workspace-name")?.textContent === "采购项目"', 'updated conversation name');
+        await waitFor("document.querySelector('.conversation-workspace.is-readonly .workspace-open-split button')?.title.endsWith('/fixture/archive')", 'conversation retains directory after rename');
         await click(group('/fixture/archive') + ' .workspace-group-header > button:last-child');
         assert.equal(await js('document.querySelector(".conversation-workspace select option:checked").textContent'), '采购项目');
         await beginRename('/fixture/archive'); await enterName('');

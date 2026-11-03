@@ -24,6 +24,7 @@ import "./features/workbench/index-theme.css";
 import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
+import "./shared/app-chrome.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
 import { DashboardQueryProvider } from "./api/query-client";
 import {

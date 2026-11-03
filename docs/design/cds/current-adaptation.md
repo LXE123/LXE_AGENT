@@ -85,32 +85,32 @@
 
 ## 工具调用条
 
-UnifiedConversationRow 的 tool 分支，置于生产 conversation-feed 作用域；不额外套 CDS 主题以掩盖遗留配色。
+UnifiedConversationRow 的 tool 分支，置于生产 conversation-feed 作用域；生产组件自身接入 conversation-chrome-theme（2026-11-03 更新）。
 
 复用方式：**生产 UnifiedConversationRow**。五种执行状态均可悬停、用 Tab 聚焦和点击展开。示例命令只作为文本展示，不会执行。
 
-源码：[view.tsx](../../../apps/dashboard/src/features/sessions/view.tsx)、[styles.css](../../../apps/dashboard/src/styles.css)
+源码：[view.tsx](../../../apps/dashboard/src/features/sessions/view.tsx)、[conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css)、[code-block.tsx](../../../apps/dashboard/src/shared/ui/code-block.tsx)、[styles.css](../../../apps/dashboard/src/styles.css)
 
 | 状态 | CDS 依据 | LXE 当前实现 | 分类 |
 | --- | --- | --- | --- |
-| 默认 · 五种执行状态 | S1 | pending / running / success / error / unconfirmed 使用生产状态名称与图标；默认文字、状态色仍有旧主题变量。 | 部分适配 |
+| 默认 · 五种执行状态 | S1 | pending / running / success / error / unconfirmed 保留生产图标；名称为 CDS muted，参数与普通状态图标为 secondary，错误使用语义红色，边框使用 alpha。 | LXE 适配 |
 | 悬停 | S1 | 背景保持透明，普通名称及参数文字提亮；错误名称、状态图标保留原色。 | LXE 选择 |
-| 键盘焦点 | S1 | 文字同悬停；outline 仍引用旧 --tool-border-strong，尚未统一为 CDS 蓝环。 | 已知偏差 |
-| 展开／收起 | 无专用上游依据／本地接口 | 真实按钮切换 aria-expanded，展开参数和示例结果。 | LXE 行为 |
+| 键盘焦点 | S1 | 文字同悬停；调用条与复制按钮的 outline 使用 CDS accent 蓝色。 | LXE 适配 |
+| 展开／收起 | 无专用上游依据／本地接口 | 保留布局和展开逻辑；详情使用 CDS panel 表面、主次文字与中性复制按钮。命令及已知语言的源文件结果和回答正文共用 CodeBlock 与会话高亮配色；普通执行输出保持原文，不猜测语言。 | LXE 适配 |
 | 禁用 | 无专用上游依据／本地接口 | 这一生产分支没有 disabled prop；历史 CSS 有禁用保护，但不据此宣称存在业务禁用状态。 | 不适用 |
 
 核对位置与验收：
 
-- **tool-default**：`.tool-op.state-* / .tool-status-icon`。检查五种真实组件状态和图标标签；没有执行任何命令。
-- **tool-hover**：`.conversation-feed .tool-op-summary:is(:hover, :focus-visible)`。两种主题逐一移入五种状态，比较文字、透明背景、状态色与尺寸。
-- **tool-focus**：`.tool-op-summary:focus-visible`。Tab 聚焦，读取真实 outline；焦点可见不等于已经统一配色。
-- **tool-expanded**：`UnifiedConversationRow / .tool-op-body`。点击、Enter 展开与收起；已展开状态再次悬停。
+- **tool-default**：`.tool-turn-group.conversation-chrome-theme / .tool-status-icon`。检查五种真实组件状态和图标标签；没有执行任何命令。
+- **tool-hover**：`.tool-turn-group.conversation-chrome-theme .tool-op-summary:is(:hover, :focus-visible)`。两种主题逐一移入五种状态，比较文字、透明背景、状态色与尺寸。
+- **tool-focus**：`.tool-op-summary:focus-visible / .tool-result-button:focus-visible`。Tab 聚焦，读取真实 outline；点击、Enter 展开与收起。
+- **tool-expanded**：`UnifiedConversationRow / .tool-op-body / .conversation-feed .code-block`。点击、Enter 展开与收起；已展开状态再次悬停；Markdown 与工具内容定向回归。
 - **tool-na**：`UnifiedConversationRow tool 分支`。不通过改 DOM 属性伪造生产禁用支持。
 
 尚未查清：
 
 - 没有取得 Claude tool use 专用 hover、focus、展开状态的完整规范；通用 CDS 原则仅作参考。
-- 默认态和状态图标仍混用旧变量，不能宣称工具调用条已完整迁移。
+- 本次覆盖会话单条工具调用与展开详情，不代表其他调试页和文件预览也已迁移。
 
 ## 本轮实测的范围与限制
 

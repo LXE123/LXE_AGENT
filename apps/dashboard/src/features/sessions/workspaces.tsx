@@ -128,12 +128,8 @@ export function WorkspaceControl({ directory, workspaceId, workspaces, defaultDi
     try { await action(); } catch (cause) { setError(queryError(cause)); }
   };
   if (!editable) {
-    const name = current ? workspaceLabel(directory, groups, defaultDirectory, t.workspaces.defaultName) : directoryName(directory);
     return <div className="conversation-workspace is-readonly">
-      <span className="conversation-workspace-label" title={`${name}\n${directory}`}>
-        <FolderOpen size={15} aria-hidden="true" /><span className="conversation-workspace-name">{name}</span>
-        {current && directory === defaultDirectory ? <small className="workspace-default-badge">{t.workspaces.defaultBadge}</small> : null}
-      </span><WorkspaceOpenButton directory={directory} />
+      <WorkspaceOpenButton directory={directory} />
     </div>;
   }
   return <div className="conversation-workspace">
