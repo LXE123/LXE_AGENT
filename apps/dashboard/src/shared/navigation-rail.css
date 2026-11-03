@@ -39,6 +39,12 @@
   transition: background 140ms ease, color 140ms ease;
 }
 
+.app-navigation .sidebar-settings-button,
+.app-navigation .sidebar-status-icon,
+.app-navigation .sidebar-status-icon img {
+  border-radius: 50%;
+}
+
 .navigation-rail-button > svg {
   width: 22px;
   height: 22px;
