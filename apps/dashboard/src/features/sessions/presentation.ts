@@ -10,7 +10,7 @@ export interface PendingMessage {
   turnId?: string; messageId?: string; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
-  id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
+  id: string; groupId: string; turnId: string; kind: "assistant_identity" | "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
   presentation?: "process" | "final";
   answerMeta?: { text: string; createdAt: number };
   message?: SessionMessage; operation?: ToolOperation;

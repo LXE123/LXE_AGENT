@@ -56,4 +56,30 @@ module.exports = async ({win,url,js,step,waitFor,click,key,focus,settle}) => {
       assert.equal(await expanded(),'true');
     }
   });
+  await step('one assistant identity per reply uses transparent, stable-size portraits and truthful states',async()=>{
+    await open('running');
+    const loaded = () => waitFor("(()=>{const img=document.querySelector('.red-panda-avatar');return img?.complete&&img.naturalWidth>0})()", 'portrait loaded');
+    const mood = () => js("document.querySelector('.red-panda-avatar').dataset.mood");
+    await loaded(); assert.equal(await mood(),'thinking');
+    await click(toggle);
+    assert.equal(await js("document.querySelectorAll('.assistant-identity').length"),1);
+    await click('[data-process-waiting]'); await loaded(); assert.equal(await mood(),'waiting');
+    await click('[data-process-status="completed"]');
+    assert.equal(await mood(),'waiting','an outstanding question remains waiting');
+    await click('[data-process-waiting]'); await loaded(); assert.equal(await mood(),'completed');
+    for(const status of ['error','cancelled']) {
+      await click(`[data-process-status="${status}"]`); await loaded();
+      assert.equal(await mood(),'waiting');
+      assert.equal(await js("document.querySelector('.live-progress-status').classList.contains('state-'+"+JSON.stringify(status)+")"),true);
+    }
+    await click('[data-process-status="completed"]'); await click(toggle); await loaded();
+    for(const theme of ['light','dark']) {
+      await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`); await settle();
+      assert.deepEqual(await js("(()=>{const img=document.querySelector('.red-panda-avatar'),r=img.getBoundingClientRect(),frame=img.parentElement.getBoundingClientRect(),c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.drawImage(img,0,0,256,256);const pixels=x.getImageData(128,0,1,256).data;let bottom=255;while(bottom>=0&&pixels[bottom*4+3]<128)bottom--;return [frame.width,frame.height,Math.round(r.left-frame.left),r.top+(bottom+1)/256*r.height>=frame.bottom-1,x.getImageData(0,0,1,1).data[3],x.getImageData(128,128,1,1).data[3]>=250]})()"),[32,32,3,true,0,true]);
+      if(process.env.LXE_ASSISTANT_SCREENSHOT) {
+        const region=await js("(()=>{const r=document.querySelector('.assistant-identity').getBoundingClientRect();return {x:Math.max(0,Math.floor(r.left)-8),y:Math.max(0,Math.floor(r.top)-8),width:Math.min(620,Math.floor(innerWidth-r.left)),height:Math.min(110,Math.floor(innerHeight-r.top))}})()");
+        require('node:fs').writeFileSync(process.env.LXE_ASSISTANT_SCREENSHOT.replace(/\.png$/,`-${theme}.png`),(await win.webContents.capturePage(region)).toPNG());
+      }
+    }
+  });
 };

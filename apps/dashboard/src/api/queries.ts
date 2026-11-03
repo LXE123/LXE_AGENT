@@ -351,6 +351,7 @@ export function useSessionConversationQuery(sessionId: string, enabled = true, s
     isPending: display.loadState === "loading" && !data,
     isFetching: latestQuery.isFetching || fetching !== null,
     isRefetchError: latestQuery.isRefetchError,
+    errorUpdatedAt: latestQuery.errorUpdatedAt,
     hasPreviousPage: Boolean(data?.messages_page.has_previous && data.messages_page.previous_cursor),
     hasNextPage: Boolean(data?.messages_page.has_next && data.messages_page.next_cursor),
     isFetchingPreviousPage: fetching === "older", isFetchingNextPage: fetching === "newer",

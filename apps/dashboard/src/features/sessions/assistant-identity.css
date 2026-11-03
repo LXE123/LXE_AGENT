@@ -1,0 +1,1 @@
+.assistant-identity { display: flex; align-items: center; gap: 10px; min-height: 32px; color: var(--text-strong); font-size: .8125rem; font-weight: 600; line-height: 20px; }

@@ -1,0 +1,8 @@
+.dashboard-error-viewport { position: relative; inset: auto; width: 100%; max-width: none; margin: 0; padding: 0; list-style: none; pointer-events: auto; }
+.dashboard-query-notice { margin: 0 0 12px; border: 1px solid var(--danger-border); border-radius: 10px; background: var(--danger-soft); color: var(--danger); padding: 9px 12px; font-size: .8125rem; }
+.dashboard-error-notice { position: relative; inset: auto; height: auto; transform: none; transition: opacity 100ms ease; }
+.dashboard-error-notice[data-ending-style] { opacity: 0; }
+.dashboard-error-notice[data-limited] { display: none; }
+.dashboard-error-notice-content { width: 100%; padding: 0; align-items: flex-start; gap: 12px; overflow: visible; }
+.dashboard-error-notice-message { flex: 1; min-width: 0; overflow-wrap: anywhere; max-height: min(40vh, 240px); overflow-y: auto; white-space: pre-wrap; user-select: text; color: inherit; }
+.dashboard-error-notice .dashboard-error-notice-close { width: 22px; height: 22px; color: inherit; }

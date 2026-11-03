@@ -1,0 +1,7 @@
+.task-start-composer { --task-mascot-size: 112px; --task-mascot-overlap: 28px; }
+.task-start-composer .task-welcome { margin-bottom: calc(var(--task-mascot-size) - var(--task-mascot-overlap)); }
+.task-start-mascot { position: absolute; right: 24px; bottom: calc(100% - var(--task-mascot-overlap)); width: var(--task-mascot-size); height: var(--task-mascot-size); object-fit: contain; pointer-events: none; user-select: none; }
+@media (max-width: 600px) {
+  .task-start-composer { --task-mascot-size: 80px; --task-mascot-overlap: 20px; }
+  .task-start-mascot { right: 12px; }
+}

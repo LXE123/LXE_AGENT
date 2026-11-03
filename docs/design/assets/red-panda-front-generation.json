@@ -1,0 +1,7 @@
+{
+  "mode": "built-in image_gen",
+  "reference_image": "../../../apps/dashboard/src/assets/avatars/red-panda/peeking.png",
+  "asset": "../../../apps/dashboard/src/assets/avatars/red-panda/peeking-front-v2.png",
+  "transparent_background": true,
+  "prompt": "Edit this red panda peeking illustration. Change ONLY the pose and head orientation to a natural STRAIGHT-ON FRONT VIEW. Keep the same original round cute red panda identity, orange-red fur, warm cream markings, dark ink outline, soft hand-drawn flat-colour texture, and small dark paws. The head must be upright and level: both ears at equal height, eyes level and looking directly forward at the viewer, nose and mouth centred, balanced cheek proportions. Remove the diagonal tilt and sideways glance completely. Show only the head and two little paws, as if the panda is gently peeking over a horizontal card edge. Place the two paws symmetrically beneath the cheeks at the same height, not clustered on one side. Tiny friendly smile and relaxed brows, simple dark round eyes; warm and approachable, no smirk. Retain approximately the same overall head scale and transparent canvas margins as the source so the existing homepage placement can be reused. Keep both ears wholly inside the square canvas. Do not draw a card, wall, border, circular badge, background, shadow, text, or props. Background outside the character must be truly transparent; the face and ear cream colours must remain opaque. Preserve the illustration's handmade look, no glossy 3D or photoreal fur."
+}

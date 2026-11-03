@@ -14,7 +14,7 @@
   --sidebar-action-bg: var(--sidebar-hover);
   --sidebar-shadow: var(--shadow-strong);
   --focus-ring: var(--cds-accent);
-  --sidebar-row-height: 30px;
+  --sidebar-row-height: 32px;
   --sidebar-group-height: 30px;
   --sidebar-row-pad: 8px;
   --sidebar-icon-column: 16px;
@@ -38,7 +38,7 @@
 .app-sidebar.conversation-chrome-theme .workspace-index {
   gap: 8px;
 }
-.app-sidebar.conversation-chrome-theme .session-new-button {
+.app-sidebar.conversation-chrome-theme .session-new-button:not(.navigation-rail-button) {
   min-height: 40px;
   flex-shrink: 0;
   gap: 8px;
@@ -50,8 +50,8 @@
   min-height: 32px;
   margin-top: 12px;
   padding-inline: var(--sidebar-row-pad) 4px;
-  color: var(--sidebar-label);
-  font-size: 0.75rem;
+  color: var(--sidebar-ink);
+  font-size: var(--sidebar-text-size, .875rem);
   font-weight: 400;
 }
 .app-sidebar.conversation-chrome-theme .workspace-group {
@@ -67,10 +67,8 @@
 }
 .app-sidebar.conversation-chrome-theme .workspace-group-toggle {
   min-height: var(--sidebar-group-height);
-  gap: 8px;
-  padding: 5px var(--sidebar-row-pad);
-  color: var(--sidebar-label);
-  font-size: 0.75rem;
+  color: var(--sidebar-ink);
+  font-size: var(--sidebar-text-size, .875rem);
   font-weight: 400;
   line-height: 20px;
 }
@@ -86,7 +84,7 @@
   line-height: 16px;
 }
 .app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-list {
-  gap: 1px;
+  gap: 4px;
   margin-right: 0;
 }
 /* Titles use the full row. Revealing the overlay menu moves only the fade edge,
@@ -108,8 +106,8 @@
   justify-self: center;
 }
 .app-sidebar.conversation-chrome-theme .session-index-item .primary-cell {
-  color: var(--cds-secondary);
-  font-size: 0.8125rem;
+  color: var(--sidebar-ink);
+  font-size: var(--sidebar-text-size, .875rem);
   font-weight: 400;
   line-height: 20px;
   text-overflow: clip;
@@ -121,8 +119,7 @@
 }
 .app-sidebar.conversation-chrome-theme .session-index-item.active .primary-cell {
   color: var(--cds-ink);
-  font-size: 0.8125rem;
-  font-weight: 400;
+  font-weight: 600;
 }
 .app-sidebar.conversation-chrome-theme .session-workspace-result {
   text-overflow: clip;

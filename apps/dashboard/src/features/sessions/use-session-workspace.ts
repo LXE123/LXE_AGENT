@@ -359,7 +359,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     } as const,
     queryStatus: [sessionDetailQuery, conversationActivityQuery].map(current => ({
       isFetching: current.isFetching, isPending: current.isPending,
-      isRefetchError: current.isRefetchError, error: current.error,
+      isRefetchError: current.isRefetchError, error: current.error, errorUpdatedAt: current.errorUpdatedAt,
     } as const)),
     actions: {
       openSession, openSessionRun, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,

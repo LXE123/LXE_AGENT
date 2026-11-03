@@ -10,6 +10,7 @@ import {
 import { formatDate, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { SessionPayload } from "../../api/payloads";
+import { ErrorNotice } from "../../shared/ui/error-notice";
 
 function HomeQueryState({ error, loading, empty, onRetry }: {
   error: unknown;
@@ -46,8 +47,9 @@ export function DashboardHome({
   const overview = overviewQuery.data;
   const skills = skillsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages).items.slice(0, 6);
-  const backgroundError = enabled
-    ? [overviewQuery, skillsQuery, sessionsQuery].find((current) => current.isRefetchError)?.error
+  const queries = [overviewQuery, skillsQuery, sessionsQuery];
+  const backgroundFailure = enabled
+    ? queries.find((current) => current.isRefetchError)
     : undefined;
   const refreshing = enabled && [overviewQuery, skillsQuery, sessionsQuery]
     .some((current) => current.isFetching && !current.isPending);
@@ -76,10 +78,9 @@ export function DashboardHome({
         <h1 id="dashboard-home-title">{greeting}</h1>
         <p>{t.home.overviewHint}</p>
       </header>
-      {backgroundError ? (
-        <div className="dashboard-query-notice" role="status">
-          {t.common.errorPrefix(t.errors.api, queryError(backgroundError))}
-        </div>
+      {backgroundFailure ? (
+        <ErrorNotice key={`${queries.indexOf(backgroundFailure)}:${backgroundFailure.errorUpdatedAt}`}
+          message={t.common.errorPrefix(t.errors.api, queryError(backgroundFailure.error))} />
       ) : refreshing ? (
         <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
       ) : null}

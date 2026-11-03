@@ -4,12 +4,12 @@
    Rules: surface hierarchy, semantic ink, alpha borders, shared field states.
    Source: CDS tokens — vanilla, Rules / Theme ramps / Elevation / Purpose. */
 :is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
-  --cds-surface-nav: #fcfcfb;
-  --cds-surface-panel: #ffffff;
-  --cds-surface-popover: #ffffff;
-  --cds-ink: #0b0b0b;
-  --cds-secondary: #52514e;
-  --cds-muted: #898781;
+  --cds-surface-nav: #fafafa;
+  --cds-surface-panel: #fafafa;
+  --cds-surface-popover: #fafafa;
+  --cds-ink: #000000;
+  --cds-secondary: #222222;
+  --cds-muted: #333333;
   --cds-alpha-1: rgb(11 11 11 / 5%);
   --cds-alpha-2: rgb(11 11 11 / 10%);
   --cds-alpha-3: rgb(11 11 11 / 20%);
@@ -18,11 +18,11 @@
   --cds-field: rgb(255 255 255 / 50%);
   --cds-selected: var(--cds-alpha-2);
   --cds-thumb: var(--cds-surface-popover);
-  --cds-accent: #184f95;
-  --cds-accent-hover: #123e77;
-  --cds-accent-tint: rgb(24 79 149 / 12%);
-  --cds-primary: var(--cds-accent);
-  --cds-primary-hover: var(--cds-accent-hover);
+  --cds-accent: #000000;
+  --cds-accent-hover: #222222;
+  --cds-accent-tint: rgb(0 0 0 / 8%);
+  --cds-primary: #399869;
+  --cds-primary-hover: #287b53;
   --cds-primary-ink: #ffffff;
   --cds-danger-action: #b42318;
   --cds-danger-hover: #912018;
@@ -70,11 +70,11 @@
 
 :root[data-theme="dark"] :is(.automations-theme, .desktop-settings-theme, .capabilities-theme, .activity-theme, .workbench-theme, .home-theme, .conversation-chrome-theme, .runtime-status-theme) {
   --cds-surface-nav: #151515;
-  --cds-surface-panel: #1a1a19;
-  --cds-surface-popover: #232322;
-  --cds-ink: #f5f4ed;
-  --cds-secondary: #bfbdb5;
-  --cds-muted: #9c9a92;
+  --cds-surface-panel: #1a1a1a;
+  --cds-surface-popover: #232323;
+  --cds-ink: #f5f5f5;
+  --cds-secondary: #bfbfbf;
+  --cds-muted: #a0a0a0;
   --cds-alpha-1: rgb(255 255 255 / 5%);
   --cds-alpha-2: rgb(255 255 255 / 10%);
   --cds-alpha-3: rgb(255 255 255 / 20%);
@@ -82,20 +82,23 @@
   --cds-field: var(--cds-alpha-1);
   --cds-selected: rgb(255 255 255 / 15%);
   --cds-thumb: var(--cds-alpha-2);
-  --cds-accent: #6da7ec;
-  --cds-accent-hover: #92bff2;
-  --cds-accent-tint: rgb(109 167 236 / 14%);
+  --cds-accent: #dddddd;
+  --cds-accent-hover: #eeeeee;
+  --cds-accent-tint: rgb(255 255 255 / 12%);
+  --cds-primary: #dddddd;
+  --cds-primary-hover: #eeeeee;
   --cds-primary-ink: #0b0b0b;
-  --cds-danger-action: #b42318;
-  --success: #8dca8d;
-  --success-soft: #253429;
-  --success-border: #3e5844;
-  --danger: #f28e85;
-  --danger-soft: #3d2827;
-  --danger-border: #693b38;
-  --warning: #dec77f;
-  --warning-soft: #363022;
-  --warning-border: #685632;
+  --cds-danger-action: #555555;
+  --cds-danger-hover: #666666;
+  --success: #cccccc;
+  --success-soft: #2d2d2d;
+  --success-border: #4b4b4b;
+  --danger: #dddddd;
+  --danger-soft: #333333;
+  --danger-border: #666666;
+  --warning: #dddddd;
+  --warning-soft: #303030;
+  --warning-border: #555555;
   --scrim: rgb(0 0 0 / 50%);
   --shadow-soft: rgb(0 0 0 / 20%);
   --shadow-medium: rgb(0 0 0 / 28%);

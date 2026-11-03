@@ -13,6 +13,7 @@ import { EmptyState, FailureCount } from "../../shared/components";
 import { formatDate, formatDurationMs, formatNumber, skillTypeLabel } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { StatsOverviewPayload } from "../../api/payloads";
+import { ErrorNotice } from "../../shared/ui/error-notice";
 
 export const USAGE_RANGE_OPTIONS = [7, 30, 90];
 
@@ -416,8 +417,8 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
     && (overviewQuery.isPending || skillStatsQuery.isPending || toolStatsQuery.isPending);
   const firstError = overviewQuery.error || skillStatsQuery.error || toolStatsQuery.error;
   const error = !overview ? queryError(firstError) : "";
-  const backgroundError = [overviewQuery, skillStatsQuery, toolStatsQuery]
-    .find((current) => current.isRefetchError)?.error;
+  const queries = [overviewQuery, skillStatsQuery, toolStatsQuery];
+  const backgroundFailure = queries.find((current) => current.isRefetchError);
   const refreshing = [overviewQuery, skillStatsQuery, toolStatsQuery]
     .some((current) => current.isFetching && !current.isPending);
 
@@ -464,10 +465,9 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
 
   return (
     <div className="usage-page">
-      {backgroundError ? (
-        <div className="dashboard-query-notice" role="status">
-          {t.common.errorPrefix(t.errors.api, queryError(backgroundError))}
-        </div>
+      {backgroundFailure ? (
+        <ErrorNotice key={`${queries.indexOf(backgroundFailure)}:${backgroundFailure.errorUpdatedAt}`}
+          message={t.common.errorPrefix(t.errors.api, queryError(backgroundFailure.error))} />
       ) : refreshing ? (
         <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
       ) : null}

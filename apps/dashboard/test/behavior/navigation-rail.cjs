@@ -6,6 +6,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   const ready = (expression, label) => waitFor(`Boolean(${expression})`, label);
   const sections = ['sessions', 'capabilities', 'workbench', 'automations', 'home', 'activity'];
   const joinedComposer = async () => {
+    await ready("(()=>{const img=document.querySelector('.task-start-mascot');return img?.complete&&img.naturalWidth>0})()", 'homepage mascot loaded');
     const geometry = await js(`(()=>{
       const box=document.querySelector('.task-start-composer .conversation-compose-box').getBoundingClientRect();
       const footer=document.querySelector('.task-start-workspace').getBoundingClientRect();
@@ -14,6 +15,15 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     })()`);
     assert.ok(geometry.overlap>0, 'workspace backing should join behind the input: '+JSON.stringify(geometry));
     assert.ok(geometry.controlsTop>=geometry.boxBottom, 'workspace controls must remain below the input');
+    const mascot = await js(`(()=>{
+      const img=document.querySelector('.task-start-mascot'),r=img.getBoundingClientRect();
+      const card=document.querySelector('.task-start-composer .conversation-compose-box').getBoundingClientRect();
+      const templates=document.querySelector('.task-templates').getBoundingClientRect();
+      return {right:r.right<=card.right,left:r.left>=card.left,above:r.top<card.top,clear:templates.bottom<=r.top,
+        passThrough:getComputedStyle(img).pointerEvents==='none',width:r.width};
+    })()`);
+    assert.ok(mascot.right&&mascot.left&&mascot.above&&mascot.clear&&mascot.passThrough,JSON.stringify(mascot));
+    assert.ok(mascot.width<=112);
   };
 
   const capture = async name => {
@@ -80,6 +90,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await click('.conversation-send-button');
       await ready("behavior.state().calls.some(c=>c.operation==='sessions.send')", 'send reaches bridge');
       await ready("!document.querySelector('.task-start-view')", 'conversation layout after send');
+      assert.equal(await js("Boolean(document.querySelector('.task-start-mascot'))"),false);
       assert.equal(await js("Boolean(document.querySelector('.conversation-composer .reference-editor'))"), true);
     });
     await step(`${theme}: compact sidebar retains navigation and settings and narrow task layout fits`, async () => {

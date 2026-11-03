@@ -22,7 +22,7 @@ import React, { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { DesktopHealth, DesktopInputAttachmentPayload, LxeDesktopBridge, SessionPayload, WorkspaceSummaryPayload } from "@lxe/desktop-protocol";
+import type { DesktopDashboardInvalidation, DesktopHealth, DesktopInputAttachmentPayload, LxeDesktopBridge, SessionPayload, WorkspaceSummaryPayload } from "@lxe/desktop-protocol";
 import { ConversationComposer } from "../../src/features/sessions/view";
 import { useDialogFocus } from "../../src/shared/ui/use-dialog-focus";
 import { MermaidBlock } from "../../src/shared/ui/markdown";
@@ -62,6 +62,7 @@ let vietnamState: DesktopVietnamSettingsState = { directory: "/fixture/app/skill
 let chosenFile = "";
 let chosenDirectory: string | null = "/fixture/chosen";
 let sendFailure = false;
+let detailFailure = false;
 let holdWorkspaceSend = false;
 let releaseWorkspaceSend: (() => void) | undefined;
 let creationFailure = false;
@@ -80,7 +81,10 @@ let holdSessionRename = false;
 let releaseSessionRename: (() => void) | undefined;
 let holdRegistration = false;
 let releaseRegistration: (() => void) | undefined;
-let invalidateDashboard: (() => void) | undefined;
+const dashboardInvalidationListeners = new Set<(event: DesktopDashboardInvalidation) => void>();
+const invalidateDashboard = () => {
+  for (const listener of dashboardInvalidationListeners) listener({ revision: Date.now(), domains: ["sessions"], session_ids: [] });
+};
 function workspaceSession(id: string, directory: string, pinned = false): SessionPayload {
   return { session_id: id, permission_mode: "workspace-write", title: id, workspace_id: directory, workspace: { directory, worktree: directory },
     pinned_at: pinned ? 1 : 0, created_at: 1, last_active_at: 100, source: { platform: "desktop" },
@@ -159,9 +163,12 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       const offset = Number(input.offset ?? 0), limit = Number(input.limit ?? 10);
       return { items: rows.slice(offset, offset + limit), total: rows.length, offset, limit };
     }
-    case "sessions.detail": return { session: workspaceSessions.find(row => row.session_id === input.session_id),
+    case "sessions.detail": {
+      if (detailFailure) throw new Error("ENOENT: no such file or directory, stat '/fixture/old/workspace'");
+      return { session: workspaceSessions.find(row => row.session_id === input.session_id),
       messages: [], messages_page: { group_cursors: [], total: 0, raw_message_total: 0, limit: 10, fetched_at: 1,
         oldest_cursor: null, newest_cursor: null, previous_cursor: null, next_cursor: null, has_previous: false, has_next: false } };
+    }
     case "sessions.activity": return { session_id: input.session_id,
       active: busySessions.has(String(input.session_id)) ? { turn_id: "active", message_id: "active-input", text: "Running task", state: "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } : null,
       latest: null, queued: busySessions.has(String(input.session_id)) ? [{ turn_id: "queued", message_id: "queued-input", text: "Next task", state: "queued", started_at: 0, user_persisted_at: 0, settled_at: 0 }] : [] };
@@ -262,8 +269,8 @@ const desktop = {
   },
   onCloudStateChanged: subscribe,
   onDashboardInvalidated: listener => {
-    invalidateDashboard = () => listener({ revision: Date.now(), domains: ["sessions"], session_ids: [] });
-    return () => { invalidateDashboard = undefined; };
+    dashboardInvalidationListeners.add(listener);
+    return () => { dashboardInvalidationListeners.delete(listener); };
   },
   onConversationEvent: actionFixture.onActivity,
   onConversationStreamEvent: actionFixture.onStream,
@@ -531,6 +538,7 @@ const fixture = {
   refreshWorkspaces() { invalidateDashboard?.(); void queryClient?.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.workspaces }); },
   chooseDirectory(directory: string | null) { chosenDirectory = directory; },
   failWorkspaceSend(value: boolean) { sendFailure = value; },
+  failWorkspaceDetail(value: boolean) { detailFailure = value; },
   holdWorkspaceSend(value: boolean) { holdWorkspaceSend = value; },
   releaseWorkspaceSend() { releaseWorkspaceSend?.(); },
   slowCandidates(value: boolean) { slowCandidates = value; },

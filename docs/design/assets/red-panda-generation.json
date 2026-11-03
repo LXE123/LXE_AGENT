@@ -1,0 +1,22 @@
+{
+  "mode": "built-in image_gen",
+  "reference_image": "red-panda-concept-v2.png",
+  "transparent_background": true,
+  "assets": [
+    {
+      "state": "completed",
+      "file": "../../../apps/dashboard/src/assets/avatars/red-panda/completed.png",
+      "prompt": "Edit the accepted original red panda character into ONE production conversation avatar asset. Use only the round, cute head from the upper right of the reference, without the body or other studies. Match its exact orange-red head shape, round cream-lined ears, warm cream cheek mask, little dark nose, and dark hand-drawn contour. Preserve the approachable hand-inked flat-colour cartoon personality. Simplify fine paper grain and tiny fur details for legibility at 28px, without changing its identity. Square canvas, head facing almost straight forward, centred, both ears entirely inside frame, entire head occupying about 88% of canvas with consistent small padding on every side. Opaque flat cream areas on face and inner ears; truly transparent background outside the character, with no beige paper, no circle, no drop shadow, no border, no text, no extra marks or accessories. Restrained brush edge, no 3D or glossy synthetic finish. Expression: gentle pleased smile with both eyes softly closed into little upward arcs, as in the bottom-right completed expression of the reference. Endearing, subtle, calm."
+    },
+    {
+      "state": "thinking",
+      "file": "../../../apps/dashboard/src/assets/avatars/red-panda/thinking.png",
+      "prompt": "Edit the accepted original red panda character into ONE production conversation avatar asset. Use only the round, cute head from the upper right of the reference, without the body or other studies. Match its exact orange-red head shape, round cream-lined ears, warm cream cheek mask, little dark nose, and dark hand-drawn contour. Preserve the approachable hand-inked flat-colour cartoon personality. Simplify fine paper grain and tiny fur details for legibility at 28px, without changing its identity. Square canvas, head facing almost straight forward, centred, both ears entirely inside frame, entire head occupying about 88% of canvas with consistent small padding on every side. Opaque flat cream areas on face and inner ears; truly transparent background outside the character, with no beige paper, no circle, no drop shadow, no border, no text, no extra marks or accessories. Restrained brush edge, no 3D or glossy synthetic finish. Expression: attentive concentration, round dark eyes looking gently down and a tiny rounded mouth, as in the bottom-middle thinking expression. Soft relaxed brows, never angry or frowning."
+    },
+    {
+      "state": "waiting",
+      "file": "../../../apps/dashboard/src/assets/avatars/red-panda/waiting.png",
+      "prompt": "Edit the accepted original red panda character into ONE production conversation avatar asset. Use only the round, cute head from the upper right of the reference, without the body or other studies. Match its exact orange-red head shape, round cream-lined ears, warm cream cheek mask, little dark nose, and dark hand-drawn contour. Preserve the approachable hand-inked flat-colour cartoon personality. Simplify fine paper grain and tiny fur details for legibility at 28px, without changing its identity. Square canvas, head facing almost straight forward, centred, both ears entirely inside frame, entire head occupying about 88% of canvas with consistent small padding on every side. Opaque flat cream areas on face and inner ears; truly transparent background outside the character, with no beige paper, no circle, no drop shadow, no border, no text, no extra marks or accessories. Restrained brush edge, no 3D or glossy synthetic finish. Expression: curious friendly listening, dark round eyes looking slightly upward, tiny gentle smile, a barely perceptible head tilt, like the bottom-left reference expression. No detached doodle or punctuation marks."
+    }
+  ]
+}

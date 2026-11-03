@@ -4,11 +4,13 @@ import {conversationRows} from "../../../src/features/sessions/presentation";
 import {useProcessRows} from "../../../src/features/sessions/process";
 import {ConversationWindow} from "../../../src/features/sessions/virtual-window";
 import {UnifiedConversationRow} from "../../../src/features/sessions/view";
+import {withAssistantIdentity} from "../../../src/features/sessions/assistant-identity-model";
 import type {SessionMessage} from "../../../src/api/payloads";
 import "../../../src/styles.css";
 const noop=async()=>{};
 function Fixture(){
   const [status,setStatus]=useState(new URLSearchParams(location.search).get("status") || "running");
+  const [waiting,setWaiting]=useState(false);
   const [phase,setPhase]=useState("thinking");
   const [tools,setTools]=useState(new Map<string,boolean>());
   const [narrow,setNarrow]=useState(false);
@@ -24,9 +26,9 @@ function Fixture(){
   ].map(m=>({...m,display_group_id:"g",created_at:1,turn:{turn_id:"t",status,elapsed_ms:3723000}})) as SessionMessage[];
   const process=useProcessRows(conversationRows(messages,[],[]).map(row=>row.kind==="status"?{...row,phase}:row),"fixture");
   return <div style={{width:narrow?390:"100%",maxWidth:"100%",height:"100vh",display:"flex",flexDirection:"column"}}>
-    <div><button onClick={()=>setNarrow(v=>!v)}>Toggle narrow column</button><button onClick={()=>setLongUser(v=>!v)}>Toggle long user</button><button onClick={()=>setAttached(v=>!v)}>Toggle attachment</button><button onClick={()=>setExtraFile(v=>!v)}>Toggle extra file</button>{["completed","error","cancelled","running"].map(value=><button key={value} data-process-status={value} onClick={()=>setStatus(value)}>{value}</button>)}
+    <div><button onClick={()=>setNarrow(v=>!v)}>Toggle narrow column</button><button data-process-waiting onClick={()=>setWaiting(v=>!v)}>Toggle waiting for answer</button><button onClick={()=>setLongUser(v=>!v)}>Toggle long user</button><button onClick={()=>setAttached(v=>!v)}>Toggle attachment</button><button onClick={()=>setExtraFile(v=>!v)}>Toggle extra file</button>{["completed","error","cancelled","running"].map(value=><button key={value} data-process-status={value} onClick={()=>setStatus(value)}>{value}</button>)}
       {["preparing_context","waiting_model","thinking","running_tool","generating_answer","unknown"].map(value=><button key={value} data-process-phase={value} onClick={()=>setPhase(value)}>{value}</button>)}</div>
-    <ConversationWindow rows={process.rows} hasOlder={false} hasNewer={false} loadOlder={noop} loadNewer={noop} jumpToLatest={()=>{}} onVisibleGroups={()=>{}} pageError=""
+    <ConversationWindow rows={withAssistantIdentity(process.rows,waiting?"t":undefined)} hasOlder={false} hasNewer={false} loadOlder={noop} loadNewer={noop} jumpToLatest={()=>{}} onVisibleGroups={()=>{}} pageError=""
       renderRow={row=><UnifiedConversationRow row={row} expanded={row.kind==="process"?process.states.get(row.id)?.expanded??false:tools.get(row.id)??false}
         onToggle={row.kind==="process"?process.toggle:id=>setTools(old=>new Map(old).set(id,!old.get(id)))} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop}/>} />
   </div>;

@@ -1,0 +1,36 @@
+{
+  "preset": "base-nova",
+  "retrieved": "2026-11-03",
+  "components": [
+    {
+      "name": "button",
+      "url": "https://ui.shadcn.com/r/styles/base-nova/button.json",
+      "sha256": "9ba7e870178813f0552b818a913a2792fb500c779e36395740b4973e3025d427"
+    },
+    {
+      "name": "dialog",
+      "url": "https://ui.shadcn.com/r/styles/base-nova/dialog.json",
+      "sha256": "40fc321d25eb9590d07db54b00d9bc1a74274a549aa06d5915a34ba302ed8b94"
+    },
+    {
+      "name": "dropdown-menu",
+      "url": "https://ui.shadcn.com/r/styles/base-nova/dropdown-menu.json",
+      "sha256": "335c59dba30145f434a9cc9ccb0438a3c5e2afe857fc11b029de1ecb415224d7"
+    },
+    {
+      "name": "collapsible",
+      "url": "https://ui.shadcn.com/r/styles/base-nova/collapsible.json",
+      "sha256": "74f78cd88a30185243847968977cf1de9ffbf576547f2ec1f14b5ef55505b90d"
+    },
+    {
+      "name": "toast",
+      "url": "https://ui.shadcn.com/r/styles/base-nova/toast.json",
+      "sha256": "161ed77c409fe7345ee6308f7cf66f7bcf2717d8d5e1a8b36a7f8e8fa0df745e"
+    }
+  ],
+  "adaptations": [
+    "Project import aliases and cn utility",
+    "Lucide icon selection",
+    "LXE theme, portal positioning and controlled business adapters"
+  ]
+}

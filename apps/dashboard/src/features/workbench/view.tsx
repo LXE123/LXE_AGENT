@@ -18,6 +18,7 @@ import type {
 } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
 import { WorkbenchPageHeader } from "./page-header";
+import { ErrorNotice } from "../../shared/ui/error-notice";
 
 const runningTask = (task: DesktopSyntheticPerformerTask | null): boolean =>
   task?.state === "queued" || task?.state === "running";
@@ -166,7 +167,8 @@ export function SyntheticPerformerWorkbench({ onBack }: { onBack: () => void }) 
         </div>
       ) : null}
       {error || task?.error ? (
-        <div className="dashboard-query-notice" role="alert">{error || task?.error}</div>
+        <ErrorNotice key={error ? `action:${error}` : `task:${task?.task_id}:${task?.error}`}
+          message={error || task!.error} onDismiss={error ? () => setError("") : undefined} />
       ) : null}
 
       <section className="workbench-card">

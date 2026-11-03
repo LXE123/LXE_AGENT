@@ -11,7 +11,7 @@ const errors = [];
 
 app.whenReady().then(async () => {
   // Caption restoration and chart focus tooltips need native document focus.
-  const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages';
+  const nativeFocus = ['windows-menu', 'overview-pages', 'sidebar-components', 'workspace-deletion', 'session-titles'].includes(suite);
   const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
     webPreferences: { offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
   // Do not permit accidental external requests from fixtures or production UI.
@@ -70,7 +70,9 @@ app.whenReady().then(async () => {
   };
   try {
     await load();
-    if (suite === "process-details") {
+    if (suite === "error-notices") {
+      await require("./error-notices.cjs")({win,js,step,load,waitFor,click,key,focus,settle});
+    } else if (suite === "process-details") {
       await require("./process-details.cjs")({win,url,js,step,waitFor,click,key,focus,settle});
     } else if (suite === "sidebar-components") {
       await require("./sidebar-components.cjs")({win,js,step,load,waitFor,click,key,focus,settle});
@@ -422,8 +424,16 @@ app.whenReady().then(async () => {
         return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
       };
       const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
-      const ready = theme => waitFor(`document.querySelectorAll('.mermaid-block svg').length === 2
-        && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node rect')).fill === ${JSON.stringify(theme === "dark" ? "rgb(48, 47, 46)" : "rgb(244, 244, 244)")}`, `${theme} diagrams`);
+      const ready = (theme, selector = '#mermaid-fixture-0 .node rect', count = 2) => waitFor(`(() => {
+        const node = document.querySelector(${JSON.stringify(selector)});
+        if (!node || document.querySelectorAll('.mermaid-block svg').length !== ${count}) return false;
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--conversation-muted-fill)';
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).color;
+        probe.remove();
+        return getComputedStyle(node).fill === expected;
+      })()`, `${theme} diagrams`);
       await step("light and dark diagrams have neutral nodes and readable labels, arrows and sequence notes", async () => {
         for (const theme of ["light", "dark"]) {
           await setTheme(theme); await mount([chart, sequence]); await ready(theme);
@@ -458,8 +468,7 @@ app.whenReady().then(async () => {
         await mount([custom]);
         for (const theme of ["light", "dark"]) {
           await setTheme(theme);
-          await waitFor(`document.querySelector('#mermaid-fixture-0 .node:not(.highlight) rect')
-            && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node:not(.highlight) rect')).fill === ${JSON.stringify(theme === "dark" ? "rgb(48, 47, 46)" : "rgb(244, 244, 244)")}`, "custom diagram rendered in current theme");
+          await ready(theme, '#mermaid-fixture-0 .node:not(.highlight) rect', 1);
           await settle();
           assert.equal(await js("getComputedStyle(document.querySelector('#mermaid-fixture-0 .highlight rect')).fill"), "rgb(52, 86, 120)");
         }

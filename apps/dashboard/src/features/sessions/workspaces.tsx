@@ -1,7 +1,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../shared/ui/collapsible";
 import { IconButton } from "../../shared/ui/icon-button";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { FolderOpen, FolderPlus, MoreHorizontal, Plus } from "lucide-react";
+import { Folder, FolderOpen, FolderPlus, MoreHorizontal, Plus } from "lucide-react";
 import { flattenSessionPages, queryError, useSessionsInfiniteQuery, useSessionStatus } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { SessionsIndex } from "./view";
@@ -39,18 +39,20 @@ function WorkspaceGroup({ workspace, label, props, onActions }: {
   const id = workspace?.workspace_id ?? null;
   const key = id ?? UNGROUPED_WORKSPACE;
   const expanded = props.expanded[key] ?? (id === props.activeWorkspaceId || workspace?.directory === props.defaultDirectory);
+  const FolderIcon = expanded ? FolderOpen : Folder;
   // Ungrouped needs its first page even when collapsed to know whether it exists.
   const query = useSessionsInfiniteQuery("", props.enabled && (expanded || !workspace), id);
   const sessions = flattenSessionPages(query.data?.pages);
   const blank = props.currentBlank?.workspace_id === id ? props.currentBlank : null;
   const statuses = useSessionStatus(sessions.items.map(item => item.session_id), props.enabled && expanded, props.display, false);
   if (!workspace && !sessions.items.length && !blank && !query.isError) return null;
-  return <Collapsible open={expanded} onOpenChange={open => props.onExpandedChange(key, open)} asChild><section data-workspace-directory={workspace?.directory} data-workspace-id={key} className="workspace-group">
+  return <Collapsible open={expanded} onOpenChange={open => props.onExpandedChange(key, open)} render={<section data-workspace-directory={workspace?.directory} data-workspace-id={key} className="workspace-group" />}>
     <div className="workspace-group-header">
-      <CollapsibleTrigger asChild><button type="button" className="workspace-group-toggle" title={workspace?.directory}>
+      <CollapsibleTrigger className="workspace-group-toggle" title={workspace?.directory}>
+        <FolderIcon className="workspace-group-icon" size={16} aria-hidden="true" />
         <span>{label}</span>
         {workspace?.directory === props.defaultDirectory ? <small className="workspace-default-badge">{t.workspaces.defaultBadge}</small> : null}
-      </button></CollapsibleTrigger>
+      </CollapsibleTrigger>
       {workspace ? <>
         <IconButton className="workspace-icon-button workspace-actions-trigger" disabled={!props.enabled}
           title={t.workspaces.actions} label={`${t.workspaces.actions}: ${label}`} aria-haspopup="menu"
@@ -69,7 +71,7 @@ function WorkspaceGroup({ workspace, label, props, onActions }: {
         {query.isError && !sessions.items.length ? <button className="workspace-load-more" type="button" onClick={() => void query.refetch()}>{t.workspaces.retry}</button> : null}
       </div>
     </CollapsibleContent>
-  </section></Collapsible>;
+  </Collapsible>;
 }
 
 export function WorkspacesIndex(props: WorkspaceIndexProps) {
@@ -147,7 +149,6 @@ export function WorkspaceControl({ directory, workspaceId, workspaces, defaultDi
         {!current ? <option value="">{directory ? `${directoryName(directory)} · ${t.workspaces.ungrouped}` : t.workspaces.choose}</option> : null}
         {groups.map(item => <option key={item.workspace_id} value={item.workspace_id}>{workspaceLabel(item.directory, groups, defaultDirectory, t.workspaces.defaultName)}{item.directory === defaultDirectory ? ` (${t.workspaces.defaultBadge})` : ""}</option>)}
       </select>
-      <span className="conversation-workspace-path" title={directory}>{directory}</span>
       <button type="button" disabled={disabled} title={t.workspaces.choose} aria-label={t.workspaces.choose} onClick={() => void invoke(onChoose)}><FolderPlus size={16} /></button>
       {directory ? <WorkspaceOpenButton directory={directory} /> : null}
     </div>

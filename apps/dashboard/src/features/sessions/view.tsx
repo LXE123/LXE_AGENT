@@ -1,4 +1,7 @@
 import { SessionListRow } from "./session-list-row";
+import { TaskStartMascot } from "./task-start-mascot";
+import { AssistantIdentity } from "./assistant-identity";
+import { withAssistantIdentity } from "./assistant-identity-model";
 import { ActionMenu, ActionMenuItem } from "../../shared/ui/action-menu";
 import { Dialog } from "../../shared/ui/dialog";
 import { useAutomationEditing } from "./use-automation-editing";
@@ -1296,6 +1299,7 @@ export function ConversationComposer({
       <ApprovalGate key={conversationKey} requests={approvals} ready={runtimeReady} onChanged={onApprovalChanged}>
       {dragActive ? <div className="conversation-drop-hint conversation-chrome-theme">{t.conversation.dropFiles}</div> : null}
       <div className="conversation-compose-box conversation-chrome-theme">
+        {landing ? <TaskStartMascot /> : null}
         <UserQuestionGate request={runtimeReady ? question : undefined} conversationKey={runtimeReady ? conversationKey : "offline"} onAnswered={onQuestionAnswered}>
         {attachments.length ? (
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
@@ -1422,6 +1426,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
     : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
+  if (row.kind === "assistant_identity") return <AssistantIdentity status={row.status} />;
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
@@ -1573,6 +1578,7 @@ export function SessionDetailView({
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
+  const displayRows = withAssistantIdentity(process.rows, question?.turn_id);
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
   const toggleRow = useCallback((id: string) => setExpandedRows((current) => new Map(current).set(id, !current.get(id))), []);
@@ -1597,7 +1603,7 @@ export function SessionDetailView({
         </div>
       </header>
       <div className="conversation-body">
-        {!landing ? <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+        {!landing ? <ConversationWindow key={sessionKey} rows={displayRows} hasOlder={hasOlder} hasNewer={hasNewer}
           connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
           followingIntent={display?.following} historyTarget={display?.historyTarget}
           loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}

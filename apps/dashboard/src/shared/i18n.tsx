@@ -952,6 +952,7 @@ export const ZH_TEXT = {
   },
   errors: {
     dashboardLoad: "Dashboard 数据加载中...",
+    dismiss: "关闭错误提示",
     api: "API 错误"
   }
 };
@@ -1905,6 +1906,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     errors: {
       dashboardLoad: "Loading dashboard data...",
+      dismiss: "Dismiss error",
       api: "API error"
     }
   }

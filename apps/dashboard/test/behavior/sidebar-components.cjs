@@ -21,7 +21,7 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle}) => {
     assert.equal(before.icons, 0);
     assert.equal(before.row.left, before.header.left);
     assert.equal(before.row.right, before.header.right);
-    assert.ok(before.title.left - before.label.left >= 16);
+    assert.ok(Math.abs(before.title.left - before.label.left) < 0.5, 'task titles align with workspace text after the folder icon');
     assert.ok(before.title.right <= before.time.left);
     await click(group + ' .session-index-actions');
     const after = await layout();

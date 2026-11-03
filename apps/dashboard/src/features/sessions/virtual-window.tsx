@@ -249,7 +249,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
           data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
           data-answer-id={answerId(rows[item.index]!)}
           data-answer-active={Boolean(answerId(rows[item.index]!) && (answerId(rows[item.index]!) === hoveredAnswer || answerId(rows[item.index]!) === focusedAnswer)) || undefined}
-          style={{ position: "absolute", left: 0, width: "100%", paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
+          style={{ position: "absolute", left: 0, width: "100%", paddingBottom: rows[item.index]!.kind === "assistant_identity" || rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
           {renderRow(rows[item.index]!)}
         </div>)}
       </div>

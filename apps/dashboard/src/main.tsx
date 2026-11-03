@@ -8,7 +8,7 @@ import { useSessionWorkspace } from "./features/sessions/use-session-workspace";
 import { useModelActions } from "./api/model-actions";
 import { useMcpActions } from "./api/mcp-actions";
 import { useConversationEvents } from "./features/sessions/use-conversation-events";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   DesktopCloudState,
@@ -64,6 +64,7 @@ import { DashboardRootErrorBoundary } from "./root-error-boundary";
 import { useThreeStateSidebar } from "./shared/use-three-state-sidebar";
 import { SidebarResizer } from "./shared/sidebar-resizer";
 import { NavigationRail } from "./shared/navigation-rail";
+import { ErrorNotice } from "./shared/ui/error-notice";
 import type {
   DashboardSection,
 } from "./shared/navigation";
@@ -93,7 +94,10 @@ function App({
         assetSlots.slots.length,
       )
     : "";
-  const [error, setError] = useState("");
+  const [error, updateError] = useState({ message: "", id: 0 });
+  const setError = useCallback((message: string) => {
+    updateError(current => ({ message, id: current.id + 1 }));
+  }, []);
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const sidebarAvailable = true;
   const sidebar = useThreeStateSidebar(browserStorage(), sidebarAvailable);
@@ -105,6 +109,7 @@ function App({
     onEnterSessions: () => openDashboardSection("sessions"), onOpenSearch: sidebar.openForSearch, onError: setError,
   });
   const { selectedSessionId, newConversation, selectedSession } = workspace.selection;
+  useEffect(() => { setError(""); }, [activeSection, capabilityView, activityView, selectedSessionId, setError]);
   const { openSession, startSkillConversation } = workspace.actions;
   // Only a fresh launch enters a new task; explicit routes and history keep their destination.
   const [startOnTask] = useState(() => !window.history.state?.section && !window.history.state?.tab);
@@ -158,10 +163,12 @@ function App({
             : [];
   const activeRefreshing = dashboardRuntimeReady
     && activeQueries.some((current) => current.isFetching && !current.isPending);
-  const backgroundError = dashboardRuntimeReady
-    ? activeQueries.find((current) => current.isRefetchError)?.error
+  const backgroundFailure = dashboardRuntimeReady
+    ? activeQueries.find((current) => current.isRefetchError)
     : undefined;
-  const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
+  const visibleError = dashboardRuntimeReady ? error.message || queryError(backgroundFailure?.error) : "";
+  const errorNoticeKey = error.message ? `action:${error.id}`
+    : `query:${activeQueries.indexOf(backgroundFailure!)}:${backgroundFailure?.errorUpdatedAt}`;
 
   const tabs: Array<{ id: DashboardSection; label: string }> = [
     { id: "sessions", label: t.taskStart.newTask },
@@ -231,9 +238,8 @@ function App({
             activeSection === "workbench" ? "workbench-theme" : "",
           ].filter(Boolean).join(" ")}>
             {visibleError ? (
-              <div className="dashboard-query-notice" role="status">
-                {t.common.errorPrefix(t.errors.api, visibleError)}
-              </div>
+              <ErrorNotice key={errorNoticeKey} message={t.common.errorPrefix(t.errors.api, visibleError)}
+                onDismiss={error.message ? () => setError("") : undefined} />
             ) : null}
             {activeRefreshing ? (
               <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
