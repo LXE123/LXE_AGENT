@@ -19,21 +19,18 @@ commands:
 
 ## 使用与命令
 
-用户未指定具体店铺、给模糊店铺名、需要网页下载 ID 或查看候选时使用；这里不是紫鸟店铺 ID。
+用户未指定具体店铺、提供模糊店铺名、需要网页下载 ID 或查看候选时使用（此处为马帮网页查询 ID，不是紫鸟店铺 ID）：
 
 ```text
 lxeskill replenish store resolve --store-name "<店铺名>"
 lxeskill replenish store resolve
 ```
 
-省略店铺名时返回数量及 `data.xlsx_path`，具体候选在该文件的“店铺列表”工作表，列为“店铺名称”“ID”“ID类型”“父级店铺名称”。完整备货内读取文件，依据用户已有的站点／名称线索缩小范围，通过 `ask_user_question` 展示真实店铺选项；每题最多4项，较多时先按真实父级店铺分组选择，再选到单站点。用户选中后保留对应名称、ID与ID类型，返回主流程复用。
+- 省略 `--store-name` 时返回店铺数量及列表文件 `data.xlsx_path`（“店铺列表”工作表含 `店铺名称`、`ID`、`ID类型`、`父级店铺名称`）；模糊匹配失败时返回 `data.candidates` 及候选文件。
+- 单独查询全部店铺时直接交付列表文件并简述数量；在完整备货或需确认候选时读取列表/候选，结合用户已给的站点或名称线索，通过 `ask_user_question` 展示真实选项（每题最多 4 项，候选较多时先按 `父级店铺名称` 分组选择，再选到单站点，同名项附带父级名称或 ID 区分）。
 
 ## 结果与下一步
 
-- 成功且有 `data.store_id`：保留 `store_name`、`store_id`、`id_type`，完整任务返回 `replenishment-workflow-map` 按已确定版本继续。
-- `id_type` 是网页请求字段，仅有 `fbaWarehouseIds[]`、`shopId` 两种。二者不能混用；`fbaWarehouseIds[]` 也可能属于单站点，不能据此认定多站点整组。
-- 网页下载及本轮源数据核验使用解析出的店铺、ID 和 id_type，不要求出现在官方店铺列表中；不由模型把网页仓库 ID 转成官方 sid。
-- 解析旧名称时使用 CLI 返回的规范结果，不删除名称里的国家文字来猜别名。
-- 返回 `data.candidates` 或 `data.candidates_xlsx_path` 时，读取真实候选并按上述方式选择。
-- 单独查询全部店铺时交付列表文件并简述数量；完整备货任务内用该文件确认店铺，选定后继续主流程。
-- 多站点范围最终由 MSKU 下载入口依据真实父子关系判断；整组不能进入下载与备货。
+- 成功匹配单店且有 `data.store_id`：保留规范 `store_name`、`store_id`、`id_type`（解析旧名称时使用 CLI 返回的规范名称，不删改国家文字猜别名），完整任务返回 `replenishment-workflow-map` 继续。
+- `id_type` 仅有 `fbaWarehouseIds[]`、`shopId` 两种，不可混用；`fbaWarehouseIds[]` 也可能对应单站点，不能仅凭 `id_type` 判定为多站点整组。多站点整组由下游 `mabang-store-msku-export` 依据真实父子关系拦截。
+- 网页下载及源数据核验直接使用解析出的 `store_name`、`store_id` 和 `id_type`，不要求出现在官方店铺列表中，也不将网页仓库 ID 当作官方 `sid`。

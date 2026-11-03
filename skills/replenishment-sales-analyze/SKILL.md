@@ -16,24 +16,22 @@ references:
 
 - 执行本 Skill 声明的 CLI；参数以 `lxeskill list`、`lxeskill describe <命令路径>` 为准。
 - 等待原会话完成，读取最后一条 `type="result"`：先看 `ok`，业务结果读 `data`，附件读 `files`；失败保留真实 `error.message` 和可用的 `data.context`。
-- 本地输入、来源或参数核验失败时说明实际错误与恢复所需输入；文件占用时提示关闭对应文件后重试。
-- 完整备货由 `replenishment-workflow-map` 继续。独立单步只执行本步骤；有附件时使用 `send_files(paths=<terminal.files>)` 交付，发送失败只重试交付。
+- 本地输入、来源或核验失败时说明实际错误与恢复所需输入；文件占用时提示关闭对应文件后重试。
+- 本步骤用于独立生成销量分析报告（V1/V2 备货计算直接读取 MSKU 源表，不依赖本报告）。成功后调用 `send_files(paths=<terminal.files>)` 交付，发送失败只重试交付。
 
 ## 使用与命令
 
-只分析本地已下载源表；单步请求缺源表时说明需下载，完整任务按流程补齐。
+基于本地已下载的店铺 MSKU 源表生成销量分析报告；模糊店铺名先读 `replenishment-store-resolve`：
 
 ```text
 lxeskill replenish sales analyze --store-name "<规范店铺名>"
 ```
 
-模糊店铺名先读 `replenishment-store-resolve`。
+本地缺少对应店铺的 MSKU 源表或旧版源表缺少核验信息时，说明需先通过 `mabang-store-msku-export` 下载新版源表。
 
 ## 结果与下一步
 
-- 成功记录 `data.report_xlsx_path`、`source_xlsx_path`、`source_data_time` 及参与范围，完整任务返回 `replenishment-workflow-map` 按已确定版本继续，单步交付报告。备货计算直接使用 MSKU 源表，两版均不依赖本报告。
-- 源表必须具有新版源数据核验信息。MSKU、ASIN、链接三个维度均汇总完整 XLSX 的全部记录，包括库存和组合商品接口都未命中的记录；绑定核验只限制备货计算范围。
-- 隐藏源数据核验信息随报告传递，用于核对本报告来源。旧版无核验源表需重新下载，不能自动当成新版全量源表。
-- `data_is_stale=true` 时说明源时间；用户明确选择旧数据则尊重选择。完整任务默认重新采集，不能拿旧报告替代本轮结果。
-- 重复 MSKU 逐行分析并保留，汇总会累计各行；交付时转述 `data.warnings` 的重复累计提示。其他输入错误保留真实原因。
-- 报告结构与字段解释按需读 [references/report.md](references/report.md)。
+- 成功后交付 `files`，说明 `source_xlsx_path`、`source_data_time`、链接数（`link_count`）、ASIN 行数（`asin_count`）和 MSKU 行数（`msku_count`）。
+- `data_is_stale=true` 时向用户说明源数据时间；用户明确要求最新数据时再重新下载源表。
+- 重复 MSKU 逐行分析并保留，聚合表会累计各行销量；交付时转述 `data.warnings` 中的重复累计提示。其他输入错误保留真实原因。
+- 报告 Sheet 结构与字段说明按需读取 [references/report.md](references/report.md)。
