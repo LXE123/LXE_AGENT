@@ -330,31 +330,47 @@
   object-fit:contain}
 .file-open-menu {
   position:absolute;
-  min-width:220px;
-  max-width:min(360px,calc(100vw - 16px));
+  width:max-content;
+  min-width:200px;
+  max-width:min(300px,calc(100vw - 16px));
   max-height:350px;
   overflow:auto;
+  /* The portal lives under body, so it needs its own control type scale. */
+  font-size:.8125rem;
+  line-height:1.4;
   background:var(--cds-surface-popover, var(--bg));
   color:var(--text,#222);
   border:1px solid var(--border);
   box-shadow:0 6px 24px var(--shadow-medium);
   border-radius:9px;
   z-index:1000;
-  padding:5px}
+  padding:4px}
 .file-open-menu button {
   display:flex;
   align-items:center;
   gap:8px;
   width:100%;
-  padding:8px;
+  min-height:30px;
+  padding:6px 8px;
   border:0;
+  border-radius:5px;
   background:none;
   color:inherit;
   text-align:left}
 .file-open-menu button:hover {
   background:var(--row-hover)}
-.file-open-menu button:last-child {
-  border-top:1px solid var(--border)}
+.file-open-menu :is(img,svg) { flex:none }
+.file-open-app-name { flex:1; min-width:0; overflow-wrap:anywhere }
+.file-open-app-default {
+  flex:none;
+  margin-left:4px;
+  color:var(--muted);
+  font-size:.6875rem;
+  white-space:nowrap}
+.file-open-menu-divider {
+  height:1px;
+  margin:4px 8px;
+  background:var(--border)}
 
 .file-open-menu [role=alert] {
   white-space:pre-wrap;

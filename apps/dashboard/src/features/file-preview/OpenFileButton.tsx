@@ -65,9 +65,10 @@ export function OpenFileButton({ file, label = false }: { file: SessionFileRef; 
         const index = items.indexOf(document.activeElement as HTMLElement); items[(index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
       }
     }}>
-      {apps.map(app => <button type="button" role="menuitem" key={app.id} onClick={() => void act(app.id)}>{app.icon ? <img src={app.icon} alt="" /> : <ExternalLink size={15} />}<span>{app.name}{app.default ? ` · ${t.defaultApp}` : ""}</span></button>)}
+      {apps.map(app => <button type="button" role="menuitem" key={app.id} onClick={() => void act(app.id)}>{app.icon ? <img src={app.icon} alt="" /> : <ExternalLink size={15} />}<span className="file-open-app-name">{app.name}</span>{app.default ? <span className="file-open-app-default">{t.defaultApp}</span> : null}</button>)}
       {error ? <div className="file-apps-failure"><p>{t.appsFailed}</p><button onClick={() => void check(true).catch(() => {}).then(() => load(true))}>{t.retry}</button><ErrorDetails failure={error} /></div> : null}
-      <button type="button" role="menuitem" onClick={() => void act(undefined, true)}><FolderOpen size={15} />{t.reveal}</button>
+      <div className="file-open-menu-divider" role="separator" />
+      <button type="button" role="menuitem" onClick={() => void act(undefined, true)}><FolderOpen size={15} /><span className="file-open-app-name">{t.reveal}</span></button>
     </div>, document.body) : null}
     {actionError ? <FileActionNotice failure={actionError} close={dismiss} /> : null}
   </div>;
