@@ -14,7 +14,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Border, Font, PatternFill
-from openpyxl.utils import column_index_from_string
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.workbook.properties import CalcProperties
 
 from services.mabang.amazon.fba.replenishment_v2_formulas import replenishment_v2_formulas
@@ -411,6 +411,12 @@ def _write_workbook(
         worksheet[f"J{row_index}"].number_format = "0.0000"
         worksheet[f"S{row_index}"].number_format = "0.00"
         worksheet[f"AI{row_index}"].number_format = "0.00"
+    worksheet.sheet_format.defaultRowHeight = 15
+    worksheet.sheet_format.defaultColWidth = 15
+    for row_index in range(1, worksheet.max_row + 1):
+        worksheet.row_dimensions[row_index].height = 15
+    for column_index in range(1, worksheet.max_column + 1):
+        worksheet.column_dimensions[get_column_letter(column_index)].width = 15
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = f"A1:AI{worksheet.max_row}"
     worksheet.sheet_view.zoomScale = 85
