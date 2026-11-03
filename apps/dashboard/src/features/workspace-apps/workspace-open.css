@@ -12,5 +12,4 @@
 .workspace-open-menu svg { flex-shrink:0 }
 .workspace-open-failure { padding:6px; border-top:1px solid var(--border); color:var(--danger,#c65050) }
 .workspace-open-failure pre { max-width:290px; max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.75rem }
-.conversation-workspace.is-readonly { display:flex; align-items:center; gap:5px }
-.conversation-workspace-label { display:flex; align-items:center; gap:6px; min-width:0; max-width:220px; padding:5px 7px; color:var(--muted); font-size:.75rem }
+.conversation-workspace.is-readonly { display:flex; align-items:center }

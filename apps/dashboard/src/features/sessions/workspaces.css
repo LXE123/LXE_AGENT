@@ -21,13 +21,7 @@
 .conversation-workspace-row { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: .75rem; }
 .conversation-workspace-row > svg { flex-shrink: 0; }
 .conversation-workspace-row select { max-width: min(40%, 260px); padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
-.conversation-workspace-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-workspace.is-readonly { position: relative; min-width: 0; padding: 0; border: 0; }
-.conversation-workspace.is-readonly .workspace-error { position: absolute; top: 100%; right: 0; width: 300px; max-width: 70vw; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-card); }
-@container (max-width: 480px) {
-  .conversation-workspace.is-readonly .conversation-workspace-name,
-  .conversation-workspace.is-readonly .workspace-default-badge { display: none; }
-}
 .conversation-workspace-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-workspace-row > button { display: flex; align-items: center; justify-content: center; padding: 5px; border: 0; border-radius: 5px; color: inherit; background: transparent; cursor: pointer; }
 .conversation-workspace-row > button:hover { background: var(--accent-soft); color: var(--accent-strong); }
