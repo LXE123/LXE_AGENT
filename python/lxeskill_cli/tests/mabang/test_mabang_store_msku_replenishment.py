@@ -6,8 +6,6 @@ from pathlib import Path
 import pytest
 
 from mabang_test_helpers import _sheet_names, _stamp_active_test_report
-from services.mabang.amazon.fba import amazon_fba_inventory as amazon_inv
-from services.mabang.amazon.fba import amazon_restock_inventory as restock_inv
 from services.mabang.amazon.fba import store_msku_replenishment as repl
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
@@ -283,72 +281,6 @@ def _write_sales_report(path: Path) -> Path:
         row.update({"90天销量": row["30天销量"] * 3, "可售": totals[row["MSKU"]],
                     "待入库": 0, "预留": 0, "计划入库": 0, "在途": 0, "待调仓": "0", "调仓中": "0"})
     return _write_workbook(path, {"MSKU明细": (headers, rows)})
-
-
-def _write_amazon_fba_inventory_snapshot(
-    path: Path,
-    *,
-    snapshot_date: str = "20260525",
-    rows: list[dict] | None = None,
-) -> Path:
-    summary_rows = rows or [
-        {"店铺": "Amazon-Test", "MSKU": "AIR-1", "快照日期": snapshot_date, amazon_inv.AMAZON_FBA_TOTAL_COLUMN: 320},
-        {"店铺": "Amazon-Test", "MSKU": "SEA-1", "快照日期": snapshot_date, amazon_inv.AMAZON_FBA_TOTAL_COLUMN: 500},
-    ]
-    return _write_workbook(
-        path,
-        {
-            amazon_inv.SUMMARY_SHEET: (
-                ["店铺", "MSKU", "快照日期", amazon_inv.AMAZON_FBA_TOTAL_COLUMN],
-                summary_rows,
-            ),
-            amazon_inv.VALIDATION_SHEET: (
-                ["字段", "值"],
-                [
-                    {"字段": "marketplace", "值": "US"},
-                    {"字段": "mabang_site", "值": "美国站"},
-                    {"字段": "amazon_sku_count", "值": 10},
-                    {"字段": "matched_amazon_sku_count", "值": 8},
-                    {"字段": "amazon_sku_match_ratio", "值": 0.8},
-                    {"字段": "top_inventory_sku_count", "值": 10},
-                    {"字段": "top_inventory_matched_count", "值": 8},
-                ],
-            ),
-        },
-    )
-
-
-def _write_amazon_restock_inventory_snapshot(
-    path: Path,
-    *,
-    snapshot_date: str = "20260525",
-    rows: list[dict] | None = None,
-) -> Path:
-    summary_rows = rows or [
-        {"店铺": "Amazon-Test", "MSKU": "AIR-1", "快照日期": snapshot_date, restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN: 330},
-        {"店铺": "Amazon-Test", "MSKU": "SEA-1", "快照日期": snapshot_date, restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN: 510},
-    ]
-    return _write_workbook(
-        path,
-        {
-            restock_inv.SUMMARY_SHEET: (
-                ["店铺", "MSKU", "快照日期", restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN],
-                summary_rows,
-            ),
-            restock_inv.VALIDATION_SHEET: (
-                ["字段", "值"],
-                [
-                    {"字段": "country", "值": "US"},
-                    {"字段": "mabang_site", "值": "美国站"},
-                    {"字段": "amazon_sku_count", "值": 10},
-                    {"字段": "matched_amazon_sku_count", "值": 8},
-                    {"字段": "amazon_sku_match_ratio", "值": 0.8},
-                    {"字段": "top_inventory_sku_count", "值": 10},
-                    {"字段": "top_inventory_matched_count", "值": 8},
-                ],
-            ),
-        },
-    )
 
 
 def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> None:

@@ -4,7 +4,6 @@ import math
 import os
 import re
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,14 +18,6 @@ from .replenishment_formula_sheet import (
 )
 
 from services.mabang import config as mabang_settings
-from services.mabang.amazon.fba.amazon_fba_inventory import (
-    AMAZON_FBA_TOTAL_COLUMN,
-    load_amazon_fba_inventory_snapshot,
-)
-from services.mabang.amazon.fba.amazon_restock_inventory import (
-    AMAZON_RESTOCK_TOTAL_COLUMN,
-    load_amazon_restock_inventory_snapshot,
-)
 from services.mabang.amazon.fba.replenishment_template import (
     DEFAULT_TEMPLATE_NAME,
     ReplenishmentTemplate,
@@ -53,7 +44,6 @@ from services.mabang.export_common import clean_text as _clean_text
 from services.mabang.export_common import safe_store_msku_file_part as _safe_file_part
 from shared.datasets import dataset_dir
 
-AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
 DEFAULT_OUTPUT_DIR = dataset_dir("replenish_calculation")
 SOURCE = "mabang_store_msku_replenishment"
 SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
@@ -66,8 +56,6 @@ LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN = "链接真实库存（深圳仓库）汇�
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 REPLENISHMENT_REPORT_SUFFIX = "备货建议"
-AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊物流库存]和未关联货件）"
-AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊补充库存]和未关联货件）"
 DETAIL_SHEET = "MSKU明细"
 SUMMARY_SHEET = "链接备货汇总"
 INVENTORY_SHORTAGE_SHEET = "真实库存（深圳仓库）不足"
@@ -111,15 +99,11 @@ DETAIL_COLUMNS = (
     "加权日销",
     "可销售天数",
     MABANG_FBA_TOTAL_COLUMN,
-    AMAZON_RESTOCK_TOTAL_COLUMN,
-    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN,
-    AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "海运天数",
     "海运建议量",
     "同时空运天数",
@@ -170,15 +154,11 @@ INVENTORY_SHORTAGE_COLUMNS = (
     "加权日销",
     "可销售天数",
     MABANG_FBA_TOTAL_COLUMN,
-    AMAZON_RESTOCK_TOTAL_COLUMN,
-    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN,
-    AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "库存缺口",
     "海运天数",
     "海运建议量",
@@ -207,15 +187,11 @@ CLEARANCE_COLUMNS = (
     "加权日销",
     "可销售天数",
     MABANG_FBA_TOTAL_COLUMN,
-    AMAZON_RESTOCK_TOTAL_COLUMN,
-    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN,
-    AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "海运天数",
     "海运建议量",
     "同时空运天数",
@@ -288,10 +264,6 @@ INTEGER_COLUMNS = {
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_RESTOCK_TOTAL_COLUMN,
-    AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN,
-    AMAZON_FBA_TOTAL_COLUMN,
-    AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "海运天数",
     "同时空运天数",
     "同时空运建议量",
@@ -371,10 +343,6 @@ class ReplenishmentRow:
     companion_air_quantity: int | None = None
     sea_net_quantity: int | None = None
     fba_deducted_replenish_quantity: int | None = None
-    amazon_restock_total_inventory: float | None = None
-    amazon_restock_deducted_replenish_quantity: int | None = None
-    amazon_fba_total_inventory: float | None = None
-    amazon_deducted_replenish_quantity: int | None = None
     transport_channel: str = ""
     sales_trend_rate: float | None = None
     formula_inputs: ShippingFormulaInputs | None = None
@@ -402,10 +370,6 @@ class ReplenishmentRow:
             "加权日销": _display_float(self.weighted_daily_sales),
             "可销售天数": _display_optional_float(self.sales_days),
             MABANG_FBA_TOTAL_COLUMN: _display_quantity(self.fba_total_inventory),
-            AMAZON_RESTOCK_TOTAL_COLUMN: _display_optional_quantity(self.amazon_restock_total_inventory),
-            AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN: _display_optional_int(self.amazon_restock_deducted_replenish_quantity),
-            AMAZON_FBA_TOTAL_COLUMN: _display_optional_quantity(self.amazon_fba_total_inventory),
-            AMAZON_DEDUCTED_REPLENISH_COLUMN: _display_optional_int(self.amazon_deducted_replenish_quantity),
             "未关联数量": _display_quantity(self.unlinked_quantity),
             ACTUAL_INVENTORY_QUANTITY_COLUMN: _display_optional_quantity(self.actual_inventory),
             "单品重量(g)": _display_optional_float(self.weight_grams),
@@ -435,10 +399,6 @@ class StoreMskuReplenishmentResult:
     no_ship_count: int
     sample_insufficient_count: int
     output_xlsx_path: str
-    amazon_restock_inventory_snapshot_path: str = ""
-    amazon_restock_inventory_validation: dict[str, Any] | None = None
-    amazon_fba_inventory_snapshot_path: str = ""
-    amazon_fba_inventory_validation: dict[str, Any] | None = None
     source: str = SOURCE
     binding_counts: dict[str, int] = field(default_factory=dict)
 
@@ -461,14 +421,6 @@ class StoreMskuReplenishmentResult:
             "source": self.source,
             **self.binding_counts,
         }
-        if self.amazon_restock_inventory_snapshot_path:
-            payload["amazon_restock_inventory_snapshot_path"] = self.amazon_restock_inventory_snapshot_path
-        if self.amazon_restock_inventory_validation:
-            payload["amazon_restock_inventory_validation"] = self.amazon_restock_inventory_validation
-        if self.amazon_fba_inventory_snapshot_path:
-            payload["amazon_fba_inventory_snapshot_path"] = self.amazon_fba_inventory_snapshot_path
-        if self.amazon_fba_inventory_validation:
-            payload["amazon_fba_inventory_validation"] = self.amazon_fba_inventory_validation
         return payload
 
 
@@ -560,26 +512,6 @@ def _product_url_prefix(value: Any, asin: Any) -> str:
     if slash_index < 0:
         return ""
     return url[: slash_index + 1]
-
-
-def validate_amazon_fba_inventory_snapshot_date(snapshot_date: str, source_data_time: str) -> None:
-    clean_snapshot_date = _clean_text(snapshot_date)
-    source_date = _clean_text(source_data_time)[:8]
-    try:
-        snapshot_day = datetime.strptime(clean_snapshot_date, "%Y%m%d").date()
-        source_day = datetime.strptime(source_date, "%Y%m%d").date()
-    except ValueError as exc:
-        raise StoreMskuReplenishmentError(
-            "亚马逊物流库存快照日期格式无效: "
-            f"snapshot_date={clean_snapshot_date}, source_data_date={source_date}"
-        ) from exc
-
-    day_delta = abs((snapshot_day - source_day).days)
-    if day_delta > AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS:
-        raise StoreMskuReplenishmentError(
-            "亚马逊物流库存快照日期与备货数据日期相差超过1天: "
-            f"snapshot_date={clean_snapshot_date}, source_data_date={source_date}"
-        )
 
 
 def _headers_and_rows(xlsx_path: str | Path, sheet_name: str) -> tuple[list[str], list[dict[str, Any]]]:
@@ -907,38 +839,6 @@ def _with_inventory_deductions(
     )
 
 
-def _with_amazon_fba_inventory_snapshot(row: ReplenishmentRow, amazon_fba_inventory: float | None) -> ReplenishmentRow:
-    if amazon_fba_inventory is None:
-        return replace(row, decision_reason=f"{row.decision_reason}；未匹配亚马逊物流库存")
-    amazon_deducted_quantity = None
-    if row.original_replenish_quantity is not None:
-        amazon_deducted_quantity = _remaining_quantity(
-            _remaining_quantity(row.original_replenish_quantity, amazon_fba_inventory),
-            row.unlinked_quantity,
-        )
-    return replace(
-        row,
-        amazon_fba_total_inventory=amazon_fba_inventory,
-        amazon_deducted_replenish_quantity=amazon_deducted_quantity,
-    )
-
-
-def _with_amazon_restock_inventory_snapshot(row: ReplenishmentRow, amazon_restock_inventory: float | None) -> ReplenishmentRow:
-    if amazon_restock_inventory is None:
-        return replace(row, decision_reason=f"{row.decision_reason}；未匹配亚马逊补充库存")
-    amazon_restock_deducted_quantity = None
-    if row.original_replenish_quantity is not None:
-        amazon_restock_deducted_quantity = _remaining_quantity(
-            _remaining_quantity(row.original_replenish_quantity, amazon_restock_inventory),
-            row.unlinked_quantity,
-        )
-    return replace(
-        row,
-        amazon_restock_total_inventory=amazon_restock_inventory,
-        amazon_restock_deducted_replenish_quantity=amazon_restock_deducted_quantity,
-    )
-
-
 def calculate_replenishment_row(
     row: InventoryInputRow,
     sales_detail: SalesDetail,
@@ -1180,16 +1080,10 @@ def calculate_replenishment_rows(
     sales_details: dict[str, SalesDetail],
     template: ReplenishmentTemplate | None = None,
     unlinked_quantities: dict[str, float] | None = None,
-    amazon_restock_inventory_quantities: dict[str, float] | None = None,
-    amazon_fba_inventory_quantities: dict[str, float] | None = None,
 ) -> list[ReplenishmentRow]:
     result: list[ReplenishmentRow] = []
     active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
     quantity_by_msku = unlinked_quantities or {}
-    amazon_restock_quantity_by_msku = amazon_restock_inventory_quantities or {}
-    amazon_quantity_by_msku = amazon_fba_inventory_quantities or {}
-    use_amazon_restock_inventory = amazon_restock_inventory_quantities is not None
-    use_amazon_fba_inventory = amazon_fba_inventory_quantities is not None
     for row in inventory_rows:
         key = normalize_sku_key(row.msku)
         sales_detail = sales_details.get(key)
@@ -1215,16 +1109,6 @@ def calculate_replenishment_rows(
                 weights=tuple(float(params["weighted_sales"][key]) for key in ("7d_weight", "14d_weight", "30d_weight")),
                 minimum_sea_quantity=sea_min_net_quantity_from_template(params) or 0,
             ))
-        if use_amazon_restock_inventory:
-            replenishment_row = _with_amazon_restock_inventory_snapshot(
-                replenishment_row,
-                amazon_restock_quantity_by_msku.get(row.msku),
-            )
-        if use_amazon_fba_inventory:
-            replenishment_row = _with_amazon_fba_inventory_snapshot(
-                replenishment_row,
-                amazon_quantity_by_msku.get(row.msku),
-            )
         result.append(replenishment_row)
     return result
 
@@ -1475,8 +1359,6 @@ def calculate_store_msku_replenishment(
     *,
     template_name: str | None = None,
     output_dir: str | Path | None = None,
-    amazon_restock_inventory_snapshot_path: str | Path | None = None,
-    amazon_fba_inventory_snapshot_path: str | Path | None = None,
 ) -> StoreMskuReplenishmentResult:
     clean_store_name = inputs.store_name
     template = validate_template(get_template(template_name or DEFAULT_TEMPLATE_NAME)).template
@@ -1493,28 +1375,6 @@ def calculate_store_msku_replenishment(
     for row in inventory_rows:
         if normalize_sku_key(row.local_sku) not in source_local_skus.get(normalize_sku_key(row.msku), set()):
             raise StoreMskuReplenishmentError(f"MSKU源数据缺少匹配行: MSKU={row.msku}, 本地SKU={row.local_sku}")
-    requested_amazon_restock_snapshot_path = _clean_text(amazon_restock_inventory_snapshot_path)
-    amazon_restock_snapshot_data = (
-        load_amazon_restock_inventory_snapshot(requested_amazon_restock_snapshot_path, store_name=clean_store_name)
-        if requested_amazon_restock_snapshot_path
-        else None
-    )
-    if amazon_restock_snapshot_data is not None:
-        validate_amazon_fba_inventory_snapshot_date(
-            amazon_restock_snapshot_data.snapshot_date,
-            inputs.source_data_time,
-        )
-    requested_amazon_snapshot_path = _clean_text(amazon_fba_inventory_snapshot_path)
-    amazon_snapshot_data = (
-        load_amazon_fba_inventory_snapshot(requested_amazon_snapshot_path, store_name=clean_store_name)
-        if requested_amazon_snapshot_path
-        else None
-    )
-    if amazon_snapshot_data is not None:
-        validate_amazon_fba_inventory_snapshot_date(
-            amazon_snapshot_data.snapshot_date,
-            inputs.source_data_time,
-        )
     replenishment_rows = []
     for record in source_rows:
         detail = sales_detail_from_record(record)
@@ -1533,8 +1393,6 @@ def calculate_store_msku_replenishment(
             product_link=_clean_text(record.get("商品链接")))
         replenishment_rows.extend(calculate_replenishment_rows(
             [inventory], {key: detail}, template, inputs.shipments,
-            amazon_restock_inventory_quantities=amazon_restock_snapshot_data.quantities_by_msku if amazon_restock_snapshot_data else None,
-            amazon_fba_inventory_quantities=amazon_snapshot_data.quantities_by_msku if amazon_snapshot_data else None,
         ))
     report_path = _output_dir(output_dir) / f"{inputs.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(
@@ -1556,18 +1414,6 @@ def calculate_store_msku_replenishment(
         no_ship_count=sum(1 for row in replenishment_rows if row.sheet_name == NO_SHIP_SHEET),
         sample_insufficient_count=sum(1 for row in replenishment_rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET),
         output_xlsx_path=str(report_path),
-        amazon_restock_inventory_snapshot_path=requested_amazon_restock_snapshot_path,
-        amazon_restock_inventory_validation=(
-            amazon_restock_snapshot_data.validation.to_payload()
-            if amazon_restock_snapshot_data is not None and amazon_restock_snapshot_data.validation is not None
-            else None
-        ),
-        amazon_fba_inventory_snapshot_path=requested_amazon_snapshot_path,
-        amazon_fba_inventory_validation=(
-            amazon_snapshot_data.validation.to_payload()
-            if amazon_snapshot_data is not None and amazon_snapshot_data.validation is not None
-            else None
-        ),
     )
 
 
@@ -1575,7 +1421,6 @@ __all__ = [
     "AIR_DETAIL_COLUMNS",
     "AIR_SHEET",
     "AIR_URGENT_SHEET",
-    "AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS",
     "CLEARANCE_COLUMNS",
     "CLEARANCE_SHEET",
     "DETAIL_COLUMNS",
@@ -1604,6 +1449,5 @@ __all__ = [
     "sales_detail_from_record",
     "parse_weight_grams",
     "summarize_links",
-    "validate_amazon_fba_inventory_snapshot_date",
     "write_replenishment_report",
 ]

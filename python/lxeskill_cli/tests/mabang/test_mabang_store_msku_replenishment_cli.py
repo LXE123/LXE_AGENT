@@ -5,9 +5,6 @@ import pytest
 from openpyxl import load_workbook
 
 from replenishment_cases import STORE, batch, cli, edit_cell, generate, product
-from test_mabang_store_msku_replenishment import (
-    _write_amazon_fba_inventory_snapshot, _write_amazon_restock_inventory_snapshot,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +68,7 @@ def test_shared_input_validation_never_publishes(tmp_path, version, problem, mes
 
 @pytest.mark.parametrize("version,options,expected", [
     ("v1",["--peak-boost-enabled=false"],4), ("v1",["--peak-boost-days","20"],4),
-    ("v2",["--template","默认"],4), ("v2",["--amazon-fba-inventory-snapshot","unused.xlsx"],4),
+    ("v2",["--template","默认"],4),
     ("both",[],4), ("v2",["--peak-boost-enabled=invalid"],2),
 ])
 def test_version_and_option_errors_are_visible(tmp_path, version, options, expected):
@@ -108,20 +105,6 @@ def test_v1_missing_source_columns_do_not_turn_into_defaults(column):
     with pytest.raises(ValueError) as error:
         sales_detail_from_record(analyze_msku_rows([row], headers=list(row))[0])
     assert column in str(error.value)
-
-
-@pytest.mark.parametrize("kind,writer", [("fba",_write_amazon_fba_inventory_snapshot),("restock",_write_amazon_restock_inventory_snapshot)])
-@pytest.mark.parametrize("date,expected", [("20261012",0),("20261013",0),("20261014",0),("20261011",4),("invalid",4)])
-def test_optional_amazon_comparison_preserves_execution_and_validates_dates(tmp_path,kind,writer,date,expected):
-    inputs = batch(tmp_path)
-    snapshot = writer(tmp_path / "comparison.xlsx", snapshot_date=date)
-    result = generate(inputs,f"--amazon-{kind}-inventory-snapshot",snapshot,version="v1",expected=expected)
-    if expected:
-        assert "日期" in result["error"]["message"] and result["files"] == []
-    else:
-        assert result["data"][f"amazon_{kind}_inventory_snapshot_path"] == str(snapshot)
-        assert result["data"][f"amazon_{kind}_inventory_validation"]["amazon_sku_match_ratio"] == .8
-        assert records(result["files"][0])["SEA"]["海运建议量"] == 60
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])

@@ -42,7 +42,6 @@ contract runner 只为这四个明确命令断言 `params_ready=False`，没有�
 - `test_mabang_fba_delivery_tax_summary_cli.py` 的 missing/invalid delivery → `FAILURE_CASES["fba export-tax delivery-summary"]`。
 - `test_mabang_msku_detail_download_cli.py` 的 missing/invalid/download error → `FAILURE_CASES["fba msku detail-download"]`。
 - `test_mabang_wms_download_cli.py` 的 missing/invalid/download error → `FAILURE_CASES["fba shipment wms-box-download"]`。
-- `test_mabang_amazon_restock_inventory_snapshot_cli.py` 的 missing store → `FAILURE_CASES["replenish inventory restock-snapshot-build"]`。
 - `test_mabang_store_msku_download_cli.py` 的 missing store/download error → `FAILURE_CASES["replenish msku download"]`。
 - `test_mabang_store_msku_replenishment_cli.py` 的 missing store → `FAILURE_CASES["replenish calculate"]`。
 - `test_mabang_store_msku_sales_analysis_cli.py` 的 missing store → `FAILURE_CASES["replenish sales analyze"]`。

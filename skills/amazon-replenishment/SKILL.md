@@ -1,19 +1,17 @@
 ---
 name: amazon-replenishment
-description: Amazon 备货统一技能：负责马帮 Amazon 店铺名称与网页 ID 解析、V1/V2 备货数据准备与计算交付、店铺销量分析报告生成、V1 备货算法参数方案管理，以及 Seller Central 亚马逊补充库存 CSV 对照快照解析与下载指引。明确的越南备货使用 vietnam-replenishment；东南亚范围导航见 southeast-asia-replenishment-workflow-map；按 SP 发货单或退税总表生成 FBA 采购/备货单使用 fba-workflow-map。
+description: Amazon 备货统一技能：负责马帮 Amazon 店铺名称与网页 ID 解析、V1/V2 备货数据准备与计算交付、店铺销量分析报告生成、V1 备货算法参数方案管理。明确的越南备货使用 vietnam-replenishment；东南亚范围导航见 southeast-asia-replenishment-workflow-map；按 SP 发货单或退税总表生成 FBA 采购/备货单使用 fba-workflow-map。
 type: replenishment
 commands:
   - lxeskill replenish calculate
   - lxeskill replenish store resolve
   - lxeskill replenish sales analyze
   - lxeskill replenish template
-  - lxeskill replenish inventory restock-snapshot-build
 references:
   - references/report.md
   - references/store-resolve.md
   - references/sales-analyze.md
   - references/algorithm-config-manage.md
-  - references/restock-inventory-snapshot.md
 ---
 
 # Amazon 备货
@@ -21,11 +19,10 @@ references:
 ## 范围与任务分流
 
 - 本 Skill 用于马帮 Amazon 店铺备货及配套能力。明确的越南备货读取 `vietnam-replenishment`（东南亚导航见 `southeast-asia-replenishment-workflow-map`）；按 `SP...` 发货单号或出口退税总表生成采购汇总/备货单读取 `fba-workflow-map`。用户只说“备货”且无法判断业务模块时，先确认业务范围；仅询问流程时直接解释，不执行命令。
-- **单步能力按需读取对应参考并只执行该步骤**（单步成功后直接调用 `send_files(paths=<terminal.files>)` 交付，不自动扩展为完整备货）：
+- **单步能力按需读取对应参考并只执行该步骤**（成功后按返回数据答复；`terminal.files` 非空时调用 `send_files` 交付文件，不自动扩展为完整备货）：
   - 解析店铺名称、查询网页 ID 或列出候选店铺：见 [references/store-resolve.md](references/store-resolve.md)
   - 独立生成店铺链接/ASIN/MSKU 销量分析报告：见 [references/sales-analyze.md](references/sales-analyze.md)
   - 查看、导出、校验、导入或管理 V1 备货算法参数方案：见 [references/algorithm-config-manage.md](references/algorithm-config-manage.md)
-  - 解析 Seller Central 亚马逊补充库存 CSV 对照快照或提供下载路径截图指引：见 [references/restock-inventory-snapshot.md](references/restock-inventory-snapshot.md)
 - **完整备货任务（V1 / V2）**：输入店铺和目标版本。普通备货对应 V1；两种都要时复用同一组输入文件分别生成 V1、V2。明确的店铺、版本沿用上下文，不重复确认；版本不明确时询问一次。
 - 单店单站点以 MSKU 标识售卖项。每条源记录使用自身销量和库存分项计算，按 MSKU 对应货件，本地 SKU 关联仓库商品；ASIN、父 ASIN 用于展示与汇总。重复 MSKU 逐行计算并保留，交付时转述 `data.warnings` 中“数量可能重复累计”的提示。
 - V1 使用参数方案（默认“默认”）、绑定与已知库存筛选及三表模板；V2 保留全部 MSKU，使用 14 个公式生成 35 列 `mskulist`。
@@ -54,7 +51,7 @@ lxeskill replenish calculate --version <v1或v2> --store-name "<店铺>" --msku-
 
 三份文件路径必须显式传入。命令离线读取、校验和计算，不自动查找文件或重新采集；V1 在内部完成销量计算，无需先运行销量分析命令。双版本使用完全相同的三个路径分别调用，等待各自会话结束。
 
-- **V1 可选参数**：可传 `--template "<方案名>"`（方案管理见 [algorithm-config-manage.md](references/algorithm-config-manage.md)）。用户明确要求亚马逊库存对照时，先读 [restock-inventory-snapshot.md](references/restock-inventory-snapshot.md)，再传 `--amazon-restock-inventory-snapshot` 或 `--amazon-fba-inventory-snapshot`；对照仅做同店与日期校验并返回核验摘要，不改变默认备货建议或报表列结构。
+- **V1 可选参数**：可传 `--template "<方案名>"`（方案管理见 [algorithm-config-manage.md](references/algorithm-config-manage.md)）。
 - **V2 可选参数**：未提旺季时省略；明确开启传 `--peak-boost-enabled`，明确关闭传 `--peak-boost-enabled=false`；指定天数传 `--peak-boost-days <0～120>`（单独指定天数即启用，明确关闭优先）。启用但缺天数时先询问用户，补充后复用原文件重算。
 - 版本专用参数互斥，仅传给对应版本。来源指纹、店铺、批次或货件日期校验失败时保留实际错误，基于同一源表补齐输入。
 

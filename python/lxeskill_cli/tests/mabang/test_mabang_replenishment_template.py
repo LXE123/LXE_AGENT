@@ -7,7 +7,6 @@ from mabang_test_helpers import _sheet_names
 
 import pytest
 
-from services.commands.mabang import replenishment_template as cli
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
 
@@ -561,60 +560,3 @@ def test_special_rule_applies_msku_overrides() -> None:
     params, rule_name = tmpl.effective_params_for_msku(custom, "MSKU-B")
     assert rule_name == ""
     assert "min_weight_kg" not in params["sea"]
-
-
-def test_cli_list_and_list_params(capsys) -> None:
-    payload = cli.run({"command": "list"})
-    assert payload["templates"][0]["name"] == "默认"
-    assert [item["name"] for item in payload["templates"][:4]] == [
-        "默认",
-        "US-一组",
-        "UK-一组",
-        "DE-一组",
-    ]
-
-    payload = cli.run({"command": "list-params"})
-    assert payload["groups"][0]["group"] == "日销计算"
-    assert [group["group"] for group in payload["groups"][:6]] == [
-        "日销计算",
-        "空运补货天数",
-        "空运判断",
-        "海运进入条件",
-        "海运补货天数",
-        "海运同时空运",
-    ]
-    assert any(param["key"] == "sea.enabled" for group in payload["groups"] for param in group["params"])
-    assert any(param["key"] == "sea.min_daily_sales_inclusive" for group in payload["groups"] for param in group["params"])
-    assert any(param["key"] == "sea.companion_air_enabled" for group in payload["groups"] for param in group["params"])
-    assert any(param["key"] == "sea.companion_air_tiers" for group in payload["groups"] for param in group["params"])
-    assert any(param["key"] == "sea.min_net_quantity" for group in payload["groups"] for param in group["params"])
-
-
-def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:
-    template_root = tmp_path / "artifacts" / "mabang_replenishment_templates"
-    monkeypatch.setattr(tmpl, "DEFAULT_CUSTOM_TEMPLATE_STORE", template_root / "templates.json")
-    monkeypatch.setattr(tmpl, "DEFAULT_EDITABLE_OUTPUT_DIR", template_root / "editable")
-    monkeypatch.chdir(tmp_path)
-
-    payload = cli.run({"command": "show", "template": "默认"})
-    assert payload["template"]["name"] == "默认"
-
-    payload = cli.run({"command": "export", "template": "默认"})
-    exported_path = Path(payload["xlsx_path"])
-    assert exported_path.is_file()
-
-    payload = cli.run({"command": "validate-file", "xlsx": str(exported_path)})
-    assert payload["template_name"] == "默认"
-
-    payload = cli.run({"command": "import", "xlsx": str(exported_path), "name": "CLI方案"})
-    assert payload["template_name"] == "CLI方案"
-
-    payload = cli.run({"command": "replace", "template": "CLI方案", "xlsx": str(exported_path)})
-    assert payload["template_name"] == "CLI方案"
-    assert payload["old_version"] == 1
-    assert payload["new_version"] == 2
-
-    payload = cli.run({"command": "rename", "template": "CLI方案", "name": "CLI重命名方案"})
-    assert payload["old_name"] == "CLI方案"
-    assert payload["new_name"] == "CLI重命名方案"
-    assert payload["template_version"] == 2

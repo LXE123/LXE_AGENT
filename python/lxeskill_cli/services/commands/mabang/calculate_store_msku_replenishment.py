@@ -15,7 +15,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     try:
         if version not in {"v1", "v2"}:
             raise ValueError("version 必须为 v1 或 v2")
-        v1_options = {"template", "amazon_restock_inventory_snapshot", "amazon_fba_inventory_snapshot"}
+        v1_options = {"template"}
         v2_options = {"peak_boost_enabled", "peak_boost_days"}
         unexpected = (v2_options if version == "v1" else v1_options) & arguments.keys()
         if unexpected:
@@ -29,8 +29,6 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         if version == "v1":
             result = calculate_store_msku_replenishment(
                 inputs, template_name=arguments.get("template"),
-                amazon_restock_inventory_snapshot_path=arguments.get("amazon_restock_inventory_snapshot"),
-                amazon_fba_inventory_snapshot_path=arguments.get("amazon_fba_inventory_snapshot"),
             )
         else:
             result = generate_replenishment_v2(
