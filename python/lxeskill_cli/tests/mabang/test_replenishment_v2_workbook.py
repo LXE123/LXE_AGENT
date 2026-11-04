@@ -75,15 +75,13 @@ def test_saved_and_per_run_settings_change_workbook_without_changing_saved_state
 
 @pytest.mark.parametrize("problem,diagnostic", [
     ("source-changed", "发生变化"), ("other-batch", "批次"), ("missing-msku", "覆盖"),
-    ("other-day", "日期"), ("orphan-shipment", "源表没有"),
+    ("other-day", "日期"),
     ("unknown-sales", "可售"), ("invalid-weight", "AD重量"), ("invalid-shipment", "未关联数量"),
 ])
 def test_cli_rejects_inconsistent_inputs_without_publishing(tmp_path, problem, diagnostic):
     options = {}
     if problem == "other-day":
         options["snapshot_time"] = "202610121100"
-    if problem == "orphan-shipment":
-        options["shipment_rows"] = [("ORPHAN", 3)]
     if problem == "invalid-shipment":
         options["shipment_rows"] = [("SEA", 3)]
     if problem in {"unknown-sales", "invalid-weight"}:

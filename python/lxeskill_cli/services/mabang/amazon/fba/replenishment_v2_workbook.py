@@ -287,16 +287,10 @@ def _shipment_quantities(quantities: dict[str, float]) -> dict[str, int | float]
 def _rows_for_workbook(
     records: list[dict[str, Any]],
     *,
-    source_keys: set[str],
     store_name: str,
     inventory_by_key: dict[str, list[ShenzhenInventoryRow]],
     shipment_by_key: dict[str, int | float],
 ) -> list[dict[str, Any]]:
-    extra_shipments = shipment_by_key.keys() - source_keys
-    if extra_shipments:
-        raise ReplenishmentV2WorkbookError(
-            f"未关联货件快照含源表没有的 MSKU: {sorted(extra_shipments)[:10]!r}"
-        )
     result: list[dict[str, Any]] = []
     for source_row_number, record in enumerate(records, start=2):
         msku = _text(record.get("MSKU"))
@@ -511,7 +505,6 @@ def generate_replenishment_v2(
     shipment_by_key = _shipment_quantities(inputs.shipments)
     rows = _rows_for_workbook(
         records,
-        source_keys=source_keys,
         store_name=clean_store_name,
         inventory_by_key=inventory_by_key,
         shipment_by_key=shipment_by_key,

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
+from .combo_sku import normalize_sku_key
 from .source_verification import duplicate_msku_warnings, VerifiedSource, load_verified_source, read_report_metadata
 from .store_msku_actual_inventory import SOURCE_FILE_RE
 from .unlinked_shipments import load_unlinked_shipment_quantities
@@ -20,9 +21,20 @@ class ReplenishmentInputs:
     shipments: dict[str, float]
 
     def to_payload(self) -> dict:
+        warnings = duplicate_msku_warnings(self.source.records)
+        source_keys = {normalize_sku_key(row.get("MSKU")) for row in self.source.records}
+        unmatched = {msku: quantity for msku, quantity in self.shipments.items()
+                     if normalize_sku_key(msku) not in source_keys}
+        if unmatched:
+            examples = "、".join(list(unmatched)[:5])
+            warnings.append(
+                f"未关联货件快照中有 {len(unmatched)} 个 MSKU（合计 {sum(unmatched.values()):g} 件）"
+                f"不在 MSKU 源表中，未参与本轮计算；示例（最多 5 个）：{examples}。"
+                "匹配的货件已正常计入扣减，完整记录见未关联货件快照。"
+            )
         return {
             "store_name": self.store_name,
-            "warnings": duplicate_msku_warnings(self.source.records),
+            "warnings": warnings,
             "source_data_time": self.source_data_time,
             "msku_source_xlsx_path": str(self.source_path),
             "shenzhen_inventory_report_xlsx_path": str(self.inventory_path),

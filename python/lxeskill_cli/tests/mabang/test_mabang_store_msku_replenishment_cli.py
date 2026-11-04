@@ -54,6 +54,38 @@ def test_v1_calculates_from_explicit_source_without_sales_report(tmp_path, templ
     assert [path.read_bytes() for path in inputs] == original
 
 
+@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("matched_quantity", [0, 10])
+def test_shipments_outside_source_warn_without_affecting_calculation(tmp_path, version, matched_quantity):
+    shipments = [("OUTSIDE-A", 100), ("OUTSIDE-B", 2.5)]
+    if matched_quantity:
+        shipments.append(("SEA", matched_quantity))
+    inputs = batch(tmp_path, shipment_rows=shipments)
+    original = [path.read_bytes() for path in inputs]
+    result = generate(inputs, version=version)
+    assert result["ok"] and result["files"] == [result["data"]["output_xlsx_path"]]
+    warning, = result["data"]["warnings"]
+    assert "2 个 MSKU（合计 102.5 件）" in warning
+    assert "未参与本轮计算" in warning and "OUTSIDE-A" in warning and "OUTSIDE-B" in warning
+    book = load_workbook(result["files"][0], data_only=True)
+    try:
+        ws = book["最终备货意见"] if version == "v1" else book["mskulist"]
+        headers = [cell.value for cell in ws[1]]
+        row, = [dict(zip(headers, values)) for values in ws.iter_rows(min_row=2, values_only=True)]
+        assert row["MSKU"] == "SEA"
+        assert row["未发出货件总计"] == matched_quantity
+        sea_column = "海运建议量" if version == "v1" else "海运实际"
+        assert row[sea_column] == 60 - matched_quantity
+        if version == "v1":
+            assert book["本轮不备货"].max_row == 1
+            summary = records(result["files"][0], "链接备货汇总")["PARENT"]
+            assert summary["链接未关联数量汇总"] == matched_quantity
+            assert summary["总补货量"] == 60 - matched_quantity
+    finally:
+        book.close()
+    assert [path.read_bytes() for path in inputs] == original
+
+
 @pytest.mark.parametrize("version", ["v1","v2"])
 @pytest.mark.parametrize("problem,message", [("file","不存在"),("source","发生变化"),("batch","批次"),("day","日期"),("store","店铺不一致")])
 def test_shared_input_validation_never_publishes(tmp_path, version, problem, message):

@@ -152,7 +152,7 @@ def test_explicit_empty_snapshot_does_not_deduct_other_local_shipments(tmp_path)
     assert result.to_payload()["unlinked_shipments_snapshot_path"] == str(zero)
     book = load_workbook(result.output_xlsx_path, data_only=True)
     try:
-        values = book["最终备货意见"].iter_rows(min_row=2, values_only=True)
+        values = book["最终备货意见"].iter_rows(min_row=1, values_only=True)
         headers = next(values)
         row = dict(zip(headers, next(values)))
         assert row["未发出货件总计"] == 0
