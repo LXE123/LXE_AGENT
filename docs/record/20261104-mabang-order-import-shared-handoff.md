@@ -1,0 +1,17 @@
+# 马帮订单导入表共享生成：模块交接
+
+- **分支 / Worktree / 基线**：`codex/mabang-order-import-shared`，`.worktrees/pool-10`，基于同步后的 `main` `f7b4687b8e86f97f5a0aeaee7d0706307583ec00`。未提交、未推送；待 review 的独立功能，不依赖其他未合并 PR。
+- **完成范围**：将巴西既有生成入口收敛到通用马帮订单导入命令，并支持马来西亚三份、越南一份订单导入表生成。复用一份已跟踪的马帮模板资源；不登录马帮，不提交订单。原巴西 Skill/命令由统一入口替代。
+- **调用链**：`lxeskill mabang order-import generate --country <brazil|malaysia|vietnam> --input-xlsx <path>` → `services.commands.mabang.order_import_generate` → `services.mabang.order_import.workflow.run` → 国家表头/数量规则 + `order_import.source` 共用日期解析和工作簿读取 → `workbook.generate_order_workbook` → `order_import/resources/template.xlsx`。
+- **马来西亚规则**：读取「马来西亚」工作表、E 列 SKU；按表头解析日期并选取最新日期组，要求组内各有空运、A 海运、B 海运一列，忽略颜色；缺列时停止，不回退旧日期。保留全部非空 SKU 行、原顺序和重复项；0/空数量写为空白，输出数量位于 T。订单号按生成时 `Asia/Shanghai` 日期动态生成：A 海运 `MY{YYMMDD}A-H`（如 `MY261104A-H`）、B 海运 `MY{YYMMDD}B-H`（如 `MY261104B-H`）、空运 `MY{YYMMDD}-K`（如 `MY261104-K`）。文件名为 `马来西亚马帮订单导入模板-{订单号}.xlsx`；输出三份表，A/B 两个订单编号列均写该文件对应编号。
+- **越南规则**：读取「越南备货清单」工作表、E 列 SKU；扫描 `M/D陆运` 和 `M/D海运` 表头，按距离当前中国日期最近的日期选一列，过去和未来都比较，忽略颜色；最近日期并列时要求选择候选列。保留所有非空 SKU 行、原顺序及重复项；数量空白或 0 时输出行保留、T 留空；无缓存公式或非法数量整单失败。订单号按生成当天中国日期生成：陆运 `VN{YYMMDD}-L`、海运 `VN{YYMMDD}-H`，同日不加流水号。A/B 两个订单编号列均写该订单号。文件名为 `越南马帮订单导入模板-{订单号}.xlsx`。样本中 E/AO → D/T；越南目标模板表头、默认字段和样式与共享模板一致（订单号、SKU、数量列除外），商品单价 S 沿用模板默认值 0；样本文件不加入仓库。
+- **巴西业务保留与契约变更**：保留「巴西」工作表、日期选列、原数量值和 `BRYYMMDD-H` 规则，数据集仍为 `mabang_brazil_order_import`。旧 CLI/Skill 已由统一入口替代，新增必填 `country`，原顶层文件/订单信息移入 `artifacts[]`；这是命令契约变更，不代表旧命令仍可调用。
+- **修改文件**：`pyproject.toml`、`config/skill-labels.json`、`python/lxeskill_cli/lxeskill/catalog.json`、`python/lxeskill_cli/services/commands/mabang/order_import_generate.py`、`python/lxeskill_cli/services/mabang/order_import/`（含 `source.py` 共用读取器）、相关巴西/马来西亚/越南测试、统一 Skill、`docs/lxeskill-cli/commands.md`、本交接记录。删除旧巴西专属命令、模块和 Skill 文件。
+- **数据与配置**：新增数据集 `mabang_malaysia_order_import`、`mabang_vietnam_order_import`；无新增环境变量、凭据或登录依赖。用户提供的备货清单和输出样本不复制进仓库。模板继续使用仓库中原有的巴西马帮模板资源。
+- **入口 / 契约**：CLI 必须显式传 `--country`；`--shipping-column` 用于巴西或越南最近日期并列时选择候选列。返回 `artifacts[]`（每项含路径、订单号和计数），Skill 交付三个马来西亚文件或巴西/越南各一个文件。Catalog 将统一命令归属新 Skill，并列出三国支持范围。
+- **2026-11-04 审查后精简与修复**：删除三国日期薄包装、巴西异常别名及重复模板加载、越南自写列号转换、多余建目录和恒真分支；马来西亚复用越南已有的数量解析，拒绝负数、非法文本、错误值、布尔值及非有限数。共用读取器按真实起止列索引，修复运输列在 SKU 左侧时把 B2=7 错读为 F2=999 的问题。保留各国真实差异及落盘校验，不增加公共框架。
+- **测试精简证据**：巴西颜色测试改为直接选列，整仓 Skill 契约由既有 `doctor` 测试负责；马来西亚/越南把重复出表合入真实 CLI 读回校验；数量非法值矩阵由共用解析器负责。三国仍为 38 个 case，增加左侧列错数、马来西亚错误数量和第二份文件写入失败清理的覆盖。左侧列回归修前明确失败（999 ≠ 7），修后通过。各用例位于 `tests/mabang/test_brazil_order_import_template.py`、`test_mabang_order_import_malaysia.py`、`test_mabang_order_import_vietnam.py`。
+- **本轮验证**：从 pool-10 根目录，以独立 `.venv` 执行 `uv run --frozen --no-sync pytest -q -p no:cacheprovider`，三国测试加 `test_lxeskill_cli.py::test_doctor_reports_repository_contract_without_adding_a_list_command` 为 `39 passed`。审查阶段的 `tests/lxeskill` + `tests/infra` 为 `353 passed / 59 failed / 4 skipped`，59 项均因沙箱阻止本地端口监听，沙箱外针对性重跑全部通过；Bun 命令归属联动 `4 passed`。本轮未修改 Catalog/公开参数，未重复无关全量回归。`--no-sync` 使用本 worktree 已安装环境，不共享其他 checkout 的 `.venv`。
+- **已知限制**：日期年份按最近中国日期解释。真实越南删图样本当前不可用，精简后真实样本复跑、wheel 打包、桌面附件完整链路及马帮实际导入均为 `NOT VERIFIED`；历史真实样本成功不能替代当前验收。
+- **收口检查**：相对本轮精简前，生产 Python 代码 `824 → 792` 行、三国测试 `725 → 697` 行，合计净减 60 行。已检查最终 diff、`git diff --check`、11 个相关 Python 文件的语法/空白/明显硬编码凭据及 Git 状态；独立复审未发现本轮新增的需修复问题或明显生产代码冗余。
+- **Git 状态 / 下一步**：修改仍全部未提交、未暂存、未推送。已只读核实远端 `main` `89b81bd7` 与本分支基线 `f7b4687b` 代码树一致，无需同步分支。下一步按用户审批提交；`git add` / commit、push、PR 各阶段分别确认。
