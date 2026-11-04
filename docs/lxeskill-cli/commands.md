@@ -93,12 +93,12 @@ $ lxeskill help replenishment
 备货：库存与销量采集、分析和补货计算
 
 东南亚及巴西备货：
-  mabang brazil reports export         导出马帮巴西海外仓报表
-  mabang brazil order-import generate  根据巴西备货清单生成马帮订单导入模板
-  mabang-tms products export           导出马帮 TMS 商品、库存和销量
-  yacang reports export                导出雅仓报表
-  vietnam replenishment calculate      计算越南补货并生成备货清单
-  shangman products export             导出上马商品、库存和销量
+  mabang brazil reports export     导出马帮巴西海外仓报表
+  mabang order-import generate     根据巴西、马来西亚或越南备货清单生成马帮订单导入模板
+  mabang-tms products export       导出马帮 TMS 商品、库存和销量
+  yacang reports export            导出雅仓报表
+  vietnam replenishment calculate  计算越南补货并生成备货清单
+  shangman products export         导出上马商品、库存和销量
 
 上马数据采集的登录准备：
   shangman login prepare  准备登录并获取验证码
@@ -107,13 +107,13 @@ $ lxeskill help replenishment
   shangman login clear    清除登录状态
 
 Amazon 备货：
-  replenish template                          管理备货算法参数方案
-  replenish calculate                         按版本生成 Amazon V1/V2 备货建议
-  mabang store msku export                    下载店铺 MSKU 数据
-  mabang store shenzhen-inventory export      生成深圳仓真实库存报告
-  replenish sales analyze                     分析销量
-  replenish store resolve                     解析马帮店铺名称与 ID
-  mabang store unlinked-shipments export      下载未关联货件并生成快照
+  replenish template                      管理备货算法参数方案
+  replenish calculate                     按版本生成 Amazon V1/V2 备货建议
+  mabang store msku export                下载店铺 MSKU 数据
+  mabang store shenzhen-inventory export  生成深圳仓真实库存报告
+  replenish sales analyze                 分析销量
+  replenish store resolve                 解析马帮店铺名称与 ID
+  mabang store unlinked-shipments export  下载未关联货件并生成快照
 
 以上为现有完整命令路径，执行时加 lxeskill 前缀；不需要再加业务分组名。
 使用 lxeskill <完整命令> --help 查看参数和示例。
@@ -173,7 +173,7 @@ lxeskill mabang delivery export --delivery-no SP260919007
 lxeskill replenish template list
 ```
 
-### 计算备货建议
+### 按版本生成 Amazon V1/V2 备货建议
 
 ```bash
 lxeskill replenish calculate --version v1 --store-name <店铺名> --msku-source-xlsx-path <MSKU源表.xlsx> --shenzhen-inventory-report-xlsx-path <深圳库存报告.xlsx> --unlinked-shipments-snapshot-path <货件快照.xlsx>

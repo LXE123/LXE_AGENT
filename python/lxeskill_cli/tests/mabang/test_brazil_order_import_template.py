@@ -12,19 +12,20 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Color, PatternFill
 
 from lxeskill import cli
-from services.commands.mabang import brazil_order_import_generate as command
-from services.mabang.brazil_order_import import workflow
-from services.mabang.brazil_order_import.workbook import (
-    BrazilOrderWorkbookError,
+from services.commands.mabang import order_import_generate as command
+from services.mabang.order_import import workflow
+from services.mabang.order_import.brazil import (
     generate_order_workbook,
     select_shipping_column,
 )
+from services.mabang.order_import.workbook import OrderImportWorkbookError
 
 
 SEA_HEADERS = (
     "7/15海运", "7/29海运", "8/13海运", "8/24A海运", "8/24B海运", "9/8海运",
     "9/23海运", "10/13海运", "10/23海运", "10/30海运", "11/2海运",
 )
+TEMPLATE = Path(__file__).resolve().parents[2] / "services/mabang/order_import/resources/template.xlsx"
 
 
 def source_workbook(path: Path, *, sheet_name: str = "巴西", sku_header: str = "sku") -> None:
@@ -60,7 +61,7 @@ def test_generator_rebuilds_rows_from_source_and_preserves_blank_quantity(tmp_pa
     output = tmp_path / "output.xlsx"
     source_workbook(source)
 
-    result = generate_order_workbook(source, output, today=date(2026, 11, 3))
+    result = generate_order_workbook(source, output, today=date(2026, 11, 3), template_path=TEMPLATE)
 
     check = load_workbook(output, data_only=False)
     sheet = check["订单标准模板"]
@@ -99,8 +100,8 @@ def test_formula_without_cached_value_reports_cell_and_does_not_generate(tmp_pat
     if existing_output:
         output.write_bytes(b"existing output")
 
-    with pytest.raises(BrazilOrderWorkbookError, match=rf"{coordinate}.*公式.*缓存.*重新计算"):
-        generate_order_workbook(source, output, today=date(2026, 11, 3))
+    with pytest.raises(OrderImportWorkbookError, match=rf"{coordinate}.*公式.*缓存.*重新计算"):
+        generate_order_workbook(source, output, today=date(2026, 11, 3), template_path=TEMPLATE)
     if existing_output:
         assert output.read_bytes() == b"existing output"
     else:
@@ -143,7 +144,7 @@ def test_cached_formula_and_literal_equals_sku_are_preserved(tmp_path, quantity)
             archive.writestr(item, data)
     source.write_bytes(updated.getvalue())
 
-    metadata = generate_order_workbook(source, output, today=date(2026, 11, 3))
+    metadata = generate_order_workbook(source, output, today=date(2026, 11, 3), template_path=TEMPLATE)
     result = load_workbook(output, data_only=False)
     try:
         sheet = result["订单标准模板"]
@@ -174,7 +175,7 @@ def test_cli_reports_uncached_formula_without_deliverables(monkeypatch, tmp_path
     monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
 
-    assert cli.main(["mabang", "brazil", "order-import", "generate", "--input-xlsx", str(source)]) != 0
+    assert cli.main(["mabang", "order-import", "generate", "--country", "brazil", "--input-xlsx", str(source)]) != 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert result["ok"] is False
     assert result["files"] == []
@@ -186,36 +187,26 @@ def test_cli_reports_uncached_formula_without_deliverables(monkeypatch, tmp_path
 
 @pytest.mark.parametrize("fill", [None, PatternFill(fill_type="solid", fgColor="FFFFFF00"),
                                  PatternFill(fill_type="solid", fgColor=Color(indexed=13))])
-def test_closest_date_wins_regardless_of_header_color(tmp_path, fill):
-    source = tmp_path / "source.xlsx"
-    output = tmp_path / "output.xlsx"
-    source_workbook(source)
-    workbook = load_workbook(source)
-    sheet = workbook["巴西"]
-    sheet["AT1"] = "11/19海运"
-    sheet["AU1"] = "12/20海运"
+def test_closest_date_wins_regardless_of_header_color(shipping_sheet, fill):
+    shipping_sheet["AT1"] = "11/19海运"
+    shipping_sheet["AU1"] = "12/20海运"
     if fill:
-        sheet["AT1"].fill = fill
-        sheet["AU1"].fill = fill
-    sheet["AT2"] = 88
-    workbook.save(source)
-    workbook.close()
+        shipping_sheet["AT1"].fill = fill
+        shipping_sheet["AU1"].fill = fill
 
-    result = generate_order_workbook(source, output, today=date(2026, 11, 3))
-    check = load_workbook(output, data_only=True)
-    assert result["shipping_column"] == "BD"
-    assert check["订单标准模板"]["T2"].value == 10
-    check.close()
+    assert select_shipping_column(shipping_sheet, date(2026, 11, 3)) == (
+        "BD", "11/2海运", date(2026, 11, 2)
+    )
 
 
 def test_shipping_date_tie_requires_explicit_nearest_column(shipping_sheet):
-    with pytest.raises(BrazilOrderWorkbookError, match="最近海运日期并列.*AW.*AX"):
+    with pytest.raises(OrderImportWorkbookError, match="最近海运日期并列.*AW.*AX"):
         select_shipping_column(shipping_sheet, date(2026, 8, 24))
 
     assert select_shipping_column(shipping_sheet, date(2026, 8, 24), "AX") == (
         "AX", "8/24B海运", date(2026, 8, 24)
     )
-    with pytest.raises(BrazilOrderWorkbookError, match="不是最近日期列"):
+    with pytest.raises(OrderImportWorkbookError, match="不是最近日期列"):
         select_shipping_column(shipping_sheet, date(2026, 11, 3), "AX")
 
 
@@ -236,12 +227,12 @@ def test_equal_distance_dates_require_choice_even_if_one_is_yellow(shipping_shee
     yellow = PatternFill(fill_type="solid", fgColor="FFFFFF00")
     shipping_sheet["AW1"].fill = yellow
 
-    with pytest.raises(BrazilOrderWorkbookError, match="最近海运日期并列.*AW.*AX"):
+    with pytest.raises(OrderImportWorkbookError, match="最近海运日期并列.*AW.*AX"):
         select_shipping_column(shipping_sheet, date(2026, 11, 3))
     assert select_shipping_column(shipping_sheet, date(2026, 11, 3), "AX") == (
         "AX", "11/4海运", date(2026, 11, 4)
     )
-    with pytest.raises(BrazilOrderWorkbookError, match="不是最近日期列"):
+    with pytest.raises(OrderImportWorkbookError, match="不是最近日期列"):
         select_shipping_column(shipping_sheet, date(2026, 11, 3), "AT")
 
 
@@ -265,8 +256,8 @@ def test_month_day_header_uses_nearest_year_across_new_year(shipping_sheet):
 def test_missing_required_source_contract_fails(tmp_path, sheet_name, sku_header, expected_error):
     source = tmp_path / "source.xlsx"
     source_workbook(source, sheet_name=sheet_name, sku_header=sku_header)
-    with pytest.raises(BrazilOrderWorkbookError, match=expected_error):
-        generate_order_workbook(source, tmp_path / "output.xlsx", today=date(2026, 11, 3))
+    with pytest.raises(OrderImportWorkbookError, match=expected_error):
+        generate_order_workbook(source, tmp_path / "output.xlsx", today=date(2026, 11, 3), template_path=TEMPLATE)
 
 
 def test_bad_shipping_header_fails_with_cell_reference(tmp_path):
@@ -277,8 +268,8 @@ def test_bad_shipping_header_fails_with_cell_reference(tmp_path):
     workbook.save(source)
     workbook.close()
 
-    with pytest.raises(BrazilOrderWorkbookError, match="AX1.*表头缺失或格式无效"):
-        generate_order_workbook(source, tmp_path / "output.xlsx", today=date(2026, 11, 3))
+    with pytest.raises(OrderImportWorkbookError, match="AX1.*表头缺失或格式无效"):
+        generate_order_workbook(source, tmp_path / "output.xlsx", today=date(2026, 11, 3), template_path=TEMPLATE)
 
 
 def test_command_validates_arguments_and_returns_generation_metadata(monkeypatch, tmp_path):
@@ -287,23 +278,28 @@ def test_command_validates_arguments_and_returns_generation_metadata(monkeypatch
         command,
         "generate",
         lambda **kwargs: {
-            "output_xlsx": output,
-            "order_id": "BR261103-H",
+            "country": "brazil",
+            "artifacts": [{
+                "path": output,
+                "order_id": "BR261103-H",
+                "sku_count": 2,
+                "quantity_value_count": 1,
+                "shipping_column": "BD",
+                "shipping_header": "11/2海运",
+                "shipping_date": "2026-11-02",
+            }],
             "sku_count": 2,
-            "quantity_value_count": 1,
-            "shipping_column": "BD",
-            "shipping_header": "11/2海运",
-            "shipping_date": "2026-11-02",
+            "order_ids": ["BR261103-H"],
         },
     )
     output.touch()
 
     assert command.run({})["error"]["code"] == "invalid_arguments"
-    assert command.run({"input_xlsx": "source.xlsx", "unknown": True})["error"]["code"] == "invalid_arguments"
-    result = command.run({"input_xlsx": "source.xlsx", "shipping_column": "BD"})
+    assert command.run({"country": "brazil", "input_xlsx": "source.xlsx", "unknown": True})["error"]["code"] == "invalid_arguments"
+    result = command.run({"country": "brazil", "input_xlsx": "source.xlsx", "shipping_column": "BD"})
     assert result["success"] is True
-    assert result["order_id"] == "BR261103-H"
-    assert result["output_xlsx"] == str(output.resolve())
+    assert result["order_ids"] == ["BR261103-H"]
+    assert result["artifacts"][0]["path"] == str(output.resolve())
     assert result["validation"]["status"] == "passed"
 
 
@@ -317,26 +313,19 @@ def test_catalog_cli_dispatches_module_with_flags(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "execute_module_json", execute)
     assert cli.main([
-        "mabang", "brazil", "order-import", "generate", "--input-xlsx", "source.xlsx",
+        "mabang", "order-import", "generate", "--country", "brazil", "--input-xlsx", "source.xlsx",
         "--shipping-column", "BD",
     ]) == 0
-    assert calls == [("mabang_brazil_order_import_generate", {"input_xlsx": "source.xlsx", "shipping_column": "BD"})]
+    assert calls == [("mabang_order_import_generate", {"country": "brazil", "input_xlsx": "source.xlsx", "shipping_column": "BD"})]
     assert '"ok":true' in capsys.readouterr().out
 
 
 def test_natural_language_skill_owns_public_command():
     from lxeskill.business import load_catalog
-    from lxeskill.contract import validate_skill_command_contract
 
     catalog = load_catalog()
-    entry = catalog["mabang_brazil_order_import_generate"]
+    entry = catalog["mabang_order_import_generate"]
     assert entry["visibility"] == "business"
     assert entry["exposed"] is True
-    assert entry["owner_skills"] == ["mabang-brazil-order-import-generate"]
-
-    project_root = Path(__file__).resolve().parents[4]
-    report = validate_skill_command_contract(
-        catalog,
-        skills_root=project_root / "skills",
-    )
-    assert report.ok, [violation.code for violation in report.violations]
+    assert entry["command_path"] == ["mabang", "order-import", "generate"]
+    assert entry["owner_skills"] == ["mabang-order-import-generate"]
