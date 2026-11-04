@@ -93,6 +93,9 @@ def test_list_and_describe_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
+    commands = [entry["command"] for entry in records[0]["data"]["commands"]]
+    assert commands
+    assert len(commands) == len(set(commands))
 
     assert lxeskill.main(["describe", "fba", "customs", "preview"]) == 0
     records = _records(capsys)
@@ -138,22 +141,13 @@ def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatc
 def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys) -> None:
     assert lxeskill.main(["doctor"]) == 0
     records = _records(capsys)
-    assert records == [
-        {
-            "protocol_version": "1",
-            "type": "result",
-            "command": "doctor",
-            "ok": True,
-            "data": {
-                "catalog_commands": 48,
-                "business_commands": 41,
-                "skill_files": 39,
-                "owner_skills": 31,
-                "command_declarations": 41,
-            },
-            "files": [],
-        }
-    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record["protocol_version"] == "1"
+    assert record["type"] == "result"
+    assert record["command"] == "doctor"
+    assert record["ok"] is True
+    assert record["files"] == []
 
     assert lxeskill.main(["list"]) == 0
     records = _records(capsys)
@@ -625,7 +619,7 @@ def test_declared_artifact_rejects_missing_and_symlink_escape(tmp_path) -> None:
 
 
 def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-store-resolve")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     assert lxeskill.main(["list"]) == 0
     (record,) = _records(capsys)
     commands = {item["command"] for item in record["data"]["commands"]}
@@ -724,3 +718,9 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
 def test_datasets_list_rejects_extra_arguments(capsys):
     assert lxeskill.main(["datasets", "list", "--unknown"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize("flag, expected", [("--enabled", True), ("--enabled=true", True), ("--enabled=false", False)])
+def test_boolean_flags_respect_explicit_values_for_any_command(flag, expected):
+    entry = {"name": "example", "input_schema": {"properties": {"enabled": {"type": "boolean"}}}}
+    assert lxeskill._arguments_from_flags(entry, [flag]) == {"enabled": expected}

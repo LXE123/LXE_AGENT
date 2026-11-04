@@ -128,6 +128,15 @@ def _arguments_from_flags(entry: dict[str, Any], argv: list[str]) -> dict[str, A
             raise LxeSkillError("invalid_arguments", f"unknown option: --{raw_name}", exit_code=EXIT_USAGE)
         kind = property_schema.get("type")
         if kind == "boolean":
+            if separator:
+                if inline not in {"true", "false"}:
+                    raise LxeSkillError(
+                        "invalid_arguments", f"--{raw_name} accepts a bare flag, =true or =false",
+                        exit_code=EXIT_USAGE,
+                    )
+                arguments[name] = inline == "true"
+                index += 1
+                continue
             arguments[name] = True
             index += 1
             continue

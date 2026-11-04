@@ -29,7 +29,7 @@ def existing_report(path):
 def test_failure_never_publishes_or_changes_previous_report(tmp_path, monkeypatch, existing, stage, source_metadata):
     tmp_path = tmp_path / "output"
     tmp_path.mkdir()
-    target = tmp_path / "202609071712-Amazon-Test_备货建议.xlsx"
+    target = tmp_path / "202609071712-Amazon-Test_备货建议-v1.xlsx"
     previous = existing_report(target) if existing else None
     failure = OSError(f"actual failure at {stage}")
 
@@ -82,16 +82,16 @@ def test_publish_happens_once_after_handles_close_and_complete_validation(tmp_pa
             assert Path(source).parent.parent == target.parent
             book = load_workbook(source, data_only=True)
             try:
-                assert book.active["A3"].value == "NEW"
-                assert book.active["X2"].value == "理论空运需求"
-                assert book.active["X3"].value == 450
+                assert book.active["A2"].value == "NEW"
+                assert book.active["X1"].value == "理论空运需求"
+                assert book.active["X2"].value == 450
                 assert "源数据核验信息" in book.sheetnames
             finally:
                 book.close()
             formulas = load_workbook(source, data_only=False)
             try:
-                assert formulas.active["X3"].data_type == "f"
-                assert formulas.active["X3"].value == '=IF(AJ3="正常",ROUNDUP(I3*V3,0),"")'
+                assert formulas.active["X2"].data_type == "f"
+                assert formulas.active["X2"].value == '=IF(AJ2="正常",ROUNDUP(I2*V2,0),"")'
             finally:
                 formulas.close()
         return original_replace(source, destination)
@@ -141,7 +141,7 @@ def test_cleanup_failure_does_not_hide_original_failure(tmp_path, monkeypatch):
             raise failure
     assert caught.value is failure
     assert warnings[0][-1] is clean_failure
-    assert not list(tmp_path.glob("*-*_备货建议.xlsx"))
+    assert not (tmp_path / "result.xlsx").exists()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows file sharing semantics")
@@ -170,6 +170,6 @@ def test_windows_locked_target_is_preserved_and_retry_succeeds(tmp_path):
     rep.write_replenishment_report([case_row("NEW")], target)
     book = load_workbook(target, data_only=True)
     try:
-        assert book.active["A3"].value == "NEW"
+        assert book.active["A2"].value == "NEW"
     finally:
         book.close()

@@ -7,16 +7,16 @@ from services.mabang.amazon.fba import replenishment_template as template_servic
 
 
 def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
-    command = str(arguments.get("command") or "")
-    if command == "list":
+    action = str(arguments.get("action") or "")
+    if action == "list":
         return template_service.templates_payload()
-    if command == "list-params":
+    if action == "list-params":
         return {
             "success": True,
             "groups": template_service.list_parameter_groups(),
             "source": template_service.SOURCE,
         }
-    if command == "show":
+    if action == "show":
         template = template_service.get_template(
             str(arguments.get("template") or template_service.DEFAULT_TEMPLATE_NAME)
         )
@@ -25,7 +25,7 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "template": template.to_payload(),
             "source": template_service.SOURCE,
         }
-    if command == "export":
+    if action == "export":
         template_name = str(arguments.get("template") or template_service.DEFAULT_TEMPLATE_NAME).strip()
         template = template_service.get_template(template_name)
         xlsx_path = template_service.export_template_xlsx(template_name)
@@ -37,7 +37,7 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "deliverable_xlsx_path": str(xlsx_path),
             "source": template_service.SOURCE,
         }
-    if command == "validate-file":
+    if action == "validate-file":
         xlsx_path = str(arguments.get("xlsx") or "").strip()
         result = template_service.validate_template_xlsx(xlsx_path)
         return {
@@ -48,7 +48,7 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "xlsx_path": xlsx_path,
             "source": template_service.SOURCE,
         }
-    if command == "import":
+    if action == "import":
         xlsx_path = str(arguments.get("xlsx") or "").strip()
         result = template_service.import_template_xlsx(xlsx_path, name=str(arguments.get("name") or ""))
         return {
@@ -59,7 +59,7 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "xlsx_path": xlsx_path,
             "source": template_service.SOURCE,
         }
-    if command == "replace":
+    if action == "replace":
         xlsx_path = str(arguments.get("xlsx") or "").strip()
         template_name = str(arguments.get("template") or "").strip()
         result, old_version = template_service.replace_template_xlsx(xlsx_path, template_name=template_name)
@@ -72,7 +72,7 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "xlsx_path": xlsx_path,
             "source": template_service.SOURCE,
         }
-    if command == "rename":
+    if action == "rename":
         old_name = str(arguments.get("template") or "").strip()
         new_name = str(arguments.get("name") or "").strip()
         result = template_service.rename_template(old_name, new_name=new_name)
@@ -83,17 +83,17 @@ def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
             "template_version": result.version,
             "source": template_service.SOURCE,
         }
-    raise ValueError(f"未知命令: {command}")
+    raise ValueError(f"未知命令: {action}")
 
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog input_schema is the argument contract."""
-    command = str(arguments.get("command") or "")
+    action = str(arguments.get("action") or "")
     try:
         return _success_payload(arguments)
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         return {
             "success": False,
-            "command": command,
+            "action": action,
             "exception": _exception_text(exc),
         }

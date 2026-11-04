@@ -149,9 +149,6 @@ FAILURE_CASES = {
             "WMS failed for SP260226004",
         ),
     ),
-    "replenish inventory restock-snapshot-build": (
-        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
-    ),
     "mabang store msku export": (
         FailureCase(
             {"store_id": "697456821", "id_type": "shopId"},
@@ -175,7 +172,7 @@ FAILURE_CASES = {
         ),
     ),
     "replenish calculate": (
-        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+        FailureCase({}, {"store_name": "", "version": None}, "version 必须为 v1 或 v2"),
     ),
     "replenish sales analyze": (
         FailureCase({}, {"store_name": ""}, "store_name 不能为空"),

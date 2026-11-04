@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { repositoryRoot } from "@lxe/core";
+import { queryLxeSkillCommandSkills } from "../../src/statistics/lxeskill";
 import { TurnStatistics } from "../../src/statistics/turn-statistics";
 import { skillPathKey } from "../../src/tooling/skill-files";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
@@ -42,4 +43,16 @@ test("exec cards retain the actual command without inferring a business skill", 
   const step = buildToolDisplayStep("tool-1", "exec", { command }, "running", 0);
   expect(step.title).toBe("Run command");
   expect(step.detail).toBe(command);
+});
+
+
+test("attributes both replenishment versions through the real CLI contract", async () => {
+  const stats = new TurnStatistics({ directory: root, commandSkills: () => queryLxeSkillCommandSkills({
+    cwd: root, environment: process.env,
+    executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
+  }) });
+  for (const version of ["v1", "v2"]) stats.observe("exec", { command: `lxeskill replenish calculate --version ${version}` });
+  expect((await stats.snapshot()).executions).toMatchObject(Array(2).fill({
+    skill: "amazon-replenishment", command: "replenish calculate",
+  }));
 });

@@ -51,6 +51,7 @@ def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, 
     stock_path.write_bytes(_stock_xlsx_bytes([{'库存SKU编号': 'S', '可用库存量': 100}]))
     async def search(skus):
         assert skus == ['S']
+        return '', 'synthetic-search-token'
     async def download(**kwargs):
         return stock_path
     monkeypatch.setattr(combo, 'fetch_fba_stores', web_stores)
@@ -64,11 +65,22 @@ def test_old_and_clean_store_names_preserve_existing_file_identity(monkeypatch, 
         analysis = sales.analyze_store_msku_sales(name, input_dir=tmp_path/'source', output_dir=tmp_path/'sales')
         actual = asyncio.run(inv.export_store_msku_actual_inventory(name, input_dir=tmp_path/'source', output_dir=tmp_path/'inventory'))
         assert analysis.source_data_time == actual.source_msku_data_time == '202609070900'
-        result = repl.calculate_store_msku_replenishment(name, sales_analysis_dir=tmp_path/'sales', actual_inventory_dir=tmp_path/'inventory', output_dir=tmp_path/'replenishment', unlinked_shipments_snapshot_dir=tmp_path/'unlinked')
-        assert result.store_name == name
-        matched = repl.find_matching_report_files(name, sales_analysis_dir=tmp_path/'sales', actual_inventory_dir=tmp_path/'inventory')
-        assert matched.source_data_time == '202609070900'
-        assert [r.msku for r in repl.load_inventory_rows(matched.actual_inventory_path)] == ['M0']
+        from services.mabang.amazon.fba.replenishment_inputs import load_replenishment_inputs
+        from services.mabang.amazon.fba import unlinked_shipments as shipments
+        query = shipments.StoreUnlinkedShipmentDownloadResult(name, 10, "202609070905", [
+            shipments.UnlinkedShipmentStatusResult(spec.status_name, 0)
+            for spec in shipments.UNLINKED_SHIPMENT_STATUS_SPECS
+        ])
+        snapshot = shipments.build_store_unlinked_shipments_snapshot([], store_name=name,
+            output_dir=tmp_path/'unlinked', snapshot_time="202609070905", query_result=query)
+        inputs = load_replenishment_inputs(name, msku_source_xlsx_path=analysis.source_xlsx_path,
+            shenzhen_inventory_report_xlsx_path=actual.shenzhen_warehouse_inventory_report_xlsx_path,
+            unlinked_shipments_snapshot_path=snapshot.snapshot_xlsx_path)
+        result = repl.calculate_store_msku_replenishment(inputs, output_dir=tmp_path/'replenishment')
+        assert result.to_payload()["store_name"] == name
+        assert inputs.source_data_time == '202609070900'
+        assert [r.msku for r in repl.load_inventory_rows(inputs.inventory_path)] == ['M0']
+
 
 
 class _FakeResponse:
@@ -703,7 +715,7 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     _annotate_active_test_source(source_path)
     fake_session = _FakeSession(
         [
-            _FakeResponse({"success": True}),
+            _FakeResponse({"success": True, "searchToken": "synthetic-search-token"}),
             _FakeResponse(
                 body=_stock_xlsx_bytes(
                     [

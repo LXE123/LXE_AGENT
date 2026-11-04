@@ -134,15 +134,15 @@ def test_async_cancel_does_not_block_loop_or_leave_session_open():
     assert len(calls)==1
 
 
-def test_async_large_json_and_429_retry_header(monkeypatch):
+def test_async_large_json_after_temporary_server_failure(monkeypatch):
     sleeps=[]
     async def sleep(delay): sleeps.append(delay)
     monkeypatch.setattr(official_api.asyncio,'sleep',sleep)
     body={'code':200,'data':{'items':['x'*1500000]}}
-    with server(lambda path,count: (429,{'detail':'limited'},{'Retry-After':'2'}) if count==1 else (200,body,{})) as (url,calls):
+    with server(lambda path,count: (503,{'detail':'temporarily unavailable'},{}) if count==1 else (200,body,{})) as (url,calls):
         monkeypatch.setenv('LXE_DATA_SERVER_URL',url)
         assert asyncio.run(official_api.post_json('shops/list',{},context='shop'))==body
-    assert sleeps==[2] and len(calls)==2
+    assert sleeps==[1] and len(calls)==2
     assert_native(calls)
 
 

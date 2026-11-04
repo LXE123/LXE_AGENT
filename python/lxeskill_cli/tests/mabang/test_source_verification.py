@@ -114,6 +114,7 @@ def test_full_source_sales_and_verified_inventory_reuse(monkeypatch, tmp_path):
         return {'code': 200, 'data': {'page': 1, 'rowsPerPage': 20, 'total': 1, 'data': [{'comboSku': 'C', 'comboProductDetail': [{'stockSku': 'S', 'quantity': 2}]}]}}
     async def search(skus):
         assert skus == ['S']
+        return '', 'synthetic-search-token'
     async def warehouse(**kwargs):
         return tmp_path/'stock.xlsx'
     monkeypatch.setattr(combo, 'post_json', post)
@@ -310,13 +311,13 @@ def test_version_three_catalog_files_remain_readable_but_cannot_mix_with_new_rou
             active.stamp_report(report, invalid)
 
 
-def test_unverified_marker_blocks_positive_inventory_and_preserves_full_key(tmp_path):
+def test_unverified_msku_stays_excluded_even_with_positive_inventory(tmp_path):
     from dataclasses import replace
     records = [row('unknown', sku='U', **{'父ASIN': 'P'}), row('known', **{'父ASIN': 'P'})]
     path = source(tmp_path/'source.xlsx', records, (binding('known'), binding(sku='U', kind=None)))
     verified = active.load_verified_source(path, store_name='shop')
     inputs = inventory.load_store_msku_rows(path, records=verified.records)
-    rows, _ = inventory.calculate_inventory_rows(inputs, combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_rows=active.unverified_reasons(verified.metadata))
+    rows, _ = inventory.calculate_inventory_rows(inputs, combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_local_skus=active.unverified_local_sku_reasons(verified.metadata))
     assert rows[0].binding_verified is False
     assert rows[1].binding_verified is True
     # Even a positive quantity cannot promote an unverified record into stock rows.

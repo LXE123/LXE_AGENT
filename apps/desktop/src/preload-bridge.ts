@@ -117,6 +117,8 @@ export function createDesktopBridge(
       exportVietnamTemplate: () => ipc.invoke(IPC_CHANNELS.exportVietnamTemplate),
       getVietnamSettings: () => ipc.invoke(IPC_CHANNELS.getVietnamSettings),
       saveVietnamParameters: (input) => ipc.invoke(IPC_CHANNELS.saveVietnamParameters, input),
+      getAmazonV2Settings: () => ipc.invoke(IPC_CHANNELS.getAmazonV2Settings),
+      saveAmazonV2Settings: (input) => ipc.invoke(IPC_CHANNELS.saveAmazonV2Settings, input),
       onCloudStateChanged: (listener) => {
         const handler: IpcListener = (_event, state) => listener(state as DesktopCloudState);
         ipc.on(IPC_CHANNELS.cloudStateChanged, handler);

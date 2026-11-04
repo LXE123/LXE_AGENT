@@ -108,8 +108,7 @@ $ lxeskill help replenishment
 
 Amazon 备货：
   replenish template                          管理备货算法参数方案
-  replenish inventory restock-snapshot-build  解析亚马逊补充库存 CSV
-  replenish calculate                         计算备货建议
+  replenish calculate                         按版本生成 Amazon V1/V2 备货建议
   mabang store msku export                    下载店铺 MSKU 数据
   mabang store shenzhen-inventory export      生成深圳仓真实库存报告
   replenish sales analyze                     分析销量
@@ -177,7 +176,7 @@ lxeskill replenish template list
 ### 计算备货建议
 
 ```bash
-lxeskill replenish calculate --store-name <店铺名>
+lxeskill replenish calculate --version v1 --store-name <店铺名> --msku-source-xlsx-path <MSKU源表.xlsx> --shenzhen-inventory-report-xlsx-path <深圳库存报告.xlsx> --unlinked-shipments-snapshot-path <货件快照.xlsx>
 ```
 
 ### 分析 Listing

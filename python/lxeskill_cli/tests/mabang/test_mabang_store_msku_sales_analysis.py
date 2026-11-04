@@ -275,7 +275,7 @@ def test_missing_required_columns_error(tmp_path) -> None:
         analysis.analyze_store_msku_sales("Amazon-Lerxiuer-FR", input_dir=tmp_path, output_dir=tmp_path / "out")
 
 
-def test_duplicate_asin_parent_msku_errors(tmp_path) -> None:
+def test_duplicate_msku_keeps_each_sales_row_and_warns(tmp_path) -> None:
     _write_source_xlsx(
         tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [
@@ -302,12 +302,16 @@ def test_duplicate_asin_parent_msku_errors(tmp_path) -> None:
         ],
     )
 
-    with pytest.raises(
-        analysis.StoreMskuSalesAnalysisError,
-        match="ASIN表存在重复售卖项: ASIN=ASIN-1, 父ASIN=PARENT-1, MSKU=MSKU-1",
-    ):
-        analysis.analyze_store_msku_sales(
-            "Amazon-Lerxiuer-FR",
-            input_dir=tmp_path,
-            output_dir=tmp_path / "out",
-        )
+    result = analysis.analyze_store_msku_sales(
+        "Amazon-Lerxiuer-FR", input_dir=tmp_path, output_dir=tmp_path / "out",
+    )
+    assert result.msku_count == 2
+    assert any("MSKU-1（2行）" in warning and "数量可能重复累计" in warning
+               for warning in result.to_payload()["warnings"])
+    details = _load_sheet_records(Path(result.report_xlsx_path), analysis.DETAIL_SHEET)
+    assert sorted(row["7天销量"] for row in details) == [1, 10]
+    asins = sum((_load_sheet_records(Path(result.report_xlsx_path), sheet)
+                 for sheet in (analysis.ASIN_TOP_SHEET, analysis.ASIN_OTHER_SHEET)), [])
+    assert sorted(row["7天销量"] for row in asins) == [1, 10]
+    links = _load_sheet_records(Path(result.report_xlsx_path), analysis.LINK_TOP_SHEET)
+    assert links[0]["7天销量"] == 11

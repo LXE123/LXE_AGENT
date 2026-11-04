@@ -80,22 +80,22 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step("workbench directory preserves all destinations and works in both themes", async () => {
     await open("workbench");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===3", "tool directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "tool directory");
     for (const theme of ["light", "dark"]) {
       await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
       await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
       await screenshot("workbench-" + theme);
     }
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 4; i++) {
       await click(`.workbench-tool-card:nth-child(${i})`);
       await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
       assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
       await click(".workbench-back");
-      await waitFor("document.querySelectorAll('.workbench-tool-card').length===3", "directory restored");
+      await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
     }
     await win.setContentSize(480, 900);
     await open("workbench", "en");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===3", "narrow directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "narrow directory");
     await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
     await screenshot("workbench-narrow-en");
     await win.setContentSize(1200, 900);

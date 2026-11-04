@@ -8,6 +8,7 @@ import struct
 import subprocess
 
 import pytest
+from PIL import Image
 
 from services.media import synthetic_performer as media
 
@@ -219,12 +220,7 @@ def test_real_exiftool_preserves_media_payloads_and_existing_keywords(tmp_path: 
     source.mkdir()
     repository = Path.cwd()
     shutil.copy2(repository / "apps/desktop/build/icon-win.png", source / "图标.png")
-    shutil.copy2(
-        repository
-        / "skills/replenishment-amazon-restock-inventory-snapshot/assets"
-        / "amazon_restock_inventory_download_step_1_menu.jpg",
-        source / "已有关键词.jpg",
-    )
+    Image.new("RGB", (8, 8), color=(64, 128, 192)).save(source / "已有关键词.jpg")
     media_payload = bytes(range(256)) * 8
     quicktime = (
         struct.pack(">I4s", 8, b"moov")
