@@ -188,7 +188,8 @@ for (const mode of ["exit-on-probe", "exit-on-call"]) {
 
 for (const action of ["timeout", "disable", "stop"] as const) {
   test(`manager ${action} cancels an unfinished stdio connection and reaps probe children`, async () => {
-    const fixture = stdioFixture("silent", { startupTimeoutMs: 400 });
+    // Start the real Windows child and observe discovery before cancelling it.
+    const fixture = stdioFixture("silent", { startupTimeoutMs: 4_000 });
     const manager = new McpManager({ servers: [fixture.server] });
     const registry = new ToolRegistry();
     try {
@@ -207,7 +208,7 @@ for (const action of ["timeout", "disable", "stop"] as const) {
         expect(fixture.trace().filter(entry => entry.event === "spawn")).toHaveLength(1);
       }
     } finally { await manager.stop(); await fixture.cleanup(); }
-  });
+  }, 10_000);
 }
 
 for (const status of [401, 403, 500]) {

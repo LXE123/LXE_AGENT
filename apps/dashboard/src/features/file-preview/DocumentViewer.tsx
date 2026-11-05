@@ -121,11 +121,12 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
   const [wrap, setWrap] = useState(state.wrap), [revision, setRevision] = useState(0), [preparedMode, setPreparedMode] = useState<ViewMode>(), [preview, setPreview] = useState<PreparedPreview>(), [bytes, setBytes] = useState<Uint8Array>(), [error, setError] = useState<FileFailure>(), [fonts, setFonts] = useState(false);
   const key = JSON.stringify(file), textMode = ["rendered", "plain", "code"].includes(mode);
   const fatal = useRef<(error: unknown) => void>(() => {}), force = useRef(false), onResolved = useRef(resolved); onResolved.current = resolved;
+  const liveHandle = useRef<string | undefined>(undefined);
   const availability = useFileApplications(file);
   const refresh = () => { force.current = true; setRevision(n => n + 1); };
   useEffect(() => {
     let active = true, epoch = 0, requestId: string | undefined, version: string | undefined, unavailable = false, checking = false;
-    const release = () => { const id = requestId; requestId = undefined; if (id) void filesApi().call({ operation: "release", input: { request_id: id } }).catch(() => {}); };
+    const release = () => { const id = requestId; requestId = undefined; liveHandle.current = undefined; if (id) void filesApi().call({ operation: "release", input: { request_id: id } }).catch(() => {}); };
     const fail = (cause: unknown, fromCheck = false) => {
       if (!active) return;
       epoch++; release();
@@ -149,7 +150,7 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
         if (!active || current !== epoch) { void filesApi().call({ operation: "release", input: { request_id } }).catch(() => {}); return; }
         const data = textMode ? undefined : await filesApi().read(result.handle);
         if (!active || current !== epoch) return;
-        version = result.metadata.version; state.version = version; setPreparedMode(mode); setPreview(result); setBytes(data);
+        liveHandle.current = result.handle; version = result.metadata.version; state.version = version; setPreparedMode(mode); setPreview(result); setBytes(data);
       } catch (cause) { if (active && current === epoch) fail(cause); }
     };
     void load();
@@ -179,12 +180,14 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
     {fonts && preview?.missingFonts.length ? <div className="file-preview-note" role="status">{t.fonts}{preview.missingFonts.join(", ")}</div> : null}
     {preview?.metadata.source === "history" ? <div className="file-preview-note">{t.history} <FileAvailabilityBadge file={file} history /></div> : null}
     <div className="file-document-content">
-      {error ? <FileFailurePanel failure={error} name={name} retry={refresh} /> : !preview || preparedMode !== mode || !textMode && !bytes ? <p className="file-preview-loading" role="status">{t.loading}</p> : <PreviewBoundary key={`${revision}:${mode}`} failed={cause => fatal.current(cause)}><Suspense fallback={<p className="file-preview-loading" role="status">{t.loading}</p>}>
+      {error ? <FileFailurePanel failure={error} name={name} retry={refresh} /> : !preview || preparedMode !== mode || !textMode && !bytes ? <p className="file-preview-loading" role="status">{t.loading}</p> : <PreviewBoundary key={preview.handle} failed={cause => fatal.current(cause)}><Suspense fallback={<p className="file-preview-loading" role="status">{t.loading}</p>}>
         {preview.metadata.kind === "unsupported" ? <div className="file-preview-empty">{t.unsupported}<OpenFileButton file={file} label /></div>
           : textMode ? <PagedText key={`${preview.handle}:${mode}`} preview={preview} state={state} mode={mode} wrap={wrap} failed={cause => fatal.current(cause)} />
           : mode === "image" ? <ImageViewer bytes={bytes!} extension={preview.metadata.extension} name={name} state={state} failed={cause => fatal.current(cause)} />
           : mode === "pdf" ? <PdfViewer bytes={bytes!} state={state} failed={cause => fatal.current(cause)} />
-          : mode === "html" ? <HtmlViewer handle={preview.handle} bytes={bytes!} reload={refresh} failed={cause => fatal.current(cause)} />
+          : mode === "html" ? <HtmlViewer handle={preview.handle} bytes={bytes!}
+            reload={() => { if (liveHandle.current === preview.handle) refresh(); }}
+            failed={cause => { if (liveHandle.current === preview.handle) fatal.current(cause); }} />
           : <ExcelViewer bytes={bytes!} name={name} state={state} failed={cause => fatal.current(cause)} />}
       </Suspense></PreviewBoundary>}
     </div>
