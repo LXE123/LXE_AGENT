@@ -14,6 +14,7 @@ from openpyxl.utils.cell import range_boundaries
 TEMPLATE_SHEET = "订单标准模板"
 ORDER_ID_COLUMNS = (1, 2)  # A, B
 OUTPUT_SKU_COLUMN = 4  # D
+OUTPUT_UNIT_PRICE_COLUMN = 19  # S
 OUTPUT_QUANTITY_COLUMN = 20  # T
 REQUIRED_TEMPLATE_HEADERS = {
     1: "*订单编号",
@@ -89,6 +90,7 @@ def generate_order_workbook(
                 set_literal(sheet.cell(row_index, ORDER_ID_COLUMNS[0]), order_id)
                 set_literal(sheet.cell(row_index, ORDER_ID_COLUMNS[1]), order_id)
                 set_literal(sheet.cell(row_index, OUTPUT_SKU_COLUMN), sku)
+                set_literal(sheet.cell(row_index, OUTPUT_UNIT_PRICE_COLUMN), 0)
                 set_literal(sheet.cell(row_index, OUTPUT_QUANTITY_COLUMN), quantity)
 
             with tempfile.NamedTemporaryFile(
@@ -148,7 +150,7 @@ def _validate_output(
             raise OrderImportWorkbookError("生成文件自动筛选范围与数据行数不一致")
         for index, (sku, quantity) in enumerate(expected_rows, start=2):
             for column, expected in enumerate(expected_defaults, start=1):
-                if column in (*ORDER_ID_COLUMNS, OUTPUT_SKU_COLUMN, OUTPUT_QUANTITY_COLUMN):
+                if column in (*ORDER_ID_COLUMNS, OUTPUT_SKU_COLUMN, OUTPUT_UNIT_PRICE_COLUMN, OUTPUT_QUANTITY_COLUMN):
                     continue
                 if sheet.cell(index, column).value != expected:
                     raise OrderImportWorkbookError(f"生成文件第{index}行默认字段与模板不一致")
@@ -156,6 +158,7 @@ def _validate_output(
                 ORDER_ID_COLUMNS[0]: expected_order_id,
                 ORDER_ID_COLUMNS[1]: expected_order_id,
                 OUTPUT_SKU_COLUMN: sku,
+                OUTPUT_UNIT_PRICE_COLUMN: 0,
                 OUTPUT_QUANTITY_COLUMN: quantity,
             }
             for column, expected in expected_values.items():

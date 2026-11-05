@@ -5,9 +5,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from openpyxl.utils import get_column_letter
-
-from .source import nearest_occurrence, parse_quantity, read_sku_rows, require_sku_header, source_worksheets
+from .source import nearest_occurrence, read_sku_rows, require_sku_header, source_worksheets
 from .workbook import OrderImportWorkbookError, generate_order_workbook
 
 
@@ -75,22 +73,13 @@ def _source_rows(
     with source_worksheets(input_path, SOURCE_SHEET) as (sheet, formula_sheet):
         require_sku_header(sheet, SKU_COLUMN, "马来西亚")
         selected = select_shipping_columns(sheet, today)
-        source_rows = read_sku_rows(
+        rows = read_sku_rows(
             sheet,
             formula_sheet,
             sku_column=SKU_COLUMN,
             quantity_columns={field: column for field, (column, _, _) in selected.items()},
             country="马来西亚",
         )
-        rows = [
-            (sku, {
-                field: parse_quantity(
-                    value, coordinate=f"{get_column_letter(selected[field][0])}{row_number}", country="马来西亚",
-                )
-                for field, value in quantities.items()
-            })
-            for row_number, sku, quantities in source_rows
-        ]
     return rows, selected
 
 

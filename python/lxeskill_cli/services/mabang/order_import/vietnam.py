@@ -7,7 +7,7 @@ from typing import Any
 
 from openpyxl.utils import get_column_letter
 
-from .source import nearest_occurrence, parse_quantity, read_sku_rows, require_sku_header, source_worksheets
+from .source import nearest_occurrence, read_sku_rows, require_sku_header, source_worksheets
 from .workbook import OrderImportWorkbookError, generate_order_workbook as write_order_workbook
 
 
@@ -34,6 +34,7 @@ def shipping_candidates(sheet: Any, today: date) -> list[tuple[int, str, date, s
         selected_date = nearest_occurrence(
             int(match.group("month")), int(match.group("day")), today,
             country="越南", label=f"{cell.coordinate}: {label}",
+            defer_year_tie=True,
         )
         candidates.append((cell.column, label, selected_date, mode))
     if not candidates:
@@ -57,11 +58,17 @@ def select_shipping_column(
             raise OrderImportWorkbookError(
                 f"指定的运输列 {normalized} 不是最近日期候选列；当前候选为: {choices}"
             )
-        return selected[0]
-    if len(nearest) != 1:
+        chosen = selected[0]
+    elif len(nearest) != 1:
         choices = ", ".join(f"{item[1]} ({get_column_letter(item[0])})" for item in nearest)
         raise OrderImportWorkbookError(f"最近运输日期并列，请人工选择其中一列: {choices}")
-    return nearest[0]
+    else:
+        chosen = nearest[0]
+    nearest_occurrence(
+        chosen[2].month, chosen[2].day, today,
+        country="越南", label=f"{get_column_letter(chosen[0])}1: {chosen[1]}",
+    )
+    return chosen
 
 
 def _source_rows(
@@ -80,23 +87,13 @@ def _source_rows(
             quantity_columns={"quantity": quantity_column},
             country="越南",
         )
-        rows = [
-            (
-                sku,
-                parse_quantity(
-                    quantities["quantity"],
-                    coordinate=f"{get_column_letter(quantity_column)}{row_number}",
-                    country="越南",
-                ),
-            )
-            for row_number, sku, quantities in source_rows
-        ]
+        rows = [(sku, quantities["quantity"]) for sku, quantities in source_rows]
     return rows, selected
 
 
 def generate_order_workbook(
     input_xlsx: str | Path,
-    output_xlsx: str | Path,
+    output_directory: str | Path,
     *,
     today: date,
     shipping_column: str | None,
@@ -106,6 +103,7 @@ def generate_order_workbook(
     rows, selected = _source_rows(input_path, today, shipping_column)
     mode = selected[3]
     order_id = f"VN{today:%y%m%d}-{MODE_SUFFIX[mode]}"
+    output_xlsx = Path(output_directory) / f"越南马帮订单导入模板-{order_id}.xlsx"
     result = write_order_workbook(rows, output_xlsx, order_id=order_id, template_path=template_path)
     return {
         **result,

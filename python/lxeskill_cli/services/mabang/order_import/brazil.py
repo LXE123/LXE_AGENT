@@ -29,7 +29,9 @@ def _shipping_candidates(sheet: Any, today: date) -> list[tuple[str, str, date]]
                 f"巴西工作表第1行 {cell.coordinate} 海运日期表头缺失或格式无效: {label or '空白'}"
             )
         month, day = int(match.group("month")), int(match.group("day"))
-        selected_date = nearest_occurrence(month, day, today, country="巴西", label=f"{cell.coordinate}: {label}")
+        selected_date = nearest_occurrence(
+            month, day, today, country="巴西", label=f"{cell.coordinate}: {label}", defer_year_tie=True,
+        )
         candidates.append((cell.column_letter, label, selected_date))
     return candidates
 
@@ -44,11 +46,16 @@ def select_shipping_column(sheet: Any, today: date, override: str | None = None)
         if not selected:
             options = ", ".join(f"{item[0]} ({item[1]})" for item in nearest)
             raise OrderImportWorkbookError(f"指定的海运列 {column} 不是最近日期列；当前最近日期列为: {options}")
-        return selected[0]
-    if len(nearest) != 1:
+        chosen = selected[0]
+    elif len(nearest) != 1:
         options = ", ".join(f"{item[0]} ({item[1]})" for item in nearest)
         raise OrderImportWorkbookError(f"最近海运日期并列，请人工选择其中一列: {options}")
-    return nearest[0]
+    else:
+        chosen = nearest[0]
+    nearest_occurrence(
+        chosen[2].month, chosen[2].day, today, country="巴西", label=f"{chosen[0]}1: {chosen[1]}",
+    )
+    return chosen
 
 
 def _source_rows(
@@ -67,7 +74,7 @@ def _source_rows(
             quantity_columns={"quantity": quantity_column_number},
             country="巴西",
         )
-        rows = [(sku, quantities["quantity"]) for _, sku, quantities in source_rows]
+        rows = [(sku, quantities["quantity"]) for sku, quantities in source_rows]
     return rows, selected_column, header, selected_date
 
 
