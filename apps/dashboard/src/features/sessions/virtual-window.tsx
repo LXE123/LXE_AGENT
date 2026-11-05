@@ -27,7 +27,6 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const [following, setFollowing] = useState(followingIntent);
   const [allowPagination, setAllowPagination] = useState(true);
   const paginationAllowed = useRef(true);
-  const releasePagination = () => { paginationAllowed.current = true; setAllowPagination(true); };
   const [loading, setLoading] = useState(false);
   const [pagingBoundary, setPagingBoundary] = useState<"start" | "end" | null>(null);
   const [hoveredAnswer, setHoveredAnswer] = useState<string>();
@@ -67,6 +66,10 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     feed.current = element;
     virtual.containerRef(element);
   }, [virtual]);
+  const releasePagination = () => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
+    paginationAllowed.current = true; setAllowPagination(true);
+  };
   const cancelAlignment = useCallback(() => {
     if (alignmentFrame.current !== undefined) cancelAnimationFrame(alignmentFrame.current);
     alignmentFrame.current = undefined;
@@ -78,6 +81,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     onFollowingChange?.(value);
   }, [onFollowingChange]);
   const stopFollowing = () => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     readingVersion.current++;
     cancelAlignment();
     if (!followIntent.current) return;
@@ -131,6 +135,8 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const folding = previousRows.current.some(row => row.presentation === "process" && !currentIds.has(row.id) && currentIds.has(processId(row)));
   const unfolding = rows.some(row => row.presentation === "process" && !previousIds.has(row.id) && previousIds.has(processId(row)));
   const structureChanged = rows.length !== previousRows.current.length || rows.some((row, index) => row.id !== previousRows.current[index]?.id);
+  const oldFirst = previousRows.current[0]?.id;
+  const prepended = oldFirst !== undefined && rows[0]?.id !== oldFirst && currentIds.has(oldFirst);
   let anchor: {id: string; offset: number; bottom: boolean} | undefined;
   if ((folding || unfolding || structureChanged && !following) && root.current) {
     const el = root.current;
@@ -158,6 +164,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     manualAnchor.current = undefined;
     if (!anchor) return;
     const saved = anchor;
+    const index = rows.findIndex(row => row.id === saved.id);
+    if (prepended && !saved.bottom && index >= 0) {
+      // Older rows can reflow after the initial restoration frames (e.g. web fonts).
+      // Keep the same reading row at the same offset until the next scroll gesture.
+      virtual.shouldAdjustScrollPositionOnItemSizeChange = item => item.index < index;
+    }
     const version = readingVersion.current;
     let frame = 0;
     let passes = 0;
@@ -166,7 +178,6 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (saved.bottom) scheduleAlignment();
       else {
         scrollInput.clearPending();
-        const index = rows.findIndex(row => row.id === saved.id);
         const item = root.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
         if (item && root.current) virtual.scrollBy(item.getBoundingClientRect().top - root.current.getBoundingClientRect().top - saved.offset);
         else if (index >= 0) virtual.scrollToIndex(index, {align: "start"});
@@ -174,7 +185,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (++passes < 3) frame = requestAnimationFrame(restore);
     };
     restore();
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined; };
     // Content-only renders must not cancel restoration between measurement frames.
   }, [structureKey, virtual]);
   useLayoutEffect(() => {

@@ -96,7 +96,9 @@ app.whenReady().then(async () => {
       await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
     } else if (suite === "vietnam-settings") {
       const openSettings = async () => {
-        await js("[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings')).click()");
+        const card = "[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings'))";
+        await waitFor(`Boolean(${card})`, "Vietnam settings card");
+        await js(`${card}.click()`);
         await waitFor("document.querySelectorAll('.vietnam-settings-view input').length === 7", "Vietnam parameters loaded");
       };
       const input = async (index, value) => {
