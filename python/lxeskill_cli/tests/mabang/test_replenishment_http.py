@@ -213,6 +213,6 @@ def test_unlinked_status_failure_retains_stage_and_redacts_secrets_in_cli_result
     result = asyncio.run(scenario())
     assert not result["success"]
     diagnostic = result["exception"]
-    assert all(text in diagnostic for text in ("WMS待配货", "查询数量", "403", "warehouse denied"))
+    assert all(text in diagnostic for text in ("WMS待配货", "查询数量", "403", "warehouse denied")), diagnostic
     assert "private-search-token" not in diagnostic
     assert len(calls) == 2
