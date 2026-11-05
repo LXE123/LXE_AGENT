@@ -5,7 +5,6 @@ import { formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type {
   McpServerPayload,
-  ToolsetPayload,
 } from "../../api/payloads";
 
 function McpServerRow({
@@ -53,16 +52,15 @@ function McpServerRow({
 export function McpServicesView({
   mcpError,
   mcpSavingId,
-  mcpToolset,
+  mcpServers,
   onToggleMcpServer,
 }: {
   mcpError: string;
   mcpSavingId: string;
-  mcpToolset: ToolsetPayload | undefined;
+  mcpServers: McpServerPayload[];
   onToggleMcpServer: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  const mcpServers = mcpToolset?.servers ?? [];
   return (
     <div className="connections-page">
       <section className="connection-section">

@@ -123,8 +123,8 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
       ? targetPath.join(options.resourcesPath, "config", "llm")
       : targetPath.join(sourceRoot, "config", "llm"),
     mcpDefaultPath: options.packaged
-      ? targetPath.join(options.resourcesPath, "config", "mcp_servers.default.yaml")
-      : targetPath.join(sourceRoot, "config", "mcp_servers.default.yaml"),
+      ? targetPath.join(options.resourcesPath, "config", "mcp_servers.default.json")
+      : targetPath.join(sourceRoot, "config", "mcp_servers.default.json"),
     dataRoot,
     defaultWorkspaceRoot: targetPath.join(dataRoot, "workspace"),
     dashboardRoot: options.packaged

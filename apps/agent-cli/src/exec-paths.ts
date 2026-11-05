@@ -121,7 +121,7 @@ export function execRuntimeEnvironment(
     LXE_DATA_ROOT: paths.dataRoot,
     LXE_AGENT_SQLITE_DB_PATH: databasePath,
     LXE_SQLITE_DB_PATH: join(paths.dataRoot, "db", "lxeskill.sqlite3"),
-    LXE_MCP_CONFIG_PATH: join(paths.dataRoot, "config", "mcp_servers.local.yaml"),
+    LXE_MCP_CONFIG_PATH: text(environment.LXE_MCP_CONFIG_PATH) || join(paths.dataRoot, "config", "mcp_servers.local.json"),
     LXE_MANAGED_PATH: paths.managedPath,
     LXE_FD_PATH: paths.fdPath,
     LXE_MANAGED_PYTHON: paths.managedPythonPath,

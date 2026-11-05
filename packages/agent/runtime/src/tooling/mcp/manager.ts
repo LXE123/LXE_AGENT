@@ -1,0 +1,196 @@
+import { createLogger } from "@lxe/core";
+import { ToolRegistry } from "../registry";
+import { OfficialMcpConnector } from "./connector";
+import { adaptMcpTools } from "./tool-adapter";
+import { mcpFailureText, withTimeout } from "./support";
+import type { McpConfig, McpConnection, McpConnectionState, McpConnector, McpServerConfig, McpServerStatus } from "./types";
+
+interface ServerEntry {
+  config: McpServerConfig;
+  state: McpConnectionState;
+  error: string;
+  generation: number;
+  toolCount: number;
+  tools: McpServerStatus["tools"];
+  connection?: McpConnection | undefined;
+  unsubscribe?: (() => void) | undefined;
+  pending?: { controller: AbortController; promise: Promise<void> } | undefined;
+  cleanup: Promise<void>;
+}
+
+export class McpManager {
+  private readonly logger = createLogger("runtime.mcp");
+  private readonly entries: Map<string, ServerEntry>;
+  private registry: ToolRegistry | undefined;
+
+  constructor(
+    config: McpConfig,
+    private readonly connector: McpConnector = new OfficialMcpConnector(),
+    private readonly closeTimeoutMs = 5_000,
+  ) {
+    this.entries = new Map(config.servers.map(server => [server.name, {
+      config: server, state: server.enabled ? "configured" : "disabled", error: "",
+      generation: 0, toolCount: 0, tools: [], cleanup: Promise.resolve(),
+    }]));
+    if (this.entries.size !== config.servers.length) throw new Error("duplicate MCP server name");
+  }
+
+  async start(registry: ToolRegistry): Promise<void> {
+    if (this.registry) throw new Error("MCP manager is already started");
+    this.registry = registry;
+    await Promise.all([...this.entries.values()].filter(entry => entry.config.enabled).map(entry => this.connect(entry, registry)));
+  }
+
+  async setEnabled(serverName: string, enabled: boolean): Promise<void> {
+    const entry = this.entry(serverName);
+    const registry = this.requireRegistry();
+    entry.config.enabled = enabled;
+    if (!enabled) {
+      await this.reset(entry, "disabled", registry);
+    } else if (!entry.connection) {
+      await this.connect(entry, registry);
+    }
+  }
+
+  /** Explicit retry, including replacing an established connection. Never changes persisted configuration. */
+  async reconnect(serverName: string): Promise<void> {
+    const entry = this.entry(serverName);
+    const registry = this.requireRegistry();
+    if (!entry.config.enabled) throw new Error(`MCP server ${serverName} is disabled`);
+    void this.reset(entry, "configured", registry);
+    await this.connect(entry, registry);
+  }
+
+  status(serverName: string): McpServerStatus {
+    const entry = this.entry(serverName);
+    return {
+      state: entry.state, connected: entry.state === "ready", error: entry.error,
+      toolCount: entry.toolCount, tools: structuredClone(entry.tools),
+    };
+  }
+
+  async stop(): Promise<void> {
+    const registry = this.registry;
+    this.registry = undefined;
+    await Promise.all([...this.entries.values()].map(entry => this.reset(entry, entry.config.enabled ? "configured" : "disabled", registry)));
+  }
+
+  private entry(name: string): ServerEntry {
+    const entry = this.entries.get(name);
+    if (!entry) throw new Error(`MCP server not found: ${name}`);
+    return entry;
+  }
+
+  private requireRegistry(): ToolRegistry {
+    if (!this.registry) throw new Error("MCP manager is not started");
+    return this.registry;
+  }
+
+  private unregister(entry: ServerEntry, registry: ToolRegistry | undefined): void {
+    // Track exact registrations: sanitized prefixes may collide or be truncated.
+    const names = new Set(entry.tools.map(tool => tool.modelName));
+    registry?.unregisterWhere(name => names.has(name));
+    entry.tools = [];
+    entry.toolCount = 0;
+  }
+
+  private async close(entry: ServerEntry, connection: McpConnection): Promise<void> {
+    try {
+      await withTimeout(() => connection.close(), this.closeTimeoutMs, `MCP server ${entry.config.name} close`);
+    } catch (error) {
+      // Cleanup failure must not prevent other connections from being closed.
+      this.logger.warn("mcp_disconnect_failed", { server_name: entry.config.name, error });
+    }
+  }
+
+  private reset(entry: ServerEntry, state: McpConnectionState, registry: ToolRegistry | undefined): Promise<void> {
+    entry.generation++;
+    const pending = entry.pending;
+    pending?.controller.abort(new Error(`MCP server ${entry.config.name} startup cancelled`));
+    entry.pending = undefined;
+    entry.unsubscribe?.();
+    entry.unsubscribe = undefined;
+    const connection = entry.connection;
+    entry.connection = undefined;
+    this.unregister(entry, registry);
+    entry.state = state;
+    entry.error = "";
+    entry.cleanup = Promise.all([
+      entry.cleanup,
+      pending?.promise,
+      connection ? this.close(entry, connection) : undefined,
+    ]).then(() => {});
+    return entry.cleanup;
+  }
+
+  private connect(entry: ServerEntry, registry: ToolRegistry): Promise<void> {
+    if (entry.pending) return entry.pending.promise;
+    const generation = ++entry.generation;
+    const controller = new AbortController();
+    const cleanup = entry.cleanup;
+    entry.state = "connecting";
+    entry.error = "";
+    const current = () => entry.generation === generation && this.registry === registry && entry.config.enabled && !controller.signal.aborted;
+    const promise = (async () => {
+      await cleanup;
+      if (!current()) return;
+      try {
+        const connection = await withTimeout(async signal => {
+          const result = await this.connector.connect(entry.config, signal);
+          if (signal.aborted) {
+            await this.close(entry, result);
+            signal.throwIfAborted();
+          }
+          return result;
+        }, entry.config.startupTimeoutMs, `MCP server ${entry.config.name} startup`, controller.signal);
+        if (!current()) { await this.close(entry, connection); return; }
+        entry.connection = connection;
+        entry.unsubscribe = connection.onClose?.(() => {
+          if (!current() || entry.connection !== connection) return;
+          entry.connection = undefined;
+          entry.unsubscribe?.();
+          entry.unsubscribe = undefined;
+          this.unregister(entry, registry);
+          entry.state = "disconnected";
+          this.logger.info("mcp_disconnected", { server_name: entry.config.name });
+        });
+        // A connection can close between discovery and subscribing above.
+        if (entry.connection !== connection) return;
+        const definitions = adaptMcpTools(entry.config, connection.tools,
+          (name, input, signal, metadata) => {
+            if (!current() || entry.connection !== connection) throw new Error(`MCP server ${entry.config.name} connection is no longer active`);
+            return connection.callTool(name, input, signal, metadata);
+          },
+          new Set(registry.definitionsSnapshot().map(tool => tool.name)),
+          observed => { if (current() && entry.connection === connection) entry.error = observed; },
+        );
+        for (const definition of definitions) {
+          registry.register(definition);
+          entry.tools.push({ rawName: definition.rawName!, modelName: definition.name });
+        }
+        entry.toolCount = connection.tools.length;
+        entry.state = "ready";
+        this.logger.info("mcp_connected", {
+          server_name: entry.config.name, transport: entry.config.transport,
+          tool_count: entry.toolCount, registered_tool_count: entry.tools.length,
+          protocol_version: connection.protocolVersion ?? null, protocol_era: connection.protocolEra ?? null,
+        });
+      } catch (error) {
+        if (!current()) return;
+        entry.unsubscribe?.();
+        entry.unsubscribe = undefined;
+        const connection = entry.connection;
+        entry.connection = undefined;
+        this.unregister(entry, registry);
+        entry.state = "error";
+        entry.error = mcpFailureText(error);
+        this.logger.warn("mcp_startup_failed", { server_name: entry.config.name, error });
+        if (connection) await this.close(entry, connection);
+      }
+    })().finally(() => {
+      if (entry.pending?.controller === controller) entry.pending = undefined;
+    });
+    entry.pending = { controller, promise };
+    return promise;
+  }
+}

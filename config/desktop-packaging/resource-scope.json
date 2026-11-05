@@ -29,7 +29,7 @@
         "kind": "llm-catalog",
         "path": "config/llm",
         "paths": [
-          "config/mcp_servers.default.yaml"
+          "config/mcp_servers.default.json"
         ]
       },
       "target": "config",
