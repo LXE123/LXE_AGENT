@@ -190,6 +190,10 @@ def test_selected_source_uses_current_search_cookie_and_token_and_only_publishes
 
 def test_unlinked_status_failure_retains_stage_and_redacts_secrets_in_cli_result(monkeypatch, tmp_path):
     from services.commands.mabang import download_store_unlinked_shipments as command
+    from shared.infra.net.aiohttp_client import HttpSessionRegistry
+    # A CLI invocation starts a fresh process; this in-process test must not
+    # borrow sessions left on another test's already-closed event loop.
+    monkeypatch.setattr(HttpSessionRegistry, "_sessions", {})
     calls = []
     async def response(request):
         calls.append(request.path)
