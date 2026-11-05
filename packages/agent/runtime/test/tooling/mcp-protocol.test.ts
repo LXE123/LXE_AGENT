@@ -176,8 +176,12 @@ for (const mode of ["exit-on-probe", "exit-on-call"]) {
     const connection = await new OfficialMcpConnector().connect(fixture.server);
     try {
       expect(connection.protocolEra).toBe("legacy");
-      if (mode === "exit-on-call") await expect(connection.callTool("echo", {})).rejects.toThrow();
-      else expect((await connection.callTool("echo", {})).isError).toBe(false);
+      if (mode === "exit-on-call") {
+        // Let the child exit and its pipes close before running the assertion.
+        const error = await connection.callTool("echo", {}).then(() => undefined, cause => cause);
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toContain("Connection closed");
+      } else expect((await connection.callTool("echo", {})).isError).toBe(false);
     } finally { await connection.close(); await fixture.cleanup(); }
   });
 }
