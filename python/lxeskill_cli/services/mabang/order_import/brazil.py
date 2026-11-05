@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from openpyxl.utils.cell import column_index_from_string
+from openpyxl.utils.cell import column_index_from_string, get_column_letter
 
 from .source import nearest_occurrence, read_sku_rows, require_sku_header, source_worksheets
 from .workbook import OrderImportWorkbookError, generate_order_workbook as write_order_workbook
@@ -26,7 +26,7 @@ def _shipping_candidates(sheet: Any, today: date) -> list[tuple[str, str, date]]
         match = SEA_HEADER.fullmatch(label)
         if match is None:
             raise OrderImportWorkbookError(
-                f"巴西工作表第1行 {cell.coordinate} 海运日期表头缺失或格式无效: {label or '空白'}"
+                f"巴西工作表第1行 {get_column_letter(column)}1 海运日期表头缺失或格式无效: {label or '空白'}"
             )
         month, day = int(match.group("month")), int(match.group("day"))
         selected_date = nearest_occurrence(

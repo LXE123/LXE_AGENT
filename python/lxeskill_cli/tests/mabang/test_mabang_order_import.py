@@ -80,6 +80,7 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
 @pytest.mark.parametrize(("country", "changes", "sheet_name", "error"), [
     ("brazil", {}, "其他", "缺少必需工作表"),
     ("brazil", {"F1": "库存SKU"}, None, "F1 必须是 SKU 表头"),
+    ("brazil", {"AU1": None}, None, "AU1.*海运日期表头缺失或格式无效.*空白"),
     ("brazil", {"AX1": "8月24日海运"}, None, "AX1.*表头缺失或格式无效"),
     ("brazil", {"BD2": "=10+20"}, None, "BD2.*公式.*缓存.*重新计算"),
     ("malaysia", {"G2": "#VALUE!"}, None, "G2.*#VALUE!"),
