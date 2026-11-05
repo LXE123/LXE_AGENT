@@ -16,6 +16,7 @@ ORDER_ID_COLUMNS = (1, 2)  # A, B
 OUTPUT_SKU_COLUMN = 4  # D
 OUTPUT_UNIT_PRICE_COLUMN = 19  # S
 OUTPUT_QUANTITY_COLUMN = 20  # T
+OUTPUT_COLUMNS = (*ORDER_ID_COLUMNS, OUTPUT_SKU_COLUMN, OUTPUT_UNIT_PRICE_COLUMN, OUTPUT_QUANTITY_COLUMN)
 REQUIRED_TEMPLATE_HEADERS = {
     1: "*订单编号",
     2: "*交易编号",
@@ -83,7 +84,7 @@ def generate_order_workbook(
                 for column, (default_value, style) in enumerate(zip(blueprint_values, blueprint_styles), start=1):
                     cell = sheet.cell(row_index, column)
                     cell._style = copy(style)
-                    if default_value is not None:
+                    if default_value is not None and column not in OUTPUT_COLUMNS:
                         set_literal(cell, default_value)
                 if blueprint_height is not None:
                     sheet.row_dimensions[row_index].height = blueprint_height
@@ -150,7 +151,7 @@ def _validate_output(
             raise OrderImportWorkbookError("生成文件自动筛选范围与数据行数不一致")
         for index, (sku, quantity) in enumerate(expected_rows, start=2):
             for column, expected in enumerate(expected_defaults, start=1):
-                if column in (*ORDER_ID_COLUMNS, OUTPUT_SKU_COLUMN, OUTPUT_UNIT_PRICE_COLUMN, OUTPUT_QUANTITY_COLUMN):
+                if column in OUTPUT_COLUMNS:
                     continue
                 if sheet.cell(index, column).value != expected:
                     raise OrderImportWorkbookError(f"生成文件第{index}行默认字段与模板不一致")
