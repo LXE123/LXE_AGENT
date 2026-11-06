@@ -13,3 +13,5 @@ export * from "./user-skills-path";
 export { relocateStoredPath } from "./relocate-path";
 
 export * from "./lxeskill-query";
+
+export { parseTelemetryTarget, type TelemetryTarget } from "./telemetry-target";

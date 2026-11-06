@@ -1,3 +1,4 @@
+import { type TelemetryTarget } from "@lxe/core";
 import { type ManagedLlmState } from "@lxe/core";
 import { randomUUID } from "node:crypto";
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -59,6 +60,7 @@ export interface ProcessAgentRuntimeOptions {
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
+  telemetryTarget?: TelemetryTarget;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -231,6 +233,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
         allowed_skill_types: [...this.allowedSkillTypes],
+        ...(this.options.telemetryTarget ? { telemetry_target: this.options.telemetryTarget } : {}),
         ...(this.options.managedLlmState ? { managed_llm_state: this.options.managedLlmState } : {}),
       }, this.options.requestTimeoutMs ?? 30_000));
       if (this.remoteHealthSnapshot.protocol_version !== AGENT_PROTOCOL_VERSION) {
@@ -239,6 +242,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       }
       if (this.child !== child) throw new AgentProcessError("agent-cli connection changed during initialization");
       this.setStatus("ready", "agent-cli is ready");
+      if (this.options.telemetryTarget) await this.updateTelemetryTarget(this.options.telemetryTarget);
       this.restartAttempt = 0;
     } catch (cause) {
       if (this.child === child) await this.terminateChild();
@@ -329,6 +333,13 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.request("ensure_session", { request });
+  }
+
+  async updateTelemetryTarget(target: TelemetryTarget): Promise<void> {
+    this.options.telemetryTarget = structuredClone(target);
+    if (!this.isReady) return;
+    const result = objectValue(await this.request("update_telemetry_target", {target}));
+    if (result.updated !== true) throw new AgentProcessError("agent-cli rejected telemetry target", "AgentProtocolError");
   }
 
   async updateSkillPermissions(allowedSkillTypes: readonly string[]): Promise<void> {

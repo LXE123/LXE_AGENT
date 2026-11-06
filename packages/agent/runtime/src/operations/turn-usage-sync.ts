@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { nativeCloudFetch, readCloudReceipt } from "../tooling/cloud-http";
-import { createLogger, sanitizeLogValue } from "@lxe/core";
+import { createLogger, sanitizeLogValue, parseTelemetryTarget, type TelemetryTarget } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { SqliteRuntimeStore } from "../state/storage";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
@@ -12,6 +12,7 @@ type DataServerTargetName = "cloud";
 interface DataServerTarget {
   name: DataServerTargetName;
   serverUrl: string;
+  generation: number;
 }
 
 class DataServerUploadError extends Error {
@@ -49,6 +50,7 @@ const systemClock: TurnUsageSyncClock = {
 
 interface TurnUsageSyncServiceOptions {
   environment: Environment;
+  telemetryTarget?: TelemetryTarget;
   store: SqliteRuntimeStore;
   gatewayId: string;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -84,16 +86,23 @@ export class TurnUsageSyncService {
   private backlogTimer: unknown | undefined;
   private stopped = true;
   private uploadFailures = 0;
+  private generation = 0;
+  private target: TelemetryTarget | undefined;
 
   constructor(private readonly options: TurnUsageSyncServiceOptions) {
     this.fetch = options.fetch ?? ((input, init) => nativeCloudFetch(String(input))(input, init));
     this.clock = options.clock ?? systemClock;
+    this.target = options.telemetryTarget ? parseTelemetryTarget(options.telemetryTarget) : undefined;
   }
 
   async start(): Promise<void> {
     if (!this.stopped) return;
     this.stopped = false;
-    const dataEnabled = envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED");
+    this.configureSchedule(this.target?.enabled ? 0 : INITIAL_DATA_SYNC_DELAY_MS);
+  }
+
+  private configureSchedule(delayMs: number): void {
+    const dataEnabled = this.target?.enabled ?? envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED");
     this.logger.info("turn_usage_sync_configured", {
       data_sync_enabled: dataEnabled,
       data_sync_interval_ms: DATA_SYNC_INTERVAL_MS,
@@ -109,18 +118,38 @@ export class TurnUsageSyncService {
         if (index >= 0) this.initialTimers.splice(index, 1);
         if (this.stopped) return;
         void this.requestSingleFlight();
-      }, INITIAL_DATA_SYNC_DELAY_MS);
+      }, delayMs);
       this.initialTimers.push(timer);
     }
   }
 
-  async stop(): Promise<void> {
-    this.stopped = true;
+  updateTarget(value: TelemetryTarget): void {
+    const target = parseTelemetryTarget(value);
+    if (JSON.stringify(target) === JSON.stringify(this.target)) return;
+    this.target = target;
+    this.generation += 1;
+    this.clearSchedule();
+    this.uploadFailures = 0;
+    for (const controller of this.controllers) controller.abort(new Error("telemetry target changed"));
+    if (!this.stopped && target.enabled) this.configureSchedule(0);
+  }
+
+  private clearSchedule(): void {
     for (const timer of this.initialTimers.splice(0)) this.clock.clearTimeout(timer);
     if (this.backlogTimer !== undefined) this.clock.clearTimeout(this.backlogTimer);
     this.backlogTimer = undefined;
     for (const timer of this.intervalTimers.splice(0)) this.clock.clearInterval(timer);
     this.flight.rerun = false;
+  }
+
+  private assertTarget(target: DataServerTarget): void {
+    if (target.generation !== this.generation) throw new Error("telemetry target changed during upload");
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.generation += 1;
+    this.clearSchedule();
     for (const controller of this.controllers) controller.abort(new Error("turn usage sync stopped"));
     const active = Promise.allSettled([...this.active]);
     const timeoutMs = Math.max(1, Math.trunc(this.options.stopTimeoutMs ?? 5_000));
@@ -141,19 +170,23 @@ export class TurnUsageSyncService {
   }
 
   async syncDataServer(): Promise<JsonObject> {
-    const serverUrl = envText(this.options.environment, "LXE_DATA_SERVER_URL").replace(/\/+$/, "");
+    if (this.target?.enabled === false) return {uploaded: false, skipped_reason: "disabled"};
+    const generation = this.generation;
+    const serverUrl = this.target?.enabled ? this.target.server_url : envText(this.options.environment, "LXE_DATA_SERVER_URL").replace(/\/+$/, "");
     if (!serverUrl) return { uploaded: false, skipped_reason: "missing_config" };
     if (this.backlogTimer !== undefined) this.clock.clearTimeout(this.backlogTimer);
     this.backlogTimer = undefined;
     try {
-      const result = await this.syncTurnUsageTarget({ name: "cloud", serverUrl });
+      const result = await this.syncTurnUsageTarget({ name: "cloud", serverUrl, generation });
       this.uploadFailures = 0;
       return result;
     }
     catch (error) {
       // The server checks each attempt; a previous refusal must not latch locally.
-      const delayMs = Math.min(300_000, 30_000 * 2 ** Math.min(this.uploadFailures++, 4));
-      this.scheduleBacklogSync(delayMs);
+      if (generation === this.generation) {
+        const delayMs = Math.min(300_000, 30_000 * 2 ** Math.min(this.uploadFailures++, 4));
+        this.scheduleBacklogSync(delayMs);
+      }
       throw error;
     }
   }
@@ -166,6 +199,7 @@ export class TurnUsageSyncService {
     let batches = 0;
     let hasMore = false;
     for (; batches < TURN_USAGE_MAX_BATCHES_PER_RUN; batches += 1) {
+      this.assertTarget(target);
       const exported = this.options.store.exportTurnUsageBatch(target.serverUrl, cutoff, TURN_USAGE_BATCH_LIMIT);
       if (exported.turns.length === 0) {
         hasMore = false;
@@ -197,6 +231,7 @@ export class TurnUsageSyncService {
       }
       const lastSequence = Number(turns.at(-1)?.sequence ?? 0);
       const acknowledged = await this.uploadTurnUsageBatch(target, body, turns.length, lastSequence);
+      this.assertTarget(target);
       this.options.store.acknowledgeTurnUsage(target.serverUrl, acknowledged.acceptedThroughSequence);
       acceptedCount += acknowledged.acceptedCount;
       acceptedThroughSequence = acknowledged.acceptedThroughSequence;
@@ -293,7 +328,7 @@ export class TurnUsageSyncService {
   }
 
   private scheduleBacklogSync(delayMs = TURN_USAGE_BACKLOG_DELAY_MS): void {
-    if (this.stopped || this.backlogTimer !== undefined) return;
+    if (this.stopped || this.target?.enabled === false || this.backlogTimer !== undefined) return;
     this.backlogTimer = this.clock.setTimeout(() => {
       this.backlogTimer = undefined;
       if (!this.stopped) void this.requestSingleFlight();
@@ -312,7 +347,7 @@ export class TurnUsageSyncService {
   }
 
   private requestSingleFlight(): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+    if (this.stopped || this.target?.enabled === false) return Promise.resolve();
     const state = this.flight;
     if (state.running) {
       if (!state.rerun) this.logger.debug("turn_usage_sync_single_flight_coalesced");
@@ -344,7 +379,7 @@ export class TurnUsageSyncService {
     let tracked: Promise<void>;
     tracked = (async () => {
       await runOnce();
-      if (!this.stopped && state.rerun) {
+      if (!this.stopped && this.target?.enabled !== false && state.rerun) {
         state.rerun = false;
         this.logger.debug("turn_usage_sync_single_flight_rerun");
         await runOnce();

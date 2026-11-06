@@ -531,3 +531,54 @@ describe("TurnUsageSyncService", () => {
     await store.stop();
   });
 });
+
+
+test("verified target starts an already-running scheduler once and resumes queued usage", async () => {
+  const store = await createStore("lxe-dynamic-target-");
+  await recordTurn(store, "first");
+  const clock = new ManualTurnUsageSyncClock(), uploads: UploadedBatch[] = [];
+  const scheduler = new TurnUsageSyncService({environment: {}, store, gatewayId: "gateway", clock,
+    telemetryTarget: {enabled: false}, fetch: ackingFetch(uploads)});
+  const target = {enabled: true as const, server_url: "https://cloud.example", device: {kind: "managed_device" as const, id: "owner"}};
+  try {
+    await scheduler.start();
+    expect(clock.intervals).toHaveLength(0);
+    scheduler.updateTarget(target);
+    scheduler.updateTarget(target);
+    expect(clock.intervals).toHaveLength(1);
+    expect(clock.timeouts.map(t => t.delayMs)).toEqual([0]);
+    await clock.fireTimeout();
+    await waitFor(() => uploads.length === 1, "first dynamic upload");
+    scheduler.updateTarget({enabled: false});
+    expect(clock.intervals).toHaveLength(0);
+    expect(clock.timeouts).toHaveLength(0);
+    await recordTurn(store, "second");
+    expect((await scheduler.syncDataServer()).skipped_reason).toBe("disabled");
+    scheduler.updateTarget(target);
+    await clock.fireTimeout();
+    await waitFor(() => uploads.length === 2, "resumed upload");
+    expect(uploads[1]!.body.machine_id).toBe(uploads[0]!.body.machine_id);
+    expect(uploads[1]!.body.turns).toHaveLength(1);
+    expect(uploads[1]!.body.turns[0].turn_id).toBe("second");
+  } finally { await scheduler.stop(); await store.stop(); }
+});
+
+test("an ACK arriving after device replacement cannot advance local progress", async () => {
+  const store = await createStore("lxe-stale-target-ack-");
+  await recordTurn(store, "first");
+  let release!: (response: Response) => void;
+  let sequence = 0;
+  const scheduler = new TurnUsageSyncService({environment: {}, store, gatewayId: "gateway",
+    telemetryTarget: {enabled: true, server_url: "https://cloud.example", device: {kind: "managed_device", id: "owner"}},
+    fetch: async (_input, init) => {
+      sequence = JSON.parse(String(init?.body)).turns.at(-1).sequence;
+      return new Promise<Response>(resolve => {release = resolve;});
+    }});
+  try {
+    const upload = scheduler.syncDataServer();
+    scheduler.updateTarget({enabled: true, server_url: "https://cloud.example", device: {kind: "managed_device", id: "replacement"}});
+    release(Response.json({accepted_count: 1, accepted_through_sequence: sequence}));
+    await expect(upload).rejects.toThrow("telemetry target changed");
+    expect(store.turnUsageAcknowledgedSequence("https://cloud.example") ?? 0).toBe(0);
+  } finally { await scheduler.stop(); await store.stop(); }
+});

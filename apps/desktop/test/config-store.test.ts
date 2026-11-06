@@ -460,7 +460,7 @@ describe("DesktopConfigStore", () => {
       address: "10.88.0.8/32",
     });
     expect(store.environment()).toMatchObject({
-      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_ENABLED: "0",
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
     });
 
@@ -535,7 +535,7 @@ describe("DesktopConfigStore", () => {
       switch_in_progress: false,
     });
     expect(store.environment()).toMatchObject({
-      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_ENABLED: "0",
       LXE_MANAGED_LLM_API_KEY: "old-managed-model-token",
     });
     expect(store.cloudPermissionSnapshot()).toMatchObject({ permission_profile: "fba" });

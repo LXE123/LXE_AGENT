@@ -138,6 +138,10 @@ export class AgentProtocolServer {
     switch (request.method) {
       case "initialize":
         return this.initialize(request.params);
+      case "update_telemetry_target":
+        if (!this.readyHost().updateTelemetryTarget) throw new Error("Telemetry target updates are unavailable");
+        this.readyHost().updateTelemetryTarget!(request.params.target);
+        return { updated: true };
       case "update_skill_permissions":
         this.readyHost().updateSkillPermissions(request.params.allowed_skill_types);
         return { updated: true };
@@ -253,6 +257,7 @@ export class AgentProtocolServer {
         userSkillsRoot: payload.user_skills_root,
         llmConfigRoot: payload.llm_config_root,
         ...(payload.managed_llm_state ? { managedLlmState: payload.managed_llm_state } : {}),
+        ...(payload.telemetry_target ? {telemetryTarget: payload.telemetry_target} : {}),
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
         environment,

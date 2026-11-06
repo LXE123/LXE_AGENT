@@ -1,3 +1,4 @@
+import { type TelemetryTarget } from "@lxe/core";
 import { NativeCloudAccess, NativeIdentityChanged } from "./native-cloud-access";
 import { DirectNativeCloudClient, type NativeCloudClient } from "./native-cloud-client";
 import { companyServerUrl } from "./company-server";
@@ -70,6 +71,7 @@ interface DesktopCloudServiceOptions {
   probeIntervalMs?: number;
   requestTimeoutMs?: number;
   onConfigured(): Promise<void>;
+  onTelemetryTargetChanged?(target: TelemetryTarget): Promise<void> | void;
   onPermissionChanged?(allowedSkillTypes: readonly string[]): Promise<void> | void;
   onManagedLlmCredentialChanged?(credential: ManagedLlmCredential | null): Promise<void> | void;
   onStateChanged?(state: DesktopCloudState): void;
@@ -233,6 +235,7 @@ export class DesktopCloudService {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    await this.options.onTelemetryTargetChanged?.({enabled: false});
     this.cancelContext();
     if (this.probeTimer !== undefined) this.clock.clearInterval(this.probeTimer);
     this.probeTimer = undefined;
@@ -285,6 +288,7 @@ export class DesktopCloudService {
     const previousProbe = this.confirmation ?? this.round ?? this.probe;
     let tracked: Promise<DesktopCloudState>;
     tracked = Promise.resolve().then(async () => {
+      await this.options.onTelemetryTargetChanged?.({enabled: false});
       if (previousProbe) await previousProbe.catch(() => undefined);
       await this.activateOnce(input);
       return this.state();
@@ -330,7 +334,10 @@ export class DesktopCloudService {
   private async syncSkillPermission(confirmedDevice?: DesktopObservedDevice): Promise<void> {
     const cloud = this.options.config.cloudConfiguration();
     const serverUrl = companyServerUrl(cloud);
-    if (this.stopped || !serverUrl || cloud.switch_in_progress) return;
+    if (this.stopped || !serverUrl || cloud.switch_in_progress) {
+      await this.options.onTelemetryTargetChanged?.({enabled: false});
+      return;
+    }
     this.cancelContext();
     const generation = this.contextGeneration;
     const controller = new AbortController();
@@ -360,6 +367,9 @@ export class DesktopCloudService {
       if (!current()) return;
       this.permissionError = "";
       this.permissionFailure = undefined;
+      await this.options.onTelemetryTargetChanged?.({enabled: true, server_url: serverUrl,
+        device: {kind: observed.kind, id: observed.id}});
+      if (!current()) return;
       await this.native.sync(observed);
       if (!current()) return;
     } catch (error) {
@@ -375,6 +385,7 @@ export class DesktopCloudService {
       const temporary = error instanceof CloudContextError && (
         error.code === "cloud_connection_failed" || error.code === "cloud_context_timeout"
         || (error.httpStatus !== undefined && error.httpStatus >= 500));
+      if (denied || !temporary) await this.options.onTelemetryTargetChanged?.({enabled: false});
       this.permissionFailure = denied ? "denied" : temporary ? undefined : "error";
       if (denied) {
         this.permissionSnapshot = null;

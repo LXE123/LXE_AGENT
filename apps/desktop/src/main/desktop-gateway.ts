@@ -1,3 +1,4 @@
+import { type TelemetryTarget } from "@lxe/core";
 import { DesktopAutomations } from "./automations";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
@@ -132,6 +133,8 @@ export interface DesktopGatewayOptions {
 }
 
 export class DesktopGateway {
+  private telemetryTarget: TelemetryTarget = {enabled: false};
+
   private updatePreparing = false;
   private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
@@ -262,6 +265,7 @@ export class DesktopGateway {
       legacyWorkspace,
       allowedSkillTypes,
       managedLlmState: this.options.config.managedLlmState(),
+      telemetryTarget: this.telemetryTarget,
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -445,6 +449,11 @@ export class DesktopGateway {
       this.publishHealth();
     }
     return this.health();
+  }
+
+  async updateTelemetryTarget(target: TelemetryTarget): Promise<void> {
+    this.telemetryTarget = structuredClone(target);
+    await this.runtime?.updateTelemetryTarget(target);
   }
 
   async updateSkillPermissions(allowedSkillTypes: readonly string[]): Promise<void> {
