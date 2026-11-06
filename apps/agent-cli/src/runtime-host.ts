@@ -1,3 +1,4 @@
+import { type TelemetryTarget } from "@lxe/core";
 import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
@@ -65,6 +66,7 @@ export interface AgentRuntimeHostOptions {
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
+  telemetryTarget?: TelemetryTarget;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
@@ -92,6 +94,7 @@ export interface AgentRuntimeHost {
   dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
+  updateTelemetryTarget?(target: TelemetryTarget): void;
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
   updateManagedLlmCredential?(
     credential: ManagedLlmCredential | null,
@@ -171,6 +174,7 @@ export function createAgentRuntimeHost(
   if (!managedPython && sourcePython) environment.LXE_MANAGED_PYTHON = sourcePython;
   const turnUsageSync = new TurnUsageSyncService({
     environment,
+    ...(options.telemetryTarget ? {telemetryTarget: options.telemetryTarget} : {}),
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
   });
@@ -312,6 +316,7 @@ export function createAgentRuntimeHost(
     },
     dashboardCall: (call) => dashboardService.call(call),
     sessionStatus: (request) => store.sessionStatus(request),
+    updateTelemetryTarget: target => turnUsageSync.updateTarget(target),
     updateSkillPermissions: (nextAllowedSkillTypes) => {
       const normalized = new Set(
         nextAllowedSkillTypes.map((item) => item.trim()).filter(Boolean),

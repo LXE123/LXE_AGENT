@@ -1498,16 +1498,55 @@ describe("independent CLI skill permissions", () => {
       permission: { ...devicePermissionV2("custom", version, 1, skills), grants: { skill_types: skills, desktop_features: [], server_capabilities: [], erp_actions: [] } },
     });
     const updates: string[][] = [];
+    const telemetry: import("@lxe/core").TelemetryTarget[] = [];
     let query: (url: string, signal: AbortSignal) => Promise<unknown> = async () => context();
     let identityFetch: typeof fetch = async () => Response.json({ detail: "identity credential expired" }, { status: 401 });
     const make = (clock?: DesktopCloudClock, supported = true) => identityFixtureCloud({ dataRoot: root, config, supported, clock,
       logger: testLogger([]), provisioner: { provision: async () => {} }, enrollments: new DesktopCloudEnrollmentManager(),
+      onTelemetryTargetChanged: target => { telemetry.push(target); },
       onConfigured: async () => {}, onPermissionChanged: (skills) => { updates.push([...skills]); },
       contextClient: { query: (url, signal) => query(url, signal) }, fetch: (input, init) => identityFetch(input, init),
     });
-    return { root, config, context, updates, make,
+    return { root, config, context, updates, telemetry, make,
       setQuery: (next: typeof query) => { query = next; }, setIdentity: (next: typeof fetch) => { identityFetch = next; } };
   }
+  test("native discovery drives telemetry through offline recovery, denial and identity confirmation", async () => {
+    const f = fixture(false), service = f.make();
+    f.setQuery(async () => { throw new CloudContextError("offline", "cloud_connection_failed"); });
+    await service.start();
+    expect(f.telemetry).toEqual([]);
+    f.setQuery(async () => f.context([]));
+    await service.check();
+    expect(f.telemetry.at(-1)).toEqual({enabled: true, server_url: "http://10.88.0.1:8000",
+      device: {kind: "managed_device", id: enrollmentPayload.device.id}});
+    expect(f.config.cloudConfiguration().managed).toBe(false);
+    const verifiedCount = f.telemetry.length;
+    f.setQuery(async () => { throw new CloudContextError("offline", "cloud_connection_failed"); });
+    await service.check();
+    expect(f.telemetry).toHaveLength(verifiedCount);
+    f.setQuery(async () => { throw new CloudContextError("revoked", "denied", 403); });
+    await service.check();
+    expect(f.telemetry.at(-1)).toEqual({enabled: false});
+    f.setQuery(async () => f.context([]));
+    await service.check();
+    expect(f.telemetry.at(-1)?.enabled).toBe(true);
+    f.setQuery(async () => ({...f.context([]), device: {...f.context().device, id: "replacement"}}));
+    await service.check();
+    expect(f.telemetry.at(-1)).toEqual({enabled: false});
+    await service.confirmDevice();
+    expect(f.telemetry.at(-1)).toMatchObject({enabled: true, device: {id: "replacement"}});
+    await service.stop();
+    expect(f.telemetry.at(-1)).toEqual({enabled: false});
+  });
+
+  test("administrator discovery enables telemetry without ERP grants or old enrollment", async () => {
+    const f = fixture(false), service = f.make();
+    f.setQuery(async () => ({...f.context([]), device: {...f.context().device, kind: "system_administrator"}}));
+    await service.start();
+    expect(f.telemetry.at(-1)).toMatchObject({enabled: true, device: {kind: "system_administrator"}});
+    await service.stop();
+  });
+
   test("unbound discovery polls even when enrollment tooling is unsupported", async () => {
     const f = fixture(false), clock = new FakeClock();
     let queries = 0;
@@ -1614,7 +1653,7 @@ describe("independent CLI skill permissions", () => {
     const f = fixture(), service = f.make();
     expect(await service.check()).toMatchObject({ connection: "error", permission_status: "verified", permission_profile: "custom", is_admin: false });
     expect(service.allowedSkillTypes()).toEqual(["amazon_fba"]);
-    expect(f.config.environment()).toMatchObject({ LXE_DATA_SERVER_URL: enrollmentPayload.data_server.url, LXE_DATA_SERVER_ENABLED: "1" });
+    expect(f.config.environment()).toMatchObject({ LXE_DATA_SERVER_URL: enrollmentPayload.data_server.url, LXE_DATA_SERVER_ENABLED: "0" });
     f.config.cloudIdentityCredential = () => "";
     expect(await service.check()).toMatchObject({ permission_status: "verified", permission_profile: "custom" });
     await service.stop();
