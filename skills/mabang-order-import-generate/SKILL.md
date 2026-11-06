@@ -8,7 +8,7 @@ commands:
 
 # 马帮订单导入表生成
 
-使用本轮提供的备货 `.xlsx` 文件和用户指定国家，通过统一命令生成订单导入文件。马帮模板随 lxeskillCLI 提供，用户只需提供备货表。本 Skill 负责在本地生成文件，马帮系统中的实际导入由用户完成。
+使用本轮提供的备货 `.xlsx` 文件和用户指定国家，通过统一命令生成订单导入文件。备货表的 SKU 表头为 `SKU`，SKU 内容为文本。马帮模板随 lxeskillCLI 提供，用户只需提供备货表。本 Skill 负责在本地生成文件，马帮系统中的实际导入由用户完成。
 
 ## 调用
 
@@ -21,7 +21,7 @@ lxeskill mabang order-import generate --country vietnam --input-xlsx "/实际路
 lxeskill mabang order-import generate --country philippines --input-xlsx "/实际路径/菲律宾备货清单.xlsx"
 ```
 
-巴西或越南最近日期并列时，先请用户从错误提示列出的候选列中选择，再将所选列传给 `--shipping-column <列名>`。
+巴西或越南最近日期并列时，先请用户从错误提示列出的候选列中选择，再将所选 Excel 列字母传给 `--shipping-column <Excel列字母>`，例如 `AT`。
 
 菲律宾某种运输方式的最近日期并列时，先请用户从错误提示列出的候选列中选择。空运、A 海运、B 海运分别使用 `--air-shipping-column <Excel列字母>`、`--sea-a-shipping-column <Excel列字母>`、`--sea-b-shipping-column <Excel列字母>`，例如 `AO`；多种运输方式并列时，可同时传入对应的选列参数。
 
@@ -31,7 +31,7 @@ lxeskill mabang order-import generate --country philippines --input-xlsx "/实�
 
 | 国家 | 来源表与 SKU 列 | 日期选择 | 输出 |
 |---|---|---|---|
-| 巴西 | 「巴西」工作表，F 列为 SKU。 | 从海运列中选择离生成时北京时间日期最近的一列，过去和未来日期都参与；并列时请用户选择候选列。 | 一份订单导入表，编号 `BR{YYMMDD}-H`，文件名 `巴西马帮订单导入模板-{订单号}.xlsx`。 |
+| 巴西 | 「巴西」工作表，F 列为 SKU。 | AT:BD 每列的第 1 行需为 `月/日[可选字母]海运` 表头；从这些列选择离生成时北京时间日期最近的一列，过去和未来日期都参与；并列时请用户选择候选列。 | 一份订单导入表，编号 `BR{YYMMDD}-H`，文件名 `巴西马帮订单导入模板-{订单号}.xlsx`。 |
 | 马来西亚 | 「马来西亚」工作表，E 列为 SKU。 | 按生成时北京时间日期解释表头年份，再选择日期最新组中的空运、A 海运、B 海运列；该组缺少任一列时停止。 | 三份表：A 海运 `MY{YYMMDD}A-H`、B 海运 `MY{YYMMDD}B-H`、空运 `MY{YYMMDD}-K`；文件名 `马来西亚马帮订单导入模板-{订单号}.xlsx`。 |
 | 越南 | 「越南备货清单」工作表，E 列为 SKU。 | 从 `M/D陆运`、`M/D海运` 列中选择离生成时北京时间日期最近的一列，过去和未来日期都参与；并列时请用户选择候选列。 | 一份订单导入表：陆运编号 `VN{YYMMDD}-L`，海运编号 `VN{YYMMDD}-H`；文件名 `越南马帮订单导入模板-{订单号}.xlsx`。 |
 | 菲律宾 | 「菲律宾备货清单」工作表，E1 为 `SKU`，E 列 SKU 为文本。 | 空运、A 海运、B 海运分别从 `M/D空运`、`M/DA海运`、`M/DB海运` 列中选择离生成时北京时间日期最近的一列，过去和未来日期都参与；并列时请用户选择候选列。 | 三份表：空运 `PH{YYMMDD}-K`、A 海运 `PH{YYMMDD}A-H`、B 海运 `PH{YYMMDD}B-H`；文件名 `菲律宾马帮订单导入模板-{订单号}.xlsx`。 |
