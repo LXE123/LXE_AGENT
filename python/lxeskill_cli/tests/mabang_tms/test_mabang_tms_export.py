@@ -4,8 +4,11 @@ import io
 import json
 import re
 import ssl
+import unicodedata
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock
+from unittest.mock import DEFAULT, MagicMock, Mock
 
 import pytest
 import requests
@@ -13,7 +16,7 @@ from openpyxl import Workbook, load_workbook
 
 from services.mabang_tms import workflow
 from services.mabang_tms.client import FIELDS, TmsClient, TmsError, diagnostic
-from services.mabang_tms.workbooks import coverage, read_workbook, write_merged
+from services.mabang_tms.workbooks import coverage, merge_inventory_export, read_workbook, write_merged
 
 HEADERS = ['库存SKU', '30天销量', '7天销量', '可用库存', '15天销量', '仓库',
            '库存量', '在途量', '成本价', '采购价', '入库时间', '平台额外销量']
@@ -32,7 +35,8 @@ def workbook(rows, headers=HEADERS):
 
 
 def record(i, **kw):
-    return {'id': i, 'stockSku': f'SKU-{i}', 'warehouseName': '测试仓', **kw}
+    return {'id': i, 'stockSku': f'SKU-{i}', 'warehouseName': '测试仓',
+            'stockQuantity': -1, 'sale1': '21', 'sale2': '71', 'sale3': '97', **kw}
 
 
 def values(r):
@@ -92,6 +96,26 @@ def page(records, total, number=1):
     return {'code': '200', 'datas': records, 'totalNum': total, 'page': number}
 
 
+@pytest.mark.parametrize('records,metadata,code', [
+    ([record(1)], {'totalNum': 1}, None),
+    ([], {'totalNum': 0}, None),
+    ([], {}, 'invalid_page'),
+    ([], {'totalNum': None}, 'invalid_total'),
+    ([], {'totalNum': True}, 'invalid_total'),
+    ([], {'totalNum': -1}, 'invalid_total'),
+    ([], {'totalNum': 'not-a-total'}, 'invalid_total'),
+])
+def test_page_data_reads_top_level_records_and_validates_pop_total(records, metadata, code):
+    body = {'code': '200', 'data': None, 'datas': records, 'pop': metadata}
+    if code:
+        with pytest.raises(TmsError) as caught:
+            workflow.page_data(body, 1)
+        assert caught.value.code == code
+    else:
+        expected_ids = [str(row['id']) for row in records]
+        assert workflow.page_data(body, 1) == (metadata['totalNum'], records, expected_ids)
+
+
 def test_short_pages_continue_until_total_and_original_bytes_preserved(monkeypatch, tmp_path):
     result, client = execute(monkeypatch, tmp_path, [page([record(1)], 2), page([record(2)], 2, 2)])
     assert result['success'] and result['read_unique_ids'] == result['reported_total'] == 2
@@ -104,7 +128,7 @@ def test_short_pages_continue_until_total_and_original_bytes_preserved(monkeypat
     assert len(result['artifacts']) == 1
     wb = load_workbook(result['artifacts'][0]['path'])
     assert wb.active.max_row == 3
-    assert wb.active['B2'].value == '97' and wb.active['G2'].value == -1
+    assert wb.active['B2'].value == 97 and wb.active['D2'].value == -1
     wb.close()
 
 
@@ -161,7 +185,10 @@ def test_real_client_request_budget_at_known_warehouse_scale(monkeypatch, tmp_pa
                if call.args[0].endswith('/exportStockwarehouse')]
     assert [p['page'] for p in listings] == list(range(1, expected_pages + 1))
     assert [i for p in exports for i in p['idsList']] == list(range(expected_records))
-    assert result['read_unique_ids'] == result['exported_unique_ids'] == result['row_count'] == expected_records
+    expected_groups = Counter((row['warehouseName'], row['stockSku']) for row in records[:expected_records])
+    assert result['read_unique_ids'] == result['exported_unique_ids'] == expected_records
+    assert result['row_count'] == len(expected_groups)
+    assert result['source_row_count'] == expected_records
     assert result['reported_total'] == total and result['remaining_records'] == total - expected_records
     assert result['completed_batches'] == client.download.call_count == len(exports) == expected_pages
     if expected_records == total:
@@ -169,10 +196,13 @@ def test_real_client_request_budget_at_known_warehouse_scale(monkeypatch, tmp_pa
     else:
         assert not result['success'] and result['status'] == 'partial_success'
         assert result['error']['code'] == 'page_limit' and result['failed_page'] == 100
-    headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
-    assert headers == tuple(HEADERS)
-    assert [list(row) for row in rows] == [values(r) for r in records[:expected_records]]
-    assert len(rows) > len({row[0] for row in rows})  # Independent same-SKU rows survive.
+    output = {}
+    for artifact in result['artifacts']:
+        headers, rows, _ = read_workbook(Path(artifact['path']).read_bytes())
+        assert headers == tuple(HEADERS)
+        assert {row[5] for row in rows} == {artifact['warehouse']}
+        output.update({(row[5], row[0]): row[3] for row in rows})
+    assert output == {key: -count for key, count in expected_groups.items()}
     session.close.assert_called_once()
 
 
@@ -206,7 +236,8 @@ def test_zero_no_fake_attachment(monkeypatch, tmp_path):
 def test_sample_shape_fifty_rows_fortyone_skus_preserved(monkeypatch, tmp_path):
     records = [record(i, stockSku=f'SAMPLE-{i if i < 41 else i-41}') for i in range(50)]
     result, _ = execute(monkeypatch, tmp_path, [page(records, 50)])
-    assert result['success'] and result['row_count'] == 50 and result['distinct_skus'] == 41
+    assert result['success'] and result['row_count'] == result['distinct_skus'] == 41
+    assert result['source_row_count'] == 50
     assert result['headers'] == HEADERS
 
 
@@ -237,6 +268,7 @@ def test_save_failure_reports_both_original_and_publication_error(monkeypatch, t
     monkeypatch.setattr(workflow, 'write_merged', fail)
     result, _ = execute(monkeypatch, tmp_path, [page([record(1)], 2), page([], 2, 2)])
     assert not result['success'] and result['artifacts'] == []
+    assert result['row_count'] == result['distinct_skus'] == 0
     assert result['error']['code'] == 'early_empty_page'
     assert 'disk full' in result['error']['publication_error']
 
@@ -247,6 +279,102 @@ def test_atomic_publication_and_literal_strings(tmp_path):
     wb = load_workbook(tmp_path / 'out.xlsx')
     assert wb.active['A2'].data_type == 's'
     wb.close()
+
+
+def test_merge_inventory_export_uses_api_summary_and_latest_original_row():
+    records = [
+        record(1, stockSku='shared', warehouseName='PH1', stockQuantity='100',
+               sale1=0, sale2=None, sale3='30', availableinventory=9999),
+        record(2, stockSku='shared', warehouseName='PH1', stockQuantity=20,
+               sale1=7, sale2='15', sale3=40, availableinventory=8888),
+        record(3, stockSku='shared', warehouseName='VN1', stockQuantity=9,
+               sale1=1, sale2=2, sale3=3),
+    ]
+    older = ['shared', 900, 900, 500, 900, 'PH1', 1000, 4, 11, 12,
+             '2026-01-01 10:00:00', 'older-extra']
+    newer = ['shared', 800, 800, 600, 800, 'PH1', 2000, 5, 21, 22,
+             datetime(2026, 2, 1, 10), 'newer-extra']
+    vietnam = ['shared', 700, 700, 700, 700, 'VN1', 3000, 6, 31, 32,
+               '2026-03-01 10:00:00', 'vn-extra']
+    missing, tied = older.copy(), newer.copy()
+    missing[10], missing[-1] = None, 'no-date'
+    tied[10], tied[-1] = '2026-02-01 10:00:00', 'later-tie'
+
+    output = merge_inventory_export(HEADERS, [missing, older, newer, tied, vietnam], records)
+
+    assert len(output) == 2
+    assert list(output[0]) == ['shared', 30, 0, 120, 15, 'PH1', 2000, 5, 21, 22,
+                               datetime(2026, 2, 1, 10), 'newer-extra']
+    assert list(output[1]) == ['shared', 3, 1, 9, 2, 'VN1', 3000, 6, 31, 32,
+                               '2026-03-01 10:00:00', 'vn-extra']
+    assert newer[3] == 600 and newer[1] == 800  # Keep the original rows unchanged.
+
+
+def test_coverage_and_merge_treat_sku_surrounding_whitespace_as_same_product():
+    records = [
+        record(1, stockSku='ABC-01', warehouseName='PH1', stockQuantity=100, sale1=7),
+        record(2, stockSku=' ABC-01 ', warehouseName='PH1', stockQuantity=20, sale1=7),
+        record(3, stockSku=' ABC-01', warehouseName='VN1', stockQuantity=9, sale1=2),
+    ]
+    rows = [values(item) for item in records]
+    rows[0][0], rows[1][0], rows[2][0] = ' ABC-01 ', 'ABC-01', 'ABC-01 '
+
+    with pytest.raises(TmsError) as caught:
+        coverage(records, HEADERS, [rows[0], rows[2]])
+    assert caught.value.code == 'coverage_count_mismatch'
+    coverage(records, HEADERS, rows)
+    merged = merge_inventory_export(HEADERS, rows, records)
+
+    assert [(row[0], row[5], row[3], row[2]) for row in merged] == [
+        ('ABC-01', 'PH1', 120, 7),
+        ('ABC-01', 'VN1', 9, 2),
+    ]
+
+
+def test_coverage_rejects_sku_containing_only_whitespace():
+    item = record(1, stockSku='  ')
+    with pytest.raises(TmsError) as caught:
+        coverage([item], HEADERS, [values(item)])
+    assert caught.value.code == 'coverage_schema_unknown'
+
+
+@pytest.mark.parametrize('field', ['stockQuantity', 'sale1', 'sale2', 'sale3'])
+@pytest.mark.parametrize('invalid', ['bad', 'NaN', 'Infinity', True])
+def test_merge_inventory_export_rejects_invalid_api_numbers(field, invalid):
+    r = record(1, **{field: invalid})
+    with pytest.raises(TmsError) as caught:
+        merge_inventory_export(HEADERS, [values(r)], [r])
+    assert caught.value.code == 'invalid_number'
+    assert field in str(caught.value) and repr(invalid) in str(caught.value)
+
+
+def test_invalid_api_numbers_fail_instead_of_publishing_inventory_or_sales(monkeypatch, tmp_path):
+    r = record(1, stockQuantity='NaN')
+    result, _ = execute(monkeypatch, tmp_path, [page([r], 1)])
+    assert result['success'] is False
+    assert result['status'] == 'failed'
+    assert result['artifacts'] == [] and result['row_count'] == 0
+    assert 'stockQuantity' in result['error']['message'] and "'NaN'" in result['error']['message']
+    assert not list(tmp_path.rglob('马帮TMS-商品-*.xlsx'))
+
+
+def test_merge_inventory_export_rejects_ambiguous_nonempty_invalid_source_date():
+    r = record(1, stockSku='SKU', warehouseName='PH1')
+    good, invalid = values(r), values(r)
+    invalid[10] = 'not-an-inbound-time'
+
+    with pytest.raises(TmsError, match='入库时间'):
+        merge_inventory_export(HEADERS, [good, invalid], [r])
+
+
+def test_merge_inventory_export_rejects_same_warehouse_name_with_different_ids():
+    records = [record(1, stockSku='SKU', warehouseId=12107, warehouseName='相同名称'),
+               record(2, stockSku='SKU', warehouseId=12831, warehouseName='相同名称')]
+
+    with pytest.raises(TmsError) as caught:
+        merge_inventory_export(HEADERS, [values(r) for r in records], records)
+
+    assert caught.value.code == 'ambiguous_warehouse_name'
 
 
 def response(status=200, body=None, text='response'):
@@ -557,7 +685,7 @@ def test_second_download_failure_retains_only_verified_batch_without_resubmissio
     result, _ = execute(monkeypatch, tmp_path, [], client, arguments={'warehouse': 'VN1'})
     assert not result['success'] and result['status'] == 'partial_success'
     assert result['error']['code'] == code and result['failed_page'] == 2
-    assert result['read_unique_ids'] == 3 and result['exported_unique_ids'] == result['row_count'] == 2
+    assert result['read_unique_ids'] == 3 and result['exported_unique_ids'] == 2 and result['row_count'] == 1
     assert result['remaining_records'] == 1 and result['completed_batches'] == 1
     assert result['warehouses'] == ['越南VN1仓'] and result['distinct_skus'] == 1
     assert session.post.call_count == 5 and get.call_count == 2
@@ -574,7 +702,10 @@ def test_second_download_failure_retains_only_verified_batch_without_resubmissio
     assert list(artifact.parent.glob('原始-*')) == [Path(result['batches'][0]['raw_path'])]
     assert Path(result['batches'][0]['raw_path']).read_bytes() == content
     wb = load_workbook(artifact)
-    assert list(wb.active.values) == [tuple(HEADERS), *(tuple(values(r)) for r in first)]
+    output = list(wb.active.values)
+    assert output[0] == tuple(HEADERS) and len(output) == 2
+    assert output[1][0] == 'shared-sku' and output[1][3] == -2
+    assert (output[1][1], output[1][2], output[1][4]) == (97, 21, 71)
     wb.close()
     logs = [r.getMessage() for r in caplog.records if r.name == 'services.mabang_tms.client']
     metadata = [json.loads(line[line.index('{'):]) for line in logs]
@@ -638,14 +769,14 @@ def test_legacy_client_requests_do_not_add_warehouse_parameter():
 
 
 @pytest.mark.parametrize('warehouse,warehouse_id', WAREHOUSE_CASES)
-def test_scoped_pagination_preserves_duplicate_skus_and_uses_top_level_ids(monkeypatch, tmp_path, warehouse, warehouse_id):
+def test_scoped_pagination_merges_same_sku_and_uses_top_level_ids(monkeypatch, tmp_path, warehouse, warehouse_id):
     other_id = 12831 if warehouse_id == 12107 else 12107
     records = [record(i, stockSku='same-sku', warehouseId=str(warehouse_id), warehouseName=warehouse,
                       stock={'id': 900 + i, 'warehouseId': other_id}) for i in (1, 2, 3)]
     result, client = execute(monkeypatch, tmp_path,
                              [page(records[:1], 3), page(records[1:], 3, 2)], arguments={'warehouse': warehouse})
     assert result['success'] and result['reported_total'] == result['exported_unique_ids'] == 3
-    assert result['completed_batches'] == 2 and result['row_count'] == 3 and result['distinct_skus'] == 1
+    assert result['completed_batches'] == 2 and result['row_count'] == result['distinct_skus'] == 1
     assert result['warehouse_scope'] == 'selected_warehouse'
     assert result['warehouse'] == warehouse and result['warehouse_id'] == warehouse_id
     assert result['filters']['warehouseId'] == warehouse_id
@@ -654,8 +785,9 @@ def test_scoped_pagination_preserves_duplicate_skus_and_uses_top_level_ids(monke
     assert client.login_count == 1
     headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
     assert {row[headers.index('仓库')] for row in rows} == {warehouse}
-    assert [row[0] for row in rows] == ['same-sku'] * 3
-    assert [list(row) for row in rows] == [values(r) for r in records]
+    assert headers == tuple(HEADERS) and [row[0] for row in rows] == ['same-sku']
+    assert rows[0][3] == -3
+    assert (rows[0][1], rows[0][2], rows[0][4]) == (97, 21, 71)
 
 
 @pytest.mark.parametrize('actual', [12107, None, True, {'id': 12831}])
@@ -695,15 +827,60 @@ def test_mixed_warehouse_batch_is_never_published(monkeypatch, tmp_path, stage, 
         assert not result['artifacts']
 
 
-@pytest.mark.parametrize('arguments', [{}, {'warehouse': 'all'}])
-def test_all_scope_preserves_legacy_multiwarehouse_export(monkeypatch, tmp_path, arguments):
-    records = [record(1, stockSku='shared', warehouseId=12107, warehouseName='PH1'),
-               record(2, stockSku='shared', warehouseId=12831, warehouseName='VN1')]
-    result, client = execute(monkeypatch, tmp_path, [page(records, 2)], arguments=arguments)
-    assert result['success'] and result['warehouses'] == ['PH1', 'VN1']
+@pytest.mark.parametrize('arguments,names,retain_label', [
+    ({}, ['PH1', 'VN1', '第三仓'], True),
+    ({'warehouse': 'all'}, ['PH1', 'VN1', '第三仓'], True),
+    ({'warehouse': 'all'}, ['PH1', 'ph1'], True),
+    ({'warehouse': 'all'}, ['Café仓', 'Cafe\u0301仓'], True),
+    ({'warehouse': 'all'}, ['../甲/仓', '..\\甲\\仓', '..'], False),
+])
+def test_all_scope_preserves_account_scope_and_splits_warehouse_files(monkeypatch, tmp_path, arguments, names, retain_label):
+    records = [record(i, stockSku='shared', warehouseId=dict(WAREHOUSE_CASES).get(name, 90000 + i),
+                      warehouseName=name, stockQuantity=10 + i)
+               for i, name in enumerate(names)]
+    result, client = execute(monkeypatch, tmp_path, [page(records, len(records))], arguments=arguments)
+    assert result['success'] and result['warehouses'] == sorted(names)
     assert result['warehouse_scope'] == 'current_account_all' and 'warehouseId' not in result['filters']
     assert client.warehouse_requests == [('list', None), ('export', None)]
-    assert result['row_count'] == 2 and result['distinct_skus'] == 1
+    assert result['row_count'] == len(names) and result['distinct_skus'] == 1
+    artifacts = result['artifacts']
+    paths = [Path(artifact['path']).resolve() for artifact in artifacts]
+    folder = Path(result['batches'][0]['raw_path']).parent.resolve()
+    assert len(artifacts) == len(set(paths)) == len(names)
+    assert len({unicodedata.normalize('NFC', path.name).casefold() for path in paths}) == len(names)
+    assert all(path.parent == folder and path.is_file() for path in paths)
+    assert {artifact['warehouse'] for artifact in artifacts} == set(names)
+    for artifact, path in zip(artifacts, paths):
+        headers, rows, _ = read_workbook(path.read_bytes())
+        assert headers == tuple(HEADERS) and len(rows) == 1
+        assert rows[0][0] == 'shared' and rows[0][5] == artifact['warehouse']
+        assert rows[0][3] == 10 + names.index(artifact['warehouse'])
+        if retain_label:
+            assert f"-{artifact['warehouse']}-" in path.name
+
+
+def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeypatch, tmp_path):
+    records = [record(1, stockSku='shared', warehouseId=12107, warehouseName='PH1'),
+               record(2, stockSku='ph-only', warehouseId=12107, warehouseName='PH1'),
+               record(3, stockSku='shared', warehouseId=12831, warehouseName='VN1'),
+               record(4, stockSku='vn-only', warehouseId=12831, warehouseName='VN1')]
+    writes = Mock(wraps=workflow.write_merged,
+                  side_effect=[DEFAULT, OSError('second warehouse disk full')])
+    monkeypatch.setattr(workflow, 'write_merged', writes)
+    result, _ = execute(monkeypatch, tmp_path, [page(records, len(records))], arguments={'warehouse': 'all'})
+
+    assert not result['success'] and result['status'] == 'partial_success'
+    assert result['error']['code'] == 'publication_failed'
+    assert 'second warehouse disk full' in result['error']['message']
+    assert result['exported_unique_ids'] == result['source_row_count'] == 4
+    assert result['row_count'] == result['distinct_skus'] == 2
+    assert len(result['artifacts']) == 1 and result['artifacts'][0]['warehouse'] == 'PH1'
+    artifact = result['artifacts'][0]
+    assert artifact['row_count'] == 2
+    headers, rows, _ = read_workbook(Path(artifact['path']).read_bytes())
+    assert {row[headers.index('库存SKU')] for row in rows} == {'shared', 'ph-only'}
+    assert {row[headers.index('仓库')] for row in rows} == {'PH1'}
+    assert writes.call_count == 2 and not writes.call_args.args[0].exists()
 
 
 @pytest.mark.parametrize('arguments', [{'warehouse': ''}, {'warehouse': 'VN8806'}, {'warehouse': 12831},
@@ -743,19 +920,23 @@ def test_scoped_early_empty_page_retains_verified_partial(monkeypatch, tmp_path)
 
 
 def test_selected_record_can_still_expand_to_multiple_excel_rows(monkeypatch, tmp_path):
-    r = record(1, warehouseId=12831, warehouseName='越南 VN1 仓')
+    r = record(1, warehouseId=12831, warehouseName='越南 VN1 仓', stockQuantity=12, sale1=3, sale2=7, sale3=11)
     client = FakeClient([page([r], 1)])
     client.download = lambda _: workbook([values(r), values(r)])
     result, _ = execute(monkeypatch, tmp_path, [], client, arguments={'warehouse': 'VN1'})
-    assert result['success'] and result['exported_unique_ids'] == 1 and result['row_count'] == 2
+    assert result['success'] and result['exported_unique_ids'] == 1 and result['row_count'] == 1
+    assert result['source_row_count'] == 2
     assert result['warehouses'] == ['越南 VN1 仓']
+    headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
+    assert headers == tuple(HEADERS) and len(rows) == 1
+    assert (rows[0][3], rows[0][2], rows[0][4], rows[0][1]) == (12, 3, 7, 11)
 
 
 @pytest.mark.parametrize('warehouse,label', [('PH1', '菲律宾PH1仓'), ('VN1', '越南VN1仓'),
-                                           ('all', '全部仓库'), (None, '全部仓库')])
+                                           ('all', 'PH1'), (None, 'PH1')])
 @pytest.mark.parametrize('partial', [False, True])
 def test_final_filename_identifies_requested_scope_and_retains_partial_marker(monkeypatch, tmp_path, warehouse, label, partial):
-    # An all-warehouse request must retain that name even if only PH1 has rows.
+    # All-account output uses each real warehouse label instead of a mixed file.
     wid = dict(WAREHOUSE_CASES).get(warehouse, 12107)
     records = [record(1, warehouseId=wid, warehouseName=warehouse if warehouse in ('PH1', 'VN1') else 'PH1')]
     pages = [page(records, 2 if partial else 1)] + ([page([], 2, 2)] if partial else [])
@@ -766,7 +947,9 @@ def test_final_filename_identifies_requested_scope_and_retains_partial_marker(mo
     assert re.fullmatch(rf'马帮TMS-商品-{label}{marker}-\d{{8}}-\d{{6}}\.xlsx', path.name)
     assert '合并' not in path.name
     headers, rows, _ = read_workbook(path.read_bytes())
-    assert list(headers) == HEADERS and [list(row) for row in rows] == [values(r) for r in records]
+    assert list(headers) == HEADERS and len(rows) == 1
+    assert rows == [('SKU-1', 97, 21, -1, 71, records[0]['warehouseName'], -1, 0, 0, 0,
+                     '2026-08-25 11:35:29', '123')]
 
 
 @pytest.mark.parametrize('warehouse,agent', [('PH1', True), ('VN1', True), ('all', True), (None, False)])
@@ -788,10 +971,12 @@ def test_cli_scope_dispatches_real_workflow_and_deliverable(monkeypatch, tmp_pat
     args = ['mabang-tms', 'products', 'export'] + (['--warehouse', warehouse] if warehouse else [])
     assert cli.main(args) == 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert result['ok'] and len(result['files']) == 1 and Path(result['files'][0]).is_file()
-    assert result['files'] == [result['data']['artifacts'][0]['path']]
-    label = {'PH1': '菲律宾PH1仓', 'VN1': '越南VN1仓'}.get(warehouse, '全部仓库')
-    assert re.fullmatch(rf'马帮TMS-商品-{label}-\d{{8}}-\d{{6}}\.xlsx', Path(result['files'][0]).name)
+    assert result['ok'] and len(result['files']) == len(chosen)
+    assert all(Path(path).is_file() for path in result['files'])
+    assert result['files'] == [artifact['path'] for artifact in result['data']['artifacts']]
+    for path, (name, _) in zip(result['files'], chosen):
+        label = {'PH1': '菲律宾PH1仓', 'VN1': '越南VN1仓'}.get(warehouse, name)
+        assert re.fullmatch(rf'马帮TMS-商品-{label}-\d{{8}}-\d{{6}}\.xlsx', Path(path).name)
     assert result['data']['warehouses'] == [name for name, _ in chosen]
     assert result['data']['warehouse'] == (warehouse or 'all')
     selected_id = dict(WAREHOUSE_CASES).get(warehouse)
@@ -884,7 +1069,8 @@ def test_review_real_vn1_total_page_echo_does_not_gate_completion(monkeypatch, t
     result, client = execute(monkeypatch, tmp_path, pages, arguments={'warehouse': warehouse})
     assert result['success'] and result['reported_total'] == result['read_unique_ids'] == 4208
     assert result['exported_unique_ids'] == 4208 and result['remaining_records'] == 0
-    assert result['completed_batches'] == 5 and result['row_count'] == 4208 and result['distinct_skus'] == 2104
+    assert result['completed_batches'] == 5 and result['row_count'] == (2104 if warehouse_id else 4208)
+    assert result['distinct_skus'] == 2104
     assert [value for stage, value in client.calls if stage == 'list'] == [1, 2, 3, 4, 5]
     assert [i for stage, ids in client.calls if stage == 'export' for i in ids] == list(range(4208))
     assert client.warehouse_requests == [('list', warehouse_id), ('export', warehouse_id)] * 5
