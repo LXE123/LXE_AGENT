@@ -638,6 +638,32 @@ def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, 
     assert blocked["error"]["code"] == "skill_not_in_scope"
 
 
+def test_existing_login_skill_scope_exposes_both_platforms(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "shangman-login")
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    commands = {item["command"] for item in record["data"]["commands"]}
+    expected = {f"{platform} login {action}" for platform in ("shangman", "yacang")
+                for action in ("prepare", "submit", "status", "clear")}
+    assert {command for command in commands if command.startswith(("shangman ", "yacang "))} == expected
+    for command in sorted(expected):
+        assert lxeskill.main(["describe", *command.split()]) == 0
+        (description,) = _records(capsys)
+        assert description["data"]["owner_skills"] == ["shangman-login"]
+
+
+def test_yacang_login_requires_enabled_login_skill(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "yacang-reports-export")
+    assert lxeskill.main(["describe", "yacang", "login", "status"]) == lxeskill.EXIT_ENVIRONMENT
+    (blocked,) = _records(capsys)
+    assert blocked["error"]["code"] == "skill_not_in_scope"
+
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "yacang-reports-export,shangman-login")
+    assert lxeskill.main(["describe", "yacang", "login", "status"]) == 0
+    (allowed,) = _records(capsys)
+    assert allowed["data"]["owner_skills"] == ["shangman-login"]
+
+
 def test_empty_skill_scope_denies_business_commands_but_keeps_infrastructure(monkeypatch, capsys) -> None:
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "")
     assert lxeskill.main(["list"]) == 0

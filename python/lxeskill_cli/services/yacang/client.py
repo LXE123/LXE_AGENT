@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import binascii
+import io
 import json
 from pathlib import Path
 import time
 from urllib.parse import urlsplit
 import requests
+from PIL import Image
 from .contracts import REPORTS, export_parameters
 from .errors import YacangError, safe_remote_detail
 
@@ -53,12 +56,15 @@ class YacangClient:
         return body.decode("utf-8", errors="replace")
 
     def _http_error(self, status, detail, purpose):
-        code = {401: "login_required", 403: "forbidden", 429: "rate_limited"}.get(status)
+        # The signed download request carries no ERP token, so its 401 cannot
+        # establish that the ERP login has expired.
+        download_unauthorized = status == 401 and purpose == "download"
+        code = "http_error" if download_unauthorized else {401: "login_required", 403: "forbidden", 429: "rate_limited"}.get(status)
         if status == 429:
             self.state.cooldown()
         if code or status != 200:
             raise YacangError(purpose, self.diagnostic(detail), code=code or ("submit_unknown" if purpose == "submit" and status >= 500 else "http_error"),
-                              scope="global" if code or purpose in {"auth", "submit", "queue"} else "local")
+                              scope="local" if download_unauthorized else "global" if code or purpose in {"auth", "submit", "queue"} else "local")
 
     def request(self, method, path, *, purpose, params=None, body=None):
         for attempt in range(2 if purpose == "queue" else 1):
@@ -86,7 +92,7 @@ class YacangClient:
                 self._http_error(status, detail, purpose)
                 raise YacangError(purpose, self.diagnostic(f"{detail}; {exc}"), code="submit_unknown" if purpose == "submit" else "invalid_response", scope="global") from None
             if path == "/sys/customer/verify" and isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-                self.secrets.extend(str(payload["data"][k]) for k in ("key", "code") if payload["data"].get(k) is not None)
+                self.secrets.extend(str(payload["data"][k]) for k in ("key", "code", "captcha") if payload["data"].get(k) is not None)
             self._http_error(status, detail, purpose)
             if not isinstance(payload, dict) or "status" not in payload:
                 raise YacangError(purpose, self.diagnostic(detail), code="submit_unknown" if purpose == "submit" else "invalid_response", scope="global")
@@ -100,22 +106,43 @@ class YacangClient:
                 raise YacangError(purpose, message, code="date_range_required" if needs_date else "remote_error", scope="global" if purpose != "download" else "local")
             return payload
 
-    def login(self):
+    def prepare_login(self):
         payload = self.request("GET", "/sys/customer/verify", purpose="auth")
         data = payload.get("data")
-        if isinstance(data, dict):
-            # Register even a partial response before emitting diagnostics.
-            self.secrets.extend(str(data[k]) for k in ("key", "code") if data.get(k) is not None)
-        if not isinstance(data, dict) or not str(data.get("key") or "").strip() or not str(data.get("code") or "").strip():
-            raise YacangError("验证码", self.diagnostic(f"缺少 data.key/code: {payload}"), code="invalid_captcha", scope="global")
+        key = data.get("key") if isinstance(data, dict) else None
+        image = data.get("captcha") if isinstance(data, dict) else None
+        self.secrets.extend(str(value) for value in (key, image) if value is not None)
+        if not isinstance(key, str) or not key.strip() or not isinstance(image, str) or not image:
+            raise YacangError("验证码", self.diagnostic(f"验证码响应缺少 data.key/captcha: {payload}"), code="invalid_captcha", scope="global")
+        encoded = image.split(",", 1)[1] if image.startswith("data:image/jpeg;base64,") else image
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise YacangError("验证码", self.diagnostic(f"data.captcha 不是有效的 JPEG Base64: {exc}"), code="invalid_captcha", scope="global") from None
+        if not raw.startswith(b"\xff\xd8\xff") or len(raw) > 2 * 1024 * 1024:
+            raise YacangError("验证码", "data.captcha 不是有效 JPEG 或超过 2 MiB", code="invalid_captcha", scope="global")
+        try:
+            with Image.open(io.BytesIO(raw)) as source:
+                if source.format != "JPEG":
+                    raise ValueError("data.captcha 不是 JPEG")
+                if source.width * source.height > 4_000_000:
+                    raise ValueError("验证码图片超过 4000000 像素")
+                source.load()
+        except Exception as exc:
+            raise YacangError("验证码", self.diagnostic(f"{type(exc).__name__}: {exc}"), code="invalid_captcha", scope="global") from None
+        return key, raw
+
+    def login(self, key, code):
+        self.secrets.extend((key, code))
         payload = self.request("POST", "/sys/customer/loginV3", purpose="auth", body={
             "mobile": self.credentials.mobile, "password": self.credentials.password,
-            "verify_code": str(data["code"]), "key": str(data["key"]), "lang": "zh-cn"})
+            "verify_code": code, "key": key, "lang": "zh-cn"})
         token = payload.get("data", {}).get("token") if isinstance(payload.get("data"), dict) else None
         if not isinstance(token, str) or not token.strip():
             raise YacangError("登录", self.diagnostic(f"缺少 data.token: {payload}"), code="invalid_login", scope="global")
         self.token = token
         self.secrets.append(token)
+        return token
 
     def list_downloads(self):
         rows = []

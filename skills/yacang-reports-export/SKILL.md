@@ -10,6 +10,8 @@ commands:
 
 # 雅仓数据导出
 
+运行导出前先读取 `shangman-login` 图片验证码登录 Skill，再用其雅仓命令 `lxeskill yacang login status` 检查本地登录态。若登录 Skill 已禁用或不在可用范围，说明需要启用该 Skill 后才能检查或登录；不要绕过禁用设置。若登录态缺失，按登录 Skill 完成雅仓登录，成功保存后再导出。状态检查不代表平台在线验证；导出返回 `login_required` 时按登录 Skill 重新登录后继续。
+
 ## 业务范围
 
 数据来自当前配置账号可见的雅仓 ERP，支持以下仓库：
