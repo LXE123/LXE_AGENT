@@ -7,13 +7,20 @@ from services.mabang.order_import.workflow import COUNTRIES, run as generate
 from shared.filesystem import display_path
 
 
+PHILIPPINES_COLUMNS = {
+    "air_shipping_column": "air",
+    "sea_a_shipping_column": "sea_a",
+    "sea_b_shipping_column": "sea_b",
+}
+
+
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"country", "input_xlsx", "shipping_column"}
+    allowed = {"country", "input_xlsx", "shipping_column", *PHILIPPINES_COLUMNS}
     if set(arguments) - allowed or not {"country", "input_xlsx"}.issubset(arguments):
         return {
             "success": False,
             "status": "failed",
-            "error": {"code": "invalid_arguments", "message": "必填 country、input_xlsx；可选 shipping_column"},
+            "error": {"code": "invalid_arguments", "message": "必填 country、input_xlsx；运输列选择参数见命令帮助"},
         }
     country = arguments["country"]
     if not isinstance(country, str) or country not in COUNTRIES:
@@ -43,8 +50,31 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "status": "failed",
                 "error": {"code": "invalid_arguments", "message": "shipping_column 必须是有效的表格列名"},
             }
+    shipping_columns = {}
+    for argument, field in PHILIPPINES_COLUMNS.items():
+        value = arguments.get(argument)
+        if value is None:
+            continue
+        if country != "philippines":
+            return {
+                "success": False,
+                "status": "failed",
+                "error": {"code": "invalid_arguments", "message": f"{argument} 仅用于菲律宾备货清单"},
+            }
+        if not isinstance(value, str) or not value.strip():
+            return {
+                "success": False,
+                "status": "failed",
+                "error": {"code": "invalid_arguments", "message": f"{argument} 必须是有效的表格列名"},
+            }
+        shipping_columns[field] = value
     try:
-        result = generate(country=country, input_xlsx=input_xlsx, shipping_column=shipping_column)
+        result = generate(
+            country=country,
+            input_xlsx=input_xlsx,
+            shipping_column=shipping_column,
+            shipping_columns=shipping_columns or None,
+        )
     except Exception as exc:  # noqa: BLE001 — return the observed validation or IO error
         return {
             "success": False,

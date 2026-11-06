@@ -94,7 +94,7 @@ $ lxeskill help replenishment
 
 东南亚及巴西备货：
   mabang brazil reports export     导出马帮巴西海外仓报表
-  mabang order-import generate     根据巴西、马来西亚或越南备货清单生成马帮订单导入模板
+  mabang order-import generate     根据巴西、马来西亚、越南或菲律宾备货清单生成马帮订单导入模板
   mabang-tms products export       导出马帮 TMS 商品、库存和销量
   yacang reports export            导出雅仓报表
   vietnam replenishment calculate  计算越南补货并生成备货清单
