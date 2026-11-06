@@ -13,7 +13,7 @@ type: replenishment
 | 越南备货 | `vietnam-replenishment` | 使用雅仓报表和完整九表业务模板，按 SKU 从模板提取参数并完成计算、校验，交付九表备货清单 |
 | 雅仓数据导出 | `yacang-reports-export` | 库存动销、当前库存及全局产品资料；可独立交付，也可提供越南计算输入 |
 | 上马 ERP 数据导出 | `shangman-products-export` | 当前账号可见的商品、库存和销量原始 XLSX；后续备货计算尚未接通 |
-| 马帮 TMS 数据导出 | `mabang-tms-products-export` | 菲律宾 PH1、越南 VN1 或明确选择的当前账号全部仓库；未指定仓库先询问，交付商品、库存和销量合并 XLSX；后续备货计算尚未接通 |
+| 马帮 TMS 数据导出 | `mabang-tms-products-export` | 菲律宾 PH1、越南 VN1 或明确选择的当前账号全部仓库；原字段与同仓 SKU 汇总在同一张表，全部仓库按实际仓库分别交付文件；未指定仓库先询问，后续备货计算尚未接通 |
 
 数据范围由用户要求、账号和对应 Skill 决定，不推断平台固定对应某个国家。巴西数据另见独立的 `mabang-brazil-reports-export`，不属于东南亚能力，也不连接越南计算。
 
