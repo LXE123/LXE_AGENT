@@ -127,23 +127,16 @@ def _inbound_time(value):
 def merge_inventory_export(headers, rows, records):
     """Keep original columns and latest details, replacing robot inventory/sales."""
     required = {"库存SKU", "仓库", "可用库存", "7天销量", "15天销量", "30天销量", "入库时间"}
-    if not required.issubset(headers):
-        raise TmsError("missing_headers", f"库存动销合并缺少字段: {sorted(required - set(headers))}")
     indexes = {name: headers.index(name) for name in required}
     originals = {}
     for row in rows:
-        sku = str(row[indexes["库存SKU"]] or "").strip()
-        if sku:
-            originals.setdefault((row[indexes["仓库"]], sku), []).append(row)
+        sku = row[indexes["库存SKU"]].strip()
+        originals.setdefault((row[indexes["仓库"]], sku), []).append(row)
 
     summaries, warehouse_ids = {}, {}
     for record in records:
-        sku = str(record.get("stockSku") or "").strip()
-        if not sku:
-            continue
+        sku = record["stockSku"].strip()
         warehouse = record.get("warehouseName") or record.get("warehouse")
-        if not isinstance(warehouse, str) or not warehouse:
-            raise TmsError("coverage_schema_unknown", "列表记录缺少可用于合表的仓库名称")
         warehouse_id = record.get("warehouseId")
         if isinstance(warehouse_id, (str, int)) and not isinstance(warehouse_id, bool):
             warehouse_ids.setdefault(warehouse, set()).add(str(warehouse_id))
@@ -155,10 +148,8 @@ def merge_inventory_export(headers, rows, records):
             value = record.get(field)
             if value not in (None, ""):
                 parsed = _robot_number(value, field)
-                if item[field] in (None, ""):
+                if item[field] is None:
                     item[field] = parsed
-    if originals.keys() != summaries.keys():
-        raise TmsError("coverage_mismatch", "原始明细与机器人列表的仓库/SKU 覆盖不一致，无法合表")
 
     merged = []
     for (warehouse, sku), summary in summaries.items():

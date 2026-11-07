@@ -77,3 +77,13 @@
 
 - 用户授权提交当前分支改动。TMS 定向离线测试 **204 passed**，`git diff --check` 通过；未访问生产 ERP。
 - 签名下载链接的重试语义和真实完整导出仍为 **NOT VERIFIED**。下一步由用户分别决定是否推送及创建 PR；菲律宾分支的旧联调副本需在上游修复归位后整理与回归。
+
+## 2026-11-07：多仓文件名修复与批准后的精简
+
+- 分支 `codex/mabang-tms-fix`，pool-20，本轮修复基于 `211fe7c5`。原写文件循环每次同时预留正常名和部分导出名，按 NFC 与大小写折叠检查冲突。第三仓写入失败时，前两仓即使分别名为 `PH1` 和 `PH1-部分导出`，也不会相互覆盖。
+- 回退改用普通 `Path.rename`，删除此前补丁的硬链接依赖及预计算仓名表；重命名前只检查一次目标是否已存在。目标存在或重命名失败时保留实际错误和原文件，不交付未完成标记的文件。该检查不提供外部进程并发写入的原子保证；本轮未增加此类防御。
+- `merge_inventory_export` 复用 `read_workbook → coverage` 的前置保证，删除重复的表头、SKU、仓库和覆盖集合检查。保留 SKU 去空格、所有实际数值转换、日期选择及仓库 ID 歧义检查。
+- 修改 `services/mabang_tms/workflow.py`、`workbooks.py`、`tests/mabang_tms/test_mabang_tms_export.py` 和本交接。入口仍为 `lxeskill mabang-tms products export --warehouse PH1|VN1|all`；凭据环境变量仍为 `LXE_MABANG_TMS_ACCOUNT` / `LXE_MABANG_TMS_PASSWORD`，命令契约不变。
+- 在 pool-20 仓库根目录运行 `UV_CACHE_DIR=/private/tmp/mabang-tms-fix-uv-cache uv run --frozen pytest python/lxeskill_cli/tests/mabang_tms -q --tb=short`：**209 passed**。真实工作簿用例覆盖三仓碰撞、反向命名、大小写、Unicode、目标已存在和重命名失败。另以 I/O 故障注入模拟硬链接不可用、第二仓写入失败，验证结果为 `partial_success`，第一仓工作簿存在且内容对应，未调用硬链接。独立只读复核未发现新增问题。
+- 本轮未访问生产系统。真实 TMS 导出、Windows 与 exFAT 文件系统实际运行为 **NOT VERIFIED**；故障注入不替代这些环境验收。
+- 独立复审未发现新增必修问题；已检查 diff、`git diff --check`、敏感信息及 Git 状态。用户已批准暂存、提交上述四文件，补丁与本交接放在同一提交；代码与 209 项测试通过时一致。push、PR 及 merge 分别申请授权。菲律宾 pool-18 仍使用旧联调副本，待前序修复归位后整理并回归；主仓库 review 按雅仓 → TMS → 菲律宾顺序。

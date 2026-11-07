@@ -84,10 +84,14 @@ def _warehouse_filename(name, used_names):
     if safe != name or len(safe) > 100:
         safe = f"{safe[:100]}-{hashlib.sha256(name.encode()).hexdigest()[:8]}"
     candidate, suffix = safe, 1
-    while unicodedata.normalize("NFC", candidate).casefold() in used_names:
+
+    def names(value):
+        return {unicodedata.normalize("NFC", part).casefold() for part in (value, f"{value}-部分导出")}
+
+    while names(candidate) & used_names:
         candidate = f"{safe}-{suffix}"
         suffix += 1
-    used_names.add(unicodedata.normalize("NFC", candidate).casefold())
+    used_names.update(names(candidate))
     return candidate
 
 
@@ -192,6 +196,8 @@ def run_with_events(arguments, on_event):
             for artifact, partial_path in zip(artifacts, partial_paths):
                 if artifact["kind"] == "合并":
                     try:
+                        if partial_path.exists():
+                            raise FileExistsError(f"部分导出目标已存在: {partial_path}")
                         Path(artifact["path"]).rename(partial_path)
                     except OSError as mark_error:
                         failure["partial_marking_error"] = client.safe(f"{type(mark_error).__name__}: {mark_error}") if client else diagnostic(f"{type(mark_error).__name__}: {mark_error}", (account, password))

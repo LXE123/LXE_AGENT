@@ -871,6 +871,7 @@ def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeyp
     if mark_fails:
         assert result['artifacts'] == [] and result['row_count'] == result['distinct_skus'] == 0
         assert 'partial rename failed' in result['error']['partial_marking_error']
+        assert writes.call_args_list[0].args[0].is_file()
         return
     assert result['row_count'] == result['distinct_skus'] == 2
     assert len(result['artifacts']) == 1 and result['artifacts'][0]['warehouse'] == 'PH1'
@@ -881,6 +882,55 @@ def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeyp
     assert {row[headers.index('库存SKU')] for row in rows} == {'shared', 'ph-only'}
     assert {row[headers.index('仓库')] for row in rows} == {'PH1'}
     assert writes.call_count == 2 and not writes.call_args.args[0].exists()
+
+
+@pytest.mark.parametrize('names', [
+    ['PH1', 'PH1-部分导出', 'third'],
+    ['PH1-部分导出', 'PH1', 'third'],
+    ['PH1', 'ph1-部分导出', 'third'],
+    ['Café', 'Cafe\u0301-部分导出', 'third'],
+])
+def test_partial_publication_keeps_colliding_warehouse_names_separate(monkeypatch, tmp_path, names):
+    records = [record(i, warehouseId=90000 + i, warehouseName=name) for i, name in enumerate(names, 1)]
+    writes = Mock(wraps=workflow.write_merged, side_effect=[DEFAULT, DEFAULT, OSError('third warehouse disk full')])
+    monkeypatch.setattr(workflow, 'write_merged', writes)
+    result, _ = execute(monkeypatch, tmp_path, [page(records, len(records))], arguments={'warehouse': 'all'})
+
+    assert result['status'] == 'partial_success' and result['row_count'] == 2
+    assert 'third warehouse disk full' in result['error']['message']
+    assert {item['warehouse'] for item in result['artifacts']} == set(names[:2])
+    assert len({unicodedata.normalize('NFC', Path(item['path']).name).casefold()
+                for item in result['artifacts']}) == 2
+    for item in result['artifacts']:
+        path = Path(item['path'])
+        assert path.is_file() and item['kind'] == '部分导出'
+        headers, rows, _ = read_workbook(path.read_bytes())
+        assert {row[headers.index('仓库')] for row in rows} == {item['warehouse']}
+
+
+def test_partial_publication_never_overwrites_existing_target(monkeypatch, tmp_path):
+    records = [record(i, warehouseId=90000 + i, warehouseName=name)
+               for i, name in enumerate(['PH1', 'VN1'], 1)]
+    original_write = workflow.write_merged
+    occupied = []
+
+    def write_with_occupied_partial(path, headers, rows):
+        if occupied:
+            raise OSError('second warehouse disk full')
+        original_write(path, headers, rows)
+        target = path.with_name(re.sub(r'(-\d{8}-\d{6}\.xlsx)$', r'-部分导出\1', path.name))
+        target.write_bytes(b'existing unrelated file')
+        occupied.append((path, target))
+
+    monkeypatch.setattr(workflow, 'write_merged', write_with_occupied_partial)
+    result, _ = execute(monkeypatch, tmp_path, [page(records, len(records))], arguments={'warehouse': 'all'})
+
+    source, target = occupied[0]
+    assert target.read_bytes() == b'existing unrelated file'
+    assert source.is_file()
+    assert result['status'] == 'failed' and result['artifacts'] == [] and result['row_count'] == 0
+    assert 'second warehouse disk full' in result['error']['message']
+    assert result['error']['partial_marking_error']
 
 @pytest.mark.parametrize('arguments', [{'warehouse': ''}, {'warehouse': 'VN8806'}, {'warehouse': 12831},
                                       {'warehouse': ['PH1', 'VN1']}, {'warehouse': None}, {'country': 'VN'}])
