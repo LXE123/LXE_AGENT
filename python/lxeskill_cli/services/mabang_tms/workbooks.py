@@ -153,8 +153,10 @@ def merge_inventory_export(headers, rows, records):
         item["stock"] += _robot_number(record.get("stockQuantity"), "stockQuantity")
         for field in ("sale1", "sale2", "sale3"):
             value = record.get(field)
-            if item[field] in (None, "") and value not in (None, ""):
-                item[field] = _robot_number(value, field)
+            if value not in (None, ""):
+                parsed = _robot_number(value, field)
+                if item[field] in (None, ""):
+                    item[field] = parsed
     if originals.keys() != summaries.keys():
         raise TmsError("coverage_mismatch", "原始明细与机器人列表的仓库/SKU 覆盖不一致，无法合表")
 

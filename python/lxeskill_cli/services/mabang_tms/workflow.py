@@ -7,6 +7,7 @@ import unicodedata
 import uuid
 from contextlib import ExitStack
 from datetime import datetime
+from pathlib import Path
 
 from shared.datasets import dataset_dir
 from shared.process_lock import interprocess_lock
@@ -94,6 +95,7 @@ def run_with_events(arguments, on_event):
     account, password = os.getenv("LXE_MABANG_TMS_ACCOUNT", "").strip(), os.getenv("LXE_MABANG_TMS_PASSWORD", "")
     client, folder, headers = None, None, None
     rows, movement_records, published_rows, batches, artifacts = [], [], [], [], []
+    partial_paths = []
     seen, exported = set(), set()
     total, failure, failure_page = None, None, None
     warehouse, warehouse_id = None, None
@@ -157,8 +159,6 @@ def run_with_events(arguments, on_event):
         failure = {"code": getattr(exc, "code", "export_failed"), "message":
                    client.safe(f"{type(exc).__name__}: {exc}") if client else diagnostic(f"{type(exc).__name__}: {exc}", (account, password))}
     finally:
-        if client:
-            client.close()
         # Publication remains protected by the account lock.
         try:
             if headers is not None:
@@ -168,6 +168,8 @@ def run_with_events(arguments, on_event):
                 groups = {}
                 for row in merged_rows:
                     groups.setdefault(row[warehouse_index], []).append(row)
+                if warehouse != "all" and len(groups) > 1:
+                    raise TmsError("warehouse_scope_mismatch", f"选定仓库对应多个仓库名称: {sorted(groups)}")
                 partial = "-部分导出" if failure else ""
                 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                 used_names = set()
@@ -179,14 +181,33 @@ def run_with_events(arguments, on_event):
                     published_rows.extend(group_rows)
                     artifacts.append({"path": str(path.resolve()), "warehouse": actual_warehouse,
                                       "row_count": len(group_rows), "sheet_names": ["商品"], "kind": label})
+                    partial_paths.append(folder / f"马帮TMS-商品-{warehouse_name}-部分导出-{timestamp}.xlsx")
         except Exception as exc:
-            message = diagnostic(f"{type(exc).__name__}: {exc}", (account, password))
+            message = client.safe(f"{type(exc).__name__}: {exc}") if client else diagnostic(f"{type(exc).__name__}: {exc}", (account, password))
             if failure:
                 failure["publication_error"] = message
             else:
                 failure = {"code": "publication_failed", "message": message}
+            retained = []
+            for artifact, partial_path in zip(artifacts, partial_paths):
+                if artifact["kind"] == "合并":
+                    try:
+                        Path(artifact["path"]).rename(partial_path)
+                    except OSError as mark_error:
+                        failure["partial_marking_error"] = client.safe(f"{type(mark_error).__name__}: {mark_error}") if client else diagnostic(f"{type(mark_error).__name__}: {mark_error}", (account, password))
+                        continue
+                    artifact.update(path=str(partial_path.resolve()), kind="部分导出")
+                retained.append(artifact)
+            artifacts = retained
+            if partial_paths:
+                delivered = {artifact["warehouse"] for artifact in artifacts}
+                published_rows = [row for row in published_rows if row[warehouse_index] in delivered]
         finally:
-            locks.close()
+            try:
+                if client:
+                    client.close()
+            finally:
+                locks.close()
     sku_index = headers.index("库存SKU") if headers else None
     warehouse_index = headers.index("仓库") if headers else None
     result = {"success": failure is None, "status": "partial_success" if failure and artifacts else "failed" if failure else "completed",

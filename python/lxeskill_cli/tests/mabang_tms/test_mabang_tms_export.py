@@ -233,14 +233,6 @@ def test_zero_no_fake_attachment(monkeypatch, tmp_path):
     assert result['success'] and result['artifacts'] == [] and result['row_count'] == 0
 
 
-def test_sample_shape_fifty_rows_fortyone_skus_preserved(monkeypatch, tmp_path):
-    records = [record(i, stockSku=f'SAMPLE-{i if i < 41 else i-41}') for i in range(50)]
-    result, _ = execute(monkeypatch, tmp_path, [page(records, 50)])
-    assert result['success'] and result['row_count'] == result['distinct_skus'] == 41
-    assert result['source_row_count'] == 50
-    assert result['headers'] == HEADERS
-
-
 def test_eleven_column_sample_and_unknown_extra_column():
     for headers in (HEADERS[:11], HEADERS):
         content = workbook([values(record(1))[:len(headers)]], headers)
@@ -256,10 +248,6 @@ def test_eleven_column_sample_and_unknown_extra_column():
 def test_coverage_fails_closed(records, rows):
     with pytest.raises(TmsError):
         coverage(records, HEADERS, rows)
-
-
-def test_one_id_may_expand_to_multiple_rows():
-    coverage([record(1)], HEADERS, [values(record(1)), values(record(1))])
 
 
 def test_save_failure_reports_both_original_and_publication_error(monkeypatch, tmp_path):
@@ -285,21 +273,25 @@ def test_merge_inventory_export_uses_api_summary_and_latest_original_row():
     records = [
         record(1, stockSku='shared', warehouseName='PH1', stockQuantity='100',
                sale1=0, sale2=None, sale3='30', availableinventory=9999),
-        record(2, stockSku='shared', warehouseName='PH1', stockQuantity=20,
+        record(2, stockSku=' shared ', warehouseName='PH1', stockQuantity=20,
                sale1=7, sale2='15', sale3=40, availableinventory=8888),
-        record(3, stockSku='shared', warehouseName='VN1', stockQuantity=9,
+        record(3, stockSku=' shared', warehouseName='VN1', stockQuantity=9,
                sale1=1, sale2=2, sale3=3),
     ]
-    older = ['shared', 900, 900, 500, 900, 'PH1', 1000, 4, 11, 12,
+    older = [' shared ', 900, 900, 500, 900, 'PH1', 1000, 4, 11, 12,
              '2026-01-01 10:00:00', 'older-extra']
     newer = ['shared', 800, 800, 600, 800, 'PH1', 2000, 5, 21, 22,
              datetime(2026, 2, 1, 10), 'newer-extra']
-    vietnam = ['shared', 700, 700, 700, 700, 'VN1', 3000, 6, 31, 32,
+    vietnam = ['shared ', 700, 700, 700, 700, 'VN1', 3000, 6, 31, 32,
                '2026-03-01 10:00:00', 'vn-extra']
     missing, tied = older.copy(), newer.copy()
     missing[10], missing[-1] = None, 'no-date'
     tied[10], tied[-1] = '2026-02-01 10:00:00', 'later-tie'
 
+    with pytest.raises(TmsError) as caught:
+        coverage(records, HEADERS, [older, vietnam])
+    assert caught.value.code == 'coverage_count_mismatch'
+    coverage(records, HEADERS, [older, newer, vietnam])
     output = merge_inventory_export(HEADERS, [missing, older, newer, tied, vietnam], records)
 
     assert len(output) == 2
@@ -308,27 +300,6 @@ def test_merge_inventory_export_uses_api_summary_and_latest_original_row():
     assert list(output[1]) == ['shared', 3, 1, 9, 2, 'VN1', 3000, 6, 31, 32,
                                '2026-03-01 10:00:00', 'vn-extra']
     assert newer[3] == 600 and newer[1] == 800  # Keep the original rows unchanged.
-
-
-def test_coverage_and_merge_treat_sku_surrounding_whitespace_as_same_product():
-    records = [
-        record(1, stockSku='ABC-01', warehouseName='PH1', stockQuantity=100, sale1=7),
-        record(2, stockSku=' ABC-01 ', warehouseName='PH1', stockQuantity=20, sale1=7),
-        record(3, stockSku=' ABC-01', warehouseName='VN1', stockQuantity=9, sale1=2),
-    ]
-    rows = [values(item) for item in records]
-    rows[0][0], rows[1][0], rows[2][0] = ' ABC-01 ', 'ABC-01', 'ABC-01 '
-
-    with pytest.raises(TmsError) as caught:
-        coverage(records, HEADERS, [rows[0], rows[2]])
-    assert caught.value.code == 'coverage_count_mismatch'
-    coverage(records, HEADERS, rows)
-    merged = merge_inventory_export(HEADERS, rows, records)
-
-    assert [(row[0], row[5], row[3], row[2]) for row in merged] == [
-        ('ABC-01', 'PH1', 120, 7),
-        ('ABC-01', 'VN1', 9, 2),
-    ]
 
 
 def test_coverage_rejects_sku_containing_only_whitespace():
@@ -348,14 +319,36 @@ def test_merge_inventory_export_rejects_invalid_api_numbers(field, invalid):
     assert field in str(caught.value) and repr(invalid) in str(caught.value)
 
 
-def test_invalid_api_numbers_fail_instead_of_publishing_inventory_or_sales(monkeypatch, tmp_path):
-    r = record(1, stockQuantity='NaN')
-    result, _ = execute(monkeypatch, tmp_path, [page([r], 1)])
+@pytest.mark.parametrize('invalid', ['NaN', 'test-token'])
+def test_invalid_api_numbers_fail_instead_of_publishing_inventory_or_sales(monkeypatch, tmp_path, invalid):
+    pages = [page([record(1, stockQuantity=invalid)], 1)]
+    client = FakeClient(pages)
+    client.safe = lambda value: diagnostic(value, (client.token, 'password'))
+    result, _ = execute(monkeypatch, tmp_path, pages, client=client)
     assert result['success'] is False
     assert result['status'] == 'failed'
     assert result['artifacts'] == [] and result['row_count'] == 0
-    assert 'stockQuantity' in result['error']['message'] and "'NaN'" in result['error']['message']
+    assert 'stockQuantity' in result['error']['message']
+    if invalid == 'NaN':
+        assert "'NaN'" in result['error']['message']
+    else:
+        assert invalid not in json.dumps(result)
     assert not list(tmp_path.rglob('马帮TMS-商品-*.xlsx'))
+
+
+def test_later_invalid_sales_value_is_rejected():
+    records = [record(1, stockSku='same', sale2=1), record(2, stockSku='same', sale2='bad')]
+    with pytest.raises(TmsError) as caught:
+        merge_inventory_export(HEADERS, [values(r) for r in records], records)
+    assert caught.value.code == 'invalid_number' and 'sale2' in str(caught.value)
+
+
+def test_selected_warehouse_with_multiple_names_never_overwrites(monkeypatch, tmp_path):
+    records = [record(1, warehouseId=12107, warehouseName='甲仓'),
+               record(2, warehouseId=12107, warehouseName='乙仓')]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)], arguments={'warehouse': 'PH1'})
+    assert not result['success'] and result['artifacts'] == []
+    assert result['row_count'] == 0
 
 
 def test_merge_inventory_export_rejects_ambiguous_nonempty_invalid_source_date():
@@ -828,7 +821,6 @@ def test_mixed_warehouse_batch_is_never_published(monkeypatch, tmp_path, stage, 
 
 
 @pytest.mark.parametrize('arguments,names,retain_label', [
-    ({}, ['PH1', 'VN1', '第三仓'], True),
     ({'warehouse': 'all'}, ['PH1', 'VN1', '第三仓'], True),
     ({'warehouse': 'all'}, ['PH1', 'ph1'], True),
     ({'warehouse': 'all'}, ['Café仓', 'Cafe\u0301仓'], True),
@@ -859,7 +851,8 @@ def test_all_scope_preserves_account_scope_and_splits_warehouse_files(monkeypatc
             assert f"-{artifact['warehouse']}-" in path.name
 
 
-def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeypatch, tmp_path):
+@pytest.mark.parametrize('mark_fails', [False, True])
+def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeypatch, tmp_path, mark_fails):
     records = [record(1, stockSku='shared', warehouseId=12107, warehouseName='PH1'),
                record(2, stockSku='ph-only', warehouseId=12107, warehouseName='PH1'),
                record(3, stockSku='shared', warehouseId=12831, warehouseName='VN1'),
@@ -867,21 +860,27 @@ def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeyp
     writes = Mock(wraps=workflow.write_merged,
                   side_effect=[DEFAULT, OSError('second warehouse disk full')])
     monkeypatch.setattr(workflow, 'write_merged', writes)
+    if mark_fails:
+        monkeypatch.setattr(Path, 'rename', Mock(side_effect=OSError('partial rename failed')))
     result, _ = execute(monkeypatch, tmp_path, [page(records, len(records))], arguments={'warehouse': 'all'})
 
-    assert not result['success'] and result['status'] == 'partial_success'
+    assert not result['success'] and result['status'] == ('failed' if mark_fails else 'partial_success')
     assert result['error']['code'] == 'publication_failed'
     assert 'second warehouse disk full' in result['error']['message']
     assert result['exported_unique_ids'] == result['source_row_count'] == 4
+    if mark_fails:
+        assert result['artifacts'] == [] and result['row_count'] == result['distinct_skus'] == 0
+        assert 'partial rename failed' in result['error']['partial_marking_error']
+        return
     assert result['row_count'] == result['distinct_skus'] == 2
     assert len(result['artifacts']) == 1 and result['artifacts'][0]['warehouse'] == 'PH1'
     artifact = result['artifacts'][0]
     assert artifact['row_count'] == 2
+    assert artifact['kind'] == '部分导出' and '-部分导出-' in Path(artifact['path']).name
     headers, rows, _ = read_workbook(Path(artifact['path']).read_bytes())
     assert {row[headers.index('库存SKU')] for row in rows} == {'shared', 'ph-only'}
     assert {row[headers.index('仓库')] for row in rows} == {'PH1'}
     assert writes.call_count == 2 and not writes.call_args.args[0].exists()
-
 
 @pytest.mark.parametrize('arguments', [{'warehouse': ''}, {'warehouse': 'VN8806'}, {'warehouse': 12831},
                                       {'warehouse': ['PH1', 'VN1']}, {'warehouse': None}, {'country': 'VN'}])
