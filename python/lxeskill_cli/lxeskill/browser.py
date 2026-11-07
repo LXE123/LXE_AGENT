@@ -24,6 +24,17 @@ async def execute_browser_command(
     safe_session_id = str(session_id or "").strip()
     if not safe_session_id:
         raise BrowserCliError("session_required", "browser command requires LXE_AGENT_SESSION_ID")
+    if entry["name"] == "ziniao_script_run":
+        from services.browser.scripts.command import ScriptFailure, run_script
+
+        try:
+            data, paths = run_script(arguments, safe_session_id)
+        except ScriptFailure as exc:
+            raise BrowserCliError(exc.code, str(exc)) from exc
+        except (ValueError, OSError, TypeError) as exc:
+            raise BrowserCliError("invalid_arguments", str(exc)) from exc
+        return data, [str(allowed_output_file(path, owner_skills=entry["owner_skills"])) for path in paths]
+
     from services.browser.tools import client as browser_client
 
     session = SimpleNamespace(session_id=safe_session_id)

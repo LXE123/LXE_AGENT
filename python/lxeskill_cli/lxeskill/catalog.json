@@ -37,6 +37,27 @@
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"}, "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上一次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["store_id"], "additionalProperties": false}
     , "help": {"group": "common", "section": "浏览器操作", "summary": "读取或操作紫鸟浏览器页面", "examples": ["lxeskill browser page --store-id <店铺ID> --action browser_snapshot"]}},
     {
+      "name": "ziniao_script_run",
+      "command_path": ["browser", "script", "run"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "handler": "browser",
+      "owner_skills": ["ziniao-browser"],
+      "exposed": true,
+      "timeout_ms": 610000,
+      "artifact_paths": [{"field": "downloads[]", "role": "deliverable"}],
+      "input_schema": {
+        "type": "object", "additionalProperties": false, "required": ["store_id", "script_file"],
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "description": "已运行会话对应的紫鸟店铺 ID。"},
+          "script_file": {"type": "string", "minLength": 1, "description": "本机 Node.js 控制脚本路径（.js）。"},
+          "params_file": {"type": "string", "minLength": 1, "description": "传给控制脚本的 JSON 对象文件，省略时为 {}。"},
+          "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600, "description": "整次执行时限（秒），默认 180。"}
+        }
+      },
+      "help": {"group": "common", "section": "浏览器操作", "summary": "运行紫鸟浏览器自动化脚本", "examples": ["lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json"]}
+    },
+    {
       "name": "mabang_auth_refresh",
       "command_path": ["mabang", "auth", "refresh"],
       "visibility": "maintenance",

@@ -1,10 +1,11 @@
 ---
 name: ziniao-browser
-description: 通过受控 lxeskill 命令管理紫鸟店铺会话，用于登录和操作电商平台的卖家店铺后台。用户要求打开、查看或退出紫鸟店铺，读取后台网页结构或截图，或执行点击、输入、滚动和跳转时使用。
+description: 通过 lxeskill 管理紫鸟店铺会话、读取页面结构或截图、操作卖家后台，并运行 JavaScript 控制脚本完成固定流程。
 type: ziniao_browser
 commands:
   - lxeskill browser store
   - lxeskill browser page
+  - lxeskill browser script run
 ---
 
 # 紫鸟浏览器
@@ -13,7 +14,7 @@ commands:
 
 ## 输入与依赖
 
-- 通过 `exec` 调用 frontmatter 声明的两个 lxeskill 命令，页面操作由 CLI 内部的官方配对 Selenium 链路完成。
+- 通过 `exec` 调用 frontmatter 声明的 lxeskill 命令，页面操作由 CLI 内部的官方配对 Selenium 链路完成。
 - 命令依赖当前 Agent 会话提供的 `LXE_AGENT_SESSION_ID` 和紫鸟客户端。
 - `store_id` 来自用户输入或 `get_status` 的真实结果；页面操作使用已运行店铺的同一个 ID。
 
@@ -74,6 +75,43 @@ lxeskill browser page --action browser_snapshot --store-id <store_id>
 ```text
 lxeskill browser page --store-id <store_id> --steps '{"action":"browser_click","ref":"aid-5"}' --steps '{"action":"browser_type","ref":"aid-7","text":"<text>"}' --steps '{"action":"browser_click","ref":"aid-9"}'
 ```
+
+## 运行紫鸟浏览器自动化脚本
+
+在本机用 Node.js 运行 JS 控制脚本，通过 Selenium 操作紫鸟浏览器页面。已有业务脚本和本次任务编写的脚本使用同一入口。先从运行中的会话取得 `store_id`，再执行：
+
+```text
+lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json
+```
+
+入口文件是异步函数体，直接使用 `browser`、`params`、`await`、`return`。`params.json` 为 JSON 对象，可省略，默认 `{}`。脚本和参数文件相对于命令执行目录解析。独立安装 CLI 时，PATH 中需要有 Node.js；桌面安装包提供 Node。控制脚本拥有本地进程的权限。
+
+单页读取可写成一行：
+
+```javascript
+return await browser.evaluate(({ selector }) => deepQuerySelector(selector)?.textContent ?? null, params);
+```
+
+跨页时，由控制脚本等待每个步骤，并判断页面显示的业务结果。例如，在 `params` 中传入目标 URL、上传文件路径和页面控件的选择器：
+
+```javascript
+await browser.navigate(params.formUrl);
+await browser.runScriptFile("./fill.js", params);
+await browser.uploadFile(params.fileInputSelector, params.uploadPath);
+await browser.navigate(params.reportsUrl);
+const path = await browser.download(() =>
+  browser.evaluate(({ selector }) => deepQuerySelector(selector).click(), { selector: params.downloadSelector })
+);
+return { path };
+```
+
+- `navigate(url)` 等待导航完成。动态组件的就绪状态由页面脚本按实际条件检查。
+- `evaluate(fn, args)` 把函数发到当前页面执行。所需数据通过第二个参数传入，函数无法访问 Node 闭包。页面支持 `document`、`deepQuerySelector`、`deepQuerySelectorAll` 和 `deepClosest`。
+- `runScriptFile(path, args)` 把独立 JS 函数体放入页面执行，以 `params` 读取传入对象。页面脚本遇到整页跳转可能中断，后续步骤放在控制脚本中。两个页面接口均可等待 Promise。
+- `uploadFile(selector, path)` 定位唯一匹配的文件输入框。流程中的页面脚本路径和上传路径相对于控制脚本目录解析，也接受绝对路径。
+- `download(trigger)` 在回调触发下载前记录目录，在文件完成后返回归档路径。一个回调对应一个下载文件；多个候选时返回错误。
+
+命令选取第一个普通网页标签，整次运行共用同一个连接和店铺锁。成功时读取 terminal 的 `data.result`（JSON 值）和 `files`（本次下载的附件）。总时限默认 180 秒，使用 `--timeout-sec` 调整至 1～600 秒。失败时读取实际错误；超时和取消无法回滚已经发起的页面操作，先核对页面状态再决定后续步骤。
 
 ## 截图
 
