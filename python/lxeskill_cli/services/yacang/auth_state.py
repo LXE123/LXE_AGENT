@@ -25,8 +25,6 @@ def _restrict_permissions(path: Path, mode: int) -> None:
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _restrict_permissions(path.parent, 0o700)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
@@ -103,9 +101,7 @@ class YacangAuthState:
         with self.lock():
             if epoch is not None and epoch != self._epoch():
                 raise YacangError("登录态", "本地登录态已清除，不保存正在获取的验证码", code="login_cleared", scope="global")
-            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.images.mkdir(parents=True, exist_ok=True, mode=0o700)
-            _restrict_permissions(self.root, 0o700)
             _restrict_permissions(self.images, 0o700)
             self._cleanup_challenges()
             challenge_id = "challenge-" + uuid.uuid4().hex
@@ -171,22 +167,20 @@ class YacangAuthState:
             if epoch is not None and epoch != self._epoch():
                 raise YacangError("登录态", "本地登录态已清除，不保存正在完成的旧登录", code="login_cleared", scope="global")
             now = time.time()
-            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
             _atomic_json(self.session_path, {"token": token, "fingerprint": self.fingerprint, "saved_at": now})
             return {"saved_at": now}
 
     def session(self) -> str:
         with self.lock():
             value = self._read_session()
-            token = value.get("token") if value else None
-            if not isinstance(token, str) or not token:
+            if value is None:
                 raise YacangError("登录", "雅仓登录态缺失，请先运行雅仓登录 Skill", code="login_required", scope="global")
-            return token
+            return value["token"]
 
     def status(self) -> dict:
         with self.lock():
             value = self._read_session()
-            authenticated = bool(value and isinstance(value.get("token"), str) and value["token"])
+            authenticated = value is not None
             return {"authenticated": authenticated, "online_verified": False,
                     "status": "available" if authenticated else "missing", "saved_at": value.get("saved_at") if authenticated else None}
 

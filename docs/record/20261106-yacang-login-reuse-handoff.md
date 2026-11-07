@@ -83,3 +83,11 @@
 
 - 用户授权提交当前分支改动。雅仓目录离线测试 **88 passed**；登录 Skill 范围定向测试 **2 passed**。雅仓测试使用本地模拟 HTTP 服务，未访问生产；沙箱内因端口权限失败后在允许本机监听的环境复跑。
 - 密钥扫描命中的是测试构造的合成令牌；`git diff --check` 通过。真实桌面验证码交付和完整生产导出仍为 **NOT VERIFIED**。下一步由用户分别决定是否推送及创建 PR；菲律宾分支仍需整理旧联调副本并按依赖验证。
+
+## 2026-11-07：按批准方案精简登录态
+
+- 分支 `codex/yacang-login-reuse`，工作区 `pool-19`，基于 `10bcfee41e0ab812da777603639e170354b5cd5a`。本轮仅修改 `python/lxeskill_cli/services/yacang/auth_state.py` 和本交接文件。
+- `_read_session` 继续负责读入并校验会话，`session` 与 `status` 直接使用校验结果；账号目录创建及权限统一由 `lock` 完成，删除 `_atomic_json`、`prepare`、`save_session` 的重复处理。图片目录、图片和临时文件权限，以及锁、登录代次和错误处理保持原行为。生产代码净减少 6 行，测试未改。
+- 入口仍为 `lxeskill yacang login prepare|submit|status|clear`，由 `workflow.login_action` 调用登录态服务；导出经 `workflow.run` 复用会话。沿用 `LXE_YACANG_MOBILE`、`LXE_YACANG_PASSWORD`、`LXE_DATA_ROOT`，验证码图片使用当前 `artifact_root`。
+- 从本工作区根目录运行 `UV_CACHE_DIR=/private/tmp/lxe-yacang-simplify-uv-cache uv run --frozen pytest python/lxeskill_cli/tests/yacang -q --tb=short`：**88 passed**。已确认 Python 和导入源码均属于 pool-19。沙箱内首次运行因本机 HTTP 监听权限受阻，批准后在允许监听的环境运行同一离线测试；没有生产请求。本轮真实 ERP、桌面登录及 Windows 文件权限为 **NOT VERIFIED**。
+- 独立复审未发现新增必修问题；已检查 diff、敏感信息、无关文件和 `git diff --check`。用户已批准暂存、提交上述两文件，补丁与本交接放在同一提交；代码与 88 项测试通过时一致。下一步按雅仓 → TMS → 菲律宾顺序提审，推送和创建 PR 分别申请授权；菲律宾旧联调副本仍待整理。
