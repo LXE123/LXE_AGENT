@@ -548,8 +548,7 @@
 .file-html-preview { display:block; width:100%; flex:1; min-height:0; border:0; background:white; color-scheme:light; }
 
 /* Image files use the shared lightbox without changing the sidebar underneath. */
-.file-image-dialog { display:flex; flex-direction:column; width:min(1100px, 100%); height:calc(100dvh - 48px); }
-.file-image-dialog > .file-document { min-height:0; border-radius:12px; overflow:hidden; background:var(--surface); color:var(--text); }
+.file-image-dialog > .file-document { min-height:0; overflow:hidden; background:var(--surface); }
 
 .file-image-dialog .file-image { display:flex; }
 .file-image-dialog .file-image img { margin:auto; }

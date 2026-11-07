@@ -339,11 +339,46 @@ app.whenReady().then(async () => {
       await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
       await wait("!document.querySelector('[role=dialog]') && previewFixture.pending.size===0", "Escape closes and releases image");
       await wait("document.activeElement===document.querySelector('#chat-image-card .turn-file-card')", "focus returns to image card");
+      win.setSize(640, 800);
       await click("#chat-images .sent-image-tile");
-      await wait("document.querySelector('.sent-image-dialog > img')?.naturalWidth===960", "sent attachment expands in dialog");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===960", "sent attachment expands in dialog");
       assert.equal(await js("!!document.querySelector('.file-image-dialog') || !!document.querySelector('.file-sidebar')"), false);
       assert.ok(await js("previewFixture.calls.includes('attachment:expanded')"), "uses expanded attachment preview");
+      assert.equal(await js("document.querySelector('.image-preview-toolbar .image-preview-source').textContent"), "预览历史图片");
+      const closeBounds = () => js("document.querySelector('.image-preview-toolbar button').getBoundingClientRect().toJSON()");
+      const wideClose = await closeBounds();
+      assert.ok(await js(`(() => {
+        const img = document.querySelector('.image-preview-stage img'), r = img.getBoundingClientRect();
+        return r.width > 0 && r.width < img.naturalWidth && Math.abs(r.width / r.height - 960 / 540) < .01;
+      })()`), "wide image fits a narrow window proportionally");
+      await capture("attachment-preview-light");
+      await click(".image-preview-stage img");
+      assert.ok(await js("!!document.querySelector('.sent-image-dialog')"), "clicking the image keeps it open");
+      await click(".image-preview-stage"); await wait("!document.querySelector('[role=dialog]')", "empty canvas closes attachment");
+      await js("document.documentElement.dataset.theme='dark'");
+      await click("#chat-images .sent-image-item:nth-child(2) .sent-image-tile");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===96", "small attachment expands in dialog");
+      assert.deepEqual(await closeBounds(), wideClose, "close button stays at the same coordinates for a small image and a long filename");
+      assert.ok(await js(`(() => {
+        const r = document.querySelector('.image-preview-stage img').getBoundingClientRect();
+        const stage = document.querySelector('.image-preview-stage').getBoundingClientRect();
+        const name = document.querySelector('.image-preview-name');
+        return r.width === 96 && r.height === 96 && Math.abs(r.x + 48 - stage.x - stage.width / 2) < 1
+          && Math.abs(r.y + 48 - stage.y - stage.height / 2) < 1
+          && name.title === name.textContent && name.firstElementChild.scrollWidth > name.firstElementChild.clientWidth
+          && name.lastElementChild.textContent === '.svg' && name.lastElementChild.scrollWidth === name.lastElementChild.clientWidth;
+      })()`), "small image stays centered at native size and the full extension survives title truncation");
+      await capture("attachment-preview-dark");
+      await js("document.getElementById('root').classList.add('desktop-platform-win32')");
+      assert.ok(await js(`(() => {
+        const backdrop = document.querySelector('.sent-image-backdrop').getBoundingClientRect();
+        const dialog = document.querySelector('.sent-image-dialog').getBoundingClientRect();
+        const captionHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--desktop-caption-height'));
+        return captionHeight > 0 && backdrop.top === captionHeight && dialog.top >= backdrop.top + 20 && dialog.bottom <= innerHeight - 20;
+      })()`), "Windows caption and lower window margin remain clear");
+      await js("document.getElementById('root').classList.remove('desktop-platform-win32')");
       await click(".sent-image-backdrop"); await wait("!document.querySelector('[role=dialog]')", "backdrop closes attachment");
+      win.setSize(1200, 900); await js("document.documentElement.dataset.theme='light'");
       await click("#chat-images .message-reference");
       await wait("!!document.querySelector('.file-image-dialog .file-image img')", "chat image reference uses dialog");
       await click(".sent-image-dialog > header button");

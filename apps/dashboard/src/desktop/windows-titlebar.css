@@ -122,12 +122,6 @@
 :root:has(.desktop-platform-win32) .modal {
   max-height: min(720px, calc(100dvh - var(--desktop-caption-height) - 40px));
 }
-:root:has(.desktop-platform-win32) .sent-image-dialog > img {
-  max-height: calc(100dvh - var(--desktop-caption-height) - 140px);
-}
-:root:has(.desktop-platform-win32) .file-image-dialog {
-  height: calc(100dvh - var(--desktop-caption-height) - 48px);
-}
 
 @media (max-width: 920px) {
   .desktop-platform-win32 .app-sidebar.is-expanded {
