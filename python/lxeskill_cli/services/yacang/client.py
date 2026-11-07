@@ -89,10 +89,19 @@ class YacangClient:
             try:
                 payload = json.loads(raw)
             except ValueError as exc:
-                self._http_error(status, detail, purpose)
-                raise YacangError(purpose, self.diagnostic(f"{detail}; {exc}"), code="submit_unknown" if purpose == "submit" else "invalid_response", scope="global") from None
-            if path == "/sys/customer/verify" and isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-                self.secrets.extend(str(payload["data"][k]) for k in ("key", "code", "captcha") if payload["data"].get(k) is not None)
+                if path == "/sys/customer/loginV3":
+                    detail = f"{path}: HTTP {status}"
+                    self._http_error(status, f"{detail}; {type(exc).__name__}: {exc}", purpose)
+                else:
+                    self._http_error(status, detail, purpose)
+                message = f"{self.diagnostic(str(exc))}; {self.diagnostic(detail)}"
+                raise YacangError(purpose, message, code="submit_unknown" if purpose == "submit" else "invalid_response", scope="global") from None
+            if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+                sensitive_fields = {
+                    "/sys/customer/verify": ("key", "code", "captcha"),
+                    "/sys/customer/loginV3": ("token",),
+                }.get(path, ())
+                self.secrets.extend(str(payload["data"][k]) for k in sensitive_fields if payload["data"].get(k) is not None)
             self._http_error(status, detail, purpose)
             if not isinstance(payload, dict) or "status" not in payload:
                 raise YacangError(purpose, self.diagnostic(detail), code="submit_unknown" if purpose == "submit" else "invalid_response", scope="global")

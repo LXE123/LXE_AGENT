@@ -23,14 +23,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, '_artifact_root', tmp_path / 'artifacts')
 
 
-def test_login_session_is_available_to_next_process(env):
-    YacangAuthState(Credentials.from_environment()).save_session('cross-process-token')
-    script = "from services.yacang.auth_state import YacangAuthState; from services.yacang.contracts import Credentials; assert YacangAuthState(Credentials.from_environment()).session() == 'cross-process-token'"
-    child = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
-    assert child.returncode == 0, child.stderr
-
-
-def test_saved_session_does_not_fail_after_atomic_publication(env, monkeypatch):
+def test_saved_session_is_available_after_atomic_publication_and_to_next_process(env, monkeypatch):
     auth = YacangAuthState(Credentials.from_environment())
     original = auth_state._restrict_permissions
 
@@ -42,6 +35,9 @@ def test_saved_session_does_not_fail_after_atomic_publication(env, monkeypatch):
     monkeypatch.setattr(auth_state, '_restrict_permissions', reject_published_path)
     auth.save_session('private-token')
     assert auth.session() == 'private-token'
+    script = "from services.yacang.auth_state import YacangAuthState; from services.yacang.contracts import Credentials; assert YacangAuthState(Credentials.from_environment()).session() == 'private-token'"
+    child = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
+    assert child.returncode == 0, child.stderr
     if os.name != 'nt':
         assert auth.session_path.stat().st_mode & 0o777 == 0o600
 

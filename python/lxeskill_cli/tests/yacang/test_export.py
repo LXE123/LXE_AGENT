@@ -22,7 +22,7 @@ from PIL import Image
 
 from services.yacang import client, workflow, queue
 from services.yacang.contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key
-from services.yacang.errors import YacangError
+from services.yacang.errors import YacangError, safe_remote_detail
 from services.yacang.state import ExportState
 from services.yacang.auth_state import YacangAuthState
 from services.yacang.validation import INVENTORY_SALES_HEADERS, INVENTORY_LIST_HEADERS, WAREHOUSE_PRODUCTS_HEADERS
@@ -320,6 +320,9 @@ def test_global_failure_stops_remaining_tasks_and_preserves_error(platform, stat
     assert 'actual denial' in result['error']['message']
     assert 'test-password' not in json.dumps(result) and 'private-token' not in json.dumps(result)
     assert sum(t['status'] == 'not_run' for t in result['tasks']) == 3
+    if status == 401:
+        assert result['error']['code'] == 'login_required'
+        assert YacangAuthState(Credentials.from_environment()).status()['status'] == 'missing'
 
 
 def test_unknown_submit_resumes_queue_without_resubmitting(platform):
@@ -361,14 +364,6 @@ def test_missing_local_login_state_stops_before_contact(platform):
     assert not result['success'] and not submits(platform)
     assert not platform['calls']
     assert result['error']['code'] == 'login_required'
-
-
-def test_expired_session_is_cleared_on_explicit_401(platform):
-    platform['reject'][REPORTS['inventory-sales'][1]] = (401, {'msg': 'actual session expired'})
-    result = workflow.run(request())
-    assert result['error']['code'] == 'login_required'
-    assert 'actual session expired' in result['error']['message']
-    assert YacangAuthState(Credentials.from_environment()).status()['status'] == 'missing'
 
 
 def test_download_401_does_not_invalidate_erp_session(platform):
@@ -611,6 +606,59 @@ def test_prepare_preserves_redacted_actual_response_errors(platform, payload, de
     assert not submits(platform)
 
 
+@pytest.mark.parametrize('status,long_response', [(200, False), (403, False), (200, True)])
+def test_malformed_captcha_response_redacts_image_and_keeps_diagnostic(platform, status, long_response):
+    raw = '{"status":1,"message":"actual malformed response' + ('x' * 2100 if long_response else '')
+    raw += '","data":{"key":"private-key","captcha":"synthetic-image-base64'
+    platform['reject']['/sys/customer/verify'] = (status, raw + ('", invalid}' if long_response else ''))
+    result = workflow.login_action('prepare', {})
+    assert not result['success']
+    assert 'actual malformed response' in result['error']['message']
+    if status == 200:
+        assert ('Expecting property name' if long_response else 'Unterminated string') in result['error']['message']
+    assert 'synthetic-image-base64' not in json.dumps(result)
+    assert 'private-key' not in json.dumps(result)
+    assert not submits(platform)
+
+
+def test_rejected_login_redacts_token_reflected_in_response_message(platform):
+    prepared = workflow.login_action('prepare', {})
+    secret = 'synthetic-reflected-token'
+    platform['reject']['/sys/customer/loginV3'] = (
+        200, {'status': 0, 'data': {'token': secret}, 'message': f'actual denial {secret}'})
+    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success'] and 'actual denial' in result['error']['message']
+    assert secret not in json.dumps(result)
+
+
+@pytest.mark.parametrize('status', [200, 403])
+def test_malformed_login_response_redacts_reflected_token(platform, status):
+    prepared = workflow.login_action('prepare', {})
+    secret = 'synthetic-malformed-token'
+    platform['reject']['/sys/customer/loginV3'] = (
+        status, '{"status":0,"data":{"token":"' + secret + '"},"message":"denied ' + secret + '",')
+    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success']
+    assert 'Expecting property name' in result['error']['message']
+    assert f'/sys/customer/loginV3: HTTP {status}' in result['error']['message']
+    assert secret not in json.dumps(result)
+
+
+def test_malformed_login_response_handles_unpaired_surrogate_token(platform):
+    prepared = workflow.login_action('prepare', {})
+    platform['reject']['/sys/customer/loginV3'] = (
+        200, '{"status":0,"data":{"token":"\\ud800"},"message":"actual denial",')
+    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success']
+    assert 'Expecting property name' in result['error']['message']
+    assert '/sys/customer/loginV3: HTTP 200' in result['error']['message']
+    assert '\\ud800' not in json.dumps(result)
+
+
+def test_diagnostic_handles_unpaired_surrogate_secret():
+    assert safe_remote_detail('token value \\ud800', secrets=('\ud800',)) == 'token value [REDACTED]'
+
+
 def test_login_missing_token_preserves_actual_diagnostic(platform):
     platform['reject']['/sys/customer/loginV3'] = (200, {'status': 1, 'data': {'unexpected': 'actual payload'}})
     prepared = workflow.login_action('prepare', {})
@@ -620,29 +668,21 @@ def test_login_missing_token_preserves_actual_diagnostic(platform):
     assert 'private-key' not in json.dumps(result) and 'Ab9x' not in json.dumps(result)
 
 
-def test_invalid_jpeg_is_rejected_before_exposing_image(env, monkeypatch):
+@pytest.mark.parametrize('oversized', [False, True])
+def test_invalid_captcha_image_is_rejected(env, monkeypatch, oversized):
+    image = b'\xff\xd8\xfftruncated'
+    if oversized:
+        stream = io.BytesIO()
+        Image.new('RGB', (2001, 2000), 'white').save(stream, format='JPEG')
+        image = stream.getvalue()
     api = client.YacangClient(Credentials.from_environment(), ExportState(Credentials.from_environment().account_id))
-    monkeypatch.setattr(api, 'request', lambda *args, **kwargs: {'data': {'key': 'private-key', 'captcha': base64.b64encode(b'\xff\xd8\xfftruncated').decode()}})
+    monkeypatch.setattr(api, 'request', lambda *args, **kwargs: {'data': {'key': 'private-key', 'captcha': base64.b64encode(image).decode()}})
     try:
         with pytest.raises(YacangError) as caught:
             api.prepare_login()
         assert caught.value.code == 'invalid_captcha'
-        assert 'UnidentifiedImageError' in str(caught.value)
+        assert ('4000000' if oversized else 'UnidentifiedImageError') in str(caught.value)
         assert 'private-key' not in str(caught.value)
-    finally:
-        api.close()
-
-
-def test_captcha_larger_than_pixel_limit_is_rejected(env, monkeypatch):
-    image = io.BytesIO()
-    Image.new('RGB', (2001, 2000), 'white').save(image, format='JPEG')
-    api = client.YacangClient(Credentials.from_environment(), ExportState(Credentials.from_environment().account_id))
-    monkeypatch.setattr(api, 'request', lambda *args, **kwargs: {'data': {'key': 'private-key', 'captcha': base64.b64encode(image.getvalue()).decode()}})
-    try:
-        with pytest.raises(YacangError) as caught:
-            api.prepare_login()
-        assert caught.value.code == 'invalid_captcha'
-        assert '4000000' in str(caught.value)
     finally:
         api.close()
 

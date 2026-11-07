@@ -16,9 +16,10 @@ def safe_remote_detail(value: Any, *, secrets: tuple[str, ...] = (), limit: int 
     # Redact the complete value before truncation, including unlabelled reflected secrets.
     text = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
     for secret in sorted(filter(None, secrets), key=len, reverse=True):
-        for form in (secret, quote(secret, safe=""), quote_plus(secret), json.dumps(secret, ensure_ascii=False)[1:-1]):
+        for form in (secret, quote(secret, safe="", errors="surrogatepass"), quote_plus(secret, errors="surrogatepass"),
+                     json.dumps(secret, ensure_ascii=False)[1:-1], json.dumps(secret, ensure_ascii=True)[1:-1]):
             text = text.replace(form, "[REDACTED]")
     text = re.sub(r'https?://[^\s\"\'<>]+', '[REDACTED_URL]', text)
-    text = re.sub(r'''(?i)(["']?(?:[\w-]*token|authorization|cookie|set-cookie|password|mobile|verify_code|key)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)''', r'\1[REDACTED]', text)
+    text = re.sub(r'''(?i)(["']?(?:[\w-]*token|authorization|cookie|set-cookie|password|mobile|verify_code|key|captcha)["']?\s*[:=]\s*)(?:"(?:\\(?:.|$)|[^"\\])*(?:"|$)|'(?:\\(?:.|$)|[^'\\])*(?:'|$)|[^\s,;}]+)''', r'\1[REDACTED]', text)
     text = re.sub(r'data:image/[^\s"\']+', '[REDACTED_IMAGE]', text)
     return text if len(text) <= limit else text[:limit] + " … [truncated]"
