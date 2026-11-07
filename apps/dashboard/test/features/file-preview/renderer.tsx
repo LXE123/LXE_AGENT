@@ -2,6 +2,7 @@ import { UnifiedConversationRow } from "../../../src/features/sessions/view";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setDashboardTransportForTests } from "../../../src/api/client";
 import { SentAttachmentList } from "../../../src/features/sessions/sent-attachments";
+import { DraftImageAttachment } from "../../../src/features/sessions/draft-image-attachment";
 import { UserReferenceText } from "../../../src/features/sessions/UserReferenceText";
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -82,6 +83,7 @@ function Fixture() {
       { attachment_id: "图.png", name: "已发送图片.png", media_type: "image/png", size_bytes: 100 },
       { attachment_id: "small.svg", name: "工作区截图-5c114fa3-b30d-45cb-bb97-5af5c6ffdc52-3856bd99-0732-41e9-be7c-5f12888b6c24.svg", media_type: "image/svg+xml", size_bytes: 100 },
     ]} sessionId={session} onOpen={async () => { throw new Error("Unexpected system open"); }} />
+    <DraftImageAttachment attachment={{ attachment_id: "draft-image", name: "待发送.svg", media_type: "image/svg+xml", size_bytes: 100, preview_data_url: `data:image/svg+xml,${encodeURIComponent(smallImageSvg)}` }} />
     <UserReferenceText text="@截图示例.svg" />
   </div> : null}{cards ? <div id="test-file-cards" style={{ padding: 20, maxWidth: 520 }}><p>测试夹具 · 真实生产文件卡片组件</p><UnifiedConversationRow row={{ id: "test-artifacts", kind: "artifacts", groupId: "test", turnId: "test", createdAt: 1, artifacts: ["book.xlsx", "doc.pdf", "文档.md"].map(name => ({ artifact_id: name, turn_id: "test", tool_call_id: "fixture", name: name === "book.xlsx" ? "销售统计-包含所有区域和部门的最终版本.xlsx" : name })) }} expanded={false} onToggle={() => {}} onOpenFile={async () => {}} onRevealFile={async () => {}} onOpenAttachment={async () => {}} attachmentSessionId={session} /></div> : null}</FilePreviewLayout>;
 }

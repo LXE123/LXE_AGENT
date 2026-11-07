@@ -378,6 +378,16 @@ app.whenReady().then(async () => {
       })()`), "Windows caption and lower window margin remain clear");
       await js("document.getElementById('root').classList.remove('desktop-platform-win32')");
       await click(".sent-image-backdrop"); await wait("!document.querySelector('[role=dialog]')", "backdrop closes attachment");
+      await js(`void (window.lxe = {desktop: {previewDraftConversationFile: async () => ({
+        data_url: document.querySelector('#chat-images .sent-image-tile img').src
+      })}})`);
+      await click("#chat-images .input-attachment-image button");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===960", "draft thumbnail opens its expanded image");
+      assert.equal(await js("document.querySelector('.image-preview-toolbar .image-preview-source')"), null, "draft has no historical source label");
+      assert.deepEqual(await closeBounds(), wideClose);
+      await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+      await wait("!document.querySelector('[role=dialog]')", "Escape closes draft preview");
+      await js("delete window.lxe");
       win.setSize(1200, 900); await js("document.documentElement.dataset.theme='light'");
       await click("#chat-images .message-reference");
       await wait("!!document.querySelector('.file-image-dialog .file-image img')", "chat image reference uses dialog");
