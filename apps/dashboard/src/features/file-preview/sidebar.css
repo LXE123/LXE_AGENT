@@ -548,7 +548,22 @@
 .file-html-preview { display:block; width:100%; flex:1; min-height:0; border:0; background:white; color-scheme:light; }
 
 /* Image files use the shared lightbox without changing the sidebar underneath. */
-.file-image-dialog > .file-document { min-height:0; overflow:hidden; background:var(--surface); }
+.file-image-dialog > .file-document { align-self:center; width:min(1100px, calc(100% - 32px)); margin-block:52px 12px; overflow:hidden; }
+.file-image-dialog .file-document-toolbar {
+  align-self:flex-end;
+  max-width:100%;
+  border:0;
+  border-radius:10px;
+  background:var(--cds-surface-popover);
+}
+.file-image-dialog :is(.file-failure-panel, .file-preview-loading) {
+  flex:0 1 auto;
+  align-self:center;
+  margin:auto;
+  border-radius:10px;
+  background:var(--cds-surface-popover);
+}
 
 .file-image-dialog .file-image { display:flex; }
 .file-image-dialog .file-image img { margin:auto; }
+.file-image-dialog .file-paged-text { background:var(--cds-surface-panel); border-radius:10px; overflow:hidden; }

@@ -17,14 +17,16 @@ export function ImagePreviewDialog({ attachment, url = "", error = "", loading =
     if (event.target === event.currentTarget) onClose();
   }
   return createPortal(<div className="sent-image-backdrop tool-sidebar-theme" onClick={closeOnEmptySpace}>
-    <div className={`sent-image-dialog${children ? " file-image-dialog" : ""}`} role="dialog" aria-modal="true" aria-label={name} ref={ref} tabIndex={-1}>
+    <div className={`sent-image-dialog${children ? " file-image-dialog" : ""}`} role="dialog" aria-modal="true" aria-label={name} ref={ref} tabIndex={-1} onClick={closeOnEmptySpace}>
       <header className="image-preview-toolbar">
-        <span className="image-preview-name" title={name}>
-          <span>{hasExtension ? name.slice(0, dot) : name}</span>
-          {hasExtension && <span>{name.slice(dot)}</span>}
+        <span className="image-preview-info">
+          <span className="image-preview-name" title={name}>
+            <span>{hasExtension ? name.slice(0, dot) : name}</span>
+            {hasExtension && <span>{name.slice(dot)}</span>}
+          </span>
+          {note && <span className="image-preview-source">{note}</span>}
+          {loading && <LoaderCircle className="conversation-spinner" role="status" aria-label={t.sessionDetail.loading} size={16} />}
         </span>
-        {note && <span className="image-preview-source">{note}</span>}
-        {loading && <LoaderCircle className="conversation-spinner" role="status" aria-label={t.sessionDetail.loading} size={16} />}
         <button type="button" aria-label={t.detailModal.close} onClick={onClose}><X size={18} /></button>
       </header>
       {children ?? <div className="image-preview-stage" onClick={closeOnEmptySpace}>
