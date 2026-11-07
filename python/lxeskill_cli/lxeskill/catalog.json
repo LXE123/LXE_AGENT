@@ -22,20 +22,7 @@
       "timeout_ms": 600000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
-    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status --store-id <店铺ID>"]}},
-    {
-      "name": "ziniao_page",
-      "command_path": ["browser", "page"],
-      "legacy_aliases": ["ziniao_page"],
-      "visibility": "browser",
-      "session_mode": "lxe_session",
-      "handler": "browser",
-      "owner_skills": ["ziniao-browser"],
-      "timeout_ms": 600000,
-      "exposed": true,
-      "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"}, "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上一次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["store_id"], "additionalProperties": false}
-    , "help": {"group": "common", "section": "浏览器操作", "summary": "读取或操作紫鸟浏览器页面", "examples": ["lxeskill browser page --store-id <店铺ID> --action browser_snapshot"]}},
+    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status"]}},
     {
       "name": "ziniao_script_run",
       "command_path": ["browser", "script", "run"],
@@ -409,7 +396,7 @@
     "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
-    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
+    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器自动化脚本归档的下载文件，按会话和每次运行分目录。", "legacy_dirs": []},
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
   },
   "input_assets": {

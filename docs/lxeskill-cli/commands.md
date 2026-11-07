@@ -145,7 +145,6 @@ $ lxeskill help common
 
 浏览器操作：
   browser store       管理紫鸟店铺浏览器
-  browser page        读取或操作紫鸟浏览器页面
   browser script run  运行紫鸟浏览器自动化脚本
 
 马帮认证维护：

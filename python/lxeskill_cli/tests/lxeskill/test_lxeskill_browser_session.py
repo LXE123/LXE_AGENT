@@ -9,6 +9,17 @@ from services.browser.tools import client as browser_client
 from services.browser.tools.models import ToolExecutionResult
 
 
+def test_browser_commands_after_page_removal(capsys) -> None:
+    assert lxeskill.main(["list"]) == 0
+    entries = json.loads(capsys.readouterr().out)["data"]["commands"]
+    commands = {entry["command"] for entry in entries if entry["command"].startswith("browser ")}
+    assert commands == {"browser store", "browser script run"}
+
+    for path in (["browser", "page"], ["ziniao_page"]):
+        assert lxeskill.main([*path, "--action", "browser_snapshot"]) == lxeskill.EXIT_USAGE
+        assert json.loads(capsys.readouterr().out)["error"]["code"] == "unknown_command"
+
+
 def test_browser_command_runs_on_a_fresh_db_without_agent_sessions(tmp_path, monkeypatch) -> None:
     # Regression: agent_sessions is a Bun-runtime table in agent.sqlite3; the
     # Python browser CLI must not touch it. A fresh lxeskill.sqlite3 without
@@ -37,35 +48,6 @@ def test_browser_command_runs_on_a_fresh_db_without_agent_sessions(tmp_path, mon
     assert data == {"content": [{"type": "text", "text": "ready"}]}
     assert files == []
     assert observed_sessions == ["session-1"]
-
-
-def test_browser_vision_exposes_model_input_path_but_not_terminal_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "fresh.sqlite3"))
-    screenshot = tmp_path / "artifacts" / "browser" / "shot.png"
-    screenshot.parent.mkdir(parents=True)
-    screenshot.write_bytes(b"png")
-
-    async def fake_execute(tool_name, arguments, session):
-        return ToolExecutionResult(
-            tool_name=tool_name,
-            success=True,
-            content=[{"type": "text", "text": "captured"}],
-            files=[str(screenshot)],
-        )
-
-    monkeypatch.setattr(browser_client, "execute_browser_tool", fake_execute)
-    monkeypatch.setattr(lxeskill_browser, "allowed_output_file", lambda path, **kwargs: screenshot.resolve())
-    data, files = asyncio.run(lxeskill_browser.execute_browser_command(
-        {"name": "ziniao_page", "owner_skills": ["ziniao-browser"]},
-        {"action": "browser_vision", "store_id": "store-1"},
-        "session-vision",
-    ))
-
-    assert data == {
-        "content": [{"type": "text", "text": "captured"}],
-        "screenshot_path": str(screenshot.resolve()),
-    }
-    assert files == []
 
 
 def test_browser_session_resolution_prefers_explicit_id(monkeypatch) -> None:
@@ -105,8 +87,8 @@ def test_browser_command_surfaces_store_busy_error(monkeypatch) -> None:
     try:
         asyncio.run(
             lxeskill_browser.execute_browser_command(
-                {"name": "ziniao_page"},
-                {"action": "browser_snapshot", "store_id": "store-1"},
+                {"name": "ziniao_browser"},
+                {"action": "open_store", "store_id": "store-1"},
                 "session-1",
             )
         )
