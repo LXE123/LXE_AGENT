@@ -14,6 +14,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
+- `codemode`：桌面宿主注入的脚本入口。通过 Pi QuickJS 调用当前桌面回合可用的定时任务工具，脚本搜索不会将命中工具加入下一次模型请求的 `tools`。
 
 ## 专题导航
 

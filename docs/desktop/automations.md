@@ -72,7 +72,9 @@ flowchart LR
 
 启动时 Electron 注入命令、脚本、管道地址和随机凭据。agentcli 取得托管配置后从普通执行环境和 `process.env` 移除这些值；其他 CLI、exec 和第三方 MCP 不继承凭据。凭据不写入用户 MCP JSON 配置或命令参数。服务可在 MCP 管理页启停，偏好存在桌面数据库；关闭 MCP 不关闭定时调度或任务页。
 
-只对桌面来源暴露四个工具，采用已有 deferred 工具发现机制：
+桌面对话的 `codemode` 工具会提示模型可查询定时任务。脚本用 `await searchTools("automation")` 查名称、说明和参数，再用 `await tools[name](args)` 调用。脚本可以组合查询计划与运行记录，只把所需数据返回给模型。搜索和调用沿用当前桌面回合身份，顶层工具清单保持稳定。现有的 `tool_search` 入口仍可按原有 deferred 机制激活直接调用。
+
+脚本可访问的工具来自已连接的 `lxe_desktop`，共四个：
 
 - `automation_list`：列出计划、可选工作区与当前会话 ID。
 - `automation_update`：创建、查看、修改、暂停、恢复、删除；修改需当前版本。`session_id=current` 由宿主解析。

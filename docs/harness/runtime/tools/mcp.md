@@ -77,4 +77,4 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 工具适配保留描述、参数 Schema、平台限制及宿主提供的调用元数据；文本、图片、资源和结构化结果沿用 Runtime 的统一处理路径。
 
-**注册工具与工具进入模型上下文是两个阶段。** 本轮不改变上下文策略：`exposure: "direct"` 继续直接开放，默认 `deferred`（以及当前的 `auto`）继续通过已有 `tool_search` 按需开放。没有新增工具搜索算法、上下文预算或动态加载策略。详见 [Exposure 模型](README.md#exposure-模型)。
+**注册工具与工具进入模型上下文是两个阶段。** 用户服务器的 `direct` 工具直接开放，默认 `deferred` 和当前的 `auto` 通过 `tool_search` 按需开放。桌面对话还可以在 `codemode` 脚本中搜索和调用已连接的 `lxe_desktop` 工具，脚本只把选定的结果返回给模型，搜索命中的工具定义不会加入顶层 `tools`。详见 [Exposure 模型](README.md#exposure-模型) 和 [桌面 MCP 接口](../../../desktop/automations.md#桌面-mcp-接口)。

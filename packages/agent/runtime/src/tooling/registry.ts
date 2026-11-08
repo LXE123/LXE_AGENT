@@ -21,6 +21,8 @@ export interface ToolDefinition extends ToolSchema {
     response_route_id?: string;
     turn_id?: string;
     tool_call_id?: string;
+    /** Lifetime of a nested call, which can end before its parent turn. */
+    signal?: AbortSignal;
     exposureState?: ToolExposureState;
     skill_names?: readonly string[];
     workspace: WorkspaceContext;
@@ -124,9 +126,12 @@ export class ToolExposureState {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly options: ToolExposureOptions = {},
+    private readonly mcpServer?: string,
   ) {
     for (const definition of registry.definitionsSnapshot()) {
-      if (definition.exposure === "direct" && this.allowed(definition)) this.exposed.add(definition.name);
+      if ((mcpServer !== undefined || definition.exposure === "direct") && this.allowed(definition)) {
+        this.exposed.add(definition.name);
+      }
     }
   }
 
@@ -136,11 +141,17 @@ export class ToolExposureState {
       .map(schemaOf);
   }
 
-  search(query: string, limit = 8): ToolSchema[] {
+  /** A script has its own callable set. Its tools never enter the parent turn's schema list. */
+  forMcpServer(name: string): ToolExposureState {
+    return new ToolExposureState(this.registry, this.options, name);
+  }
+
+  find(query: string, limit = 8): ToolSchema[] {
     const terms = query.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length > 1);
     if (terms.length === 0) throw new Error("tool_search query must contain a specific capability");
     const matches = this.registry.definitionsSnapshot().filter((definition) =>
       definition.name !== "tool_search" && this.allowed(definition)
+      && (this.mcpServer === undefined || this.exposed.has(definition.name))
     ).map((definition) => {
       const haystack = `${definition.name} ${definition.rawName ?? ""} ${definition.description} ${JSON.stringify(definition.input_schema)}`.toLowerCase();
       const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
@@ -148,8 +159,13 @@ export class ToolExposureState {
     }).filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score || left.definition.name.localeCompare(right.definition.name))
       .slice(0, Math.max(1, Math.min(Math.trunc(limit), 20)));
-    for (const { definition } of matches) this.exposed.add(definition.name);
     return matches.map(({ definition }) => schemaOf(definition));
+  }
+
+  search(query: string, limit = 8): ToolSchema[] {
+    const matches = this.find(query, limit);
+    for (const tool of matches) this.exposed.add(tool.name);
+    return matches;
   }
 
   async activateSkillPath(path: string): Promise<void> {
@@ -181,6 +197,7 @@ export class ToolExposureState {
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {
+    if (this.mcpServer !== undefined && (definition.source !== "mcp" || definition.connectorName !== this.mcpServer)) return false;
     if (definition.platforms && !definition.platforms.includes(this.options.platform ?? "")) return false;
     if (definition.ownerSkills.length > 0 && this.options.allowedSkills) {
       return definition.ownerSkills.some((skill) => this.options.allowedSkills?.has(skill));
@@ -237,19 +254,7 @@ export class ToolRegistry {
   async execute(
     name: string,
     input: JsonObject,
-    context: {
-      executionPolicy: ExecutionPolicy;
-      handle: RuntimeHandle;
-      session_id: string;
-      response_route_id?: string;
-      turn_id?: string;
-      tool_call_id?: string;
-      exposureState?: ToolExposureState;
-      skill_names?: readonly string[];
-      workspace: WorkspaceContext;
-      platform?: string;
-      workspaceSearch?: WorkspaceSearchService;
-    },
+    context: Parameters<ToolDefinition["execute"]>[1],
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());
     if (!definition) throw new Error(`unknown tool: ${name}`);
@@ -262,6 +267,7 @@ export class ToolRegistry {
     // Command-level authorization belongs to the called program.
     // The registry only gates tool exposure.
     if (context.handle.signal.aborted) throw new DOMException("Turn cancelled", "AbortError");
+    context.signal?.throwIfAborted();
     return definition.execute(input, context);
   }
 }

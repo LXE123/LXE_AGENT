@@ -1,4 +1,5 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
+import { registerDesktopCodemode } from "./desktop-codemode";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -199,6 +200,7 @@ export function createAgentRuntimeHost(
   if (desktopMcp) {
     if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");
     mcpConfig.servers.push(desktopMcp);
+    registerDesktopCodemode(tools);
   }
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);

@@ -94,7 +94,7 @@ export function adaptMcpTools(
             signal => callTool(tool.name, input, signal, metadata),
             server.toolTimeoutMs,
             `MCP tool ${server.name}/${tool.name}`,
-            context.handle.signal,
+            context.signal ?? context.handle.signal,
           );
           if (result.isError) {
             const preview = safeMcpContent(result).map(block => String(block.text ?? "")).filter(Boolean).join("\n");
@@ -104,7 +104,7 @@ export function adaptMcpTools(
         } catch (error) {
           const observed = mcpFailureText(error);
           onError(observed);
-          if (context.handle.signal.aborted) throw error;
+          if (context.handle.signal.aborted || context.signal?.aborted) throw error;
           const failure = new ToolExecutionError("unclassified", observed, {
             ...unknownToolFailureDetails(modelName, error), observed_message: observed,
           });
