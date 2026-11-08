@@ -20,6 +20,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
     },
     "remote_demo": {
       "enabled": true,
+      "exposure": "deferred",
       "transport": "streamable-http",
       "url": "https://example.com/mcp",
       "headers": { "X-Client": "agentcli" },
@@ -77,4 +78,13 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 工具适配保留描述、参数 Schema、平台限制及宿主提供的调用元数据；文本、图片、资源和结构化结果沿用 Runtime 的统一处理路径。
 
-**注册工具与工具进入模型上下文是两个阶段。** 用户服务器的 `direct` 工具直接开放，默认 `deferred` 和当前的 `auto` 通过 `tool_search` 按需开放。桌面对话还可以在 `codemode` 脚本中搜索和调用已连接的 `lxe_desktop` 工具，脚本只把选定的结果返回给模型，搜索命中的工具定义不会加入顶层 `tools`。详见 [Exposure 模型](README.md#exposure-模型) 和 [桌面 MCP 接口](../../../desktop/automations.md#桌面-mcp-接口)。
+每个服务可以通过 `exposure` 指定模型如何发现工具。
+
+| `exposure` | 启用服务后，当前平台的模型入口 |
+| --- | --- |
+| `codemode`（默认） | 提供 `codemode`。脚本用 `searchTools()` 发现工具，再用 `tools[name](args)` 调用。脚本搜索保持顶层 `tools` 稳定。 |
+| `deferred` | 提供 `tool_search`。模型搜索后，命中的工具从下一步开始可直接调用。 |
+| `direct` | 连接成功后，具体工具直接进入模型的 `tools`。 |
+| `hidden` | 工具保留在管理目录中，模型和脚本均无法调用。 |
+
+旧值 `auto` 随默认策略走 `codemode`，已有文件按原样保留。只统计当前回合平台上**已启用**的服务，连接状态决定实际可用的工具。两种间接模式并存时，两个入口都会出现。`tool_search` 可加载 `codemode` 和 `deferred` 工具，脚本可调用当前平台允许的非隐藏 MCP 工具。关闭最后一个 `deferred` 服务后，下一次模型请求就会撤下 `tool_search`。详见 [Exposure 模型](README.md#exposure-模型) 和 [桌面 MCP 接口](../../../desktop/automations.md#桌面-mcp-接口)。

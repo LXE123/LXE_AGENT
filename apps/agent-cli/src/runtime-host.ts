@@ -1,5 +1,5 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
-import { registerDesktopCodemode } from "./desktop-codemode";
+import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -36,7 +36,6 @@ import {
   PermissionApprovalService,
   ExecutionPaths,
   registerCodingTools,
-  registerToolSearch,
   registerUserQuestionTool,
   UserQuestionService,
   setMcpServerEnabled,
@@ -193,15 +192,14 @@ export function createAgentRuntimeHost(
     },
     async stop() {},
   }];
-  registerToolSearch(tools);
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.json");
   const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
   if (desktopMcp) {
     if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");
     mcpConfig.servers.push(desktopMcp);
-    registerDesktopCodemode(tools);
   }
+  registerMcpDiscoveryTools(tools, mcpConfig);
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;

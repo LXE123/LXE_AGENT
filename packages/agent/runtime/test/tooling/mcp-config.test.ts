@@ -48,9 +48,20 @@ test("malformed JSON and invalid configuration shapes fail explicitly", () => {
   for (const server of [
     { enabled: true }, { command: "" }, { transport: "streamable-http" },
     { command: "node", enabled: "true" }, { command: "node", args: "server.js" },
-    { command: "node", env: [] }, { command: "node", headers: { Token: 123 } },
+    { command: "node", env: [] }, { command: "node", headers: { Token: 123 } }, { command: "node", exposure: "tool_search" },
   ]) {
     writeFileSync(path, JSON.stringify({ servers: { invalid: server } }));
     expect(() => loadMcpConfig(path, {})).toThrow();
+  }
+});
+
+test("normalizes server exposure without rewriting user configuration", () => {
+  const { path } = fixture();
+  for (const [input, expected] of [[undefined, "codemode"], [null, "codemode"], ["auto", "codemode"], ["codemode", "codemode"],
+    ["deferred", "deferred"], ["direct", "direct"], ["hidden", "hidden"]] as const) {
+    const json = JSON.stringify({ servers: { example: { enabled: true, command: "node", exposure: input } } });
+    writeFileSync(path, json);
+    expect(loadMcpConfig(path, {}).servers[0]?.exposure).toBe(expected);
+    expect(readFileSync(path, "utf8")).toBe(json);
   }
 });

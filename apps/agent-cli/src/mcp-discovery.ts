@@ -1,7 +1,6 @@
 import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
-import { DESKTOP_MCP_NAME } from "@lxe/desktop-protocol";
 import type { JsonObject } from "@lxe/protocol";
-import type { ToolRegistry } from "@lxe/runtime";
+import { registerToolSearch, type McpConfig, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
 
@@ -10,11 +9,14 @@ const workerUrl = Bun.embeddedFiles.length
   ? "./codemode-worker.js"
   : new URL(`./codemode-worker${extname(import.meta.path)}`, import.meta.url);
 
-export function registerDesktopCodemode(registry: ToolRegistry): void {
+export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpConfig): void {
+  const hasEnabledServer = (mode: "codemode" | "deferred", platform: string | undefined) => config.servers.some(server =>
+    server.enabled && server.exposure === mode && (!server.platforms || server.platforms.includes(platform ?? "")));
+  registerToolSearch(registry, platform => hasEnabledServer("deferred", platform));
   registry.register({
     name: "codemode",
-    platforms: ["desktop"],
-    description: "Run JavaScript to discover and use connected desktop scheduled-task tools (lxe_desktop). " +
+    availableOn: platform => hasEnabledServer("codemode", platform),
+    description: "Run JavaScript to discover and use connected MCP tools. For desktop scheduled tasks, search for automation. " +
       "Use await searchTools(query) for matching names, descriptions and input schemas, or inspect ALL_TOOLS. " +
       "Call await tools[name](args) for a result with content blocks. Use return or text(value) to send selected data back.",
     input_schema: {
@@ -25,15 +27,18 @@ export function registerDesktopCodemode(registry: ToolRegistry): void {
       const exposure = context.exposureState ?? registry.createExposureState(
         context.platform ? { platform: context.platform } : {},
       );
-      const scope = exposure.forMcpServer(DESKTOP_MCP_NAME);
+      const scope = exposure.forCodemode();
       let callIndex = 0;
       const sandbox = new CodemodeSandbox({
         wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
         workerUrl,
         timeoutMs: 60_000,
         memoryLimitBytes: 32 * 1024 * 1024,
-        tools: scope.schemas().map(tool => ({
+        tools: scope.callableTools().map(tool => ({
           name: tool.name,
+          // Keep tools[name] exact. '$' is outside MCP's normalized alphabet, so dash
+          // and underscore variants also get distinct QuickJS identifiers in ALL_TOOLS.
+          jsName: tool.name.replaceAll("-", "$"),
           description: tool.description,
           execute(args, { signal }) {
             if (args === null || typeof args !== "object" || Array.isArray(args)) {

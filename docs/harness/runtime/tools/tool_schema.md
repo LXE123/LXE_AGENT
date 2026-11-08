@@ -13,7 +13,7 @@ Registry definition 包含：
 - `description`：用途、输入前提和结果说明。
 - `input_schema`：JSON Schema object。
 - `source`：native 或 MCP 来源。
-- `exposure`：direct 或 deferred。
+- `exposure` 表示工具的暴露方式。MCP 服务支持 `codemode`（默认）、`deferred`、`direct` 和 `hidden`。
 - `connectorName`：可选 connector/server identity。
 - `ownerSkills`：允许激活该工具的 skill names。
 - `platforms`：允许的当前回合来源；例如 `ask_user_question` 只允许 desktop。
@@ -133,7 +133,7 @@ State 记录 exposed names 与 active skills，不修改全局 registry。不同
 
 ## Deferred search
 
-`tool_search` 按 name、description 和 parameter 文本匹配 deferred tools。命中会更新本 turn exposure，但当前 provider response 不能立即调用新工具；下一 step 重新生成 schemas 后才合法。
+当前平台有启用的 `deferred` 服务时，模型可调用 `tool_search`。它按名称、描述和参数匹配 `deferred` 与 `codemode` 工具，命中的定义从下一次模型请求起可直接调用。`codemode` 脚本内的 `searchTools()` 只查询脚本可用的工具。
 
 搜索结果应返回可读名称和说明，不包含 handler、secret config 或 MCP transport details。
 

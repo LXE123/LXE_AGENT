@@ -4,11 +4,15 @@ import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/types";
 import type { WorkspaceSearchService } from "./workspace-search";
 
+export type ToolExposure = "direct" | "deferred" | "codemode" | "hidden";
+
 export interface ToolDefinition extends ToolSchema {
   /** Host-controlled per-turn availability; never supplied by the model. */
   platforms?: readonly string[];
+  /** Evaluated for each request and call, including after a host-managed service is toggled. */
+  availableOn?: (platform: string | undefined) => boolean;
   source?: "native" | "mcp";
-  exposure?: "direct" | "deferred";
+  exposure?: ToolExposure;
   /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
   supportsParallelCalls?: boolean;
   ownerSkills?: string[];
@@ -126,32 +130,36 @@ export class ToolExposureState {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly options: ToolExposureOptions = {},
-    private readonly mcpServer?: string,
+    private readonly scope: "model" | "codemode" = "model",
   ) {
     for (const definition of registry.definitionsSnapshot()) {
-      if ((mcpServer !== undefined || definition.exposure === "direct") && this.allowed(definition)) {
+      if (scope === "codemode" ? definition.source === "mcp" : definition.exposure === "direct") {
         this.exposed.add(definition.name);
       }
     }
   }
 
-  schemas(): ToolSchema[] {
+  callableTools(): NormalizedToolDefinition[] {
     return this.registry.definitionsSnapshot()
-      .filter((definition) => this.exposed.has(definition.name) && this.allowed(definition))
-      .map(schemaOf);
+      .filter((definition) => this.exposed.has(definition.name) && this.allowed(definition));
+  }
+
+  schemas(): ToolSchema[] {
+    return this.callableTools().map(schemaOf);
   }
 
   /** A script has its own callable set. Its tools never enter the parent turn's schema list. */
-  forMcpServer(name: string): ToolExposureState {
-    return new ToolExposureState(this.registry, this.options, name);
+  forCodemode(): ToolExposureState {
+    return new ToolExposureState(this.registry, this.options, "codemode");
   }
 
   find(query: string, limit = 8): ToolSchema[] {
     const terms = query.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length > 1);
     if (terms.length === 0) throw new Error("tool_search query must contain a specific capability");
     const matches = this.registry.definitionsSnapshot().filter((definition) =>
-      definition.name !== "tool_search" && this.allowed(definition)
-      && (this.mcpServer === undefined || this.exposed.has(definition.name))
+      this.allowed(definition) && (this.scope === "codemode"
+        ? this.exposed.has(definition.name)
+        : definition.exposure === "deferred" || definition.exposure === "codemode")
     ).map((definition) => {
       const haystack = `${definition.name} ${definition.rawName ?? ""} ${definition.description} ${JSON.stringify(definition.input_schema)}`.toLowerCase();
       const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
@@ -197,7 +205,8 @@ export class ToolExposureState {
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {
-    if (this.mcpServer !== undefined && (definition.source !== "mcp" || definition.connectorName !== this.mcpServer)) return false;
+    if (definition.exposure === "hidden" || (this.scope === "codemode" && definition.source !== "mcp")) return false;
+    if (definition.availableOn && !definition.availableOn(this.options.platform)) return false;
     if (definition.platforms && !definition.platforms.includes(this.options.platform ?? "")) return false;
     if (definition.ownerSkills.length > 0 && this.options.allowedSkills) {
       return definition.ownerSkills.some((skill) => this.options.allowedSkills?.has(skill));
@@ -208,7 +217,7 @@ export class ToolExposureState {
 
 export interface NormalizedToolDefinition extends ToolDefinition {
   source: "native" | "mcp";
-  exposure: "direct" | "deferred";
+  exposure: ToolExposure;
   ownerSkills: string[];
 }
 
@@ -224,7 +233,7 @@ export class ToolRegistry {
       ...definition,
       name,
       source,
-      exposure: definition.exposure ?? (source === "native" ? "direct" : "deferred"),
+      exposure: definition.exposure ?? (source === "native" ? "direct" : "codemode"),
       ownerSkills: [...new Set((definition.ownerSkills ?? []).map((item) => item.trim()).filter(Boolean))],
     });
   }
@@ -258,6 +267,9 @@ export class ToolRegistry {
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());
     if (!definition) throw new Error(`unknown tool: ${name}`);
+    if (definition.exposure === "hidden" || (definition.availableOn && !definition.availableOn(context.platform))) {
+      throw new ToolExecutionError("unavailable", `tool is not available for this turn: ${name}`);
+    }
     if (definition.platforms && !definition.platforms.includes(context.platform ?? "")) {
       throw new ToolExecutionError("unavailable", `tool is not available on this platform: ${name}`);
     }

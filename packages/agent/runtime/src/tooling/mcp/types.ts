@@ -1,4 +1,5 @@
 import type { JsonObject } from "@lxe/protocol";
+import type { ToolExposure } from "../registry";
 
 export type McpTransportKind = "stdio" | "streamable-http";
 export type McpProtocolMode = "auto" | "legacy" | "2026-07-28";
@@ -26,7 +27,7 @@ export interface McpServerConfig {
   toolTimeoutMs: number;
   enabledTools: Set<string>;
   disabledTools: Set<string>;
-  exposure: "deferred" | "direct" | "auto";
+  exposure: ToolExposure;
 }
 
 export interface McpConfig {

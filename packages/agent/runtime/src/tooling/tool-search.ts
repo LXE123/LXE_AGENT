@@ -1,7 +1,7 @@
 import type { JsonObject } from "@lxe/protocol";
 import { ToolRegistry } from "./registry";
 
-export function registerToolSearch(registry: ToolRegistry): void {
+export function registerToolSearch(registry: ToolRegistry, availableOn?: (platform: string | undefined) => boolean): void {
   registry.register({
     name: "tool_search",
     description: "Search available tools by capability, description, or parameter name.",
@@ -13,9 +13,10 @@ export function registerToolSearch(registry: ToolRegistry): void {
     },
     source: "native",
     exposure: "direct",
+    ...(availableOn ? { availableOn } : {}),
     execute: async (input, context) => {
       const limit = Math.max(1, Math.min(Number(input.limit ?? 8), 20));
-      const exposure = context.exposureState ?? registry.createExposureState();
+      const exposure = context.exposureState ?? registry.createExposureState(context.platform ? { platform: context.platform } : {});
       const matches = exposure.search(String(input.query ?? ""), limit);
       const payload: JsonObject = {
         query: String(input.query ?? ""),

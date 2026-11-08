@@ -41,6 +41,13 @@ export function writeMcpConfigDocument(path: string, root: Record<string, unknow
   renameSync(temporary, path);
 }
 
+function parseExposure(value: unknown, name: string): McpServerConfig["exposure"] {
+  const mode = typeof value === "string" ? value.trim().toLowerCase() : value;
+  if (mode == null || mode === "auto") return "codemode";
+  if (mode === "codemode" || mode === "deferred" || mode === "direct" || mode === "hidden") return mode;
+  throw new Error(`invalid MCP exposure for ${name}: ${mode}`);
+}
+
 export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): McpConfig {
   let root: Record<string, unknown>;
   try {
@@ -72,8 +79,6 @@ export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): 
       const required = transport === "stdio" ? "command" : "url";
       if (typeof config[required] !== "string" || !config[required].trim()) throw new Error(`MCP ${name}.${required} is required`);
       const headers = stringMapping(config.headers);
-      const exposure = String(config.exposure ?? "deferred").trim().toLowerCase();
-      if (!["deferred", "direct", "auto"].includes(exposure)) throw new Error(`invalid MCP exposure for ${name}: ${exposure}`);
       const protocolMode = String(config.protocol_mode ?? config.protocolMode ?? "auto");
       if (protocolMode !== "auto" && protocolMode !== "legacy" && protocolMode !== "2026-07-28") {
         throw new Error(`unsupported MCP protocol_mode for ${name}: ${protocolMode}`);
@@ -101,7 +106,7 @@ export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): 
         toolTimeoutMs: seconds(config.tool_timeout_s ?? config.toolTimeoutS, 60),
         enabledTools: stringSet(config.enabled_tools ?? config.enabledTools),
         disabledTools: stringSet(config.disabled_tools ?? config.disabledTools),
-        exposure: exposure as McpServerConfig["exposure"],
+        exposure: parseExposure(config.exposure, name),
       };
     }),
   };

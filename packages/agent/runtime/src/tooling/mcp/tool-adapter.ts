@@ -82,7 +82,7 @@ export function adaptMcpTools(
       input_schema: tool.inputSchema ?? { type: "object", properties: {} },
       source: "mcp",
       ...(server.platforms ? { platforms: server.platforms } : {}),
-      exposure: server.exposure === "direct" ? "direct" : "deferred",
+      exposure: server.exposure,
       connectorName: server.name,
       execute: async (input, context) => {
         try {

@@ -28,20 +28,21 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
   const repo = resolve(import.meta.dir, "../../..");
   const executable = join(root, "agent-cli" + (process.platform === "win32" ? ".exe" : ""));
   const bundleDir = join(root, "bundle");
+  const nextCalls: { name: string; arguments: object }[] = [discovery, report].map(code => ({ name: "codemode", arguments: { code } }));
   const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = await request.json() as typeof requests[number];
     if (body.tools?.length) requests.push(body);
-    const code = body.tools?.length ? [discovery, report][requests.length - 1] : undefined;
-    const delta = code
+    const call = body.tools?.length ? nextCalls.shift() : undefined;
+    const delta = call
       ? { tool_calls: [{ index: 0, id: `call_${requests.length}`, type: "function",
-        function: { name: "codemode", arguments: JSON.stringify({ code }) } }] }
+        function: { name: call.name, arguments: JSON.stringify(call.arguments) } }] }
       : { content: "done" };
     const chunk = (data: unknown, finish: string | null) => JSON.stringify({
       id: "test", object: "chat.completion.chunk", model: deepseek.default_model,
       choices: [{ index: 0, delta: data, finish_reason: finish }],
     });
-    return new Response(`data: ${chunk(delta, null)}\n\ndata: ${chunk({}, code ? "tool_calls" : "stop")}\n\ndata: [DONE]\n\n`,
+    return new Response(`data: ${chunk(delta, null)}\n\ndata: ${chunk({}, call ? "tool_calls" : "stop")}\n\ndata: [DONE]\n\n`,
       { headers: { "Content-Type": "text/event-stream" } });
   } });
   const db = new Database(":memory:");
@@ -79,6 +80,10 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       profiles: { deepseek: { type: "api_key", env_names: ["FIXTURE_KEY"], required: true } },
     }));
     writeFileSync(join(root, "config", "auth.json"), JSON.stringify({ deepseek: { type: "api_key", key: "fixture" } }));
+    const fixture = { command: process.execPath, args: [join(repo, "packages/agent/runtime/test/tooling/protocol-mcp-server.fixture.ts")] };
+    writeFileSync(join(root, "config", "mcp_servers.local.json"), JSON.stringify({ servers: {
+      reports: { ...fixture, enabled: false, exposure: "deferred" }, custom: { ...fixture, enabled: false },
+    } }));
     await app.openPipe();
     await runtime.start();
     await runtime.ensureSession({ session_id: job.session_id, source: job.source, workspace });
@@ -90,7 +95,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect((await runtime.runTurn(job, handle)).status).toBe("completed");
     expect(requests).toHaveLength(3);
     const names = requests[0]!.tools.map(tool => tool.function.name);
-    expect(names).toContain("tool_search");
+    expect(names).not.toContain("tool_search");
     expect(names).toContain("codemode");
     expect(names.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     for (const body of requests.slice(1)) expect(body.tools).toEqual(requests[0]!.tools);
@@ -98,6 +103,37 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect(lastToolOutput(1)).toContain("mcp__lxe_desktop__automation_runs");
     expect(lastToolOutput(2)).toContain("fixture dispatch failure");
     expect(lastToolOutput(2)).not.toContain("failed-turn");
+
+    const toggle = (name: string, enabled: boolean) => runtime.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled } });
+    const nextTurn = async (id: string) => {
+      const turn = { ...job, message_id: id, job_id: id };
+      const start = requests.length;
+      expect((await runtime.runTurn(turn, new RunHandle(turn))).status).toBe("completed");
+      return requests.slice(start).map(body => body.tools.map(tool => tool.function.name));
+    };
+    await toggle("reports", true);
+    nextCalls.push({ name: "tool_search", arguments: { query: "mcp__reports__echo" } });
+    const mixed = await nextTurn("search-reports");
+    expect(mixed).toHaveLength(2);
+    expect(mixed[0]).toContain("codemode");
+    expect(mixed[0]).toContain("tool_search");
+    expect(mixed[0]).not.toContain("mcp__reports__echo");
+    expect(mixed[1]).toContain("mcp__reports__echo");
+
+    await toggle("reports", false);
+    await app.setMcpEnabled(false);
+    const [empty] = await nextTurn("disabled");
+    expect(empty).not.toContain("codemode");
+    expect(empty).not.toContain("tool_search");
+    await toggle("custom", true);
+    nextCalls.push({ name: "codemode", arguments: { code: 'const [t] = await searchTools("mcp__custom__echo"); return (await tools[t.name]({})).content[0].text;' } });
+    const custom = await nextTurn("custom-default");
+    expect(custom).toHaveLength(2);
+    expect(custom[0]).toContain("codemode");
+    expect(custom[0]).not.toContain("tool_search");
+    expect(custom[0]).not.toContain("mcp__custom__echo");
+    expect(requests.at(-1)!.tools).toEqual(requests.at(-2)!.tools);
+    expect(lastToolOutput(requests.length - 1)).toContain("fixture result");
   } finally {
     await runtime.stop();
     await app.close();
