@@ -114,6 +114,20 @@ def test_short_pages_continue_until_total_and_original_bytes_preserved(monkeypat
     wb.close()
 
 
+def test_whitespace_sales_do_not_hide_later_values_in_export(monkeypatch, tmp_path):
+    records = [
+        record(1, stockSku='SKU-1', sale1='   ', sale2='\t', sale3='\n'),
+        record(2, stockSku='SKU-1', sale1=7, sale2=15, sale3=30),
+    ]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)])
+
+    assert result['success'] and result['row_count'] == 1
+    wb = load_workbook(result['artifacts'][0]['path'], data_only=True)
+    row = dict(zip([cell.value for cell in wb.active[1]], [cell.value for cell in wb.active[2]]))
+    assert (row['7天销量'], row['15天销量'], row['30天销量']) == (7, 15, 30)
+    wb.close()
+
+
 def test_8386_records_nine_batches(monkeypatch, tmp_path):
     pages = [page([record(j) for j in range(i, min(i + 1000, 8386))], 8386, i // 1000 + 1)
              for i in range(0, 8386, 1000)]
