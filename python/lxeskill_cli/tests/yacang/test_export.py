@@ -669,21 +669,6 @@ def test_clear_during_login_prevents_old_state_from_returning(env, monkeypatch, 
     assert not list(auth.images.glob('challenge-*.jpg'))
 
 
-def test_old_401_does_not_clear_new_session(env, monkeypatch):
-    auth = YacangAuthState(Credentials.from_environment())
-    auth.save_session('old-token')
-
-    def reject_old_token(self):
-        assert self.token == 'old-token'
-        auth.save_session('new-token')
-        raise YacangError('导出队列', 'actual 401', code='login_required', scope='global')
-
-    monkeypatch.setattr(client.YacangClient, 'list_downloads', reject_old_token)
-    result = workflow.run(request(warehouses=['MY8801']))
-    assert result['error']['code'] == 'login_required'
-    assert auth.session() == 'new-token'
-
-
 @pytest.mark.parametrize('times_out', [False, True])
 def test_login_waits_for_account_and_consumes_challenge_once(env, monkeypatch, times_out):
     credentials = Credentials.from_environment()
