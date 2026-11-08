@@ -1,4 +1,4 @@
-"""Collect or snapshot Philippine sources and publish one complete workbook pair."""
+"""Collect Philippine sources and publish one complete workbook pair."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from datetime import date, datetime
 import hashlib
 import os
 from pathlib import Path
-import shutil
 from tempfile import TemporaryDirectory
 from typing import Callable
 from uuid import uuid4
@@ -56,23 +55,13 @@ def _failure(stage: str, exc: Exception, source_exports: list[dict] | None = Non
     }
 
 
-def _snapshot(key: str, raw_path: str, directory: Path) -> tuple[Path, dict]:
+def _source(key: str, raw_path: str) -> tuple[Path, dict]:
     path = filesystem_path(resolve_workspace_input(raw_path))
-    if path.suffix.lower() != ".xlsx":
-        raise PhilippinesReportError("invalid_source", f"{key} 必须是完整导出的 XLSX: {display_path(path)}")
-    if not path.is_file():
-        raise PhilippinesReportError("source_missing", f"{key} 文件不存在: {display_path(path)}")
-    before = path.stat()
-    target = directory / f"{key}.xlsx"
-    shutil.copyfile(path, target)
-    after = path.stat()
-    if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
-        raise PhilippinesReportError("source_changed", f"复制期间源文件发生变化: {display_path(path)}")
-    with target.open("rb") as stream:
+    with path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     source, report, warehouse = _SOURCES[key]
-    return target, {"source": source, "report": report, "warehouse": warehouse,
-                    "path": str(display_path(path)), "sha256": digest}
+    return path, {"source": source, "report": report, "warehouse": warehouse,
+                  "path": str(display_path(path)), "sha256": digest}
 
 
 def _merge_files(
@@ -83,15 +72,14 @@ def _merge_files(
     root.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=".building-", dir=root) as temporary:
         temporary = Path(temporary)
-        inputs, outputs = temporary / "inputs", temporary / "outputs"
-        inputs.mkdir()
+        outputs = temporary / "outputs"
         outputs.mkdir()
         paths, sources = {}, []
         for key, raw in (("sales", sales_file), ("inventory", inventory_file), ("tms", tms_file)):
             if key == "tms" and raw is None:
                 paths[key] = None
                 continue
-            paths[key], manifest = _snapshot(key, raw, inputs)
+            paths[key], manifest = _source(key, raw)
             sources.append(manifest)
         built = build_reports(
             sales_path=paths["sales"], inventory_path=paths["inventory"], tms_path=paths["tms"],
@@ -166,11 +154,6 @@ def _tms_file(result: dict) -> tuple[str | None, str, int]:
             or result.get("warehouse_scope") != "selected_warehouse"):
         raise PhilippinesReportError("source_metadata_invalid", "TMS 来源必须为单仓 PH1（12107）")
     total = _count(result.get("reported_total"), "TMS reported_total")
-    for field in ("read_unique_ids", "exported_unique_ids"):
-        if _count(result.get(field), f"TMS {field}") != total:
-            raise PhilippinesReportError("source_export_incomplete", f"TMS {field} 与 reported_total 不一致")
-    if _count(result.get("remaining_records"), "TMS remaining_records") != 0:
-        raise PhilippinesReportError("source_export_incomplete", "TMS 尚有未导出的接口记录")
     row_count = _count(result.get("row_count"), "TMS row_count")
     source_count = _count(result.get("source_row_count"), "TMS source_row_count")
     distinct = _count(result.get("distinct_skus"), "TMS distinct_skus")

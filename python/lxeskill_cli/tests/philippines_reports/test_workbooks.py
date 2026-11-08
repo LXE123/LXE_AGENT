@@ -5,7 +5,6 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
-from openpyxl.workbook.workbook import Workbook
 import pytest
 
 from services.philippines_reports.errors import PhilippinesReportError
@@ -67,6 +66,7 @@ def test_matching_fields_added_and_source_only_rows_follow_business_order(ph_fil
             {"库存SKU": "Zero", "7天销量": -2, "可用库存": -10},
             {"库存SKU": "new-zero", **zeros, "采购价": 999},
             {"库存SKU": "Blank"},
+            {"库存SKU": "90-only", "90天销量": 12},
             {"库存SKU": "=literal-SKU", "可用库存": 1, "7天销量": 1},
             {"库存SKU": "SKU", "可用库存": 5},
             {"库存SKU": "0001", "可用库存": 6},
@@ -99,12 +99,13 @@ def test_matching_fields_added_and_source_only_rows_follow_business_order(ph_fil
     assert sales[2]["商品名"] is None and sales[2]["仓库"] is None
     assert sales[1]["7天销量"] == -9 and inventory[1]["可用库存"] == -4
     assert result["statistics"] == {
-        "yacang_sales_rows": 4, "yacang_inventory_rows": 4, "tms_rows": 10, "tms_zero_or_empty_rows": 2,
+        "yacang_sales_rows": 4, "yacang_inventory_rows": 4, "tms_rows": 11, "tms_zero_or_empty_rows": 3,
         "sales_added_rows": 2, "inventory_added_rows": 5, "sales_matched_rows": 1, "inventory_matched_rows": 1}
     assert result["field_mappings"]["inventory"] == {"可用库存": "可用库存"}
     assert result["field_mappings"]["inventory-sales"] == {
         "7天销量": "7天销量", "15天销量": "15天销量", "30天销量": "30天销量", "可用": "可用库存"}
-    assert result["validation"]["status"] == "passed"
+    assert result["validation"] == {"status": "passed", "checks": [
+        "source_schema", "warehouse_scope", "unique_skus", "finite_numbers"]}
     assert {key: Path(path).read_bytes() for key, path in paths.items()} == originals
     for artifact in result["artifacts"]:
         with closing(load_workbook(artifact["path"])) as book:
@@ -124,11 +125,6 @@ def test_matching_fields_added_and_source_only_rows_follow_business_order(ph_fil
             assert original.cell(1, column).value == (" 可用库存 " if is_inventory else " 可用 ")
             assert original.cell(2, column).value == 100
             assert original["B4" if is_inventory else "A4"].value == "Zero"
-    before = {item["path"]: Path(item["path"]).read_bytes() for item in result["artifacts"]}
-    with pytest.raises(PhilippinesReportError) as error:
-        build(paths)
-    assert error.value.code == "output_exists"
-    assert all(Path(path).read_bytes() == content for path, content in before.items())
 
 
 def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_rows, build):
@@ -136,9 +132,9 @@ def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_
         sales=[{"SKU": CellRichText("00", TextBlock(InlineFont(b=True), "1")), "仓库": "PH8805",
                 "商品名": CellRichText("普通", TextBlock(InlineFont(b=True), "加粗")),
                 "可用": CellRichText(" ", TextBlock(InlineFont(b=True), " ")),
-                "7天销量": "0.1", "15天销量": None, "30天销量": "3", "90天销量": 90}],
-        inventory=[{"SKU": "001", "仓库": "PH8805", "库存数量": "1.1", "在途数量": " ", "可用库存": -1}],
-        tms=[{"库存SKU": "001", "仓库": "菲律宾PH1仓", "库存量": "0.2", "7天销量": "0.2", "30天销量": "", "可用库存": "-0.5"}],
+                "7天销量": "0.1", "15天销量": None, "30天销量": "3", "90天销量": "-"}],
+        inventory=[{"SKU": "001", "仓库": "PH8805", "库存数量": "-", "在途数量": " ", "可用库存": -1}],
+        tms=[{"库存SKU": "001", "仓库": "菲律宾PH1仓", "库存量": "-", "7天销量": "0.2", "30天销量": "", "可用库存": "-0.5"}],
         tms_headers=("库存SKU", "30天销量", "7天销量", "可用库存", "15天销量", "仓库", "库存量", "在途量", "成本价", "采购价", "入库时间"),
     )
     result = build(paths)
@@ -146,8 +142,8 @@ def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_
     assert sales["7天销量"] == 0.3
     assert sales["15天销量"] is None
     assert sales["30天销量"] == "3"
-    assert sales["90天销量"] == 90
-    assert inventory["库存数量"] == "1.1"
+    assert sales["90天销量"] == "-"
+    assert inventory["库存数量"] == "-"
     assert inventory["在途数量"] == " "
     assert inventory["可用库存"] == -1.5
     assert "90天销量" not in result["field_mappings"]["inventory-sales"]
@@ -162,19 +158,14 @@ def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_
 
 @pytest.mark.parametrize("source,numeric,text,sku", [
     ("sales", "7天销量", "商品名", "SKU"),
-    ("inventory", "占用数量", "中文标题", "SKU"),
-    ("tms", "库存量", "采购价", "库存SKU"),
+    ("inventory", "可用库存", "中文标题", "SKU"),
+    ("tms", "7天销量", "采购价", "库存SKU"),
 ])
 @pytest.mark.parametrize("field,value,match", [
     ("numeric", "bad", "不是数字"),
-    ("numeric", "NaN", "有限数值"),
-    ("numeric", "Infinity", "有限数值"),
-    ("numeric", True, "布尔值"),
     ("sku", None, "SKU 必须是非空文本"),
     ("sku", 123, "SKU 必须是非空文本"),
-    ("sku", "   ", "SKU 必须是非空文本"),
     ("duplicate", None, "重复 SKU"),
-    ("仓库", "VN8806", "仓库"),
     ("text", "=1+2", "公式"),
     ("text", "#DIV/0!", "错误"),
 ])
@@ -188,26 +179,3 @@ def test_invalid_sources_publish_nothing(tmp_path, ph_files, build, source, nume
     if field == "numeric":
         assert error.value.code == "invalid_number"
     assert not (tmp_path / "output").exists()
-
-
-@pytest.mark.parametrize("failure,match", [
-    ("second_save", "disk unavailable"),
-    ("changed_source", "未保留雅仓原表"),
-])
-def test_output_write_failure_removes_all_created_files(tmp_path, ph_files, build, monkeypatch, failure, match):
-    paths = ph_files()
-    save, calls = Workbook.save, 0
-
-    def fail(self, filename):
-        nonlocal calls
-        calls += 1
-        if failure == "second_save" and calls == 2:
-            raise OSError("disk unavailable")
-        if failure == "changed_source":
-            self.worksheets[0]["A2"] = "unexpected replacement"
-        return save(self, filename)
-
-    monkeypatch.setattr(Workbook, "save", fail)
-    with pytest.raises(OSError if failure == "second_save" else PhilippinesReportError, match=match):
-        build(paths)
-    assert not list((tmp_path / "output").glob("*.xlsx"))

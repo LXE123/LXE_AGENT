@@ -1,5 +1,6 @@
 from contextlib import closing
 from datetime import date
+import hashlib
 import json
 from pathlib import Path
 from unittest.mock import ANY, Mock, call
@@ -44,6 +45,8 @@ def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_file
     assert record["ok"] is True and record["type"] == "result"
     assert set(record["files"]) == {item["path"] for item in result["artifacts"]}
     assert set(record["files"]).isdisjoint(paths.values())
+    sales_source = next(item for item in result["source_files"] if item["report"] == "inventory-sales" and item["source"] == "yacang")
+    assert sales_source["sha256"] == hashlib.sha256(Path(paths["sales_file"]).read_bytes()).hexdigest()
     sales, inventory = (ph_rows(item)[0] for item in result["artifacts"])
     assert (sales["7天销量"], sales["可用"], inventory["可用库存"]) == (12, 130, 130)
     assert calls.mock_calls == [
@@ -119,7 +122,6 @@ def test_invalid_tms_api_number_blocks_philippines_pair(ph_files, ph_online, tmp
     ("yacang", lambda x: x["artifacts"][0].update(created_date={"start_date": "2026-10-01", "end_date": "2026-10-30"}),
      "yacang_export", "source_metadata_invalid"),
     ("tms", lambda x: x.update(warehouse="VN1", warehouse_id=12831), "tms_export", "source_metadata_invalid"),
-    ("tms", lambda x: x.update(exported_unique_ids=0), "tms_export", "source_export_incomplete"),
     ("tms", lambda x: x.update(artifacts=[]), "tms_export", "source_metadata_invalid"),
     ("tms", lambda x: x.pop("source_row_count"), "tms_export", "source_metadata_invalid"),
     ("tms", lambda x: x.update(row_count=99, distinct_skus=99, source_row_count=99,

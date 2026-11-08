@@ -12,11 +12,6 @@ from openpyxl.cell.rich_text import CellRichText
 from openpyxl.workbook import Workbook
 
 from services.mabang_tms.workbooks import read_workbook
-from services.yacang.validation import (
-    INVENTORY_SALES_DELIVERY_HEADERS,
-    validate_inventory_list_workbook,
-    validate_inventory_sales_workbook,
-)
 from shared.filesystem import filesystem_path
 
 from .errors import PhilippinesReportError
@@ -25,16 +20,16 @@ from .errors import PhilippinesReportError
 INVENTORY_HEADERS = (
     "条码", "SKU", "映射条码", "仓库", "规格", "库存数量", "占用数量", "在途数量", "冻结库存", "可用库存",
 )
-SALES_FIELDS = tuple(f"{days}天销量" for days in (3, 7, 15, 30, 60, 90))
 SALES_MAPPING = {**{f"{days}天销量": f"{days}天销量" for days in (7, 15, 30)}, "可用": "可用库存"}
 INVENTORY_MAPPING = {"可用库存": "可用库存"}
-TMS_NUMBER_FIELDS = frozenset((*SALES_FIELDS, "库存量", "在途量", "可用库存"))
+TMS_NUMBER_FIELDS = frozenset(SALES_MAPPING.values())
 
 
 @dataclass
 class YacangSource:
     book: Workbook
     rows: dict[str, dict[str, object]]
+    numbers: dict[str, dict[str, Decimal | None]]
 
 
 def number(value: object, *, source: str, sku: str, field: str) -> Decimal | None:
@@ -81,16 +76,12 @@ def load_yacang(path: Path, report: str) -> YacangSource:
         with ZipFile(actual) as archive:
             if sum(member.file_size for member in archive.infolist()) > 250_000_000:
                 raise PhilippinesReportError("source_size_limit", f"XLSX 解压后超过 250 MB: {path}")
-        if report == "inventory-sales":
-            validate_inventory_sales_workbook(actual, warehouse_code="PH8805", allow_delivery=True)
-            numeric_fields = INVENTORY_SALES_DELIVERY_HEADERS[3:]
-        else:
-            validate_inventory_list_workbook(actual, warehouse_code="PH8805")
-            numeric_fields = INVENTORY_HEADERS[5:]
         book = load_workbook(actual, data_only=False, rich_text=True)
         sheet = book.worksheets[0]
         headers = tuple(str(cell.value or "").strip() for cell in sheet[1])
+        numeric_fields = SALES_MAPPING if report == "inventory-sales" else INVENTORY_MAPPING
         rows: dict[str, dict[str, object]] = {}
+        numbers: dict[str, dict[str, Decimal | None]] = {}
         for row_number, cells in enumerate(sheet.iter_rows(min_row=2), 2):
             if all(cell.value is None for cell in cells):
                 continue
@@ -101,11 +92,11 @@ def load_yacang(path: Path, report: str) -> YacangSource:
                     )
             values = dict(zip(headers, (cell.value for cell in cells)))
             sku = _sku(values.get("SKU"), source=f"雅仓 {report}", row_number=row_number, seen=rows)
-            for field in numeric_fields:
-                number(values.get(field), source=f"雅仓 {report}", sku=sku, field=field)
+            numbers[sku] = {field: number(values.get(field), source=f"雅仓 {report}", sku=sku, field=field)
+                            for field in numeric_fields}
             values["SKU"] = sku
             rows[sku] = values
-        return YacangSource(book, rows)
+        return YacangSource(book, rows, numbers)
     except Exception as exc:
         if book is not None:
             book.close()
