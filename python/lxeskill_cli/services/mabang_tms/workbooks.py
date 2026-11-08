@@ -93,8 +93,12 @@ def coverage(records, headers, rows):
         raise TmsError("coverage_count_mismatch", f"批次商品/仓库记录行数不足: 缺少至少 {sum(missing.values())} 行，涉及 {len(missing)} 组 SKU/仓库")
 
 
+def _is_blank(value):
+    return value is None or isinstance(value, str) and not value.strip()
+
+
 def _robot_number(value, field):
-    if value is None or isinstance(value, str) and not value.strip():
+    if _is_blank(value):
         return 0
     if isinstance(value, bool):
         raise TmsError("invalid_number", f"TMS {field} 数值不能是布尔值: {value!r}")
@@ -146,10 +150,11 @@ def merge_inventory_export(headers, rows, records):
         item["stock"] += _robot_number(record.get("stockQuantity"), "stockQuantity")
         for field in ("sale1", "sale2", "sale3"):
             value = record.get(field)
-            if value not in (None, ""):
-                parsed = _robot_number(value, field)
-                if item[field] is None:
-                    item[field] = parsed
+            if _is_blank(value):
+                continue
+            parsed = _robot_number(value, field)
+            if item[field] is None:
+                item[field] = parsed
 
     merged = []
     for (warehouse, sku), summary in summaries.items():
