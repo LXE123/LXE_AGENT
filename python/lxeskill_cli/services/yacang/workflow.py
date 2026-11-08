@@ -33,7 +33,7 @@ def validate(path, task, diagnostic):
             wb.close()
 
 
-def run(arguments):
+def run(arguments, *, require_fresh=False):
     artifacts, tasks, client = [], [], None
     locks = ExitStack()
     try:
@@ -58,6 +58,11 @@ def run(arguments):
             try:
                 with state.task_lock(key):
                     baseline = state.pending(key)
+                    if baseline is not None and require_fresh:
+                        # Resolve the previous uncertain submission before starting a fresh export.
+                        wait_for_file(client, spec, baseline)
+                        state.clear(key)
+                        baseline = None
                     if baseline is None:
                         baseline = {str(r['id']) for r in client.list_downloads()}
                         state.begin(key, baseline)
@@ -89,7 +94,7 @@ def run(arguments):
                 error = {'code': getattr(exc, 'code', 'export_failed'), 'message': client.diagnostic(f'{type(exc).__name__}: {exc}')}
                 if getattr(exc, "code", None) == "login_required":
                     try:
-                        auth_state.invalidate(client.token)
+                        auth_state.invalidate()
                     except Exception as cleanup:
                         error['auth_cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 if temporary is not None:

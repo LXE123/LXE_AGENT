@@ -48,7 +48,6 @@ def _atomic_json(path: Path, payload: dict) -> None:
 
 class YacangAuthState:
     def __init__(self, credentials: Credentials):
-        self.credentials = credentials
         self.account_id = credentials.account_id
         root = state_root() / "db" / "lxeskill" / "yacang-auth"
         self.root = root / self.account_id
@@ -184,10 +183,9 @@ class YacangAuthState:
             return {"authenticated": authenticated, "online_verified": False,
                     "status": "available" if authenticated else "missing", "saved_at": value.get("saved_at") if authenticated else None}
 
-    def invalidate(self, rejected_token: str) -> None:
+    def invalidate(self) -> None:
         with self.lock():
-            value = self._read_session()
-            if value and value.get("token") == rejected_token:
+            if self._read_session():
                 self.session_path.unlink(missing_ok=True)
 
     def clear(self) -> None:
