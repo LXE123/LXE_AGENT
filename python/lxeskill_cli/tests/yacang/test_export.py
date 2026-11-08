@@ -50,9 +50,9 @@ def xlsx(report, warehouse, empty=False):
     return stream.getvalue()
 
 
-def captcha_jpeg():
+def captcha_jpeg(size=(80, 30)):
     image = io.BytesIO()
-    Image.new('RGB', (80, 30), 'white').save(image, format='JPEG')
+    Image.new('RGB', size, 'white').save(image, format='JPEG')
     return image.getvalue()
 
 
@@ -576,7 +576,12 @@ except InterProcessLockTimeout:
 
 
 def test_captcha_image_login_persists_without_exposing_secrets(platform):
+    auth = YacangAuthState(Credentials.from_environment())
+    auth.images.mkdir(parents=True)
+    orphan = auth.images / ('challenge-' + 'a' * 32 + '.jpg')
+    orphan.write_bytes(captcha_jpeg())
     prepared = workflow.login_action('prepare', {})
+    assert not orphan.exists()
     assert prepared['success'] and Path(prepared['image_path']).read_bytes() == captcha_jpeg()
     with Image.open(prepared['image_path']) as image:
         image.verify()
@@ -592,122 +597,74 @@ def test_captcha_image_login_persists_without_exposing_secrets(platform):
     assert next(c for c in platform['calls'] if c[1] in {r[1] for r in REPORTS.values()})[3].get('token') == 'private-token'
 
 
-@pytest.mark.parametrize('payload,detail', [
-    ('not json', 'not json'),
-    ({'status': 1, 'data': {}}, 'data.key/captcha'),
-    ({'status': 1, 'data': {'key': 'private-key'}, 'msg': 'actual missing image reason'}, 'actual missing image reason'),
-    ({'status': 0, 'data': {'key': 'private-key', 'captcha': 'private-image'}, 'msg': 'actual captcha unavailable'}, 'actual captcha unavailable'),
+MALFORMED_CAPTCHA = ('{"status":1,"message":"actual malformed response%s",'
+                     '"data":{"key":"private-key","captcha":"synthetic-image-base64')
+MALFORMED_LOGIN = '{"status":0,"data":{"token":"reflected-secret"},"message":"denied reflected-secret",'
+
+
+@pytest.mark.parametrize('status,payload,code,details', [
+    (200, 'not json', 'invalid_response', ('not json',)),
+    (200, {'status': 1, 'data': {}}, 'invalid_captcha', ('data.key/captcha',)),
+    (200, {'status': 1, 'data': {'key': 'private-key'}, 'msg': 'actual missing image reason'},
+     'invalid_captcha', ('actual missing image reason',)),
+    (200, {'status': 0, 'data': {'key': 'private-key', 'captcha': 'private-image'},
+           'msg': 'actual captcha unavailable'}, 'remote_error', ('actual captcha unavailable',)),
+    (200, MALFORMED_CAPTCHA % '', 'invalid_response', ('actual malformed response', 'Unterminated string')),
+    (403, MALFORMED_CAPTCHA % '', 'forbidden', ('actual malformed response',)),
+    (200, MALFORMED_CAPTCHA % ('x' * 2100) + '", invalid}',
+     'invalid_response', ('actual malformed response', 'Expecting property name')),
+    pytest.param(200, b'\xff\xd8\xfftruncated', 'invalid_captcha', ('UnidentifiedImageError',), id='truncated-image'),
+    pytest.param(200, captcha_jpeg((2001, 2000)), 'invalid_captcha', ('4000000',), id='oversized-image'),
 ])
-def test_prepare_preserves_redacted_actual_response_errors(platform, payload, detail):
-    platform['reject']['/sys/customer/verify'] = (200, payload)
+def test_prepare_preserves_redacted_actual_response_errors(platform, status, payload, code, details):
+    if isinstance(payload, bytes):
+        payload = {'status': 1, 'data': {'key': 'private-key', 'captcha': base64.b64encode(payload).decode()}}
+    platform['reject']['/sys/customer/verify'] = (status, payload)
     result = workflow.login_action('prepare', {})
-    assert not result['success'] and detail in result['error']['message']
-    assert 'private-key' not in json.dumps(result) and 'private-image' not in json.dumps(result)
+    assert not result['success'] and result['error']['code'] == code
+    assert all(detail in result['error']['message'] for detail in details)
+    assert all(secret not in json.dumps(result) for secret in ('private-key', 'private-image', 'synthetic-image-base64'))
     assert not submits(platform)
 
 
-@pytest.mark.parametrize('status,long_response', [(200, False), (403, False), (200, True)])
-def test_malformed_captcha_response_redacts_image_and_keeps_diagnostic(platform, status, long_response):
-    raw = '{"status":1,"message":"actual malformed response' + ('x' * 2100 if long_response else '')
-    raw += '","data":{"key":"private-key","captcha":"synthetic-image-base64'
-    platform['reject']['/sys/customer/verify'] = (status, raw + ('", invalid}' if long_response else ''))
-    result = workflow.login_action('prepare', {})
-    assert not result['success']
-    assert 'actual malformed response' in result['error']['message']
-    if status == 200:
-        assert ('Expecting property name' if long_response else 'Unterminated string') in result['error']['message']
-    assert 'synthetic-image-base64' not in json.dumps(result)
-    assert 'private-key' not in json.dumps(result)
-    assert not submits(platform)
-
-
-def test_rejected_login_redacts_token_reflected_in_response_message(platform):
+@pytest.mark.parametrize('status,payload,details', [
+    (200, {'status': 0, 'data': {'token': 'reflected-secret'}, 'message': 'actual denial reflected-secret'},
+     ('actual denial',)),
+    (200, MALFORMED_LOGIN, ('Expecting property name', '/sys/customer/loginV3: HTTP 200')),
+    (403, MALFORMED_LOGIN, ('Expecting property name', '/sys/customer/loginV3: HTTP 403')),
+    (200, '{"status":0,"data":{"token":"\\ud800"},"message":"actual denial",',
+     ('Expecting property name', '/sys/customer/loginV3: HTTP 200')),
+    (200, {'status': 1, 'data': {'unexpected': 'actual payload'}}, ('actual payload',)),
+])
+def test_login_failures_preserve_diagnostics_without_secrets(platform, status, payload, details):
     prepared = workflow.login_action('prepare', {})
-    secret = 'synthetic-reflected-token'
-    platform['reject']['/sys/customer/loginV3'] = (
-        200, {'status': 0, 'data': {'token': secret}, 'message': f'actual denial {secret}'})
+    platform['reject']['/sys/customer/loginV3'] = (status, payload)
     result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
-    assert not result['success'] and 'actual denial' in result['error']['message']
-    assert secret not in json.dumps(result)
-
-
-@pytest.mark.parametrize('status', [200, 403])
-def test_malformed_login_response_redacts_reflected_token(platform, status):
-    prepared = workflow.login_action('prepare', {})
-    secret = 'synthetic-malformed-token'
-    platform['reject']['/sys/customer/loginV3'] = (
-        status, '{"status":0,"data":{"token":"' + secret + '"},"message":"denied ' + secret + '",')
-    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
-    assert not result['success']
-    assert 'Expecting property name' in result['error']['message']
-    assert f'/sys/customer/loginV3: HTTP {status}' in result['error']['message']
-    assert secret not in json.dumps(result)
-
-
-def test_malformed_login_response_handles_unpaired_surrogate_token(platform):
-    prepared = workflow.login_action('prepare', {})
-    platform['reject']['/sys/customer/loginV3'] = (
-        200, '{"status":0,"data":{"token":"\\ud800"},"message":"actual denial",')
-    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
-    assert not result['success']
-    assert 'Expecting property name' in result['error']['message']
-    assert '/sys/customer/loginV3: HTTP 200' in result['error']['message']
-    assert '\\ud800' not in json.dumps(result)
+    assert not result['success'] and not result['persisted']
+    assert all(detail in result['error']['message'] for detail in details)
+    assert all(secret not in json.dumps(result) for secret in ('reflected-secret', '\\ud800', 'private-key', 'Ab9x'))
 
 
 def test_diagnostic_handles_unpaired_surrogate_secret():
     assert safe_remote_detail('token value \\ud800', secrets=('\ud800',)) == 'token value [REDACTED]'
 
 
-def test_login_missing_token_preserves_actual_diagnostic(platform):
-    platform['reject']['/sys/customer/loginV3'] = (200, {'status': 1, 'data': {'unexpected': 'actual payload'}})
-    prepared = workflow.login_action('prepare', {})
-    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
-    assert not result['success'] and not result['persisted']
-    assert 'actual payload' in result['error']['message']
-    assert 'private-key' not in json.dumps(result) and 'Ab9x' not in json.dumps(result)
-
-
-@pytest.mark.parametrize('oversized', [False, True])
-def test_invalid_captcha_image_is_rejected(env, monkeypatch, oversized):
-    image = b'\xff\xd8\xfftruncated'
-    if oversized:
-        stream = io.BytesIO()
-        Image.new('RGB', (2001, 2000), 'white').save(stream, format='JPEG')
-        image = stream.getvalue()
-    api = client.YacangClient(Credentials.from_environment(), ExportState(Credentials.from_environment().account_id))
-    monkeypatch.setattr(api, 'request', lambda *args, **kwargs: {'data': {'key': 'private-key', 'captcha': base64.b64encode(image).decode()}})
-    try:
-        with pytest.raises(YacangError) as caught:
-            api.prepare_login()
-        assert caught.value.code == 'invalid_captcha'
-        assert ('4000000' if oversized else 'UnidentifiedImageError') in str(caught.value)
-        assert 'private-key' not in str(caught.value)
-    finally:
-        api.close()
-
-
-def test_clear_during_login_prevents_old_login_from_restoring_session(env, monkeypatch):
+@pytest.mark.parametrize('action,method,reply', [
+    ('prepare', 'prepare_login', ('private-key', captcha_jpeg())),
+    ('submit', 'login', 'private-token'),
+])
+def test_clear_during_login_prevents_old_state_from_returning(env, monkeypatch, action, method, reply):
     auth = YacangAuthState(Credentials.from_environment())
     challenge = auth.prepare('private-key', captcha_jpeg())
-    def login(self, key, code):
+    def clear(*args):
         auth.clear()
-        return 'private-token'
-    monkeypatch.setattr(client.YacangClient, 'login', login)
-    result = workflow.login_action('submit', {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'})
-    assert result['login_succeeded'] and not result['persisted']
+        return reply
+    monkeypatch.setattr(client.YacangClient, method, clear)
+    result = workflow.login_action(action, {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success'] and not result['persisted']
+    assert result['login_succeeded'] == (action == 'submit')
     assert result['error']['code'] == 'login_cleared'
     assert auth.status()['status'] == 'missing'
-
-
-def test_clear_during_prepare_does_not_restore_challenge(env, monkeypatch):
-    auth = YacangAuthState(Credentials.from_environment())
-    def prepare_login(self):
-        auth.clear()
-        return 'private-key', captcha_jpeg()
-    monkeypatch.setattr(client.YacangClient, 'prepare_login', prepare_login)
-    result = workflow.login_action('prepare', {})
-    assert not result['success'] and result['error']['code'] == 'login_cleared'
     assert not list(auth.root.glob('challenge-*.json'))
     assert not list(auth.images.glob('challenge-*.jpg'))
 
@@ -725,35 +682,29 @@ def test_old_401_does_not_clear_new_session(env, monkeypatch):
     assert auth.session() == 'new-token'
 
 
-def test_login_submit_waits_for_account_to_be_available_without_consuming_challenge(env, monkeypatch):
+@pytest.mark.parametrize('times_out', [False, True])
+def test_login_waits_for_account_and_consumes_challenge_once(env, monkeypatch, times_out):
     credentials = Credentials.from_environment()
     auth = YacangAuthState(credentials)
     challenge = auth.prepare('private-key', captcha_jpeg())
     calls = []
     def login(self, key, code):
         calls.append((key, code))
+        if times_out:
+            raise TimeoutError('actual timeout')
         return 'private-token'
     monkeypatch.setattr(client.YacangClient, 'login', login)
     args = {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'}
     with ExportState(credentials.account_id).run_lock():
         rejected = workflow.login_action('submit', args)
     assert not rejected['success'] and not calls
-    assert workflow.login_action('submit', args)['persisted']
-    assert calls == [('private-key', 'Ab9x')]
-
-
-def test_login_timeout_consumes_challenge_once(env, monkeypatch):
-    auth = YacangAuthState(Credentials.from_environment())
-    challenge = auth.prepare('private-key', captcha_jpeg())
-    calls = []
-    def login(self, key, code):
-        calls.append(key)
-        raise TimeoutError('actual timeout')
-    monkeypatch.setattr(client.YacangClient, 'login', login)
-    args = {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'}
-    assert 'actual timeout' in workflow.login_action('submit', args)['error']['message']
+    result = workflow.login_action('submit', args)
+    if times_out:
+        assert 'actual timeout' in result['error']['message']
+    else:
+        assert result['persisted']
     assert workflow.login_action('submit', args)['error']['code'] == 'challenge_unavailable'
-    assert calls == ['private-key']
+    assert calls == [('private-key', 'Ab9x')]
 
 
 @pytest.mark.parametrize('state,detail', [([], 'list'), ({}, 'fingerprint'), ({'fingerprint': 'current'}, 'token')])
@@ -783,16 +734,6 @@ def test_failed_challenge_image_write_cleans_partial_file(env, monkeypatch):
         auth.prepare('private-key', captcha_jpeg())
     assert not list(auth.images.glob('challenge-*.jpg'))
     assert not list(auth.root.glob('challenge-*.json'))
-
-
-def test_prepare_removes_orphaned_challenge_images(env):
-    auth = YacangAuthState(Credentials.from_environment())
-    auth.images.mkdir(parents=True)
-    orphan = auth.images / ('challenge-' + 'a' * 32 + '.jpg')
-    orphan.write_bytes(captcha_jpeg())
-    result = auth.prepare('private-key', captcha_jpeg())
-    assert not orphan.exists()
-    assert Path(result['image_path']).exists()
 
 
 def test_challenge_cleanup_preserves_read_error_and_existing_files(env, monkeypatch):

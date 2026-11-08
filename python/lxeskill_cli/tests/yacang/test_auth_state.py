@@ -23,7 +23,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, '_artifact_root', tmp_path / 'artifacts')
 
 
-def test_saved_session_is_available_after_atomic_publication_and_to_next_process(env, monkeypatch):
+def test_session_publication_is_private_atomic_and_clearable_across_processes(env, monkeypatch):
     auth = YacangAuthState(Credentials.from_environment())
     original = auth_state._restrict_permissions
 
@@ -40,11 +40,9 @@ def test_saved_session_is_available_after_atomic_publication_and_to_next_process
     assert child.returncode == 0, child.stderr
     if os.name != 'nt':
         assert auth.session_path.stat().st_mode & 0o777 == 0o600
-
-
-def test_session_save_reports_replace_and_temporary_cleanup_failures(env, monkeypatch):
-    auth = YacangAuthState(Credentials.from_environment())
-    auth.save_session('previous-token')
+    old = YacangAuthState(Credentials('test-mobile', 'old-password'))
+    assert old.status()['status'] == 'missing'
+    assert auth.session() == 'private-token'
 
     def fail_replace(*args):
         raise OSError('actual replace failure')
@@ -56,14 +54,22 @@ def test_session_save_reports_replace_and_temporary_cleanup_failures(env, monkey
             raise OSError('actual temporary cleanup failure')
         return original_unlink(path, *args, **kwargs)
 
-    monkeypatch.setattr(auth_state.os, 'replace', fail_replace)
-    monkeypatch.setattr(Path, 'unlink', fail_temporary_unlink)
-    with pytest.raises(YacangError) as caught:
-        auth.save_session('new-token')
+    with monkeypatch.context() as failure:
+        failure.setattr(auth_state.os, 'replace', fail_replace)
+        failure.setattr(Path, 'unlink', fail_temporary_unlink)
+        with pytest.raises(YacangError) as caught:
+            auth.save_session('new-token')
     assert caught.value.code == 'auth_state_unavailable'
     assert 'actual replace failure' in str(caught.value)
     assert 'actual temporary cleanup failure' in str(caught.value)
-    assert auth.session() == 'previous-token'
+    assert auth.session() == 'private-token'
+    challenge = auth.prepare('private-key', b'test-image')
+    auth.clear()
+    assert auth.status()['status'] == 'missing'
+    assert not Path(challenge['image_path']).exists()
+    with pytest.raises(YacangError) as caught:
+        auth.consume(challenge['challenge_id'])
+    assert caught.value.code == 'challenge_unavailable'
 
 
 def test_concurrent_challenge_consumers_only_one_succeeds(env):
@@ -78,23 +84,3 @@ def test_concurrent_challenge_consumers_only_one_succeeds(env):
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(lambda _: consume(), range(2))) == ['challenge_unavailable', 'private-key']
-
-
-def test_old_credentials_cannot_delete_new_credentials_session(env):
-    old = YacangAuthState(Credentials('test-mobile', 'old-password'))
-    new = YacangAuthState(Credentials('test-mobile', 'new-password'))
-    new.save_session('new-token')
-    assert old.status()['status'] == 'missing'
-    assert new.session() == 'new-token'
-
-
-def test_clear_removes_session_and_invalidates_challenge(env):
-    auth = YacangAuthState(Credentials.from_environment())
-    auth.save_session('private-token')
-    challenge = auth.prepare('private-key', b'test-image')
-    auth.clear()
-    assert auth.status()['status'] == 'missing'
-    assert not Path(challenge['image_path']).exists()
-    with pytest.raises(YacangError) as caught:
-        auth.consume(challenge['challenge_id'])
-    assert caught.value.code == 'challenge_unavailable'

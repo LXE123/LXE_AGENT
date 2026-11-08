@@ -91,3 +91,19 @@
 - 入口仍为 `lxeskill yacang login prepare|submit|status|clear`，由 `workflow.login_action` 调用登录态服务；导出经 `workflow.run` 复用会话。沿用 `LXE_YACANG_MOBILE`、`LXE_YACANG_PASSWORD`、`LXE_DATA_ROOT`，验证码图片使用当前 `artifact_root`。
 - 从本工作区根目录运行 `UV_CACHE_DIR=/private/tmp/lxe-yacang-simplify-uv-cache uv run --frozen pytest python/lxeskill_cli/tests/yacang -q --tb=short`：**88 passed**。已确认 Python 和导入源码均属于 pool-19。沙箱内首次运行因本机 HTTP 监听权限受阻，批准后在允许监听的环境运行同一离线测试；没有生产请求。本轮真实 ERP、桌面登录及 Windows 文件权限为 **NOT VERIFIED**。
 - 独立复审未发现新增必修问题；已检查 diff、敏感信息、无关文件和 `git diff --check`。用户已批准暂存、提交上述两文件，补丁与本交接放在同一提交；代码与 88 项测试通过时一致。下一步按雅仓 → TMS → 菲律宾顺序提审，推送和创建 PR 分别申请授权；菲律宾旧联调副本仍待整理。
+
+## 2026-11-08：测试新增行占比收口
+
+- 工作区 `pool-19`、分支 `codex/yacang-login-reuse`，本轮起点 `8e7b47b4`，比例仍相对功能分支基线 `c27a70fc` 统计。功能新增 320 行不变，测试新增 **392→319 行**，占比 **55.06%→49.92%**，满足本轮每分支不超过 50% 的要求；按 Git 新增行计算，未使用净行数或删除基线旧测试凑数。
+- 只修改 `tests/yacang/test_export.py`、`test_auth_state.py` 与本节交接。将同一入口的 prepare/submit 错误、clear 两个时机、锁拒绝与单次消费合并为显式场景表；原子发布、跨进程读取、旧凭据保护、双重文件错误与 clear 共用一个存储生命周期。孤儿图片检查并入真实 HTTP 成功登录；坏 JPEG 和像素上限也通过真实 HTTP 验证，减少一个 request mock。
+- 真实 HTTP、XLSX、子进程、文件锁、错误原文、脱敏、缺 token、孤立 surrogate、清除代次和文件清理断言保留。生产代码、命令入口、环境变量、CLI scope 测试均未修改；入口与调用链沿用前文，PR 依赖仍按雅仓 → TMS → 菲律宾顺序。
+- 从 pool-19 根目录使用与基线相同的 coverage.py 7.17.2 `--branch` 命令运行雅仓测试及两项 CLI scope 测试：**86 passed**。基线 90 个案例中的 4 个并入生命周期 keeper；其余参数场景保留。比较 16 个生产文件的已覆盖行和分支集合，均无损；合计行 **751/842（89.19%）**、分支 **216/272（79.41%）** 前后相同。此口径包含 `services/commands/yacang`，与历史仅业务模块覆盖率分母不同。
+- 审计 ledger、原始快照与 before/after coverage 位于 `/private/tmp/lxe-ratio50-x4n4v6k9/pool-19/`。独立逐段复核未发现断言丢失；两项内存变异分别让旧凭据误删当前 session、让 prepare 忽略 clear 代次，两个 keeper 均在相应行为断言失败，恢复后 **3 passed**。16 个生产文件 SHA 与本轮起点完全一致。测试仅使用本机模拟 HTTP 和临时文件；真实 ERP、桌面图片交付、Windows ACL 为 **NOT VERIFIED**。
+- 已复查测试 diff、`git diff --check` 与工作区状态，独立保留契约复核通过；本轮改动未暂存、提交或推送。下一步按授权边界申请 Commit；Push、创建 PR 仍须分别明确确认。
+
+## 2026-11-08：个人仓库 PR 准备
+
+- 用户指定目标为 `Arsenal20262/LXE_AGENT`。只读查询确认其 `main` 为 `c27a70fc840b66086de836cd8a11df0e29c9c858`，与本分支基线一致；目标仓库当前没有同名 `codex/yacang-login-reuse` 远端分支。本机 `main` 仍为 `89b81bd7`，不需要为本 PR 修改它。
+- 本次复用上节的 **86 passed** 记录：测试与 16 个生产文件自该次验证后未变，逐文件覆盖集合无下降。额外只读核对命令手册的生成区域与 catalog 一致，`git diff --check origin/main` 通过。真实桌面验证码交付及 Windows 权限仍为 **NOT VERIFIED**。
+- 用户批准提交后重跑雅仓及两项 CLI scope 测试：**86 passed in 25.50s**。首次沙箱内运行因 `127.0.0.1` 模拟服务无法绑定端口出现 48 项 setup 错误，随后在允许本机监听的环境重跑通过；均未连接生产。
+- 当前计划独立提交两份雅仓测试文件及本交接，提交说明拟为 `test(yacang): consolidate login regression coverage`。PR 草稿见 `/private/tmp/lxe-yacang-fork-pr-20261108.md`。本次未执行 Git 暂存、提交、推送或创建 PR；提交、推送和创建 PR 按用户的授权流程分别进行。
