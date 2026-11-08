@@ -1,6 +1,5 @@
 from contextlib import closing
 from datetime import date
-import hashlib
 import json
 from pathlib import Path
 from unittest.mock import ANY, Mock, call
@@ -18,71 +17,7 @@ from shared.workspace import artifact_root
 pytestmark = pytest.mark.usefixtures("ph_workspace")
 
 
-def test_local_merge_snapshots_and_publishes_distinct_verified_pairs(ph_files, ph_rows, monkeypatch):
-    paths = ph_files()
-    originals = {path: Path(path).read_bytes() for path in paths.values()}
-    first = workflow.merge_reports(**paths)
-    assert first["success"] is True and first["validation"]["status"] == "passed", first
-    provenance = {item["path"]: item for item in first["source_files"]}
-    assert set(provenance) == set(originals)
-    for path, content in originals.items():
-        assert Path(path).read_bytes() == content
-        assert provenance[path]["sha256"] == hashlib.sha256(content).hexdigest()
-    build_reports = workflow.build_reports
-
-    def change_original_then_build(**arguments):
-        assert Path(arguments["inventory_path"]) != Path(paths["inventory_file"])
-        assert Path(arguments["inventory_path"]).read_bytes() == originals[paths["inventory_file"]]
-        book = load_workbook(paths["inventory_file"])
-        book.active["M2"] = 999
-        book.save(paths["inventory_file"])
-        book.close()
-        return build_reports(**arguments)
-
-    monkeypatch.setattr(workflow, "build_reports", change_original_then_build)
-    second = workflow.merge_reports(**paths)
-    assert second["success"] is True and second["status"] == "completed", second
-    assert ph_rows(second["artifacts"][1])[0]["可用库存"] == 130
-    assert second["source_files"] == first["source_files"]
-    pairs = [{Path(item["path"]) for item in result["artifacts"]} for result in (first, second)]
-    assert all(len(pair) == 2 and len({path.parent for path in pair}) == 1 for pair in pairs)
-    assert pairs[0].isdisjoint(pairs[1])
-    assert {path.name for path in pairs[0]} == {path.name for path in pairs[1]}
-    assert all(path.is_file() and path.is_relative_to(artifact_root()) for path in pairs[0] | pairs[1])
-
-
-@pytest.mark.parametrize("failure", ["copy", "build", "publish"])
-def test_merge_failure_cleans_all_staging_and_never_publishes(ph_files, monkeypatch, failure):
-    paths = ph_files()
-    if failure == "copy":
-        copyfile = workflow.shutil.copyfile
-
-        def copy_then_change_source(source, target):
-            copied = copyfile(source, target)
-            Path(source).write_bytes(Path(source).read_bytes() + b"changed during snapshot")
-            return copied
-
-        monkeypatch.setattr(workflow.shutil, "copyfile", copy_then_change_source)
-        monkeypatch.setattr(workflow, "build_reports", lambda **kwargs: pytest.fail("changed source must not build"))
-    elif failure == "build":
-        def fail_after_first_file(**arguments):
-            (Path(arguments["output_dir"]) / "first.xlsx").write_bytes(b"unfinished output")
-            raise OSError("observed workbook write failure")
-
-        monkeypatch.setattr(workflow, "build_reports", fail_after_first_file)
-    else:
-        monkeypatch.setattr(Path, "rename", Mock(side_effect=PermissionError("observed publication access denied")))
-    result = workflow.merge_reports(**paths)
-    assert result["success"] is False and result["artifacts"] == []
-    if failure == "copy":
-        assert result["error"]["code"] == "source_changed"
-    else:
-        assert ("observed workbook write failure" if failure == "build" else
-                "observed publication access denied") in result["error"]["message"]
-    assert list(workflow.dataset_dir("philippines_reports").iterdir()) == []
-
-
-def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_files, ph_online, monkeypatch, capsys):
+def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_files, ph_online, ph_rows, monkeypatch, capsys):
     paths = ph_files()
     yacang, tms, yacang_mock, tms_mock = ph_online(paths)
     clock = {"today": date(2026, 11, 5)}
@@ -91,7 +26,7 @@ def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_file
     calls.attach_mock(yacang_mock, "yacang")
     calls.attach_mock(tms_mock, "tms")
 
-    def export_yacang(arguments):
+    def export_yacang(arguments, *, require_fresh):
         clock["today"] = date(2026, 11, 6)
         return yacang
 
@@ -109,8 +44,10 @@ def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_file
     assert record["ok"] is True and record["type"] == "result"
     assert set(record["files"]) == {item["path"] for item in result["artifacts"]}
     assert set(record["files"]).isdisjoint(paths.values())
+    sales, inventory = (ph_rows(item)[0] for item in result["artifacts"])
+    assert (sales["7天销量"], sales["可用"], inventory["可用库存"]) == (12, 130, 130)
     assert calls.mock_calls == [
-        call.yacang({"params": {"reports": ["inventory-sales", "inventory-current-snapshot"], "warehouses": ["PH8805"]}}),
+        call.yacang({"params": {"reports": ["inventory-sales", "inventory-current-snapshot"], "warehouses": ["PH8805"]}}, require_fresh=True),
         call.tms({"warehouse": "PH1"}, ANY),
     ]
     assert all(event["type"] == "progress" for event in events)

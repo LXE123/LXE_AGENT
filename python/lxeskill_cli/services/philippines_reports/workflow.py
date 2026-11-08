@@ -77,8 +77,7 @@ def _snapshot(key: str, raw_path: str, directory: Path) -> tuple[Path, dict]:
 
 def _merge_files(
     *, sales_file: str, inventory_file: str, tms_file: str | None,
-    report_date: date, mode: str, tms_warehouse_name: str = "菲律宾PH1仓",
-    expected_counts: dict[str, int] | None = None,
+    report_date: date, tms_warehouse_name: str, expected_counts: dict[str, int],
 ) -> dict:
     root = filesystem_path(dataset_dir("philippines_reports"))
     root.mkdir(parents=True, exist_ok=True)
@@ -98,7 +97,7 @@ def _merge_files(
             sales_path=paths["sales"], inventory_path=paths["inventory"], tms_path=paths["tms"],
             output_dir=outputs, report_date=report_date, tms_warehouse_name=tms_warehouse_name,
         )
-        for field, count in (expected_counts or {}).items():
+        for field, count in expected_counts.items():
             actual = built["statistics"].get(field)
             if actual != count:
                 raise PhilippinesReportError("source_count_mismatch", f"来源元数据 {field}={count}，文件实际为 {actual}")
@@ -109,28 +108,16 @@ def _merge_files(
             path = filesystem_path(item["path"])
             published.append({**item, "path": str(display_path(destination / path.name))})
         result = {
-            **built, "success": True, "status": "completed", "mode": mode,
+            **built, "success": True, "status": "completed",
             "report_date": report_date.isoformat(), "timezone": "Asia/Shanghai",
             "warehouses": {"yacang": "PH8805", "mabang-tms": "PH1"},
             "artifacts": published, "source_files": sources,
             "tms_empty": tms_file is None,
-            "source_scope": (
-                "本轮两个来源均完整导出，按返回文件校验并合并。" if mode == "export" else
-                "校验指定文件的表头、仓库、SKU 和数值；文件本身不能证明导出时点、完整取数范围或 TMS 汇总口径。"
-            ),
+            "source_scope": "雅仓与 TMS 来源均已完成导出，按返回文件校验并合并。",
         }
         # Publish the pair together after all data, counts and output checks pass.
         outputs.rename(destination)
         return result
-
-
-def merge_reports(*, sales_file: str, inventory_file: str, tms_file: str) -> dict:
-    """Merge exactly the three supplied files; never fetch or select cached files."""
-    try:
-        return _merge_files(sales_file=sales_file, inventory_file=inventory_file, tms_file=tms_file,
-                            report_date=_today(), mode="merge")
-    except Exception as exc:
-        return _failure("merge", exc)
 
 
 def _source_summary(source: str, result: dict) -> dict:
@@ -209,7 +196,7 @@ def export_reports(on_event: Callable[[dict], None] = lambda _event: None) -> di
         on_event({"stage": stage, "message": "菲律宾报表：取得雅仓 PH8805 库存动销和当前库存"})
         yacang = yacang_workflow.run({"params": {
             "reports": ["inventory-sales", "inventory-current-snapshot"], "warehouses": ["PH8805"],
-        }})
+        }}, require_fresh=True)
         source_exports.append(_source_summary("yacang", yacang))
         _complete(yacang, "雅仓")
         files, counts = _yacang_files(yacang)
@@ -221,7 +208,7 @@ def export_reports(on_event: Callable[[dict], None] = lambda _event: None) -> di
         tms_file, warehouse_name, tms_count = _tms_file(tms)
         stage = "merge"
         on_event({"stage": stage, "message": "菲律宾报表：按 SKU 合并并校验两份工作簿"})
-        result = _merge_files(**files, tms_file=tms_file, report_date=report_date, mode="export",
+        result = _merge_files(**files, tms_file=tms_file, report_date=report_date,
                               tms_warehouse_name=warehouse_name, expected_counts={**counts, "tms_rows": tms_count})
         return {**result, "source_exports": source_exports}
     except Exception as exc:

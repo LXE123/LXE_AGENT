@@ -94,7 +94,6 @@ $ lxeskill help replenishment
 
 东南亚及巴西备货：
   philippines reports export           取数并合并菲律宾库存动销和库存列表
-  philippines reports merge            用已有三份报表合并菲律宾库存和销量
   mabang brazil reports export         导出马帮巴西海外仓报表
   mabang brazil order-import generate  根据巴西备货清单生成马帮订单导入模板
   mabang-tms products export           导出马帮 TMS 商品、库存和销量

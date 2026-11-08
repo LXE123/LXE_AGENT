@@ -1,10 +1,9 @@
 ---
 name: philippines-reports-export
-description: 生成菲律宾库存动销和库存列表两份合并报表。用户要求导出菲律宾或雅仓菲律宾的库存、销量、库存动销或库存列表时使用，固定合并雅仓 PH8805 与马帮 TMS PH1。支持自动取数或使用指定的三份完整 XLSX；明确只需要单一 ERP 时使用对应导出 Skill。
+description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求导出菲律宾或雅仓菲律宾的库存、销量、库存动销或库存列表时使用；明确只需要单一 ERP 时使用对应导出 Skill。
 type: replenishment
 commands:
   - lxeskill philippines reports export
-  - lxeskill philippines reports merge
 ---
 
 # 菲律宾库存动销与库存列表
@@ -38,26 +37,7 @@ lxeskill philippines reports export
 
 如果雅仓阶段返回 `login_required`，按登录 Skill 重新登录并保存。没有已完成来源时自动重试本命令一次；已有已完成来源或再次失败时保留来源并报告实际错误，避免重复提交已完成的导出。遇到 403、429 或明显风控立即停止。
 
-### 使用已有三份完整文件合并
-
-用户指定了文件，或同一任务已取得完整的三份来源时，传入其真实路径：
-
-```bash
-lxeskill philippines reports merge \
-  --sales-file "<雅仓PH8805库存动销.xlsx>" \
-  --inventory-file "<雅仓PH8805当前库存.xlsx>" \
-  --tms-file "<马帮TMS-PH1最终汇总.xlsx>"
-```
-
-这个入口仅处理文件，不登录或重新导出。三份输入均须为完整 XLSX：
-
-- 雅仓 PH8805 库存动销：现有导出的原表或移除末列“创建日期”的交付版，覆盖本轮完整仓库范围，不加创建日期筛选。
-- 雅仓 PH8805 当前库存：现有导出的完整 18 列原表。
-- 马帮 TMS PH1：当前导出能力生成的完整最终汇总文件，每个 SKU 一行并保留原字段；部分导出文件不作为完整来源。
-
-程序检查表头、仓库、SKU 唯一性和数值；单靠文件内容不能证明取数时间、远端导出完整性或 TMS 汇总口径，应说明实际文件来源。只指定了部分文件时，先查找同一任务中其余完整来源；仍有缺项则确认如何补齐，再选择入口。
-
-两条命令的参数以 `lxeskill describe philippines reports export`、`lxeskill describe philippines reports merge` 为准。产物目录通过 `lxeskill datasets list` 查询，`dir` 相对于当前环境的 `artifact_root`。
+命令参数以 `lxeskill describe philippines reports export` 为准。产物目录通过 `lxeskill datasets list` 查询，`dir` 相对于当前环境的 `artifact_root`。
 
 ## 合并规则
 
@@ -88,8 +68,8 @@ TMS 独有 SKU 的补入规则：
 
 读取最后一条 `type="result"`。`ok=true`、`data.success=true`、`data.status=completed` 且 `files` 列出两份最终 XLSX 时，通过 `send_files` 一起交付，使用命令返回的真实路径与文件名。附件发送失败时只重试交付。
 
-自动取数有任何来源失败或部分成功时，组合命令失败且 `files=[]`；按 `data.stage`、`data.error` 和 `data.source_exports` 反馈失败阶段、实际错误及已完成来源。这些来源文件仅用于说明进度和后续恢复，不作为两份最终合并报表交付。文件校验或写出失败同样反馈实际诊断，补齐或修正三份输入后可使用文件合并入口继续。
+自动取数有任何来源失败或部分成功时，组合命令失败且 `files=[]`；按 `data.stage`、`data.error` 和 `data.source_exports` 反馈失败阶段、实际错误及已完成来源。这些来源文件仅用于说明进度，不作为两份最终合并报表交付。文件校验或写出失败同样反馈实际诊断。
 
-只有自动入口确认 TMS 完整成功、PH1 接口记录数及文件行数/SKU 数均为零且无来源附件时，才按空 TMS 集合处理。此时 `data.tms_empty=true`，仍交付两份最终 XLSX，并说明本轮 TMS 无记录、结果仅含雅仓数据。离线 `merge` 的三个文件参数仍然必填；缺少 TMS 文件不表示零记录。
+只有自动入口确认 TMS 完整成功、PH1 接口记录数及文件行数/SKU 数均为零且无来源附件时，才按空 TMS 集合处理。此时 `data.tms_empty=true`，仍交付两份最终 XLSX，并说明本轮 TMS 无记录、结果仅含雅仓数据。
 
 这两份文件是本轮来源报表的组合结果，不代表两个系统在同一时刻完成了库存快照，也不计算备货建议。
