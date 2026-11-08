@@ -1,6 +1,6 @@
 ---
 name: mabang-tms-products-export
-description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。已确定 TMS 来源时，越南选 VN1、菲律宾选 PH1。普通仓库数据来源不明时先确认 ERP，未指定仓库先询问。
+description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。已确定 TMS 来源时，越南选 VN1、菲律宾选 PH1。未限定单一 ERP 的菲律宾库存动销或库存列表使用 philippines-reports-export；普通仓库数据来源不明时先确认 ERP，未指定仓库先询问。
 type: replenishment
 commands:
   - lxeskill mabang-tms products export
@@ -20,7 +20,9 @@ commands:
 
 ## 先确定系统与仓库
 
-ERP 来源优先于国家名称。先使用当前请求或同一任务中已确认的 ERP 来源；来源未明确时，不能凭“越南仓”“菲律宾仓”、Shopee 或其他任务最近使用的系统选择 ERP。明确马帮 TMS 时只走本 Skill，明确雅仓时只走雅仓 Skill。
+用户要求“导出菲律宾库存动销”“导出雅仓菲律宾库存”或“导出雅仓菲律宾销量”时，使用 `philippines-reports-export`，固定合并雅仓 PH8805 与本 Skill 的 PH1 汇总产物并交付两份报表。明确只要雅仓或马帮 TMS 单一来源时，使用对应 Skill 的独立导出。
+
+除上述菲律宾合并流程外，先使用当前请求或同一任务中已确认的 ERP 来源；来源未明确时，不能凭“越南仓”“菲律宾仓”、Shopee 或其他任务最近使用的系统选择 ERP。明确只要马帮 TMS 或雅仓时，使用对应 Skill。
 
 | 用户要求 | 执行选择 |
 | --- | --- |
