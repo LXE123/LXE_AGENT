@@ -127,8 +127,8 @@ class YacangClient:
             raw = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise YacangError("验证码", self.diagnostic(f"data.captcha 不是有效的 JPEG Base64: {exc}"), code="invalid_captcha", scope="global") from None
-        if not raw.startswith(b"\xff\xd8\xff") or len(raw) > 2 * 1024 * 1024:
-            raise YacangError("验证码", "data.captcha 不是有效 JPEG 或超过 2 MiB", code="invalid_captcha", scope="global")
+        if not raw.startswith(b"\xff\xd8\xff"):
+            raise YacangError("验证码", "data.captcha 不是有效 JPEG", code="invalid_captcha", scope="global")
         try:
             with Image.open(io.BytesIO(raw)) as source:
                 if source.format != "JPEG":
