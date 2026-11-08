@@ -183,9 +183,10 @@ class YacangAuthState:
             return {"authenticated": authenticated, "online_verified": False,
                     "status": "available" if authenticated else "missing", "saved_at": value.get("saved_at") if authenticated else None}
 
-    def invalidate(self) -> None:
+    def invalidate(self, rejected_token: str) -> None:
         with self.lock():
-            if self._read_session():
+            value = self._read_session()
+            if value and value.get("token") == rejected_token:
                 self.session_path.unlink(missing_ok=True)
 
     def clear(self) -> None:

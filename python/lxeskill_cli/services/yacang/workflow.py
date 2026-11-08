@@ -89,7 +89,7 @@ def run(arguments):
                 error = {'code': getattr(exc, 'code', 'export_failed'), 'message': client.diagnostic(f'{type(exc).__name__}: {exc}')}
                 if getattr(exc, "code", None) == "login_required":
                     try:
-                        auth_state.invalidate()
+                        auth_state.invalidate(client.token)
                     except Exception as cleanup:
                         error['auth_cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 if temporary is not None:
