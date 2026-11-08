@@ -11565,17 +11565,88 @@ pre {
   position: fixed;
   inset: 0;
   z-index: 1000;
+  background: var(--scrim);
+  backdrop-filter: blur(1.25px);
+  -webkit-app-region: no-drag;
+}
+.sent-image-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.image-preview-toolbar {
+  position: absolute;
+  inset: 8px 10px auto;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  pointer-events: none;
+}
+:root:has(.desktop-platform-darwin) .image-preview-toolbar {
+  inset-inline-start: 78px; /* Clear the native traffic lights. */
+}
+.image-preview-info,
+.image-preview-toolbar > button {
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--cds-surface-popover) 94%, transparent);
+  border-radius: 999px;
+}
+.image-preview-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 32px;
+  padding-inline: 12px;
+}
+.image-preview-name {
+  display: flex;
+  min-width: 0;
+  font-size: .875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.image-preview-name > span { overflow: hidden; text-overflow: ellipsis; }
+.image-preview-name > span:nth-child(2) { flex-shrink: 0; max-width: 12ch; }
+.image-preview-source { flex: none; color: var(--muted); font-size: .75rem; }
+.image-preview-toolbar > button {
+  flex: none;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 78%);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
 }
-.sent-image-dialog { max-width: 100%; min-width: 0; color: white; }
-.sent-image-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
-.sent-image-dialog > header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sent-image-dialog > header > button { flex-shrink: 0; display: grid; place-items: center; padding: 8px; border: 0; border-radius: 8px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; }
-.sent-image-dialog > img { display: block; max-width: 100%; max-height: calc(100dvh - 140px); object-fit: contain; margin: auto; }
-.sent-image-dialog > p { max-width: 80vw; overflow-wrap: anywhere; }
+.image-preview-toolbar > button:hover { background: var(--cds-surface-popover); color: var(--text); }
+.image-preview-toolbar > button:active { background: color-mix(in srgb, var(--cds-surface-popover) 85%, var(--text)); }
+.image-preview-toolbar > button:focus-visible { outline: 0; box-shadow: var(--cds-focus); }
+.image-preview-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: 52px 24px;
+}
+.image-preview-stage > img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-preview-error {
+  align-self: center;
+  max-width: calc(100% - 32px);
+  margin: 0 0 16px;
+  padding: 8px 16px;
+  max-height: 30%;
+  border-radius: 8px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: .8125rem;
+}
 
 /* Chat's empty hint is plain text, independent of shared panel empty states. */
 .conversation-empty {
@@ -11732,7 +11803,6 @@ pre {
 .image-view-group { min-width: 0; padding: 6px 0; }
 .image-view-summary { display: flex; align-items: center; gap: 8px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 6px 0 10px; font: inherit; font-size: .75rem; }
 .conversation-compaction-marker { color: var(--muted); padding: 6px 0 10px; font-size: .75rem; }
-.image-view-note { margin: 0; padding: 8px 16px; opacity: .7; font-size: .75rem; }
 
 
 
