@@ -49,7 +49,8 @@ const prepareWireValue = (
   seen = new WeakSet<object>(),
 ): unknown => {
   const normalized = normalizedKey(key);
-  if (normalized === "signature" || normalized === "signaturedelta") return "***";
+  if (normalized === "signature" || normalized === "signaturedelta"
+    || normalized === "encryptedcontent" || normalized === "thinkingsignature") return "***";
   if (parentType === "redacted_thinking" && normalized === "data") {
     return `[redacted thinking data omitted: ${textLength(value)} chars]`;
   }
@@ -99,7 +100,7 @@ const sanitizeRawWireData = (value: string): string => {
     return truncateWireText(value
       .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
       .replace(
-        /((?:"?)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|password|signature)(?:"?)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+        /((?:"?)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|password|signature|thinkingSignature|encrypted_content)(?:"?)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
         "$1\"***\"",
       ));
   }

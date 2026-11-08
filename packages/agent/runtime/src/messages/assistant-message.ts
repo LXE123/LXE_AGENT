@@ -49,6 +49,8 @@ export interface AssistantMessage {
   model: string;
   responseId?: string;
   responseModel?: string;
+  /** Effective wire effort used to generate this reply, for replay of configuration updates. */
+  providerThinkingLevel?: string;
   content: AssistantContent[];
   usage: AssistantUsage;
   stopReason: AssistantStopReason;
