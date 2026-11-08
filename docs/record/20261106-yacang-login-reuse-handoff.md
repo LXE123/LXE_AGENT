@@ -11,12 +11,14 @@
 - `lxeskill yacang login prepare|submit|status|clear` 经 `services/commands/yacang/login_*.py` 进入 `workflow.login_action`，由 `YacangClient` 和 `YacangAuthState` 处理验证码及会话。
 - `prepare` 读取已确认的 `data.key` 与 JPEG Base64 `data.captcha`；`submit` 向现有 `loginV3` 提交用户填写的验证码。挑战提交前消费，5 分钟是本地时限，不代表平台时限。
 - 导出经 `workflow.run` 复用本地 token；缺少会话返回 `login_required`，业务接口 401 清除登录态，签名下载的 401 不当作平台登录失效。账号登录与导出使用账号锁；403/429 不自动重试。
+- 菲律宾报表需要本次新数据：内部调用可指定 `require_fresh=True`。如果此前提交状态不明，先确认旧任务已有结果，再提交本次导出；无法确认时保留旧任务状态并停止。普通雅仓导出默认行为不变。
 - 账号凭据指纹隔离会话；POSIX 下目录和文件权限为 0700/0600，Windows 沿用应用状态目录 ACL。`status` 只表示本地状态，`clear` 不执行平台注销，也不取消已开始且持有内存 token 的导出。
 - 保留 `shangman-login` Skill ID，由上马和雅仓共用；两平台的命令、凭据和状态仍独立。关闭该 Skill 会同时关闭两平台登录命令。`catalog.json` 注册命令，`docs/lxeskill-cli/commands.md` 从 catalog 生成。
 - 继续使用桌面注入的 `LXE_YACANG_MOBILE`、`LXE_YACANG_PASSWORD` 和 `LXE_DATA_ROOT`；验证码图片写入当前 `artifact_root` 的 `yacang/login` 目录。
 
 ## 验证证据
 
+- 本轮 `python/lxeskill_cli/tests/yacang` 为 **85 passed**，使用本机模拟服务；覆盖旧任务确认后获取新文件、无法查询时不重复提交，以及原有恢复行为。真实平台上的新流程 **NOT VERIFIED**。
 - 本轮从工作区根目录运行雅仓及两项登录 Skill scope 定向测试：**85 passed**。使用本机模拟服务，没有访问生产；保留同账号登录与导出的锁测试、业务接口 401 及签名下载 401 的处理测试。
 - 2026-11-06 经用户批准，真实雅仓验证码登录成功并持久保存。随后在隔离快照中复用登录态，真实导出菲律宾 PH8805 库存动销 **3663 行**及库存 **2470 行**，证实业务接口接受该登录态。
 - 同次菲律宾联动中，马帮 TMS 第 5 批下载出现 `SSLError: UNEXPECTED_EOF_WHILE_READING`，来源不完整，最终合并文件没有生成；未确定 TLS 错误根因，也未再次请求生产。离线组合验证不能替代真实完整导出。
@@ -30,5 +32,6 @@
 
 ## 下一步
 
+- 此次新鲜度改动尚未提交或推送。菲律宾工作区已使用新参数，需先将该前序改动正式归位并同步后，才能在菲律宾工作区直接运行该调用。
 - 同账号登录提交和导出共用账号锁；此前恢复的 token 比较及其直接写入会话的测试绕过该锁，不能证明正常流程存在竞态，本轮已移除。PR 描述和评论应与当前代码及 85 项测试结果保持一致。
 - 前序 PR 归位后，再验证 TMS 与菲律宾分支；不得把 pool-18 的未提交联调副本混入雅仓 PR。

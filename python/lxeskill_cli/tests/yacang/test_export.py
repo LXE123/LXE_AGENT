@@ -325,17 +325,37 @@ def test_global_failure_stops_remaining_tasks_and_preserves_error(platform, stat
         assert YacangAuthState(Credentials.from_environment()).status()['status'] == 'missing'
 
 
-def test_unknown_submit_resumes_queue_without_resubmitting(platform):
+@pytest.mark.parametrize('require_fresh', [False, True])
+def test_unknown_submit_recovers_queue_and_honors_fresh_requirement(platform, require_fresh):
     endpoint = REPORTS['inventory-sales'][1]
     platform['reject'][endpoint] = (500, {'msg': 'submit result unknown'})
     first = workflow.run(request(warehouses=['MY8801']))
     assert first['error']['code'] == 'submit_unknown'
     platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',
                             'param_where': json.dumps([['warehouse_id', '=', 26]]), 'path': platform['origin'] + '/file-late.xlsx'})
-    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801')
-    result = workflow.run(request(warehouses=['MY8801']))
+    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801', empty=True)
+    del platform['reject'][endpoint]
+    result = workflow.run(request(warehouses=['MY8801']), require_fresh=require_fresh)
     assert result['success'], result
+    assert len(submits(platform)) == 1 + require_fresh
+    assert result['artifacts'][0]['row_count'] == int(require_fresh)
+
+
+def test_fresh_export_stops_if_previous_task_cannot_be_checked(platform):
+    endpoint = REPORTS['inventory-sales'][1]
+    platform['reject'][endpoint] = (500, {'msg': 'submit result unknown'})
+    assert workflow.run(request(warehouses=['MY8801']))['error']['code'] == 'submit_unknown'
+    del platform['reject'][endpoint]
+    platform['reject']['/sys/customer/downPath/list'] = (500, {'msg': 'queue unavailable'})
+    result = workflow.run(request(warehouses=['MY8801']), require_fresh=True)
+    assert not result['success']
     assert len(submits(platform)) == 1
+    platform['reject'].pop('/sys/customer/downPath/list')
+    platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',
+                             'param_where': json.dumps([['warehouse_id', '=', 26]]), 'path': platform['origin'] + '/file-late.xlsx'})
+    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801')
+    assert workflow.run(request(warehouses=['MY8801']), require_fresh=True)['success']
+    assert len(submits(platform)) == 2
 
 
 def test_local_download_failure_preserves_partial_cli_files(platform, capsys):
