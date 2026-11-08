@@ -120,7 +120,6 @@ class YacangClient:
         data = payload.get("data")
         key = data.get("key") if isinstance(data, dict) else None
         image = data.get("captcha") if isinstance(data, dict) else None
-        self.secrets.extend(str(value) for value in (key, image) if value is not None)
         if not isinstance(key, str) or not key.strip() or not isinstance(image, str) or not image:
             raise YacangError("验证码", self.diagnostic(f"验证码响应缺少 data.key/captcha: {payload}"), code="invalid_captcha", scope="global")
         encoded = image.split(",", 1)[1] if image.startswith("data:image/jpeg;base64,") else image
@@ -150,7 +149,6 @@ class YacangClient:
         if not isinstance(token, str) or not token.strip():
             raise YacangError("登录", self.diagnostic(f"缺少 data.token: {payload}"), code="invalid_login", scope="global")
         self.token = token
-        self.secrets.append(token)
         return token
 
     def list_downloads(self):
