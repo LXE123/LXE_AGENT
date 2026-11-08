@@ -76,7 +76,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 模型工具名采用 `mcp__<server>__<tool>`，非法字符会替换，过长或冲突时附加哈希。调用时使用单独保存的服务端原始名称，不反向拆解模型工具名。清理按实际注册名称进行，避免相似前缀或截短名称误删其他服务器的工具。
 
-工具适配保留描述、参数 Schema、平台限制及宿主提供的调用元数据；文本、图片、资源和结构化结果沿用 Runtime 的统一处理路径。
+工具适配保留描述、参数 Schema、平台限制及宿主提供的调用元数据。
 
 每个服务可以通过 `exposure` 指定模型如何发现工具。
 
@@ -88,3 +88,17 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 | `hidden` | 工具保留在管理目录中，模型和脚本均无法调用。 |
 
 旧值 `auto` 随默认策略走 `codemode`，已有文件按原样保留。只统计当前回合平台上**已启用**的服务，连接状态决定实际可用的工具。两种间接模式并存时，两个入口都会出现。`tool_search` 可加载 `codemode` 和 `deferred` 工具，脚本可调用当前平台允许的非隐藏 MCP 工具。关闭最后一个 `deferred` 服务后，下一次模型请求就会撤下 `tool_search`。详见 [Exposure 模型](README.md#exposure-模型) 和 [桌面 MCP 接口](../../../desktop/automations.md#桌面-mcp-接口)。
+
+### 在 codemode 中查找和调用工具
+
+`searchTools(query, { limit?, namespace? })` 按 BM25 排序，默认返回前 8 个匹配。每个匹配包含可调用的 `name` 和带 TypeScript 签名的 `description`。已知名称时，`describeTool(name)` 可直接查询同一份声明。`describeNamespace(name)` 返回当前脚本可见的服务简介、服务端指引（如有）及工具名。查询不到的工具或服务返回 `undefined`。
+
+```js
+const [hit] = await searchTools("automation_list", { namespace: "lxe_desktop", limit: 1 });
+if (!hit) return [];
+const result = await tools[hit.name]({});
+if (result.isError) return result.content;
+return result.structuredContent ?? JSON.parse(result.content[0].text);
+```
+
+脚本能读取 MCP 原始内容块和结构化值。服务返回的 `isError: true` 仍是脚本可读取的结果，错误内容沿用凭据脱敏规则。连接异常、协议失败、超时和取消会拒绝调用。宿主元数据 `_meta` 留在客户端。模型直接调用 MCP 工具时继续收到适合展示的内容或错误。

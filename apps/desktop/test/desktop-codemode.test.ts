@@ -11,24 +11,18 @@ import type { AgentJob } from "@lxe/protocol";
 import deepseek from "../../../config/llm/providers/deepseek.json";
 import { DesktopAutomations } from "../src/main/automations";
 import { NodeAutomationStore } from "../src/main/automation-store";
+import { desktopCodemodeReport } from "./fixtures/desktop-codemode-script";
+import { runPiReference } from "./fixtures/pi-codemode-reference";
 
 const discovery = 'return (await searchTools("automation_runs")).map(tool => tool.name)';
-const report = `
-  const list = JSON.parse((await tools.mcp__lxe_desktop__automation_list({})).content[0].text);
-  const errors = [];
-  for (const task of list.items) {
-    const runs = JSON.parse((await tools.mcp__lxe_desktop__automation_runs({ id: task.id })).content[0].text);
-    for (const run of runs.items) if (run.dispatch_state === "failed") errors.push(run.error);
-  }
-  return errors;
-`;
+
 
 test.each(["compile", "build"] as const)("%s artifact discovers and calls desktop MCP with identical wire tools", async mode => {
   const root = mkdtempSync(join(tmpdir(), "lxe-codemode-"));
   const repo = resolve(import.meta.dir, "../../..");
   const executable = join(root, "agent-cli" + (process.platform === "win32" ? ".exe" : ""));
   const bundleDir = join(root, "bundle");
-  const nextCalls: { name: string; arguments: object }[] = [discovery, report].map(code => ({ name: "codemode", arguments: { code } }));
+  const nextCalls: { name: string; arguments: object }[] = [discovery, desktopCodemodeReport].map(code => ({ name: "codemode", arguments: { code } }));
   const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = await request.json() as typeof requests[number];
@@ -103,6 +97,19 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect(lastToolOutput(1)).toContain("mcp__lxe_desktop__automation_runs");
     expect(lastToolOutput(2)).toContain("fixture dispatch failure");
     expect(lastToolOutput(2)).not.toContain("failed-turn");
+
+    const piCli = process.env.LXE_TEST_PI_CLI;
+    if (piCli && mode === "build") {
+      const start = requests.length;
+      nextCalls.push(...[discovery, desktopCodemodeReport].map(code => ({ name: "codemode", arguments: { code } })));
+      await runPiReference(piCli, root, provider.url.origin, environment, job.session_id, job.job_id);
+      const piRequests = requests.slice(start);
+      expect(piRequests).toHaveLength(3);
+      expect(piRequests[0]!.tools.map(tool => tool.function.name)).toContain("codemode");
+      for (const body of piRequests.slice(1)) expect(body.tools).toEqual(piRequests[0]!.tools);
+      expect(lastToolOutput(start + 1)).toContain("mcp__lxe_desktop__automation_runs");
+      expect(JSON.stringify(lastToolOutput(start + 2))).toContain("fixture dispatch failure");
+    }
 
     const toggle = (name: string, enabled: boolean) => runtime.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled } });
     const nextTurn = async (id: string) => {

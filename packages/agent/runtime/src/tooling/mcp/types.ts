@@ -38,10 +38,12 @@ export interface McpRemoteTool {
   name: string;
   description?: string;
   inputSchema?: JsonObject;
+  outputSchema?: JsonObject;
 }
 
 export interface McpConnection {
   tools: McpRemoteTool[];
+  instructions?: string;
   /** Subscribe to transport closure; late subscribers are notified immediately. */
   onClose?(listener: () => void): () => void;
   protocolVersion?: string;
@@ -54,7 +56,7 @@ export interface McpCallResult {
   content: JsonObject[];
   structuredContent?: unknown;
   meta?: JsonObject;
-  isError: boolean;
+  isError?: boolean;
 }
 
 export interface McpConnector {

@@ -2,6 +2,7 @@ import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
 import type { JsonObject } from "@lxe/protocol";
 import { registerToolSearch, type McpConfig, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
+import { createCodemodeCatalog } from "./codemode-catalog";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
 
 // The two build entrypoints share src/ as their root, so the embedded worker is a sibling.
@@ -16,11 +17,17 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
   registry.register({
     name: "codemode",
     availableOn: platform => hasEnabledServer("codemode", platform),
-    description: "Run JavaScript to discover and use connected MCP tools. For desktop scheduled tasks, search for automation. " +
-      "Use await searchTools(query) for matching names, descriptions and input schemas, or inspect ALL_TOOLS. " +
-      "Call await tools[name](args) for a result with content blocks. Use return or text(value) to send selected data back.",
+    description: "Run JavaScript that calls connected MCP tools in a QuickJS sandbox. Top-level await and return work. " +
+      "Use await searchTools(query, { limit?, namespace? }) to find tools by capability, await describeTool(name) for a TypeScript declaration, " +
+      "or await describeNamespace(name) for server information and tool names. ALL_TOOLS lists callable tools. " +
+      "Call await tools[name](args) for an MCP result with content, optional structuredContent and isError. " +
+      "Check isError for server-reported tool errors; a failed connection rejects the call. " +
+      "Use return, text(value), or image(block) to show selected output.",
     input_schema: {
-      type: "object", properties: { code: { type: "string" } }, required: ["code"], additionalProperties: false,
+      type: "object",
+      properties: { code: { type: "string", description: "Raw JavaScript source." } },
+      required: ["code"],
+      additionalProperties: false,
     },
     async execute(input, context) {
       if (typeof input.code !== "string" || !input.code.trim()) throw new Error("codemode requires JavaScript in code");
@@ -28,18 +35,15 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
         context.platform ? { platform: context.platform } : {},
       );
       const scope = exposure.forCodemode();
+      const catalog = createCodemodeCatalog(scope.callableTools(), config);
       let callIndex = 0;
       const sandbox = new CodemodeSandbox({
         wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
         workerUrl,
         timeoutMs: 60_000,
         memoryLimitBytes: 32 * 1024 * 1024,
-        tools: scope.callableTools().map(tool => ({
-          name: tool.name,
-          // Keep tools[name] exact. '$' is outside MCP's normalized alphabet, so dash
-          // and underscore variants also get distinct QuickJS identifiers in ALL_TOOLS.
-          jsName: tool.name.replaceAll("-", "$"),
-          description: tool.description,
+        tools: catalog.entries.map(({ tool, jsName, description }) => ({
+          name: tool.name, jsName, description,
           execute(args, { signal }) {
             if (args === null || typeof args !== "object" || Array.isArray(args)) {
               throw new Error(`${tool.name} expects an arguments object`);
@@ -50,13 +54,7 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
             });
           },
         })),
-        globals: [{
-          name: "searchTools",
-          execute(query) {
-            if (typeof query !== "string") throw new Error("searchTools expects a string");
-            return scope.find(query);
-          },
-        }],
+        globals: catalog.globals,
       });
       try {
         const result = await sandbox.execute(input.code, { signal: context.handle.signal });

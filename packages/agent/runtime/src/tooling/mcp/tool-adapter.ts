@@ -1,4 +1,5 @@
 import type { JsonObject } from "@lxe/protocol";
+import { sanitizeLogValueWithPolicy } from "@lxe/core";
 import { ToolExecutionError, unknownToolFailureDetails, type ToolDefinition } from "../registry";
 import type { McpCallResult, McpConnection, McpRemoteTool, McpServerConfig } from "./types";
 import { mapping, mcpFailureText, withTimeout } from "./support";
@@ -80,6 +81,7 @@ export function adaptMcpTools(
       rawName: tool.name,
       description: tool.description ?? "",
       input_schema: tool.inputSchema ?? { type: "object", properties: {} },
+      ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       source: "mcp",
       ...(server.platforms ? { platforms: server.platforms } : {}),
       exposure: server.exposure,
@@ -96,9 +98,20 @@ export function adaptMcpTools(
             `MCP tool ${server.name}/${tool.name}`,
             context.signal ?? context.handle.signal,
           );
+          const scriptCall = context.exposureState?.scope === "codemode";
           if (result.isError) {
-            const preview = safeMcpContent(result).map(block => String(block.text ?? "")).filter(Boolean).join("\n");
-            throw new Error(preview || `MCP tool ${server.name}/${tool.name} returned isError=true`, { cause: result });
+            const text = safeMcpContent(result).map(block => block.text).filter(Boolean).join("\n");
+            const reason = text || `MCP tool ${server.name}/${tool.name} returned isError=true`;
+            if (!scriptCall) throw new Error(reason, { cause: result });
+            onError(mcpFailureText(reason));
+          }
+          if (scriptCall) {
+            const { meta: _meta, ...payload } = result;
+            // Scripts inspect complete results, including binary blocks and nested data.
+            // Keep credential redaction for errors; the separate diagnostic above is bounded.
+            return result.isError ? sanitizeLogValueWithPolicy(payload, {
+              maxString: Infinity, maxItems: Infinity, maxDepth: Infinity,
+            }) as McpCallResult : payload;
           }
           return { content: safeMcpContent(result) };
         } catch (error) {

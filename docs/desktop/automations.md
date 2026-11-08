@@ -72,7 +72,7 @@ flowchart LR
 
 启动时 Electron 注入命令、脚本、管道地址和随机凭据。agentcli 取得托管配置后从普通执行环境和 `process.env` 移除这些值；其他 CLI、exec 和第三方 MCP 不继承凭据。凭据不写入用户 MCP JSON 配置或命令参数。服务可在 MCP 管理页启停，偏好存在桌面数据库；关闭 MCP 不关闭定时调度或任务页。
 
-桌面托管的 `lxe_desktop` 采用 `exposure: "codemode"`。只启用这项服务时，模型通过 `codemode` 发现定时任务工具。脚本用 `await searchTools("automation")` 查名称、说明和参数，再用 `await tools[name](args)` 调用。查询计划与运行记录沿用当前桌面回合身份；脚本返回选定的数据，顶层工具清单保持稳定。另有已启用的 `deferred` 服务时，桌面对话才会出现 `tool_search`。
+桌面托管的 `lxe_desktop` 采用 `exposure: "codemode"`。只启用这项服务时，模型通过 `codemode` 发现定时任务工具。脚本用 `await searchTools("automation", { namespace: "lxe_desktop" })` 搜索，用 `await describeTool(name)` 查看调用签名，再用 `await tools[name](args)` 读取 MCP 结果。查询计划与运行记录沿用当前桌面回合身份；脚本返回选定的数据，顶层工具清单保持稳定。另有已启用的 `deferred` 服务时，桌面对话才会出现 `tool_search`。
 
 `lxe_desktop` 连接后提供四个定时任务工具：
 

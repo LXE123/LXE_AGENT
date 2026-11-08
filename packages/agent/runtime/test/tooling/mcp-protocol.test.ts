@@ -107,7 +107,7 @@ test("modern structured results preserve every JSON value and the connection sur
     abort.abort(new Error("fixture turn cancelled"));
     expect(String(await observed)).toContain("fixture turn cancelled");
     await eventually(() => fixture.trace().some(entry => entry.event === "cancelled"));
-    expect((await connection.callTool("echo", {})).isError).toBe(false);
+    expect((await connection.callTool("echo", {})).isError).toBeUndefined();
   } finally { await connection.close(); await fixture.cleanup(); }
 });
 
@@ -129,7 +129,7 @@ test("HTTP cancellation closes a modern request without repeating the tool call"
     expect(String(await observed)).toContain("fixture HTTP turn cancelled");
     await eventually(() => cancelled);
     expect(calls.filter(call => call.params?.arguments?.hang)).toHaveLength(1);
-    expect((await connection.callTool("echo", {})).isError).toBe(false);
+    expect((await connection.callTool("echo", {})).isError).toBeUndefined();
   } finally { await connection?.close(); await handler.close(); await http.stop(true); }
 });
 
@@ -195,7 +195,7 @@ for (const mode of ["exit-on-probe", "exit-on-call"]) {
     try {
       expect(connection.protocolEra).toBe("legacy");
       if (mode === "exit-on-call") await expect(connection.callTool("echo", {})).rejects.toThrow();
-      else expect((await connection.callTool("echo", {})).isError).toBe(false);
+      else expect((await connection.callTool("echo", {})).isError).toBeUndefined();
     } finally { await connection.close(); await fixture.cleanup(); }
   });
 }

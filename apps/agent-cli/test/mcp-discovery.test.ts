@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { adaptMcpTools, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
 import { policyFor, testWorkspace } from "../../../packages/agent/runtime/test/workspace";
 import { AgentRunHandle } from "../src/run-handle";
 import { registerMcpDiscoveryTools } from "../src/mcp-discovery";
@@ -39,7 +39,7 @@ test("script search and calls respect tool source, exposure, skill and platform"
   const result = await run(`
     return { search: (await searchTools("desktop")).map(t => t.name), callable: Object.keys(tools) };
   `);
-  expect(JSON.parse(String(result.content[0]?.text))).toEqual({ search: ["other_server", "visible"], callable: ["visible", "other_server"] });
+  expect(JSON.parse(String(result.content[0]?.text))).toEqual({ search: ["visible", "other_server"], callable: ["visible", "other_server"] });
   registry.unregisterWhere(name => name === "visible" || name === "other_server");
   expect((await run('return await searchTools("desktop")')).content[0]?.text).toBe("[]");
 });
@@ -97,4 +97,63 @@ test("codemode dispatches colliding JavaScript aliases to the exact registered t
   const [found, listed] = JSON.parse(String(result.content[0]?.text)) as string[][];
   expect(found!.sort()).toEqual(names);
   expect(listed!.sort()).toEqual(names);
+});
+
+test("Pi discovery offers ranked callable names, signatures and scoped namespace information", async () => {
+  const { makeTool, run } = setup();
+  const name = "mcp__lxe_desktop__list-widgets";
+  const alias = "mcp__lxe_desktop__list_widgets";
+  makeTool(name, {
+    description: "List colorful widgets", connectorInstructions: "Desktop instructions",
+    input_schema: { type: "object", required: ["owner"], properties: { owner: { $ref: "#/$defs/Owner" } },
+      $defs: { Owner: { type: "string", description: "account responsible for inventory" } } },
+    outputSchema: { $defs: { Row: { type: "number" } }, type: "array", items: { $ref: "#/$defs/Row" } },
+  });
+  makeTool("mcp__other__list_widgets", { connectorName: "other" });
+  makeTool("secret", { exposure: "hidden" });
+  const result = await run(`
+    const [hit] = await searchTools("inventory", { namespace: "mcp__lxe_desktop", limit: 1 });
+    const decl = await describeTool(hit.name);
+    return {
+      hit, same: decl === hit.description && decl === (await describeTool(${JSON.stringify(name)}))
+        && decl === ALL_TOOLS.find(t => t.name === hit.name).description,
+      ns: await describeNamespace("lxe_desktop"), empty: await searchTools("", { limit: 2 }),
+      missing: (await describeTool("secret")) === undefined && (await describeNamespace("absent")) === undefined,
+    };
+  `);
+  const value = JSON.parse(String(result.content[0]?.text));
+  expect(value.hit.name).toBe(alias);
+  expect(Object.keys(value.hit).sort()).toEqual(["description", "name"]);
+  expect(value.hit.description).toContain("owner: string");
+  expect(value.hit.description).toContain("Array<number>");
+  expect(value.same).toBe(true);
+  expect(value.missing).toBe(true);
+  expect(value.empty).toEqual([]);
+  expect(value.ns).toEqual({ name: "mcp__lxe_desktop", description: "管理桌面定时任务", instructions: "Desktop instructions", tools: [alias] });
+  await expect(run('await searchTools("widget", { limit: 0 })')).rejects.toThrow("positive integer");
+  await expect(run('await searchTools("widget", { namespace: 2 })')).rejects.toThrow("namespace must be a string");
+});
+
+test("scripts receive MCP content blocks and structured values, server errors resolve and transport errors reject", async () => {
+  const { registry, run } = setup();
+  const image = { type: "image", data: "eA==", mimeType: "image/png" };
+  const [tool] = adaptMcpTools(desktopConfig(), [{ name: "probe" }], async (_name, input) => {
+    if (input.disconnect) throw new Error("transport closed during this call");
+    if (input.fail) return { content: [{ type: "text", text: "actual failure token=private-value" }],
+      isError: true, structuredContent: { code: 42 }, meta: { internal: "private" } };
+    return { content: [image], structuredContent: input.value, meta: { private: true } };
+  });
+  registry.register(tool!);
+  const result = await run(`
+    const probe = tools.mcp__lxe_desktop__probe;
+    const success = await Promise.all([null, false, 0, [], {items:[1]}].map(value => probe({value})));
+    return { success, error: await probe({fail:true}) };
+  `);
+  const { success, error } = JSON.parse(String(result.content[0]?.text));
+  expect(success).toEqual([null, false, 0, [], { items: [1] }].map(value => ({ content: [image], structuredContent: value })));
+  expect(error.isError).toBe(true);
+  expect(error.structuredContent).toEqual({ code: 42 });
+  expect(error.content[0].text).toContain("actual failure");
+  expect(JSON.stringify(error)).not.toContain("private");
+  await expect(run("await tools.mcp__lxe_desktop__probe({disconnect:true})")).rejects.toThrow("transport closed during this call");
 });

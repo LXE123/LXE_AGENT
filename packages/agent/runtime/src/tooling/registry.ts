@@ -17,6 +17,9 @@ export interface ToolDefinition extends ToolSchema {
   supportsParallelCalls?: boolean;
   ownerSkills?: string[];
   connectorName?: string;
+  connectorInstructions?: string;
+  /** Structured payload declared by an MCP server, for script tool signatures. */
+  outputSchema?: JsonObject;
   rawName?: string;
   execute(input: JsonObject, context: {
     executionPolicy: ExecutionPolicy;
@@ -130,7 +133,7 @@ export class ToolExposureState {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly options: ToolExposureOptions = {},
-    private readonly scope: "model" | "codemode" = "model",
+    readonly scope: "model" | "codemode" = "model",
   ) {
     for (const definition of registry.definitionsSnapshot()) {
       if (scope === "codemode" ? definition.source === "mcp" : definition.exposure === "direct") {

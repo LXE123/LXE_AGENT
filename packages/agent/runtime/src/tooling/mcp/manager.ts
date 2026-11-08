@@ -165,6 +165,7 @@ export class McpManager {
           observed => { if (current() && entry.connection === connection) entry.error = observed; },
         );
         for (const definition of definitions) {
+          if (connection.instructions) definition.connectorInstructions = connection.instructions;
           registry.register(definition);
           entry.tools.push({ rawName: definition.rawName!, modelName: definition.name });
         }

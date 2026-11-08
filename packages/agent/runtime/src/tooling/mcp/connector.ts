@@ -8,7 +8,7 @@ import { mapping } from "./support";
 
 type McpSdkClientPort = Pick<Client,
   "connect" | "close" | "onclose" | "listTools" | "callTool" | "getNegotiatedProtocolVersion" | "getProtocolEra"
->;
+> & Partial<Pick<Client, "getInstructions">>;
 
 export class OfficialMcpConnector implements McpConnector {
   constructor(
@@ -61,11 +61,14 @@ export class OfficialMcpConnector implements McpConnector {
         ...(tool.description ? { description: tool.description } : {}),
         // The SDK validates wire JSON but its extensible schema type uses unknown.
         inputSchema: tool.inputSchema as JsonObject,
+        ...(tool.outputSchema ? { outputSchema: tool.outputSchema as JsonObject } : {}),
       }));
       const protocolVersion = client.getNegotiatedProtocolVersion();
+      const instructions = client.getInstructions?.();
       const protocolEra = client.getProtocolEra();
       return {
         tools,
+        ...(instructions ? { instructions } : {}),
         onClose: listener => {
           if (closed) listener();
           else closeListeners.add(listener);
@@ -78,14 +81,9 @@ export class OfficialMcpConnector implements McpConnector {
           const content = Array.isArray(result.content)
             ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
             : [];
-          return {
-            content,
-            ...(result.structuredContent !== undefined
-              ? { structuredContent: result.structuredContent }
-              : {}),
-            ...(Object.keys(mapping(result._meta)).length > 0 ? { meta: mapping(result._meta) as JsonObject } : {}),
-            isError: result.isError === true,
-          };
+          const { _meta, isError, ...payload } = result;
+          return { ...payload, content, ...(isError !== undefined ? { isError } : {}),
+            ...(Object.keys(mapping(_meta)).length ? { meta: mapping(_meta) as JsonObject } : {}) };
         },
         close: () => client.close(),
       };
