@@ -61,6 +61,10 @@ export class McpManager {
     await this.connect(entry, registry);
   }
 
+  serverInstructions(serverName: string): string | undefined {
+    return this.entry(serverName).connection?.instructions;
+  }
+
   status(serverName: string): McpServerStatus {
     const entry = this.entry(serverName);
     return {

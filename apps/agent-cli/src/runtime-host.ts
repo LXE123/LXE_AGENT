@@ -1,5 +1,6 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
+import { renderMcpServerDirectory } from "./mcp-server-directory";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -275,6 +276,7 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
+      mcpServerDirectory: renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,

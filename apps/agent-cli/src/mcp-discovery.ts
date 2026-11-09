@@ -3,6 +3,7 @@ import type { JsonObject } from "@lxe/protocol";
 import { registerToolSearch, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
 import { createCodemodeCatalog } from "./codemode-catalog";
+import { mcpServerEnabledOnPlatform } from "./mcp-server-directory";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
 
 // The two build entrypoints share src/ as their root, so the embedded worker is a sibling.
@@ -16,7 +17,7 @@ export function registerMcpDiscoveryTools(
   transcript: Pick<SqliteRuntimeStore, "readCodemodeStore" | "appendCodemodeStore">,
 ): void {
   const hasEnabledServer = (mode: "codemode" | "deferred", platform: string | undefined) => config.servers.some(server =>
-    server.enabled && server.exposure === mode && (!server.platforms || server.platforms.includes(platform ?? "")));
+    server.exposure === mode && mcpServerEnabledOnPlatform(server, platform));
   registerToolSearch(registry, platform => hasEnabledServer("deferred", platform));
   registry.register({
     name: "codemode",

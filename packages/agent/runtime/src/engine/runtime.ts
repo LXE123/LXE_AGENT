@@ -456,11 +456,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         : this.options.toolExposure;
       const skillNames = skillSnapshot?.names
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
+      const toolPlatform = String(job.source.platform ?? "").trim();
       const toolExposure = this.options.tools.createExposureState({
         ...exposureOptions,
         loadedTools: heartbeat ? [] : await this.options.store.readLoadedTools(job.session_id),
         onToolsLoaded: tools => this.options.store.appendLoadedTools(job.session_id, job.job_id, tools, handle.signal),
-        platform: String(job.source.platform ?? "").trim(),
+        platform: toolPlatform,
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames), skillLocations: skillSnapshot.locations } : {}),
         onSkillActivated: async (name) => {
           await exposureOptions?.onSkillActivated?.(name);
@@ -468,6 +469,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       });
       const systemPromptContext: SystemPromptContext = {
         platform: turnPlatform,
+        toolPlatform,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         skillPrompt: skillSnapshot?.prompt ?? "",
@@ -836,7 +838,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             const executed = await this.options.tools.execute(call.name, call.arguments, {
               executionPolicy,
               handle,
-              platform: String(job.source.platform ?? "").trim(),
+              platform: toolPlatform,
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               turn_id: job.job_id,

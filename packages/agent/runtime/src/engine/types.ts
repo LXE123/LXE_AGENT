@@ -274,6 +274,8 @@ export interface RuntimeStore {
 
 export interface SystemPromptContext {
   platform: string;
+  /** Explicit job source used by tool exposure and execution. */
+  toolPlatform: string;
   provider: string;
   model: string;
   skillPrompt: string;

@@ -29,6 +29,8 @@ function connection(names = ["echo"]) {
 
 test("passive disconnect removes owned tools; only explicit reconnect discovers a replacement", async () => {
   const first = connection(["before"]), second = connection(["after"]);
+  first.value.instructions = "First connection";
+  second.value.instructions = "Replacement connection";
   let attempts = 0;
   const manager = new McpManager({ servers: [server()] }, { connect: async () => ++attempts === 1 ? first.value : second.value });
   const registry = new ToolRegistry();
@@ -38,13 +40,16 @@ test("passive disconnect removes owned tools; only explicit reconnect discovers 
     await manager.start(registry);
     const staleTool = registry.definition("mcp__fixture__before")!;
     expect(manager.status("fixture").state).toBe("ready");
+    expect(manager.serverInstructions("fixture")).toBe("First connection");
     first.disconnect();
+    expect(manager.serverInstructions("fixture")).toBeUndefined();
     expect(manager.status("fixture")).toMatchObject({ state: "disconnected", connected: false, toolCount: 0, tools: [] });
     expect(registry.schemas().map(tool => tool.name)).toEqual(["native"]);
     expect(attempts).toBe(1);
     await manager.reconnect("fixture");
     first.disconnect();
     expect(manager.status("fixture")).toMatchObject({ state: "ready", toolCount: 1 });
+    expect(manager.serverInstructions("fixture")).toBe("Replacement connection");
     expect(registry.schemas().map(tool => tool.name)).toEqual(["native", "mcp__fixture__after"]);
     await expect(staleTool.execute({}, context())).rejects.toThrow("no longer active");
     expect(first.calls).toEqual([]);
