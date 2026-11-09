@@ -11,6 +11,7 @@ import {
 } from "../exec-shell";
 import {
   DEFAULT_COMMAND_OUTPUT_TOKENS,
+  budgetCommandScriptResult,
   formatCommandPayloadWithBudget,
 } from "../process-output";
 import {
@@ -30,6 +31,26 @@ const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const MIN_COMMAND_OUTPUT_TOKENS = 1;
 const MAX_COMMAND_OUTPUT_TOKENS = 10_000;
 
+const commandResultSchema = (outputKey: "output" | "new_output"): JsonObject => ({
+  type: "object",
+  properties: {
+    status: { enum: ["running", "completed", "failed", "killed"] },
+    exec_id: { type: "string" },
+    [outputKey]: { type: "string" },
+    exit_code: { type: ["integer", "null"] },
+    duration_sec: { type: "number" },
+    truncated: { type: "boolean" },
+    observation_truncated: { type: "boolean" },
+    output_incomplete: { type: "boolean" },
+    output_path: { type: "string" },
+    output_file_covers_captured: { type: "boolean" },
+    output_file_truncated: { type: "boolean" },
+    output_file_error: { type: "string" },
+  },
+  required: ["status", "exec_id", outputKey],
+  additionalProperties: true,
+});
+
 const outputTokenBudget = (input: JsonObject): number => {
   const value = Number(input["max-output-tokens"] ?? DEFAULT_COMMAND_OUTPUT_TOKENS);
   if (
@@ -47,14 +68,20 @@ const outputTokenBudget = (input: JsonObject): number => {
 const commandResult = async (
   payload: JsonObject,
   processes: CodingProcessManager,
-  sessionId: string,
+  context: Parameters<ToolDefinition["execute"]>[1],
   maxOutputTokens: number,
   displayStatus?: "running" | "error",
 ) => {
+  if (context.exposureState?.scope === "codemode") {
+    if (typeof payload.error === "string") throw new Error(payload.error);
+    const value = budgetCommandScriptResult(payload, maxOutputTokens);
+    if (value.observation_truncated) Object.assign(value, await processes.ensureOutputFile(String(value.exec_id), context.session_id));
+    return { content: [], structuredContent: value };
+  }
   let formatted = formatCommandPayloadWithBudget(payload, maxOutputTokens);
   if (formatted.observationTruncated) {
     const execId = String(payload.exec_id ?? "").trim();
-    if (execId) Object.assign(payload, await processes.ensureOutputFile(execId, sessionId));
+    if (execId) Object.assign(payload, await processes.ensureOutputFile(execId, context.session_id));
     formatted = formatCommandPayloadWithBudget(payload, maxOutputTokens);
   }
   return {
@@ -87,6 +114,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
   return [
     {
       name: "exec",
+      codemodeResult: commandResultSchema("output"),
       supportsParallelCalls: true,
       description: execToolDescription(shellProfile, promptLimits) + permissionToolDescription,
       input_schema: {
@@ -136,7 +164,8 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           responseRouteId: context.response_route_id ?? "",
           workspace: context.workspace,
           yieldMs,
-          signal: context.handle.signal,
+          signal: context.signal ?? context.handle.signal,
+          rawOutput: context.exposureState?.scope === "codemode",
           toolCallId: context.tool_call_id ?? "",
           ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
           ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [] }) } : {}),
@@ -144,7 +173,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
         return await commandResult(
           payload,
           processes,
-          context.session_id,
+          context,
           maxOutputTokens,
           payload.status === "running" ? "running" : payload.status === "completed" ? undefined : "error",
         );
@@ -152,6 +181,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
     },
     {
       name: "wait",
+      codemodeResult: commandResultSchema("new_output"),
       supportsParallelCalls: true,
       description: "Wait for a running exec, returning only output produced since the previous observation. Set terminate=true to stop its complete process tree. Different exec ids can be waited concurrently; a completed result closes that exec id for the model.",
       input_schema: {
@@ -187,8 +217,9 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           sessionId: context.session_id,
           yieldMs,
           terminate: input.terminate === true,
-          signal: context.handle.signal,
-        }), processes, context.session_id, maxOutputTokens);
+          signal: context.signal ?? context.handle.signal,
+          rawOutput: context.exposureState?.scope === "codemode",
+        }), processes, context, maxOutputTokens);
       },
     },
   ];

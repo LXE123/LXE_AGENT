@@ -147,6 +147,16 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       expect((await runtime.runTurn(turn, new RunHandle(turn))).status).toBe("completed");
       return requests.slice(start).map(body => body.tools.map(tool => tool.function.name));
     };
+    nextCalls.push({ name: "codemode", arguments: { code: `
+      await tools.write({file_path:"codemode-note.txt", content:"from script"});
+      const result = await tools.exec({command:"echo codemode-shell"});
+      if (result.exit_code !== 0 || result.output.trim() !== "codemode-shell") throw new Error(JSON.stringify(result));
+      if (!(await describeTool("wait")).includes("new_output")) throw new Error("Missing wait signature");
+      return "script-command-ok";` } });
+    expect(await nextTurn("script-command")).toHaveLength(2);
+    expect(lastToolOutput(requests.length - 1)).toContain("script-command-ok");
+    expect(readFileSync(join(root, "codemode-note.txt"), "utf8")).toBe("from script");
+    expect(requests.at(-1)!.tools).toEqual(requests.at(-2)!.tools);
     await toggle("reports", true);
     nextCalls.push({ name: "tool_search", arguments: { query: "mcp__reports__echo", limit: 1 } });
     const mixed = await nextTurn("search-reports");

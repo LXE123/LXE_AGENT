@@ -128,6 +128,8 @@ export class CodingProcessManager {
     workspace: WorkspaceContext;
     yieldMs: number;
     signal: AbortSignal;
+    /** Return programmatic output without presentation markers or whitespace trimming. */
+    rawOutput?: boolean;
     toolCallId: string;
     turnId?: string;
     env?: Record<string, string>;
@@ -143,15 +145,16 @@ export class CodingProcessManager {
     const entry = started.entry;
 
     await this.observe(entry, request.yieldMs, request.signal);
+    if (request.rawOutput) request.signal.throwIfAborted();
     if (entry.endedAt !== undefined) {
       entry.finalObserved = true;
-      return this.completedPayload(entry);
+      return this.completedPayload(entry, request.rawOutput);
     }
     entry.notifyOnExit = true;
     runWithLogContext(this.logContext(entry), () => {
       this.logger.info("process_yielded", this.processFields(entry));
     });
-    return this.runningPayload(entry, true);
+    return this.runningPayload(entry, request.rawOutput);
   }
 
   private async spawnEntry(request: {
@@ -323,7 +326,9 @@ export class CodingProcessManager {
     yieldMs: number;
     terminate: boolean;
     signal: AbortSignal;
+    rawOutput?: boolean;
   }): Promise<JsonObject> {
+    if (request.rawOutput) request.signal.throwIfAborted();
     const entry = this.entries.get(request.execId);
     if (!entry || entry.sessionId !== request.sessionId || entry.finalObserved) {
       return { error: `exec ${request.execId} 不存在或已经关闭。` };
@@ -335,6 +340,7 @@ export class CodingProcessManager {
       ? this.requestTermination(entry, "process_killed")
       : undefined;
     return this.withObservation(entry, async () => {
+      if (request.rawOutput) request.signal.throwIfAborted();
       if (entry.finalObserved && !request.terminate) {
         return { error: `exec ${request.execId} 不存在或已经关闭。` };
       }
@@ -345,13 +351,15 @@ export class CodingProcessManager {
       } else if (entry.endedAt === undefined) {
         await this.observe(entry, request.yieldMs, request.signal);
       }
+      // A cancelled script cannot receive this result. Leave its output for the next wait.
+      if (request.rawOutput) request.signal.throwIfAborted();
       const terminal = entry.endedAt !== undefined;
       const slice = entry.output.renderSince(entry.outputCursor);
       const payload: JsonObject = {
         exec_id: entry.id,
         sandbox: { ...entry.sandbox },
         status: terminal ? entry.status : "running",
-        new_output: slice.text || "(no new output)",
+        new_output: request.rawOutput ? slice.text : slice.text || "(no new output)",
       };
       if (terminal) {
         payload.exit_code = entry.exitCode;
@@ -359,7 +367,7 @@ export class CodingProcessManager {
         entry.finalObserved = true;
       }
       this.describeOutputCompleteness(entry, payload);
-      this.describeTruncation(entry, payload, slice.missed);
+      this.describeTruncation(entry, payload, slice.missed && !request.rawOutput);
       this.describeOutputFile(entry, payload);
       entry.outputCursor = slice.cursor;
       return payload;
@@ -470,22 +478,23 @@ export class CodingProcessManager {
       : "读取进程输出流时发生错误；结果只包含成功捕获的输出。";
   }
 
-  private completedPayload(entry: ProcessEntry): JsonObject {
+  private completedPayload(entry: ProcessEntry, rawOutput = false): JsonObject {
+    const output = entry.output.renderRetained();
     const payload: JsonObject = {
       status: entry.status,
       exec_id: entry.id,
       sandbox: { ...entry.sandbox },
       exit_code: entry.exitCode,
-      output: entry.output.renderRetained().trim() || "(no output)",
+      output: rawOutput ? output : output.trim() || "(no output)",
       duration_sec: this.duration(entry),
     };
     this.describeOutputCompleteness(entry, payload);
-    this.describeTruncation(entry, payload, true);
+    this.describeTruncation(entry, payload, !rawOutput);
     this.describeOutputFile(entry, payload);
     return payload;
   }
 
-  private runningPayload(entry: ProcessEntry, advanceCursor: boolean): JsonObject {
+  private runningPayload(entry: ProcessEntry, rawOutput = false): JsonObject {
     const slice = entry.output.renderSince(entry.outputCursor);
     const payload: JsonObject = {
       status: entry.status,
@@ -494,11 +503,11 @@ export class CodingProcessManager {
       pid: entry.process.pid,
       duration_sec: this.duration(entry),
       message: `命令仍在运行。使用 wait(exec_id='${entry.id}') 查看新输出或终止命令。`,
-      output: slice.text || "(暂无输出)",
+      output: rawOutput ? slice.text : slice.text || "(暂无输出)",
     };
-    this.describeTruncation(entry, payload, slice.missed);
+    this.describeTruncation(entry, payload, slice.missed && !rawOutput);
     this.describeOutputFile(entry, payload);
-    if (advanceCursor) entry.outputCursor = slice.cursor;
+    entry.outputCursor = slice.cursor;
     return payload;
   }
 

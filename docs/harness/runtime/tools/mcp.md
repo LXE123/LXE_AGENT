@@ -111,7 +111,16 @@ return result.structuredContent ?? JSON.parse(result.content[0].text);
 
 脚本能读取 MCP 原始内容块和结构化值。服务返回的 `isError: true` 仍是脚本可读取的结果，错误内容沿用凭据脱敏规则。连接异常、协议失败、超时和取消会拒绝调用。宿主元数据 `_meta` 留在客户端。模型直接调用 MCP 工具时继续收到适合展示的内容或错误。
 
-脚本也能组合当前会话的四个内置工具。`ls`、`grep` 返回文本，`edit` 返回修改摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。脚本和直接调用共享同一会话的文件版本记录和编辑权限：先读再改，文件被别人改过就必须重读。一次成功的编辑立即写入文件，即使脚本后续报错，也不会随 `store()` 一起回滚。
+脚本也能组合当前会话的内置工具。`ls`、`grep` 返回文本，`edit`、`write` 返回修改或写入摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。新文件可用 `tools.write({ file_path, content })` 创建。覆盖或编辑已有文件沿用同一会话的权限和版本检查，先读再改。写入立即生效。
+
+`exec` 返回包含 `status`、`exec_id` 和 `output` 的对象。如果命令仍在运行，脚本可以调用 `tools.wait({ exec_id })` 取得新增的 `new_output`，或先把 ID 返回给模型，让同一会话稍后继续等。进程退出后可读取 `exit_code`，包括非零退出码。显式传入 `terminate: true` 可终止该进程树。脚本限时 60 秒，长任务可以分多次观察。
+
+```js
+const first = await tools.exec({ command: "bun test", "yield-time-ms": 1000 });
+if (first.status !== "running") return first;
+const next = await tools.wait({ exec_id: first.exec_id, "yield-time-ms": 5000 });
+return { ...next, output: first.output + next.new_output };
+```
 
 ### 在多次脚本调用之间保存数据
 

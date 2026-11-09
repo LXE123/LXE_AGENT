@@ -303,6 +303,8 @@ export interface ToolSchema {
 }
 
 export interface ToolExecutionResult {
+  /** Programmatic result for tools with a declared output schema. */
+  structuredContent?: unknown;
   /** Display-only metadata; never included in model content. */
   image_view?: { path: string; name: string; media_type: string };
   content: JsonObject[];

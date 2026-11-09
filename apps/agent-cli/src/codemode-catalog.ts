@@ -82,11 +82,16 @@ const readSchema = { anyOf: [textSchema, {
 
 function scriptResultSchema(tool: NormalizedToolDefinition) {
   if (tool.source === "mcp") return createMcpResultSchema(tool.outputSchema);
+  if (typeof tool.codemodeResult === "object") return tool.codemodeResult;
   return tool.codemodeResult === "text-or-image" ? readSchema : textSchema;
 }
 
 export function toScriptValue(tool: NormalizedToolDefinition, result: ToolExecutionResult) {
   if (tool.source === "mcp") return result;
+  if (typeof tool.codemodeResult === "object") {
+    if (result.structuredContent === undefined) throw new TypeError(`${tool.name} returned no structured result`);
+    return result.structuredContent;
+  }
   const text = result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
   if (tool.codemodeResult === "text-or-image") {
     const block = result.content.find(block => block.type === "image");

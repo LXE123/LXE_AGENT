@@ -35,7 +35,6 @@ const DEFAULT_READ_LINES = 2_000;
 const READ_HINT_CHAR_RESERVE = 160;
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
-const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 const isMissingPathError = (cause: unknown): boolean =>
   cause instanceof Error
   && "code" in cause
@@ -197,18 +196,21 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "write",
+      codemodeResult: "text",
       description: "Create or overwrite a UTF-8 file. Relative paths resolve from the session working directory." + permissionToolDescription,
       input_schema: { type: "object", properties: { ...permissionInputProperties, file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"], additionalProperties: false },
       execute: async (input, context) => {
         input = structuredClone(input);
+        if (typeof input.content !== "string") throw new ToolExecutionError("invalid_argument", "write requires string content");
+        const signal = context.signal ?? context.handle.signal;
         const policy = requestedPolicy(input, context.executionPolicy);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         const requested = paths.resolveWritable(context.workspace, input.file_path);
         const target = inspectFileWriteTarget(policy, requested, true, executionPaths);
         const { path } = target;
         const version = writeTargetVersion(target);
         if (version !== undefined) ledger.assertVersion(context.session_id, requested, "write", version);
-        const content = inputText(input, "content");
+        const content = input.content;
         if (policy.mode !== context.executionPolicy.mode) {
           const identity = canonicalPathCandidate(requested);
           await approveIfNeeded(dependencies.approvals, "write", input, context, policy, { path: requested, content });
@@ -216,7 +218,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
           const after = recheckFileWriteTarget(policy, requested, target, executionPaths);
           if (writeTargetVersion(after) !== version) throw new Error(`write target changed during approval; read it again: ${requested}`);
         }
-        assertActive(context.handle.signal);
+        assertActive(signal);
         mkdirSync(dirname(path), { recursive: true });
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
         const currentVersion = writeTargetVersion(current);
@@ -224,7 +226,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
           throw new Error(`write 被拒绝：文件在写入前发生变化，请重新 read 确认最新内容: ${path}`);
         }
         if (version !== undefined) ledger.assertVersion(context.session_id, requested, "write", currentVersion);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         writeFileSync(path, content, "utf8");
         ledger.recordCurrent(context.session_id, requested, path);
         return { content: textBlock(`Wrote ${relative(context.workspace.directory, requested)}`) };

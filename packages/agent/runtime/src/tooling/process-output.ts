@@ -489,7 +489,7 @@ const decodeUtf8Boundary = (bytes: Uint8Array, fromEnd: boolean): string => {
   return "";
 };
 
-const trimFormattedBody = (
+const trimOutputBody = (
   value: string,
   maxBytes: number,
 ): { text: string; omittedTokens: number } => {
@@ -517,6 +517,19 @@ const trimFormattedBody = (
     ),
   };
 };
+
+/** Preserve raw output (including JSON and newlines) for script callers. */
+export function budgetCommandScriptResult(payload: JsonObject, maxOutputTokens: number): JsonObject {
+  const key = "new_output" in payload ? "new_output" : "output";
+  const output = payload[key];
+  if (typeof output !== "string") return payload;
+  const body = trimOutputBody(output, maxOutputTokens * APPROX_BYTES_PER_TOKEN);
+  if (!body.omittedTokens) return payload;
+  return {
+    ...payload, [key]: body.text, observation_truncated: true,
+    observation_original_tokens: estimatedTokens(output), observation_omitted_tokens: body.omittedTokens,
+  };
+}
 
 /**
  * Applies the command observation budget to the formatted output body while
@@ -567,7 +580,7 @@ export function formatCommandPayloadWithBudget(
     0,
     resultBytes - Buffer.byteLength(reservedPrefix, "utf8"),
   );
-  const body = trimFormattedBody(outputBody, Math.min(requestedBytes, availableResultBytes));
+  const body = trimOutputBody(outputBody, Math.min(requestedBytes, availableResultBytes));
   metadataPayload.observation_omitted_tokens = body.omittedTokens;
   const metadata = formatCommandPayload(metadataPayload);
   const prefix = `${metadata ? `${metadata}\n` : ""}${outputKey}:\n`;

@@ -14,7 +14,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - MCP tools：从已启用的服务动态发现，暴露方式由服务的 [exposure 配置](mcp.md#工具适配与上下文的边界) 决定。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：当前平台启用了 `deferred` 服务时出现。它搜索尚未加载的工具，命中后从下一次模型请求起可以直接调用；续聊和分叉按当前分支恢复已加载的工具。
-- `codemode`：在当前平台启用了 `codemode` 服务时出现。脚本可组合 MCP 工具与内置的 `read`、`ls`、`grep`、`edit`；脚本搜索保持顶层工具清单稳定。
+- `codemode`：在当前平台启用了 `codemode` 服务时出现。脚本可组合 MCP 工具与内置的 `read`、`ls`、`grep`、`edit`、`write`、`exec` 和 `wait`；脚本搜索保持顶层工具清单稳定。
 
 ## 专题导航
 

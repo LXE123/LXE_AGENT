@@ -22,11 +22,13 @@ export function registerMcpDiscoveryTools(
   registry.register({
     name: "codemode",
     availableOn: platform => hasEnabledServer("codemode", platform),
-    description: "Run JavaScript that combines connected MCP tools and local read, ls, grep, and edit in a QuickJS sandbox. Top-level await and return work. " +
+    description: "Run JavaScript that combines connected MCP tools and local read, ls, grep, edit, write, exec, and wait in a QuickJS sandbox. Top-level await and return work. " +
       "Use await searchTools(query, { limit?, namespace? }) to find tools by capability, await describeTool(name) for a TypeScript declaration, " +
       "or await describeNamespace(name) for server information and tool names. ALL_TOOLS lists callable tools. " +
-      "Call await tools[name](args). Local tools return text; read returns file text or an image {type, data, mimeType, note} suitable for image(). " +
-      "Read a file before editing it. Edits take effect immediately and use the same permissions as a direct edit. " +
+      "Call await tools[name](args). File tools return text; read may return an image {type, data, mimeType, note} suitable for image(). " +
+      "Read an existing file before editing or overwriting it. Writes and commands use the session permissions. " +
+      "exec returns {status, exec_id, output, ...}. On running, return the id or call tools.wait({exec_id}) for new_output and, once finished, exit_code. " +
+      "Use tools.wait({exec_id, terminate:true}) to stop the command. Scripts have a 60-second deadline; a yielded command belongs to this chat. " +
       "MCP tools return content, optional structuredContent and isError. " +
       "Check isError for server-reported tool errors; a failed connection rejects the call. " +
       "Use store(key, value) and load(key) to keep small JSON values across successful calls on this chat branch. " +

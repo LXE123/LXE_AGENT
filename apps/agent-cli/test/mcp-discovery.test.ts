@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptMcpTools, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { adaptMcpTools, ExecutionPaths, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
 import { policyFor, testWorkspace, workspaceFor } from "../../../packages/agent/runtime/test/workspace";
 import { AgentRunHandle } from "../src/run-handle";
 import { registerMcpDiscoveryTools } from "../src/mcp-discovery";
@@ -78,7 +78,7 @@ test("discovery entries reflect enabled server modes and platform on each step o
   expect(names(desktopTurn)).toEqual([]);
 });
 
-test("scripts expose four native tools with their script signatures and can forward a read image", async () => {
+test("scripts expose native tools with their script signatures and can forward a read image", async () => {
   const { registry, run } = await setup();
   const processes = registerCodingTools(registry, {});
   cleanups.push(() => processes.stop());
@@ -92,10 +92,83 @@ test("scripts expose four native tools with their script signatures and can forw
   `);
   expect(result.content[0]).toMatchObject({ type: "image", source: { type: "base64", data: expect.any(String), media_type: expect.stringMatching(/^image\//) } });
   const info = JSON.parse(String(result.content[1]?.text));
-  expect(info.entries).toEqual(["edit", "grep", "ls", "read"]);
+  expect(info.entries).toEqual(["edit", "exec", "grep", "ls", "read", "wait", "write"]);
   expect(info.read).toContain("mimeType: string");
   expect(info.edit).toContain("Promise<string>");
   expect(info.note).toContain("Read image file");
+});
+
+test("scripts write files and inspect structured foreground, yielded and terminated commands", async () => {
+  const { registry, root, handle, transcript } = await setup();
+  const processes = registerCodingTools(registry, { executionPaths: new ExecutionPaths(root) });
+  cleanups.unshift(() => processes.stop());
+  const context = { platform: "desktop", session_id: "s1", turn_id: "t1", tool_call_id: "script", handle,
+    workspace: workspaceFor(root), executionPolicy: policyFor(root) };
+  const run = async (code: string, sessionId = "s1") => {
+    const result = await registry.execute("codemode", { code }, { ...context, session_id: sessionId });
+    return JSON.parse(String(result.content[0]?.text));
+  };
+  const fixture = `const fs = require("node:fs");
+    if (process.argv[2] === "long") {
+      process.stdout.write("first\\n");
+      const timer = setInterval(() => { if (fs.existsSync("finish")) {
+        clearInterval(timer); process.stdout.write("second\\n"); process.exitCode = 7;
+      } }, 10);
+    } else { process.stdout.write("  result\\n"); process.exitCode = 3; }`;
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" command.cjs`;
+  expect(await run(`return {message: await tools.write({file_path:"command.cjs",content:${JSON.stringify(fixture)}})}`))
+    .toEqual({ message: "Wrote command.cjs" });
+  const short = await run(`return await tools.exec({command:${JSON.stringify(command)}})`);
+  expect(short).toMatchObject({ status: "failed", exit_code: 3, output: "  result\n" });
+  const clipped = await run(`return await tools.exec({command:${JSON.stringify(command)}, "max-output-tokens":1})`);
+  expect(clipped).toMatchObject({ observation_truncated: true, output_file_covers_captured: true, exit_code: 3 });
+  expect(readFileSync(clipped.output_path, "utf8")).toBe("  result\n");
+  const launch = `await tools.exec({command:${JSON.stringify(command + " long")}, "yield-time-ms":250})`;
+  const first = await run(`const r = ${launch}; store("job",r.exec_id); return r;`);
+  expect(first.status).toBe("running");
+  expect(first.exec_id).toStartWith("exec_");
+  await transcript.ensureSession({ session_id: "other", source: {}, workspace: context.workspace });
+  await expect(run(`return await tools.wait({exec_id:${JSON.stringify(first.exec_id)},terminate:true})`, "other"))
+    .rejects.toThrow("不存在或已经关闭");
+  const last = await run(`await tools.write({file_path:"finish",content:""}); return await tools.wait({exec_id:load("job")});`);
+  expect(last).toMatchObject({ exec_id: first.exec_id, status: "failed", exit_code: 7 });
+  expect(first.output + last.new_output).toBe("first\nsecond\n");
+  await expect(run('return await tools.wait({exec_id:load("job")})')).rejects.toThrow("不存在或已经关闭");
+  rmSync(join(root, "finish"));
+  const killed = await run(`const r = ${launch}; return await tools.wait({exec_id:r.exec_id,terminate:true});`);
+  expect(killed.status).toBe("killed");
+  const same = await run(`const r = ${launch};
+    await tools.write({file_path:"finish",content:""});
+    const done = await tools.wait({exec_id:r.exec_id});
+    return [r.status, done.exit_code, r.output + done.new_output];`);
+  expect(same).toEqual(["running", 7, "first\nsecond\n"]);
+});
+
+test("nested write and exec cannot bypass the current session's approval", async () => {
+  const { root, registry, handle } = await setup();
+  let pending = Promise.withResolvers<void>();
+  const approvals = new PermissionApprovalService({ audit: async () => {}, changed: () => pending.resolve() });
+  const processes = registerCodingTools(registry, { approvals, executionPaths: new ExecutionPaths(root) });
+  cleanups.unshift(async () => { await approvals.stop(); await processes.stop(); });
+  const context = { platform: "desktop", session_id: "s1", turn_id: "t1", tool_call_id: "script", handle,
+    workspace: workspaceFor(root), executionPolicy: { ...policyFor(root), mode: "read-only" as const } };
+  writeFileSync(join(root, "order.txt"), "original");
+  const run = (code: string) => registry.execute("codemode", { code }, context);
+  await run('await tools.read({path:"order.txt"})');
+  const write = { file_path: "order.txt", content: "changed" };
+  await expect(run(`await tools.write(${JSON.stringify(write)})`)).rejects.toThrow("read-only mode");
+  for (const [name, args] of [["write", write], ["exec", {command:"echo changed"}]] as const) {
+    pending = Promise.withResolvers<void>();
+    const outcome = run(`await tools.${name}(${JSON.stringify({ ...args, sandbox_permissions: "danger-full-access", justification: "Approval test" })})`)
+      .then(() => "succeeded", err => String(err));
+    await pending.promise;
+    const [request] = approvals.snapshot();
+    expect(request).toMatchObject({ tool: name, tool_call_id: "script/1", session_id: "s1" });
+    await approvals.decide({ session_id: "s1", request_id: request!.request_id, decision: "deny" });
+    expect(await outcome).toContain("User denied");
+  }
+  expect(readFileSync(join(root, "order.txt"), "utf8")).toBe("original");
+  expect(processes.snapshots("s1")).toEqual([]);
 });
 
 test("nested edit shares file versions with direct read and enforces denials and script cancellation", async () => {

@@ -15,7 +15,7 @@ export interface ToolDefinition extends ToolSchema {
   availableOn?: (platform: string | undefined) => boolean;
   source?: "native" | "mcp";
   /** Opt a native tool into scripts and declare the value its caller receives. */
-  codemodeResult?: "text" | "text-or-image";
+  codemodeResult?: "text" | "text-or-image" | JsonObject;
   exposure?: ToolExposure;
   /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
   supportsParallelCalls?: boolean;
