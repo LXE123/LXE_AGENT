@@ -52,7 +52,7 @@ import {
   userContentWithSystemEvents,
   withTurnContext,
 } from "./system-events";
-import type { RuntimeWireTraceAttempt, RuntimeWireTraceControllerPort } from "../providers/wire-trace";
+import type { RuntimeWireTraceControllerPort } from "../providers/wire-trace";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
@@ -64,7 +64,7 @@ import type {
   RuntimeSkillSnapshot,
   RuntimeWorkspaceInstanceProvider,
   RuntimeStore,
-  AssistantMessageEvent,
+  RuntimeProviderRequest,
   SystemPromptContext,
   RuntimeTurnContextRecord,
   AssistantMessage,
@@ -179,6 +179,21 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     await this.options.store.appendMessage(sessionId, message, reason, turnId, titleInput);
     if (reason.startsWith("tool_results")) this.options.onToolResult?.(sessionId);
     await this.notifySessionChanged(sessionId, "messages");
+  }
+
+  private async persistPartialReply(job: AgentJob, message: AssistantMessage, stopReason: "error" | "aborted"): Promise<void> {
+    const content = message.content.flatMap((block, contentIndex) =>
+      block.type === "text" && block.text.length ? [{ type: "text" as const, text: block.text, contentIndex }] : []);
+    if (!content.length) return;
+    try {
+      // Keep the original stream indices so the desktop can reconcile live and stored rows.
+      const { id, timestamp, api, provider, model, usage } = message;
+      await this.appendMessage(job.session_id, {
+        id, timestamp, api, provider, model, usage, role: "assistant", stopReason, content,
+      }, "assistant_partial", job.job_id);
+    } catch (error) {
+      this.logger.warn("assistant_partial_persist_failed", { message_id: message.id, error });
+    }
   }
 
   private async appendTurnError(sessionId: string, turnId: string, message: string): Promise<void> {
@@ -610,24 +625,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           }
           await updateContext();
         };
-        const providerRequest = (
-          attemptObserver: ReturnType<RuntimeTurnObserver["providerAttempt"]>,
-          wireTrace?: RuntimeWireTraceAttempt,
-        ) => ({
-          system: systemPrompt,
-          messages: structuredClone(messages) as RuntimeMessage[],
-          tools: toolSchemas,
-          toolChoice: heartbeat || isLastStep ? "none" as const : "auto" as const,
-          signal: handle.signal,
-          userIdentity,
-          ...(wireTrace ? { wireTrace } : {}),
-          onEvent: async (event: AssistantMessageEvent) => {
-            if (event.type === "done") accountMessage(event.message);
-            if (event.type === "error") accountMessage(event.error);
-            attemptObserver.stream(event);
-            if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
-          },
-        });
         let providerAttemptOrdinal = 0;
         const invokeProvider = async (maximumAttempts = DEFAULT_PROVIDER_ATTEMPTS): Promise<AssistantMessage> => {
           let lastError: unknown;
@@ -649,9 +646,31 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               endpoint: descriptor ? providerEndpointUrl(descriptor) : "",
               timeoutMs: descriptor?.requestIdleTimeoutMs ?? 0,
             });
+            let streamed: AssistantMessage | undefined;
             try {
               await finalAnswerStreamer?.startWaitingModel();
-              const request = providerRequest(attemptObserver, wireTrace);
+              const request: RuntimeProviderRequest = {
+                system: systemPrompt,
+                messages: structuredClone(messages),
+                tools: toolSchemas,
+                toolChoice: heartbeat || isLastStep ? "none" : "auto",
+                signal: handle.signal,
+                userIdentity,
+                ...(wireTrace ? { wireTrace } : {}),
+                onEvent: async event => {
+                  if (event.type === "done") {
+                    streamed = undefined;
+                    accountMessage(event.message);
+                  } else if (event.type === "error") {
+                    streamed = event.error;
+                    accountMessage(event.error);
+                  } else {
+                    streamed = event.partial;
+                  }
+                  attemptObserver.stream(event);
+                  if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
+                },
+              };
               const estimatedInput = requestContextTokenEstimate(request.system, request.messages, request.tools);
               const requestId = randomUUID();
               if (!titleRequested && !heartbeat && providerSnapshot) {
@@ -675,7 +694,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               attemptObserver.succeed(response);
               return response;
             } catch (error) {
-              if (isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError")) {
+              const aborted = isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError");
+              if (streamed) {
+                await this.persistPartialReply(job, streamed, aborted || streamed.stopReason === "aborted" ? "aborted" : "error");
+              }
+              if (aborted) {
                 attemptObserver.cancel();
                 throw error;
               }

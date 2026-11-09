@@ -51,6 +51,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 - 当前 user message 在第一次 provider request 前写入。
 - steering 被消费时立即作为独立 user message 写入。
 - 完整 assistant response 在 tool dispatch 前写入。
+- 流式请求出错或中止时，已收到的非空正文按本次请求的消息 ID 保存为一条助手消息，事件的 `reason` 为 `assistant_partial`，消息的 `stopReason` 为 `error` 或 `aborted`。只有推理或工具参数草稿时不写助手正文。自动重试、续聊和分叉后的模型请求都会跳过这条未完成的回复。
 - 每个工具调用的结果单独写入一条 tool message，同批结果按调用顺序写入。
 - compaction 只有在摘要有效、上下文确实变短且没有取消时才写 `context_patch`。
 - post-turn maintenance 可以继续治理长期历史；失败只记 warning，不撤销已经发送的最终答案。

@@ -527,7 +527,8 @@ export function finalResponseIndex(messages: SessionMessage[], status?: string |
   const terminalIsReply = status !== "error" && status !== "cancelled";
   return terminalIsReply
     ? messages.reduce((candidate, message, index) =>
-      roleLabel(message.role) === "assistant" && hasReaderFacingText(message) && !containsToolCall(message)
+      roleLabel(message.role) === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted"
+        && hasReaderFacingText(message) && !containsToolCall(message)
         ? index
         : candidate, -1)
     : -1;

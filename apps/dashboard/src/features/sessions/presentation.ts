@@ -117,7 +117,10 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
           }
           return;
         }
-        add({ ...base, id: `${messageId}:${index}`, kind: "message", presentation: message.role === "assistant" ? (finalMessages.has(message) && block.type === "text" ? "final" : "process") : undefined, status: "completed", message: { ...message, content: [block], attachments: index === blocks.length - 1 ? message.attachments : undefined, artifacts: undefined } });
+        const partIndex = message.source_reason === "assistant_partial" && typeof block.contentIndex === "number"
+          ? block.contentIndex : index;
+        const incomplete = message.role === "assistant" && (message.stopReason === "error" || message.stopReason === "aborted");
+        add({ ...base, id: `${messageId}:${partIndex}`, kind: "message", presentation: message.role === "assistant" ? (finalMessages.has(message) && block.type === "text" ? "final" : "process") : undefined, status: incomplete ? "error" : "completed", message: { ...message, content: [block], attachments: index === blocks.length - 1 ? message.attachments : undefined, artifacts: undefined } });
       });
     }
   }
@@ -161,7 +164,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
       ? { ...base, id: toolDisplayId(turn.turn_id, groupId, part.tool_step.id), kind: "tool", presentation: "process", liveTool: part.tool_step }
       : { ...base, id: part.part_id, kind: "message", presentation: part.type === "text" && part.presentation === "final" ? "final" : "process", status: part.status, message: { display_group_id: groupId, role: "assistant", content: [part.type === "thinking" ? { type: "thinking", thinking: part.text, redacted: part.redacted_count > 0 } : { type: "text", text: part.text }] } });
     // Stored data confirms an item; the live order remains authoritative during the handoff,
-    // including failed-attempt rows that deliberately have no persisted counterpart.
+    // including reasoning that was only delivered live during a failed attempt.
     const existing = new Map(rows.map((row) => [row.id, row]));
     const merged = parts.map((part) => {
       const saved = existing.get(part.id);

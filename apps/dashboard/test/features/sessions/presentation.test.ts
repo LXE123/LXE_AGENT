@@ -48,6 +48,19 @@ describe("unified conversation identity", () => {
     }
     expect(conversationRows([stored], [], []).some(row => row.answerMeta?.forkable)).toBe(false);
   });
+  test("failed text keeps its live block ID and remains a process row after reload", () => {
+    const failed: SessionMessage = { ...stored, id: "failed", role: "assistant", stopReason: "error",
+      source_reason: "assistant_partial", content: [{ type: "text", text: "prefix", contentIndex: 2 }] };
+    const live = { ...turn, stream: { process_parts: [
+      { type: "text", part_id: "failed:2", sequence: 1, text: "prefix", status: "error", presentation: "process" },
+    ], display_metrics: {} } } as DesktopConversationTurnPayload;
+    for (const turns of [[], [live]]) {
+      const rows = conversationRows([stored, failed], turns, []);
+      expect(rows.filter(row => row.id.startsWith("failed:")).map(row => [row.id, row.status, row.presentation]))
+        .toEqual([["failed:2", "error", "process"]]);
+      expect(rows.filter(row => row.answerMeta?.text)).toHaveLength(0);
+    }
+  });
   test("streaming and persisted block identity and failed attempt order survive handoff", () => {
     const streaming = {...turn,stream:{display_metrics:{phase:"generating_answer"},process_parts:[
       {type:"text",part_id:"failed:0",sequence:1,text:"partial failure",status:"error",presentation:"process"},

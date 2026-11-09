@@ -1,10 +1,13 @@
+import { SqliteRuntimeStore } from "../../src/state/storage";
+import { parseTranscriptText } from "../../src/state/transcript";
+import { AssistantMessageAccumulator } from "../../src/messages/accumulator";
 import { skillPathKey } from "../../src/tooling/skill-files";
 import { PermissionPolicyService } from "../../src/permissions/policy";
 import { messageFixture, eventFixture } from "../message-fixtures";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { registerCodingTools } from "../../src/tooling/coding-tools";
 import { ExecShellAdapter } from "../../src/tooling/exec-shell";
@@ -2776,7 +2779,7 @@ test("accounts failed attempts once and isolates their streamed text from the re
   const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
     store, tools: new ToolRegistry(), systemPrompt: "test",
     provider: { summarize, turn: async (request) => {
-      const { AssistantMessageAccumulator } = await import("../../src/messages/accumulator");
+      if (calls) expect(JSON.stringify(request.messages)).not.toContain("failed prefix");
       const a = new AssistantMessageAccumulator({ name: "test", model: "test", apiStyle: "openai_completions" }, request.onEvent);
       messageIds.push(a.message.id);
       const textIndex = a.startText();
@@ -2799,11 +2802,78 @@ test("accounts failed attempts once and isolates their streamed text from the re
   expect(calls).toBe(2);
   expect(new Set(messageIds).size).toBe(2);
   expect(store.metrics[0]).toMatchObject({ input_tokens: 8, output_tokens: 4, api_calls: 2 });
-  expect(store.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+  expect(store.messages.filter(m => m.role === "assistant").map(m => m.content)).toEqual([
+    [{ type: "text", text: "failed prefix", contentIndex: 0 }], [{ type: "text", text: "good answer" }],
+  ]);
+  expect(store.messageReasons.filter(reason => reason === "assistant_partial")).toHaveLength(1);
   const terminal = emitted.filter((e) => e.emit_kind === "stream" && e.state === "final").at(-1);
   expect(terminal?.content).toBe("good answer");
   if (terminal?.emit_kind !== "stream") throw new Error("Missing terminal stream");
   expect(terminal.process_parts.filter((p) => p.type === "text").map((p) => p.status)).toEqual(["error", "completed"]);
+});
+
+test.each(["error", "aborted"] as const)("archives streamed text on %s and omits it on resume and fork", async reason => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-partial-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  const controller = new AbortController();
+  const tools = new ToolRegistry();
+  tools.register({ name: "orders", description: "test", input_schema: { type: "object" },
+    execute: async () => ({ content: [{ type: "text", text: "20 orders" }] }) });
+  let calls = 0;
+  const subsequentRequests: RuntimeMessage[][] = [];
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",
+    emitter: { emit: async () => {}, typing: async () => {} },
+    provider: { summarize, turn: async request => {
+      calls++;
+      if (calls === 1) return messageFixture({ stopReason: "toolUse", content: [
+        { type: "tool_call", id: "list-orders", name: "orders", arguments: {} },
+      ] });
+      if (calls === 2) {
+        const stream = new AssistantMessageAccumulator({ name: "test", model: "test", apiStyle: "openai_responses" }, request.onEvent);
+        stream.append(stream.startThinking(), "private reasoning");
+        const index = stream.startText();
+        stream.append(index, "unfinished ");
+        stream.append(index, "summary");
+        stream.startTool({ id: "unfinished-tool", name: "orders" });
+        if (reason === "aborted") controller.abort();
+        const error = reason === "aborted" ? controller.signal.reason
+          : new RuntimeProviderError("connection lost", "test", "transport", "connection lost", false);
+        stream.fail(reason, error);
+        await stream.drain();
+        throw error;
+      }
+      subsequentRequests.push(request.messages);
+      return messageFixture({ content: [{ type: "text", text: "continued" }] });
+    } },
+  });
+  await runtime.start();
+  try {
+    await store.ensureSession({ session_id: "s1", workspace, source: {} });
+    const result = await runtime.runTurn(job(), { ...handle(), signal: controller.signal, cancelReason: "user_stop" });
+    expect(result.status).toBe(reason === "aborted" ? "cancelled" : "error");
+    await runtime.stop(); await runtime.start();
+    const branch = await store.forkSession("s1", "j1");
+    for (const id of ["s1", String(branch.session_id)]) {
+      const readTranscript = () => parseTranscriptText(readFileSync(join(root, "session_transcripts", id + ".jsonl"), "utf8"));
+      const partial = readTranscript().filter(entry => entry.reason === "assistant_partial");
+      expect(partial).toHaveLength(1);
+      expect(partial[0]?.message).toMatchObject({ stopReason: reason, content: [
+        { type: "text", text: "unfinished summary", contentIndex: 1 },
+      ] });
+      expect(JSON.stringify(partial)).not.toContain("private reasoning");
+      expect(JSON.stringify(partial)).not.toContain("unfinished-tool");
+      expect((await runtime.runTurn(job({ session_id: id, job_id: "continue-" + id, message_id: "m2", user_input: "continue" }), handle())).status).toBe("completed");
+      expect(readTranscript().filter(entry => entry.reason === "assistant_partial")).toEqual(partial);
+    }
+    expect(subsequentRequests).toHaveLength(2);
+    for (const request of subsequentRequests) {
+      const body = JSON.stringify(request);
+      expect(body).toContain("20 orders");
+      expect(body).not.toContain("unfinished summary");
+      expect(body).not.toContain("unfinished-tool");
+      expect(body.includes("<turn_aborted>")).toBe(reason === "aborted");
+    }
+  } finally { await runtime.stop(); await removeTemporaryRoot(root); }
 });
 
 test("does not execute or synthesize results for truncated tool drafts", async () => {
@@ -2951,6 +3021,7 @@ test.each(["error","cancelled"] as const)("saves final consumption on %s without
     store,tools:new ToolRegistry(),systemPrompt:"s",
     provider:{summarize,turn:async request=>{
       const failed=messageFixture({stopReason:status==="cancelled"?"aborted":"error",
+        content:[{type:"thinking",thinking:"unfinished reasoning"}, {type:"text",text:""}],
         usage:{input_tokens:100,output_tokens:3,status:"partial"}});
       await request.onEvent?.({type:"error",reason:status==="cancelled"?"aborted":"error",error:failed});
       if(status==="cancelled") {
@@ -2964,6 +3035,7 @@ test.each(["error","cancelled"] as const)("saves final consumption on %s without
   await runtime.start();
   expect((await runtime.runTurn(job(),turnHandle)).status).toBe(status);
   expect(store.turnEnds).toEqual([{ turnId: "j1", status }]);
+  expect(store.messageReasons).not.toContain("assistant_partial");
   await runtime.stop();
   expect(snapshots.at(-1)).toMatchObject({input_tokens:100,output_tokens:3,context_source:"estimated"});
   expect(snapshots.at(-1)!.context_tokens).toBe(snapshots.at(-2)!.context_tokens);
