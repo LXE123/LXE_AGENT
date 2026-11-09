@@ -2,7 +2,7 @@
 
 > **2026-11-09 requirements update:** The user subsequently confirmed flexible recognition for all five countries: land/air/sea may appear individually or together; any mode may have an optional single English batch letter; select the latest date independently for each mode and generate one file per batch found on that date. Later dates may be in the future. Use the existing nearest-year interpretation, shared CLI, Skill and template; retain every nonempty SKU and existing file validation. Brazil must eventually scan the full header row. The previous Indonesia-only air+sea requirement and two-to-four-file limit below describe the already-verified earlier version and are superseded.
 >
-> **Stacked delivery:** First correct the uncommitted Indonesia layer in pool-12 while preserving the four-country behavior inherited from PR #148. Then implement the explicit four-country contract change as a separate dependent layer; branch creation, staging and commits require the user's Git authorization. Review upstream layers serially. Do not create a second Skill, command, tool or workbook-generation workflow.
+> **Delivery update:** The user requested adding the Indonesia changes directly to PR #148, while preserving the four-country behavior in that PR. Implement the four-country contract change as a separate dependent layer; Git operations require the user's authorization. Review dependent layers serially. Do not create a second Skill, command, tool or workbook-generation workflow.
 
 ## Current task: correct the Indonesia layer
 
@@ -16,7 +16,7 @@
 ## Later dependent task: four-country contract change
 
 - [ ] Reuse the recognized transport/batch/latest-date behavior in the same existing workflow for Brazil, Malaysia, Vietnam and the Philippines; scan each source header row, including outside Brazil's former AT:BD range, while keeping each country's source sheet, SKU column and order prefix.
-- [ ] Explicitly handle existing public selection parameters: never silently ignore an override or use it to select an older date; document/test compatibility or report actual conflicts. Verify changed results against existing real sample evidence and update command contracts, existing Skill and tests. Do not change PR #148's worktree or branch.
+- [ ] Explicitly handle existing public selection parameters: never silently ignore an override or use it to select an older date; document/test compatibility or report actual conflicts. Verify changed results against existing real sample evidence and update command contracts, existing Skill and tests. Implement this later layer in a separate branch and worktree, not in PR #148's worktree.
 
 ---
 

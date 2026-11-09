@@ -2,7 +2,7 @@
 
 > **后续需求更新（2026-11-09）**：用户确认五国最终均需识别实际出现的陆运、空运和海运及可选单个英文字母批次，每种运输方式分别选最新日期并按当日实际批次生成；允许只有一种运输方式，巴西也需查找整行表头。当前印尼层已按此规则实现并验证；巴西、马来西亚、越南、菲律宾仍使用原规则，五国统一为待实施的独立下游层。先前“印尼必须同时有空运和海运、2–4 份”已被替代。
 
-- **分支 / 工作区 / 基线**：`codex/mabang-order-import-indonesia`，`.worktrees/pool-12`，基于 `codex/mabang-order-import-shared@6c534f8565eaa9091f958153b8e183620ec27400`。2026-11-09 只读核查上游 [PR #148](https://github.com/LXE123/LXE_AGENT/pull/148) 为 open、未合并，GitHub 返回可合并，头提交与本层基线一致。上游审查、合并后，按届时最新 main 复核本层；印尼层 PR 以该上游分支为依赖。
+- **分支 / 工作区 / 基线**：`codex/mabang-order-import-indonesia`，`.worktrees/pool-12`，基于 `codex/mabang-order-import-shared@6c534f8565eaa9091f958153b8e183620ec27400`。2026-11-09 只读核查 [PR #148](https://github.com/LXE123/LXE_AGENT/pull/148) 为 open、未合并，GitHub 返回可合并，头提交与本层基线一致。用户随后明确要求将印尼功能直接补充到 PR #148，而非另开印尼 PR；其余四国统一规则仍作为独立下游层。
 - **完成范围**：在现有统一命令、Skill 和模板中增加印尼，不新增独立 Skill、命令、工具、模板或依赖；本地生成文件，不登录或向马帮提交订单。四国原规则保持不变。
 - **入口 / 调用链**：`lxeskill mabang order-import generate --country indonesia --input-xlsx <印尼备货表.xlsx>` → `services.commands.mabang.order_import_generate` → `services.mabang.order_import.workflow.run` → `country_rules` 印度尼西亚规则 → 共用 `source` 读取和 `workbook` 写入、校验 → 随包马帮模板。结果通过 `artifacts[]` / `files` 交付，印尼数据集为 `mabang_indonesia_order_import`。
 - **已确认业务规则**：读取「印尼」工作表 E 列文本 SKU；每份文件均保留全部非空 SKU、原顺序和重复项。数量为空或 0 时留空，商品单价为 0。识别第 1 行 `M/D` + 可选单个英文字母 + `陆运`、`空运`或`海运`；允许任意一种或多种运输方式，每种方式分别选最新日期并为当日出现的所有批次生成文件，空缺的运输方式不生成。以陆、空、海及批次顺序交付；同一方式最新日期中同批次重复、没有有效运输列或日期格式异常时报错，不交付旧文件。同轮失败清理本次输出。
@@ -15,4 +15,4 @@
 - **审查与限制**：独立静态审查未发现可确认缺陷。真实马帮系统导入、Windows 及桌面自然语言附件端到端 **NOT VERIFIED**。用户提供的海运样例筛选范围末尾少 33 行，本次生成结果按全部行设置范围，不修改用户原件。
 - **2026-11-09 桌面预览**：用户要求启动服务测试。5173 被其他工作区占用，使用 `bun run desktop:preview` 启动 pool-12，不连接其他工作区的开发页面。首次 ExifTool 下载因 SourceForge TLS 失败；核对 pool-11 与本工作区运行时锁文件一致后，复用其工具和 Office 运行时缓存（未复制 `.venv`），准备脚本验证 ExifTool、fd 及 Office 通过。继承的旧 `settings.json` 存在已停用且账号为空的雅仓旧开关、智慧 TMS 空配置以及缺少上马 revision，启动被拒；将配置备份为 `var/config/settings.json.before-indonesia-preview-20261109.bak`，仅清除前述停用的旧字段并补空 revision。随后启动预览，窗口可见，运行状态显示 Gateway、agent-cli 和 lxeskill 运行中，命令 describe 包含 `indonesia`，`lxeskill doctor` 返回 `ok=true`。启动时云端身份探针报告 `machine identity mismatch`；云端模型调用及桌面附件完整链路 **NOT VERIFIED**。未执行马帮登录或订单提交。
 - **用户桌面测试反馈**：用户曾报告需求更新前的桌面版本“测试通过”。新版规则尚未重新做桌面自然语言附件端到端验证，真实马帮系统导入仍 **NOT VERIFIED**。
-- **Git 状态 / 下一步**：以 `git status` 和 `git log` 为准。用户要求印尼功能 PR 依赖 #148；推送和创建 PR 按用户 Git 规范分别确认。巴西、马来西亚、越南、菲律宾的统一规则属于后续依赖层，不包含在本层内。
+- **Git 状态 / 下一步**：以 `git status` 和 `git log` 为准。将印尼功能直接补充到 #148，具体暂存、提交和推送按用户 Git 规范确认；同步更新 #148 的说明和验证结果。巴西、马来西亚、越南、菲律宾的统一规则属于后续依赖层，不包含在本层内。
