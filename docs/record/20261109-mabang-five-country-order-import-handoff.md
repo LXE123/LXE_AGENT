@@ -11,3 +11,14 @@
 - **边界**：上述真实样表未覆盖所有新增的单运输、任意字母、不同运输日期和巴西范围外列，这些情况由合成测试覆盖。桌面自然语言附件端到端、Windows 和真实马帮系统导入均为 **NOT VERIFIED**。此模块只生成本地导入表，未登录或发送订单。
 - **Git 状态 / 下一步**：以 `git status` 和 `git log` 为准。用户批准将本层补充到 #148；提交、推送和 PR 更新按用户 Git 规范分别确认。#148 合并到 main 仍需独立授权，合并前按届时最新 main 复核。
 - **2026-11-09 Skill 指引修正**：用户批准精简现有 `mabang-order-import-generate` Skill：依据用户要求与备货表信息确定国家，仅在无法明确判断时询问；以一条命令示例和国家参数表代替重复示例；把重复列消歧移至独立段落，并说明未指定候选列时才会就重复列报错。已对照 `lxeskill describe mabang order-import generate` 核对五国参数和选列参数；Bun 命令归属与 Skill 测试 **16 passed**，`git diff --check` 通过。本轮只改 Skill 与本交接；暂存、提交和推送按用户 Git 规范另行确认。
+
+## 2026-11-09 最近日期与黄标规则更新
+
+- **分支 / 工作区 / 依赖**：`codex/mabang-order-import-five-countries`，`.worktrees/pool-13`，基于已推送到 PR #148 的 `d71bc579997ce96c76fc04de86ec0f95cce5dc8c`。以下内容取代本记录上方关于“最新日期、颜色不影响选列”的旧规则；本轮提交和推送状态以 Git 状态及 PR head 为准。
+- **完成内容**：五国均以北京时间生成日期为基准，对陆运、空运、海运分别识别距当天最近的全部普通列与批次列；其他日期的黄标列补充识别所需批次。相同运输方式及批次出现多个日期时，只选该批次距当天最近的列，即使较近列未标黄；距离相同选较晚日期。不同批次与同日期普通列分别生成文件；同一列不会重复生成。原有指定列消歧、无效输入报错与失败清理保留。
+- **颜色证据与限制**：核对五国原始样表，实际黄标均为实心 `FFFFFF00`；菲律宾旧日期列为主题色 `accent4`（`75BD42`），并非黄色。当前识别实心标准黄 `#FFFF00` 的 RGB 与工作簿调色板索引；其他黄色色阶、主题色和条件格式尚未支持。此前将截图里的旧列误读为黄标的说法已更正。
+- **修改文件**：`python/lxeskill_cli/services/mabang/order_import/country_rules.py`、`python/lxeskill_cli/lxeskill/catalog.json`、`skills/mabang-order-import-generate/SKILL.md`、`python/lxeskill_cli/tests/mabang/test_mabang_order_import.py`、`test_mabang_order_import_regressions.py`、新增 `test_mabang_order_import_yellow.py`，以及本交接。入口仍为 `lxeskill mabang order-import generate` → `workflow` → `country_rules` / `source` / `workbook` → 随包模板；没有新增环境变量。
+- **自动化验证**：仓库根目录执行三个马帮订单导入测试文件及 `python/lxeskill_cli/tests/lxeskill`、`python/lxeskill_cli/tests/infra`：**539 passed、4 skipped、4 warnings**；其中三个订单导入文件 **127 passed**。`bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts packages/agent/runtime/test/tooling/skills.test.ts`：**16 passed**。命令手册生成器报告手册已是最新；`lxeskill describe mabang order-import generate` 的五国参数和选列说明已核对。独立审查未发现可确认的阻塞问题。
+- **五国真实样表**：以各样表业务日期固定生成日期，通过本地 CLI 生成后独立逐行对照 SKU、选列数量、两个订单号字段及单价。巴西 1 份、10,484 行、267 行有数量；马来西亚 3 份、各 8,951 行、分别 78 / 134 / 129 行有数量；越南 1 份、8,656 行、96 行有数量；菲律宾 3 份、各 9,122 行、分别 49 / 39 / 135 行有数量；印尼 2 份、各 8,577 行、分别 177 / 862 行有数量。差异均为 0，原始文件哈希未变；临时输出 `/private/tmp/lxe-yellow-review-o3anlf6y/` 不加入 Git。
+- **测试审查交接**：原有两个文件仍收集 116 个场景，新增黄标文件收集 11 个，共 127 个；未删除原有测试。用户原先对第 1–5 项选择保留，第 5 项菲律宾测试因新日期规则从选择 `11/7B海运` 改为选择 `11/4A海运`，恢复审查时须说明变化并请用户重新确认；第 6–10 项尚未投票。恢复前按实际收集顺序重新核对编号，不把新增场景漏掉。
+- **边界 / 下一步**：桌面自然语言附件端到端、Windows 和真实马帮系统导入为 **NOT VERIFIED**。本轮只做本地文件生成；Git 工作区状态以 `git status` 为准。按用户 Git 规范，暂存 / 提交、推送须分别获得明确授权；PR #148 合并到 main 仍需独立授权。

@@ -153,14 +153,14 @@ def sheet():
 
 
 @pytest.mark.parametrize("country", ["brazil", "vietnam"])
-def test_latest_dates_per_transport_across_year_boundary(sheet, country):
+def test_closest_dates_per_transport_across_year_boundary(sheet, country):
     sheet["AO1"], sheet["AP1"], sheet["AQ1"] = "12/31海运", "1/3海运", "1/2陆运"
     sheet["AO1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
-    selected = country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AP")
-    assert selected["sea"] == country_rules.ShippingCandidate(42, "1/3海运", date(2027, 1, 3), "sea")
+    selected = country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AO")
+    assert selected["sea"] == country_rules.ShippingCandidate(41, "12/31海运", date(2026, 12, 31), "sea", True)
     assert selected["land"] == country_rules.ShippingCandidate(43, "1/2陆运", date(2027, 1, 2), "land")
-    with pytest.raises(OrderImportWorkbookError, match="不是最新日期"):
-        country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AO")
+    with pytest.raises(OrderImportWorkbookError, match="不是离当天最近"):
+        country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AP")
 
 
 @pytest.mark.parametrize("country", ["brazil", "vietnam"])
@@ -197,7 +197,7 @@ def test_philippines_selects_each_transport_across_year_boundary(sheet):
     sheet["AY1"], sheet["AZ1"] = "1/2A海运", "12/30B海运"
     selected = country_rules.select_shipping_columns("philippines", sheet, date(2027, 1, 1))
     assert selected == {
-        "air": country_rules.ShippingCandidate(42, "1/3空运", date(2027, 1, 3), "air"),
+        "air": country_rules.ShippingCandidate(41, "12/31空运", date(2026, 12, 31), "air"),
         "sea_a": country_rules.ShippingCandidate(51, "1/2A海运", date(2027, 1, 2), "sea_a"),
     }
 
@@ -209,15 +209,16 @@ def test_philippines_reports_ambiguous_year_on_transport_column(sheet):
         country_rules.select_shipping_columns("philippines", sheet, date(2028, 1, 1))
 
 
-def test_indonesia_selects_latest_air_and_sea_group_across_year_boundary(sheet):
+def test_indonesia_selects_closest_air_and_sea_group_across_year_boundary(sheet):
     sheet["BA1"], sheet["BB1"] = "12/31空运", "1/3空运"
     sheet["BC1"], sheet["BD1"] = "12/31海运", "1/2A海运"
     sheet["BE1"], sheet["BF1"] = "1/2B海运", "12/31B海运"
     sheet["BG1"], sheet["BH1"] = "12/30陆运", "1/4d陆运"
     selected = country_rules.select_shipping_columns("indonesia", sheet, date(2027, 1, 1))
     assert {key: (value.column, value.shipping_date) for key, value in selected.items()} == {
-        "land_d": (60, date(2027, 1, 4)),
-        "air": (54, date(2027, 1, 3)),
+        "land": (59, date(2026, 12, 30)),
+        "air": (53, date(2026, 12, 31)),
+        "sea": (55, date(2026, 12, 31)),
         "sea_a": (56, date(2027, 1, 2)),
         "sea_b": (57, date(2027, 1, 2)),
     }

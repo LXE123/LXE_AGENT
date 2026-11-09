@@ -55,7 +55,7 @@ def invoke(tmp_path, monkeypatch, capsys):
                                                ("VN261105-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
     ("philippines", None, {}, [
         ("PH261105-K", 41, "11/5空运", "2026-11-05", [10, None, None]),
-        ("PH261105B-H", 52, "11/7B海运", "2026-11-07", [3, None, 4]),
+        ("PH261105A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
     ]),
     ("indonesia", None, {}, [
         ("IN261105-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
@@ -71,8 +71,8 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
     assert data["order_ids"] == [item[0] for item in expected]
     assert result["files"] == [item["path"] for item in data["artifacts"]]
     if country == "philippines":
-        assert [a["field"] for a in data["artifacts"]] == ["air", "sea_b"]
-        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "B海运"]
+        assert [a["field"] for a in data["artifacts"]] == ["air", "sea_a"]
+        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "A海运"]
     elif country == "indonesia":
         assert [a["field"] for a in data["artifacts"]] == ["air", "sea"]
         assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "海运"]
@@ -144,7 +144,7 @@ def test_malaysia_rolls_back_partial_outputs(invoke, monkeypatch):
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
-def test_malaysia_chooses_latest_date_group_even_when_an_older_group_is_closer(invoke):
+def test_malaysia_chooses_closest_date_group_even_when_a_later_group_exists(invoke):
     changes = {
         "BA1": "11/20A海运", "BB1": "11/20B海运", "BC1": "11/20空运",
         "BA2": 11, "BB2": 22, "BC2": 33,
@@ -153,14 +153,14 @@ def test_malaysia_chooses_latest_date_group_even_when_an_older_group_is_closer(i
     assert code == 0 and result["ok"]
     artifacts = result["data"]["artifacts"]
     assert [a["field"] for a in artifacts] == ["sea_a", "sea_b", "air"]
-    assert [a["shipping_column"] for a in artifacts] == [53, 54, 55]
-    assert [a["shipping_date"] for a in artifacts] == ["2026-11-20"] * 3
-    for artifact, quantity in zip(artifacts, [11, 22, 33], strict=True):
+    assert [a["shipping_column"] for a in artifacts] == [2, 7, 8]
+    assert [a["shipping_date"] for a in artifacts] == ["2026-11-04"] * 3
+    for artifact, quantity in zip(artifacts, [7, None, 5], strict=True):
         with open_sheet(artifact["path"]) as sheet:
             assert sheet["T2"].value == quantity
 
 
-def test_brazil_cli_accepts_selected_duplicate_latest_candidate(invoke):
+def test_brazil_cli_accepts_selected_duplicate_closest_candidate(invoke):
     changes = {"BC1": "11/6海运", "BC2": 19}
     code, result, source = invoke("brazil", changes)
     assert code != 0 and not result["ok"] and result["files"] == []
@@ -175,7 +175,7 @@ def test_brazil_cli_accepts_selected_duplicate_latest_candidate(invoke):
         assert sheet["T2"].value == 19
 
 
-def test_philippines_duplicate_latest_columns_use_mode_specific_choices(invoke):
+def test_philippines_duplicate_closest_columns_use_mode_specific_choices(invoke):
     changes = {
         "AO1": "11/6空运", "AP1": "11/6空运", "AP2": 11,
         "AY1": "11/6A海运", "BA1": "11/6A海运", "BA2": 22,
@@ -199,10 +199,10 @@ def test_philippines_duplicate_latest_columns_use_mode_specific_choices(invoke):
             assert sheet["T2"].value == quantity
 
 
-def test_philippines_rejects_override_outside_latest_candidates(invoke):
+def test_philippines_rejects_override_outside_closest_candidates(invoke):
     code, result, source = invoke("philippines", shipping_overrides={"air": "AN"})
     assert code != 0 and not result["ok"] and result["files"] == []
-    assert "最新" in result["error"]["message"]
+    assert "最近" in result["error"]["message"]
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
@@ -216,29 +216,30 @@ def test_philippines_keeps_all_skus_when_a_transport_has_no_quantity(invoke):
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
-    # The later dates win even when the earlier dates are closer to today.
+    # Dates closer to today win over later dates.
     ({"BB1": "11/20空运", "BG1": "11/20海运", "BC1": "11/5A海运", "BD1": "11/5B海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
-    # An older ordinary sea must not compete with the latest A/B group.
-    ({"BG1": "11/1海运", "BC1": "11/6A海运", "BD1": "11/6B海运"},
+     [("air", "IN261105-K", 53, [None, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
+      ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+    # Older ordinary sea columns do not compete with the closest A/B group.
+    ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运", "BD1": "11/6B海运"},
      [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
       ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
-    ({"BG1": "11/1海运", "BC1": "11/6A海运"},
+    ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运"},
      [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None])]),
-    ({"BG1": "11/1海运", "BD1": "11/6B海运"},
+    ({"BF1": "11/2海运", "BG1": "11/1海运", "BD1": "11/6B海运"},
      [("air", "IN261105-K", 54, [10, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
-    # When the latest date has ordinary and both A/B, all three are exported.
+    # When the closest date has ordinary and both A/B, all three are exported.
     ({"BC1": "11/6A海运", "BD1": "11/6B海运"},
      [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4]),
       ("sea_a", "IN261105A-H", 55, [20, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
-    # Duplicated older columns have no bearing on the selected latest date.
+    # Duplicated older columns have no bearing on the selected closest date.
     ({"BE1": "11/4海运"},
      [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
     # Even an entirely empty air shipment preserves every source SKU.
     ({"BB2": None, "BB3": 0, "BB4": None},
      [("air", "IN261105-K", 54, [None, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
 ])
-def test_indonesia_exports_all_modes_at_latest_sea_date(invoke, changes, expected):
+def test_indonesia_exports_all_modes_at_closest_sea_date(invoke, changes, expected):
     code, result, _ = invoke("indonesia", changes)
     assert code == 0 and result["ok"]
     artifacts = result["data"]["artifacts"]
@@ -269,14 +270,14 @@ def test_indonesia_allows_one_transport_mode(invoke, changes, expected_id, expec
         assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], expected_quantities))
 
 
-def test_indonesia_each_transport_mode_selects_its_own_latest_date(invoke):
+def test_indonesia_each_transport_mode_selects_its_own_closest_date(invoke):
     changes = {"BB1": "11/10空运", "BG1": "11/15海运", "BH1": "11/20陆运", "BH2": 17}
     code, result, _ = invoke("indonesia", changes)
     assert code == 0 and result["ok"]
     artifacts = result["data"]["artifacts"]
     assert {a["order_id"]: (a["shipping_column"], a["shipping_date"]) for a in artifacts} == {
-        "IN261105-K": (54, "2026-11-10"),
-        "IN261105-H": (59, "2026-11-15"),
+        "IN261105-K": (53, "2026-11-03"),
+        "IN261105-H": (58, "2026-11-04"),
         "IN261105-L": (60, "2026-11-20"),
     }
     for artifact in artifacts:
@@ -286,11 +287,11 @@ def test_indonesia_each_transport_mode_selects_its_own_latest_date(invoke):
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
-    # Every batch at one mode's latest date produces its own distinct order.
-    ({"BG1": "11/20海运", "BC1": "11/20A海运", "BD1": "11/20B海运", "BH1": "11/20c海运", "BH2": 33},
+    # Every batch at one mode's closest date produces its own distinct order.
+    ({"BG1": "11/5海运", "BC1": "11/5A海运", "BD1": "11/5B海运", "BH1": "11/5c海运", "BH2": 33},
      {"IN261105-H": 59, "IN261105A-H": 55, "IN261105B-H": 56, "IN261105C-H": 60}),
-    # The newest sea batch may be D and may be the only batch on that date.
-    ({"BH1": "11/20d海运", "BH2": 33}, {"IN261105D-H": 60}),
+    # The closest sea batch may be D and may be the only batch on that date.
+    ({"BH1": "11/5d海运", "BH2": 33}, {"IN261105D-H": 60}),
 ])
 def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes, expected):
     code, result, _ = invoke("indonesia", changes)
@@ -298,7 +299,7 @@ def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes,
     artifacts = result["data"]["artifacts"]
     sea = {a["order_id"]: a for a in artifacts if a["shipping_header"].endswith("海运")}
     assert {order: item["shipping_column"] for order, item in sea.items()} == expected
-    assert len(artifacts) == len(expected) + 1  # the existing latest air column
+    assert len(artifacts) == len(expected) + 1  # the existing closest air column
     for order, artifact in sea.items():
         assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
         assert artifact["sku_count"] == 3
@@ -307,7 +308,7 @@ def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes,
 
 
 def test_indonesia_batches_apply_to_air_and_land_as_well(invoke):
-    changes = {"BH1": "11/8a空运", "BH2": 21, "BI1": "11/9b陆运", "BI2": 34}
+    changes = {"BH1": "11/5a空运", "BH2": 21, "BI1": "11/9b陆运", "BI2": 34}
     code, result, _ = invoke("indonesia", changes)
     assert code == 0 and result["ok"]
     artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
@@ -475,7 +476,7 @@ def unified_headers(country, columns):
 @pytest.mark.parametrize(("country", "prefix"), [
     ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"),
 ])
-def test_four_countries_export_each_transport_latest_date_and_all_batches(invoke, country, prefix):
+def test_four_countries_export_each_transport_closest_date_and_all_batches(invoke, country, prefix):
     changes = unified_headers(country, {
         "BJ": ("11/1陆运", 1), "BK": ("11/6陆运", 2), "BL": ("11/6A陆运", 3),
         "BM": ("11/5空运", 4), "BN": ("11/7c空运", 5),
@@ -486,7 +487,7 @@ def test_four_countries_export_each_transport_latest_date_and_all_batches(invoke
     artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
     expected = {
         f"{prefix}261105-L": ("11/6陆运", 2), f"{prefix}261105A-L": ("11/6A陆运", 3),
-        f"{prefix}261105C-K": ("11/7c空运", 5), f"{prefix}261105-H": ("11/8海运", 6),
+        f"{prefix}261105-K": ("11/5空运", 4), f"{prefix}261105-H": ("11/8海运", 6),
         f"{prefix}261105B-H": ("11/8B海运", 7),
     }
     assert set(artifacts) == set(expected)
@@ -511,7 +512,7 @@ def test_four_countries_allow_a_single_transport(invoke, country, prefix, mode, 
 def test_existing_overrides_resolve_duplicates_without_dropping_other_batches(invoke, country):
     changes = unified_headers(country, {
         "BJ": ("11/6空运", 1), "BK": ("11/6空运", 2),
-        "BL": ("11/6A空运", 3), "BM": ("11/5空运", 4),
+        "BL": ("11/6A空运", 3), "BM": ("11/2空运", 4),
     })
     code, result, _ = invoke(country, changes)
     assert code != 0 and "重复" in result["error"]["message"]
@@ -524,13 +525,13 @@ def test_existing_overrides_resolve_duplicates_without_dropping_other_batches(in
         assert sheet["T2"].value == 2
     kwargs = {"shipping_overrides": {"air": "BM"}} if country == "philippines" else {"shipping_column": "BM"}
     code, result, _ = invoke(country, changes, **kwargs)
-    assert code != 0 and result["files"] == [] and "最新" in result["error"]["message"]
+    assert code != 0 and result["files"] == [] and "最近" in result["error"]["message"]
 
 
 def test_philippines_override_rejects_a_different_batch(invoke):
     changes = unified_headers("philippines", {"BJ": ("11/6空运", 1), "BK": ("11/6A空运", 2)})
     code, result, _ = invoke("philippines", changes, shipping_overrides={"air": "BK"})
-    assert code != 0 and result["files"] == [] and "最新" in result["error"]["message"]
+    assert code != 0 and result["files"] == [] and "最近" in result["error"]["message"]
 
 
 @pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines"])

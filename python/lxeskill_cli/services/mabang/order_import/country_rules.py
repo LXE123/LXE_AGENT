@@ -16,6 +16,7 @@ class ShippingCandidate(NamedTuple):
     header: str
     shipping_date: date
     field: str
+    yellow: bool = False
 
 
 class CountryRule(NamedTuple):
@@ -69,6 +70,22 @@ def _rule(country: str) -> CountryRule:
         raise OrderImportWorkbookError(f"country 仅支持: {', '.join(COUNTRIES)}") from exc
 
 
+def _is_yellow_header(cell: Any) -> bool:
+    fill = cell.fill
+    if fill.patternType != "solid" or fill.fgColor.tint:
+        return False
+    color = fill.fgColor
+    if color.type == "rgb":
+        rgb = color.rgb
+    elif color.type == "indexed":
+        palette = cell.parent.parent._colors
+        index = color.indexed
+        rgb = palette[index] if isinstance(index, int) and 0 <= index < len(palette) else None
+    else:
+        return False
+    return isinstance(rgb, str) and rgb[-6:].upper() == "FFFF00"
+
+
 def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[ShippingCandidate]:
     candidates: list[ShippingCandidate] = []
     for cell in sheet[1]:
@@ -90,7 +107,7 @@ def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[Shippin
             int(match.group("month")), int(match.group("day")), today,
             country=rule.name, label=f"{cell.coordinate}: {label}",
         )
-        candidates.append(ShippingCandidate(cell.column, label, shipping_date, field))
+        candidates.append(ShippingCandidate(cell.column, label, shipping_date, field, _is_yellow_header(cell)))
     return candidates
 
 
@@ -99,33 +116,42 @@ def _transport_output(field: str) -> tuple[str, str]:
     return batch.upper() + TRANSPORT_NAMES[mode], batch.upper() + TRANSPORT_SUFFIXES[mode]
 
 
-def _select_latest_per_transport(
-    rule: CountryRule, candidates: list[ShippingCandidate], overrides: Mapping[str, str],
+def _closest_candidates(candidates: list[ShippingCandidate], today: date) -> list[ShippingCandidate]:
+    closest = min(
+        (item.shipping_date for item in candidates),
+        key=lambda day: (abs((day - today).days), -day.toordinal()),
+    )
+    return [item for item in candidates if item.shipping_date == closest]
+
+
+def _select_nearest_per_transport(
+    rule: CountryRule, candidates: list[ShippingCandidate], overrides: Mapping[str, str], today: date,
 ) -> dict[str, ShippingCandidate]:
     if not candidates:
         raise OrderImportWorkbookError(f"{rule.name}工作表没有可识别的陆运、空运或海运日期字段")
-    latest_candidates: dict[str, list[ShippingCandidate]] = {}
+    nearest_candidates: dict[str, list[ShippingCandidate]] = {}
     for mode in rule.fields:
         options = [item for item in candidates if item.field.partition("_")[0] == mode]
         if not options:
             continue
-        latest = max(item.shipping_date for item in options)
-        for item in options:
-            if item.shipping_date == latest:
-                latest_candidates.setdefault(item.field, []).append(item)
+        distance = min(abs((item.shipping_date - today).days) for item in options)
+        fields = {item.field for item in options if abs((item.shipping_date - today).days) == distance}
+        fields.update(item.field for item in options if item.yellow)
+        for field in fields:
+            nearest_candidates[field] = _closest_candidates([item for item in options if item.field == field], today)
 
     for field, column in overrides.items():
-        choices = latest_candidates.get(field, [])
+        choices = nearest_candidates.get(field, [])
         if not isinstance(column, str) or not column.strip():
             raise OrderImportWorkbookError("指定运输列必须是有效的表格列名")
         if not any(get_column_letter(item.column) == column.strip().upper() for item in choices):
             name, _ = _transport_output(field)
-            raise OrderImportWorkbookError(f"{rule.name}指定的 {name} 运输列 {column} 不是最新日期候选列")
+            raise OrderImportWorkbookError(f"{rule.name}指定的 {name} 运输列 {column} 不是离当天最近的候选列")
 
     selected: dict[str, ShippingCandidate] = {}
     for mode in rule.fields:
-        for field in sorted(key for key in latest_candidates if key.partition("_")[0] == mode):
-            choices = latest_candidates[field]
+        for field in sorted(key for key in nearest_candidates if key.partition("_")[0] == mode):
+            choices = nearest_candidates[field]
             override = overrides.get(field)
             if override is not None:
                 selected[field] = next(item for item in choices if get_column_letter(item.column) == override.strip().upper())
@@ -135,8 +161,8 @@ def _select_latest_per_transport(
                 name, _ = _transport_output(field)
                 columns = "、".join(f"{get_column_letter(item.column)}1 ({item.header})" for item in choices)
                 raise OrderImportWorkbookError(
-                    f"{rule.name}工作表最新{TRANSPORT_NAMES[mode]}日期 {choices[0].shipping_date.isoformat()} 的 "
-                    f"{name} 字段重复：{columns}"
+                    f"{rule.name}工作表 {name} 在该批次离当天最近的日期 "
+                    f"{choices[0].shipping_date.isoformat()} 字段重复：{columns}"
                 )
     return selected
 
@@ -164,9 +190,9 @@ def select_shipping_columns(
         column = shipping_column.strip().upper()
         match = next((item for item in candidates if get_column_letter(item.column) == column), None)
         if match is None:
-            raise OrderImportWorkbookError(f"指定的运输列 {column} 不是最新日期候选列")
+            raise OrderImportWorkbookError(f"指定的运输列 {column} 不是离当天最近的候选列")
         overrides[match.field] = column
-    return _select_latest_per_transport(rule, candidates, overrides)
+    return _select_nearest_per_transport(rule, candidates, overrides, today)
 
 
 def generate_order_workbooks(
