@@ -76,6 +76,6 @@ return { path };
 - `evaluate(fn, args)` 把函数发到当前页面执行。所需数据通过第二个参数传入，函数无法访问 Node 闭包。页面支持 `document`、`deepQuerySelector`、`deepQuerySelectorAll` 和 `deepClosest`。
 - `runScriptFile(path, args)` 把独立 JS 函数体放入页面执行，以 `params` 读取传入对象。页面脚本遇到整页跳转可能中断，后续步骤放在控制脚本中。两个页面接口均可等待 Promise。
 - `uploadFile(selector, path)` 定位唯一匹配的文件输入框。流程中的页面脚本路径和上传路径相对于控制脚本目录解析，也接受绝对路径。
-- `download(trigger)` 在回调触发下载前记录目录，在文件完成后返回归档路径。一个回调对应一个下载文件；多个候选时返回错误。
+- `download(trigger)` 按店铺下载目录的变化识别文件，沿用浏览器保存的文件名并返回归档路径。每次回调只触发一个下载，等待期间避免在同一店铺同时下载其他文件，以免取错文件或因出现多个候选而报错。
 
 命令选取第一个普通网页标签，整次运行共用同一个连接和店铺锁。成功时，`data.result` 是脚本返回的 JSON 值，`data.downloads` 和 `data.screenshots` 分别列出下载文件和截图，`files` 包含两类附件。总时限默认 180 秒，使用 `--timeout-sec` 调整至 1～600 秒。超时或取消后，已发起的页面操作可能已经生效。如需重启店铺或重新提交业务操作，先核对实际状态并取得用户明确授权。
