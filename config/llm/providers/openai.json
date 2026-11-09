@@ -1,0 +1,59 @@
+{
+  "name": "openai",
+  "label": "OpenAI",
+  "api_style": "openai-responses",
+  "base_url": "https://api.openai.com/v1",
+  "default_model": "gpt-6.1-sol",
+  "models": {
+    "gpt-6.1-sol": {
+      "context_window_tokens": 272000,
+      "max_tokens": 128000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "openai-configuration-update",
+      "thinking_levels": ["low", "medium", "high", "xhigh", "max"],
+      "thinking_default": "medium"
+    },
+    "gpt-6.1-terra": {
+      "context_window_tokens": 272000,
+      "max_tokens": 128000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "openai-configuration-update",
+      "thinking_levels": ["off", "low", "medium", "high", "xhigh", "max"],
+      "thinking_default": "medium"
+    },
+    "gpt-6-astra": {
+      "context_window_tokens": 272000,
+      "max_tokens": 128000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "openai-configuration-update",
+      "thinking_levels": ["low", "medium", "high", "xhigh", "max"],
+      "thinking_default": "medium"
+    },
+    "gpt-6-sol": {
+      "context_window_tokens": 272000,
+      "max_tokens": 128000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "openai-configuration-update",
+      "thinking_levels": ["off", "low", "medium", "high", "xhigh", "max"],
+      "thinking_default": "medium"
+    },
+    "gpt-6-luna": {
+      "context_window_tokens": 272000,
+      "max_tokens": 128000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "openai-configuration-update",
+      "thinking_levels": ["off", "low", "medium", "high", "xhigh", "max"],
+      "thinking_default": "medium"
+    }
+  }
+}

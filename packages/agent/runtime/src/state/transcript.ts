@@ -122,6 +122,7 @@ export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | und
     for (const key of ["id", "timestamp", "api", "provider", "model", "responseId", "responseModel", "usage", "stopReason", "rawStopReason", "error"]) {
       if (source[key] !== undefined) metadata[key] = source[key];
     }
+    if (typeof source.providerThinkingLevel === "string") metadata.providerThinkingLevel = source.providerThinkingLevel;
   }
   return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), ...metadata, role, content } as RuntimeMessage;
 };

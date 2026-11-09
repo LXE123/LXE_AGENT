@@ -38,6 +38,22 @@ const record = (value: unknown): Record<string, unknown> =>
 
 const text = (value: unknown): string => String(value ?? "");
 
+function responsesEffort(descriptor: ProviderDescriptor): string {
+  const mapped = descriptor.thinkingLevelMap?.[descriptor.thinkingEffort];
+  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || mapped === "off") return "none";
+  return mapped ?? normalizeThinkingEffort(
+    descriptor.thinkingEffort, descriptor.thinkingLevels.filter(level => level !== "off"), descriptor.thinkingDefault,
+  );
+}
+
+function configurationUpdateEffort(descriptor?: ProviderDescriptor): string | undefined {
+  if (descriptor?.thinkingStyle !== "openai-configuration-update") return undefined;
+  const effort = responsesEffort(descriptor);
+  return effort === "none" ? undefined : effort;
+}
+
+const configurationUpdate = (effort: string): JsonObject => ({ type: "configuration_update", reasoning: { effort } });
+
 const imageInputPart = (block: Record<string, unknown>, supportsVision: boolean): JsonObject => {
   if (!supportsVision) return { type: "input_text", text: IMAGE_PLACEHOLDER };
   const source = record(block.source);
@@ -101,6 +117,7 @@ const toolResultOutput = (content: unknown, supportsVision: boolean): string | J
  */
 export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor): JsonObject[] {
   const input: JsonObject[] = [];
+  const effort = configurationUpdateEffort(descriptor);
   for (const [messageIndex, message] of messages.entries()) {
     if (message.role === "compactionSummary") {
       input.push({
@@ -131,6 +148,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
         ? message.content
         : [{ type: "text", text: text(message.content) }];
       const replay = canReplayMetadata(message, descriptor);
+      const output: JsonObject[] = [];
       const grouped = new Map<string, JsonObject>();
       const emittedReasoning = new Set<string>();
       for (const [blockIndex, raw] of source.entries()) {
@@ -139,7 +157,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
         if (block.type === "thinking") {
           const item = replay ? replaySignature(block.thinkingSignature) : undefined;
           if (item?.type === "reasoning" && typeof item.id === "string" && !emittedReasoning.has(item.id)) {
-            input.push(item as JsonObject);
+            output.push(item as JsonObject);
             emittedReasoning.add(item.id);
           }
         } else if (block.type === "text") {
@@ -150,16 +168,24 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
             item = { type: "message", role: "assistant", id, status: "completed", content: [],
               ...(typeof signature?.phase === "string" ? { phase: signature.phase } : {}) };
             grouped.set(id, item);
-            input.push(item);
+            output.push(item);
           }
           (item.content as JsonObject[]).push({ type: "output_text", text: text(block.text), annotations: [] });
         } else if (block.type === "tool_call") {
-          input.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
+          output.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
             arguments: JSON.stringify(block.arguments),
             ...(replay && typeof block.providerItemId === "string" ? { id: block.providerItemId } : {}),
             ...(replay && typeof block.namespace === "string" ? { namespace: block.namespace } : {}),
           });
         }
+      }
+      if (output.length) {
+        // The previous request ended with its effort item, immediately before this reply.
+        const previous = "providerThinkingLevel" in message ? message.providerThinkingLevel : undefined;
+        if (effort && replay && previous && descriptor?.thinkingLevels.includes(previous) && previous !== "off") {
+          input.push(configurationUpdate(previous));
+        }
+        input.push(...output);
       }
       continue;
     }
@@ -174,14 +200,16 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
       });
     }
   }
+  if (effort) input.push(configurationUpdate(effort));
   return input;
 }
 
-export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => tools.map((tool) => ({
+export const adaptToolsForResponses = (tools: ToolSchema[], strict?: boolean): JsonObject[] => tools.map((tool) => ({
   type: "function",
   name: tool.name,
   description: tool.description,
   parameters: tool.input_schema,
+  ...(strict === undefined ? {} : { strict }),
 }));
 
 /**
@@ -194,18 +222,8 @@ export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => too
  */
 export const buildResponsesThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   if (descriptor.thinkingStyle === "provider-managed") return {};
-  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "none" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "off") {
-    return { reasoning: { effort: "none" } };
-  }
-  return {
-    reasoning: {
-      effort: descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] ?? normalizeThinkingEffort(
-        descriptor.thinkingEffort,
-        descriptor.thinkingLevels.filter((level) => level !== "off"),
-        descriptor.thinkingDefault,
-      ),
-    },
-  };
+  if (configurationUpdateEffort(descriptor)) return { reasoning: { effort: "medium", summary: "auto" } };
+  return { reasoning: { effort: responsesEffort(descriptor) } };
 };
 
 /** Summaries follow the active session's thinking setting. */
@@ -221,7 +239,8 @@ export function buildResponsesRequest(
   // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
   // rate-limits and isolates against. A shared Feishu bot would otherwise put
   // everyone in one bucket.
-  const user = providerUserIdentifier(request.userIdentity);
+  const directOpenAI = descriptor.name === "openai";
+  const user = directOpenAI ? undefined : providerUserIdentifier(request.userIdentity);
   return {
     ...(user ? { user } : {}),
     model: descriptor.model,
@@ -232,8 +251,10 @@ export function buildResponsesRequest(
     ],
     ...(descriptor.compat?.supportsMaxOutputTokens === false ? {} : { max_output_tokens: descriptor.maxTokens }),
     stream: true,
+    ...(directOpenAI ? { store: false } : {}),
+    ...(directOpenAI && descriptor.thinkingEnabled ? { include: ["reasoning.encrypted_content"] } : {}),
     ...(request.tools.length > 0
-      ? { tools: adaptToolsForResponses(request.tools), tool_choice: request.toolChoice }
+      ? { tools: adaptToolsForResponses(request.tools, directOpenAI ? false : undefined), tool_choice: request.toolChoice }
       : {}),
     ...buildResponsesThinkingPayload(descriptor),
     ...providerTemperature(descriptor, request.temperature),
@@ -272,7 +293,9 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
   }
 
   async turn(request: RuntimeProviderRequest): Promise<AssistantMessage> {
-    const accumulator = new AssistantMessageAccumulator(this.descriptor, request.onEvent);
+    const providerThinkingLevel = configurationUpdateEffort(auxiliaryDescriptor(this.descriptor, request));
+    const origin = providerThinkingLevel ? { ...this.descriptor, providerThinkingLevel } : this.descriptor;
+    const accumulator = new AssistantMessageAccumulator(origin, request.onEvent);
     let parseFailure: unknown;
     let watchdog: ProviderIdleWatchdog | undefined;
     let trace = request.wireTrace;
