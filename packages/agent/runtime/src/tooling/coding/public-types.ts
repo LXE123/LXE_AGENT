@@ -17,6 +17,8 @@ export interface CodingToolOptions {
   onExecComplete?: (snapshot: JsonObject) => Promise<void> | void;
   /** Bounded live previews, including foreground executions and their final state. */
   onExecUpdate?: (snapshot: JsonObject) => Promise<void> | void;
+  /** Opt in to standalone grep, find and ls tools. Normal sessions search with exec. */
+  includeSearchTools?: boolean;
   ripgrepPath?: string | null;
   fdPath?: string | null;
   execShell?: ExecShellAdapter;

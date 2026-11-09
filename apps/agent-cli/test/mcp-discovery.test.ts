@@ -92,7 +92,7 @@ test("scripts expose native tools with their script signatures and can forward a
   `);
   expect(result.content[0]).toMatchObject({ type: "image", source: { type: "base64", data: expect.any(String), media_type: expect.stringMatching(/^image\//) } });
   const info = JSON.parse(String(result.content[1]?.text));
-  expect(info.entries).toEqual(["edit", "exec", "grep", "ls", "read", "wait", "write"]);
+  expect(info.entries).toEqual(["edit", "exec", "read", "wait", "write"]);
   expect(info.read).toContain("mimeType: string");
   expect(info.edit).toContain("Promise<string>");
   expect(info.note).toContain("Read image file");

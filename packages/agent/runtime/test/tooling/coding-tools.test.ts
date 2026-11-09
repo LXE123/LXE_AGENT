@@ -142,14 +142,14 @@ describe("native coding tools", () => {
     }
   }, 30_000);
 
-  test("exposes compatible coding schemas and uses the workspace only as the default path base", async () => {
+  test("can opt in to standalone search and uses the workspace only as the default path base", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
     const outsideRoot = mkdtempSync(join(tmpdir(), "lxe-coding-outside-"));
     const outsidePath = join(outsideRoot, "outside.txt");
     roots.push(root, outsideRoot);
     writeFileSync(outsidePath, "outside\n", "utf8");
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "wait",
     ]);
@@ -230,7 +230,7 @@ describe("native coding tools", () => {
       find: async () => { calls.push("find"); return "lease find"; },
     } as unknown as WorkspaceSearchService;
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     const leasedContext = { ...context(root), workspaceSearch };
     expect((await registry.execute("grep", { pattern: "x" }, leasedContext)).content[0]?.text)
       .toContain("lease grep");
@@ -276,6 +276,7 @@ describe("native coding tools", () => {
       repositorySkillsRoot,
       userSkillsRoot: join(home, ".agents", "skills"),
       homeDirectory: home,
+      includeSearchTools: true,
       ripgrepPath: null,
     });
     const activated: string[] = [];
@@ -1139,7 +1140,7 @@ describe("native coding tools", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context(root));
     const count = await registry.execute("grep", {
       pattern: "beta", path: "src", output_mode: "count", type: "py",

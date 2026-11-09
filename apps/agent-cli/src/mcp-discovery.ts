@@ -25,12 +25,12 @@ export function registerMcpDiscoveryTools(
     name: "codemode",
     availableOn: platform => hasEnabledServer("codemode", platform),
     describeModelTools: describeCodemodeCalls,
-    description: "Run JavaScript that combines connected MCP tools and local read, ls, grep, edit, write, exec, and wait in a QuickJS sandbox. Top-level await and return work. " +
+    description: "Run JavaScript that combines local and connected MCP tools in a QuickJS sandbox. Top-level await and return work. " +
       "Use await searchTools(query, { limit?, namespace? }) to find tools by capability, await describeTool(name) for a TypeScript declaration, " +
       "or await describeNamespace(name) for server information and tool names. ALL_TOOLS lists callable tools. " +
       "Call await tools[name](args). File tools return text; read may return an image {type, data, mimeType, note} suitable for image(). " +
       "Read an existing file before editing or overwriting it. Writes and commands use the session permissions. " +
-      "exec returns {status, exec_id, output, ...}. On running, return the id or call tools.wait({exec_id}) for new_output and, once finished, exit_code. " +
+      "Use tools.exec for directory listings and file searches. exec returns {status, exec_id, output, ...}. On running, return the id or call tools.wait({exec_id}) for new_output and, once finished, exit_code. " +
       "Use tools.wait({exec_id, terminate:true}) to stop the command. A yielded command belongs to this chat. " +
       'Optional first line: // @options: {"timeout_ms": 60000, "max_output_tokens": 10000}. ' +
       "Scripts default to no deadline. Waiting for a worker is capped at 60 seconds and counts toward timeout_ms. The default and maximum inline output budget is 10000 tokens. " +

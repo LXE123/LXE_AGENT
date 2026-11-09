@@ -17,10 +17,9 @@ import { runPiReference } from "./fixtures/pi-codemode-reference";
 // Run this exact script against the packaged agent and (when supplied) the reference Pi CLI.
 const discoverAndEdit = (dir: string) => `
   const path = ${JSON.stringify(join(dir, "orders.txt"))};
-  const folder = ${JSON.stringify(dir)};
-  const list = await tools.ls({path: folder});
-  const hits = await tools.grep({path: folder, pattern: "pending"});
-  if (!list.includes("orders.txt") || !hits.includes("orders.txt")) throw new Error("Cannot find orders.txt: " + hits);
+  for (const name of ["grep", "find", "ls"]) {
+    if (Object.keys(tools).includes(name) || ALL_TOOLS.some(tool => tool.name === name)) throw new Error("Unexpected script tool: " + name);
+  }
   const before = await tools.read({path});
   if (before !== "  pending\\r\\n") throw new Error("Unexpected file contents: " + JSON.stringify(before));
   const summary = await tools.edit({path, edits: [{oldText: before.trim(), newText: "shipped"}]});
@@ -123,6 +122,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect(names.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     for (const body of requests.slice(1)) expect(body.tools).toEqual(requests[0]!.tools);
     const lastToolOutput = (index: number) => requests[index]!.messages.filter(m => m.role === "tool").at(-1)?.content;
+    expect(lastToolOutput(1)).not.toContain("Script error:");
     expect(lastToolOutput(1)).toContain("mcp__lxe_desktop__automation_runs");
     expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
     expect(lastToolOutput(2)).toContain("fixture dispatch failure");
@@ -156,6 +156,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       expect(piRequests).toHaveLength(4);
       expect(piRequests[0]!.tools.map(tool => tool.function.name)).toContain("codemode");
       for (const body of piRequests.slice(1)) expect(body.tools).toEqual(piRequests[0]!.tools);
+      expect(lastToolOutput(start + 1)).not.toContain("Script error:");
       expect(lastToolOutput(start + 1)).toContain("mcp__lxe_desktop__automation_runs");
       expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
       expect(JSON.stringify(lastToolOutput(start + 2))).toContain("fixture dispatch failure");
@@ -169,10 +170,13 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       expect((await runtime.runTurn(turn, new RunHandle(turn))).status).toBe("completed");
       return requests.slice(start).map(body => body.tools.map(tool => tool.function.name));
     };
+    const searchOrders = process.platform === "win32"
+      ? "(Select-String -SimpleMatch shipped -Path *.txt -List).Filename"
+      : "grep -Fl shipped *.txt";
     nextCalls.push({ name: "codemode", arguments: { code: `
       await tools.write({file_path:"codemode-note.txt", content:"from script"});
-      const result = await tools.exec({command:"echo codemode-shell"});
-      if (result.exit_code !== 0 || result.output.trim() !== "codemode-shell") throw new Error(JSON.stringify(result));
+      const result = await tools.exec({cwd: ${JSON.stringify(files)}, command: ${JSON.stringify(searchOrders)}});
+      if (result.exit_code !== 0 || result.output.trim() !== "orders.txt") throw new Error(JSON.stringify(result));
       if (!(await describeTool("wait")).includes("new_output")) throw new Error("Missing wait signature");
       return "script-command-ok";` } });
     expect(await nextTurn("script-command")).toHaveLength(2);

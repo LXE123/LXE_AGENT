@@ -95,7 +95,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 同一轮的多次模型调用复用这份目录。第一轮把目录放在初始指令里。下一轮发现目录变化时，支持中途指令的模型会在该轮用户输入前收到新版目录，最后一个服务撤下时会收到目录已清空的说明。其他模型在开头的指令里收到最新目录。续聊和分叉按各自的历史回放，压缩摘要保存截断处生效的目录和工具清单。各模型的请求布局见 [模型目录与选择](../../llm/provider_catalog.md)。
 
-`codemode` 启用时，系统指令建议用 `Promise.allSettled` 批量执行独立调用、按顺序串联有依赖的调用，或先在脚本里筛选大量结果。模型可以直接调用、同时也能在脚本里调用的工具，会在各自的描述末尾注明脚本调用方式和返回类型。例如 `tools.grep(args)` 返回字符串，`tools.read(args)` 返回字符串或图片对象。通过 `tool_search` 加载的 MCP 工具也遵循同一规则。
+`codemode` 启用时，系统指令建议用 `Promise.allSettled` 批量执行独立调用、按顺序串联有依赖的调用，或先在脚本里筛选大量结果。模型可以直接调用、同时也能在脚本里调用的工具，会在各自的描述末尾注明脚本调用方式和返回类型。例如 `tools.read(args)` 返回字符串或图片对象。通过 `tool_search` 加载的 MCP 工具也遵循同一规则。
 
 `tool_search` 与脚本里的 `searchTools()` 共用 BM25，索引工具名、描述、参数和所属服务的信息。`tool_search` 只搜索当前分支尚未向模型声明的可用间接工具，默认最多加载 8 个。每个命中项只返回名称和首行简介，完整声明从下一次模型请求起生效。脚本搜索可以反复查询已加载的工具，查询本身不会加载它们。
 
@@ -113,7 +113,7 @@ return result.structuredContent ?? JSON.parse(result.content[0].text);
 
 脚本能读取 MCP 原始内容块和结构化值。服务返回的 `isError: true` 仍是脚本可读取的结果，错误内容沿用凭据脱敏规则。连接异常、协议失败、超时和取消会拒绝调用。宿主元数据 `_meta` 留在客户端。模型直接调用 MCP 工具时继续收到适合展示的内容或错误。
 
-脚本也能组合当前会话的内置工具。`ls`、`grep` 返回文本，`edit`、`write` 返回修改或写入摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。新文件可用 `tools.write({ file_path, content })` 创建。覆盖或编辑已有文件沿用同一会话的权限和版本检查，先读再改。写入立即生效。
+脚本也能组合当前会话的内置工具。普通会话用 `tools.exec` 列目录、找文件或搜索内容。`edit`、`write` 返回修改或写入摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。新文件可用 `tools.write({ file_path, content })` 创建。覆盖或编辑已有文件沿用同一会话的权限和版本检查，先读再改。写入立即生效。
 
 `exec` 返回包含 `status`、`exec_id` 和 `output` 的对象。如果命令仍在运行，脚本可以调用 `tools.wait({ exec_id })` 取得新增的 `new_output`，或先把 ID 返回给模型，让同一会话稍后继续等。进程退出后可读取 `exit_code`，包括非零退出码。显式传入 `terminate: true` 可终止该进程树。
 
@@ -130,7 +130,7 @@ return { ...next, output: first.output + next.new_output };
 
 ```js
 // @options: {"timeout_ms": 30000, "max_output_tokens": 1000}
-text(await tools.ls({ path: "." }));
+text(await tools.read({ path: "README.md", limit: 20 }));
 ```
 
 `max_output_tokens` 默认和最高都是 10,000，填入更大的整数按 10,000 执行。文本超过脚本预算，或先碰到 Agent 通用工具结果的 UTF-8 字节上限时，会保留首尾，并把全文写入系统临时文件。工具结果中的 `Full output` 给出绝对路径，可用 `read` 配合 `offset`、`limit` 分段读取。预算为 0 时，有文本的结果直接给出截断提示和路径。

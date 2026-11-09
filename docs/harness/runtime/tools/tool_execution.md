@@ -20,7 +20,7 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 ## Native 工具
 
-Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、ls、exec、wait 和 send_files：
+Native handler 与 Runtime 同进程执行。普通会话的 coding tools 包括 read、write、edit、exec、wait 和 send_files，文件搜索通过 exec 执行。
 
 - 路径先相对 Session working directory 解析；绝对路径、`~`、`..` 和跨 workspace 符号链接都交给宿主文件系统处理。
 - 读取、搜索、文件交付和 `exec.cwd` 的路径访问受宿主用户的操作系统权限约束；`exec`、`write`、`edit` 的写入还需应用 [会话权限策略](../permission-policy.md)。指定工作区外的 cwd 不会扩大写入范围。`EACCES`、`EPERM` 等实际系统错误按 [AGENTS.md](../../../../AGENTS.md#红线违反--生产事故)保留，不改写成泛化提示。

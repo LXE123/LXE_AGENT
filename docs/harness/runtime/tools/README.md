@@ -8,13 +8,13 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 
 ## 工具来源
 
-- Native direct tools：Runtime 内置的 read/write/edit/grep/find/ls/send_files/exec/wait 等能力。
+- Native direct tools：普通会话使用 read/write/edit/send_files/exec/wait 等内置工具。列目录、找文件和搜索内容默认通过 `exec`。
 - Desktop interaction：`ask_user_question` 只对真实来源为桌面的当前回合开放，返回答案后继续同一工具调用。
 - 外部命令：模型通过 `exec` 调用 `lxeskill`、`lark-cli` 等 CLI，不注册为独立的 model tool。lxeskill 的调用契约与统计归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
 - MCP tools：从已启用的服务动态发现，暴露方式由服务的 [exposure 配置](mcp.md#工具适配与上下文的边界) 决定。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：当前平台启用了 `deferred` 服务时出现。它搜索尚未加载的工具，命中后从下一次模型请求起可以直接调用；续聊和分叉按当前分支恢复已加载的工具。
-- `codemode`：在当前平台启用了 `codemode` 服务时出现。脚本可组合 MCP 工具与内置的 `read`、`ls`、`grep`、`edit`、`write`、`exec` 和 `wait`；脚本搜索保持顶层工具清单稳定。
+- `codemode`：在当前平台启用了 `codemode` 服务时出现。脚本可组合 MCP 工具与内置的 `read`、`edit`、`write`、`exec` 和 `wait`；脚本搜索保持顶层工具清单稳定。
 
 ## 专题导航
 
@@ -25,9 +25,9 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 
 ## 常用行为
 
-- `find` 按 glob 搜索路径，`grep` 搜索文件内容。参数、忽略规则和输出限制分别见 [路径搜索](tool_schema.md#路径搜索-find)和 [内容搜索](tool_schema.md#内容搜索-grep)。
+- 宿主可在注册编码工具时传入 `includeSearchTools: true` 启用专用的 [路径搜索](tool_schema.md#路径搜索-find)、[内容搜索](tool_schema.md#内容搜索-grep) 和 [目录分页](tool_schema.md#目录分页-ls)。普通会话默认关闭三项。
 - `read` 可以读取文本和受支持的图片；已知二进制文件会明确拒绝。文本输出有统一上限，大文件通过 `offset` 和 `limit` 分段继续，不把整文件一次塞给模型。
-- `ls` 支持目录分页，`edit` 支持同一文件的批量编辑。参数与边界见 [目录分页](tool_schema.md#目录分页-ls)和 [批量编辑](tool_schema.md#批量编辑-edit)。
+- `edit` 支持同一文件的[批量编辑](tool_schema.md#批量编辑-edit)。
 - `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。它先观察最多 `yield-time-ms`；命令仍运行时返回 `exec_id`，不设默认硬超时。
 - `wait` 只接受所属 Session 的 `exec_id`，返回上次成功观察后的新增输出；`terminate=true` 会终止完整进程树。v1 不提供 PTY、stdin、list 或重连。
 

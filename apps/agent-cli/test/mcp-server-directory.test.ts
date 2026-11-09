@@ -84,6 +84,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const request = received[before]!;
     expect(request.messages[0]?.role).toBe("system");
     const descriptions = new Map(request.tools!.map(({ function: tool }) => [tool.name, tool.description]));
+    for (const name of ["grep", "find", "ls"]) expect(descriptions.has(name)).toBe(false);
+    expect(request.messages[0]!.content).toContain("Use exec to list directories, find files, and search their contents.");
     return { prompt: request.messages[0]!.content, tools: [...descriptions.keys()], descriptions };
   }
   try {
@@ -92,7 +94,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const first = await turn("desktop", "desktop");
     expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): 管理桌面定时任务");
     expect(first.prompt).toContain("batch independent tool calls with Promise.allSettled, chain dependent calls in order, or filter large results");
-    for (const name of ["ls", "grep", "write", "edit"]) {
+    for (const name of ["write", "edit"]) {
       expect(first.descriptions.get(name)).toEndWith(`Codemode: \`tools.${name}(args)\` resolves to a string.`);
     }
     const readSuffix = first.descriptions.get("read")!.split("\n\nCodemode: ").at(-1)!;
@@ -101,7 +103,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(first.descriptions.get("exec")).toContain("`tools.exec(args)` resolves to `{ status, exec_id, output,");
     expect(first.descriptions.get("wait")).toContain("`tools.wait(args)` resolves to `{ status, exec_id, new_output,");
     expect(first.tools.filter(name => first.descriptions.get(name)!.includes("\n\nCodemode: ")).sort())
-      .toEqual(["edit", "exec", "grep", "ls", "read", "wait", "write"]);
+      .toEqual(["edit", "exec", "read", "wait", "write"]);
     expect(first.tools).toContain("codemode");
     expect(first.tools.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     const cli = await turn("cli", "cli");
@@ -118,8 +120,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(orders.prompt).not.toContain("mcp__lxe_desktop");
     expect(orders.tools).toContain("tool_search");
     expect(orders.prompt).not.toContain("Use codemode");
-    expect(orders.descriptions.get("grep")).toBe(cli.descriptions.get("grep"));
-    expect(orders.descriptions.get("grep")).not.toContain("Codemode: ");
+    expect(orders.descriptions.get("exec")).toBe(cli.descriptions.get("exec"));
+    expect(orders.descriptions.get("exec")).not.toContain("Codemode: ");
   } finally {
     await host.stop();
     endpoint.stop(true);
