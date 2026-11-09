@@ -2,6 +2,8 @@ export interface NumberedTextRangeOptions {
   startLine: number;
   maxLines: number;
   charBudget: number;
+  /** Scripts consume the text itself, including its original line endings. */
+  plainText?: boolean;
   signal?: AbortSignal;
 }
 
@@ -35,7 +37,7 @@ export async function scanNumberedTextChunks(
   const startLine = Math.max(1, Math.trunc(options.startLine));
   const maxLines = Math.max(1, Math.trunc(options.maxLines));
   const charBudget = Math.max(1, Math.trunc(options.charBudget));
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: options.plainText ?? false });
   let body = "";
   let lineNumber = 1;
   let collectedLines = 0;
@@ -67,7 +69,7 @@ export async function scanNumberedTextChunks(
     currentLineStarted = true;
     currentLineBodyStart = body.length;
     if (collectedLines > 0 && !appendBounded("\n")) return false;
-    return appendBounded(numberedLinePrefix(lineNumber));
+    return options.plainText || appendBounded(numberedLinePrefix(lineNumber));
   };
 
   const budgetStopResult = (): NumberedTextRangeResult => {
@@ -100,7 +102,7 @@ export async function scanNumberedTextChunks(
       pendingCarriageReturn = false;
       if (segment.length > 0) currentLineHasContent = true;
       // Delay a final CR so CRLF split across chunks does not consume budget.
-      if (segment.endsWith("\r")) {
+      if (!options.plainText && segment.endsWith("\r")) {
         pendingCarriageReturn = newline === -1;
         segment = segment.slice(0, -1);
       }
@@ -128,13 +130,14 @@ export async function scanNumberedTextChunks(
     if (stopped) return stopped;
   }
   if (pendingCarriageReturn && selected() && !appendBounded("\r")) return budgetStopResult();
-  if (currentLineHasContent) {
+  // In plain text, a terminal LF separates a final empty line, as in text.split("\n").
+  if (currentLineHasContent || (options.plainText && lineNumber > 1)) {
+    if (rangeComplete) return { body, hasMore: true, nextOffset: lineNumber };
     const completed = completeLine();
     if (completed) return completed;
   }
   const totalLines = lineNumber - 1;
-  // Reading an empty file from its default offset is valid; there is no phantom
-  // extra line after a terminal newline in a nonempty file.
+  // Reading an empty file from its default offset is valid.
   if (startLine > totalLines && !(totalLines === 0 && startLine === 1)) {
     throw new Error(`Offset ${startLine} is beyond end of file (${totalLines} lines total)`);
   }

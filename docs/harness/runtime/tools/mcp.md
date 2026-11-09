@@ -111,6 +111,8 @@ return result.structuredContent ?? JSON.parse(result.content[0].text);
 
 脚本能读取 MCP 原始内容块和结构化值。服务返回的 `isError: true` 仍是脚本可读取的结果，错误内容沿用凭据脱敏规则。连接异常、协议失败、超时和取消会拒绝调用。宿主元数据 `_meta` 留在客户端。模型直接调用 MCP 工具时继续收到适合展示的内容或错误。
 
+脚本也能组合当前会话的四个内置工具。`ls`、`grep` 返回文本，`edit` 返回修改摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。脚本和直接调用共享同一会话的文件版本记录和编辑权限：先读再改，文件被别人改过就必须重读。一次成功的编辑立即写入文件，即使脚本后续报错，也不会随 `store()` 一起回滚。
+
 ### 在多次脚本调用之间保存数据
 
 脚本可用 `store("taskIds", ["a", "b"])` 保存少量 JSON 数据，同一脚本和本对话后续脚本都能用 `load("taskIds")` 读取。同名写入会覆盖旧值，`store("taskIds", undefined)` 删除该键。读取缺失的键返回 `undefined`。当前 Pi 1.5.0 的沙箱无法跨调用保存名为 `__proto__` 的键。

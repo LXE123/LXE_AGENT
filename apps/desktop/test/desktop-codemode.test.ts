@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -14,7 +14,19 @@ import { NodeAutomationStore } from "../src/main/automation-store";
 import { desktopCodemodeReport } from "./fixtures/desktop-codemode-script";
 import { runPiReference } from "./fixtures/pi-codemode-reference";
 
-const discovery = `
+// Run this exact script against the packaged agent and (when supplied) the reference Pi CLI.
+const discoverAndEdit = (dir: string) => `
+  const path = ${JSON.stringify(join(dir, "orders.txt"))};
+  const folder = ${JSON.stringify(dir)};
+  const list = await tools.ls({path: folder});
+  const hits = await tools.grep({path: folder, pattern: "pending"});
+  if (!list.includes("orders.txt") || !hits.includes("orders.txt")) throw new Error("Cannot find orders.txt: " + hits);
+  const before = await tools.read({path});
+  if (before !== "  pending\\r\\n") throw new Error("Unexpected file contents: " + JSON.stringify(before));
+  const summary = await tools.edit({path, edits: [{oldText: before.trim(), newText: "shipped"}]});
+  if (typeof summary !== "string" || !summary || await tools.read({path}) !== "  shipped\\r\\n") throw new Error("Edit failed: " + summary);
+  const photo = await tools.read({path: ${JSON.stringify(join(dir, "photo.jpg"))}});
+  if (photo.type !== "image" || !photo.data || !photo.mimeType.startsWith("image/") || !photo.note) throw new Error("Invalid image result");
   const names = (await searchTools("automation_runs")).map(tool => tool.name);
   store("desktopTools", names);
   return names;
@@ -30,6 +42,12 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
   const repo = resolve(import.meta.dir, "../../..");
   const executable = join(root, "agent-cli" + (process.platform === "win32" ? ".exe" : ""));
   const bundleDir = join(root, "bundle");
+  const files = join(root, "files");
+  mkdirSync(files);
+  copyFileSync(join(repo, "packages/agent/runtime/test/fixtures/color-pattern.jpg"), join(files, "photo.jpg"));
+  const resetOrder = () => writeFileSync(join(files, "orders.txt"), "  pending\r\n");
+  resetOrder();
+  const discovery = discoverAndEdit(files);
   const nextCalls: { name: string; arguments: object }[] = [discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } }));
   const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -103,11 +121,13 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     for (const body of requests.slice(1)) expect(body.tools).toEqual(requests[0]!.tools);
     const lastToolOutput = (index: number) => requests[index]!.messages.filter(m => m.role === "tool").at(-1)?.content;
     expect(lastToolOutput(1)).toContain("mcp__lxe_desktop__automation_runs");
+    expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
     expect(lastToolOutput(2)).toContain("fixture dispatch failure");
     expect(lastToolOutput(2)).not.toContain("failed-turn");
 
     const piCli = process.env.LXE_TEST_PI_CLI;
     if (piCli && mode === "build") {
+      resetOrder();
       const start = requests.length;
       nextCalls.push(...[discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } })));
       await runPiReference(piCli, root, provider.url.origin, environment, job.session_id, job.job_id);
@@ -116,6 +136,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       expect(piRequests[0]!.tools.map(tool => tool.function.name)).toContain("codemode");
       for (const body of piRequests.slice(1)) expect(body.tools).toEqual(piRequests[0]!.tools);
       expect(lastToolOutput(start + 1)).toContain("mcp__lxe_desktop__automation_runs");
+      expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
       expect(JSON.stringify(lastToolOutput(start + 2))).toContain("fixture dispatch failure");
     }
 

@@ -14,6 +14,8 @@ export interface ToolDefinition extends ToolSchema {
   /** Evaluated for each request and call, including after a host-managed service is toggled. */
   availableOn?: (platform: string | undefined) => boolean;
   source?: "native" | "mcp";
+  /** Opt a native tool into scripts and declare the value its caller receives. */
+  codemodeResult?: "text" | "text-or-image";
   exposure?: ToolExposure;
   /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
   supportsParallelCalls?: boolean;
@@ -141,12 +143,13 @@ export class ToolExposureState {
     private readonly registry: ToolRegistry,
     private readonly options: ToolExposureOptions = {},
     readonly scope: "model" | "codemode" = "model",
+    private readonly parent?: ToolExposureState,
   ) {
     if (scope === "model") {
       for (const tool of options.loadedTools ?? []) this.loaded.add(toolReferenceKey(tool));
     }
     for (const definition of registry.definitionsSnapshot()) {
-      if (scope === "codemode" ? definition.source === "mcp" : definition.exposure === "direct") {
+      if (scope === "codemode" || definition.exposure === "direct") {
         this.exposed.add(definition.name);
       }
     }
@@ -174,7 +177,7 @@ export class ToolExposureState {
 
   /** A script has its own callable set. Its tools never enter the parent turn's schema list. */
   forCodemode(): ToolExposureState {
-    return new ToolExposureState(this.registry, this.options, "codemode");
+    return new ToolExposureState(this.registry, this.options, "codemode", this);
   }
 
   find(query: string, limit = 8): ToolSchema[] {
@@ -202,6 +205,7 @@ export class ToolExposureState {
   }
 
   async activateSkill(skillName: string): Promise<void> {
+    if (this.parent) return this.parent.activateSkill(skillName);
     const name = skillName.trim();
     if (!name || this.activatedSkills.has(name)) return;
     if (this.options.allowedSkills && !this.options.allowedSkills.has(name)) {
@@ -229,7 +233,9 @@ export class ToolExposureState {
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {
-    if (definition.exposure === "hidden" || (this.scope === "codemode" && definition.source !== "mcp")) return false;
+    if (definition.exposure === "hidden") return false;
+    if (this.scope === "codemode" && definition.source !== "mcp"
+      && !(definition.codemodeResult && this.parent?.isExposed(definition.name))) return false;
     if (definition.availableOn && !definition.availableOn(this.options.platform)) return false;
     if (definition.platforms && !definition.platforms.includes(this.options.platform ?? "")) return false;
     if (definition.ownerSkills.length > 0 && this.options.allowedSkills) {

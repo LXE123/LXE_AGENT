@@ -29,7 +29,7 @@ export async function runPiReference(cli: string, root: string, provider: string
   mkdirSync(dir, { mode: 0o700 });
   const writeConfig = (name: string, data: object) =>
     writeFileSync(join(dir, name), JSON.stringify(data), { mode: 0o600 });
-  writeConfig("settings.json", { defaultTools: ["codemode"] });
+  writeConfig("settings.json", { defaultTools: ["codemode", "read", "ls", "grep", "edit"] });
   writeConfig("models.json", { providers: { localfixture: {
     api: "openai-completions", baseUrl: provider + "/v1", apiKey: "fixture", models: [{ id: "parity" }],
   } } });

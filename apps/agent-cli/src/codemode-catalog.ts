@@ -1,7 +1,7 @@
 import type { CodemodeJsonSchema, CodemodeTool } from "@earendil-works/pi-codemode";
 import { renderToolSample, toCodemodeIdentifier } from "@earendil-works/pi-codemode/declarations";
 import type { JsonObject } from "@lxe/protocol";
-import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition } from "@lxe/runtime";
+import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition, type ToolExecutionResult } from "@lxe/runtime";
 
 // MCP result declaration adapted from Pi. See the MIT notice in runtime's tool-search-ranking.ts.
 const CONTENT_BLOCK_SCHEMA = {
@@ -73,6 +73,35 @@ function createMcpResultSchema(structuredContentSchema: JsonObject | undefined):
   };
 }
 
+const textSchema = { type: "string" };
+const readSchema = { anyOf: [textSchema, {
+  type: "object", properties: {
+    type: { const: "image" }, data: textSchema, mimeType: textSchema, note: textSchema,
+  }, required: ["type", "data", "mimeType", "note"], additionalProperties: false,
+}] };
+
+function scriptResultSchema(tool: NormalizedToolDefinition) {
+  if (tool.source === "mcp") return createMcpResultSchema(tool.outputSchema);
+  return tool.codemodeResult === "text-or-image" ? readSchema : textSchema;
+}
+
+export function toScriptValue(tool: NormalizedToolDefinition, result: ToolExecutionResult) {
+  if (tool.source === "mcp") return result;
+  const text = result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+  if (tool.codemodeResult === "text-or-image") {
+    const block = result.content.find(block => block.type === "image");
+    if (block) {
+      const source = block.source;
+      if (!source || typeof source !== "object" || Array.isArray(source) || source.type !== "base64"
+        || typeof source.data !== "string" || typeof source.media_type !== "string") {
+        throw new TypeError(`${tool.name} returned an invalid image block`);
+      }
+      return { type: "image", data: source.data, mimeType: source.media_type, note: text };
+    }
+  }
+  return text;
+}
+
 /** One snapshot of the tools permitted in this script; discovery never activates a tool. */
 export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
   const aliasCounts = new Map<string, number>();
@@ -87,7 +116,7 @@ export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
       ? tool.name.replaceAll("-", "$") : alias;
     const description = renderToolSample({
       name: jsName, description: tool.description, inputSchema: tool.input_schema,
-      outputSchema: createMcpResultSchema(tool.outputSchema),
+      outputSchema: scriptResultSchema(tool),
     });
     const server = tool.connectorName;
     const namespace = server ? `mcp__${server}` : undefined;

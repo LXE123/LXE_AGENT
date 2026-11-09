@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptMcpTools, SqliteRuntimeStore, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
-import { policyFor, testWorkspace } from "../../../packages/agent/runtime/test/workspace";
+import { adaptMcpTools, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { policyFor, testWorkspace, workspaceFor } from "../../../packages/agent/runtime/test/workspace";
 import { AgentRunHandle } from "../src/run-handle";
 import { registerMcpDiscoveryTools } from "../src/mcp-discovery";
 import { takeDesktopMcpConfig } from "../src/desktop-mcp";
@@ -76,6 +76,71 @@ test("discovery entries reflect enabled server modes and platform on each step o
   user.enabled = true;
   user.exposure = "hidden";
   expect(names(desktopTurn)).toEqual([]);
+});
+
+test("scripts expose four native tools with their script signatures and can forward a read image", async () => {
+  const { registry, run } = await setup();
+  const processes = registerCodingTools(registry, {});
+  cleanups.push(() => processes.stop());
+  const result = await run(`
+    const entries = ALL_TOOLS.map(({name}) => name).sort();
+    const read = await describeTool("read");
+    const edit = (await searchTools("edit")).find(t => t.name === "edit").description;
+    const photo = await tools.read({path: ${JSON.stringify(join(import.meta.dir, "../../../packages/agent/runtime/test/fixtures/color-pattern.jpg"))}});
+    image(photo);
+    return {entries, read, edit, note: photo.note};
+  `);
+  expect(result.content[0]).toMatchObject({ type: "image", source: { type: "base64", data: expect.any(String), media_type: expect.stringMatching(/^image\//) } });
+  const info = JSON.parse(String(result.content[1]?.text));
+  expect(info.entries).toEqual(["edit", "grep", "ls", "read"]);
+  expect(info.read).toContain("mimeType: string");
+  expect(info.edit).toContain("Promise<string>");
+  expect(info.note).toContain("Read image file");
+});
+
+test("nested edit shares file versions with direct read and enforces denials and script cancellation", async () => {
+  const { registry, root, handle } = await setup();
+  let pending = Promise.withResolvers<void>();
+  const approvals = new PermissionApprovalService({ audit: async () => {}, changed: () => pending.resolve() });
+  const processes = registerCodingTools(registry, { approvals });
+  cleanups.push(async () => { await approvals.stop(); await processes.stop(); });
+  const file = join(root, "order.txt");
+  writeFileSync(file, "ready");
+  const context = { platform: "desktop", session_id: "s1", turn_id: "t1", tool_call_id: "call", handle,
+    workspace: workspaceFor(root), executionPolicy: { ...policyFor(root), mode: "workspace-write" as const },
+  };
+  const args = { path: "order.txt", edits: [{ oldText: "ready", newText: "edited" }] };
+  const edit = `await tools.edit(${JSON.stringify(args)})`;
+  const run = (code: string, mode: "read-only" | "workspace-write", signal?: AbortSignal) => registry.execute("codemode", { code }, {
+    ...context, executionPolicy: { ...context.executionPolicy, mode }, ...(signal ? { signal } : {}),
+  });
+  await expect(run(edit, "workspace-write")).rejects.toThrow("请先用 read");
+  await registry.execute("read", { path: "order.txt" }, context);
+  writeFileSync(file, "ready from another editor");
+  await expect(run(edit, "workspace-write")).rejects.toThrow("请重新 read");
+  await run('await tools.read({path:"order.txt"})', "read-only");
+  await expect(run(edit, "read-only")).rejects.toThrow("read-only mode does not allow file writes");
+  const elevated = `await tools.edit(${JSON.stringify({ ...args, sandbox_permissions: "workspace-write", justification: "Update order" })})`;
+  for (const action of ["deny", "cancel"]) {
+    pending = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const outcome = run(elevated, "read-only", controller.signal).then(() => "succeeded", err => String(err));
+    await pending.promise;
+    const [request] = approvals.snapshot();
+    expect(request).toMatchObject({ tool: "edit", tool_call_id: "call/1", arguments: { edits: args.edits } });
+    if (action === "deny") {
+      await approvals.decide({ session_id: "s1", request_id: request!.request_id, decision: "deny" });
+      expect(await outcome).toContain("User denied");
+    } else {
+      controller.abort();
+      expect(await outcome).not.toBe("succeeded");
+      expect(handle.signal.aborted).toBe(false);
+    }
+    expect(approvals.snapshot()).toEqual([]);
+    expect(readFileSync(file, "utf8")).toBe("ready from another editor");
+  }
+  await registry.execute("edit", args, context);
+  expect(readFileSync(file, "utf8")).toBe("edited from another editor");
 });
 
 test("cancelling a turn aborts an in-flight script tool with its desktop identity", async () => {

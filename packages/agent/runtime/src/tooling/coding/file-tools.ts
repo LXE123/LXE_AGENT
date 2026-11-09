@@ -67,11 +67,12 @@ const readHeadBytes = async (path: string, count: number, signal?: AbortSignal):
   }
 };
 
-const readNumberedRange = async (
+const readTextRange = async (
   path: string,
   startLine: number,
   maxLines: number,
   charBudget: number,
+  plainText: boolean,
   signal?: AbortSignal,
 ): Promise<NumberedTextRangeResult> => {
   assertActive(signal);
@@ -87,7 +88,7 @@ const readNumberedRange = async (
         yield buffer.subarray(0, bytesRead);
       }
     };
-    return await scanNumberedTextChunks(chunks(), { startLine, maxLines, charBudget, ...(signal ? { signal } : {}) });
+    return await scanNumberedTextChunks(chunks(), { startLine, maxLines, charBudget, plainText, ...(signal ? { signal } : {}) });
   } finally {
     await handle.close();
   }
@@ -120,6 +121,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
   const tools: ToolDefinition[] = [
     {
       name: "read",
+      codemodeResult: "text-or-image",
       description: "Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Reading records the file version required by edit/write.",
       input_schema: {
         type: "object",
@@ -132,6 +134,8 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         additionalProperties: false,
       },
       execute: async (input, context) => {
+        const signal = context.signal ?? context.handle.signal;
+        const plainText = context.exposureState?.scope === "codemode";
         const target = paths.resolveReadable(context.workspace, input.path);
         const path = target.path;
         let info: BigIntStats;
@@ -143,12 +147,12 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         }
         if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
         const version = fileVersionFromStats(info);
-        const head = await readHeadBytes(path, 4_100, context.handle.signal);
+        const head = await readHeadBytes(path, 4_100, signal);
         if (detectReadImageMime(head)) {
-          const data = await readFile(path, { signal: context.handle.signal });
+          const data = await readFile(path, { signal });
           await assertFileVersionUnchanged(path, version);
           const prepared = await imageProcessor.process(data, "read");
-          assertActive(context.handle.signal);
+          assertActive(signal);
           ledger.recordVersion(context.session_id, path, version);
           const scale = prepared.processed.width > 0 ? prepared.original.width / prepared.processed.width : 1;
           return {
@@ -168,21 +172,22 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         const start = Math.max(1, Number(input.offset ?? 1));
         const count = Math.max(1, Number(input.limit ?? DEFAULT_READ_LINES));
         const charBudget = Math.max(1, toolOutputLimit - READ_HINT_CHAR_RESERVE);
-        const range = await readNumberedRange(
+        const range = await readTextRange(
           path,
           start,
           count,
           charBudget,
-          context.handle.signal,
+          plainText,
+          signal,
         );
         await assertFileVersionUnchanged(path, version);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         ledger.recordVersion(context.session_id, path, version);
         const hint = range.truncatedLine === undefined
           ? range.hasMore && range.nextOffset !== undefined
             ? `... (更多内容，使用 offset=${range.nextOffset} 继续)`
             : ""
-          : `... (第 ${range.truncatedLine} 行超过本次 ${charBudget} 字符正文预算（含行号）；请使用 exec 的字节工具读取该超长行)`;
+          : `... (第 ${range.truncatedLine} 行超过本次 ${charBudget} 字符正文预算${plainText ? "" : "（含行号）"}；请使用 exec 的字节工具读取该超长行)`;
         await context.exposureState?.activateSkillPath(path);
         if (!hint) return { content: textBlock(range.body) };
         const separator = range.body ? "\n" : "";
@@ -227,12 +232,14 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "edit",
+      codemodeResult: "text",
       description: "Edit an existing UTF-8 file using edits[{oldText,newText}]. Read the file first; changes since the last read/write are rejected. Combine disjoint changes in one call: every oldText must uniquely match the same ORIGINAL file, and targets must not overlap. Exact matching is preferred, with normalized whitespace/Unicode matching as fallback. All edits are checked before writing. Returns a bounded diff summary. Relative paths resolve from the session working directory." + permissionToolDescription,
       input_schema: editInputSchema,
       execute: async (input, context) => {
+        const signal = context.signal ?? context.handle.signal;
         input = structuredClone(input);
         const policy = requestedPolicy(input, context.executionPolicy);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         const args = validateEditInput(input);
         const requested = paths.resolveWritable(context.workspace, args.path);
         const target = inspectFileWriteTarget(policy, requested, false, executionPaths);
@@ -250,7 +257,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
         if (writeTargetVersion(current) !== version) throw new Error(`edit 被拒绝：文件发生变化，请重新 read: ${path}`);
         ledger.assertVersion(context.session_id, requested, "edit", writeTargetVersion(current));
-        assertActive(context.handle.signal);
+        assertActive(signal);
         writeFileSync(path, prepared.content, "utf8");
         ledger.recordCurrent(context.session_id, requested, path);
         return { content: textBlock(summary) };

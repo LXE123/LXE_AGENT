@@ -12,6 +12,15 @@ const scanText = (text: string, options: Partial<NumberedTextRangeOptions> = {},
 };
 
 describe("bounded text range scanner", () => {
+  test("script reads preserve file text across byte boundaries and paginate without line numbers", async () => {
+    const input = "\uFEFFfirst\r\n  中文🙂\r\n";
+    expect(await scanText(input, { plainText: true }, 1)).toEqual({ body: input, hasMore: false });
+    expect(await scanText(input, { plainText: true, startLine: 2, maxLines: 1 }, 1))
+      .toEqual({ body: "  中文🙂\r", hasMore: true, nextOffset: 3 });
+    expect(await scanText(input, { plainText: true, startLine: 3 }, 1)).toEqual({ body: "", hasMore: false });
+    expect(await scanText("abc\ndef", { plainText: true, charBudget: 5 }, 1))
+      .toEqual({ body: "abc", hasMore: true, nextOffset: 2 });
+  });
   for (const ending of ["", "\n", "\r\n"]) {
     test(`does not advertise a next page at EOF with ending ${JSON.stringify(ending)}`, async () => {
       expect(await scanText(`one\ntwo${ending}`, { maxLines: 2 })).toEqual({
