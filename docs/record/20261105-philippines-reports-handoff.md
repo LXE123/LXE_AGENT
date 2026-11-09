@@ -8,7 +8,7 @@
 
 ## 已确认的业务规则
 
-- “菲律宾库存动销”“雅仓菲律宾库存”或“雅仓菲律宾销量”默认生成两份合并报表。明确要求单一 ERP、创建日期筛选或多仓时，按指定范围独立导出。
+- “菲律宾库存动销”“雅仓菲律宾库存”或“雅仓菲律宾销量”默认生成两份合并报表。明确要求马帮 TMS 时独立导出；要求创建日期筛选或多仓时，先说明合并流程不支持并确认需求。
 - 动销表只相加 7、15、30 天销量和可用库存；库存表只相加可用库存。其余字段保留雅仓原值；TMS 独有 SKU 没有雅仓来源的字段留空。
 - 先按 SKU 合并，再分别筛选两张合并表：动销的 7、15、30 天销量全为零时过滤；库存可用量为零时过滤。空值按零处理，非零负数保留；第一张雅仓原表不筛选。
 - SKU 区分大小写并保留前导零，去除首尾空格后匹配；重复 SKU、公式、Excel 错误和无效数值报错。数值使用 Decimal 计算。
@@ -47,7 +47,14 @@
 
 ## 2026-11-09：入口选择与中断续跑
 
-- pool-21、`codex/philippines-reports-prep`：指定雅仓或 TMS 时使用各自 Skill；未指定 ERP 的菲律宾数据使用组合 Skill。登录 Skill 与销量说明同步前序改动。
+- 此前的入口规则为：指定雅仓或 TMS 时使用各自 Skill；未指定 ERP 的菲律宾数据使用组合 Skill。该规则已由下方的新需求替代。登录 Skill 与销量说明同步前序改动。
 - `lxeskill philippines reports export` → `services/commands/philippines_reports/export_run.py` → `services/philippines_reports/workflow.py`。失败结果的 `resume_id` 可用于 `--resume-id`：菲律宾数据集记录本次日期和已完成的雅仓来源，续跑补取未完成来源，再获取 TMS 并合并；完成后清除进度。雅仓失败任务的 `submitted_in_run` 来自前序 workflow，区分本次提交和旧的未确认提交。凭据仍由现有雅仓和 TMS 环境变量注入。
 - 菲律宾定向测试 42 passed；雅仓 pool-19 测试 85 passed；命令契约测试 415 passed、4 skipped；Bun 契约 4 passed。均使用测试文件和本机模拟服务。真实验证码自动识读、平台错误形态及真实续跑 NOT VERIFIED。
 - Git 状态以 `git status` 为准；`docs/superpowers/` 为既有未跟踪内容。前序分支提交归位后复核组合分支；执行任务期间避免切换雅仓账号。
+
+## 2026-11-09：雅仓菲律宾库存入口调整
+
+- pool-21、`codex/philippines-reports-prep`：菲律宾或雅仓菲律宾库存动销、库存列表及仓库数据使用菲律宾合并流程，一起交付两份报表；明确要求马帮 TMS 时仍独立导出。
+- 同步 `philippines-reports-export`、`yacang-reports-export`、`mabang-tms-products-export` 和 `southeast-asia-replenishment-workflow-map` 的 Skill 指引；取数、合并代码、命令及凭据配置不变。
+- 入口为 `lxeskill philippines reports export`，依次使用雅仓和 TMS 现有能力。菲律宾定向测试 **42 passed**，使用测试文件和本机模拟；用户反馈测试没有问题，具体测试过程未独立核验。
+- Git 状态以 `git status` 为准；既有未跟踪的 `docs/superpowers/` 保留。后续按项目 PR 流程检查并经用户授权后提交、推送。

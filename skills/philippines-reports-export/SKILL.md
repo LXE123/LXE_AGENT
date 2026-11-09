@@ -1,6 +1,6 @@
 ---
 name: philippines-reports-export
-description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求导出菲律宾数据且未指定 ERP 时使用；指定雅仓或马帮 TMS 时使用对应导出 Skill。
+description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求菲律宾或雅仓菲律宾的库存动销、库存列表或仓库数据时使用；明确要求马帮 TMS 时使用对应导出 Skill。
 type: replenishment
 commands:
   - lxeskill philippines reports export
@@ -19,7 +19,7 @@ commands:
 
 日期按本轮开始时的 `Asia/Shanghai` 日期确定，两份文件日期一致。第一张表保留相应雅仓源表的全部字段、内容和格式，工作表使用上表名称；源文件本身保持原样。
 
-“导出菲律宾库存动销”或“导出菲律宾仓数据”等未指定 ERP 的请求使用这套两文件流程。指定雅仓或马帮 TMS、创建日期筛选或其他仓库时，按用户指定范围使用对应导出 Skill。越南备货继续使用 `vietnam-replenishment`。
+“导出菲律宾库存动销”“导出雅仓菲律宾库存列表”或“导出雅仓菲律宾仓数据”等请求使用这套两文件流程；只提到其中一份报表时也一起交付两份。明确要求马帮 TMS 时使用其独立导出 Skill。要求创建日期筛选或多个仓库时，先说明本流程不支持这些范围并确认需求。越南备货继续使用 `vietnam-replenishment`。
 
 ## 执行入口
 

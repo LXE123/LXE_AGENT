@@ -1,6 +1,6 @@
 ---
 name: southeast-asia-replenishment-workflow-map
-description: 介绍东南亚备货的能力、阶段关系，并在需求范围不明确时导航。未指定 ERP 的菲律宾数据使用 philippines-reports-export，交付雅仓与 TMS 合并报表；指定 ERP 时使用对应导出 Skill。越南备货使用 vietnam-replenishment。
+description: 介绍东南亚备货的能力、阶段关系，并在需求范围不明确时导航。菲律宾或雅仓菲律宾库存报表使用 philippines-reports-export，交付雅仓与 TMS 合并报表；明确马帮 TMS 时使用对应导出 Skill。越南备货使用 vietnam-replenishment。
 type: replenishment
 ---
 
@@ -20,10 +20,10 @@ type: replenishment
 
 ## 技能选择
 
-- 用户要求“导出菲律宾库存动销”或“导出菲律宾仓数据”且未指定 ERP 时，读取 `philippines-reports-export`，自动取得雅仓 PH8805 与马帮 TMS PH1 数据并交付完整两文件结果。指定雅仓或马帮 TMS、创建日期筛选或多仓时，按指定范围使用对应导出 Skill。
+- 用户要求菲律宾或雅仓菲律宾的库存动销、库存列表或仓库数据时，读取 `philippines-reports-export`，自动取得雅仓 PH8805 与马帮 TMS PH1 数据并交付完整两文件结果。明确要求马帮 TMS 时使用其独立导出 Skill；要求创建日期筛选或多个仓库时先确认需求。
 - 明确要计算或生成越南备货清单，直接读取 `vietnam-replenishment`。查询已有结果或解释参数也由该 Skill 说明，不能把查询当作重新生成。
 - 除上述菲律宾合并流程外，明确要导出某个 ERP 的数据时读取对应导出 Skill；登录衔接由该 Skill 说明。
-- ERP 来源优先于国家名称。雅仓菲律宾为 PH8805、越南为 VN8806；马帮 TMS 菲律宾为 PH1、越南为 VN1。国家相同不互相替代，马帮 ERP 与 TMS 也不混用。
+- 雅仓菲律宾为 PH8805、越南为 VN8806；马帮 TMS 菲律宾为 PH1、越南为 VN1。除菲律宾合并流程外，各系统数据不互相替代，马帮 ERP 与 TMS 也不混用。
 - 普通越南仓库数据请求没有已确认来源时，先询问雅仓还是马帮 TMS。已明确来源后使用对应 Skill 的仓库与报表规则，不改变雅仓单仓、多仓、默认四仓和全局产品资料能力。
 - 只问整体流程或支持范围时，依据本 Map 解释，不执行业务命令。
 - 要准备东南亚数据但来源不明确时，先确认上马、雅仓、马帮 TMS 或所需组合，不默认导出所有平台。要计算其他地区的备货时，说明当前仅支持相应数据采集，不把原始报表当作备货建议。

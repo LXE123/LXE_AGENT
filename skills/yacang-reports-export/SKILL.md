@@ -1,6 +1,6 @@
 ---
 name: yacang-reports-export
-description: 导出雅仓（Yacang）ERP 的库存动销、当前库存及全局产品资料 XLSX，菲律宾为 PH8805、越南为 VN8806。未指定 ERP 的菲律宾数据使用 philippines-reports-export；指定雅仓时使用本 Skill。支持越南备货数据准备，业务涉及 Shopee 与 TikTok Shop。
+description: 导出雅仓（Yacang）ERP 的库存动销、当前库存及全局产品资料 XLSX，菲律宾为 PH8805、越南为 VN8806。菲律宾或雅仓菲律宾库存报表使用 philippines-reports-export 合并雅仓与马帮 TMS 数据。支持越南备货数据准备，业务涉及 Shopee 与 TikTok Shop。
 type: replenishment
 commands:
   - lxeskill yacang reports export
@@ -27,9 +27,9 @@ commands:
 
 ## 先确定 ERP 来源
 
-用户要求导出菲律宾数据且未指定 ERP 时，使用 `philippines-reports-export`，合并雅仓 PH8805 与马帮 TMS PH1 并交付两份报表。指定雅仓时，按用户范围使用本 Skill 独立导出。
+用户要求导出菲律宾或雅仓菲律宾的库存动销、库存列表或仓库数据时，使用 `philippines-reports-export`，合并雅仓 PH8805 与马帮 TMS PH1 并交付两份报表。用户要求创建日期筛选或多个仓库时，先说明合并流程不支持这些范围并确认需求。
 
-ERP 来源优先于国家名称。当前请求或同一任务已经确认雅仓时，菲律宾仓选择 `PH8805`，越南仓选择 `VN8806`；明确马帮 TMS 时使用 `mabang-tms-products-export`，由其选择 PH1 或 VN1，不调用雅仓。马帮 ERP、巴西海外仓及其他来源沿用各自 Skill。
+其他独立导出按已确认的 ERP 和仓库选择范围：雅仓菲律宾仓为 `PH8805`，越南仓为 `VN8806`；明确马帮 TMS 时使用 `mabang-tms-products-export`，由其选择 PH1 或 VN1，不调用雅仓。马帮 ERP、巴西海外仓及其他来源沿用各自 Skill。
 
 只说“导出越南仓数据”且没有已确认的 ERP 来源时，复用东南亚 Map 的 ERP 单选问题，确认后再导出。
 
