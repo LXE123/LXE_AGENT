@@ -922,8 +922,8 @@ export const ZH_TEXT = {
     }
   },
   fatal: {
-    title: "界面启动失败",
-    description: "应用没有完成界面初始化。请重新加载；如果问题持续出现，请查看终端或应用日志。",
+    title: "界面未能正常显示",
+    description: "请重新加载界面。如果问题持续出现，请查看终端或应用日志。",
     reload: "重新加载"
   },
   errors: {
@@ -1851,8 +1851,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       }
     },
     fatal: {
-      title: "Failed to start the interface",
-      description: "The app did not finish initializing the interface. Reload to try again; if the problem persists, check the terminal or app logs.",
+      title: "The interface couldn’t be displayed",
+      description: "Reload to try again. If the problem persists, check the terminal or app logs.",
       reload: "Reload"
     },
     errors: {

@@ -382,8 +382,7 @@ button {
 }
 
 .desktop-loading,
-.desktop-onboarding,
-.desktop-fatal {
+.desktop-onboarding {
   display: grid;
   width: 100%;
   min-height: 100vh;
@@ -406,48 +405,46 @@ button {
   font-size: 0.875rem;
 }
 
+.desktop-fatal {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 20px;
+  background: var(--cds-surface-nav);
+  color: var(--cds-ink);
+}
+
 .desktop-fatal-card {
   display: grid;
-  width: min(460px, 100%);
+  width: min(400px, 100%);
   justify-items: start;
-  gap: 14px;
-  padding: 34px;
-  border: 1px solid var(--danger-border);
-  border-radius: 20px;
-  background: var(--surface);
-  box-shadow: 0 24px 80px rgba(54, 39, 26, 0.14);
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--cds-alpha-2);
+  border-radius: 14px;
+  background: var(--cds-surface-popover);
+  box-shadow: 0 8px 24px var(--cds-alpha-1), 0 1px 3px var(--cds-alpha-2);
 }
 
-.desktop-fatal-card h1,
-.desktop-fatal-card p {
-  margin: 0;
-}
+.desktop-fatal-card h1, .desktop-fatal-card p { margin: 0; }
+.desktop-fatal-card h1 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; }
+.desktop-fatal-card p { color: var(--cds-secondary); font-size: .875rem; line-height: 1.6; }
+.desktop-fatal-mark img { display: block; width: 32px; height: 32px; }
 
-.desktop-fatal-card h1 {
-  color: var(--text-strong);
-  font-size: 1.625rem;
+.desktop-fatal-reload {
+  justify-self: end;
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--cds-primary);
+  color: var(--cds-primary-ink);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 600;
 }
-
-.desktop-fatal-card > p:not(.desktop-eyebrow) {
-  color: var(--text-soft);
-  font-size: 0.875rem;
-  line-height: 1.7;
-}
-
-.desktop-fatal-mark {
-  display: grid;
-  width: 54px;
-  height: 54px;
-  place-items: center;
-  border-radius: 16px;
-  background: transparent;
-}
-
-.desktop-fatal-mark img {
-  display: block;
-  width: 54px;
-  height: 54px;
-}
+.desktop-fatal-reload:hover { background: var(--cds-primary-hover); }
+.desktop-fatal-reload:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 2px; }
 
 .desktop-onboarding-card,
 .desktop-settings-modal {
@@ -468,7 +465,7 @@ button {
   overflow: hidden;
 }
 
-:where(:root:not([data-theme="dark"])) :is(.desktop-fatal-card, .desktop-onboarding-card, .desktop-settings-modal) {
+:where(:root:not([data-theme="dark"])) :is(.desktop-onboarding-card, .desktop-settings-modal) {
   box-shadow: 0 24px 80px rgb(0 0 0 / 14%);
 }
 

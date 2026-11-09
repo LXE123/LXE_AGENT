@@ -99,8 +99,23 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await load('?app=1&complete=false');
     await waitFor("Boolean(document.querySelector('.desktop-onboarding-mark img'))", 'onboarding');
     assert.equal((await decoded('.desktop-onboarding-mark img')).src, sidebar.src);
-    await load('?contracts=1'); await js('behavior.mountFailure()'); await settle();
+    await load('?contracts=1&language=zh'); await js('behavior.mountFailure()'); await settle();
     assert.equal((await decoded('.desktop-fatal-mark img')).src, sidebar.src);
+    for (const theme of ["light", "dark"]) {
+      await js(`document.documentElement.dataset.theme = '${theme}'`); await settle();
+      const colors = await js(`[...document.querySelectorAll('.desktop-fatal-card, .desktop-fatal-reload')].map(el => getComputedStyle(el).backgroundColor)`);
+      assert.deepEqual(colors, theme === "dark" ? ["rgb(35, 35, 34)", "rgb(109, 167, 236)"] : ["rgb(255, 255, 255)", "rgb(24, 79, 149)"]);
+      if (process.env.LXE_OVERVIEW_SCREENSHOTS) {
+        const dir = process.env.LXE_OVERVIEW_SCREENSHOTS;
+        require("node:fs").mkdirSync(dir, { recursive: true });
+        const bounds = await js("document.querySelector('.desktop-fatal-card').getBoundingClientRect().toJSON()");
+        const image = await win.webContents.capturePage({
+          x: Math.floor(bounds.x - 20), y: Math.floor(bounds.y - 20),
+          width: Math.ceil(bounds.width + 40), height: Math.ceil(bounds.height + 40),
+        });
+        require("node:fs").writeFileSync(require("node:path").join(dir, `recovery-${theme}.png`), image.toPNG());
+      }
+    }
     assert.equal(await js("document.querySelector('.desktop-fatal').getAttribute('role')"),'alert');
   });
   await step('settings navigation shows real status, version and an independently scrolling body', async () => {
