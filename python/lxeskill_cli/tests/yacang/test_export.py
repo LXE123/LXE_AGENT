@@ -531,6 +531,32 @@ except InterProcessLockTimeout:
         assert result.returncode == 0, result.stderr
 
 
+def test_login_actions_round_trip_through_single_cli_command(platform, monkeypatch, capsys):
+    from lxeskill import cli
+    monkeypatch.setenv('LXESKILL_SKILL_SCOPE', 'shangman-login')
+    monkeypatch.setattr(cli, 'activate_project_workspace', lambda: None)
+
+    def invoke(*arguments):
+        assert cli.main(['yacang', 'login', *arguments]) == 0
+        result = json.loads(capsys.readouterr().out.splitlines()[-1])
+        assert result['ok'] and result['command'] == 'yacang login'
+        assert result['files'] == []
+        assert all(secret not in json.dumps(result) for secret in ('private-token', 'private-key', 'Ab9x'))
+        return result['data']
+
+    invoke('clear')
+    assert not invoke('status')['authenticated']
+    prepared = invoke('prepare')
+    assert Path(prepared['image_path']).read_bytes() == captcha_jpeg()
+    submitted = invoke('submit', '--challenge-id', prepared['challenge_id'], '--captcha-code', 'Ab9x')
+    assert submitted['login_succeeded'] and submitted['persisted']
+    assert not Path(prepared['image_path']).exists()
+    assert invoke('status')['authenticated']
+    assert not invoke('clear')['remote_logout']
+    assert not invoke('status')['authenticated']
+    assert [call[1] for call in platform['calls']] == ['/sys/customer/verify', '/sys/customer/loginV3']
+
+
 def test_captcha_image_login_persists_without_exposing_secrets(platform):
     auth = YacangAuthState(Credentials.from_environment())
     auth.images.mkdir(parents=True)

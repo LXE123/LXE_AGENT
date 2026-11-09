@@ -101,10 +101,7 @@ $ lxeskill help replenishment
   shangman products export             导出上马商品、库存和销量
 
 雅仓登录：
-  yacang login prepare  获取雅仓登录验证码图片
-  yacang login submit   提交雅仓验证码
-  yacang login status   查询本地雅仓登录态
-  yacang login clear    清除本地雅仓登录态
+  yacang login  管理雅仓验证码登录与本地登录态
 
 上马数据采集的登录准备：
   shangman login prepare  准备登录并获取验证码
