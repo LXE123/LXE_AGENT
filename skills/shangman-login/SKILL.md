@@ -25,8 +25,8 @@ commands:
 ## 登录
 
 1. 使用对应平台的 `prepare` 命令获取验证码图片和 `challenge_id`，例如 `lxeskill yacang login prepare`。用户明确要求登录或重新登录时获取新图片。
-2. 上马沿用现有图片识读流程：用 `read` 查看 `data.image_path`，有歧义时使用 `ask_user_question` 请用户确认。雅仓要求验证码时，使用 `send_files` 将本次返回的 `data.image_path` 发送给当前用户，请用户填写图片中的字符并保留大小写；桌面使用 `ask_user_question`，其他渠道等待用户消息。用户取消或跳过则结束。
-3. 使用同一平台的 `submit --challenge-id "<实际编号>" --captcha-code "<用户提供或上马识读的字符>"` 提交。每个编号只提交一次，包括超时等结果不确定的情况。
+2. 用 `read` 查看返回的 `data.image_path`，识读当前图片中的验证码并保留大小写；有歧义时使用 `ask_user_question` 请用户确认。用户取消或跳过则结束。
+3. 使用同一平台的 `submit --challenge-id "<实际编号>" --captcha-code "<识读或用户确认的字符>"` 提交。每个编号只提交一次，包括超时等结果不确定的情况。
 4. 读取最后一条 `type="result"`，检查顶层 `ok` 和 `data` 中的 `login_succeeded`、`persisted`；登录和保存均成功后才报告成功。上马返回的 token `expires_at` 转为用户当地时间报告；平台未提供有效期限时采用本地默认 300 秒。雅仓的 token 有效期尚未确认。用户纠正验证码后成功时，如实说明。
 
 独立登录成功后结束；作为已授权导出的前置步骤时，保存成功后返回原导出 Skill 继续任务。命令仍在运行时等待同一次执行。CLI 使用桌面注入的应用状态根目录管理凭据和登录态。
