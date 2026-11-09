@@ -51,7 +51,6 @@ const descriptors: Record<string, { title: string; icon: string; keys: string[] 
   feishu_im_bot_get_thread_messages: { title: "Read Feishu thread", icon: "file-link-text_outlined", keys: ["thread_id"] },
   feishu_im_bot_fetch_resource: { title: "Fetch Feishu resource", icon: "language_outlined", keys: ["type", "message_id"] },
   ziniao_browser: { title: "Ziniao browser", icon: "browser-mac_outlined", keys: ["action", "store_id"] },
-  ziniao_page: { title: "Ziniao page", icon: "browser-mac_outlined", keys: ["action", "store_id"] },
 };
 
 const withoutImageData = (value: unknown): unknown => {

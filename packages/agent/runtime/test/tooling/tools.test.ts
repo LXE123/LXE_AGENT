@@ -68,7 +68,7 @@ describe("tool registry exposure", () => {
       },
     };
 
-    await expect(registry.execute("exec", { command: "lxeskill browser page" }, context))
+    await expect(registry.execute("exec", { command: "lxeskill browser store --action get_status" }, context))
       .resolves.toMatchObject({ content: [{ text: "ok" }] });
   });
 
