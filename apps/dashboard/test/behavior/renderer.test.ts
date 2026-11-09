@@ -29,6 +29,11 @@ for (const suite of ["workspace-deletion", "session-titles", "conversation-conte
     const profile = mkdtempSync(resolve(tmpdir(), "lxe-renderer-test-"));
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
+    if (suite === "overview-pages") {
+      const guest = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "../../../desktop/src/main/team-skills-view.ts")],
+        outdir: profile, naming: "team-skills-view.cjs", target: "node", format: "cjs", external: ["electron"] });
+      expect(guest.success, guest.logs.join("\n")).toBe(true);
+    }
     const child = Bun.spawn([
       require(resolve(import.meta.dirname, "../../../desktop/node_modules/electron")),
       // Electron on Windows rejects arguments after a URL; keep the URL last.

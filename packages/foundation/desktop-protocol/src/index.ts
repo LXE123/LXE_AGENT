@@ -750,7 +750,7 @@ export interface LxeDesktopBridge {
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
     exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
-    teamSkillsView(request: import("./team-skills").TeamSkillsViewRequest): Promise<void>;
+    prepareTeamSkillsView(): Promise<string>;
     getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
     saveAmazonV2Settings(input: DesktopAmazonV2Settings): Promise<DesktopAmazonV2Settings>;
     onSyntheticPerformerTaskChanged(

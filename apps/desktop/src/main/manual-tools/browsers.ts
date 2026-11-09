@@ -1,4 +1,3 @@
-import { presentNativeView } from "../native-view-bounds";
 import { BrowserWindow, WebContentsView, session, Menu, type Session } from "electron";
 import { randomUUID } from "node:crypto";
 import type { BrowserSnapshot, ManualToolEvent } from "@lxe/desktop-protocol";
@@ -83,8 +82,11 @@ export class ManualBrowsers {
     const entry = this.owned(sessionId, id); if (!entry) return;
     if (!bounds) { entry.view.setVisible(false); return; }
     this.hide();
-    const window = this.window();
-    if (window) presentNativeView(window, entry.view, bounds);
+    const window = this.window(); if (!window || !window.isVisible()) return;
+    const zoom = window.webContents.getZoomFactor(), [width = 0, height = 0] = window.getContentSize();
+    const x = Math.max(0, Math.round(bounds.x * zoom)), y = Math.max(0, Math.round(bounds.y * zoom));
+    entry.view.setBounds({ x, y, width: Math.max(0, Math.min(width - x, Math.round(bounds.width * zoom))), height: Math.max(0, Math.min(height - y, Math.round(bounds.height * zoom))) });
+    entry.view.setVisible(bounds.width > 0 && bounds.height > 0);
   }
   hide(): void { for (const entry of this.items.values()) entry.view.setVisible(false); }
   close(sessionId: string, id: string): void {

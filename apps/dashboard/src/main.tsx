@@ -183,7 +183,7 @@ function App({
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
       : "";
-  const runtimeStatusNavigationKey = `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
+  const runtimeStatusNavigationKey = `${activeSection}:${workbenchView}:${capabilityView}:${activityView}:${selectedSessionId}`;
   const runtimeStatusPopover = (
     <RuntimeStatusPopover
       currentModel={currentModelQuery.data ?? null}
@@ -285,7 +285,7 @@ function App({
               <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
             {showTeamSkills ? (
-              <TeamSkillsWorkbench onBack={() => openWorkbenchView("index")} status={runtimeStatusPopover} />
+              <TeamSkillsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
@@ -335,7 +335,7 @@ function App({
         <SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />
       </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
-        {showTeamSkills ? null : runtimeStatusPopover}
+        {runtimeStatusPopover}
       </div>
     </>
   );

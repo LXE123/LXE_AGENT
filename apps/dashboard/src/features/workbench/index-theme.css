@@ -78,10 +78,12 @@
 }
 .team-skills-toolbar .workbench-back:hover, .team-skills-viewport button:hover { background: var(--row-hover); }
 .team-skills-viewport {
-  flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center;
+  position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; color: var(--text-soft); overflow-wrap: anywhere;
 }
 .team-skills-viewport [role="alert"] { max-width: min(48ch, 90%); text-align: center; }
-.team-skills-toolbar .runtime-status-floating { position: relative; inset: auto; margin-left: auto; }
-.team-skills-toolbar .runtime-status-trigger { width: 32px; height: 32px; }
-.team-skills-toolbar .runtime-status-popover { top: calc(100% + 8px); bottom: auto; }
+.team-skills-viewport > iframe { align-self: stretch; flex: 1; min-height: 0; border: 0; }
+/* Let a click on the page dismiss the dashboard popover across the guest process boundary. */
+body:has(.runtime-status-popover) .team-skills-viewport::after {
+  content: ""; position: absolute; inset: 0;
+}

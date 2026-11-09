@@ -4,7 +4,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ArrowLeft, ArrowRight, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
 import type { BrowserSnapshot, ManualToolEvent, TerminalSnapshot } from "@lxe/desktop-protocol";
 import { useUiText } from "../../shared/i18n";
-import { observeNativeViewport } from "../../shared/native-viewport";
 import type { PreviewTab } from "./layout-state";
 import "@xterm/xterm/css/xterm.css";
 export function toolBridge() { if (!window.lxe?.tools) throw new Error("Manual tools are unavailable in this desktop version"); return window.lxe.tools; }
@@ -74,20 +73,29 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
   const latestUrl = useRef(tab.url); latestUrl.current = tab.url;
   const currentUrl = useRef(tab.url ?? "");
   useEffect(() => {
-    let disposed = false;
-    let stopObserving: (() => void) | undefined;
+    let disposed = false, ready = false, frame = 0;
     const api = toolBridge();
     const fail = (cause: unknown) => { if (!disposed) setError(errorText(cause)); };
+    const present = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (disposed || !ready || !viewport.current) return;
+        const rect = viewport.current.getBoundingClientRect();
+        const dismiss = document.querySelector(".sidebar-dismiss");
+        const blocked = document.hidden || Boolean(document.querySelector('[role="dialog"], [role="menu"], .app-sidebar.is-peek'))
+          || Boolean(dismiss && getComputedStyle(dismiss).display !== "none");
+        void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: blocked ? null : { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } }).catch(fail);
+      });
+    };
     const unsubscribe = api.subscribe(event => { if (event.kind === "browser.state" && event.snapshot.id === tab.key && event.snapshot.sessionId === sessionId && !disposed) { setState(event.snapshot); if (event.snapshot.url !== currentUrl.current) { currentUrl.current = event.snapshot.url; setAddress(event.snapshot.url); } } });
+    const observer = new ResizeObserver(present); if (viewport.current) observer.observe(viewport.current);
+    const mutations = new MutationObserver(present); mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style", "open", "role"] });
+    window.addEventListener("resize", present); window.addEventListener("focus", present); document.addEventListener("visibilitychange", present);
     void api.call({ operation: "browser.create", input: { sessionId, id: tab.key, ...(latestUrl.current ? { url: latestUrl.current } : {}) } }).then(snapshot => {
       if (disposed) { void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: null } }).catch(() => {}); return; }
-      setState(snapshot);
-      if (snapshot.url) setAddress(snapshot.url);
-      if (viewport.current) stopObserving = observeNativeViewport(viewport.current, bounds => {
-        void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds } }).catch(fail);
-      });
+      setState(snapshot); if (snapshot.url) setAddress(snapshot.url); ready = true; present();
     }).catch(fail);
-    return () => { disposed = true; stopObserving?.(); unsubscribe(); void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: null } }).catch(() => {}); };
+    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); mutations.disconnect(); unsubscribe(); window.removeEventListener("resize", present); window.removeEventListener("focus", present); document.removeEventListener("visibilitychange", present); void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: null } }).catch(() => {}); };
   }, [sessionId, tab.key]);
   const command = async (command: "back" | "forward" | "reload") => { try { setError(""); await toolBridge().call({ operation: "browser.command", input: { sessionId, id: tab.key, command } }); } catch (cause) { setError(errorText(cause)); } };
   return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); setError(""); void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url: address } }).catch(cause => setError(errorText(cause))); }}>

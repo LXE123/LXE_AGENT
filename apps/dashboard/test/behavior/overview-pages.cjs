@@ -86,27 +86,47 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
       await screenshot("workbench-" + theme);
     }
-    await js(`window.catalogCalls = [];
-      window.lxe.desktop.teamSkillsView = async request => { window.catalogCalls.push(request); }; void 0;`);
+    await js("window.lxe.desktop.prepareTeamSkillsView = window.prepareCatalogFixture; void 0");
+    let guest;
     for (let i = 1; i <= 5; i++) {
       await click(`.workbench-tool-card:nth-child(${i})`);
       await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
       assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
       if (i === 5) {
-        await waitFor("window.catalogCalls.some(c => c.action === 'present' && c.bounds?.width > 0)", "catalog shown");
-        const bounds = await js("window.catalogCalls.findLast(c => c.bounds).bounds");
-        const rect = await js("document.querySelector('.team-skills-viewport').getBoundingClientRect().toJSON()");
-        assert.equal(bounds.x, rect.x);
-        assert.ok(bounds.y > 0 && bounds.height > 100);
-        await click(".team-skills-toolbar .runtime-status-trigger");
-        await waitFor("window.catalogCalls.at(-1)?.bounds === null", "guest hidden for the status popover");
-        await click(".team-skills-toolbar .runtime-status-trigger");
-        await waitFor("window.catalogCalls.at(-1)?.bounds?.width > 0", "guest restored");
+        await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-toolbar [role=status]')", "catalog loaded");
+        guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"));
+        assert.equal(guest.getURL(), "https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
+        await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
+        const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
+        const point = { x: Math.round(viewport.x + viewport.width / 3), y: Math.round(viewport.y + viewport.height / 2) };
+        const sample = async () => {
+          const image = await win.webContents.capturePage({ ...point, width: 1, height: 1 });
+          return Array.from(image.toBitmap().subarray(0, 3));
+        };
+        let before;
+        for (let frame = 0; frame < 40; frame++) {
+          before = await sample();
+          if (before[0] > before[1] && before[1] > before[2] + 35) break;
+          await settle();
+        }
+        assert.ok(before[0] > before[1] && before[1] > before[2] + 35, `catalog sample ${before} at ${JSON.stringify(point)} in ${JSON.stringify(viewport)}`);
+        const trigger = await js("document.querySelector('.runtime-status-host .runtime-status-trigger').getBoundingClientRect().toJSON()");
+        assert.ok(trigger.top > 700 && trigger.left > 1000, "status remains in the bottom-right corner");
+        const mouseClick = (x, y) => {
+          for (const type of ["mouseDown", "mouseUp"]) win.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
+        };
+        mouseClick(Math.round(trigger.x + trigger.width / 2), Math.round(trigger.y + trigger.height / 2));
+        await waitFor("!!document.querySelector('.runtime-status-popover')", "status opens over the guest");
+        assert.deepEqual(await sample(), before, "catalog remains visible behind the popover");
+        assert.equal(await guest.executeJavaScript("document.querySelector('input').value"), "filter in progress");
+        mouseClick(point.x, point.y);
+        await waitFor("!document.querySelector('.runtime-status-popover')", "outside click dismisses the status");
+        assert.equal(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"), guest.id);
       }
       await click(".workbench-back");
       await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
     }
-    assert.equal(await js("window.catalogCalls.at(-1)?.action"), "close");
+    assert.ok(guest.isDestroyed(), "leaving the catalog releases its guest");
     await win.setContentSize(480, 900);
     await open("workbench", "en");
     await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "narrow directory");

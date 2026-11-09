@@ -1,56 +1,62 @@
-import { session, shell, WebContentsView, type BrowserWindow } from "electron";
-import { TEAM_SKILLS_URL, type TeamSkillsViewRequest } from "@lxe/desktop-protocol/team-skills";
-import { presentNativeView } from "./native-view-bounds";
+import { randomUUID } from "node:crypto";
+import { ipcMain, session, shell, type WebContents } from "electron";
+import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
+import { IPC_CHANNELS } from "../ipc-channels";
 
 const catalogOrigin = new URL(TEAM_SKILLS_URL).origin;
-// Feishu redirects between its Accounts, Passport and Miaoda hosts during sign-in.
-function isFeishuPage(url: URL | undefined): boolean {
-  return !!url && (url.origin === catalogOrigin || (!url.port && url.hostname.endsWith(".feishu.cn")));
-}
+const partition = "persist:lxe-workbench-team-skills";
 
 function httpsUrl(raw: string): URL | undefined {
   const url = URL.canParse(raw) ? new URL(raw) : undefined;
   return url?.protocol === "https:" && !url.username && !url.password ? url : undefined;
 }
 
-/** A workbench page owned by the desktop window, independent of agent sessions. */
-export class TeamSkillsView {
-  private view: WebContentsView | undefined;
-  private dispose: (() => void) | undefined;
+// Feishu redirects between its Accounts, Passport and Miaoda hosts during sign-in.
+function isFeishuPage(url: URL | undefined): boolean {
+  return !!url && (url.origin === catalogOrigin || (!url.port && url.hostname.endsWith(".feishu.cn")));
+}
 
-  async handle(owner: BrowserWindow, request: TeamSkillsViewRequest): Promise<void> {
-    switch (request?.action) {
-      case "close":
-        this.close();
-        return;
-      case "present": {
-        const rect = request.bounds;
-        if (rect !== null && (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
-          || rect.width < 0 || rect.height < 0 || [rect.x, rect.y, rect.width, rect.height].some(n => Math.abs(n) > 100000))) {
-          throw new Error("Invalid team skills view bounds");
-        }
-        if (this.view) presentNativeView(owner, this.view, rect);
-        return;
-      }
-      case "open":
-        this.close();
-        break;
-      default:
-        throw new Error("Unknown team skills view request");
+export function registerTeamSkillsGuest(dashboard: WebContents): void {
+  // will-attach-webview does not identify the requesting frame. Only the dashboard's
+  // main frame can obtain this single-use initial src. Replace it before navigation.
+  let pendingSrc: string | undefined;
+  ipcMain.handle(IPC_CHANNELS.prepareTeamSkillsView, event => {
+    if (event.sender !== dashboard || event.senderFrame !== dashboard.mainFrame) {
+      throw new Error("Team skills requires the desktop main frame");
     }
+    pendingSrc = `about:blank#${randomUUID()}`;
+    return pendingSrc;
+  });
+  dashboard.on("did-start-navigation", event => {
+    if (event.isMainFrame && !event.isSameDocument) pendingSrc = undefined;
+  });
+  dashboard.once("destroyed", () => ipcMain.removeHandler(IPC_CHANNELS.prepareTeamSkillsView));
 
-    const profile = session.fromPartition("persist:lxe-workbench-team-skills");
-    profile.setPermissionCheckHandler(() => false);
-    profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    profile.setDevicePermissionHandler(() => false);
-    profile.setDisplayMediaRequestHandler((_request, callback) => callback({}));
-    const view = new WebContentsView({ webPreferences: {
-      session: profile, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
-    } });
-    this.view = view;
-    view.setVisible(false);
-    owner.contentView.addChildView(view);
-    const guest = view.webContents;
+  const profile = session.fromPartition(partition);
+  profile.setPermissionCheckHandler(() => false);
+  profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  profile.setDevicePermissionHandler(() => false);
+  profile.setDisplayMediaRequestHandler((_request, callback) => callback({}));
+
+  dashboard.on("will-attach-webview", (event, preferences, params) => {
+    if (!pendingSrc || params.src !== pendingSrc || params.webpreferences || params.preload
+      || params.partition || params.allowpopups || params.httpreferrer || params.useragent
+      || params.blinkfeatures || params.disableblinkfeatures || params.plugins
+      || params.nodeintegration || params.nodeintegrationinsubframes || params.disablewebsecurity) {
+      event.preventDefault();
+      return;
+    }
+    pendingSrc = undefined;
+    params.src = TEAM_SKILLS_URL;
+    preferences.partition = partition;
+    preferences.sandbox = true;
+    preferences.contextIsolation = true;
+    preferences.nodeIntegration = false;
+    preferences.webSecurity = true;
+    preferences.webviewTag = false;
+  });
+
+  dashboard.on("did-attach-webview", (_event, guest) => {
     guest.on("will-navigate", event => {
       if (!isFeishuPage(httpsUrl(event.url))) event.preventDefault();
     });
@@ -66,28 +72,5 @@ export class TeamSkillsView {
       }
       return { action: "deny" };
     });
-
-    const dashboard = owner.webContents;
-    const onNavigation = (event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
-      if (event.isMainFrame && !event.isSameDocument) this.close();
-    };
-    dashboard.on("did-start-navigation", onNavigation);
-    dashboard.once("render-process-gone", this.close);
-    owner.once("closed", this.close);
-    this.dispose = () => {
-      owner.off("closed", this.close);
-      dashboard.off("did-start-navigation", onNavigation);
-      dashboard.off("render-process-gone", this.close);
-      if (!owner.isDestroyed()) owner.contentView.removeChildView(view);
-      if (!guest.isDestroyed()) guest.close({ waitForBeforeUnload: false });
-    };
-    await guest.loadURL(TEAM_SKILLS_URL);
-  }
-
-  readonly close = (): void => {
-    const dispose = this.dispose;
-    this.dispose = undefined;
-    this.view = undefined;
-    dispose?.();
-  };
+  });
 }
