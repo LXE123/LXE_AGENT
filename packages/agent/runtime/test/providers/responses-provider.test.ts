@@ -107,19 +107,43 @@ describe("direct OpenAI Responses", () => {
     const update = (effort: string) => ({ type: "configuration_update", reasoning: { effort } });
     expect(first.reasoning).toEqual({ effort: "medium", summary: "auto" });
     expect(next.reasoning).toEqual(first.reasoning);
-    expect(first.input).toEqual([expect.objectContaining({ role: "user" }), update("low")]);
+    const prefix = [
+      expect.objectContaining({ type: "additional_tools", role: "developer", tools: [expect.objectContaining({ name: "read", strict: false })] }),
+      expect.objectContaining({ role: "developer" }),
+    ];
+    expect(first.input).toEqual([...prefix, expect.objectContaining({ role: "user" }), update("low")]);
     expect(next.input).toEqual([...(first.input as unknown[]), reasoning, call, output, update("high")]);
     expect(next.store).toBe(false);
     expect(next.include).toEqual(["reasoning.encrypted_content"]);
-    expect(next.tools).toMatchObject([{ name: "read", strict: false }]);
+    expect(next.tools).toBeUndefined();
     const otherModel = buildResponsesRequest(load("gpt-6-astra"), { ...request, messages: history });
     expect(JSON.stringify(otherModel.input)).not.toContain(reasoning.encrypted_content);
     expect(otherModel.input).not.toContainEqual(update("low"));
 
     const off = buildResponsesRequest(load("gpt-6-luna", "off"), { ...request, messages: history });
     expect(off.reasoning).toEqual({ effort: "none" });
-    expect(off.input).toEqual([expect.objectContaining({ role: "user" }), reasoning, call, output]);
+    expect(off.input).toEqual([...prefix, expect.objectContaining({ role: "user" }), reasoning, call, output]);
     expect(off.include).toBeUndefined();
+  });
+
+  test("redeclares only changed schemas, rebases removals, and can forbid calls on the final step", () => {
+    const model = load("gpt-6-luna", "off");
+    const tool = (name: string, description: string) => ({ name, description, input_schema: { type: "object" } });
+    const read = tool("read", "old"), revised = tool("read", "new"), write = tool("write", "write");
+    const messages: RuntimeMessage[] = [{ role: "assistant", content: "first", promptState: { tools: [read] } },
+      { role: "assistant", content: "second", promptState: { tools: [read, write] } }];
+    const build = (tools: typeof read[]) => buildResponsesRequest(model, { system: "sys", messages, tools, toolChoice: "none" });
+    const batches = (body: Record<string, unknown>) => (body.input as Array<{ type: string; tools?: unknown[] }>)
+      .filter(item => item.type === "additional_tools").map(item => item.tools);
+    const changed = build([revised, write]);
+    expect(batches(changed)).toMatchObject([[read], [write], [revised]].map(batch =>
+      batch.map(({ name, description }) => ({ name, description }))));
+    expect(changed.tool_choice).toBe("none");
+    expect(changed.tools).toBeUndefined();
+    const removed = build([read]);
+    expect(batches(removed)).toMatchObject([[{ name: "read" }]]);
+    expect(JSON.stringify(removed.input)).not.toContain('"name":"write"');
+    expect(batches(build([]))).toEqual([]);
   });
 
   test("adds the current effort after legacy history and after compacting the conversation", () => {
@@ -131,7 +155,7 @@ describe("direct OpenAI Responses", () => {
     ];
     for (const messages of inputs) {
       const { input } = buildResponsesRequest(descriptor, { ...request, messages });
-      expect(input).toEqual([...adaptMessagesForResponses(messages), { type: "configuration_update", reasoning: { effort: "max" } }]);
+      expect(input).toEqual([expect.objectContaining({ role: "developer" }), ...adaptMessagesForResponses(messages), { type: "configuration_update", reasoning: { effort: "max" } }]);
     }
   });
 });

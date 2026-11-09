@@ -1,3 +1,4 @@
+import { buildResponsesRequest } from "../../src/providers/responses-provider";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { parseTranscriptText } from "../../src/state/transcript";
 import { AssistantMessageAccumulator } from "../../src/messages/accumulator";
@@ -17,6 +18,7 @@ import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core
 import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject, ToolStep } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
+  loadProviderDescriptor,
   RuntimeProviderError,
   type RuntimeProviderManager,
   type RuntimeProviderSnapshot,
@@ -3252,4 +3254,79 @@ test("mode changes during provider retries and a removed environment baseline re
     expect(modes.at(-1)).toBe("workspace-write");
     expect(JSON.stringify(store.messages)).toContain("Desktop single-operation approval is available");
   } finally { await runtime.stop(); }
+});
+
+
+test("Responses replays MCP directory and discovery at branch positions after reopening", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-prefix-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  const registry = new ToolRegistry();
+  const lookup = "mcp__orders__lookup";
+  registry.register({ name: lookup, description: "orders lookup", input_schema: { type: "object" },
+    source: "mcp", connectorName: "orders", exposure: "deferred", execute: async () => ({ content: [] }) });
+  registry.register({ name: "tool_search", description: "Search", input_schema: { type: "object" },
+    execute: async (_args, context) => {
+      const hits = await context.exposureState!.search(lookup);
+      expect(hits.map(tool => tool.name)).toEqual([lookup]);
+      return { content: [{ type: "text", text: lookup }] };
+    } });
+  const gpt = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "openai" }, { deferCredential: true });
+  const deepseek = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "deepseek" }, { deferCredential: true });
+  let descriptor = gpt;
+  let directory = "## mcp_servers\nOrders";
+  const inputs: JsonObject[][] = [];
+  const bodies: Record<string, unknown>[] = [];
+  const provider = { summarize, turn: async (request: RuntimeProviderRequest) => {
+    const body = buildResponsesRequest(descriptor, request);
+    bodies.push(body);
+    inputs.push(body.input as JsonObject[]);
+    return inputs.length === 2
+      ? messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "find", name: "tool_search", arguments: {} }] })
+      : messageFixture({ content: [{ type: "text", text: "done" }] });
+  } };
+  const snapshot = () => ({ descriptor, provider, generation: 1 });
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools: registry, systemPrompt: "base",
+    mcpServerDirectory: () => directory, providerManager: { acquire: snapshot, reconfigure: async () => snapshot() },
+    emitter: { emit: async () => {}, typing: async () => {} } });
+  const turn = async (id: string, session = "s1") => {
+    expect((await runtime.runTurn(job({ session_id: session, job_id: id, message_id: id, user_input: id }), handle())).status).toBe("completed");
+  };
+  try {
+    await runtime.start();
+    await store.ensureSession({ session_id: "s1", workspace, source: {} });
+    await turn("first");
+    directory = "## mcp_servers\nOrders and Inventory";
+    await turn("second");
+    const [first, second, loaded] = inputs;
+    expect(second!.slice(0, 2)).toEqual(first!.slice(0, 2));
+    expect(first![0]).toMatchObject({ type: "additional_tools", tools: [{ name: "tool_search" }] });
+    const updateAt = second!.findIndex(item => item.role === "developer" && JSON.stringify(item).includes("Inventory"));
+    expect(updateAt).toBeGreaterThan(1);
+    expect(second![updateAt + 1]).toMatchObject({ role: "user", content: [{ text: "second" }] });
+    const resultAt = loaded!.findIndex(item => item.type === "function_call_output" && item.call_id === "find");
+    expect(resultAt).toBeGreaterThan(updateAt);
+    expect(loaded![resultAt + 1]).toMatchObject({ type: "additional_tools", tools: [{ name: lookup }] });
+    expect(bodies.every(body => body.tools === undefined)).toBe(true);
+    await runtime.stop(); await runtime.start();
+    const branch = await store.forkSession("s1", "first");
+    directory = "";
+    await turn("branch", String(branch.session_id));
+    const branched = inputs.at(-1)!;
+    expect(branched[1]).toEqual(first![1]);
+    expect(JSON.stringify(branched)).not.toContain("Inventory");
+    expect(branched.filter(item => item.type === "additional_tools")).toHaveLength(1);
+    expect(JSON.stringify(branched)).toContain("No MCP servers");
+    await turn("resume");
+    expect(inputs.at(-1)!.filter(item => item.type === "additional_tools")).toEqual(loaded!.filter(item => item.type === "additional_tools"));
+    descriptor = deepseek;
+    await turn("switch");
+    const ds = inputs.at(-1)!;
+    expect(ds[0]).toMatchObject({ role: "system", content: [{ text: "base\n\n## mcp_servers\nOrders" }] });
+    expect(ds.filter(item => item.role === "system")).toHaveLength(3);
+    expect(ds.some(item => item.type === "additional_tools" || item.role === "developer")).toBe(false);
+    expect(bodies.at(-1)?.tools).toMatchObject([{ name: "tool_search" }, { name: lookup }]);
+  } finally {
+    await runtime.stop();
+    await removeTemporaryRoot(root);
+  }
 });

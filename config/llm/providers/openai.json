@@ -6,6 +6,7 @@
   "default_model": "gpt-6.1-sol",
   "models": {
     "gpt-6.1-sol": {
+      "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
       "supports_vision": true,
@@ -16,6 +17,7 @@
       "thinking_default": "medium"
     },
     "gpt-6.1-terra": {
+      "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
       "supports_vision": true,
@@ -26,6 +28,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-astra": {
+      "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
       "supports_vision": true,
@@ -36,6 +39,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-sol": {
+      "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
       "supports_vision": true,
@@ -46,6 +50,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-luna": {
+      "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
       "supports_vision": true,

@@ -4,12 +4,14 @@
   "desktop_default": true,
   "api_style": "openai-responses",
   "base_url": "https://api.deepseek.com",
-  "default_model": "deepseek-v4-flash",
+  "default_model": "deepseek-flash",
   "request_idle_timeout_ms": 660000,
   "default_headers": {},
   "aliases": ["deep_seek", "deep-seek"],
+  "model_aliases": {"deepseek-v4-flash": "deepseek-flash"},
   "models": {
     "deepseek-v4-pro": {
+      "compat": {"supportsMidConvoSystemMessages": true},
       "context_window_tokens": 1000000,
       "max_tokens": 384000,
       "supports_vision": false,
@@ -19,7 +21,8 @@
       "thinking_levels": ["off", "high", "max"],
       "thinking_default": "high"
     },
-    "deepseek-v4-flash": {
+    "deepseek-flash": {
+      "compat": {"supportsMidConvoSystemMessages": true},
       "context_window_tokens": 1000000,
       "max_tokens": 384000,
       "supports_vision": false,

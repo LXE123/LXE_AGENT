@@ -55,7 +55,14 @@ export interface RuntimeEnvironmentSnapshot {
   model: string;
 }
 
+/** Branch-local snapshots. Absence inherits the preceding snapshot; empty means cleared. */
+export interface PromptState {
+  mcpDirectory?: string;
+  tools?: ToolSchema[];
+}
+
 export interface RuntimeConversationMessage {
+  promptState?: PromptState;
   invoked_skills?: string[];
   runtimeContextKind?: "turn_aborted";
   contextTokenAnchor?: import("./context-meter").ContextTokenAnchor;
@@ -67,6 +74,7 @@ export interface RuntimeConversationMessage {
 }
 
 export interface RuntimeCompactionSummaryMessage {
+  promptState?: PromptState;
   contextTokenAnchor?: import("./context-meter").ContextTokenAnchor;
   role: "compactionSummary";
   content?: never;

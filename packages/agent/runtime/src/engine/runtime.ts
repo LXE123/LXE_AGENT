@@ -1,3 +1,4 @@
+import { directoryRevisions, latestPromptState, sameTools, withMcpDirectory } from "./prompt-state";
 import { TurnStatistics, type CommandSkill } from "../statistics/turn-statistics";
 import type { SessionTitleService } from "../state/session-title";
 import { ExecutionPaths } from "../permissions/execution-paths";
@@ -101,6 +102,7 @@ export interface TypeScriptAgentRuntimeOptions {
   executionPaths?: ExecutionPaths;
   approvalAvailable?: boolean;
   userSkillsRoot?: string;
+  mcpServerDirectory?: (context: SystemPromptContext) => string;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   /** Defaults to unlimited steps; a finite limit reserves the last step for a tool-free reply. */
   maxSteps?: number;
@@ -286,7 +288,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const observer = new RuntimeTurnObserver();
     const wireTraceTurn = this.options.wireTraceController?.startTurn(job.session_id, job.job_id);
     const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
+    const midConvo = descriptor?.apiStyle === "openai_responses" && descriptor.compat?.supportsMidConvoSystemMessages === true;
+    const inlineTools = midConvo && descriptor.compat?.supportsAdditionalTools === true;
+    const promptCapabilities = { midConvo, inlineTools };
     const contextPipeline = new ContextPipeline({
+      promptCapabilities,
       provider,
       store: this.options.store,
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
@@ -476,9 +482,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         workspace,
         ...(workspaceLease ? { workspaceSnapshot: workspaceLease.snapshot } : {}),
       };
-      const systemPrompt = typeof this.options.systemPrompt === "function"
+      const baseSystem = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
         : this.options.systemPrompt;
+      const directory = this.options.mcpServerDirectory?.(systemPromptContext);
+      const systemPrompt = withMcpDirectory(baseSystem, directory);
       const fingerprintFor = (toolSchemas: ReturnType<typeof toolExposure.schemas>, isLastStep: boolean) => contextFingerprint({
           provider: systemPromptContext.provider, model: systemPromptContext.model,
           api: descriptor?.apiStyle, endpoint: descriptor?.baseURL,
@@ -486,6 +494,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           thinkingEffort: descriptor?.thinkingEffort, thinkingBudget: descriptor?.thinkingBudgetTokens,
           thinkingDisplay: descriptor?.thinkingDisplay, supportsVision: descriptor?.supportsVision,
           maxTokens: descriptor?.maxTokens, toolStream: descriptor?.toolStream,
+          ...(midConvo ? { promptCapabilities } : {}),
           system: systemPrompt, tools: toolSchemas, toolChoice: heartbeat || isLastStep ? "none" : "auto",
         });
       const turnContext: RuntimeTurnContextRecord = {
@@ -509,6 +518,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ? heartbeatPrompt(pendingEvents)
         : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
       const userMessage: RuntimeMessage = { role: "user", content: withTurnContext(userContent, job.diagnostics), message_id: job.message_id, ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}) };
+      if (!heartbeat && directory !== undefined && latestPromptState(messages).mcpDirectory !== directory) {
+        userMessage.promptState = { mcpDirectory: directory };
+      }
       const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
         const injected: RuntimeMessage[] = [];
         for (const name of names) {
@@ -529,7 +541,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       });
       if (instructions.length) userMessage.invoked_skills = instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []);
       messages.push(userMessage, ...instructions);
-      const firstTools = heartbeat || (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1 ? [] : toolExposure.schemas();
+      const firstTools = heartbeat || (!inlineTools && (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1) ? [] : toolExposure.schemas();
       const initialMeasurement = contextPipeline.measure(systemPrompt, messages, firstTools,
         fingerprintFor(firstTools, (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1));
       observer.start({
@@ -578,7 +590,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         await appendSteering();
         const isLastStep = step === maxSteps - 1;
-        const toolSchemas = heartbeat || isLastStep ? [] : toolExposure.schemas();
+        const toolSchemas = heartbeat || (isLastStep && !inlineTools) ? [] : toolExposure.schemas();
         const fingerprint = fingerprintFor(toolSchemas, isLastStep);
         const updateContext = async () => {
           const measurement = contextPipeline.measure(systemPrompt, messages, toolSchemas, fingerprint);
@@ -654,7 +666,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             try {
               await finalAnswerStreamer?.startWaitingModel();
               const request: RuntimeProviderRequest = {
-                system: systemPrompt,
+                system: midConvo
+                  ? withMcpDirectory(baseSystem, directoryRevisions(messages)[0]?.directory ?? directory)
+                  : systemPrompt,
                 messages: structuredClone(messages),
                 tools: toolSchemas,
                 toolChoice: heartbeat || isLastStep ? "none" : "auto",
@@ -675,7 +689,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                   if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
                 },
               };
-              const estimatedInput = requestContextTokenEstimate(request.system, request.messages, request.tools);
+              const estimatedInput = requestContextTokenEstimate(systemPrompt, request.messages, request.tools, promptCapabilities);
               const requestId = randomUUID();
               if (!titleRequested && !heartbeat && providerSnapshot) {
                 titleRequested = true;
@@ -754,6 +768,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const assistant: RuntimeMessage = forcedLastStepReply
           ? { role: "assistant", content: assistantContent, ...(response.contextTokenAnchor ? { contextTokenAnchor: response.contextTokenAnchor } : {}) }
           : response;
+        if (inlineTools && !heartbeat && !sameTools(latestPromptState(messages).tools, toolSchemas)) {
+          assistant.promptState = { tools: structuredClone(toolSchemas) };
+        }
         messages.push(assistant);
         await this.appendMessage(job.session_id, assistant, "assistant_response", job.job_id);
         await updateContext();

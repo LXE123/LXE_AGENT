@@ -82,18 +82,18 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 | `exposure` | 启用服务后，当前平台的模型入口 |
 | --- | --- |
-| `codemode`（默认） | 提供 `codemode`。脚本用 `searchTools()` 发现工具，再用 `tools[name](args)` 调用。脚本搜索保持顶层 `tools` 稳定。 |
+| `codemode`（默认） | 提供 `codemode`。脚本用 `searchTools()` 发现工具，再用 `tools[name](args)` 调用。脚本搜索保持模型可直接调用的工具清单稳定。 |
 | `deferred` | 提供 `tool_search`。模型搜索后，命中的工具从下一步开始可直接调用。 |
-| `direct` | 连接成功后，具体工具直接进入模型的 `tools`。 |
+| `direct` | 连接成功后，模型可直接调用具体工具。 |
 | `hidden` | 工具保留在管理目录中，模型和脚本均无法调用。 |
 
 旧值 `auto` 随默认策略走 `codemode`，已有文件按原样保留。只统计当前回合平台上**已启用**的服务，连接状态决定实际可用的工具。两种间接模式并存时，两个入口都会出现。`tool_search` 可加载 `codemode` 和 `deferred` 工具，脚本可调用当前平台允许的非隐藏 MCP 工具。关闭最后一个 `deferred` 服务后，下一次模型请求就会撤下 `tool_search`。详见 [Exposure 模型](README.md#exposure-模型) 和 [桌面 MCP 接口](../../../desktop/automations.md#桌面-mcp-接口)。
 
 ### 在 codemode 中查找和调用工具
 
-每轮开始时，agentcli 在 system prompt 的 `mcp_servers` 段中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): 管理桌面定时任务`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
+每轮开始时，agentcli 在 `mcp_servers` 目录中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): 管理桌面定时任务`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
 
-同一轮的多次模型调用复用这份目录。服务启停或简介变化在下一轮重新构建 system prompt 时生效。目录只包含服务信息，具体工具的参数仍通过下方的发现入口获取。
+同一轮的多次模型调用复用这份目录。第一轮把目录放在初始指令里。下一轮发现目录变化时，支持中途指令的模型会在该轮用户输入前收到新版目录，最后一个服务撤下时会收到目录已清空的说明。其他模型在开头的指令里收到最新目录。续聊和分叉按各自的历史回放，压缩摘要保存截断处生效的目录和工具清单。各模型的请求布局见 [模型目录与选择](../../llm/provider_catalog.md)。
 
 `tool_search` 与脚本里的 `searchTools()` 共用 BM25，索引工具名、描述、参数和所属服务的信息。`tool_search` 只搜索当前分支尚未向模型声明的可用间接工具，默认最多加载 8 个。每个命中项只返回名称和首行简介，完整声明从下一次模型请求起生效。脚本搜索可以反复查询已加载的工具，查询本身不会加载它们。
 

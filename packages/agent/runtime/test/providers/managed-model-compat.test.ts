@@ -40,11 +40,13 @@ function descriptor(provider: string, model?: string) {
   state.models[0]!.definition = d;
   return loadProviderDescriptor(root, { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: d.model, AGENT_LLM_CREDENTIAL_SOURCE: "cloud" }, { llmConfigRoot: join(root,"config/llm"), deferCredential: true, managedLlmState: state });
 }
-test.each(definitions)("migration preserves request shape for $provider/$model", d => {
+test.each(definitions)("existing publications preserve their request shape for $provider/$model", d => {
   const local = loadProviderDescriptor(root, { AGENT_LLM_PROVIDER: d.provider, AGENT_LLM_MODEL: d.model }, { deferCredential: true });
   const cloud = descriptor(d.provider, d.model);
   const builder = d.api === "openai-responses" ? buildResponsesRequest : d.api === "openai-completions" ? buildCompletionsRequest : buildProviderRequest;
-  expect(builder(cloud, request)).toEqual(builder(local, request));
+  // Historical publications retain their explicit wire ID and instruction placement.
+  const baseline = d.provider === "deepseek" ? { ...local, model: d.model, compat: d.compat } : local;
+  expect(builder(cloud, request)).toEqual(builder(baseline, request));
 });
 test("every Completions compat field changes its corresponding request behavior", () => {
   const d = descriptor("zhipuai");
@@ -105,4 +107,20 @@ test("summary calls execute the same protocol compat settings", async () => {
     captured = body; return { finalMessage: async () => ({ content: [{ type: "text", text: "summary" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }) };
   } } });
   expect((await anthropic.summarize(summary)).text).toBe("summary"); expect(captured.thinking).toEqual({ type: "adaptive", display: "omitted" }); expect(captured).not.toHaveProperty("temperature"); expect(captured.max_tokens).toBe(700);
+});
+
+
+test("published DeepSeek system updates are opt-in and restricted to supported routes", () => {
+  const definition = modelDefinition("deepseek", "deepseek-v4-pro");
+  const published = { ...definition, compat: { ...definition.compat, supportsMidConvoSystemMessages: true } };
+  const d = descriptor("deepseek", definition.model);
+  d.compat = parseManagedModelDefinition(published).compat;
+  const body = buildResponsesRequest(d, { ...request, messages: [
+    { role: "user", content: "one", promptState: { mcpDirectory: "A" } },
+    { role: "user", content: "two", promptState: { mcpDirectory: "B" } },
+  ] });
+  expect((body.input as Array<{ role: string }>).map(item => item.role)).toEqual(["system", "user", "system", "user"]);
+  expect(body.tools).toBeDefined();
+  expect(() => parseManagedModelDefinition({ ...published, compat: { supportsAdditionalTools: true } })).toThrow();
+  expect(() => parseManagedModelDefinition({ ...modelDefinition("openrouter"), compat: published.compat })).toThrow();
 });

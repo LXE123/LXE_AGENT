@@ -690,3 +690,22 @@ for (const fails of [false, true]) {
     }
   });
 }
+
+
+test("compaction checkpoints the directory and schemas at the cut, preserving later changes", async () => {
+  const store = new MemoryStore();
+  const provider = new SummaryProvider();
+  const old = closedTurn("old", 9000);
+  const recent = closedTurn("recent", 30);
+  const tools = [{ name: "read", description: "read", input_schema: { type: "object" } }];
+  old[0]!.promptState = { mcpDirectory: "before cut" };
+  old[1]!.promptState = { tools };
+  recent[0]!.promptState = { mcpDirectory: "after cut" };
+  const pipeline = new ContextPipeline({ provider, store, contextWindowTokens: 4000, reserveTokens: 200, recentRawTokens: 200 });
+  const compact = await pipeline.prepare({ sessionId: "s1", messages: [...old, ...recent], systemPrompt: "sys",
+    toolSchemas: tools, signal: new AbortController().signal });
+  expect(compact.compacted).toBe(true);
+  expect(compact.messages[0]).toMatchObject({ role: "compactionSummary", promptState: { mcpDirectory: "before cut", tools } });
+  expect(compact.messages[1]?.promptState).toEqual({ mcpDirectory: "after cut" });
+  expect(sanitizeMessagesForProvider(compact.messages).messages).toEqual(compact.messages);
+});

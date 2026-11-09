@@ -125,6 +125,7 @@ const publicMessage = (value: JsonObject): JsonObject => {
     ...value,
     content: (value.content as JsonValue[]).filter((block) => parseObject(block).type !== "image"),
   } : value) as JsonObject;
+  delete message.promptState;
   delete message.image_views;
   delete message.artifacts;
   delete message.attachments;

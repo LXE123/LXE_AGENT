@@ -20,6 +20,7 @@ export interface LlmProviderModelSpec {
   supportsTemperature: boolean;
   thinkingRequestStyle: string;
   thinkingBudgetTokens?: number;
+  compat?: Record<string, boolean>;
   toolStream: boolean;
   thinkingLevels: string[];
   thinkingDefault: string;
@@ -135,8 +136,17 @@ const parseModel = (id: string, value: unknown, path: string): LlmProviderModelS
   if (!supportsThinking && thinkingLevels.length > 0) {
     throw new Error(`${path}.${id}.thinking_levels must be empty when supports_thinking is false`);
   }
+  const compat = model.compat === undefined ? undefined : Object.fromEntries(
+    Object.entries(object(model.compat, `${path}.${id}.compat`)).map(([key, value]) => {
+      if (!["supportsDeveloperRole", "supportsMidConvoSystemMessages", "supportsAdditionalTools"].includes(key)) {
+        throw new Error(`Unknown compatibility flag ${path}.${id}.compat.${key}`);
+      }
+      return [key, requiredBoolean(value, `${path}.${id}.compat.${key}`)];
+    }),
+  );
   return {
     id,
+    ...(compat ? { compat } : {}),
     contextWindowTokens: positiveInteger(model.context_window_tokens, `${path}.${id}.context_window_tokens`),
     maxTokens: positiveInteger(model.max_tokens, `${path}.${id}.max_tokens`),
     supportsVision: requiredBoolean(model.supports_vision, `${path}.${id}.supports_vision`),
@@ -304,13 +314,29 @@ export function managedModelSpec(definition: ManagedModelDefinition): LlmProvide
     thinkingRequestStyle: m.thinkingStyle, ...(m.thinkingBudgetTokens === null ? {} : { thinkingBudgetTokens: m.thinkingBudgetTokens }),
     toolStream: m.compat.zaiToolStream === true, thinkingLevels: managedThinkingLevels(m.thinkingLevelMap), thinkingDefault: m.thinkingDefault };
 }
-export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState): LlmProviderCatalog {
-  if (!state || state.model_schema !== 3) return catalog;
+export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState,
+  legacyTarget?: { provider: string; model: string }): LlmProviderCatalog {
+  if (!state && !legacyTarget) return catalog;
   const providers = catalog.providers.map(p => {
+    if (state?.model_schema !== 3) {
+      // Older publications reference local model specs, but credential keys and wire IDs remain exact.
+      const models = { ...p.models };
+      const modelAliases = { ...p.modelAliases };
+      for (const target of state?.models ?? (legacyTarget ? [legacyTarget] : [])) {
+        const canonical = modelAliases[target.model];
+        if (target.provider !== p.name || !canonical) continue;
+        models[target.model] = { ...models[canonical]!, id: target.model };
+        delete modelAliases[target.model];
+      }
+      return { ...p, models, modelAliases };
+    }
     const models = Object.fromEntries(state.models.filter(m => m.provider === p.name && m.definition).map(m => [m.model, managedModelSpec(m.definition!)]));
     return { ...p, models, modelAliases: {} };
   });
-  const provider = (name: unknown) => providers.find(p => p.name === normalizeProviderKey(name));
+  const provider = (name: unknown) => {
+    const canonical = catalog.provider(name)?.name;
+    return providers.find(p => p.name === canonical);
+  };
   const requireProvider = (name: unknown) => { const p = provider(name); if (!p) throw new Error("unsupported managed provider"); return p; };
   return { ...catalog, providers, provider, requireProvider };
 }

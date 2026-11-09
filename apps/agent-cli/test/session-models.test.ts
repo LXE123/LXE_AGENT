@@ -34,7 +34,7 @@ test("automation model and effort initialization never changes defaults or the n
   await service.call({ operation: "models.thinking.update", input: { session_id: "a", level: "high", remember_default: false } });
   expect(await service.call({ operation: "models.current", input: { session_id: "a" } })).toMatchObject({ thinking_state: { level: "high" } });
   expect(await service.call({ operation: "models.current", input: {} })).toEqual(before);
-  expect(await service.call({ operation: "models.current", input: { session_id: "blank" } })).toMatchObject({ model: "deepseek-v4-flash", thinking_state: { level: "low" } });
+  expect(await service.call({ operation: "models.current", input: { session_id: "blank" } })).toMatchObject({ model: "deepseek-flash", thinking_state: { level: "low" } });
   await service.call({ operation: "models.update", input: { session_id: "b", provider: "deepseek", model: "deepseek-v4-pro", credential_source: "local", remember_default: false } });
   await service.call({ operation: "models.thinking.update", input: { session_id: "b", level: "high", remember_default: false } });
   expect(await service.call({ operation: "models.current", input: {} })).toEqual(before);

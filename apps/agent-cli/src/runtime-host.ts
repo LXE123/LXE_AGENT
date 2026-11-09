@@ -269,6 +269,7 @@ export function createAgentRuntimeHost(
       ? { onManagedLlmAuthenticationFailure: options.onManagedLlmAuthenticationFailure }
       : {}),
     userSkillsRoot: options.userSkillsRoot,
+    mcpServerDirectory: context => renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
     systemPrompt: (context) => buildSystemPrompt({
       workspace: context.workspace,
       platform: context.platform,
@@ -276,7 +277,6 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
-      mcpServerDirectory: renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,

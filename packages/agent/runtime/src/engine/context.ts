@@ -1,3 +1,4 @@
+import { directoryRevisions, directoryUpdateText, latestPromptState, toolDeclarationBatches } from "./prompt-state";
 import { omitImageData } from "../messages/image-content";
 import { latestContextAnchor, measureContext } from "./context-meter";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
@@ -196,14 +197,22 @@ export function requestContextTokenEstimate(
   systemPrompt: string,
   messages: readonly RuntimeMessage[],
   toolSchemas: readonly ToolSchema[] = [],
+  capabilities?: ContextPipelineOptions["promptCapabilities"],
 ): number {
-  return estimateTokens(systemPrompt) +
+  // systemPrompt already includes the latest directory; account for its earlier versions on the wire.
+  const directories = capabilities?.midConvo ? directoryRevisions(messages) : [];
+  const directoryTokens = directories.length > 1
+    ? estimateTokens(directories[0]!.directory) - estimateTokens(directories.at(-1)!.directory)
+      + directories.slice(1).reduce((sum, revision) => sum + estimateTokens(directoryUpdateText(revision.directory)), 0) : 0;
+  const batches = capabilities?.inlineTools ? toolDeclarationBatches(messages, [...toolSchemas]) : undefined;
+  const toolTokens = batches ? estimateTokens(batches.initial) +
+    Array.from(batches.updates.values()).reduce((sum, batch) => sum + estimateTokens(batch), 0) : estimateTokens(toolSchemas);
+  return estimateTokens(systemPrompt) + directoryTokens + toolTokens +
     messages.reduce((total, message) => total + estimateTokens(
       message.role === "compactionSummary"
         ? { role: "user", content: compactionSummaryProviderText(message.summary) }
         : { role: message.role, content: message.content },
-    ), 0) +
-    estimateTokens(toolSchemas);
+    ), 0);
 }
 
 const cleanBlock = (raw: unknown, role: RuntimeMessage["role"]): JsonObject | undefined => {
@@ -267,6 +276,7 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
       const modified = new Set(modifiedFiles);
       const readFiles = [...new Set(raw.details.readFiles.map((path) => path.trim()).filter((path) => path && !modified.has(path)))].sort();
       cleaned.push({
+        ...(raw.promptState ? { promptState: raw.promptState } : {}),
         ...(raw.contextTokenAnchor ? { contextTokenAnchor: raw.contextTokenAnchor } : {}),
         role,
         summary,
@@ -528,6 +538,10 @@ const turnSpans = (messages: readonly RuntimeMessage[]): Array<[number, number]>
   return starts.map((start, index) => [start, starts[index + 1] ?? messages.length]);
 };
 
+// Snapshots describe provider declarations and are measured separately from raw chat history.
+const rawHistoryTokens = (messages: RuntimeMessage[]) =>
+  estimateTokens(messages.map(({ promptState, ...message }) => message));
+
 const selectRecentTurns = (
   messages: readonly RuntimeMessage[],
   recentRawTokens: number,
@@ -537,7 +551,7 @@ const selectRecentTurns = (
   let consumed = 0;
   for (let index = spans.length - 1; index >= 0; index -= 1) {
     const [start, end] = spans[index]!;
-    const size = estimateTokens(messages.slice(start, end));
+    const size = rawHistoryTokens(messages.slice(start, end));
     if (consumed > 0 && consumed + size > recentRawTokens) break;
     keepStart = start;
     consumed += size;
@@ -586,7 +600,7 @@ const selectMidturnPlan = (messages: readonly RuntimeMessage[], recentRawTokens:
   let consumed = 0;
   for (let index = spans.length - 1; index >= 0; index -= 1) {
     const [start, end] = spans[index]!;
-    const size = estimateTokens(messages.slice(start, end));
+    const size = rawHistoryTokens(messages.slice(start, end));
     if (consumed > 0 && consumed + size > recentRawTokens) break;
     keepIndex = index;
     consumed += size;
@@ -627,7 +641,7 @@ const prepareCompaction = (
     .map((message) => structuredClone(message) as RuntimeMessage);
   const recent = selectRecentTurns(conversation, recentRawTokens);
   const userStart = latestUserStart(conversation);
-  const latestTurnTokens = estimateTokens(conversation.slice(userStart));
+  const latestTurnTokens = rawHistoryTokens(conversation.slice(userStart));
   const shouldSplitTurn = latestTurnTokens > recentRawTokens || recent.compacted.length === 0;
   const midturn = shouldSplitTurn ? selectMidturnPlan(conversation, recentRawTokens) : undefined;
   if (midturn) {
@@ -788,6 +802,7 @@ export interface ContextCompactionResult {
 }
 
 export interface ContextPipelineOptions {
+  promptCapabilities?: { midConvo: boolean; inlineTools: boolean };
   provider: RuntimeProvider;
   store: RuntimeStore;
   contextWindowTokens?: number;
@@ -802,7 +817,7 @@ export interface ContextPipelineOptions {
 
 export class ContextPipeline {
   measure(system: string, messages: RuntimeMessage[], tools: ToolSchema[], fingerprint?: string) {
-    return measureContext(messages, requestContextTokenEstimate(system, messages, tools), fingerprint, this.contextWindowTokens);
+    return measureContext(messages, requestContextTokenEstimate(system, messages, tools, this.options.promptCapabilities), fingerprint, this.contextWindowTokens);
   }
   private readonly logger = createLogger("runtime.context");
   private readonly contextWindowTokens: number;
@@ -904,6 +919,12 @@ export class ContextPipeline {
       return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "no_safe_prefix");
     }
 
+    // Summaries replace the consumed prefix. Seed replay with the state effective at that cut.
+    const checkpoint = latestPromptState([
+      ...params.messages.filter(message => message.role === "compactionSummary"),
+      ...preparation.historyMessages, ...preparation.turnPrefixMessages,
+    ]);
+    const summaryState = Object.keys(checkpoint).length ? { promptState: checkpoint } : {};
     if (preparation.splitTurn) {
       let historyText = preparation.previousSummary || "No prior history.";
       let historyInventory = preparation.inheritedInventory;
@@ -944,7 +965,7 @@ export class ContextPipeline {
         inventory,
       );
       const nextMessages = [
-        summaryMessage(summaryText, params.beforeTokens, inventory),
+        { ...summaryMessage(summaryText, params.beforeTokens, inventory), ...summaryState },
         ...preparation.retained,
       ];
       return this.persistCompaction(
@@ -976,7 +997,7 @@ export class ContextPipeline {
     }
     const summaryText = appendFileInventory(history.text, history.fileInventory);
     const nextMessages = [
-      summaryMessage(summaryText, params.beforeTokens, history.fileInventory),
+      { ...summaryMessage(summaryText, params.beforeTokens, history.fileInventory), ...summaryState },
       ...preparation.retained,
     ];
     return this.persistCompaction(

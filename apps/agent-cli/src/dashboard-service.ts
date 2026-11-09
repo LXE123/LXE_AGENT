@@ -88,6 +88,11 @@ const integer = (value: number | undefined, fallback: number, minimum: number, m
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
+function resolveModelAlias(spec: Record<string, unknown> | undefined, requested: string): string {
+  const alias = object(spec?.model_aliases)[requested.toLowerCase()];
+  return typeof alias === "string" ? alias : requested;
+}
+
 export const DASHBOARD_TOOL_RESULT_PREVIEW_BYTES = 32 * 1024;
 export const DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES = 256 * 1024;
 
@@ -613,10 +618,11 @@ export class DashboardService {
   private selectionPayload(selection: RuntimeModelSelection): JsonObject {
     const spec = selection.credential_source === "cloud"
       ? this.managedProviderSpec(selection.provider) : this.providerSpec(selection.provider);
-    const available = spec && selection.model in object(spec.models);
+    const model = resolveModelAlias(spec, selection.model);
+    const available = spec && model in object(spec.models);
     const payload = available
-      ? this.modelPayload(spec, selection.model, selection.credential_source, {
-        model: selection.model, thinkingEffort: selection.effort, thinkingEnabled: selection.thinking_enabled ? "1" : "0",
+      ? this.modelPayload(spec, model, selection.credential_source, {
+        model, thinkingEffort: selection.effort, thinkingEnabled: selection.thinking_enabled ? "1" : "0",
       }) : { ...this.unsupportedManagedModelPayload(selection, spec),
         ...(selection.credential_source === "local" ? { disabled_reason: `Unsupported model: ${selection.provider}/${selection.model}` } : {}) };
     return { ...payload, credential_source: selection.credential_source,
@@ -642,7 +648,8 @@ export class DashboardService {
     const source = input.credential_source ?? (current.credential_source === "cloud" ? "cloud" : "local");
     const spec = source === "cloud" ? this.managedProviderSpec(provider) : this.providerSpec(provider);
     if (!spec) rpcError("invalid_argument", `Unsupported model provider: ${provider}`);
-    const model = input.model || (input.provider ? text(spec.default_model) : text(current.model));
+    const requestedModel = input.model || (input.provider ? text(spec.default_model) : text(current.model));
+    const model = resolveModelAlias(spec, requestedModel);
     const modelSpec = object(object(spec.models)[model]);
     if (!(model in object(spec.models))) rpcError("invalid_argument", `Unsupported model: ${provider}/${model}`);
     if (source === "cloud" ? !this.managedConfigured({ provider, model }) : !this.localModelConfigured(provider)) {
@@ -695,7 +702,7 @@ export class DashboardService {
   }
 
   private managedProviderSpec(provider: string): Record<string, unknown> | undefined {
-    const catalog = withManagedModels(loadLlmProviderCatalog(this.options.llmConfigRoot), this.options.managedLlmState?.());
+    const catalog = withManagedModels(loadLlmProviderCatalog(this.options.llmConfigRoot), this.options.managedLlmState?.(), this.managedTarget());
     const spec = catalog.provider(provider);
     return spec ? this.providerSpecPayload(spec) : undefined;
   }
@@ -780,11 +787,13 @@ export class DashboardService {
     const requestedModel = credentialSource === "cloud"
       ? text(modelOverride) || this.managedTarget().model
       : text(modelOverride) || runtimePreference.model || text(spec.default_model);
-    const restoredSavedModel = savedPreference.model in models ? savedPreference.model : "";
-    const model = requestedModel in models
-      ? requestedModel
+    const savedModel = resolveModelAlias(spec, savedPreference.model);
+    const restoredSavedModel = savedModel in models ? savedModel : "";
+    const resolvedModel = resolveModelAlias(spec, requestedModel);
+    const model = resolvedModel in models
+      ? resolvedModel
       : restoredSavedModel || text(spec.default_model);
-    const preference = model === restoredSavedModel && requestedModel !== model
+    const preference = model === restoredSavedModel && resolvedModel !== model
       ? savedPreference
       : runtimePreference;
     const selected = object(models[model]);
@@ -886,9 +895,8 @@ export class DashboardService {
     if (credentialSource === "cloud" && (managedState
       ? !managedState.models.some((m) => m.provider === provider && m.model === preferredModel)
       : provider !== managedTarget.provider)) rpcError("invalid_argument", "Unsupported managed model provider/model");
-    const model = preferredModel in models
-      ? preferredModel
-      : requestedModel ? preferredModel : text(spec.default_model);
+    const resolvedModel = resolveModelAlias(spec, preferredModel);
+    const model = resolvedModel in models || requestedModel ? resolvedModel : text(spec.default_model);
     if (!(model in models)) rpcError("invalid_argument", "Unsupported model for provider");
     const cloudConfigured = this.managedConfigured({ provider, model });
     if (credentialSource === "cloud"

@@ -70,7 +70,7 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(descriptor).toEqual(expect.objectContaining({
       name: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       thinkingEnabled: true,
       thinkingEffort: "low",
       thinkingDefault: "low",
@@ -1166,10 +1166,10 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(first.descriptor.name).toBe("kimi_coding");
     expect(next).toEqual(expect.objectContaining({ generation: 2 }));
-    expect(next.descriptor).toEqual(expect.objectContaining({ name: "deepseek", model: "deepseek-v4-flash" }));
+    expect(next.descriptor).toEqual(expect.objectContaining({ name: "deepseek", model: "deepseek-flash" }));
     expect(environment.AGENT_LLM_PROVIDER).toBe("deepseek");
     expect(persisted).toEqual([expect.objectContaining({ AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" })]);
-    expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-v4-flash"]);
+    expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-flash"]);
   });
 
   test("keeps the managed target and key frozen in an acquired turn snapshot", async () => {

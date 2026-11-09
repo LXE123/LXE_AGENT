@@ -1,3 +1,4 @@
+import { directoryRevisions, directoryUpdateText, toolDeclarationBatches } from "../engine/prompt-state";
 import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, completeTool, replaySignature } from "../messages/replay";
@@ -115,10 +116,20 @@ const toolResultOutput = (content: unknown, supportsVision: boolean): string | J
  * items rather than as content blocks inside a message, so one RuntimeMessage
  * can expand into several input items.
  */
-export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor): JsonObject[] {
+export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor,
+  updates?: ReadonlyMap<number, ToolSchema[]>): JsonObject[] {
   const input: JsonObject[] = [];
   const effort = configurationUpdateEffort(descriptor);
+  const directories = descriptor?.compat?.supportsMidConvoSystemMessages === true
+    ? new Map(directoryRevisions(messages).slice(1).map(({ index, directory }) => [index, directory])) : undefined;
+  const appendTools = (index: number) => {
+    const batch = updates?.get(index);
+    if (batch) input.push(additionalTools(batch, descriptor?.name === "openai"));
+  };
   for (const [messageIndex, message] of messages.entries()) {
+    appendTools(messageIndex);
+    const next = directories?.get(messageIndex);
+    if (descriptor && next !== undefined) input.push(instructionMessage(descriptor, directoryUpdateText(next)));
     if (message.role === "compactionSummary") {
       input.push({
         type: "message",
@@ -200,6 +211,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
       });
     }
   }
+  appendTools(messages.length);
   if (effort) input.push(configurationUpdate(effort));
   return input;
 }
@@ -211,6 +223,15 @@ export const adaptToolsForResponses = (tools: ToolSchema[], strict?: boolean): J
   parameters: tool.input_schema,
   ...(strict === undefined ? {} : { strict }),
 }));
+
+function additionalTools(tools: ToolSchema[], directOpenAI: boolean): JsonObject {
+  return { type: "additional_tools", role: "developer", tools: adaptToolsForResponses(tools, directOpenAI ? false : undefined) };
+}
+
+function instructionMessage(descriptor: ProviderDescriptor, content: string): JsonObject {
+  return { type: "message", role: descriptor.compat?.supportsDeveloperRole === true ? "developer" : "system",
+    content: [{ type: "input_text", text: content }] };
+}
 
 /**
  * Responses spells thinking differently from the Anthropic-compatible wire:
@@ -240,21 +261,26 @@ export function buildResponsesRequest(
   // rate-limits and isolates against. A shared Feishu bot would otherwise put
   // everyone in one bucket.
   const directOpenAI = descriptor.name === "openai";
+  const midConvo = descriptor.compat?.supportsMidConvoSystemMessages === true;
+  const inline = midConvo && descriptor.compat?.supportsAdditionalTools === true
+    ? toolDeclarationBatches(request.messages, request.tools) : undefined;
+  const instructionsInInput = midConvo || descriptor.compat?.supportsDeveloperRole === true;
   const user = directOpenAI ? undefined : providerUserIdentifier(request.userIdentity);
   return {
     ...(user ? { user } : {}),
     model: descriptor.model,
-    ...(descriptor.compat?.supportsDeveloperRole === true ? {} : { instructions: request.system.trim() }),
+    ...(instructionsInInput ? {} : { instructions: request.system.trim() }),
     input: [
-      ...(descriptor.compat?.supportsDeveloperRole === true && request.system.trim() ? [{ type: "message", role: "developer", content: [{ type: "input_text", text: request.system.trim() }] }] : []),
-      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor),
+      ...(inline?.initial.length ? [additionalTools(inline.initial, directOpenAI)] : []),
+      ...(instructionsInInput && request.system.trim() ? [instructionMessage(descriptor, request.system.trim())] : []),
+      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor, inline?.updates),
     ],
     ...(descriptor.compat?.supportsMaxOutputTokens === false ? {} : { max_output_tokens: descriptor.maxTokens }),
     stream: true,
     ...(directOpenAI ? { store: false } : {}),
     ...(directOpenAI && descriptor.thinkingEnabled ? { include: ["reasoning.encrypted_content"] } : {}),
     ...(request.tools.length > 0
-      ? { tools: adaptToolsForResponses(request.tools, directOpenAI ? false : undefined), tool_choice: request.toolChoice }
+      ? { ...(inline ? {} : { tools: adaptToolsForResponses(request.tools, directOpenAI ? false : undefined) }), tool_choice: request.toolChoice }
       : {}),
     ...buildResponsesThinkingPayload(descriptor),
     ...providerTemperature(descriptor, request.temperature),

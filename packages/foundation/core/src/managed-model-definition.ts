@@ -31,6 +31,8 @@ export const MANAGED_ROUTES: Record<string, { api: string; baseUrl: string }> = 
 export const MANAGED_COMPAT_DEFAULTS: Record<string, Record<string, boolean | string>> = {
   "openai-responses": {
     "supportsDeveloperRole": false,
+    "supportsMidConvoSystemMessages": false,
+    "supportsAdditionalTools": false,
     "supportsMaxOutputTokens": true
   },
   "anthropic-messages": {
@@ -75,5 +77,8 @@ export function parseManagedModelDefinition(value: unknown): ManagedModelDefinit
   if (!styles[m.api]?.includes(m.thinkingStyle) || (m.thinkingBudgetTokens !== null && (!Number.isSafeInteger(m.thinkingBudgetTokens) || m.thinkingBudgetTokens < 1024 || m.thinkingBudgetTokens >= m.maxTokens))) return invalid();
   const defaults = MANAGED_COMPAT_DEFAULTS[m.api]!;
   if (!object(m.compat) || Object.entries(m.compat).some(([k,v]) => !(k in defaults) || (k === "maxTokensField" ? !["max_tokens", "max_completion_tokens"].includes(String(v)) : k === "thinkingFormat" ? v !== "zai" : typeof v !== "boolean"))) return invalid();
+  if (m.compat.supportsAdditionalTools === true ||
+      (m.compat.supportsMidConvoSystemMessages === true &&
+       (m.provider !== "deepseek" || !["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"].includes(m.model) || m.compat.supportsDeveloperRole === true))) return invalid();
   return structuredClone({ ...m, compat: { ...defaults, ...m.compat } });
 }
