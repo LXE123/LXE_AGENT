@@ -1,145 +1,99 @@
+export const READ_MAX_LINES = 2_000;
+export const READ_MAX_BYTES = 50 * 1024;
+
 export interface NumberedTextRangeOptions {
   startLine: number;
-  maxLines: number;
-  charBudget: number;
+  maxLines?: number;
   /** Scripts consume the text itself, including its original line endings. */
   plainText?: boolean;
   signal?: AbortSignal;
 }
 
-export interface NumberedTextRangeResult {
-  body: string;
-  hasMore: boolean;
-  nextOffset?: number;
-  truncatedLine?: number;
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-const abortReason = (signal: AbortSignal | undefined): unknown =>
-  signal?.reason ?? new DOMException("Aborted", "AbortError");
-
-const assertActive = (signal: AbortSignal | undefined): void => {
-  if (signal?.aborted) throw abortReason(signal);
-};
-
-const numberedLinePrefix = (lineNumber: number): string =>
-  `${String(lineNumber).padStart(6, " ")}\t`;
-
-/**
- * Selects a numbered line range from bounded source chunks. Text before the
- * requested range is discarded, and a selected line is retained only up to
- * the output budget. After a complete range, look ahead only far enough to
- * distinguish another line from EOF before offering a continuation offset.
- */
+/** Count to EOF for the continuation notice, retaining only complete lines that fit one page. */
 export async function scanNumberedTextChunks(
   chunks: AsyncIterable<Uint8Array>,
-  options: NumberedTextRangeOptions,
-): Promise<NumberedTextRangeResult> {
-  const startLine = Math.max(1, Math.trunc(options.startLine));
-  const maxLines = Math.max(1, Math.trunc(options.maxLines));
-  const charBudget = Math.max(1, Math.trunc(options.charBudget));
-  const decoder = new TextDecoder("utf-8", { ignoreBOM: options.plainText ?? false });
-  let body = "";
+  { startLine, maxLines, plainText, signal }: NumberedTextRangeOptions,
+): Promise<string> {
+  const lastLine = maxLines === undefined ? Infinity : startLine + maxLines - 1;
+  const lines: string[] = [];
+  const buffer = Buffer.allocUnsafe(READ_MAX_BYTES);
   let lineNumber = 1;
-  let collectedLines = 0;
-  let currentLineHasContent = false;
-  let currentLineStarted = false;
-  let currentLineBodyStart = 0;
-  let pendingCarriageReturn = false;
-  let rangeComplete = false;
+  let lineBytes = 0;
+  let firstLineBytes = 0;
+  let pageBytes = 0;
+  let truncated = false;
+  let lastSelectedEmpty = false;
 
-  const selected = (): boolean => lineNumber >= startLine;
-
-  const appendBounded = (value: string): boolean => {
-    const remaining = charBudget - body.length;
-    if (remaining <= 0) return value.length === 0;
-    if (value.length <= remaining) {
-      body += value;
-      return true;
+  function finishLine(): void {
+    if (lineNumber < startLine || lineNumber > lastLine) return;
+    if (lineNumber === startLine) firstLineBytes = lineBytes;
+    lastSelectedEmpty = lineBytes === 0;
+    if (truncated) return;
+    const size = pageBytes + (lines.length ? 1 : 0) + lineBytes;
+    // A trailing LF belongs to the preceding line, including at the 2,000-line boundary.
+    if (size > READ_MAX_BYTES || lines.length > READ_MAX_LINES
+      || (lines.length === READ_MAX_LINES && lineBytes !== 0)) {
+      truncated = true;
+      return;
     }
-    // Do not split a UTF-16 surrogate pair in an oversized first-line preview.
-    const end = remaining > 0
-      && /[\uD800-\uDBFF]/u.test(value[remaining - 1]!)
-      && /[\uDC00-\uDFFF]/u.test(value[remaining]!) ? remaining - 1 : remaining;
-    body += value.slice(0, end);
-    return false;
-  };
-
-  const startSelectedLine = (): boolean => {
-    if (currentLineStarted) return true;
-    currentLineStarted = true;
-    currentLineBodyStart = body.length;
-    if (collectedLines > 0 && !appendBounded("\n")) return false;
-    return options.plainText || appendBounded(numberedLinePrefix(lineNumber));
-  };
-
-  const budgetStopResult = (): NumberedTextRangeResult => {
-    if (collectedLines > 0) {
-      body = body.slice(0, currentLineBodyStart);
-      return { body, hasMore: true, nextOffset: lineNumber };
-    }
-    return { body, hasMore: true, truncatedLine: lineNumber };
-  };
-
-  const completeLine = (): NumberedTextRangeResult | undefined => {
-    if (selected()) {
-      if (!startSelectedLine()) return budgetStopResult();
-      collectedLines += 1;
-    }
-    lineNumber += 1;
-    currentLineHasContent = false;
-    currentLineStarted = false;
-    rangeComplete = collectedLines >= maxLines || body.length >= charBudget;
-    return undefined;
-  };
-
-  const consume = (text: string): NumberedTextRangeResult | undefined => {
-    let cursor = 0;
-    while (cursor < text.length) {
-      if (rangeComplete) return { body, hasMore: true, nextOffset: lineNumber };
-      const newline = text.indexOf("\n", cursor);
-      const end = newline === -1 ? text.length : newline;
-      let segment = (pendingCarriageReturn ? "\r" : "") + text.slice(cursor, end);
-      pendingCarriageReturn = false;
-      if (segment.length > 0) currentLineHasContent = true;
-      // Delay a final CR so CRLF split across chunks does not consume budget.
-      if (!options.plainText && segment.endsWith("\r")) {
-        pendingCarriageReturn = newline === -1;
-        segment = segment.slice(0, -1);
-      }
-      if (selected()) {
-        if (!startSelectedLine() || !appendBounded(segment)) return budgetStopResult();
-      }
-      if (newline === -1) return undefined;
-      const completed = completeLine();
-      if (completed) return completed;
-      cursor = newline + 1;
-    }
-    return undefined;
-  };
+    lines.push(buffer.toString("utf8", 0, lineBytes));
+    pageBytes = size;
+  }
 
   for await (const chunk of chunks) {
-    assertActive(options.signal);
-    const stopped = consume(decoder.decode(chunk, { stream: true }));
-    if (stopped) return stopped;
-    assertActive(options.signal);
+    signal?.throwIfAborted();
+    let from = 0;
+    while (from < chunk.length) {
+      const lf = chunk.indexOf(10, from);
+      const end = lf < 0 ? chunk.length : lf;
+      const length = end - from;
+      if (!truncated && lineNumber >= startLine && lineNumber <= lastLine && lineBytes + length <= READ_MAX_BYTES) {
+        buffer.set(chunk.subarray(from, end), lineBytes);
+      }
+      lineBytes += length;
+      if (lf < 0) break;
+      finishLine();
+      lineNumber++;
+      lineBytes = 0;
+      from = lf + 1;
+    }
   }
-  assertActive(options.signal);
-  const decoderTail = decoder.decode();
-  if (decoderTail) {
-    const stopped = consume(decoderTail);
-    if (stopped) return stopped;
+  signal?.throwIfAborted();
+  finishLine();
+  const totalLines = lineNumber;
+  if (startLine > totalLines) throw new Error(`Offset ${startLine} is beyond end of file (${totalLines} lines total)`);
+  if (firstLineBytes > READ_MAX_BYTES) {
+    return `[Line ${startLine} is ${formatSize(firstLineBytes)}, exceeds ${formatSize(READ_MAX_BYTES)} limit. Use exec to read this line in byte ranges.]`;
   }
-  if (pendingCarriageReturn && selected() && !appendBounded("\r")) return budgetStopResult();
-  // In plain text, a terminal LF separates a final empty line, as in text.split("\n").
-  if (currentLineHasContent || (options.plainText && lineNumber > 1)) {
-    if (rangeComplete) return { body, hasMore: true, nextOffset: lineNumber };
-    const completed = completeLine();
-    if (completed) return completed;
+  if (truncated && lines.length > READ_MAX_LINES) lines.length = READ_MAX_LINES;
+  const nextOffset = startLine + lines.length;
+  let notice = "";
+  if (truncated) {
+    const selectedCount = Math.min(totalLines, lastLine) - startLine + 1;
+    const contentLines = selectedCount - Number(lastSelectedEmpty);
+    const byteLimit = lines.length < Math.min(READ_MAX_LINES, contentLines) ? ` (${formatSize(READ_MAX_BYTES)} limit)` : "";
+    notice = `[Showing lines ${startLine}-${nextOffset - 1} of ${totalLines}${byteLimit}. Use offset=${nextOffset} to continue.]`;
+  } else if (nextOffset <= totalLines) {
+    notice = `[${totalLines - nextOffset + 1} more lines in file. Use offset=${nextOffset} to continue.]`;
   }
-  const totalLines = lineNumber - 1;
-  // Reading an empty file from its default offset is valid.
-  if (startLine > totalLines && !(totalLines === 0 && startLine === 1)) {
-    throw new Error(`Offset ${startLine} is beyond end of file (${totalLines} lines total)`);
+
+  if (!plainText) {
+    // A terminal LF creates an addressable empty entry in Pi's line count, but has no text to number.
+    if (nextOffset === totalLines + 1 && lines.at(-1) === "") lines.pop();
+    for (let i = 0; i < lines.length; i++) {
+      const number = startLine + i;
+      let text = lines[i]!;
+      if (number < totalLines && text.endsWith("\r")) text = text.slice(0, -1);
+      if (number === 1 && text.startsWith("\uFEFF")) text = text.slice(1);
+      lines[i] = `${String(number).padStart(6, " ")}\t${text}`;
+    }
   }
-  return { body, hasMore: false };
+  const body = lines.join("\n");
+  return notice ? `${body}\n\n${notice}` : body;
 }

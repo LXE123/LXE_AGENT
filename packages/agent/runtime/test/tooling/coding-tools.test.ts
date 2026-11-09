@@ -985,7 +985,7 @@ describe("native coding tools", () => {
   });
 
   for (const lineCount of [150, 3_000]) {
-    test(`reads all ${lineCount} lines through contiguous character-budget pages`, async () => {
+    test(`reads all ${lineCount} lines through contiguous UTF-8 byte-budget pages`, async () => {
       const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-pages-"));
       roots.push(root);
       const lines = Array.from({ length: lineCount }, (_, index) => `line-${index + 1} 中文🙂 ${"x".repeat(190)}`);
@@ -998,20 +998,20 @@ describe("native coding tools", () => {
         while (offset <= lineCount) {
           const result = await registry.execute("read", { path: "pages.txt", offset }, context(root));
           const output = String(result.content[0]?.text);
-          expect(output.length).toBeLessThanOrEqual(10_000);
           const rows = output.split("\n").filter((line) => /^\s*\d+\t/u.test(line));
           expect(rows.length).toBeGreaterThan(0);
+          expect(Buffer.byteLength(lines.slice(offset - 1, offset - 1 + rows.length).join("\r\n"))).toBeLessThanOrEqual(50 * 1024);
           expect(rows).toEqual(lines.slice(offset - 1, offset - 1 + rows.length)
             .map((line, index) => `${String(offset + index).padStart(6, " ")}\t${line}`));
           readLines += rows.length;
-          const next = output.match(/使用 offset=(\d+) 继续/u);
+          const next = output.match(/Use offset=(\d+) to continue/u);
           if (!next) break;
           expect(Number(next[1])).toBe(offset + rows.length);
           offset = Number(next[1]);
         }
         expect(readLines).toBe(lineCount);
-        await expect(registry.execute("read", { path: "pages.txt", offset: lineCount + 1 }, context(root)))
-          .rejects.toThrow(`Offset ${lineCount + 1} is beyond end of file (${lineCount} lines total)`);
+        await expect(registry.execute("read", { path: "pages.txt", offset: lineCount + 2 }, context(root)))
+          .rejects.toThrow(`Offset ${lineCount + 2} is beyond end of file (${lineCount + 1} lines total)`);
       } finally { await processes.stop(); }
     });
   }
@@ -1025,42 +1025,39 @@ describe("native coding tools", () => {
     const processes = registerCodingTools(registry, {});
     try {
       expect((await registry.execute("read", { path: "small.txt", limit: 2 }, context(root))).content)
-        .toEqual([{ type: "text", text: "     1\tone\n     2\ttwo\n... (更多内容，使用 offset=3 继续)" }]);
+        .toEqual([{ type: "text", text: "     1\tone\n     2\ttwo\n\n[2 more lines in file. Use offset=3 to continue.]" }]);
       expect((await registry.execute("read", { path: "small.txt", offset: 3, limit: 1 }, context(root))).content)
-        .toEqual([{ type: "text", text: "     3\tthree" }]);
+        .toEqual([{ type: "text", text: "     3\tthree\n\n[1 more lines in file. Use offset=4 to continue.]" }]);
       expect((await registry.execute("read", { path: "empty.txt" }, context(root))).content)
         .toEqual([{ type: "text", text: "" }]);
-      await expect(registry.execute("read", { path: "small.txt", offset: 4 }, context(root)))
-        .rejects.toThrow("Offset 4 is beyond end of file (3 lines total)");
+      await expect(registry.execute("read", { path: "small.txt", offset: 5 }, context(root)))
+        .rejects.toThrow("Offset 5 is beyond end of file (4 lines total)");
       await expect(registry.execute("read", { path: "empty.txt", offset: 2 }, context(root)))
-        .rejects.toThrow("Offset 2 is beyond end of file (0 lines total)");
+        .rejects.toThrow("Offset 2 is beyond end of file (1 lines total)");
       writeFileSync(join(root, "unread.txt"), "one\n");
-      await expect(registry.execute("read", { path: "unread.txt", offset: 2 }, context(root))).rejects.toThrow("beyond end of file");
+      await expect(registry.execute("read", { path: "unread.txt", offset: 3 }, context(root))).rejects.toThrow("beyond end of file");
       await expect(registry.execute("edit", {
         path: "unread.txt", edits: [{ oldText: "one", newText: "two" }],
       }, context(root))).rejects.toThrow("请先用 read");
     } finally { await processes.stop(); }
   });
 
-  test("bounds oversized lines in small files without skipping their unread remainder", async () => {
+  test("reports the byte limit and actual size of an oversized line without returning a fragment", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-small-long-line-"));
     roots.push(root);
-    writeFileSync(join(root, "long.txt"), `first\n${"x".repeat(15_000)}\nlast\n`);
+    writeFileSync(join(root, "long.txt"), `first\n${"x".repeat(60_000)}\nlast\n`);
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
     try {
       expect((await registry.execute("read", { path: "long.txt" }, context(root))).content)
-        .toEqual([{ type: "text", text: "     1\tfirst\n... (更多内容，使用 offset=2 继续)" }]);
+        .toEqual([{ type: "text", text: "     1\tfirst\n\n[Showing lines 1-1 of 4 (50.0KB limit). Use offset=2 to continue.]" }]);
       const result = await registry.execute("read", { path: "long.txt", offset: 2 }, context(root));
       const output = String(result.content[0]?.text);
-      expect(output.length).toBeLessThanOrEqual(10_000);
-      expect(output).toContain("第 2 行超过本次 9840 字符正文预算（含行号）");
-      expect(output).not.toContain("使用 offset=");
-      expect(output).not.toContain("last");
+      expect(output).toBe("[Line 2 is 58.6KB, exceeds 50.0KB limit. Use exec to read this line in byte ranges.]");
     } finally { await processes.stop(); }
   });
 
-  test("reads a range from a large file without scanning to EOF", async () => {
+  test("reports the remaining line count for a selected range in a large file", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-large-read-"));
     roots.push(root);
     // ~2 MiB file, 20k lines.
@@ -1075,11 +1072,12 @@ describe("native coding tools", () => {
     expect(text).toContain("   102\tline-102");
     expect(text).not.toContain("line-103");
     expect(text).not.toContain("line-1 ");
+    expect(text).toContain("[19899 more lines in file. Use offset=103 to continue.]");
 
     // A default read (no limit) must page rather than dump the whole file.
     const capped = await registry.execute("read", { path: "big.txt" }, context(root));
     const cappedText = String(capped.content[0]?.text ?? "");
-    const nextOffset = Number(cappedText.match(/使用 offset=(\d+) 继续/u)?.[1] ?? 0);
+    const nextOffset = Number(cappedText.match(/Use offset=(\d+) to continue/u)?.[1] ?? 0);
     expect(nextOffset).toBeGreaterThan(1);
     expect(cappedText).toContain(`${String(nextOffset - 1).padStart(6, " ")}\tline-${nextOffset - 1} ${"x".repeat(90)}`);
     await processes.stop();
@@ -1094,9 +1092,7 @@ describe("native coding tools", () => {
 
     const result = await registry.execute("read", { path: "giant.txt" }, context(root));
     const output = String(result.content[0]?.text ?? "");
-    expect(output.length).toBeLessThanOrEqual(10_000);
-    expect(output).toContain("第 1 行超过本次 9840 字符正文预算（含行号）");
-    expect(output).not.toContain("使用 offset=");
+    expect(output).toBe("[Line 1 is 6.0MB, exceeds 50.0KB limit. Use exec to read this line in byte ranges.]");
     await processes.stop();
   });
 

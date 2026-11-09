@@ -98,6 +98,24 @@ test("scripts expose native tools with their script signatures and can forward a
   expect(info.note).toContain("Read image file");
 });
 
+test("script reads can parse HTML beyond a long CSS line and report how to continue a limited page", async () => {
+  const { registry, root, run } = await setup();
+  const processes = registerCodingTools(registry, {});
+  cleanups.push(() => processes.stop());
+  const path = join(root, "page.html");
+  const html = ["<style>", "x".repeat(13_000), "</style>", "<script>ok()</script>"].join("\n");
+  writeFileSync(path, html);
+  const result = await run(`
+    const path = ${JSON.stringify(path)};
+    const page = await tools.read({path, limit: 1});
+    const full = await tools.read({path});
+    return {page, length: full.length, script: full.split("<script>")[1].split("</script>")[0]};
+  `);
+  expect(JSON.parse(String(result.content[0]?.text))).toEqual({
+    page: "<style>\n\n[3 more lines in file. Use offset=2 to continue.]", length: html.length, script: "ok()",
+  });
+});
+
 test("scripts write files and inspect structured foreground, yielded and terminated commands", async () => {
   const { registry, root, handle, transcript } = await setup();
   const processes = registerCodingTools(registry, { executionPaths: new ExecutionPaths(root) });

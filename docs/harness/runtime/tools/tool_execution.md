@@ -24,7 +24,8 @@ Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、
 
 - 路径先相对 Session working directory 解析；绝对路径、`~`、`..` 和跨 workspace 符号链接都交给宿主文件系统处理。
 - 读取、搜索、文件交付和 `exec.cwd` 的路径访问受宿主用户的操作系统权限约束；`exec`、`write`、`edit` 的写入还需应用 [会话权限策略](../permission-policy.md)。指定工作区外的 cwd 不会扩大写入范围。`EACCES`、`EPERM` 等实际系统错误按 [AGENTS.md](../../../../AGENTS.md#红线违反--生产事故)保留，不改写成泛化提示。
-- read 输出稳定行号，并记录 session read version。
+- `read` 读取文本时，每页最多 2,000 行、50 KiB UTF-8 正文。直接调用显示行号，`codemode` 返回纯文本。两种调用均记录会话读取的文件版本。
+- 指定 `limit` 时，未读完会提示剩余行数和下一次的 `offset`；触及页上限会显示已读范围和总行数。行号从 1 开始，末尾换行按 Pi 的规则计入一个可寻址的空行。若起始行本身超过 50 KiB，只返回实际大小及使用 `exec` 按字节读取的提示。
 - 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
 - binary 不通过文本 read；一个或多个 artifact 使用 `send_files(paths=[...])` 一次交付。
 - `exec` 观察到 `yield-time-ms` 后仍未结束会返回 `status=running` 和 `exec_id`；Session manager 继续持有命令。

@@ -13,7 +13,7 @@ import { approveIfNeeded, requestedPolicy, permissionInputProperties, permission
 import type { JsonObject } from "@lxe/protocol";
 import { inspectFileWriteTarget, recheckFileWriteTarget, type FileWriteTarget } from "../../permissions/file-write-policy";
 import { detectReadImageMime, type ModelImageProcessor } from "../../providers/model-image";
-import { scanNumberedTextChunks, type NumberedTextRangeResult } from "../text-range";
+import { READ_MAX_BYTES, READ_MAX_LINES, scanNumberedTextChunks } from "../text-range";
 import { ToolExecutionError, type ToolDefinition } from "../registry";
 import { isProbablyBinary } from "../workspace-search";
 import {
@@ -31,8 +31,6 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 const READ_CHUNK_BYTES = 256 * 1_024;
-const DEFAULT_READ_LINES = 2_000;
-const READ_HINT_CHAR_RESERVE = 160;
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const isMissingPathError = (cause: unknown): boolean =>
@@ -69,25 +67,27 @@ const readHeadBytes = async (path: string, count: number, signal?: AbortSignal):
 const readTextRange = async (
   path: string,
   startLine: number,
-  maxLines: number,
-  charBudget: number,
+  maxLines: number | undefined,
   plainText: boolean,
   signal?: AbortSignal,
-): Promise<NumberedTextRangeResult> => {
+): Promise<string> => {
   assertActive(signal);
   const handle = await open(path, "r");
   try {
     const chunks = async function* (): AsyncGenerator<Uint8Array> {
       const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-      while (true) {
+      // Bound a regular-file scan even when another process appends during the read.
+      let remaining = (await handle.stat()).size || Infinity;
+      while (remaining > 0) {
         assertActive(signal);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, remaining), null);
         assertActive(signal);
         if (bytesRead === 0) return;
+        remaining -= bytesRead;
         yield buffer.subarray(0, bytesRead);
       }
     };
-    return await scanNumberedTextChunks(chunks(), { startLine, maxLines, charBudget, plainText, ...(signal ? { signal } : {}) });
+    return await scanNumberedTextChunks(chunks(), { startLine, ...(maxLines !== undefined ? { maxLines } : {}), plainText, ...(signal ? { signal } : {}) });
   } finally {
     await handle.close();
   }
@@ -121,13 +121,13 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     {
       name: "read",
       codemodeResult: "text-or-image",
-      description: "Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Reading records the file version required by edit/write.",
+      description: `Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Text pages contain up to ${READ_MAX_LINES} lines or ${READ_MAX_BYTES / 1024} KiB, whichever comes first. For the whole file, continue with the returned offset until complete. Reading records the file version required by edit/write.`,
       input_schema: {
         type: "object",
         properties: {
           path: { type: "string", description: "Path to the file to read (absolute or relative to the session working directory)." },
           offset: { type: "integer", description: "Line number to start reading from (1-indexed; defaults to 1). Applies only to text files; ignored for images." },
-          limit: { type: "integer", description: "Maximum number of lines to read (defaults to 2000). Applies only to text files; ignored for images. Output may be truncated by the tool's output limit; use the returned offset to continue." },
+          limit: { type: "integer", description: "Maximum number of text lines to request. The per-page line and byte limits still apply. Ignored for images." },
         },
         required: ["path"],
         additionalProperties: false,
@@ -168,30 +168,14 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         const extension = extname(path).toLowerCase();
         if (BINARY_EXTENSIONS.has(extension)) throw new Error(`binary file cannot be read as text: ${input.path}`);
         if (isProbablyBinary(head)) throw new Error(`binary file cannot be read as text: ${input.path}`);
-        const start = Math.max(1, Number(input.offset ?? 1));
-        const count = Math.max(1, Number(input.limit ?? DEFAULT_READ_LINES));
-        const charBudget = Math.max(1, toolOutputLimit - READ_HINT_CHAR_RESERVE);
-        const range = await readTextRange(
-          path,
-          start,
-          count,
-          charBudget,
-          plainText,
-          signal,
-        );
+        const start = Math.max(1, Math.trunc(Number(input.offset ?? 1)));
+        const limit = input.limit === undefined ? undefined : Math.max(1, Math.trunc(Number(input.limit)));
+        const page = await readTextRange(path, start, limit, plainText, signal);
         await assertFileVersionUnchanged(path, version);
         assertActive(signal);
         ledger.recordVersion(context.session_id, path, version);
-        const hint = range.truncatedLine === undefined
-          ? range.hasMore && range.nextOffset !== undefined
-            ? `... (更多内容，使用 offset=${range.nextOffset} 继续)`
-            : ""
-          : `... (第 ${range.truncatedLine} 行超过本次 ${charBudget} 字符正文预算${plainText ? "" : "（含行号）"}；请使用 exec 的字节工具读取该超长行)`;
         await context.exposureState?.activateSkillPath(path);
-        if (!hint) return { content: textBlock(range.body) };
-        const separator = range.body ? "\n" : "";
-        const bodyLimit = Math.max(0, toolOutputLimit - separator.length - hint.length);
-        return { content: textBlock(`${range.body.slice(0, bodyLimit)}${separator}${hint}`) };
+        return { content: textBlock(page) };
       },
     },
     {
