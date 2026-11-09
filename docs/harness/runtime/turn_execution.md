@@ -97,6 +97,6 @@ Runtime 以 `completed`、`cancelled` 或 `error` 结束，Scheduler 释放 acti
 ## 持久化与排障
 
 - Gateway 保存 response route 与平台绑定；Runtime 保存 Agent session、pending events、usage 和 transcript 索引；lxeskillCLI 管理自身业务数据与配置。文件布局见 [本地数据与存储](../../storage/README.md)。
-- Transcript v2 追加 message、turn metadata 和最小 `context_patch`，不回写旧行。模型 replay 与完整审计展示共享来源，规则见 [Context Persistence](context/context_persistence.md)。
+- Transcript v3 追加 message、turn metadata 和最小 `context_patch`，不回写旧行。模型 replay 与完整审计展示共享来源，规则见 [Context Persistence](context/context_persistence.md)。
 - 原始 transcript 保留图片内容；模型视图可因压缩而缩短，展示和供应商请求可以采用各自的图片投影，不能将这些投影视为原图已被删除。详见 [图片持久化](context/context_persistence.md#图片与敏感数据)。
 - turn、provider attempt、tool、context、usage 和 delivery 的关联字段、事件与脱敏统一见 [日志与诊断](../../logging.md)。

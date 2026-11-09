@@ -285,6 +285,7 @@ export class DashboardService {
       const title = await this.options.taskTitles.generate(input.text, this.options.providerManager.acquire(selection));
       return { title };
     },
+    "sessions.fork": input => this.options.store.forkSession(input.session_id, input.turn_id) as Promise<DashboardRpcResult<"sessions.fork">>,
     "sessions.rename": async input => {
       if (!this.options.sessionTitles) return rpcError("unavailable", "Session titles are unavailable");
       await this.options.sessionTitles.rename(input.session_id, input.title);

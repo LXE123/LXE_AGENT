@@ -24,6 +24,17 @@ import { providerErrorStatusCode } from "../../src/providers/provider-errors";
 import type { RuntimeContentBlock, RuntimeMessage, AssistantMessageEvent } from "../../src/engine/types";
 
 describe("Anthropic-compatible provider", () => {
+  test("per-call transcript entries preserve the batched tool result request", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi-coding", KIMI_CODE_API_KEY: "fixture-key",
+    });
+    const results = ["one", "two"].map(id => ({ type: "tool_result" as const, tool_call_id: id, content: id }));
+    const user: RuntimeMessage = { role: "user", content: "continue" };
+    const batched = adaptMessagesForProvider([{ role: "tool", content: results }, user], descriptor);
+    const separate = results.map(result => ({ role: "tool" as const, content: [result] }));
+    expect(adaptMessagesForProvider([...separate, user], descriptor)).toEqual(batched);
+    expect(batched).toHaveLength(2);
+  });
   test("loads the existing provider catalog and auth profile without changing env names", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const descriptor = loadProviderDescriptor(projectRoot, {

@@ -95,6 +95,10 @@ class MemoryStore implements RuntimeStore {
     this.artifacts.push(structuredClone(artifact));
     this.operations.push("artifact");
   }
+  turnEnds: Array<{ turnId: string; status: string }> = [];
+  async appendTurnEnd(_sessionId: string, turnId: string, status: string): Promise<void> {
+    this.turnEnds.push({ turnId, status });
+  }
   async appendTurnError(_sessionId: string, turnId: string, message: string): Promise<void> {
     this.turnErrors.push({ turn_id: turnId, message });
     this.operations.push("turn_error");
@@ -442,7 +446,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await runtime.start();
     await runtime.runTurn(job(), handle());
-    expect(changes).toEqual(["s1:messages", "s1:messages", "s1:messages", "s1:usage"]);
+    expect(changes).toEqual(["s1:messages", "s1:messages", "s1:messages", "s1:usage", "s1:messages"]);
+    expect(store.turnEnds).toEqual([{ turnId: "j1", status: "completed" }]);
     expect(store.messageTurnIds).toEqual(["j1", "j1", "j1"]);
     expect(store.metrics[0]).toMatchObject({
       platform: "feishu",
@@ -474,7 +479,7 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await failedUsageRuntime.start();
     await failedUsageRuntime.runTurn(job(), handle());
-    expect(failedUsageChanges).toEqual(["messages", "messages", "messages"]);
+    expect(failedUsageChanges).toEqual(["messages", "messages", "messages", "messages"]);
     await failedUsageRuntime.stop();
 
     const failedMessageChanges: string[] = [];
@@ -497,7 +502,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await failedMessageRuntime.start();
     expect((await failedMessageRuntime.runTurn(job(), handle())).status).toBe("error");
-    expect(failedMessageChanges).toEqual(["messages", "usage"]);
+    expect(failedMessageChanges).toEqual(["messages", "usage", "messages"]);
+    expect(failedMessageStore.turnEnds).toEqual([{ turnId: "j1", status: "error" }]);
     await failedMessageRuntime.stop();
   });
 
@@ -545,7 +551,7 @@ describe("TypeScriptAgentRuntime", () => {
       expect.objectContaining({ type: "local_file", path: "/private/input/photo.png" }),
       expect.objectContaining({ type: "image" }),
     ]));
-    expect(changes).toEqual(["messages", "attachments", "messages", "messages", "usage"]);
+    expect(changes).toEqual(["messages", "attachments", "messages", "messages", "usage", "messages"]);
     await runtime.stop();
   });
 
@@ -1559,11 +1565,12 @@ describe("TypeScriptAgentRuntime", () => {
     expect(events.indexOf("start:c")).toBeGreaterThan(events.indexOf("end:read"));
     expect(events.indexOf("start:d")).toBeGreaterThan(events.indexOf("end:read"));
     expect(events.indexOf("start:d")).toBeLessThan(events.indexOf("end:c"));
-    const toolMessage = store.messages.find((message) => message.role === "tool");
-    if (!toolMessage || toolMessage.role !== "tool" || !Array.isArray(toolMessage.content)) throw new Error("tool results expected");
-    expect(toolMessage.content.map((block) => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
-    expect(toolMessage.content[1]).toEqual(expect.objectContaining({ tool_call_id: "t2", is_error: true }));
-    expect(JSON.stringify(toolMessage.content[0]?.content)).toContain("result a");
+    const toolMessages = store.messages.filter(message => message.role === "tool");
+    expect(toolMessages.map(message => Array.isArray(message.content) ? message.content.length : 0)).toEqual([1, 1, 1, 1, 1]);
+    const blocks = toolMessages.flatMap(message => Array.isArray(message.content) ? message.content : []);
+    expect(blocks.map(block => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
+    expect(blocks[1]).toMatchObject({ tool_call_id: "t2", is_error: true });
+    expect(JSON.stringify(blocks[0]?.content)).toContain("result a");
     const terminal = emitted.slice().reverse().find((request) => request.emit_kind === "stream");
     expect(terminal?.tool_steps.map((tool) => tool.id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
     await runtime.stop();
@@ -2360,9 +2367,9 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.start();
     const outcome = await runtime.runTurn(job(), runHandle);
     expect(outcome.status).toBe("cancelled");
-    expect(store.messages.at(-1)?.content).toEqual([
-      expect.objectContaining({ type: "tool_result", tool_call_id: "t1" }),
-      expect.objectContaining({ type: "tool_result", tool_call_id: "t2", is_error: true }),
+    expect(store.messages.slice(-2).map(message => message.content)).toEqual([
+      [expect.objectContaining({ type: "tool_result", tool_call_id: "t1" })],
+      [expect.objectContaining({ type: "tool_result", tool_call_id: "t2", is_error: true })],
     ]);
     await runtime.stop();
   });
@@ -2956,6 +2963,7 @@ test.each(["error","cancelled"] as const)("saves final consumption on %s without
   });
   await runtime.start();
   expect((await runtime.runTurn(job(),turnHandle)).status).toBe(status);
+  expect(store.turnEnds).toEqual([{ turnId: "j1", status }]);
   await runtime.stop();
   expect(snapshots.at(-1)).toMatchObject({input_tokens:100,output_tokens:3,context_source:"estimated"});
   expect(snapshots.at(-1)!.context_tokens).toBe(snapshots.at(-2)!.context_tokens);

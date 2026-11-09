@@ -116,6 +116,7 @@ export type SessionMessage = {
 };
 
 export type SessionTurnDisplayPayload = {
+  forkable?: boolean;
   turn_id: string;
   status: "completed" | "cancelled" | "error" | null;
   elapsed_ms: number | null;
@@ -157,6 +158,7 @@ export type MessagesPagePayload = {
 };
 
 export type SessionDetailPayload = {
+  has_forkable_turn?: boolean;
   context_display?: import("@lxe/protocol").ContextDisplaySnapshot | null;
   context_reset_at?: number;
   latest_turn_usage?: import("@lxe/protocol").ContextDisplayUsage | null;
@@ -523,6 +525,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
     input: { session_id: string };
     result: { items: BackgroundTaskChangedPayload[] };
   };
+  "sessions.fork": { input: { session_id: string; turn_id?: string }; result: SessionPayload };
   "sessions.rename": { input: { session_id: string; title: string }; result: SessionPayload };
   "sessions.pin": {
     input: { session_id: string; pinned: boolean };
@@ -826,6 +829,12 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(messageTurn === undefined ? {} : { message_turn_id: messageTurn }),
       } };
     }
+    case "sessions.fork":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: {
+        session_id: textValue(input.session_id, "session_id")!,
+        ...(input.turn_id === undefined ? {} : { turn_id: textValue(input.turn_id, "turn_id")! }),
+      } };
     case "sessions.rename":
       exactKeys(input, ["session_id", "title"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)!, title: textValue(input.title, `${operation}.title`)! } };

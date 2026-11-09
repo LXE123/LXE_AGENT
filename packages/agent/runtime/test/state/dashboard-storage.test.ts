@@ -13,7 +13,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
-test("old compaction events have identical indexed/direct markers without rewriting the transcript", async () => {
+test("old compaction events retain identical indexed/direct markers across the one-time node migration", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-compaction-display-")); roots.push(root);
   const database = join(root, "agent.sqlite3");
   let store = new SqliteRuntimeStore(database);
@@ -41,11 +41,13 @@ test("old compaction events have identical indexed/direct markers without rewrit
     expect(indexed.messages.map(message => message.context_marker)).toEqual([
       undefined, { kind: "compaction", compacted_count: 255 }, { kind: "compaction" }, undefined, undefined, undefined, undefined,
     ]);
+    const migrated = readFileSync(path, "utf8");
+    expect(JSON.parse(migrated.split("\n")[0]!).version).toBe(3);
     const latest = await store.loadTranscriptDisplayPage("s", { limit: 5 });
     expect(latest.messages[0]?.context_marker).toEqual({ kind: "compaction" });
     await store.stop(); store = new SqliteRuntimeStore(database); await store.start();
     expect(fields((await store.loadTranscriptDisplayPage("s", { limit: 20 })).messages)).toEqual(fields(indexed.messages));
-    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(readFileSync(path, "utf8")).toBe(migrated);
   } finally { await store.stop(); }
 });
 

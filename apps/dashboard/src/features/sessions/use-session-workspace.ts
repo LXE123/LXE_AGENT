@@ -228,6 +228,31 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     ]);
   }
 
+  const forkPending = useRef(false);
+  const [forking, setForking] = useState(false);
+  const forkConversation = useLatestCallback(async (turnId?: string) => {
+    if (!selectedSessionId || forkPending.current) return;
+    const revision = workspaceSelectionRevision.current;
+    forkPending.current = true;
+    setForking(true);
+    try {
+      const child = await sessionActions.fork(selectedSessionId, turnId);
+      if (workspaceSelectionRevision.current === revision) openSession(child);
+      await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+    } catch (cause) { onError(queryError(cause)); }
+    finally { forkPending.current = false; setForking(false); }
+  });
+
+  const openForkSource = useLatestCallback(async (sessionId: string, turnId: string) => {
+    const revision = workspaceSelectionRevision.current;
+    try {
+      const page = await sessionActions.detail({ session_id: sessionId, message_turn_id: turnId, message_limit: 10 });
+      if (revision !== workspaceSelectionRevision.current) return;
+      openSession(page.session);
+      conversationDisplay.openHistory(page, turnId, conversationDisplay.beginTargetHistory());
+    } catch (cause) { onError(queryError(cause)); }
+  });
+
   async function stopConversation(): Promise<void> {
     if (!selectedSessionId) return;
     await sessionActions.stop(selectedSessionId);
@@ -341,6 +366,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       deleteBlockedSessionIds,
     } as const,
     conversation: {
+      forking,
       question: newConversation ? undefined : pendingQuestions.find(q => q.session_id === selectedSessionId),
       approvals: pendingApprovals.filter(request => request.session_id === selectedSessionId),
       fallbackSession: selectedSession,
@@ -363,7 +389,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     } as const)),
     actions: {
       openSession, openSessionRun, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
-      sendConversation, stopConversation, setSessionPinned, deleteSession, renameSession,
+      sendConversation, stopConversation, forkConversation, openForkSource, setSessionPinned, deleteSession, renameSession,
       cancelSessionRename: () => setRenamingSession(null),
       openConversationFile, revealConversationFile, openConversationAttachment,
       openSearch: handleSessionSearchToggle,

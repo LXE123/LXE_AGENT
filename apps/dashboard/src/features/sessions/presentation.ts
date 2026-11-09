@@ -12,11 +12,12 @@ export interface PendingMessage {
 export interface ConversationRow {
   id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
   presentation?: "process" | "final";
-  answerMeta?: { text: string; createdAt: number };
+  answerMeta?: { text: string; createdAt: number; forkable?: boolean };
   message?: SessionMessage; operation?: ToolOperation;
   imageRows?: ConversationRow[];
   liveTool?: NonNullable<DesktopConversationTurnPayload["stream"]>["tool_steps"][number];
   phase?: string; startedAt?: number; elapsedMs?: number;
+  forkable?: boolean;
   status?: string; error?: string; createdAt: number; artifacts?: SessionArtifactPayload[];
 }
 export const userDisplayId = (message: { client_message_id?: string; message_id?: string; display_id?: string }): string =>
@@ -122,9 +123,9 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
   }
   const compactions = compactionBoundaries(rows);
   const baseRows = rows.filter(row => row.kind !== "compaction");
-  const turnStatus = new Map(messages.flatMap((message) => message.turn?.status && !isInternalMessage(message) ? [[message.turn.turn_id, message] as const] : []));
+  const turnStatus = new Map(source.flatMap((message) => message.turn?.status && (!isInternalMessage(message) || message.turn.forkable) ? [[message.turn.turn_id, message] as const] : []));
   for (const [id, message] of turnStatus) {
-    baseRows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
+    baseRows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",forkable:message.turn!.forkable,status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
   }
   const artifacts = collectTurnArtifacts(messages);
   const ordered = restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(baseRows), artifacts)), compactions);
@@ -180,7 +181,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     const insertion = rows.findIndex((row) => row.turnId === turn.turn_id && row.message?.role !== "user");
     for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
     if (insertion >= 0) rows.splice(Math.min(insertion, rows.length), 0, ...merged); else rows.push(...merged);
-    rows.push({ ...base, id: `status:${turn.turn_id}`, kind: "status", status: turn.state, phase: turn.stream?.display_metrics.phase, startedAt: turn.started_at, elapsedMs: turn.started_at > 0 && turn.settled_at > 0 ? turn.settled_at - turn.started_at : undefined });
+    rows.push({ ...base, id: `status:${turn.turn_id}`, kind: "status", forkable: projection.byId.get(`status:${turn.turn_id}`)?.forkable, status: turn.state, phase: turn.stream?.display_metrics.phase, startedAt: turn.started_at, elapsedMs: turn.started_at > 0 && turn.settled_at > 0 ? turn.settled_at - turn.started_at : undefined });
   }
   for (const item of pending) {
     const id = `user:${item.pendingId}`;
@@ -264,6 +265,7 @@ function appendTurnArtifacts(rows: ConversationRow[], owners: ReadonlyMap<string
 /** Final text and files stay independent virtual rows; one stable footer follows both. */
 function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<string, ConversationRow | undefined>, changed?: ReadonlySet<string>): ConversationRow[] {
   const answers = new Map<string, ConversationRow[]>();
+  const forkable = new Map(rows.filter(row => row.forkable && row.turnId).map(row => [`turn:${row.turnId}`, row]));
   const byTurn = new Map<string, number>(), byGroup = new Map<string, number>();
   rows.forEach((row, index) => {
     if (row.turnId) byTurn.set(row.turnId, index);
@@ -275,9 +277,10 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
     const parts = answers.get(key) ?? [];
     parts.push(row); answers.set(key, parts);
   }
+  for (const key of forkable.keys()) if (!answers.has(key)) answers.set(key, []);
   const after = new Map<number, ConversationRow[]>();
   for (const [key, parts] of answers) {
-    const tail = parts.at(-1)!;
+    const tail = parts.at(-1) ?? forkable.get(key)!;
     const last = (tail.turnId ? byTurn.get(tail.turnId) : byGroup.get(tail.groupId))!;
     const entries = after.get(last) ?? [];
     const id = `answer-meta:${key}`;
@@ -287,10 +290,10 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
       continue;
     }
     const text = parts.map(part => readerFacingMessageText(part.message!)).filter(value => value.trim()).join("\n\n");
-    if (!text.trim()) continue;
+    if (!text.trim() && !forkable.has(key)) continue;
     entries.push({ id: `answer-meta:${key}`, kind: "answer_meta", groupId: tail.groupId,
       turnId: tail.turnId, createdAt: tail.createdAt,
-      answerMeta: { text, createdAt: Number(tail.message!.created_at ?? tail.createdAt / 1000) } });
+      answerMeta: { text, createdAt: Number(tail.message?.created_at ?? tail.createdAt / 1000), ...(forkable.has(key) ? { forkable: true } : {}) } });
     after.set(last, entries);
   }
   return rows.flatMap((row, index) => [row, ...(after.get(index) ?? [])]);

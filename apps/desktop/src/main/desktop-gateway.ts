@@ -501,6 +501,14 @@ export class DesktopGateway {
       );
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
     }
+    if (call.operation === "sessions.fork") {
+      const activity = this.composition.parts.conversations.activity(call.input.session_id);
+      if (call.input.turn_id ? activity.active?.turn_id === call.input.turn_id :
+        this.composition.parts.scheduler.hasInflightWork(call.input.session_id) || activity.active || activity.queued.length) {
+        throw new DashboardRpcError("failed_precondition", "Wait for the current turn to finish");
+      }
+      return this.runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.fork">) as Promise<DashboardRpcResult<O>>;
+    }
     if (call.operation === "sessions.delete") {
       await this.composition.parts.sessionStatus?.flush();
       const sessionId = call.input.session_id;

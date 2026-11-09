@@ -238,6 +238,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           this.logger.warn("turn_aborted_context_persist_failed", { error });
         }
       }
+      await this.options.store.appendTurnEnd(job.session_id, job.job_id, outcome.status);
+      await this.notifySessionChanged(job.session_id, "messages");
       return outcome;
     });
   }
@@ -782,6 +784,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
 
         const resultSlots: Array<ToolResultBlock | undefined> = new Array(calls.length);
+        const appendToolResults = async (blocks: ToolResultBlock[], reason: string) => {
+          for (const block of blocks) {
+            const message: RuntimeMessage = { role: "tool", content: [block] };
+            await this.appendMessage(job.session_id, message, reason, job.job_id);
+            messages.push(message);
+          }
+        };
         const orderedResults = (): ToolResultBlock[] =>
           resultSlots.filter((result): result is ToolResultBlock => result !== undefined);
         let interruptedBySteering = false;
@@ -913,9 +922,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 is_error: true,
               };
             }
-            const steeredTools: RuntimeMessage = { role: "tool", content: orderedResults() };
-            messages.push(steeredTools);
-            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered", job.job_id);
+            await appendToolResults(orderedResults(), "tool_results_steered");
             await updateContext();
             await appendSteering(steering);
             interruptedBySteering = true;
@@ -931,9 +938,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 is_error: true,
               };
             }
-            const cancelledTools: RuntimeMessage = { role: "tool", content: orderedResults() };
-            messages.push(cancelledTools);
-            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled", job.job_id);
+            await appendToolResults(orderedResults(), "tool_results_cancelled");
             await updateContext();
             await finalAnswerStreamer?.cancel();
             await recordUsage("cancelled");
@@ -953,9 +958,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         if (interruptedBySteering) continue;
         const trimmedResults = trimToolResultBlocks(orderedResults(), contextPipeline.toolResultMaxTokens).results;
-        const toolMessage: RuntimeMessage = { role: "tool", content: trimmedResults };
-        messages.push(toolMessage);
-        await this.appendMessage(job.session_id, toolMessage, "tool_results", job.job_id);
+        await appendToolResults(trimmedResults, "tool_results");
         await updateContext();
       }
       const reply = MAX_STEP_REPLY;

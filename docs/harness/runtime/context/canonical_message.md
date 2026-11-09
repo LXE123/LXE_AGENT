@@ -44,7 +44,7 @@ Image block 在统一消息中保留 source，可跨 turn 与重启继续使用�
 
 ## Legacy replay
 
-运行时直接读取 Transcript v2；v1 整段替换事件、旧工具块命名和早期 session_messages 存储需要先离线迁移，不会在正常加载时静默转换。损坏行或非法 patch 明确报错；v2 中因异常中断缺失的工具结果可由 replay closure 修复，但不会重跑工具。迁移与恢复见 [Context Persistence](context_persistence.md)。
+运行时写入 Transcript v3，首次打开 v2 时按原粒度补齐节点；v1 整段替换事件、旧工具块命名和早期 session_messages 存储需要先离线迁移，不会在正常加载时静默转换。损坏行或非法 patch 明确报错；v2 中因异常中断缺失的工具结果可由 replay closure 修复，但不会重跑工具。迁移与恢复见 [Context Persistence](context_persistence.md)。
 
 ## 序列化原则
 

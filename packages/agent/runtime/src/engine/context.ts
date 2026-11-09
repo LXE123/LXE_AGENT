@@ -259,6 +259,7 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
   const cleaned: RuntimeMessage[] = [];
   for (const raw of messages) {
     const role = raw?.role;
+    if (role === "assistant" && "stopReason" in raw && (raw.stopReason === "error" || raw.stopReason === "aborted")) continue;
     if (role === "compactionSummary") {
       const summary = text(raw.summary).trim();
       if (!summary) continue;

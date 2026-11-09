@@ -38,6 +38,16 @@ describe("unified conversation identity", () => {
     const old = { ...hidden, source_reason: undefined };
     expect(conversationRows([old], [], []).some(row => row.message?.content === content)).toBe(true);
   });
+  test("stopped turns expose one footer after persistence even when the last message is internal", () => {
+    const boundary: SessionMessage = { ...stored, display_group_id: "end", source_reason: "turn_aborted",
+      turn: { turn_id: "turn", status: "cancelled", elapsed_ms: 10, forkable: true } };
+    for (const live of [[], [{ ...turn, state: "cancelled" as const }]]) {
+      const rows = conversationRows([stored, boundary], live, []);
+      expect(rows.filter(row => row.answerMeta?.forkable)).toHaveLength(1);
+      expect(rows.at(-1)?.answerMeta?.forkable).toBe(true);
+    }
+    expect(conversationRows([stored], [], []).some(row => row.answerMeta?.forkable)).toBe(false);
+  });
   test("streaming and persisted block identity and failed attempt order survive handoff", () => {
     const streaming = {...turn,stream:{display_metrics:{phase:"generating_answer"},process_parts:[
       {type:"text",part_id:"failed:0",sequence:1,text:"partial failure",status:"error",presentation:"process"},

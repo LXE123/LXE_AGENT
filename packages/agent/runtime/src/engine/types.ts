@@ -251,6 +251,7 @@ export interface RuntimeStore {
   clearPendingImageViews(sessionId: string, turnId?: string): void;
   resolveImageView(sessionId: string, viewId: string): Promise<RuntimeImageViewRecord | undefined>;
   appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void>;
+  appendTurnEnd(sessionId: string, turnId: string, status: TurnOutcome["status"]): Promise<void>;
   appendTurnError(sessionId: string, turnId: string, message: string): Promise<void>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined>;
   resolveAttachment(sessionId: string, attachmentId: string): Promise<RuntimeAttachmentRecord | undefined>;

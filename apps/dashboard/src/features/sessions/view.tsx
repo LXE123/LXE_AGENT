@@ -1,3 +1,4 @@
+import { ForkMenu } from "./ForkMenu";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
@@ -22,6 +23,7 @@ import { createPortal } from "react-dom";
 import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import {
   ArrowUp,
+  GitFork,
   Brain,
   Cloud,
   Check,
@@ -1375,7 +1377,8 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId, onFork, forkDisabled }: {
+  onFork?: (turnId?: string) => void; forkDisabled?: boolean;
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
   attachmentSessionId?: string;
@@ -1392,6 +1395,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   }
   if (row.kind === "answer_meta") return <div className="answer-footer">
     <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
+    {onFork && row.answerMeta?.forkable && <ForkMenu disabled={!!forkDisabled} onFork={() => onFork(row.turnId)} />}
   </div>;
   if (row.kind === "process") return <button type="button" className="conversation-process-toggle conversation-chrome-theme"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>
@@ -1454,9 +1458,10 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
 }, (a, b) => a.expanded === b.expanded && a.onToggle === b.onToggle && a.onOpenFile === b.onOpenFile
   && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment
-  && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
+  && a.onFork === b.onFork && a.forkDisabled === b.forkDisabled && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
+  onFork, forking, onOpenForkSource,
   workspaceControl,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   fallbackSession,
@@ -1486,6 +1491,9 @@ export function SessionDetailView({
   onOpenAttachment,
   pendingMessages, display, onFollowingChange,
 }: {
+  onFork?: (turnId?: string) => void;
+  forking?: boolean;
+  onOpenForkSource?: (sessionId: string, turnId: string) => void;
   workspaceControl?: React.ReactNode;
   approvals?: PendingApproval[];
   onApprovalChanged?: () => void;
@@ -1534,6 +1542,9 @@ export function SessionDetailView({
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
   const toggleRow = useCallback((id: string) => setExpandedRows((current) => new Map(current).set(id, !current.get(id))), []);
+  const origin = session?.source?.fork;
+  const forkSource = isRecord(origin) && typeof origin.session_id === "string" && typeof origin.turn_id === "string"
+    ? { sessionId: origin.session_id, turnId: origin.turn_id } : null;
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
@@ -1549,7 +1560,12 @@ export function SessionDetailView({
           )}
         </div>
         <div className="conversation-header-actions">
+          {forkSource && onOpenForkSource && <button type="button" className="icon-button" aria-label={t.sessions.forkSource}
+            title={t.sessions.forkSource} onClick={() => onOpenForkSource(forkSource.sessionId, forkSource.turnId)}><GitFork size={15} /></button>}
           {newConversation ? null : workspaceControl}
+          {!newConversation && onFork && <ForkMenu disabled={!runtimeReady || !!forking || !detail?.has_forkable_turn
+            || !!activity?.active || !!activity?.queued.length || pendingMessages.some(item => !item.error)}
+            onFork={() => onFork()} />}
           <PreviewHeaderActions />
         </div>
       </header>
@@ -1563,6 +1579,7 @@ export function SessionDetailView({
             : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
             : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
           renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+            onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
             onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
         <div className="conversation-composer-dock">
           <ConversationComposer

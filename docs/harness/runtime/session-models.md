@@ -4,7 +4,7 @@
 
 ## 状态存在哪里
 
-状态由 Runtime 管理，沿用 Transcript v2。下列磁盘路径均相对于 [数据目录](../../desktop/data-location.md)；模型定义、凭据来源与请求适配见 [模型目录](../llm/provider_catalog.md)。
+状态由 Runtime 管理，沿用 Transcript v3。下列磁盘路径均相对于 [数据目录](../../desktop/data-location.md)；模型定义、凭据来源与请求适配见 [模型目录](../llm/provider_catalog.md)。
 
 | 层 | 保存内容 | 用途 |
 | --- | --- | --- |

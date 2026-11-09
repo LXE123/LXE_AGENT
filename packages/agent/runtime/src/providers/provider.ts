@@ -479,7 +479,14 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
         ...(block.is_error === true ? { is_error: true } : {}),
       };
     }).filter((block): block is JsonObject => Boolean(block));
-    if (content.length > 0) adapted.push({ role: "user", content });
+    if (!content.length) continue;
+    // Anthropic receives the answers to a parallel tool call in a single user message.
+    const prior = adapted.at(-1);
+    if (prior?.role === "user" && Array.isArray(prior.content) && prior.content[0]?.type === "tool_result") {
+      prior.content.push(...content);
+    } else {
+      adapted.push({ role: "user", content });
+    }
   }
   return adapted;
 }

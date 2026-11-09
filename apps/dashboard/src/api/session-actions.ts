@@ -10,6 +10,7 @@ export const sessionActions = {
   send: (input: DashboardRpcCall<"sessions.send">["input"]) => callDashboard({ operation: "sessions.send", input }),
   stop: (session_id: string, turn_id?: string) => callDashboard({ operation: "sessions.stop", input: { session_id, ...(turn_id ? { turn_id } : {}) } }),
   detail: (input: DashboardRpcCall<"sessions.detail">["input"]) => callDashboard({ operation: "sessions.detail", input }),
+  fork: (session_id: string, turn_id?: string) => callDashboard({ operation: "sessions.fork", input: { session_id, ...(turn_id ? { turn_id } : {}) } }),
   rename: (session_id: string, title: string) => callDashboard({ operation: "sessions.rename", input: { session_id, title } }),
   pin: (session_id: string, pinned: boolean) => callDashboard({ operation: "sessions.pin", input: { session_id, pinned } }),
   delete: (session_id: string) => callDashboard({ operation: "sessions.delete", input: { session_id } }),

@@ -259,3 +259,7 @@
   --heatmap-level-3: color-mix(in srgb, var(--cds-accent) 76%, var(--cds-surface-panel));
   --heatmap-level-4: var(--cds-accent);
 }
+
+.conversation-fork-menu[popover] { position: fixed; inset: auto; margin: 0; width: max-content; min-width: 160px; }
+.conversation-fork-menu[popover]:not(:popover-open) { display: none; }
+.answer-footer:has(.conversation-fork-menu) { display: flex; align-items: center; gap: 4px; }
