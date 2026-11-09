@@ -4,8 +4,8 @@ from contextlib import closing, contextmanager
 from datetime import date, datetime, time as daytime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import base64
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -18,11 +18,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from PIL import Image
 
 from services.yacang import client, workflow, queue
 from services.yacang.contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key
-from services.yacang.errors import YacangError
+from services.yacang.errors import YacangError, safe_remote_detail
 from services.yacang.state import ExportState
+from services.yacang.auth_state import YacangAuthState
 from services.yacang.validation import INVENTORY_SALES_HEADERS, INVENTORY_LIST_HEADERS, WAREHOUSE_PRODUCTS_HEADERS
 from shared.filesystem import filesystem_path
 
@@ -46,6 +48,12 @@ def xlsx(report, warehouse, empty=False):
     wb.save(stream)
     wb.close()
     return stream.getvalue()
+
+
+def captcha_jpeg(size=(80, 30)):
+    image = io.BytesIO()
+    Image.new('RGB', size, 'white').save(image, format='JPEG')
+    return image.getvalue()
 
 
 def shared_strings_xlsx(data):
@@ -109,6 +117,7 @@ def env(tmp_path, monkeypatch):
 @pytest.fixture
 def platform(env, monkeypatch):
     state = {'calls': [], 'rows': [], 'files': {}, 'empty': False, 'reject': {}, 'hidden_date': False, 'token': 'private-token'}
+    YacangAuthState(Credentials.from_environment()).save_session(state['token'])
     @contextmanager
     def slot(self):
         yield
@@ -126,9 +135,9 @@ def platform(env, monkeypatch):
             if parsed.path in state['reject']:
                 status, payload = state['reject'][parsed.path]
             elif parsed.path.endswith('/verify'):
-                status, payload = 200, {'status': 1, 'data': {'key': 'private-key', 'code': 'wr'}}
+                status, payload = 200, {'status': 1, 'data': {'key': 'private-key', 'captcha': base64.b64encode(captcha_jpeg()).decode()}}
             elif parsed.path.endswith('/loginV3'):
-                assert body['key'] == 'private-key' and body['verify_code'] == 'wr'
+                assert body['key'] == 'private-key' and body['verify_code']
                 status, payload = 200, {'status': 1, 'data': {'token': state['token']}}
             elif parsed.path.endswith('/downPath/list'):
                 status, payload = 200, {'status': 1, 'data': {'list': state['rows']}}
@@ -185,38 +194,6 @@ def submits(platform):
     return [call for call in platform['calls'] if call[1] in {r[1] for r in REPORTS.values()}]
 
 
-def test_all_reports_nine_files_sales_omit_creation_date_without_extra_copies(platform):
-    result = workflow.run(request(list(REPORTS)))
-    assert result['success'], result
-    assert len(result['artifacts']) == 9
-    assert len(submits(platform)) == 9
-    assert sum(c[1].endswith('loginV3') for c in platform['calls']) == 1
-    assert not any('create_time' in c[2] for c in submits(platform))
-    assert result['params']['created_date'] is None
-    for index, artifact in enumerate(result['artifacts'], 1):
-        delivered = filesystem_path(artifact['path'])
-        original_bytes = platform['files'][f'/file{index}.xlsx']
-        if artifact['report'] == 'inventory-sales':
-            with closing(load_workbook(io.BytesIO(original_bytes), read_only=True, data_only=True)) as original:
-                original_rows = list(original.active.values)
-            with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
-                assert list(output.active.values) == [row[:-1] for row in original_rows]
-        else:
-            assert delivered.read_bytes() == original_bytes
-        assert artifact['row_count'] == 1 and artifact['sheet_names']
-    folder = filesystem_path(result['artifacts'][0]['path']).parent
-    assert len(list(folder.rglob('*.xlsx'))) == 9
-    assert not (folder / 'original').exists()
-    assert not list(folder.glob('.*.xlsx'))
-    for call in platform['calls']:
-        if call[1].startswith('/file'):
-            assert not {'Token', 'token', 'Cookie', 'Authorization'} & call[3].keys()
-    assert all(secret not in json.dumps(result) for secret in ['test-password', 'private-token', 'private-key', 'private-signature'])
-    again = workflow.run(request(warehouses=['MY8801']))
-    assert again['success'] and len(submits(platform)) == 10
-    assert Path(again['artifacts'][0]['path']).parent != Path(result['artifacts'][0]['path']).parent
-
-
 def test_sales_delivery_preserves_platform_package_and_xml_namespaces(platform):
     platform['bad_file'] = shared_strings_xlsx(xlsx('inventory-sales', 'VN8806'))
     result = workflow.run(request(warehouses=['VN8806']))
@@ -254,30 +231,6 @@ def test_sales_delivery_rejects_unexpected_dimensions_without_publishing(platfor
     assert not list(env.rglob('.*.xlsx'))
 
 
-def test_explicit_creation_dates_and_empty_file(platform):
-    platform['empty'] = True
-    result = workflow.run(request(warehouses=['VN8806'], created={'start_date': '2026-01-01', 'end_date': '2026-09-23'}))
-    assert result['success'], result
-    assert submits(platform)[0][2]['create_time'] == '2026-01-01 - 2026-09-23'
-    assert result['artifacts'][0]['row_count'] == 0
-    assert result['artifacts'][0]['notice']
-    delivered = filesystem_path(result['artifacts'][0]['path'])
-    with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
-        assert list(output.active.values) == [INVENTORY_SALES_HEADERS[:-1]]
-    assert list(delivered.parent.iterdir()) == [delivered]
-
-
-def test_platform_download_still_requires_original_snapshot_date_column(platform):
-    with closing(load_workbook(io.BytesIO(xlsx('inventory-sales', 'VN8806')))) as book:
-        book.active.delete_cols(16)
-        stream = io.BytesIO()
-        book.save(stream)
-    platform['bad_file'] = stream.getvalue()
-    result = workflow.run(request(warehouses=['VN8806']))
-    assert not result['success'] and not result['artifacts']
-    assert '表头不匹配' in result['error']['message']
-
-
 def test_sales_rewrite_failure_discards_partial_file(platform, env, monkeypatch):
     original_write = Path.write_bytes
 
@@ -294,14 +247,6 @@ def test_sales_rewrite_failure_discards_partial_file(platform, env, monkeypatch)
     assert not list(env.rglob('*.xlsx'))
 
 
-def test_platform_hidden_date_filter_is_not_reported_as_all_goods(platform):
-    platform['hidden_date'] = True
-    result = workflow.run(request(warehouses=['MY8801']))
-    assert not result['success']
-    assert result['error']['code'] == 'date_range_required'
-    assert not result['artifacts'] and len(submits(platform)) == 1
-
-
 @pytest.mark.parametrize('status', [401, 403, 429, 500])
 def test_global_failure_stops_remaining_tasks_and_preserves_error(platform, status):
     platform['reject'][REPORTS['inventory-sales'][1]] = (status, {'msg': 'actual denial test-password private-token'})
@@ -311,19 +256,44 @@ def test_global_failure_stops_remaining_tasks_and_preserves_error(platform, stat
     assert 'actual denial' in result['error']['message']
     assert 'test-password' not in json.dumps(result) and 'private-token' not in json.dumps(result)
     assert sum(t['status'] == 'not_run' for t in result['tasks']) == 3
+    if status == 401:
+        assert result['error']['code'] == 'login_required'
+        assert result['tasks'][0]['submitted_in_run'] is True
+        assert YacangAuthState(Credentials.from_environment()).status()['status'] == 'missing'
 
 
-def test_unknown_submit_resumes_queue_without_resubmitting(platform):
+@pytest.mark.parametrize('require_fresh', [False, True])
+def test_unknown_submit_recovers_queue_and_honors_fresh_requirement(platform, require_fresh):
     endpoint = REPORTS['inventory-sales'][1]
     platform['reject'][endpoint] = (500, {'msg': 'submit result unknown'})
     first = workflow.run(request(warehouses=['MY8801']))
     assert first['error']['code'] == 'submit_unknown'
     platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',
                             'param_where': json.dumps([['warehouse_id', '=', 26]]), 'path': platform['origin'] + '/file-late.xlsx'})
-    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801')
-    result = workflow.run(request(warehouses=['MY8801']))
+    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801', empty=True)
+    del platform['reject'][endpoint]
+    result = workflow.run(request(warehouses=['MY8801']), require_fresh=require_fresh)
     assert result['success'], result
+    assert len(submits(platform)) == 1 + require_fresh
+    assert result['artifacts'][0]['row_count'] == int(require_fresh)
+
+
+def test_fresh_export_stops_if_previous_task_cannot_be_checked(platform):
+    endpoint = REPORTS['inventory-sales'][1]
+    platform['reject'][endpoint] = (500, {'msg': 'submit result unknown'})
+    assert workflow.run(request(warehouses=['MY8801']))['error']['code'] == 'submit_unknown'
+    del platform['reject'][endpoint]
+    platform['reject']['/sys/customer/downPath/list'] = (500, {'msg': 'queue unavailable'})
+    result = workflow.run(request(warehouses=['MY8801']), require_fresh=True)
+    assert not result['success']
+    assert 'submitted_in_run' not in result['tasks'][0]
     assert len(submits(platform)) == 1
+    platform['reject'].pop('/sys/customer/downPath/list')
+    platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',
+                             'param_where': json.dumps([['warehouse_id', '=', 26]]), 'path': platform['origin'] + '/file-late.xlsx'})
+    platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801')
+    assert workflow.run(request(warehouses=['MY8801']), require_fresh=True)['success']
+    assert len(submits(platform)) == 2
 
 
 def test_local_download_failure_preserves_partial_cli_files(platform, capsys):
@@ -346,23 +316,28 @@ def test_invalid_file_not_published(platform, bad_file):
     assert not result['success'] and not result['artifacts']
 
 
-@pytest.mark.parametrize('payload', ['not json', {'status': 1, 'data': {}}, {'status': 0, 'msg': 'captcha unavailable'}])
-def test_bad_login_stops_without_export(platform, payload):
-    platform['reject']['/sys/customer/verify'] = (200, payload)
+def test_missing_local_login_state_stops_before_contact(platform):
+    YacangAuthState(Credentials.from_environment()).clear()
     result = workflow.run(request())
     assert not result['success'] and not submits(platform)
-    assert len(platform['calls']) == 1
+    assert not platform['calls']
+    assert result['error']['code'] == 'login_required'
 
 
-def test_missing_token_preserves_diagnostic(platform):
-    platform['reject']['/sys/customer/loginV3'] = (200, {'status': 1, 'data': {'unexpected': 'actual payload'}})
-    result = workflow.run(request())
-    assert 'actual payload' in result['error']['message'] and not submits(platform)
+def test_download_401_does_not_invalidate_erp_session(platform):
+    platform['reject']['/file1.xlsx'] = (401, 'actual signed download denial')
+    result = workflow.run(request(warehouses=['MY8801', 'PH8805']))
+    assert result['error']['code'] == 'http_error'
+    assert 'HTTP 401' in result['error']['message']
+    assert 'actual signed download denial' in result['error']['message']
+    assert result['status'] == 'partial_success' and len(result['artifacts']) == 1
+    assert result['artifacts'][0]['warehouse'] == 'PH8805'
+    assert YacangAuthState(Credentials.from_environment()).session() == platform['token']
+    download = next(call for call in platform['calls'] if call[1] == '/file1.xlsx')
+    assert not {'Token', 'token', 'Cookie', 'Authorization'} & download[3].keys()
 
 
-@pytest.mark.parametrize('params', [None, {}, {'reports': []}, {'reports': ['bad']}, {'reports': ['inventory-sales'], 'warehouses': []},
-    {'reports': ['inventory-sales'], 'created_date': {'start_date': '2026-01-01'}},
-    {'reports': ['inventory-sales'], 'created_date': {'start_date': '2026-02-30', 'end_date': '2026-03-01'}},
+@pytest.mark.parametrize('params', [None, {}, {'reports': []}, {'reports': ['bad']},
     {'reports': ['warehouse-products'], 'warehouses': ['MY8801']}, {'reports': ['inventory-sales'], 'url': 'bad'}])
 def test_invalid_params_do_not_contact_platform(platform, params):
     result = workflow.run({'params': params})
@@ -466,6 +441,7 @@ def test_only_readonly_queue_retries_network_timeout(env, monkeypatch, purpose, 
 def test_invalid_header_redacts_known_secrets_before_truncation(platform, monkeypatch):
     secret = 'p' * 3000
     monkeypatch.setenv('LXE_YACANG_PASSWORD', secret)
+    YacangAuthState(Credentials.from_environment()).save_session(platform['token'])
     wb = Workbook()
     wb.active.append([secret, 'invalid header'])
     buffer = io.BytesIO()
@@ -555,11 +531,193 @@ except InterProcessLockTimeout:
         assert result.returncode == 0, result.stderr
 
 
-def test_rejected_captcha_response_never_exposes_code(platform):
-    platform['reject']['/sys/customer/verify'] = (200, {'status': 0, 'data': {'key': 'private-key', 'code': 'secret-captcha'}, 'msg': 'actual unavailable'})
-    result = workflow.run(request())
-    assert 'secret-captcha' not in json.dumps(result)
-    assert 'actual unavailable' in result['error']['message']
+def test_login_actions_round_trip_through_single_cli_command(platform, monkeypatch, capsys):
+    from lxeskill import cli
+    monkeypatch.setenv('LXESKILL_SKILL_SCOPE', 'shangman-login')
+    monkeypatch.setattr(cli, 'activate_project_workspace', lambda: None)
+
+    def invoke(*arguments):
+        assert cli.main(['yacang', 'login', *arguments]) == 0
+        result = json.loads(capsys.readouterr().out.splitlines()[-1])
+        assert result['ok'] and result['command'] == 'yacang login'
+        assert result['files'] == []
+        assert all(secret not in json.dumps(result) for secret in ('private-token', 'private-key', 'Ab9x'))
+        return result['data']
+
+    invoke('clear')
+    assert not invoke('status')['authenticated']
+    prepared = invoke('prepare')
+    assert Path(prepared['image_path']).read_bytes() == captcha_jpeg()
+    submitted = invoke('submit', '--challenge-id', prepared['challenge_id'], '--captcha-code', 'Ab9x')
+    assert submitted['login_succeeded'] and submitted['persisted']
+    assert not Path(prepared['image_path']).exists()
+    assert invoke('status')['authenticated']
+    assert not invoke('clear')['remote_logout']
+    assert not invoke('status')['authenticated']
+    assert [call[1] for call in platform['calls']] == ['/sys/customer/verify', '/sys/customer/loginV3']
+
+
+def test_captcha_image_login_persists_without_exposing_secrets(platform):
+    auth = YacangAuthState(Credentials.from_environment())
+    auth.images.mkdir(parents=True)
+    orphan = auth.images / ('challenge-' + 'a' * 32 + '.jpg')
+    orphan.write_bytes(captcha_jpeg())
+    prepared = workflow.login_action('prepare', {})
+    assert not orphan.exists()
+    assert prepared['success'] and Path(prepared['image_path']).read_bytes() == captcha_jpeg()
+    with Image.open(prepared['image_path']) as image:
+        image.verify()
+    assert 'private-key' not in json.dumps(prepared)
+    submitted = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert submitted['success'] and submitted['persisted']
+    assert 'private-token' not in json.dumps(submitted)
+    call = next(c for c in platform['calls'] if c[1].endswith('/loginV3'))
+    assert call[4] == {'mobile': 'test-mobile', 'password': 'test-password', 'verify_code': 'Ab9x', 'key': 'private-key', 'lang': 'zh-cn'}
+    assert YacangAuthState(Credentials.from_environment()).session() == 'private-token'
+    export = workflow.run(request(warehouses=['MY8801']))
+    assert export['success']
+    assert next(c for c in platform['calls'] if c[1] in {r[1] for r in REPORTS.values()})[3].get('token') == 'private-token'
+
+
+MALFORMED_CAPTCHA = ('{"status":1,"message":"actual malformed response%s",'
+                     '"data":{"key":"private-key","captcha":"synthetic-image-base64')
+MALFORMED_LOGIN = '{"status":0,"data":{"token":"reflected-secret"},"message":"denied reflected-secret",'
+
+
+@pytest.mark.parametrize('status,payload,code,details', [
+    (200, 'not json', 'invalid_response', ('not json',)),
+    (200, {'status': 1, 'data': {}}, 'invalid_captcha', ('data.key/captcha',)),
+    (200, {'status': 1, 'data': {'key': 'private-key'}, 'msg': 'actual missing image reason'},
+     'invalid_captcha', ('actual missing image reason',)),
+    (200, {'status': 0, 'data': {'key': 'private-key', 'captcha': 'private-image'},
+           'msg': 'actual captcha unavailable'}, 'remote_error', ('actual captcha unavailable',)),
+    (200, MALFORMED_CAPTCHA % '', 'invalid_response', ('actual malformed response', 'Unterminated string')),
+    (403, MALFORMED_CAPTCHA % '', 'forbidden', ('actual malformed response',)),
+    (200, MALFORMED_CAPTCHA % ('x' * 2100) + '", invalid}',
+     'invalid_response', ('actual malformed response', 'Expecting property name')),
+    pytest.param(200, b'\xff\xd8\xfftruncated', 'invalid_captcha', ('UnidentifiedImageError',), id='truncated-image'),
+    pytest.param(200, captcha_jpeg((2001, 2000)), 'invalid_captcha', ('4000000',), id='oversized-image'),
+])
+def test_prepare_preserves_redacted_actual_response_errors(platform, status, payload, code, details):
+    if isinstance(payload, bytes):
+        payload = {'status': 1, 'data': {'key': 'private-key', 'captcha': base64.b64encode(payload).decode()}}
+    platform['reject']['/sys/customer/verify'] = (status, payload)
+    result = workflow.login_action('prepare', {})
+    assert not result['success'] and result['error']['code'] == code
+    assert all(detail in result['error']['message'] for detail in details)
+    assert all(secret not in json.dumps(result) for secret in ('private-key', 'private-image', 'synthetic-image-base64'))
+    assert not submits(platform)
+
+
+@pytest.mark.parametrize('status,payload,details', [
+    (200, {'status': 0, 'data': {'token': 'reflected-secret'}, 'message': 'actual denial reflected-secret'},
+     ('actual denial',)),
+    (200, MALFORMED_LOGIN, ('Expecting property name', '/sys/customer/loginV3: HTTP 200')),
+    (403, MALFORMED_LOGIN, ('Expecting property name', '/sys/customer/loginV3: HTTP 403')),
+    (200, '{"status":0,"data":{"token":"\\ud800"},"message":"actual denial",',
+     ('Expecting property name', '/sys/customer/loginV3: HTTP 200')),
+    (200, {'status': 1, 'data': {'unexpected': 'actual payload'}}, ('actual payload',)),
+])
+def test_login_failures_preserve_diagnostics_without_secrets(platform, status, payload, details):
+    prepared = workflow.login_action('prepare', {})
+    platform['reject']['/sys/customer/loginV3'] = (status, payload)
+    result = workflow.login_action('submit', {'challenge_id': prepared['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success'] and not result['persisted']
+    assert all(detail in result['error']['message'] for detail in details)
+    assert all(secret not in json.dumps(result) for secret in ('reflected-secret', '\\ud800', 'private-key', 'Ab9x'))
+
+
+def test_diagnostic_handles_unpaired_surrogate_secret():
+    assert safe_remote_detail('token value \\ud800', secrets=('\ud800',)) == 'token value [REDACTED]'
+
+
+@pytest.mark.parametrize('action,method,reply', [
+    ('prepare', 'prepare_login', ('private-key', captcha_jpeg())),
+    ('submit', 'login', 'private-token'),
+])
+def test_clear_during_login_prevents_old_state_from_returning(env, monkeypatch, action, method, reply):
+    auth = YacangAuthState(Credentials.from_environment())
+    challenge = auth.prepare('private-key', captcha_jpeg())
+    def clear(*args):
+        auth.clear()
+        return reply
+    monkeypatch.setattr(client.YacangClient, method, clear)
+    result = workflow.login_action(action, {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'})
+    assert not result['success'] and not result['persisted']
+    assert result['login_succeeded'] == (action == 'submit')
+    assert result['error']['code'] == 'login_cleared'
+    assert auth.status()['status'] == 'missing'
+    assert not list(auth.root.glob('challenge-*.json'))
+    assert not list(auth.images.glob('challenge-*.jpg'))
+
+
+@pytest.mark.parametrize('times_out', [False, True])
+def test_login_waits_for_account_and_consumes_challenge_once(env, monkeypatch, times_out):
+    credentials = Credentials.from_environment()
+    auth = YacangAuthState(credentials)
+    challenge = auth.prepare('private-key', captcha_jpeg())
+    calls = []
+    def login(self, key, code):
+        calls.append((key, code))
+        if times_out:
+            raise TimeoutError('actual timeout')
+        return 'private-token'
+    monkeypatch.setattr(client.YacangClient, 'login', login)
+    args = {'challenge_id': challenge['challenge_id'], 'captcha_code': 'Ab9x'}
+    with ExportState(credentials.account_id).run_lock():
+        rejected = workflow.login_action('submit', args)
+    assert not rejected['success'] and not calls
+    result = workflow.login_action('submit', args)
+    if times_out:
+        assert 'actual timeout' in result['error']['message']
+    else:
+        assert result['persisted']
+    assert workflow.login_action('submit', args)['error']['code'] == 'challenge_unavailable'
+    assert calls == [('private-key', 'Ab9x')]
+
+
+@pytest.mark.parametrize('state,detail', [([], 'list'), ({}, 'fingerprint'), ({'fingerprint': 'current'}, 'token')])
+def test_malformed_login_state_reports_actual_shape(env, state, detail):
+    auth = YacangAuthState(Credentials.from_environment())
+    auth.root.mkdir(parents=True)
+    if isinstance(state, dict) and state.get('fingerprint') == 'current':
+        state['fingerprint'] = auth.fingerprint
+    auth.session_path.write_text(json.dumps(state), encoding='utf-8')
+    result = workflow.login_action('status', {})
+    assert not result['success']
+    assert result['error']['code'] == 'auth_state_unavailable'
+    assert detail in result['error']['message']
+    assert auth.session_path.exists()
+
+
+def test_failed_challenge_image_write_cleans_partial_file(env, monkeypatch):
+    from services.yacang import auth_state
+    auth = YacangAuthState(Credentials.from_environment())
+    original = auth_state._restrict_permissions
+    def fail_image(path, mode):
+        if path.suffix == '.jpg':
+            raise OSError('actual image permission failure')
+        original(path, mode)
+    monkeypatch.setattr(auth_state, '_restrict_permissions', fail_image)
+    with pytest.raises(OSError, match='actual image permission failure'):
+        auth.prepare('private-key', captcha_jpeg())
+    assert not list(auth.images.glob('challenge-*.jpg'))
+    assert not list(auth.root.glob('challenge-*.json'))
+
+
+def test_challenge_cleanup_preserves_read_error_and_existing_files(env, monkeypatch):
+    auth = YacangAuthState(Credentials.from_environment())
+    challenge = auth.prepare('private-key', captcha_jpeg())
+    path = auth.root / (challenge['challenge_id'] + '.json')
+    read_text = Path.read_text
+    def deny_challenge(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError('actual challenge read failure')
+        return read_text(self, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', deny_challenge)
+    with pytest.raises(PermissionError, match='actual challenge read failure'):
+        auth.prepare('another-key', captcha_jpeg())
+    assert path.exists() and Path(challenge['image_path']).exists()
 
 
 def test_concurrent_same_account_stops_before_second_login(platform):

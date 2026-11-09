@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from shared.datasets import dataset_dir
 from shared.filesystem import display_path, filesystem_path
 from .client import YacangClient
+from .auth_state import YacangAuthState
 from .contracts import Credentials, REPORTS, WAREHOUSES, normalize, tasks_for, task_key, export_parameters
 from .delivery import remove_inventory_sales_creation_date
 from .errors import YacangError, safe_remote_detail
@@ -32,7 +33,7 @@ def validate(path, task, diagnostic):
             wb.close()
 
 
-def run(arguments):
+def run(arguments, *, require_fresh=False):
     artifacts, tasks, client = [], [], None
     locks = ExitStack()
     try:
@@ -41,23 +42,32 @@ def run(arguments):
         params = normalize(arguments['params'])
         credentials = Credentials.from_environment()
         state = ExportState(credentials.account_id)
+        auth_state = YacangAuthState(credentials)
         planned = tasks_for(params)
         tasks = [{**t, 'status': 'not_run', 'filters': export_parameters(t)} for t in planned]
         locks.enter_context(state.run_lock())
         client = YacangClient(credentials, state)
-        client.login()
+        client.token = auth_state.session()
+        client.secrets.append(client.token)
         folder = filesystem_path(dataset_dir("yacang_exports", credentials.account_id, uuid.uuid4().hex))
         folder.mkdir(parents=True, exist_ok=False)
         for task in tasks:
             spec = {k: task[k] for k in ('report', 'warehouse', 'created_date')}
             key = task_key(credentials.account_id, spec)
             temporary = None
+            submitted_in_run = False
             try:
                 with state.task_lock(key):
                     baseline = state.pending(key)
+                    if baseline is not None and require_fresh:
+                        # Resolve the previous uncertain submission before starting a fresh export.
+                        wait_for_file(client, spec, baseline)
+                        state.clear(key)
+                        baseline = None
                     if baseline is None:
                         baseline = {str(r['id']) for r in client.list_downloads()}
                         state.begin(key, baseline)
+                        submitted_in_run = True
                         try:
                             client.submit(spec)
                         except YacangError as exc:
@@ -84,12 +94,19 @@ def run(arguments):
                     task.update(status='completed', artifact_path=artifact['path'], row_count=metadata['row_count'])
             except Exception as exc:
                 error = {'code': getattr(exc, 'code', 'export_failed'), 'message': client.diagnostic(f'{type(exc).__name__}: {exc}')}
+                if getattr(exc, "code", None) == "login_required":
+                    try:
+                        auth_state.invalidate()
+                    except Exception as cleanup:
+                        error['auth_cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 if temporary is not None:
                     try:
                         temporary.unlink(missing_ok=True)
                     except OSError as cleanup:
                         error['cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 task.update(status='failed', error=error)
+                if submitted_in_run:
+                    task['submitted_in_run'] = True
                 if getattr(exc, 'scope', 'global') == 'global':
                     break
         failed = [t for t in tasks if t['status'] != 'completed']
@@ -106,3 +123,40 @@ def run(arguments):
         if client:
             client.close()
         locks.close()
+
+
+def login_action(action, arguments):
+    credentials = None
+    key = code = token = ""
+    try:
+        credentials = Credentials.from_environment()
+        auth_state = YacangAuthState(credentials)
+        state = ExportState(credentials.account_id)
+        if action == "status":
+            return {"success": True, **auth_state.status()}
+        if action == "clear":
+            auth_state.clear()
+            return {"success": True, "status": "cleared", "remote_logout": False}
+        client = YacangClient(credentials, state)
+        try:
+            if action == "prepare":
+                epoch = auth_state.epoch()
+                key, image = client.prepare_login()
+                return {"success": True, "status": "ready", **auth_state.prepare(key, image, epoch=epoch)}
+            if action != "submit":
+                raise YacangError("参数校验", f"不支持的登录操作: {action}", code="invalid_action", scope="global")
+            challenge_id = str(arguments.get("challenge_id") or "")
+            code = str(arguments.get("captcha_code") or "").strip()
+            if not code or len(code) > 128 or any(ord(ch) < 32 or ord(ch) == 127 for ch in code):
+                raise YacangError("验证码", "验证码必须是 1–128 个非控制字符", code="invalid_code", scope="global")
+            with state.run_lock():
+                key, epoch = auth_state.consume(challenge_id)
+                token = client.login(key, code)
+                saved = auth_state.save_session(token, epoch=epoch)
+            return {"success": True, "status": "authenticated", "login_succeeded": True, "persisted": True, **saved}
+        finally:
+            client.close()
+    except Exception as exc:
+        message = safe_remote_detail(f"{type(exc).__name__}: {exc}", secrets=(credentials.mobile, credentials.password, key, code, token)) if credentials else f"{type(exc).__name__}: {exc}"
+        return {"success": False, "status": "failed", "login_succeeded": bool(token), "persisted": False,
+                "error": {"code": getattr(exc, "code", "login_execution_failed"), "message": message}}

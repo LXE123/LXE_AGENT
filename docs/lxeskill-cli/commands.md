@@ -100,6 +100,9 @@ $ lxeskill help replenishment
   vietnam replenishment calculate      计算越南补货并生成备货清单
   shangman products export             导出上马商品、库存和销量
 
+雅仓登录：
+  yacang login  管理雅仓验证码登录与本地登录态
+
 上马数据采集的登录准备：
   shangman login prepare  准备登录并获取验证码
   shangman login submit   提交验证码
