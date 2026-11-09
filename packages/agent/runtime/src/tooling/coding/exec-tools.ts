@@ -146,7 +146,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
         input = structuredClone(input);
         const policy = requestedPolicy(input, context.executionPolicy);
         const rawCommand = inputText(input, "command");
-        if (!rawCommand.trim()) throw new Error("command 不能为空");
+        if (!rawCommand.trim()) throw new Error("command must not be empty");
         const yieldMs = Number(input["yield-time-ms"] ?? DEFAULT_EXEC_YIELD_MS);
         if (!Number.isFinite(yieldMs) || yieldMs < MIN_EXEC_YIELD_MS || yieldMs > MAX_EXEC_YIELD_MS) {
           throw new Error(`yield-time-ms must be between ${MIN_EXEC_YIELD_MS} and ${MAX_EXEC_YIELD_MS} milliseconds`);
@@ -206,7 +206,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
       },
       execute: async (input, context) => {
         const execId = inputText(input, "exec_id").trim();
-        if (!execId) throw new Error("exec_id 不能为空");
+        if (!execId) throw new Error("exec_id must not be empty");
         const yieldMs = Number(input["yield-time-ms"] ?? DEFAULT_WAIT_YIELD_MS);
         if (!Number.isFinite(yieldMs) || yieldMs < MIN_WAIT_YIELD_MS || yieldMs > MAX_WAIT_YIELD_MS) {
           throw new Error(`yield-time-ms must be between ${MIN_WAIT_YIELD_MS} and ${MAX_WAIT_YIELD_MS} milliseconds`);

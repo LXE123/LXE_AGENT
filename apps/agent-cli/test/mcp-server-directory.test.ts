@@ -92,7 +92,9 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await host.start();
     for (const platform of ["desktop", "cli"]) await host.ensureSession({ session_id: platform, source: { platform }, workspace });
     const first = await turn("desktop", "desktop");
-    expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): 管理桌面定时任务");
+    // A fresh desktop turn has the harness schemas only; the MCP tools are indirect.
+    expect(JSON.stringify(received[0]!.tools)).not.toMatch(/\p{Script=Han}/u);
+    expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.");
     expect(first.prompt).toContain("batch independent tool calls with Promise.allSettled, chain dependent calls in order, or filter large results");
     for (const name of ["write", "edit"]) {
       expect(first.descriptions.get(name)).toEndWith(`Codemode: \`tools.${name}(args)\` resolves to a string.`);

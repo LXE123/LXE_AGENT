@@ -121,7 +121,7 @@ await Bun.write(${JSON.stringify(completed)}, "completed");
     });
     const lines = output.split("\n");
     expect(lines.slice(0, 3)).toEqual(["src/a.ts:1:hit", "src/a.ts:2:hit", "src/a.ts:3:hit"]);
-    expect(lines.at(-1)).toContain("更多匹配未显示");
+    expect(lines.at(-1)).toContain("More matches omitted");
     expect(output).not.toContain("src/a.ts:100:hit");
     expect(existsSync(completed)).toBe(false);
   });
@@ -145,7 +145,7 @@ for (let index = 0; index < 100_000; index += 1) {
       outputMode: "content",
       limit: 1_000_000,
     });
-    expect(output).toContain("安全上限");
+    expect(output).toContain("1 MiB limit");
     const retained = output.split("\n").slice(0, -1).join("\n");
     expect(Buffer.byteLength(retained, "utf8")).toBeLessThanOrEqual(1_024 * 1_024);
   });
@@ -163,7 +163,7 @@ process.stdout.write("overflow\\n");
     const finalOutput = await new WorkspaceSearchService(root, { ripgrepPath: finalOverflow }).grep({
       pattern: "x", searchPath: root, outputMode: "content", limit: 1_000_000,
     });
-    expect(finalOutput).toContain("安全上限");
+    expect(finalOutput).toContain("1 MiB limit");
     expect(finalOutput).not.toContain("overflow");
 
     const unterminated = join(root, "fake-rg-unterminated");
@@ -174,7 +174,7 @@ process.stdout.write("中".repeat(400_000));
     const unterminatedOutput = await new WorkspaceSearchService(root, { ripgrepPath: unterminated }).grep({
       pattern: "x", searchPath: root, outputMode: "content", limit: 1_000_000,
     });
-    expect(unterminatedOutput).toContain("单行输出超过");
+    expect(unterminatedOutput).toContain("One output line exceeded");
     expect(unterminatedOutput).not.toBe("No matches found.");
   });
 

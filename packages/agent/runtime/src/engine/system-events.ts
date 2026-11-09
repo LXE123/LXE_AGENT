@@ -93,6 +93,6 @@ export function heartbeatPrompt(events: readonly PendingSystemEvent[]): string {
   const formatted = formatPendingSystemEvents(events);
   return [
     formatted,
-    "System: 以上是后台任务完成事件。请只处理这些事件的结果，将执行状态简洁告知用户。不要主动读取聊天记录、群消息或调用与上述事件无关的工具。",
+    "System: Briefly report the status of the background tasks listed above. Handle only these completion events. Do not fetch chat history or group messages, or call tools unrelated to these events.",
   ].filter(Boolean).join("\n\n").trim();
 }

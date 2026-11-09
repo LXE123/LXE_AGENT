@@ -252,7 +252,7 @@ describe("TypeScriptAgentRuntime", () => {
       expect(store.messageTurnIds.at(-1)).toBe("j1");
       const marker = store.messages.at(-1)!;
       expect(marker.role).toBe("user");
-      expect(marker.content).toBe("<turn_aborted>\n用户主动中断了上一回合。被中断的工具或命令可能已部分执行；后续继续时请先核实实际状态。\n</turn_aborted>");
+      expect(marker.content).toBe("<turn_aborted>\nThe user interrupted the previous turn. A tool or command may have run partially. Check its current state before continuing.\n</turn_aborted>");
       if (phase !== "model") {
         const results = store.messages.flatMap(m => Array.isArray(m.content) ? m.content : [])
           .filter(block => block.type === "tool_result" && block.tool_call_id === "stopped-call");

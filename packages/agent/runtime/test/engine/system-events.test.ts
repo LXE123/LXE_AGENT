@@ -27,7 +27,7 @@ describe("pending system events", () => {
     if (!Array.isArray(result) || !Array.isArray(prepared)) throw new Error("expected content blocks");
     expect(result).toEqual(prepared);
     expect(blocks).toEqual(original);
-    expect(withTurnContext(heartbeatPrompt(events), [])).toContain("System: completed");
+    expect(withTurnContext(heartbeatPrompt(events), [])).toContain("System: completed\n\nSystem: Briefly report the status of the background tasks listed above.");
   });
   test("normalizes Unix and legacy ISO timestamps", () => {
     const events = normalizePendingSystemEvents([

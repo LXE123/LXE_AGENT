@@ -91,7 +91,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ### 在 codemode 中查找和调用工具
 
-每轮开始时，agentcli 在 `mcp_servers` 目录中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): 管理桌面定时任务`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
+每轮开始时，agentcli 在 `mcp_servers` 目录中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
 
 同一轮的多次模型调用复用这份目录。第一轮把目录放在初始指令里。下一轮发现目录变化时，支持中途指令的模型会在该轮用户输入前收到新版目录，最后一个服务撤下时会收到目录已清空的说明。其他模型在开头的指令里收到最新目录。续聊和分叉按各自的历史回放，压缩摘要保存截断处生效的目录和工具清单。各模型的请求布局见 [模型目录与选择](../../llm/provider_catalog.md)。
 

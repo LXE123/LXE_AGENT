@@ -101,7 +101,7 @@ const assertFileVersionUnchanged = async (path: string, expected: FileVersion): 
     // Treated as a version change.
   }
   if (actual !== expected) {
-    throw new Error(`read 期间文件发生变化，请重新读取最新内容: ${path}`);
+    throw new Error(`File changed during read. Read it again to get the current contents: ${path}`);
   }
 };
 
@@ -207,7 +207,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
         const currentVersion = writeTargetVersion(current);
         if (version !== currentVersion) {
-          throw new Error(`write 被拒绝：文件在写入前发生变化，请重新 read 确认最新内容: ${path}`);
+          throw new Error(`write rejected. The file changed before the write. Read it again before writing: ${path}`);
         }
         if (version !== undefined) ledger.assertVersion(context.session_id, requested, "write", currentVersion);
         assertActive(signal);
@@ -241,7 +241,7 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
           if (canonicalPathCandidate(requested) !== identity) throw new Error(`edit target changed during approval; read it again: ${requested}`);
         }
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
-        if (writeTargetVersion(current) !== version) throw new Error(`edit 被拒绝：文件发生变化，请重新 read: ${path}`);
+        if (writeTargetVersion(current) !== version) throw new Error(`edit rejected. The file changed. Read it again before editing: ${path}`);
         ledger.assertVersion(context.session_id, requested, "edit", writeTargetVersion(current));
         assertActive(signal);
         writeFileSync(path, prepared.content, "utf8");

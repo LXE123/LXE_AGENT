@@ -21,13 +21,13 @@ describe("FileVersionLedger", () => {
     writeFileSync(path, "v1\n");
     const ledger = new FileVersionLedger();
 
-    expect(() => ledger.assertVersion("session-a", path, "edit", currentFileVersion(path))).toThrow("先用 read");
+    expect(() => ledger.assertVersion("session-a", path, "edit", currentFileVersion(path))).toThrow("Use read before modifying");
     ledger.recordCurrent("session-a", path);
     expect(() => ledger.assertVersion("session-a", path, "edit", currentFileVersion(path))).not.toThrow();
-    expect(() => ledger.assertVersion("session-b", path, "edit", currentFileVersion(path))).toThrow("先用 read");
+    expect(() => ledger.assertVersion("session-b", path, "edit", currentFileVersion(path))).toThrow("Use read before modifying");
 
     writeFileSync(path, "externally changed\n");
-    expect(() => ledger.assertVersion("session-a", path, "write", currentFileVersion(path))).toThrow("重新 read");
+    expect(() => ledger.assertVersion("session-a", path, "write", currentFileVersion(path))).toThrow("Read it again");
   });
 
   test("detects rename/recreate and does not record a missing new file", () => {
@@ -40,12 +40,12 @@ describe("FileVersionLedger", () => {
     ledger.recordCurrent("session", path);
     writeFileSync(replacement, "same size\n");
     renameSync(replacement, path);
-    expect(() => ledger.assertVersion("session", path, "edit", currentFileVersion(path))).toThrow("重新 read");
+    expect(() => ledger.assertVersion("session", path, "edit", currentFileVersion(path))).toThrow("Read it again");
 
     const newPath = join(root, "new.txt");
     expect(currentFileVersion(newPath)).toBeUndefined();
     ledger.recordCurrent("session", newPath);
-    expect(() => ledger.assertVersion("session", newPath, "write", currentFileVersion(newPath))).toThrow("先用 read");
+    expect(() => ledger.assertVersion("session", newPath, "write", currentFileVersion(newPath))).toThrow("Use read before modifying");
   });
 
   test("evicts the oldest entry after reaching its capacity", () => {
@@ -56,7 +56,7 @@ describe("FileVersionLedger", () => {
     const ledger = new FileVersionLedger(2);
     for (const path of paths) ledger.recordCurrent("session", path);
 
-    expect(() => ledger.assertVersion("session", paths[0]!, "edit", currentFileVersion(paths[0]!))).toThrow("先用 read");
+    expect(() => ledger.assertVersion("session", paths[0]!, "edit", currentFileVersion(paths[0]!))).toThrow("Use read before modifying");
     expect(() => ledger.assertVersion("session", paths[1]!, "edit", currentFileVersion(paths[1]!))).not.toThrow();
     expect(() => ledger.assertVersion("session", paths[2]!, "edit", currentFileVersion(paths[2]!))).not.toThrow();
   });

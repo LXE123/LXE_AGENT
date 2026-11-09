@@ -35,7 +35,7 @@ export async function runPiReference(cli: string, root: string, provider: string
   writeConfig("mcp.json", { mcpServers: { lxe_desktop: {
     command: process.execPath, args: [import.meta.path, desktop.LXE_DESKTOP_MCP_SCRIPT, session, turn],
     env: { LXE_DESKTOP_MCP_PIPE: desktop.LXE_DESKTOP_MCP_PIPE, LXE_DESKTOP_MCP_TOKEN: desktop.LXE_DESKTOP_MCP_TOKEN },
-    exposure: "codemode", description: "管理桌面定时任务",
+    exposure: "codemode", description: "Manage scheduled tasks in the desktop app.",
   } } });
   const ref = Bun.spawn(["node", cli, "--model", "localfixture/parity", "--no-session", "-p", "List failed scheduled runs"], {
     cwd: dir, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,

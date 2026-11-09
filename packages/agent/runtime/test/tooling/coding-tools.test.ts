@@ -134,7 +134,7 @@ describe("native coding tools", () => {
       expect(processId).toMatch(/^exec_/);
       if (!processId) throw new Error("missing background process id");
       expect(String((await registry.execute("wait", { exec_id: processId, terminate: true }, contextB)).content[0]?.text))
-        .toContain("不存在");
+        .toContain("does not exist");
       await registry.execute("wait", { exec_id: processId, terminate: true }, contextA);
     } finally {
       process.chdir(previousCwd);
@@ -463,7 +463,7 @@ describe("native coding tools", () => {
       tool_call_id: "tool-exec-1",
     })]);
     expect(String((await registry.execute("wait", { exec_id: execId }, context(root))).content[0]?.text))
-      .toContain("已经关闭");
+      .toContain("has already closed");
 
     const completedText = String((await registry.execute("exec", {
       command: "python -c \"print('x' * 3000)\"",
@@ -507,6 +507,7 @@ describe("native coding tools", () => {
     expect(oversized).toContain("observation_truncated: true");
     expect(oversized).toContain("output_file_covers_captured: true");
     expect(oversized).toContain("output_file_truncated: false");
+    expect(oversized).toContain("Use exec to search the saved file or read with offset/limit");
     expect(oversized).toContain("最终失败：缺少依赖");
     expect(oversized).not.toContain("第 0 行");
     expect(oversized).not.toContain("�");
@@ -579,7 +580,7 @@ describe("native coding tools", () => {
     expect((await processes.wait({
       execId: polled, sessionId: "s1", yieldMs: 200, terminate: false,
       signal: new AbortController().signal,
-    })).error).toContain("已经关闭");
+    })).error).toContain("has already closed");
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
     await waitForProcess(processes, killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
@@ -724,7 +725,7 @@ describe("native coding tools", () => {
     expect(performance.now() - terminateStarted).toBeLessThan(5_000);
     expect(activeResult.status).toBe("killed");
     expect(terminateResult.status).toBe("killed");
-    expect(queuedResult.error).toContain("已经关闭");
+    expect(queuedResult.error).toContain("has already closed");
     expect(order).toEqual(["active", "terminate", "queued"]);
     await processes.stop();
   }, 15_000);
@@ -910,12 +911,12 @@ describe("native coding tools", () => {
     const processes = registerCodingTools(registry, {});
     await expect(registry.execute("edit", {
       path: "existing.txt", edits: [{ oldText: "v1", newText: "v2" }],
-    }, context(root))).rejects.toThrow("先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await registry.execute("read", { path: "existing.txt" }, context(root));
     writeFileSync(join(root, "existing.txt"), "external\n", "utf8");
     await expect(registry.execute("write", {
       file_path: "existing.txt", content: "blind overwrite\n",
-    }, context(root))).rejects.toThrow("重新 read");
+    }, context(root))).rejects.toThrow("Read it again");
     await registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context(root));
     await registry.execute("write", {
       file_path: "var/db/sessions.json", content: "{}",
@@ -1039,7 +1040,7 @@ describe("native coding tools", () => {
       await expect(registry.execute("read", { path: "unread.txt", offset: 3 }, context(root))).rejects.toThrow("beyond end of file");
       await expect(registry.execute("edit", {
         path: "unread.txt", edits: [{ oldText: "one", newText: "two" }],
-      }, context(root))).rejects.toThrow("请先用 read");
+      }, context(root))).rejects.toThrow("Use read before modifying");
     } finally { await processes.stop(); }
   });
 
@@ -1110,14 +1111,14 @@ describe("native coding tools", () => {
         path: "changing.txt",
         offset: 1_999_999,
         limit: 1,
-      }, context(root))).rejects.toThrow("read 期间文件发生变化");
+      }, context(root))).rejects.toThrow("File changed during read");
     } finally {
       clearInterval(mutation);
     }
     await expect(registry.execute("edit", {
       path: "changing.txt",
       edits: [{ oldText: "old", newText: "new" }],
-    }, context(root))).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await processes.stop();
   });
 
@@ -1132,7 +1133,7 @@ describe("native coding tools", () => {
     await expect(registry.execute("read", { path: "cancelled.txt" }, context(root, controller))).rejects.toThrow("cancelled");
     await expect(registry.execute("edit", {
       path: "cancelled.txt", edits: [{ oldText: "content", newText: "changed" }],
-    }, context(root))).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await processes.stop();
   });
 

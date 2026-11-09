@@ -76,7 +76,7 @@ context overflow 独立走一次强制 compaction；压缩成功且预算回到�
 
 ```text
 <turn_aborted>
-用户主动中断了上一回合。被中断的工具或命令可能已部分执行；后续继续时请先核实实际状态。
+The user interrupted the previous turn. A tool or command may have run partially. Check its current state before continuing.
 </turn_aborted>
 ```
 

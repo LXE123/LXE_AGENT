@@ -147,11 +147,11 @@ test("scripts write files and inspect structured foreground, yielded and termina
   expect(first.exec_id).toStartWith("exec_");
   await transcript.ensureSession({ session_id: "other", source: {}, workspace: context.workspace });
   await expect(run(`return await tools.wait({exec_id:${JSON.stringify(first.exec_id)},terminate:true})`, "other"))
-    .rejects.toThrow("不存在或已经关闭");
+    .rejects.toThrow("does not exist or has already closed");
   const last = await run(`await tools.write({file_path:"finish",content:""}); return await tools.wait({exec_id:load("job")});`);
   expect(last).toMatchObject({ exec_id: first.exec_id, status: "failed", exit_code: 7 });
   expect(first.output + last.new_output).toBe("first\nsecond\n");
-  await expect(run('return await tools.wait({exec_id:load("job")})')).rejects.toThrow("不存在或已经关闭");
+  await expect(run('return await tools.wait({exec_id:load("job")})')).rejects.toThrow("does not exist or has already closed");
   rmSync(join(root, "finish"));
   const killed = await run(`const r = ${launch}; return await tools.wait({exec_id:r.exec_id,terminate:true});`);
   expect(killed.status).toBe("killed");
@@ -205,10 +205,10 @@ test("nested edit shares file versions with direct read and enforces denials and
   const run = (code: string, mode: "read-only" | "workspace-write", signal?: AbortSignal) => registry.execute("codemode", { code }, {
     ...context, executionPolicy: { ...context.executionPolicy, mode }, ...(signal ? { signal } : {}),
   });
-  await expect(run(edit, "workspace-write")).rejects.toThrow("请先用 read");
+  await expect(run(edit, "workspace-write")).rejects.toThrow("Use read before modifying");
   await registry.execute("read", { path: "order.txt" }, context);
   writeFileSync(file, "ready from another editor");
-  await expect(run(edit, "workspace-write")).rejects.toThrow("请重新 read");
+  await expect(run(edit, "workspace-write")).rejects.toThrow("Read it again");
   await run('await tools.read({path:"order.txt"})', "read-only");
   await expect(run(edit, "read-only")).rejects.toThrow("read-only mode does not allow file writes");
   const elevated = `await tools.edit(${JSON.stringify({ ...args, sandbox_permissions: "workspace-write", justification: "Update order" })})`;
@@ -450,7 +450,7 @@ test("Pi discovery offers ranked callable names, signatures and scoped namespace
   expect(value.same).toBe(true);
   expect(value.missing).toBe(true);
   expect(value.empty).toEqual([]);
-  expect(value.ns).toEqual({ name: "mcp__lxe_desktop", description: "管理桌面定时任务", instructions: "Desktop instructions", tools: [alias] });
+  expect(value.ns).toEqual({ name: "mcp__lxe_desktop", description: "Manage scheduled tasks in the desktop app.", instructions: "Desktop instructions", tools: [alias] });
   await expect(run('await searchTools("widget", { limit: 0 })')).rejects.toThrow("positive integer");
   await expect(run('await searchTools("widget", { namespace: 2 })')).rejects.toThrow("namespace must be a string");
 });

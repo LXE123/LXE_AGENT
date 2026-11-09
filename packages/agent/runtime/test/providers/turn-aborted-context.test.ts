@@ -27,6 +27,7 @@ test("all three adapters retain stop context separately from the next user input
     expect(adapted).toHaveLength(2);
     expect(adapted.map(m => m.role)).toEqual(["user", "user"]);
     expect(JSON.stringify(adapted[0])).toContain("<turn_aborted>");
+    expect(JSON.stringify(adapted[0])).toContain("Check its current state before continuing.");
     expect(JSON.stringify(adapted[0])).not.toContain(next);
     expect(JSON.stringify(adapted[1])).toContain(next);
     expect(JSON.stringify(adapted[1])).not.toContain("turn_aborted");

@@ -47,7 +47,7 @@ describe("edit file execution", () => {
   test("retains read/version gates and updates the ledger after a successful batch", async () => {
     const { path, registry, context } = setup();
     const input = { path, edits: [{ oldText: "second", newText: "SECOND" }, { oldText: "first", newText: "FIRST" }] };
-    await expect(registry.execute("edit", input, context)).rejects.toThrow("先用 read");
+    await expect(registry.execute("edit", input, context)).rejects.toThrow("Use read before modifying");
     await registry.execute("read", { path }, context);
     const result = await registry.execute("edit", input, context);
     expect(result.content[0]?.text).toContain("2 replacement(s)");
@@ -55,7 +55,7 @@ describe("edit file execution", () => {
     expect(readFileSync(path, "utf8")).toBe("FIRST\nSECOND\n");
     await registry.execute("edit", { path, edits: [{ oldText: "FIRST", newText: "next" }] }, context);
     writeFileSync(path, "external modification\n");
-    await expect(registry.execute("edit", { path, edits: [{ oldText: "external", newText: "lost" }] }, context)).rejects.toThrow("重新 read");
+    await expect(registry.execute("edit", { path, edits: [{ oldText: "external", newText: "lost" }] }, context)).rejects.toThrow("Read it again");
     expect(readFileSync(path, "utf8")).toBe("external modification\n");
   });
   test("any failed item leaves the entire file unchanged", async () => {
@@ -81,7 +81,7 @@ describe("edit file execution", () => {
     }
     const { path, registry, context } = setup(new ChangingLedger());
     await registry.execute("read", { path }, context);
-    await expect(registry.execute("edit", { path, edits: [{ oldText: "first", newText: "FIRST" }] }, context)).rejects.toThrow("重新 read");
+    await expect(registry.execute("edit", { path, edits: [{ oldText: "first", newText: "FIRST" }] }, context)).rejects.toThrow("Read it again");
     expect(readFileSync(path, "utf8")).toBe("first\nsecond\nexternal write before commit");
   });
   test("observes cancellation before writing even after preparation", async () => {

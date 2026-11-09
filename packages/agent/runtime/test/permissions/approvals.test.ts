@@ -87,7 +87,7 @@ test.each(["write", "edit"] as const)("%s approval refuses a target changed whil
   const [request] = await pending(f.approvals);
   await f.tools.execute("write", { file_path: path, content: "external" }, f.context("danger-full-access"));
   await f.approvals.decide({ session_id: "s", request_id: request!.request_id, decision: "allow" });
-  expect((await call).message).toMatch(/changed|重新 read/);
+  expect((await call).message).toMatch(/changed|Read it again/);
   expect(readFileSync(path, "utf8")).toBe("external");
 });
 
