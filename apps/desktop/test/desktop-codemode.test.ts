@@ -14,7 +14,15 @@ import { NodeAutomationStore } from "../src/main/automation-store";
 import { desktopCodemodeReport } from "./fixtures/desktop-codemode-script";
 import { runPiReference } from "./fixtures/pi-codemode-reference";
 
-const discovery = 'return (await searchTools("automation_runs")).map(tool => tool.name)';
+const discovery = `
+  const names = (await searchTools("automation_runs")).map(tool => tool.name);
+  store("desktopTools", names);
+  return names;
+`;
+const reportFromStore = `
+  if (!load("desktopTools")?.includes("mcp__lxe_desktop__automation_runs")) throw new Error("Missing stored desktop tool");
+  ${desktopCodemodeReport}
+`;
 
 
 test.each(["compile", "build"] as const)("%s artifact discovers and calls desktop MCP with identical wire tools", async mode => {
@@ -22,7 +30,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
   const repo = resolve(import.meta.dir, "../../..");
   const executable = join(root, "agent-cli" + (process.platform === "win32" ? ".exe" : ""));
   const bundleDir = join(root, "bundle");
-  const nextCalls: { name: string; arguments: object }[] = [discovery, desktopCodemodeReport].map(code => ({ name: "codemode", arguments: { code } }));
+  const nextCalls: { name: string; arguments: object }[] = [discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } }));
   const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = await request.json() as typeof requests[number];
@@ -101,7 +109,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     const piCli = process.env.LXE_TEST_PI_CLI;
     if (piCli && mode === "build") {
       const start = requests.length;
-      nextCalls.push(...[discovery, desktopCodemodeReport].map(code => ({ name: "codemode", arguments: { code } })));
+      nextCalls.push(...[discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } })));
       await runPiReference(piCli, root, provider.url.origin, environment, job.session_id, job.job_id);
       const piRequests = requests.slice(start);
       expect(piRequests).toHaveLength(3);

@@ -1,10 +1,22 @@
 import { validContextAnchor } from "../engine/context-meter";
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { RuntimeConversationMessage, RuntimeMessage } from "../engine/types";
 
 import { environmentMetadata } from "../engine/environment-context";
 
 export const TRANSCRIPT_VERSION = 3;
+
+/** Codemode state follows the transcript branch, independently of model context patches. */
+export function applyCodemodeStoreEvent(store: Map<string, JsonValue>, event: JsonObject): void {
+  if (event.kind !== "codemode_store") return;
+  const { set, delete: deleted } = event;
+  if (!set || typeof set !== "object" || Array.isArray(set) ||
+      !Array.isArray(deleted) || !deleted.every(key => typeof key === "string")) {
+    throw new Error("Invalid codemode_store transcript entry");
+  }
+  for (const key of deleted) store.delete(key);
+  for (const [key, value] of Object.entries(set)) store.set(key, value);
+}
 
 export const replacementKinds = new Set([
   "compaction",

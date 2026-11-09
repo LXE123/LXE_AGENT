@@ -29,6 +29,7 @@ import {
 } from "@lxe/core";
 import {
   TRANSCRIPT_VERSION,
+  applyCodemodeStoreEvent,
   applyTranscriptEvent,
   createContextPatchEvent,
   normalizeTranscriptMessage,
@@ -367,6 +368,13 @@ interface ReplayCacheEntry {
   messages: RuntimeMessage[];
 }
 
+interface TranscriptTip {
+  size: number;
+  mtimeMs: number;
+  id: string | null;
+  codemodeStore: Map<string, JsonValue>;
+}
+
 interface TranscriptFileState {
   file_size: number;
   mtime_ms: number;
@@ -402,7 +410,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private usageStore: UsageStore | undefined;
   private readonly pendingImages = new Map<string, { sessionId: string; turnId: string; image: JsonObject }>();
   private readonly replayCache = new Map<string, ReplayCacheEntry>();
-  private readonly tips = new Map<string, { size: number; mtimeMs: number; id: string | null }>();
+  private readonly tips = new Map<string, TranscriptTip>();
   private readonly writeQueues = new Map<string, Promise<void>>();
   private readonly indexQueues = new Map<string, Promise<void>>();
   private readonly replayCacheMaxEntries: number;
@@ -994,6 +1002,28 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const path = this.transcriptPath(sessionId);
       const cached = this.validCacheBeforeWrite(sessionId, path);
       await this.appendTranscriptEvent(sessionId, { kind: "turn_end", turn_id: turnId, status, ts: Date.now() / 1_000 });
+      if (cached) await this.refreshReplayCacheMetadata(sessionId, path, cached);
+      await this.enqueueIndexSync(sessionId, path);
+    });
+  }
+
+  async readCodemodeStore(sessionId: string): Promise<JsonObject> {
+    return this.enqueueSessionWrite(sessionId, async () => {
+      const tip = await this.prepareTranscript(sessionId);
+      return tip ? structuredClone(Object.fromEntries(tip.codemodeStore)) : {};
+    });
+  }
+
+  async appendCodemodeStore(
+    sessionId: string, turnId: string | undefined, writes: { set: JsonObject; delete: string[] }, signal: AbortSignal,
+  ): Promise<void> {
+    if (!Object.keys(writes.set).length && !writes.delete.length) return;
+    await this.enqueueSessionWrite(sessionId, async () => {
+      const path = this.transcriptPath(sessionId);
+      const cached = this.validCacheBeforeWrite(sessionId, path);
+      await this.appendTranscriptEvent(sessionId, {
+        kind: "codemode_store", ...writes, ...(turnId ? { turn_id: turnId } : {}), ts: Date.now() / 1_000,
+      }, signal);
       if (cached) await this.refreshReplayCacheMetadata(sessionId, path, cached);
       await this.enqueueIndexSync(sessionId, path);
     });
@@ -1805,7 +1835,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   // Called under the session write queue. Merely listing sessions never upgrades their files.
-  private async prepareTranscript(sessionId: string): Promise<string | null> {
+  private async prepareTranscript(sessionId: string): Promise<TranscriptTip | null> {
     const path = this.transcriptPath(sessionId);
     let info;
     try { info = await stat(path); } catch (error) {
@@ -1814,7 +1844,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     }
     if (!info.size) return null;
     const cached = this.tips.get(sessionId);
-    if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) return cached.id;
+    if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) return cached;
     const { lines } = scanTranscriptBuffer(await readFile(path), 0, true);
     const events = lines.map(line => line.event);
     const hasHeader = events[0]?.kind === "transcript_header";
@@ -1823,7 +1853,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
     let parent: string | null = null;
     let upgrade = header.version === 2;
     const ids = new Set<string>();
+    const codemodeStore = new Map<string, JsonValue>();
     for (const event of events) {
+      applyCodemodeStoreEvent(codemodeStore, event);
       if (!hasHeader) {
         // Headerless v2-shaped logs exist. Older replacement-history/tool encodings still need the offline converter.
         if (event.kind === "message") normalizeTranscriptMessage(event.message);
@@ -1850,12 +1882,20 @@ export class SqliteRuntimeStore implements RuntimeStore {
       });
       info = await stat(path);
     }
-    this.tips.set(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id: parent });
-    return parent;
+    const tip = { size: info.size, mtimeMs: info.mtimeMs, id: parent, codemodeStore };
+    this.cacheTranscriptTip(sessionId, tip);
+    return tip;
   }
 
-  private async appendTranscriptEvent(sessionId: string, event: JsonObject): Promise<void> {
-    const parent = await this.prepareTranscript(sessionId);
+  private cacheTranscriptTip(sessionId: string, tip: TranscriptTip): void {
+    this.tips.delete(sessionId);
+    this.tips.set(sessionId, tip);
+    // Evicted branch snapshots are rebuilt from the transcript on demand.
+    if (this.tips.size > DEFAULT_REPLAY_CACHE_MAX_ENTRIES) this.tips.delete(this.tips.keys().next().value!);
+  }
+
+  private async appendTranscriptEvent(sessionId: string, event: JsonObject, signal?: AbortSignal): Promise<void> {
+    const previous = await this.prepareTranscript(sessionId);
     const path = this.transcriptPath(sessionId);
     await mkdir(dirname(path), { recursive: true });
     let size = 0;
@@ -1875,9 +1915,12 @@ export class SqliteRuntimeStore implements RuntimeStore {
     }
     const prefix = size === 0 ? `${JSON.stringify(transcriptHeader(sessionId))}\n` : "";
     const id = randomUUID();
-    await appendFile(path, `${separator}${prefix}${JSON.stringify({ ...event, id, parent_id: parent })}\n`, "utf8");
+    signal?.throwIfAborted();
+    await appendFile(path, `${separator}${prefix}${JSON.stringify({ ...event, id, parent_id: previous?.id ?? null })}\n`, "utf8");
     const info = await stat(path);
-    this.tips.set(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id });
+    const codemodeStore = previous?.codemodeStore ?? new Map<string, JsonValue>();
+    applyCodemodeStoreEvent(codemodeStore, event);
+    this.cacheTranscriptTip(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id, codemodeStore });
   }
 
   /**

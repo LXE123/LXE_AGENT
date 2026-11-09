@@ -199,7 +199,7 @@ export function createAgentRuntimeHost(
     if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");
     mcpConfig.servers.push(desktopMcp);
   }
-  registerMcpDiscoveryTools(tools, mcpConfig);
+  registerMcpDiscoveryTools(tools, mcpConfig, store);
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;

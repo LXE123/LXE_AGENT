@@ -1,6 +1,6 @@
 import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
 import type { JsonObject } from "@lxe/protocol";
-import { registerToolSearch, type McpConfig, type ToolRegistry } from "@lxe/runtime";
+import { registerToolSearch, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
 import { createCodemodeCatalog } from "./codemode-catalog";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
@@ -10,7 +10,11 @@ const workerUrl = Bun.embeddedFiles.length
   ? "./codemode-worker.js"
   : new URL(`./codemode-worker${extname(import.meta.path)}`, import.meta.url);
 
-export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpConfig): void {
+export function registerMcpDiscoveryTools(
+  registry: ToolRegistry,
+  config: McpConfig,
+  transcript: Pick<SqliteRuntimeStore, "readCodemodeStore" | "appendCodemodeStore">,
+): void {
   const hasEnabledServer = (mode: "codemode" | "deferred", platform: string | undefined) => config.servers.some(server =>
     server.enabled && server.exposure === mode && (!server.platforms || server.platforms.includes(platform ?? "")));
   registerToolSearch(registry, platform => hasEnabledServer("deferred", platform));
@@ -22,6 +26,8 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
       "or await describeNamespace(name) for server information and tool names. ALL_TOOLS lists callable tools. " +
       "Call await tools[name](args) for an MCP result with content, optional structuredContent and isError. " +
       "Check isError for server-reported tool errors; a failed connection rejects the call. " +
+      "Use store(key, value) and load(key) to keep small JSON values across successful calls on this chat branch. " +
+      "A missing key loads as undefined. Use store(key, undefined) to delete a key. " +
       "Use return, text(value), or image(block) to show selected output.",
     input_schema: {
       type: "object",
@@ -36,6 +42,9 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
       );
       const scope = exposure.forCodemode();
       const catalog = createCodemodeCatalog(scope.callableTools(), config);
+      const signal = context.signal ? AbortSignal.any([context.signal, context.handle.signal]) : context.handle.signal;
+      const store = await transcript.readCodemodeStore(context.session_id);
+      signal.throwIfAborted();
       let callIndex = 0;
       const sandbox = new CodemodeSandbox({
         wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
@@ -57,7 +66,7 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
         globals: catalog.globals,
       });
       try {
-        const result = await sandbox.execute(input.code, { signal: context.handle.signal });
+        const result = await sandbox.execute(input.code, { signal, store });
         if (!result.ok) throw new Error(result.error.message);
         const content: JsonObject[] = result.output.map(item => item.type === "text"
           ? { type: "text", text: item.text }
@@ -65,6 +74,9 @@ export function registerMcpDiscoveryTools(registry: ToolRegistry, config: McpCon
         if (result.value !== undefined) content.push({
           type: "text", text: typeof result.value === "string" ? result.value : JSON.stringify(result.value),
         });
+        await transcript.appendCodemodeStore(context.session_id, context.turn_id, {
+          set: result.storeWrites.set as JsonObject, delete: result.storeWrites.delete,
+        }, signal);
         return { content };
       } finally {
         await sandbox.close();

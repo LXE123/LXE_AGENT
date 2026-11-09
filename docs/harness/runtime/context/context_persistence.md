@@ -19,6 +19,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 | `model_selection` | 保存会话模型选择及版本，详见 [会话模型](../session-models.md) |
 | `turn_end` | 记录轮尾节点及结果（完成、手动停止或错误等终态），供界面选择分叉位置 |
 | `turn_context` | 记录本轮实际 provider、model、effort 和 context window |
+| `codemode_store` | 保存单次成功脚本的 `set` 和 `delete`。按分支顺序恢复脚本数据，模型消息回放跳过此记录 |
 | `context_patch` | 对当前模型视图做最小删除和插入 |
 
 一次压缩可能追加这样的事件：
