@@ -9,7 +9,7 @@
 ## 完成内容与调用链
 
 - `lxeskill yacang login prepare|submit|status|clear` 经 `services/commands/yacang/login_*.py` 进入 `workflow.login_action`，由 `YacangClient` 和 `YacangAuthState` 处理验证码及会话。
-- `prepare` 读取已确认的 `data.key` 与 JPEG Base64 `data.captcha`；共享登录 Skill 识读验证码，有歧义时请用户确认；`submit` 向现有 `loginV3` 提交结果。挑战提交前消费，5 分钟是本地时限，不代表平台时限。
+- `prepare` 读取已确认的 `data.key` 与 JPEG Base64 `data.captcha`；共享登录 Skill 识读验证码，`submit` 向现有 `loginV3` 提交结果。挑战提交前消费，5 分钟是本地时限，不代表平台时限。
 - 导出经 `workflow.run` 复用本地 token；缺少会话返回 `login_required`，业务接口 401 清除登录态，签名下载的 401 不当作平台登录失效。账号登录与导出使用账号锁；403/429 不自动重试。
 - 菲律宾报表需要本次新数据：内部调用可指定 `require_fresh=True`。如果此前提交状态不明，先确认旧任务已有结果，再提交本次导出；无法确认时保留旧任务状态并停止。普通雅仓导出默认行为不变。
 - 账号凭据指纹隔离会话；POSIX 下目录和文件权限为 0700/0600，Windows 沿用应用状态目录 ACL。`status` 只表示本地状态，`clear` 不执行平台注销，也不取消已开始且持有内存 token 的导出。
@@ -36,3 +36,8 @@
 - 雅仓自动识读指引已在本工作区恢复，尚未提交或推送；产品内模型识读真实验证码仍为 **NOT VERIFIED**。菲律宾分支的共享 Skill 待前序修复归位后同步。
 - 同账号登录提交和导出共用账号锁；此前恢复的 token 比较及其直接写入会话的测试绕过该锁，不能证明正常流程存在竞态，本轮已移除。PR 描述和评论应与当前代码及 85 项测试结果保持一致。
 - 前序 PR 归位后，再验证 TMS 与菲律宾分支；不得把 pool-18 的未提交联调副本混入雅仓 PR。
+
+## 2026-11-09：登录与续跑指引
+
+- pool-19、`codex/yacang-login-reuse`：`skills/shangman-login/SKILL.md` 调整为图片识读不清或平台明确验证码错误时共用最多两次换图；`services/yacang/workflow.py` 为失败任务标记本轮已提交，供菲律宾任务区分旧任务和本次任务。凭据仍由 `LXE_YACANG_MOBILE`、`LXE_YACANG_PASSWORD` 注入。
+- 工作区根运行雅仓测试，使用本机模拟服务：85 passed；产品中模型识读、换图及真实平台错误格式尚未验证。Git 状态以 `git status` 为准；菲律宾分支保留相同改动并在前序归位后复核。

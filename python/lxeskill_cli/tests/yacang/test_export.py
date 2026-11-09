@@ -322,6 +322,7 @@ def test_global_failure_stops_remaining_tasks_and_preserves_error(platform, stat
     assert sum(t['status'] == 'not_run' for t in result['tasks']) == 3
     if status == 401:
         assert result['error']['code'] == 'login_required'
+        assert result['tasks'][0]['submitted_in_run'] is True
         assert YacangAuthState(Credentials.from_environment()).status()['status'] == 'missing'
 
 
@@ -349,6 +350,7 @@ def test_fresh_export_stops_if_previous_task_cannot_be_checked(platform):
     platform['reject']['/sys/customer/downPath/list'] = (500, {'msg': 'queue unavailable'})
     result = workflow.run(request(warehouses=['MY8801']), require_fresh=True)
     assert not result['success']
+    assert 'submitted_in_run' not in result['tasks'][0]
     assert len(submits(platform)) == 1
     platform['reject'].pop('/sys/customer/downPath/list')
     platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',

@@ -55,6 +55,7 @@ def run(arguments, *, require_fresh=False):
             spec = {k: task[k] for k in ('report', 'warehouse', 'created_date')}
             key = task_key(credentials.account_id, spec)
             temporary = None
+            submitted_in_run = False
             try:
                 with state.task_lock(key):
                     baseline = state.pending(key)
@@ -66,6 +67,7 @@ def run(arguments, *, require_fresh=False):
                     if baseline is None:
                         baseline = {str(r['id']) for r in client.list_downloads()}
                         state.begin(key, baseline)
+                        submitted_in_run = True
                         try:
                             client.submit(spec)
                         except YacangError as exc:
@@ -103,6 +105,8 @@ def run(arguments, *, require_fresh=False):
                     except OSError as cleanup:
                         error['cleanup_error'] = client.diagnostic(f'{type(cleanup).__name__}: {cleanup}')
                 task.update(status='failed', error=error)
+                if submitted_in_run:
+                    task['submitted_in_run'] = True
                 if getattr(exc, 'scope', 'global') == 'global':
                     break
         failed = [t for t in tasks if t['status'] != 'completed']
