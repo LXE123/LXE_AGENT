@@ -9297,7 +9297,7 @@ pre {
   white-space: nowrap;
 }
 
-.message-meta-copy {
+.message-meta-action {
   display: inline-flex;
   width: 28px;
   height: 28px;
@@ -9311,12 +9311,12 @@ pre {
   cursor: pointer;
 }
 
-.message-meta-copy:hover {
+.message-meta-action:hover:not(:disabled) {
   background: var(--surface-muted);
   color: var(--text-soft);
 }
 
-.message-meta-copy:focus-visible {
+.message-meta-action:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
@@ -11660,7 +11660,9 @@ pre {
 }
 
 /* Virtual rows share answer identity so text, files and footer reveal one toolbar. */
-[data-answer-active="true"] .answer-footer .message-meta.role-assistant {
+[data-answer-active="true"] .answer-footer .message-meta.role-assistant,
+.answer-footer:focus-within .message-meta.role-assistant,
+.answer-footer:has(:popover-open) .message-meta.role-assistant {
   opacity: 1;
   pointer-events: auto;
   transform: none;

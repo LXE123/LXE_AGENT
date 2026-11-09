@@ -130,10 +130,12 @@ function MessageMeta({
   createdAt,
   role,
   text,
+  children,
 }: {
   createdAt: number;
   role: "assistant" | "user";
   text: string;
+  children?: React.ReactNode;
 }) {
   const t = useUiText();
   const [copied, setCopied] = useState(false);
@@ -151,7 +153,7 @@ function MessageMeta({
   const copyButton = text ? (
     <button
       aria-label={copyLabel}
-      className="message-meta-copy"
+      className="message-meta-action message-meta-copy"
       onClick={handleCopy}
       title={copyLabel}
       type="button"
@@ -162,10 +164,11 @@ function MessageMeta({
   const time = timestamp ? (
     <time dateTime={new Date(createdAt * 1000).toISOString()}>{timestamp}</time>
   ) : null;
-  if (!copyButton && !time) return null;
+  if (!copyButton && !time && !children) return null;
   return (
     <div className={`message-meta role-${role}`}>
       {role === "user" ? time : copyButton}
+      {children}
       {role === "user" ? copyButton : time}
     </div>
   );
@@ -1394,8 +1397,9 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     </div>;
   }
   if (row.kind === "answer_meta") return <div className="answer-footer">
-    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
-    {onFork && row.answerMeta?.forkable && <ForkMenu disabled={!!forkDisabled} onFork={() => onFork(row.turnId)} />}
+    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt}>
+      {onFork && row.answerMeta?.forkable && <ForkMenu placement="reply" disabled={!!forkDisabled} onFork={() => onFork(row.turnId)} />}
+    </MessageMeta>
   </div>;
   if (row.kind === "process") return <button type="button" className="conversation-process-toggle conversation-chrome-theme"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>

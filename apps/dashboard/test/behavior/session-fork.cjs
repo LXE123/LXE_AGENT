@@ -14,6 +14,17 @@ module.exports = async ({ js, step, load, waitFor, click, state }) => {
   await step("each completed turn has one branch action and opens an independent chat at its cutoff", async () => {
     await waitFor("document.querySelectorAll(" + JSON.stringify(footer) + ").length === 2", "two turn footers");
     await click(footer);
+    const bounds = await js(`(() => {
+      const more = document.querySelector('${footer}');
+      const row = more.closest('.answer-footer');
+      const rect = el => el.getBoundingClientRect().toJSON();
+      return { copy: rect(row.querySelector('.message-meta-copy')), more: rect(more),
+        time: rect(row.querySelector('time')), menu: rect(row.querySelector(':popover-open')) };
+    })()`);
+    assert.ok(bounds.more.left >= bounds.copy.right && bounds.more.left - bounds.copy.right <= 8, "more sits beside copy");
+    assert.ok(bounds.time.left >= bounds.more.right && bounds.time.left - bounds.more.right <= 10, "time follows both actions");
+    assert.ok(Math.abs(bounds.more.left - bounds.menu.left) <= 1 && bounds.more.top - bounds.menu.bottom >= 0
+      && bounds.more.top - bounds.menu.bottom <= 8, "reply menu opens just above its trigger");
     await click(action);
     await title("Branch 1");
     assert.deepEqual((await forkCalls()).at(-1).input, { session_id: "Default chat", turn_id: "one" });
@@ -25,8 +36,15 @@ module.exports = async ({ js, step, load, waitFor, click, state }) => {
     await title("Default chat");
     assert.ok((await state()).calls.some(call => call.operation === "sessions.detail" && call.input.message_turn_id === "one"));
     await waitFor("document.querySelector(" + JSON.stringify(header) + ")?.disabled === false", "available header branch");
+    assert.equal(await js(`(() => { const style = getComputedStyle(document.querySelector('${header}'));
+      return style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.borderTopWidth === '0px'; })()`), true,
+      "the idle titlebar action has no surrounding box");
     await click(header);
     await waitFor("Boolean(document.querySelector(" + JSON.stringify(action) + "))", "header menu open");
+    assert.ok(await js(`(() => { const b = document.querySelector('${header}').getBoundingClientRect();
+      const m = document.querySelector('.conversation-fork-menu:popover-open').getBoundingClientRect();
+      return m.top >= b.bottom && m.top - b.bottom <= 8 && Math.abs(b.right - m.right) <= 1; })()`),
+      "titlebar menu opens below and stays aligned to the trigger");
     await click(action);
     await title("Branch 2");
     assert.deepEqual((await forkCalls()).at(-1).input, { session_id: "Default chat" });
