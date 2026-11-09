@@ -120,26 +120,43 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     }
 
     const toggle = (name: string, enabled: boolean) => runtime.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled } });
-    const nextTurn = async (id: string) => {
-      const turn = { ...job, message_id: id, job_id: id };
+    const nextTurn = async (id: string, sessionId = job.session_id) => {
+      const turn = { ...job, session_id: sessionId, session_key: sessionId, conversation_id: sessionId, message_id: id, job_id: id };
       const start = requests.length;
       expect((await runtime.runTurn(turn, new RunHandle(turn))).status).toBe("completed");
       return requests.slice(start).map(body => body.tools.map(tool => tool.function.name));
     };
     await toggle("reports", true);
-    nextCalls.push({ name: "tool_search", arguments: { query: "mcp__reports__echo" } });
+    nextCalls.push({ name: "tool_search", arguments: { query: "mcp__reports__echo", limit: 1 } });
     const mixed = await nextTurn("search-reports");
     expect(mixed).toHaveLength(2);
     expect(mixed[0]).toContain("codemode");
     expect(mixed[0]).toContain("tool_search");
     expect(mixed[0]).not.toContain("mcp__reports__echo");
     expect(mixed[1]).toContain("mcp__reports__echo");
+    expect(lastToolOutput(requests.length - 1)).toContain("- mcp__reports__echo");
+    expect(lastToolOutput(requests.length - 1)).not.toContain("input_schema");
+
+    const forkAt = async (turn_id: string) => (await runtime.dashboardCall({
+      operation: "sessions.fork", input: { session_id: job.session_id, turn_id },
+    })).session_id;
+    const beforeLoad = await forkAt(job.job_id);
+    const afterLoad = await forkAt("search-reports");
+    expect((await nextTurn("fork-before", beforeLoad))[0]).not.toContain("mcp__reports__echo");
+    const resumed = await nextTurn("fork-after", afterLoad);
+    expect(resumed[0]).toEqual(mixed[1]);
+    nextCalls.push({ name: "tool_search", arguments: { query: "echo" } });
+    const repeat = await nextTurn("search-again");
+    expect(repeat[0]).toEqual(mixed[1]);
+    expect(repeat[1]).toEqual(repeat[0]);
+    expect(lastToolOutput(requests.length - 1)).toContain("No matching tools found.");
 
     await toggle("reports", false);
     await app.setMcpEnabled(false);
     const [empty] = await nextTurn("disabled");
     expect(empty).not.toContain("codemode");
     expect(empty).not.toContain("tool_search");
+    expect(empty).not.toContain("mcp__reports__echo");
     await toggle("custom", true);
     nextCalls.push({ name: "codemode", arguments: { code: 'const [t] = await searchTools("mcp__custom__echo"); return (await tools[t.name]({})).content[0].text;' } });
     const custom = await nextTurn("custom-default");

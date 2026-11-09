@@ -458,6 +458,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
       const toolExposure = this.options.tools.createExposureState({
         ...exposureOptions,
+        loadedTools: heartbeat ? [] : await this.options.store.readLoadedTools(job.session_id),
+        onToolsLoaded: tools => this.options.store.appendLoadedTools(job.session_id, job.job_id, tools, handle.signal),
         platform: String(job.source.platform ?? "").trim(),
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames), skillLocations: skillSnapshot.locations } : {}),
         onSkillActivated: async (name) => {

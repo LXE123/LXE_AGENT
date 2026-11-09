@@ -1180,14 +1180,16 @@ describe("native coding tools", () => {
   test("tool search discovers tools by name, description, and parameters", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
-    registry.register({ name: "inventory_lookup", exposure: "deferred", description: "Find stock by SKU",
+    registry.register({ name: "inventory_lookup", exposure: "deferred", description: "Find stock by SKU\nMore details here.",
       input_schema: { type: "object", properties: { sku: { type: "string" } } }, execute: async () => ({ content: [] }) });
     registerToolSearch(registry);
     const exposureState = registry.createExposureState();
     expect(exposureState.isExposed("inventory_lookup")).toBe(false);
     const found = await registry.execute("tool_search", { query: "stock sku" }, { ...context(root), exposureState });
-    expect(JSON.parse(String(found.content[0]?.text)).tools).toEqual([expect.objectContaining({ name: "inventory_lookup" })]);
+    expect(found.content).toEqual([{ type: "text", text: "- inventory_lookup: Find stock by SKU" }]);
     expect(exposureState.isExposed("inventory_lookup")).toBe(true);
+    const again = await registry.execute("tool_search", { query: "stock sku" }, { ...context(root), exposureState });
+    expect(again.content).toEqual([{ type: "text", text: "No matching tools found." }]);
   });
 });
 

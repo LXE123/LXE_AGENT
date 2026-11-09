@@ -91,6 +91,10 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ### 在 codemode 中查找和调用工具
 
+`tool_search` 与脚本里的 `searchTools()` 共用 BM25，索引工具名、描述、参数和所属服务的信息。`tool_search` 只搜索当前分支尚未向模型声明的可用间接工具，默认最多加载 8 个。每个命中项只返回名称和首行简介，完整声明从下一次模型请求起生效。脚本搜索可以反复查询已加载的工具，查询本身不会加载它们。
+
+成功加载的工具记入 transcript。续聊或从加载之后的轮尾分叉时，agentcli 按当前注册表、平台和权限恢复声明；从更早的轮尾分叉只继承当时已加载的工具。新记录从本版本开始写入，旧版搜索结果保留在原对话历史中。
+
 `searchTools(query, { limit?, namespace? })` 按 BM25 排序，默认返回前 8 个匹配。每个匹配包含可调用的 `name` 和带 TypeScript 签名的 `description`。已知名称时，`describeTool(name)` 可直接查询同一份声明。`describeNamespace(name)` 返回当前脚本可见的服务简介、服务端指引（如有）及工具名。查询不到的工具或服务返回 `undefined`。
 
 ```js

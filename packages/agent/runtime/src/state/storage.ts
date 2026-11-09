@@ -30,6 +30,7 @@ import {
 import {
   TRANSCRIPT_VERSION,
   applyCodemodeStoreEvent,
+  applyToolsLoadedEvent,
   applyTranscriptEvent,
   createContextPatchEvent,
   normalizeTranscriptMessage,
@@ -44,6 +45,7 @@ import { indexHistoryImages, extractHistoryImage, type HistoryImageLocation } fr
 import type { ConversationImagePreviewSource } from "./history-images";
 import { transcriptImageView, indexImageView, attachImageView } from "./image-views";
 import { currentTurnId, headerTurnEnds, isTerminalStatus, legacyTurnEnds, publishTranscript, type TerminalStatus } from "./transcript-nodes";
+import type { ToolReference } from "../tooling/tool-reference";
 import { UsageStore } from "./usage-store";
 import { SessionStatusStore } from "./session-status-store";
 import type { SessionStatusRequest, SessionRunSummary } from "@lxe/protocol/session-status";
@@ -373,6 +375,7 @@ interface TranscriptTip {
   mtimeMs: number;
   id: string | null;
   codemodeStore: Map<string, JsonValue>;
+  loadedTools: Map<string, ToolReference>;
 }
 
 interface TranscriptFileState {
@@ -1018,11 +1021,26 @@ export class SqliteRuntimeStore implements RuntimeStore {
     sessionId: string, turnId: string | undefined, writes: { set: JsonObject; delete: string[] }, signal: AbortSignal,
   ): Promise<void> {
     if (!Object.keys(writes.set).length && !writes.delete.length) return;
+    await this.appendToolState(sessionId, { kind: "codemode_store", ...writes }, turnId, signal);
+  }
+
+  async readLoadedTools(sessionId: string): Promise<ToolReference[]> {
+    return this.enqueueSessionWrite(sessionId, async () => {
+      const tip = await this.prepareTranscript(sessionId);
+      return tip ? structuredClone([...tip.loadedTools.values()]) : [];
+    });
+  }
+
+  async appendLoadedTools(sessionId: string, turnId: string, tools: ToolReference[], signal: AbortSignal): Promise<void> {
+    if (tools.length) await this.appendToolState(sessionId, { kind: "tools_loaded", tools }, turnId, signal);
+  }
+
+  private async appendToolState(sessionId: string, event: JsonObject, turnId: string | undefined, signal: AbortSignal): Promise<void> {
     await this.enqueueSessionWrite(sessionId, async () => {
       const path = this.transcriptPath(sessionId);
       const cached = this.validCacheBeforeWrite(sessionId, path);
       await this.appendTranscriptEvent(sessionId, {
-        kind: "codemode_store", ...writes, ...(turnId ? { turn_id: turnId } : {}), ts: Date.now() / 1_000,
+        ...event, ...(turnId ? { turn_id: turnId } : {}), ts: Date.now() / 1_000,
       }, signal);
       if (cached) await this.refreshReplayCacheMetadata(sessionId, path, cached);
       await this.enqueueIndexSync(sessionId, path);
@@ -1854,8 +1872,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     let upgrade = header.version === 2;
     const ids = new Set<string>();
     const codemodeStore = new Map<string, JsonValue>();
+    const loadedTools = new Map<string, ToolReference>();
     for (const event of events) {
       applyCodemodeStoreEvent(codemodeStore, event);
+      applyToolsLoadedEvent(loadedTools, event);
       if (!hasHeader) {
         // Headerless v2-shaped logs exist. Older replacement-history/tool encodings still need the offline converter.
         if (event.kind === "message") normalizeTranscriptMessage(event.message);
@@ -1882,7 +1902,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       });
       info = await stat(path);
     }
-    const tip = { size: info.size, mtimeMs: info.mtimeMs, id: parent, codemodeStore };
+    const tip = { size: info.size, mtimeMs: info.mtimeMs, id: parent, codemodeStore, loadedTools };
     this.cacheTranscriptTip(sessionId, tip);
     return tip;
   }
@@ -1919,8 +1939,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     await appendFile(path, `${separator}${prefix}${JSON.stringify({ ...event, id, parent_id: previous?.id ?? null })}\n`, "utf8");
     const info = await stat(path);
     const codemodeStore = previous?.codemodeStore ?? new Map<string, JsonValue>();
+    const loadedTools = previous?.loadedTools ?? new Map<string, ToolReference>();
     applyCodemodeStoreEvent(codemodeStore, event);
-    this.cacheTranscriptTip(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id, codemodeStore });
+    applyToolsLoadedEvent(loadedTools, event);
+    this.cacheTranscriptTip(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id, codemodeStore, loadedTools });
   }
 
   /**

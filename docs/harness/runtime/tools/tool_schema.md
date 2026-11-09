@@ -133,7 +133,7 @@ State 记录 exposed names 与 active skills，不修改全局 registry。不同
 
 ## Deferred search
 
-当前平台有启用的 `deferred` 服务时，模型可调用 `tool_search`。它按名称、描述和参数匹配 `deferred` 与 `codemode` 工具，命中的定义从下一次模型请求起可直接调用。`codemode` 脚本内的 `searchTools()` 只查询脚本可用的工具。
+当前平台有启用的 `deferred` 服务时，模型可调用 `tool_search`。它与脚本中的 `searchTools()` 共用 BM25 排序，只在当前分支尚未加载的 `deferred` 和 `codemode` 工具中选取匹配项。结果列出工具名和首行简介；完整定义从下一次模型请求起可用。`searchTools()` 查询脚本可用的工具，保留现有模型声明。
 
 搜索结果应返回可读名称和说明，不包含 handler、secret config 或 MCP transport details。
 

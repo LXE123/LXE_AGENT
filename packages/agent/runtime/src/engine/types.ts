@@ -13,6 +13,7 @@ import type {
 import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
 import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
 import type { SkillCatalogSnapshot } from "../tooling/skills";
+import type { ToolReference } from "../tooling/tool-reference";
 
 export interface TextBlock extends JsonObject {
   type: "text";
@@ -246,6 +247,8 @@ export interface RuntimeStore {
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
+  readLoadedTools(sessionId: string): Promise<ToolReference[]>;
+  appendLoadedTools(sessionId: string, turnId: string, tools: ToolReference[], signal: AbortSignal): Promise<void>;
   appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
   appendImageView(sessionId: string, view: RuntimeImageViewRecord, image?: JsonObject): Promise<void>;
   clearPendingImageViews(sessionId: string, turnId?: string): void;

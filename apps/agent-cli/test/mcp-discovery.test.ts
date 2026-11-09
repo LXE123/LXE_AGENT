@@ -27,7 +27,7 @@ async function setup(servers: McpServerConfig[] = [desktopConfig()]) {
   const handle = new AgentRunHandle();
   const makeTool = (name: string, options: Partial<ToolDefinition> = {}) => registry.register({
     name, description: "desktop example", input_schema: { type: "object" },
-    source: "mcp", connectorName: "lxe_desktop", platforms: ["desktop"],
+    source: "mcp", connectorName: "lxe_desktop", connectorDescription: desktopConfig().connectorDescription, platforms: ["desktop"],
     execute: async () => ({ content: [] }), ...options,
   });
   const run = (code: string, sessionId = "s1", turnId = "t1") => registry.execute("codemode", { code }, {
@@ -207,4 +207,27 @@ test("scripts receive MCP content blocks and structured values, server errors re
   expect(error.content[0].text).toContain("actual failure");
   expect(JSON.stringify(error)).not.toContain("private");
   await expect(run("await tools.mcp__lxe_desktop__probe({disconnect:true})")).rejects.toThrow("transport closed during this call");
+});
+
+test("both searches rank the same MCP metadata, while only tool_search activates its hits", async () => {
+  const { registry, makeTool } = await setup([{ ...desktopConfig(), exposure: "deferred" }, { ...desktopConfig(), name: "scripts" }]);
+  const state = registry.createExposureState({ platform: "desktop" });
+  makeTool("mcp__lxe_desktop__a", { description: "First line\ninvoice detail", exposure: "codemode" });
+  makeTool("mcp__lxe_desktop__invoice", { description: "Best match\nPrivate second line", exposure: "deferred" });
+  const context = {
+    exposureState: state, handle: new AgentRunHandle(), session_id: "s1", platform: "desktop",
+    workspace: testWorkspace, executionPolicy: policyFor(testWorkspace.directory),
+  };
+  const scriptSearch = async () => {
+    const result = await registry.execute("codemode", { code: 'return (await searchTools("invoice")).map(t => t.name)' }, context);
+    return JSON.parse(String(result.content[0]?.text));
+  };
+  const search = () => registry.execute("tool_search", { query: "invoice", limit: 1 }, context);
+  const expected = ["mcp__lxe_desktop__invoice", "mcp__lxe_desktop__a"];
+  expect(await scriptSearch()).toEqual(expected);
+  expect(state.isExposed(expected[0]!)).toBe(false);
+  expect((await search()).content[0]?.text).toBe("- mcp__lxe_desktop__invoice: Best match");
+  expect((await search()).content[0]?.text).toBe("- mcp__lxe_desktop__a: First line");
+  expect((await search()).content[0]?.text).toBe("No matching tools found.");
+  expect(await scriptSearch()).toEqual(expected);
 });

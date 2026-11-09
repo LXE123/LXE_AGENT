@@ -38,6 +38,8 @@ class MemoryStore implements RuntimeStore {
   }
   async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
+  async readLoadedTools() { return []; }
+  async appendLoadedTools() {}
   async appendTurnContext(): Promise<void> {}
   async appendArtifact(): Promise<void> {}
   async appendTurnEnd(): Promise<void> {}

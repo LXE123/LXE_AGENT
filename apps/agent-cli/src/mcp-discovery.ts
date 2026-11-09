@@ -41,7 +41,7 @@ export function registerMcpDiscoveryTools(
         context.platform ? { platform: context.platform } : {},
       );
       const scope = exposure.forCodemode();
-      const catalog = createCodemodeCatalog(scope.callableTools(), config);
+      const catalog = createCodemodeCatalog(scope.callableTools());
       const signal = context.signal ? AbortSignal.any([context.signal, context.handle.signal]) : context.handle.signal;
       const store = await transcript.readCodemodeStore(context.session_id);
       signal.throwIfAborted();

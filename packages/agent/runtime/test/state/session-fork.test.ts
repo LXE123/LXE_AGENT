@@ -72,6 +72,23 @@ test("the header copies the current conversation leaf, while a turn footer stops
   expect(await store.loadMessages(fromFooter)).toEqual([{ role: "user", content: old }]);
 });
 
+test("tool loads replay from the branch prefix across compaction and restart", async () => {
+  const { store, events } = await setup();
+  const signal = new AbortController().signal;
+  const a = { server: "reports", name: "list" }, b = { name: "lookup" };
+  await store.appendLoadedTools("parent", "one", [a], signal);
+  await store.appendTurnEnd("parent", "one", "completed");
+  const child = String((await store.forkSession("parent", "one")).session_id);
+  await store.appendLoadedTools(child, "two", [b], signal);
+  await store.replaceMessages(child, [{ role: "user", content: "summary" }], "compaction");
+  await store.stop();
+  await store.start();
+  expect(await store.readLoadedTools("parent")).toEqual([a]);
+  expect(await store.readLoadedTools(child)).toEqual([a, b]);
+  expect(await store.loadMessages(child)).toEqual([{ role: "user", content: "summary" }]);
+  expect(events(child).filter(e => e.kind === "tools_loaded").map(e => e.tools)).toEqual([[a], [b]]);
+});
+
 test("v2 first-open migration preserves batched results, compaction offsets and stable IDs", async () => {
   const { store, file, events } = await setup();
   await store.appendMessage("parent", { role: "user", content: "old" }, "turn_input", "one");

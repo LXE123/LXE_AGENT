@@ -1,10 +1,9 @@
 import type { CodemodeJsonSchema, CodemodeTool } from "@earendil-works/pi-codemode";
 import { renderToolSample, toCodemodeIdentifier } from "@earendil-works/pi-codemode/declarations";
 import type { JsonObject } from "@lxe/protocol";
-import type { McpConfig, NormalizedToolDefinition } from "@lxe/runtime";
-import { rankDocuments, toolSearchText } from "./codemode-search";
+import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition } from "@lxe/runtime";
 
-// MCP result declaration adapted from Pi. See the MIT notice in codemode-search.ts.
+// MCP result declaration adapted from Pi. See the MIT notice in runtime's tool-search-ranking.ts.
 const CONTENT_BLOCK_SCHEMA = {
   type: "object",
   properties: {
@@ -75,13 +74,12 @@ function createMcpResultSchema(structuredContentSchema: JsonObject | undefined):
 }
 
 /** One snapshot of the tools permitted in this script; discovery never activates a tool. */
-export function createCodemodeCatalog(callable: NormalizedToolDefinition[], config: McpConfig) {
+export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
   const aliasCounts = new Map<string, number>();
   for (const tool of callable) {
     const alias = toCodemodeIdentifier(tool.name);
     aliasCounts.set(alias, (aliasCounts.get(alias) ?? 0) + 1);
   }
-  const servers = new Map(config.servers.map(server => [server.name, server]));
   const entries = callable.map(tool => {
     const alias = toCodemodeIdentifier(tool.name);
     // Preserve exact MCP names and choose an unambiguous alias when Pi's '_' spelling collides.
@@ -93,12 +91,11 @@ export function createCodemodeCatalog(callable: NormalizedToolDefinition[], conf
     });
     const server = tool.connectorName;
     const namespace = server ? `mcp__${server}` : undefined;
-    const summary = server ? servers.get(server)?.connectorDescription : undefined;
+    const summary = tool.connectorDescription;
     const instructions = tool.connectorInstructions;
     return {
       tool, jsName, description, server, namespace, summary, instructions,
-      document: { name: tool.name, text: toolSearchText(tool.description, tool.input_schema),
-        namespaceText: [namespace, summary, instructions].filter(Boolean).join(" ") },
+      document: createToolSearchDocument(tool),
     };
   });
   const byName = new Map(entries.flatMap(entry => [[entry.tool.name, entry], [entry.jsName, entry]] as const));

@@ -3,6 +3,8 @@ import { skillPathKey } from "./skill-files";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/types";
 import type { WorkspaceSearchService } from "./workspace-search";
+import { createToolSearchDocument, rankDocuments } from "./tool-search-ranking";
+import { referenceForTool, toolReferenceKey, type ToolReference } from "./tool-reference";
 
 export type ToolExposure = "direct" | "deferred" | "codemode" | "hidden";
 
@@ -17,6 +19,7 @@ export interface ToolDefinition extends ToolSchema {
   supportsParallelCalls?: boolean;
   ownerSkills?: string[];
   connectorName?: string;
+  connectorDescription?: string;
   connectorInstructions?: string;
   /** Structured payload declared by an MCP server, for script tool signatures. */
   outputSchema?: JsonObject;
@@ -43,6 +46,8 @@ export interface ToolExposureOptions {
   allowedSkills?: ReadonlySet<string>;
   skillLocations?: Readonly<Record<string, string>>;
   onSkillActivated?: (skillName: string) => Promise<void> | void;
+  loadedTools?: readonly ToolReference[];
+  onToolsLoaded?: (tools: ToolReference[]) => Promise<void>;
 }
 
 export type ToolExecutionErrorCode =
@@ -128,6 +133,8 @@ const schemaOf = ({ name, description, input_schema }: ToolDefinition): ToolSche
 
 export class ToolExposureState {
   private readonly exposed = new Set<string>();
+  private readonly loaded = new Set<string>();
+  private pendingSearch: Promise<void> = Promise.resolve();
   private readonly activatedSkills = new Set<string>();
 
   constructor(
@@ -135,6 +142,9 @@ export class ToolExposureState {
     private readonly options: ToolExposureOptions = {},
     readonly scope: "model" | "codemode" = "model",
   ) {
+    if (scope === "model") {
+      for (const tool of options.loadedTools ?? []) this.loaded.add(toolReferenceKey(tool));
+    }
     for (const definition of registry.definitionsSnapshot()) {
       if (scope === "codemode" ? definition.source === "mcp" : definition.exposure === "direct") {
         this.exposed.add(definition.name);
@@ -143,8 +153,19 @@ export class ToolExposureState {
   }
 
   callableTools(): NormalizedToolDefinition[] {
-    return this.registry.definitionsSnapshot()
-      .filter((definition) => this.exposed.has(definition.name) && this.allowed(definition));
+    const active: NormalizedToolDefinition[] = [];
+    const indirect = new Map<string, NormalizedToolDefinition>();
+    for (const tool of this.registry.definitionsSnapshot()) {
+      if (!this.allowed(tool)) continue;
+      if (this.exposed.has(tool.name)) active.push(tool);
+      else if (this.loaded.size) indirect.set(toolReferenceKey(referenceForTool(tool)), tool);
+    }
+    // Append newly loaded tools after existing declarations, in branch load order.
+    for (const key of this.loaded) {
+      const tool = indirect.get(key);
+      if (tool) active.push(tool);
+    }
+    return active;
   }
 
   schemas(): ToolSchema[] {
@@ -157,26 +178,22 @@ export class ToolExposureState {
   }
 
   find(query: string, limit = 8): ToolSchema[] {
-    const terms = query.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length > 1);
-    if (terms.length === 0) throw new Error("tool_search query must contain a specific capability");
-    const matches = this.registry.definitionsSnapshot().filter((definition) =>
-      this.allowed(definition) && (this.scope === "codemode"
-        ? this.exposed.has(definition.name)
-        : definition.exposure === "deferred" || definition.exposure === "codemode")
-    ).map((definition) => {
-      const haystack = `${definition.name} ${definition.rawName ?? ""} ${definition.description} ${JSON.stringify(definition.input_schema)}`.toLowerCase();
-      const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
-      return { definition, score };
-    }).filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score || left.definition.name.localeCompare(right.definition.name))
-      .slice(0, Math.max(1, Math.min(Math.trunc(limit), 20)));
-    return matches.map(({ definition }) => schemaOf(definition));
+    const candidates = this.scope === "codemode" ? this.callableTools() : this.registry.definitionsSnapshot().filter(tool =>
+      (tool.exposure === "deferred" || tool.exposure === "codemode") && this.allowed(tool) && !this.active(tool));
+    return rankDocuments(query, candidates.map(createToolSearchDocument), limit).map(name => schemaOf(this.registry.definition(name)!));
   }
 
-  search(query: string, limit = 8): ToolSchema[] {
-    const matches = this.find(query, limit);
-    for (const tool of matches) this.exposed.add(tool.name);
-    return matches;
+  search(query: string, limit = 8): Promise<ToolSchema[]> {
+    const result = this.pendingSearch.then(async () => {
+      const matches = this.find(query, limit);
+      if (!matches.length || this.scope === "codemode") return matches;
+      const refs = matches.map(({ name }) => referenceForTool(this.registry.definition(name)!));
+      await this.options.onToolsLoaded?.(refs);
+      for (const ref of refs) this.loaded.add(toolReferenceKey(ref));
+      return matches;
+    });
+    this.pendingSearch = result.then(() => {}, () => {});
+    return result;
   }
 
   async activateSkillPath(path: string): Promise<void> {
@@ -199,7 +216,11 @@ export class ToolExposureState {
 
   isExposed(name: string): boolean {
     const definition = this.registry.definition(name);
-    return Boolean(definition && this.exposed.has(definition.name) && this.allowed(definition));
+    return Boolean(definition && this.allowed(definition) && this.active(definition));
+  }
+
+  private active(tool: NormalizedToolDefinition): boolean {
+    return this.exposed.has(tool.name) || this.loaded.has(toolReferenceKey(referenceForTool(tool)));
   }
 
   allowsSkill(name: string): boolean {

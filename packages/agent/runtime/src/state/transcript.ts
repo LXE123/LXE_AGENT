@@ -3,8 +3,22 @@ import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { RuntimeConversationMessage, RuntimeMessage } from "../engine/types";
 
 import { environmentMetadata } from "../engine/environment-context";
+import { toolReferenceKey, type ToolReference } from "../tooling/tool-reference";
 
 export const TRANSCRIPT_VERSION = 3;
+
+export function applyToolsLoadedEvent(loaded: Map<string, ToolReference>, event: JsonObject): void {
+  if (event.kind !== "tools_loaded") return;
+  if (!Array.isArray(event.tools)) throw new Error("Invalid tools_loaded transcript entry");
+  for (const ref of event.tools) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.name !== "string" ||
+        !ref.name || (ref.server !== undefined && typeof ref.server !== "string")) {
+      throw new Error("Invalid tools_loaded tool reference");
+    }
+    const tool = ref.server === undefined ? { name: ref.name } : { server: ref.server, name: ref.name };
+    loaded.set(toolReferenceKey(tool), tool);
+  }
+}
 
 /** Codemode state follows the transcript branch, independently of model context patches. */
 export function applyCodemodeStoreEvent(store: Map<string, JsonValue>, event: JsonObject): void {

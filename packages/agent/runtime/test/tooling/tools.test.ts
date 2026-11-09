@@ -43,7 +43,7 @@ describe("tool registry exposure", () => {
       onSkillActivated: (name) => { activated.push(name); },
     });
     expect(exposure.schemas().map((tool) => tool.name).sort()).toEqual(["direct_tool", "tool_search"]);
-    expect(exposure.search("inventory").map((tool) => tool.name)).toEqual(["remote_inventory"]);
+    expect((await exposure.search("inventory")).map(tool => tool.name)).toEqual(["remote_inventory"]);
     expect(exposure.schemas().map((tool) => tool.name)).toContain("remote_inventory");
     await exposure.activateSkill("reports");
     expect(exposure.schemas().map((tool) => tool.name)).toContain("owner_report");
@@ -70,5 +70,42 @@ describe("tool registry exposure", () => {
 
     await expect(registry.execute("exec", { command: "lxeskill browser page" }, context))
       .resolves.toMatchObject({ content: [{ text: "ok" }] });
+  });
+
+  test("a failed load can be retried, and overlapping searches only record a match once", async () => {
+    const registry = new ToolRegistry();
+    registry.register(definition("inventory_lookup", "deferred"));
+    let attempts = 0;
+    const state = registry.createExposureState({ onToolsLoaded: async () => {
+      if (++attempts === 1) throw new Error("transcript write failed");
+    } });
+    await expect(state.search("inventory")).rejects.toThrow("transcript write failed");
+    expect(state.schemas()).toEqual([]);
+    const [first, second] = await Promise.all([state.search("inventory"), state.search("inventory")]);
+    expect(first.map(tool => tool.name)).toEqual(["inventory_lookup"]);
+    expect(second).toEqual([]);
+    expect(attempts).toBe(2);
+  });
+
+  test("restored references follow the server tool identity and current platform, skill access and schema", () => {
+    const registry = new ToolRegistry();
+    const state = registry.createExposureState({ loadedTools: [{ server: "docs", name: "find.notes" }],
+      platform: "desktop", allowedSkills: new Set(["notes"]) });
+    const original = { ...definition("mcp__docs__find_notes", "deferred"), source: "mcp" as const,
+      connectorName: "docs", rawName: "find.notes", platforms: ["desktop"], ownerSkills: ["notes"] };
+    registry.register(original);
+    expect(state.isExposed(original.name)).toBe(true);
+    registry.unregisterWhere(() => true);
+    expect(state.schemas()).toEqual([]);
+    registry.register({ ...original, rawName: "find_notes" });
+    const renamed = { ...original, name: "mcp__docs__find_notes_hash", description: "New server description" };
+    registry.register(renamed);
+    expect(state.schemas()).toEqual([{ name: renamed.name, description: renamed.description, input_schema: renamed.input_schema }]);
+    for (const override of [{ exposure: "hidden" as const }, { platforms: ["cli"] }, { ownerSkills: ["private"] }]) {
+      registry.unregisterWhere(name => name === renamed.name);
+      registry.register({ ...renamed, ...override });
+      expect(state.schemas()).toEqual([]);
+      expect(state.isExposed(renamed.name)).toBe(false);
+    }
   });
 });

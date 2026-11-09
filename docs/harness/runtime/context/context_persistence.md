@@ -20,6 +20,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 | `turn_end` | 记录轮尾节点及结果（完成、手动停止或错误等终态），供界面选择分叉位置 |
 | `turn_context` | 记录本轮实际 provider、model、effort 和 context window |
 | `codemode_store` | 保存单次成功脚本的 `set` 和 `delete`。按分支顺序恢复脚本数据，模型消息回放跳过此记录 |
+| `tools_loaded` | 记录一次 `tool_search` 新加载的工具。MCP 工具按服务名和原始工具名定位，续聊和分叉使用当前可用的定义；模型消息回放跳过此记录 |
 | `context_patch` | 对当前模型视图做最小删除和插入 |
 
 一次压缩可能追加这样的事件：

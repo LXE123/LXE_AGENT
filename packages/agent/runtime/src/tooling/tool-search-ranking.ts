@@ -23,6 +23,8 @@
  * SOFTWARE.
  */
 
+import type { ToolDefinition } from "./registry";
+
 /** A tool as the ranker sees it: its name, its text, and the text of its namespace. */
 type SearchDocument = {
   readonly name: string;
@@ -252,8 +254,10 @@ function schemaText(schema: unknown, root: unknown, parts: string[], seen: Set<u
   }
 }
 
-export function toolSearchText(description: string, schema: unknown): string {
-  const parts = [description];
-  schemaText(schema, schema, parts, new Set([schema]));
-  return parts.join(" ");
+export function createToolSearchDocument(tool: ToolDefinition): SearchDocument {
+  const parts = [tool.description];
+  schemaText(tool.input_schema, tool.input_schema, parts, new Set([tool.input_schema]));
+  const namespace = tool.connectorName ? `mcp__${tool.connectorName}` : undefined;
+  return { name: tool.name, text: parts.join(" "),
+    namespaceText: [namespace, tool.connectorDescription, tool.connectorInstructions].filter(Boolean).join(" ") };
 }

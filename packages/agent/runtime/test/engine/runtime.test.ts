@@ -90,6 +90,9 @@ class MemoryStore implements RuntimeStore {
     return this.pendingEvents.splice(0);
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
+  private loadedTools: Awaited<ReturnType<RuntimeStore["readLoadedTools"]>> = [];
+  async readLoadedTools() { return [...this.loadedTools]; }
+  async appendLoadedTools(_session: string, _turn: string, tools: typeof this.loadedTools) { this.loadedTools.push(...tools); }
   async appendTurnContext(_sessionId: string, context: RuntimeTurnContextRecord): Promise<void> {
     this.turnContexts.push(structuredClone(context));
     this.operations.push("turn_context");

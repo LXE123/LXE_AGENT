@@ -86,6 +86,7 @@ export function adaptMcpTools(
       ...(server.platforms ? { platforms: server.platforms } : {}),
       exposure: server.exposure,
       connectorName: server.name,
+      connectorDescription: server.connectorDescription,
       execute: async (input, context) => {
         try {
           if (server.platforms && (!context.platform || !server.platforms.includes(context.platform))) throw new Error("This MCP server is not available to this conversation source");
