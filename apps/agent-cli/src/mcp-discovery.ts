@@ -1,9 +1,10 @@
-import { CodemodeSandbox, loadQuickJSWasm, parseCodemodeSource } from "@earendil-works/pi-codemode";
+import { CodemodeSandbox, loadQuickJSWasm, parseCodemodeSource, type CodemodeTool } from "@earendil-works/pi-codemode";
 import type { JsonObject } from "@lxe/protocol";
 import { registerToolSearch, ToolExecutionError, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
 import { createCodemodeCatalog, describeCodemodeCalls, toScriptValue } from "./codemode-catalog";
 import { codemodeOutput } from "./codemode-output";
+import { withCodemodeWorker } from "./codemode-workers";
 import { mcpServerEnabledOnPlatform } from "./mcp-server-directory";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
 
@@ -32,7 +33,7 @@ export function registerMcpDiscoveryTools(
       "exec returns {status, exec_id, output, ...}. On running, return the id or call tools.wait({exec_id}) for new_output and, once finished, exit_code. " +
       "Use tools.wait({exec_id, terminate:true}) to stop the command. A yielded command belongs to this chat. " +
       'Optional first line: // @options: {"timeout_ms": 60000, "max_output_tokens": 10000}. ' +
-      "Scripts default to no deadline. The default and maximum inline output budget is 10000 tokens. " +
+      "Scripts default to no deadline. Waiting for a worker is capped at 60 seconds and counts toward timeout_ms. The default and maximum inline output budget is 10000 tokens. " +
       "Truncated text keeps its head and tail and includes a path to the full text file. " +
       "MCP tools return content, optional structuredContent and isError. " +
       "Check isError for server-reported tool errors; a failed connection rejects the call. " +
@@ -54,45 +55,46 @@ export function registerMcpDiscoveryTools(
       const scope = exposure.forCodemode();
       const catalog = createCodemodeCatalog(scope.callableTools());
       const signal = context.signal ? AbortSignal.any([context.signal, context.handle.signal]) : context.handle.signal;
-      const store = await transcript.readCodemodeStore(context.session_id);
-      signal.throwIfAborted();
       let callIndex = 0;
-      const sandbox = new CodemodeSandbox({
-        wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
-        workerUrl,
-        timeoutMs: options.timeoutMs ?? Infinity,
-        memoryLimitBytes: 256 * 1024 * 1024,
-        tools: catalog.entries.map(({ tool, jsName, description }) => ({
-          name: tool.name, jsName, description,
-          async execute(args, { signal }) {
-            if (args === null || typeof args !== "object" || Array.isArray(args)) {
-              throw new Error(`${tool.name} expects an arguments object`);
-            }
-            try {
-              const result = await registry.execute(tool.name, args as JsonObject, {
-                ...context, exposureState: scope, signal,
-                ...(context.tool_call_id ? { tool_call_id: `${context.tool_call_id}/${++callIndex}` } : {}),
-              });
-              return toScriptValue(tool, result);
-            } catch (error) {
-              if (error instanceof ToolExecutionError && tool.source === "native") throw new Error(error.modelContent());
-              throw error;
-            }
-          },
-        })),
-        globals: catalog.globals,
-      });
-      try {
-        const result = await sandbox.execute(code, { signal, store });
-        if (result.ok) {
-          await transcript.appendCodemodeStore(context.session_id, context.turn_id, {
-            set: result.storeWrites.set as JsonObject, delete: result.storeWrites.delete,
-          }, signal);
+      const tools: CodemodeTool[] = catalog.entries.map(({ tool, jsName, description }) => ({
+        name: tool.name, jsName, description,
+        async execute(args, { signal }) {
+          if (args === null || typeof args !== "object" || Array.isArray(args)) {
+            throw new Error(`${tool.name} expects an arguments object`);
+          }
+          try {
+            const result = await registry.execute(tool.name, args as JsonObject, {
+              ...context, exposureState: scope, signal,
+              ...(context.tool_call_id ? { tool_call_id: `${context.tool_call_id}/${++callIndex}` } : {}),
+            });
+            return toScriptValue(tool, result);
+          } catch (error) {
+            if (error instanceof ToolExecutionError && tool.source === "native") throw new Error(error.modelContent());
+            throw error;
+          }
+        },
+      }));
+      const result = await withCodemodeWorker(signal, options.timeoutMs, async slot => {
+        const store = await transcript.readCodemodeStore(context.session_id);
+        signal.throwIfAborted();
+        const sandbox = new CodemodeSandbox({
+          workerUrl, tools, globals: catalog.globals,
+          timeoutMs: slot.timeoutMs, acquireWorker: slot.acquireWorker,
+          wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
+          memoryLimitBytes: 256 * 1024 * 1024,
+        });
+        try {
+          return await sandbox.execute(code, { signal, store });
+        } finally {
+          await sandbox.close();
         }
-        return { content: await codemodeOutput(result, options.maxOutputTokens) };
-      } finally {
-        await sandbox.close();
+      });
+      if (result.ok) {
+        await transcript.appendCodemodeStore(context.session_id, context.turn_id, {
+          set: result.storeWrites.set as JsonObject, delete: result.storeWrites.delete,
+        }, signal);
       }
+      return { content: await codemodeOutput(result, options.maxOutputTokens) };
     },
   });
 }

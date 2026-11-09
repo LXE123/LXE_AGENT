@@ -124,7 +124,9 @@ const next = await tools.wait({ exec_id: first.exec_id, "yield-time-ms": 5000 })
 return { ...next, output: first.output + next.new_output };
 ```
 
-每次脚本调用默认不限时，QuickJS 堆内存上限为 256 MiB。可在脚本第一行设置本次超时和返回给模型的文本预算，例如：
+同一个 agent-cli 进程默认最多同时运行 2 个脚本，所有会话按请求到达顺序排队。可用 Pi 的环境变量 `PI_CODEMODE_MAX_WORKERS` 指定正整数上限。排队最多等待 60 秒，期间停止回合会立即移出队列。设置 `timeout_ms` 时，排队和执行共用这份时间预算。已经启动的 worker 退出后才释放名额。
+
+脚本执行默认不限时，单个 QuickJS 堆内存上限为 256 MiB。可在脚本第一行设置本次超时和返回给模型的文本预算，例如：
 
 ```js
 // @options: {"timeout_ms": 30000, "max_output_tokens": 1000}

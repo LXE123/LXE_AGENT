@@ -235,6 +235,52 @@ test("cancelling a turn aborts an in-flight script tool with its desktop identit
   expect(await transcript.readCodemodeStore("s1")).toEqual({ keep: 1 });
 });
 
+test("codemode shares two workers across sessions and skips cancelled or expired waiters", async () => {
+  const first = await setup(), second = await setup(), cancelled = await setup();
+  await second.transcript.ensureSession({ session_id: "s2", source: {}, workspace: testWorkspace });
+  const previousLimit = process.env.PI_CODEMODE_MAX_WORKERS;
+  delete process.env.PI_CODEMODE_MAX_WORKERS;
+  const gates = [first, second].map(host => {
+    const started = Promise.withResolvers<void>(), finish = Promise.withResolvers<void>();
+    host.makeTool("hold", { async execute() {
+      started.resolve();
+      await finish.promise;
+      return { content: [] };
+    } });
+    return { started, finish };
+  });
+  const order: string[] = [];
+  for (const host of [first, second, cancelled]) {
+    host.makeTool("mark", { async execute(args) {
+      order.push(String(args.label));
+      return { content: [] };
+    } });
+  }
+  const pending: Promise<unknown>[] = [];
+  try {
+    pending.push(first.run("await tools.hold({})"), second.run("await tools.hold({})", "s2"));
+    await Promise.all(gates.map(gate => gate.started.promise));
+    const mark = (label: string) => `await tools.mark({label:${JSON.stringify(label)}})`;
+    const third = first.run(mark("third"));
+    const stopped = cancelled.run(mark("cancelled")).catch(error => String(error));
+    const expired = second.run('// @options: {"timeout_ms":50}\n' + mark("expired"), "s2").catch(error => String(error));
+    const fourth = second.run(mark("fourth"), "s2");
+    pending.push(third, fourth, stopped, expired);
+    await cancelled.handle.abort();
+    expect(await stopped).toMatch(/aborted while waiting.*did not start/i);
+    expect(await expired).toMatch(/timed out after 50 ms while waiting.*did not start/i);
+    expect(order).toEqual([]);
+    gates[0]!.finish.resolve();
+    await Promise.all([third, fourth]);
+    expect(order).toEqual(["third", "fourth"]);
+  } finally {
+    for (const gate of gates) gate.finish.resolve();
+    await Promise.allSettled(pending);
+    if (previousLimit === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+    else process.env.PI_CODEMODE_MAX_WORKERS = previousLimit;
+  }
+});
+
 test("codemode commits only successful script changes as internal transcript entries", async () => {
   const { run, transcript, root } = await setup();
   await transcript.appendMessage("s1", { role: "user", content: "hello" }, "turn_input", "t1");
@@ -280,7 +326,9 @@ test("failed and timed-out scripts retain emitted blocks before the actual diagn
   const timeout = await run('// @options: {"timeout_ms":500}\ntext("started"); await tools.hold({})').catch(error => error);
   expect(timeout).toBeInstanceOf(ToolOutputError);
   expect(timeout.content[0].text).toBe("started");
-  expect(timeout.content[1].text).toMatch(/timed out after 500 ms/i);
+  const runtimeMs = /timed out after (\d+) ms/i.exec(timeout.content[1].text)?.[1];
+  expect(Number(runtimeMs)).toBeGreaterThan(0);
+  expect(Number(runtimeMs)).toBeLessThanOrEqual(500);
   await expect(run('// @options: {"timeout_ms":0}\nstore("invalid", true)')).rejects.toThrow("positive integer");
   expect(await transcript.readCodemodeStore("s1")).toEqual({});
 });
