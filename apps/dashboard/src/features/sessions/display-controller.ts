@@ -346,7 +346,8 @@ export class ConversationDisplayController {
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index]!;
       const step = row.kind === "tool" ? byRow.get(row.id) : undefined;
-      if (step) rows[index] = { ...row, operation: undefined, liveTool: step };
+      if (step) rows[index] = { ...row, operation: undefined, liveCall: row.operation?.call ?? row.liveCall,
+        liveTool: row.liveTool?.input_block ? { ...step, input_block: row.liveTool.input_block } : step };
     }
     this.state = { ...this.state, pending, rows };
     this.notify();

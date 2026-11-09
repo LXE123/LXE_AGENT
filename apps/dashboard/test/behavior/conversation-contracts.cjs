@@ -251,6 +251,13 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("Boolean(document.querySelector('.turn-file-card-error'))"),false);
   });
   await step('running process ticks locally and expands through its accessible control',async()=>{
+    const script = '[data-fixture-row="live-codemode"]';
+    await click(script + ' .tool-op-summary');
+    assert.match(await js(`document.querySelector('${script} .tool-call-args').textContent`), /Input arguments[\s\S]*orders\.csv/i);
+    assert.equal(await js(`Boolean(document.querySelector('${script} .result-block'))`), false);
+    await textClick('Finish fixture tool');
+    assert.match(await js(`document.querySelector('${script} .tool-op-body').textContent`), /orders\.csv[\s\S]*order-123/);
+    await click(script + ' .tool-op-summary');
     const before=await js("document.querySelector('.live-progress-elapsed').textContent");
     await click('[data-fixture-row=process] button');
     assert.equal(await js("document.querySelector('[data-fixture-row=process] button').getAttribute('aria-expanded')"),'true');
@@ -264,6 +271,17 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.activeElement.matches('.conversation-compose-trailing .conversation-model-trigger')"),true);
     await click('.conversation-compose-trailing .conversation-model-trigger');
     assert.equal(await js("Array.from(document.querySelectorAll('.conversation-model-option')).find(e=>e.textContent.includes('unavailable-model')).disabled"),true);
+    const list = "document.querySelector('.conversation-model-options')";
+    assert.ok(await js(`${list}.scrollHeight > ${list}.clientHeight`), 'long model list needs a scroll viewport');
+    const point = await js(`(() => { const r=${list}.getBoundingClientRect();return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)}; })()`);
+    win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -1800, canScroll: true });
+    await waitFor(`${list}.scrollTop > 0`, 'native wheel scrolls the model list');
+    const atEnd = `${list}.lastElementChild.getBoundingClientRect().bottom <= ${list}.getBoundingClientRect().bottom + 1`;
+    for (let i = 0; i < 20 && !await js(atEnd); i++) {
+      win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -500, canScroll: true });
+      await settle();
+    }
+    assert.ok(await js(atEnd), 'last model is reachable with the wheel');
     await js("behavior.ui.hold('models.update');behavior.ui.fail('models.update',true)");
     await js("Array.from(document.querySelectorAll('.conversation-model-option')).find(e=>e.textContent.includes('next-model')).click()"); await settle();
     await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('next-model')",'optimistic model');

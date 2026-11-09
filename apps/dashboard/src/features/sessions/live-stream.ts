@@ -13,6 +13,7 @@ export type StreamBatchApplyResult =
 
 const cloneToolStep = (step: Extract<TurnProcessPart, { type: "tool" }>["tool_step"]) => ({
   ...step,
+  ...(step.input_block ? { input_block: { ...step.input_block } } : {}),
   ...(step.image_view ? { image_view: { ...step.image_view } } : {}),
   ...(step.result_block ? { result_block: { ...step.result_block } } : {}),
   ...(step.error_block ? { error_block: { ...step.error_block } } : {}),

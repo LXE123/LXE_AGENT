@@ -1,5 +1,5 @@
 /** Generated from protocol/schemas. DO NOT EDIT. Run bun run protocol:generate.
- * Schema SHA-256: db9fece7b9dc6fedbc3e8c8cb74ee01925547512e6ee5068b33c94031e832ee6
+ * Schema SHA-256: 19a98ab67e11ec958cf03dc7ec49ce6c8675bcb01a306284791269fff7db934d
  */
 
 export type ProtocolContracts = AgentJob | EmitRequest | DesktopStreamBatchRequest;
@@ -137,6 +137,7 @@ export type ToolStep = {
   name: string;
   title: string;
   detail: string;
+  input_block?: ToolDisplayBlock;
   icon_token: string;
   status: ToolStepStatus;
   duration_ms: number;

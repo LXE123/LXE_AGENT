@@ -140,6 +140,9 @@
         "detail": {
           "type": "string"
         },
+        "input_block": {
+          "$ref": "common.schema.json#/$defs/ToolDisplayBlock"
+        },
         "icon_token": {
           "type": "string",
           "minLength": 1

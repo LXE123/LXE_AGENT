@@ -305,6 +305,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           sessionId: job.session_id,
           turnId: job.job_id,
           responseRouteId: job.response_route_id,
+          showToolInput: turnPlatform === "desktop",
           emit: (request) => this.emitBestEffort(request, "stream"),
           ...(turnPlatform === "desktop" && this.options.emitter.desktopStream
             ? { emitDesktopBatch: (request) => this.emitDesktopStreamBestEffort(request) }

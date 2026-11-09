@@ -742,6 +742,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
   const imageView = status === "success" && image && clean(image.view_id) && clean(image.name) && clean(image.media_type)
     ? { view_id: clean(image.view_id), name: clean(image.name), media_type: clean(image.media_type) } : undefined;
   const resultBlock = sanitizeToolDisplayBlock(step.result_block);
+  const inputBlock = sanitizeToolDisplayBlock(step.input_block);
   const errorBlock = sanitizeToolDisplayBlock(step.error_block);
   return {
     id: clean(step.id),
@@ -755,6 +756,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
     status,
     duration_ms: integer(step.duration_ms),
     ...(imageView ? { image_view: imageView } : {}),
+    ...(inputBlock ? { input_block: inputBlock } : {}),
     ...(resultBlock ? { result_block: resultBlock } : {}),
     ...(errorBlock ? { error_block: errorBlock } : {}),
   };
@@ -771,6 +773,7 @@ function sanitizeToolDisplayBlock(value: unknown): ToolDisplayBlock | undefined 
 function cloneToolStep(step: ToolStep): ToolStep {
   return {
     ...step,
+    ...(step.input_block ? { input_block: { ...step.input_block } } : {}),
     ...(step.image_view ? { image_view: { ...step.image_view } } : {}),
     ...(step.result_block ? { result_block: { ...step.result_block } } : {}),
     ...(step.error_block ? { error_block: { ...step.error_block } } : {}),

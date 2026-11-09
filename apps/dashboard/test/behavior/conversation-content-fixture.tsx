@@ -17,8 +17,17 @@ const revealFile = async (id: string) => { await sessionActions.revealFile("cont
 const openAttachment = async (id: string) => { await sessionActions.openAttachment("content-session", id); };
 export function ConversationContentFixture() {
   const [expanded, setExpanded] = useState(false);
+  const [toolDone, setToolDone] = useState(false);
   const [startedAt] = useState(() => Date.now() - 5_000);
   return <main className="conversation-feed" style={{ maxWidth: "100%", padding: 24 }}>
+    <section data-fixture-row="live-codemode">
+      <UnifiedConversationRow row={{ ...base, id: "script", kind: "tool", liveTool: {
+        id: "call", name: "codemode", title: "Codemode", detail: "", icon_token: "tool", duration_ms: 0,
+        status: toolDone ? "success" : "running", input_block: { language: "text", content: "return await tools.read({path:'orders.csv'})" },
+        ...(toolDone ? { result_block: { language: "text" as const, content: "order-123" } } : {}),
+      } }} expanded={expanded} onToggle={() => setExpanded(value => !value)} onOpenFile={openFile} onRevealFile={revealFile} onOpenAttachment={openAttachment} />
+      <button onClick={() => setToolDone(true)}>Finish fixture tool</button>
+    </section>
     {[...rows, { ...base, id: "process", kind: "process" as const, status: "running" as const, startedAt, phase: "thinking" }].map(row =>
       <section key={row.id} data-fixture-row={row.id}>
         <UnifiedConversationRow row={row} expanded={expanded} onToggle={() => setExpanded(value => !value)}

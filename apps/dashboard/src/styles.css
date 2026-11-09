@@ -10127,11 +10127,23 @@ pre {
   font-weight: 650;
 }
 
+.conversation-model-selector-menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation-model-menu-heading,
+.conversation-model-menu-footer {
+  flex: none;
+}
+
 .conversation-model-options {
   display: grid;
   min-height: 0;
+  flex: 0 1 auto;
   gap: 2px;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .conversation-model-option {

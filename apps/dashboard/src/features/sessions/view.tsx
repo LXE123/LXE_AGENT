@@ -410,23 +410,33 @@ function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
  * it is — a shell command as shell, a path as a path — with the remaining
  * arguments kept below rather than dropped.
  */
-function ToolCallArguments({ operation }: { operation: ToolOperation }) {
+function ToolCallArguments({ operation, preview }: { operation: ToolOperation; preview?: LiveToolStep["input_block"] }) {
   const t = useUiText();
   const { primary, rest } = toolOperationArguments(operation);
   const restKeys = Object.keys(rest);
-  if (!primary && !restKeys.length) return null;
+  const call = isRecord(operation.call) ? operation.call : undefined;
+  const input = call?.input ?? call?.arguments;
+  if (!preview && !primary && !restKeys.length && !isRecord(input)) return null;
+  const script = operation.name === "codemode";
+  // A cut-off JSON preview stays readable as text even when it cannot be parsed.
+  const block = preview ?? (operation.action === "tool" && !script && isRecord(input)
+    ? { language: "json", content: shortText(sanitizeForDisplay(input, { truncateStrings: false }), 16_000) }
+    : undefined);
   const primaryLanguage = operation.action === "run"
     ? "bash"
-    : languageForPath(primary);
+    : script ? "javascript" : languageForPath(primary);
   const isPath = ["read", "edit", "write", "list", "send"].includes(operation.action);
   return (
     <div className="tool-call-args">
-      {primary
+      <div className="block-title"><Wrench size={14} /><span>{t.message.toolInput}</span></div>
+      {block ? <CodeBlock code={block.content} language={block.language === "json" ? "json" : script ? "javascript" : ""} />
+        : primary
         ? (isPath
           ? <div className="tool-call-path" title={primary}>{primary}</div>
           : <CodeBlock code={primary} language={primaryLanguage} />)
         : null}
-      {restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && !primary && !restKeys.length ? <code>{"{}"}</code> : null}
     </div>
   );
 }
@@ -480,7 +490,7 @@ function defaultToolOperationBody(operation: ToolOperation): React.ReactNode {
 
 type LiveToolStep = DesktopConversationStreamPayload["tool_steps"][number];
 
-function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
+function liveToolOperations(steps: LiveToolStep[], call?: unknown): ToolOperation[] {
   return steps.map((step, index) => {
     const name = String(step.name || "tool");
     const argument = String(step.detail || "");
@@ -491,7 +501,7 @@ function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
       ...toolOperationPresentation(name, argument),
       status: step.status,
       expandable: hasLiveToolOperationDetails(step),
-      call: undefined,
+      call,
       result: step,
     };
   });
@@ -502,7 +512,7 @@ function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   const language = resultLanguage(operation);
   return (
     <>
-      <ToolCallArguments operation={operation} />
+      <ToolCallArguments operation={operation} preview={step.input_block} />
       {step.result_block ? (
         <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} language={language} />
       ) : null}
@@ -745,7 +755,7 @@ export function ConversationModelPicker({
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
-        <div aria-label={t.models.model} className="conversation-model-menu" role="menu">
+        <div aria-label={t.models.model} className="conversation-model-menu conversation-model-selector-menu" role="menu">
           <div className="conversation-model-menu-heading">{t.models.model}</div>
           <div className="conversation-model-options">
             {choices.length ? choices.map((choice) => {
@@ -1408,7 +1418,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "artifacts") return <TurnFileList sessionId={attachmentSessionId} files={row.artifacts ?? []} onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
   if (row.kind === "image_views") return <ImageViewGroup rows={row.imageRows ?? []} sessionId={attachmentSessionId} />;
   if (row.kind === "tool") {
-    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
+    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool], row.liveCall)[0] : undefined);
     if (!operation) return null;
     const answers = questionAnswerSummary(operation);
     if (answers) return <UserQuestionSummary items={answers} />;

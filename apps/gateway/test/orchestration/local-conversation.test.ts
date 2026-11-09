@@ -399,6 +399,7 @@ describe("LocalConversationController", () => {
           name: "read",
           title: "Read",
           detail: "/private/var/artifacts/report.json not found",
+          input_block: { language: "json", content: '{"path":"report.json","limit":5}' },
           icon_token: "file-link-text_outlined",
           status: "running",
           duration_ms: 0,
@@ -422,6 +423,7 @@ describe("LocalConversationController", () => {
             icon_token: "file-link-text_outlined",
             status: "success",
             duration_ms: 10,
+            input_block: { language: "json", content: '{"path":"report.json","limit":5}' },
             result_block: { language: "text", content: "result" },
           },
         }],
@@ -455,12 +457,13 @@ describe("LocalConversationController", () => {
     expect(activity.active?.stream?.process_parts.map((part) => part.part_id)).toEqual(["part-1", "part-2"]);
     expect(activity.active?.stream?.process_parts[1]).toEqual(expect.objectContaining({
       type: "tool",
-      tool_step: expect.objectContaining({ result_block: { language: "text", content: "result" } }),
+      tool_step: expect.objectContaining({ input_block: { language: "json", content: '{"path":"report.json","limit":5}' }, result_block: { language: "text", content: "result" } }),
     }));
     // The reader owns this filesystem: a path stays whole, so it reads the same
     // live as in history and an error keeps saying which file it was about.
     expect(activity.active?.stream?.tool_steps[0]?.detail)
       .toBe("/private/var/artifacts/report.json not found");
+    expect(activity.active?.stream?.tool_steps[0]?.input_block?.content).toContain('"limit":5');
     // Routing identifiers are still not the renderer's business.
     expect(JSON.stringify(activity)).not.toContain("secret-route");
     // A stream emit's own `files` field is not a delivery channel: only an

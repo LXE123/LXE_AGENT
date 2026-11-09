@@ -162,7 +162,7 @@ export function hasLiveToolOperationDetails(step: unknown): boolean {
   const detail = String(step.detail ?? "").trim();
   const result = isRecord(step.result_block) ? String(step.result_block.content ?? "").trim() : "";
   const error = isRecord(step.error_block) ? String(step.error_block.content ?? "").trim() : "";
-  return Boolean(detail || result || error);
+  return Boolean(detail || isRecord(step.input_block) || result || error);
 }
 
 export type ToolAction =

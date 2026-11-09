@@ -17,7 +17,8 @@ export function createDashboardContractFixture(calls: Call[]) {
     if (failures.has(operation)) throw new Error(`EACCES: fixture ${operation} denied`);
   }
   const models: ModelPayload[] = [
-    modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model"), modelOption("next-model")]),
+    modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model"),
+      ...Array.from({length: 14}, (_, i) => modelOption(`catalog-model-${i}`)), modelOption("next-model")]),
     modelRow("kimi_coding", "local", "Kimi Coding", [modelOption("kimi-model")]),
     modelRow("openrouter", "cloud", "OpenRouter", [modelOption("unavailable-model")], false),
   ];
