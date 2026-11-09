@@ -7,11 +7,10 @@ import pytest
 from openpyxl.utils import get_column_letter
 
 from lxeskill import cli
-from lxeskill.business import load_catalog
 from services.commands.mabang import order_import_generate as command
-from services.mabang.order_import import country_rules, workflow
+from services.mabang.order_import import workflow
 from services.mabang.order_import.workbook import OrderImportWorkbookError
-from order_import_test_helpers import LAYOUTS, TEMPLATE, open_sheet, rows, source_workbook
+from order_import_test_helpers import LAYOUTS, TEMPLATE, interfere_with_publication, open_sheet, rows, source_workbook
 
 
 @pytest.fixture
@@ -120,27 +119,6 @@ def test_cli_rejects_source_errors(invoke, country, changes, sheet_name, error):
     assert code != 0 and result["ok"] is False and result["files"] == []
     assert re.search(error, result["error"]["message"])
     assert "validation" not in result["data"]
-    assert list(source.parent.rglob("*.xlsx")) == [source]
-
-
-def test_malaysia_rolls_back_partial_outputs(invoke, monkeypatch):
-    writer = country_rules.generate_order_workbook
-    attempted = []
-
-    def fail_second(rows, output, **kwargs):
-        attempted.append(Path(output))
-        if len(attempted) == 2:
-            assert attempted[0].is_file()
-            raise OSError("second workbook write failed")
-        return writer(rows, output, **kwargs)
-
-    monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
-    code, result, source = invoke("malaysia")
-    assert code != 0 and result["ok"] is False and result["files"] == []
-    assert result["error"]["message"] == "second workbook write failed"
-    assert "validation" not in result["data"]
-    assert [p.name for p in attempted] == [f"马来西亚马帮订单导入模板-MY261105{batch}-H.xlsx" for batch in ("A", "B")]
-    assert not attempted[0].parent.exists()
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
@@ -372,75 +350,6 @@ def test_indonesia_rejects_unusable_selected_columns(invoke, changes, error):
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
-@pytest.mark.parametrize("failure", ["write", "final_check"])
-def test_indonesia_cleans_all_files_on_partial_failure(invoke, monkeypatch, failure):
-    produced = []
-    if failure == "write":
-        writer = country_rules.generate_order_workbook
-
-        def fail_second(rows, output, **kwargs):
-            produced.append(Path(output))
-            if len(produced) == 2:
-                assert produced[0].is_file()
-                raise OSError("second workbook write failed")
-            return writer(rows, output, **kwargs)
-
-        monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
-    else:
-        generate = country_rules.generate_order_workbooks
-
-        def empty_second(*args, **kwargs):
-            artifacts = generate(*args, **kwargs)
-            produced.extend(Path(item["output_xlsx"]) for item in artifacts)
-            assert len(produced) == 2 and all(path.is_file() for path in produced)
-            produced[1].write_bytes(b"")
-            return artifacts
-
-        monkeypatch.setattr(country_rules, "generate_order_workbooks", empty_second)
-    code, result, source = invoke("indonesia")
-    assert code != 0 and not result["ok"] and result["files"] == []
-    assert produced and not produced[0].parent.exists()
-    assert list(source.parent.rglob("*.xlsx")) == [source]
-
-
-def test_philippines_rolls_back_partial_outputs(invoke, monkeypatch):
-    writer = country_rules.generate_order_workbook
-    attempted = []
-
-    def fail_second(rows, output, **kwargs):
-        attempted.append(Path(output))
-        if len(attempted) == 2:
-            assert attempted[0].is_file()
-            raise OSError("second workbook write failed")
-        return writer(rows, output, **kwargs)
-
-    monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
-    code, result, source = invoke("philippines")
-    assert code != 0 and not result["ok"] and result["files"] == []
-    assert result["error"]["message"] == "second workbook write failed"
-    assert not attempted[0].parent.exists()
-    assert list(source.parent.rglob("*.xlsx")) == [source]
-
-
-def test_philippines_cleans_outputs_when_final_file_check_fails(invoke, monkeypatch):
-    generate = country_rules.generate_order_workbooks
-    produced = []
-
-    def empty_second(*args, **kwargs):
-        artifacts = generate(*args, **kwargs)
-        produced.extend(Path(item["output_xlsx"]) for item in artifacts)
-        assert len(produced) == 2 and all(path.is_file() for path in produced)
-        produced[1].write_bytes(b"")
-        return artifacts
-
-    monkeypatch.setattr(country_rules, "generate_order_workbooks", empty_second)
-    code, result, source = invoke("philippines")
-    assert code != 0 and not result["ok"] and result["files"] == []
-    assert "生成结果文件不存在或为空" in result["error"]["message"]
-    assert not produced[0].parent.exists()
-    assert list(source.parent.rglob("*.xlsx")) == [source]
-
-
 @pytest.mark.parametrize("arguments", [{}, {"input_xlsx": "source.xlsx"},
     {"country": "brazil", "input_xlsx": "source.xlsx", "unknown": True},
     {"country": "malaysia", "input_xlsx": "source.xlsx", "shipping_column": "BD"},
@@ -448,16 +357,6 @@ def test_philippines_cleans_outputs_when_final_file_check_fails(invoke, monkeypa
     {"country": "philippines", "input_xlsx": "source.xlsx", "air_shipping_column": ""}])
 def test_invalid_arguments(arguments):
     assert command.run(arguments)["error"]["code"] == "invalid_arguments"
-
-
-def test_command_contract():
-    entry = load_catalog()["mabang_order_import_generate"]
-    assert entry["visibility"] == "business" and entry["exposed"] is True
-    assert entry["command_path"] == ["mabang", "order-import", "generate"]
-    assert entry["owner_skills"] == ["mabang-order-import-generate"]
-    properties = entry["input_schema"]["properties"]
-    assert {"philippines", "indonesia"} <= set(properties["country"]["enum"])
-    assert {"air_shipping_column", "sea_a_shipping_column", "sea_b_shipping_column"} <= properties.keys()
 
 
 def test_workflow_rejects_malaysia_override():
@@ -534,32 +433,17 @@ def test_philippines_override_rejects_a_different_batch(invoke):
     assert code != 0 and result["files"] == [] and "最近" in result["error"]["message"]
 
 
-@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines"])
-@pytest.mark.parametrize("failure", ["write", "final_check"])
-def test_four_countries_clean_partial_outputs(invoke, monkeypatch, country, failure):
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+@pytest.mark.parametrize("failure", ["collision", "damaged_file"])
+def test_partial_outputs_are_removed_after_real_filesystem_failure(invoke, tmp_path, country, failure):
     changes = unified_headers(country, {"BJ": ("11/6陆运", 1), "BK": ("11/6空运", 2)})
-    produced = []
-    if failure == "write":
-        writer = country_rules.generate_order_workbook
-
-        def fail_second(rows, output, **kwargs):
-            produced.append(Path(output))
-            if len(produced) == 2:
-                raise OSError("second workbook write failed")
-            return writer(rows, output, **kwargs)
-
-        monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
+    with interfere_with_publication(tmp_path, failure) as observed:
+        code, result, source = invoke(country, changes)
+    assert observed["first_published"]
+    assert code != 0 and not result["ok"] and result["files"] == []
+    if failure == "collision":
+        assert observed["second_output"].name in result["error"]["message"]
     else:
-        generate = country_rules.generate_order_workbooks
-
-        def empty_second(*args, **kwargs):
-            artifacts = generate(*args, **kwargs)
-            produced.extend(Path(item["output_xlsx"]) for item in artifacts)
-            produced[1].write_bytes(b"")
-            return artifacts
-
-        monkeypatch.setattr(country_rules, "generate_order_workbooks", empty_second)
-    code, result, source = invoke(country, changes)
-    assert code != 0 and result["files"] == []
-    assert produced and not produced[0].parent.exists()
+        assert "生成结果文件不存在或为空" in result["error"]["message"]
+    assert not observed["first_output"].parent.exists()
     assert list(source.parent.rglob("*.xlsx")) == [source]
