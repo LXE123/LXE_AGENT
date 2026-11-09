@@ -23,7 +23,7 @@ def test_export_is_the_only_philippines_command(capsys):
     assert description["attribution_skill"] == "philippines-reports-export"
     assert description["input_modes"] == ["flags"]
     assert description["artifact_paths"] == [{"field": "artifacts[].path", "role": "deliverable"}]
-    assert description["input_schema"]["properties"] == {}
+    assert "resume_id" in description["input_schema"]["properties"]
     assert cli.main(["list"]) == 0
     record, = _records(capsys)
     commands = {item["command"] for item in record["data"]["commands"]}

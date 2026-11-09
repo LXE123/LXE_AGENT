@@ -1,6 +1,6 @@
 ---
 name: philippines-reports-export
-description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求导出菲律宾或雅仓菲律宾的库存、销量、库存动销或库存列表时使用；明确只需要单一 ERP 时使用对应导出 Skill。
+description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求导出菲律宾数据且未指定 ERP 时使用；指定雅仓或马帮 TMS 时使用对应导出 Skill。
 type: replenishment
 commands:
   - lxeskill philippines reports export
@@ -19,7 +19,7 @@ commands:
 
 日期按本轮开始时的 `Asia/Shanghai` 日期确定，两份文件日期一致。第一张表保留相应雅仓源表的全部字段、内容和格式，工作表使用上表名称；源文件本身保持原样。
 
-“导出菲律宾库存动销”“导出雅仓菲律宾库存”或“导出雅仓菲律宾销量”等请求都表示这套两文件流程。明确只需要雅仓或马帮 TMS 单一来源、指定创建日期筛选或需要其他仓库时，按用户指定范围使用对应导出 Skill；仅说“导出菲律宾仓数据”且来源未定时，由 `southeast-asia-replenishment-workflow-map` 澄清来源。越南备货继续使用 `vietnam-replenishment`。
+“导出菲律宾库存动销”或“导出菲律宾仓数据”等未指定 ERP 的请求使用这套两文件流程。指定雅仓或马帮 TMS、创建日期筛选或其他仓库时，按用户指定范围使用对应导出 Skill。越南备货继续使用 `vietnam-replenishment`。
 
 ## 执行入口
 
@@ -35,7 +35,7 @@ lxeskill philippines reports export
 
 命令复用现有雅仓和 TMS service，依次取得 PH8805 两份报表与 PH1 最终汇总文件，完成校验和合并。认证分别来自桌面“雅仓”和“马帮 TMS”配置。单次命令包含完整编排，等待原执行结束后读取最终结果。
 
-如果雅仓阶段返回 `login_required`，按登录 Skill 重新登录并保存。没有已完成来源时自动重试本命令一次；已有已完成来源或再次失败时保留来源并报告实际错误，避免重复提交已完成的导出。遇到 403、429 或明显风控立即停止。
+如果雅仓阶段返回 `login_required`，按登录 Skill 重新登录并保存。若结果含 `data.resume_id`，运行 `lxeskill philippines reports export --resume-id "<返回的编号>"` 继续同一次任务，只补取未完成的雅仓报表，再继续 TMS 和合并；没有该编号时重试原命令一次。再次失败时说明实际错误。遇到 403、429 或明显风控立即停止。
 
 命令参数以 `lxeskill describe philippines reports export` 为准。产物目录通过 `lxeskill datasets list` 查询，`dir` 相对于当前环境的 `artifact_root`。
 
@@ -68,7 +68,7 @@ TMS 独有 SKU 的补入规则：
 
 读取最后一条 `type="result"`。`ok=true`、`data.success=true`、`data.status=completed` 且 `files` 列出两份最终 XLSX 时，通过 `send_files` 一起交付，使用命令返回的真实路径与文件名。附件发送失败时只重试交付。
 
-自动取数有任何来源失败或部分成功时，组合命令失败且 `files=[]`；按 `data.stage`、`data.error` 和 `data.source_exports` 反馈失败阶段、实际错误及已完成来源。这些来源文件仅用于说明进度，不作为两份最终合并报表交付。文件校验或写出失败同样反馈实际诊断。
+自动取数有任何来源失败或部分成功时，组合命令失败且 `files=[]`；按 `data.stage`、`data.error` 和 `data.source_exports` 反馈失败阶段、实际错误及已完成来源。返回 `data.resume_id` 时，解决错误后可用该编号继续；遇到 403、429 或明显风控立即停止。这些来源文件不作为两份最终合并报表交付。
 
 只有自动入口确认 TMS 完整成功、PH1 接口记录数及文件行数/SKU 数均为零且无来源附件时，才按空 TMS 集合处理。此时 `data.tms_empty=true`，仍交付两份最终 XLSX，并说明本轮 TMS 无记录、结果仅含雅仓数据。
 

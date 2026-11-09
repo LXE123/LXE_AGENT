@@ -1,6 +1,6 @@
 ---
 name: mabang-tms-products-export
-description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。已确定 TMS 来源时，越南选 VN1、菲律宾选 PH1。未限定单一 ERP 的菲律宾库存动销或库存列表使用 philippines-reports-export；普通仓库数据来源不明时先确认 ERP，未指定仓库先询问。
+description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。指定 TMS 时，越南选 VN1、菲律宾选 PH1。未指定 ERP 的菲律宾数据使用 philippines-reports-export；越南仓库数据来源不明时先确认 ERP，未指定 TMS 仓库先询问。
 type: replenishment
 commands:
   - lxeskill mabang-tms products export
@@ -20,7 +20,7 @@ commands:
 
 ## 先确定系统与仓库
 
-用户要求“导出菲律宾库存动销”“导出雅仓菲律宾库存”或“导出雅仓菲律宾销量”时，使用 `philippines-reports-export`，固定合并雅仓 PH8805 与本 Skill 的 PH1 汇总产物并交付两份报表。明确只要雅仓或马帮 TMS 单一来源时，使用对应 Skill 的独立导出。
+用户要求导出菲律宾数据且未指定 ERP 时，使用 `philippines-reports-export`，合并雅仓 PH8805 与本 Skill 的 PH1 汇总产物并交付两份报表。指定雅仓或马帮 TMS 时，使用对应 Skill 的独立导出。
 
 除上述菲律宾合并流程外，先使用当前请求或同一任务中已确认的 ERP 来源；来源未明确时，不能凭“越南仓”“菲律宾仓”、Shopee 或其他任务最近使用的系统选择 ERP。明确只要马帮 TMS 或雅仓时，使用对应 Skill。
 
@@ -35,9 +35,9 @@ commands:
 | 导出雅仓越南仓数据 | 使用 `yacang-reports-export`，选择 `VN8806`，不调用 TMS |
 | 导出雅仓菲律宾仓数据 | 使用 `yacang-reports-export`，选择 `PH8805`，不调用 TMS |
 | 导出越南仓数据，未指定 ERP | 先询问雅仓还是马帮 TMS；确认后分别选择 `VN8806` 或 `VN1` |
-| 导出菲律宾仓数据，未指定 ERP | 先询问雅仓还是马帮 TMS；确认后分别选择 `PH8805` 或 `PH1` |
+| 导出菲律宾仓数据，未指定 ERP | 使用 `philippines-reports-export` 合并雅仓和 TMS |
 
-仅在来源已明确为马帮 TMS 后，明确越南或 VN1 时自动选择 VN1，明确菲律宾或 PH1 时自动选择 PH1，不重复询问已经明确的范围。只有用户明确要求全部仓库，或在询问中明确选择全部，才能传 `all`。未知仓库或冲突范围先澄清，不扩大为全仓。普通仓库数据导出仅给国家且无已确认来源时，复用 `southeast-asia-replenishment-workflow-map` 的 ERP 单选问题（雅仓/马帮 TMS）；仅称“马帮”时按上表区分马帮 ERP/TMS，不套用该二选一。若同时缺少仓库，先确认 ERP，再按对应 Skill 确认仓库。
+仅在来源已明确为马帮 TMS 后，明确越南或 VN1 时自动选择 VN1，明确菲律宾或 PH1 时自动选择 PH1，不重复询问已经明确的范围。只有用户明确要求全部仓库，或在询问中明确选择全部，才能传 `all`。未知仓库或冲突范围先澄清，不扩大为全仓。越南仓库来源未确定时复用 `southeast-asia-replenishment-workflow-map` 的 ERP 单选问题；仅称“马帮”时按上表区分马帮 ERP/TMS。若同时缺少仓库，先确认 ERP，再按对应 Skill 确认仓库。
 
 桌面使用已有 `ask_user_question` 单选；该轮只提问，不并行调用导出。非桌面渠道用普通消息提问后等待回答。空答案、跳过或取消均不授权导出。可使用以下真实工具参数：
 
@@ -53,7 +53,7 @@ commands:
 | --- | --- |
 | 商品与仓库 | 库存SKU、仓库、入库时间；同仓同 SKU 的原信息取最近入库的一整行 |
 | 库存 | “库存量”“在途量”取最近入库原始记录的值；“可用库存”替换为同仓同 SKU 的列表 API `stockQuantity` 合计 |
-| 销量 | 7天销量、15天销量、30天销量分别取同仓同 SKU 的列表 API `sale1`、`sale2`、`sale3` 首个非空值，不相加 |
+| 销量 | 7天销量、15天销量、30天销量分别按列表 API 返回顺序取同仓同 SKU 的 `sale1`、`sale2`、`sale3` 首个非空值，不相加 |
 | 金额 | 成本价、采购价 |
 
 “可用库存”列不再使用原导出字段 `availableinventory` 的值。机器人汇总直接读取列表 API 的顶层 `stockSku`、`stockQuantity`、`sale1`、`sale2`、`sale3`；核对和汇总时去除 SKU 首尾空格，同仓相同 SKU 以首次出现顺序输出，交付的 SKU 也去除首尾空格。空白 SKU 无法识别商品，需报错。下载的 XLS/XLSX 明细行可能由一个 API 记录展开成多行，不能直接累加这些明细行来代替机器人计算。
@@ -125,6 +125,5 @@ lxeskill mabang-tms products export --warehouse VN1
 ## 限制
 
 - 当前命令仅支持上述仓库选择，不支持按销售平台或日期筛选，也不提供历史库存、逐日销量、独立上架报表、自选字段或备货计算。请求超出能力或来源不明确时，先说明限制并确认可接受的范围，不静默扩大导出范围。
-- 7/15/30 天销量使用机器人首个非空值规则，不累加重复记录的销量；“可用库存”使用列表 API `stockQuantity` 汇总，不能视为 TMS 原 `availableinventory` 口径。
 - Excel 不含接口记录 ID，现有 SKU/仓库计数检查是覆盖下界，不能宣称已证明逐 ID 内容或精确展开行数。
 - 结果中的仓库仅表示本轮数据涉及的仓库，不代表账号全部仓库清单。Shopee 业务背景也不代表已按平台过滤，不能据 SKU 或商品名称推断平台归属。

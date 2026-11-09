@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import hashlib
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from services.mabang_tms import workflow as tms_workflow
@@ -171,18 +172,44 @@ def _tms_file(result: dict) -> tuple[str | None, str, int]:
     return item["path"], item["warehouse"], row_count
 
 
-def export_reports(on_event: Callable[[dict], None] = lambda _event: None) -> dict:
+def _save_progress(root: Path, resume_id: str | None, report_date: date, artifacts: list[dict], submitted: bool) -> tuple[str, Path]:
+    resume_id = resume_id or uuid4().hex
+    path = root / ".continuations" / f"{UUID(resume_id).hex}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"report_date": report_date.isoformat(), "artifacts": artifacts,
+                                "submitted_in_run": submitted}, ensure_ascii=False), encoding="utf-8")
+    return resume_id, path
+
+
+def export_reports(on_event: Callable[[dict], None] = lambda _event: None, *, resume_id: str | None = None) -> dict:
     """Export the fixed PH sources once, then merge their validated current paths."""
-    stage, source_exports = "yacang_export", []
+    stage, source_exports, continuation = "yacang_export", [], None
     try:
-        report_date = _today()
+        root = filesystem_path(dataset_dir("philippines_reports"))
+        reports = ["inventory-sales", "inventory-current-snapshot"]
+        completed = []
+        submitted = False
+        if resume_id:
+            continuation = root / ".continuations" / f"{UUID(resume_id).hex}.json"
+            progress = json.loads(continuation.read_text(encoding="utf-8"))
+            report_date = date.fromisoformat(progress["report_date"])
+            completed = progress["artifacts"]
+            reports = [report for report in reports if report not in {item["report"] for item in completed}]
+            submitted = progress["submitted_in_run"]
+        else:
+            report_date = _today()
         on_event({"stage": stage, "message": "菲律宾报表：取得雅仓 PH8805 库存动销和当前库存"})
         yacang = yacang_workflow.run({"params": {
-            "reports": ["inventory-sales", "inventory-current-snapshot"], "warehouses": ["PH8805"],
-        }}, require_fresh=True)
+            "reports": reports, "warehouses": ["PH8805"],
+        }}, require_fresh=not submitted) if reports else {"success": True, "status": "completed", "artifacts": []}
+        yacang["artifacts"] = completed + yacang.get("artifacts", [])
         source_exports.append(_source_summary("yacang", yacang))
+        if not yacang.get("success") and yacang["artifacts"]:
+            submitted = submitted or any(task.get("submitted_in_run") for task in yacang.get("tasks", []))
+            resume_id, continuation = _save_progress(root, resume_id, report_date, yacang["artifacts"], submitted)
         _complete(yacang, "雅仓")
         files, counts = _yacang_files(yacang)
+        resume_id, continuation = _save_progress(root, resume_id, report_date, yacang["artifacts"], False)
         stage = "tms_export"
         on_event({"stage": stage, "message": "菲律宾报表：取得马帮 TMS PH1 SKU 汇总"})
         tms = tms_workflow.run_with_events({"warehouse": "PH1"}, on_event)
@@ -193,6 +220,10 @@ def export_reports(on_event: Callable[[dict], None] = lambda _event: None) -> di
         on_event({"stage": stage, "message": "菲律宾报表：按 SKU 合并并校验两份工作簿"})
         result = _merge_files(**files, tms_file=tms_file, report_date=report_date,
                               tms_warehouse_name=warehouse_name, expected_counts={**counts, "tms_rows": tms_count})
+        continuation.unlink()
         return {**result, "source_exports": source_exports}
     except Exception as exc:
-        return _failure(stage, exc, source_exports)
+        result = _failure(stage, exc, source_exports)
+        if stage != "merge" and continuation and continuation.exists():
+            result["resume_id"] = resume_id
+        return result

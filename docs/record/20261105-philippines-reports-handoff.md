@@ -44,3 +44,10 @@
 雅仓分支已在 `e5f48f84` 恢复共享登录 Skill 的图片识读指引，提交已推送并合入本工作区；菲律宾 Skill 已移除与之冲突的固定人工验证说明，菲律宾分支的本轮调整尚未提交或推送。
 
 保持原混合工作区及历史改动。菲律宾报表精简已推送至 `46be0f12`；登录指引调整按用户授权提交并推送，前序 PR 审核归位后复核菲律宾差异。
+
+## 2026-11-09：入口选择与中断续跑
+
+- pool-21、`codex/philippines-reports-prep`：指定雅仓或 TMS 时使用各自 Skill；未指定 ERP 的菲律宾数据使用组合 Skill。登录 Skill 与销量说明同步前序改动。
+- `lxeskill philippines reports export` → `services/commands/philippines_reports/export_run.py` → `services/philippines_reports/workflow.py`。失败结果的 `resume_id` 可用于 `--resume-id`：菲律宾数据集记录本次日期和已完成的雅仓来源，续跑补取未完成来源，再获取 TMS 并合并；完成后清除进度。雅仓失败任务的 `submitted_in_run` 来自前序 workflow，区分本次提交和旧的未确认提交。凭据仍由现有雅仓和 TMS 环境变量注入。
+- 菲律宾定向测试 42 passed；雅仓 pool-19 测试 85 passed；命令契约测试 415 passed、4 skipped；Bun 契约 4 passed。均使用测试文件和本机模拟服务。真实验证码自动识读、平台错误形态及真实续跑 NOT VERIFIED。
+- Git 状态以 `git status` 为准；`docs/superpowers/` 为既有未跟踪内容。前序分支提交归位后复核组合分支；执行任务期间避免切换雅仓账号。

@@ -18,6 +18,44 @@ from shared.workspace import artifact_root
 pytestmark = pytest.mark.usefixtures("ph_workspace")
 
 
+@pytest.mark.parametrize("submitted", [False, True])
+def test_resume_after_login_keeps_completed_yacang_file(ph_files, ph_online, ph_rows, submitted, capsys):
+    yacang, _, yacang_mock, tms_mock = ph_online(ph_files())
+    sales, inventory = yacang["artifacts"]
+    yacang_mock.side_effect = [
+        {"success": False, "status": "partial_success", "artifacts": [sales],
+         "tasks": [{"report": "inventory-current-snapshot", "submitted_in_run": submitted}],
+         "error": {"code": "login_required", "message": "login required"}},
+        {"success": True, "status": "completed", "artifacts": [inventory]},
+    ]
+    assert cli.main(["philippines", "reports", "export"]) == cli.EXIT_BUSINESS
+    failed = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
+    tms_mock.assert_not_called()
+    assert cli.main(["philippines", "reports", "export", "--resume-id", failed["resume_id"]]) == 0
+    result = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
+    assert yacang_mock.call_args_list[1] == call(
+        {"params": {"reports": ["inventory-current-snapshot"], "warehouses": ["PH8805"]}},
+        require_fresh=not submitted,
+    )
+    assert len(result["artifacts"]) == 2
+    sales_row, inventory_row = (ph_rows(item)[0] for item in result["artifacts"])
+    assert (sales_row["7天销量"], inventory_row["可用库存"]) == (12, 130)
+
+
+def test_retry_tms_keeps_both_yacang_files(ph_files, ph_online, capsys):
+    _, tms, yacang_mock, tms_mock = ph_online(ph_files())
+    tms_mock.side_effect = [
+        {"success": False, "status": "failed", "error": {"code": "export_failed", "message": "failed"}},
+        tms,
+    ]
+    assert cli.main(["philippines", "reports", "export"]) == cli.EXIT_BUSINESS
+    failed = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
+    assert cli.main(["philippines", "reports", "export", "--resume-id", failed["resume_id"]]) == 0
+    result = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
+    assert len(result["artifacts"]) == 2
+    assert yacang_mock.call_count == 1
+
+
 def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_files, ph_online, ph_rows, monkeypatch, capsys):
     paths = ph_files()
     yacang, tms, yacang_mock, tms_mock = ph_online(paths)
