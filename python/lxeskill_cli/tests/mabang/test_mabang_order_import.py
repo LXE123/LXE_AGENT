@@ -4,13 +4,14 @@ from pathlib import Path
 import re
 
 import pytest
+from openpyxl.utils import get_column_letter
 
 from lxeskill import cli
 from lxeskill.business import load_catalog
 from services.commands.mabang import order_import_generate as command
 from services.mabang.order_import import country_rules, workflow
 from services.mabang.order_import.workbook import OrderImportWorkbookError
-from order_import_test_helpers import TEMPLATE, open_sheet, rows, source_workbook
+from order_import_test_helpers import LAYOUTS, TEMPLATE, open_sheet, rows, source_workbook
 
 
 @pytest.fixture
@@ -48,11 +49,12 @@ def invoke(tmp_path, monkeypatch, capsys):
         ("MY261105B-H", 7, "11/4B海运", "2026-11-04", [None, None, 9]),
         ("MY261105-K", 8, "11/4空运", "2026-11-04", [5, None, 3]),
     ]),
-    ("vietnam", None, {}, [("VN261105-L", 41, "11/4陆运", "2026-11-04", [5, None, None])]),
-    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261105-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
+    ("vietnam", None, {}, [("VN261105-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
+                            ("VN261105-H", 43, "10/30海运", "2026-10-30", [3, 4, None])]),
+    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261105-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
+                                               ("VN261105-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
     ("philippines", None, {}, [
         ("PH261105-K", 41, "11/5空运", "2026-11-05", [10, None, None]),
-        ("PH261105A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
         ("PH261105B-H", 52, "11/7B海运", "2026-11-07", [3, None, 4]),
     ]),
     ("indonesia", None, {}, [
@@ -69,8 +71,8 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
     assert data["order_ids"] == [item[0] for item in expected]
     assert result["files"] == [item["path"] for item in data["artifacts"]]
     if country == "philippines":
-        assert [a["field"] for a in data["artifacts"]] == ["air", "sea_a", "sea_b"]
-        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "A海运", "B海运"]
+        assert [a["field"] for a in data["artifacts"]] == ["air", "sea_b"]
+        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "B海运"]
     elif country == "indonesia":
         assert [a["field"] for a in data["artifacts"]] == ["air", "sea"]
         assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "海运"]
@@ -89,7 +91,7 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
         assert artifact["sku_count"] == 3
         assert artifact["quantity_value_count"] == sum(q is not None for q in quantities)
         if country == "vietnam":
-            assert artifact["shipping_mode"] == ("海运" if override else "陆运")
+            assert artifact["shipping_mode"] == ("陆运" if order_id.endswith("-L") else "海运")
         with open_sheet(path) as sheet, open_sheet(TEMPLATE) as template:
             assert sheet.title == "订单标准模板"
             assert sheet.max_row == 4 and sheet.auto_filter.ref == "A1:AE4"
@@ -103,16 +105,12 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
 @pytest.mark.parametrize(("country", "changes", "sheet_name", "error"), [
     ("brazil", {}, "其他", "缺少必需工作表"),
     ("brazil", {"F1": "库存SKU"}, None, "F1 必须是 SKU 表头"),
-    ("brazil", {"AU1": None}, None, "AU1.*海运日期表头缺失或格式无效.*空白"),
-    ("brazil", {"AX1": "8月24日海运"}, None, "AX1.*表头缺失或格式无效"),
+    ("brazil", {"AX1": "8月24日海运"}, None, "AX1.*运输日期字段格式无效"),
     ("brazil", {"BD2": "=10+20"}, None, "BD2.*公式.*缓存.*重新计算"),
     ("malaysia", {"G2": "#VALUE!"}, None, "G2.*#VALUE!"),
     ("malaysia", {"BA1": "11/4A海运"}, None, "重复"),
-    ("malaysia", {"BB1": "11/5A海运"}, None, "2026-11-05 缺少字段: B海运, 空运"),
-    ("malaysia", {"AR1": "2/29空运"}, None, "2028-02-29 缺少字段: A海运, B海运"),
     ("vietnam", {"AO2": "=2+3"}, None, "AO2.*公式没有缓存结果"),
     ("philippines", {}, "其他", "缺少必需工作表"),
-    ("philippines", {"AN1": None, "AO1": None}, None, "空运"),
     ("philippines", {"AY1": "2/30A海运"}, None, "日期表头无效.*AY1"),
     ("philippines", {"AO2": -1}, None, "AO2.*数量"),
     ("philippines", {"AO2": "=1+1"}, None, "AO2.*公式.*缓存"),
@@ -162,11 +160,11 @@ def test_malaysia_chooses_latest_date_group_even_when_an_older_group_is_closer(i
             assert sheet["T2"].value == quantity
 
 
-def test_brazil_cli_accepts_selected_nearest_tie_candidate(invoke):
-    changes = {"BC1": "11/4海运", "BC2": 19}
+def test_brazil_cli_accepts_selected_duplicate_latest_candidate(invoke):
+    changes = {"BC1": "11/6海运", "BC2": 19}
     code, result, source = invoke("brazil", changes)
     assert code != 0 and not result["ok"] and result["files"] == []
-    assert re.search(r"并列.*BC.*BD", result["error"]["message"])
+    assert re.search(r"重复.*BC.*BD", result["error"]["message"])
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
     code, result, _ = invoke("brazil", changes, shipping_column="BC")
@@ -177,25 +175,20 @@ def test_brazil_cli_accepts_selected_nearest_tie_candidate(invoke):
         assert sheet["T2"].value == 19
 
 
-def test_philippines_ties_require_mode_specific_nearest_choices(invoke):
+def test_philippines_duplicate_latest_columns_use_mode_specific_choices(invoke):
     changes = {
-        "AO1": "11/4空运", "AP1": "11/6空运", "AP2": 11,
-        "AY1": "11/4A海运", "BA1": "11/6A海运", "BA2": 22,
-        "AZ1": "11/4B海运", "BB1": "11/6B海运", "BB2": 33,
+        "AO1": "11/6空运", "AP1": "11/6空运", "AP2": 11,
+        "AY1": "11/6A海运", "BA1": "11/6A海运", "BA2": 22,
+        "AZ1": "11/6B海运", "BB1": "11/6B海运", "BB2": 33,
     }
     code, result, source = invoke("philippines", changes)
     assert code != 0 and not result["ok"] and result["files"] == []
-    message = result["error"]["message"]
-    for mode, left, right in (("空运", "AO", "AP"), ("A海运", "AY", "BA"), ("B海运", "AZ", "BB")):
-        assert re.search(rf"{mode}.*{left}.*{right}", message)
+    assert re.search(r"空运.*重复.*AO.*AP", result["error"]["message"])
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
     code, result, source = invoke("philippines", changes, shipping_overrides={"air": "AP"})
     assert code != 0 and not result["ok"] and result["files"] == []
-    message = result["error"]["message"]
-    assert "空运" not in message
-    for mode, left, right in (("A海运", "AY", "BA"), ("B海运", "AZ", "BB")):
-        assert re.search(rf"{mode}.*{left}.*{right}", message)
+    assert re.search(r"A海运.*重复.*AY.*BA", result["error"]["message"])
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
     code, result, _ = invoke("philippines", changes, shipping_overrides={"air": "AP", "sea_a": "BA", "sea_b": "BB"})
@@ -206,10 +199,10 @@ def test_philippines_ties_require_mode_specific_nearest_choices(invoke):
             assert sheet["T2"].value == quantity
 
 
-def test_philippines_rejects_override_outside_nearest_candidates(invoke):
+def test_philippines_rejects_override_outside_latest_candidates(invoke):
     code, result, source = invoke("philippines", shipping_overrides={"air": "AN"})
     assert code != 0 and not result["ok"] and result["files"] == []
-    assert "最近" in result["error"]["message"]
+    assert "最新" in result["error"]["message"]
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
@@ -435,7 +428,7 @@ def test_philippines_cleans_outputs_when_final_file_check_fails(invoke, monkeypa
     def empty_second(*args, **kwargs):
         artifacts = generate(*args, **kwargs)
         produced.extend(Path(item["output_xlsx"]) for item in artifacts)
-        assert len(produced) == 3 and all(path.is_file() for path in produced)
+        assert len(produced) == 2 and all(path.is_file() for path in produced)
         produced[1].write_bytes(b"")
         return artifacts
 
@@ -469,3 +462,103 @@ def test_command_contract():
 def test_workflow_rejects_malaysia_override():
     with pytest.raises(OrderImportWorkbookError, match="shipping_column 仅用于巴西或越南"):
         workflow.run(country="malaysia", input_xlsx="unused.xlsx", shipping_column="AO")
+
+
+def unified_headers(country, columns):
+    changes = {f"{get_column_letter(column)}1": None for column in LAYOUTS[country][2]}
+    for column, (header, quantity) in columns.items():
+        changes[f"{column}1"] = header
+        changes[f"{column}2"] = quantity
+    return changes
+
+
+@pytest.mark.parametrize(("country", "prefix"), [
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"),
+])
+def test_four_countries_export_each_transport_latest_date_and_all_batches(invoke, country, prefix):
+    changes = unified_headers(country, {
+        "BJ": ("11/1陆运", 1), "BK": ("11/6陆运", 2), "BL": ("11/6A陆运", 3),
+        "BM": ("11/5空运", 4), "BN": ("11/7c空运", 5),
+        "BO": ("11/8海运", 6), "BP": ("11/8B海运", 7),
+    })
+    code, result, _ = invoke(country, changes)
+    assert code == 0 and result["ok"]
+    artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
+    expected = {
+        f"{prefix}261105-L": ("11/6陆运", 2), f"{prefix}261105A-L": ("11/6A陆运", 3),
+        f"{prefix}261105C-K": ("11/7c空运", 5), f"{prefix}261105-H": ("11/8海运", 6),
+        f"{prefix}261105B-H": ("11/8B海运", 7),
+    }
+    assert set(artifacts) == set(expected)
+    for order, (header, quantity) in expected.items():
+        assert artifacts[order]["shipping_header"] == header
+        with open_sheet(artifacts[order]["path"]) as sheet:
+            assert rows(sheet) == [("SKU-A", 0, quantity), ("SKU-B", 0, None), ("SKU-A", 0, None)]
+
+
+@pytest.mark.parametrize(("country", "prefix", "mode", "suffix"), [
+    ("brazil", "BR", "陆运", "L"), ("malaysia", "MY", "空运", "K"),
+    ("vietnam", "VN", "海运", "H"), ("philippines", "PH", "陆运", "L"),
+])
+def test_four_countries_allow_a_single_transport(invoke, country, prefix, mode, suffix):
+    changes = unified_headers(country, {"BJ": (f"11/6C{mode}", 8)})
+    code, result, _ = invoke(country, changes)
+    assert code == 0 and result["ok"]
+    assert result["data"]["order_ids"] == [f"{prefix}261105C-{suffix}"]
+
+
+@pytest.mark.parametrize("country", ["brazil", "vietnam", "philippines"])
+def test_existing_overrides_resolve_duplicates_without_dropping_other_batches(invoke, country):
+    changes = unified_headers(country, {
+        "BJ": ("11/6空运", 1), "BK": ("11/6空运", 2),
+        "BL": ("11/6A空运", 3), "BM": ("11/5空运", 4),
+    })
+    code, result, _ = invoke(country, changes)
+    assert code != 0 and "重复" in result["error"]["message"]
+    kwargs = {"shipping_overrides": {"air": "BK"}} if country == "philippines" else {"shipping_column": "BK"}
+    code, result, _ = invoke(country, changes, **kwargs)
+    assert code == 0 and result["ok"]
+    assert {a["shipping_header"] for a in result["data"]["artifacts"]} == {"11/6空运", "11/6A空运"}
+    chosen = next(a for a in result["data"]["artifacts"] if a["shipping_header"] == "11/6空运")
+    with open_sheet(chosen["path"]) as sheet:
+        assert sheet["T2"].value == 2
+    kwargs = {"shipping_overrides": {"air": "BM"}} if country == "philippines" else {"shipping_column": "BM"}
+    code, result, _ = invoke(country, changes, **kwargs)
+    assert code != 0 and result["files"] == [] and "最新" in result["error"]["message"]
+
+
+def test_philippines_override_rejects_a_different_batch(invoke):
+    changes = unified_headers("philippines", {"BJ": ("11/6空运", 1), "BK": ("11/6A空运", 2)})
+    code, result, _ = invoke("philippines", changes, shipping_overrides={"air": "BK"})
+    assert code != 0 and result["files"] == [] and "最新" in result["error"]["message"]
+
+
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines"])
+@pytest.mark.parametrize("failure", ["write", "final_check"])
+def test_four_countries_clean_partial_outputs(invoke, monkeypatch, country, failure):
+    changes = unified_headers(country, {"BJ": ("11/6陆运", 1), "BK": ("11/6空运", 2)})
+    produced = []
+    if failure == "write":
+        writer = country_rules.generate_order_workbook
+
+        def fail_second(rows, output, **kwargs):
+            produced.append(Path(output))
+            if len(produced) == 2:
+                raise OSError("second workbook write failed")
+            return writer(rows, output, **kwargs)
+
+        monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
+    else:
+        generate = country_rules.generate_order_workbooks
+
+        def empty_second(*args, **kwargs):
+            artifacts = generate(*args, **kwargs)
+            produced.extend(Path(item["output_xlsx"]) for item in artifacts)
+            produced[1].write_bytes(b"")
+            return artifacts
+
+        monkeypatch.setattr(country_rules, "generate_order_workbooks", empty_second)
+    code, result, source = invoke(country, changes)
+    assert code != 0 and result["files"] == []
+    assert produced and not produced[0].parent.exists()
+    assert list(source.parent.rglob("*.xlsx")) == [source]

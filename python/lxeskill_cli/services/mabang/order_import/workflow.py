@@ -46,8 +46,7 @@ def run(
             )
             artifacts = [{"path": item.pop("output_xlsx"), **item} for item in results]
         except Exception:
-            if country != "brazil":
-                shutil.rmtree(output_dir, ignore_errors=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
             raise
 
     try:
@@ -56,8 +55,7 @@ def run(
             if not output.is_file() or output.stat().st_size == 0:
                 raise RuntimeError("生成结果文件不存在或为空")
     except Exception:
-        if country in {"philippines", "indonesia"}:
-            shutil.rmtree(output_dir, ignore_errors=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
         raise
     return {
         "country": country,

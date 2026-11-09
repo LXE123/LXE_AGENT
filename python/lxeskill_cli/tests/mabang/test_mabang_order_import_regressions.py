@@ -98,6 +98,7 @@ def test_cached_formula_and_literal_sku(source, quantity):
         sheet["E3"] = "=SKU-LITERAL"
         sheet["E3"].data_type = "s"
         sheet["AO4"] = 30
+        sheet["AQ1"] = "10/30陆运"  # Older same-transport column is not selected.
         sheet["AQ2"] = "=1+1"  # An unused quantity formula must not block export.
         sheet.parent.save(source)
     formula_cache(source, "E2", "str", "SKU-CACHED")
@@ -152,51 +153,21 @@ def sheet():
 
 
 @pytest.mark.parametrize("country", ["brazil", "vietnam"])
-@pytest.mark.parametrize(("today", "near", "distant", "expected"), [
-    (date(2028, 1, 1), "1/1", "7/2", date(2028, 1, 1)),
-    (date(2026, 11, 4), "11/4", "2/29", date(2026, 11, 4)),
-    (TODAY, "11/6", "11/3", date(2026, 11, 6)),
-])
-def test_date_candidates(sheet, country, today, near, distant, expected):
-    if country == "brazil":
-        for column in range(46, 57):
-            sheet.cell(1, column, f"{distant}海运")
-        winner, far, mode, column = "AT", "AU", "海运", 46
-    else:
-        winner, far, mode, column = "AQ", "AO", "海运", 43
-        sheet[f"{far}1"] = f"{distant}陆运"
-    sheet[f"{winner}1"] = f"{near}{mode}"
-    sheet[f"{far}1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
-    wanted = country_rules.ShippingCandidate(column, f"{near}{mode}", expected, mode)
-    for override in (None, winner):
-        assert country_rules.select_shipping_columns(
-            country, sheet, today, shipping_column=override,
-        )["selected"] == wanted
+def test_latest_dates_per_transport_across_year_boundary(sheet, country):
+    sheet["AO1"], sheet["AP1"], sheet["AQ1"] = "12/31海运", "1/3海运", "1/2陆运"
+    sheet["AO1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    selected = country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AP")
+    assert selected["sea"] == country_rules.ShippingCandidate(42, "1/3海运", date(2027, 1, 3), "sea")
+    assert selected["land"] == country_rules.ShippingCandidate(43, "1/2陆运", date(2027, 1, 2), "land")
+    with pytest.raises(OrderImportWorkbookError, match="不是最新日期"):
+        country_rules.select_shipping_columns(country, sheet, date(2027, 1, 1), shipping_column="AO")
 
 
-@pytest.mark.parametrize(("country", "today", "left", "right", "expected"), [
-    ("brazil", date(2026, 8, 24), "8/24A海运", "8/24B海运", date(2026, 8, 24)),
-    ("brazil", date(2027, 1, 1), "12/31海运", "1/2海运", date(2027, 1, 2)),
-    ("vietnam", date(2028, 1, 1), "12/31陆运", "1/2海运", date(2028, 1, 2)),
-])
-def test_ties(sheet, country, today, left, right, expected):
-    if country == "brazil":
-        for column in range(46, 57):
-            sheet.cell(1, column, "10/1海运")
-        a, b, column = "AW", "AX", 50
-    else:
-        a, b, column = "AO", "AQ", 43
-        sheet["AR1"] = "7/2海运"
-    sheet[f"{a}1"], sheet[f"{b}1"] = left, right
-    sheet[f"{a}1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
-    with pytest.raises(OrderImportWorkbookError, match=rf"并列.*{a}.*{b}"):
-        country_rules.select_shipping_columns(country, sheet, today)
-    wanted = country_rules.ShippingCandidate(column, right, expected, "海运")
-    assert country_rules.select_shipping_columns(country, sheet, today, shipping_column=b)["selected"] == wanted
-    with pytest.raises(OrderImportWorkbookError, match="不是最近日期"):
-        country_rules.select_shipping_columns(
-            country, sheet, today, shipping_column="AT" if country == "brazil" else "AR",
-        )
+@pytest.mark.parametrize("country", ["brazil", "vietnam"])
+def test_same_date_distinct_batches_are_not_a_tie(sheet, country):
+    sheet["AW1"], sheet["AX1"] = "8/24A海运", "8/24B海运"
+    selected = country_rules.select_shipping_columns(country, sheet, date(2026, 8, 24), shipping_column="AX")
+    assert {field: candidate.column for field, candidate in selected.items()} == {"sea_a": 49, "sea_b": 50}
 
 
 @pytest.mark.parametrize(("today", "expected"), [
@@ -226,18 +197,14 @@ def test_philippines_selects_each_transport_across_year_boundary(sheet):
     sheet["AY1"], sheet["AZ1"] = "1/2A海运", "12/30B海运"
     selected = country_rules.select_shipping_columns("philippines", sheet, date(2027, 1, 1))
     assert selected == {
-        "air": country_rules.ShippingCandidate(41, "12/31空运", date(2026, 12, 31), "air"),
+        "air": country_rules.ShippingCandidate(42, "1/3空运", date(2027, 1, 3), "air"),
         "sea_a": country_rules.ShippingCandidate(51, "1/2A海运", date(2027, 1, 2), "sea_a"),
-        "sea_b": country_rules.ShippingCandidate(52, "12/30B海运", date(2026, 12, 30), "sea_b"),
     }
 
 
-def test_philippines_rechecks_only_selected_year_tie(sheet):
+def test_philippines_reports_ambiguous_year_on_transport_column(sheet):
     sheet["AO1"], sheet["AP1"] = "1/1空运", "7/2空运"
     sheet["AY1"], sheet["AZ1"] = "1/1A海运", "1/1B海运"
-    selected = country_rules.select_shipping_columns("philippines", sheet, date(2028, 1, 1))
-    assert selected["air"].column == 41
-    sheet["AO1"] = None
     with pytest.raises(OrderImportWorkbookError, match="AP1.*7/2空运.*无法确定年份"):
         country_rules.select_shipping_columns("philippines", sheet, date(2028, 1, 1))
 
