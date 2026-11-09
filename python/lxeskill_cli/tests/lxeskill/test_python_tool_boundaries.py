@@ -45,34 +45,6 @@ def test_browser_client_exposes_async_tool_boundary(monkeypatch) -> None:
     assert result.files == []
 
 
-def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> None:
-    screenshot = tmp_path / "page.png"
-    screenshot.write_bytes(b"not-decoded-by-client")
-    session = SimpleNamespace(session_id="session-1")
-
-    def fake_execute(runtime, *, tool_name: str, arguments: dict):
-        return ExecuteToolResult(
-            tool_name="ziniao_page",
-            success=True,
-            summary="captured",
-            screenshot_path=str(screenshot),
-            payload={"action": "browser_vision"},
-        )
-
-    monkeypatch.setattr(client.browser_executor, "execute_browser_tool", fake_execute)
-    result = asyncio.run(client.execute_browser_tool(
-        "ziniao_page",
-        {"action": "browser_vision", "store_id": "store-1"},
-        session,
-    ))
-
-    assert result.files == [str(screenshot.resolve())]
-    assert result.content == [
-        {"type": "text", "text": f"Screenshot saved for model reading: {screenshot.resolve()}"}
-    ]
-    assert all(item.get("type") != "image" for item in result.content)
-
-
 def test_catalog_covers_active_business_skills() -> None:
     catalog = load_catalog()
     assert catalog["mabang_resolve_fba_store"]["owner_skills"]

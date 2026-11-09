@@ -154,7 +154,7 @@ function App({
           : activeSection === "capabilities" && capabilityView === "connections"
             ? [toolsetsQuery]
             : [];
-  const activeRefreshing = dashboardRuntimeReady
+  const showRefreshIndicator = dashboardRuntimeReady && activeSection !== "sessions"
     && activeQueries.some((current) => current.isFetching && !current.isPending);
   const backgroundError = dashboardRuntimeReady
     ? activeQueries.find((current) => current.isRefetchError)?.error
@@ -236,7 +236,7 @@ function App({
                 {t.common.errorPrefix(t.errors.api, visibleError)}
               </div>
             ) : null}
-            {activeRefreshing ? (
+            {showRefreshIndicator ? (
               <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
             ) : null}
             {activeSection === "sessions" ? (

@@ -150,8 +150,8 @@ $ lxeskill help common
 公共能力与维护：浏览器操作与共用认证维护
 
 浏览器操作：
-  browser store  管理紫鸟店铺浏览器
-  browser page   读取或操作紫鸟浏览器页面
+  browser store       管理紫鸟店铺浏览器
+  browser script run  运行紫鸟浏览器自动化脚本
 
 马帮认证维护：
   mabang auth refresh         强制刷新已配置账号的马帮 ERP 登录态

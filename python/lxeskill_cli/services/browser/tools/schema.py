@@ -9,41 +9,10 @@ def _clean_text(value: Any, limit: int = 240) -> str:
     return " ".join(str(value or "").strip().split())[:limit]
 
 
-def _coerce_int(value: Any) -> int | None:
-    if value in ("", None):
-        return None
-    try:
-        return int(value)
-    except Exception as exc:
-        raise ValueError(f"invalid integer value: {value}") from exc
-
-
-def _coerce_bool(value: Any) -> bool | None:
-    if value in ("", None):
-        return None
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on"}:
-        return True
-    if text in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"invalid boolean value: {value}")
-
-
 _ZINIAO_BROWSER_ACTIONS = (
     "open_store",
     "get_status",
     "exit_store",
-)
-
-_ZINIAO_PAGE_ACTIONS = (
-    "browser_snapshot",
-    "browser_vision",
-    "browser_navigate",
-    "browser_click",
-    "browser_type",
-    "browser_scroll",
 )
 
 
@@ -69,119 +38,6 @@ def _normalize_ziniao_browser_arguments(arguments: dict[str, Any]) -> dict[str, 
     return normalized
 
 
-_MAX_PAGE_BATCH_STEPS = 20
-
-
-def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
-    if "action" in arguments:
-        raise ValueError("ziniao_page accepts either action or steps, not both")
-    extra_keys = sorted(set(arguments) - {"steps", "store_id"})
-    if extra_keys:
-        raise ValueError("batch mode only accepts store_id and steps; per-step options go inside each step")
-    store_id = _clean_text(arguments.get("store_id"), 120)
-    if not store_id:
-        raise ValueError("steps requires store_id")
-    raw_steps = arguments.get("steps")
-    if not isinstance(raw_steps, list) or not raw_steps:
-        raise ValueError("steps must be a non-empty array of step objects")
-    if len(raw_steps) > _MAX_PAGE_BATCH_STEPS:
-        raise ValueError(f"steps accepts at most {_MAX_PAGE_BATCH_STEPS} steps")
-    normalized_steps: list[dict[str, Any]] = []
-    for position, raw_step in enumerate(raw_steps, start=1):
-        if not isinstance(raw_step, dict):
-            raise ValueError(f"step {position} must be a JSON object")
-        step = dict(raw_step)
-        if "steps" in step or "store_id" in step:
-            raise ValueError(f"step {position} must not contain steps or store_id")
-        try:
-            normalized_steps.append(_normalize_ziniao_page_arguments({**step, "store_id": store_id}))
-        except ValueError as exc:
-            raise ValueError(f"step {position}: {exc}") from exc
-        step_action = str(normalized_steps[-1].get("action") or "")
-        if step_action == "browser_vision" and position != len(raw_steps):
-            raise ValueError("browser_vision is only allowed as the final step")
-    return {"store_id": store_id, "steps": normalized_steps}
-
-
-def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    if "steps" in arguments:
-        return _normalize_ziniao_page_batch(arguments)
-    action = _clean_text(arguments.get("action"), 40)
-    if action not in _ZINIAO_PAGE_ACTIONS:
-        raise ValueError(f"Unknown ziniao_page action: {action or '(missing)'}")
-
-    store_id = _clean_text(arguments.get("store_id"), 120)
-    if not store_id:
-        raise ValueError(f"{action} requires store_id")
-
-    normalized: dict[str, Any] = {
-        "action": action,
-        "store_id": store_id,
-    }
-
-    if action == "browser_snapshot":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "full"})
-        if extra_keys:
-            raise ValueError("browser_snapshot only accepts store_id and full")
-        full = _coerce_bool(arguments.get("full"))
-        if full is not None:
-            normalized["full"] = full
-        return normalized
-
-    if action == "browser_vision":
-        extra_keys = sorted(set(arguments) - {"action", "store_id"})
-        if extra_keys:
-            raise ValueError("browser_vision only accepts store_id")
-        return normalized
-
-    if action == "browser_navigate":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "url"})
-        if extra_keys:
-            raise ValueError("browser_navigate only accepts store_id and url")
-        url = _clean_text(arguments.get("url"), 600)
-        if not url:
-            raise ValueError("browser_navigate requires url")
-        normalized["url"] = url
-        return normalized
-
-    if action == "browser_click":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref"})
-        if extra_keys:
-            raise ValueError("browser_click only accepts store_id and ref")
-        ref = _clean_text(arguments.get("ref"), 120)
-        if not ref:
-            raise ValueError("browser_click requires ref")
-        normalized["ref"] = ref
-        return normalized
-
-    if action == "browser_type":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "ref", "text"})
-        if extra_keys:
-            raise ValueError("browser_type only accepts store_id, ref and text")
-        ref = _clean_text(arguments.get("ref"), 120)
-        if not ref:
-            raise ValueError("browser_type requires ref")
-        if "text" not in arguments:
-            raise ValueError("browser_type requires text")
-        normalized["ref"] = ref
-        normalized["text"] = str(arguments.get("text") or "")
-        return normalized
-
-    if action == "browser_scroll":
-        extra_keys = sorted(set(arguments) - {"action", "store_id", "direction", "pixels"})
-        if extra_keys:
-            raise ValueError("browser_scroll only accepts store_id, direction and pixels")
-        direction = _clean_text(arguments.get("direction") or "down", 20)
-        if direction not in {"up", "down"}:
-            raise ValueError("browser_scroll direction must be up or down")
-        pixels = _coerce_int(arguments.get("pixels"))
-        normalized["direction"] = direction
-        normalized["pixels"] = pixels if pixels is not None else 800
-        return normalized
-
-    raise ValueError(f"Unsupported ziniao_page action: {action}")
-
-
 def build_browser_tool_call(
     *,
     name: str,
@@ -190,20 +46,12 @@ def build_browser_tool_call(
     raw: dict[str, Any] | None = None,
 ) -> ToolCall:
     tool_name = _clean_text(name, 60)
-    if tool_name not in {"ziniao_browser", "ziniao_page"}:
-        raise ValueError(f"Unknown browser tool: {name}")
-
-    source = dict(arguments or {})
-    if tool_name == "ziniao_browser":
-        normalized_arguments = _normalize_ziniao_browser_arguments(source)
-    elif tool_name == "ziniao_page":
-        normalized_arguments = _normalize_ziniao_page_arguments(source)
-    else:
+    if tool_name != "ziniao_browser":
         raise ValueError(f"Unknown browser tool: {name}")
 
     return ToolCall(
         name=tool_name,
-        arguments=normalized_arguments,
+        arguments=_normalize_ziniao_browser_arguments(dict(arguments or {})),
         reason=_clean_text(reason, 240),
         question="",
         summary="",
