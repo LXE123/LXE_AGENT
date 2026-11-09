@@ -1,7 +1,7 @@
 import type { CodemodeJsonSchema, CodemodeTool } from "@earendil-works/pi-codemode";
-import { renderToolSample, toCodemodeIdentifier } from "@earendil-works/pi-codemode/declarations";
+import { renderToolOutputType, renderToolSample, toCodemodeIdentifier } from "@earendil-works/pi-codemode/declarations";
 import type { JsonObject } from "@lxe/protocol";
-import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition, type ToolExecutionResult } from "@lxe/runtime";
+import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition, type ToolExecutionResult, type ToolExposureState, type ToolSchema } from "@lxe/runtime";
 
 // MCP result declaration adapted from Pi. See the MIT notice in runtime's tool-search-ranking.ts.
 const CONTENT_BLOCK_SCHEMA = {
@@ -107,18 +107,45 @@ export function toScriptValue(tool: NormalizedToolDefinition, result: ToolExecut
   return text;
 }
 
-/** One snapshot of the tools permitted in this script; discovery never activates a tool. */
-export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
+function scriptToolNames(callable: NormalizedToolDefinition[]) {
   const aliasCounts = new Map<string, number>();
   for (const tool of callable) {
     const alias = toCodemodeIdentifier(tool.name);
     aliasCounts.set(alias, (aliasCounts.get(alias) ?? 0) + 1);
   }
-  const entries = callable.map(tool => {
+  return callable.map(tool => {
     const alias = toCodemodeIdentifier(tool.name);
     // Preserve exact MCP names and choose an unambiguous alias when Pi's '_' spelling collides.
     const jsName = alias !== tool.name && aliasCounts.get(alias)! > 1
       ? tool.name.replaceAll("-", "$") : alias;
+    return { tool, jsName };
+  });
+}
+
+/** A short return type for the model. describeTool() carries the full signature in the sandbox. */
+function scriptReturnSummary(tool: NormalizedToolDefinition): string {
+  // The outer MCP envelope is the same regardless of the server-specific structuredContent type.
+  const schema: CodemodeJsonSchema = tool.source === "mcp" ? createMcpResultSchema(undefined) : scriptResultSchema(tool);
+  if (typeof schema === "object" && schema.type === "object" && schema.properties && typeof schema.properties === "object") {
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const fields = Object.keys(schema.properties).map(key => required.has(key) ? key : `${key}?`);
+    return `\`{ ${fields.join(", ")} }\``;
+  }
+  const type = renderToolOutputType(schema);
+  return type === "string" ? "a string" : `\`${type}\``;
+}
+
+export function describeCodemodeCalls(schemas: readonly ToolSchema[], exposure: ToolExposureState): void {
+  const declared = new Map(schemas.map(schema => [schema.name, schema]));
+  for (const { tool, jsName } of scriptToolNames(exposure.forCodemode().callableTools())) {
+    const schema = declared.get(tool.name);
+    if (schema) schema.description = `${schema.description.trimEnd()}\n\nCodemode: \`tools.${jsName}(args)\` resolves to ${scriptReturnSummary(tool)}.`;
+  }
+}
+
+/** One snapshot of the tools permitted in this script; discovery never activates a tool. */
+export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
+  const entries = scriptToolNames(callable).map(({ tool, jsName }) => {
     const description = renderToolSample({
       name: jsName, description: tool.description, inputSchema: tool.input_schema,
       outputSchema: scriptResultSchema(tool),

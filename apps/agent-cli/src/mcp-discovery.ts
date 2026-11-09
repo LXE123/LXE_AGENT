@@ -2,7 +2,7 @@ import { CodemodeSandbox, loadQuickJSWasm, parseCodemodeSource } from "@earendil
 import type { JsonObject } from "@lxe/protocol";
 import { registerToolSearch, ToolExecutionError, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
-import { createCodemodeCatalog, toScriptValue } from "./codemode-catalog";
+import { createCodemodeCatalog, describeCodemodeCalls, toScriptValue } from "./codemode-catalog";
 import { codemodeOutput } from "./codemode-output";
 import { mcpServerEnabledOnPlatform } from "./mcp-server-directory";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
@@ -23,6 +23,7 @@ export function registerMcpDiscoveryTools(
   registry.register({
     name: "codemode",
     availableOn: platform => hasEnabledServer("codemode", platform),
+    describeModelTools: describeCodemodeCalls,
     description: "Run JavaScript that combines connected MCP tools and local read, ls, grep, edit, write, exec, and wait in a QuickJS sandbox. Top-level await and return work. " +
       "Use await searchTools(query, { limit?, namespace? }) to find tools by capability, await describeTool(name) for a TypeScript declaration, " +
       "or await describeNamespace(name) for server information and tool names. ALL_TOOLS lists callable tools. " +

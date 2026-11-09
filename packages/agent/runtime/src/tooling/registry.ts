@@ -16,6 +16,8 @@ export interface ToolDefinition extends ToolSchema {
   source?: "native" | "mcp";
   /** Opt a native tool into scripts and declare the value its caller receives. */
   codemodeResult?: "text" | "text-or-image" | JsonObject;
+  /** Add model-facing descriptions to this request's schemas while this tool is exposed. */
+  describeModelTools?: (schemas: readonly ToolSchema[], exposure: ToolExposureState) => void;
   exposure?: ToolExposure;
   /** Explicit opt-in for calls that may overlap with adjacent safe calls. */
   supportsParallelCalls?: boolean;
@@ -183,7 +185,12 @@ export class ToolExposureState {
   }
 
   schemas(): ToolSchema[] {
-    return this.callableTools().map(schemaOf);
+    const declared = this.callableTools();
+    const schemas = declared.map(schemaOf);
+    if (this.scope === "model") {
+      for (const tool of declared) tool.describeModelTools?.(schemas, this);
+    }
+    return schemas;
   }
 
   /** A script has its own callable set. Its tools never enter the parent turn's schema list. */

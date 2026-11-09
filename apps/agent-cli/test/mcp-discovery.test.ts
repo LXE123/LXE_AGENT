@@ -332,9 +332,18 @@ test("a fork inherits codemode values through its selected turn and writes indep
 });
 
 test("codemode dispatches colliding JavaScript aliases to the exact registered tools", async () => {
-  const { makeTool, run } = await setup();
+  const { registry, makeTool, run } = await setup();
   const names = ["mcp__my-shop__get", "mcp__my_shop__get"];
-  for (const name of names) makeTool(name, { execute: async () => ({ content: [{ type: "text", text: name }] }) });
+  for (const name of names) makeTool(name, { exposure: "direct", execute: async () => ({ content: [{ type: "text", text: name }] }) });
+  const state = registry.createExposureState({ platform: "desktop" });
+  const schemas = state.schemas();
+  for (const name of names) {
+    expect(schemas.find(tool => tool.name === name)?.description).toBe(
+      `desktop example\n\nCodemode: \`tools.${name.replaceAll("-", "$")}(args)\` resolves to \`{ content, structuredContent?, isError? }\`.`,
+    );
+    expect(registry.definition(name)!.description).toBe("desktop example");
+  }
+  expect(state.schemas()).toEqual(schemas);
   const result = await run(`
     const hits = await searchTools("get");
     const call = async t => (await tools[t.name]({})).content[0].text;

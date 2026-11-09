@@ -44,7 +44,7 @@ test("directory uses one line per visible indirect server and bounds model-facin
 });
 
 test("desktop and CLI turns send platform-scoped MCP directories to the model", async () => {
-  type WireRequest = { messages: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string } }> };
+  type WireRequest = { messages: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string; description: string } }> };
   const received: WireRequest[] = [];
   const endpoint = Bun.serve({
     hostname: "127.0.0.1", port: 0,
@@ -83,13 +83,25 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(received).toHaveLength(before + 1);
     const request = received[before]!;
     expect(request.messages[0]?.role).toBe("system");
-    return { prompt: request.messages[0]!.content, tools: request.tools!.map(tool => tool.function.name) };
+    const descriptions = new Map(request.tools!.map(({ function: tool }) => [tool.name, tool.description]));
+    return { prompt: request.messages[0]!.content, tools: [...descriptions.keys()], descriptions };
   }
   try {
     await host.start();
     for (const platform of ["desktop", "cli"]) await host.ensureSession({ session_id: platform, source: { platform }, workspace });
     const first = await turn("desktop", "desktop");
     expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): 管理桌面定时任务");
+    expect(first.prompt).toContain("batch independent tool calls with Promise.allSettled, chain dependent calls in order, or filter large results");
+    for (const name of ["ls", "grep", "write", "edit"]) {
+      expect(first.descriptions.get(name)).toEndWith(`Codemode: \`tools.${name}(args)\` resolves to a string.`);
+    }
+    const readSuffix = first.descriptions.get("read")!.split("\n\nCodemode: ").at(-1)!;
+    expect(readSuffix).toContain("`tools.read(args)` resolves to `string |");
+    expect(readSuffix).toContain('type: "image"');
+    expect(first.descriptions.get("exec")).toContain("`tools.exec(args)` resolves to `{ status, exec_id, output,");
+    expect(first.descriptions.get("wait")).toContain("`tools.wait(args)` resolves to `{ status, exec_id, new_output,");
+    expect(first.tools.filter(name => first.descriptions.get(name)!.includes("\n\nCodemode: ")).sort())
+      .toEqual(["edit", "exec", "grep", "ls", "read", "wait", "write"]);
     expect(first.tools).toContain("codemode");
     expect(first.tools.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     const cli = await turn("cli", "cli");
@@ -99,11 +111,15 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const next = await turn("desktop", "desktop");
     expect(next.prompt).toBe(first.prompt.split("\n\n## mcp_servers")[0]!);
     expect(next.tools).not.toContain("codemode");
+    expect(next.descriptions.get("read")).toBe(first.descriptions.get("read")!.split("\n\nCodemode: ")[0]!);
     await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "orders", enabled: true } });
     const orders = await turn("cli", "cli");
     expect(orders.prompt).toContain("- mcp__orders (tool_search): 查询订单");
     expect(orders.prompt).not.toContain("mcp__lxe_desktop");
     expect(orders.tools).toContain("tool_search");
+    expect(orders.prompt).not.toContain("Use codemode");
+    expect(orders.descriptions.get("grep")).toBe(cli.descriptions.get("grep"));
+    expect(orders.descriptions.get("grep")).not.toContain("Codemode: ");
   } finally {
     await host.stop();
     endpoint.stop(true);

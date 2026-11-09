@@ -17,7 +17,13 @@ export function renderMcpServerDirectory(config: McpConfig, platform: string, ma
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!servers.length) return "";
 
-  const intro = "## mcp_servers\nUse the indicated discovery tool to find tools in each namespace.";
+  const intro = [
+    "## mcp_servers",
+    ...(servers.some(server => server.exposure === "codemode") ? [
+      "Use codemode to batch independent tool calls with Promise.allSettled, chain dependent calls in order, or filter large results before returning them.",
+    ] : []),
+    "Use the indicated discovery tool to find tools in each namespace.",
+  ].join("\n");
   const names: string[] = [];
   let remaining = DIRECTORY_LIMIT - intro.length;
   let omitted = "";

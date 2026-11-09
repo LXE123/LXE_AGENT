@@ -52,7 +52,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     'text("orders checked"); text("detail ".repeat(80)); throw Error("missing amount");';
   const scripts = [discovery, reportFromStore, failedReport];
   const nextCalls: { name: string; arguments: object }[] = scripts.map(code => ({ name: "codemode", arguments: { code } }));
-  const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
+  const requests: { tools: { function: { name: string; description: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = await request.json() as typeof requests[number];
     if (body.tools?.length) requests.push(body);
@@ -187,6 +187,8 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect(mixed[0]).toContain("tool_search");
     expect(mixed[0]).not.toContain("mcp__reports__echo");
     expect(mixed[1]).toContain("mcp__reports__echo");
+    const loadedTool = requests.at(-1)!.tools.find(tool => tool.function.name === "mcp__reports__echo");
+    expect(loadedTool?.function.description).toEndWith("Codemode: `tools.mcp__reports__echo(args)` resolves to `{ content, structuredContent?, isError? }`.");
     expect(lastToolOutput(requests.length - 1)).toContain("- mcp__reports__echo");
     expect(lastToolOutput(requests.length - 1)).not.toContain("input_schema");
 
@@ -198,6 +200,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect((await nextTurn("fork-before", beforeLoad))[0]).not.toContain("mcp__reports__echo");
     const resumed = await nextTurn("fork-after", afterLoad);
     expect(resumed[0]).toEqual(mixed[1]);
+    expect(requests.at(-1)!.tools).toContainEqual(loadedTool!);
     nextCalls.push({ name: "tool_search", arguments: { query: "echo" } });
     const repeat = await nextTurn("search-again");
     expect(repeat[0]).toEqual(mixed[1]);
