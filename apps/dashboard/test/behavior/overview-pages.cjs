@@ -80,22 +80,36 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step("workbench directory preserves all destinations and works in both themes", async () => {
     await open("workbench");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "tool directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "tool directory");
     for (const theme of ["light", "dark"]) {
       await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
       await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
       await screenshot("workbench-" + theme);
     }
-    for (let i = 1; i <= 4; i++) {
+    await js(`window.catalogCalls = [];
+      window.lxe.desktop.teamSkillsView = async request => { window.catalogCalls.push(request); }; void 0;`);
+    for (let i = 1; i <= 5; i++) {
       await click(`.workbench-tool-card:nth-child(${i})`);
       await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
       assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
+      if (i === 5) {
+        await waitFor("window.catalogCalls.some(c => c.action === 'present' && c.bounds?.width > 0)", "catalog shown");
+        const bounds = await js("window.catalogCalls.findLast(c => c.bounds).bounds");
+        const rect = await js("document.querySelector('.team-skills-viewport').getBoundingClientRect().toJSON()");
+        assert.equal(bounds.x, rect.x);
+        assert.ok(bounds.y > 0 && bounds.height > 100);
+        await click(".team-skills-toolbar .runtime-status-trigger");
+        await waitFor("window.catalogCalls.at(-1)?.bounds === null", "guest hidden for the status popover");
+        await click(".team-skills-toolbar .runtime-status-trigger");
+        await waitFor("window.catalogCalls.at(-1)?.bounds?.width > 0", "guest restored");
+      }
       await click(".workbench-back");
-      await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
+      await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
     }
+    assert.equal(await js("window.catalogCalls.at(-1)?.action"), "close");
     await win.setContentSize(480, 900);
     await open("workbench", "en");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "narrow directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "narrow directory");
     await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
     await screenshot("workbench-narrow-en");
     await win.setContentSize(1200, 900);

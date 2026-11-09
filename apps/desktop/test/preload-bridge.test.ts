@@ -31,7 +31,7 @@ describe("preload bridge", () => {
       "deleteLocalModelCredential",
       "discardConversationFiles",
       "getCloudState",
-      "getAmazonV2Settings", "saveAmazonV2Settings",
+      "teamSkillsView", "getAmazonV2Settings", "saveAmazonV2Settings",
       "getHealth",
       "getSetupState",
       "getUsageBalance",

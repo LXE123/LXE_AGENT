@@ -196,6 +196,7 @@ export const ZH_TEXT = {
     subtitle: "选择一项功能开始。",
     back: "返回工作台",
     tools: {
+      teamSkills: { name: "团队技能目录", summary: "在飞书中浏览、搜索和分享团队技能。", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
       syntheticPerformer: {
         name: "亚马逊 AI 人物标签",
         summary: "批量给图片和视频添加亚马逊要求的 AI 人物标签。"
@@ -1124,6 +1125,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       subtitle: "Choose a feature to get started.",
       back: "Back to workbench",
       tools: {
+        teamSkills: { name: "Team skills catalog", summary: "Browse, search and share team skills on Feishu.", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
         syntheticPerformer: {
           name: "Amazon AI performer tag",
           summary: "Batch-add Amazon's required AI performer tag to images and videos."

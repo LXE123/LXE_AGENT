@@ -56,6 +56,7 @@ import { DetailModal } from "./features/details/view";
 import { DashboardHome } from "./features/home/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import { StatsView } from "./features/stats/view";
+import { TeamSkillsWorkbench } from "./features/workbench/team-skills-view";
 import { SyntheticPerformerWorkbench } from "./features/workbench/view";
 import { WorkbenchIndex } from "./features/workbench/index-view";
 import { InputAssetsWorkbench, useInputAssetSlots } from "./features/workbench/input-assets-view";
@@ -137,6 +138,7 @@ function App({
   });
   const { toggleMcpServer, savingId: mcpSavingId } = useMcpActions(setError);
 
+  const showTeamSkills = activeSection === "workbench" && workbenchView === "team-skills";
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
@@ -230,6 +232,7 @@ function App({
             activeSection === "automations" ? "automations-theme" : "",
             activeSection === "activity" ? "activity-theme" : "",
             activeSection === "workbench" ? "workbench-theme" : "",
+            showTeamSkills ? "team-skills-panel" : "",
           ].filter(Boolean).join(" ")}>
             {visibleError ? (
               <div className="dashboard-query-notice" role="status">
@@ -281,6 +284,9 @@ function App({
             {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
               <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
+            {showTeamSkills ? (
+              <TeamSkillsWorkbench onBack={() => openWorkbenchView("index")} status={runtimeStatusPopover} />
+            ) : null}
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
                 error={assetSlots.error}
@@ -329,7 +335,7 @@ function App({
         <SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />
       </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
-        {runtimeStatusPopover}
+        {showTeamSkills ? null : runtimeStatusPopover}
       </div>
     </>
   );

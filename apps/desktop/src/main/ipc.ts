@@ -2,7 +2,8 @@ import { validateTitlebarMenu } from "./titlebar-menu";
 import { isAmazonV2Settings } from "./amazon-v2-settings";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
-import { app, dialog, ipcMain, shell } from "electron";
+import { TeamSkillsView } from "./team-skills-view";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
   DashboardRpcCall,
   DashboardRpcOperation,
@@ -114,6 +115,13 @@ const stringArray = (value: unknown, label: string): string[] => {
 };
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
+  const teamSkills = new TeamSkillsView();
+  ipcMain.handle(IPC_CHANNELS.teamSkillsView, (event, request) => {
+    if (!application.isTrustedFileSender(event)) throw new Error("Team skills requires the desktop main frame");
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner) throw new Error("Desktop window unavailable");
+    return teamSkills.handle(owner, request);
+  });
   const workspaceApps = new WorkspaceApplications({ openPath: path => shell.openPath(path), icon: path => process.platform === "darwin" ? bundleIconDataUrl(path) : app.getFileIcon(path, { size: "normal" }).then(image => image.toDataURL()) });
   const trustedWorkspaceSender = (event: Electron.IpcMainInvokeEvent) => { if (!application.isTrustedFileSender(event)) throw new Error("Workspace applications are only available to the desktop main frame"); };
   ipcMain.handle(IPC_CHANNELS.fileCall, (event, call) => fileResult(typeof call?.operation === "string" ? call.operation : "call", () => {
@@ -312,6 +320,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (error) throw new Error(error);
   });
   return () => {
+    teamSkills.close();
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.statusChanged
         && channel !== IPC_CHANNELS.cloudStateChanged
