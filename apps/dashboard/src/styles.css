@@ -8467,10 +8467,6 @@ pre {
   box-shadow: var(--shadow-card);
 }
 
-.sessions-focus .dashboard-refresh-indicator {
-  top: 68px;
-}
-
 .sessions-conversation-shell {
   display: flex;
   width: 100%;
