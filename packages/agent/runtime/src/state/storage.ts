@@ -469,16 +469,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           pinned_at REAL NOT NULL DEFAULT 0,
           api_call_count INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS agent_session_pending_events (
-          queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          session_id TEXT NOT NULL,
-          event_id TEXT NOT NULL UNIQUE,
-          job_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          text TEXT NOT NULL,
-          queued_at TEXT NOT NULL,
-          FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
-        );
+        DROP TABLE IF EXISTS agent_session_pending_events;
         CREATE TABLE IF NOT EXISTS transcript_turn_ends (
           session_id TEXT NOT NULL REFERENCES agent_sessions(session_id) ON DELETE CASCADE,
           turn_id TEXT NOT NULL, entry_id TEXT NOT NULL, status TEXT NOT NULL,
@@ -777,68 +768,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
     });
   }
 
-  async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    const now = new Date().toISOString();
-    const createdAt = Math.trunc(Date.now() / 1_000);
-    this.db().query(`
-      INSERT OR IGNORE INTO agent_session_pending_events
-        (session_id, event_id, job_id, created_at, text, queued_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      text(sessionId),
-      text(event.event_id) || randomUUID().replaceAll("-", ""),
-      text(event.job_id),
-      text(event.created_at) || String(createdAt),
-      text(event.text),
-      now,
-    );
-  }
-
-  async hasPendingEvents(sessionId: string): Promise<boolean> {
-    const row = this.getPrepared<{ present: number }>(
-      "SELECT 1 AS present FROM agent_session_pending_events WHERE session_id = ? LIMIT 1",
-      text(sessionId),
-    );
-    return Boolean(row?.present);
-  }
-
-  async popPendingEvents(sessionId: string): Promise<JsonObject[]> {
-    const safeSessionId = text(sessionId);
-    const transaction = this.db().transaction(() => {
-      const rows = this.allPrepared<Record<string, unknown>>(`
-        SELECT event_id, job_id, created_at, text, queued_at
-        FROM agent_session_pending_events WHERE session_id = ? ORDER BY queue_id ASC
-      `, safeSessionId);
-      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
-      return rows.map((row) => ({
-        event_id: text(row.event_id),
-        job_id: text(row.job_id),
-        created_at: text(row.created_at),
-        text: text(row.text),
-        queued_at: text(row.queued_at),
-      }));
-    });
-    return transaction();
-  }
-
-  discardPendingEvent(sessionId: string, jobId: string): number {
-    const safeSessionId = text(sessionId);
-    const safeJobId = text(jobId);
-    if (!safeSessionId || !safeJobId) return 0;
-    const result = this.db().transaction(() => this.db().query(`
-      DELETE FROM agent_session_pending_events
-      WHERE session_id = ? AND job_id = ?
-    `).run(safeSessionId, safeJobId))();
-    return Number(result.changes ?? 0);
-  }
-
-  discardPendingEvents(sessionId: string): number {
-    const result = this.db().transaction(() => this.db().query(
-      "DELETE FROM agent_session_pending_events WHERE session_id = ?",
-    ).run(text(sessionId)))();
-    return Number(result.changes ?? 0);
-  }
-
   async resetContext(sessionId: string, reason: "context_reset" | "memory_clear" = "context_reset"): Promise<void> {
     const safeSessionId = text(sessionId);
     await this.enqueueSessionWrite(safeSessionId, async () => {
@@ -846,11 +775,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const previous = await this.loadMessagesUnqueued(safeSessionId);
       this.validCacheBeforeWrite(safeSessionId, path);
       await this.appendTranscriptEvent(safeSessionId, createContextPatchEvent(previous, [], reason));
-      this.db().transaction(() => {
-        this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0, context_display = ? WHERE session_id = ?")
-          .run(Date.now() / 1_000, JSON.stringify({ epoch: randomUUID(), reset_at: Date.now(), snapshot: null }), safeSessionId);
-        this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
-      })();
+      this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0, context_display = ? WHERE session_id = ?")
+        .run(Date.now() / 1_000, JSON.stringify({ epoch: randomUUID(), reset_at: Date.now(), snapshot: null }), safeSessionId);
       await this.updateCacheAfterWrite(safeSessionId, path, []);
       await this.enqueueIndexSync(safeSessionId, path);
     });
@@ -868,7 +794,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
       delete source.tool_state;
       this.db().query("UPDATE agent_sessions SET source = ?, last_active_at = ? WHERE session_id = ?")
         .run(JSON.stringify(source), Date.now() / 1_000, safeSessionId);
-      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
     })();
   }
 

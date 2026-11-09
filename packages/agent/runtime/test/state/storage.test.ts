@@ -260,7 +260,6 @@ describe("SqliteRuntimeStore", () => {
     expect(await store.sessionDetail("legacy", { limit: 10 })).toMatchObject({
       session: { workspace: testWorkspace },
     });
-    await store.appendPendingEvent("legacy", { event_id: "migration-event", job_id: "job-1", text: "preserved" });
     await store.appendMessage("legacy", { role: "user", content: "preserved transcript" }, "turn_input");
     await store.stop();
 
@@ -271,6 +270,8 @@ describe("SqliteRuntimeStore", () => {
     expect(newColumns.map((column) => column.name)).toContain("pinned_at");
     expect(newColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
     oldDatabase.exec(`
+      CREATE TABLE agent_session_pending_events (session_id TEXT, text TEXT);
+      INSERT INTO agent_session_pending_events VALUES ('legacy', 'obsolete wake');
       ALTER TABLE agent_sessions
       ADD COLUMN ${retiredWorkspaceColumn} TEXT NOT NULL DEFAULT 'unexpected';
       INSERT INTO turn_usage (turn_id, session_id, started_at)
@@ -284,15 +285,13 @@ describe("SqliteRuntimeStore", () => {
       source: { platform: "feishu", chat_id: "same-workspace" },
       workspace: testWorkspace,
     }));
-    expect(await reopened.popPendingEvents("legacy")).toEqual([
-      expect.objectContaining({ event_id: "migration-event", job_id: "job-1", text: "preserved" }),
-    ]);
     expect(await reopened.loadMessages("legacy")).toEqual([
       { role: "user", content: "preserved transcript" },
     ]);
     await reopened.stop();
 
     const migrated = new Database(databasePath);
+    expect(migrated.query("SELECT name FROM sqlite_master WHERE name = 'agent_session_pending_events'").get()).toBeNull();
     const migratedColumns = migrated.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
     expect(migratedColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
     expect(migrated.query(`
@@ -387,25 +386,12 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
-  test("round-trips existing session, pending-event, and transcript shapes", async () => {
+  test("round-trips existing session and transcript shapes", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-store-"));
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu", chat_id: "c1" } });
-    await store.appendPendingEvent("s1", { event_id: "e1", job_id: "j1", text: "done" });
-    expect(await store.hasPendingEvents("s1")).toBe(true);
-    expect(await store.popPendingEvents("s1")).toEqual([
-      expect.objectContaining({ event_id: "e1", job_id: "j1", text: "done" }),
-    ]);
-    await store.appendPendingEvent("s1", { event_id: "e2", job_id: "j2", text: "consume me" });
-    await store.appendPendingEvent("s1", { event_id: "e3", job_id: "j3", text: "keep me" });
-    expect(store.discardPendingEvent("s1", "j2")).toBe(1);
-    expect(store.discardPendingEvent("s1", "j2")).toBe(0);
-    expect(store.discardPendingEvent("", "j3")).toBe(0);
-    expect(await store.popPendingEvents("s1")).toEqual([
-      expect.objectContaining({ event_id: "e3", job_id: "j3", text: "keep me" }),
-    ]);
     await store.appendMessage("s1", { role: "user", content: "hello" }, "turn_input");
     await store.appendMessage("s1", { role: "assistant", content: "world" }, "turn_output");
     await store.replaceMessages("s1", [
@@ -481,8 +467,6 @@ describe("SqliteRuntimeStore", () => {
     const store = new SqliteRuntimeStore(databasePath);
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { tool_state: { browser: { page: 1 } } } });
-    await store.appendPendingEvent("s1", { event_id: "e1", text: "pending" });
-    expect(store.discardPendingEvents("s1")).toBe(1);
     await store.appendMessage("s1", { role: "user", content: "keep until reset" }, "turn_input");
     await store.resetContext("s1");
     expect(await store.loadMessages("s1")).toEqual([]);

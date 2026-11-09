@@ -21,8 +21,6 @@ const methods = {
   cancel_turn: { run_id: "run" },
   steer_turn: { run_id: "run", text: "follow up", response_route_id: "route", message_id: "message" },
   ensure_session: { request: { session_id: "session", source: {}, workspace: initialize.legacy_workspace } },
-  append_pending_event: { session_id: "session", event: {} },
-  has_pending_events: { session_id: "session" },
   resolve_workspace_directory: { session_id: "session" },
   resolve_artifact: { session_id: "session", artifact_id: "file" },
   resolve_image_view: { session_id: "session", view_id: "view" },
@@ -36,11 +34,18 @@ const methods = {
 describe("JSON-RPC boundary", () => {
   test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(15);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));
     }
+  });
+
+  test("rejects retired wake methods and notifications", () => {
+    for (const method of ["append_pending_event", "has_pending_events"]) {
+      expect(() => parseAgentCall({ jsonrpc: "2.0", id: "retired", method, params: {} })).toThrow("Unknown method");
+    }
+    expect(() => parseAgentWireMessage(JSON.stringify({ jsonrpc: "2.0", method: "agent.wake", params: { payload: {} } }))).toThrow();
   });
 
   test.each(["", "request", 0, 123, 1.5, null])("preserves valid request ID %s", (id) => {
@@ -65,7 +70,7 @@ describe("JSON-RPC boundary", () => {
     expect(() => parseAgentWireMessage("{" )).toThrow(JsonRpcError);
   });
 
-  test("all 13 domain events round trip as notifications without wire IDs or versions", () => {
+  test("all listed domain events round trip as notifications without wire IDs or versions", () => {
     const scope = { thread_id: "s", turn_id: "t" };
     const events: AgentEvent[] = [
       { type: "item.completed", thread_id: emit.session_id, turn_id: emit.turn_id, payload: emit as unknown as Extract<AgentEvent, { type: "item.completed" }>["payload"] },
@@ -74,7 +79,6 @@ describe("JSON-RPC boundary", () => {
         mutations: [{ kind: "part_delta", part_id: "p", field: "text", delta: "你好\n世界" }],
       } },
       { type: "typing.changed", ...scope, payload: { session_id: "s", turn_id: "t", response_route_id: "r", operation: "start", emit_id: "e" } },
-      { type: "agent.wake", payload: {} },
       { type: "background_task.changed", ...scope, payload: { tool_call_id: "tool", task: {
         revision: 1, exec_id: "exec-1", session_id: "s", origin_turn_id: "t", status: "completed", pid: null,
         command: "echo ok", cwd: "/work", started_at: 1, ended_at: 2, duration_sec: 1,
@@ -89,7 +93,7 @@ describe("JSON-RPC boundary", () => {
       { type: "turn.completed", ...scope, payload: {} },
       { type: "turn.failed", ...scope, payload: { error: "actual failure" } },
     ];
-    expect(new Set(events.map((event) => event.type)).size).toBe(13);
+    expect(new Set(events.map((event) => event.type)).size).toBe(12);
     for (const event of events) {
       const wire = encodeAgentEvent(event);
       expect(Object.keys(wire).sort()).toEqual(["jsonrpc", "method", "params"]);

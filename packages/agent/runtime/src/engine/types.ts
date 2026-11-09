@@ -207,7 +207,7 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
 export interface RuntimeTurnContextRecord extends JsonObject {
   model_selection_version?: number;
   turn_id: string;
-  job_kind: "turn" | "heartbeat";
+  job_kind: "turn";
   provider: string;
   model: string;
   credential_source?: "local" | "cloud";
@@ -253,7 +253,6 @@ export interface RuntimeStore {
   start(): Promise<void>;
   stop(): Promise<void>;
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
-  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   readLoadedTools(sessionId: string): Promise<ToolReference[]>;
   appendLoadedTools(sessionId: string, turnId: string, tools: ToolReference[], signal: AbortSignal): Promise<void>;

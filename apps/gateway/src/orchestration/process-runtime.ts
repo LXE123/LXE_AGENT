@@ -67,7 +67,6 @@ export interface ProcessAgentRuntimeOptions {
     request: Extract<AgentEvent, { type: "conversation.stream.delta" }>["payload"],
   ) => Promise<void> | void;
   onTyping?: (request: Extract<AgentEvent, { type: "typing.changed" }>["payload"]) => Promise<void> | void;
-  onWake?: (request: JsonObject) => Promise<void> | void;
   onEvent?: (event: AgentEvent) => Promise<void> | void;
   onStatus?: (status: AgentProcessStatus) => void;
   onStderr?: (line: string) => void;
@@ -376,14 +375,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     }
   }
 
-  async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    await this.request("append_pending_event", { session_id: sessionId, event });
-  }
-
-  async hasPendingEvents(sessionId: string): Promise<boolean> {
-    return objectValue(await this.request("has_pending_events", { session_id: sessionId })).pending === true;
-  }
-
   async resolveWorkspaceDirectory(sessionId: string): Promise<string> {
     const result = objectValue(await this.request("resolve_workspace_directory", { session_id: sessionId }));
     if (result.found !== true || typeof result.path !== "string" || !result.path) throw new Error("Session workspace not found");
@@ -552,7 +543,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       if (event.type === "item.completed") await this.options.onEmit?.(event.payload);
       else if (event.type === "conversation.stream.delta") await this.options.onDesktopStream?.(event.payload);
       else if (event.type === "typing.changed") await this.options.onTyping?.(event.payload);
-      else if (event.type === "agent.wake") await this.options.onWake?.(event.payload);
       else if (event.type === "system.ready" || event.type === "system.status") {
         const status = loggingStatus(event.payload.logging);
         if (status) {

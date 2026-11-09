@@ -11,13 +11,13 @@ Turn 开始固定模型配置、system prompt、允许的 Skill 元数据和 ses
 ## 输入与组装顺序
 
 1. Store 从 transcript 恢复当前模型视图。
-2. Runtime 追加用户输入、附件、pending events 与入口诊断；明确指定的 Skill 按 [Skill 加载规则](../../skill/README.md#目录加载与激活)加入上下文。
+2. Runtime 追加用户输入、附件与入口诊断；明确指定的 Skill 按 [Skill 加载规则](../../skill/README.md#目录加载与激活)加入上下文。
 3. 后续收到的 steering 按消费顺序追加为独立用户消息。
 4. 每个 step 捕获工具定义，`ContextPipeline.prepare()` 归一化消息、修复工具调用闭合，计算完整预算。
 5. 需要压缩时选择历史或当前 turn 的早期内容，调用摘要、校验结果并持久化 patch。
 6. Runtime 检查压缩失败与硬上限；刷新环境时间，必要时追加环境消息，再发起模型请求。
 
-新工具结果在执行循环收集后按文本预算裁剪，再组成 tool message；不是每次 `prepare()` 都重新裁剪全部历史。pending events 由 Runtime 自己的 Store 消费，ContextPipeline 不查询 Gateway 队列或平台。
+新工具结果在执行循环收集后按文本预算裁剪，再组成 tool message；不是每次 `prepare()` 都重新裁剪全部历史。
 
 ## 预算与适配
 

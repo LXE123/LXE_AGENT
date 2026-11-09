@@ -6,14 +6,13 @@ const PROVIDER_STREAM_HEARTBEAT_CHARS = 300;
 
 export interface TurnStartObservation {
   measurement?: import("./context-meter").ContextMeasurement;
-  jobKind: "turn" | "heartbeat";
+  jobKind: "turn";
   provider: string;
   model: string;
   messageTurns: number;
   systemTokens: number;
   messageTokens: number;
   contextCapacity: number;
-  pendingEventCount: number;
 }
 
 export interface TurnCompletionObservation {
@@ -176,7 +175,6 @@ export class RuntimeTurnObserver {
       ...(observation.measurement ? { context_source: observation.measurement.source, estimated_tokens: observation.measurement.estimatedTokens } : {}),
       context_capacity: observation.contextCapacity,
       context_usage: usage,
-      pending_event_count: observation.pendingEventCount,
     });
   }
 
@@ -217,10 +215,6 @@ export class RuntimeTurnObserver {
       step, tool: name, tool_use_id: toolUseId, status, duration_ms: Math.max(0, durationMs),
       ...(commandId ? { command_id: commandId } : {}),
     });
-  }
-
-  pendingEvents(event: "popped" | "attached" | "noop", count: number): void {
-    this.logger.debug(event === "noop" ? "heartbeat_noop" : `pending_events_${event}`, { event_count: count });
   }
 
   complete(observation: TurnCompletionObservation): void {

@@ -49,8 +49,6 @@ const storage = () => ({
   ensureSession: async () => undefined,
   upsertResponseRoute: async () => undefined,
   getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
-  appendPendingEvent: async () => undefined,
-  hasPendingEvents: async () => false,
   getResponseRoute: async () => undefined,
   patchResponseRoute: async () => undefined,
 });

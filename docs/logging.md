@@ -99,7 +99,6 @@ Successful health polling and repetitive stream updates should not dominate INFO
 | --- | --- |
 | 回合与模型调用 | `turn_started` / `turn_completed`、Provider attempt 和工具执行；[Runtime](../packages/agent/runtime/src/engine/runtime.ts) |
 | 入站路由与调度 | session、route、排队、steering 和取消；[Router](../apps/gateway/src/orchestration/router.ts)、[Scheduler](../apps/gateway/src/orchestration/scheduler.ts) |
-| Heartbeat | 唤醒、合并、延后或丢弃的原因；[Heartbeat bridge](../apps/gateway/src/orchestration/heartbeat-bridge.ts) |
 | 飞书接入与交付 | 连接、消息归一化、资源获取和卡片交付；[飞书适配](../apps/gateway/src/channels/feishu/) |
 | exec 进程 | 创建、等待、退出、终止和后台完成通知；[Process manager](../packages/agent/runtime/src/tooling/coding/process-manager.ts) |
 | 用量同步 | `data_sync_uploaded`、`data_sync_skipped`、`data_sync_failed`；[TurnUsageSyncService](../packages/agent/runtime/src/operations/turn-usage-sync.ts) |

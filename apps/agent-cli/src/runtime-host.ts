@@ -83,8 +83,6 @@ export interface AgentRuntimeHost {
   stop(): Promise<void>;
   runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
   ensureSession(request: SessionWorkspaceRequest): Promise<void>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
-  hasPendingEvents(sessionId: string): Promise<boolean>;
   resolveWorkspaceDirectory?(sessionId: string): Promise<string | undefined>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<{ path: string } | undefined>;
   resolveImagePreview: SqliteRuntimeStore["resolveImagePreview"];
@@ -299,8 +297,6 @@ export function createAgentRuntimeHost(
     },
     runTurn: (job, handle) => runtime.runTurn(job, handle),
     ensureSession: (request) => store.ensureSession(request),
-    appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
-    hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
     resolveWorkspaceDirectory: async (sessionId) => (await store.getSession(sessionId))?.workspace.directory,
     resolveArtifact: async (sessionId, artifactId) => {
       const artifact = await store.resolveArtifact(sessionId, artifactId);

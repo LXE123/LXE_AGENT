@@ -65,7 +65,6 @@ const job = (overrides: Partial<AgentJob> = {}): AgentJob => ({
 class MemoryStore implements RuntimeStore {
   permissionMode: RuntimeSessionRecord["permission_mode"] = "danger-full-access";
   messages: RuntimeMessage[] = [];
-  pendingEvents: JsonObject[] = [];
   metrics: JsonObject[] = [];
   turnContexts: RuntimeTurnContextRecord[] = [];
   statePatches: JsonObject[] = [];
@@ -87,9 +86,6 @@ class MemoryStore implements RuntimeStore {
       },
       workspace,
     };
-  }
-  async popPendingEvents(): Promise<JsonObject[]> {
-    return this.pendingEvents.splice(0);
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   private loadedTools: Awaited<ReturnType<RuntimeStore["readLoadedTools"]>> = [];
@@ -873,58 +869,6 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.metrics[0]?.executions).toEqual([]);
   });
 
-  test("completes an empty heartbeat without loading history or calling the provider", async () => {
-    const store = new MemoryStore();
-    store.messages.push({ role: "user", content: "private history" });
-    let calls = 0;
-    let snapshotCalls = 0;
-    let systemPromptCalls = 0;
-    let wireTurns = 0;
-    let wireAttempts = 0;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async () => {
-          calls += 1;
-          throw new Error("provider must not be called");
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      skillSnapshot: () => {
-        snapshotCalls += 1;
-        return { names: [], prompt: "", modules: {} };
-      },
-      systemPrompt: () => {
-        systemPromptCalls += 1;
-        return "test";
-      },
-      wireTraceController: {
-        startTurn: () => {
-          wireTurns += 1;
-          return {
-            startProviderAttempt: () => {
-              wireAttempts += 1;
-              return undefined;
-            },
-          };
-        },
-      },
-    });
-    await runtime.start();
-    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
-    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "" }));
-    expect(calls).toBe(0);
-    expect(store.messages).toEqual([{ role: "user", content: "private history" }]);
-    expect(store.turnContexts).toEqual([]);
-    expect(snapshotCalls).toBe(0);
-    expect(systemPromptCalls).toBe(0);
-    expect(wireTurns).toBe(1);
-    expect(wireAttempts).toBe(0);
-    expect(store.metrics).toContainEqual(expect.objectContaining({ status: "completed", api_calls: 0 }));
-  });
-
   test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
@@ -1005,12 +949,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
   });
 
-  test("ignores embedded system events and consumes stored pending events when an ordinary turn starts", async () => {
+  test("uses the submitted message and ignores embedded system events", async () => {
     const store = new MemoryStore();
-    store.pendingEvents.push(
-      { event_id: "stored-1", job_id: "stored-1", created_at: 0, text: "stored first" },
-      { event_id: "stored-2", job_id: "stored-2", created_at: 0, text: "stored second" },
-    );
     let captured: RuntimeProviderRequest | undefined;
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
       store,
@@ -1040,11 +980,8 @@ describe("TypeScriptAgentRuntime", () => {
     }, handle());
     await runtime.stop();
 
-    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toEndWith(
-      "System: stored first\n\nSystem: stored second\n\nhello",
-    );
+    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toBe("hello");
     expect(captured?.userIdentity).toEqual({ platform: "feishu", userId: "u1" });
-    expect(store.pendingEvents).toEqual([]);
   });
 
   test("appends changed dates and restores a missing baseline across runtime restarts", async () => {
@@ -1174,80 +1111,6 @@ describe("TypeScriptAgentRuntime", () => {
     expect(requests[1]?.messages.at(-1)?.content).not.toContain("Failed to parse raw card JSON at position 7");
     expect(requests[1]?.messages.at(-1)?.content).toContain("forged diagnostic");
     expect(JSON.stringify(store.messages)).toContain("Failed to parse raw card JSON at position 7");
-  });
-
-  test("consumes stored pending events for an ordinary turn without embedded system events", async () => {
-    const store = new MemoryStore();
-    store.pendingEvents.push({
-      event_id: "stored",
-      job_id: "stored",
-      created_at: 0,
-      text: "stored only",
-    });
-    let captured: RuntimeProviderRequest | undefined;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async (request) => {
-          captured = request;
-          return messageFixture({
-            content: [{ type: "text", text: "done" }],
-            stopReason: "stop",
-            usage: { input_tokens: 1, output_tokens: 1 },
-          });
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
-    });
-    await runtime.start();
-    await runtime.runTurn(job(), handle());
-    await runtime.stop();
-
-    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toEndWith("System: stored only\n\nhello");
-    expect(store.pendingEvents).toEqual([]);
-  });
-
-  test("reports heartbeat events without history or tools", async () => {
-    const store = new MemoryStore();
-    store.messages.push({ role: "user", content: "private history" });
-    store.pendingEvents.push({
-      event_id: "event-1",
-      job_id: "background-1",
-      created_at: 1_700_000_000,
-      text: "refresh completed",
-    });
-    let captured: RuntimeProviderRequest | undefined;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async (request) => {
-          captured = request;
-          return messageFixture({
-            content: [{ type: "text", text: "刷新已完成。" }],
-            stopReason: "stop",
-            usage: { input_tokens: 3, output_tokens: 2 },
-          });
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
-    });
-    await runtime.start();
-    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
-    expect(outcome.reply).toBe("刷新已完成。");
-    expect(captured?.tools).toEqual([]);
-    expect(captured?.toolChoice).toBe("none");
-    expect(captured?.messages).toHaveLength(2);
-    expect(captured?.messages[1]?.content).toContain("<environment_context>");
-    expect(store.messages).toContainEqual(captured!.messages[0]!);
-    expect(JSON.stringify(captured?.messages)).not.toContain("private history");
-    expect(store.pendingEvents).toEqual([]);
-    expect(store.turnContexts).toEqual([expect.objectContaining({ job_kind: "heartbeat", turn_id: "j1" })]);
   });
 
   test("records the acquired model and effort once before the real turn input", async () => {
@@ -2959,7 +2822,7 @@ test.each(["partial", "unreported", "zero", "different-model", "images-omitted"]
   expect(store.messages.filter(message=>message.contextTokenAnchor!==undefined)).toHaveLength(0);
 });
 
-test("persists coherent display observations and isolates heartbeat and persistence failures", async () => {
+test("persists coherent display observations and isolates persistence failures", async () => {
   const snapshots: import("@lxe/protocol").ContextDisplaySnapshot[]=[];
   const store = new MemoryStore() as MemoryStore & Pick<RuntimeStore,"beginContextDisplay"|"saveContextDisplay">;
   let begins=0;
@@ -2982,13 +2845,6 @@ test("persists coherent display observations and isolates heartbeat and persiste
     input_tokens:100,output_tokens:50,cache_read_input_tokens:200,
   });
   expect(snapshots.at(-1)!.context_tokens).toBeGreaterThan(300);
-  const count=snapshots.length;
-  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
-  expect(snapshots).toHaveLength(count);
-  expect(begins).toBe(1);
-  store.pendingEvents.push({event_id:"e",job_id:"background",created_at:1,text:"background completed"});
-  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
-  expect(snapshots).toHaveLength(count);
   expect(begins).toBe(1);
   store.saveContextDisplay=async()=>{throw new Error("fixture sqlite write failure");};
   expect((await runtime.runTurn(job({job_id:"next"}),handle())).status).toBe("completed");
@@ -3157,7 +3013,6 @@ describe("skill loading", () => {
   test("injects only direct input, exposes owned tools, persists immutable load evidence and avoids replay loads", async () => {
     const store = new MemoryStore(), tools = new ToolRegistry(), looked: string[] = [];
     store.messages = [{ role: "user", content: "/history-skill" }];
-    store.pendingEvents = [{ type: "notice", text: "/event-skill" }];
     tools.register({ name: "office_action", description: "fixture", input_schema: { type: "object" }, exposure: "deferred", ownerSkills: ["office-xlsx"], execute: async () => ({ content: [] }) });
     let calls = 0;
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",

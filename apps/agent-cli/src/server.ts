@@ -171,14 +171,6 @@ export class AgentProtocolServer {
       case "ensure_session":
         await this.readyHost().ensureSession(request.params.request);
         return { ensured: true };
-      case "append_pending_event":
-        await this.readyHost().appendPendingEvent(
-          request.params.session_id,
-          request.params.event,
-        );
-        return { appended: true };
-      case "has_pending_events":
-        return { pending: await this.readyHost().hasPendingEvents(request.params.session_id) };
       case "resolve_workspace_directory": {
         const path = await this.readyHost().resolveWorkspaceDirectory?.(request.params.session_id);
         return path ? { found: true, path } : { found: false };

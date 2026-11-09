@@ -25,7 +25,6 @@ import { createLogger, resolveWorkspaceContext } from "@lxe/core";
 import { accessSync, constants } from "node:fs";
 import type { ChannelAdapter } from "../channels/registry";
 import type { OutboundRequest, ResponseRouteRecord } from "../state/models";
-import type { SessionRuntimeState } from "../state/session-state";
 import { SchedulerBusyError, type SchedulerJobStateEvent, type SessionScheduler } from "./scheduler";
 import { AutomationBlockedError } from "./automations";
 
@@ -48,7 +47,6 @@ export interface LocalConversationStorage {
     source: JsonObject;
     workspace: WorkspaceContext;
   } | undefined>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined>;
 }
 
@@ -83,7 +81,6 @@ type BackgroundTaskChangedEvent = Extract<AgentEvent, { type: "background_task.c
 export interface LocalConversationControllerOptions {
   storage: LocalConversationStorage;
   scheduler: SessionScheduler;
-  runtimeState: SessionRuntimeState;
   defaultWorkspace(): WorkspaceContext;
   onActivity?: (activity: DesktopConversationActivityPayload) => void;
   onStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
@@ -250,7 +247,6 @@ export class LocalConversationController {
     };
     this.turns.set(turnId, turn);
     activity.queuedTurnIds.push(turnId);
-    if (!automation) this.options.runtimeState.resumeAutonomy(sessionId);
     try {
       await this.options.scheduler.enqueue(job, {
         ...(session.blank ? { beforeAccept: () => this.options.storage.ensureSession({
@@ -298,7 +294,6 @@ export class LocalConversationController {
       try {
         if (await this.options.scheduler.requestStop(sessionId, activeTurnId)) {
           stoppedTurnId = activeTurnId;
-          this.options.runtimeState.suspendAutonomy(sessionId);
         } else if (turn && this.sessions.get(sessionId)?.activeTurnId === activeTurnId) {
           turn.payload.state = "running";
           this.publish(sessionId);
@@ -340,9 +335,6 @@ export class LocalConversationController {
     if (event.state === "queued") {
       turn.payload.state = "queued";
     } else if (event.state === "running") {
-      // A scheduled run is a new turn. A user stop still suppresses continuation
-      // of the old turn until the next turn is actually admitted and starts.
-      if (event.job.raw_data.automation_id) this.options.runtimeState.resumeAutonomy(sessionId);
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       activity.activeTurnId = turnId;
       turn.payload.state = "running";

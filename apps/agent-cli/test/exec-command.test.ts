@@ -103,8 +103,6 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
       },
       stop: () => store.stop(),
       ensureSession: (request) => store.ensureSession(request),
-      appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
-      hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
       resolveArtifact: async () => undefined,
       resolveImageView: async () => undefined, resolveImagePreview: async () => undefined,
       resolveAttachment: async () => undefined,

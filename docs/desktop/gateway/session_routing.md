@@ -8,7 +8,7 @@ Session Router 是平台事件进入调度器前的控制面。它解析稳定 s
 
 - [`router.ts`](/apps/gateway/src/orchestration/router.ts)：消息路由和控制命令。
 - [`session-bindings.ts`](/apps/gateway/src/state/session-bindings.ts)：稳定 source-to-session 映射。
-- [`session-state.ts`](/apps/gateway/src/state/session-state.ts)：进程内 autonomy/steering 状态。
+- [`session-state.ts`](/apps/gateway/src/state/session-state.ts)：进程内 steering 状态。
 
 ## 飞书入口边界
 
@@ -46,19 +46,17 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 完成平台身份和 source 校验后，Router：
 
 1. ensure session。
-2. 恢复 autonomy suspension。
-3. 保存 response route。
-4. 把文本、附件 blocks、source 和 raw metadata 组装成 `AgentJob`。
-5. 交给 `SessionScheduler.enqueue()`。
+2. 保存 response route。
+3. 把文本、附件 blocks、source 和 raw metadata 组装成 `AgentJob`。
+4. 交给 `SessionScheduler.enqueue()`。
 
-用户消息不直接调用 Runtime。即使当前没有并发压力，也必须经过 scheduler，以保持 stop、steering 和 heartbeat 语义一致。
-pending events 不经过 Router 或 `AgentJob.raw_data`；Runtime 在 turn 开始时从自己的 Store pop，并附加到本轮用户上下文。
+用户消息不直接调用 Runtime。即使当前没有并发压力，也必须经过 scheduler，以保持 stop 和 steering 语义一致。
 
 ## 控制命令
 
 ### `/stop`
 
-停止命令清除该 session 的 pending queue，以 `user_stop` 原因取消 active run，并设置 autonomy suspended；heartbeat 在 suspended 状态下丢弃自主唤醒。停止说明由 Runtime 独立写入历史，不拼到下一条用户消息，详见 [取消与失败](../../harness/runtime/turn_execution.md#cancel-与失败)。
+停止命令清除该 session 的 pending queue，以 `user_stop` 原因取消 active run。停止说明由 Runtime 独立写入历史，不拼到下一条用户消息，详见 [取消与失败](../../harness/runtime/turn_execution.md#cancel-与失败)。
 
 ### `/clear`
 

@@ -48,12 +48,7 @@ import {
   type RuntimeProviderManager,
 } from "../providers/provider";
 import { RuntimeTurnObserver } from "./turn-observer";
-import {
-  heartbeatPrompt,
-  normalizePendingSystemEvents,
-  userContentWithSystemEvents,
-  withTurnContext,
-} from "./system-events";
+import { prepareUserContent, withTurnContext } from "./system-events";
 import type { RuntimeWireTraceControllerPort } from "../providers/wire-trace";
 import type {
   AgentRuntime,
@@ -338,7 +333,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let displayEpoch: string | undefined;
     let displayMeasurement: import("./context-meter").ContextMeasurement | undefined;
     const saveDisplay = async (measurement = displayMeasurement): Promise<void> => {
-      if (job.job_kind === "heartbeat" || !measurement || !displayEpoch) return;
+      if (!measurement || !displayEpoch) return;
       displayMeasurement = measurement;
       try {
         await this.options.store.saveContextDisplay?.(job.session_id, displayEpoch, {
@@ -410,10 +405,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
-      if (job.job_kind !== "heartbeat") {
-        try { displayEpoch = await this.options.store.beginContextDisplay?.(job.session_id, startedAt * 1_000); }
-        catch (error) { this.logger.warn("context_display_begin_failed", { error }); }
-      }
+      try { displayEpoch = await this.options.store.beginContextDisplay?.(job.session_id, startedAt * 1_000); }
+      catch (error) { this.logger.warn("context_display_begin_failed", { error }); }
       if (descriptor?.credentialSource === "cloud"
         && descriptor.credentialRevision
         && String(this.options.environment?.LXE_MANAGED_LLM_INVALID_REVISION ?? "").trim().toLowerCase()
@@ -427,7 +420,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           401,
         );
       }
-      if (job.job_kind === "turn" && job.response_route_id) {
+      if (job.response_route_id) {
         typingStarted = await this.typingBestEffort({
           session_id: job.session_id,
           turn_id: job.job_id,
@@ -435,26 +428,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           operation: "start",
           emit_id: randomUUID().replaceAll("-", ""),
         }, "start");
-      }
-      const heartbeat = job.job_kind === "heartbeat";
-      const storedPendingEvents = await this.options.store.popPendingEvents(job.session_id);
-      const pendingEvents = normalizePendingSystemEvents(storedPendingEvents);
-      if (heartbeat) observer.pendingEvents("popped", pendingEvents.length);
-      else if (pendingEvents.length > 0) observer.pendingEvents("attached", pendingEvents.length);
-      if (heartbeat && pendingEvents.length === 0) {
-        observer.start({
-        jobKind: "heartbeat",
-          provider: descriptor?.name ?? "custom",
-          model: descriptor?.model ?? this.options.display?.model ?? "",
-          messageTurns: 0,
-          systemTokens: 0,
-          messageTokens: 0,
-          contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
-          pendingEventCount: 0,
-        });
-        observer.pendingEvents("noop", 0);
-        await recordUsage("completed");
-        return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
       await finalAnswerStreamer?.startPreparingContext();
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
@@ -468,7 +441,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const toolPlatform = String(job.source.platform ?? "").trim();
       const toolExposure = this.options.tools.createExposureState({
         ...exposureOptions,
-        loadedTools: heartbeat ? [] : await this.options.store.readLoadedTools(job.session_id),
+        loadedTools: await this.options.store.readLoadedTools(job.session_id),
         onToolsLoaded: tools => this.options.store.appendLoadedTools(job.session_id, job.job_id, tools, handle.signal),
         platform: toolPlatform,
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames), skillLocations: skillSnapshot.locations } : {}),
@@ -498,12 +471,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           thinkingDisplay: descriptor?.thinkingDisplay, supportsVision: descriptor?.supportsVision,
           maxTokens: descriptor?.maxTokens, toolStream: descriptor?.toolStream,
           ...(midConvo ? { promptCapabilities } : {}),
-          system: systemPrompt, tools: toolSchemas, toolChoice: heartbeat || isLastStep ? "none" : "auto",
+          system: systemPrompt, tools: toolSchemas, toolChoice: isLastStep ? "none" : "auto",
         });
       const turnContext: RuntimeTurnContextRecord = {
         ...(session.model_selection_version === undefined ? {} : { model_selection_version: session.model_selection_version }),
         turn_id: job.job_id,
-        job_kind: heartbeat ? "heartbeat" : "turn",
+        job_kind: job.job_kind,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         credential_source: descriptor?.credentialSource ?? "local",
@@ -514,14 +487,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ts: Date.now() / 1_000,
       };
       await this.options.store.appendTurnContext(job.session_id, turnContext);
-      let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
-      const titleInput = heartbeat ? "" : job.user_content_blocks?.length
+      let messages = await this.options.store.loadMessages(job.session_id);
+      const titleInput = job.user_content_blocks?.length
         ? job.user_content_blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join(" ") : job.user_input;
-      const userContent: RuntimeMessageContent = heartbeat
-        ? heartbeatPrompt(pendingEvents)
-        : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
+      const userContent: RuntimeMessageContent = prepareUserContent(job.user_input, job.user_content_blocks);
       const userMessage: RuntimeMessage = { role: "user", content: withTurnContext(userContent, job.diagnostics), message_id: job.message_id, ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}) };
-      if (!heartbeat && directory !== undefined && latestPromptState(messages).mcpDirectory !== directory) {
+      if (directory !== undefined && latestPromptState(messages).mcpDirectory !== directory) {
         userMessage.promptState = { mcpDirectory: directory };
       }
       const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
@@ -537,32 +508,31 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         return injected;
       };
-      const instructions = heartbeat ? [] : await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
+      const instructions = await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
         // Keep the submitted input in history when skill selection or loading fails.
         await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id, titleInput);
         throw error;
       });
       if (instructions.length) userMessage.invoked_skills = instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []);
       messages.push(userMessage, ...instructions);
-      const firstTools = heartbeat || (!inlineTools && (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1) ? [] : toolExposure.schemas();
+      const firstTools = !inlineTools && (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1 ? [] : toolExposure.schemas();
       const initialMeasurement = contextPipeline.measure(systemPrompt, messages, firstTools,
         fingerprintFor(firstTools, (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1));
       observer.start({
         measurement: initialMeasurement,
-        jobKind: heartbeat ? "heartbeat" : "turn",
+        jobKind: job.job_kind,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         messageTurns: messages.filter((message) => message.role === "user").length,
         systemTokens: estimateTokens(systemPrompt),
         messageTokens: estimateTokens(messages),
         contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
-        pendingEventCount: pendingEvents.length,
       });
-      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id, titleInput);
+      await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id, titleInput);
       for (const instruction of instructions) await this.appendMessage(job.session_id, instruction, "skill_invocation", job.job_id);
       await saveDisplay(initialMeasurement);
       await finalAnswerStreamer?.updateContext(initialMeasurement);
-      if (!heartbeat && job.user_content_blocks.some((block) => block.type === "local_file")) {
+      if (job.user_content_blocks.some((block) => block.type === "local_file")) {
         await this.notifySessionChanged(job.session_id, "attachments");
       }
 
@@ -593,7 +563,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         await appendSteering();
         const isLastStep = step === maxSteps - 1;
-        const toolSchemas = heartbeat || (isLastStep && !inlineTools) ? [] : toolExposure.schemas();
+        const toolSchemas = isLastStep && !inlineTools ? [] : toolExposure.schemas();
         const fingerprint = fingerprintFor(toolSchemas, isLastStep);
         const updateContext = async () => {
           const measurement = contextPipeline.measure(systemPrompt, messages, toolSchemas, fingerprint);
@@ -674,7 +644,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                   : systemPrompt,
                 messages: structuredClone(messages),
                 tools: toolSchemas,
-                toolChoice: heartbeat || isLastStep ? "none" : "auto",
+                toolChoice: isLastStep ? "none" : "auto",
                 signal: handle.signal,
                 userIdentity,
                 ...(wireTrace ? { wireTrace } : {}),
@@ -694,7 +664,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               };
               const estimatedInput = requestContextTokenEstimate(systemPrompt, request.messages, request.tools, promptCapabilities);
               const requestId = randomUUID();
-              if (!titleRequested && !heartbeat && providerSnapshot) {
+              if (!titleRequested && providerSnapshot) {
                 titleRequested = true;
                 this.options.sessionTitles?.onMainRequest(job.session_id, job.message_id || job.job_id, providerSnapshot, userIdentity);
               }
@@ -771,7 +741,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const assistant: RuntimeMessage = forcedLastStepReply
           ? { role: "assistant", content: assistantContent, ...(response.contextTokenAnchor ? { contextTokenAnchor: response.contextTokenAnchor } : {}) }
           : response;
-        if (inlineTools && !heartbeat && !sameTools(latestPromptState(messages).tools, toolSchemas)) {
+        if (inlineTools && !sameTools(latestPromptState(messages).tools, toolSchemas)) {
           assistant.promptState = { tools: structuredClone(toolSchemas) };
         }
         messages.push(assistant);
@@ -796,7 +766,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");
             else await this.emitBestEffort(this.finalRequest(job, reply), "final");
           }
-          if (!heartbeat && !isCancelled(handle)) {
+          if (!isCancelled(handle)) {
             try {
               const postTurn = await contextPipeline.postTurn({
                 toolSchemas, contextFingerprint: fingerprint,

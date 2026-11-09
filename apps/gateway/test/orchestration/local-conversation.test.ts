@@ -21,7 +21,6 @@ import {
   type RuntimePort,
   type SchedulerJobStateEvent,
 } from "../../src/orchestration/scheduler";
-import { SessionRuntimeState } from "../../src/state/session-state";
 import type { ResponseRouteRecord } from "../../src/state/models";
 import { testWorkspace } from "../workspace";
 
@@ -62,7 +61,6 @@ class MemoryStorage implements LocalConversationStorage {
   readonly sessions = new Map<string, { session_id: string; blank?: boolean; source: JsonObject; workspace: WorkspaceContext }>();
   readonly ensured: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
-  readonly pending: JsonObject[] = [];
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     this.ensured.push(request);
@@ -74,13 +72,11 @@ class MemoryStorage implements LocalConversationStorage {
   }
   async upsertResponseRoute(request: JsonObject): Promise<void> { this.routes.push(request); }
   async getSession(sessionId: string) { return this.sessions.get(sessionId); }
-  async appendPendingEvent(_sessionId: string, event: JsonObject): Promise<void> { this.pending.push(event); }
   async getResponseRoute(): Promise<ResponseRouteRecord | undefined> { return undefined; }
 }
 
 function harness(ids: string[]) {
   const runtime = new RecordingRuntime();
-  const runtimeState = new SessionRuntimeState();
   const storage = new MemoryStorage();
   const events: SchedulerJobStateEvent[] = [];
   const activities: unknown[] = [];
@@ -97,7 +93,6 @@ function harness(ids: string[]) {
   controller = new LocalConversationController({
     storage,
     scheduler,
-    runtimeState,
     defaultWorkspace: () => testWorkspace,
     onActivity: (activity) => activities.push(activity),
     onStreamBatch: (batch) => streamBatches.push(batch),
@@ -108,7 +103,7 @@ function harness(ids: string[]) {
     },
     now: () => (clock.value += 1),
   });
-  return { runtime, runtimeState, storage, scheduler, controller, events, activities, streamBatches, clock };
+  return { runtime, storage, scheduler, controller, events, activities, streamBatches, clock };
 }
 
 const externalJob = (sessionId: string): AgentJob => ({
@@ -313,7 +308,7 @@ describe("LocalConversationController", () => {
   });
 
   test("stops an active desktop turn without clearing work submitted by another entry", async () => {
-    const h = harness(["turn-1", "message-1", "route-1", "pending-event", "pending-job"]);
+    const h = harness(["turn-1", "message-1", "route-1"]);
     h.storage.sessions.set("session-1", {
       session_id: "session-1",
       source: { platform: "feishu", chat_id: "chat-1" },
@@ -334,7 +329,6 @@ describe("LocalConversationController", () => {
       cleared_turn_ids: [],
     });
     expect(h.runtime.cancelled).toEqual(["turn-1"]);
-    expect(h.storage.pending).toHaveLength(0);
 
     expect(h.scheduler.handleRuntimeEvent({
       kind: "runtime.turn.completed",
@@ -666,8 +660,6 @@ describe("LocalConversationController", () => {
     await tick();
     expect(h.controller.activity("session-1").active?.user_persisted_at).toBe(0);
 
-    // The runtime prefixes pending system events onto the stored user message,
-    // so persistence is signalled by the event, never by matching text.
     h.controller.handleAgentEvent({
 
       type: "session.changed",
@@ -794,20 +786,16 @@ test("stopping a turn suppresses its continuation but allows the next scheduled 
   try {
     await h.controller.send({ session_id: "chat", text: "manual turn" });
     await h.controller.stop("chat", "turn");
-    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
     const next = { id: "plan", session_id: "chat", turn_id: "next", fresh: false, assertCurrent() {} };
     await expect(h.controller.send({ session_id: "chat", text: "still stopping" }, next)).rejects.toThrow("使用中");
-    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
     h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "turn",
       payload: { session_id: "chat", job_id: "turn", status: "cancelled" } });
     let checks = 0;
     await expect(h.controller.send({ session_id: "chat", text: "revoked plan" }, { ...next,
       assertCurrent() { if (++checks === 2) throw new Error("fixture paused during admission"); },
     })).rejects.toThrow("paused during admission");
-    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(true);
     await h.controller.send({ session_id: "chat", text: "next scheduled turn" }, next);
     expect(h.runtime.started.map(job => job.job_id)).toEqual(["turn", "next"]);
-    expect(h.runtimeState.isAutonomySuspended("chat")).toBe(false);
     await expect(h.controller.stop("chat", "turn")).rejects.toThrow("no longer active");
     expect(h.runtime.cancelled).toEqual(["turn"]);
   } finally { h.controller.dispose(); }

@@ -18,7 +18,7 @@ stdout 只写协议消息，日志写 stderr。桌面 Renderer ↔ Electron 的 
 `initialize.params` 在资源路径、数据目录、工作区和技能权限之外必须携带对应的
 `protocol_version`；成功结果返回相同版本，不能从旧文档复制固定数字。
 
-当前业务协议为 v27：初始化不再传入 `agent_soul_path`，运行时不再依赖 `SOUL.md`。
+业务协议 v28 移除了后台任务唤醒接口。`run_turn` 只接受带有消息 ID 的普通回合。
 
 agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后才标记 ready。
 版本不匹配立即失败，不自动重启同一不兼容程序。初始化期间复用同一个 Promise，
@@ -28,8 +28,8 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后
 ## 请求、响应与通知
 
 ```json
-{"jsonrpc":"2.0","id":"request-1","method":"has_pending_events","params":{"session_id":"session-1"}}
-{"jsonrpc":"2.0","id":"request-1","result":{"pending":false}}
+{"jsonrpc":"2.0","id":"request-1","method":"resolve_workspace_directory","params":{"session_id":"session-1"}}
+{"jsonrpc":"2.0","id":"request-1","result":{"found":true,"path":"/work"}}
 {"jsonrpc":"2.0","id":"request-2","error":{"code":-32000,"message":"run not found","data":{"code":"RunUnavailable"}}}
 {"jsonrpc":"2.0","method":"session.changed","params":{"thread_id":"session-1","payload":{"changes":["messages"]}}}
 ```
@@ -43,7 +43,7 @@ Gateway 生成 UUID 请求 ID；通用解析器接受字符串、有限数值与
 非法业务参数或执行失败，也不会回送响应，只记录诊断。
 
 主要服务端通知包括：`item.completed`、`conversation.stream.delta`、`typing.changed`、
-`agent.wake`、`background_task.changed`、`managed_llm.authentication_failed`、`session.changed`、
+`background_task.changed`、`managed_llm.authentication_failed`、`session.changed`、
 `system.ready`、`system.status`、`thread.started`、`turn.started`、`turn.completed`、`turn.failed`。
 原事件的路由字段与 payload 放进 params；Gateway 校验后转成内部 AgentEvent，
 其 type、路由和 payload 保持，内部事件不包含协议版本。

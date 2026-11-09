@@ -2,7 +2,7 @@
 
 ## 目的
 
-Gateway lifecycle 负责在 Electron Main 内管理持久化、私有 Runtime 子进程、scheduler、heartbeat 和 channel。它不提供命令行产品入口，也不监听 HTTP Dashboard 端口。
+Gateway lifecycle 负责在 Electron Main 内管理持久化、私有 Runtime 子进程、scheduler 和 channel。它不提供命令行产品入口，也不监听 HTTP Dashboard 端口。
 
 ## 进程关系
 
@@ -40,16 +40,15 @@ Desktop Cloud 的设备权限快照决定允许的 skill types，并在初始化
 
 1. 验证 session binding/state 可用。
 2. 启动受管 Runtime 子进程并等待 ready。
-3. 启动 heartbeat bridge。
-4. 将 channel inbound sink 绑定到 Router。
-5. 开放 ingress 并启动 channel adapters。
-6. 根据 Runtime 与 channel 的实际状态报告 health。
+3. 将 channel inbound sink 绑定到 Router。
+4. 开放 ingress 并启动 channel adapters。
+5. 根据 Runtime 与 channel 的实际状态报告 health。
 
 只有 Runtime 和 required channel 都健康时，health 才能报告可接收请求。启动任一步失败时，已尝试组件按反向依赖关系 best-effort 清理，同时保留原始错误。
 
 ## 停止顺序
 
-正常停止先关闭 ingress，再依次停止 channel、heartbeat、scheduler readiness、active run 和 Runtime 子进程。每一步有独立超时与错误收集；重复 stop 共享同一任务。
+正常停止先关闭 ingress，再依次停止 channel、scheduler readiness、active run 和 Runtime 子进程。每一步有独立超时与错误收集；重复 stop 共享同一任务。
 
 需要重启后台的配置变更复用同一 stop/start 路径；支持热更新的模型和权限配置按各自接口生效。Main 在后台停止后关闭桌面存储，并清理其持有的媒体任务和认证宿主。马帮认证的受控本机服务是独立链路，见 [浏览器认证](../../../python/lxeskill_cli/browser_auth_service/README.md)。
 

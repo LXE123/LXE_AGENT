@@ -36,7 +36,6 @@ class MemoryStore implements RuntimeStore {
   async getSession(): Promise<RuntimeSessionRecord> {
     return { session_id: "s1", source: {}, workspace, permission_mode: this.permissionMode };
   }
-  async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async readLoadedTools() { return []; }
   async appendLoadedTools() {}

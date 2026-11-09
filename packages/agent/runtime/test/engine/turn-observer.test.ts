@@ -15,7 +15,7 @@ describe("RuntimeTurnObserver", () => {
     });
     observer.start({
       jobKind: "turn", provider: "anthropic", model: "model", messageTurns: 2,
-      systemTokens: 10, messageTokens: 20, contextCapacity: 100, pendingEventCount: 1,
+      systemTokens: 10, messageTokens: 20, contextCapacity: 100,
     });
     observer.context({ beforeTokens: 30, afterTokens: 25, compacted: true, compactedCount: 2 });
     const attempt = observer.providerAttempt(1, 1, "anthropic", "model");
@@ -61,7 +61,7 @@ describe("RuntimeTurnObserver", () => {
     });
     observer.start({
       jobKind: "turn", provider: "custom", model: "", messageTurns: 1,
-      systemTokens: 1, messageTokens: 1, contextCapacity: 10, pendingEventCount: 0,
+      systemTokens: 1, messageTokens: 1, contextCapacity: 10,
     });
     observer.complete({ status: "error", inputTokens: 0, outputTokens: 0, toolCalls: 0, apiCalls: 0, error: new Error("boom") });
     expect(recordsFrom(lines).at(-1)).toEqual(expect.objectContaining({

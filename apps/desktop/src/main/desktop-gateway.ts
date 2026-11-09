@@ -92,14 +92,6 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     }
   }
 
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    return this.agent.appendPendingEvent(sessionId, event);
-  }
-
-  hasPendingEvents(sessionId: string): Promise<boolean> {
-    return this.agent.hasPendingEvents(sessionId);
-  }
-
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined> {
     return this.gateway.getResponseRoute(responseRouteId);
   }
@@ -276,7 +268,6 @@ export class DesktopGateway {
       onTyping: async (request) => {
         await composition?.parts.emitter?.typing(request);
       },
-      onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
       onEvent: (event) => {
         if (event.type === "managed_llm.authentication_failed") {
           void this.options.onManagedLlmAuthenticationFailure?.(

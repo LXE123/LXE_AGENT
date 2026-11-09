@@ -42,7 +42,7 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 - `/stop` 和桌面停止操作走取消链；steering 通过独立队列在安全边界消费。取消中止 provider、MCP、问题等待和 exec/wait 观察，桌面退出还会关闭 Runtime 并清理 Session 进程。
 - Runtime 子进程短暂异常时，Gateway 停止接收新任务并按受控策略重启；不会偷偷切换到同进程 Runtime。
 - 平台发送失败只影响 delivery，不回滚 transcript，也不重跑已完成工具。
-- exec 完成只发送 `background_task.changed` 刷新工具卡，不写 pending event，也不唤醒模型；heartbeat/wake 保留给其他自主调度来源。
+- 已转入后台的 exec 通过 `background_task.changed` 刷新原工具卡。模型可用 `wait` 查看输出和退出状态。
 - 结构化答案通过 `sessions.answer` 直接提交给 Runtime，不能进入普通任务或 steering 队列。查询和生命周期见 [结构化提问](../../harness/runtime/tools/ask-user-question.md)。
 
 ## 专题导航
@@ -51,7 +51,7 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 - [Channel Adapter Boundary](channel_adapter_boundary.md)：平台 adapter 的输入输出边界。
 - [Session Routing](session_routing.md)：平台身份、会话和控制命令。
 - [Session Scheduler and Cancellation](session_scheduler_cancellation.md)：排队、并发、取消和 steering。
-- [Emitter and Heartbeat Wake](emitter_heartbeat_wake.md)：统一出站与后台事件唤醒。
+- [Gateway 出站与工具卡片更新](emitter.md)：渠道消息交付和后台 exec 状态更新。
 
 ## 事实来源
 

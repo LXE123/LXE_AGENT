@@ -70,7 +70,7 @@ Skill 为模型提供工作上下文，具体操作通过工具执行。编写�
 
 所有 handler 接收当前 `RunHandle`。Provider、MCP 和本次 `exec`/`wait` 的观察会监听 turn abort；但进程一旦创建成功，所有权就立即转交 Session 级 manager。最终回复、turn 失败或取消只结束当前观察，不 kill 命令。命令可以在同一应用运行期、同一 Session 的后续 turn 继续用 `wait` 观察。
 
-Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整进程树。异步 exec 完成只发送 `background_task.changed` UI 事件，用于刷新原工具卡；它不写 pending event，也不触发 heartbeat、`agent.wake` 或外部渠道消息。
+Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整进程树。异步 exec 完成只发送 `background_task.changed` UI 事件，用于刷新原工具卡。模型通过 `wait` 获取后台任务结果。
 
 ## Model-visible result
 

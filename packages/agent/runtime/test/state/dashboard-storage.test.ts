@@ -157,7 +157,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       name: "report.xlsx",
       ts: 101,
     });
-    await store.appendPendingEvent("delete-me", { event_id: "pending-1", job_id: "job-1", text: "wake" });
     await store.recordTurn("delete-me", {
       turn_id: "turn-delete", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 2, output_tokens: 3, tool_calls: 1, api_calls: 1,
@@ -171,7 +170,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(await store.deleteSession("delete-me")).toBe(true);
     expect(await store.deleteSession("delete-me")).toBe(false);
     expect(await store.sessionDetail("delete-me", { limit: 10 })).toBeUndefined();
-    expect(await store.hasPendingEvents("delete-me")).toBe(false);
     expect(await store.resolveAttachment("delete-me", "attachment-1")).toBeUndefined();
     expect(await store.resolveArtifact("delete-me", "artifact-1")).toBeUndefined();
     expect(existsSync(transcriptPath)).toBe(false);

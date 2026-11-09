@@ -13,7 +13,6 @@ export type {
   JsonObject,
   JsonPrimitive,
   JsonValue,
-  PendingSystemEvent,
   ToolDisplayBlock,
   ToolStep,
   ToolStepStatus,

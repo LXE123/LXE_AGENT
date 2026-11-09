@@ -106,6 +106,7 @@ describe("AgentProtocolServer", () => {
       truncated: false,
       output_tail: "ok",
     };
+    const beforeUpdate = output.length;
     await notify?.({ ...snapshot, revision: 1, status: "running", ended_at: null, exit_code: null, output_tail: "first" });
     await notify?.(snapshot);
     expect(output).toContainEqual(expect.objectContaining({
@@ -114,7 +115,8 @@ describe("AgentProtocolServer", () => {
       turn_id: "turn-1",
       payload: expect.objectContaining({ tool_call_id: "tool-1" }),
     }));
-    expect(output.some((message) => "type" in message && message.type === "agent.wake")).toBe(false);
+    expect(output.slice(beforeUpdate).map(message => "type" in message && message.type))
+      .toEqual(["background_task.changed", "background_task.changed"]);
     const events = output.filter((message): message is Extract<AgentEvent, { type: "background_task.changed" }> =>
       "type" in message && message.type === "background_task.changed");
     expect(events.map(event => event.payload.task.revision)).toEqual([1, 2]);

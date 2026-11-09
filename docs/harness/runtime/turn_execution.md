@@ -20,11 +20,11 @@ Gateway 位于 Electron Main，Runtime 位于独立的 `agent-cli` 子进程。�
 
 ## Turn 建立与快照
 
-Router 校验权限、建立 session、保存 response route 后创建 `AgentJob`；Scheduler 创建 `RunHandle`。Runtime 读取自己的 session 和 pending events，校验 WorkspaceContext 并取得 Workspace Lease。本轮固定模型配置、system prompt、允许的 Skill 元数据、上下文窗口以及 session、route、turn 标识。同一 Lease 的指令与搜索服务贯穿整个 turn；凭据解析与模型快照见 [模型目录](../llm/provider_catalog.md#选择与生效)。
+Router 校验权限、建立 session、保存 response route 后创建 `AgentJob`；Scheduler 创建 `RunHandle`。Runtime 读取自己的 session，校验 WorkspaceContext 并取得 Workspace Lease。本轮固定模型配置、system prompt、允许的 Skill 元数据、上下文窗口以及 session、route、turn 标识。同一 Lease 的指令与搜索服务贯穿整个 turn；凭据解析与模型快照见 [模型目录](../llm/provider_catalog.md#选择与生效)。
 
 Dashboard 修改模型、thinking 或技能配置不会改写已开始的快照；provider 切换从下一 turn 生效。turn 内的工具暴露可以影响后续 step，每次工具调用仍按当前会话权限检查。
 
-普通 turn replay 历史，将 pending events 附到本轮用户内容；heartbeat 处理自己的事件输入。pending events 由 Runtime Store 消费，不经过 Router 或 `AgentJob.raw_data`。入口诊断独立放在 `AgentJob.diagnostics`；Runtime 通过 [`withTurnContext()`](../../../packages/agent/runtime/src/engine/system-events.ts) 把诊断说明合入本轮 user message 后持久化，字段值始终作为数据处理。
+Runtime 加载会话历史，再追加本轮用户输入。入口诊断独立放在 `AgentJob.diagnostics`；Runtime 通过 [`withTurnContext()`](../../../packages/agent/runtime/src/engine/system-events.ts) 把诊断说明合入本轮 user message 后持久化，字段值始终作为数据处理。
 
 用户消息及之后每条有效 steering 都作为独立 user message 追加，保证 replay 与执行时的顺序一致。飞书普通 turn best-effort 设置 typing；桌面、飞书和 CLI 按响应路由创建 `FinalAnswerStreamer`，并初始化 turn/tool/skill usage；本轮用量只结算一次。
 
@@ -80,7 +80,7 @@ The user interrupted the previous turn. A tool or command may have run partially
 </turn_aborted>
 ```
 
-说明保留在模型历史和原始 transcript 中，桌面依据可信的 `source_reason` 隐藏，只显示“已停止”；不按用户文字过滤，也不拼到下一条用户消息。旧历史不改写。重复停止、旧回合请求、已完成回合、仅清空队列，以及重启、关闭和凭据更新等技术取消均不新增说明。写入失败保留实际错误，取消仍然有效。Gateway 清理队列并暂停自动继续，不再追加停止说明 pending event。
+说明保留在模型历史和原始 transcript 中，桌面依据可信的 `source_reason` 隐藏，只显示“已停止”；不按用户文字过滤，也不拼到下一条用户消息。旧历史不改写。重复停止、旧回合请求、已完成回合、仅清空队列，以及重启、关闭和凭据更新等技术取消均不新增说明。写入失败保留实际错误，取消仍然有效。Gateway 负责清理待执行队列。
 
 错误真实性与脱敏要求统一见 [AGENTS.md](../../../AGENTS.md#红线违反--生产事故) 和 [日志与诊断](../../logging.md)。
 
@@ -96,7 +96,7 @@ Runtime 以 `completed`、`cancelled` 或 `error` 结束，Scheduler 释放 acti
 
 ## 持久化与排障
 
-- Gateway 保存 response route 与平台绑定；Runtime 保存 Agent session、pending events、usage 和 transcript 索引；lxeskillCLI 管理自身业务数据与配置。文件布局见 [本地数据与存储](../../storage/README.md)。
+- Gateway 保存 response route 与平台绑定；Runtime 保存 Agent session、usage 和 transcript 索引；lxeskillCLI 管理自身业务数据与配置。文件布局见 [本地数据与存储](../../storage/README.md)。
 - Transcript v3 追加 message、turn metadata 和最小 `context_patch`，不回写旧行。模型 replay 与完整审计展示共享来源，规则见 [Context Persistence](context/context_persistence.md)。
 - 原始 transcript 保留图片内容；模型视图可因压缩而缩短，展示和供应商请求可以采用各自的图片投影，不能将这些投影视为原图已被删除。详见 [图片持久化](context/context_persistence.md#图片与敏感数据)。
 - turn、provider attempt、tool、context、usage 和 delivery 的关联字段、事件与脱敏统一见 [日志与诊断](../../logging.md)。
