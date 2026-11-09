@@ -48,7 +48,10 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
   const resetOrder = () => writeFileSync(join(files, "orders.txt"), "  pending\r\n");
   resetOrder();
   const discovery = discoverAndEdit(files);
-  const nextCalls: { name: string; arguments: object }[] = [discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } }));
+  const failedReport = '// @options: {"max_output_tokens":40,"timeout_ms":5000}\n' +
+    'text("orders checked"); text("detail ".repeat(80)); throw Error("missing amount");';
+  const scripts = [discovery, reportFromStore, failedReport];
+  const nextCalls: { name: string; arguments: object }[] = scripts.map(code => ({ name: "codemode", arguments: { code } }));
   const requests: { tools: { function: { name: string } }[]; messages: { role: string; content: unknown }[] }[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = await request.json() as typeof requests[number];
@@ -113,7 +116,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
       definition: task, trigger: "scheduled", nominal_at: 1, created_at: 1, accepted_at: null,
       session_id: job.session_id, turn_id: "failed-turn", dispatch_state: "failed", error: "fixture dispatch failure" })).toBe(true);
     expect((await runtime.runTurn(job, handle)).status).toBe("completed");
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(4);
     const names = requests[0]!.tools.map(tool => tool.function.name);
     expect(names).not.toContain("tool_search");
     expect(names).toContain("codemode");
@@ -124,20 +127,39 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
     expect(lastToolOutput(2)).toContain("fixture dispatch failure");
     expect(lastToolOutput(2)).not.toContain("failed-turn");
+    const verifyFailedReport = (index: number) => {
+      const preview = lastToolOutput(index);
+      const text = typeof preview === "string" ? preview : JSON.stringify(preview);
+      expect(text).toContain("orders checked");
+      expect(text).toContain("tokens truncated");
+      const path = /\[Full output: (.+?) \(read with offset\/limit\)\]/.exec(text)?.[1];
+      expect(path).toBeDefined();
+      try {
+        const full = readFileSync(path!, "utf8");
+        expect(full).toContain("detail ".repeat(80));
+        expect(full).toMatch(/orders checked[\s\S]+Script error:[\s\S]+missing amount/);
+      } finally { rmSync(path!, { force: true }); }
+    };
+    verifyFailedReport(3);
+    const detail = await runtime.dashboardCall({ operation: "sessions.detail", input: { session_id: job.session_id } });
+    expect(detail.messages).toContainEqual(expect.objectContaining({
+      content: expect.arrayContaining([expect.objectContaining({ tool_call_id: "call_3", is_error: true })]),
+    }));
 
     const piCli = process.env.LXE_TEST_PI_CLI;
     if (piCli && mode === "build") {
       resetOrder();
       const start = requests.length;
-      nextCalls.push(...[discovery, reportFromStore].map(code => ({ name: "codemode", arguments: { code } })));
+      nextCalls.push(...scripts.map(code => ({ name: "codemode", arguments: { code } })));
       await runPiReference(piCli, root, provider.url.origin, environment, job.session_id, job.job_id);
       const piRequests = requests.slice(start);
-      expect(piRequests).toHaveLength(3);
+      expect(piRequests).toHaveLength(4);
       expect(piRequests[0]!.tools.map(tool => tool.function.name)).toContain("codemode");
       for (const body of piRequests.slice(1)) expect(body.tools).toEqual(piRequests[0]!.tools);
       expect(lastToolOutput(start + 1)).toContain("mcp__lxe_desktop__automation_runs");
       expect(readFileSync(join(files, "orders.txt"), "utf8")).toBe("  shipped\r\n");
       expect(JSON.stringify(lastToolOutput(start + 2))).toContain("fixture dispatch failure");
+      verifyFailedReport(start + 3);
     }
 
     const toggle = (name: string, enabled: boolean) => runtime.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled } });

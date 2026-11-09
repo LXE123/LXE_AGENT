@@ -25,6 +25,7 @@ import {
 } from "@lxe/core";
 import {
   ToolExecutionError,
+  ToolOutputError,
   ToolRegistry,
   unknownToolFailureDetails,
   type ToolExposureOptions,
@@ -70,6 +71,7 @@ import type {
   RuntimeTurnContextRecord,
   AssistantMessage,
   RuntimeUsage,
+  ToolExecutionResult,
   ToolResultBlock,
   ToolCallBlock,
   TurnOutcome,
@@ -853,7 +855,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             const currentSession = await this.options.store.getSession(job.session_id);
             if (!currentSession || !sameWorkspaceContext(currentSession.workspace, workspace)) throw new Error("Session workspace changed before tool execution");
             const executionPolicy = this.options.permissionPolicy.resolve(currentSession);
-            const executed = await this.options.tools.execute(call.name, call.arguments, {
+            const toolContext = {
               executionPolicy,
               handle,
               platform: toolPlatform,
@@ -865,7 +867,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               skill_names: skillNames,
               workspace,
               ...(workspaceLease ? { workspaceSearch: workspaceLease.search } : {}),
-            });
+            };
+            let executed: ToolExecutionResult;
+            try {
+              executed = await this.options.tools.execute(call.name, call.arguments, toolContext);
+            } catch (cause) {
+              if (!(cause instanceof ToolOutputError)) throw cause;
+              toolStatus = "error";
+              executed = { content: cause.content };
+            }
             const normalizedImages = await normalizeToolResultImages(executed.content, handle.signal);
             const result = { ...executed, content: normalizedImages.content };
             for (const failure of normalizedImages.failures) {
@@ -913,6 +923,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               type: "tool_result",
               tool_call_id: call.id,
               content: result.content,
+              ...(toolStatus === "error" ? { is_error: true } : {}),
             };
             toolDisplayStatus = result.display_status ?? toolStatus;
             toolDisplayOutput = { content: result.content };

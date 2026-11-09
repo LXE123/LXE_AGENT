@@ -86,10 +86,13 @@ export interface UnclassifiedToolFailureDetails extends ToolFailureDetails {
 
 const TOOL_ERROR_SECRET = /(token|secret|password|api[-_]?key|authorization|cookie)\s*[=:]\s*[^\s,;]+/giu;
 
-export const safeToolFailureObservation = (value: unknown): string =>
-  String(value ?? "")
+export const redactToolFailureText = (text: string): string =>
+  text
     .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+\/-]+=*/giu, "$1 [redacted]")
-    .replace(TOOL_ERROR_SECRET, "$1=[redacted]")
+    .replace(TOOL_ERROR_SECRET, "$1=[redacted]");
+
+export const safeToolFailureObservation = (value: unknown): string =>
+  redactToolFailureText(String(value ?? ""))
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 500) || "Tool execution failed without an error message";
@@ -124,6 +127,14 @@ export class ToolExecutionError extends Error {
       code: this.code,
       message: this.message,
     }, null, 2);
+  }
+}
+
+/** A failed invocation with model-visible output blocks, including any partial results. */
+export class ToolOutputError extends Error {
+  constructor(message: string, readonly content: JsonObject[]) {
+    super(message);
+    this.name = "ToolOutputError";
   }
 }
 

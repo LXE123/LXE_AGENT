@@ -1,8 +1,9 @@
-import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
+import { CodemodeSandbox, loadQuickJSWasm, parseCodemodeSource } from "@earendil-works/pi-codemode";
 import type { JsonObject } from "@lxe/protocol";
 import { registerToolSearch, ToolExecutionError, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 import { extname, resolve } from "node:path";
 import { createCodemodeCatalog, toScriptValue } from "./codemode-catalog";
+import { codemodeOutput } from "./codemode-output";
 import { mcpServerEnabledOnPlatform } from "./mcp-server-directory";
 import wasmPath from "quickjs-wasi/quickjs.wasm" with { type: "file" };
 
@@ -28,12 +29,15 @@ export function registerMcpDiscoveryTools(
       "Call await tools[name](args). File tools return text; read may return an image {type, data, mimeType, note} suitable for image(). " +
       "Read an existing file before editing or overwriting it. Writes and commands use the session permissions. " +
       "exec returns {status, exec_id, output, ...}. On running, return the id or call tools.wait({exec_id}) for new_output and, once finished, exit_code. " +
-      "Use tools.wait({exec_id, terminate:true}) to stop the command. Scripts have a 60-second deadline; a yielded command belongs to this chat. " +
+      "Use tools.wait({exec_id, terminate:true}) to stop the command. A yielded command belongs to this chat. " +
+      'Optional first line: // @options: {"timeout_ms": 60000, "max_output_tokens": 10000}. ' +
+      "Scripts default to no deadline. The default and maximum inline output budget is 10000 tokens. " +
+      "Truncated text keeps its head and tail and includes a path to the full text file. " +
       "MCP tools return content, optional structuredContent and isError. " +
       "Check isError for server-reported tool errors; a failed connection rejects the call. " +
       "Use store(key, value) and load(key) to keep small JSON values across successful calls on this chat branch. " +
       "A missing key loads as undefined. Use store(key, undefined) to delete a key. " +
-      "Use return, text(value), or image(block) to show selected output.",
+      "Use return, text(value), or image(block) to show selected output. On failure, previously emitted output precedes the script error.",
     input_schema: {
       type: "object",
       properties: { code: { type: "string", description: "Raw JavaScript source." } },
@@ -41,7 +45,8 @@ export function registerMcpDiscoveryTools(
       additionalProperties: false,
     },
     async execute(input, context) {
-      if (typeof input.code !== "string" || !input.code.trim()) throw new Error("codemode requires JavaScript in code");
+      if (typeof input.code !== "string") throw new Error("codemode requires JavaScript in code");
+      const { code, options } = parseCodemodeSource(input.code);
       const exposure = context.exposureState ?? registry.createExposureState(
         context.platform ? { platform: context.platform } : {},
       );
@@ -54,8 +59,8 @@ export function registerMcpDiscoveryTools(
       const sandbox = new CodemodeSandbox({
         wasm: loadQuickJSWasm(resolve(import.meta.dir, wasmPath)),
         workerUrl,
-        timeoutMs: 60_000,
-        memoryLimitBytes: 32 * 1024 * 1024,
+        timeoutMs: options.timeoutMs ?? Infinity,
+        memoryLimitBytes: 256 * 1024 * 1024,
         tools: catalog.entries.map(({ tool, jsName, description }) => ({
           name: tool.name, jsName, description,
           async execute(args, { signal }) {
@@ -77,18 +82,13 @@ export function registerMcpDiscoveryTools(
         globals: catalog.globals,
       });
       try {
-        const result = await sandbox.execute(input.code, { signal, store });
-        if (!result.ok) throw new Error(result.error.message);
-        const content: JsonObject[] = result.output.map(item => item.type === "text"
-          ? { type: "text", text: item.text }
-          : { type: "image", source: { type: "base64", media_type: item.mimeType, data: item.data } });
-        if (result.value !== undefined) content.push({
-          type: "text", text: typeof result.value === "string" ? result.value : JSON.stringify(result.value),
-        });
-        await transcript.appendCodemodeStore(context.session_id, context.turn_id, {
-          set: result.storeWrites.set as JsonObject, delete: result.storeWrites.delete,
-        }, signal);
-        return { content };
+        const result = await sandbox.execute(code, { signal, store });
+        if (result.ok) {
+          await transcript.appendCodemodeStore(context.session_id, context.turn_id, {
+            set: result.storeWrites.set as JsonObject, delete: result.storeWrites.delete,
+          }, signal);
+        }
+        return { content: await codemodeOutput(result, options.maxOutputTokens) };
       } finally {
         await sandbox.close();
       }

@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptMcpTools, ExecutionPaths, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { adaptMcpTools, ExecutionPaths, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolOutputError, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
 import { policyFor, testWorkspace, workspaceFor } from "../../../packages/agent/runtime/test/workspace";
 import { AgentRunHandle } from "../src/run-handle";
 import { registerMcpDiscoveryTools } from "../src/mcp-discovery";
@@ -252,6 +252,63 @@ test("codemode commits only successful script changes as internal transcript ent
   expect(writes[1]).toMatchObject({ parent_id: writes[0].id, set: { metadata: null }, delete: ["ids"] });
   expect(await transcript.loadMessages("s1")).toHaveLength(1);
   expect((await transcript.loadTranscriptDisplayPage("s1", { limit: 10 })).messages).toHaveLength(1);
+});
+
+test("failed and timed-out scripts retain emitted blocks before the actual diagnostic", async () => {
+  const { run, registry, makeTool, transcript } = await setup();
+  const processes = registerCodingTools(registry, {});
+  cleanups.push(() => processes.stop());
+  const failure = await run(`
+    text("orders checked");
+    image(await tools.read({path:"packages/agent/runtime/test/fixtures/color-pattern.jpg"}));
+    console.log("total computed");
+    store("unfinished", true);
+    throw Error("missing amount: token=private-value");
+  `).catch(error => error);
+  expect(failure).toBeInstanceOf(ToolOutputError);
+  expect(failure.content.map((item: { type: string }) => item.type)).toEqual(["text", "image", "text", "text"]);
+  expect(failure.content[0].text).toBe("orders checked");
+  expect(failure.content[2].text).toContain("total computed");
+  const reason = failure.content[3].text;
+  expect(reason).toContain("missing amount");
+  expect(reason).not.toContain("private-value");
+  expect(await transcript.readCodemodeStore("s1")).toEqual({});
+  makeTool("hold", { async execute(_, { signal }) {
+    await new Promise(resolve => signal!.addEventListener("abort", resolve, { once: true }));
+    return { content: [] };
+  } });
+  const timeout = await run('// @options: {"timeout_ms":500}\ntext("started"); await tools.hold({})').catch(error => error);
+  expect(timeout).toBeInstanceOf(ToolOutputError);
+  expect(timeout.content[0].text).toBe("started");
+  expect(timeout.content[1].text).toMatch(/timed out after 500 ms/i);
+  await expect(run('// @options: {"timeout_ms":0}\nstore("invalid", true)')).rejects.toThrow("positive integer");
+  expect(await transcript.readCodemodeStore("s1")).toEqual({});
+});
+
+test("script text spills at either budget, and the read tool can recover the omitted lines", async () => {
+  const { run, registry } = await setup();
+  const processes = registerCodingTools(registry, {});
+  cleanups.push(() => processes.stop());
+  for (const [options, line] of [
+    ["", "汉".repeat(4) + "\n"], // Fits Pi's default character budget but exceeds the runtime's byte limit.
+    ['// @options: {"max_output_tokens":20000}\n', "abcde\n"],
+    ['// @options: {"max_output_tokens":0}\n', "xyz\n"],
+  ] as const) {
+    const repetitions = line.startsWith("汉") ? 4_000 : 8_000;
+    const source = `"start\\n" + ${JSON.stringify(line)}.repeat(${repetitions}) + "end"`;
+    const preview = String((await run(options + "return " + source)).content[0]?.text);
+    const path = /\[Full output: (.+) \(read with offset\/limit\)\]/.exec(preview)?.[1];
+    expect(path).toBeDefined();
+    cleanups.push(async () => rmSync(path!, { force: true }));
+    expect(Buffer.byteLength(preview)).toBeLessThanOrEqual(40_000);
+    expect(preview).toContain("tokens truncated");
+    if (line === "xyz\n") expect(preview).not.toContain("xyz");
+    else { expect(preview).toContain("start\n"); expect(preview).toContain("end"); }
+    expect(readFileSync(path!, "utf8")).toBe("start\n" + line.repeat(repetitions) + "end");
+    if (process.platform !== "win32") expect(statSync(path!).mode & 0o777).toBe(0o600);
+    expect((await run(`return await tools.read({path:${JSON.stringify(path)},offset:2,limit:1})`)).content[0]?.text)
+      .toContain(line.trim());
+  }
 });
 
 test("a fork inherits codemode values through its selected turn and writes independently", async () => {

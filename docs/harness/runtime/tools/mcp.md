@@ -113,7 +113,7 @@ return result.structuredContent ?? JSON.parse(result.content[0].text);
 
 脚本也能组合当前会话的内置工具。`ls`、`grep` 返回文本，`edit`、`write` 返回修改或写入摘要。`read` 读文本时返回不带行号的字符串，仍受分页和输出上限约束；读图片时返回 `{ type: "image", data, mimeType, note }`，可用 `image(await tools.read({ path: "photo.jpg" }))` 将图片交给模型。新文件可用 `tools.write({ file_path, content })` 创建。覆盖或编辑已有文件沿用同一会话的权限和版本检查，先读再改。写入立即生效。
 
-`exec` 返回包含 `status`、`exec_id` 和 `output` 的对象。如果命令仍在运行，脚本可以调用 `tools.wait({ exec_id })` 取得新增的 `new_output`，或先把 ID 返回给模型，让同一会话稍后继续等。进程退出后可读取 `exit_code`，包括非零退出码。显式传入 `terminate: true` 可终止该进程树。脚本限时 60 秒，长任务可以分多次观察。
+`exec` 返回包含 `status`、`exec_id` 和 `output` 的对象。如果命令仍在运行，脚本可以调用 `tools.wait({ exec_id })` 取得新增的 `new_output`，或先把 ID 返回给模型，让同一会话稍后继续等。进程退出后可读取 `exit_code`，包括非零退出码。显式传入 `terminate: true` 可终止该进程树。
 
 ```js
 const first = await tools.exec({ command: "bun test", "yield-time-ms": 1000 });
@@ -121,6 +121,17 @@ if (first.status !== "running") return first;
 const next = await tools.wait({ exec_id: first.exec_id, "yield-time-ms": 5000 });
 return { ...next, output: first.output + next.new_output };
 ```
+
+每次脚本调用默认不限时，QuickJS 堆内存上限为 256 MiB。可在脚本第一行设置本次超时和返回给模型的文本预算，例如：
+
+```js
+// @options: {"timeout_ms": 30000, "max_output_tokens": 1000}
+text(await tools.ls({ path: "." }));
+```
+
+`max_output_tokens` 默认和最高都是 10,000，填入更大的整数按 10,000 执行。文本超过脚本预算，或先碰到 Agent 通用工具结果的 UTF-8 字节上限时，会保留首尾，并把全文写入系统临时文件。工具结果中的 `Full output` 给出绝对路径，可用 `read` 配合 `offset`、`limit` 分段读取。预算为 0 时，有文本的结果直接给出截断提示和路径。
+
+脚本报错时，工具结果按顺序保留已经产生的文本和图片，再附上实际错误，并标记为失败。同样的文本预算也适用于失败结果，临时文件包含已输出的文本和错误诊断。
 
 ### 在多次脚本调用之间保存数据
 
