@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 
 from lxeskill import cli
 from services.browser.scripts import command, worker
@@ -75,7 +76,7 @@ return { first, second, path };
     result = worker.run_control(shutil.which("node"), str(script),
                                 dict(first="A", second="B", message="中文", newDownload=str(downloads / "r.txt")),
                                 operations)
-    assert result == dict(first="A", second=["B", "中文"], path=operations.files[0])
+    assert result == dict(first="A", second=["B", "中文"], path=operations.downloaded_files[0])
     assert driver.uploaded == str(tmp_path / "上传.txt")
     assert Path(result["path"]).read_text() == "report contents"
     assert Path(result["path"]).parent != downloads
@@ -106,7 +107,16 @@ def test_ambiguous_download_does_not_deliver_an_unrelated_file(tmp_path):
     (tmp_path / "b.csv").touch()
     with pytest.raises(ValueError, match="a.csv, b.csv"):
         ops.execute("finishDownload", {})
-    assert not ops.files
+    assert not ops.downloaded_files
+
+
+def test_bad_webdriver_screenshot_is_not_published(tmp_path):
+    driver = SimpleNamespace(get_screenshot_as_png=lambda: b"")
+    ops = BrowserOperations(driver, downloads=tmp_path, output=tmp_path, deadline=time.monotonic() + 10)
+    with pytest.raises(ValueError, match="PNG signature"):
+        ops.execute("screenshot", {})
+    assert not ops.screenshots
+    assert not list(tmp_path.glob("*.png"))
 
 
 def test_strict_attachment_uses_only_live_info_and_never_starts_browser(monkeypatch):
@@ -157,10 +167,22 @@ if "services.browser.scripts.worker" in sys.orig_argv:
     ZiniaoBrowserClient.client = property(lambda self: Obj(
         get_browser_list=lambda: [info], get_running_info=lambda: [info]))
     SeleniumRunner.get_driver = lambda self, info: Obj(window_handles=["test"], current_window_handle="test",
-        current_url="https://fixture.invalid/", title="Fixture", switch_to=Obj(window=lambda handle: None))
+        current_url="https://fixture.invalid/", title="Fixture", switch_to=Obj(window=lambda handle: None),
+        get_screenshot_as_png=lambda: Path("viewport.png").read_bytes())
 ''')
+    viewport = tmp_path / "viewport.png"
+    Image.new("RGB", (12, 8), color="blue").save(viewport)
     script = tmp_path / "控制 脚本.js"
-    script.write_text("console.log('control stderr'); return { value: params.value };", encoding="utf-8")
+    script.write_text("""
+console.log('control stderr');
+const first = await browser.screenshot();
+const second = await browser.screenshot();
+if (params.download) {
+  const fs = await import('node:fs/promises');
+  await browser.download(() => fs.copyFile('viewport.png', 'download.png'));
+}
+return { value: params.value, first, second };
+""", encoding="utf-8")
     params = tmp_path / "参数.json"
     params.write_text(json.dumps({"value": "中文"}), encoding="utf-8")
     env = {**os.environ, "LXE_AGENT_SESSION_ID": "test", "LXE_DATA_ROOT": str(tmp_path),
@@ -175,8 +197,23 @@ if "services.browser.scripts.worker" in sys.orig_argv:
 
     run, record = invoke()
     assert run.returncode == 0 and record["ok"], (record, run.stderr)
-    assert record["data"]["result"] == {"value": "中文"}
+    result = record["data"]["result"]
+    assert result["value"] == "中文"
+    shots = [result["first"], result["second"]]
+    assert shots[0] != shots[1]
+    assert record["data"]["screenshots"] == record["files"] == shots
+    assert record["data"]["downloads"] == []
+    for path in shots:
+        assert Path(path).is_absolute() and Path(path).suffix == ".png"
+        assert Path(path).read_bytes() == viewport.read_bytes()
     assert "control stderr" in run.stderr
+    params.write_text(json.dumps({"value": "中文", "download": True}), encoding="utf-8")
+    run, record = invoke()
+    assert run.returncode == 0 and record["ok"], (record, run.stderr)
+    downloads = record["data"]["downloads"]
+    assert len(downloads) == 1 and Path(downloads[0]).name == "download.png"
+    assert len(record["data"]["screenshots"]) == 2
+    assert record["files"] == downloads + record["data"]["screenshots"]
     from services.browser.store.store_driver_session import store_lock
     with pytest.MonkeyPatch.context() as environment:
         environment.setenv("LXE_DATA_ROOT", str(tmp_path))

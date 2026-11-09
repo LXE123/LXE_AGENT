@@ -73,13 +73,14 @@ def run_script(arguments: dict[str, Any], session_id: str) -> tuple[dict, list[s
             raise ScriptFailure(reply["code"], diagnostic(reply["error"], store_id))
         if process.returncode:
             raise ScriptFailure("script_failed", detail or f"Script worker exited with code {process.returncode}")
-        files = reply["files"]
+        files = [*reply["downloads"], *reply["screenshots"]]
         for name in files:
             path = Path(name).resolve(strict=True)
             if not path.is_relative_to(output.resolve()) or not path.is_file():
-                raise ValueError(f"Invalid downloaded artifact: {name}")
+                raise ValueError(f"Invalid script artifact: {name}")
         keep = bool(files)
-        return {"result": reply["result"], "downloads": files}, files
+        return {"result": reply["result"], "downloads": reply["downloads"],
+                "screenshots": reply["screenshots"]}, files
     except subprocess.TimeoutExpired as exc:
         detail = diagnostic(str(exc.stderr or "").strip(), store_id)
         raise ScriptFailure("script_timeout", f"Script exceeded {timeout}s" + (f"\n{detail}" if detail else "")) from exc

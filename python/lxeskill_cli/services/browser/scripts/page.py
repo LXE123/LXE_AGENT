@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from services.browser.browser.actions import _is_incomplete_download
+from services.browser.browser.actions import _is_incomplete_download, save_screenshot
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
@@ -32,7 +32,8 @@ class BrowserOperations:
         self.downloads = downloads
         self.output = output
         self.deadline = deadline
-        self.files: list[str] = []
+        self.downloaded_files: list[str] = []
+        self.screenshots: list[str] = []
         self.baseline: dict[str, tuple[int, int]] | None = None
 
     def remaining(self) -> float:
@@ -46,6 +47,10 @@ class BrowserOperations:
         if method == "navigate":
             self.driver.set_page_load_timeout(seconds)
             self.driver.get(args["url"])
+        elif method == "screenshot":
+            path = save_screenshot(self.driver, self.output, prefix=f"page-{len(self.screenshots) + 1}")
+            self.screenshots.append(path)
+            return path
         elif method == "evaluate":
             self.driver.set_script_timeout(seconds)
             reply = self.driver.execute_async_script(SHADOW_DOM_HELPERS_JS + args["source"], args["params"])
@@ -90,7 +95,7 @@ class BrowserOperations:
                 target = self.output / uuid4().hex / name
                 target.parent.mkdir()
                 shutil.copyfile(self.downloads / name, target)
-                self.files.append(str(target))
+                self.downloaded_files.append(str(target))
                 return str(target)
             previous = changed
             time.sleep(min(0.5, remaining))

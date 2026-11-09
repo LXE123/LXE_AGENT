@@ -1,6 +1,6 @@
 ---
 name: ziniao-browser
-description: 管理紫鸟浏览器会话，供查询、打开或退出店铺时使用。开发或运行业务 Skill 的固定网页流程时，通过本机 Node.js 控制脚本操作已打开的紫鸟页面。
+description: 管理紫鸟浏览器会话，供查询、打开或退出店铺时使用。通过本机 Node.js 控制脚本截取当前页面，或运行业务 Skill 的固定网页流程。
 type: ziniao_browser
 commands:
   - lxeskill browser store
@@ -55,6 +55,12 @@ lxeskill browser script run --store-id <ID> --script-file workflow.js --params-f
 return await browser.evaluate(({ selector }) => deepQuerySelector(selector)?.textContent ?? null, params);
 ```
 
+需要截图时，在控制脚本中执行下面这一行。它通过 Selenium 截取当前标签页可见的网页区域，返回 PNG 文件的绝对路径。可以用 `read` 查看，用户索要图片时用 `send_files` 交付。
+
+```javascript
+return await browser.screenshot();
+```
+
 跨页时，由控制脚本等待每个步骤，并判断页面显示的业务结果。例如，在 `params` 中传入目标 URL、上传文件路径和文件输入框的选择器：
 
 ```javascript
@@ -72,4 +78,4 @@ return { path };
 - `uploadFile(selector, path)` 定位唯一匹配的文件输入框。流程中的页面脚本路径和上传路径相对于控制脚本目录解析，也接受绝对路径。
 - `download(trigger)` 在回调触发下载前记录目录，在文件完成后返回归档路径。一个回调对应一个下载文件；多个候选时返回错误。
 
-命令选取第一个普通网页标签，整次运行共用同一个连接和店铺锁。成功时读取 terminal 的 `data.result`（JSON 值）和 `files`（本次下载的附件）。总时限默认 180 秒，使用 `--timeout-sec` 调整至 1～600 秒。超时或取消后，已发起的页面操作可能已经生效。如需重启店铺或重新提交业务操作，先核对实际状态并取得用户明确授权。
+命令选取第一个普通网页标签，整次运行共用同一个连接和店铺锁。成功时，`data.result` 是脚本返回的 JSON 值，`data.downloads` 和 `data.screenshots` 分别列出下载文件和截图，`files` 包含两类附件。总时限默认 180 秒，使用 `--timeout-sec` 调整至 1～600 秒。超时或取消后，已发起的页面操作可能已经生效。如需重启店铺或重新提交业务操作，先核对实际状态并取得用户明确授权。

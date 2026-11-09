@@ -96,7 +96,8 @@ def main(request: dict) -> dict:
     with running_browser(request["store_id"]) as (driver, downloads):
         operations = BrowserOperations(driver, downloads=downloads, output=Path(request["output"]), deadline=deadline)
         result = run_control(request["node"], request["script"], request["params"], operations)
-        return {"ok": True, "result": result, "files": operations.files}
+        return {"ok": True, "result": result, "downloads": operations.downloaded_files,
+                "screenshots": operations.screenshots}
 
 
 if __name__ == "__main__":

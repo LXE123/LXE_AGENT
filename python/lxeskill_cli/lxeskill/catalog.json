@@ -32,7 +32,7 @@
       "owner_skills": ["ziniao-browser"],
       "exposed": true,
       "timeout_ms": 610000,
-      "artifact_paths": [{"field": "downloads[]", "role": "deliverable"}],
+      "artifact_paths": [{"field": "downloads[]", "role": "deliverable"}, {"field": "screenshots[]", "role": "deliverable"}],
       "input_schema": {
         "type": "object", "additionalProperties": false, "required": ["store_id", "script_file"],
         "properties": {
@@ -396,7 +396,7 @@
     "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
-    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器自动化脚本归档的下载文件，按会话和每次运行分目录。", "legacy_dirs": []},
+    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器自动化脚本归档的下载文件和页面截图，按会话和每次运行分目录。", "legacy_dirs": []},
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
   },
   "input_assets": {

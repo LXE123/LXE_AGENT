@@ -64,6 +64,7 @@ async function run() {
   const evaluateBody = (body, args) => rpc("evaluate", { source: pageCode(body), params: args });
   const methods = {
     navigate: url => rpc("navigate", { url }),
+    screenshot: () => rpc("screenshot", {}),
     evaluate: (fn, args = {}) => evaluateBody("return (" + fn.toString() + ")(params);", args),
     async runScriptFile(path, args = {}) {
       return evaluateBody(await readFile(resolve(dir, path), "utf8"), args);
