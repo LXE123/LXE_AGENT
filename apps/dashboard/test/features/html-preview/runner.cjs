@@ -18,9 +18,17 @@ app.whenReady().then(async () => {
     resolveWorkspaceDirectory: async id => { if (!exists) throw new Error('Session not found'); if (id === 's') return workspace; if (id === 'other') return other; throw new Error('Session not found'); },
     resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImagePreview: async () => undefined,
   }), new host.OfficePreviewCache(join(profile, 'cache'), 'cli'), { openPath: async () => '', revealPath: () => {} }, { list: async () => [], open: async () => {} });
+  const refreshFailures = [];
+  let checkingRefresh = false;
   const dispose = host.registerDesktopIpc({
     isTrustedFileSender: event => !!win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame,
-    fileCall: call => service.call(call), fileRead: (handle, image) => service.read(handle, image), fileReadText: (handle, range) => service.readText(handle, range),
+    fileCall: async call => {
+      try { return await service.call(call); }
+      catch (error) {
+        if (checkingRefresh && call.operation === 'html.prepare') refreshFailures.push(String(error));
+        throw error;
+      }
+    }, fileRead: (handle, image) => service.read(handle, image), fileReadText: (handle, range) => service.readText(handle, range),
   });
   host.registerDashboardProtocol(output); host.registerHtmlPreviewProtocol(session.defaultSession, token => service.htmlDocument(token));
   session.defaultSession.on('will-download', event => { downloaded++; event.preventDefault(); });
@@ -112,12 +120,16 @@ app.whenReady().then(async () => {
       await js("var s=document.querySelector('.file-document-toolbar select');s.value='html';s.dispatchEvent(new Event('change',{bubbles:true}))"); await ready(); assert.equal(await inner('window.count'), 0);
     });
     await step('Dependency and root changes refresh complete bundle', async () => {
+      checkingRefresh = true;
       writeFileSync(join(workspace, 'logic.js'), "document.getElementById('relative').textContent='Updated dependency'");
       await wait(async () => !!frame() && await inner("document.querySelector('#relative')?.textContent==='Updated dependency'").catch(() => false), 'JS refreshed');
       writeFileSync(rootFile, html.replace('中文交互报告', 'Updated root'));
+      await js("window.dispatchEvent(new Event('focus')); undefined");
       await wait(async () => !!frame() && await inner("document.querySelector('h1')?.textContent==='Updated root'").catch(() => false), 'root refreshed');
       writeFileSync(join(workspace, '样式 表.css'), '#relative{color:rgb(100, 20, 30)}');
       await wait(async () => !!frame() && await inner("document.querySelector('#relative') && getComputedStyle(document.querySelector('#relative')).color==='rgb(100, 20, 30)'").catch(() => false), 'CSS refreshed');
+      checkingRefresh = false;
+      assert.deepEqual(refreshFailures, [], 'refresh prepares only live previews');
     });
     await step('Missing resource, invalid UTF-8 and retry expose actual diagnostics', async () => {
       await js("fixture.open('bad.html')");
@@ -179,7 +191,7 @@ app.whenReady().then(async () => {
     win.destroy(); dispose(); await service.dispose(); server.close(); app.exit(0);
   } catch (error) {
     console.error(error.stack || error); console.error(JSON.stringify({ passed, messages }));
-    if (win && !win.isDestroyed()) { console.error(await js('document.body.innerText').catch(String)); win.destroy(); }
+    if (win && !win.isDestroyed()) { console.error(await js("({body:document.body.innerText,details:document.querySelector('.file-error-details pre')?.textContent})").catch(String)); win.destroy(); }
     await service.dispose(); server.close(); app.exit(1);
   }
 }).catch(error => { console.error(error); app.exit(1); });

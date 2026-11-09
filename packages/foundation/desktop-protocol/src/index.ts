@@ -676,6 +676,11 @@ export interface DesktopVietnamSettingsState {
   template_error: string | null;
 }
 
+export interface DesktopAmazonV2Settings {
+  peak_boost_enabled: boolean;
+  peak_boost_days: number | null;
+}
+
 export interface DesktopUsageBalance {
   status: "ready" | "error" | "unconfigured";
   source: CredentialSource | null;
@@ -744,6 +749,8 @@ export interface LxeDesktopBridge {
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
     exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
+    getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
+    saveAmazonV2Settings(input: DesktopAmazonV2Settings): Promise<DesktopAmazonV2Settings>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;

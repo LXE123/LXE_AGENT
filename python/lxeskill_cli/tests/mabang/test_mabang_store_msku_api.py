@@ -354,7 +354,7 @@ def test_validate_store_msku_excel_headers_requires_core_columns(tmp_path) -> No
 
 
 def test_fetch_store_msku_ids_rejects_auth_failure(monkeypatch) -> None:
-    fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
+    fake_session = _FakeSession([_FakeResponse(status=401, text_body="expired")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
     monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 

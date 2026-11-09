@@ -1,0 +1,76 @@
+@import "./cds-theme.css";
+
+/* One palette for the caption and navigation rail; geometry belongs to the
+   shell. These tokens deliberately do not replace the page's --bg/--text. */
+.desktop-window-frame,
+.app-shell {
+  --app-chrome-bg: var(--cds-surface-chrome);
+  --app-chrome-ink: var(--cds-ink);
+  --app-chrome-secondary: var(--cds-secondary);
+  --app-chrome-muted: var(--cds-muted);
+  --app-chrome-border: var(--cds-alpha-2);
+  --app-chrome-hover: var(--cds-alpha-1);
+  --app-chrome-selected: color-mix(in srgb, var(--cds-ink) 6%, transparent);
+  --app-chrome-focus: var(--cds-accent);
+  --navigation-bg: var(--app-chrome-bg);
+}
+
+:root[data-theme="dark"] :is(.desktop-window-frame, .app-shell) {
+  --app-chrome-selected: var(--cds-alpha-2);
+}
+
+.desktop-window-frame,
+.app-shell > .main-panel {
+  background: var(--app-chrome-bg);
+}
+
+/* Existing title/workspace/preview controls consume the legacy names locally.
+   Neither the transcript nor the session list inherits these overrides. */
+.conversation-header,
+.sidebar-window-controls,
+.windows-titlebar-menu {
+  --bg: var(--app-chrome-bg);
+  --text: var(--app-chrome-ink);
+  --text-strong: var(--app-chrome-ink);
+  --text-soft: var(--app-chrome-secondary);
+  --muted: var(--app-chrome-secondary);
+  --muted-light: var(--app-chrome-muted);
+  --border: var(--app-chrome-border);
+  --border-strong: var(--cds-alpha-3);
+  --row-hover: var(--app-chrome-hover);
+  --surface: var(--cds-surface-popover);
+  --accent-soft: var(--app-chrome-hover);
+  --accent-strong: var(--app-chrome-ink);
+  --focus-ring: var(--app-chrome-focus);
+  --sidebar-ink: var(--app-chrome-ink);
+  --sidebar-ink-soft: var(--app-chrome-secondary);
+  --sidebar-hover: var(--app-chrome-hover);
+  --sidebar-active: var(--app-chrome-selected);
+}
+
+.conversation-header {
+  color: var(--app-chrome-secondary);
+}
+
+.conversation-header :is(.file-header-actions, .file-open-split) button:hover:not(:disabled) {
+  background: var(--app-chrome-hover);
+  color: var(--app-chrome-ink);
+}
+
+.conversation-header .file-header-actions button[aria-expanded="true"] {
+  background: var(--app-chrome-selected);
+  color: var(--app-chrome-ink);
+}
+
+.conversation-header :is(.file-open-split, .file-open-split button + button) {
+  border-color: var(--app-chrome-border);
+}
+
+.conversation-header button:focus-visible {
+  outline: 2px solid var(--app-chrome-focus);
+  outline-offset: 1px;
+}
+
+.windows-titlebar-menu button:focus-visible {
+  outline-color: var(--app-chrome-focus);
+}

@@ -23,9 +23,22 @@ export function TerminalPanel({ sessionId, tab, restart }: { sessionId: string; 
     let disposed = false, sequence = -1, initialized = false;
     const pending: ManualToolEvent[] = [];
     // xterm draws text itself, so resolve the same CSS token used by code blocks.
-    const fontFamily = getComputedStyle(container.current).getPropertyValue("--font-mono").trim() || "monospace";
-    const terminal = new Terminal({ fontSize: 13, fontFamily, scrollback: 1000, cursorBlink: true, theme: { background: "#202225", foreground: "#e4e4e7" } });
+    const screen = container.current;
+    const fontFamily = getComputedStyle(screen).getPropertyValue("--font-mono").trim() || "monospace";
+    const readTheme = () => {
+      const style = getComputedStyle(screen);
+      return {
+        background: style.backgroundColor, foreground: style.color,
+        cursor: style.getPropertyValue("--cds-accent").trim(), cursorAccent: style.backgroundColor,
+        // Computed color serializes alpha to rgba(), which xterm's parser supports.
+        selectionBackground: getComputedStyle(screen, "::selection").backgroundColor,
+      };
+    };
+    const terminal = new Terminal({ fontSize: 13, fontFamily, scrollback: 1000, cursorBlink: true, theme: readTheme() });
     const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(container.current);
+    // Recolor the existing renderer without reconnecting the PTY or losing scrollback.
+    const themeObserver = new MutationObserver(() => { terminal.options.theme = readTheme(); });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     const fail = (cause: unknown) => { if (!disposed) setError(errorText(cause)); };
     const api = toolBridge();
     const receive = (event: ManualToolEvent) => {
@@ -47,7 +60,7 @@ export function TerminalPanel({ sessionId, tab, restart }: { sessionId: string; 
       pending.forEach(receive); pending.length = 0; resize(); terminal.focus();
     }).catch(fail);
     const input = terminal.onData(data => { for (const chunk of data.match(/[\s\S]{1,8192}/gu) ?? []) void api.call({ operation: "terminal.write", input: { sessionId, id: tab.key, data: chunk } }).catch(fail); });
-    return () => { disposed = true; observer.disconnect(); unsubscribe(); input.dispose(); terminal.dispose(); };
+    return () => { disposed = true; observer.disconnect(); themeObserver.disconnect(); unsubscribe(); input.dispose(); terminal.dispose(); };
   }, [sessionId, tab.key]);
   return <div className="tool-terminal"><div className="tool-terminal-screen" ref={container} />
     {error ? <div role="alert" className="tool-error">{error}</div> : null}

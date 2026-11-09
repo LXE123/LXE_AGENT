@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from .source_verification import load_verified_source, stamp_report
+from .source_verification import duplicate_msku_warnings, load_verified_source, stamp_report
 
 from services.mabang import config as mabang_settings
 from services.mabang.export_common import clean_text as _clean_text
@@ -68,10 +68,12 @@ class StoreMskuSalesAnalysisResult:
     report_xlsx_path: str
     source: str = SOURCE
     binding_counts: dict[str, int] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "success": True,
+            "warnings": self.warnings,
             "store_name": self.store_name,
             "source_xlsx_path": self.source_xlsx_path,
             "source_data_time": self.source_data_time,
@@ -265,7 +267,10 @@ def _append_metrics(row: dict[str, Any], metrics: SalesMetrics) -> dict[str, Any
     return row
 
 
-def _analyze_msku_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def analyze_msku_rows(records: list[dict[str, Any]], *, headers: list[str]) -> list[dict[str, Any]]:
+    missing = [column for column in REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise StoreMskuSalesAnalysisError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
     analyzed: list[dict[str, Any]] = []
     for record in records:
         row = dict(record)
@@ -348,19 +353,11 @@ def _summarize_links(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _summarize_asins(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[str, str, str]] = set()
     summaries: list[dict[str, Any]] = []
     for row in records:
         asin = _group_key(row.get("ASIN"), "未填写ASIN")
         parent_asin = _group_key(row.get("父ASIN"), "未填写父ASIN")
         msku = _group_key(row.get("MSKU"), "未填写MSKU")
-        key = (asin, parent_asin, msku)
-        if key in seen:
-            raise StoreMskuSalesAnalysisError(
-                f"ASIN表存在重复售卖项: ASIN={asin}, 父ASIN={parent_asin}, MSKU={msku}"
-            )
-        seen.add(key)
-
         totals = _sales_totals(row)
         metrics = compute_sales_metrics(totals["7天销量"], totals["14天销量"], totals["30天销量"])
         summary = {
@@ -438,10 +435,7 @@ def analyze_store_msku_sales(
     source = find_latest_store_msku_file(clean_store_name, input_dir=input_dir)
     verified_source = load_verified_source(source.path, store_name=clean_store_name)
     original_headers, records = verified_source.headers, verified_source.records
-    missing = [column for column in REQUIRED_COLUMNS if column not in original_headers]
-    if missing:
-        raise StoreMskuSalesAnalysisError(f"店铺MSKU数据缺少列: {', '.join(missing)}")
-    msku_rows = _analyze_msku_rows(records)
+    msku_rows = analyze_msku_rows(records, headers=original_headers)
     link_rows = _summarize_links(records)
     asin_rows = _summarize_asins(records)
 
@@ -458,6 +452,7 @@ def analyze_store_msku_sales(
     stamp_report(report_path, verified_source.metadata)
     return StoreMskuSalesAnalysisResult(
         binding_counts=verified_source.counts,
+        warnings=duplicate_msku_warnings(records),
         store_name=clean_store_name,
         source_xlsx_path=str(source.path),
         source_data_time=source.source_data_time,

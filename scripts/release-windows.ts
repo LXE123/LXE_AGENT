@@ -1,7 +1,7 @@
 // Keep this entry point dependency-free: it installs frozen dependencies before loading build tools.
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, resolve, relative } from "node:path";
+import { join, resolve, relative, isAbsolute } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { VERSION, verifyCandidate, writeJsonAtomic, type ReleaseCandidate } from "./release-candidate";
 
@@ -80,7 +80,23 @@ export async function runWorkflow(action: Action, ports: WorkflowPorts): Promise
         await stage("Install frozen Bun dependencies", [bun, "install", "--frozen-lockfile"]);
         await stage("Sync frozen Python dependencies", ["uv", "sync", "--frozen"]);
         await stage("Prepare fd", [bun, "run", "desktop:tools:fd"]);
-        await stage("Verify source", [bun, "run", "verify:source"]);
+        const descriptorPath = join(lock, "runtime-inputs.json");
+        await stage("Prepare verification runtime", ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+          "-File", join(root, "scripts", "prepare-desktop-runtime.ps1")], { LXE_DESKTOP_RUNTIME_DESCRIPTOR: descriptorPath });
+        const runtime = JSON.parse(readFileSync(descriptorPath, "utf8").replace(/^\uFEFF/, ""));
+        if (runtime.schema_version !== 1 || runtime.platform !== "win32-x64") throw new Error("Incompatible verification runtime descriptor: " + descriptorPath);
+        if (![runtime.inputs?.node_root, runtime.inputs?.office_root].every(path => typeof path === "string" && isAbsolute(path))) {
+          throw new Error("Verification runtime requires absolute Node and Office roots: " + descriptorPath);
+        }
+        const verificationEnvironment = {
+          LXE_OFFICE_NODE: join(runtime.inputs.node_root, "node.exe"),
+          LXE_OFFICE_CLI: join(runtime.inputs.office_root, "node_modules", "@deepseek-ai", "libreoffice-kit", "lib", "cli.js"),
+          PYTHONUTF8: "1",
+        };
+        for (const path of [verificationEnvironment.LXE_OFFICE_NODE, verificationEnvironment.LXE_OFFICE_CLI]) {
+          if (!statSync(path).isFile()) throw new Error("Office verification input is not a file: " + path);
+        }
+        await stage("Verify source", [bun, "run", "verify:source"], verificationEnvironment);
         if (cleanSource() !== commit || JSON.stringify(intent()) !== JSON.stringify(release)) throw new Error("Source changed during verification; rebuild");
         await stage("Build NSIS candidate", [bun, "run", "desktop:dist:win"], { LXE_RELEASE_CANDIDATE_RESULT: receipt });
         const result = JSON.parse(readFileSync(receipt, "utf8"));

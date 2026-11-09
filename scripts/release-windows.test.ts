@@ -32,6 +32,15 @@ function fixture() {
     },
     run: async (command, environment) => {
       calls.push(command);
+      if (command.at(-1) === join(root, "scripts", "prepare-desktop-runtime.ps1")) {
+        const runtime = join(root, "runtime");
+        mkdirSync(join(runtime, "office", "node_modules", "@deepseek-ai", "libreoffice-kit", "lib"), { recursive: true });
+        mkdirSync(join(runtime, "node"), { recursive: true });
+        writeFileSync(join(runtime, "node", "node.exe"), "node fixture");
+        writeFileSync(join(runtime, "office", "node_modules", "@deepseek-ai", "libreoffice-kit", "lib", "cli.js"), "office fixture");
+        writeJsonAtomic(environment.LXE_DESKTOP_RUNTIME_DESCRIPTOR!, { schema_version: 1, platform: "win32-x64",
+          inputs: { node_root: join(runtime, "node"), office_root: join(runtime, "office") } });
+      }
       if (command.includes("desktop:dist:win")) {
         await create();
         writeJsonAtomic(environment.LXE_RELEASE_CANDIDATE_RESULT!, { candidate: `dist/desktop-candidates/${build}/candidate.json` });
@@ -47,7 +56,9 @@ test("build installs frozen dependencies, verifies and builds once, then publish
   const f = fixture(); try {
     await runWorkflow("build", f.ports);
     expect(f.calls.map(command => command.slice(1))).toEqual([
-      ["install", "--frozen-lockfile"], ["sync", "--frozen"], ["run", "desktop:tools:fd"], ["run", "verify:source"], ["run", "desktop:dist:win"],
+      ["install", "--frozen-lockfile"], ["sync", "--frozen"], ["run", "desktop:tools:fd"],
+      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(f.root, "scripts", "prepare-desktop-runtime.ps1")],
+      ["run", "verify:source"], ["run", "desktop:dist:win"],
     ]);
     expect(f.state()).toMatchObject({ status: "ready", source_commit: "a".repeat(40), candidate: "fixture-build/candidate.json" });
     await runWorkflow("publish", f.ports);
@@ -59,13 +70,48 @@ test("build installs frozen dependencies, verifies and builds once, then publish
     expect(readdirSync(f.directory).some(name => name.endsWith(".tmp"))).toBe(false);
   } finally { f.cleanup(); }
 });
-for (const failedStep of ["install", "sync", "desktop:tools:fd", "verify:source", "desktop:dist:win"]) {
+
+test("verification receives the prepared Office runtime and rejects a missing executable", async () => {
+  for (const missing of [false, true]) {
+    const f = fixture();
+    try {
+      const original = f.ports.run!;
+      let verified = false;
+      f.ports.run = async (command, environment) => {
+        await original(command, environment);
+        if (missing && command.at(-1) === join(f.root, "scripts", "prepare-desktop-runtime.ps1")) {
+          rmSync(join(f.root, "runtime", "node", "node.exe"));
+        }
+        if (command.includes("verify:source")) {
+          verified = true;
+          expect(environment.LXE_OFFICE_NODE).toBe(join(f.root, "runtime", "node", "node.exe"));
+          expect(environment.LXE_OFFICE_CLI).toBe(join(f.root, "runtime", "office", "node_modules", "@deepseek-ai", "libreoffice-kit", "lib", "cli.js"));
+          expect(environment.PYTHONUTF8).toBe("1");
+        }
+      };
+      if (missing) {
+        await expect(runWorkflow("build", f.ports)).rejects.toThrow("ENOENT");
+        expect(verified).toBe(false);
+        expect(f.state().status).toBe("failed");
+        expect(f.calls.some(command => command.includes("desktop:dist:win"))).toBe(false);
+      } else {
+        await runWorkflow("build", f.ports);
+        expect(verified).toBe(true);
+        expect(f.state().status).toBe("ready");
+      }
+    } finally { f.cleanup(); }
+  }
+});
+for (const failedStep of ["install", "sync", "desktop:tools:fd", "prepare-desktop-runtime.ps1", "verify:source", "desktop:dist:win"]) {
   test(`failed ${failedStep} invalidates the old candidate and stops all later stages`, async () => {
     const f = fixture(); try {
       await runWorkflow("build", f.ports); f.calls.length = 0;
       f.logs.length = 0;
       const original = f.ports.run!;
-      f.ports.run = async (command, env) => { if (command.includes(failedStep)) throw new Error(`actual ${failedStep} failure`); await original(command, env); };
+      f.ports.run = async (command, env) => {
+        if (command.includes(failedStep) || command.includes(join(f.root, "scripts", failedStep))) throw new Error(`actual ${failedStep} failure`);
+        await original(command, env);
+      };
       await expect(runWorkflow("build", f.ports)).rejects.toThrow(`actual ${failedStep} failure`);
       expect(f.state().status).toBe("failed");
       expect(existsSync(f.file)).toBe(true);

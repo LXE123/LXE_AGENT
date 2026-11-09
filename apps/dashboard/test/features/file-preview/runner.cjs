@@ -313,6 +313,18 @@ app.whenReady().then(async () => {
       await click(".file-tab-strip > button:last-child"); await wait("previewFixture.pending.size===0 && previewFixture.workers.size===0", "hidden releases resources");
     });
     await step("Conversation image cards, attachments and references use centered dialogs", async () => {
+      const checkLightbox = async selector => {
+        const surfaces = await js(`(() => {
+          const backdrop = document.querySelector('.sent-image-backdrop');
+          const colors = [];
+          for (let element = document.querySelector(${JSON.stringify(selector)}).parentElement; element !== backdrop; element = element.parentElement) {
+            colors.push(getComputedStyle(element).backgroundColor);
+          }
+          return { scrim: getComputedStyle(backdrop).backgroundColor, colors };
+        })()`);
+        assert.match(surfaces.scrim, /^rgba\(.+, 0\.\d+\)$/, "the conversation shows through the scrim");
+        assert.ok(surfaces.colors.every(color => color === "rgba(0, 0, 0, 0)"), "no opaque canvas behind the image");
+      };
       await js("previewFixture.images(true)");
       await wait("!!document.querySelector('#chat-images .sent-image-tile img')", "sent attachment thumbnail");
       const layoutBefore = await js("localStorage.getItem('lxe.file-preview.v1.first')");
@@ -321,7 +333,7 @@ app.whenReady().then(async () => {
       await wait("document.querySelector('.file-image-dialog .file-image img')?.naturalWidth === 960", "artifact image dialog");
       assert.equal(await js("!!document.querySelector('.file-sidebar')"), false, "opening a chat image does not reveal the sidebar");
       assert.equal(await js("localStorage.getItem('lxe.file-preview.v1.first')"), layoutBefore, "dialog never enters saved tabs");
-      assert.ok(await js("(()=>{const r=document.querySelector('.file-image-dialog').getBoundingClientRect();return Math.abs(r.left+r.width/2-innerWidth/2)<2&&r.top>=20&&r.bottom<=innerHeight-20})()"), "dialog is centered and fits the viewport");
+      await checkLightbox(".file-image-dialog .file-image img");
       await js("var z=document.querySelector('.file-image-dialog .file-zoom-bar select');z.value='200';z.dispatchEvent(new Event('change',{bubbles:true}))");
       await wait("document.querySelector('.file-image-dialog .file-zoom-bar select')?.value==='200'", "image zoom in dialog");
       await js("var z=document.querySelector('.file-image-dialog .file-zoom-bar select');z.value='0';z.dispatchEvent(new Event('change',{bubbles:true}))");
@@ -329,7 +341,7 @@ app.whenReady().then(async () => {
       await delay(100); await capture("chat-image-dialog-light");
       await js("document.documentElement.dataset.theme='dark'");
       win.setSize(640, 800); await delay(150); await capture("chat-image-dialog-dark-narrow");
-      assert.ok(await js("document.querySelector('.file-image-dialog').getBoundingClientRect().right<=innerWidth-20"));
+      assert.ok(await js("document.querySelector('.file-image-dialog .file-document').getBoundingClientRect().right<=innerWidth-16"));
       win.setSize(1200, 900); await js("document.documentElement.dataset.theme='light'");
       await click(".file-image-dialog .file-open-split button:last-child");
       await wait("!!document.querySelector('[role=menu]')", "image application menu");
@@ -339,11 +351,61 @@ app.whenReady().then(async () => {
       await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
       await wait("!document.querySelector('[role=dialog]') && previewFixture.pending.size===0", "Escape closes and releases image");
       await wait("document.activeElement===document.querySelector('#chat-image-card .turn-file-card')", "focus returns to image card");
+      win.setSize(640, 800);
       await click("#chat-images .sent-image-tile");
-      await wait("document.querySelector('.sent-image-dialog > img')?.naturalWidth===960", "sent attachment expands in dialog");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===960", "sent attachment expands in dialog");
       assert.equal(await js("!!document.querySelector('.file-image-dialog') || !!document.querySelector('.file-sidebar')"), false);
       assert.ok(await js("previewFixture.calls.includes('attachment:expanded')"), "uses expanded attachment preview");
+      assert.equal(await js("document.querySelector('.image-preview-toolbar .image-preview-source').textContent"), "预览历史图片");
+      const closeBounds = () => js("document.querySelector('.image-preview-toolbar button').getBoundingClientRect().toJSON()");
+      const wideClose = await closeBounds();
+      await checkLightbox(".image-preview-stage img");
+      assert.ok(await js("innerWidth") - wideClose.right <= 16 && wideClose.top <= 12, "close control is anchored near the window corner");
+      assert.ok(await js(`(() => {
+        const img = document.querySelector('.image-preview-stage img'), r = img.getBoundingClientRect();
+        return r.width > 0 && r.width < img.naturalWidth && Math.abs(r.width / r.height - 960 / 540) < .01;
+      })()`), "wide image fits a narrow window proportionally");
+      await capture("attachment-preview-light");
+      await click(".image-preview-stage img");
+      assert.ok(await js("!!document.querySelector('.sent-image-dialog')"), "clicking the image keeps it open");
+      await click(".image-preview-stage"); await wait("!document.querySelector('[role=dialog]')", "empty canvas closes attachment");
+      await js("document.documentElement.dataset.theme='dark'");
+      await click("#chat-images .sent-image-item:nth-child(2) .sent-image-tile");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===96", "small attachment expands in dialog");
+      assert.deepEqual(await closeBounds(), wideClose, "close button stays at the same coordinates for a small image and a long filename");
+      await checkLightbox(".image-preview-stage img");
+      assert.ok(await js(`(() => {
+        const r = document.querySelector('.image-preview-stage img').getBoundingClientRect();
+        const name = document.querySelector('.image-preview-name');
+        return r.width === 96 && r.height === 96 && Math.abs(r.x + 48 - innerWidth / 2) < 1
+          && Math.abs(r.y + 48 - innerHeight / 2) < 1
+          && name.title === name.textContent && name.firstElementChild.scrollWidth > name.firstElementChild.clientWidth
+          && name.lastElementChild.textContent === '.svg' && name.lastElementChild.scrollWidth === name.lastElementChild.clientWidth;
+      })()`), "small image stays centered at native size and the full extension survives title truncation");
+      await capture("attachment-preview-dark");
+      await js("document.getElementById('root').classList.add('desktop-platform-darwin')");
+      assert.ok(await js("document.querySelector('.image-preview-info').getBoundingClientRect().left >= 78"), "file information clears the macOS traffic lights");
+      await js("document.getElementById('root').classList.remove('desktop-platform-darwin')");
+      await js("document.getElementById('root').classList.add('desktop-platform-win32')");
+      assert.ok(await js(`(() => {
+        const backdrop = document.querySelector('.sent-image-backdrop').getBoundingClientRect();
+        const close = document.querySelector('.image-preview-toolbar button').getBoundingClientRect();
+        const captionHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--desktop-caption-height'));
+        return captionHeight > 0 && backdrop.top === captionHeight && close.top >= captionHeight && backdrop.bottom === innerHeight;
+      })()`), "Windows lightbox stays below the system caption");
+      await js("document.getElementById('root').classList.remove('desktop-platform-win32')");
       await click(".sent-image-backdrop"); await wait("!document.querySelector('[role=dialog]')", "backdrop closes attachment");
+      await js(`void (window.lxe = {desktop: {previewDraftConversationFile: async () => ({
+        data_url: document.querySelector('#chat-images .sent-image-tile img').src
+      })}})`);
+      await click("#chat-images .input-attachment-image button");
+      await wait("document.querySelector('.image-preview-stage img')?.naturalWidth===960", "draft thumbnail opens its expanded image");
+      assert.equal(await js("document.querySelector('.image-preview-toolbar .image-preview-source')"), null, "draft has no historical source label");
+      assert.deepEqual(await closeBounds(), wideClose);
+      await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+      await wait("!document.querySelector('[role=dialog]')", "Escape closes draft preview");
+      await js("delete window.lxe");
+      win.setSize(1200, 900); await js("document.documentElement.dataset.theme='light'");
       await click("#chat-images .message-reference");
       await wait("!!document.querySelector('.file-image-dialog .file-image img')", "chat image reference uses dialog");
       await click(".sent-image-dialog > header button");

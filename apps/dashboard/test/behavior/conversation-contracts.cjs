@@ -43,7 +43,10 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     });
     await step('streaming preserves earlier text while reading and follows the fully sized feed',async()=>{
       await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
-      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');await settle();
+      await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest answer');
+      // Measure reading stability after font metrics and resize observers settle.
+      // Otherwise startup reflow is counted as a streaming displacement.
+      await js("document.fonts.ready.then(() => undefined)");await settle();
       await js(`{const e=document.querySelector('.conversation-transcript');e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-50}));e.scrollTop-=50;}`);await settle();
       const reading=await js(`(async()=>{
         const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]');
@@ -96,7 +99,23 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       const counts=await js("({groups:JSON.parse(document.querySelector('#metrics').textContent).groups,mounted:document.querySelectorAll('[data-conversation-row]').length})");
       assert.ok(counts.mounted>0&&counts.mounted<100,'bounded mounted rows');
       await waitFor("JSON.parse(document.querySelector('#acceptance').textContent).anchorError!=null",'anchor measurement');
-      assert.ok(await js("JSON.parse(document.querySelector('#acceptance').textContent).anchorError<3"),'history preserves reading position');
+      const acceptance=await js("JSON.parse(document.querySelector('#acceptance').textContent)");
+      assert.ok(acceptance.anchorError<3,'history preserves reading position: '+JSON.stringify(acceptance));
+      const lateResize=await js(`(async()=>{
+        const root=document.querySelector('.conversation-transcript');
+        const anchor=[...root.querySelectorAll('[data-conversation-row]')].find(row=>row.dataset.conversationRow===JSON.parse(document.querySelector('#acceptance').textContent).anchor);
+        const above=anchor?.previousElementSibling;
+        if(!above)throw new Error('Missing mounted history row above the reading anchor');
+        const offset=()=>anchor.getBoundingClientRect().top-root.getBoundingClientRect().top;
+        const before=offset(),height=above.offsetHeight,original=above.style.paddingBottom;
+        try{
+          above.style.paddingBottom=(parseFloat(getComputedStyle(above).paddingBottom)+41)+'px';
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          return {growth:above.offsetHeight-height,drift:offset()-before};
+        }finally{above.style.paddingBottom=original;}
+      })()`);
+      assert.equal(lateResize.growth,41,'exercise a late measurement above the reader');
+      assert.ok(Math.abs(lateResize.drift)<3,'late history resize: '+JSON.stringify(lateResize));
       await click('.conversation-jump-latest');
       await waitFor("Boolean(document.querySelector('[data-display-group=g999]'))",'latest group restored');
     });

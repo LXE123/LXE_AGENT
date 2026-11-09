@@ -7,23 +7,37 @@
 生产共享主题现在用于设置、能力、活动、工作台、首页、定时任务、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。定时任务的页面和控件状态单独记录于[定时任务适配与验收](automations.md)。其余页面从生产源码和实际界面核对，尚未完成全站状态审计。
 
 - 会话导航行选中使用不透明混色：浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题为 400 字重（2026-10-23 调整）。设置导航暗色选中仍为白 15%，两者是不同局部适配。
-- 工具调用条的悬停文字已统一，默认态、状态图标和焦点边框仍含旧变量；不能把它视为完整主题迁移。
+- 会话单条工具调用及展开详情接入共享主题：alpha 边框、panel 表面、主次文字、中性复制按钮与蓝色焦点；错误状态保留语义红色。命令和已知语言的源文件结果复用回答正文的高亮配色，普通执行输出不猜测语言。布局和操作方式保持原样；这些是 LXE 适配，不代表 Claude 工具详情的完整规范。
 - 原变量快照仍对应 `7e2bef2d`，作为历史证据保留。当前生产源码是维护入口。
 
 权限审查卡片使用共享会话主题，操作标题、权限与原因层级、命令区及左右按钮是 LXE 适配；Claude 审批卡专用完整规则仍未确认。源码见下方入口。
 
-删除会话弹窗也显式接入共享会话主题：使用弹层表面、alpha 边框、主／次文字和危险操作按钮 token，保留永久删除会话历史但不删除附件与产物的说明。440px 最大宽度、24px 内边距、18px 标题和 32px 按钮是 LXE 的布局选择，不代表已取得 Claude 删除弹窗的完整规范。样式位于 `conversation-theme.css`，仅作用于删除会话确认；工作区删除、重命名和权限弹窗沿用各自样式。
+会话运行状态使用 CDS 次文字与弱化计时颜色；过程折叠按钮的文字和箭头在悬停时提亮，保持普通箭头指针，不增加底色。键盘焦点显示蓝色轮廓，错误文字保留语义红色。展开／折叠、计时和布局沿用现有实现。
+
+删除会话与删除工作区共用确认弹窗样式：使用弹层表面、alpha 边框、主／次文字和危险操作按钮 token。会话删除保留永久删除历史但不删除附件与产物的说明；工作区删除分别说明从列表移除，以及保留文件夹与会话、会话归入“未分组”的结果。440px 最大宽度、24px 内边距、18px 标题和 32px 按钮是 LXE 的布局选择，不代表已取得 Claude 删除弹窗的完整规范。样式位于 `conversation-theme.css`；重命名和权限弹窗沿用各自样式。
+
+右侧工具侧栏通过 `tool-sidebar-theme` 接入共享 CDS 色板：侧栏底色、标签栏、开始页入口、文件树、阅读与浏览器工具栏统一表面、文字、alpha 边框、悬停、禁用与蓝色键盘焦点；文件打开菜单和错误通知在 portal 上显式接入主题。终端的底色、普通文字、光标与选区随主题更新，复用已有终端实例和输出缓冲，保留 ANSI 语义色。网页、PDF 和表格原始内容保留自身颜色。宽度、布局、字号、间距、圆角和操作流程沿用原实现；这些是 LXE 的配色适配，不是已取得 Claude 工具侧栏的完整规范。
+
+文件预览的源码与 Markdown 代码块和对话共用 `styles.css` 中的亮暗语法色板，包括注释样式、TypeScript 与 JSON 的专用 token 规则，不再借用界面的强调色、警告色等用途变量。预览的行号、字号、换行规则、背景和工具栏布局保持原样；纯文本仍不猜测语言。
+
+文件打开菜单另做了比例调整：portal 显式使用 0.8125rem（默认 13px）菜单字号，常规行高约 30px；“默认”在右侧用较小、较弱的文字显示，文件管理器入口用独立细线分组。菜单随内容定宽，最大 300px，长应用名可换行；保留原有打开、键盘导航和焦点行为。它是 LXE 的局部排版选择，其余工具侧栏布局不变。
 
 ## 实现入口
+
+顶部标题栏与最左侧主导航共用应用外框配色：浅色 `#f7f7f6`，暗色 `#1a1a19`，与会话列表保留轻微层次差。图标使用 CDS 主／次文字，悬停为 5% alpha，选中为浅色主文字 6%／暗色白色 10%，键盘焦点使用蓝色。Windows 原生标题栏同步同一底色与图标色。具体数值是 LXE 适配，不代表 Claude 标题栏的完整规范。
+
+外框只从共享主题取得色板，在标题栏控件内映射旧变量；不会把 `--bg`、`--text` 等别名覆盖到整个应用。几何尺寸、圆角、分隔线位置和主导航动效仍由原实现管理。
 
 | 职责 | 当前源码 |
 | --- | --- |
 | 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
+| 标题栏与主导航外框 | [app-chrome.css](../../../apps/dashboard/src/shared/app-chrome.css)、[navigation-rail.css](../../../apps/dashboard/src/shared/navigation-rail.css)、[window-options.ts](../../../apps/desktop/src/main/window-options.ts) |
 | 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
 | 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
 | 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
 | 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
 | 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
+| 右侧工具侧栏与文件打开菜单 | [sidebar.css](../../../apps/dashboard/src/features/file-preview/sidebar.css)、[Sidebar.tsx](../../../apps/dashboard/src/features/file-preview/Sidebar.tsx)、[ToolPanels.tsx](../../../apps/dashboard/src/features/file-preview/ToolPanels.tsx)、[OpenFileButton.tsx](../../../apps/dashboard/src/features/file-preview/OpenFileButton.tsx) |
 | 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |
 | 首页 | [home/theme.css](../../../apps/dashboard/src/features/home/theme.css) |
 | 活动与工作台 | [stats/theme.css](../../../apps/dashboard/src/features/stats/theme.css)、[workbench/detail-theme.css](../../../apps/dashboard/src/features/workbench/detail-theme.css) |

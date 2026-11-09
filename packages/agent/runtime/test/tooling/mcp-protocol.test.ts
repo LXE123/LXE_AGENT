@@ -194,15 +194,20 @@ for (const mode of ["exit-on-probe", "exit-on-call"]) {
     const connection = await new OfficialMcpConnector().connect(fixture.server);
     try {
       expect(connection.protocolEra).toBe("legacy");
-      if (mode === "exit-on-call") await expect(connection.callTool("echo", {})).rejects.toThrow();
-      else expect((await connection.callTool("echo", {})).isError).toBeUndefined();
+      if (mode === "exit-on-call") {
+        // Let the child exit and its pipes close before running the assertion.
+        const error = await connection.callTool("echo", {}).then(() => undefined, cause => cause);
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toContain("Connection closed");
+      } else expect((await connection.callTool("echo", {})).isError).toBeUndefined();
     } finally { await connection.close(); await fixture.cleanup(); }
   });
 }
 
 for (const action of ["timeout", "disable", "stop"] as const) {
   test(`manager ${action} cancels an unfinished stdio connection and reaps probe children`, async () => {
-    const fixture = stdioFixture("silent", { startupTimeoutMs: 400 });
+    // Start the real Windows child and observe discovery before cancelling it.
+    const fixture = stdioFixture("silent", { startupTimeoutMs: 4_000 });
     const manager = new McpManager({ servers: [fixture.server] });
     const registry = new ToolRegistry();
     try {
@@ -221,7 +226,7 @@ for (const action of ["timeout", "disable", "stop"] as const) {
         expect(fixture.trace().filter(entry => entry.event === "spawn")).toHaveLength(1);
       }
     } finally { await manager.stop(); await fixture.cleanup(); }
-  });
+  }, 10_000);
 }
 
 for (const status of [401, 403, 500]) {

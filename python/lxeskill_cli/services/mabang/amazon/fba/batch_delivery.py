@@ -29,7 +29,7 @@ DEFAULT_ORIGIN = "https://amz1-private.mabangerp.com"
 DEFAULT_REFERER = "https://amz1-private.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = dataset_dir("fba_delivery_csv")
 SIMPLE_TASK_CONFIG_ID = "amz-fba-batch-delivery"
-AUTH_FAIL_STATUS = {401, 403}
+AUTH_FAIL_STATUS = {401}
 PENDING_TASK_STATUS_CODES = {0, 1}
 PENDING_TASK_STATUS_TEXTS = {"待处理", "处理中", "处理中", "排队中", "生成中", "执行中"}
 DONE_TASK_STATUS_TEXT = "处理完成"
@@ -168,7 +168,7 @@ async def _read_api_json(resp: Any, *, action: str) -> dict[str, Any]:
     code = data.get("code")
     if str(code) != "200":
         msg = str(data.get("msg") or "unknown").strip()
-        if str(code) in {"401", "403"}:
+        if str(code) == "401":
             raise BatchDeliveryApiAuthError(f"{action}鉴权失败(code={code}, msg={msg})")
         raise BatchDeliveryApiError(f"{action}业务异常(code={code}, msg={msg})")
     return data

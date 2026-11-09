@@ -1,3 +1,5 @@
+@import "../../shared/cds-theme.css";
+
 .file-layout {
   display:flex;
   position:relative;
@@ -46,9 +48,9 @@
   width:1px;
   pointer-events:none}
 .file-preview-resizer:hover::after,.file-preview-resizer:active::after {
-  background:color-mix(in srgb,var(--text) 35%,var(--bg))}
+  background:var(--cds-alpha-3, var(--border-strong))}
 .file-preview-resizer:focus-visible::after {
-  background:var(--accent)}
+  background:var(--cds-accent, var(--accent))}
 .file-header-actions {
   display:flex;
   gap:6px;
@@ -62,14 +64,15 @@
   background:none;
   color:inherit;
   border-radius:6px}
-.file-header-actions button:hover,.file-document-toolbar button:hover {
-  background:#8882}
+.file-header-actions button:not(:disabled):hover,.file-document-toolbar button:not(:disabled):hover {
+  background:var(--row-hover)}
 .file-tab-strip {
   display:flex;
   align-items:center;
   height:42px;
   flex-shrink:0;
   border-bottom:1px solid var(--border,#ddd);
+  background:var(--cds-surface-chrome, var(--bg));
   gap:4px;
   padding:0 8px}
 .file-tab-strip>button {
@@ -107,10 +110,10 @@
   color:var(--text-soft);
   font-size:.875rem}
 .file-tab:not(.active):hover {
-  background:var(--surface-subtle);
+  background:var(--row-hover);
   color:var(--text-strong)}
 .file-tab.active {
-  background:var(--surface);
+  background:var(--cds-surface-popover, var(--surface));
   color:var(--text-strong);
   box-shadow:0 1px 2px var(--shadow-soft)}
 .file-tab button {
@@ -148,6 +151,8 @@
   gap:8px;
   padding:8px 12px;
   border-bottom:1px solid var(--border,#ddd);
+  background:var(--surface);
+  color:var(--text-soft);
   flex-shrink:0;
   min-height:42px}
 .file-document-toolbar>span {
@@ -164,12 +169,15 @@
 .file-preview-note {
   font-size:12px;
   line-height:1.5;
-  background:#ddab2420;
+  background:var(--warning-soft);
+  color:var(--warning);
   padding:6px 12px;
   overflow-wrap:anywhere}
 .file-preview-error,.file-preview-empty,.file-preview-loading {
   padding:20px;
   font-size:13px}
+.file-preview-error { color:var(--danger) }
+.file-preview-empty,.file-preview-loading { color:var(--muted) }
 .file-preview-error pre {
   white-space:pre-wrap;
   overflow-wrap:anywhere}
@@ -195,8 +203,8 @@
   background:none;
   color:inherit;
   font-size:13px}
-.file-tree-level button:hover {
-  background:#8882}
+.file-tree-level button:not(:disabled):hover {
+  background:var(--row-hover)}
 .file-tree-level button:disabled {
   opacity:.45}
 .file-tree-level span {
@@ -206,7 +214,7 @@
 .file-tree-level [role=alert] {
   font-size:12px;
   overflow-wrap:anywhere;
-  color:#c33}
+  color:var(--danger)}
 .file-markdown,.file-text {
   padding:18px;
   min-height:100%;
@@ -241,13 +249,13 @@
   pointer-events:auto;
   background:var(--bg,#fff);
   color:inherit;
-  border:1px solid #8885;
+  border:1px solid var(--border-strong);
   border-radius:7px;
   padding:5px}
 .file-pdf {
   padding:12px;
   min-height:100%;
-  background:#8882;
+  background:var(--surface-muted);
   box-sizing:border-box}
 .file-pdf-page {
   position:relative;
@@ -256,7 +264,7 @@
   max-width:none;
   margin:0 auto 12px;
   background:white;
-  box-shadow:0 2px 8px #0002}
+  box-shadow:0 2px 8px var(--shadow-medium)}
 .file-pdf-page canvas {
   display:block}
 .file-pdf-text {
@@ -302,7 +310,7 @@
   font-size:12px}
 .file-open-split {
   display:flex;
-  border:1px solid #8884;
+  border:1px solid var(--border);
   border-radius:7px;
   overflow:hidden}
 .file-open-split button {
@@ -314,7 +322,7 @@
   align-items:center;
   justify-content:center}
 .file-open-split button+button {
-  border-left:1px solid #8883;
+  border-left:1px solid var(--border);
   padding:5px}
 .file-open-control img,.file-open-menu img {
   width:16px;
@@ -322,31 +330,47 @@
   object-fit:contain}
 .file-open-menu {
   position:absolute;
-  min-width:220px;
-  max-width:min(360px,calc(100vw - 16px));
+  width:max-content;
+  min-width:200px;
+  max-width:min(300px,calc(100vw - 16px));
   max-height:350px;
   overflow:auto;
-  background:var(--bg,#fff);
+  /* The portal lives under body, so it needs its own control type scale. */
+  font-size:.8125rem;
+  line-height:1.4;
+  background:var(--cds-surface-popover, var(--bg));
   color:var(--text,#222);
-  border:1px solid #8885;
-  box-shadow:0 6px 24px #0003;
+  border:1px solid var(--border);
+  box-shadow:0 6px 24px var(--shadow-medium);
   border-radius:9px;
   z-index:1000;
-  padding:5px}
+  padding:4px}
 .file-open-menu button {
   display:flex;
   align-items:center;
   gap:8px;
   width:100%;
-  padding:8px;
+  min-height:30px;
+  padding:6px 8px;
   border:0;
+  border-radius:5px;
   background:none;
   color:inherit;
   text-align:left}
 .file-open-menu button:hover {
-  background:#8882}
-.file-open-menu button:last-child {
-  border-top:1px solid #8883}
+  background:var(--row-hover)}
+.file-open-menu :is(img,svg) { flex:none }
+.file-open-app-name { flex:1; min-width:0; overflow-wrap:anywhere }
+.file-open-app-default {
+  flex:none;
+  margin-left:4px;
+  color:var(--muted);
+  font-size:.6875rem;
+  white-space:nowrap}
+.file-open-menu-divider {
+  height:1px;
+  margin:4px 8px;
+  background:var(--border)}
 
 .file-open-menu [role=alert] {
   white-space:pre-wrap;
@@ -381,21 +405,14 @@
   padding-right:8px}
 
 
-:root[data-theme=dark] .file-sidebar,:root[data-theme=dark] .file-open-menu,:root[data-theme=dark] .file-layout-error,:root[data-theme=dark] .file-preview-zoom select {
+:root[data-theme=dark] .file-layout-error {
   background:#202225;
   color:#e4e4e7}
-:root[data-theme=dark] .file-sidebar,:root[data-theme=dark] .file-document-toolbar,:root[data-theme=dark] .file-tab-strip {
-  border-color:#ffffff18}
 
 /* The resize target sits before the divider, so it belongs to the chat canvas.
    Keep its hit area and feedback while avoiding a panel-coloured strip there. */
-:root[data-theme=dark] .file-layout {
-  --tool-sidebar-bg:#212121}
 :root[data-theme=dark] .file-preview-resizer {
   background:var(--conversation-bg)}
-:root[data-theme=dark] .file-sidebar {
-  background:var(--tool-sidebar-bg);
-  border-left-color:#373737}
 
 /* Reading controls follow LXE colours; heavyweight viewers own their scroll area. */
 .file-tab>button:last-child { visibility:hidden }
@@ -403,8 +420,8 @@
 .file-tab svg { flex:none }
 .file-document-content { overflow:hidden; display:flex; flex-direction:column }
 .file-document-toolbar { gap:5px; padding:7px 9px }
-.file-document-toolbar select { max-width:90px; border:1px solid #8883; border-radius:5px; background:transparent; color:inherit; font-size:12px; padding:4px 2px }
-.file-document-toolbar [aria-pressed=true] { background:#8882 }
+.file-document-toolbar select { max-width:90px; border:1px solid var(--border); border-radius:5px; background:var(--cds-field, transparent); color:inherit; font-size:12px; padding:4px 2px }
+.file-document-toolbar [aria-pressed=true] { background:var(--cds-selected, var(--row-hover)); color:var(--text-strong) }
 .file-display-path { direction:rtl; text-align:left; unicode-bidi:plaintext }
 .file-display-path>span { opacity:.55 }
 .file-preview-loading { display:flex; align-items:center; justify-content:center; min-height:100px; margin:0; flex:1 }
@@ -413,24 +430,24 @@
 .file-open-split button { gap:5px }
 .file-paged-text { display:flex; flex:1; min-height:0; flex-direction:column }
 .file-text-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 12px; flex:none; font-size:11px; color:var(--muted,#888) }
-.file-text-actions button,.file-load-more { color:inherit; background:transparent; border:1px solid #8883; border-radius:5px; padding:4px 8px; font-size:12px }
+.file-text-actions button,.file-load-more { color:inherit; background:transparent; border:1px solid var(--border); border-radius:5px; padding:4px 8px; font-size:12px }
 .file-text-scroll { overflow:auto; flex:1; min-height:0; overflow-anchor:none }
 .file-markdown,.file-text { min-height:0 }
 .file-text pre { margin:0; font-size:12px; line-height:1.6; overflow:visible; tab-size:4 }
 .file-text .numbered-code { display:block; counter-reset:line }
 .file-text .code-line { display:block; position:relative; padding-left:4.5em; min-height:1.6em }
-.file-text .code-line::before { content:attr(data-line); position:absolute; left:0; width:3.3em; text-align:right; color:#999; user-select:none; -webkit-user-select:none }
+.file-text .code-line::before { content:attr(data-line); position:absolute; left:0; width:3.3em; text-align:right; color:var(--muted-light); user-select:none; -webkit-user-select:none }
 .file-load-more { display:block; margin:16px auto }
 .file-visual { flex:1; min-height:0; position:relative; display:flex; flex-direction:column }
 .file-image,.file-pdf { flex:1; min-height:0; height:100%; overflow:auto; padding:16px 16px 64px; position:relative; overflow-anchor:none }
 .file-image img { margin:0 auto; display:block }
-.file-zoom-bar { position:absolute; z-index:5; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:2px; padding:4px; border:1px solid #8884; border-radius:10px; background:var(--bg,#fff); color:var(--text,#222); box-shadow:0 3px 14px #0002 }
+.file-zoom-bar { position:absolute; z-index:5; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:2px; padding:4px; border:1px solid var(--border); border-radius:10px; background:var(--cds-surface-popover, var(--bg)); color:var(--text); box-shadow:0 3px 14px var(--shadow-medium) }
 .file-zoom-bar button,.file-pdf-navigation button { display:flex; align-items:center; justify-content:center; padding:5px; border:0; border-radius:5px; background:transparent; color:inherit }
-.file-zoom-bar button:hover { background:#8882 }
+.file-zoom-bar button:not(:disabled):hover { background:var(--row-hover) }
 .file-zoom-bar button:disabled { opacity:.35 }
 .file-zoom-bar select { border:0; background:transparent; color:inherit; width:95px; text-align:center; font-size:12px }
 .file-pdf-navigation { display:flex; flex:none; align-items:center; justify-content:space-between; padding:4px 12px; font-size:12px }
-.file-pdf-navigation input { width:48px; border:1px solid #8883; background:transparent; color:inherit; border-radius:4px; padding:2px }
+.file-pdf-navigation input { width:48px; border:1px solid var(--border); background:var(--cds-field, transparent); color:inherit; border-radius:4px; padding:2px }
 .file-pdf-page { min-width:0; overflow:hidden }
 .file-excel { position:relative; color-scheme:light }
 .file-formula-note { position:absolute; right:8px; top:7px; z-index:3; color:#888; background:white }
@@ -445,7 +462,6 @@
 .file-excel .fortune-zoom-container,.file-excel .fortune-sheettab-scroll,.file-excel .fortune-sheet-area-right { flex:none }
 .file-excel .fortune-fx-input-container { min-width:0 }
 .file-excel .fortune-fx-input { min-width:0; white-space:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; padding-right:25px }
-:root[data-theme=dark] .file-zoom-bar { background:#202225; color:#e4e4e7 }
 
 /* File availability occupies the title row; diagnostics never change card height. */
 .file-card-title { display:flex; align-items:center; gap:6px; flex:1; min-width:0; }
@@ -458,7 +474,7 @@
 .file-error-details summary { cursor:pointer; padding:4px 0; }
 .file-error-details pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:200px; overflow:auto; font-size:11px; user-select:text; }
 .file-error-details button { color:inherit; cursor:pointer; background:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; }
-.file-action-notice { position:fixed; bottom:24px; right:24px; z-index:2000; width:360px; max-width:calc(100vw - 48px); max-height:60vh; overflow:auto; padding:12px 16px; background:var(--surface,#fff); color:var(--text); border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 24px #0002; font-size:13px; }
+.file-action-notice { position:fixed; bottom:24px; right:24px; z-index:2000; width:360px; max-width:calc(100vw - 48px); max-height:60vh; overflow:auto; padding:12px 16px; background:var(--cds-surface-popover, var(--surface)); color:var(--text); border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 24px var(--shadow-medium); font-size:13px; }
 .file-action-notice>p { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px; }
 .file-action-notice>p>button { background:none; border:0; cursor:pointer; color:inherit; font-size:18px; }
 .file-apps-failure { padding:6px 10px; font-size:12px; }
@@ -467,34 +483,87 @@
 
 .tools-start { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; justify-content:safe center; align-items:center; gap:16px; padding:32px 24px; color:var(--muted); }
 .tools-start>button { width:100%; max-width:420px; display:flex; align-items:center; gap:20px; padding:20px; border:1px solid var(--border); border-radius:16px; background:var(--surface,#8881); color:var(--text); text-align:left; cursor:pointer; }
-:where(:root[data-theme=dark]) .tools-start>button { background:#303030; border-color:#474747; }
-.tools-start>button:hover { background:#8882; }
-.tools-start>button>svg { color:#000000; flex:none; }
-:where(:root[data-theme=dark]) .tools-start>button>svg { color:#b3b3b3; }
+.tools-start>button:hover { background:var(--row-hover); border-color:var(--border-strong); }
+.tools-start>button>svg { color:var(--text-soft); flex:none; }
+.tools-start>button:hover>svg { color:var(--text-strong); }
 .tools-start span { min-width:0; display:flex; flex-direction:column; gap:5px; }
 .tools-start strong { font-size:16px; font-weight:500; }
 .tools-start small { font-size:12px; color:var(--muted); }
 .tool-terminal,.tool-browser { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
-.tool-terminal { background:#202225; color:#e4e4e7; }
-.tool-terminal-screen { flex:1; min-height:0; min-width:0; padding:8px; overflow:hidden; }
+.tool-terminal { background:var(--bg); color:var(--text); }
+.tool-terminal-screen { flex:1; min-height:0; min-width:0; padding:8px; overflow:hidden; background:var(--bg); color:var(--text); }
+.tool-terminal-screen::selection { background:var(--cds-accent-tint); }
 .tool-terminal-screen .xterm { height:100%; }
 .tool-status { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; font-size:12px; gap:12px; }
-.tool-status button { background:#ffffff15; color:inherit; border:1px solid #8885; border-radius:5px; padding:4px 8px; cursor:pointer; }
-.tool-error { padding:8px 12px; font-size:12px; color:#dc664c; white-space:pre-wrap; overflow-wrap:anywhere; max-height:120px; overflow:auto; flex:none; }
-.tool-browser-toolbar { display:flex; align-items:center; gap:4px; padding:8px; border-bottom:1px solid var(--border); }
+.tool-status { background:var(--surface); color:var(--muted); }
+.tool-status button { background:transparent; color:var(--text); border:1px solid var(--border); border-radius:5px; padding:4px 8px; cursor:pointer; }
+.tool-error { padding:8px 12px; font-size:12px; color:var(--danger); background:var(--danger-soft); white-space:pre-wrap; overflow-wrap:anywhere; max-height:120px; overflow:auto; flex:none; }
+.tool-browser-toolbar { display:flex; align-items:center; gap:4px; padding:8px; border-bottom:1px solid var(--border); background:var(--surface); color:var(--text-soft); }
 .tool-browser-toolbar button { border:0; background:none; color:inherit; padding:4px; display:flex; align-items:center; cursor:pointer; }
 .tool-browser-toolbar button:disabled { opacity:.35; cursor:default; }
-.tool-browser-toolbar input { flex:1; min-width:0; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px; background:var(--surface,#8881); color:inherit; }
+.tool-browser-toolbar input { flex:1; min-width:0; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px; background:var(--cds-field); color:var(--text); }
+.tool-browser-toolbar input::placeholder { color:var(--muted-light); }
 .tool-browser-viewport { flex:1; min-height:0; }
 .tool-browser-viewport>p { margin:32px 16px; color:var(--muted); text-align:center; font-size:13px; }
 .tool-browser-toolbar .is-loading { animation:tool-spin 1s linear infinite; }
 @keyframes tool-spin { to { transform:rotate(360deg); } }
 
+/* Only application controls participate; embedded pages and document canvases
+   keep their own content colors. These states never change control geometry. */
+.tool-sidebar-theme :is(.file-tab-strip, .file-document-toolbar, .file-tree,
+  .file-text-actions, .file-zoom-bar, .file-pdf-navigation, .file-failure-panel,
+  .file-error-details, .tools-start, .tool-status, .tool-browser-toolbar),
+.file-open-menu.tool-sidebar-theme,
+.file-action-notice.tool-sidebar-theme {
+  & :is(button, input, select, summary):focus-visible {
+    outline:2px solid var(--cds-accent);
+    outline-offset:-2px;
+  }
+  & button:disabled {
+    color:var(--cds-disabled-ink);
+    opacity:1;
+    cursor:default;
+  }
+}
+.tool-sidebar-theme :is(.file-document-toolbar, .file-text-actions,
+  .file-zoom-bar, .file-pdf-navigation, .file-failure-panel, .file-error-details,
+  .tool-status, .tool-browser-toolbar) button:not(:disabled):hover,
+.file-load-more:not(:disabled):hover {
+  background:var(--row-hover);
+  color:var(--text-strong);
+}
+.tool-sidebar-theme :is(.file-document-toolbar, .file-zoom-bar, .file-pdf-navigation, .tool-browser-toolbar) :is(input, select):not(:disabled):hover {
+  border-color:var(--border-strong);
+}
+.tool-sidebar-theme :is(.file-document-toolbar, .file-zoom-bar) select option {
+  background:var(--cds-surface-popover);
+  color:var(--text);
+}
+.tools-start>button:active { background:var(--cds-selected); }
+.tool-sidebar-theme .file-load-more:focus-visible {
+  outline:2px solid var(--cds-accent);
+  outline-offset:2px;
+}
+
 .file-html-preview { display:block; width:100%; flex:1; min-height:0; border:0; background:white; color-scheme:light; }
 
 /* Image files use the shared lightbox without changing the sidebar underneath. */
-.file-image-dialog { display:flex; flex-direction:column; width:min(1100px, 100%); height:calc(100dvh - 48px); }
-.file-image-dialog > .file-document { min-height:0; border-radius:12px; overflow:hidden; background:var(--surface); color:var(--text); }
+.file-image-dialog > .file-document { align-self:center; width:min(1100px, calc(100% - 32px)); margin-block:52px 12px; overflow:hidden; }
+.file-image-dialog .file-document-toolbar {
+  align-self:flex-end;
+  max-width:100%;
+  border:0;
+  border-radius:10px;
+  background:var(--cds-surface-popover);
+}
+.file-image-dialog :is(.file-failure-panel, .file-preview-loading) {
+  flex:0 1 auto;
+  align-self:center;
+  margin:auto;
+  border-radius:10px;
+  background:var(--cds-surface-popover);
+}
 
 .file-image-dialog .file-image { display:flex; }
 .file-image-dialog .file-image img { margin:auto; }
+.file-image-dialog .file-paged-text { background:var(--cds-surface-panel); border-radius:10px; overflow:hidden; }

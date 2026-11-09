@@ -156,11 +156,10 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
         key=lambda r: (order[r.sheet_name], -r.replenish_quantity, r.msku, r.asin),
     )
     sheet = workbook.create_sheet(FINAL_SHIPPING_SHEET, 0)
-    sheet.cell(1, 1, "黄色为输入，蓝色为本行公式；权重和最低件数直接写在公式中。海运天数含空运覆盖期；库存、未关联货件先扣空运再扣海运。仅本表试算，运输方式及其他报表保持生成时结果。")
     sheet.append(FINAL_SHIPPING_COLUMNS)
     caches: dict[str, dict[str, Any]] = {FINAL_SHIPPING_SHEET: {}}
-    end = len(selected) + 2
-    for r, row in enumerate(selected, 3):
+    end = len(selected) + 1
+    for r, row in enumerate(selected, 2):
         public = _initial_values(row, missing_snapshot)
         inputs = row.formula_inputs
         assert inputs is not None  # Validated by _initial_values.
@@ -204,34 +203,33 @@ def write_formula_sheet(workbook: Any, rows: list[ReplenishmentRow], *, missing_
             sheet[address] = "=" + formula
             caches[FINAL_SHIPPING_SHEET][address] = public[column]
 
-    sheet.freeze_panes = "E3"
+    sheet.freeze_panes = "E2"
     sheet.sheet_view.showGridLines = False
     # A normal filter avoids Excel Table calculated-column autofill replacing
     # row-specific literal weights/thresholds when a user edits one formula.
-    sheet.auto_filter.ref = f"A2:AK{end}"
+    sheet.auto_filter.ref = f"A1:AK{end}"
     if selected:
         numeric = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         numeric.showErrorMessage = True
         numeric.error = "请输入大于等于0的数值；不要清空必需输入。"
         sheet.add_data_validation(numeric)
         for column in ("E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "R", "AF"):
-            numeric.add(f"{column}3:{column}{end}")
+            numeric.add(f"{column}2:{column}{end}")
         days = DataValidation(type="whole", operator="greaterThanOrEqual", formula1=0, allow_blank=False)
         days.showErrorMessage = True
         days.error = "请输入大于等于0的整数；0表示不适用。"
         sheet.add_data_validation(days)
-        days.add(f"V3:W{end}")
+        days.add(f"V2:W{end}")
     input_columns = {5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 22, 23, 32, 34}
     formula_columns = {9, 17, 20, *range(24, 32), 33, 35, 36, 37}
     for index in range(1, len(FINAL_SHIPPING_COLUMNS) + 1):
         sheet.column_dimensions[get_column_letter(index)].width = 15
-        header = sheet.cell(2, index)
+        header = sheet.cell(1, index)
         header.fill = PatternFill("solid", fgColor="243746")
         header.font = Font(bold=True, color="FFFFFF")
         header.alignment = Alignment(vertical="center", wrap_text=True)
     sheet.row_dimensions[1].height = 15
-    sheet.row_dimensions[2].height = 15
-    for cells in sheet.iter_rows(min_row=3, max_row=end, max_col=len(FINAL_SHIPPING_COLUMNS)):
+    for cells in sheet.iter_rows(min_row=2, max_row=end, max_col=len(FINAL_SHIPPING_COLUMNS)):
         sheet.row_dimensions[cells[0].row].height = 15
         for index, cell in enumerate(cells, 1):
             cell.alignment = Alignment(vertical="center", wrap_text=True)

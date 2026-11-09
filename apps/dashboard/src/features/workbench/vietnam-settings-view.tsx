@@ -106,7 +106,7 @@ export function VietnamSettingsWorkbench({ onBack }: { onBack: () => void }) {
     {notice ? <p className="workbench-tool-status" role="status">{notice}</p> : null}
     {loading ? <p className="workbench-loading" role="status"><LoaderCircle className="spin" size={16} />{copy.loading}</p> : null}
     {!loading && !state ? <button className="workbench-refresh" type="button" onClick={() => void load()}>{copy.retry}</button> : null}
-    <article className="vietnam-settings-card vietnam-template-card">
+    <article className="workbench-settings-card vietnam-settings-card vietnam-template-card">
       <header className="asset-slot-header"><h3>{copy.template}</h3>
         <div className="vietnam-template-actions">
           <button className="vietnam-template-export" type="button" disabled={busy || !state?.template || !!state.template_error} onClick={() => void exportTemplate()}><Download size={14} />{copy.exportCurrent}</button>
@@ -123,25 +123,25 @@ export function VietnamSettingsWorkbench({ onBack }: { onBack: () => void }) {
       {state.parameters_error ? <p className="workbench-error" role="alert">{state.parameters_error}</p> : null}
       {form ? <form onSubmit={event => { event.preventDefault(); void save(); }}>
         <fieldset disabled={busy}>
-          <div className="vietnam-settings-card vietnam-parameters-card">
+          <div className="workbench-settings-card vietnam-settings-card vietnam-parameters-card">
             <section className="vietnam-setting-row">
               <div className="vietnam-setting-copy"><h3>{copy.weights}</h3><p>{copy.weightsHint}</p></div>
               <div className="vietnam-parameter-grid">{days.map(day => <label key={day}>{copy.days(day)} (%)
-                <input required inputMode="decimal" value={form[`sales_weight_${day}d`]} onChange={event => update(`sales_weight_${day}d`, event.target.value)} />
+                <input className="workbench-settings-input" required inputMode="decimal" value={form[`sales_weight_${day}d`]} onChange={event => update(`sales_weight_${day}d`, event.target.value)} />
               </label>)}</div>
             </section>
             <section className="vietnam-setting-row">
               <div className="vietnam-setting-copy"><h3>{copy.exchange}</h3></div>
-              <label className="vietnam-exchange">{copy.cny}<input required inputMode="decimal" aria-label={copy.exchange} value={form.exchange_rate} onChange={event => update("exchange_rate", event.target.value)} />{copy.vnd}</label>
+              <label className="vietnam-exchange">{copy.cny}<input className="workbench-settings-input" required inputMode="decimal" aria-label={copy.exchange} value={form.exchange_rate} onChange={event => update("exchange_rate", event.target.value)} />{copy.vnd}</label>
             </section>
             <section className="vietnam-setting-row">
               <div className="vietnam-setting-copy"><h3>{copy.adjustmentsTitle}</h3><p>{copy.adjustmentHint}</p></div>
               <div className="vietnam-parameter-grid">{days.map(day => <label key={day}>{copy.adjustment(day)}
-                <input required inputMode="decimal" value={form[`day_adjustment_${day}d`]} onChange={event => update(`day_adjustment_${day}d`, event.target.value)} />
+                <input className="workbench-settings-input" required inputMode="decimal" value={form[`day_adjustment_${day}d`]} onChange={event => update(`day_adjustment_${day}d`, event.target.value)} />
               </label>)}</div>
             </section>
           </div>
-          <div className="vietnam-save"><button className="desktop-primary-button" type="submit">{busy ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />}{busy ? copy.saving : copy.save}</button><span>{copy.appliesNextRun}</span></div>
+          <div className="workbench-settings-actions vietnam-save"><button className="desktop-primary-button" type="submit">{busy ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />}{busy ? copy.saving : copy.save}</button><span>{copy.appliesNextRun}</span></div>
         </fieldset>
       </form> : null}
     </> : null}

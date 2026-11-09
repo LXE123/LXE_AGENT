@@ -42,7 +42,7 @@ Skill 正文引用的相对资源路径，以该 Skill 所在目录为基准，�
 
 lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`、`lxeskill describe ...`、`lxeskill datasets list` 按需查询。Agent 工具使用通用执行权限和进程规则，不直接加载 `catalog.json`。
 
-完整业务说明只维护在 [`skills/`](../../../skills) 中，可从 [FBA 工作流](../../../skills/fba-workflow-map/SKILL.md)、[Amazon 补货工作流](../../../skills/replenishment-workflow-map/SKILL.md)、[东南亚备货工作流](../../../skills/southeast-asia-replenishment-workflow-map/SKILL.md)等入口查找，或使用桌面 Skill 列表查看当前可用项。项目不内置的外部 CLI 可从自身文档查询用法。外部平台原始资料保留在 [reference/](reference/README.md)，不代替当前运行指引。
+完整业务说明只维护在 [`skills/`](../../../skills) 中，可从 [FBA 工作流](../../../skills/fba-workflow-map/SKILL.md)、[Amazon 补货工作流](../../../skills/amazon-replenishment/SKILL.md)、[东南亚备货工作流](../../../skills/southeast-asia-replenishment-workflow-map/SKILL.md)等入口查找，或使用桌面 Skill 列表查看当前可用项。项目不内置的外部 CLI 可从自身文档查询用法。外部平台原始资料保留在 [reference/](reference/README.md)，不代替当前运行指引。
 
 ## 读取调用与命令统计
 

@@ -1,5 +1,6 @@
 import { AutomationsPage } from "./features/automations/AutomationsPage";
 import { VietnamSettingsWorkbench } from "./features/workbench/vietnam-settings-view";
+import { AmazonV2SettingsWorkbench } from "./features/workbench/amazon-v2-settings-view";
 import { SessionSidebar } from "./features/sessions/SessionSidebar";
 import { ConversationPage } from "./features/sessions/ConversationPage";
 import { CapabilitiesPage } from "./features/capabilities/CapabilitiesPage";
@@ -23,6 +24,7 @@ import "./features/workbench/index-theme.css";
 import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
+import "./shared/app-chrome.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
 import { DashboardQueryProvider } from "./api/query-client";
 import {
@@ -277,6 +279,9 @@ function App({
             ) : null}
             {activeSection === "workbench" && workbenchView === "vietnam-settings" ? (
               <VietnamSettingsWorkbench onBack={() => openWorkbenchView("index")} />
+            ) : null}
+            {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
+              <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench

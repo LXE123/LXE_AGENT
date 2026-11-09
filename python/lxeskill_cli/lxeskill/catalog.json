@@ -2,6 +2,7 @@
   "protocol_version": "1",
   "entries": [
     {"name": "mabang_brazil_overseas_export", "module": "services.commands.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮巴西海外仓报表", "examples": ["lxeskill mabang brazil reports export --report inventory-sales"]}},
+    {"name": "mabang_brazil_order_import_generate", "module": "services.commands.mabang.brazil_order_import_generate", "command_path": ["mabang", "brazil", "order-import", "generate"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-order-import-generate"], "exposed": true, "timeout_ms": 300000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传巴西备货清单 XLSX，并使用附件保存后的真实绝对路径。"}}, "shipping_column": {"type": "string", "enum": ["AT", "AU", "AV", "AW", "AX", "AY", "AZ", "BA", "BB", "BC", "BD"], "description": "仅当最近海运日期并列时，指定其中一列。"}}, "required": ["input_xlsx"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "根据巴西备货清单生成马帮订单导入模板", "examples": ["lxeskill mabang brazil order-import generate --input-xlsx <巴西备货清单.xlsx>"]}},
     {"name": "mabang_tms_export_run", "module": "services.commands.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮 TMS 商品、库存和销量", "examples": ["lxeskill mabang-tms products export --warehouse VN1"]}},
     {"name": "yacang_export_run", "module": "services.commands.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出雅仓报表", "examples": ["lxeskill yacang reports export --report inventory-sales --warehouse VN8806"]}},
     {"name": "vietnam_replenishment_generate", "module": "services.commands.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。"}}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "计算越南补货并生成备货清单", "examples": ["lxeskill vietnam replenishment calculate --sales-file 销量.xlsx --inventory-file 库存.xlsx --products-file 商品.xlsx"]}},
@@ -79,6 +80,26 @@
       "exposed": false,
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}
     , "help": {"group": "common", "section": "马帮认证维护", "summary": "移除认证浏览器绑定", "examples": ["lxeskill mabang auth browser unbind"]}},
+    {
+      "name": "mabang_replenishment_v2_settings",
+      "command_path": ["replenish", "v2", "settings"],
+      "visibility": "internal",
+      "session_mode": "none",
+      "module": "services.commands.mabang.replenishment_v2_settings",
+      "owner_skills": [],
+      "timeout_ms": 30000,
+      "exposed": false,
+      "input_modes": ["flags"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["read", "save"]},
+          "parameters": {"type": "object"}
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    , "help": {"group": "replenishment", "section": "应用集成", "summary": "查询和保存 Amazon V2 旺季设置", "examples": ["lxeskill replenish v2 settings --action read"]}},
     {
       "name": "vietnam_replenishment_settings",
       "command_path": ["vietnam", "replenishment", "settings"],
@@ -319,50 +340,27 @@
       "command_path": ["replenish", "template"],
       "legacy_aliases": ["mabang_replenishment_template"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-algorithm-config-manage"], "artifact_paths": [{"field": "deliverable_xlsx_path", "role": "deliverable"}], "timeout_ms": 180000, "exposed": true,
+      "owner_skills": ["amazon-replenishment"], "artifact_paths": [{"field": "deliverable_xlsx_path", "role": "deliverable"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"]}, "template": {"type": "string"}, "xlsx": {"type": "string"}, "name": {"type": "string"}}, "required": ["action"], "additionalProperties": false}
     , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "管理备货算法参数方案", "examples": ["lxeskill replenish template list"]}},
-    {
-      "name": "mabang_build_amazon_restock_inventory_snapshot", "module": "services.commands.mabang.build_amazon_restock_inventory_snapshot",
-      "command_path": ["replenish", "inventory", "restock-snapshot-build"],
-      "legacy_aliases": ["mabang_build_amazon_restock_inventory_snapshot"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-amazon-restock-inventory-snapshot"], "artifact_paths": [{"field": "snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "csv": {"type": "string"}, "output_dir": {"type": "string"}, "msku_xlsx": {"type": "string"}, "msku_dir": {"type": "string"}}, "required": ["store_name", "csv"], "additionalProperties": false}
-    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "解析亚马逊补充库存 CSV", "examples": ["lxeskill replenish inventory restock-snapshot-build --store-name <店铺名> --csv 补充库存.csv"]}},
-    {
-      "name": "mabang_calculate_store_msku_replenishment", "module": "services.commands.mabang.calculate_store_msku_replenishment",
-      "command_path": ["replenish", "calculate"],
-      "legacy_aliases": ["mabang_calculate_store_msku_replenishment"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-calculate"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "template": {"type": "string"}, "unlinked_shipments_snapshot": {"type": "string"}, "amazon_restock_inventory_snapshot": {"type": "string"}, "amazon_fba_inventory_snapshot": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
-    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "计算备货建议", "examples": ["lxeskill replenish calculate --store-name <店铺名>"]}},
+    {"name": "mabang_calculate_store_msku_replenishment", "module": "services.commands.mabang.calculate_store_msku_replenishment", "command_path": ["replenish", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["amazon-replenishment"], "artifact_paths": [{"field": "output_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true, "input_schema": {"type": "object", "properties": {"version": {"type": "string", "enum": ["v1", "v2"]}, "store_name": {"type": "string", "minLength": 1}, "msku_source_xlsx_path": {"type": "string", "minLength": 1}, "shenzhen_inventory_report_xlsx_path": {"type": "string", "minLength": 1}, "unlinked_shipments_snapshot_path": {"type": "string", "minLength": 1}, "peak_boost_enabled": {"type": "boolean", "description": "本轮聊天明确开启时传裸开关 --peak-boost-enabled；明确关闭时传 --peak-boost-enabled=false；未指定时沿用页面设置。聊天选择不改写保存配置。"}, "peak_boost_days": {"type": "integer", "minimum": 0, "maximum": 120, "description": "本轮明确指定的加成天数，优先于页面保存值；单独指定天数即为本轮启用。无默认天数，启用时必须由本轮或页面提供。"}, "template": {"type": "string"}}, "required": ["version", "store_name", "msku_source_xlsx_path", "shenzhen_inventory_report_xlsx_path", "unlinked_shipments_snapshot_path"], "additionalProperties": false}, "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "按版本生成 Amazon V1/V2 备货建议", "examples": ["lxeskill replenish calculate --version v1 --store-name <店铺名> --msku-source-xlsx-path <MSKU源表.xlsx> --shenzhen-inventory-report-xlsx-path <深圳库存报告.xlsx> --unlinked-shipments-snapshot-path <货件快照.xlsx>"]}, "deliver_artifacts_on_failure": true, "input_modes": ["flags"]},
+
     {"name": "mabang_download_store_msku_excel", "module": "services.commands.mabang.download_store_msku_excel", "command_path": ["mabang", "store", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "下载店铺 MSKU 数据", "examples": ["lxeskill mabang store msku export --store-id <店铺ID> --store-name <店铺名>"]}},
-    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.commands.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "生成深圳仓真实库存报告", "examples": ["lxeskill mabang store shenzhen-inventory export --store-name <店铺名>"]}},
+    {"name": "mabang_export_store_msku_actual_inventory", "module": "services.commands.mabang.export_store_msku_actual_inventory", "command_path": ["mabang", "store", "shenzhen-inventory", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-shenzhen-inventory-export"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 1800000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "msku_source_xlsx_path": {"type": "string", "minLength": 1, "description": "MSKU 导出返回的源表路径；省略时保留按店铺选择本地最新源表的旧行为。"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "生成深圳仓真实库存报告", "examples": ["lxeskill mabang store shenzhen-inventory export --store-name <店铺名>"]}},
     {
       "name": "mabang_analyze_store_msku_sales", "module": "services.commands.mabang.analyze_store_msku_sales",
       "command_path": ["replenish", "sales", "analyze"],
       "legacy_aliases": ["mabang_analyze_store_msku_sales"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-sales-analyze"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "owner_skills": ["amazon-replenishment"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
     , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "分析销量", "examples": ["lxeskill replenish sales analyze --store-name <店铺名>"]}},
-    {
-      "name": "mabang_resolve_fba_store", "module": "services.commands.mabang.resolve_fba_store",
-      "command_path": ["replenish", "store", "resolve"],
-      "legacy_aliases": ["mabang_resolve_fba_store"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["replenishment-store-resolve", "mabang-store-unlinked-shipments-export", "replenishment-sales-analyze", "mabang-store-shenzhen-inventory-export", "mabang-store-msku-export", "replenishment-calculate", "replenishment-amazon-restock-inventory-snapshot"],
-      "attribution_skill": "replenishment-store-resolve",
-      "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}],
-      "timeout_ms": 180000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}
-    , "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "解析马帮店铺名称与 ID", "examples": ["lxeskill replenish store resolve --store-name <店铺名>"]}},
+    {"name": "mabang_resolve_fba_store", "module": "services.commands.mabang.resolve_fba_store", "command_path": ["replenish", "store", "resolve"], "legacy_aliases": ["mabang_resolve_fba_store"], "visibility": "business", "session_mode": "none", "owner_skills": ["amazon-replenishment", "mabang-store-unlinked-shipments-export", "mabang-store-shenzhen-inventory-export", "mabang-store-msku-export"], "attribution_skill": "amazon-replenishment", "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 180000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}, "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "解析马帮店铺名称与 ID", "examples": ["lxeskill replenish store resolve --store-name <店铺名>"]}},
     {"name": "mabang_download_store_unlinked_shipments", "module": "services.commands.mabang.download_store_unlinked_shipments", "command_path": ["mabang", "store", "unlinked-shipments", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-store-unlinked-shipments-export"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_seconds": {"type": "number"}, "poll_interval_seconds": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "Amazon 备货", "summary": "下载未关联货件并生成快照", "examples": ["lxeskill mabang store unlinked-shipments export --store-name <店铺名>"]}}
   ],
   "datasets": {
     "mabang_brazil_exports": {"dir": "mabang/brazil/exports", "holds": "巴西库存 XLSX 及调拨原始分批 XLS，按账号与运行隔离。"},
+    "mabang_brazil_order_import": {"dir": "mabang/brazil/order_import", "holds": "根据巴西备货清单生成的马帮订单导入模板，每次运行独立保存。"},
     "mabang_tms_exports": {"dir": "mabang_tms/exports", "holds": "马帮 TMS 原始分批文件及合并 XLSX，按账号与运行隔离。"},
     "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类 XLSX，按账号摘要与本次运行隔离。库存动销下载后去掉末列创建日期，只保存最终文件；另两类原样交付。"},
     "vietnam_recommendations": {"dir": "vietnam/recommendations", "holds": "越南备货九表最终 XLSX；每次运行保存到独立目录，成功校验后交付。"},
@@ -384,9 +382,8 @@
     "replenish_sales_analysis": {"dir": "replenish/sales_analysis", "holds": "店铺 MSKU 销量分析结果 Excel。", "legacy_dirs": ["mabang_store_msku_analysis"]},
     "replenish_actual_inventory": {"dir": "replenish/actual_inventory", "holds": "真实库存报表 Excel（含深圳仓库口径）。", "legacy_dirs": ["mabang_store_msku_inventory"]},
     "replenish_calculation": {"dir": "replenish/calculation", "holds": "补货计算结果 Excel。", "legacy_dirs": ["mabang_store_msku_replenishment"]},
+    "replenish_v2": {"dir": "replenish/v2", "holds": "Amazon V2备货 35 列 mskulist XLSX（离线生成）。"},
     "replenish_algorithm_templates": {"dir": "replenish/algorithm_templates", "holds": "备货算法参数方案：templates.json 为自定义方案存档，editable/ 为用户可编辑的 xlsx。用户资产，勿随产物清理。", "legacy_dirs": ["mabang_replenishment_templates"]},
-    "replenish_fba_inventory_snapshots": {"dir": "replenish/fba_inventory_snapshots", "holds": "亚马逊 FBA 库存快照。", "legacy_dirs": ["amazon_fba_inventory_snapshots"]},
-    "replenish_restock_inventory_snapshots": {"dir": "replenish/restock_inventory_snapshots", "holds": "亚马逊补货库存快照 Excel。", "legacy_dirs": ["amazon_restock_inventory_snapshots"]},
     "replenish_unlinked_shipments": {"dir": "replenish/unlinked_shipments", "holds": "未关联货件原始下载文件。", "legacy_dirs": ["mabang_fba_unlinked_shipments"]},
     "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},

@@ -5,6 +5,7 @@ import { queryError } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import type { SessionWorkspace } from "./workspace-state";
+import "./conversation-theme.css";
 
 export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
   anchor: HTMLElement; onClose: (restoreFocus?: boolean) => void; onRename: () => void; onDelete: () => void;
@@ -83,9 +84,9 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
   const close = () => { if (!saving.current) onClose(); };
   const ref = useDialogFocus<HTMLFormElement>(true, close);
   useEffect(() => { if (accepted && committed) onClose(true); }, [accepted, committed, onClose]);
-  return createPortal(<div className="session-delete-backdrop">
-    <form className="session-delete-dialog" ref={ref} role="dialog" aria-modal="true"
-      aria-labelledby="workspace-delete-title" tabIndex={-1} onSubmit={event => {
+  return createPortal(<div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
+    <form className="session-delete-dialog session-delete-confirm-dialog" ref={ref} role="dialog" aria-modal="true"
+      aria-labelledby="workspace-delete-title" aria-describedby="workspace-delete-description workspace-delete-note" aria-busy={pending} tabIndex={-1} onSubmit={event => {
         event.preventDefault();
         if (saving.current) return;
         saving.current = true; setPending(true); setError("");
@@ -94,7 +95,8 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
         });
       }}>
       <h2 id="workspace-delete-title">{t.workspaces.delete}</h2>
-      <p>{t.workspaces.deletePrompt(label)}</p>
+      <p id="workspace-delete-description">{t.workspaces.deletePrompt(label)}</p>
+      <p id="workspace-delete-note" className="session-delete-note">{t.workspaces.deleteNote}</p>
       {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
       <footer>
         <button type="button" disabled={pending} onClick={close}>{t.workspaces.cancel}</button>
