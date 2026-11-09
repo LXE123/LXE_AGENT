@@ -56,7 +56,7 @@ def run(
             if not output.is_file() or output.stat().st_size == 0:
                 raise RuntimeError("生成结果文件不存在或为空")
     except Exception:
-        if country == "philippines":
+        if country in {"philippines", "indonesia"}:
             shutil.rmtree(output_dir, ignore_errors=True)
         raise
     return {

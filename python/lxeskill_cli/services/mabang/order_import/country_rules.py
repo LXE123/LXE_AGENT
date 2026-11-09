@@ -37,6 +37,12 @@ AIR_SEA_HEADER = re.compile(
     r"^(?P<month>[0-9]{1,2})/(?P<day>[0-9]{1,2})(?P<batch>[AB])?(?P<kind>空运|海运)$",
     re.IGNORECASE,
 )
+TRANSPORT_HEADER = re.compile(
+    r"^(?P<month>[0-9]{1,2})/(?P<day>[0-9]{1,2})(?P<batch>[A-Za-z])?(?P<mode>陆运|空运|海运)$",
+)
+TRANSPORT_NAMES = {"land": "陆运", "air": "空运", "sea": "海运"}
+TRANSPORT_FIELDS = {name: field for field, name in TRANSPORT_NAMES.items()}
+TRANSPORT_SUFFIXES = {"land": "-L", "air": "-K", "sea": "-H"}
 FIELD_NAMES = {"air": "空运", "sea_a": "A海运", "sea_b": "B海运"}
 FIELD_SUFFIX = {"air": "-K", "sea_a": "A-H", "sea_b": "B-H"}
 RULES = {
@@ -55,6 +61,10 @@ RULES = {
     "philippines": CountryRule(
         "菲律宾", "菲律宾备货清单", 5, AIR_SEA_HEADER, "nearest_per_field", ("air", "sea_a", "sea_b"), "PH",
         "菲律宾马帮订单导入模板-{order_id}.xlsx", "菲律宾备货清单", "mabang_philippines_order_import",
+    ),
+    "indonesia": CountryRule(
+        "印尼", "印尼", 5, TRANSPORT_HEADER, "latest_per_transport", ("land", "air", "sea"), "IN",
+        "印尼马帮订单导入模板-{order_id}.xlsx", "印尼备货清单", "mabang_indonesia_order_import",
     ),
 }
 DATASET_IDS = {country: rule.dataset_id for country, rule in RULES.items()}
@@ -85,13 +95,22 @@ def _scan_candidates(country: str, rule: CountryRule, sheet: Any, today: date) -
                     f"巴西工作表第1行 {get_column_letter(column)}1 海运日期表头缺失或格式无效: {label or '空白'}"
                 )
             modes = ("陆运", "海运") if country == "vietnam" else ("空运", "海运")
-            if "/" in label and any(mode in label for mode in modes):
+            if rule.policy == "latest_per_transport":
+                invalid_transport = bool(re.match(r"^[0-9]", label)) and label.endswith(tuple(TRANSPORT_FIELDS))
+            else:
+                invalid_transport = "/" in label and any(mode in label for mode in modes)
+            if invalid_transport:
                 raise OrderImportWorkbookError(
                     f"{rule.name}工作表第1行 {cell.coordinate} 运输日期字段格式无效: {label}"
                 )
             continue
 
-        if country == "brazil":
+        if rule.policy == "latest_per_transport":
+            field = TRANSPORT_FIELDS[match.group("mode")]
+            batch = match.group("batch")
+            if batch is not None:
+                field += f"_{batch.lower()}"
+        elif country == "brazil":
             field = "海运"
         elif country == "vietnam":
             field = match.group("mode")
@@ -107,7 +126,8 @@ def _scan_candidates(country: str, rule: CountryRule, sheet: Any, today: date) -
                 )
         shipping_date = nearest_occurrence(
             int(match.group("month")), int(match.group("day")), today,
-            country=rule.name, label=f"{cell.coordinate}: {label}", defer_year_tie=country != "malaysia",
+            country=rule.name, label=f"{cell.coordinate}: {label}",
+            defer_year_tie=rule.policy not in {"latest_group", "latest_per_transport"},
         )
         candidate = ShippingCandidate(cell.column, label, shipping_date, field)
         if country == "malaysia":
@@ -176,6 +196,40 @@ def _select_latest_group(rule: CountryRule, candidates: list[ShippingCandidate])
     return {field: group[field] for field in rule.fields}
 
 
+def _transport_output(field: str) -> tuple[str, str]:
+    mode, _, batch = field.partition("_")
+    return batch.upper() + TRANSPORT_NAMES[mode], batch.upper() + TRANSPORT_SUFFIXES[mode]
+
+
+def _select_latest_per_transport(
+    rule: CountryRule, candidates: list[ShippingCandidate],
+) -> dict[str, ShippingCandidate]:
+    if not candidates:
+        raise OrderImportWorkbookError(f"{rule.name}工作表没有可识别的陆运、空运或海运日期字段")
+    selected: dict[str, ShippingCandidate] = {}
+    for mode in rule.fields:
+        options = [item for item in candidates if item.field.partition("_")[0] == mode]
+        if not options:
+            continue
+        latest = max(item.shipping_date for item in options)
+        group: dict[str, ShippingCandidate] = {}
+        for item in options:
+            if item.shipping_date != latest:
+                continue
+            previous = group.get(item.field)
+            if previous is not None:
+                name, _ = _transport_output(item.field)
+                raise OrderImportWorkbookError(
+                    f"{rule.name}工作表最新{TRANSPORT_NAMES[mode]}日期 {latest.isoformat()} 的 "
+                    f"{name} 字段重复："
+                    f"{get_column_letter(previous.column)}1 ({previous.header}) 与 "
+                    f"{get_column_letter(item.column)}1 ({item.header})"
+                )
+            group[item.field] = item
+        selected.update((field, group[field]) for field in sorted(group))
+    return selected
+
+
 def _select_per_field(
     rule: CountryRule, candidates: list[ShippingCandidate], today: date,
     overrides: Mapping[str, str],
@@ -233,6 +287,8 @@ def select_shipping_columns(
         return _select_one(country, rule, candidates, today, shipping_column)
     if rule.policy == "latest_group":
         return _select_latest_group(rule, candidates)
+    if rule.policy == "latest_per_transport":
+        return _select_latest_per_transport(rule, candidates)
     return _select_per_field(rule, candidates, today, overrides)
 
 
@@ -264,7 +320,9 @@ def generate_order_workbooks(
 
     artifacts: list[dict[str, Any]] = []
     for field, candidate in selected.items():
-        if country == "brazil":
+        if rule.policy == "latest_per_transport":
+            _, suffix = _transport_output(field)
+        elif country == "brazil":
             suffix = "-H"
         elif country == "vietnam":
             suffix = {"陆运": "-L", "海运": "-H"}[candidate.field]
@@ -279,14 +337,16 @@ def generate_order_workbooks(
             template_path=template_path,
         )
         artifact = {**result}
-        if country in {"malaysia", "philippines"}:
+        if country in {"malaysia", "philippines", "indonesia"}:
             artifact["field"] = field
         artifact.update({
             "shipping_column": get_column_letter(candidate.column) if country == "brazil" else candidate.column,
             "shipping_header": candidate.header,
             "shipping_date": candidate.shipping_date.isoformat(),
         })
-        if country == "vietnam":
+        if rule.policy == "latest_per_transport":
+            artifact["shipping_mode"] = _transport_output(field)[0]
+        elif country == "vietnam":
             artifact["shipping_mode"] = candidate.field
         elif country == "philippines":
             artifact["shipping_mode"] = FIELD_NAMES[field]

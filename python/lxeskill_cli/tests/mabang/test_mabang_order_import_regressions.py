@@ -240,3 +240,17 @@ def test_philippines_rechecks_only_selected_year_tie(sheet):
     sheet["AO1"] = None
     with pytest.raises(OrderImportWorkbookError, match="AP1.*7/2空运.*无法确定年份"):
         country_rules.select_shipping_columns("philippines", sheet, date(2028, 1, 1))
+
+
+def test_indonesia_selects_latest_air_and_sea_group_across_year_boundary(sheet):
+    sheet["BA1"], sheet["BB1"] = "12/31空运", "1/3空运"
+    sheet["BC1"], sheet["BD1"] = "12/31海运", "1/2A海运"
+    sheet["BE1"], sheet["BF1"] = "1/2B海运", "12/31B海运"
+    sheet["BG1"], sheet["BH1"] = "12/30陆运", "1/4d陆运"
+    selected = country_rules.select_shipping_columns("indonesia", sheet, date(2027, 1, 1))
+    assert {key: (value.column, value.shipping_date) for key, value in selected.items()} == {
+        "land_d": (60, date(2027, 1, 4)),
+        "air": (54, date(2027, 1, 3)),
+        "sea_a": (56, date(2027, 1, 2)),
+        "sea_b": (57, date(2027, 1, 2)),
+    }

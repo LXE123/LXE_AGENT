@@ -55,6 +55,10 @@ def invoke(tmp_path, monkeypatch, capsys):
         ("PH261105A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
         ("PH261105B-H", 52, "11/7B海运", "2026-11-07", [3, None, 4]),
     ]),
+    ("indonesia", None, {}, [
+        ("IN261105-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
+        ("IN261105-H", 59, "11/6海运", "2026-11-06", [None, 8, 4]),
+    ]),
 ])
 def test_cli_generates_country_artifacts(invoke, country, override, changes, expected):
     code, result, _ = invoke(country, changes, shipping_column=override)
@@ -67,6 +71,9 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
     if country == "philippines":
         assert [a["field"] for a in data["artifacts"]] == ["air", "sea_a", "sea_b"]
         assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "A海运", "B海运"]
+    elif country == "indonesia":
+        assert [a["field"] for a in data["artifacts"]] == ["air", "sea"]
+        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "海运"]
     elif country == "malaysia":
         assert [a["field"] for a in data["artifacts"]] == ["sea_a", "sea_b", "air"]
         assert all("shipping_mode" not in a for a in data["artifacts"])
@@ -74,7 +81,7 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
         assert all("field" not in a and "shipping_mode" not in a for a in data["artifacts"])
     for artifact, (order_id, column, header, day, quantities) in zip(data["artifacts"], expected, strict=True):
         path = Path(artifact["path"])
-        prefix = {"brazil": "巴西", "malaysia": "马来西亚", "vietnam": "越南", "philippines": "菲律宾"}[country]
+        prefix = {"brazil": "巴西", "malaysia": "马来西亚", "vietnam": "越南", "philippines": "菲律宾", "indonesia": "印尼"}[country]
         filename = f"{prefix}马帮订单导入模板-{order_id}.xlsx"
         assert path.is_absolute() and path.name == filename
         assert tuple(artifact[key] for key in ("order_id", "shipping_column", "shipping_header", "shipping_date")) == (
@@ -215,6 +222,193 @@ def test_philippines_keeps_all_skus_when_a_transport_has_no_quantity(invoke):
         assert rows(sheet) == [("SKU-A", 0, None), ("SKU-B", 0, None), ("SKU-A", 0, None)]
 
 
+@pytest.mark.parametrize(("changes", "expected"), [
+    # The later dates win even when the earlier dates are closer to today.
+    ({"BB1": "11/20空运", "BG1": "11/20海运", "BC1": "11/5A海运", "BD1": "11/5B海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
+    # An older ordinary sea must not compete with the latest A/B group.
+    ({"BG1": "11/1海运", "BC1": "11/6A海运", "BD1": "11/6B海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
+      ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+    ({"BG1": "11/1海运", "BC1": "11/6A海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None])]),
+    ({"BG1": "11/1海运", "BD1": "11/6B海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+    # When the latest date has ordinary and both A/B, all three are exported.
+    ({"BC1": "11/6A海运", "BD1": "11/6B海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4]),
+      ("sea_a", "IN261105A-H", 55, [20, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+    # Duplicated older columns have no bearing on the selected latest date.
+    ({"BE1": "11/4海运"},
+     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
+    # Even an entirely empty air shipment preserves every source SKU.
+    ({"BB2": None, "BB3": 0, "BB4": None},
+     [("air", "IN261105-K", 54, [None, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
+])
+def test_indonesia_exports_all_modes_at_latest_sea_date(invoke, changes, expected):
+    code, result, _ = invoke("indonesia", changes)
+    assert code == 0 and result["ok"]
+    artifacts = result["data"]["artifacts"]
+    assert [(a["field"], a["order_id"], a["shipping_column"]) for a in artifacts] == [
+        (field, order, column) for field, order, column, _ in expected]
+    for artifact, (_, order, _, quantities) in zip(artifacts, expected, strict=True):
+        assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
+        assert artifact["sku_count"] == 3
+        with open_sheet(artifact["path"]) as sheet:
+            assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], quantities))
+
+
+@pytest.mark.parametrize(("changes", "expected_id", "expected_column", "expected_quantities"), [
+    ({"BA1": None, "BB1": None}, "IN261105-H", 59, [None, 8, 4]),
+    ({"BC1": None, "BD1": None, "BE1": None, "BF1": None, "BG1": None},
+     "IN261105-K", 54, [10, None, None]),
+    ({"BA1": None, "BB1": None, "BC1": None, "BD1": None, "BE1": None, "BF1": None,
+      "BG1": None, "BH1": "11/7陆运", "BH2": 17}, "IN261105-L", 60, [17, None, None]),
+])
+def test_indonesia_allows_one_transport_mode(invoke, changes, expected_id, expected_column, expected_quantities):
+    code, result, _ = invoke("indonesia", changes)
+    assert code == 0 and result["ok"]
+    artifacts = result["data"]["artifacts"]
+    assert len(artifacts) == 1
+    assert (artifacts[0]["order_id"], artifacts[0]["shipping_column"]) == (expected_id, expected_column)
+    assert Path(artifacts[0]["path"]).name == f"印尼马帮订单导入模板-{expected_id}.xlsx"
+    with open_sheet(artifacts[0]["path"]) as sheet:
+        assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], expected_quantities))
+
+
+def test_indonesia_each_transport_mode_selects_its_own_latest_date(invoke):
+    changes = {"BB1": "11/10空运", "BG1": "11/15海运", "BH1": "11/20陆运", "BH2": 17}
+    code, result, _ = invoke("indonesia", changes)
+    assert code == 0 and result["ok"]
+    artifacts = result["data"]["artifacts"]
+    assert {a["order_id"]: (a["shipping_column"], a["shipping_date"]) for a in artifacts} == {
+        "IN261105-K": (54, "2026-11-10"),
+        "IN261105-H": (59, "2026-11-15"),
+        "IN261105-L": (60, "2026-11-20"),
+    }
+    for artifact in artifacts:
+        assert artifact["sku_count"] == 3
+        with open_sheet(artifact["path"]) as sheet:
+            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+
+
+@pytest.mark.parametrize(("changes", "expected"), [
+    # Every batch at one mode's latest date produces its own distinct order.
+    ({"BG1": "11/20海运", "BC1": "11/20A海运", "BD1": "11/20B海运", "BH1": "11/20c海运", "BH2": 33},
+     {"IN261105-H": 59, "IN261105A-H": 55, "IN261105B-H": 56, "IN261105C-H": 60}),
+    # The newest sea batch may be D and may be the only batch on that date.
+    ({"BH1": "11/20d海运", "BH2": 33}, {"IN261105D-H": 60}),
+])
+def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes, expected):
+    code, result, _ = invoke("indonesia", changes)
+    assert code == 0 and result["ok"]
+    artifacts = result["data"]["artifacts"]
+    sea = {a["order_id"]: a for a in artifacts if a["shipping_header"].endswith("海运")}
+    assert {order: item["shipping_column"] for order, item in sea.items()} == expected
+    assert len(artifacts) == len(expected) + 1  # the existing latest air column
+    for order, artifact in sea.items():
+        assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
+        assert artifact["sku_count"] == 3
+        with open_sheet(artifact["path"]) as sheet:
+            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+
+
+def test_indonesia_batches_apply_to_air_and_land_as_well(invoke):
+    changes = {"BH1": "11/8a空运", "BH2": 21, "BI1": "11/9b陆运", "BI2": 34}
+    code, result, _ = invoke("indonesia", changes)
+    assert code == 0 and result["ok"]
+    artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
+    assert {order: item["shipping_column"] for order, item in artifacts.items()} == {
+        "IN261105A-K": 60, "IN261105B-L": 61, "IN261105-H": 59,
+    }
+    for order, amount in (("IN261105A-K", 21), ("IN261105B-L", 34)):
+        with open_sheet(artifacts[order]["path"]) as sheet:
+            assert rows(sheet) == [("SKU-A", 0, amount), ("SKU-B", 0, None), ("SKU-A", 0, None)]
+
+
+@pytest.mark.parametrize(("mode", "code", "field"), [
+    ("陆运", "L", "land"), ("空运", "K", "air"), ("海运", "H", "sea"),
+])
+def test_indonesia_unbatched_and_abc_batches_are_distinct_for_each_mode(invoke, mode, code, field):
+    changes = {f"{col}1": None for col in ("BA", "BB", "BC", "BD", "BE", "BF", "BG")}
+    for column, batch, quantity in zip(("BA", "BB", "BC", "BD"), ("", "a", "B", "c"),
+                                       (11, 22, 33, 44), strict=True):
+        changes[f"{column}1"] = f"11/6{batch}{mode}"
+        changes[f"{column}2"] = quantity
+    result_code, result, _ = invoke("indonesia", changes)
+    assert result_code == 0 and result["ok"]
+    artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
+    assert set(artifacts) == {f"IN261105{batch}-{code}" for batch in ("", "A", "B", "C")}
+    for batch, quantity in zip(("", "A", "B", "C"), (11, 22, 33, 44), strict=True):
+        order = f"IN261105{batch}-{code}"
+        artifact = artifacts[order]
+        assert artifact["field"] == (f"{field}_{batch.lower()}" if batch else field)
+        assert artifact["shipping_mode"] == f"{batch}{mode}"
+        assert artifact["sku_count"] == 3
+        with open_sheet(artifact["path"]) as sheet:
+            assert rows(sheet)[0] == ("SKU-A", 0, quantity)
+            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+
+
+@pytest.mark.parametrize("header", ["海运/空运合计", "海运7/30天销量"])
+def test_indonesia_ignores_non_date_headers(invoke, header):
+    code, result, _ = invoke("indonesia", {"BH1": header})
+    assert code == 0 and result["ok"]
+    assert [(item["order_id"], item["shipping_column"]) for item in result["data"]["artifacts"]] == [
+        ("IN261105-K", 54), ("IN261105-H", 59),
+    ]
+
+
+@pytest.mark.parametrize(("changes", "error"), [
+    ({"BA1": None, "BB1": None, "BC1": None, "BD1": None, "BE1": None, "BF1": None,
+      "BG1": None}, "运输|日期"),
+    ({"BH1": "11/6空运"}, "重复|并列"),
+    ({"BH1": "11/6海运"}, "重复|并列"),
+    ({"BC1": "11/6a海运", "BH1": "11/6A海运"}, "重复|并列"),
+    ({"BH1": "11/6AA海运"}, "BH1.*格式"),
+    ({"BH1": "11月6日海运"}, "BH1.*格式"),
+    ({"BH1": "11-6海运"}, "BH1.*格式"),
+    ({"BH1": "2/30海运"}, "日期.*BH1"),
+    ({"BG2": -1}, "BG2.*数量"),
+])
+def test_indonesia_rejects_unusable_selected_columns(invoke, changes, error):
+    code, result, source = invoke("indonesia", changes)
+    assert code != 0 and not result["ok"] and result["files"] == []
+    assert re.search(error, result["error"]["message"])
+    assert list(source.parent.rglob("*.xlsx")) == [source]
+
+
+@pytest.mark.parametrize("failure", ["write", "final_check"])
+def test_indonesia_cleans_all_files_on_partial_failure(invoke, monkeypatch, failure):
+    produced = []
+    if failure == "write":
+        writer = country_rules.generate_order_workbook
+
+        def fail_second(rows, output, **kwargs):
+            produced.append(Path(output))
+            if len(produced) == 2:
+                assert produced[0].is_file()
+                raise OSError("second workbook write failed")
+            return writer(rows, output, **kwargs)
+
+        monkeypatch.setattr(country_rules, "generate_order_workbook", fail_second)
+    else:
+        generate = country_rules.generate_order_workbooks
+
+        def empty_second(*args, **kwargs):
+            artifacts = generate(*args, **kwargs)
+            produced.extend(Path(item["output_xlsx"]) for item in artifacts)
+            assert len(produced) == 2 and all(path.is_file() for path in produced)
+            produced[1].write_bytes(b"")
+            return artifacts
+
+        monkeypatch.setattr(country_rules, "generate_order_workbooks", empty_second)
+    code, result, source = invoke("indonesia")
+    assert code != 0 and not result["ok"] and result["files"] == []
+    assert produced and not produced[0].parent.exists()
+    assert list(source.parent.rglob("*.xlsx")) == [source]
+
+
 def test_philippines_rolls_back_partial_outputs(invoke, monkeypatch):
     writer = country_rules.generate_order_workbook
     attempted = []
@@ -268,7 +462,7 @@ def test_command_contract():
     assert entry["command_path"] == ["mabang", "order-import", "generate"]
     assert entry["owner_skills"] == ["mabang-order-import-generate"]
     properties = entry["input_schema"]["properties"]
-    assert "philippines" in properties["country"]["enum"]
+    assert {"philippines", "indonesia"} <= set(properties["country"]["enum"])
     assert {"air_shipping_column", "sea_a_shipping_column", "sea_b_shipping_column"} <= properties.keys()
 
 
