@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+import sys
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
@@ -64,3 +65,33 @@ def open_sheet(path):
 def rows(sheet):
     return [(sheet.cell(r, 4).value, sheet.cell(r, 19).value, sheet.cell(r, 20).value)
             for r in range(2, sheet.max_row + 1)]
+
+
+@contextmanager
+def interfere_with_publication(root, failure):
+    """Change real filesystem state before the second XLSX is published."""
+    active = True
+    outputs = []
+    observed = {}
+
+    def on_event(event, arguments):
+        if not active or event != 'os.rename' or observed:
+            return
+        target = Path(arguments[1])
+        if target.suffix != '.xlsx' or not target.is_relative_to(root):
+            return
+        outputs.append(target)
+        if len(outputs) == 2:
+            observed['first_output'] = outputs[0]
+            observed['first_published'] = outputs[0].is_file()
+            observed['second_output'] = target
+            if failure == 'collision':
+                target.mkdir()
+            else:
+                outputs[0].write_bytes(b'')
+
+    sys.addaudithook(on_event)
+    try:
+        yield observed
+    finally:
+        active = False
