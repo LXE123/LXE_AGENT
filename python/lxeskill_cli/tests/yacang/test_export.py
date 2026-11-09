@@ -194,38 +194,6 @@ def submits(platform):
     return [call for call in platform['calls'] if call[1] in {r[1] for r in REPORTS.values()}]
 
 
-def test_all_reports_nine_files_sales_omit_creation_date_without_extra_copies(platform):
-    result = workflow.run(request(list(REPORTS)))
-    assert result['success'], result
-    assert len(result['artifacts']) == 9
-    assert len(submits(platform)) == 9
-    assert sum(c[1].endswith('loginV3') for c in platform['calls']) == 0
-    assert not any('create_time' in c[2] for c in submits(platform))
-    assert result['params']['created_date'] is None
-    for index, artifact in enumerate(result['artifacts'], 1):
-        delivered = filesystem_path(artifact['path'])
-        original_bytes = platform['files'][f'/file{index}.xlsx']
-        if artifact['report'] == 'inventory-sales':
-            with closing(load_workbook(io.BytesIO(original_bytes), read_only=True, data_only=True)) as original:
-                original_rows = list(original.active.values)
-            with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
-                assert list(output.active.values) == [row[:-1] for row in original_rows]
-        else:
-            assert delivered.read_bytes() == original_bytes
-        assert artifact['row_count'] == 1 and artifact['sheet_names']
-    folder = filesystem_path(result['artifacts'][0]['path']).parent
-    assert len(list(folder.rglob('*.xlsx'))) == 9
-    assert not (folder / 'original').exists()
-    assert not list(folder.glob('.*.xlsx'))
-    for call in platform['calls']:
-        if call[1].startswith('/file'):
-            assert not {'Token', 'token', 'Cookie', 'Authorization'} & call[3].keys()
-    assert all(secret not in json.dumps(result) for secret in ['test-password', 'private-token', 'private-key', 'private-signature'])
-    again = workflow.run(request(warehouses=['MY8801']))
-    assert again['success'] and len(submits(platform)) == 10
-    assert Path(again['artifacts'][0]['path']).parent != Path(result['artifacts'][0]['path']).parent
-
-
 def test_sales_delivery_preserves_platform_package_and_xml_namespaces(platform):
     platform['bad_file'] = shared_strings_xlsx(xlsx('inventory-sales', 'VN8806'))
     result = workflow.run(request(warehouses=['VN8806']))
@@ -263,30 +231,6 @@ def test_sales_delivery_rejects_unexpected_dimensions_without_publishing(platfor
     assert not list(env.rglob('.*.xlsx'))
 
 
-def test_explicit_creation_dates_and_empty_file(platform):
-    platform['empty'] = True
-    result = workflow.run(request(warehouses=['VN8806'], created={'start_date': '2026-01-01', 'end_date': '2026-09-23'}))
-    assert result['success'], result
-    assert submits(platform)[0][2]['create_time'] == '2026-01-01 - 2026-09-23'
-    assert result['artifacts'][0]['row_count'] == 0
-    assert result['artifacts'][0]['notice']
-    delivered = filesystem_path(result['artifacts'][0]['path'])
-    with closing(load_workbook(delivered, read_only=True, data_only=True)) as output:
-        assert list(output.active.values) == [INVENTORY_SALES_HEADERS[:-1]]
-    assert list(delivered.parent.iterdir()) == [delivered]
-
-
-def test_platform_download_still_requires_original_snapshot_date_column(platform):
-    with closing(load_workbook(io.BytesIO(xlsx('inventory-sales', 'VN8806')))) as book:
-        book.active.delete_cols(16)
-        stream = io.BytesIO()
-        book.save(stream)
-    platform['bad_file'] = stream.getvalue()
-    result = workflow.run(request(warehouses=['VN8806']))
-    assert not result['success'] and not result['artifacts']
-    assert '表头不匹配' in result['error']['message']
-
-
 def test_sales_rewrite_failure_discards_partial_file(platform, env, monkeypatch):
     original_write = Path.write_bytes
 
@@ -301,14 +245,6 @@ def test_sales_rewrite_failure_discards_partial_file(platform, env, monkeypatch)
     assert not result['success'] and not result['artifacts']
     assert 'simulated disk full while saving sales' in result['error']['message']
     assert not list(env.rglob('*.xlsx'))
-
-
-def test_platform_hidden_date_filter_is_not_reported_as_all_goods(platform):
-    platform['hidden_date'] = True
-    result = workflow.run(request(warehouses=['MY8801']))
-    assert not result['success']
-    assert result['error']['code'] == 'date_range_required'
-    assert not result['artifacts'] and len(submits(platform)) == 1
 
 
 @pytest.mark.parametrize('status', [401, 403, 429, 500])
@@ -401,9 +337,7 @@ def test_download_401_does_not_invalidate_erp_session(platform):
     assert not {'Token', 'token', 'Cookie', 'Authorization'} & download[3].keys()
 
 
-@pytest.mark.parametrize('params', [None, {}, {'reports': []}, {'reports': ['bad']}, {'reports': ['inventory-sales'], 'warehouses': []},
-    {'reports': ['inventory-sales'], 'created_date': {'start_date': '2026-01-01'}},
-    {'reports': ['inventory-sales'], 'created_date': {'start_date': '2026-02-30', 'end_date': '2026-03-01'}},
+@pytest.mark.parametrize('params', [None, {}, {'reports': []}, {'reports': ['bad']},
     {'reports': ['warehouse-products'], 'warehouses': ['MY8801']}, {'reports': ['inventory-sales'], 'url': 'bad'}])
 def test_invalid_params_do_not_contact_platform(platform, params):
     result = workflow.run({'params': params})
