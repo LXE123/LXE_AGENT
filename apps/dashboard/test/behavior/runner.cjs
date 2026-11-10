@@ -1,5 +1,5 @@
 // Local Electron renderer only; this never connects to a store browser.
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, session } = require("electron");
 const assert = require("node:assert/strict");
 const [suite, profile, url] = process.argv.slice(2);
 // DOM/input regression tests must also run in remote Windows sessions without a GPU.
@@ -12,8 +12,15 @@ const errors = [];
 app.whenReady().then(async () => {
   // Caption restoration and chart focus tooltips need native document focus.
   const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages';
+  const catalog = suite === "overview-pages";
   const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
-    webPreferences: { offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    webPreferences: { ...(catalog ? { webviewTag: true, preload: require.resolve("./catalog-preload.cjs") } : {}), offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  if (catalog) {
+    require(require("node:path").join(profile, "team-skills-view.cjs")).registerTeamSkillsGuest(win.webContents);
+    const catalogSession = session.fromPartition("persist:lxe-workbench-team-skills");
+    catalogSession.protocol.handle("https", () => new Response(
+      '<body style="background:#24689c"><input aria-label="Filter"></body>', { headers: { "Content-Type": "text/html" } }));
+  }
   // Do not permit accidental external requests from fixtures or production UI.
   win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     const local = details.url.startsWith(new URL(url).origin + "/") || /^(data:|blob:)/.test(details.url);
@@ -762,7 +769,7 @@ app.whenReady().then(async () => {
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
       const railWidth = (await rect(".app-navigation")).width;
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 6);
+        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 7);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
         assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 42)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth);

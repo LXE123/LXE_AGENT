@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { DashboardSection } from "./navigation";
 
 // A shared 24-unit drawing grid; motion targets are semantic parts of each glyph.
-const glyphs: Record<DashboardSection, ReactNode> = {
+const glyphs: Record<Exclude<DashboardSection, "team-skills">, ReactNode> = {
   home: <>
     <path d="m4 10 8-6.5 8 6.5v8.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
     <path className="navigation-icon-home-door" d="M9.5 20.5V14h5v6.5" />
@@ -31,6 +31,15 @@ const glyphs: Record<DashboardSection, ReactNode> = {
 };
 
 export function NavigationIcon({ section }: { section: DashboardSection }) {
+  if (section === "team-skills") {
+    return <svg className="navigation-icon navigation-icon-team-skills" viewBox="0 -2 64 64"
+      width="22" height="22" fill="none" stroke="currentColor" strokeWidth="5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M8 40 32 52 56 40" />
+      <path d="M8 30 32 42 56 30" />
+      <path d="M32 8 56 20 32 32 8 20Z" fill="#E8683A" stroke="#E8683A" />
+    </svg>;
+  }
   return <svg className={`navigation-icon navigation-icon-${section}`} viewBox="0 0 24 24"
     width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.65"
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">

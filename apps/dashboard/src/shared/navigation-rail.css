@@ -20,6 +20,13 @@
   gap: 8px;
 }
 
+.navigation-rail-divider {
+  width: 24px;
+  margin: 2px auto;
+  border: 0;
+  border-top: 1px solid var(--app-chrome-border);
+}
+
 .navigation-rail-button,
 .app-navigation .sidebar-settings-button {
   position: relative;
@@ -73,6 +80,14 @@
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-module { animation: navigation-module 320ms ease-out; }
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-activity-bar { animation: navigation-bar 320ms ease-out; }
 
+.navigation-icon-team-skills { color: #111; }
+:root[data-theme="dark"] .navigation-icon-team-skills { color: #fff; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-team-skills path {
+  animation: navigation-stack-lift 220ms ease-in-out var(--layer-delay, 0ms);
+}
+.navigation-icon-team-skills path:nth-child(2) { --layer-delay: 40ms; }
+.navigation-icon-team-skills path:last-child { --layer-delay: 80ms; --layer-offset: -4px; }
+
 @keyframes navigation-arrive { from { transform: scale(.97); } to { transform: scale(1); } }
 @keyframes navigation-light { 0% { opacity: .65; } 55% { opacity: 1; } }
 @keyframes navigation-reply { from { transform: translateX(-.75px); } to { transform: translateX(0); } }
@@ -80,6 +95,7 @@
 @keyframes navigation-clock { 45% { transform: rotate(12deg); } }
 @keyframes navigation-module { 45% { transform: rotate(8deg); } }
 @keyframes navigation-bar { 45% { transform: scaleY(.9); } }
+@keyframes navigation-stack-lift { 50% { transform: translateY(var(--layer-offset, 3px)); } }
 
 .navigation-rail-button:hover,
 .app-navigation .sidebar-settings-button:hover {

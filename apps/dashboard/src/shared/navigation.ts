@@ -1,4 +1,4 @@
-export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities" | "activity" | "automations";
+export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities" | "activity" | "automations" | "team-skills";
 
 export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
@@ -24,6 +24,7 @@ const DASHBOARD_SECTIONS = new Set<DashboardSection>([
   "workbench",
   "capabilities",
   "activity",
+  "team-skills",
 ]);
 
 const CAPABILITY_VIEWS = new Set<CapabilityView>([
@@ -86,7 +87,9 @@ export function dashboardRouteFromHistory(
   storedCapabilityView: CapabilityView,
 ): DashboardRouteSelection {
   const state = objectRecord(historyState);
-  const section = state.section;
+  const section = state.section === "workbench" && state.workbenchView === "team-skills"
+    ? "team-skills"
+    : state.section;
   if (typeof section === "string" && DASHBOARD_SECTIONS.has(section as DashboardSection)) {
     return {
       section: section as DashboardSection,

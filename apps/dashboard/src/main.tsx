@@ -56,6 +56,7 @@ import { DetailModal } from "./features/details/view";
 import { DashboardHome } from "./features/home/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import { StatsView } from "./features/stats/view";
+import { TeamSkillsPage } from "./features/team-skills/view";
 import { SyntheticPerformerWorkbench } from "./features/workbench/view";
 import { WorkbenchIndex } from "./features/workbench/index-view";
 import { InputAssetsWorkbench, useInputAssetSlots } from "./features/workbench/input-assets-view";
@@ -139,6 +140,7 @@ function App({
 
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
+    || activeSection === "team-skills"
     || activeSection === "activity"
     || activeSection === "workbench"
     || activeSection === "sessions"
@@ -168,6 +170,7 @@ function App({
     { id: "automations", label: language === "zh" ? "定时任务" : "Automations" },
     { id: "capabilities", label: t.nav.capabilities },
     { id: "activity", label: t.nav.activity },
+    { id: "team-skills", label: t.teamSkills.name },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
@@ -181,7 +184,7 @@ function App({
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
       : "";
-  const runtimeStatusNavigationKey = `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
+  const runtimeStatusNavigationKey = `${activeSection}:${workbenchView}:${capabilityView}:${activityView}:${selectedSessionId}`;
   const runtimeStatusPopover = (
     <RuntimeStatusPopover
       currentModel={currentModelQuery.data ?? null}
@@ -230,6 +233,7 @@ function App({
             activeSection === "automations" ? "automations-theme" : "",
             activeSection === "activity" ? "activity-theme" : "",
             activeSection === "workbench" ? "workbench-theme" : "",
+            activeSection === "team-skills" ? "team-skills-panel" : "",
           ].filter(Boolean).join(" ")}>
             {visibleError ? (
               <div className="dashboard-query-notice" role="status">
@@ -281,6 +285,7 @@ function App({
             {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
               <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
+            {activeSection === "team-skills" ? <TeamSkillsPage /> : null}
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
                 error={assetSlots.error}
