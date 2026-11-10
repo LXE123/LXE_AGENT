@@ -96,7 +96,11 @@ export class AgentProtocolError extends Error {
   }
 }
 
+export type McpAccessGrant = { name: string; url: string; access_token: string };
+export type McpLoginTarget = { url: string; resourceMetadataUrl?: string; scope?: string };
+
 export type AgentInitializePayload = {
+  mcp_access_grants?: McpAccessGrant[];
   protocol_version: number;
   skills_root: string;
   user_skills_root: string;
@@ -109,6 +113,8 @@ export type AgentInitializePayload = {
 
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
+  mcp_login_target: { name: string };
+  mcp_login_complete: McpAccessGrant;
   update_skill_permissions: { allowed_skill_types: string[] };
   update_managed_llm_credential: {
     credential: ManagedLlmCredential | null;
@@ -765,6 +771,8 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 
 const agentCommands = new Set<AgentCommand>([
   "initialize",
+  "mcp_login_target",
+  "mcp_login_complete",
   "update_skill_permissions",
   "update_managed_llm_credential",
   "run_turn",
@@ -831,6 +839,10 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("llm_config_root");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
+      if (payload.mcp_access_grants !== undefined && (!Array.isArray(payload.mcp_access_grants) ||
+        payload.mcp_access_grants.some(item => ["name", "url", "access_token"].some(key => typeof objectValue(item)?.[key] !== "string")))) {
+        throw new Error("agent protocol initialize.mcp_access_grants is invalid");
+      }
       if (payload.managed_llm_state !== undefined) parseManagedState(payload.managed_llm_state);
       if (payload.allowed_skill_types !== undefined
         && (!Array.isArray(payload.allowed_skill_types)
@@ -880,6 +892,12 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       }
       break;
     }
+    case "mcp_login_target":
+      requireText("name");
+      break;
+    case "mcp_login_complete":
+      for (const key of ["name", "url", "access_token"]) requireText(key);
+      break;
     case "run_turn":
       requireObject("job");
       if (!validateAgentJob(payload.job)) throw new Error("agent protocol run_turn.job is invalid");

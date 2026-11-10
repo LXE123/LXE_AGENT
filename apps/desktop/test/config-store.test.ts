@@ -41,6 +41,17 @@ const legacyPermission = (
 });
 
 describe("DesktopConfigStore", () => {
+  test("MCP grants survive reopen through desktop secret storage and stay out of settings and child environments", () => {
+    const root = createRoot();
+    const open = () => new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const grant = { name: "orders", url: "https://example.test/mcp", access_token: "private-test-access" };
+    open().saveMcpAccessGrant(grant);
+    const reopened = open();
+    expect(reopened.mcpAccessGrants()).toEqual([grant]);
+    expect(JSON.stringify(reopened.environment())).not.toContain(grant.access_token);
+    expect(JSON.stringify(reopened.state())).not.toContain(grant.access_token);
+    expect(readFileSync(join(root, "config/settings.json"), "utf8")).not.toContain(grant.access_token);
+  });
   test("balance credentials follow the selected source and respect revocation and cloud switches", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });

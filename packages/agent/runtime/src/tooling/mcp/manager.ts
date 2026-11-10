@@ -1,6 +1,6 @@
 import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "../registry";
-import { OfficialMcpConnector } from "./connector";
+import { McpLoginRequired, OfficialMcpConnector, type McpOAuthChallenge } from "./connector";
 import { adaptMcpTools } from "./tool-adapter";
 import { mcpFailureText, withTimeout } from "./support";
 import type { McpConfig, McpConnection, McpConnectionState, McpConnector, McpServerConfig, McpServerStatus } from "./types";
@@ -9,6 +9,7 @@ interface ServerEntry {
   config: McpServerConfig;
   state: McpConnectionState;
   error: string;
+  challenge?: McpOAuthChallenge | undefined;
   generation: number;
   toolCount: number;
   tools: McpServerStatus["tools"];
@@ -20,7 +21,7 @@ interface ServerEntry {
 
 export class McpManager {
   private readonly logger = createLogger("runtime.mcp");
-  private readonly entries: Map<string, ServerEntry>;
+  private readonly entries = new Map<string, ServerEntry>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -28,11 +29,15 @@ export class McpManager {
     private readonly connector: McpConnector = new OfficialMcpConnector(),
     private readonly closeTimeoutMs = 5_000,
   ) {
-    this.entries = new Map(config.servers.map(server => [server.name, {
-      config: server, state: server.enabled ? "configured" : "disabled", error: "",
-      generation: 0, toolCount: 0, tools: [], cleanup: Promise.resolve(),
-    }]));
-    if (this.entries.size !== config.servers.length) throw new Error("duplicate MCP server name");
+    for (const server of config.servers) this.add(server);
+  }
+
+  add(server: McpServerConfig): void {
+    if (this.entries.has(server.name)) throw new Error("duplicate MCP server name: " + server.name);
+    const entry: ServerEntry = { config: server, state: server.enabled ? "configured" : "disabled", error: "",
+      generation: 0, toolCount: 0, tools: [], cleanup: Promise.resolve() };
+    this.entries.set(server.name, entry);
+    if (this.registry && server.enabled) void this.connect(entry, this.registry);
   }
 
   async start(registry: ToolRegistry): Promise<void> {
@@ -59,6 +64,12 @@ export class McpManager {
     if (!entry.config.enabled) throw new Error(`MCP server ${serverName} is disabled`);
     void this.reset(entry, "configured", registry);
     await this.connect(entry, registry);
+  }
+
+  loginTarget(name: string): McpOAuthChallenge {
+    const entry = this.entry(name);
+    if (!entry.config.enabled || entry.state !== "needs_auth" || !entry.challenge) throw new Error("MCP server is not waiting for login");
+    return { ...entry.challenge };
   }
 
   serverInstructions(serverName: string): string | undefined {
@@ -108,6 +119,7 @@ export class McpManager {
   }
 
   private reset(entry: ServerEntry, state: McpConnectionState, registry: ToolRegistry | undefined): Promise<void> {
+    entry.challenge = undefined;
     entry.generation++;
     const pending = entry.pending;
     pending?.controller.abort(new Error(`MCP server ${entry.config.name} startup cancelled`));
@@ -132,6 +144,7 @@ export class McpManager {
     const generation = ++entry.generation;
     const controller = new AbortController();
     const cleanup = entry.cleanup;
+    entry.challenge = undefined;
     entry.state = "connecting";
     entry.error = "";
     const current = () => entry.generation === generation && this.registry === registry && entry.config.enabled && !controller.signal.aborted;
@@ -187,8 +200,9 @@ export class McpManager {
         const connection = entry.connection;
         entry.connection = undefined;
         this.unregister(entry, registry);
-        entry.state = "error";
-        entry.error = mcpFailureText(error);
+        entry.challenge = error instanceof McpLoginRequired ? error.challenge : undefined;
+        entry.state = entry.challenge ? "needs_auth" : "error";
+        entry.error = mcpFailureText(error instanceof McpLoginRequired ? error.original : error);
         this.logger.warn("mcp_startup_failed", { server_name: entry.config.name, error });
         if (connection) await this.close(entry, connection);
       }

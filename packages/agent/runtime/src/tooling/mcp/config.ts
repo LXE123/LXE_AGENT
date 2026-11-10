@@ -118,14 +118,15 @@ function parseMcpConfig(root: Record<string, unknown>, env: Environment, default
   };
 }
 
-export function addMcpServer(path: string, name: string, definition: Record<string, unknown>, env: Environment, defaultCwd: string): void {
+export function addMcpServer(path: string, name: string, definition: Record<string, unknown>, env: Environment, defaultCwd: string): McpServerConfig {
   const root = readOrEmpty(path);
   const key = root.mcpServers !== undefined ? "mcpServers" : "servers";
   const servers = mapping(root[key]);
   if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
   root[key] = { ...servers, [name]: { ...definition, enabled: true, exposure: "codemode" } };
-  parseMcpConfig(root, env, defaultCwd);
+  const server = parseMcpConfig(root, env, defaultCwd).servers.find(item => item.name === name)!;
   writeMcpConfigDocument(path, root);
+  return server;
 }
 
 export function setMcpServerEnabled(path: string, serverName: string, enabled: boolean): void {

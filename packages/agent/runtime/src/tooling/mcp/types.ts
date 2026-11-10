@@ -63,7 +63,7 @@ export interface McpConnector {
   connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection>;
 }
 
-export type McpConnectionState = "configured" | "disabled" | "connecting" | "ready" | "error" | "disconnected";
+export type McpConnectionState = "configured" | "disabled" | "connecting" | "needs_auth" | "ready" | "error" | "disconnected";
 
 export interface McpServerStatus {
   state: McpConnectionState;

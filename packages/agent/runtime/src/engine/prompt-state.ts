@@ -8,13 +8,14 @@ export function latestPromptState(messages: readonly RuntimeMessage[]): PromptSt
 }
 
 /** The first recorded directory belongs to the initial instructions. Later revisions
- * precede the user input that observed the change. A summary can supply the first revision. */
-export function directoryRevisions(messages: readonly RuntimeMessage[]) {
+ * precede the new user input or assistant reply that observed the change. A summary can supply the first revision. */
+export function directoryRevisions(messages: readonly RuntimeMessage[], current?: string) {
   const revisions: { index: number; directory: string }[] = [];
   for (const [index, message] of messages.entries()) {
     const directory = message.promptState?.mcpDirectory;
     if (directory !== undefined && directory !== revisions.at(-1)?.directory) revisions.push({ index, directory });
   }
+  if (current !== undefined && current !== revisions.at(-1)?.directory) revisions.push({ index: messages.length, directory: current });
   return revisions;
 }
 

@@ -161,11 +161,10 @@ export class ToolExposureState {
     if (scope === "model") {
       for (const tool of options.loadedTools ?? []) this.loaded.add(toolReferenceKey(tool));
     }
-    for (const definition of registry.definitionsSnapshot()) {
-      if (scope === "codemode" || definition.exposure === "direct") {
-        this.exposed.add(definition.name);
-      }
-    }
+  }
+
+  private declared(tool: NormalizedToolDefinition): boolean {
+    return this.scope === "codemode" || tool.exposure === "direct" || this.exposed.has(tool.name);
   }
 
   callableTools(): NormalizedToolDefinition[] {
@@ -173,7 +172,7 @@ export class ToolExposureState {
     const indirect = new Map<string, NormalizedToolDefinition>();
     for (const tool of this.registry.definitionsSnapshot()) {
       if (!this.allowed(tool)) continue;
-      if (this.exposed.has(tool.name)) active.push(tool);
+      if (this.declared(tool)) active.push(tool);
       else if (this.loaded.size) indirect.set(toolReferenceKey(referenceForTool(tool)), tool);
     }
     // Append newly loaded tools after existing declarations, in branch load order.
@@ -242,7 +241,7 @@ export class ToolExposureState {
   }
 
   private active(tool: NormalizedToolDefinition): boolean {
-    return this.exposed.has(tool.name) || this.loaded.has(toolReferenceKey(referenceForTool(tool)));
+    return this.declared(tool) || this.loaded.has(toolReferenceKey(referenceForTool(tool)));
   }
 
   allowsSkill(name: string): boolean {

@@ -24,6 +24,7 @@ import { DesktopSetupService } from "./setup";
 import { DesktopConfigValidation } from "./validation";
 
 export class DesktopConfigStore {
+  private readonly repository: DesktopConfigRepository;
   private readonly setup: DesktopSetupService;
   private readonly cloud: DesktopCloudConfigService;
 
@@ -37,6 +38,7 @@ export class DesktopConfigStore {
     const llmConfigRoot = options.llmConfigRoot ?? join(process.cwd(), "config", "llm");
     const catalog = loadLlmProviderCatalog(llmConfigRoot);
     const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform, catalog);
+    this.repository = repository;
     const auth = new DesktopLocalAuthStore(
       dataRoot,
       validation.platform,
@@ -55,6 +57,15 @@ export class DesktopConfigStore {
     this.cloud = new DesktopCloudConfigService(repository);
     this.setup.migrateModelCredentialStorage();
     this.cloud.migrateManagedLlmOwner();
+  }
+
+  mcpAccessGrants() { return this.repository.readSecrets().mcp_access_grants ?? []; }
+
+  saveMcpAccessGrant(grant: import("@lxe/desktop-protocol").McpAccessGrant): void {
+    const config = this.repository.readConfig();
+    const secrets = this.repository.readSecrets();
+    secrets.mcp_access_grants = [...(secrets.mcp_access_grants ?? []).filter(item => item.name !== grant.name), grant];
+    this.repository.commit(config, secrets);
   }
 
   state(): DesktopSetupState {

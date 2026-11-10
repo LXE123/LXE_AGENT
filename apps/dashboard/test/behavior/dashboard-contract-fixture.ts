@@ -57,7 +57,6 @@ export function createDashboardContractFixture(calls: Call[]) {
     task(value: DesktopSyntheticPerformerTask) { task = structuredClone(value); taskListeners.forEach(listener => listener(structuredClone(task!))); },
     async restartAgent() {
       await record("restartAgent");
-      for (const item of added) { item.status = "ready"; item.tool_count = 2; }
     },
     clearCalls() { calls.length = 0; },
   };
@@ -95,8 +94,14 @@ export function createDashboardContractFixture(calls: Call[]) {
       case "mcp.servers.add": return (async () => {
         await gate(call.operation);
         const name = String(call.input.name);
-        added.push({ ...dormantServer, name, server_title: name, enabled: true, status: "pending_restart", transport: String(call.input.transport) });
+        added.push({ ...dormantServer, name, server_title: name, enabled: true, status: call.input.transport === "stdio" ? "ready" : "needs_auth", transport: String(call.input.transport) });
         return { name };
+      })();
+      case "mcp.servers.login": return (async () => {
+        await gate(call.operation);
+        const item = added.find(item => item.name === call.input.name)!;
+        item.status = "ready"; item.tool_count = 2;
+        return { name: item.name };
       })();
       case "mcp.servers.update": return (async () => {
         await gate(call.operation);

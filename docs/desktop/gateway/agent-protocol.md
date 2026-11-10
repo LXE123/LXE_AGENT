@@ -34,6 +34,8 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后
 {"jsonrpc":"2.0","method":"session.changed","params":{"thread_id":"session-1","payload":{"changes":["messages"]}}}
 ```
 
+桌面 MCP 的浏览器登录由 Electron 发起。Electron 通过私有请求 `mcp_login_target` 取得正在等待登录的服务及其授权质询；授权完成，通过 `mcp_login_complete` 向 agent-cli 提供仅限该服务地址的访问令牌并重连。下次初始化时通过 `mcp_access_grants` 恢复已保存的授权，令牌不进入 Dashboard、模型上下文或工具进程环境。
+
 方法名、参数和通知列表统一以 [`AgentCommandPayloads` 与 `AgentEvent`](../../../packages/foundation/desktop-protocol/src/index.ts) 为准。执行与控制使用 `run_turn`、`cancel_turn`、`steer_turn`，会话状态使用 `session_status`；Dashboard 查询使用 `dashboard_call` 携带 `{ operation, input }`。方法只接受对象参数，省略 params 按空对象校验。
 
 桌面问题通过 `sessions.questions` 查询当前快照、`sessions.answer` 提交答案，均由专用 Dashboard operation 到达 Runtime，不进入普通消息队列。`session.changed` 的 `questions` 变化只通知客户端重新查询，详见 [结构化提问](../../harness/runtime/tools/ask-user-question.md)。

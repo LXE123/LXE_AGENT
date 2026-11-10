@@ -26,13 +26,12 @@ type Props = Readonly<{
   onOpenDetail: (target: DetailTarget) => void;
   startSkillConversation: ComponentProps<typeof SkillsCatalogView>["onConversation"];
   mcpSavingId: ComponentProps<typeof McpServicesView>["mcpSavingId"];
-  restartAgent: () => Promise<void>;
   toggleMcpServer: ComponentProps<typeof McpServicesView>["onToggleMcpServer"];
 }>;
 
 export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboardRuntimeReady,
   modelsQuery, currentModelQuery, skillsQuery, commandsQuery, toolsetsQuery, mcpServersQuery,
-  onOpenDetail, startSkillConversation, mcpSavingId, toggleMcpServer, restartAgent }: Props) {
+  onOpenDetail, startSkillConversation, mcpSavingId, toggleMcpServer }: Props) {
   const t = useUiText();
   const capabilityItems: Array<{ id: CapabilityView; label: string }> = [
     { id: "skills", label: t.nav.skills },
@@ -84,7 +83,6 @@ export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboard
         !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
           : mcpServersQuery.isPending ? <EmptyState label={t.common.loading} />
           : <McpServicesView
-              restartAgent={restartAgent}
               mcpError={!mcpServersQuery.data ? queryError(mcpServersQuery.error) : ""}
               mcpSavingId={mcpSavingId}
               mcpServers={mcpServersQuery.data?.items ?? []}

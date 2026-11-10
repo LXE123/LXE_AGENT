@@ -6,7 +6,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 打开「能力 → MCP 服务 → 添加服务」。远程服务填写 URL，需要认证时可在「更多连接选项」指定令牌环境变量或请求头。本地程序填写可执行文件，每个启动参数单独添加一项。按需设置工作目录、环境变量或从 Agent 环境传入的变量。
 
-保存后，agentcli 将服务写入用户 JSON 配置，默认启用并通过 `codemode` 暴露工具。列表会显示「待重启生效」；点击「重启 Agent」后可以看到连接状态、已发现的工具数量或连接错误。
+保存后，agentcli 将服务写入用户 JSON 配置，默认启用并通过 `codemode` 暴露工具。宿主立即在后台连接新服务，不重启 Agent，也不取消正在进行的会话。已启用的间接服务在下一次模型请求的目录中可见；工具要等到握手和发现成功后才能调用。
 
 ## 配置文件
 
@@ -36,13 +36,13 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 }
 ```
 
-`enabled` 必须显式写为 `true` 才会启动连接，省略时为关闭。stdio 必须有 `command`，HTTP 必须有 `url`。`args`、`env` 和 HTTP 请求头可省略。HTTP 凭据通过静态 `headers`、环境变量映射 `env_headers` 或 `bearer_token_env_var` 提供；本轮没有新增 OAuth 登录流程。
+`enabled` 必须显式写为 `true` 才会启动连接，省略时为关闭。stdio 必须有 `command`，HTTP 必须有 `url`。`args`、`env` 和 HTTP 请求头可省略。HTTP 凭据通过静态 `headers`、环境变量映射 `env_headers` 或 `bearer_token_env_var` 提供。若没有显式配置 Authorization 而连接返回 401，桌面列表显示「需要登录」。只有点击「登录」才启动 OAuth；服务器需支持浏览器授权及客户端注册。完成后只重连这一项，访问令牌由 Electron 加密保存，令牌失效后可再次登录。只接受固定令牌的服务仍需按其要求配置请求头。
 
 配置层展开命令、参数和环境变量中的 `${VAR}`。HTTP 请求头里的占位符和令牌在连接时解析；写回开关不会把解析后的秘密写进文件。缺失变量会明确报错。
 
 可选字段沿用现有行为：`startup_timeout_s` 默认 10 秒、`tool_timeout_s` 默认 60 秒；`enabled_tools` 与 `disabled_tools` 使用服务端原始工具名，禁用名单优先；`protocol_mode` 默认 `auto`，也可选 `legacy` 或固定的 `2026-07-28`。JSON 仍接受 `mcpServers` 作为 `servers` 的别名，两者不能同时出现。
 
-配置在宿主启动时加载。现有启停接口会写回 JSON，并通知管理器改变运行状态；手动修改命令、地址等连接参数后需要重启 agentcli。重连使用已加载的配置，不负责重新读取文件。
+配置在宿主启动时加载。桌面新增及启停操作会写回 JSON，并通知管理器改变运行状态；手动修改命令、地址等连接参数后需要重启 agentcli。重连使用已加载的配置，不负责重新读取文件。
 
 ## 四块职责
 
@@ -65,6 +65,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 | --- | --- |
 | `configured` | 已加载配置，尚未启动，或管理器已经停止 |
 | `disabled` | 用户未启用 |
+| `needs_auth` | HTTP 服务拒绝未授权的连接，等待用户登录；服务名保留在目录，尚未注册工具 |
 | `connecting` | 正在准备连接、协商协议并发现工具 |
 | `ready` | 连接已经建立，发现的工具已注册；也允许服务没有工具 |
 | `error` | 本次连接或注册失败，`error` 保存实际诊断 |
@@ -97,9 +98,9 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ### 在 codemode 中查找和调用工具
 
-每轮开始时，agentcli 在 `mcp_servers` 目录中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
+agentcli 在 `mcp_servers` 目录中列出当前平台已启用的 `codemode` 和 `deferred` 服务。每行给出命名空间、发现入口和一句简介，例如 `- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.`。简介优先取配置 `connector_description` 的首行，其次取当前连接的服务端 instructions 首行。两者都为空时只列名称和入口。没有符合条件的服务时省略整段。
 
-同一轮的多次模型调用复用这份目录。第一轮把目录放在初始指令里。下一轮发现目录变化时，支持中途指令的模型会在该轮用户输入前收到新版目录，最后一个服务撤下时会收到目录已清空的说明。其他模型在开头的指令里收到最新目录。续聊和分叉按各自的历史回放，压缩摘要保存截断处生效的目录和工具清单。各模型的请求布局见 [模型目录与选择](../../llm/provider_catalog.md)。
+第一轮把目录放在初始指令里。后续每一步模型调用重新检查目录，即使仍在同一轮内。支持中途指令的模型会在观察到变化的位置收到新版目录，最后一个服务撤下时会收到目录已清空的说明。其他模型在开头的指令里收到最新目录。续聊和分叉按各自的历史回放，压缩摘要保存截断处生效的目录和工具清单。各模型的请求布局见 [模型目录与选择](../../llm/provider_catalog.md)。
 
 `codemode` 启用时，系统指令建议用 `Promise.allSettled` 批量执行独立调用、按顺序串联有依赖的调用，或先在脚本里筛选大量结果。模型可以直接调用、同时也能在脚本里调用的工具，会在各自的描述末尾注明脚本调用方式和返回类型。例如 `tools.read(args)` 返回字符串或图片对象。通过 `tool_search` 加载的 MCP 工具也遵循同一规则。
 

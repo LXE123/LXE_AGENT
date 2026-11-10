@@ -9,6 +9,8 @@ import { renderMcpServerDirectory } from "../src/mcp-server-directory";
 import { AgentRunHandle } from "../src/run-handle";
 import { createAgentRuntimeHost } from "../src/runtime-host";
 
+import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
+
 const source = repositoryRoot(import.meta.dir);
 const desktopEnv = {
   LXE_DESKTOP_MCP_COMMAND: process.execPath,
@@ -55,6 +57,14 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
     },
   });
+  const protectedServer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (request.headers.get("Authorization") !== "Bearer oauth-fixture") return new Response("Sign in first", {
+      status: 401, headers: { "WWW-Authenticate": 'Bearer scope="orders.read"' },
+    });
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    const reply = legacyReply(await request.json() as WireMessage);
+    return reply ? Response.json(reply) : new Response(null, { status: 202 });
+  } });
   const root = mkdtempSync(join(tmpdir(), "lxe-mcp-prompt-"));
   const llmConfigRoot = join(root, "config/llm");
   cpSync(join(source, "config/llm"), llmConfigRoot, { recursive: true });
@@ -124,8 +134,26 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(orders.prompt).not.toContain("Use codemode");
     expect(orders.descriptions.get("exec")).toBe(cli.descriptions.get("exec"));
     expect(orders.descriptions.get("exec")).not.toContain("Codemode: ");
+    await host.dashboardCall({ operation: "mcp.servers.add", input: { name: "team-skills", transport: "streamable-http", url: protectedServer.url.href } });
+    const current = async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items.find(x => x.name === "team-skills");
+    const deadline = Date.now() + 3_000;
+    while ((await current())?.status === "connecting" && Date.now() < deadline) await Bun.sleep(10);
+    expect((await current())?.status).toBe("needs_auth");
+    expect(host.mcpLoginTarget!("team-skills")).toMatchObject({ url: protectedServer.url.href, scope: "orders.read" });
+    const waiting = await turn("desktop", "desktop");
+    expect(waiting.prompt).toContain("- mcp__team-skills (codemode)");
+    expect(waiting.prompt).not.toContain("401");
+    expect(waiting.tools.some(name => name.startsWith("mcp__team-skills__"))).toBe(false);
+    const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
+    expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
+    await expect(host.mcpLoginComplete!({ name: "team-skills", url: "https://different.test/", access_token: "oauth-fixture" })).rejects.toThrow("target changed");
+    await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
+    expect(await current()).toMatchObject({ status: "ready", tool_count: 2 });
+    expect(JSON.stringify(received)).not.toContain("oauth-fixture");
+    expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {
     await host.stop();
+    protectedServer.stop(true);
     endpoint.stop(true);
     rmSync(root, { recursive: true, force: true });
   }

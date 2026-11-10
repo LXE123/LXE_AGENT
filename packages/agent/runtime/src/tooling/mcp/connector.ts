@@ -1,4 +1,4 @@
-import { Client, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
+import { Client, extractWWWAuthenticateParams, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { JsonObject } from "@lxe/protocol";
 import type { Environment } from "@lxe/core";
@@ -10,14 +10,27 @@ type McpSdkClientPort = Pick<Client,
   "connect" | "close" | "onclose" | "listTools" | "callTool" | "getNegotiatedProtocolVersion" | "getProtocolEra"
 > & Partial<Pick<Client, "getInstructions">>;
 
+export interface McpOAuthChallenge { url: string; resourceMetadataUrl?: string; scope?: string }
+
+export class McpLoginRequired extends Error {
+  constructor(readonly challenge: McpOAuthChallenge, readonly original: unknown) {
+    super(original instanceof Error ? original.message : String(original), { cause: original });
+  }
+}
+
 export class OfficialMcpConnector implements McpConnector {
   constructor(
     private readonly environment: Environment = process.env,
     private readonly clientFactory: (options: ClientOptions) => McpSdkClientPort = options => new Client({ name: "lxe-agent", version: "0.1.0" }, options),
+    private readonly accessToken?: (name: string, url: string) => string | undefined,
   ) {}
 
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
     const headers = server.transport === "streamable-http" ? resolveMcpHttpHeaders(server, this.environment) : {};
+    const oauth = server.transport === "streamable-http" && !new Headers(headers).has("authorization");
+    const token = oauth && this.accessToken?.(server.name, server.url);
+    if (token) headers.Authorization = "Bearer " + token;
+    let challenge: McpOAuthChallenge | undefined;
     signal?.throwIfAborted();
     const mode = server.protocolMode ?? "auto";
     const client = this.clientFactory({
@@ -42,6 +55,16 @@ export class OfficialMcpConnector implements McpConnector {
       })
       : new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: { headers },
+        ...(oauth && { fetch: async (input, init) => {
+          const response = await fetch(input, init);
+          if (response.status === 401) {
+            const params = extractWWWAuthenticateParams(response);
+            challenge = { url: server.url, ...(params.scope && { scope: params.scope }),
+              ...(params.resourceMetadataUrl && { resourceMetadataUrl: params.resourceMetadataUrl.href }) };
+          }
+          return response;
+        } }),
+
       });
     // During v2 discovery the transport is not yet attached to Client. Closing
     // only Client would let the sibling probe finish and spawn a session later.
@@ -90,6 +113,7 @@ export class OfficialMcpConnector implements McpConnector {
     } catch (error) {
       await client.close().catch(() => undefined);
       await transport.close().catch(() => undefined);
+      if (challenge) throw new McpLoginRequired(challenge, error);
       throw error;
     } finally {
       signal?.removeEventListener("abort", closeOnAbort);

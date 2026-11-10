@@ -141,6 +141,13 @@ export class AgentProtocolServer {
       case "update_skill_permissions":
         this.readyHost().updateSkillPermissions(request.params.allowed_skill_types);
         return { updated: true };
+      case "mcp_login_target":
+        if (!this.readyHost().mcpLoginTarget) throw new Error("MCP login unavailable");
+        return this.readyHost().mcpLoginTarget!(request.params.name);
+      case "mcp_login_complete":
+        if (!this.readyHost().mcpLoginComplete) throw new Error("MCP login unavailable");
+        await this.readyHost().mcpLoginComplete!(request.params);
+        return { updated: true };
       case "update_managed_llm_credential":
         if (!this.readyHost().updateManagedLlmCredential) {
           throw new Error("managed LLM credential updates are unavailable");
@@ -244,6 +251,7 @@ export class AgentProtocolServer {
         skillsRoot: payload.skills_root,
         userSkillsRoot: payload.user_skills_root,
         llmConfigRoot: payload.llm_config_root,
+        ...(payload.mcp_access_grants ? { mcpAccessGrants: payload.mcp_access_grants } : {}),
         ...(payload.managed_llm_state ? { managedLlmState: payload.managed_llm_state } : {}),
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,

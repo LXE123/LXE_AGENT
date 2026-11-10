@@ -103,7 +103,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.ok((await operations()).filter(op => op === 'toolsets.list').length > catalogReads);
     assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
   });
-  await step('add remote and local MCP services and explicitly restart', async () => {
+  await step('add remote and local MCP services, then explicitly sign in without restarting', async () => {
     await open('capabilities');
     await textClick('MCP services', '.workspace-subnav');
     const enter = (name, value) => js(`document.querySelector('.mcp-form [name="${name}"]').value=${JSON.stringify(value)}`);
@@ -129,7 +129,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal(await js("document.querySelector('[name=token]').value"), 'ORDERS_TOKEN');
     await js("behavior.ui.fail('mcp.servers.add',false)");
     await textClick('Save', '.mcp-form');
-    await waitFor("document.querySelector('.mcp-restart') && document.body.textContent.includes('orders')", 'saved remote');
+    await waitFor("document.body.textContent.includes('Sign-in required') && document.body.textContent.includes('orders')", 'saved remote');
     await textClick('Add service');
     await enter('name', 'local');
     await click('.mcp-transport label:first-child span');
@@ -142,9 +142,10 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.deepEqual(inputs.at(-1), {name:'local',transport:'stdio',command:'node',args:['/with spaces/fixture.js'],env:{}});
     assert.deepEqual(inputs.at(-2), {name:'orders',transport:'streamable-http',url:'https://example.test/mcp',bearer_token_env_var:'ORDERS_TOKEN',headers:{},env_headers:{}});
     assert.equal((await operations()).includes('restartAgent'),false);
-    await textClick('Restart agent');
-    await waitFor("document.querySelectorAll('.connection-row').length === 4 && !document.querySelector('.mcp-restart')", 'new process statuses loaded');
-    assert.equal((await operations()).filter(op=>op==='restartAgent').length,1);
+    assert.equal((await operations()).includes('mcp.servers.login'),false);
+    await textClick('Sign in');
+    await waitFor("!document.body.textContent.includes('Sign-in required')", 'authorized without a restart');
+    assert.equal((await operations()).includes('restartAgent'),false);
   });
   await step('MCP list failures are shown independently of tool catalog data', async () => {
     await open();

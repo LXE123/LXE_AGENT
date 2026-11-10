@@ -23,7 +23,7 @@ test("adding a service preserves aliases, unrelated settings and literal environ
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("Dashboard persists both transports without connecting, then discovers tools on host restart", async () => {
+test("saving both transports connects and discovers tools in the same running host", async () => {
   const source = repositoryRoot(import.meta.dir);
   const root = mkdtempSync(join(tmpdir(), "mcp-add-host-"));
   const trace = join(root, "spawn.jsonl");
@@ -42,7 +42,7 @@ test("Dashboard persists both transports without connecting, then discovers tool
     environment: { MCP_TEST_TOKEN: "fixture-token", AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     emitter: { emit: async () => {}, typing: async () => {} },
   });
-  let host = open();
+  const host = open();
   const list = () => host.dashboardCall({ operation: "mcp.servers.list", input: {} });
   try {
     await host.start();
@@ -57,13 +57,9 @@ test("Dashboard persists both transports without connecting, then discovers tool
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: local })).rejects.toThrow("already exists");
     const saved = await list();
     expect(saved.total).toBe(3);
-    expect(saved.items.every(x => x.status === "pending_restart" && x.enabled && x.tool_count === 0)).toBe(true);
     expect(JSON.stringify(saved)).not.toContain("fixture-token");
-    expect(requests).toHaveLength(0);
-    expect(existsSync(trace)).toBe(false);
-    await host.stop();
-    host = open();
-    await host.start();
+    const deadline = Date.now() + 5_000;
+    while ((await list()).items.some(item => item.status === "connecting") && Date.now() < deadline) await Bun.sleep(10);
     const live = (await list()).items;
     for (const name of ["local", "remote"]) {
       expect(live.find(item => item.name === name)).toMatchObject({ status: "ready", tool_count: 2, exposure: "codemode" });

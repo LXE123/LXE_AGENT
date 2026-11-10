@@ -87,6 +87,7 @@ export interface DesktopConfig {
 }
 
 export interface DesktopSecrets {
+  mcp_access_grants?: import("@lxe/desktop-protocol").McpAccessGrant[];
   ziniao_password: string;
   mabang_tms_password: string;
   yacang_password: string;
@@ -496,6 +497,10 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
         }
       : null;
   return {
+    ...(Array.isArray(value.mcp_access_grants) && { mcp_access_grants: value.mcp_access_grants.flatMap(item => {
+      const { name, url, access_token } = objectValue(item);
+      return typeof name === "string" && typeof url === "string" && typeof access_token === "string" ? [{ name, url, access_token }] : [];
+    }) }),
     ziniao_password: text(value.ziniao_password),
     mabang_tms_password: typeof value.mabang_tms_password === "string" ? value.mabang_tms_password : "",
     yacang_password: typeof value.yacang_password === "string" ? value.yacang_password : "",

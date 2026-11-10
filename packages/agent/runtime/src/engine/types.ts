@@ -115,6 +115,7 @@ export interface RuntimeSummaryResult {
 }
 
 export interface RuntimeProviderRequest {
+  currentMcpDirectory?: string;
   auxiliary?: { maxOutputTokens: number; reasoning: "minimum" };
   temperature?: number;
   system: string;

@@ -591,6 +591,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
   };
   "commands.list": { input: DashboardRpcEmptyInput; result: ApiList<CliCommandPayload> };
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
+  "mcp.servers.login": { input: { name: string }; result: { name: string } };
   "mcp.servers.add": { input: McpServerAddInput; result: { name: string } };
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
@@ -621,7 +622,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "mcp.servers.login" | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -996,6 +997,9 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         name: textValue(input.name, `${operation}.name`)!,
         path: textValue(input.path, `${operation}.path`)!,
       } };
+    case "mcp.servers.login":
+      exactKeys(input, ["name"], "mcp.servers.login");
+      return { operation, input: { name: textValue(input.name, "mcp.servers.login.name")! } };
     case "mcp.servers.add":
       return { operation, input: parseMcpServerAdd(input) };
     case "mcp.servers.update":
@@ -1038,7 +1042,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
+  if (call.operation === "mcp.servers.login" || call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"

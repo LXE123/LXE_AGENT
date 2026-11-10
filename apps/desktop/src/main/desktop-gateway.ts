@@ -1,3 +1,4 @@
+import { loginToMcp } from "./mcp-oauth";
 import { DesktopAutomations } from "./automations";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
@@ -124,6 +125,7 @@ export interface DesktopGatewayOptions {
 }
 
 export class DesktopGateway {
+  private readonly mcpLogins = new Map<string, AbortController>();
   private updatePreparing = false;
   private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
@@ -254,6 +256,7 @@ export class DesktopGateway {
       legacyWorkspace,
       allowedSkillTypes,
       managedLlmState: this.options.config.managedLlmState(),
+      mcpAccessGrants: () => this.options.config.mcpAccessGrants(),
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -381,6 +384,7 @@ export class DesktopGateway {
   }
 
   async stop(strict = false): Promise<void> {
+    for (const login of this.mcpLogins.values()) login.abort();
     await this.automations?.service.stop();
     await this.lxeskillHealth?.stop();
     await this.files?.dispose(); this.files = undefined;
@@ -482,6 +486,23 @@ export class DesktopGateway {
       return await this.automations.call(call as DashboardRpcCall<AutomationOperation>) as DashboardRpcResult<O>;
     }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
+    if (call.operation === "mcp.servers.login") {
+      const { name } = call.input;
+      if (this.mcpLogins.has(name)) throw new Error("MCP login already in progress");
+      const controller = new AbortController();
+      this.mcpLogins.set(name, controller);
+      const runtime = this.runtime;
+      try {
+        const target = await runtime.mcpLoginTarget(name);
+        const token = await loginToMcp(target, url => shell.openExternal(url), controller.signal);
+        controller.signal.throwIfAborted();
+        const grant = { name, url: target.url, access_token: token };
+        await runtime.mcpLoginComplete(grant);
+        this.options.config.saveMcpAccessGrant(grant);
+        return { name } as DashboardRpcResult<O>;
+      } finally { this.mcpLogins.delete(name); }
+    }
+    if (call.operation === "mcp.servers.update" && !call.input.enabled) this.mcpLogins.get(call.input.name)?.abort();
     if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {
       if (!this.automations) throw new Error("Desktop automations are unavailable");
       return await this.automations.setMcpEnabled(call.input.enabled) as DashboardRpcResult<O>;

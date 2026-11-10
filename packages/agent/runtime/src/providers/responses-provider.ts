@@ -117,19 +117,19 @@ const toolResultOutput = (content: unknown, supportsVision: boolean): string | J
  * can expand into several input items.
  */
 export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor,
-  updates?: ReadonlyMap<number, ToolSchema[]>): JsonObject[] {
+  updates?: ReadonlyMap<number, ToolSchema[]>, currentDirectory?: string): JsonObject[] {
   const input: JsonObject[] = [];
   const effort = configurationUpdateEffort(descriptor);
   const directories = descriptor?.compat?.supportsMidConvoSystemMessages === true
-    ? new Map(directoryRevisions(messages).slice(1).map(({ index, directory }) => [index, directory])) : undefined;
-  const appendTools = (index: number) => {
+    ? new Map(directoryRevisions(messages, currentDirectory).slice(1).map(({ index, directory }) => [index, directory])) : undefined;
+  const appendUpdates = (index: number) => {
     const batch = updates?.get(index);
     if (batch) input.push(additionalTools(batch, descriptor?.name === "openai"));
+    const next = directories?.get(index);
+    if (descriptor && next !== undefined) input.push(instructionMessage(descriptor, directoryUpdateText(next)));
   };
   for (const [messageIndex, message] of messages.entries()) {
-    appendTools(messageIndex);
-    const next = directories?.get(messageIndex);
-    if (descriptor && next !== undefined) input.push(instructionMessage(descriptor, directoryUpdateText(next)));
+    appendUpdates(messageIndex);
     if (message.role === "compactionSummary") {
       input.push({
         type: "message",
@@ -211,7 +211,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
       });
     }
   }
-  appendTools(messages.length);
+  appendUpdates(messages.length);
   if (effort) input.push(configurationUpdate(effort));
   return input;
 }
@@ -254,7 +254,7 @@ export const buildResponsesSummaryThinkingPayload = (
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature" | "auxiliary">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature" | "auxiliary" | "currentMcpDirectory">,
 ): Record<string, unknown> {
   descriptor = auxiliaryDescriptor(descriptor, request);
   // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
@@ -273,7 +273,7 @@ export function buildResponsesRequest(
     input: [
       ...(inline?.initial.length ? [additionalTools(inline.initial, directOpenAI)] : []),
       ...(instructionsInInput && request.system.trim() ? [instructionMessage(descriptor, request.system.trim())] : []),
-      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor, inline?.updates),
+      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor, inline?.updates, request.currentMcpDirectory),
     ],
     ...(descriptor.compat?.supportsMaxOutputTokens === false ? {} : { max_output_tokens: descriptor.maxTokens }),
     stream: true,

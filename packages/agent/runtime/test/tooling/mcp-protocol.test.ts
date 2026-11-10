@@ -240,6 +240,7 @@ for (const status of [401, 403, 500]) {
     try {
       await manager.start(new ToolRegistry());
       expect(manager.status("fixture").connected).toBe(false);
+      expect(manager.status("fixture").state).toBe(status === 401 ? "needs_auth" : "error");
       const error = manager.status("fixture").error;
       expect(error).toContain(`actual fixture failure ${status}`);
       expect(error).toContain("[redacted]");

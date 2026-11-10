@@ -200,7 +200,7 @@ export function requestContextTokenEstimate(
   capabilities?: ContextPipelineOptions["promptCapabilities"],
 ): number {
   // systemPrompt already includes the latest directory; account for its earlier versions on the wire.
-  const directories = capabilities?.midConvo ? directoryRevisions(messages) : [];
+  const directories = capabilities?.midConvo ? directoryRevisions(messages, capabilities.currentMcpDirectory) : [];
   const directoryTokens = directories.length > 1
     ? estimateTokens(directories[0]!.directory) - estimateTokens(directories.at(-1)!.directory)
       + directories.slice(1).reduce((sum, revision) => sum + estimateTokens(directoryUpdateText(revision.directory)), 0) : 0;
@@ -802,7 +802,7 @@ export interface ContextCompactionResult {
 }
 
 export interface ContextPipelineOptions {
-  promptCapabilities?: { midConvo: boolean; inlineTools: boolean };
+  promptCapabilities?: { midConvo: boolean; inlineTools: boolean; currentMcpDirectory?: string | undefined };
   provider: RuntimeProvider;
   store: RuntimeStore;
   contextWindowTokens?: number;

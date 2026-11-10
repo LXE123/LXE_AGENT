@@ -81,7 +81,7 @@ function promptStateMetadata(value: unknown): Pick<RuntimeConversationMessage, "
   const message = object(value);
   const state = object(message.promptState);
   const result: NonNullable<RuntimeConversationMessage["promptState"]> = {};
-  if ((message.role === "user" || message.role === "compactionSummary") && typeof state.mcpDirectory === "string") {
+  if ((message.role === "user" || message.role === "assistant" || message.role === "compactionSummary") && typeof state.mcpDirectory === "string") {
     result.mcpDirectory = state.mcpDirectory;
   }
   if ((message.role === "assistant" || message.role === "compactionSummary") && Array.isArray(state.tools)) {

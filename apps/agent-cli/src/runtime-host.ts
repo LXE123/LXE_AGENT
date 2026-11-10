@@ -56,6 +56,8 @@ import {
 import { DashboardService } from "./dashboard-service";
 import { loadAgentFeishuConfig } from "./feishu-runtime-config";
 
+type McpGrant = import("@lxe/desktop-protocol").McpAccessGrant;
+type LoginTarget = import("@lxe/desktop-protocol").McpLoginTarget;
 type Environment = Record<string, string | undefined>;
 
 export interface AgentRuntimeHostOptions {
@@ -68,6 +70,7 @@ export interface AgentRuntimeHostOptions {
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
+  mcpAccessGrants?: McpGrant[];
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
@@ -94,6 +97,8 @@ export interface AgentRuntimeHost {
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
+  mcpLoginTarget?(name: string): LoginTarget;
+  mcpLoginComplete?(grant: McpGrant): Promise<void>;
   updateManagedLlmCredential?(
     credential: ManagedLlmCredential | null,
     target?: ManagedLlmTarget,
@@ -201,7 +206,11 @@ export function createAgentRuntimeHost(
     mcpConfig.servers.push(desktopMcp);
   }
   registerMcpDiscoveryTools(tools, mcpConfig, store);
-  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
+  const grants = new Map(options.mcpAccessGrants?.map(grant => [grant.name, grant]));
+  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment, undefined, (name, url) => {
+    const grant = grants.get(name);
+    return grant?.url === url ? grant.access_token : undefined;
+  }));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
@@ -217,11 +226,12 @@ export function createAgentRuntimeHost(
     mcpConfig,
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: (sessionId) => processes.terminateSession(sessionId),
-    savedMcpConfig: () => loadMcpConfig(mcpConfigPath, environment, options.dataRoot),
     addMcpServer: ({ name, ...definition }) => {
       if (name === DESKTOP_MCP_NAME) throw new DashboardRpcError("invalid_request", "lxe_desktop is reserved for the desktop app");
       if (mcpConfig.servers.some(server => server.name === name)) throw new DashboardRpcError("invalid_request", `MCP server already exists: ${name}`);
-      addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
+      const server = addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
+      mcpManager.add(server);
+      mcpConfig.servers.push(server);
     },
     setMcpEnabled: async (serverName, enabled) => {
       if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
@@ -327,6 +337,17 @@ export function createAgentRuntimeHost(
       allowedSkillTypes.clear();
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
+    },
+    mcpLoginTarget: name => mcpManager.loginTarget(name),
+    mcpLoginComplete: async grant => {
+      if (mcpManager.loginTarget(grant.name).url !== grant.url) throw new Error("MCP login target changed");
+      grants.set(grant.name, grant);
+      await mcpManager.reconnect(grant.name);
+      const status = mcpManager.status(grant.name);
+      if (!status.connected) {
+        grants.delete(grant.name);
+        throw new Error(status.error || "MCP login did not establish a connection: " + status.state);
+      }
     },
     updateManagedLlmCredential: async (credential, target, state) => {
       managedLlmState = state ?? singleManagedState(credential, target);

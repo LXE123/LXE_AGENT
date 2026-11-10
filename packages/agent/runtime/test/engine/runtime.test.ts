@@ -3121,6 +3121,7 @@ test("Responses replays MCP directory and discovery at branch positions after re
     source: "mcp", connectorName: "orders", exposure: "deferred", execute: async () => ({ content: [] }) });
   registry.register({ name: "tool_search", description: "Search", input_schema: { type: "object" },
     execute: async (_args, context) => {
+      directory = "## mcp_servers\nOrders and Inventory and team-skills";
       const hits = await context.exposureState!.search(lookup);
       expect(hits.map(tool => tool.name)).toEqual([lookup]);
       return { content: [{ type: "text", text: lookup }] };
@@ -3161,6 +3162,9 @@ test("Responses replays MCP directory and discovery at branch positions after re
     const resultAt = loaded!.findIndex(item => item.type === "function_call_output" && item.call_id === "find");
     expect(resultAt).toBeGreaterThan(updateAt);
     expect(loaded![resultAt + 1]).toMatchObject({ type: "additional_tools", tools: [{ name: lookup }] });
+    expect(JSON.stringify(second)).not.toContain("team-skills");
+    expect(loaded![resultAt + 2]).toMatchObject({ role: "developer" });
+    expect(JSON.stringify(loaded![resultAt + 2])).toContain("team-skills");
     expect(bodies.every(body => body.tools === undefined)).toBe(true);
     await runtime.stop(); await runtime.start();
     const branch = await store.forkSession("s1", "first");
@@ -3177,7 +3181,8 @@ test("Responses replays MCP directory and discovery at branch positions after re
     await turn("switch");
     const ds = inputs.at(-1)!;
     expect(ds[0]).toMatchObject({ role: "system", content: [{ text: "base\n\n## mcp_servers\nOrders" }] });
-    expect(ds.filter(item => item.role === "system")).toHaveLength(3);
+    expect(ds.filter(item => item.role === "system")).toHaveLength(4);
+    expect(ds.filter(item => item.role === "system" && JSON.stringify(item).includes("team-skills"))).toHaveLength(1);
     expect(ds.some(item => item.type === "additional_tools" || item.role === "developer")).toBe(false);
     expect(bodies.at(-1)?.tools).toMatchObject([{ name: "tool_search" }, { name: lookup }]);
   } finally {

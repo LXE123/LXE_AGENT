@@ -36,11 +36,9 @@
 .mcp-form summary { color: var(--text-soft); font-size: .8125rem; cursor: pointer; }
 .mcp-entry-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .mcp-entry-row input { flex: 1 1 0; }
-.mcp-form-actions, .mcp-restart { display: flex; align-items: center; gap: 8px; }
+.mcp-form-actions, .mcp-row-actions { display: flex; align-items: center; gap: 8px; }
 .mcp-form-actions { justify-content: flex-end; }
-.mcp-restart { justify-content: space-between; padding: 12px 16px; border-radius: 10px; background: var(--info-soft); font-size: .8125rem; }
-.mcp-restart button { flex-shrink: 0; }
 @container capabilities-content (max-width: 420px) {
-  .capabilities-theme .connection-section-heading, .mcp-restart { align-items: flex-start; flex-wrap: wrap; }
+  .capabilities-theme .connection-section-heading { align-items: flex-start; flex-wrap: wrap; }
   .mcp-form .mcp-form-panel { padding: 12px; }
 }

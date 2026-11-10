@@ -27,6 +27,7 @@ import {
   type AgentResponse,
   type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
+  type McpAccessGrant, type McpLoginTarget,
   type ManagedLlmCredential,
   type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
@@ -59,6 +60,7 @@ export interface ProcessAgentRuntimeOptions {
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
+  mcpAccessGrants?: () => McpAccessGrant[];
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -230,6 +232,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
         allowed_skill_types: [...this.allowedSkillTypes],
+        ...(this.options.mcpAccessGrants && { mcp_access_grants: this.options.mcpAccessGrants() }),
         ...(this.options.managedLlmState ? { managed_llm_state: this.options.managedLlmState } : {}),
       }, this.options.requestTimeoutMs ?? 30_000));
       if (this.remoteHealthSnapshot.protocol_version !== AGENT_PROTOCOL_VERSION) {
@@ -348,6 +351,14 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         "AgentProtocolError",
       );
     }
+  }
+
+  async mcpLoginTarget(name: string): Promise<McpLoginTarget> {
+    return await this.request("mcp_login_target", { name }) as McpLoginTarget;
+  }
+
+  async mcpLoginComplete(grant: McpAccessGrant): Promise<void> {
+    await this.request("mcp_login_complete", grant);
   }
 
   async updateManagedLlmCredential(
