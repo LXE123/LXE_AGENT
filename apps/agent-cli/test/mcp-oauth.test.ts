@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { agentAccessGrant, loginToMcp, renewMcpGrant } from "../src/main/mcp-oauth";
+import { loginToMcp, renewMcpGrant } from "../src/mcp-oauth";
 
 test("interactive MCP login binds the callback state and uses PKCE before returning a bearer token", async () => {
   let redirect = "", challenge = "", exchanged = 0;
@@ -11,8 +11,8 @@ test("interactive MCP login binds the callback state and uses PKCE before return
       authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
       response_types_supported: ["code"], code_challenge_methods_supported: ["S256"] });
     if (pathname === "/register") {
-      const data = await req.json();
-      redirect = data.redirect_uris[0];
+      const data = await req.json() as { redirect_uris: string[] };
+      redirect = data.redirect_uris[0]!;
       return Response.json({ ...data, client_id: "public-client" }, { status: 201 });
     }
     if (pathname === "/token") {
@@ -47,11 +47,12 @@ test("interactive MCP login binds the callback state and uses PKCE before return
       expect((await fetch(callback)).ok).toBe(true);
     }, new AbortController().signal);
     const grant = { name: "orders", ...token };
-    expect(agentAccessGrant(grant)).toEqual({ name: "orders", url: target.url, access_token: "fixture-access", refreshable: true, expires_at: expect.any(Number) });
+    expect(grant.access_token).toBe("fixture-access");
+    expect(typeof grant.expires_at).toBe("number");
     const renewed = await renewMcpGrant(grant);
     expect(renewed.renewal?.refresh_token).toBe("second-refresh");
     expect(renewed.expires_at!).toBeGreaterThan(grant.expires_at!);
-    expect(agentAccessGrant(renewed).access_token).toBe("second-access");
+    expect(renewed.access_token).toBe("second-access");
     expect(exchanged).toBe(1);
 
     const cancel = new AbortController();

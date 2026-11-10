@@ -15,8 +15,6 @@ const initialize = {
 };
 const methods = {
   initialize,
-  mcp_login_target: { name: "orders" },
-  mcp_login_complete: { name: "orders", url: "https://example.test/mcp", access_token: "fixture" },
   update_skill_permissions: { allowed_skill_types: [] },
   update_managed_llm_credential: { credential: null },
   run_turn: { job },
@@ -36,7 +34,7 @@ const methods = {
 describe("JSON-RPC boundary", () => {
   test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(15);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));
@@ -88,6 +86,7 @@ describe("JSON-RPC boundary", () => {
       }, step: { id: "tool", name: "exec", title: "Run command", detail: "echo ok", icon_token: "setting_outlined", status: "success", duration_ms: 1000 } } },
       { type: "managed_llm.authentication_failed", payload: { provider: "test", model: "model", credential_revision: "a".repeat(64) } },
       { type: "session.changed", thread_id: "s", payload: { changes: ["messages"] } },
+      { type: "mcp.changed", payload: {} },
       { type: "system.ready", payload: { state: "ready" } },
       { type: "system.status", payload: { state: "stopped" } },
       { type: "thread.started", thread_id: "s", payload: {} },
@@ -95,7 +94,7 @@ describe("JSON-RPC boundary", () => {
       { type: "turn.completed", ...scope, payload: {} },
       { type: "turn.failed", ...scope, payload: { error: "actual failure" } },
     ];
-    expect(new Set(events.map((event) => event.type)).size).toBe(12);
+    expect(new Set(events.map((event) => event.type)).size).toBe(13);
     for (const event of events) {
       const wire = encodeAgentEvent(event);
       expect(Object.keys(wire).sort()).toEqual(["jsonrpc", "method", "params"]);

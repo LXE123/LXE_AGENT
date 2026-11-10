@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { MCP_CLI_LOGIN_TIMEOUT_MS, type McpCliServer } from "@lxe/desktop-protocol";
-import { startDesktopPipe } from "../mcp/pipe";
+import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 
-/** Grant desktop chat commands only status and interactive sign-in, never the dashboard or credential store. */
+/** Grant local chat commands only status and interactive sign-in, never the dashboard or credential store. */
 export async function openMcpCliBridge(options: {
   list(): Promise<McpCliServer[]>;
   login(name: string, signal: AbortSignal): Promise<void>;

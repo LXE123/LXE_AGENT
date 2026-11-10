@@ -41,47 +41,6 @@ const legacyPermission = (
 });
 
 describe("DesktopConfigStore", () => {
-  test("concurrent MCP requests share a refresh and rotated grants survive restart", async () => {
-    const root = createRoot();
-    const open = () => new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    const store = open();
-    let exchanges = 0;
-    const issuer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
-      const form = new URLSearchParams(await req.text());
-      ++exchanges;
-      if (exchanges === 1 && form.get("refresh_token") === "refresh-1") {
-        return Response.json({ token_type: "Bearer", access_token: "access-2", refresh_token: "refresh-2" });
-      }
-      return Response.json({ error: "invalid_grant", error_description: "revoked refresh-2" }, { status: 400 });
-    } });
-    try {
-      const grant = { name: "fixture", url: issuer.url.href, access_token: "access-1", expires_at: 1 };
-      store.saveMcpAccessGrant({ ...grant, renewal: { issuer: issuer.url.href, client: { client_id: "test" }, refresh_token: "refresh-1" } });
-      const [first, second] = await Promise.all([store.refreshMcpAccessGrant(grant), store.refreshMcpAccessGrant(grant)]);
-      expect(first).toEqual({ name: grant.name, url: grant.url, access_token: "access-2", refreshable: true });
-      expect(first).toEqual(second);
-      expect(await store.refreshMcpAccessGrant(grant)).toEqual(first);
-      expect(await store.refreshMcpAccessGrant({ ...grant, url: "https://elsewhere.test" })).toBeNull();
-      expect(exchanges).toBe(1);
-      const reopened = open();
-      expect(reopened.mcpAccessGrants()).toEqual([first!]);
-      expect(reopened.mcpCredential(grant.name, grant.url)?.renewal?.refresh_token).toBe("refresh-2");
-      await expect(reopened.refreshMcpAccessGrant(first!)).rejects.toThrow("revoked [redacted]");
-      expect(await reopened.refreshMcpAccessGrant(first!)).not.toHaveProperty("refreshable");
-      expect(exchanges).toBe(2);
-    } finally { await issuer.stop(true); }
-  });
-  test("MCP grants survive reopen through desktop secret storage and stay out of settings and child environments", () => {
-    const root = createRoot();
-    const open = () => new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
-    const grant = { name: "orders", url: "https://example.test/mcp", access_token: "private-test-access" };
-    open().saveMcpAccessGrant(grant);
-    const reopened = open();
-    expect(reopened.mcpAccessGrants()).toEqual([grant]);
-    expect(JSON.stringify(reopened.environment())).not.toContain(grant.access_token);
-    expect(JSON.stringify(reopened.state())).not.toContain(grant.access_token);
-    expect(readFileSync(join(root, "config/settings.json"), "utf8")).not.toContain(grant.access_token);
-  });
   test("balance credentials follow the selected source and respect revocation and cloud switches", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });

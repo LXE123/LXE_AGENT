@@ -23,6 +23,7 @@ export interface DashboardInvalidationDraft {
 export function dashboardInvalidationForAgentEvent(
   event: AgentEvent,
 ): DashboardInvalidationDraft | undefined {
+  if (event.type === "mcp.changed") return { domains: ["tools"], sessionIds: [] };
   if (event.type === "skills.changed") return { domains: ["skills"], sessionIds: [] };
   if (event.type === "session.changed") {
     return {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { startDesktopPipe } from "../src/mcp/pipe";
+import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 import { takeDesktopMcpConfig } from "../../agent-cli/src/desktop-mcp";
 import { OfficialMcpConnector } from "../../../packages/agent/runtime/src/tooling/mcp";
 

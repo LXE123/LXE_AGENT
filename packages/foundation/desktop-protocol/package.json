@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./local-pipe-server": "./src/local-pipe-server.ts",
     "./local-pipe": "./src/local-pipe.ts",
     "./composer-references": "./src/composer-references.ts"
   },
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
+    "@types/node": "24.10.1",
     "typescript": "7.0.2"
   }
 }

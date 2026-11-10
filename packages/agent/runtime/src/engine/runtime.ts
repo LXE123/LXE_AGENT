@@ -99,6 +99,7 @@ export interface TypeScriptAgentRuntimeOptions {
   executionPaths?: ExecutionPaths;
   approvalAvailable?: boolean;
   userSkillsRoot?: string;
+  beforeModelStep?: () => Promise<void>;
   mcpServerDirectory?: (context: SystemPromptContext) => string;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   /** Defaults to unlimited steps; a finite limit reserves the last step for a tool-free reply. */
@@ -562,6 +563,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
         await appendSteering();
+        await this.options.beforeModelStep?.();
         const isLastStep = step === maxSteps - 1;
         let toolSchemas = firstTools;
         let fingerprint = "";

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withExecutablePath } from "@lxe/core";
 import { requestDesktopPipe } from "@lxe/desktop-protocol/local-pipe";
-import { openMcpCliBridge } from "../src/main/mcp-cli-bridge";
+import { openMcpCliBridge } from "../src/mcp-cli-bridge";
 
 test("desktop exec can list and sign in by the original server name using only the scoped CLI pipe", async () => {
   let state = "needs_auth";
@@ -39,7 +39,7 @@ test("desktop exec can list and sign in by the original server name using only t
     expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("already connected") });
     expect(calls).toEqual(["team_skills", "team-skills"]);
     await expect(requestDesktopPipe(path, token, "mcp.servers.add", {})).rejects.toThrow("Unknown MCP management command");
-    expect(await command("agent-cli mcp login team-skills", { ...env, LXE_MCP_CLI_TOKEN: "" })).toMatchObject({ code: 1, err: expect.stringContaining("active desktop chat") });
+    expect(await command("agent-cli mcp login team-skills", { ...env, LXE_MCP_CLI_TOKEN: "" })).toMatchObject({ code: 1, err: expect.stringContaining("Incomplete MCP management connection") });
   } finally { await bridge.close(); }
 }, 30_000);
 

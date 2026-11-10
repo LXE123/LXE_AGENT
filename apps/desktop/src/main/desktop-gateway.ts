@@ -1,5 +1,3 @@
-import { openMcpCliBridge } from "./mcp-cli-bridge";
-import { agentAccessGrant, loginToMcp } from "./mcp-oauth";
 import { DesktopAutomations } from "./automations";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
@@ -22,7 +20,6 @@ import type {
   DesktopDashboardDataDomain,
   DesktopHealth,
   DesktopLoggingSinkStatus,
-  McpAccessGrant,
 } from "@lxe/desktop-protocol";
 import type {
   JsonObject,
@@ -126,11 +123,8 @@ export interface DesktopGatewayOptions {
   onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
 
-type PendingMcpLogin = { controller: AbortController; verifying?: McpAccessGrant };
 
 export class DesktopGateway {
-  private readonly mcpLogins = new Map<string, PendingMcpLogin>();
-  private mcpCliBridge: Awaited<ReturnType<typeof openMcpCliBridge>> | undefined;
   private updatePreparing = false;
   private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
@@ -262,13 +256,6 @@ export class DesktopGateway {
       legacyWorkspace,
       allowedSkillTypes,
       managedLlmState: this.options.config.managedLlmState(),
-      mcpAccessGrants: () => this.options.config.mcpAccessGrants(),
-      onRefreshMcpGrant: async grant => {
-        // A newly verified token can be used before the login RPC response reaches Electron.
-        const verifying = this.mcpLogins.get(grant.name)?.verifying;
-        if (verifying?.url === grant.url && verifying.access_token === grant.access_token) return verifying;
-        return this.options.config.refreshMcpAccessGrant(grant);
-      },
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -359,14 +346,6 @@ export class DesktopGateway {
         changed: () => this.options.onDashboardInvalidated?.(["automations"], []),
         onError: error => createLogger("desktop.automations").error("automation_dispatch_error", { error }),
       });
-      this.mcpCliBridge = await openMcpCliBridge({
-        list: async () => (await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items,
-        login: async (name, signal) => {
-          try { await this.loginMcp(name, signal); }
-          finally { this.options.onDashboardInvalidated?.(["tools"], []); }
-        },
-      });
-      Object.assign(agentEnvironment, this.mcpCliBridge.environment);
       await this.automations.openPipe();
       await composition.start();
       this.automations.service.start();
@@ -403,34 +382,11 @@ export class DesktopGateway {
     return () => { this.updatePreparing = false; release(); };
   }
 
-  private async loginMcp(name: string, caller?: AbortSignal): Promise<{ name: string }> {
-    const runtime = this.runtime;
-    if (!runtime?.isReady) throw new Error("Agent runtime is unavailable");
-    if (this.mcpLogins.has(name)) throw new Error("MCP login already in progress");
-    const controller = new AbortController();
-    const login: PendingMcpLogin = { controller };
-    this.mcpLogins.set(name, login);
-    const signal = caller ? AbortSignal.any([caller, controller.signal]) : controller.signal;
-    try {
-      signal.throwIfAborted();
-      const target = await runtime.mcpLoginTarget(name);
-      const previous = this.options.config.mcpCredential(name, target.url);
-      const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, url => shell.openExternal(url), signal) };
-      signal.throwIfAborted();
-      login.verifying = agentAccessGrant(grant);
-      await runtime.mcpLoginComplete(login.verifying);
-      this.options.config.saveMcpAccessGrant(grant);
-      return { name };
-    } finally { this.mcpLogins.delete(name); }
-  }
-
   private async closeDesktopPipes(): Promise<void> {
-    await this.mcpCliBridge?.close(); this.mcpCliBridge = undefined;
     await this.automations?.close(); this.automations = undefined;
   }
 
   async stop(strict = false): Promise<void> {
-    for (const login of this.mcpLogins.values()) login.controller.abort();
     await this.automations?.service.stop();
     await this.lxeskillHealth?.stop();
     await this.files?.dispose(); this.files = undefined;
@@ -532,10 +488,6 @@ export class DesktopGateway {
       return await this.automations.call(call as DashboardRpcCall<AutomationOperation>) as DashboardRpcResult<O>;
     }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
-    if (call.operation === "mcp.servers.login") {
-      return await this.loginMcp(call.input.name) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "mcp.servers.update" && !call.input.enabled) this.mcpLogins.get(call.input.name)?.controller.abort();
     if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {
       if (!this.automations) throw new Error("Desktop automations are unavailable");
       return await this.automations.setMcpEnabled(call.input.enabled) as DashboardRpcResult<O>;

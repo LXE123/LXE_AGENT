@@ -2,11 +2,14 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { auth, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
-import type { McpAccessGrant, McpLoginTarget } from "@lxe/desktop-protocol";
+import type { McpOAuthChallenge } from "@lxe/runtime";
 
-/** Only the access grant projection crosses the agent RPC. */
-export type DesktopMcpGrant = McpAccessGrant & {
-  login?: McpLoginTarget;
+export type McpGrant = {
+  name: string;
+  url: string;
+  access_token: string;
+  expires_at?: number;
+  login?: McpOAuthChallenge;
   renewal?: {
     refresh_token: string;
     issuer: string;
@@ -16,21 +19,13 @@ export type DesktopMcpGrant = McpAccessGrant & {
   };
 };
 
-export function agentAccessGrant(grant: DesktopMcpGrant): McpAccessGrant {
-  return {
-    name: grant.name, url: grant.url, access_token: grant.access_token,
-    ...(grant.expires_at !== undefined && { expires_at: grant.expires_at }),
-    ...(grant.renewal && { refreshable: true }),
-  };
-}
-
 function accessFields(tokens: StoredOAuthTokens) {
   if (!tokens.access_token || tokens.token_type.toLowerCase() !== "bearer") throw new Error("MCP OAuth did not return a bearer access token");
   return { access_token: tokens.access_token,
     ...(tokens.expires_in !== undefined && { expires_at: Date.now() + tokens.expires_in * 1000 }) };
 }
 
-export async function renewMcpGrant(grant: DesktopMcpGrant): Promise<DesktopMcpGrant> {
+export async function renewMcpGrant(grant: McpGrant): Promise<McpGrant> {
   const renewal = grant.renewal;
   if (!renewal) throw new Error("MCP login did not issue a refresh token");
   const signal = AbortSignal.timeout(15_000);
@@ -52,9 +47,8 @@ function webUrl(value: string | URL): URL {
   return url;
 }
 
-/** Called only for an explicit desktop login. Discovery, registration, PKCE and the
- * token exchange belong to the SDK. Only the resource's access token leaves here. */
-export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: string) => Promise<void>, cancel: AbortSignal): Promise<Omit<DesktopMcpGrant, "name">> {
+/** Interactive sign-in, explicitly requested by the user. */
+export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: string) => Promise<void>, cancel: AbortSignal): Promise<Omit<McpGrant, "name">> {
   const resource = webUrl(target.url);
   const signal = AbortSignal.any([cancel, AbortSignal.timeout(5 * 60_000)]);
   signal.throwIfAborted();

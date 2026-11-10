@@ -62,6 +62,7 @@ interface DashboardServiceOptions {
   addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
+  loginMcp?: (name: string) => Promise<void>;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
   mcpStatus?: (serverName: string) => {
     canRelogin?: boolean;
@@ -320,6 +321,11 @@ export class DashboardService {
       if (!this.options.addMcpServer) throw new DashboardRpcError("invalid_request", "MCP configuration is unavailable");
       this.options.addMcpServer(input);
       return { name: input.name };
+    },
+    "mcp.servers.login": async ({ name }) => {
+      if (!this.options.loginMcp) throw new DashboardRpcError("invalid_request", "MCP login unavailable");
+      await this.options.loginMcp(name);
+      return { name };
     },
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,

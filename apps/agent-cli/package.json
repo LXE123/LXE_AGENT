@@ -17,10 +17,13 @@
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
     "@lxe/runtime": "workspace:*",
+    "@modelcontextprotocol/client": "2.3.1",
+    "proper-lockfile": "4.1.2",
     "quickjs-wasi": "3.6.2"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
+    "@types/proper-lockfile": "4.1.4",
     "@types/node": "24.10.1",
     "typescript": "7.0.2"
   }

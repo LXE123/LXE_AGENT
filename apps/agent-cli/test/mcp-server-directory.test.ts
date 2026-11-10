@@ -6,7 +6,6 @@ import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import type { McpServerConfig } from "@lxe/runtime";
 import { takeDesktopMcpConfig } from "../src/desktop-mcp";
 import { renderMcpServerDirectory } from "../src/mcp-server-directory";
-import { openMcpCliBridge } from "../../desktop/src/main/mcp-cli-bridge";
 import { AgentRunHandle } from "../src/run-handle";
 import { createAgentRuntimeHost } from "../src/runtime-host";
 
@@ -50,11 +49,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   type WireRequest = { messages: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string; description: string } }> };
   const received: WireRequest[] = [];
   let nextExec: string | undefined;
+  let onModelRequest: (() => Promise<void>) | undefined;
   const endpoint = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     async fetch(request) {
       const body = await request.json() as WireRequest;
-      if (body.tools?.length) received.push(body);
+      if (body.tools?.length) { received.push(body); await onModelRequest?.(); }
       const command = body.tools?.length ? nextExec : undefined;
       if (command) nextExec = undefined;
       const chunk = { id: "test", choices: [command ? { index: 0, delta: { tool_calls: [{
@@ -64,8 +64,15 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     },
   });
   const protectedServer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const { pathname, origin } = new URL(request.url);
+    if (pathname === "/resource") return Response.json({ resource: origin + "/", authorization_servers: [origin] });
+    if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
+      authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
+      response_types_supported: ["code"], code_challenge_methods_supported: ["S256"] });
+    if (pathname === "/register") return Response.json({ ...await request.json() as Record<string, unknown>, client_id: "test-client" }, { status: 201 });
+    if (pathname === "/token") return Response.json({ access_token: "oauth-fixture", token_type: "Bearer" });
     if (request.headers.get("Authorization") !== "Bearer oauth-fixture") return new Response("Sign in first", {
-      status: 401, headers: { "WWW-Authenticate": 'Bearer scope="orders.read"' },
+      status: 401, headers: { "WWW-Authenticate": `Bearer scope="orders.read", resource_metadata="${origin}/resource"` },
     });
     if (request.method !== "POST") return new Response(null, { status: 405 });
     const reply = legacyReply(await request.json() as WireMessage);
@@ -84,14 +91,16 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   const skillsRoot = join(root, "skills");
   mkdirSync(skillsRoot);
   const workspace = resolveWorkspaceContext(root);
-  let host: ReturnType<typeof createAgentRuntimeHost>;
-  const bridge = await openMcpCliBridge({
-    list: async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items,
-    login: async name => host.mcpLoginComplete!({ name, url: protectedServer.url.href, access_token: "oauth-fixture" }),
-  });
-  host = createAgentRuntimeHost({
+  const host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: workspace, skillsRoot, userSkillsRoot: join(root, "user-skills"), llmConfigRoot,
-    environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, ...bridge.environment, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
+    environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
+    openMcpBrowser: async link => {
+      const auth = new URL(link);
+      const callback = new URL(auth.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", auth.searchParams.get("state")!);
+      callback.searchParams.set("code", "approved");
+      expect((await fetch(callback)).ok).toBe(true);
+    },
     emitter: { emit: async () => {}, typing: async () => {} },
   });
   async function turn(session: string, platform: string, command?: string) {
@@ -116,7 +125,6 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const first = await turn("desktop", "desktop");
     expect(first.prompt).toContain(join(source, "apps", "agent-cli", "docs", "mcp.md"));
     expect(first.prompt).toContain("agent-cli mcp list");
-    expect(first.prompt).not.toContain(bridge.environment.LXE_MCP_CLI_TOKEN);
     // A fresh desktop turn has the harness schemas only; the MCP tools are indirect.
     expect(JSON.stringify(received[0]!.tools)).not.toMatch(/\p{Script=Han}/u);
     expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.");
@@ -135,7 +143,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(first.tools.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     const cli = await turn("cli", "cli");
     expect(cli.prompt).not.toContain("## mcp_servers");
-    expect(cli.prompt).not.toContain("agent-cli mcp list");
+    expect(cli.prompt).toContain("agent-cli mcp list");
     expect(cli.tools).not.toContain("codemode");
     await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "lxe_desktop", enabled: false } });
     const next = await turn("desktop", "desktop");
@@ -155,14 +163,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const deadline = Date.now() + 3_000;
     while ((await current())?.status === "connecting" && Date.now() < deadline) await Bun.sleep(10);
     expect((await current())?.status).toBe("needs_auth");
-    expect(host.mcpLoginTarget!("team-skills")).toMatchObject({ url: protectedServer.url.href, scope: "orders.read" });
     const waiting = await turn("desktop", "desktop");
     expect(waiting.prompt).toContain("- mcp__team_skills (codemode)");
     expect(waiting.prompt).not.toContain("401");
     expect(waiting.tools.some(name => name.startsWith("mcp__team_skills__"))).toBe(false);
     const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
     expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
-    await expect(host.mcpLoginComplete!({ name: "team-skills", url: "https://different.test/", access_token: "oauth-fixture" })).rejects.toThrow("target changed");
     // Exercise the normal macOS exec sandbox. Other test hosts have no packaged ACL runner.
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
     await turn("desktop", "desktop", "agent-cli mcp list");
@@ -170,13 +176,42 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await turn("desktop", "desktop", "agent-cli mcp login team-skills");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("Signed in and connected to team-skills.");
     expect(await current()).toMatchObject({ status: "ready", tool_count: 2, can_relogin: true });
-    expect(host.mcpLoginTarget!("team-skills")).toEqual({ url: protectedServer.url.href });
-    await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
+    expect(await host.dashboardCall({ operation: "mcp.servers.login", input: { name: "team-skills" } })).toEqual({ name: "team-skills" });
+    // A second process uses only the data root while this same turn is between provider calls.
+    const external = "terminal-login";
+    await host.dashboardCall({ operation: "mcp.servers.add", input: { name: external, transport: "streamable-http", url: protectedServer.url.href } });
+    const externalState = async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items.find(s => s.name === external)?.status;
+    const until = Date.now() + 3_000;
+    while (await externalState() === "connecting" && Date.now() < until) await Bun.sleep(10);
+    expect(await externalState()).toBe("needs_auth");
+    const observed: (string | undefined)[] = [];
+    onModelRequest = async () => {
+      observed.push(await externalState());
+      if (observed.length !== 1) return;
+      const script = `import { runMcpCommand } from "./apps/agent-cli/src/mcp-command.ts";
+        const approve = async link => {
+          const auth = new URL(link), cb = new URL(auth.searchParams.get("redirect_uri"));
+          cb.searchParams.set("state", auth.searchParams.get("state")); cb.searchParams.set("code", "approved");
+          if (!(await fetch(cb)).ok) throw new Error("callback rejected");
+        };
+        await runMcpCommand(["login", "terminal-login"], approve);
+        await runMcpCommand(["list"]);`;
+      const child = Bun.spawn([process.execPath, "-e", script], {
+        cwd: source, env: { PATH: process.env.PATH, LXE_DATA_ROOT: root },
+        stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(code, stderr).toBe(0);
+      expect(stdout).toContain("Signed in and connected to terminal-login");
+      expect(stdout).toContain("terminal-login: configured (streamable-http, saved OAuth credentials)");
+      expect(stdout).not.toContain("oauth-fixture");
+    };
+    await turn("desktop", "desktop", "echo continue");
+    expect(observed).toEqual(["needs_auth", "ready"]);
     expect(JSON.stringify(received)).not.toContain("oauth-fixture");
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {
     await host.stop();
-    await bridge.close();
     protectedServer.stop(true);
     endpoint.stop(true);
     rmSync(root, { recursive: true, force: true });

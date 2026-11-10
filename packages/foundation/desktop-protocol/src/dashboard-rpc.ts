@@ -623,7 +623,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  AutomationOperation | "mcp.servers.login" | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -1043,7 +1043,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "mcp.servers.login" || call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
+  if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"

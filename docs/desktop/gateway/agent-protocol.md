@@ -34,9 +34,7 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后
 {"jsonrpc":"2.0","method":"session.changed","params":{"thread_id":"session-1","payload":{"changes":["messages"]}}}
 ```
 
-桌面 MCP 的浏览器登录由用户发起。Electron 通过私有请求 `mcp_login_target` 取得服务的登录地址，通过 `mcp_login_complete` 向 agent-cli 提供该服务的访问令牌并重连。下次初始化时通过 `mcp_access_grants` 恢复访问令牌。
-
-业务协议 v29 增加了 agent-cli 向 Electron 发起的 `mcp_refresh_grant` 请求，初始化期间也可使用。Electron 按服务名和 URL 查找授权，使用加密保存的刷新令牌向原授权服务器续期。响应只携带访问令牌、有效期和是否支持续期。刷新令牌和 OAuth 客户端凭据始终由 Electron 保管。
+业务协议 v30 通过 `dashboard_call` 的 `mcp.servers.login` 将服务名传给 Harness。Harness 打开授权页、处理回调、保存凭据、续期并重连。Electron 从 `mcp.servers.list` 读取状态，收到 `mcp.changed` 后刷新列表。
 
 方法名、参数和通知列表统一以 [`AgentCommandPayloads` 与 `AgentEvent`](../../../packages/foundation/desktop-protocol/src/index.ts) 为准。执行与控制使用 `run_turn`、`cancel_turn`、`steer_turn`，会话状态使用 `session_status`；Dashboard 查询使用 `dashboard_call` 携带 `{ operation, input }`。方法只接受对象参数，省略 params 按空对象校验。
 

@@ -12,12 +12,12 @@ import type {
 } from "@lxe/protocol";
 import {
   AGENT_PROTOCOL_VERSION,
-  isMcpAccessGrant,
   parseAgentRunTurnResult,
   parseJsonRpcEnvelope,
   parseJsonRpcJson,
   decodeAgentEvent,
   type AgentDashboardRpcCall,
+  MCP_CLI_LOGIN_TIMEOUT_MS,
   type AgentDashboardRpcOperation,
   type AgentCommand,
   type ConversationImagePreviewSource,
@@ -28,7 +28,6 @@ import {
   type AgentResponse,
   type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
-  type McpAccessGrant, type McpLoginTarget,
   type ManagedLlmCredential,
   type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
@@ -61,8 +60,6 @@ export interface ProcessAgentRuntimeOptions {
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
-  mcpAccessGrants?: () => McpAccessGrant[];
-  onRefreshMcpGrant?: (grant: McpAccessGrant) => Promise<McpAccessGrant | null>;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -234,7 +231,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
         allowed_skill_types: [...this.allowedSkillTypes],
-        ...(this.options.mcpAccessGrants && { mcp_access_grants: this.options.mcpAccessGrants() }),
         ...(this.options.managedLlmState ? { managed_llm_state: this.options.managedLlmState } : {}),
       }, this.options.requestTimeoutMs ?? 30_000));
       if (this.remoteHealthSnapshot.protocol_version !== AGENT_PROTOCOL_VERSION) {
@@ -355,14 +351,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     }
   }
 
-  async mcpLoginTarget(name: string): Promise<McpLoginTarget> {
-    return await this.request("mcp_login_target", { name }) as McpLoginTarget;
-  }
-
-  async mcpLoginComplete(grant: McpAccessGrant): Promise<void> {
-    await this.request("mcp_login_complete", grant);
-  }
-
   async updateManagedLlmCredential(
     credential: ManagedLlmCredential | null,
     target?: ManagedLlmTarget,
@@ -444,7 +432,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {
-    return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
+    return await this.request("dashboard_call", call, call.operation === "mcp.servers.login" ? MCP_CLI_LOGIN_TIMEOUT_MS : undefined) as DashboardRpcResult<O>;
   }
   async sessionStatus(request: import("@lxe/desktop-protocol").SessionStatusRequest): Promise<import("@lxe/desktop-protocol").SessionRunSummary[]> {
     return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];
@@ -509,8 +497,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
           this.notifications = this.notifications.then(async () => {
             if (generation === this.generation) await this.handleEvent(event, generation);
           }).catch((error) => this.logger.error("agent_event_delivery_failed", { type: event.type, error }));
-        } else if (message.method === "mcp_refresh_grant" && typeof message.id === "string" && isMcpAccessGrant(message.params)) {
-          void this.replyToMcpRefresh(message.id, message.params, generation);
         } else throw new Error("Unexpected agent-cli request");
       }
     } catch (cause) {
@@ -518,20 +504,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       this.logger.error("invalid_agent_cli_output", { error });
       void this.failConnection(error);
     }
-  }
-
-  private async replyToMcpRefresh(id: string, grant: McpAccessGrant, generation: number): Promise<void> {
-    let response: AgentResponse;
-    try {
-      const result = await this.options.onRefreshMcpGrant?.(grant);
-      response = { jsonrpc: "2.0", id, result: result ?? null };
-    } catch (error) {
-      response = { jsonrpc: "2.0", id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } };
-    }
-    if (generation !== this.generation || !this.child?.stdin.writable) return;
-    this.child.stdin.write(JSON.stringify(response) + "\n", error => {
-      if (error && generation === this.generation) void this.failConnection(error);
-    });
   }
 
   private async failConnection(error: Error): Promise<void> {

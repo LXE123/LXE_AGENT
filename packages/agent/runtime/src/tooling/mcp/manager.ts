@@ -86,6 +86,8 @@ export class McpManager {
     return this.entry(serverName).connection?.instructions;
   }
 
+  state(serverName: string): McpConnectionState { return this.entry(serverName).state; }
+
   status(serverName: string): McpServerStatus {
     const entry = this.entry(serverName);
     return {

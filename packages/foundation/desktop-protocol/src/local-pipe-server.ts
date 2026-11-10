@@ -3,8 +3,8 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdtemp, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DESKTOP_MCP_PIPE_VERSION } from "@lxe/desktop-protocol";
-import { encodePipeFrame, readFrame, pipeRecord } from "@lxe/desktop-protocol/local-pipe";
+import { DESKTOP_MCP_PIPE_VERSION } from "./desktop-mcp";
+import { encodePipeFrame, readFrame, pipeRecord } from "./local-pipe";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
 
 export async function startDesktopPipe(options: {

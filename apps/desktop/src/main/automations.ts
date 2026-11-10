@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import { AutomationClock, AutomationService, AutomationBlockedError, AutomationTargetMissingError, type DirectGatewayComposition, type ProcessAgentRuntime, type AutomationStore } from "@lxe/gateway/desktop";
 import { DESKTOP_MCP_NAME, parseDashboardRpcCall, type AutomationDefinition, type AutomationOperation, type DashboardRpcCall, type AutomationRun, type AutomationRunView } from "@lxe/desktop-protocol";
-import { startDesktopPipe } from "../mcp/pipe";
+import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 import { desktopTools } from "../mcp/tools";
 
 const object = (value: unknown): Record<string, unknown> => {

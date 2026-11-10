@@ -1,4 +1,7 @@
-import { takeDesktopMcpConfig, takeMcpCliEnvironment } from "./desktop-mcp";
+import { takeDesktopMcpConfig } from "./desktop-mcp";
+import { McpAccess } from "./mcp-access";
+import { McpAuthStore } from "./mcp-auth-store";
+import { openMcpCliBridge } from "./mcp-cli-bridge";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
@@ -34,8 +37,6 @@ import {
   loadMcpConfig,
   mcpNamespace,
   TurnUsageSyncService,
-  McpManager,
-  OfficialMcpConnector,
   PermissionPolicyService,
   PermissionApprovalService,
   ExecutionPaths,
@@ -57,8 +58,6 @@ import {
 import { DashboardService } from "./dashboard-service";
 import { loadAgentFeishuConfig } from "./feishu-runtime-config";
 
-type McpGrant = import("@lxe/desktop-protocol").McpAccessGrant;
-type LoginTarget = import("@lxe/desktop-protocol").McpLoginTarget;
 type Environment = Record<string, string | undefined>;
 
 export interface AgentRuntimeHostOptions {
@@ -71,8 +70,8 @@ export interface AgentRuntimeHostOptions {
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
-  mcpAccessGrants?: McpGrant[];
-  refreshMcpGrant?: (grant: McpGrant) => Promise<McpGrant | null>;
+  openMcpBrowser?: (url: string) => Promise<void>;
+  onMcpChanged?: () => Promise<void> | void;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
@@ -99,8 +98,6 @@ export interface AgentRuntimeHost {
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
   updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
-  mcpLoginTarget?(name: string): LoginTarget;
-  mcpLoginComplete?(grant: McpGrant): Promise<void>;
   updateManagedLlmCredential?(
     credential: ManagedLlmCredential | null,
     target?: ManagedLlmTarget,
@@ -124,7 +121,12 @@ export function createAgentRuntimeHost(
     LXE_WORKSPACE_ROOT: join(options.dataRoot, "workspace"),
     PYTHONDONTWRITEBYTECODE: "1",
   };
-  const mcpCli = takeMcpCliEnvironment(environment);
+  let mcpCli: Awaited<ReturnType<typeof openMcpCliBridge>> | undefined;
+  // A nested Harness owns its own command pipe. Never forward its parent's capability.
+  for (const key of ["LXE_MCP_CLI_PIPE", "LXE_MCP_CLI_TOKEN"]) {
+    delete environment[key];
+    delete process.env[key];
+  }
   const desktopMcp = takeDesktopMcpConfig(environment);
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
@@ -184,7 +186,7 @@ export function createAgentRuntimeHost(
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
   });
-  const execShell = new ExecShellAdapter({ environment, ...(mcpCli && { binDirectory: cliBin }) });
+  const execShell = new ExecShellAdapter({ environment, binDirectory: cliBin });
   const processes = registerCodingTools(tools, {
     executionPaths, approvals,
     ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
@@ -193,7 +195,7 @@ export function createAgentRuntimeHost(
     execShell,
     execEnv: ({ skillNames, platform }) => ({
       LXESKILL_SKILL_SCOPE: skillNames.join(","),
-      ...(platform === "desktop" && mcpCli && { ...mcpCli, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
+      ...((platform === "desktop" || platform === "cli") && mcpCli && { ...mcpCli.environment, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
     }),
     ...(options.onBackgroundTaskChanged ? { onExecUpdate: options.onBackgroundTaskChanged } : {}),
   });
@@ -214,27 +216,12 @@ export function createAgentRuntimeHost(
     mcpConfig.servers.push(desktopMcp);
   }
   registerMcpDiscoveryTools(tools, mcpConfig, store);
-  const grants = new Map(options.mcpAccessGrants?.map(grant => [grant.name, grant]));
-  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment, undefined, async (name, url, rejectedToken) => {
-    const grant = grants.get(name);
-    if (!grant || grant.url !== url) return undefined;
-    const due = rejectedToken === undefined
-      ? grant.expires_at !== undefined && grant.expires_at <= Date.now() + 30_000
-      : rejectedToken === grant.access_token;
-    if (!due || !grant.refreshable || !options.refreshMcpGrant) return grant.access_token;
-    // The resource server decides whether the current token still works if early renewal fails.
-    const updated = await options.refreshMcpGrant(grant).catch(error => {
-      if (rejectedToken !== undefined) throw error;
-      return grant;
-    });
-    if (grants.get(name) === grant) {
-      if (updated === null) grants.delete(name);
-      else if (updated.name === name && updated.url === url) grants.set(name, updated);
-      else throw new Error("MCP credential refresh returned a different login target");
-    }
-    const latest = grants.get(name);
-    return latest?.url === url ? latest.access_token : undefined;
-  }));
+  const mcp = new McpAccess(mcpConfig, new McpAuthStore(options.dataRoot), environment, options.openMcpBrowser);
+  const mcpManager = mcp.manager;
+  async function loginMcp(name: string, signal?: AbortSignal) {
+    try { await mcp.login(name, signal); }
+    finally { await options.onMcpChanged?.(); }
+  }
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
@@ -258,11 +245,13 @@ export function createAgentRuntimeHost(
       mcpManager.add(server);
       mcpConfig.servers.push(server);
     },
+    loginMcp,
     setMcpEnabled: async (serverName, enabled) => {
+      if (!enabled) mcp.cancel(serverName);
       if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
       await mcpManager.setEnabled(serverName, enabled);
     },
-    mcpStatus: name => ({ ...mcpManager.status(name), canRelogin: mcpManager.canRelogin(name, grants.get(name)?.url) }),
+    mcpStatus: name => ({ ...mcpManager.status(name), canRelogin: mcp.canRelogin(name) }),
     skillCatalog,
     allowedSkillTypes,
     providerManager,
@@ -273,7 +262,20 @@ export function createAgentRuntimeHost(
       return workspaceInstances.reload(assertWorkspaceAvailable(session.workspace), "dashboard_diagnostic");
     },
   });
-  runtimeServices.push({ start: async () => {}, stop: async () => dashboardService.dispose() });
+  runtimeServices.push({
+    async start() {
+      mcpCli = await openMcpCliBridge({
+        list: async () => (await dashboardService.call({ operation: "mcp.servers.list", input: {} })).items,
+        login: loginMcp,
+      });
+    },
+    async stop() {
+      mcp.stop();
+      await mcpCli?.close();
+      mcpCli = undefined;
+      dashboardService.dispose();
+    },
+  });
   workspaceInstances = new WorkspaceInstanceManager({
     createSearch: root => new WorkspaceSearchService(root, environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     skillCatalog,
@@ -310,6 +312,10 @@ export function createAgentRuntimeHost(
       ? { onManagedLlmAuthenticationFailure: options.onManagedLlmAuthenticationFailure }
       : {}),
     userSkillsRoot: options.userSkillsRoot,
+    beforeModelStep: async () => {
+      try { if (await mcp.reconnectAfterExternalLogin()) await options.onMcpChanged?.(); }
+      catch (error) { logger.warn("mcp_reconnect_failed", { error }); }
+    },
     mcpServerDirectory: context => renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
     systemPrompt: (context) => buildSystemPrompt({
       workspace: context.workspace,
@@ -318,7 +324,7 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
-      ...(mcpCli && context.toolPlatform === "desktop" && { mcpCliDocs }),
+      ...(mcpCli && (context.toolPlatform === "desktop" || context.toolPlatform === "cli") && { mcpCliDocs }),
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,
@@ -363,22 +369,6 @@ export function createAgentRuntimeHost(
       allowedSkillTypes.clear();
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
-    },
-    mcpLoginTarget: name => mcpManager.loginTarget(name, grants.get(name)?.url),
-    mcpLoginComplete: async grant => {
-      const previous = grants.get(grant.name);
-      if (mcpManager.loginTarget(grant.name, previous?.url).url !== grant.url) throw new Error("MCP login target changed");
-      grants.set(grant.name, { ...grant, refreshable: false });
-      try {
-        await mcpManager.reconnect(grant.name);
-        const status = mcpManager.status(grant.name);
-        if (!status.connected) throw new Error(status.error || "MCP login did not establish a connection: " + status.state);
-        grants.set(grant.name, grant);
-      } catch (error) {
-        if (previous) grants.set(grant.name, previous);
-        else grants.delete(grant.name);
-        throw error;
-      }
     },
     updateManagedLlmCredential: async (credential, target, state) => {
       managedLlmState = state ?? singleManagedState(credential, target);

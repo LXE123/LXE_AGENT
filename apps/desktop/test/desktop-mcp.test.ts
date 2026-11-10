@@ -8,7 +8,7 @@ import type { AgentJob } from "@lxe/protocol";
 import { resolveWorkspaceContext } from "@lxe/core";
 import { DesktopAutomations } from "../src/main/automations";
 import { NodeAutomationStore } from "../src/main/automation-store";
-import { startDesktopPipe } from "../src/mcp/pipe";
+import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 import { requestDesktopPipe, encodePipeFrame } from "@lxe/desktop-protocol/local-pipe";
 import { takeDesktopMcpConfig } from "../../agent-cli/src/desktop-mcp";
 import { McpManager, OfficialMcpConnector } from "../../../packages/agent/runtime/src/tooling/mcp";

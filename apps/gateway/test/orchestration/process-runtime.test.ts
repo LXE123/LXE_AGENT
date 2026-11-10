@@ -63,10 +63,16 @@ afterEach(async () => {
 });
 
 describe("ProcessAgentRuntime", () => {
-  test("an expiring MCP grant is renewed over stdio before the first HTTP request", async () => {
+  test("the Harness renews its saved MCP grant before the first request without gateway credentials", async () => {
     const seen: string[] = [];
+    let refreshes = 0;
     const mcp = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
       if (req.method !== "POST") return new Response(null, { status: 405 });
+      if (new URL(req.url).pathname === "/token") {
+        expect(new URLSearchParams(await req.text()).get("refresh_token")).toBe("refresh-1");
+        refreshes++;
+        return Response.json({ token_type: "Bearer", access_token: "fresh", expires_in: 3600 });
+      }
       seen.push(req.headers.get("authorization") ?? "");
       if (seen.at(-1) !== "Bearer fresh") return new Response(null, { status: 401 });
       const reply = legacyReply(await req.json() as WireMessage);
@@ -78,16 +84,13 @@ describe("ProcessAgentRuntime", () => {
     writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
       fixture: { transport: "streamable-http", url: mcp.url.href, enabled: true, protocol_mode: "legacy" },
     } }));
-    const grant = { name: "fixture", url: mcp.url.href, access_token: "expiring", refreshable: true, expires_at: Date.now() + 15_000 };
-    let refreshes = 0;
+    const grant = { name: "fixture", url: mcp.url.href, access_token: "expiring", expires_at: Date.now() + 15_000 };
+    writeFileSync(join(root, "config/mcp-auth.json"), JSON.stringify([{ ...grant, renewal: {
+      issuer: mcp.url.href, client: { client_id: "test" }, refresh_token: "refresh-1", metadata: { token_endpoint: mcp.url.origin + "/token" },
+    } }]), { mode: 0o600 });
     const runtime = new ProcessAgentRuntime({ command: process.execPath, arguments: [resolve("apps/agent-cli/src/main.ts")],
       cwd: process.cwd(), environment: { PATH: process.env.PATH, LOCAL_LOGS_ENABLED: "0", AGENT_LLM_PROVIDER: "zhipuai", ZHIPUAI_API_KEY: "fixture" },
       ...resourcePaths(process.cwd()), dataRoot: root, legacyWorkspace: workspaceFor(root),
-      mcpAccessGrants: () => [grant], onRefreshMcpGrant: async request => {
-        expect(request).toEqual(grant);
-        ++refreshes;
-        return { ...grant, access_token: "fresh", expires_at: Date.now() + 3600_000 };
-      },
     });
     try {
       await runtime.start();
