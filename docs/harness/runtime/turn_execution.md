@@ -28,11 +28,16 @@ Runtime 加载会话历史，再追加本轮用户输入。入口诊断独立放
 
 用户消息及之后每条有效 steering 都作为独立 user message 追加，保证 replay 与执行时的顺序一致。飞书普通 turn best-effort 设置 typing；桌面、飞书和 CLI 按响应路由创建 `FinalAnswerStreamer`，并初始化 turn/tool/skill usage；本轮用量只结算一次。
 
+宿主通过 `runtime.on(name, (event, ctx) => ...)` 订阅 Runtime 实例的事件，调用返回的函数即可取消本次订阅。Runtime 按注册顺序逐个等待处理函数完成。如果某个订阅者抛错，Runtime 记录实际错误并继续。`ctx` 提供当前的 `sessionId`、`turnId`、工作区、平台和取消信号。
+
+- `before_turn` 在组装本轮初始提示词与工具清单前触发一次，`event.userInput` 是本轮提交的文本。
+- `before_model_step` 在每个模型步骤触发一次，`event.step` 从 0 开始。同一步内的供应商重试沿用该步骤。MCP 宿主订阅此事件检查外部登录凭据，按需完成重连后，Runtime 才获取本次请求的目录与工具清单。
+
 ## Step 固定顺序
 
 一次 turn 包含从任务输入到完成、取消或失败的整个执行过程，可以经历多个 step、多次上下文组装和按需压缩。Step 是一次模型请求及其工具结果的处理周期：
 
-1. 检查 abort，消费 steering 并追加用户消息。
+1. 检查 abort，消费 steering 并追加用户消息，然后等待 `before_model_step` 的订阅者执行完毕。
 2. 捕获本 step 可见的工具 schemas，预算估算与模型请求使用同一份 schemas。
 3. `ContextPipeline.prepare()` 归一化内容、修复工具闭合，估算 system、messages、tools 和 image 的完整预算，必要时压缩。
 4. Provider 请求与重试，流式输出 text、thinking、redacted thinking 计数、tool use 和 usage。

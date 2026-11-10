@@ -314,10 +314,6 @@ export function createAgentRuntimeHost(
       ? { onManagedLlmAuthenticationFailure: options.onManagedLlmAuthenticationFailure }
       : {}),
     userSkillsRoot: options.userSkillsRoot,
-    beforeModelStep: async () => {
-      try { if (await mcp.reconnectAfterExternalAuthChange()) await options.onMcpChanged?.(); }
-      catch (error) { logger.warn("mcp_reconnect_failed", { error }); }
-    },
     mcpServerDirectory: context => renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
     systemPrompt: (context) => buildSystemPrompt({
       workspace: context.workspace,
@@ -330,6 +326,10 @@ export function createAgentRuntimeHost(
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,
+  });
+  runtime.on("before_model_step", async () => {
+    try { if (await mcp.reconnectAfterExternalAuthChange()) await options.onMcpChanged?.(); }
+    catch (error) { logger.warn("mcp_reconnect_failed", { error }); }
   });
   let started = false;
 

@@ -151,6 +151,89 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
+  test("awaits turn and step listeners in order before snapshots, once per step across provider retries", async () => {
+    const events: string[] = [];
+    const run = handle();
+    let attempts = 0;
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "lookup", description: "fixture", input_schema: { type: "object" },
+      execute: async () => { events.push("tool"); return { content: [] }; },
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools, permissionPolicy,
+      systemPrompt: () => { events.push("prompt"); return "test"; },
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async () => {
+        events.push("model");
+        attempts++;
+        if (attempts === 1) throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+        if (attempts === 2) return messageFixture({ stopReason: "toolUse", content: [
+          { type: "tool_call", id: "call1", name: "lookup", arguments: {} },
+        ] });
+        return messageFixture({ content: [{ type: "text", text: "done" }] });
+      } },
+    });
+    runtime.on("before_turn", async (event, ctx) => {
+      expect(event).toEqual({ type: "before_turn", userInput: "hello" });
+      expect(ctx).toMatchObject({ sessionId: "s1", turnId: "j1", workspace, platform: "feishu", toolPlatform: "feishu" });
+      expect(ctx.signal).toBe(run.signal);
+      await Promise.resolve();
+      events.push("turn");
+    });
+    runtime.on("before_model_step", async (event, ctx) => {
+      expect(ctx.signal).toBe(run.signal);
+      await Promise.resolve();
+      events.push(`step ${event.step}`);
+    });
+    const unsubscribe = runtime.on("before_model_step", event => {
+      events.push(`once ${event.step}`);
+      unsubscribe();
+    });
+    await runtime.start();
+    try {
+      expect((await runtime.runTurn(job(), run)).status).toBe("completed");
+      expect(events).toEqual(["turn", "prompt", "step 0", "once 0", "model", "model", "tool", "step 1", "model"]);
+    } finally { await runtime.stop(); }
+  });
+
+  test("a failed listener reports its error and a later listener can still prepare the turn", async () => {
+    const logs: string[] = [];
+    let instruction = "initial";
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: new ToolRegistry(), permissionPolicy, systemPrompt: () => instruction,
+      logger: createLogger("test.runtime", { write: line => logs.push(line) }),
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => messageFixture({ content: [{ type: "text", text: request.system }] }) },
+    });
+    runtime.on("before_turn", async () => { throw new Error("fixture listener failed"); });
+    runtime.on("before_turn", () => { instruction = "prepared"; });
+    await runtime.start();
+    try {
+      expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "prepared" });
+      expect(logs.map(line => JSON.parse(line))).toContainEqual(expect.objectContaining({
+        message: "runtime_event_handler_failed", event: "before_turn", error: expect.objectContaining({ message: "fixture listener failed" }),
+      }));
+    } finally { await runtime.stop(); }
+  });
+
+  test("stopping during a step listener skips the remaining listeners and model request", async () => {
+    const controller = new AbortController();
+    const events: string[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: new ToolRegistry(), permissionPolicy, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async () => { events.push("model"); return messageFixture(); } },
+    });
+    runtime.on("before_model_step", () => { events.push("stop"); controller.abort(); });
+    runtime.on("before_model_step", () => { events.push("next"); });
+    await runtime.start();
+    try {
+      expect((await runtime.runTurn(job(), { ...handle(), signal: controller.signal })).status).toBe("cancelled");
+      expect(events).toEqual(["stop"]);
+    } finally { await runtime.stop(); }
+  });
+
   test.each(["read-only", "workspace-write"] as const)("describes %s before contacting the model", async mode => {
     const store = new MemoryStore();
     store.permissionMode = mode;

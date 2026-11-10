@@ -54,6 +54,9 @@ import type {
   AgentRuntime,
   RuntimeContentBlock,
   RuntimeEmitter,
+  RuntimeEventHandler,
+  RuntimeEventMap,
+  RuntimeTurnEventContext,
   RuntimeHandle,
   RuntimeMessage,
   RuntimeMessageContent,
@@ -99,7 +102,6 @@ export interface TypeScriptAgentRuntimeOptions {
   executionPaths?: ExecutionPaths;
   approvalAvailable?: boolean;
   userSkillsRoot?: string;
-  beforeModelStep?: () => Promise<void>;
   mcpServerDirectory?: (context: SystemPromptContext) => string;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   /** Defaults to unlimited steps; a finite limit reserves the last step for a tool-free reply. */
@@ -202,10 +204,35 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
   }
 
   private readonly active = new Set<RuntimeHandle>();
+  private readonly subscriptions: {
+    [K in keyof RuntimeEventMap]: Set<{ handler: RuntimeEventHandler<K> }>;
+  } = { before_turn: new Set(), before_model_step: new Set() };
   private started = false;
 
   constructor(private readonly options: TypeScriptAgentRuntimeOptions) {
     this.logger = options.logger ?? createLogger("runtime");
+  }
+
+  on<K extends keyof RuntimeEventMap>(type: K, handler: RuntimeEventHandler<K>): () => void {
+    const subscriptions = this.subscriptions[type];
+    const subscription = { handler };
+    subscriptions.add(subscription);
+    return () => { subscriptions.delete(subscription); };
+  }
+
+  private async emitTurnEvent<K extends keyof RuntimeEventMap>(
+    event: RuntimeEventMap[K] & { readonly type: K }, context: RuntimeTurnEventContext,
+  ): Promise<void> {
+    const subscriptions = this.subscriptions[event.type];
+    for (const subscription of [...subscriptions]) {
+      if (context.signal.aborted) break;
+      if (!subscriptions.has(subscription)) continue;
+      try {
+        await subscription.handler(event, context);
+      } catch (error) {
+        this.logger.warn("runtime_event_handler_failed", { event: event.type, error });
+      }
+    }
   }
 
   async start(): Promise<void> {
@@ -431,6 +458,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }, "start");
       }
       await finalAnswerStreamer?.startPreparingContext();
+      const toolPlatform = String(job.source.platform ?? "").trim();
+      const eventContext: RuntimeTurnEventContext = {
+        sessionId: job.session_id, turnId: job.job_id, workspace,
+        platform: turnPlatform, toolPlatform, signal: handle.signal,
+      };
+      await this.emitTurnEvent({ type: "before_turn", userInput: job.user_input }, eventContext);
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
       const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
       statistics.setSkills(skillSnapshot?.locations ?? {}, skillSnapshot?.modules ?? {});
@@ -439,7 +472,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         : this.options.toolExposure;
       const skillNames = skillSnapshot?.names
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
-      const toolPlatform = String(job.source.platform ?? "").trim();
       const toolExposure = this.options.tools.createExposureState({
         ...exposureOptions,
         loadedTools: await this.options.store.readLoadedTools(job.session_id),
@@ -563,7 +595,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
         await appendSteering();
-        await this.options.beforeModelStep?.();
+        await this.emitTurnEvent({ type: "before_model_step", step }, eventContext);
+        handle.signal.throwIfAborted();
         const isLastStep = step === maxSteps - 1;
         let toolSchemas = firstTools;
         let fingerprint = "";

@@ -334,7 +334,25 @@ export interface TurnOutcome {
   tool_calls: number;
 }
 
+export interface RuntimeEventMap {
+  before_turn: { readonly type: "before_turn"; readonly userInput: string };
+  before_model_step: { readonly type: "before_model_step"; readonly step: number };
+}
+
+export interface RuntimeTurnEventContext {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly workspace: Readonly<WorkspaceContext>;
+  readonly platform: string;
+  readonly toolPlatform: string;
+  readonly signal: AbortSignal;
+}
+
+export type RuntimeEventHandler<K extends keyof RuntimeEventMap> =
+  (event: RuntimeEventMap[K], ctx: RuntimeTurnEventContext) => void | Promise<void>;
+
 export interface AgentRuntime {
+  on<K extends keyof RuntimeEventMap>(type: K, handler: RuntimeEventHandler<K>): () => void;
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RuntimeHandle): Promise<TurnOutcome>;
