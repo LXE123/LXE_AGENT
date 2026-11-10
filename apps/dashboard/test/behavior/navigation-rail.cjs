@@ -43,7 +43,11 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
         for (const section of sections) {
           await hover(section);
           const timing = await js(`document.querySelector('.tab-${section}').getAnimations({subtree:true}).map(a=>({state:a.playState,...a.effect.getTiming()}))`);
-          assert.ok(timing.length > 0 && timing.every(a => a.state === 'running' && a.iterations === 1 && a.duration <= 320));
+          if (section === 'team-skills') {
+            assert.equal(await js("document.querySelector('.navigation-icon-team-skills').getAnimations({subtree:true}).length"), 0, 'the catalog logo stays still on hover');
+          } else {
+            assert.ok(timing.length > 0 && timing.every(a => a.state === 'running' && a.iterations === 1 && a.duration <= 320));
+          }
           measurements.push({ theme, section, timing });
           assert.equal(await js("getComputedStyle(document.querySelector('.tab-automations')).backgroundColor"), selected);
           if (section === 'automations') {

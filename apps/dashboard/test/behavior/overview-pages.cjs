@@ -110,6 +110,18 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-toolbar [role=status]')", "catalog loaded");
     const guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"));
     assert.equal(guest.getURL(), "https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
+    const panel = await js("document.querySelector('.team-skills-panel').getBoundingClientRect().toJSON()");
+    const cornerPixel = async (dx, dy) => {
+      const image = await win.webContents.capturePage({ x: Math.round(panel.x) + dx, y: Math.round(panel.y) + dy, width: 1, height: 1 });
+      return Array.from(image.toBitmap().subarray(0, 3));
+    };
+    for (const theme of ["light", "dark"]) {
+      await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
+      const chrome = await cornerPixel(-4, 1);
+      assert.deepEqual(await cornerPixel(1, 1), chrome, `${theme}: chrome shows through the curved cutout`);
+      assert.notDeepEqual(await cornerPixel(30, 0), chrome, `${theme}: top edge is visible`);
+      assert.notDeepEqual(await cornerPixel(0, 30), chrome, `${theme}: left edge is visible`);
+    }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
     const point = { x: Math.round(viewport.x + viewport.width / 3), y: Math.round(viewport.y + viewport.height / 2) };
