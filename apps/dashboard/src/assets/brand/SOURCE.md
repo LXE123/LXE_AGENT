@@ -13,4 +13,4 @@ chroma-key removal. Run `uv run python scripts/generate-brand-assets.py` to
 normalize the masters and regenerate the desktop PNG, ICO, and Template Image
 variants.
 
-The navigation rail’s `team-skills.svg` is the static `lxe-icon.svg` from the Team Skill Library brand assets. The same file is used as `client/public/favicon.svg` in the catalog application.
+The navigation rail renders the three paths from the Team Skill Library’s transparent `lxe-mark.svg` and `lxe-mark-dark.svg` inline in `shared/navigation-icons.tsx`. Both use the orange top layer, with dark lower strokes on light surfaces and white strokes on dark surfaces. The staggered layer motion is adapted from `lxe-mark-animated.svg` for a single hover or keyboard-focus response.

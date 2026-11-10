@@ -17,6 +17,17 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
     await settle();
     assert.equal(await js(`document.querySelector('.tab-${section}').matches(':hover')`), true);
   };
+  const assertCatalogMotion = async () => {
+    const layers = await js(`[...document.querySelectorAll('.navigation-icon-team-skills path')].map(path => {
+      const [motion] = path.getAnimations();
+      return motion && { delay: motion.effect.getTiming().delay, frames: motion.effect.getKeyframes() };
+    })`);
+    assert.deepEqual(layers.map(layer => layer?.delay), [0, 40, 80]);
+    for (const {frames} of layers) {
+      assert.ok(frames.some(frame => frame.transform?.includes('translateY')));
+      assert.ok(frames.every(frame => !('opacity' in frame)));
+    }
+  };
   for (const theme of ['light', 'dark']) {
     await load(`?app=1&workspaces=1&contracts=1&section=automations&theme=${theme}&language=zh`);
     await waitFor("document.querySelector('.automation-empty-start')", 'empty automations page');
@@ -34,6 +45,9 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
         assert.ok(divider.width > 0 && divider.width < items[0].width);
         assert.ok(items.every(e => e.name && e.icons === 1 && e.tabIndex === 0 && e.width === 40 && e.height === 40));
         assert.deepEqual(items.filter(e => e.current === 'page').map(e => e.id), ['automations']);
+        const strokes = await js("[...document.querySelectorAll('.navigation-icon-team-skills path')].map(path => getComputedStyle(path).stroke)");
+        const ink = theme === 'dark' ? 'rgb(255, 255, 255)' : 'rgb(17, 17, 17)';
+        assert.deepEqual(strokes, [ink, ink, 'rgb(232, 104, 58)']);
         await waitFor("document.querySelector('.app-navigation').getAnimations({subtree:true}).length===0", 'arrival animation ends');
         win.webContents.sendInputEvent({ type: 'mouseMove', x: 700, y: 500 });
         await capture(`page-${theme}.png`);
@@ -43,11 +57,8 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
         for (const section of sections) {
           await hover(section);
           const timing = await js(`document.querySelector('.tab-${section}').getAnimations({subtree:true}).map(a=>({state:a.playState,...a.effect.getTiming()}))`);
-          if (section === 'team-skills') {
-            assert.equal(await js("document.querySelector('.navigation-icon-team-skills').getAnimations({subtree:true}).length"), 0, 'the catalog logo stays still on hover');
-          } else {
-            assert.ok(timing.length > 0 && timing.every(a => a.state === 'running' && a.iterations === 1 && a.duration <= 320));
-          }
+          assert.ok(timing.length > 0 && timing.every(a => a.state === 'running' && a.iterations === 1 && a.duration <= 320));
+          if (section === 'team-skills') await assertCatalogMotion();
           measurements.push({ theme, section, timing });
           assert.equal(await js("getComputedStyle(document.querySelector('.tab-automations')).backgroundColor"), selected);
           if (section === 'automations') {
@@ -73,6 +84,10 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
         await key('Tab', ['shift']); await key('Enter');
         await waitFor("document.querySelector('.automation-empty-start')", 'keyboard returns to fourth destination');
         await capture(`focus-${theme}.png`);
+        await focus('.tab-activity'); await key('Tab');
+        assert.equal(await js("document.activeElement.matches('.tab-team-skills:focus-visible')"), true);
+        await assertCatalogMotion();
+        await waitFor("document.querySelector('.navigation-icon-team-skills').getAnimations({subtree:true}).length===0", 'layer motion settles while focused');
         win.setContentSize(390, 844); await settle();
         assert.equal(await js("document.documentElement.scrollWidth <= innerWidth"), true);
         assert.equal(await js("[...document.querySelectorAll('.navigation-rail-button')].every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})"), true);
