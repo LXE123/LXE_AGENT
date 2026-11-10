@@ -6,6 +6,7 @@ import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import type { McpServerConfig } from "@lxe/runtime";
 import { takeDesktopMcpConfig } from "../src/desktop-mcp";
 import { renderMcpServerDirectory } from "../src/mcp-server-directory";
+import { openMcpCliBridge } from "../../desktop/src/main/mcp-cli-bridge";
 import { AgentRunHandle } from "../src/run-handle";
 import { createAgentRuntimeHost } from "../src/runtime-host";
 
@@ -48,12 +49,17 @@ test("directory uses one line per visible indirect server and bounds model-facin
 test("desktop and CLI turns send platform-scoped MCP directories to the model", async () => {
   type WireRequest = { messages: Array<{ role: string; content: string }>; tools?: Array<{ function: { name: string; description: string } }> };
   const received: WireRequest[] = [];
+  let nextExec: string | undefined;
   const endpoint = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     async fetch(request) {
       const body = await request.json() as WireRequest;
       if (body.tools?.length) received.push(body);
-      const chunk = { id: "test", choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
+      const command = body.tools?.length ? nextExec : undefined;
+      if (command) nextExec = undefined;
+      const chunk = { id: "test", choices: [command ? { index: 0, delta: { tool_calls: [{
+        index: 0, id: "call_" + crypto.randomUUID(), type: "function", function: { name: "exec", arguments: JSON.stringify({ command }) },
+      }] }, finish_reason: "tool_calls" } : { index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
     },
   });
@@ -78,19 +84,25 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   const skillsRoot = join(root, "skills");
   mkdirSync(skillsRoot);
   const workspace = resolveWorkspaceContext(root);
-  const host = createAgentRuntimeHost({
+  let host: ReturnType<typeof createAgentRuntimeHost>;
+  const bridge = await openMcpCliBridge({
+    list: async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items,
+    login: async name => host.mcpLoginComplete!({ name, url: protectedServer.url.href, access_token: "oauth-fixture" }),
+  });
+  host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: workspace, skillsRoot, userSkillsRoot: join(root, "user-skills"), llmConfigRoot,
-    environment: { ...desktopEnv, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
+    environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, ...bridge.environment, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     emitter: { emit: async () => {}, typing: async () => {} },
   });
-  async function turn(session: string, platform: string) {
+  async function turn(session: string, platform: string, command?: string) {
+    nextExec = command;
     const id = crypto.randomUUID();
     const before = received.length;
     const result = await host.runTurn({ job_id: id, session_id: session, session_key: session, response_route_id: id,
       user_id: "tester", conversation_id: session, is_group: false, message_id: id, job_kind: "turn", sender_nick: "test",
       source: { platform }, user_input: "hello", raw_data: {}, user_content_blocks: [], diagnostics: [], workspace }, new AgentRunHandle());
     expect(result).toMatchObject({ status: "completed", reply: "ok" });
-    expect(received).toHaveLength(before + 1);
+    expect(received).toHaveLength(before + (command ? 2 : 1));
     const request = received[before]!;
     expect(request.messages[0]?.role).toBe("system");
     const descriptions = new Map(request.tools!.map(({ function: tool }) => [tool.name, tool.description]));
@@ -102,6 +114,9 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await host.start();
     for (const platform of ["desktop", "cli"]) await host.ensureSession({ session_id: platform, source: { platform }, workspace });
     const first = await turn("desktop", "desktop");
+    expect(first.prompt).toContain(join(source, "apps", "agent-cli", "docs", "mcp.md"));
+    expect(first.prompt).toContain("agent-cli mcp list");
+    expect(first.prompt).not.toContain(bridge.environment.LXE_MCP_CLI_TOKEN);
     // A fresh desktop turn has the harness schemas only; the MCP tools are indirect.
     expect(JSON.stringify(received[0]!.tools)).not.toMatch(/\p{Script=Han}/u);
     expect(first.prompt).toContain("- mcp__lxe_desktop (codemode): Manage scheduled tasks in the desktop app.");
@@ -120,6 +135,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(first.tools.some(name => name.startsWith("mcp__lxe_desktop__"))).toBe(false);
     const cli = await turn("cli", "cli");
     expect(cli.prompt).not.toContain("## mcp_servers");
+    expect(cli.prompt).not.toContain("agent-cli mcp list");
     expect(cli.tools).not.toContain("codemode");
     await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "lxe_desktop", enabled: false } });
     const next = await turn("desktop", "desktop");
@@ -147,7 +163,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
     expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
     await expect(host.mcpLoginComplete!({ name: "team-skills", url: "https://different.test/", access_token: "oauth-fixture" })).rejects.toThrow("target changed");
-    await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
+    // Exercise the normal macOS exec sandbox. Other test hosts have no packaged ACL runner.
+    if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
+    await turn("desktop", "desktop", "agent-cli mcp list");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("Sign in with: agent-cli mcp login team-skills");
+    await turn("desktop", "desktop", "agent-cli mcp login team-skills");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("Signed in and connected to team-skills.");
     expect(await current()).toMatchObject({ status: "ready", tool_count: 2, can_relogin: true });
     expect(host.mcpLoginTarget!("team-skills")).toEqual({ url: protectedServer.url.href });
     await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
@@ -155,8 +176,9 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {
     await host.stop();
+    await bridge.close();
     protectedServer.stop(true);
     endpoint.stop(true);
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 20_000);

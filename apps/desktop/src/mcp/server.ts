@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { DESKTOP_MCP_META } from "@lxe/desktop-protocol";
-import { requestDesktopPipe } from "./pipe";
+import { requestDesktopPipe } from "@lxe/desktop-protocol/local-pipe";
 import { desktopTools } from "./tools";
 
 const path = process.env.LXE_DESKTOP_MCP_PIPE;

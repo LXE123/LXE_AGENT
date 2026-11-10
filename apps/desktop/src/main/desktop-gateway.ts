@@ -1,3 +1,4 @@
+import { openMcpCliBridge } from "./mcp-cli-bridge";
 import { agentAccessGrant, loginToMcp } from "./mcp-oauth";
 import { DesktopAutomations } from "./automations";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
@@ -129,6 +130,7 @@ type PendingMcpLogin = { controller: AbortController; verifying?: McpAccessGrant
 
 export class DesktopGateway {
   private readonly mcpLogins = new Map<string, PendingMcpLogin>();
+  private mcpCliBridge: Awaited<ReturnType<typeof openMcpCliBridge>> | undefined;
   private updatePreparing = false;
   private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
@@ -247,11 +249,12 @@ export class DesktopGateway {
     const feishu = loadFeishuConfig(environment);
     const allowedSkillTypes = this.options.allowedSkillTypes();
     let composition: DirectGatewayComposition | undefined;
+    const agentEnvironment = { ...environment };
     const runtime = new ProcessAgentRuntime({
       command: this.options.paths.agentCommand,
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
-      environment,
+      environment: agentEnvironment,
       skillsRoot: this.options.paths.skillsRoot,
       userSkillsRoot: this.options.paths.userSkillsRoot,
       llmConfigRoot: this.options.paths.llmConfigRoot,
@@ -349,13 +352,21 @@ export class DesktopGateway {
       this.automations = new DesktopAutomations({
         timeWorker: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "automation-time-worker.mjs")
           : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "automation-time-worker.mjs"),
-        store: store.automations!, composition, runtime, environment,
+        store: store.automations!, composition, runtime, environment: agentEnvironment,
         node: this.options.paths.officeNodePath,
         script: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "desktop-mcp.mjs")
           : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "desktop-mcp.mjs"),
         changed: () => this.options.onDashboardInvalidated?.(["automations"], []),
         onError: error => createLogger("desktop.automations").error("automation_dispatch_error", { error }),
       });
+      this.mcpCliBridge = await openMcpCliBridge({
+        list: async () => (await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items,
+        login: async (name, signal) => {
+          try { await this.loginMcp(name, signal); }
+          finally { this.options.onDashboardInvalidated?.(["tools"], []); }
+        },
+      });
+      Object.assign(agentEnvironment, this.mcpCliBridge.environment);
       await this.automations.openPipe();
       await composition.start();
       this.automations.service.start();
@@ -367,7 +378,7 @@ export class DesktopGateway {
       this.lastError = error.message;
       this.gatewayState = "error";
       await Promise.allSettled([composition.stop()]);
-      await this.automations?.close(); this.automations = undefined;
+      await this.closeDesktopPipes();
       store.stop();
       this.composition = undefined;
       this.runtime = undefined;
@@ -392,6 +403,32 @@ export class DesktopGateway {
     return () => { this.updatePreparing = false; release(); };
   }
 
+  private async loginMcp(name: string, caller?: AbortSignal): Promise<{ name: string }> {
+    const runtime = this.runtime;
+    if (!runtime?.isReady) throw new Error("Agent runtime is unavailable");
+    if (this.mcpLogins.has(name)) throw new Error("MCP login already in progress");
+    const controller = new AbortController();
+    const login: PendingMcpLogin = { controller };
+    this.mcpLogins.set(name, login);
+    const signal = caller ? AbortSignal.any([caller, controller.signal]) : controller.signal;
+    try {
+      signal.throwIfAborted();
+      const target = await runtime.mcpLoginTarget(name);
+      const previous = this.options.config.mcpCredential(name, target.url);
+      const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, url => shell.openExternal(url), signal) };
+      signal.throwIfAborted();
+      login.verifying = agentAccessGrant(grant);
+      await runtime.mcpLoginComplete(login.verifying);
+      this.options.config.saveMcpAccessGrant(grant);
+      return { name };
+    } finally { this.mcpLogins.delete(name); }
+  }
+
+  private async closeDesktopPipes(): Promise<void> {
+    await this.mcpCliBridge?.close(); this.mcpCliBridge = undefined;
+    await this.automations?.close(); this.automations = undefined;
+  }
+
   async stop(strict = false): Promise<void> {
     for (const login of this.mcpLogins.values()) login.controller.abort();
     await this.automations?.service.stop();
@@ -403,7 +440,7 @@ export class DesktopGateway {
     if (strict && composition?.parts.lifecycle.shutdownError) {
       throw new Error("更新前清理失败：" + composition.parts.lifecycle.shutdownError + "。请手动重启应用后重试");
     }
-    await this.automations?.close(); this.automations = undefined;
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop();
     this.store = undefined;
@@ -415,7 +452,7 @@ export class DesktopGateway {
 
   async recoverAfterUpdate(): Promise<void> {
     if (this.runtime?.hasProcess) throw new Error("Agent process exit is unconfirmed; restart the application before retrying");
-    await this.automations?.close(); this.automations = undefined;
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop(); this.store = undefined; this.runtime = undefined;
     await this.start();
@@ -496,22 +533,7 @@ export class DesktopGateway {
     }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
     if (call.operation === "mcp.servers.login") {
-      const { name } = call.input;
-      if (this.mcpLogins.has(name)) throw new Error("MCP login already in progress");
-      const controller = new AbortController();
-      const login: PendingMcpLogin = { controller };
-      this.mcpLogins.set(name, login);
-      const runtime = this.runtime;
-      try {
-        const target = await runtime.mcpLoginTarget(name);
-        const previous = this.options.config.mcpCredential(name, target.url);
-        const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, url => shell.openExternal(url), controller.signal) };
-        controller.signal.throwIfAborted();
-        login.verifying = agentAccessGrant(grant);
-        await runtime.mcpLoginComplete(login.verifying);
-        this.options.config.saveMcpAccessGrant(grant);
-        return { name } as DashboardRpcResult<O>;
-      } finally { this.mcpLogins.delete(name); }
+      return await this.loginMcp(call.input.name) as DashboardRpcResult<O>;
     }
     if (call.operation === "mcp.servers.update" && !call.input.enabled) this.mcpLogins.get(call.input.name)?.controller.abort();
     if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {

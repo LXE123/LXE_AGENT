@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./local-pipe": "./src/local-pipe.ts",
     "./composer-references": "./src/composer-references.ts"
   },
   "scripts": {

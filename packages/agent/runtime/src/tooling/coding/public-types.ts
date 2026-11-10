@@ -22,5 +22,5 @@ export interface CodingToolOptions {
   ripgrepPath?: string | null;
   fdPath?: string | null;
   execShell?: ExecShellAdapter;
-  execEnv?: (context: { skillNames: readonly string[] }) => Record<string, string>;
+  execEnv?: (context: { skillNames: readonly string[]; platform: string | undefined }) => Record<string, string>;
 }

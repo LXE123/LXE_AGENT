@@ -1,10 +1,10 @@
-import { takeDesktopMcpConfig } from "./desktop-mcp";
+import { takeDesktopMcpConfig, takeMcpCliEnvironment } from "./desktop-mcp";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   EmitRequest,
   JsonObject,
@@ -124,6 +124,7 @@ export function createAgentRuntimeHost(
     LXE_WORKSPACE_ROOT: join(options.dataRoot, "workspace"),
     PYTHONDONTWRITEBYTECODE: "1",
   };
+  const mcpCli = takeMcpCliEnvironment(environment);
   const desktopMcp = takeDesktopMcpConfig(environment);
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
@@ -168,8 +169,9 @@ export function createAgentRuntimeHost(
         .catch(error => logger.warn("skills_notification_failed", { error }));
     },
   });
-  const execShell = new ExecShellAdapter({ environment });
   const sourceRoot = String(environment.LXE_SOURCE_ROOT ?? "").trim();
+  const cliBin = sourceRoot ? join(sourceRoot, "apps", "agent-cli", "bin") : dirname(process.execPath);
+  const mcpCliDocs = sourceRoot ? join(sourceRoot, "apps", "agent-cli", "docs", "mcp.md") : join(cliBin, "mcp.md");
   const sourcePython = sourceRoot ? join(
     sourceRoot,
     ".venv",
@@ -182,13 +184,17 @@ export function createAgentRuntimeHost(
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
   });
+  const execShell = new ExecShellAdapter({ environment, ...(mcpCli && { binDirectory: cliBin }) });
   const processes = registerCodingTools(tools, {
     executionPaths, approvals,
     ...(environment.LXE_FD_PATH ? { fdPath: environment.LXE_FD_PATH } : {}),
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     execShell,
-    execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
+    execEnv: ({ skillNames, platform }) => ({
+      LXESKILL_SKILL_SCOPE: skillNames.join(","),
+      ...(platform === "desktop" && mcpCli && { ...mcpCli, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
+    }),
     ...(options.onBackgroundTaskChanged ? { onExecUpdate: options.onBackgroundTaskChanged } : {}),
   });
   const runtimeServices: Array<{
@@ -312,6 +318,7 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
+      ...(mcpCli && context.toolPlatform === "desktop" && { mcpCliDocs }),
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,
