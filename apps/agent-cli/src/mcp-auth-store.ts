@@ -37,13 +37,27 @@ export class McpAuthStore {
     try { return await operation(); } finally { await release(); }
   }
 
-  private write(grant: McpGrant): void {
-    const grants = this.read().filter(g => g.name !== grant.name || g.url !== grant.url);
+  private writeAll(grants: McpGrant[]): void {
     const temp = this.path + "." + randomUUID() + ".tmp";
     try {
-      writeFileSync(temp, JSON.stringify([...grants, grant], null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      writeFileSync(temp, JSON.stringify(grants, null, 2) + "\n", { mode: 0o600, flag: "wx" });
       renameSync(temp, this.path);
     } finally { rmSync(temp, { force: true }); }
+  }
+
+  private write(grant: McpGrant): void {
+    const others = this.read().filter(g => g.name !== grant.name || g.url !== grant.url);
+    this.writeAll([...others, grant]);
+  }
+
+  async forget(name: string, url: string): Promise<boolean> {
+    return this.locked(() => {
+      const grants = this.read();
+      const remaining = grants.filter(g => g.name !== name || g.url !== url);
+      if (remaining.length === grants.length) return false;
+      this.writeAll(remaining);
+      return true;
+    });
   }
 
   async save(grant: McpGrant, signal?: AbortSignal): Promise<void> {

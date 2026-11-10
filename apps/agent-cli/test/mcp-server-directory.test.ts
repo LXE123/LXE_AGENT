@@ -222,11 +222,21 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(code, stderr).toBe(0);
       expect(stdout).toContain("Signed in and connected to terminal-login");
-      expect(stdout).toContain("terminal-login: configured (streamable-http, saved OAuth credentials)");
+      expect(stdout).toContain("terminal-login: ready (streamable-http, 2 tools)");
       expect(stdout).not.toContain("oauth-fixture");
     };
     await turn("desktop", "desktop", "echo continue");
     expect(observed).toEqual(["needs_auth", "ready"]);
+    await turn("desktop", "desktop", "agent-cli mcp logout team-skills");
+    expect(await current()).toMatchObject({ status: "needs_auth", tools: [], tool_count: 0 });
+    expect(await externalState()).toBe("ready");
+    onModelRequest = undefined;
+    const logout = Bun.spawn([process.execPath, join(source, "apps/agent-cli/src/main.ts"), "mcp", "logout", external], {
+      cwd: root, env: { PATH: process.env.PATH, LXE_DATA_ROOT: root }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(await logout.exited, await new Response(logout.stderr).text()).toBe(0);
+    await turn("desktop", "desktop");
+    expect(await externalState()).toBe("needs_auth");
     expect(JSON.stringify(received)).not.toContain("oauth-fixture");
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {

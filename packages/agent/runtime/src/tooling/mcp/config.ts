@@ -121,15 +121,24 @@ function parseMcpConfig(root: Record<string, unknown>, env: Environment, default
   };
 }
 
-export function addMcpServer(path: string, name: string, definition: Record<string, unknown>, env: Environment, defaultCwd: string): McpServerConfig {
+export function addMcpServer(path: string, name: string, definition: Record<string, unknown>, env: Environment, defaultCwd: string, replace = false): McpServerConfig {
   const root = readOrEmpty(path);
   const key = root.mcpServers !== undefined ? "mcpServers" : "servers";
   const servers = mapping(root[key]);
-  if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
-  root[key] = { ...servers, [name]: { ...definition, enabled: true, exposure: "codemode" } };
+  if (!replace && Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
+  root[key] = { ...servers, [name]: { exposure: "codemode", ...definition, enabled: true } };
   const server = parseMcpConfig(root, env, defaultCwd).servers.find(item => item.name === name)!;
   writeMcpConfigDocument(path, root);
   return server;
+}
+
+/** Remove only the user configuration; OAuth credentials have their own lifecycle. */
+export function removeMcpServer(path: string, name: string): void {
+  const root = readOrEmpty(path);
+  const servers = mapping(root.mcpServers ?? root.servers);
+  if (!Object.hasOwn(servers, name)) throw new Error("MCP server not found: " + name);
+  delete servers[name];
+  writeMcpConfigDocument(path, root);
 }
 
 export function setMcpServerEnabled(path: string, serverName: string, enabled: boolean): void {
@@ -143,6 +152,10 @@ export function setMcpServerEnabled(path: string, serverName: string, enabled: b
   root[rootKey] = servers;
   writeMcpConfigDocument(path, root);
 }
+
+export const usesMcpOAuth = (server: McpServerConfig): boolean =>
+  server.transport === "streamable-http" && !server.bearerTokenEnvVar &&
+  !new Headers(server.headers).has("authorization") && !new Headers(server.envHeaders).has("authorization");
 
 export const resolveMcpHttpHeaders = (server: McpServerConfig, env: Environment): Record<string, string> => {
   const headers = Object.fromEntries(Object.entries(server.headers).map(([key, value]) => [

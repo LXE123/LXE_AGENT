@@ -1,6 +1,7 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
+import { withMcpConfigLock } from "./mcp-config-lock";
 import { openMcpCliBridge } from "./mcp-cli-bridge";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
@@ -237,18 +238,18 @@ export function createAgentRuntimeHost(
     mcpConfig,
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: (sessionId) => processes.terminateSession(sessionId),
-    addMcpServer: ({ name, ...definition }) => {
+    addMcpServer: ({ name, ...definition }) => withMcpConfigLock(mcpConfigPath, () => {
       if (mcpNamespace(name) === mcpNamespace(DESKTOP_MCP_NAME)) throw new DashboardRpcError("invalid_request", "The mcp__lxe_desktop namespace is reserved for the desktop app");
       const owner = mcpConfig.servers.find(server => mcpNamespace(server.name) === mcpNamespace(name));
       if (owner) throw new DashboardRpcError("invalid_request", `MCP server already exists in ${mcpNamespace(name)}: ${owner.name}`);
       const server = addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
       mcpManager.add(server);
       mcpConfig.servers.push(server);
-    },
+    }),
     loginMcp,
     setMcpEnabled: async (serverName, enabled) => {
       if (!enabled) mcp.cancel(serverName);
-      if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
+      if (serverName !== desktopMcp?.name) await withMcpConfigLock(mcpConfigPath, () => setMcpServerEnabled(mcpConfigPath, serverName, enabled));
       await mcpManager.setEnabled(serverName, enabled);
     },
     mcpStatus: name => ({ ...mcpManager.status(name), canRelogin: mcp.canRelogin(name) }),
@@ -267,6 +268,7 @@ export function createAgentRuntimeHost(
       mcpCli = await openMcpCliBridge({
         list: async () => (await dashboardService.call({ operation: "mcp.servers.list", input: {} })).items,
         login: loginMcp,
+        logout: async name => { try { return await mcp.logout(name); } finally { await options.onMcpChanged?.(); } },
       });
     },
     async stop() {
@@ -313,7 +315,7 @@ export function createAgentRuntimeHost(
       : {}),
     userSkillsRoot: options.userSkillsRoot,
     beforeModelStep: async () => {
-      try { if (await mcp.reconnectAfterExternalLogin()) await options.onMcpChanged?.(); }
+      try { if (await mcp.reconnectAfterExternalAuthChange()) await options.onMcpChanged?.(); }
       catch (error) { logger.warn("mcp_reconnect_failed", { error }); }
     },
     mcpServerDirectory: context => renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),

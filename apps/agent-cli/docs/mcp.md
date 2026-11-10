@@ -1,4 +1,4 @@
-# MCP server status and browser sign-in
+# Manage user MCP servers
 
 In a local chat, use `exec` to run `agent-cli mcp list`. It reports the live
 connections used by this chat without starting another Agent or reconnecting servers.
@@ -21,6 +21,28 @@ API key or Authorization header may need its configured credentials updated inst
 
 From a terminal without an active chat, the same commands work independently.
 Use the same LXE data root (`LXE_DATA_ROOT`) as the chat to share credentials.
-Standalone `list` shows configuration and whether OAuth credentials are saved.
+Standalone `list` opens temporary connections to each enabled user server, discovers
+its tools and closes the connections before exiting. Desktop-injected services
+such as `lxe_desktop` are only present in the desktop host. Both forms print the
+connection state, tool names and any error; `list --json` returns a JSON array.
+Exit status 1 means an enabled server is not ready or the configuration is invalid.
 Standalone `login` connects only the requested service. A running Harness picks
 up the new credentials for a service awaiting sign-in before its next model call.
+
+Use `agent-cli mcp logout <name>` to forget that server’s locally stored OAuth
+credentials without removing the server. To sign in again, run `login <name>`.
+Logging out does not revoke access at the provider or remove fixed HTTP headers.
+
+From a terminal, add or replace a user configuration with either form:
+
+```sh
+agent-cli mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
+agent-cli mcp add files --cwd /path/to/workspace -- node /path/to/mcp-server.js
+agent-cli mcp remove files
+```
+
+`add` saves the definition without starting it; `remove` keeps saved OAuth
+credentials. CLI config edits apply to the next standalone command or newly
+started Harness. For an immediate addition in an open desktop chat, use
+**Capabilities → MCP services → Add service**. All workspaces using the same
+LXE data root share the configuration. Run `agent-cli mcp --help` for options.

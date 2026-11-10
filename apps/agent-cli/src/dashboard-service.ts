@@ -59,7 +59,7 @@ interface DashboardServiceOptions {
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
   mcpConfig: McpConfig;
-  addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void;
+  addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void | Promise<void>;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
   loginMcp?: (name: string) => Promise<void>;
@@ -317,9 +317,9 @@ export class DashboardService {
     },
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
-    "mcp.servers.add": input => {
+    "mcp.servers.add": async input => {
       if (!this.options.addMcpServer) throw new DashboardRpcError("invalid_request", "MCP configuration is unavailable");
-      this.options.addMcpServer(input);
+      await this.options.addMcpServer(input);
       return { name: input.name };
     },
     "mcp.servers.login": async ({ name }) => {

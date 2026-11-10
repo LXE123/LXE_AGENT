@@ -1,6 +1,7 @@
 import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "../registry";
 import { McpLoginRequired, OfficialMcpConnector, type McpOAuthChallenge } from "./connector";
+import { usesMcpOAuth } from "./config";
 import { adaptMcpTools } from "./tool-adapter";
 import { reserveMcpNamespace } from "./naming";
 import { mcpFailureText, withTimeout } from "./support";
@@ -78,8 +79,7 @@ export class McpManager {
 
   canRelogin(name: string, knownUrl?: string): boolean {
     const { config } = this.entry(name);
-    return config.enabled && config.transport === "streamable-http" && config.url === knownUrl &&
-      !config.bearerTokenEnvVar && !new Headers(config.headers).has("authorization") && !new Headers(config.envHeaders).has("authorization");
+    return config.enabled && config.url === knownUrl && usesMcpOAuth(config);
   }
 
   serverInstructions(serverName: string): string | undefined {

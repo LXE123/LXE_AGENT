@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { McpManager, OfficialMcpConnector, type McpConfig } from "@lxe/runtime";
+import { McpManager, OfficialMcpConnector, usesMcpOAuth, type McpConfig } from "@lxe/runtime";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
 import { McpAuthStore } from "./mcp-auth-store";
 import { loginToMcp } from "./mcp-oauth";
@@ -25,7 +25,9 @@ export class McpAccess {
     environment: Record<string, string | undefined>, private readonly openBrowser = openMcpBrowser) {
     this.manager = new McpManager(config, new OfficialMcpConnector(environment, undefined, async (name, url, rejected) => {
       const token = await store.token(name, url, rejected);
-      this.lastToken.set(name, token);
+      // Keep the last authenticated connection recognizable until it has been reset,
+      // even if an in-flight tool request already observed an external logout.
+      if (token || this.manager.state(name) !== "ready") this.lastToken.set(name, token);
       return token;
     }));
   }
@@ -69,19 +71,35 @@ export class McpAccess {
     }
   }
 
+  async logout(name: string): Promise<boolean> {
+    const server = this.config.servers.find(s => s.name === name);
+    if (!server) throw new Error("MCP server not found: " + name);
+    if (!usesMcpOAuth(server)) throw new Error("MCP logout requires a Streamable HTTP server without a configured Authorization header");
+    this.cancel(name);
+    const removed = await this.store.forget(name, server.url);
+    if (server.enabled && (removed || this.lastToken.get(name))) {
+      this.lastToken.delete(name);
+      await this.manager.reconnect(name);
+    }
+    return removed;
+  }
+
   cancel(name: string): void { this.logins.get(name)?.abort(); }
   stop(): void {
     for (const login of this.logins.values()) login.abort();
   }
 
-  async reconnectAfterExternalLogin(): Promise<boolean> {
+  async reconnectAfterExternalAuthChange(): Promise<boolean> {
     const pending: Promise<void>[] = [];
-    for (const { name, url } of this.config.servers) {
+    for (const { name, url, transport, enabled } of this.config.servers) {
       const existing = this.reconnects.get(name);
       if (existing) { pending.push(existing); continue; }
-      if (this.manager.state(name) !== "needs_auth" || this.logins.has(name)) continue;
+      if (!enabled || transport !== "streamable-http" || this.logins.has(name)) continue;
+      const state = this.manager.state(name);
+      const previous = this.lastToken.get(name);
+      if (state !== "needs_auth" && !(state === "ready" && previous)) continue;
       const token = this.store.get(name, url)?.access_token;
-      if (!token || token === this.lastToken.get(name)) continue;
+      if (token === previous || (state === "ready" && token)) continue;
       this.lastToken.set(name, token);
       const reconnect = this.manager.reconnect(name).finally(() => this.reconnects.delete(name));
       this.reconnects.set(name, reconnect);
