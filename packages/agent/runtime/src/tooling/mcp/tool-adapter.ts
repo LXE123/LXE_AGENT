@@ -2,27 +2,8 @@ import type { JsonObject } from "@lxe/protocol";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
 import { ToolExecutionError, unknownToolFailureDetails, type ToolDefinition } from "../registry";
 import type { McpCallResult, McpConnection, McpRemoteTool, McpServerConfig } from "./types";
+import { uniqueMcpToolName } from "./naming";
 import { mapping, mcpFailureText, withTimeout } from "./support";
-
-const safeName = (value: string, fallback: string): string => value.trim().replaceAll(/[^A-Za-z0-9_-]+/g, "_").replaceAll(/_+/g, "_").replaceAll(/^_+|_+$/g, "") || fallback;
-export const mcpServerPrefix = (serverName: string): string => `mcp__${safeName(serverName, "mcp")}__`;
-export const mcpToolName = (serverName: string, toolName: string): string => {
-  const value = `${mcpServerPrefix(serverName)}${safeName(toolName, "tool")}`;
-  if (new TextEncoder().encode(value).byteLength <= 64) return value;
-  const suffix = `_${new Bun.CryptoHasher("sha1").update(`${serverName}\0${toolName}`).digest("hex").slice(0, 10)}`;
-  return `${value.slice(0, Math.max(1, 64 - suffix.length)).replaceAll(/[_-]+$/g, "")}${suffix}`;
-};
-
-const uniqueMcpToolName = (serverName: string, toolName: string, used: ReadonlySet<string>): string => {
-  const candidate = mcpToolName(serverName, toolName);
-  if (!used.has(candidate)) return candidate;
-  for (let index = 0; ; index++) {
-    const seed = `${serverName}\0${toolName}${index === 0 ? "" : `\0${index}`}`;
-    const suffix = `_${new Bun.CryptoHasher("sha1").update(seed).digest("hex").slice(0, 10)}`;
-    const name = `${candidate.slice(0, 64 - suffix.length).replaceAll(/[_-]+$/g, "")}${suffix}`;
-    if (!used.has(name)) return name;
-  }
-};
 
 const safeMcpContent = (result: McpCallResult): JsonObject[] => {
   const content = result.content.map((raw): JsonObject => {
@@ -68,15 +49,20 @@ export function adaptMcpTools(
   onError: (observed: string) => void = () => {},
 ): ToolDefinition[] {
   const used = new Set(usedNames);
-  const rawNames = new Set<string>();
-  return tools.flatMap((tool): ToolDefinition[] => {
-    if (!tool.name.trim() || server.disabledTools.has(tool.name)) return [];
-    if (server.enabledTools.size > 0 && !server.enabledTools.has(tool.name)) return [];
-    if (rawNames.has(tool.name)) throw new Error(`duplicate MCP tool name from ${server.name}: ${tool.name}`);
-    rawNames.add(tool.name);
-    const modelName = uniqueMcpToolName(server.name, tool.name, used);
+  const visible = tools.filter(tool => tool.name.trim() && !server.disabledTools.has(tool.name)
+    && (!server.enabledTools.size || server.enabledTools.has(tool.name)));
+  const modelNames = new Map<string, string>();
+  // A server can return the same tools in another order after a reconnect.
+  // Allocate collision suffixes in raw-name order, then preserve its listing order.
+  for (const raw of visible.map(tool => tool.name).sort()) {
+    if (modelNames.has(raw)) throw new Error(`duplicate MCP tool name from ${server.name}: ${raw}`);
+    const modelName = uniqueMcpToolName(server.name, raw, used);
     used.add(modelName);
-    return [{
+    modelNames.set(raw, modelName);
+  }
+  return visible.map((tool): ToolDefinition => {
+    const modelName = modelNames.get(tool.name)!;
+    return {
       name: modelName,
       rawName: tool.name,
       description: tool.description ?? "",
@@ -126,6 +112,6 @@ export function adaptMcpTools(
           throw failure;
         }
       },
-    }];
+    };
   });
 }

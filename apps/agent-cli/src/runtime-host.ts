@@ -32,6 +32,7 @@ import {
   queryLxeSkillCommandSkills,
   addMcpServer,
   loadMcpConfig,
+  mcpNamespace,
   TurnUsageSyncService,
   McpManager,
   OfficialMcpConnector,
@@ -202,7 +203,7 @@ export function createAgentRuntimeHost(
     || join(options.dataRoot, "config", "mcp_servers.local.json");
   const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
   if (desktopMcp) {
-    if (mcpConfig.servers.some(server => server.name === desktopMcp.name)) throw new Error("lxe_desktop is reserved for the app-managed MCP server");
+    if (mcpConfig.servers.some(server => mcpNamespace(server.name) === mcpNamespace(desktopMcp.name))) throw new Error("The mcp__lxe_desktop namespace is reserved for the app-managed MCP server");
     mcpConfig.servers.push(desktopMcp);
   }
   registerMcpDiscoveryTools(tools, mcpConfig, store);
@@ -227,8 +228,9 @@ export function createAgentRuntimeHost(
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: (sessionId) => processes.terminateSession(sessionId),
     addMcpServer: ({ name, ...definition }) => {
-      if (name === DESKTOP_MCP_NAME) throw new DashboardRpcError("invalid_request", "lxe_desktop is reserved for the desktop app");
-      if (mcpConfig.servers.some(server => server.name === name)) throw new DashboardRpcError("invalid_request", `MCP server already exists: ${name}`);
+      if (mcpNamespace(name) === mcpNamespace(DESKTOP_MCP_NAME)) throw new DashboardRpcError("invalid_request", "The mcp__lxe_desktop namespace is reserved for the desktop app");
+      const owner = mcpConfig.servers.find(server => mcpNamespace(server.name) === mcpNamespace(name));
+      if (owner) throw new DashboardRpcError("invalid_request", `MCP server already exists in ${mcpNamespace(name)}: ${owner.name}`);
       const server = addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
       mcpManager.add(server);
       mcpConfig.servers.push(server);

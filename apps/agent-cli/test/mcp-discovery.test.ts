@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptMcpTools, ExecutionPaths, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolOutputError, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { adaptMcpTools, ExecutionPaths, McpManager, PermissionApprovalService, registerCodingTools, SqliteRuntimeStore, ToolOutputError, ToolRegistry, type McpServerConfig, type ToolDefinition } from "@lxe/runtime";
+import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 import { policyFor, testWorkspace, workspaceFor } from "../../../packages/agent/runtime/test/workspace";
 import { AgentRunHandle } from "../src/run-handle";
 import { registerMcpDiscoveryTools } from "../src/mcp-discovery";
@@ -397,33 +398,59 @@ test("a fork inherits codemode values through its selected turn and writes indep
   expect(await read(fork)).toBe("child");
 });
 
-test("codemode dispatches colliding JavaScript aliases to the exact registered tools", async () => {
-  const { registry, makeTool, run } = await setup();
-  const names = ["mcp__my-shop__get", "mcp__my_shop__get"];
-  for (const name of names) makeTool(name, { exposure: "direct", execute: async () => ({ content: [{ type: "text", text: name }] }) });
-  const state = registry.createExposureState({ platform: "desktop" });
-  const schemas = state.schemas();
-  for (const name of names) {
-    expect(schemas.find(tool => tool.name === name)?.description).toBe(
-      `desktop example\n\nCodemode: \`tools.${name.replaceAll("-", "$")}(args)\` resolves to \`{ content, structuredContent?, isError? }\`.`,
-    );
-    expect(registry.definition(name)!.description).toBe("desktop example");
-  }
-  expect(state.schemas()).toEqual(schemas);
-  const result = await run(`
-    const hits = await searchTools("get");
-    const call = async t => (await tools[t.name]({})).content[0].text;
-    return [await Promise.all(hits.map(call)), await Promise.all(ALL_TOOLS.map(call))];
-  `);
-  const [found, listed] = JSON.parse(String(result.content[0]?.text)) as string[][];
-  expect(found!.sort()).toEqual(names);
-  expect(listed!.sort()).toEqual(names);
+test("discovery, declarations and scripts share names; tools/call carries each original MCP name", async () => {
+  const wire: string[] = [];
+  const tools = ["list-skills", "list_skills", "ignored-tool"].map(name => ({
+    name, description: name, inputSchema: { type: "object" },
+  }));
+  const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    const msg = await request.json() as WireMessage;
+    if (msg.method === "tools/list") return Response.json({ jsonrpc: "2.0", id: msg.id, result: { tools } });
+    if (msg.method === "tools/call") wire.push(msg.params!.name);
+    const reply = legacyReply(msg);
+    return reply ? Response.json(reply) : new Response(null, { status: 202 });
+  } });
+  const server: McpServerConfig = { ...desktopConfig(), name: "team-skills", transport: "streamable-http",
+    protocolMode: "legacy", url: endpoint.url.href, exposure: "deferred", disabledTools: new Set(["ignored-tool"]) };
+  const manager = new McpManager({ servers: [server] });
+  try {
+    const { registry, run, handle } = await setup([server, desktopConfig()]);
+    await manager.start(registry);
+    const modelName = "mcp__team_skills__list_skills";
+    const status = () => manager.status("team-skills").tools;
+    const byRaw = () => Object.fromEntries(status().map(t => [t.rawName, t.modelName]));
+    const names = byRaw();
+    expect(names).toEqual({ "list-skills": modelName, list_skills: expect.stringMatching(/^mcp__team_skills__list_skills_[0-9a-f]{10}$/) });
+    tools.reverse();
+    await manager.reconnect("team-skills");
+    expect(byRaw()).toEqual(names);
+
+    const script = await run(`
+      const ns = await describeNamespace("mcp__team_skills");
+      const hits = (await searchTools("skills", {namespace: "team-skills"})).map(t => t.name);
+      await tools.mcp__team_skills__list_skills({});
+      await tools[hits.find(n => n !== "mcp__team_skills__list_skills")]({});
+      return {name: ns.name, tools: ns.tools.sort(), hits: hits.sort(), all: ALL_TOOLS.map(t => t.name).sort()};
+    `);
+    const expected = Object.values(names).sort();
+    expect(JSON.parse(String(script.content[0]?.text))).toEqual({ name: "mcp__team_skills", tools: expected, hits: expected, all: expected });
+    const state = registry.createExposureState({ platform: "desktop" });
+    const context = { exposureState: state, handle, session_id: "s1", platform: "desktop", workspace: testWorkspace,
+      executionPolicy: policyFor(testWorkspace.directory) };
+    const hits = await registry.execute("tool_search", { query: "skills" }, context);
+    for (const name of expected) {
+      expect(hits.content[0]?.text).toContain(`- ${name}:`);
+      expect(state.schemas().find(s => s.name === name)?.description).toContain(`tools.${name}(args)`);
+    }
+    await registry.execute(modelName, {}, context);
+    expect(wire).toEqual(["list-skills", "list_skills", "list-skills"]);
+  } finally { await manager.stop(); endpoint.stop(true); }
 });
 
 test("Pi discovery offers ranked callable names, signatures and scoped namespace information", async () => {
   const { makeTool, run } = await setup();
-  const name = "mcp__lxe_desktop__list-widgets";
-  const alias = "mcp__lxe_desktop__list_widgets";
+  const name = "mcp__lxe_desktop__list_widgets";
   makeTool(name, {
     description: "List colorful widgets", connectorInstructions: "Desktop instructions",
     input_schema: { type: "object", required: ["owner"], properties: { owner: { $ref: "#/$defs/Owner" } },
@@ -443,14 +470,14 @@ test("Pi discovery offers ranked callable names, signatures and scoped namespace
     };
   `);
   const value = JSON.parse(String(result.content[0]?.text));
-  expect(value.hit.name).toBe(alias);
+  expect(value.hit.name).toBe(name);
   expect(Object.keys(value.hit).sort()).toEqual(["description", "name"]);
   expect(value.hit.description).toContain("owner: string");
   expect(value.hit.description).toContain("Array<number>");
   expect(value.same).toBe(true);
   expect(value.missing).toBe(true);
   expect(value.empty).toEqual([]);
-  expect(value.ns).toEqual({ name: "mcp__lxe_desktop", description: "Manage scheduled tasks in the desktop app.", instructions: "Desktop instructions", tools: [alias] });
+  expect(value.ns).toEqual({ name: "mcp__lxe_desktop", description: "Manage scheduled tasks in the desktop app.", instructions: "Desktop instructions", tools: [name] });
   await expect(run('await searchTools("widget", { limit: 0 })')).rejects.toThrow("positive integer");
   await expect(run('await searchTools("widget", { namespace: 2 })')).rejects.toThrow("namespace must be a string");
 });

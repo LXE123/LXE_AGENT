@@ -153,7 +153,7 @@ describe("MCP manager", () => {
     const registry = new ToolRegistry();
     await manager.start(registry);
     expect(manager.status("slow-start").error).toContain("timed out");
-    await expect(registry.execute("mcp__slow-tool__hang", {}, {
+    await expect(registry.execute("mcp__slow_tool__hang", {}, {
       session_id: "s1",
       workspace: testWorkspace, executionPolicy: policyFor(testWorkspace.directory),
       handle: {

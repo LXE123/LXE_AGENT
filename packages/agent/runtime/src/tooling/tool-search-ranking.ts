@@ -24,6 +24,7 @@
  */
 
 import type { ToolDefinition } from "./registry";
+import { mcpNamespace } from "./mcp/naming";
 
 /** A tool as the ranker sees it: its name, its text, and the text of its namespace. */
 type SearchDocument = {
@@ -257,7 +258,7 @@ function schemaText(schema: unknown, root: unknown, parts: string[], seen: Set<u
 export function createToolSearchDocument(tool: ToolDefinition): SearchDocument {
   const parts = [tool.description];
   schemaText(tool.input_schema, tool.input_schema, parts, new Set([tool.input_schema]));
-  const namespace = tool.connectorName ? `mcp__${tool.connectorName}` : undefined;
+  const namespace = tool.connectorName ? mcpNamespace(tool.connectorName) : undefined;
   return { name: tool.name, text: parts.join(" "),
     namespaceText: [namespace, tool.connectorDescription, tool.connectorInstructions].filter(Boolean).join(" ") };
 }

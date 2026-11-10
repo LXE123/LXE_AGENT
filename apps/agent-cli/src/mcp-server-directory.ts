@@ -1,4 +1,4 @@
-import type { McpConfig, McpManager, McpServerConfig } from "@lxe/runtime";
+import { mcpNamespace, type McpConfig, type McpManager, type McpServerConfig } from "@lxe/runtime";
 
 export function mcpServerEnabledOnPlatform(server: McpServerConfig, platform: string | undefined): boolean {
   return server.enabled && (!server.platforms || server.platforms.includes(platform ?? ""));
@@ -29,7 +29,7 @@ export function renderMcpServerDirectory(config: McpConfig, platform: string, ma
   let omitted = "";
   // Reserve room for namespace names before sharing the remaining space among summaries.
   for (const server of servers) {
-    const line = `- mcp__${server.name} (${server.exposure === "codemode" ? "codemode" : "tool_search"})`;
+    const line = `- ${mcpNamespace(server.name)} (${server.exposure === "codemode" ? "codemode" : "tool_search"})`;
     const count = servers.length - names.length;
     if (line.length + 1 + omissionLine(count - 1).length > remaining) {
       omitted = omissionLine(count);

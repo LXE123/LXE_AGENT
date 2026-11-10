@@ -141,9 +141,9 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect((await current())?.status).toBe("needs_auth");
     expect(host.mcpLoginTarget!("team-skills")).toMatchObject({ url: protectedServer.url.href, scope: "orders.read" });
     const waiting = await turn("desktop", "desktop");
-    expect(waiting.prompt).toContain("- mcp__team-skills (codemode)");
+    expect(waiting.prompt).toContain("- mcp__team_skills (codemode)");
     expect(waiting.prompt).not.toContain("401");
-    expect(waiting.tools.some(name => name.startsWith("mcp__team-skills__"))).toBe(false);
+    expect(waiting.tools.some(name => name.startsWith("mcp__team_skills__"))).toBe(false);
     const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
     expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
     await expect(host.mcpLoginComplete!({ name: "team-skills", url: "https://different.test/", access_token: "oauth-fixture" })).rejects.toThrow("target changed");

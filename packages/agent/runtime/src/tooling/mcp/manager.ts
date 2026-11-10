@@ -2,6 +2,7 @@ import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "../registry";
 import { McpLoginRequired, OfficialMcpConnector, type McpOAuthChallenge } from "./connector";
 import { adaptMcpTools } from "./tool-adapter";
+import { reserveMcpNamespace } from "./naming";
 import { mcpFailureText, withTimeout } from "./support";
 import type { McpConfig, McpConnection, McpConnectionState, McpConnector, McpServerConfig, McpServerStatus } from "./types";
 
@@ -22,6 +23,7 @@ interface ServerEntry {
 export class McpManager {
   private readonly logger = createLogger("runtime.mcp");
   private readonly entries = new Map<string, ServerEntry>();
+  private readonly namespaceOwners = new Map<string, string>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -34,6 +36,7 @@ export class McpManager {
 
   add(server: McpServerConfig): void {
     if (this.entries.has(server.name)) throw new Error("duplicate MCP server name: " + server.name);
+    reserveMcpNamespace(this.namespaceOwners, server.name);
     const entry: ServerEntry = { config: server, state: server.enabled ? "configured" : "disabled", error: "",
       generation: 0, toolCount: 0, tools: [], cleanup: Promise.resolve() };
     this.entries.set(server.name, entry);

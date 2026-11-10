@@ -81,7 +81,9 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ## 工具适配与上下文的边界
 
-模型工具名采用 `mcp__<server>__<tool>`，非法字符会替换，过长或冲突时附加哈希。调用时使用单独保存的服务端原始名称，不反向拆解模型工具名。清理按实际注册名称进行，避免相似前缀或截短名称误删其他服务器的工具。
+模型工具名采用 `mcp__<server>__<tool>`。例如，服务 `team-skills` 的工具 `list-skills` 在服务目录中归入 `mcp__team_skills`；工具搜索和直接声明都使用 `mcp__team_skills__list_skills`，脚本可以原样写 `tools.mcp__team_skills__list_skills({})`。统一成下划线是为了让模型看到的名字也是合法的 JavaScript 标识符。配置、登录和工具过滤仍使用原名；发给该服务的 `tools/call.params.name` 仍是 `list-skills`。
+
+服务名不能仅靠 `-` 和 `_` 区分（如 `team-skills` 与 `team_skills`），否则会占用同一目录名。工具名过长或规范化后重名时会附加哈希，调用和清理按实际注册的名字定位，不从模型名反推原名。
 
 工具适配保留描述、参数 Schema、平台限制及宿主提供的调用元数据。
 

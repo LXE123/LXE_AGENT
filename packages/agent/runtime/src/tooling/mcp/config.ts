@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { Environment } from "@lxe/core";
 import type { McpConfig, McpServerConfig, McpTransportKind } from "./types";
 import { mapping, stringMapping } from "./support";
+import { reserveMcpNamespace } from "./naming";
 
 const resolvePlaceholders = (value: string, env: Environment, field: string): string =>
   value.replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
@@ -63,9 +64,11 @@ export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): 
 
 function parseMcpConfig(root: Record<string, unknown>, env: Environment, defaultCwd: string): McpConfig {
   const servers = mapping(root.mcpServers ?? root.servers);
+  const namespaces = new Map<string, string>();
   return {
     servers: Object.entries(servers).sort(([left], [right]) => left.localeCompare(right)).map(([name, raw]) => {
       if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`invalid MCP server name: ${name}`);
+      reserveMcpNamespace(namespaces, name);
       const config = mapping(raw);
       if (config.enabled !== undefined && typeof config.enabled !== "boolean") throw new Error(`MCP ${name}.enabled must be a boolean`);
       for (const field of ["args", "enabled_tools", "disabled_tools", "enabledTools", "disabledTools"]) {

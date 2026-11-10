@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
-import { addMcpServer } from "@lxe/runtime";
+import { addMcpServer, loadMcpConfig } from "@lxe/runtime";
 import { createAgentRuntimeHost } from "../src/runtime-host";
 import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 
@@ -50,10 +50,12 @@ test("saving both transports connects and discovers tools in the same running ho
     const local = { name: "local", transport: "stdio" as const, command: process.execPath,
       args: [join(source, "packages/agent/runtime/test/tooling/protocol-mcp-server.fixture.ts"), "modern", trace] };
     await host.dashboardCall({ operation: "mcp.servers.add", input: local });
-    const remote = { name: "remote", transport: "streamable-http" as const, url: http.url.href, bearer_token_env_var: "MCP_TEST_TOKEN" };
+    const remote = { name: "team-skills", transport: "streamable-http" as const, url: http.url.href, bearer_token_env_var: "MCP_TEST_TOKEN" };
     await host.dashboardCall({ operation: "mcp.servers.add", input: remote });
+    await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...remote, name: "team_skills" } })).rejects.toThrow("mcp__team_skills");
     await host.dashboardCall({ operation: "mcp.servers.add", input: { ...remote, name: "missing", bearer_token_env_var: "UNSET_TOKEN" } });
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...local, name: "lxe_desktop" } })).rejects.toThrow("reserved");
+    await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...local, name: "lxe-desktop" } })).rejects.toThrow("reserved");
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: local })).rejects.toThrow("already exists");
     const saved = await list();
     expect(saved.total).toBe(3);
@@ -61,7 +63,7 @@ test("saving both transports connects and discovers tools in the same running ho
     const deadline = Date.now() + 5_000;
     while ((await list()).items.some(item => item.status === "connecting") && Date.now() < deadline) await Bun.sleep(10);
     const live = (await list()).items;
-    for (const name of ["local", "remote"]) {
+    for (const name of ["local", "team-skills"]) {
       expect(live.find(item => item.name === name)).toMatchObject({ status: "ready", tool_count: 2, exposure: "codemode" });
     }
     expect(requests.length).toBeGreaterThan(0);
@@ -73,4 +75,18 @@ test("saving both transports connects and discovers tools in the same running ho
     http.stop(true);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a namespace collision in user configuration is reported without overwriting the first server", () => {
+  const root = mkdtempSync(join(tmpdir(), "mcp-names-"));
+  const path = join(root, "mcp.json");
+  const definition = { command: "node" };
+  try {
+    addMcpServer(path, "team-skills", definition, {}, root);
+    const before = readFileSync(path, "utf8");
+    expect(() => addMcpServer(path, "team_skills", definition, {}, root)).toThrow("share the model namespace");
+    expect(readFileSync(path, "utf8")).toBe(before);
+    writeFileSync(path, JSON.stringify({ servers: { "team-skills": definition, team_skills: definition } }));
+    expect(() => loadMcpConfig(path, {})).toThrow("mcp__team_skills");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

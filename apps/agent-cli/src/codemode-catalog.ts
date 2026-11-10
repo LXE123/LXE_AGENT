@@ -1,7 +1,7 @@
 import type { CodemodeJsonSchema, CodemodeTool } from "@earendil-works/pi-codemode";
 import { renderToolOutputType, renderToolSample, toCodemodeIdentifier } from "@earendil-works/pi-codemode/declarations";
 import type { JsonObject } from "@lxe/protocol";
-import { createToolSearchDocument, rankDocuments, type NormalizedToolDefinition, type ToolExecutionResult, type ToolExposureState, type ToolSchema } from "@lxe/runtime";
+import { createToolSearchDocument, mcpNamespace, rankDocuments, type NormalizedToolDefinition, type ToolExecutionResult, type ToolExposureState, type ToolSchema } from "@lxe/runtime";
 
 // MCP result declaration adapted from Pi. See the MIT notice in runtime's tool-search-ranking.ts.
 const CONTENT_BLOCK_SCHEMA = {
@@ -115,7 +115,7 @@ function scriptToolNames(callable: NormalizedToolDefinition[]) {
   }
   return callable.map(tool => {
     const alias = toCodemodeIdentifier(tool.name);
-    // Preserve exact MCP names and choose an unambiguous alias when Pi's '_' spelling collides.
+    // Non-MCP tools can still have names that need a distinct JavaScript alias.
     const jsName = alias !== tool.name && aliasCounts.get(alias)! > 1
       ? tool.name.replaceAll("-", "$") : alias;
     return { tool, jsName };
@@ -150,22 +150,23 @@ export function createCodemodeCatalog(callable: NormalizedToolDefinition[]) {
       name: jsName, description: tool.description, inputSchema: tool.input_schema,
       outputSchema: scriptResultSchema(tool),
     });
-    const server = tool.connectorName;
-    const namespace = server ? `mcp__${server}` : undefined;
+    const namespace = tool.connectorName ? mcpNamespace(tool.connectorName) : undefined;
     const summary = tool.connectorDescription;
     const instructions = tool.connectorInstructions;
     return {
-      tool, jsName, description, server, namespace, summary, instructions,
+      tool, jsName, description, namespace, summary, instructions,
       document: createToolSearchDocument(tool),
     };
   });
   const byName = new Map(entries.flatMap(entry => [[entry.tool.name, entry], [entry.jsName, entry]] as const));
   const inNamespace = (name: string) => {
-    const exact = entries.filter(entry => entry.server === name || entry.namespace === name);
-    if (exact.length) return exact;
-    const id = toCodemodeIdentifier(name);
-    return entries.filter(entry => entry.server && entry.namespace &&
-      (toCodemodeIdentifier(entry.server) === id || toCodemodeIdentifier(entry.namespace) === id));
+    if (name.startsWith("mcp__")) {
+      const namespace = mcpNamespace(name.slice("mcp__".length));
+      const matches = entries.filter(entry => entry.namespace === namespace);
+      if (matches.length) return matches;
+    }
+    const namespace = mcpNamespace(name);
+    return entries.filter(entry => entry.namespace === namespace);
   };
 
   const globals: CodemodeTool[] = [
