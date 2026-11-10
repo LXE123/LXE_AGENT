@@ -69,10 +69,17 @@ export class McpManager {
     await this.connect(entry, registry);
   }
 
-  loginTarget(name: string): McpOAuthChallenge {
+  loginTarget(name: string, knownUrl?: string): McpOAuthChallenge {
     const entry = this.entry(name);
-    if (!entry.config.enabled || entry.state !== "needs_auth" || !entry.challenge) throw new Error("MCP server is not waiting for login");
-    return { ...entry.challenge };
+    if (entry.config.enabled && entry.state === "needs_auth" && entry.challenge) return { ...entry.challenge };
+    if (this.canRelogin(name, knownUrl)) return { url: entry.config.url };
+    throw new Error("MCP server is not waiting for login");
+  }
+
+  canRelogin(name: string, knownUrl?: string): boolean {
+    const { config } = this.entry(name);
+    return config.enabled && config.transport === "streamable-http" && config.url === knownUrl &&
+      !config.bearerTokenEnvVar && !new Headers(config.headers).has("authorization") && !new Headers(config.envHeaders).has("authorization");
   }
 
   serverInstructions(serverName: string): string | undefined {

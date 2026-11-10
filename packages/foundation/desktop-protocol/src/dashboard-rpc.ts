@@ -361,6 +361,7 @@ export type McpServerAddInput =
       env_headers?: Record<string, string>; bearer_token_env_var?: string };
 
 export type McpServerPayload = {
+  can_relogin?: boolean;
   name: string;
   enabled: boolean;
   transport: string;

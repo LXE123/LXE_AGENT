@@ -22,14 +22,12 @@ export class OfficialMcpConnector implements McpConnector {
   constructor(
     private readonly environment: Environment = process.env,
     private readonly clientFactory: (options: ClientOptions) => McpSdkClientPort = options => new Client({ name: "lxe-agent", version: "0.1.0" }, options),
-    private readonly accessToken?: (name: string, url: string) => string | undefined,
+    private readonly accessToken?: (name: string, url: string, rejectedToken?: string) => string | undefined | Promise<string | undefined>,
   ) {}
 
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
     const headers = server.transport === "streamable-http" ? resolveMcpHttpHeaders(server, this.environment) : {};
     const oauth = server.transport === "streamable-http" && !new Headers(headers).has("authorization");
-    const token = oauth && this.accessToken?.(server.name, server.url);
-    if (token) headers.Authorization = "Bearer " + token;
     let challenge: McpOAuthChallenge | undefined;
     signal?.throwIfAborted();
     const mode = server.protocolMode ?? "auto";
@@ -56,11 +54,32 @@ export class OfficialMcpConnector implements McpConnector {
       : new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: { headers },
         ...(oauth && { fetch: async (input, init) => {
-          const response = await fetch(input, init);
+          if (new URL(input).href !== new URL(server.url).href) return fetch(input, init);
+          const send = (token?: string) => {
+            const requestHeaders = new Headers(init?.headers);
+            if (token) requestHeaders.set("Authorization", "Bearer " + token);
+            return fetch(input, { ...init, headers: requestHeaders });
+          };
+          const token = await this.accessToken?.(server.name, server.url);
+          let response = await send(token);
           if (response.status === 401) {
             const params = extractWWWAuthenticateParams(response);
             challenge = { url: server.url, ...(params.scope && { scope: params.scope }),
               ...(params.resourceMetadataUrl && { resourceMetadataUrl: params.resourceMetadataUrl.href }) };
+            if (token && params.error !== "insufficient_scope") {
+              init?.signal?.throwIfAborted();
+              let replacement: string | undefined;
+              try { replacement = await this.accessToken?.(server.name, server.url, token); }
+              catch (error) {
+                await response.body?.cancel();
+                throw new Error("MCP HTTP 401; OAuth refresh failed: " + (error instanceof Error ? error.message : String(error)), { cause: error });
+              }
+              if (replacement && replacement !== token) {
+                await response.body?.cancel();
+                response = await send(replacement);
+                if (response.ok) challenge = undefined;
+              }
+            }
           }
           return response;
         } }),

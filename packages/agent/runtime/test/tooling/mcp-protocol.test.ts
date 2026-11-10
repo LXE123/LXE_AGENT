@@ -93,6 +93,39 @@ for (const transport of ["stdio", "streamable-http"] as const) {
   }
 }
 
+test("OAuth tools retry an HTTP 401 once with a renewed token on the same connection", async () => {
+  const attempts: string[] = [];
+  let token = "original";
+  let refreshes = 0;
+  let accepted = "renewed-1";
+  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
+    if (req.method !== "POST") return new Response(null, { status: 405 });
+    const message = await req.json() as WireMessage;
+    if (message.method === "tools/call") {
+      const credential = req.headers.get("authorization") ?? "";
+      attempts.push(credential);
+      if (credential !== "Bearer " + accepted) return new Response("resource rejected the token", { status: 401 });
+    }
+    const reply = legacyReply(message);
+    return reply ? Response.json(reply) : new Response(null, { status: 202 });
+  } });
+  const connector = new OfficialMcpConnector({}, undefined, (_name, _url, rejected) => {
+    if (rejected) token = "renewed-" + ++refreshes;
+    return token;
+  });
+  try {
+    const conn = await connector.connect(config({ transport: "streamable-http", protocolMode: "legacy", url: http.url.href }));
+    try {
+      await conn.callTool("echo", {});
+      expect(attempts).toEqual(["Bearer original", "Bearer renewed-1"]);
+      accepted = "revoked";
+      await expect(conn.callTool("echo", {})).rejects.toThrow();
+      expect(attempts.slice(2)).toEqual(["Bearer renewed-1", "Bearer renewed-2"]);
+      expect(refreshes).toBe(2);
+    } finally { await conn.close(); }
+  } finally { await http.stop(true); }
+});
+
 test("modern structured results preserve every JSON value and the connection survives tool cancellation", async () => {
   const fixture = stdioFixture("modern");
   const connection = await new OfficialMcpConnector().connect(fixture.server);

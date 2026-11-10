@@ -42,7 +42,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 28 as const;
+export const AGENT_PROTOCOL_VERSION = 29 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -96,7 +96,14 @@ export class AgentProtocolError extends Error {
   }
 }
 
-export type McpAccessGrant = { name: string; url: string; access_token: string };
+export type McpAccessGrant = { name: string; url: string; access_token: string; expires_at?: number; refreshable?: boolean };
+export type McpRefreshRequest = { jsonrpc: "2.0"; id: string; method: "mcp_refresh_grant"; params: McpAccessGrant };
+export function isMcpAccessGrant(value: unknown): value is McpAccessGrant {
+  const grant = objectValue(value);
+  return !!grant && ["name", "url", "access_token"].every(key => typeof grant[key] === "string" && grant[key])
+    && (grant.expires_at === undefined || (typeof grant.expires_at === "number" && Number.isFinite(grant.expires_at)))
+    && (grant.refreshable === undefined || typeof grant.refreshable === "boolean");
+}
 export type McpLoginTarget = { url: string; resourceMetadataUrl?: string; scope?: string };
 
 export type AgentInitializePayload = {
@@ -310,8 +317,8 @@ export type AgentEvent =
 
 export type AgentNotification = AgentEvent extends infer E
   ? E extends AgentEvent ? { jsonrpc: "2.0"; method: E["type"]; params: Omit<E, "type"> } : never : never;
-export type AgentWireMessage = AgentCall | AgentResponse | AgentNotification;
-export type AgentServerOutput = AgentResponse | AgentNotification | AgentResponse[];
+export type AgentWireMessage = AgentCall | AgentResponse | AgentNotification | McpRefreshRequest;
+export type AgentServerOutput = AgentResponse | AgentNotification | AgentResponse[] | McpRefreshRequest;
 
 export type DesktopComponentState = "stopped" | "starting" | "ready" | "error";
 
@@ -840,7 +847,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
       if (payload.mcp_access_grants !== undefined && (!Array.isArray(payload.mcp_access_grants) ||
-        payload.mcp_access_grants.some(item => ["name", "url", "access_token"].some(key => typeof objectValue(item)?.[key] !== "string")))) {
+        payload.mcp_access_grants.some(item => !isMcpAccessGrant(item)))) {
         throw new Error("agent protocol initialize.mcp_access_grants is invalid");
       }
       if (payload.managed_llm_state !== undefined) parseManagedState(payload.managed_llm_state);
@@ -896,7 +903,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("name");
       break;
     case "mcp_login_complete":
-      for (const key of ["name", "url", "access_token"]) requireText(key);
+      if (!isMcpAccessGrant(payload)) throw new Error("Invalid MCP access grant");
       break;
     case "run_turn":
       requireObject("job");
@@ -1087,6 +1094,9 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
 export function parseAgentWireValue(value: unknown): AgentWireMessage {
   const message = parseJsonRpcEnvelope(value);
   if (!("method" in message)) return message;
+  if (message.method === "mcp_refresh_grant" && typeof message.id === "string" && isMcpAccessGrant(message.params)) {
+    return { jsonrpc: "2.0", id: message.id, method: message.method, params: message.params };
+  }
   if (!("id" in message) && agentEventTypes.has(message.method as AgentEvent["type"])) {
     const notification = message as AgentNotification;
     decodeAgentEvent(notification);

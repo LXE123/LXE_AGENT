@@ -1,8 +1,47 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { auth, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
-import type { McpLoginTarget } from "@lxe/desktop-protocol";
+import { auth, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
+import type { McpAccessGrant, McpLoginTarget } from "@lxe/desktop-protocol";
+
+/** Only the access grant projection crosses the agent RPC. */
+export type DesktopMcpGrant = McpAccessGrant & {
+  login?: McpLoginTarget;
+  renewal?: {
+    refresh_token: string;
+    issuer: string;
+    metadata?: OAuthDiscoveryState["authorizationServerMetadata"];
+    client: StoredOAuthClientInformation;
+    resource?: string;
+  };
+};
+
+export function agentAccessGrant(grant: DesktopMcpGrant): McpAccessGrant {
+  return {
+    name: grant.name, url: grant.url, access_token: grant.access_token,
+    ...(grant.expires_at !== undefined && { expires_at: grant.expires_at }),
+    ...(grant.renewal && { refreshable: true }),
+  };
+}
+
+function accessFields(tokens: StoredOAuthTokens) {
+  if (!tokens.access_token || tokens.token_type.toLowerCase() !== "bearer") throw new Error("MCP OAuth did not return a bearer access token");
+  return { access_token: tokens.access_token,
+    ...(tokens.expires_in !== undefined && { expires_at: Date.now() + tokens.expires_in * 1000 }) };
+}
+
+export async function renewMcpGrant(grant: DesktopMcpGrant): Promise<DesktopMcpGrant> {
+  const renewal = grant.renewal;
+  if (!renewal) throw new Error("MCP login did not issue a refresh token");
+  const signal = AbortSignal.timeout(15_000);
+  const tokens = await refreshAuthorization(webUrl(renewal.issuer), {
+    clientInformation: renewal.client, refreshToken: renewal.refresh_token,
+    ...(renewal.metadata && { metadata: renewal.metadata }), ...(renewal.resource && { resource: renewal.resource }),
+    fetchFn: (url, init) => fetch(webUrl(url), { ...init, signal, redirect: "error" }),
+  });
+  const { expires_at: _oldExpiry, ...rest } = grant;
+  return { ...rest, ...accessFields(tokens), renewal: { ...renewal, refresh_token: tokens.refresh_token || renewal.refresh_token } };
+}
 
 function webUrl(value: string | URL): URL {
   const url = new URL(value);
@@ -15,7 +54,7 @@ function webUrl(value: string | URL): URL {
 
 /** Called only for an explicit desktop login. Discovery, registration, PKCE and the
  * token exchange belong to the SDK. Only the resource's access token leaves here. */
-export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: string) => Promise<void>, cancel: AbortSignal): Promise<string> {
+export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: string) => Promise<void>, cancel: AbortSignal): Promise<Omit<DesktopMcpGrant, "name">> {
   const resource = webUrl(target.url);
   const signal = AbortSignal.any([cancel, AbortSignal.timeout(5 * 60_000)]);
   signal.throwIfAborted();
@@ -25,6 +64,7 @@ export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: stri
   let client: StoredOAuthClientInformation | undefined;
   let tokens: StoredOAuthTokens | undefined;
   let discovery: OAuthDiscoveryState | undefined;
+  let audience: string | undefined;
   try {
     const listening = once(server, "listening", { signal });
     server.listen(0, "127.0.0.1");
@@ -58,8 +98,14 @@ export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: stri
       completed.resolve({ authorizationCode: code, ...(iss && { iss }) });
     });
     const provider: OAuthClientProvider = {
-      redirectUrl: callback, clientMetadata: { client_name: "LXE Agent", redirect_uris: [callback.href],
-        grant_types: ["authorization_code"], response_types: ["code"], token_endpoint_auth_method: "none" },
+      redirectUrl: callback,
+      get clientMetadata() {
+        const supported = discovery?.authorizationServerMetadata?.grant_types_supported;
+        return { client_name: "LXE Agent", redirect_uris: [callback.href],
+          grant_types: supported && !supported.includes("refresh_token") ? ["authorization_code"] : ["authorization_code", "refresh_token"],
+          response_types: ["code"], token_endpoint_auth_method: "none" };
+      },
+      saveResourceUrl: value => { audience = value; },
       state: () => state, clientInformation: () => client, saveClientInformation: value => { client = value; },
       tokens: () => tokens, saveTokens: value => { tokens = value; },
       saveCodeVerifier: value => { verifier = value; }, codeVerifier: () => verifier,
@@ -77,8 +123,13 @@ export async function loginToMcp(target: McpLoginTarget, openBrowser: (url: stri
         await auth(provider, { ...options, ...await completed.promise });
       }
       signal.throwIfAborted();
-      if (!tokens?.access_token || tokens.token_type.toLowerCase() !== "bearer") throw new Error("MCP login did not return a bearer access token");
-      return tokens.access_token;
+      if (!tokens) throw new Error("MCP login did not return tokens");
+      return { url: target.url, login: target, ...accessFields(tokens),
+        ...(tokens.refresh_token && discovery && client && { renewal: {
+          refresh_token: tokens.refresh_token, issuer: discovery.authorizationServerUrl, client,
+          ...(discovery.authorizationServerMetadata && { metadata: discovery.authorizationServerMetadata }),
+          ...(audience && { resource: audience }),
+        } }) };
     } finally { signal.removeEventListener("abort", abort); }
   } finally {
     server.close();

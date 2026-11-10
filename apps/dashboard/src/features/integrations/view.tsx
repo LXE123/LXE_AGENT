@@ -55,8 +55,8 @@ function McpServerRow({
         {server.enabled ? states[server.status] ?? (server.status || t.tools.enabled) : t.tools.disabled}
       </span>
       <div className="mcp-row-actions">
-        {server.enabled && server.status === "needs_auth" && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
-          {signingIn ? t.mcp.signingIn : t.mcp.login}
+        {server.enabled && (server.status === "needs_auth" || server.can_relogin) && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
+          {signingIn ? t.mcp.signingIn : server.can_relogin ? t.mcp.relogin : t.mcp.login}
         </button>}
         <button
           aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
@@ -68,7 +68,7 @@ function McpServerRow({
           {saving ? t.tools.saving : server.enabled ? t.tools.disable : t.tools.enable}
         </button>
       </div>
-      {loginError && server.status === "needs_auth" && <p className="connection-row-error" role="alert">{loginError}</p>}
+      {loginError && <p className="connection-row-error" role="alert">{loginError}</p>}
       {server.error && (server.status === "needs_auth"
         ? <details className="connection-row-error"><summary>{t.mcp.details}</summary>{server.error}</details>
         : <p className="connection-row-error" role="alert">{server.error}</p>)}

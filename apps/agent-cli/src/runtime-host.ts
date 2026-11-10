@@ -72,6 +72,7 @@ export interface AgentRuntimeHostOptions {
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
   mcpAccessGrants?: McpGrant[];
+  refreshMcpGrant?: (grant: McpGrant) => Promise<McpGrant | null>;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
@@ -208,9 +209,25 @@ export function createAgentRuntimeHost(
   }
   registerMcpDiscoveryTools(tools, mcpConfig, store);
   const grants = new Map(options.mcpAccessGrants?.map(grant => [grant.name, grant]));
-  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment, undefined, (name, url) => {
+  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment, undefined, async (name, url, rejectedToken) => {
     const grant = grants.get(name);
-    return grant?.url === url ? grant.access_token : undefined;
+    if (!grant || grant.url !== url) return undefined;
+    const due = rejectedToken === undefined
+      ? grant.expires_at !== undefined && grant.expires_at <= Date.now() + 30_000
+      : rejectedToken === grant.access_token;
+    if (!due || !grant.refreshable || !options.refreshMcpGrant) return grant.access_token;
+    // The resource server decides whether the current token still works if early renewal fails.
+    const updated = await options.refreshMcpGrant(grant).catch(error => {
+      if (rejectedToken !== undefined) throw error;
+      return grant;
+    });
+    if (grants.get(name) === grant) {
+      if (updated === null) grants.delete(name);
+      else if (updated.name === name && updated.url === url) grants.set(name, updated);
+      else throw new Error("MCP credential refresh returned a different login target");
+    }
+    const latest = grants.get(name);
+    return latest?.url === url ? latest.access_token : undefined;
   }));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
@@ -239,7 +256,7 @@ export function createAgentRuntimeHost(
       if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
       await mcpManager.setEnabled(serverName, enabled);
     },
-    mcpStatus: (serverName) => mcpManager.status(serverName),
+    mcpStatus: name => ({ ...mcpManager.status(name), canRelogin: mcpManager.canRelogin(name, grants.get(name)?.url) }),
     skillCatalog,
     allowedSkillTypes,
     providerManager,
@@ -340,15 +357,20 @@ export function createAgentRuntimeHost(
       for (const item of normalized) allowedSkillTypes.add(item);
       workspaceInstances.invalidate("device_permission_update");
     },
-    mcpLoginTarget: name => mcpManager.loginTarget(name),
+    mcpLoginTarget: name => mcpManager.loginTarget(name, grants.get(name)?.url),
     mcpLoginComplete: async grant => {
-      if (mcpManager.loginTarget(grant.name).url !== grant.url) throw new Error("MCP login target changed");
-      grants.set(grant.name, grant);
-      await mcpManager.reconnect(grant.name);
-      const status = mcpManager.status(grant.name);
-      if (!status.connected) {
-        grants.delete(grant.name);
-        throw new Error(status.error || "MCP login did not establish a connection: " + status.state);
+      const previous = grants.get(grant.name);
+      if (mcpManager.loginTarget(grant.name, previous?.url).url !== grant.url) throw new Error("MCP login target changed");
+      grants.set(grant.name, { ...grant, refreshable: false });
+      try {
+        await mcpManager.reconnect(grant.name);
+        const status = mcpManager.status(grant.name);
+        if (!status.connected) throw new Error(status.error || "MCP login did not establish a connection: " + status.state);
+        grants.set(grant.name, grant);
+      } catch (error) {
+        if (previous) grants.set(grant.name, previous);
+        else grants.delete(grant.name);
+        throw error;
       }
     },
     updateManagedLlmCredential: async (credential, target, state) => {

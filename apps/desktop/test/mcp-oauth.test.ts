@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { loginToMcp } from "../src/main/mcp-oauth";
+import { agentAccessGrant, loginToMcp, renewMcpGrant } from "../src/main/mcp-oauth";
 
 test("interactive MCP login binds the callback state and uses PKCE before returning a bearer token", async () => {
   let redirect = "", challenge = "", exchanged = 0;
@@ -17,11 +17,17 @@ test("interactive MCP login binds the callback state and uses PKCE before return
     }
     if (pathname === "/token") {
       const params = new URLSearchParams(await req.text());
+      if (params.get("grant_type") === "refresh_token") {
+        expect(params.get("refresh_token")).toBe("first-refresh");
+        expect(params.get("resource")).toBe(origin + "/mcp");
+        expect(params.get("client_id")).toBe("public-client");
+        return Response.json({ access_token: "second-access", refresh_token: "second-refresh", token_type: "Bearer", expires_in: 120 });
+      }
       expect(params.get("redirect_uri")).toBe(redirect);
       expect(params.get("code")).toBe("approved");
       expect(createHash("sha256").update(params.get("code_verifier")!).digest("base64url")).toBe(challenge);
       exchanged++;
-      return Response.json({ access_token: "fixture-access", token_type: "Bearer" });
+      return Response.json({ access_token: "fixture-access", refresh_token: "first-refresh", token_type: "Bearer", expires_in: 1 });
     }
     return new Response(null, { status: 404 });
   } });
@@ -40,7 +46,12 @@ test("interactive MCP login binds the callback state and uses PKCE before return
       callback.searchParams.set("state", auth.searchParams.get("state")!);
       expect((await fetch(callback)).ok).toBe(true);
     }, new AbortController().signal);
-    expect(token).toBe("fixture-access");
+    const grant = { name: "orders", ...token };
+    expect(agentAccessGrant(grant)).toEqual({ name: "orders", url: target.url, access_token: "fixture-access", refreshable: true, expires_at: expect.any(Number) });
+    const renewed = await renewMcpGrant(grant);
+    expect(renewed.renewal?.refresh_token).toBe("second-refresh");
+    expect(renewed.expires_at!).toBeGreaterThan(grant.expires_at!);
+    expect(agentAccessGrant(renewed).access_token).toBe("second-access");
     expect(exchanged).toBe(1);
 
     const cancel = new AbortController();

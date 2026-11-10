@@ -9,6 +9,8 @@ import {
 } from "@lxe/core";
 import {
   AGENT_PROTOCOL_VERSION,
+  isMcpAccessGrant,
+  type McpAccessGrant,
   parseAgentCall,
   parseJsonRpcEnvelope,
   parseJsonRpcJson,
@@ -75,6 +77,7 @@ const errorResponse = (id: JsonRpcId, cause: unknown): AgentResponse => {
 };
 
 export class AgentProtocolServer {
+  private readonly refreshRequests = new Map<string, ReturnType<typeof Promise.withResolvers<McpAccessGrant | null>>>();
   private readonly environment: Environment;
   private readonly createHost: typeof createAgentRuntimeHost;
   private readonly activeRuns = new Map<string, AgentRunHandle>();
@@ -93,6 +96,24 @@ export class AgentProtocolServer {
     return this.options.write(encodeAgentEvent(event));
   }
 
+  private async refreshMcpGrant(grant: McpAccessGrant): Promise<McpAccessGrant | null> {
+    if (this.shuttingDown) throw new Error("agent-cli is shutting down");
+    const id = crypto.randomUUID();
+    const request = Promise.withResolvers<McpAccessGrant | null>();
+    this.refreshRequests.set(id, request);
+    const timer = setTimeout(() => request.reject(new Error("MCP credential refresh timed out")), 20_000);
+    try {
+      const [, result] = await Promise.all([
+        this.options.write({ jsonrpc: "2.0", id, method: "mcp_refresh_grant", params: grant }),
+        request.promise,
+      ]);
+      return result;
+    } finally {
+      clearTimeout(timer);
+      this.refreshRequests.delete(id);
+    }
+  }
+
   async accept(line: string): Promise<void> {
     let value: unknown;
     try { value = parseJsonRpcJson(line); }
@@ -108,7 +129,14 @@ export class AgentProtocolServer {
       let notification = false;
       try {
         const envelope = parseJsonRpcEnvelope(input);
-        if (!("method" in envelope)) throw new JsonRpcError(-32600, "agent-cli accepts calls only");
+        if (!("method" in envelope)) {
+          const pending = typeof envelope.id === "string" && this.refreshRequests.get(envelope.id);
+          if (!pending) return;
+          if ("error" in envelope) pending.reject(new Error(envelope.error.message));
+          else if (envelope.result === null || isMcpAccessGrant(envelope.result)) pending.resolve(envelope.result);
+          else pending.reject(new Error("Invalid MCP credential refresh response"));
+          return;
+        }
         notification = !("id" in envelope);
         id = envelope.id ?? null;
         const request = parseAgentCall(envelope);
@@ -252,6 +280,7 @@ export class AgentProtocolServer {
         userSkillsRoot: payload.user_skills_root,
         llmConfigRoot: payload.llm_config_root,
         ...(payload.mcp_access_grants ? { mcpAccessGrants: payload.mcp_access_grants } : {}),
+        refreshMcpGrant: grant => this.refreshMcpGrant(grant),
         ...(payload.managed_llm_state ? { managedLlmState: payload.managed_llm_state } : {}),
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
@@ -419,6 +448,7 @@ export class AgentProtocolServer {
   shutdown(): Promise<void> {
     if (this.stopping) return this.stopping;
     this.shuttingDown = true;
+    for (const request of this.refreshRequests.values()) request.reject(new Error("agent-cli is shutting down"));
     this.stopping = this.shutdownHost();
     return this.stopping;
   }

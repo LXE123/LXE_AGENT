@@ -16,6 +16,7 @@ import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/ser
 
 const collect = (output: Array<AgentResponse | AgentEvent>, message: AgentServerOutput): void => {
   for (const item of Array.isArray(message) ? message : [message]) {
+    if ("method" in item && "id" in item) throw new Error("Unexpected reverse RPC");
     output.push("method" in item ? decodeAgentEvent(item) : item);
   }
 };

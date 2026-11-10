@@ -100,7 +100,7 @@ export function createDashboardContractFixture(calls: Call[]) {
       case "mcp.servers.login": return (async () => {
         await gate(call.operation);
         const item = added.find(item => item.name === call.input.name)!;
-        item.status = "ready"; item.tool_count = 2;
+        item.status = "ready"; item.tool_count = 2; item.can_relogin = true;
         return { name: item.name };
       })();
       case "mcp.servers.update": return (async () => {

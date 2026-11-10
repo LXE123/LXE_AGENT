@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentJob } from "@lxe/protocol";
@@ -7,6 +7,7 @@ import { AgentProtocolError, type AgentEvent } from "@lxe/desktop-protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { RunHandle } from "../../src/orchestration/scheduler";
 import { testWorkspace, workspaceFor } from "../workspace";
+import { legacyReply, type WireMessage } from "../../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 
 const runtimes: ProcessAgentRuntime[] = [];
 const temporaryRoots: string[] = [];
@@ -62,6 +63,40 @@ afterEach(async () => {
 });
 
 describe("ProcessAgentRuntime", () => {
+  test("an expiring MCP grant is renewed over stdio before the first HTTP request", async () => {
+    const seen: string[] = [];
+    const mcp = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
+      if (req.method !== "POST") return new Response(null, { status: 405 });
+      seen.push(req.headers.get("authorization") ?? "");
+      if (seen.at(-1) !== "Bearer fresh") return new Response(null, { status: 401 });
+      const reply = legacyReply(await req.json() as WireMessage);
+      return reply ? Response.json(reply) : new Response(null, { status: 202 });
+    } });
+    const root = mkdtempSync(join(tmpdir(), "lxe-mcp-refresh-"));
+    temporaryRoots.push(root);
+    mkdirSync(join(root, "config"));
+    writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
+      fixture: { transport: "streamable-http", url: mcp.url.href, enabled: true, protocol_mode: "legacy" },
+    } }));
+    const grant = { name: "fixture", url: mcp.url.href, access_token: "expiring", refreshable: true, expires_at: Date.now() + 15_000 };
+    let refreshes = 0;
+    const runtime = new ProcessAgentRuntime({ command: process.execPath, arguments: [resolve("apps/agent-cli/src/main.ts")],
+      cwd: process.cwd(), environment: { PATH: process.env.PATH, LOCAL_LOGS_ENABLED: "0", AGENT_LLM_PROVIDER: "zhipuai", ZHIPUAI_API_KEY: "fixture" },
+      ...resourcePaths(process.cwd()), dataRoot: root, legacyWorkspace: workspaceFor(root),
+      mcpAccessGrants: () => [grant], onRefreshMcpGrant: async request => {
+        expect(request).toEqual(grant);
+        ++refreshes;
+        return { ...grant, access_token: "fresh", expires_at: Date.now() + 3600_000 };
+      },
+    });
+    try {
+      await runtime.start();
+      expect((await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items[0]).toMatchObject({ name: "fixture", status: "ready", can_relogin: true });
+      expect(refreshes).toBe(1);
+      expect(seen.length).toBeGreaterThan(1);
+      expect(new Set(seen)).toEqual(new Set(["Bearer fresh"]));
+    } finally { await runtime.stop(); await mcp.stop(true); }
+  });
   test.skipIf(process.platform!=="win32")("Windows forced shutdown waits for the runtime and its owned child",async()=>{
     const root=mkdtempSync(join(tmpdir(),"lxe-update-process-tree-"));temporaryRoots.push(root);
     const pidFile=join(root,"owned.pid");

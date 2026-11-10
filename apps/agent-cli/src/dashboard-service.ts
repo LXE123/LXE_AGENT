@@ -64,6 +64,7 @@ interface DashboardServiceOptions {
   terminateSession?: (sessionId: string) => Promise<void> | void;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
   mcpStatus?: (serverName: string) => {
+    canRelogin?: boolean;
     state?: string;
     connected: boolean;
     error: string;
@@ -520,6 +521,7 @@ export class DashboardService {
       transport: server.transport,
       status: live?.state ?? (!server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured"),
       tool_count: toolCount,
+      ...(live?.canRelogin && { can_relogin: true }),
       error: live?.error ?? "",
       server_title: server.connectorName,
       connector_id: server.connectorId,

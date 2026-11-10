@@ -12,6 +12,7 @@ import type {
 } from "@lxe/protocol";
 import {
   AGENT_PROTOCOL_VERSION,
+  isMcpAccessGrant,
   parseAgentRunTurnResult,
   parseJsonRpcEnvelope,
   parseJsonRpcJson,
@@ -61,6 +62,7 @@ export interface ProcessAgentRuntimeOptions {
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
   mcpAccessGrants?: () => McpAccessGrant[];
+  onRefreshMcpGrant?: (grant: McpAccessGrant) => Promise<McpAccessGrant | null>;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -507,6 +509,8 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
           this.notifications = this.notifications.then(async () => {
             if (generation === this.generation) await this.handleEvent(event, generation);
           }).catch((error) => this.logger.error("agent_event_delivery_failed", { type: event.type, error }));
+        } else if (message.method === "mcp_refresh_grant" && typeof message.id === "string" && isMcpAccessGrant(message.params)) {
+          void this.replyToMcpRefresh(message.id, message.params, generation);
         } else throw new Error("Unexpected agent-cli request");
       }
     } catch (cause) {
@@ -514,6 +518,20 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       this.logger.error("invalid_agent_cli_output", { error });
       void this.failConnection(error);
     }
+  }
+
+  private async replyToMcpRefresh(id: string, grant: McpAccessGrant, generation: number): Promise<void> {
+    let response: AgentResponse;
+    try {
+      const result = await this.options.onRefreshMcpGrant?.(grant);
+      response = { jsonrpc: "2.0", id, result: result ?? null };
+    } catch (error) {
+      response = { jsonrpc: "2.0", id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } };
+    }
+    if (generation !== this.generation || !this.child?.stdin.writable) return;
+    this.child.stdin.write(JSON.stringify(response) + "\n", error => {
+      if (error && generation === this.generation) void this.failConnection(error);
+    });
   }
 
   private async failConnection(error: Error): Promise<void> {

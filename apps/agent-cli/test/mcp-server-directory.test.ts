@@ -148,7 +148,9 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
     await expect(host.mcpLoginComplete!({ name: "team-skills", url: "https://different.test/", access_token: "oauth-fixture" })).rejects.toThrow("target changed");
     await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
-    expect(await current()).toMatchObject({ status: "ready", tool_count: 2 });
+    expect(await current()).toMatchObject({ status: "ready", tool_count: 2, can_relogin: true });
+    expect(host.mcpLoginTarget!("team-skills")).toEqual({ url: protectedServer.url.href });
+    await host.mcpLoginComplete!({ name: "team-skills", url: protectedServer.url.href, access_token: "oauth-fixture" });
     expect(JSON.stringify(received)).not.toContain("oauth-fixture");
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {
