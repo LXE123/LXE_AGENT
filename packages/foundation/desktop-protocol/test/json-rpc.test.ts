@@ -15,6 +15,7 @@ const initialize = {
 };
 const methods = {
   initialize,
+  update_telemetry_target: { target: { enabled: false } },
   update_skill_permissions: { allowed_skill_types: [] },
   update_managed_llm_credential: { credential: null },
   run_turn: { job },
@@ -36,7 +37,7 @@ const methods = {
 describe("JSON-RPC boundary", () => {
   test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(18);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));
@@ -97,4 +98,13 @@ describe("JSON-RPC boundary", () => {
       expect(decodeAgentEvent(wire)).toEqual(event);
     }
   });
+});
+
+
+test("telemetry targets reject malformed device identities and credential-bearing URLs", () => {
+  for (const target of [{enabled: true}, {enabled: true, server_url: "https://user:secret@example.test", device: {kind: "managed_device", id: "x"}},
+    {enabled: true, server_url: "https://example.test", device: {kind: "other", id: "x"}}]) {
+    expect(() => parseAgentCall({jsonrpc: "2.0", id: 1, method: "update_telemetry_target", params: {target}})).toThrow();
+    expect(() => parseAgentCall({jsonrpc: "2.0", id: 1, method: "initialize", params: {...initialize, telemetry_target: target}})).toThrow();
+  }
 });

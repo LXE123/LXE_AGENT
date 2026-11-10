@@ -618,7 +618,7 @@ export class DesktopSetupService {
       AGENT_SSE_WIRE_TRACE_ENABLED: diagnostic ? "1" : "0",
       ZINIAO_DIAGNOSTIC_TRACE_ENABLED: diagnostic ? "1" : "0",
       FEISHU_RAW_EVENT_DUMP_ENABLED: diagnostic ? "1" : "0",
-      LXE_DATA_SERVER_ENABLED: config.cloud.managed && !config.cloud.switch_in_progress && Boolean(config.cloud.data_server_url) ? "1" : "0",
+      LXE_DATA_SERVER_ENABLED: "0", // Fresh device context enables telemetry through agentcli RPC.
       LXE_DATA_SERVER_URL: companyServerUrl(config.cloud),
       BROWSER_AUTH_HEADLESS: "1",
     };

@@ -405,6 +405,7 @@ async function bootstrap(): Promise<void> {
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
     },
+    onTelemetryTargetChanged: target => gateway.updateTelemetryTarget(target),
     onPermissionChanged: (allowedSkillTypes) =>
       gateway.updateSkillPermissions(allowedSkillTypes),
     onManagedLlmCredentialChanged: async (credential) => {

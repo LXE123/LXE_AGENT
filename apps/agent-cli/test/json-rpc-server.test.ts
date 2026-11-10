@@ -30,6 +30,18 @@ const setup = (host: Record<string, unknown> = {}) => {
 };
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });
 
+test("telemetry updates reach the existing host through JSON-RPC", async () => {
+  const targets: unknown[] = [];
+  const {call, responses, creates} = setup({updateTelemetryTarget: (target: unknown) => {targets.push(target);}});
+  await call("initialize", {...initialize, telemetry_target: {enabled: false}});
+  const target = {enabled: true, server_url: "http://10.88.0.1:8000", device: {kind: "managed_device", id: "pc"}};
+  await call("update_telemetry_target", {target}, "enable");
+  await call("update_telemetry_target", {target: {enabled: false}}, "disable");
+  expect(targets).toEqual([target, {enabled: false}]);
+  expect(creates()).toBe(1);
+  expect(responses().find(r => r.id === "enable")).toMatchObject({result: {updated: true}});
+});
+
 describe("JSON-RPC server semantics", () => {
   test.each([undefined, "user_stop"] as const)("cancel reason %s targets only the matching active turn", async reason => {
     const ready = Promise.withResolvers<AgentRunHandle>();

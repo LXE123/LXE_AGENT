@@ -1,3 +1,4 @@
+import { parseTelemetryTarget, type TelemetryTarget } from "@lxe/core";
 export * from "./manual-tools";
 export * from "./team-skills";
 export type * from "./file-preview";
@@ -106,11 +107,13 @@ export type AgentInitializePayload = {
   legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
   managed_llm_state?: ManagedLlmState;
+  telemetry_target?: TelemetryTarget;
 };
 
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
   update_skill_permissions: { allowed_skill_types: string[] };
+  update_telemetry_target: { target: TelemetryTarget };
   update_managed_llm_credential: {
     credential: ManagedLlmCredential | null;
     target?: ManagedLlmTarget;
@@ -774,6 +777,7 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 const agentCommands = new Set<AgentCommand>([
   "initialize",
   "update_skill_permissions",
+  "update_telemetry_target",
   "update_managed_llm_credential",
   "run_turn",
   "cancel_turn",
@@ -842,12 +846,16 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("llm_config_root");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
+      if (payload.telemetry_target !== undefined) parseTelemetryTarget(payload.telemetry_target);
       if (payload.managed_llm_state !== undefined) parseManagedState(payload.managed_llm_state);
       if (payload.allowed_skill_types !== undefined
         && (!Array.isArray(payload.allowed_skill_types)
           || payload.allowed_skill_types.some((value) => typeof value !== "string"))) {
         throw new Error("agent protocol initialize.allowed_skill_types must be a string array");
       }
+      break;
+    case "update_telemetry_target":
+      parseTelemetryTarget(payload.target);
       break;
     case "update_skill_permissions":
       if (!Array.isArray(payload.allowed_skill_types)
