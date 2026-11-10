@@ -5,7 +5,7 @@ const { join } = require("node:path");
 module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) => {
   const open = async (index, language = "zh") => {
     await load(`?app=1&workspaces=1&contracts=1&workbench-fixture=1&section=workbench&platform=darwin&language=${language}`);
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 5", "directory ready");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 4", "directory ready");
     await click(`.workbench-tool-card:nth-child(${index})`);
     await waitFor("Boolean(document.querySelector('.workbench-detail h1'))", "detail ready");
   };
@@ -102,7 +102,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(await js("Boolean(document.querySelector('.workbench-empty[role=status]'))"));
     await capture("assets-empty-dark");
     await click('.workbench-back');
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
     assert.equal(await js("document.querySelector('.workbench-tool-card:nth-child(4) .workbench-tool-name').textContent"), "FBA模版与数据源");
     await win.setContentSize(480, 900); await open(4, "en");
     await waitFor("document.querySelectorAll('.asset-slot').length===5", "narrow assets ready");

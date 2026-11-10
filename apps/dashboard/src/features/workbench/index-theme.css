@@ -62,28 +62,3 @@
 @media (max-width: 480px) {
   .content-panel.workbench-theme { padding: 20px 12px 72px; }
 }
-
-.content-panel.workbench-theme.team-skills-panel {
-  display: flex; flex-direction: column; padding: 0; overflow: hidden;
-}
-.team-skills-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.team-skills-toolbar {
-  display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 6px 16px;
-  border-bottom: 1px solid var(--border); color: var(--text);
-}
-.team-skills-toolbar h1 { margin: 0; font-size: .9375rem; font-weight: 600; }
-.team-skills-toolbar .workbench-back, .team-skills-viewport button {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0;
-  border-radius: 6px; background: transparent; color: var(--text-soft); font: inherit; font-size: .8125rem;
-}
-.team-skills-toolbar .workbench-back:hover, .team-skills-viewport button:hover { background: var(--row-hover); }
-.team-skills-viewport {
-  position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 12px; color: var(--text-soft); overflow-wrap: anywhere;
-}
-.team-skills-viewport [role="alert"] { max-width: min(48ch, 90%); text-align: center; }
-.team-skills-viewport > iframe { align-self: stretch; flex: 1; min-height: 0; border: 0; }
-/* Let a click on the page dismiss the dashboard popover across the guest process boundary. */
-body:has(.runtime-status-popover) .team-skills-viewport::after {
-  content: ""; position: absolute; inset: 0;
-}

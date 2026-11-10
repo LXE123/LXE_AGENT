@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
 import { useUiText } from "../../shared/i18n";
+import "./theme.css";
 
-export function TeamSkillsWorkbench({ onBack }: { onBack: () => void }) {
-  const t = useUiText(), copy = t.workbenchIndex.tools.teamSkills;
+export function TeamSkillsPage() {
+  const t = useUiText(), copy = t.teamSkills;
   const viewport = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true), [error, setError] = useState("");
@@ -16,7 +16,7 @@ export function TeamSkillsWorkbench({ onBack }: { onBack: () => void }) {
     let active = true;
     const guest = document.createElement("webview");
     // Own the guest in a local document. Removing that document releases the
-    // guest and its frame together when leaving the workbench (Electron 43).
+    // guest and its frame together when leaving the catalog (Electron 43).
     const frame = document.createElement("iframe");
     frame.title = copy.name;
     setError("");
@@ -49,7 +49,6 @@ export function TeamSkillsWorkbench({ onBack }: { onBack: () => void }) {
 
   return <section className="team-skills-page" aria-label={copy.name}>
     <header className="team-skills-toolbar">
-      <button className="workbench-back" type="button" onClick={onBack}><ArrowLeft size={15} />{t.workbenchIndex.back}</button>
       <h1>{copy.name}</h1>
       {prepare && loading ? <span role="status">{t.common.loading}…</span> : null}
     </header>

@@ -13,4 +13,4 @@ chroma-key removal. Run `uv run python scripts/generate-brand-assets.py` to
 normalize the masters and regenerate the desktop PNG, ICO, and Template Image
 variants.
 
-The workbench team skills icon is the static `client/public/favicon.svg` from the Team Skill Library application, copied as `team-skills.svg`.
+The navigation rail’s team skills icon is the static `client/public/favicon.svg` from the Team Skill Library application, copied as `team-skills.svg`.

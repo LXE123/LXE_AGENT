@@ -3,7 +3,7 @@ const { mkdirSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) => {
-  const sections = ['home', 'sessions', 'workbench', 'automations', 'capabilities', 'activity'];
+  const sections = ['home', 'sessions', 'workbench', 'automations', 'capabilities', 'activity', 'team-skills'];
   const output = process.env.LXE_NAVIGATION_CAPTURE_DIR;
   const measurements = [];
   const capture = async name => {
@@ -26,9 +26,12 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
     try {
       await media('no-preference');
       await js('document.fonts.ready');
-      await step(`${theme}: six named destinations, fourth automation and decorative icons`, async () => {
-        const items = await js("[...document.querySelectorAll('.navigation-rail-button')].map(e=>({id:e.className.match(/tab-([a-z]+)/)[1],name:e.getAttribute('aria-label'),current:e.getAttribute('aria-current'),icons:e.querySelectorAll('svg[aria-hidden=true][focusable=false]').length,tabIndex:e.tabIndex,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))");
+      await step(`${theme}: named destinations with the team catalog below a short divider`, async () => {
+        const items = await js("[...document.querySelectorAll('.navigation-rail-button')].map(e=>({id:e.className.match(/tab-([a-z-]+)/)[1],name:e.getAttribute('aria-label'),current:e.getAttribute('aria-current'),icons:e.querySelectorAll('svg[aria-hidden=true][focusable=false]').length,tabIndex:e.tabIndex,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))");
         assert.deepEqual(items.map(e => e.id), sections);
+        const divider = await js("document.querySelector('.tab-activity + .navigation-rail-divider:has(+ .tab-team-skills)').getBoundingClientRect().toJSON()");
+        assert.equal(divider.height, 1);
+        assert.ok(divider.width > 0 && divider.width < items[0].width);
         assert.ok(items.every(e => e.name && e.icons === 1 && e.tabIndex === 0 && e.width === 40 && e.height === 40));
         assert.deepEqual(items.filter(e => e.current === 'page').map(e => e.id), ['automations']);
         await waitFor("document.querySelector('.app-navigation').getAnimations({subtree:true}).length===0", 'arrival animation ends');
@@ -81,7 +84,7 @@ module.exports = async ({ win, js, step, load, waitFor, key, focus, settle }) =>
           assert.equal(await js(`getComputedStyle(document.querySelector('.tab-${section}')).transitionDuration`), '0s');
         }
         await key('Enter');
-        assert.equal(await js("document.querySelector('.tab-activity').getAttribute('aria-current')"), 'page');
+        assert.equal(await js("document.querySelector('.tab-team-skills').getAttribute('aria-current')"), 'page');
         assert.equal(await js("document.querySelector('.app-navigation').getAnimations({subtree:true}).length"), 0);
       });
     } finally { win.webContents.debugger.detach(); }

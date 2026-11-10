@@ -1,11 +1,11 @@
-export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities" | "activity" | "automations";
+export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities" | "activity" | "automations" | "team-skills";
 
 export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
 export type ActivityView = "stats";
 
 /** Workbench starts on the tool index and drills into one tool at a time. */
-export type WorkbenchView = "index" | "synthetic-performer" | "input-assets" | "vietnam-settings" | "amazon-v2-settings" | "team-skills";
+export type WorkbenchView = "index" | "synthetic-performer" | "input-assets" | "vietnam-settings" | "amazon-v2-settings";
 
 export type DashboardRouteSelection = {
   section: DashboardSection;
@@ -24,6 +24,7 @@ const DASHBOARD_SECTIONS = new Set<DashboardSection>([
   "workbench",
   "capabilities",
   "activity",
+  "team-skills",
 ]);
 
 const CAPABILITY_VIEWS = new Set<CapabilityView>([
@@ -35,7 +36,7 @@ const CAPABILITY_VIEWS = new Set<CapabilityView>([
 
 const ACTIVITY_VIEWS = new Set<ActivityView>(["stats"]);
 
-const WORKBENCH_VIEWS = new Set<WorkbenchView>(["index", "synthetic-performer", "input-assets", "vietnam-settings", "amazon-v2-settings", "team-skills"]);
+const WORKBENCH_VIEWS = new Set<WorkbenchView>(["index", "synthetic-performer", "input-assets", "vietnam-settings", "amazon-v2-settings"]);
 
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -86,7 +87,9 @@ export function dashboardRouteFromHistory(
   storedCapabilityView: CapabilityView,
 ): DashboardRouteSelection {
   const state = objectRecord(historyState);
-  const section = state.section;
+  const section = state.section === "workbench" && state.workbenchView === "team-skills"
+    ? "team-skills"
+    : state.section;
   if (typeof section === "string" && DASHBOARD_SECTIONS.has(section as DashboardSection)) {
     return {
       section: section as DashboardSection,

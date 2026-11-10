@@ -20,6 +20,13 @@
   gap: 8px;
 }
 
+.navigation-rail-divider {
+  width: 24px;
+  margin: 2px auto;
+  border: 0;
+  border-top: 1px solid var(--app-chrome-border);
+}
+
 .navigation-rail-button,
 .app-navigation .sidebar-settings-button {
   position: relative;
@@ -67,6 +74,7 @@
 
 /* One short response per interaction. A clock animation does not imply a running task. */
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-home-door { animation: navigation-light 260ms ease-out; }
+.navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-team-skills image { animation: navigation-light 260ms ease-out; }
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-reply { animation: navigation-reply 260ms ease-out; }
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-work-panel { animation: navigation-panel 260ms ease-out; }
 .navigation-rail-button:is(:hover, :focus-visible) .navigation-icon-clock-hand { animation: navigation-clock 320ms ease-out; }

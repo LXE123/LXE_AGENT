@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import type { DashboardSection } from "./navigation";
+import teamSkillsIcon from "../assets/brand/team-skills.svg";
 
 // A shared 24-unit drawing grid; motion targets are semantic parts of each glyph.
 const glyphs: Record<DashboardSection, ReactNode> = {
+  "team-skills": <image href={teamSkillsIcon} width="24" height="24" />,
   home: <>
     <path d="m4 10 8-6.5 8 6.5v8.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
     <path className="navigation-icon-home-door" d="M9.5 20.5V14h5v6.5" />

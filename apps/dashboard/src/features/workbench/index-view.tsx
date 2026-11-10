@@ -1,4 +1,3 @@
-import teamSkillsIcon from "../../assets/brand/team-skills.svg";
 import { ChevronRight, FolderTree, Tag, SlidersHorizontal, CalendarDays } from "lucide-react";
 import type { ReactNode } from "react";
 import type { WorkbenchView } from "../../shared/navigation";
@@ -40,10 +39,6 @@ export function WorkbenchIndex({
       name: copy.tools.inputAssets.name,
       summary: copy.tools.inputAssets.summary,
       status: assetStatus,
-    },
-    {
-      id: "team-skills", icon: <img src={teamSkillsIcon} width={28} height={28} alt="" />,
-      name: copy.tools.teamSkills.name, summary: copy.tools.teamSkills.summary, status: "",
     },
   ];
 
