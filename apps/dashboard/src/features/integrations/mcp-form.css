@@ -10,7 +10,7 @@
 .capabilities-theme .mcp-secondary { color: var(--text); border-color: var(--border); background: var(--cds-field); }
 .capabilities-theme :is(.mcp-quiet, .mcp-icon) { color: var(--text-soft); background: transparent; padding-inline: 6px; }
 .capabilities-theme :is(.mcp-secondary, .mcp-quiet, .mcp-icon):hover { background: var(--row-hover); color: var(--text); }
-.capabilities-theme .mcp-form { width: min(100%, 680px); display: grid; gap: 16px; }
+.capabilities-theme .mcp-form { width: min(100%, 680px); margin-inline: auto; display: grid; gap: 16px; }
 .mcp-form > .mcp-quiet { justify-self: start; }
 .mcp-form h3 { margin: 0 0 4px; font-size: 1.125rem; font-weight: 600; }
 .mcp-form fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }

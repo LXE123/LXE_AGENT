@@ -108,6 +108,17 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await textClick('MCP services', '.workspace-subnav');
     const enter = (name, value) => js(`document.querySelector('.mcp-form [name="${name}"]').value=${JSON.stringify(value)}`);
     await textClick('Add service');
+    for (const width of [600, 1200]) {
+      win.setSize(width, 900);
+      await settle();
+      const { formWidth, available, left, right } = await js(`(() => {
+        const form = document.querySelector('.mcp-form').getBoundingClientRect();
+        const page = document.querySelector('.workspace-view-content').getBoundingClientRect();
+        return { formWidth: form.width, available: page.width, left: form.left - page.left, right: page.right - form.right };
+      })()`);
+      assert.ok(Math.abs(left - right) <= 1, `form margins at ${width}px: ${left} and ${right}`);
+      assert.equal(formWidth, Math.min(680, available));
+    }
     await enter('name', 'orders');
     await enter('url', 'https://example.test/mcp');
     await click('fieldset:not([hidden]) > details > summary');
