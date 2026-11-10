@@ -1199,6 +1199,7 @@ export function DesktopShell({
   children: (context: {
     cloud: DesktopCloudState;
     health: DesktopHealth;
+    restartAgent: () => Promise<void>;
     openSettings: (section?: DesktopSettingsSection) => void;
     setupComplete: boolean;
   }) => ReactNode;
@@ -1613,8 +1614,6 @@ export function DesktopShell({
       setHealth(await desktop.restartAgent());
       queryClient.clear();
       setAppGeneration((value) => value + 1);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setRestarting(false);
     }
@@ -1799,7 +1798,7 @@ export function DesktopShell({
         if (!settingsOpen) openSettings();
         if (action === "check-updates") setUpdateCheckRequest(value => value + 1);
       }} /> : null}
-      <div key={appGeneration}>{children({ cloud, health, openSettings, setupComplete: setup.complete })}</div>
+      <div key={appGeneration}>{children({ cloud, health, openSettings, restartAgent: restart, setupComplete: setup.complete })}</div>
       {notice && !settingsOpen ? (
         <DesktopNoticeMessage
           className="desktop-notice-toast"
@@ -1830,7 +1829,7 @@ export function DesktopShell({
                   <DesktopStatusPanel
                     headingRef={sectionHeadingRef}
                     health={health}
-                    onRestart={() => { void restart(); }}
+                    onRestart={() => { void restart().catch(cause => setError(cause instanceof Error ? cause.message : String(cause))); }}
                     restarting={restarting}
                   />
                 ) : settingsBody}

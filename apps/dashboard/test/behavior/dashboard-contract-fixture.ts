@@ -41,6 +41,7 @@ export function createDashboardContractFixture(calls: Call[]) {
     connector_description: "Local fixture", exposure: "full", tools: [{ rawName: "lookup", modelName: "fixture_lookup" }] };
   const dormantServer: McpServerPayload = { ...server, name: "empty-server", server_title: "Empty server",
     enabled: false, status: "disabled", tool_count: 0, tools: [] };
+  const added: McpServerPayload[] = [];
   const toolsets: ToolsetPayload[] = [{ name: "mcp:fixture-server", label: "Fixture server", enabled: true, tools: [{
     name: "fixture_lookup", raw_name: "lookup", description: "Look up fixture data", parameters: {}, requires_resource: null,
     source: "mcp", exposure: "full", connector_name: "Fixture connector",
@@ -54,6 +55,10 @@ export function createDashboardContractFixture(calls: Call[]) {
     listeners() { return { cloud: cloudListeners.size, task: taskListeners.size }; },
     completeTask() { if (task) { task = { ...task, state: "completed", stage: "done", processed: 1 }; taskListeners.forEach(listener => listener(structuredClone(task!))); } },
     task(value: DesktopSyntheticPerformerTask) { task = structuredClone(value); taskListeners.forEach(listener => listener(structuredClone(task!))); },
+    async restartAgent() {
+      await record("restartAgent");
+      for (const item of added) { item.status = "ready"; item.tool_count = 2; }
+    },
     clearCalls() { calls.length = 0; },
   };
   const desktop = {
@@ -85,8 +90,14 @@ export function createDashboardContractFixture(calls: Call[]) {
       case "toolsets.list": return { items: structuredClone(toolsets.map(group => group.name === "mcp:fixture-server"
         ? { ...group, enabled: server.enabled, tools: server.enabled ? group.tools : [] } : group)) };
       case "mcp.servers.list": return (async () => { await gate(call.operation); return {
-        items: structuredClone([server, dormantServer]), total: 2, tool_total: server.tool_count,
+        items: structuredClone([server, dormantServer, ...added]), total: 2 + added.length, tool_total: server.tool_count,
       }; })();
+      case "mcp.servers.add": return (async () => {
+        await gate(call.operation);
+        const name = String(call.input.name);
+        added.push({ ...dormantServer, name, server_title: name, enabled: true, status: "pending_restart", transport: String(call.input.transport) });
+        return { name };
+      })();
       case "mcp.servers.update": return (async () => {
         await gate(call.operation);
         server.enabled = Boolean(call.input.enabled);

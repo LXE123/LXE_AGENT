@@ -1,4 +1,5 @@
 @import "../../shared/cds-theme.css";
+@import "../integrations/mcp-form.css";
 
 /* CDS adaptation: one content plane, semantic text, alpha dividers and quiet
    controls. Model logos retain their identity; decorative brand fills do not. */

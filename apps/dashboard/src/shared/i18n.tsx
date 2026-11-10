@@ -522,7 +522,7 @@ export const ZH_TEXT = {
     enable: "启用",
     disable: "关闭",
     saving: "保存中",
-    noServers: "暂无 MCP server。"
+    noServers: "尚未添加 MCP 服务"
   },
   skills: {
     subtitle: "浏览 Agent 可加载的技能、命令与参考资料。",
@@ -577,6 +577,13 @@ export const ZH_TEXT = {
   },
   mcp: {
     title: "MCP 服务",
+    add: "添加服务", back: "返回服务列表", newTitle: "添加 MCP 服务", name: "服务名称", nameHint: "可使用英文字母、数字、下划线和连字符。",
+    transport: "连接方式", stdio: "本地程序", command: "启动程序", args: "启动参数", arg: "参数",
+    advanced: "更多连接选项", env: "环境变量", passEnv: "从 Agent 环境传入变量", cwd: "工作目录",
+    bearer: "Bearer Token 环境变量名", headers: "请求头", envHeaders: "从环境变量读取的请求头", key: "名称", value: "值", variable: "环境变量名",
+    remove: "移除", addRow: "添加一项", duplicate: "有重复的名称，请检查后保存。",
+    states: { ready: "已连接", connecting: "连接中", disconnected: "已断开", configured: "已配置", error: "连接失败", pending_restart: "待重启生效" },
+    save: "保存", cancel: "取消", restart: "重启 Agent", savedHint: "配置已保存，重启 Agent 后连接新服务。",
     description: "管理向 Agent 提供工具的外部服务。",
   },
   skillModal: {
@@ -1452,7 +1459,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       enable: "Enable",
       disable: "Disable",
       saving: "Saving",
-      noServers: "No MCP servers."
+      noServers: "No MCP services added yet."
     },
     skills: {
       subtitle: "Browse the skills, commands, and references available to the agent.",
@@ -1507,6 +1514,13 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     mcp: {
       title: "MCP services",
+      add: "Add service", back: "Back to services", newTitle: "Add MCP service", name: "Service name", nameHint: "Use letters, numbers, underscores or hyphens.",
+      transport: "Connection type", stdio: "Local program", command: "Executable", args: "Arguments", arg: "Argument",
+      advanced: "More connection options", env: "Environment variables", passEnv: "Pass variables from the agent environment", cwd: "Working directory",
+      bearer: "Bearer token environment variable", headers: "Headers", envHeaders: "Headers from environment variables", key: "Name", value: "Value", variable: "Variable name",
+      remove: "Remove", addRow: "Add item", duplicate: "Duplicate names. Check the entries and save again.",
+      states: { ready: "Connected", connecting: "Connecting", disconnected: "Disconnected", configured: "Configured", error: "Connection failed", pending_restart: "Pending restart" },
+      save: "Save", cancel: "Cancel", restart: "Restart agent", savedHint: "Configuration saved. Restart the agent to connect new services.",
       description: "Manage external services that provide tools to the agent.",
     },
     skillModal: {

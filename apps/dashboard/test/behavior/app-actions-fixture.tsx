@@ -114,7 +114,7 @@ function ActionControls({ sessionId }: { sessionId?: string }) {
       models: modelsQuery.data?.items.map(item => ({ model: item.model, source: item.credential_source })),
       activity: activity.data, otherActivity: otherActivity.data })}</output>
     <output id="action-error">{error}</output>
-    <McpServicesView mcpError="" mcpSavingId={mcp.savingId} mcpServers={serversQuery.data?.items ?? []} onToggleMcpServer={mcp.toggleMcpServer} />
+    <McpServicesView restartAgent={async () => {}} mcpError="" mcpSavingId={mcp.savingId} mcpServers={serversQuery.data?.items ?? []} onToggleMcpServer={mcp.toggleMcpServer} />
     <ConversationComposer contextDetail={null} activity={null} conversationKey="actions" currentModel={currentQuery.data ?? null}
       models={modelsQuery.data?.items ?? []} modelLoading={currentQuery.isPending || modelsQuery.isPending}
       modelSaving={actions.modelSaving} thinkingSaving={actions.thinkingSaving} runtimeReady runtimeUnavailableMessage=""

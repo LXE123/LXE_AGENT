@@ -13,6 +13,7 @@ import type {
 } from "@lxe/protocol";
 import {
   DashboardRpcError,
+  DESKTOP_MCP_NAME,
   type AgentSessionChange,
   type AgentDashboardRpcCall,
   type AgentDashboardRpcOperation,
@@ -29,6 +30,7 @@ import {
   DeepSeekFilesService,
   ExecShellAdapter,
   queryLxeSkillCommandSkills,
+  addMcpServer,
   loadMcpConfig,
   TurnUsageSyncService,
   McpManager,
@@ -215,6 +217,12 @@ export function createAgentRuntimeHost(
     mcpConfig,
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: (sessionId) => processes.terminateSession(sessionId),
+    savedMcpConfig: () => loadMcpConfig(mcpConfigPath, environment, options.dataRoot),
+    addMcpServer: ({ name, ...definition }) => {
+      if (name === DESKTOP_MCP_NAME) throw new DashboardRpcError("invalid_request", "lxe_desktop is reserved for the desktop app");
+      if (mcpConfig.servers.some(server => server.name === name)) throw new DashboardRpcError("invalid_request", `MCP server already exists: ${name}`);
+      addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
+    },
     setMcpEnabled: async (serverName, enabled) => {
       if (serverName !== desktopMcp?.name) setMcpServerEnabled(mcpConfigPath, serverName, enabled);
       await mcpManager.setEnabled(serverName, enabled);

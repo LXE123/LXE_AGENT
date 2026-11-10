@@ -48,14 +48,20 @@ function parseExposure(value: unknown, name: string): McpServerConfig["exposure"
   throw new Error(`invalid MCP exposure for ${name}: ${mode}`);
 }
 
-export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): McpConfig {
-  let root: Record<string, unknown>;
+function readOrEmpty(path: string): Record<string, unknown> {
   try {
-    root = readMcpConfigDocument(path);
+    return readMcpConfigDocument(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { servers: [] };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw error;
   }
+}
+
+export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): McpConfig {
+  return parseMcpConfig(readOrEmpty(path), env, defaultCwd);
+}
+
+function parseMcpConfig(root: Record<string, unknown>, env: Environment, defaultCwd: string): McpConfig {
   const servers = mapping(root.mcpServers ?? root.servers);
   return {
     servers: Object.entries(servers).sort(([left], [right]) => left.localeCompare(right)).map(([name, raw]) => {
@@ -110,6 +116,16 @@ export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): 
       };
     }),
   };
+}
+
+export function addMcpServer(path: string, name: string, definition: Record<string, unknown>, env: Environment, defaultCwd: string): void {
+  const root = readOrEmpty(path);
+  const key = root.mcpServers !== undefined ? "mcpServers" : "servers";
+  const servers = mapping(root[key]);
+  if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
+  root[key] = { ...servers, [name]: { ...definition, enabled: true, exposure: "codemode" } };
+  parseMcpConfig(root, env, defaultCwd);
+  writeMcpConfigDocument(path, root);
 }
 
 export function setMcpServerEnabled(path: string, serverName: string, enabled: boolean): void {

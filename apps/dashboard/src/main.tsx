@@ -77,8 +77,10 @@ function App({
   language,
   onLanguageChange,
   onOpenDesktopSettings,
+  restartAgent,
   setupComplete,
 }: {
+  restartAgent: () => Promise<void>;
   desktopCloud: DesktopCloudState;
   desktopHealth: DesktopHealth;
   language: Language;
@@ -306,6 +308,7 @@ function App({
                 onOpenDetail={setDetailTarget}
                 startSkillConversation={startSkillConversation}
                 mcpSavingId={mcpSavingId}
+                restartAgent={restartAgent}
                 toggleMcpServer={toggleMcpServer}
               />
             ) : null}
@@ -402,8 +405,9 @@ function DashboardApplication() {
         onThemeChange={setTheme}
         theme={theme}
       >
-        {({ cloud, health, openSettings, setupComplete }) => (
+        {({ cloud, health, openSettings, restartAgent, setupComplete }) => (
           <App
+            restartAgent={restartAgent}
             desktopCloud={cloud}
             desktopHealth={health}
             language={language}

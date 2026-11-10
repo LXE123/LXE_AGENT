@@ -59,6 +59,8 @@ interface DashboardServiceOptions {
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
   mcpConfig: McpConfig;
+  savedMcpConfig?: () => McpConfig;
+  addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
@@ -314,6 +316,11 @@ export class DashboardService {
     },
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
+    "mcp.servers.add": input => {
+      if (!this.options.addMcpServer) throw new DashboardRpcError("invalid_request", "MCP configuration is unavailable");
+      this.options.addMcpServer(input);
+      return { name: input.name };
+    },
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
     "stats.overview": (input) => this.overview(input.days) as DashboardRpcResult<"stats.overview">,
@@ -504,15 +511,15 @@ export class DashboardService {
     return groups;
   }
 
-  private mcpServer(server: McpConfig["servers"][number]): JsonObject {
-    const live = this.options.mcpStatus?.(server.name);
+  private mcpServer(server: McpConfig["servers"][number], pendingRestart = false): JsonObject {
+    const live = pendingRestart ? undefined : this.options.mcpStatus?.(server.name);
     const toolCount = live?.toolCount
       ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.source === "mcp" && tool.connectorName === server.name).length;
     return {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      status: live?.state ?? (!server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured"),
+      status: pendingRestart ? "pending_restart" : live?.state ?? (!server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured"),
       tool_count: toolCount,
       error: live?.error ?? "",
       server_title: server.connectorName,
@@ -525,7 +532,12 @@ export class DashboardService {
   }
 
   private mcpServers(): JsonObject {
-    const items = this.options.mcpConfig.servers.map((server) => this.mcpServer(server));
+    const active = this.options.mcpConfig.servers;
+    const items = active.map(server => this.mcpServer(server));
+    const names = new Set(active.map(server => server.name));
+    for (const server of this.options.savedMcpConfig?.().servers ?? []) {
+      if (!names.has(server.name)) items.push(this.mcpServer(server, true));
+    }
     return { items, total: items.length, tool_total: items.reduce((sum, item) => sum + Number(item.tool_count ?? 0), 0) };
   }
 

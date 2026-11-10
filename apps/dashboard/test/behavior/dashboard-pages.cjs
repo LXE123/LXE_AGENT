@@ -89,12 +89,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await textClick('MCP services', '.workspace-subnav');
     await js("behavior.ui.hold('mcp.servers.update');behavior.ui.fail('mcp.servers.update',true)");
     await textClick('Disable', '.workspace-view-content');
-    assert.equal(await js("document.querySelector('.workspace-view-content button').disabled"), true);
+    assert.equal(await js("document.querySelector('.mcp-toggle').disabled"), true);
     await js("behavior.ui.release('mcp.servers.update')");
     await waitFor("document.body.textContent.includes('EACCES: fixture mcp.servers.update denied')", 'MCP error retained');
     await js("behavior.ui.fail('mcp.servers.update',false)");
     await textClick('Disable', '.workspace-view-content');
-    await waitFor("document.querySelector('.workspace-view-content button')?.textContent==='Enable'", 'MCP disabled');
+    await waitFor("document.querySelector('.mcp-toggle')?.textContent==='Enable'", 'MCP disabled');
     assert.deepEqual((await state()).calls.filter(c=>c.operation==='mcp.servers.update').map(c=>c.input),
       [{name:'fixture-server',enabled:false},{name:'fixture-server',enabled:false}]);
     assert.equal((await operations()).filter(op => op === 'toolsets.list').length, catalogReads, 'inactive tool catalog is not fetched on toggle');
@@ -103,11 +103,44 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.ok((await operations()).filter(op => op === 'toolsets.list').length > catalogReads);
     assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
   });
-  await step('MCP list failures are shown independently of tool catalog data', async () => {
+  await step('add remote and local MCP services and explicitly restart', async () => {
     await open('capabilities');
+    await textClick('MCP services', '.workspace-subnav');
+    const enter = (name, value) => js(`document.querySelector('.mcp-form [name="${name}"]').value=${JSON.stringify(value)}`);
+    await textClick('Add service');
+    await enter('name', 'orders');
+    await enter('url', 'https://example.test/mcp');
+    await click('fieldset:not([hidden]) > details > summary');
+    await enter('token', 'ORDERS_TOKEN');
+    await js("behavior.ui.fail('mcp.servers.add',true)");
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelector('.mcp-form [role=alert]')?.textContent.includes('EACCES')", 'save error visible inline');
+    assert.equal(await js("document.querySelector('[name=token]').value"), 'ORDERS_TOKEN');
+    await js("behavior.ui.fail('mcp.servers.add',false)");
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelector('.mcp-restart') && document.body.textContent.includes('orders')", 'saved remote');
+    await textClick('Add service');
+    await enter('name', 'local');
+    await click('.mcp-transport label:first-child span');
+    await enter('command','node');
+    await click('button[aria-label="Add item · Arguments"]');
+    await enter('args','/with spaces/fixture.js');
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelectorAll('.connection-row').length === 4", 'both kinds in list');
+    const inputs = (await state()).calls.filter(c=>c.operation==='mcp.servers.add').map(c=>c.input);
+    assert.deepEqual(inputs.at(-1), {name:'local',transport:'stdio',command:'node',args:['/with spaces/fixture.js'],env:{}});
+    assert.deepEqual(inputs.at(-2), {name:'orders',transport:'streamable-http',url:'https://example.test/mcp',bearer_token_env_var:'ORDERS_TOKEN',headers:{},env_headers:{}});
+    assert.equal((await operations()).includes('restartAgent'),false);
+    await textClick('Restart agent');
+    await waitFor("document.querySelectorAll('.connection-row').length === 4 && !document.querySelector('.mcp-restart')", 'new process statuses loaded');
+    assert.equal((await operations()).filter(op=>op==='restartAgent').length,1);
+  });
+  await step('MCP list failures are shown independently of tool catalog data', async () => {
+    await open();
+    await js("behavior.ui.fail('mcp.servers.list',true)");
+    await click('.tab-capabilities');
     await textClick('Tools', '.workspace-subnav');
     await waitFor("document.body.textContent.includes('fixture_lookup')", 'tool catalog loaded');
-    await js("behavior.ui.fail('mcp.servers.list',true)");
     await textClick('MCP services', '.workspace-subnav');
     await waitFor("document.querySelector('.connections-page')?.textContent.includes('EACCES: fixture mcp.servers.list denied')", 'MCP list error');
     assert.equal(await js("document.querySelectorAll('.connection-row').length"), 0);

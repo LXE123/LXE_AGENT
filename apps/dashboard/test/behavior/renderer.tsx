@@ -242,6 +242,7 @@ const desktop = {
   platform: (new URLSearchParams(location.search).get("platform") === "win32" || navigator.userAgent.includes("Windows")) ? "win32" as const : "darwin" as const,
   getSetupState: async () => setupState({ complete }),
   getHealth: async () => ({ ...health }),
+  restartAgent: async () => { await contractFixture.controls.restartAgent(); return { ...health }; },
   getCloudState: async () => cloudState(),
   getUpdateState: async () => updateState,
   checkForUpdate: async () => { calls.push({operation:"update.check"}); return updateState={phase:"available",release:updateRelease}; },

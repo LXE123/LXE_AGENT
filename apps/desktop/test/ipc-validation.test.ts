@@ -15,6 +15,19 @@ import {
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("validates custom MCP services before forwarding to the agent", () => {
+    const parse = (input: unknown) => validateDashboardRpcCall({ operation: "mcp.servers.add", input });
+    const local = { name: "docs", transport: "stdio", command: "node", args: ["with spaces", ""], env: { KEY: " a " } };
+    expect(parse(local).input).toEqual(local);
+    const remote = { name: "remote", transport: "streamable-http", url: "https://example.com/mcp", bearer_token_env_var: "TOKEN" };
+    expect(parse(remote).input).toEqual(remote);
+    for (const invalid of [{ ...local, args: [3] }, { ...local, url: remote.url }, { ...local, name: "../docs" },
+      { ...remote, url: "file:///tmp/test" }, { ...remote, env_headers: { Authorization: "BAD" } },
+      { ...remote, headers: { Foo: "one\r\ntwo" } }, { ...remote, env_headers: { A: "bad name" } }]) {
+      expect(() => parse(invalid)).toThrow();
+    }
+  });
+
   test("accepts only resolved desktop appearances", () => {
     expect(validateDesktopAppearance("light")).toBe("light");
     expect(validateDesktopAppearance("dark")).toBe("dark");

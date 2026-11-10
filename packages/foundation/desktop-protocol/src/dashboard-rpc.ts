@@ -355,6 +355,11 @@ export type ToolPayload = {
   connector_name: string;
 };
 
+export type McpServerAddInput =
+  | { name: string; transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | { name: string; transport: "streamable-http"; url: string; headers?: Record<string, string>;
+      env_headers?: Record<string, string>; bearer_token_env_var?: string };
+
 export type McpServerPayload = {
   name: string;
   enabled: boolean;
@@ -586,6 +591,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
   };
   "commands.list": { input: DashboardRpcEmptyInput; result: ApiList<CliCommandPayload> };
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
+  "mcp.servers.add": { input: McpServerAddInput; result: { name: string } };
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
   "channels.health": { input: DashboardRpcEmptyInput; result: ChannelHealthList };
@@ -735,6 +741,45 @@ const modelSelectionScope = (input: Record<string, unknown>, operation: string) 
     ...(input.remember_default === undefined ? {} : { remember_default: booleanValue(input.remember_default, `${operation}.remember_default`) }),
   };
 };
+
+function parseMcpServerAdd(input: Record<string, unknown>): McpServerAddInput {
+  const name = textValue(input.name, "name")!;
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return rpcError("Invalid MCP service name");
+  const envName = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const headerName = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+  function strings(field: string, keyPattern: RegExp, validValue: (s: string) => boolean) {
+    if (input[field] === undefined) return undefined;
+    const entries = Object.entries(objectValue(input[field], field));
+    return Object.fromEntries(entries.map(([key, value]) => {
+      if (!keyPattern.test(key) || typeof value !== "string" || !validValue(value)) return rpcError(`Invalid entry in ${field}`);
+      return [key, value] as const;
+    }));
+  }
+  if (input.transport === "stdio") {
+    exactKeys(input, ["name", "transport", "command", "args", "env", "cwd"], "mcp.servers.add");
+    const args = input.args;
+    if (args !== undefined && (!Array.isArray(args) || !args.every(arg => typeof arg === "string" && !arg.includes("\0")))) {
+      return rpcError("args must be an array of strings without NUL characters");
+    }
+    const command = textValue(input.command, "command")!;
+    const env = strings("env", envName, value => !value.includes("\0"));
+    const cwd = textValue(input.cwd, "cwd", { optional: true });
+    if (command.includes("\0") || cwd?.includes("\0")) return rpcError("MCP process paths cannot contain NUL characters");
+    return { name, transport: "stdio", command, ...(args && { args }), ...(env && { env }), ...(cwd && { cwd }) };
+  }
+  if (input.transport !== "streamable-http") return rpcError("Unsupported MCP transport");
+  exactKeys(input, ["name", "transport", "url", "headers", "env_headers", "bearer_token_env_var"], "mcp.servers.add");
+  const url = textValue(input.url, "url")!;
+  if (!URL.canParse(url) || !["https:", "http:"].includes(new URL(url).protocol)) return rpcError("Expected an HTTP or HTTPS service URL");
+  const token = textValue(input.bearer_token_env_var, "bearer_token_env_var", { optional: true });
+  if (token && !envName.test(token)) return rpcError("Invalid bearer token environment variable name");
+  const headers = strings("headers", headerName, value => !/[\r\n\0]/.test(value));
+  const envHeaders = strings("env_headers", headerName, value => envName.test(value));
+  const names = [...Object.keys(headers ?? {}), ...Object.keys(envHeaders ?? {}), ...(token ? ["authorization"] : [])].map(k => k.toLowerCase());
+  if (new Set(names).size !== names.length) return rpcError("Duplicate HTTP header");
+  return { name, transport: "streamable-http", url, ...(headers && { headers }), ...(envHeaders && { env_headers: envHeaders }),
+    ...(token && { bearer_token_env_var: token }) };
+}
 
 export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   const call = objectValue(value, "Dashboard RPC call");
@@ -951,6 +996,8 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         name: textValue(input.name, `${operation}.name`)!,
         path: textValue(input.path, `${operation}.path`)!,
       } };
+    case "mcp.servers.add":
+      return { operation, input: parseMcpServerAdd(input) };
     case "mcp.servers.update":
       exactKeys(input, ["name", "enabled"], `${operation}.input`);
       return { operation, input: {
