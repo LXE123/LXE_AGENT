@@ -88,7 +88,7 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
         return;
       }
       const iss = incoming.searchParams.get("iss");
-      response.end("Return to LXE Agent to see the connection status.");
+      response.end("Authorization response received. You can close this tab and return to LXE Agent to check the connection.");
       completed.resolve({ authorizationCode: code, ...(iss && { iss }) });
     });
     const provider: OAuthClientProvider = {

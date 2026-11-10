@@ -208,7 +208,7 @@ describe("MCP manager", () => {
     const cursors: Array<string | undefined> = [];
     let closed = false;
     const connector = new OfficialMcpConnector(environment, options => {
-      expect(options.versionNegotiation).toEqual({ mode: "auto", probe: { timeoutMs: 2_000, maxRetries: 0 } });
+      expect(options.versionNegotiation).toEqual({ mode: "auto", probe: { timeoutMs: server.startupTimeoutMs, maxRetries: 0 } });
       return {
         connect: async () => undefined,
         close: async () => { closed = true; },

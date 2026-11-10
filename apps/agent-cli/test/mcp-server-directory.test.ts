@@ -63,6 +63,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
     },
   });
+  let handshake: "normal" | "fail" | "slow" = "normal";
+  let browserOpens = 0;
   const protectedServer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const { pathname, origin } = new URL(request.url);
     if (pathname === "/resource") return Response.json({ resource: origin + "/", authorization_servers: [origin] });
@@ -75,7 +77,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       status: 401, headers: { "WWW-Authenticate": `Bearer scope="orders.read", resource_metadata="${origin}/resource"` },
     });
     if (request.method !== "POST") return new Response(null, { status: 405 });
-    const reply = legacyReply(await request.json() as WireMessage);
+    const message = await request.json() as WireMessage;
+    if (message.method === "server/discover") {
+      if (handshake === "fail") return new Response("fixture discovery temporarily unavailable", { status: 503 });
+      if (handshake === "slow") await Bun.sleep(2_200);
+    }
+    const reply = legacyReply(message);
     return reply ? Response.json(reply) : new Response(null, { status: 202 });
   } });
   const root = mkdtempSync(join(tmpdir(), "lxe-mcp-prompt-"));
@@ -95,6 +102,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     dataRoot: root, legacyWorkspace: workspace, skillsRoot, userSkillsRoot: join(root, "user-skills"), llmConfigRoot,
     environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     openMcpBrowser: async link => {
+      browserOpens++;
       const auth = new URL(link);
       const callback = new URL(auth.searchParams.get("redirect_uri")!);
       callback.searchParams.set("state", auth.searchParams.get("state")!);
@@ -173,7 +181,18 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("Sign in with: agent-cli mcp login team-skills");
+    handshake = "fail";
     await turn("desktop", "desktop", "agent-cli mcp login team-skills");
+    const failed = received.at(-1)?.messages.at(-1)?.content;
+    expect(failed).toContain("OAuth credentials were saved");
+    expect(failed).toContain("503");
+    expect(await current()).toMatchObject({ status: "error", tool_count: 0, can_relogin: true });
+    expect(browserOpens).toBe(1);
+    // The retry uses the saved grant, even when HTTP discovery takes longer than two seconds.
+    handshake = "slow";
+    await turn("desktop", "desktop", "agent-cli mcp login team-skills");
+    handshake = "normal";
+    expect(browserOpens).toBe(1);
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("Signed in and connected to team-skills.");
     expect(await current()).toMatchObject({ status: "ready", tool_count: 2, can_relogin: true });
     expect(await host.dashboardCall({ operation: "mcp.servers.login", input: { name: "team-skills" } })).toEqual({ name: "team-skills" });

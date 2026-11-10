@@ -36,6 +36,7 @@ function McpServerRow({
       void cache.invalidateQueries({ queryKey: dashboardQueryKeys.mcpServers.all });
     }
   }
+  const retryConnection = server.can_relogin && (server.status === "error" || server.status === "disconnected");
   const title = server.server_title || server.connector_name || server.name;
   return (
     <article className="connection-row">
@@ -56,7 +57,8 @@ function McpServerRow({
       </span>
       <div className="mcp-row-actions">
         {server.enabled && (server.status === "needs_auth" || server.can_relogin) && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
-          {signingIn ? t.mcp.signingIn : server.can_relogin ? t.mcp.relogin : t.mcp.login}
+          {retryConnection ? (signingIn ? t.mcp.reconnecting : t.mcp.reconnect)
+            : signingIn ? t.mcp.signingIn : server.can_relogin ? t.mcp.relogin : t.mcp.login}
         </button>}
         <button
           aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}

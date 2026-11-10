@@ -13,6 +13,9 @@ If `exec` returns an `exec_id`, tell the user to finish in their browser and
 use `wait` with that ID to collect the outcome. Do not launch a second login.
 A successful command means the Harness has verified the connection; its tools
 are then available for discovery. An already connected server needs no login.
+If OAuth credentials were saved but the connection failed, report both facts.
+Retry the same login command to reconnect using the saved credentials. The
+Harness asks for browser sign-in again only if the server challenges them.
 If sign-in fails, report the returned error. A server configured with a fixed
 API key or Authorization header may need its configured credentials updated instead.
 

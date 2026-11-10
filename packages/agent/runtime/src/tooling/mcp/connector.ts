@@ -34,7 +34,9 @@ export class OfficialMcpConnector implements McpConnector {
     const client = this.clientFactory({
       versionNegotiation: {
         mode: mode === "2026-07-28" ? { pin: mode } : mode,
-        probe: { timeoutMs: Math.max(1, Math.min(2_000, Math.floor(server.startupTimeoutMs / 2))), maxRetries: 0 },
+        // A remote probe can take the available startup budget. Stdio needs time to spawn its legacy fallback.
+        probe: { timeoutMs: server.transport === "streamable-http" ? server.startupTimeoutMs
+          : Math.max(1, Math.min(2_000, Math.floor(server.startupTimeoutMs / 2))), maxRetries: 0 },
       },
     });
     let closed = false;
