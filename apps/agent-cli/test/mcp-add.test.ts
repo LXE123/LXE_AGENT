@@ -23,7 +23,7 @@ test("adding a service preserves aliases, unrelated settings and literal environ
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("saving both transports connects and discovers tools in the same running host", async () => {
+test("opening settings, saving and toggling either transport never opens a connection", async () => {
   const source = repositoryRoot(import.meta.dir);
   const root = mkdtempSync(join(tmpdir(), "mcp-add-host-"));
   const trace = join(root, "spawn.jsonl");
@@ -60,16 +60,18 @@ test("saving both transports connects and discovers tools in the same running ho
     const saved = await list();
     expect(saved.total).toBe(3);
     expect(JSON.stringify(saved)).not.toContain("fixture-token");
-    const deadline = Date.now() + 5_000;
-    while ((await list()).items.some(item => item.status === "connecting") && Date.now() < deadline) await Bun.sleep(10);
-    const live = (await list()).items;
+    const live = saved.items;
     for (const name of ["local", "team-skills"]) {
-      expect(live.find(item => item.name === name)).toMatchObject({ status: "ready", tool_count: 2, exposure: "codemode" });
+      expect(live.find(item => item.name === name)).toMatchObject({ enabled: true, exposure: "codemode" });
     }
-    expect(requests.length).toBeGreaterThan(0);
-    expect(requests.every(header => header === "Bearer fixture-token")).toBe(true);
-    expect(existsSync(trace)).toBe(true);
-    expect(live.find(item => item.name === "missing")?.error).toContain("missing environment variable UNSET_TOKEN");
+    await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "local", enabled: false } });
+    await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "local", enabled: true } });
+    expect((await list()).items.find(item => item.name === "local")?.enabled).toBe(true);
+    expect(requests).toHaveLength(0);
+    expect(existsSync(trace)).toBe(false);
+    for (const item of live) {
+      for (const key of ["status", "error", "tools", "tool_count"]) expect(item).not.toHaveProperty(key);
+    }
   } finally {
     await host.stop();
     http.stop(true);

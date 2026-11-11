@@ -82,6 +82,11 @@ export interface TypeScriptAgentRuntimeOptions {
   providerManager?: RuntimeProviderManager;
   wireTraceController?: RuntimeWireTraceControllerPort;
   tools: ToolRegistry;
+  acquireSessionTools?: (context: RuntimeTurnEventContext) => Promise<{
+    tools: ToolRegistry;
+    mcpServerDirectory(): string;
+    release(): void;
+  }>;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   resolveInvokedSkill?: (name: string, workspace: WorkspaceContext) => Promise<{ name: string; root: string; content: string } | undefined>;
   onToolResult?: (session: string) => void;
@@ -356,6 +361,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let toolCalls = 0;
     let typingStarted = false;
     let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
+    let sessionTools: Awaited<ReturnType<NonNullable<TypeScriptAgentRuntimeOptions["acquireSessionTools"]>>> | undefined;
     const startedAt = Date.now() / 1_000;
     const emittedArtifactPaths = new Set<string>();
     let displayEpoch: string | undefined;
@@ -464,6 +470,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         platform: turnPlatform, toolPlatform, signal: handle.signal,
       };
       await this.emitTurnEvent({ type: "before_turn", userInput: job.user_input }, eventContext);
+      sessionTools = await this.options.acquireSessionTools?.(eventContext);
+      handle.signal.throwIfAborted();
+      const tools = sessionTools?.tools ?? this.options.tools;
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
       const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
       statistics.setSkills(skillSnapshot?.locations ?? {}, skillSnapshot?.modules ?? {});
@@ -472,7 +481,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         : this.options.toolExposure;
       const skillNames = skillSnapshot?.names
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
-      const toolExposure = this.options.tools.createExposureState({
+      const toolExposure = tools.createExposureState({
         ...exposureOptions,
         loadedTools: await this.options.store.readLoadedTools(job.session_id),
         onToolsLoaded: tools => this.options.store.appendLoadedTools(job.session_id, job.job_id, tools, handle.signal),
@@ -494,7 +503,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const baseSystem = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
         : this.options.systemPrompt;
-      let directory = this.options.mcpServerDirectory?.(systemPromptContext);
+      const readMcpDirectory = () => sessionTools?.mcpServerDirectory() ?? this.options.mcpServerDirectory?.(systemPromptContext);
+      let directory = readMcpDirectory();
       let systemPrompt = withMcpDirectory(baseSystem, directory);
       const fingerprintFor = (toolSchemas: ReturnType<typeof toolExposure.schemas>, isLastStep: boolean) => contextFingerprint({
           provider: systemPromptContext.provider, model: systemPromptContext.model,
@@ -601,7 +611,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         let toolSchemas = firstTools;
         let fingerprint = "";
         const snapshotToolsAndDirectory = () => {
-          directory = this.options.mcpServerDirectory?.(systemPromptContext);
+          directory = readMcpDirectory();
           promptCapabilities.currentMcpDirectory = directory;
           systemPrompt = withMcpDirectory(baseSystem, directory);
           toolSchemas = isLastStep && !inlineTools ? [] : toolExposure.schemas();
@@ -861,7 +871,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const executeToolCall = async (call: ToolCallBlock, callIndex: number): Promise<void> => {
           toolCalls += 1;
           const startedToolAt = Date.now();
-          const definition = this.options.tools.definition(call.name);
+          const definition = tools.definition(call.name);
           statistics.observe(call.name, call.arguments, definition?.source !== "mcp");
           observer.toolStarted(step + 1, call.name, call.id);
           await finalAnswerStreamer?.pushToolStart(call);
@@ -887,7 +897,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             };
             let executed: ToolExecutionResult;
             try {
-              executed = await this.options.tools.execute(call.name, call.arguments, toolContext);
+              executed = await tools.execute(call.name, call.arguments, toolContext);
             } catch (cause) {
               if (!(cause instanceof ToolOutputError)) throw cause;
               toolStatus = "error";
@@ -1017,11 +1027,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             await recordUsage("cancelled");
             return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
           }
-          const parallel = this.options.tools.definition(calls[callIndex]!.name)?.supportsParallelCalls === true;
+          const parallel = tools.definition(calls[callIndex]!.name)?.supportsParallelCalls === true;
           let waveEnd = callIndex + 1;
           if (parallel) {
             while (waveEnd < calls.length
-              && this.options.tools.definition(calls[waveEnd]!.name)?.supportsParallelCalls === true) {
+              && tools.definition(calls[waveEnd]!.name)?.supportsParallelCalls === true) {
               waveEnd += 1;
             }
           }
@@ -1097,6 +1107,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       }
       this.active.delete(handle);
       workspaceLease?.release();
+      sessionTools?.release();
     }
   }
 

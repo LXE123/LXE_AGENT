@@ -50,6 +50,26 @@ export class McpManager {
     await Promise.all([...this.entries.values()].filter(entry => entry.config.enabled).map(entry => this.connect(entry, registry)));
   }
 
+  /** Apply a session's next-step configuration without touching other sessions. */
+  async configure(config: McpConfig): Promise<void> {
+    const fingerprint = (server: McpServerConfig) => JSON.stringify(server, (_key, value) => value instanceof Set ? [...value].sort() : value);
+    const desired = new Map(config.servers.map(server => [server.name, server]));
+    for (const [name, entry] of this.entries) {
+      if (desired.has(name) && fingerprint(entry.config) === fingerprint(desired.get(name)!)) {
+        desired.delete(name);
+        continue;
+      }
+      await this.reset(entry, "disabled", this.registry);
+      this.entries.delete(name);
+      for (const [namespace, owner] of this.namespaceOwners) if (owner === name) this.namespaceOwners.delete(namespace);
+    }
+    await Promise.all([...desired.values()].map(async server => {
+      const enabled = server.enabled;
+      this.add({ ...server, enabled: false });
+      await this.setEnabled(server.name, enabled);
+    }));
+  }
+
   async setEnabled(serverName: string, enabled: boolean): Promise<void> {
     const entry = this.entry(serverName);
     const registry = this.requireRegistry();

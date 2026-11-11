@@ -151,6 +151,40 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
+  test("uses the session registry for schemas and execution, and releases it on completion or cancellation", async () => {
+    const events: string[] = [];
+    let attempt = 0;
+    const global = new ToolRegistry();
+    global.register({ name: "lookup", description: "global", input_schema: {}, execute: async () => { throw new Error("must not use global tool"); } });
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: global, permissionPolicy, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      acquireSessionTools: async ctx => {
+        const tools = new ToolRegistry();
+        events.push("acquire:" + ctx.sessionId);
+        tools.register({ name: "lookup", description: ctx.sessionId, input_schema: { type: "object" },
+          execute: async () => { events.push("execute:" + ctx.sessionId); return { content: [{ type: "text", text: ctx.sessionId }] }; } });
+        return { tools, mcpServerDirectory: () => "directory:" + ctx.sessionId, release: () => { events.push("release:" + ctx.sessionId); } };
+      },
+      provider: { summarize, turn: async request => {
+        const id = attempt < 2 ? "A" : "B";
+        expect(request.tools.find(tool => tool.name === "lookup")?.description).toBe(id);
+        expect(request.system).toContain("directory:" + id);
+        attempt++;
+        return attempt % 2 ? messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "call" + attempt, name: "lookup", arguments: {} }] })
+          : messageFixture({ content: [{ type: "text", text: "done" }] });
+      } },
+    });
+    await runtime.start();
+    try {
+      for (const id of ["A", "B"]) expect((await runtime.runTurn(job({ session_id: id, job_id: id }), handle())).status).toBe("completed");
+      const controller = new AbortController();
+      runtime.on("before_model_step", () => controller.abort());
+      expect((await runtime.runTurn(job({ session_id: "C", job_id: "C" }), { ...handle(), signal: controller.signal })).status).toBe("cancelled");
+      expect(events).toEqual(["acquire:A", "execute:A", "release:A", "acquire:B", "execute:B", "release:B", "acquire:C", "release:C"]);
+    } finally { await runtime.stop(); }
+  });
+
   test("awaits turn and step listeners in order before snapshots, once per step across provider retries", async () => {
     const events: string[] = [];
     const run = handle();

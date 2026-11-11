@@ -27,7 +27,7 @@ export const actionFixture = {
   reset() {
     this.active = true; current = models()[0]!; failure = ""; held = ""; release = undefined; sends = 0; activities.clear();
     sessionModels.clear();
-    server = { name: "fixture-mcp", enabled: true, transport: "stdio", status: "ready", tool_count: 0, error: "", server_title: "Fixture MCP", connector_id: "", connector_name: "", connector_description: "", exposure: "", tools: [] };
+    server = { name: "fixture-mcp", enabled: true, transport: "stdio", server_title: "Fixture MCP", connector_id: "", connector_name: "", connector_description: "", exposure: "" };
   },
   fail(operation: string) { failure = operation; },
   hold(operation: string) { held = operation; },
@@ -84,8 +84,8 @@ export const actionFixture = {
         return structuredClone(selected);
       }
       case "toolsets.list": return { items: [{ name: `mcp:${server.name}`, label: "MCP", enabled: server.enabled, tools: [] }] };
-      case "mcp.servers.list": return { items: [structuredClone(server)], total: 1, tool_total: server.tool_count };
-      case "mcp.servers.update": server = { ...server, enabled: Boolean(call.input.enabled), status: call.input.enabled ? "ready" : "disabled" }; return structuredClone(server);
+      case "mcp.servers.list": return { items: [structuredClone(server)], total: 1 };
+      case "mcp.servers.update": server = { ...server, enabled: Boolean(call.input.enabled) }; return structuredClone(server);
       case "sessions.activity": return structuredClone(activities.get(String(call.input.session_id)) ?? { session_id: call.input.session_id, active: null, latest: null, queued: [] });
       case "sessions.detail": return { session: { session_id: call.input.session_id, permission_mode: "workspace-write" } };
       case "sessions.execTasks": return { items: [] };

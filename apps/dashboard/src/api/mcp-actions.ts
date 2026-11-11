@@ -28,7 +28,6 @@ export function useMcpActions(onError: (message: string) => void) {
           items: current.items.map((item) => item.name === server.name ? {
             ...item,
             enabled: nextEnabled,
-            status: nextEnabled ? "configured" : "disabled",
           } : item),
         } : current,
       );

@@ -36,11 +36,10 @@ export function createDashboardContractFixture(calls: Call[]) {
     current = defaultModel;
     return structuredClone(saved);
   }
-  const server: McpServerPayload = { name: "fixture-server", enabled: true, transport: "stdio", status: "ready", tool_count: 1,
-    error: "", server_title: "Fixture server", connector_id: "fixture", connector_name: "Fixture connector",
-    connector_description: "Local fixture", exposure: "full", tools: [{ rawName: "lookup", modelName: "fixture_lookup" }] };
+  const server: McpServerPayload = { name: "fixture-server", enabled: true, transport: "stdio", server_title: "Fixture server", connector_id: "fixture", connector_name: "Fixture connector",
+    connector_description: "Local fixture", exposure: "full" };
   const dormantServer: McpServerPayload = { ...server, name: "empty-server", server_title: "Empty server",
-    enabled: false, status: "disabled", tool_count: 0, tools: [] };
+    enabled: false };
   const added: McpServerPayload[] = [];
   const toolsets: ToolsetPayload[] = [{ name: "mcp:fixture-server", label: "Fixture server", enabled: true, tools: [{
     name: "fixture_lookup", raw_name: "lookup", description: "Look up fixture data", parameters: {}, requires_resource: null,
@@ -89,25 +88,23 @@ export function createDashboardContractFixture(calls: Call[]) {
       case "toolsets.list": return { items: structuredClone(toolsets.map(group => group.name === "mcp:fixture-server"
         ? { ...group, enabled: server.enabled, tools: server.enabled ? group.tools : [] } : group)) };
       case "mcp.servers.list": return (async () => { await gate(call.operation); return {
-        items: structuredClone([server, dormantServer, ...added]), total: 2 + added.length, tool_total: server.tool_count,
+        items: structuredClone([server, dormantServer, ...added]), total: 2 + added.length,
       }; })();
       case "mcp.servers.add": return (async () => {
         await gate(call.operation);
         const name = String(call.input.name);
-        added.push({ ...dormantServer, name, server_title: name, enabled: true, status: call.input.transport === "stdio" ? "ready" : "needs_auth", transport: String(call.input.transport) });
+        added.push({ ...dormantServer, name, server_title: name, enabled: true, can_login: call.input.transport === "streamable-http", transport: String(call.input.transport) });
         return { name };
       })();
       case "mcp.servers.login": return (async () => {
         await gate(call.operation);
         const item = added.find(item => item.name === call.input.name)!;
-        item.status = "ready"; item.tool_count = 2; item.can_relogin = true;
+        item.has_credentials = true;
         return { name: item.name };
       })();
       case "mcp.servers.update": return (async () => {
         await gate(call.operation);
         server.enabled = Boolean(call.input.enabled);
-        server.status = server.enabled ? "ready" : "disabled";
-        server.tool_count = server.enabled ? 1 : 0;
         return structuredClone(server);
       })();
       case "skills.list": return { items: [{ name: "fixture-skill", description: "Fixture skill", type: "default", source: "default", commands: [], references: [], location: "/skills/fixture-skill/SKILL.md" }], total: 1 };

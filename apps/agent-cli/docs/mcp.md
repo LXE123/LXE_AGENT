@@ -1,7 +1,9 @@
 # Manage user MCP servers
 
 In a local chat, use `exec` to run `agent-cli mcp list`. It reports the live
-connections used by this chat without starting another Agent or reconnecting servers.
+connections used by this chat. Other chats own separate connections. A chat
+reuses its connections across turns; after 30 idle minutes they are released
+and rebuilt on the next use. Configuration and OAuth credentials remain shared.
 
 For a server marked `needs_auth`, the output includes its sign-in command.
 When the user asks to sign in, run that command with `exec`, for example
@@ -42,7 +44,8 @@ agent-cli mcp remove files
 ```
 
 `add` saves the definition without starting it; `remove` keeps saved OAuth
-credentials. CLI config edits apply to the next standalone command or newly
-started Harness. For an immediate addition in an open desktop chat, use
-**Capabilities → MCP services → Add service**. All workspaces using the same
+credentials. Config edits apply before each chat’s next model call and on the
+next standalone command. You can also add services through
+**Capabilities → MCP services → Add service**; viewing or saving settings does
+not probe connections. All workspaces using the same
 LXE data root share the configuration. Run `agent-cli mcp --help` for options.

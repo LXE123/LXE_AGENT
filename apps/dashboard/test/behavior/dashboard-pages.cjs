@@ -129,7 +129,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal(await js("document.querySelector('[name=token]').value"), 'ORDERS_TOKEN');
     await js("behavior.ui.fail('mcp.servers.add',false)");
     await textClick('Save', '.mcp-form');
-    await waitFor("document.body.textContent.includes('Sign-in required') && document.body.textContent.includes('orders')", 'saved remote');
+    await waitFor("document.querySelectorAll('.connection-row').length === 3 && document.body.textContent.includes('orders')", 'saved remote configuration');
+    assert.equal(await js("Boolean(document.querySelector('.connection-state'))"), false, 'settings do not claim a live connection');
     await textClick('Add service');
     await enter('name', 'local');
     await click('.mcp-transport label:first-child span');
@@ -144,7 +145,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal((await operations()).includes('restartAgent'),false);
     assert.equal((await operations()).includes('mcp.servers.login'),false);
     await textClick('Sign in');
-    await waitFor("!document.body.textContent.includes('Sign-in required')", 'authorized without a restart');
+    await waitFor("document.body.textContent.includes('Sign in again')", 'credentials saved without claiming a connection');
     await textClick('Sign in again');
     await waitFor("!document.body.textContent.includes('Waiting for sign-in')", 'finished reauthentication');
     assert.equal((await operations()).filter(op => op === 'mcp.servers.login').length, 2);

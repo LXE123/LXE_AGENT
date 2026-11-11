@@ -14,12 +14,13 @@ export async function openMcpBrowser(url: string): Promise<void> {
   });
 }
 
-/** A single host's connections, using grants shared by all Harness processes for this data root. */
+/** One session's connections, using grants shared by all Harness processes for this data root. */
 export class McpAccess {
   readonly manager: McpManager;
   private readonly logins = new Map<string, AbortController>();
   private readonly lastToken = new Map<string, string | undefined>();
   private readonly reconnects = new Map<string, Promise<void>>();
+  private configuring: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: McpConfig, private readonly store: McpAuthStore,
     environment: Record<string, string | undefined>, private readonly openBrowser = openMcpBrowser) {
@@ -35,6 +36,15 @@ export class McpAccess {
   canRelogin(name: string): boolean {
     const server = this.config.servers.find(s => s.name === name);
     return !!server && this.manager.canRelogin(name, server.url) && !!this.store.get(name, server.url);
+  }
+
+  configure(config: McpConfig): Promise<void> {
+    const update = this.configuring.catch(() => {}).then(async () => {
+      await this.manager.configure(config);
+      this.config.servers = config.servers;
+    });
+    this.configuring = update;
+    return update;
   }
 
   async login(name: string, caller?: AbortSignal): Promise<void> {

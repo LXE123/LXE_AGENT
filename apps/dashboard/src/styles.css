@@ -1985,7 +1985,7 @@ button {
 .connection-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 12px 14px;

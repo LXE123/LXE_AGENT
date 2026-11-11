@@ -6,7 +6,6 @@ import { useState } from "react";
 import type { McpServerPayload } from "../../api/payloads";
 import { queryError } from "../../api/queries";
 import { EmptyState } from "../../shared/components";
-import { formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import { McpAddForm } from "./add-server-form";
 
@@ -20,7 +19,6 @@ function McpServerRow({
   onToggle: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  const states: Record<string, string> = t.mcp.states;
   const cache = useQueryClient();
   const [signingIn, setSigningIn] = useState(false);
   const [loginError, setLoginError] = useState("");
@@ -36,7 +34,6 @@ function McpServerRow({
       void cache.invalidateQueries({ queryKey: dashboardQueryKeys.mcpServers.all });
     }
   }
-  const retryConnection = server.can_relogin && (server.status === "error" || server.status === "disconnected");
   const title = server.server_title || server.connector_name || server.name;
   return (
     <article className="connection-row">
@@ -49,16 +46,10 @@ function McpServerRow({
       </div>
       <div className="connection-row-meta">
         <span>{server.transport || t.common.unknown}</span>
-        <span>{t.common.countItems(formatNumber(server.tool_count), t.tools.itemUnit)}</span>
       </div>
-      <span className={server.error ? "connection-state error" : server.enabled && server.status === "ready" ? "connection-state on" : "connection-state"}>
-        <i aria-hidden="true" />
-        {server.enabled ? states[server.status] ?? (server.status || t.tools.enabled) : t.tools.disabled}
-      </span>
       <div className="mcp-row-actions">
-        {server.enabled && (server.status === "needs_auth" || server.can_relogin) && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
-          {retryConnection ? (signingIn ? t.mcp.reconnecting : t.mcp.reconnect)
-            : signingIn ? t.mcp.signingIn : server.can_relogin ? t.mcp.relogin : t.mcp.login}
+        {server.enabled && server.can_login && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
+          {signingIn ? t.mcp.signingIn : server.has_credentials ? t.mcp.relogin : t.mcp.login}
         </button>}
         <button
           aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
@@ -71,9 +62,6 @@ function McpServerRow({
         </button>
       </div>
       {loginError && <p className="connection-row-error" role="alert">{loginError}</p>}
-      {server.error && (server.status === "needs_auth"
-        ? <details className="connection-row-error"><summary>{t.mcp.details}</summary>{server.error}</details>
-        : <p className="connection-row-error" role="alert">{server.error}</p>)}
     </article>
   );
 }

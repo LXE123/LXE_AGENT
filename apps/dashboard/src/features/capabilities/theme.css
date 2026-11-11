@@ -130,7 +130,7 @@
 .capabilities-theme .connection-section-heading p { margin-top: 8px; max-width: 65ch; font-size: .8125rem; line-height: 1.65; }
 .capabilities-theme .connection-list { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
 .capabilities-theme .connection-row {
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   padding: 22px 4px; gap: 20px; border-bottom: 1px solid var(--cds-alpha-1);
 }
 .capabilities-theme .connection-row:last-child { border-bottom: 1px solid var(--cds-alpha-1); }

@@ -5,6 +5,7 @@ import { withMcpConfigLock } from "./mcp-config-lock";
 import { openMcpCliBridge } from "./mcp-cli-bridge";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
+import { SessionMcpPool, sessionMcpConfig, type SessionMcpRuntime } from "./session-mcp";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -36,6 +37,7 @@ import {
   queryLxeSkillCommandSkills,
   addMcpServer,
   loadMcpConfig,
+  usesMcpOAuth,
   mcpNamespace,
   TurnUsageSyncService,
   PermissionPolicyService,
@@ -124,7 +126,7 @@ export function createAgentRuntimeHost(
   };
   let mcpCli: Awaited<ReturnType<typeof openMcpCliBridge>> | undefined;
   // A nested Harness owns its own command pipe. Never forward its parent's capability.
-  for (const key of ["LXE_MCP_CLI_PIPE", "LXE_MCP_CLI_TOKEN"]) {
+  for (const key of ["LXE_MCP_CLI_PIPE", "LXE_MCP_CLI_TOKEN", "LXE_MCP_CLI_SESSION_ID"]) {
     delete environment[key];
     delete process.env[key];
   }
@@ -194,9 +196,9 @@ export function createAgentRuntimeHost(
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     execShell,
-    execEnv: ({ skillNames, platform }) => ({
+    execEnv: ({ skillNames, platform, sessionId }) => ({
       LXESKILL_SKILL_SCOPE: skillNames.join(","),
-      ...((platform === "desktop" || platform === "cli") && mcpCli && { ...mcpCli.environment, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
+      ...((platform === "desktop" || platform === "cli") && mcpCli && { ...mcpCli.environment, LXE_MCP_CLI_SESSION_ID: sessionId, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
     }),
     ...(options.onBackgroundTaskChanged ? { onExecUpdate: options.onBackgroundTaskChanged } : {}),
   });
@@ -211,19 +213,52 @@ export function createAgentRuntimeHost(
   }];
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.json");
-  const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
-  if (desktopMcp) {
-    if (mcpConfig.servers.some(server => mcpNamespace(server.name) === mcpNamespace(desktopMcp.name))) throw new Error("The mcp__lxe_desktop namespace is reserved for the app-managed MCP server");
-    mcpConfig.servers.push(desktopMcp);
+  function readMcpConfig() {
+    const config = loadMcpConfig(mcpConfigPath, environment);
+    if (desktopMcp) {
+      if (config.servers.some(server => mcpNamespace(server.name) === mcpNamespace(desktopMcp.name))) throw new Error("The mcp__lxe_desktop namespace is reserved for the app-managed MCP server");
+      config.servers.push(desktopMcp);
+    }
+    return config;
   }
+  const mcpConfig = readMcpConfig();
+  const refreshMcpConfig = () => { mcpConfig.servers = readMcpConfig().servers; return mcpConfig; };
+  const nativeTools = tools.definitionsSnapshot();
   registerMcpDiscoveryTools(tools, mcpConfig, store);
-  const mcp = new McpAccess(mcpConfig, new McpAuthStore(options.dataRoot), environment, options.openMcpBrowser);
-  const mcpManager = mcp.manager;
-  async function loginMcp(name: string, signal?: AbortSignal) {
-    try { await mcp.login(name, signal); }
-    finally { await options.onMcpChanged?.(); }
+  const mcpAuth = new McpAuthStore(options.dataRoot);
+  const sessions = new SessionMcpPool((directory, platform) => {
+    const config = sessionMcpConfig(refreshMcpConfig(), directory, platform);
+    const registry = new ToolRegistry();
+    for (const tool of nativeTools) registry.register(tool);
+    registerMcpDiscoveryTools(registry, config, store);
+    const access = new McpAccess(config, mcpAuth, environment, options.openMcpBrowser);
+    return { tools: registry, config, access };
+  }, undefined, error => logger.warn("mcp_session_cleanup_failed", { error }));
+  const loggingIn = new Set<string>();
+  async function signIn(access: McpAccess, name: string, signal?: AbortSignal) {
+    if (loggingIn.has(name)) throw new Error("MCP login already in progress");
+    loggingIn.add(name);
+    try { await access.login(name, signal); }
+    finally { loggingIn.delete(name); await options.onMcpChanged?.(); }
   }
-  runtimeServices.push(mcpManager);
+  // Settings only contact the selected service after an explicit login action.
+  const settingsLogins = new Set<McpAccess>();
+  async function loginMcp(name: string, signal?: AbortSignal) {
+    const server = refreshMcpConfig().servers.find(server => server.name === name);
+    if (!server || !server.enabled || !usesMcpOAuth(server)) throw new Error("MCP login requires an enabled OAuth server");
+    const access = new McpAccess({ servers: [structuredClone(server)] }, mcpAuth, environment, options.openMcpBrowser);
+    settingsLogins.add(access);
+    try { await access.manager.start(new ToolRegistry()); await signIn(access, name, signal); }
+    finally { settingsLogins.delete(access); access.stop(); await access.manager.stop(); }
+  }
+  async function withMcpSession<T>(sessionId: string, run: (session: SessionMcpRuntime) => Promise<T>): Promise<T> {
+    const session = await store.getSession(sessionId);
+    if (!session) throw new Error("Session not found: " + sessionId);
+    const lease = await sessions.acquireCommand(sessionId, assertWorkspaceAvailable(session.workspace).directory, String(session.source.platform ?? ""));
+    try {
+      return await run(lease);
+    } finally { lease.release(); }
+  }
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
     questions, approvals, sessionTitles, taskTitles,
@@ -237,22 +272,22 @@ export function createAgentRuntimeHost(
     tools,
     mcpConfig,
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
-    terminateSession: (sessionId) => processes.terminateSession(sessionId),
+    terminateSession: async (sessionId) => { await processes.terminateSession(sessionId); await sessions.dispose(sessionId); },
+    refreshMcpConfig,
     addMcpServer: ({ name, ...definition }) => withMcpConfigLock(mcpConfigPath, () => {
       if (mcpNamespace(name) === mcpNamespace(DESKTOP_MCP_NAME)) throw new DashboardRpcError("invalid_request", "The mcp__lxe_desktop namespace is reserved for the desktop app");
-      const owner = mcpConfig.servers.find(server => mcpNamespace(server.name) === mcpNamespace(name));
+      const owner = refreshMcpConfig().servers.find(server => mcpNamespace(server.name) === mcpNamespace(name));
       if (owner) throw new DashboardRpcError("invalid_request", `MCP server already exists in ${mcpNamespace(name)}: ${owner.name}`);
-      const server = addMcpServer(mcpConfigPath, name, definition, environment, options.dataRoot);
-      mcpManager.add(server);
+      const server = addMcpServer(mcpConfigPath, name, definition, environment, "");
       mcpConfig.servers.push(server);
     }),
     loginMcp,
     setMcpEnabled: async (serverName, enabled) => {
-      if (!enabled) mcp.cancel(serverName);
       if (serverName !== desktopMcp?.name) await withMcpConfigLock(mcpConfigPath, () => setMcpServerEnabled(mcpConfigPath, serverName, enabled));
-      await mcpManager.setEnabled(serverName, enabled);
+      else desktopMcp.enabled = enabled;
+      refreshMcpConfig();
     },
-    mcpStatus: name => ({ ...mcpManager.status(name), canRelogin: mcp.canRelogin(name) }),
+    mcpAuthStatus: server => ({ can_login: usesMcpOAuth(server), has_credentials: !!mcpAuth.get(server.name, server.url) }),
     skillCatalog,
     allowedSkillTypes,
     providerManager,
@@ -266,14 +301,20 @@ export function createAgentRuntimeHost(
   runtimeServices.push({
     async start() {
       mcpCli = await openMcpCliBridge({
-        list: async () => (await dashboardService.call({ operation: "mcp.servers.list", input: {} })).items,
-        login: loginMcp,
-        logout: async name => { try { return await mcp.logout(name); } finally { await options.onMcpChanged?.(); } },
+        list: sessionId => withMcpSession(sessionId, async ({ config, access }) => config.servers.map(({ name, transport }) => {
+          const status = access.manager.status(name);
+          return { name, transport, status: status.state, tool_count: status.toolCount, error: status.error, tools: status.tools };
+        })),
+        login: (name, signal, sessionId) => withMcpSession(sessionId, session => signIn(session.access, name, signal)),
+        logout: (name, sessionId) => withMcpSession(sessionId, async session => {
+          try { return await session.access.logout(name); } finally { await options.onMcpChanged?.(); }
+        }),
       });
     },
     async stop() {
-      mcp.stop();
+      for (const access of settingsLogins) { access.stop(); await access.manager.stop(); }
       await mcpCli?.close();
+      await sessions.stop();
       mcpCli = undefined;
       dashboardService.dispose();
     },
@@ -296,6 +337,11 @@ export function createAgentRuntimeHost(
       environment,
     }),
     tools,
+    acquireSessionTools: async context => {
+      const lease = await sessions.acquire(context.sessionId, context.workspace.directory, context.toolPlatform);
+      return { tools: lease.tools, release: lease.release,
+        mcpServerDirectory: () => renderMcpServerDirectory(lease.config, context.toolPlatform, lease.access.manager) };
+    },
     workspaceInstances,
     onToolResult: session => dashboardService.invalidateFileCandidates(session),
     resolveInvokedSkill: async name => {
@@ -314,7 +360,6 @@ export function createAgentRuntimeHost(
       ? { onManagedLlmAuthenticationFailure: options.onManagedLlmAuthenticationFailure }
       : {}),
     userSkillsRoot: options.userSkillsRoot,
-    mcpServerDirectory: context => renderMcpServerDirectory(mcpConfig, context.toolPlatform, mcpManager),
     systemPrompt: (context) => buildSystemPrompt({
       workspace: context.workspace,
       platform: context.platform,
@@ -327,8 +372,12 @@ export function createAgentRuntimeHost(
     }),
     services: runtimeServices,
   });
-  runtime.on("before_model_step", async () => {
-    try { if (await mcp.reconnectAfterExternalAuthChange()) await options.onMcpChanged?.(); }
+  runtime.on("before_model_step", async (_event, context) => {
+    try {
+      const session = await sessions.current(context.sessionId);
+      await session.access.configure(sessionMcpConfig(refreshMcpConfig(), context.workspace.directory, context.toolPlatform));
+      await session.access.reconnectAfterExternalAuthChange();
+    }
     catch (error) { logger.warn("mcp_reconnect_failed", { error }); }
   });
   let started = false;

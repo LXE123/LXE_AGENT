@@ -4,21 +4,23 @@ import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 
 /** Grant local chat commands only status and OAuth actions, never the dashboard or credential store. */
 export async function openMcpCliBridge(options: {
-  list(): Promise<McpCliServer[]>;
-  logout(name: string): Promise<boolean>;
-  login(name: string, signal: AbortSignal): Promise<void>;
+  list(sessionId: string): Promise<McpCliServer[]>;
+  logout(name: string, sessionId: string): Promise<boolean>;
+  login(name: string, signal: AbortSignal, sessionId: string): Promise<void>;
 }) {
   const token = randomBytes(32).toString("hex");
   const pipe = await startDesktopPipe({ token, timeoutMs: MCP_CLI_LOGIN_TIMEOUT_MS, async call(method, params, signal) {
+    const sessionId = (params as { session_id?: unknown } | null)?.session_id;
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("MCP command requires its chat session");
     if (method === "mcp/list") {
-      return (await options.list()).map(({ name, status, transport, tool_count, error, tools }) => ({ name, status, transport, tool_count, error, tools: tools.map(({ rawName, modelName }) => ({ rawName, modelName })) }));
+      return (await options.list(sessionId)).map(({ name, status, transport, tool_count, error, tools }) => ({ name, status, transport, tool_count, error, tools: tools.map(({ rawName, modelName }) => ({ rawName, modelName })) }));
     }
     if (method === "mcp/login" || method === "mcp/logout") {
       const name = (params as { name?: unknown } | null)?.name;
       if (typeof name !== "string" || !/^[A-Za-z0-9_-]+$/.test(name)) throw new Error("Invalid MCP server name");
-      if (method === "mcp/logout") return options.logout(name);
-      if ((await options.list()).some(server => server.name === name && server.status === "ready")) return "already_connected";
-      await options.login(name, signal);
+      if (method === "mcp/logout") return options.logout(name, sessionId);
+      if ((await options.list(sessionId)).some(server => server.name === name && server.status === "ready")) return "already_connected";
+      await options.login(name, signal, sessionId);
       return "connected";
     }
     throw new Error("Unknown MCP management command");

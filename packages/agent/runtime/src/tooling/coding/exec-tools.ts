@@ -168,7 +168,7 @@ export function createExecTools(dependencies: ExecToolDependencies): ToolDefinit
           rawOutput: context.exposureState?.scope === "codemode",
           toolCallId: context.tool_call_id ?? "",
           ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
-          ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [], platform: context.platform }) } : {}),
+          ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [], platform: context.platform, sessionId: context.session_id }) } : {}),
         });
         return await commandResult(
           payload,

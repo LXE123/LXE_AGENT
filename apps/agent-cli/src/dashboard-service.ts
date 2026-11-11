@@ -59,19 +59,13 @@ interface DashboardServiceOptions {
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
   mcpConfig: McpConfig;
+  refreshMcpConfig?: () => void;
   addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void | Promise<void>;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
   loginMcp?: (name: string) => Promise<void>;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
-  mcpStatus?: (serverName: string) => {
-    canRelogin?: boolean;
-    state?: string;
-    connected: boolean;
-    error: string;
-    toolCount?: number;
-    tools?: Array<{ rawName: string; modelName: string }>;
-  };
+  mcpAuthStatus?: (server: McpConfig["servers"][number]) => { can_login: boolean; has_credentials: boolean };
   providerManager?: RuntimeProviderManager;
   managedLlmState?: () => ManagedLlmState | undefined;
   skillCatalog?: SkillCatalog;
@@ -509,48 +503,38 @@ export class DashboardService {
     const groups: JsonObject[] = native.length ? [{
       name: "coding", label: "Native tools", enabled: true, tools: native.map(payload),
     }] : [];
-    for (const server of this.options.mcpConfig.servers) {
-      const tools = this.options.tools.definitionsSnapshot()
-        .filter((tool) => tool.source === "mcp" && tool.connectorName === server.name).map(payload);
-      groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools });
-    }
     return groups;
   }
 
   private mcpServer(server: McpConfig["servers"][number]): JsonObject {
-    const live = this.options.mcpStatus?.(server.name);
-    const toolCount = live?.toolCount
-      ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.source === "mcp" && tool.connectorName === server.name).length;
     return {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      status: live?.state ?? (!server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured"),
-      tool_count: toolCount,
-      ...(live?.canRelogin && { can_relogin: true }),
-      error: live?.error ?? "",
+      ...this.options.mcpAuthStatus?.(server),
       server_title: server.connectorName,
       connector_id: server.connectorId,
       connector_name: server.connectorName,
       connector_description: server.connectorDescription,
       exposure: server.exposure,
-      tools: live?.tools ?? [],
     };
   }
 
   private mcpServers(): JsonObject {
+    this.options.refreshMcpConfig?.();
     const active = this.options.mcpConfig.servers;
     const items = active.map(server => this.mcpServer(server));
-    return { items, total: items.length, tool_total: items.reduce((sum, item) => sum + Number(item.tool_count ?? 0), 0) };
+    return { items, total: items.length };
   }
 
   private async updateMcp(input: DashboardRpcSpec["mcp.servers.update"]["input"]): Promise<JsonObject> {
+    this.options.refreshMcpConfig?.();
     const { name, enabled } = input;
     const server = this.options.mcpConfig.servers.find((item) => item.name === name);
     if (!server) rpcError("not_found", "MCP server not found");
     if (this.options.setMcpEnabled) await this.options.setMcpEnabled(name, enabled);
     else server.enabled = enabled;
-    return this.mcpServer(server);
+    return this.mcpServer(this.options.mcpConfig.servers.find(item => item.name === name) ?? server);
   }
 
   private days(days: number | undefined): number {

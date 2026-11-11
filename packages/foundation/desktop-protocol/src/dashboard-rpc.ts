@@ -361,19 +361,16 @@ export type McpServerAddInput =
       env_headers?: Record<string, string>; bearer_token_env_var?: string };
 
 export type McpServerPayload = {
-  can_relogin?: boolean;
+  can_login?: boolean;
+  has_credentials?: boolean;
   name: string;
   enabled: boolean;
   transport: string;
-  status: string;
-  tool_count: number;
-  error: string;
   server_title: string;
   connector_id: string;
   connector_name: string;
   connector_description: string;
   exposure: string;
-  tools: Array<{ rawName: string; modelName: string }>;
 };
 
 export type ToolsetPayload = {
@@ -383,9 +380,7 @@ export type ToolsetPayload = {
   tools: ToolPayload[];
 };
 
-export type McpServerListPayload = ApiList<McpServerPayload> & {
-  tool_total: number;
-};
+export type McpServerListPayload = ApiList<McpServerPayload>;
 
 export type ChannelHealthPayload = {
   ready?: boolean;

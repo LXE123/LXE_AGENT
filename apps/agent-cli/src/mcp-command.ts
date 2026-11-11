@@ -7,6 +7,7 @@ import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
 import { parseMcpCommand, usage } from "./mcp-command-args";
 import { withMcpConfigLock } from "./mcp-config-lock";
+import { sessionMcpConfig } from "./session-mcp";
 
 function printList(servers: McpCliServer[], json: boolean): number {
   if (json) process.stdout.write(JSON.stringify(servers, null, 2) + "\n");
@@ -36,25 +37,27 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   // pipe must never be a route to execute a new stdio command in the host.
   if (cmd.kind === "add" || cmd.kind === "remove") {
     await withMcpConfigLock(configPath, () => {
-      if (cmd.kind === "add") addMcpServer(configPath, cmd.name, cmd.definition, process.env, dataRoot, true);
+      if (cmd.kind === "add") addMcpServer(configPath, cmd.name, cmd.definition, process.env, "", true);
       else removeMcpServer(configPath, cmd.name);
     });
-    process.stdout.write(`${cmd.kind === "add" ? "Saved" : "Removed"} ${cmd.name} in user configuration. Restart any running Harness to load this file change.\n`);
+    process.stdout.write(`${cmd.kind === "add" ? "Saved" : "Removed"} ${cmd.name} in user configuration. Chats load the change before their next model call.\n`);
     return 0;
   }
   const signal = cmd.kind === "login" ? AbortSignal.timeout(cmd.timeout) : undefined;
   if (cmd.kind === "login") process.stdout.write(`Requesting sign-in for ${cmd.name}. If prompted, approve access in your browser.\n`);
   const reportLogout = (name: string, removed: boolean) => process.stdout.write(removed ? `Forgot saved OAuth credentials for ${name}.\n` : "No saved OAuth credentials.\n");
   if (path && token) {
-    if (cmd.kind === "list") return printList(await requestDesktopPipe(path, token, "mcp/list", {}) as McpCliServer[], cmd.json);
-    if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name }) === true);
+    const session_id = process.env.LXE_MCP_CLI_SESSION_ID;
+    if (!session_id) throw new Error("MCP command requires its chat session");
+    if (cmd.kind === "list") return printList(await requestDesktopPipe(path, token, "mcp/list", { session_id }) as McpCliServer[], cmd.json);
+    if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name, session_id }) === true);
     else {
-      const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name }, signal, MCP_CLI_LOGIN_TIMEOUT_MS);
+      const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS);
       process.stdout.write(result === "already_connected" ? `${cmd.name} is already connected.\n` : `Signed in and connected to ${cmd.name}.\n`);
     }
     return 0;
   }
-  const config = loadMcpConfig(configPath, process.env, dataRoot);
+  const config = sessionMcpConfig(loadMcpConfig(configPath, process.env), process.cwd(), "cli");
   const store = new McpAuthStore(dataRoot);
   if (cmd.kind !== "list") {
     const server = config.servers.find(s => s.name === cmd.name);

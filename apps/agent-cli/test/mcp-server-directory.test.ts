@@ -168,25 +168,25 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(orders.descriptions.get("exec")).not.toContain("Codemode: ");
     await host.dashboardCall({ operation: "mcp.servers.add", input: { name: "team-skills", transport: "streamable-http", url: protectedServer.url.href } });
     const current = async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items.find(x => x.name === "team-skills");
-    const deadline = Date.now() + 3_000;
-    while ((await current())?.status === "connecting" && Date.now() < deadline) await Bun.sleep(10);
-    expect((await current())?.status).toBe("needs_auth");
     const waiting = await turn("desktop", "desktop");
     expect(waiting.prompt).toContain("- mcp__team_skills (codemode)");
     expect(waiting.prompt).not.toContain("401");
     expect(waiting.tools.some(name => name.startsWith("mcp__team_skills__"))).toBe(false);
     const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
-    expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ tool_count: 0, tools: [] });
+    expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ can_login: true, has_credentials: false });
     // Exercise the normal macOS exec sandbox. Other test hosts have no packaged ACL runner.
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("Sign in with: agent-cli mcp login team-skills");
+    if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "cli", permission_mode: "danger-full-access" } });
+    await turn("cli", "cli", "agent-cli mcp list");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: needs_auth");
     handshake = "fail";
     await turn("desktop", "desktop", "agent-cli mcp login team-skills");
     const failed = received.at(-1)?.messages.at(-1)?.content;
     expect(failed).toContain("OAuth credentials were saved");
     expect(failed).toContain("503");
-    expect(await current()).toMatchObject({ status: "error", tool_count: 0, can_relogin: true });
+    expect(await current()).toMatchObject({ has_credentials: true });
     expect(browserOpens).toBe(1);
     // The retry uses the saved grant, even when HTTP discovery takes longer than two seconds.
     handshake = "slow";
@@ -194,19 +194,18 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     handshake = "normal";
     expect(browserOpens).toBe(1);
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("Signed in and connected to team-skills.");
-    expect(await current()).toMatchObject({ status: "ready", tool_count: 2, can_relogin: true });
+    await turn("cli", "cli", "agent-cli mcp list");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: ready");
+    expect(browserOpens).toBe(1);
+    expect(await current()).toMatchObject({ has_credentials: true });
     expect(await host.dashboardCall({ operation: "mcp.servers.login", input: { name: "team-skills" } })).toEqual({ name: "team-skills" });
     // A second process uses only the data root while this same turn is between provider calls.
     const external = "terminal-login";
     await host.dashboardCall({ operation: "mcp.servers.add", input: { name: external, transport: "streamable-http", url: protectedServer.url.href } });
-    const externalState = async () => (await host.dashboardCall({ operation: "mcp.servers.list", input: {} })).items.find(s => s.name === external)?.status;
-    const until = Date.now() + 3_000;
-    while (await externalState() === "connecting" && Date.now() < until) await Bun.sleep(10);
-    expect(await externalState()).toBe("needs_auth");
-    const observed: (string | undefined)[] = [];
+    let observed = 0;
     onModelRequest = async () => {
-      observed.push(await externalState());
-      if (observed.length !== 1) return;
+      observed++;
+      if (observed !== 1) return;
       const script = `import { runMcpCommand } from "./apps/agent-cli/src/mcp-command.ts";
         const approve = async link => {
           const auth = new URL(link), cb = new URL(auth.searchParams.get("redirect_uri"));
@@ -225,18 +224,21 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       expect(stdout).toContain("terminal-login: ready (streamable-http, 2 tools)");
       expect(stdout).not.toContain("oauth-fixture");
     };
-    await turn("desktop", "desktop", "echo continue");
-    expect(observed).toEqual(["needs_auth", "ready"]);
+    await turn("desktop", "desktop", "agent-cli mcp list");
+    expect(observed).toBe(2);
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: needs_auth");
+    onModelRequest = undefined;
+    await turn("desktop", "desktop", "agent-cli mcp list");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");
     await turn("desktop", "desktop", "agent-cli mcp logout team-skills");
-    expect(await current()).toMatchObject({ status: "needs_auth", tools: [], tool_count: 0 });
-    expect(await externalState()).toBe("ready");
+    expect(await current()).toMatchObject({ has_credentials: false });
     onModelRequest = undefined;
     const logout = Bun.spawn([process.execPath, join(source, "apps/agent-cli/src/main.ts"), "mcp", "logout", external], {
       cwd: root, env: { PATH: process.env.PATH, LXE_DATA_ROOT: root }, stdout: "pipe", stderr: "pipe",
     });
     expect(await logout.exited, await new Response(logout.stderr).text()).toBe(0);
-    await turn("desktop", "desktop");
-    expect(await externalState()).toBe("needs_auth");
+    await turn("desktop", "desktop", "agent-cli mcp list");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: needs_auth");
     expect(JSON.stringify(received)).not.toContain("oauth-fixture");
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {

@@ -27,6 +27,33 @@ function connection(names = ["echo"]) {
   return { value, disconnect: () => listener(), calls, closes: () => closes };
 }
 
+test("config refresh preserves unchanged connections and failures, replaces only changed services and frees removed namespaces", async () => {
+  const calls: string[] = [], closed: string[] = [];
+  const config = { servers: [server("stable"), server("failed")] };
+  const manager = new McpManager(structuredClone(config), { connect: async entry => {
+    calls.push(entry.name);
+    if (entry.name === "failed") throw new Error("fixture startup failure");
+    const result = connection().value;
+    return { ...result, close: async () => { closed.push(entry.name); await result.close(); } };
+  } });
+  const tools = new ToolRegistry();
+  try {
+    await manager.start(tools);
+    const stable = tools.definition("mcp__stable__echo");
+    for (let step = 0; step < 3; step++) await manager.configure(structuredClone(config));
+    expect(calls).toEqual(["stable", "failed"]);
+    expect(manager.status("failed").error).toContain("fixture startup failure");
+    expect(tools.definition("mcp__stable__echo")).toBe(stable);
+    await manager.configure({ servers: [...config.servers, server("new-service")] });
+    expect(calls).toEqual(["stable", "failed", "new-service"]);
+    await manager.configure({ servers: [server("stable", { enabled: false }), server("new_service")] });
+    expect(closed.sort()).toEqual(["new-service", "stable"]);
+    expect(tools.definition("mcp__stable__echo")).toBeUndefined();
+    expect(tools.definition("mcp__new_service__echo")).toBeDefined();
+    expect(manager.status("stable").state).toBe("disabled");
+  } finally { await manager.stop(); }
+});
+
 test("passive disconnect removes owned tools; only explicit reconnect discovers a replacement", async () => {
   const first = connection(["before"]), second = connection(["after"]);
   first.value.instructions = "First connection";

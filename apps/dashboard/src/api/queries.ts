@@ -481,7 +481,6 @@ export function useMcpServersQuery(enabled = true) {
       signal.throwIfAborted();
       return result;
     },
-    refetchInterval: query => query.state.data?.items.some(server => server.status === "connecting") ? 500 : false,
     enabled,
     staleTime: ACTIVE_DATA_STALE_TIME_MS,
   });

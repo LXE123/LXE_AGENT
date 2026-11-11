@@ -12,8 +12,8 @@ test("desktop exec can list and sign in by the original server name using only t
   const calls: string[] = [];
   const tools = [{ rawName: "find", modelName: "mcp__team_skills__find" }];
   const bridge = await openMcpCliBridge({
-    list: async () => [{ name: "team-skills", transport: "streamable-http", status: state, tool_count: state === "ready" ? 1 : 0, error: "", tools: state === "ready" ? tools : [],
-      access_token: "must-not-be-returned" }],
+    list: async sessionId => { expect(sessionId).toBe("chat-A"); return [{ name: "team-skills", transport: "streamable-http", status: state, tool_count: state === "ready" ? 1 : 0, error: "", tools: state === "ready" ? tools : [],
+      access_token: "must-not-be-returned" }]; },
     logout: async () => { state = "needs_auth"; return true; },
     login: async name => {
       calls.push(name);
@@ -22,7 +22,7 @@ test("desktop exec can list and sign in by the original server name using only t
     },
   });
   const { LXE_MCP_CLI_PIPE: path, LXE_MCP_CLI_TOKEN: token } = bridge.environment;
-  const env = withExecutablePath({ ...process.env, ...bridge.environment, LXE_MCP_CLI_BUN: process.execPath },
+  const env = withExecutablePath({ ...process.env, ...bridge.environment, LXE_MCP_CLI_SESSION_ID: "chat-A", LXE_MCP_CLI_BUN: process.execPath },
     join(import.meta.dir, "../../agent-cli/bin"));
   async function command(line: string, envOverride = env) {
     const argv = process.platform === "win32"
@@ -33,7 +33,7 @@ test("desktop exec can list and sign in by the original server name using only t
     return { out, err, code };
   }
   try {
-    expect(await requestDesktopPipe(path, token, "mcp/list", {})).toEqual([
+    expect(await requestDesktopPipe(path, token, "mcp/list", { session_id: "chat-A" })).toEqual([
       { name: "team-skills", status: "needs_auth", transport: "streamable-http", tool_count: 0, error: "", tools: [] },
     ]);
     expect(await command("agent-cli mcp list")).toMatchObject({ code: 1, out: expect.stringContaining("Sign in with: agent-cli mcp login team-skills") });
@@ -44,7 +44,7 @@ test("desktop exec can list and sign in by the original server name using only t
     expect(JSON.parse((await command("agent-cli mcp list --json")).out)[0].tools).toEqual(tools);
     expect(await command("agent-cli mcp logout team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("Forgot saved OAuth credentials") });
     expect(calls).toEqual(["team_skills", "team-skills"]);
-    await expect(requestDesktopPipe(path, token, "mcp.servers.add", {})).rejects.toThrow("Unknown MCP management command");
+    await expect(requestDesktopPipe(path, token, "mcp.servers.add", { session_id: "chat-A" })).rejects.toThrow("Unknown MCP management command");
     expect(await command("agent-cli mcp login team-skills", { ...env, LXE_MCP_CLI_TOKEN: "" })).toMatchObject({ code: 1, err: expect.stringContaining("Incomplete MCP management connection") });
   } finally { await bridge.close(); }
 }, 30_000);
@@ -58,7 +58,7 @@ test("terminating a pending CLI request cancels its browser login", async () => 
     throw new Error("cancelled");
   } });
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../agent-cli/src/main.ts"), "mcp", "login", "docs"], {
-    env: { ...process.env, ...bridge.environment }, stdout: "ignore", stderr: "ignore",
+    env: { ...process.env, ...bridge.environment, LXE_MCP_CLI_SESSION_ID: "chat-A" }, stdout: "ignore", stderr: "ignore",
   });
   try {
     await started.promise;
