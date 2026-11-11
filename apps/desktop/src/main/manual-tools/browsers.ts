@@ -1,7 +1,7 @@
-import { BrowserWindow, WebContentsView, session, Menu, type Session } from "electron";
+import { BrowserWindow, View, WebContentsView, session, Menu, type Session } from "electron";
 import { randomUUID } from "node:crypto";
-import type { BrowserSnapshot, ManualToolEvent } from "@lxe/desktop-protocol";
-interface Browser { view: WebContentsView; snapshot: BrowserSnapshot }
+import type { BrowserSnapshot, ManualToolEvent, BrowserClip } from "@lxe/desktop-protocol";
+interface Browser { view: WebContentsView; clipView?: View; snapshot: BrowserSnapshot }
 export function browserUrl(raw: string): string {
   const value = raw.trim();
   const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`);
@@ -78,21 +78,41 @@ export class ManualBrowsers {
       if (index >= 0 && index < wc.navigationHistory.length()) wc.navigationHistory.goToIndex(index);
     }
   }
-  present(sessionId: string, id: string, bounds: { x: number; y: number; width: number; height: number } | null): void {
+  present(sessionId: string, id: string, bounds: { x: number; y: number; width: number; height: number } | null, clip?: BrowserClip): void {
     const entry = this.owned(sessionId, id); if (!entry) return;
-    if (!bounds) { entry.view.setVisible(false); return; }
+    if (!bounds) { (entry.clipView ?? entry.view).setVisible(false); return; }
     this.hide();
     const window = this.window(); if (!window || !window.isVisible()) return;
     const zoom = window.webContents.getZoomFactor(), [width = 0, height = 0] = window.getContentSize();
     const x = Math.max(0, Math.round(bounds.x * zoom)), y = Math.max(0, Math.round(bounds.y * zoom));
-    entry.view.setBounds({ x, y, width: Math.max(0, Math.min(width - x, Math.round(bounds.width * zoom))), height: Math.max(0, Math.min(height - y, Math.round(bounds.height * zoom))) });
-    entry.view.setVisible(bounds.width > 0 && bounds.height > 0);
+    const rectangle = { x, y, width: Math.max(0, Math.min(width - x, Math.round(bounds.width * zoom))), height: Math.max(0, Math.min(height - y, Math.round(bounds.height * zoom))) };
+    // Native WebContentsView does not inherit CSS clipping. Use the same canvas
+    // boundary as the renderer without changing the page's viewport or scroll.
+    if (clip && !entry.clipView) {
+      entry.clipView = new View();
+      // A compositing layer is needed to clip native children on macOS.
+      // Zero blur creates that layer without changing the rendered image.
+      entry.clipView.setBackgroundBlur(0);
+      window.contentView.removeChildView(entry.view);
+      entry.clipView.addChildView(entry.view);
+      window.contentView.addChildView(entry.clipView);
+    }
+    if (entry.clipView) {
+      const frame = clip ? { x: Math.round(clip.x * zoom), y: Math.round(clip.y * zoom),
+        width: Math.max(0, Math.round(clip.width * zoom)), height: Math.max(0, Math.round(clip.height * zoom)) } : rectangle;
+      entry.clipView.setBounds(frame);
+      entry.clipView.setBorderRadius(clip ? Math.floor(Math.min(clip.radius * zoom, frame.width / 2, frame.height / 2)) : 0);
+      entry.view.setBounds({ ...rectangle, x: rectangle.x - frame.x, y: rectangle.y - frame.y });
+      entry.clipView.setVisible(rectangle.width > 0 && rectangle.height > 0);
+    } else entry.view.setBounds(rectangle);
+    entry.view.setVisible(rectangle.width > 0 && rectangle.height > 0);
   }
-  hide(): void { for (const entry of this.items.values()) entry.view.setVisible(false); }
+  hide(): void { for (const entry of this.items.values()) (entry.clipView ?? entry.view).setVisible(false); }
+
   close(sessionId: string, id: string): void {
     const entry = this.owned(sessionId, id); if (!entry) return;
     const window = this.window();
-    if (window && !window.isDestroyed()) window.contentView.removeChildView(entry.view);
+    if (window && !window.isDestroyed()) window.contentView.removeChildView(entry.clipView ?? entry.view);
     if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close({ waitForBeforeUnload: false });
     this.items.delete(id);
   }

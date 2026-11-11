@@ -1,3 +1,4 @@
+import { AppCaption } from "../../shared/app-frame";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
@@ -1537,7 +1538,7 @@ export function SessionDetailView({
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
-      <header className="conversation-header">
+      <AppCaption kind="title"><header className="conversation-header">
         {/* Keep title and actions in the two grid columns; a third sibling
             would create another row in the native title bar. */}
         <div className="conversation-header-copy">
@@ -1552,7 +1553,7 @@ export function SessionDetailView({
           {newConversation ? null : workspaceControl}
           <PreviewHeaderActions />
         </div>
-      </header>
+      </header></AppCaption>
       <div className="conversation-body">
         <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
           connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}

@@ -1,3 +1,4 @@
+import { AppCaption } from "../../shared/app-frame";
 import { BrowserPanel, StartPanel, TerminalPanel, toolBridge } from "./ToolPanels";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Plus, Compass, Globe, TerminalSquare, FolderOpen, PanelRight, PanelRightClose, X, Maximize2, Minimize2, FileText, Image, FileSpreadsheet, File } from "lucide-react";
@@ -36,7 +37,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
   useEffect(() => { const observer = new ResizeObserver(entries => setRoom(entries[0]?.contentRect.width ?? 1000)); if (frame.current) observer.observe(frame.current); return () => observer.disconnect(); }, []);
   useEffect(() => { ++intent.current; setImage(undefined); }, [sessionId]);
   useEffect(() => {
-    const focus = () => { const focused = !!document.activeElement?.closest(".file-sidebar, .file-image-dialog, .file-open-menu"); void filesApi().call({ operation: "focus-preview", input: { focused } }).catch(() => {}); };
+    const focus = () => { const focused = !!document.activeElement?.closest(".file-sidebar, .app-caption-tools, .file-image-dialog, .file-open-menu"); void filesApi().call({ operation: "focus-preview", input: { focused } }).catch(() => {}); };
     document.addEventListener("focusin", focus);
     return () => { document.removeEventListener("focusin", focus); void filesApi().call({ operation: "focus-preview", input: { focused: false } }).catch(() => {}); };
   }, [layout.shown, sessionId]);
@@ -121,7 +122,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
         if (e.key.toLowerCase() === "w") { e.preventDefault(); e.stopPropagation(); if (active) close(active.key); }
         if (e.key.toLowerCase() === "r") { e.preventDefault(); e.stopPropagation(); e.currentTarget.querySelector<HTMLButtonElement>('[data-preview-refresh]')?.click(); }
       }}>
-        <div className="file-tab-strip"><div className="file-tabs" role="tablist" ref={tabsRef} onKeyDown={e => {
+        <AppCaption kind="tools" width={width + 5} expanded={full}><div className="file-tab-strip"><div className="file-tabs" role="tablist" ref={tabsRef} onKeyDown={e => {
           const direction = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
           if (!direction && e.key !== "Home" && e.key !== "End") return;
           e.preventDefault(); ++intent.current;
@@ -133,6 +134,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
           <button className="file-panel-expand" aria-label={layout.expanded ? t.collapse : t.expand} title={layout.expanded ? t.collapse : t.expand} onClick={() => update(l => ({ ...l, expanded: !l.expanded }))}>{layout.expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <button className="file-panel-hide" aria-label={sidebarText.collapse} title={sidebarText.collapse} onClick={() => { ++intent.current; update(l => ({ ...l, shown: false })); }}><PanelRightClose size={16} /></button>
         </div>
+        </AppCaption>
         {toolError ? <div className="tool-error" role="alert">{toolError}</div> : null}
         {active?.key === "start" ? <StartPanel open={createTool} /> : active?.kind === "terminal" ? <TerminalPanel key={`${sessionId}:${active.key}`} sessionId={sessionId} tab={active} restart={() => { void close(active.key).then(closed => { if (closed !== false) createTool("terminal"); }); }} /> : active?.kind === "browser" ? <BrowserPanel key={`${sessionId}:${active.key}`} sessionId={sessionId} tab={active} /> : active?.key === "tree" ? <FileTree key={sessionId} session={sessionId} state={readingState(sessionId, "tree")} open={(ref, name) => void open(ref, name, "sidebar")} /> : active?.ref ? <DocumentViewer key={`${sessionId}:${active.key}`} file={active.ref} name={active.name} state={readingState(sessionId, active.key)} resolved={info => canonicalize(active.ref!, info)} /> : null}
       </aside>
