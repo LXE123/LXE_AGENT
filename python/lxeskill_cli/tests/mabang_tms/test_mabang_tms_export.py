@@ -323,6 +323,19 @@ def test_atomic_publication_and_literal_strings(tmp_path):
     wb.close()
 
 
+@pytest.mark.parametrize('blank_columns', [1, 3])
+def test_merged_workbook_round_trip_preserves_trailing_empty_columns(tmp_path, blank_columns):
+    row = values(record(1))
+    row[-blank_columns:] = [None] * blank_columns
+    path = tmp_path / 'with-empty-columns.xlsx'
+    write_merged(path, HEADERS, [row])
+
+    headers, rows, extension = read_workbook(path.read_bytes())
+
+    assert headers == tuple(HEADERS) and extension == 'xlsx'
+    assert rows == [tuple(row)]
+
+
 def test_merge_inventory_export_uses_api_summary_and_latest_original_row():
     records = [
         record(1, stockSku='shared', warehouseName='PH1', stockQuantity='100',

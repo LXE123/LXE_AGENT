@@ -65,8 +65,10 @@ def read_workbook(content):
     if not REQUIRED_HEADERS.issubset(headers):
         raise TmsError("missing_headers", f"实际表头 {headers}; 缺少 {sorted(REQUIRED_HEADERS - set(headers))}")
     values = [tuple(row) for row in rows[1:] if any(v not in (None, "") for v in row)]
-    if any(len(row) != len(headers) for row in values):
+    if any(len(row) > len(headers) for row in values):
         raise TmsError("invalid_row", "导出行宽与表头不一致")
+    # Streaming XLSX writers omit trailing empty cells and sheet dimensions.
+    values = [row + (None,) * (len(headers) - len(row)) for row in values]
     return tuple(headers), values, extension
 
 

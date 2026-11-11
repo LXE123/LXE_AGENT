@@ -93,6 +93,7 @@ $ lxeskill help replenishment
 备货：库存与销量采集、分析和补货计算
 
 东南亚及巴西备货：
+  philippines reports export       取数并合并菲律宾库存动销和库存列表
   mabang brazil reports export     导出马帮巴西海外仓报表
   mabang order-import generate     根据巴西、马来西亚、越南、菲律宾或印尼备货清单生成马帮订单导入模板
   mabang-tms products export       导出马帮 TMS 商品、库存和销量

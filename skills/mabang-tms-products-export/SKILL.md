@@ -1,6 +1,6 @@
 ---
 name: mabang-tms-products-export
-description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。已确定 TMS 来源时，越南选 VN1、菲律宾选 PH1。普通仓库数据来源不明时先确认 ERP，未指定仓库先询问。
+description: 按现有固定筛选导出马帮 TMS 商品、库存和销量 XLSX，保留原字段并按同仓 SKU 汇总；全部仓库请求按实际仓库分别交付文件。指定 TMS 时，越南选 VN1、菲律宾选 PH1。菲律宾或雅仓菲律宾库存报表使用 philippines-reports-export；越南仓库数据来源不明时先确认 ERP，未指定 TMS 仓库先询问。
 type: replenishment
 commands:
   - lxeskill mabang-tms products export
@@ -20,7 +20,9 @@ commands:
 
 ## 先确定系统与仓库
 
-ERP 来源优先于国家名称。先使用当前请求或同一任务中已确认的 ERP 来源；来源未明确时，不能凭“越南仓”“菲律宾仓”、Shopee 或其他任务最近使用的系统选择 ERP。明确马帮 TMS 时只走本 Skill，明确雅仓时只走雅仓 Skill。
+用户要求导出菲律宾或雅仓菲律宾的库存动销、库存列表或仓库数据时，使用 `philippines-reports-export`，合并雅仓 PH8805 与本 Skill 的 PH1 汇总产物并交付两份报表。明确要求马帮 TMS 时使用本 Skill 独立导出。
+
+除上述菲律宾合并流程外，先使用当前请求或同一任务中已确认的 ERP 来源；来源未明确时，不能凭国家、Shopee 或其他任务最近使用的系统选择 ERP。
 
 | 用户要求 | 执行选择 |
 | --- | --- |
@@ -31,11 +33,11 @@ ERP 来源优先于国家名称。先使用当前请求或同一任务中已确�
 | 导出马帮越南仓数据 | 同一任务已确认 TMS 时用 `--warehouse VN1`；已确认马帮 ERP 时按其对应 Skill 处理；仍无法区分时先询问马帮 ERP 还是马帮 TMS |
 | 导出马帮菲律宾仓数据 | 同一任务已确认 TMS 时用 `--warehouse PH1`；已确认马帮 ERP 时按其对应 Skill 处理；仍无法区分时先询问马帮 ERP 还是马帮 TMS |
 | 导出雅仓越南仓数据 | 使用 `yacang-reports-export`，选择 `VN8806`，不调用 TMS |
-| 导出雅仓菲律宾仓数据 | 使用 `yacang-reports-export`，选择 `PH8805`，不调用 TMS |
+| 导出雅仓菲律宾仓数据 | 使用 `philippines-reports-export` 合并雅仓和 TMS |
 | 导出越南仓数据，未指定 ERP | 先询问雅仓还是马帮 TMS；确认后分别选择 `VN8806` 或 `VN1` |
-| 导出菲律宾仓数据，未指定 ERP | 先询问雅仓还是马帮 TMS；确认后分别选择 `PH8805` 或 `PH1` |
+| 导出菲律宾仓数据，未指定 ERP | 使用 `philippines-reports-export` 合并雅仓和 TMS |
 
-仅在来源已明确为马帮 TMS 后，明确越南或 VN1 时自动选择 VN1，明确菲律宾或 PH1 时自动选择 PH1，不重复询问已经明确的范围。只有用户明确要求全部仓库，或在询问中明确选择全部，才能传 `all`。未知仓库或冲突范围先澄清，不扩大为全仓。普通仓库数据导出仅给国家且无已确认来源时，复用 `southeast-asia-replenishment-workflow-map` 的 ERP 单选问题（雅仓/马帮 TMS）；仅称“马帮”时按上表区分马帮 ERP/TMS，不套用该二选一。若同时缺少仓库，先确认 ERP，再按对应 Skill 确认仓库。
+仅在来源已明确为马帮 TMS 后，明确越南或 VN1 时自动选择 VN1，明确菲律宾或 PH1 时自动选择 PH1，不重复询问已经明确的范围。只有用户明确要求全部仓库，或在询问中明确选择全部，才能传 `all`。未知仓库或冲突范围先澄清，不扩大为全仓。越南仓库来源未确定时复用 `southeast-asia-replenishment-workflow-map` 的 ERP 单选问题；仅称“马帮”时按上表区分马帮 ERP/TMS。若同时缺少仓库，先确认 ERP，再按对应 Skill 确认仓库。
 
 桌面使用已有 `ask_user_question` 单选；该轮只提问，不并行调用导出。非桌面渠道用普通消息提问后等待回答。空答案、跳过或取消均不授权导出。可使用以下真实工具参数：
 

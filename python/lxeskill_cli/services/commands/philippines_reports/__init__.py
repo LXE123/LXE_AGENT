@@ -1,0 +1,1 @@
+"""Philippine inventory report commands."""
