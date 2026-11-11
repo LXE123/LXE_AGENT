@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import ssl
+import unicodedata
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
@@ -11,13 +15,38 @@ import pytest
 import requests
 from openpyxl import Workbook, load_workbook
 
+from shared import workspace
+from shared.datasets import dataset_dir
 from services.mabang_tms import workflow
 from services.mabang_tms.client import FIELDS, TmsClient, TmsError, diagnostic
-from services.mabang_tms.workbooks import coverage, read_workbook, write_merged
+from services.mabang_tms.workbooks import coverage, merge_inventory_export, read_workbook, write_merged
 
 HEADERS = ['库存SKU', '30天销量', '7天销量', '可用库存', '15天销量', '仓库',
            '库存量', '在途量', '成本价', '采购价', '入库时间', '平台额外销量']
 WAREHOUSE_CASES = [('PH1', 12107), ('VN1', 12831)]
+
+
+@pytest.fixture(autouse=True)
+def isolated_workspace(monkeypatch, tmp_path):
+    try:
+        with monkeypatch.context() as environment:
+            environment.setenv('LXE_WORKSPACE_ROOT', str(tmp_path))
+            environment.setenv('LXE_DATA_ROOT', str(tmp_path / 'var'))
+            workspace.activate_project_workspace()
+            yield
+    finally:
+        workspace.activate_project_workspace()
+
+
+@pytest.fixture
+def publication_timestamp(monkeypatch):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 11, 11, 12, 34, 56)
+
+    monkeypatch.setattr(workflow, 'datetime', FrozenDatetime)
+    return FrozenDatetime.now().strftime('%Y%m%d-%H%M%S')
 
 
 def workbook(rows, headers=HEADERS):
@@ -32,7 +61,8 @@ def workbook(rows, headers=HEADERS):
 
 
 def record(i, **kw):
-    return {'id': i, 'stockSku': f'SKU-{i}', 'warehouseName': '测试仓', **kw}
+    return {'id': i, 'stockSku': f'SKU-{i}', 'warehouseName': '测试仓',
+            'stockQuantity': -1, 'sale1': '21', 'sale2': '71', 'sale3': '97', **kw}
 
 
 def values(r):
@@ -72,20 +102,21 @@ class FakeClient:
         return content
 
     def safe(self, value):
-        return diagnostic(value, ('test-token', 'password'))
+        return diagnostic(value, (self.token, 'password'))
 
     def close(self):
         self.token = ''
 
 
-def execute(monkeypatch, tmp_path, pages, client=None, arguments=None):
+def execute(monkeypatch, tmp_path, pages, client=None, arguments=None, on_event=None):
     client = client or FakeClient(pages)
     monkeypatch.setenv('LXE_MABANG_TMS_ACCOUNT', 'account')
     monkeypatch.setenv('LXE_MABANG_TMS_PASSWORD', 'password')
     monkeypatch.delenv('LXESKILL_SKILL_SCOPE', raising=False)
     monkeypatch.setattr(workflow, 'TmsClient', lambda *args: client)
-    monkeypatch.setattr(workflow, 'dataset_dir', lambda *args: tmp_path.joinpath(*args[1:]))
-    return workflow.run(arguments or {}), client
+    if on_event is None:
+        return workflow.run(arguments or {}), client
+    return workflow.run_with_events(arguments or {}, on_event), client
 
 
 def page(records, total, number=1):
@@ -93,7 +124,9 @@ def page(records, total, number=1):
 
 
 def test_short_pages_continue_until_total_and_original_bytes_preserved(monkeypatch, tmp_path):
-    result, client = execute(monkeypatch, tmp_path, [page([record(1)], 2), page([record(2)], 2, 2)])
+    pages = [{'code': '200', 'data': None, 'datas': [record(i)], 'pop': {'totalNum': 2}, 'page': i}
+             for i in (1, 2)]
+    result, client = execute(monkeypatch, tmp_path, pages)
     assert result['success'] and result['read_unique_ids'] == result['reported_total'] == 2
     assert result['completed_batches'] == 2 and client.login_count == 1
     assert [c[0] for c in client.calls] == ['list', 'export', 'download'] * 2
@@ -104,8 +137,40 @@ def test_short_pages_continue_until_total_and_original_bytes_preserved(monkeypat
     assert len(result['artifacts']) == 1
     wb = load_workbook(result['artifacts'][0]['path'])
     assert wb.active.max_row == 3
-    assert wb.active['B2'].value == '97' and wb.active['G2'].value == -1
+    assert wb.active['B2'].value == 97 and wb.active['D2'].value == -1
     wb.close()
+
+
+def test_whitespace_sales_do_not_hide_later_values_in_export(monkeypatch, tmp_path):
+    records = [
+        record(1, stockSku='SKU-1', sale1='   ', sale2='\t', sale3='\n'),
+        record(2, stockSku='SKU-1', sale1=7, sale2=15, sale3=30),
+    ]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)])
+
+    assert result['success'] and result['row_count'] == 1
+    wb = load_workbook(result['artifacts'][0]['path'], data_only=True)
+    row = dict(zip([cell.value for cell in wb.active[1]], [cell.value for cell in wb.active[2]]))
+    assert (row['7天销量'], row['15天销量'], row['30天销量']) == (7, 15, 30)
+    wb.close()
+
+
+@pytest.mark.parametrize('first,second,expected', [
+    ({'stockQuantity': 0, 'sale1': None, 'sale2': '', 'sale3': ' '},
+     {'stockQuantity': 0, 'sale1': '', 'sale2': None, 'sale3': '\t'}, (0, 0, 0, 0)),
+    ({'stockQuantity': '1.5', 'sale1': 0, 'sale2': None, 'sale3': '3.5'},
+     {'stockQuantity': -0.25, 'sale1': 8, 'sale2': '2.5', 'sale3': 9}, (1.25, 0, 2.5, 3.5)),
+    ({'stockQuantity': None, 'sale1': ' ', 'sale2': 0, 'sale3': None},
+     {'stockQuantity': ' ', 'sale1': 0, 'sale2': 8, 'sale3': 0}, (0, 0, 0, 0)),
+])
+def test_blank_zero_and_fractional_inventory_and_sales_reach_workbook(monkeypatch, tmp_path, first, second, expected):
+    records = [record(1, stockSku='same', **first), record(2, stockSku='same', **second)]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)])
+
+    assert result['success'] and result['source_row_count'] == 2 and result['row_count'] == 1
+    headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
+    row = dict(zip(headers, rows[0]))
+    assert tuple(row[field] for field in ('可用库存', '7天销量', '15天销量', '30天销量')) == expected
 
 
 def test_8386_records_nine_batches(monkeypatch, tmp_path):
@@ -161,7 +226,10 @@ def test_real_client_request_budget_at_known_warehouse_scale(monkeypatch, tmp_pa
                if call.args[0].endswith('/exportStockwarehouse')]
     assert [p['page'] for p in listings] == list(range(1, expected_pages + 1))
     assert [i for p in exports for i in p['idsList']] == list(range(expected_records))
-    assert result['read_unique_ids'] == result['exported_unique_ids'] == result['row_count'] == expected_records
+    expected_groups = Counter((row['warehouseName'], row['stockSku']) for row in records[:expected_records])
+    assert result['read_unique_ids'] == result['exported_unique_ids'] == expected_records
+    assert result['row_count'] == len(expected_groups)
+    assert result['source_row_count'] == expected_records
     assert result['reported_total'] == total and result['remaining_records'] == total - expected_records
     assert result['completed_batches'] == client.download.call_count == len(exports) == expected_pages
     if expected_records == total:
@@ -169,10 +237,13 @@ def test_real_client_request_budget_at_known_warehouse_scale(monkeypatch, tmp_pa
     else:
         assert not result['success'] and result['status'] == 'partial_success'
         assert result['error']['code'] == 'page_limit' and result['failed_page'] == 100
-    headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
-    assert headers == tuple(HEADERS)
-    assert [list(row) for row in rows] == [values(r) for r in records[:expected_records]]
-    assert len(rows) > len({row[0] for row in rows})  # Independent same-SKU rows survive.
+    output = {}
+    for artifact in result['artifacts']:
+        headers, rows, _ = read_workbook(Path(artifact['path']).read_bytes())
+        assert headers == tuple(HEADERS)
+        assert {row[5] for row in rows} == {artifact['warehouse']}
+        output.update({(row[5], row[0]): row[3] for row in rows})
+    assert output == {key: -count for key, count in expected_groups.items()}
     session.close.assert_called_once()
 
 
@@ -184,13 +255,18 @@ def test_real_client_request_budget_at_known_warehouse_scale(monkeypatch, tmp_pa
     (page([record(2), record('2')], 2, 2), 'duplicate_id'),
     (page([record(2)], 2, 1), 'page_mismatch'),
     (page([record(2), record(3)], 2, 2), 'total_exceeded'),
+    ({'code': '200', 'data': None, 'datas': [], 'pop': {}}, 'invalid_page'),
+    ({'code': '200', 'data': None, 'datas': [], 'pop': {'totalNum': None}}, 'invalid_total'),
+    ({'code': '200', 'data': None, 'datas': [], 'pop': {'totalNum': True}}, 'invalid_total'),
+    ({'code': '200', 'data': None, 'datas': [], 'pop': {'totalNum': -1}}, 'invalid_total'),
+    ({'code': '200', 'data': None, 'datas': [], 'pop': {'totalNum': 'not-a-total'}}, 'invalid_total'),
 ])
 @pytest.mark.parametrize('warehouse,warehouse_id', WAREHOUSE_CASES + [('all', None)])
 def test_partial_not_success_on_incomplete_pagination(monkeypatch, tmp_path, second, code, warehouse, warehouse_id):
-    first = {**page([record(1, warehouseId=warehouse_id, warehouseName=warehouse)], 2),
-             'pop': {'totalPage': None}}
+    first = {'code': '200', 'data': None, 'datas': [record(1, warehouseId=warehouse_id, warehouseName=warehouse)],
+             'pop': {'totalNum': 2, 'totalPage': None}}
     second = {**second, 'datas': [{**r, 'warehouseId': warehouse_id, 'warehouseName': warehouse}
-                                for r in second['datas']], 'pop': {'totalPage': 'unused'}}
+                                for r in second['datas']], 'pop': {**second.get('pop', {}), 'totalPage': 'unused'}}
     result, client = execute(monkeypatch, tmp_path, [first, second], arguments={'warehouse': warehouse})
     assert not result['success'] and result['error']['code'] == code
     assert result['status'] == 'partial_success' and len(result['artifacts']) == 1
@@ -199,15 +275,8 @@ def test_partial_not_success_on_incomplete_pagination(monkeypatch, tmp_path, sec
 
 
 def test_zero_no_fake_attachment(monkeypatch, tmp_path):
-    result, _ = execute(monkeypatch, tmp_path, [page([], 0)])
+    result, _ = execute(monkeypatch, tmp_path, [{'code': '200', 'data': None, 'datas': [], 'pop': {'totalNum': 0}}])
     assert result['success'] and result['artifacts'] == [] and result['row_count'] == 0
-
-
-def test_sample_shape_fifty_rows_fortyone_skus_preserved(monkeypatch, tmp_path):
-    records = [record(i, stockSku=f'SAMPLE-{i if i < 41 else i-41}') for i in range(50)]
-    result, _ = execute(monkeypatch, tmp_path, [page(records, 50)])
-    assert result['success'] and result['row_count'] == 50 and result['distinct_skus'] == 41
-    assert result['headers'] == HEADERS
 
 
 def test_eleven_column_sample_and_unknown_extra_column():
@@ -217,28 +286,33 @@ def test_eleven_column_sample_and_unknown_extra_column():
         assert actual == tuple(headers) and rows[0][1] == '97'
 
 
-@pytest.mark.parametrize('records,rows', [
-    ([record(1)], [values(record(2))]),
-    ([record(1)], [values(record(1, warehouseName='另一个仓'))]),
-    ([{'id': 1}], [values(record(1))]),
+@pytest.mark.parametrize('records,rows,code', [
+    ([record(1)], [values(record(2))], 'coverage_mismatch'),
+    ([record(1)], [values(record(1, warehouseName='另一个仓'))], 'coverage_mismatch'),
+    ([{'id': 1}], [values(record(1))], 'coverage_schema_unknown'),
+    ([record(1, stockSku='  ')], [values(record(1, stockSku='  '))], 'coverage_schema_unknown'),
 ])
-def test_coverage_fails_closed(records, rows):
-    with pytest.raises(TmsError):
+def test_coverage_fails_closed(records, rows, code):
+    with pytest.raises(TmsError) as caught:
         coverage(records, HEADERS, rows)
+    assert caught.value.code == code
 
 
-def test_one_id_may_expand_to_multiple_rows():
-    coverage([record(1)], HEADERS, [values(record(1)), values(record(1))])
+def test_save_failure_reports_both_original_and_publication_error(monkeypatch, tmp_path, publication_timestamp):
+    def occupy_output(event):
+        if event['stage'] == 'downloaded':
+            raw, = tmp_path.rglob('原始-*.xlsx')
+            (raw.parent / f'马帮TMS-商品-测试仓-部分导出-{publication_timestamp}.xlsx').mkdir()
 
-
-def test_save_failure_reports_both_original_and_publication_error(monkeypatch, tmp_path):
-    def fail(*args):
-        raise OSError('disk full')
-    monkeypatch.setattr(workflow, 'write_merged', fail)
-    result, _ = execute(monkeypatch, tmp_path, [page([record(1)], 2), page([], 2, 2)])
+    result, _ = execute(monkeypatch, tmp_path, [page([record(1)], 2), page([], 2, 2)],
+                        on_event=occupy_output)
     assert not result['success'] and result['artifacts'] == []
+    assert result['row_count'] == result['distinct_skus'] == 0
     assert result['error']['code'] == 'early_empty_page'
-    assert 'disk full' in result['error']['publication_error']
+    assert f'测试仓-部分导出-{publication_timestamp}.xlsx' in result['error']['publication_error']
+    raw = Path(result['batches'][0]['raw_path'])
+    assert read_workbook(raw.read_bytes())[1][0][0] == 'SKU-1'
+    assert not list(raw.parent.glob('.*.tmp'))
 
 
 def test_atomic_publication_and_literal_strings(tmp_path):
@@ -247,6 +321,78 @@ def test_atomic_publication_and_literal_strings(tmp_path):
     wb = load_workbook(tmp_path / 'out.xlsx')
     assert wb.active['A2'].data_type == 's'
     wb.close()
+
+
+def test_merge_inventory_export_uses_api_summary_and_latest_original_row():
+    records = [
+        record(1, stockSku='shared', warehouseName='PH1', stockQuantity='100',
+               sale1=0, sale2=None, sale3='30', availableinventory=9999),
+        record(2, stockSku=' shared ', warehouseName='PH1', stockQuantity=20,
+               sale1=7, sale2='15', sale3=40, availableinventory=8888),
+        record(3, stockSku=' shared', warehouseName='VN1', stockQuantity=9,
+               sale1=1, sale2=2, sale3=3),
+    ]
+    older = [' shared ', 900, 900, 500, 900, 'PH1', 1000, 4, 11, 12,
+             '2026-01-01 10:00:00', 'older-extra']
+    newer = ['shared', 800, 800, 600, 800, 'PH1', 2000, 5, 21, 22,
+             datetime(2026, 2, 1, 10), 'newer-extra']
+    vietnam = ['shared ', 700, 700, 700, 700, 'VN1', 3000, 6, 31, 32,
+               '2026-03-01 10:00:00', 'vn-extra']
+    missing, tied = older.copy(), newer.copy()
+    missing[10], missing[-1] = None, 'no-date'
+    tied[10], tied[-1] = '2026-02-01 10:00:00', 'later-tie'
+
+    coverage(records, HEADERS, [older, newer, vietnam])
+    output = merge_inventory_export(HEADERS, [missing, older, newer, tied, vietnam], records)
+
+    assert len(output) == 2
+    assert list(output[0]) == ['shared', 30, 0, 120, 15, 'PH1', 2000, 5, 21, 22,
+                               datetime(2026, 2, 1, 10), 'newer-extra']
+    assert list(output[1]) == ['shared', 3, 1, 9, 2, 'VN1', 3000, 6, 31, 32,
+                               '2026-03-01 10:00:00', 'vn-extra']
+    assert newer[3] == 600 and newer[1] == 800  # Keep the original rows unchanged.
+
+
+@pytest.mark.parametrize('field', ['stockQuantity', 'sale1', 'sale2', 'sale3'])
+@pytest.mark.parametrize('invalid', ['bad', 'NaN', 'Infinity', True, 'test-token'])
+def test_invalid_api_numbers_fail_instead_of_publishing_inventory_or_sales(monkeypatch, tmp_path, field, invalid):
+    records = [record(1, stockSku='same'), record(2, stockSku='same', **{field: invalid})]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)])
+    assert not result['success'] and result['status'] == 'failed'
+    assert result['artifacts'] == [] and result['row_count'] == 0
+    assert field in result['error']['message']
+    if invalid == 'test-token':
+        assert invalid not in json.dumps(result) and '[REDACTED]' in result['error']['message']
+    else:
+        assert repr(invalid) in result['error']['message']
+    assert not list(tmp_path.rglob('马帮TMS-商品-*.xlsx'))
+
+
+def test_selected_warehouse_with_multiple_names_never_overwrites(monkeypatch, tmp_path):
+    records = [record(1, warehouseId=12107, warehouseName='甲仓'),
+               record(2, warehouseId=12107, warehouseName='乙仓')]
+    result, _ = execute(monkeypatch, tmp_path, [page(records, 2)], arguments={'warehouse': 'PH1'})
+    assert not result['success'] and result['artifacts'] == []
+    assert result['row_count'] == 0
+
+
+def test_merge_inventory_export_rejects_ambiguous_nonempty_invalid_source_date():
+    r = record(1, stockSku='SKU', warehouseName='PH1')
+    good, invalid = values(r), values(r)
+    invalid[10] = 'not-an-inbound-time'
+
+    with pytest.raises(TmsError, match='入库时间'):
+        merge_inventory_export(HEADERS, [good, invalid], [r])
+
+
+def test_merge_inventory_export_rejects_same_warehouse_name_with_different_ids():
+    records = [record(1, stockSku='SKU', warehouseId=12107, warehouseName='相同名称'),
+               record(2, stockSku='SKU', warehouseId=12831, warehouseName='相同名称')]
+
+    with pytest.raises(TmsError) as caught:
+        merge_inventory_export(HEADERS, [values(r) for r in records], records)
+
+    assert caught.value.code == 'ambiguous_warehouse_name'
 
 
 def response(status=200, body=None, text='response'):
@@ -346,8 +492,8 @@ def test_header_change_preserves_only_validated_batch(monkeypatch, tmp_path):
 def test_account_directories_isolated_and_busy_lock_prevents_login(monkeypatch, tmp_path):
     import hashlib
     from shared.process_lock import interprocess_lock
-    account_root = tmp_path / hashlib.sha256(b'account').hexdigest()
-    account_root.mkdir()
+    account_root = dataset_dir('mabang_tms_exports', hashlib.sha256(b'account').hexdigest())
+    account_root.mkdir(parents=True)
     with interprocess_lock(account_root / '.export.lock', timeout_seconds=0):
         result, client = execute(monkeypatch, tmp_path, [page([], 0)])
     assert not result['success'] and client.login_count == 0
@@ -498,9 +644,14 @@ def test_download_logs_safe_timing_status_and_actual_error(monkeypatch, caplog, 
 
 
 @pytest.mark.parametrize('fails', [False, True])
-def test_download_logging_failure_cannot_change_original_result(monkeypatch, fails):
+def test_download_logging_failure_cannot_change_original_result(monkeypatch, tmp_path, caplog, fails):
     from services.mabang_tms import client as tms_client
-    monkeypatch.setattr(tms_client.logger, 'info', Mock(side_effect=OSError('log write failed')))
+    caplog.set_level('INFO', logger=tms_client.logger.name)
+    blocked = tmp_path / 'blocked-log-directory'
+    blocked.write_bytes(b'keep existing file')
+    logged = io.StringIO()
+    capture = logging.StreamHandler(logged)
+    failing = logging.FileHandler(blocked / 'download.log', delay=True, encoding='utf-8')
     streamed = MagicMock(status_code=200)
     streamed.__enter__.return_value = streamed
     streamed.iter_content.return_value = iter([b'complete'])
@@ -508,14 +659,23 @@ def test_download_logging_failure_cannot_change_original_result(monkeypatch, fai
     get = Mock(side_effect=failure) if fails else Mock(return_value=streamed)
     monkeypatch.setattr(requests, 'get', get)
     client = TmsClient('account', 'password', sleeper=lambda _: None)
-    if fails:
-        with pytest.raises(TmsError) as caught:
-            client.download('https://tms-cos.mabangerp.com/synthetic.xls')
-        assert caught.value.code == 'download_network_error' and caught.value.__cause__ is failure
-    else:
-        assert client.download('https://tms-cos.mabangerp.com/synthetic.xls') == b'complete'
-    assert get.call_count == 1
-    client.close()
+    tms_client.logger.addHandler(capture)
+    tms_client.logger.addHandler(failing)
+    try:
+        if fails:
+            with pytest.raises(TmsError) as caught:
+                client.download('https://tms-cos.mabangerp.com/synthetic.xls')
+            assert caught.value.code == 'download_network_error' and caught.value.__cause__ is failure
+        else:
+            assert client.download('https://tms-cos.mabangerp.com/synthetic.xls') == b'complete'
+        assert get.call_count == 1 and 'mabang_tms_file' in logged.getvalue()
+        assert blocked.read_bytes() == b'keep existing file'
+    finally:
+        tms_client.logger.removeHandler(capture)
+        tms_client.logger.removeHandler(failing)
+        capture.close()
+        failing.close()
+        client.close()
 
 
 @pytest.mark.parametrize('failure_mode, code', [
@@ -557,7 +717,7 @@ def test_second_download_failure_retains_only_verified_batch_without_resubmissio
     result, _ = execute(monkeypatch, tmp_path, [], client, arguments={'warehouse': 'VN1'})
     assert not result['success'] and result['status'] == 'partial_success'
     assert result['error']['code'] == code and result['failed_page'] == 2
-    assert result['read_unique_ids'] == 3 and result['exported_unique_ids'] == result['row_count'] == 2
+    assert result['read_unique_ids'] == 3 and result['exported_unique_ids'] == 2 and result['row_count'] == 1
     assert result['remaining_records'] == 1 and result['completed_batches'] == 1
     assert result['warehouses'] == ['越南VN1仓'] and result['distinct_skus'] == 1
     assert session.post.call_count == 5 and get.call_count == 2
@@ -574,7 +734,10 @@ def test_second_download_failure_retains_only_verified_batch_without_resubmissio
     assert list(artifact.parent.glob('原始-*')) == [Path(result['batches'][0]['raw_path'])]
     assert Path(result['batches'][0]['raw_path']).read_bytes() == content
     wb = load_workbook(artifact)
-    assert list(wb.active.values) == [tuple(HEADERS), *(tuple(values(r)) for r in first)]
+    output = list(wb.active.values)
+    assert output[0] == tuple(HEADERS) and len(output) == 2
+    assert output[1][0] == 'shared-sku' and output[1][3] == -2
+    assert (output[1][1], output[1][2], output[1][4]) == (97, 21, 71)
     wb.close()
     logs = [r.getMessage() for r in caplog.records if r.name == 'services.mabang_tms.client']
     metadata = [json.loads(line[line.index('{'):]) for line in logs]
@@ -593,23 +756,6 @@ def test_execution_budgets(monkeypatch, tmp_path):
     client.clock = lambda: 901
     with pytest.raises(TmsError, match='15 分钟'):
         client.check_budget()
-
-
-def test_cli_retains_partial_artifact_without_auth_material(monkeypatch, tmp_path, capsys):
-    import json
-    from lxeskill import cli
-    from lxeskill import business
-    from services.commands.mabang_tms import export_run
-    output = tmp_path / 'partial.xlsx'
-    output.write_bytes(workbook([values(record(1))]))
-    monkeypatch.setattr(business, 'artifact_root', lambda: tmp_path)
-    payload = {'success': False, 'status': 'partial_success', 'error': {'code': 'early_empty_page', 'message': 'actual error'},
-               'artifacts': [{'path': str(output)}], 'auth_refresh_required': False}
-    monkeypatch.setattr(export_run, 'run_with_events', lambda *args, **kwargs: payload)
-    assert cli.main(["mabang-tms", "products", "export"]) != 0
-    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert result['ok'] is False and result['files']
-    assert result['data']['status'] == 'partial_success'
 
 
 # Synthetic rows based on the user-confirmed 2026-10-16 request contract.
@@ -638,14 +784,14 @@ def test_legacy_client_requests_do_not_add_warehouse_parameter():
 
 
 @pytest.mark.parametrize('warehouse,warehouse_id', WAREHOUSE_CASES)
-def test_scoped_pagination_preserves_duplicate_skus_and_uses_top_level_ids(monkeypatch, tmp_path, warehouse, warehouse_id):
+def test_scoped_pagination_merges_same_sku_and_uses_top_level_ids(monkeypatch, tmp_path, warehouse, warehouse_id):
     other_id = 12831 if warehouse_id == 12107 else 12107
     records = [record(i, stockSku='same-sku', warehouseId=str(warehouse_id), warehouseName=warehouse,
                       stock={'id': 900 + i, 'warehouseId': other_id}) for i in (1, 2, 3)]
     result, client = execute(monkeypatch, tmp_path,
                              [page(records[:1], 3), page(records[1:], 3, 2)], arguments={'warehouse': warehouse})
     assert result['success'] and result['reported_total'] == result['exported_unique_ids'] == 3
-    assert result['completed_batches'] == 2 and result['row_count'] == 3 and result['distinct_skus'] == 1
+    assert result['completed_batches'] == 2 and result['row_count'] == result['distinct_skus'] == 1
     assert result['warehouse_scope'] == 'selected_warehouse'
     assert result['warehouse'] == warehouse and result['warehouse_id'] == warehouse_id
     assert result['filters']['warehouseId'] == warehouse_id
@@ -654,8 +800,9 @@ def test_scoped_pagination_preserves_duplicate_skus_and_uses_top_level_ids(monke
     assert client.login_count == 1
     headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
     assert {row[headers.index('仓库')] for row in rows} == {warehouse}
-    assert [row[0] for row in rows] == ['same-sku'] * 3
-    assert [list(row) for row in rows] == [values(r) for r in records]
+    assert headers == tuple(HEADERS) and [row[0] for row in rows] == ['same-sku']
+    assert rows[0][3] == -3
+    assert (rows[0][1], rows[0][2], rows[0][4]) == (97, 21, 71)
 
 
 @pytest.mark.parametrize('actual', [12107, None, True, {'id': 12831}])
@@ -695,15 +842,96 @@ def test_mixed_warehouse_batch_is_never_published(monkeypatch, tmp_path, stage, 
         assert not result['artifacts']
 
 
-@pytest.mark.parametrize('arguments', [{}, {'warehouse': 'all'}])
-def test_all_scope_preserves_legacy_multiwarehouse_export(monkeypatch, tmp_path, arguments):
-    records = [record(1, stockSku='shared', warehouseId=12107, warehouseName='PH1'),
-               record(2, stockSku='shared', warehouseId=12831, warehouseName='VN1')]
-    result, client = execute(monkeypatch, tmp_path, [page(records, 2)], arguments=arguments)
-    assert result['success'] and result['warehouses'] == ['PH1', 'VN1']
+@pytest.mark.parametrize('names,retain_label,partial', [
+    (['PH1', 'VN1', '第三仓'], True, False),
+    (['PH1', 'ph1'], True, False),
+    (['Café仓', 'Cafe\u0301仓'], True, False),
+    (['../甲/仓', '..\\甲\\仓', '..'], False, False),
+    (['PH1', 'PH1-部分导出', 'third'], True, True),
+    (['PH1-部分导出', 'PH1', 'third'], True, True),
+    (['PH1', 'ph1-部分导出', 'third'], True, True),
+    (['Café', 'Cafe\u0301-部分导出', 'third'], True, True),
+])
+def test_all_scope_keeps_warehouse_files_separate_on_success_and_partial_failure(monkeypatch, tmp_path, names, retain_label, partial):
+    records = [record(i, stockSku='shared', warehouseId=90000 + i,
+                      warehouseName=name, stockQuantity=10 + i) for i, name in enumerate(names)]
+    total = len(records) + int(partial)
+    pages = [page(records, total)] + ([page([], total, 2)] if partial else [])
+    result, client = execute(monkeypatch, tmp_path, pages, arguments={'warehouse': 'all'})
+    delivered = names
+    assert result['success'] is (not partial) and result['warehouses'] == sorted(names)
+    assert result['status'] == ('partial_success' if partial else 'completed')
+    if partial:
+        assert result['error']['code'] == 'early_empty_page'
     assert result['warehouse_scope'] == 'current_account_all' and 'warehouseId' not in result['filters']
-    assert client.warehouse_requests == [('list', None), ('export', None)]
-    assert result['row_count'] == 2 and result['distinct_skus'] == 1
+    assert client.warehouse_requests == [('list', None), ('export', None)] + ([('list', None)] if partial else [])
+    assert result['row_count'] == len(delivered) and result['distinct_skus'] == 1
+    artifacts = result['artifacts']
+    paths = [Path(artifact['path']).resolve() for artifact in artifacts]
+    folder = Path(result['batches'][0]['raw_path']).parent.resolve()
+    assert len(artifacts) == len(set(paths)) == len(delivered)
+    assert len({unicodedata.normalize('NFC', path.name).casefold() for path in paths}) == len(delivered)
+    assert all(path.parent == folder and path.is_file() for path in paths)
+    assert {artifact['warehouse'] for artifact in artifacts} == set(delivered)
+    for artifact, path in zip(artifacts, paths):
+        headers, rows, _ = read_workbook(path.read_bytes())
+        assert headers == tuple(HEADERS) and len(rows) == 1
+        assert rows[0][0] == 'shared' and rows[0][5] == artifact['warehouse']
+        assert rows[0][3] == 10 + names.index(artifact['warehouse'])
+        assert artifact['kind'] == ('部分导出' if partial else '合并')
+        if retain_label:
+            assert f"-{artifact['warehouse']}-" in path.name
+
+
+@pytest.mark.parametrize('occupied_partial', [None, 'file', 'directory'])
+def test_second_warehouse_publication_failure_counts_only_delivered_rows(monkeypatch, tmp_path, publication_timestamp, occupied_partial):
+    records = [record(1, stockSku='shared', warehouseId=12107, warehouseName='PH1'),
+               record(2, stockSku='ph-only', warehouseId=12107, warehouseName='PH1'),
+               record(3, stockSku='shared', warehouseId=12831, warehouseName='VN1'),
+               record(4, stockSku='vn-only', warehouseId=12831, warehouseName='VN1')]
+    def occupy_outputs(event):
+        if event['stage'] != 'downloaded':
+            return
+        raw, = tmp_path.rglob('原始-*.xlsx')
+        (raw.parent / f'马帮TMS-商品-VN1-{publication_timestamp}.xlsx').mkdir()
+        target = raw.parent / f'马帮TMS-商品-PH1-部分导出-{publication_timestamp}.xlsx'
+        if occupied_partial == 'file':
+            target.write_bytes(b'existing unrelated file')
+        elif occupied_partial == 'directory':
+            target.mkdir()
+            (target / 'keep.txt').write_text('existing unrelated directory', encoding='utf-8')
+
+    result, _ = execute(monkeypatch, tmp_path, [page(records, len(records))],
+                        arguments={'warehouse': 'all'}, on_event=occupy_outputs)
+
+    folder = Path(result['batches'][0]['raw_path']).parent
+    assert not result['success'] and result['status'] == ('failed' if occupied_partial else 'partial_success')
+    assert result['error']['code'] == 'publication_failed'
+    assert f'VN1-{publication_timestamp}.xlsx' in result['error']['message']
+    assert result['exported_unique_ids'] == result['source_row_count'] == 4
+    assert not list(folder.glob('.*.tmp'))
+    if occupied_partial:
+        assert result['artifacts'] == [] and result['row_count'] == result['distinct_skus'] == 0
+        source = folder / f'马帮TMS-商品-PH1-{publication_timestamp}.xlsx'
+        assert source.is_file()
+        assert 'FileExistsError' in result['error']['partial_marking_error']
+        target = folder / f'马帮TMS-商品-PH1-部分导出-{publication_timestamp}.xlsx'
+        assert target.name in result['error']['partial_marking_error']
+        if occupied_partial == 'file':
+            assert target.read_bytes() == b'existing unrelated file'
+        else:
+            assert (target / 'keep.txt').read_text(encoding='utf-8') == 'existing unrelated directory'
+        return
+    assert result['row_count'] == result['distinct_skus'] == 2
+    assert len(result['artifacts']) == 1 and result['artifacts'][0]['warehouse'] == 'PH1'
+    artifact = result['artifacts'][0]
+    assert artifact['row_count'] == 2
+    assert artifact['kind'] == '部分导出' and '-部分导出-' in Path(artifact['path']).name
+    headers, rows, _ = read_workbook(Path(artifact['path']).read_bytes())
+    assert {row[headers.index('库存SKU')] for row in rows} == {'shared', 'ph-only'}
+    assert {row[headers.index('仓库')] for row in rows} == {'PH1'}
+    assert not (folder / f'马帮TMS-商品-PH1-{publication_timestamp}.xlsx').exists()
+    assert {path for path in folder.glob('马帮TMS-商品-*.xlsx') if path.is_file()} == {Path(artifact['path'])}
 
 
 @pytest.mark.parametrize('arguments', [{'warehouse': ''}, {'warehouse': 'VN8806'}, {'warehouse': 12831},
@@ -743,19 +971,23 @@ def test_scoped_early_empty_page_retains_verified_partial(monkeypatch, tmp_path)
 
 
 def test_selected_record_can_still_expand_to_multiple_excel_rows(monkeypatch, tmp_path):
-    r = record(1, warehouseId=12831, warehouseName='越南 VN1 仓')
+    r = record(1, warehouseId=12831, warehouseName='越南 VN1 仓', stockQuantity=12, sale1=3, sale2=7, sale3=11)
     client = FakeClient([page([r], 1)])
     client.download = lambda _: workbook([values(r), values(r)])
     result, _ = execute(monkeypatch, tmp_path, [], client, arguments={'warehouse': 'VN1'})
-    assert result['success'] and result['exported_unique_ids'] == 1 and result['row_count'] == 2
+    assert result['success'] and result['exported_unique_ids'] == 1 and result['row_count'] == 1
+    assert result['source_row_count'] == 2
     assert result['warehouses'] == ['越南 VN1 仓']
+    headers, rows, _ = read_workbook(Path(result['artifacts'][0]['path']).read_bytes())
+    assert headers == tuple(HEADERS) and len(rows) == 1
+    assert (rows[0][3], rows[0][2], rows[0][4], rows[0][1]) == (12, 3, 7, 11)
 
 
 @pytest.mark.parametrize('warehouse,label', [('PH1', '菲律宾PH1仓'), ('VN1', '越南VN1仓'),
-                                           ('all', '全部仓库'), (None, '全部仓库')])
+                                           ('all', 'PH1'), (None, 'PH1')])
 @pytest.mark.parametrize('partial', [False, True])
 def test_final_filename_identifies_requested_scope_and_retains_partial_marker(monkeypatch, tmp_path, warehouse, label, partial):
-    # An all-warehouse request must retain that name even if only PH1 has rows.
+    # All-account output uses each real warehouse label instead of a mixed file.
     wid = dict(WAREHOUSE_CASES).get(warehouse, 12107)
     records = [record(1, warehouseId=wid, warehouseName=warehouse if warehouse in ('PH1', 'VN1') else 'PH1')]
     pages = [page(records, 2 if partial else 1)] + ([page([], 2, 2)] if partial else [])
@@ -766,13 +998,15 @@ def test_final_filename_identifies_requested_scope_and_retains_partial_marker(mo
     assert re.fullmatch(rf'马帮TMS-商品-{label}{marker}-\d{{8}}-\d{{6}}\.xlsx', path.name)
     assert '合并' not in path.name
     headers, rows, _ = read_workbook(path.read_bytes())
-    assert list(headers) == HEADERS and [list(row) for row in rows] == [values(r) for r in records]
+    assert list(headers) == HEADERS and len(rows) == 1
+    assert rows == [('SKU-1', 97, 21, -1, 71, records[0]['warehouseName'], -1, 0, 0, 0,
+                     '2026-08-25 11:35:29', '123')]
 
 
 @pytest.mark.parametrize('warehouse,agent', [('PH1', True), ('VN1', True), ('all', True), (None, False)])
 def test_cli_scope_dispatches_real_workflow_and_deliverable(monkeypatch, tmp_path, capsys, warehouse, agent):
     import json
-    from lxeskill import cli, business
+    from lxeskill import cli
     chosen = WAREHOUSE_CASES if warehouse in (None, 'all') else [(warehouse, dict(WAREHOUSE_CASES)[warehouse])]
     records = [record(i, warehouseId=wid, warehouseName=name) for i, (name, wid) in enumerate(chosen, 1)]
     client = FakeClient([page(records, len(records))])
@@ -783,15 +1017,15 @@ def test_cli_scope_dispatches_real_workflow_and_deliverable(monkeypatch, tmp_pat
     else:
         monkeypatch.delenv('LXESKILL_SKILL_SCOPE', raising=False)
     monkeypatch.setattr(workflow, 'TmsClient', lambda *args: client)
-    monkeypatch.setattr(workflow, 'dataset_dir', lambda *args: tmp_path.joinpath(*args[1:]))
-    monkeypatch.setattr(business, 'artifact_root', lambda: tmp_path)
     args = ['mabang-tms', 'products', 'export'] + (['--warehouse', warehouse] if warehouse else [])
     assert cli.main(args) == 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert result['ok'] and len(result['files']) == 1 and Path(result['files'][0]).is_file()
-    assert result['files'] == [result['data']['artifacts'][0]['path']]
-    label = {'PH1': '菲律宾PH1仓', 'VN1': '越南VN1仓'}.get(warehouse, '全部仓库')
-    assert re.fullmatch(rf'马帮TMS-商品-{label}-\d{{8}}-\d{{6}}\.xlsx', Path(result['files'][0]).name)
+    assert result['ok'] and len(result['files']) == len(chosen)
+    assert all(Path(path).is_file() for path in result['files'])
+    assert result['files'] == [artifact['path'] for artifact in result['data']['artifacts']]
+    for path, (name, _) in zip(result['files'], chosen):
+        label = {'PH1': '菲律宾PH1仓', 'VN1': '越南VN1仓'}.get(warehouse, name)
+        assert re.fullmatch(rf'马帮TMS-商品-{label}-\d{{8}}-\d{{6}}\.xlsx', Path(path).name)
     assert result['data']['warehouses'] == [name for name, _ in chosen]
     assert result['data']['warehouse'] == (warehouse or 'all')
     selected_id = dict(WAREHOUSE_CASES).get(warehouse)
@@ -813,23 +1047,25 @@ def test_agent_cli_missing_or_invalid_scope_never_authenticates(monkeypatch, cap
     client.assert_not_called()
 
 
-def test_agent_cli_scoped_partial_delivers_only_verified_warehouse(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize('failure', ['scope', 'empty'])
+def test_agent_cli_scoped_partial_delivers_only_verified_warehouse(monkeypatch, tmp_path, capsys, failure):
     import json
-    from lxeskill import cli, business
+    from lxeskill import cli
     client = FakeClient([page([record(1, warehouseId=12831, warehouseName='VN1')], 2),
-                         page([record(2, warehouseId=12107, warehouseName='PH1')], 2, 2)])
+                         page([record(2, warehouseId=12107, warehouseName='PH1')] if failure == 'scope' else [], 2, 2)])
     monkeypatch.setenv('LXE_MABANG_TMS_ACCOUNT', 'account')
     monkeypatch.setenv('LXE_MABANG_TMS_PASSWORD', 'password')
     monkeypatch.setenv('LXESKILL_SKILL_SCOPE', 'mabang-tms-products-export')
     monkeypatch.setattr(workflow, 'TmsClient', lambda *args: client)
-    monkeypatch.setattr(workflow, 'dataset_dir', lambda *args: tmp_path.joinpath(*args[1:]))
-    monkeypatch.setattr(business, 'artifact_root', lambda: tmp_path)
     assert cli.main(['mabang-tms', 'products', 'export', '--warehouse', 'VN1']) != 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert not result['ok'] and result['data']['status'] == 'partial_success' and len(result['files']) == 1
     headers, rows, _ = read_workbook(Path(result['files'][0]).read_bytes())
     assert {r[headers.index('仓库')] for r in rows} == {'VN1'}
-    assert result['data']['error']['code'] == 'warehouse_scope_mismatch'
+    assert result['data']['error']['code'] == ('warehouse_scope_mismatch' if failure == 'scope' else 'early_empty_page')
+    assert result['data']['row_count'] == len(rows) == 1
+    assert '-部分导出-' in Path(result['files'][0]).name
+    assert 'password' not in json.dumps(result) and 'test-token' not in json.dumps(result)
 
 
 @pytest.mark.parametrize('failed_page,retained_rows', [(1, 1), (1, 2), (2, 1)])
@@ -884,7 +1120,8 @@ def test_review_real_vn1_total_page_echo_does_not_gate_completion(monkeypatch, t
     result, client = execute(monkeypatch, tmp_path, pages, arguments={'warehouse': warehouse})
     assert result['success'] and result['reported_total'] == result['read_unique_ids'] == 4208
     assert result['exported_unique_ids'] == 4208 and result['remaining_records'] == 0
-    assert result['completed_batches'] == 5 and result['row_count'] == 4208 and result['distinct_skus'] == 2104
+    assert result['completed_batches'] == 5 and result['row_count'] == (2104 if warehouse_id else 4208)
+    assert result['distinct_skus'] == 2104
     assert [value for stage, value in client.calls if stage == 'list'] == [1, 2, 3, 4, 5]
     assert [i for stage, ids in client.calls if stage == 'export' for i in ids] == list(range(4208))
     assert client.warehouse_requests == [('list', warehouse_id), ('export', warehouse_id)] * 5

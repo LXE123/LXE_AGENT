@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
+import unicodedata
 import uuid
 from contextlib import ExitStack
 from datetime import datetime
@@ -10,7 +12,7 @@ from pathlib import Path
 from shared.datasets import dataset_dir
 from shared.process_lock import interprocess_lock
 from .client import FIELDS, FILTERS, TmsClient, TmsError, diagnostic
-from .workbooks import atomic_bytes, coverage, read_workbook, write_merged
+from .workbooks import atomic_bytes, coverage, merge_inventory_export, read_workbook, write_merged
 
 
 # Confirmed by the user's PH1/VN1 list and export requests (2026-10-16).
@@ -43,8 +45,14 @@ def page_data(body, requested_page):
     payload = next((p for p in (body, body.get("data"), body.get("pop"))
                     if isinstance(p, dict) and "datas" in p and "totalNum" in p), None)
     if payload is None:
-        raise TmsError("invalid_page", f"列表响应缺少 datas/totalNum: {body}")
-    total = payload["totalNum"]
+        payload = next((p for p in (body, body.get("data")) if isinstance(p, dict) and "datas" in p), None)
+        metadata = next((p for p in ((payload.get("pop") if payload else None), body.get("pop"))
+                         if isinstance(p, dict) and "totalNum" in p), None)
+        if payload is None or metadata is None:
+            raise TmsError("invalid_page", f"列表响应缺少 datas/totalNum: {body}")
+        total = metadata["totalNum"]
+    else:
+        total = payload["totalNum"]
     if isinstance(total, bool) or not str(total).isdigit():
         raise TmsError("invalid_total", f"无效 totalNum: {total!r}")
     # Observed VN1 pop.totalPage echoes the current page, not a reliable page count.
@@ -71,10 +79,27 @@ def run(arguments):
     return run_with_events(arguments, lambda event: None)
 
 
+def _warehouse_filename(name, used_names):
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "仓库"
+    if safe != name or len(safe) > 100:
+        safe = f"{safe[:100]}-{hashlib.sha256(name.encode()).hexdigest()[:8]}"
+    candidate, suffix = safe, 1
+
+    def names(value):
+        return {unicodedata.normalize("NFC", part).casefold() for part in (value, f"{value}-部分导出")}
+
+    while names(candidate) & used_names:
+        candidate = f"{safe}-{suffix}"
+        suffix += 1
+    used_names.update(names(candidate))
+    return candidate
+
+
 def run_with_events(arguments, on_event):
     account, password = os.getenv("LXE_MABANG_TMS_ACCOUNT", "").strip(), os.getenv("LXE_MABANG_TMS_PASSWORD", "")
     client, folder, headers = None, None, None
-    rows, batches, artifacts = [], [], []
+    rows, movement_records, published_rows, batches, artifacts = [], [], [], [], []
+    partial_paths = []
     seen, exported = set(), set()
     total, failure, failure_page = None, None, None
     warehouse, warehouse_id = None, None
@@ -123,6 +148,9 @@ def run_with_events(arguments, on_event):
             atomic_bytes(raw, content)
             headers = batch_headers
             rows.extend(batch_rows)
+            # Use the robot's list records: a platform export ID may expand to
+            # multiple XLS rows and must not multiply its inventory quantity.
+            movement_records.extend(records)
             exported.update(ids)
             batches.append({"page": page, "record_count": len(ids), "row_count": len(batch_rows), "raw_path": str(raw)})
             on_event({"stage": "downloaded", "message": f"马帮 TMS：第 {page} 批已校验，累计 {len(exported)}/{total} 条接口记录"})
@@ -135,25 +163,57 @@ def run_with_events(arguments, on_event):
         failure = {"code": getattr(exc, "code", "export_failed"), "message":
                    client.safe(f"{type(exc).__name__}: {exc}") if client else diagnostic(f"{type(exc).__name__}: {exc}", (account, password))}
     finally:
-        if client:
-            client.close()
         # Publication remains protected by the account lock.
         try:
             if headers is not None:
                 label = "部分导出" if failure else "合并"
-                warehouse_name = {"PH1": "菲律宾PH1仓", "VN1": "越南VN1仓", "all": "全部仓库"}[warehouse]
+                merged_rows = merge_inventory_export(headers, rows, movement_records)
+                warehouse_index = headers.index("仓库")
+                groups = {}
+                for row in merged_rows:
+                    groups.setdefault(row[warehouse_index], []).append(row)
+                if warehouse != "all" and len(groups) > 1:
+                    raise TmsError("warehouse_scope_mismatch", f"选定仓库对应多个仓库名称: {sorted(groups)}")
                 partial = "-部分导出" if failure else ""
-                path = folder / f"马帮TMS-商品-{warehouse_name}{partial}-{datetime.now():%Y%m%d-%H%M%S}.xlsx"
-                write_merged(path, headers, rows)
-                artifacts.append({"path": str(path.resolve()), "row_count": len(rows), "sheet_names": ["商品"], "kind": label})
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                used_names = set()
+                for actual_warehouse, group_rows in groups.items():
+                    warehouse_name = ({"PH1": "菲律宾PH1仓", "VN1": "越南VN1仓"}[warehouse]
+                                      if warehouse != "all" else _warehouse_filename(actual_warehouse, used_names))
+                    path = folder / f"马帮TMS-商品-{warehouse_name}{partial}-{timestamp}.xlsx"
+                    write_merged(path, headers, group_rows)
+                    published_rows.extend(group_rows)
+                    artifacts.append({"path": str(path.resolve()), "warehouse": actual_warehouse,
+                                      "row_count": len(group_rows), "sheet_names": ["商品"], "kind": label})
+                    partial_paths.append(folder / f"马帮TMS-商品-{warehouse_name}-部分导出-{timestamp}.xlsx")
         except Exception as exc:
-            message = diagnostic(f"{type(exc).__name__}: {exc}", (account, password))
+            message = client.safe(f"{type(exc).__name__}: {exc}") if client else diagnostic(f"{type(exc).__name__}: {exc}", (account, password))
             if failure:
                 failure["publication_error"] = message
             else:
                 failure = {"code": "publication_failed", "message": message}
+            retained = []
+            for artifact, partial_path in zip(artifacts, partial_paths):
+                if artifact["kind"] == "合并":
+                    try:
+                        if partial_path.exists():
+                            raise FileExistsError(f"部分导出目标已存在: {partial_path}")
+                        Path(artifact["path"]).rename(partial_path)
+                    except OSError as mark_error:
+                        failure["partial_marking_error"] = client.safe(f"{type(mark_error).__name__}: {mark_error}") if client else diagnostic(f"{type(mark_error).__name__}: {mark_error}", (account, password))
+                        continue
+                    artifact.update(path=str(partial_path.resolve()), kind="部分导出")
+                retained.append(artifact)
+            artifacts = retained
+            if partial_paths:
+                delivered = {artifact["warehouse"] for artifact in artifacts}
+                published_rows = [row for row in published_rows if row[warehouse_index] in delivered]
         finally:
-            locks.close()
+            try:
+                if client:
+                    client.close()
+            finally:
+                locks.close()
     sku_index = headers.index("库存SKU") if headers else None
     warehouse_index = headers.index("仓库") if headers else None
     result = {"success": failure is None, "status": "partial_success" if failure and artifacts else "failed" if failure else "completed",
@@ -162,8 +222,9 @@ def run_with_events(arguments, on_event):
               "warehouse": warehouse, "warehouse_id": warehouse_id, "requested_fields": FIELDS,
               "headers": list(headers or []), "reported_total": total, "read_unique_ids": len(seen),
               "exported_unique_ids": len(exported), "remaining_records": total - len(exported) if total is not None else None,
-              "completed_batches": len(batches), "batches": batches, "row_count": len(rows),
-              "distinct_skus": len({r[sku_index] for r in rows}) if headers else 0,
+              "completed_batches": len(batches), "batches": batches, "row_count": len(published_rows),
+              "source_row_count": len(rows),
+              "distinct_skus": len({r[sku_index] for r in published_rows}) if headers else 0,
               "warehouses": sorted({r[warehouse_index] for r in rows}) if headers else [],
               "artifacts": artifacts, "auth_refresh_required": False}
     if failure:
