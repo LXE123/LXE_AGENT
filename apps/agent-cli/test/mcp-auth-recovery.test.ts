@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolRegistry, type McpServerConfig } from "@lxe/runtime";
@@ -56,6 +56,9 @@ async function fixture(failure: Failure) {
     protocolMode: "legacy", startupTimeoutMs: 3000, toolTimeoutMs: 3000, enabledTools: new Set(), disabledTools: new Set(), exposure: "codemode",
   };
   const store = new McpAuthStore(root);
+  const configPath = join(root, "config/mcp_servers.local.json");
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({ servers: { orders: { enabled: true, transport: "streamable-http", url, protocol_mode: "legacy" } } }));
   await store.save({ name: server.name, url, access_token: "access-1", ...(failure !== "no-refresh" && { renewal: {
     refresh_token: "refresh-1", issuer: http.url.origin, client: { client_id: "fixture" },
   } }) });
@@ -83,7 +86,8 @@ async function fixture(failure: Failure) {
   });
   async function cli(...args: string[]) {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args], {
-      env: { ...process.env, ...bridge.environment, LXE_MCP_CLI_SESSION_ID: "audit" }, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, ...bridge.environment, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: configPath,
+        LXE_MCP_CLI_SESSION_ID: "audit" }, stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { out, err, code };
@@ -95,7 +99,7 @@ async function fixture(failure: Failure) {
 }
 
 for (const failure of ["no-refresh", "invalid-grant", "reject-renewed"] as const) {
-  test(`tool authorization failure (${failure}) updates chat list and permits login without logout`, async () => {
+  test(`tool authorization failure (${failure}) updates chat state and permits login without logout`, async () => {
     const f = await fixture(failure);
     try {
       await f.call();
@@ -109,7 +113,7 @@ for (const failure of ["no-refresh", "invalid-grant", "reject-renewed"] as const
       expect(list.code, list.err).toBe(1);
       expect(list.out).toContain("orders: needs_auth");
       expect(list.out).toContain("agent-cli mcp login orders");
-      expect(list.out).toContain(diagnostic);
+      expect(list.out).toContain("fixture access denied"); // The fresh probe reports its own 401, not the earlier tool/refresh error.
       expect(list.out).not.toContain("refresh-1");
       const before = f.counts();
       for (let step = 0; step < 3; step++) expect(await f.access.reconnectAfterExternalAuthChange()).toBe(false);

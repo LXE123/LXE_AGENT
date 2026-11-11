@@ -7,7 +7,7 @@ import { withExecutablePath } from "@lxe/core";
 import { requestDesktopPipe } from "@lxe/desktop-protocol/local-pipe";
 import { openMcpCliBridge } from "../src/mcp-cli-bridge";
 
-test("desktop exec can list and sign in by the original server name using only the scoped CLI pipe", async () => {
+test("desktop exec can sign in and out by the original server name using only the scoped CLI pipe", async () => {
   let state = "needs_auth";
   const calls: string[] = [];
   const tools = [{ rawName: "find", modelName: "mcp__team_skills__find" }];
@@ -33,15 +33,10 @@ test("desktop exec can list and sign in by the original server name using only t
     return { out, err, code };
   }
   try {
-    expect(await requestDesktopPipe(path, token, "mcp/list", { session_id: "chat-A" })).toEqual([
-      { name: "team-skills", status: "needs_auth", transport: "streamable-http", tool_count: 0, error: "", tools: [] },
-    ]);
-    expect(await command("agent-cli mcp list")).toMatchObject({ code: 1, out: expect.stringContaining("Sign in with: agent-cli mcp login team-skills") });
+    await expect(requestDesktopPipe(path, token, "mcp/list", { session_id: "chat-A" })).rejects.toThrow("Unknown MCP management command");
     expect(await command("agent-cli mcp login team_skills")).toMatchObject({ code: 1, err: expect.stringContaining("MCP server not found: team_skills") });
     expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining('Connected to MCP server "team-skills"') });
-    expect(await command("agent-cli mcp list")).toMatchObject({ code: 0, out: "team-skills: ready (streamable-http, 1 tool)\n  find\n" });
     expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("already connected") });
-    expect(JSON.parse((await command("agent-cli mcp list --json")).out)[0].tools).toEqual(tools);
     expect(await command("agent-cli mcp logout team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("Forgot saved OAuth credentials") });
     expect(calls).toEqual(["team-skills"]);
     await expect(requestDesktopPipe(path, token, "mcp.servers.add", { session_id: "chat-A" })).rejects.toThrow("Unknown MCP management command");
@@ -116,7 +111,15 @@ test("standalone user commands preserve unrelated config, probe active tools and
     expect(files).toMatchObject({ name: "files", status: "ready", tool_count: 2 });
     expect(files.tools.map((t: { rawName: string }) => t.rawName)).toEqual(["echo", "second"]);
     expect(off).toMatchObject({ name: "off", status: "disabled", tools: [] });
-    expect(readFileSync(trace, "utf8")).toContain('"event":"exit"');
+    const lifecycle = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    const spawned = lifecycle.filter(entry => entry.event === "spawn").map(entry => entry.pid);
+    expect(spawned.length).toBeGreaterThan(0);
+    // SDK probe subprocesses can exit by signal without running an exit handler.
+    for (const pid of spawned) {
+      let error: NodeJS.ErrnoException | undefined;
+      try { process.kill(pid, 0); } catch (cause) { error = cause as NodeJS.ErrnoException; }
+      expect(error?.code).toBe("ESRCH");
+    }
     expect((await cli("add", "docs", "--url", url)).code).toBe(0);
     expect((await cli("logout", "docs")).code).toBe(0);
     expect(auth.get("docs", url)).toBeUndefined();

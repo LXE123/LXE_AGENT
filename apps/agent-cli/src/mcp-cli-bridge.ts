@@ -4,7 +4,7 @@ import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 import type { McpLoginProgress } from "./mcp-login-progress";
 import { requireMcpServer } from "./mcp-command-args";
 
-/** Grant local chat commands only status and OAuth actions, never the dashboard or credential store. */
+/** Grant local chat commands only OAuth actions, never the dashboard or credential store. */
 export async function openMcpCliBridge(options: {
   list(sessionId: string): Promise<McpCliServer[]>;
   logout(name: string, sessionId: string): Promise<boolean>;
@@ -14,9 +14,6 @@ export async function openMcpCliBridge(options: {
   const pipe = await startDesktopPipe({ token, timeoutMs: MCP_CLI_LOGIN_TIMEOUT_MS, async call(method, params, signal, progress) {
     const sessionId = (params as { session_id?: unknown } | null)?.session_id;
     if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("MCP command requires its chat session");
-    if (method === "mcp/list") {
-      return (await options.list(sessionId)).map(({ name, status, transport, tool_count, error, tools }) => ({ name, status, transport, tool_count, error, tools: tools.map(({ rawName, modelName }) => ({ rawName, modelName })) }));
-    }
     if (method === "mcp/login" || method === "mcp/logout") {
       const name = (params as { name?: unknown } | null)?.name;
       if (typeof name !== "string" || !/^[A-Za-z0-9_-]+$/.test(name)) throw new Error("Invalid MCP server name");

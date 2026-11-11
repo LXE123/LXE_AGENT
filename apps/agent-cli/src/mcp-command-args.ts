@@ -3,7 +3,7 @@ import { DESKTOP_MCP_NAME } from "@lxe/desktop-protocol";
 import { mcpNamespace } from "@lxe/runtime";
 
 export const usage = `Usage: agent-cli mcp <command>
-  list [--json]                          List servers, connection state and tools
+  list [--json]                          Connect to enabled user servers; report tools and errors
   add <name> [options] -- <cmd> [args]   Add or replace a user stdio server
   add <name> [options] --url <url>       Add or replace a user HTTP server
   remove <name>                          Remove its user configuration (keep credentials)

@@ -2,12 +2,14 @@
 
 ## Check status
 
-Run `agent-cli mcp list` with `exec` to see this chat's live connection states,
-tool names, errors and sign-in commands. Use `list --json` for a JSON array.
-Other chats own separate connections. From an independent terminal, `list`
-temporarily connects to enabled user servers, discovers their tools and closes
-the connections. Desktop-injected services such as `lxe_desktop` are available
-only in the desktop host.
+Run `agent-cli mcp list` to connect to every enabled user-configured server and
+print its state, tools, errors and sign-in command. It exits with status 1 if an
+enabled server fails to connect. Use `list --json` for a JSON array.
+
+Each run creates temporary connections and closes them afterward, whether run
+through `exec` or in a terminal. This checks connectivity without replacing a
+chat's connections. Desktop-injected services such as `lxe_desktop` are not part
+of this check.
 
 ## Sign in and out
 

@@ -230,7 +230,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     };
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(observed).toBe(2);
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: needs_auth");
+    // list reads the freshly saved grant immediately, independent of this chat's connection snapshot.
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");
     onModelRequest = undefined;
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");

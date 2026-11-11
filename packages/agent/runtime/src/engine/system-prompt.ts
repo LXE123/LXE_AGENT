@@ -39,7 +39,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
     `## Error Truthfulness\n${ERROR_EPISTEMICS}`,
   ].filter(Boolean).join("\n\n");
   const volatile = [
-    options.mcpCliDocs ? `MCP documentation: for server status or browser sign-in, read ${JSON.stringify(options.mcpCliDocs)}. Use exec to run agent-cli mcp list for live status and sign-in commands.` : "",
+    options.mcpCliDocs ? `MCP documentation: for connection checks or browser sign-in, read ${JSON.stringify(options.mcpCliDocs)}. Use exec to run agent-cli mcp list to connect to configured servers and report tools, errors and sign-in commands.` : "",
     options.larkCliAvailable
       ? "The current runtime environment includes `lark-cli`, a CLI dedicated to Feishu/Lark operations. For Feishu/Lark requests, use `exec` to run `lark-cli --help` or `lark-cli skills list` to discover its capabilities."
       : "",

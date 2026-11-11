@@ -30,8 +30,6 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   try { cmd = parseMcpCommand(args); }
   catch (error) { process.stderr.write(`${(error as Error).message}\n${usage}`); return 2; }
   if (cmd.kind === "help") { process.stdout.write(usage); return 0; }
-  const path = process.env.LXE_MCP_CLI_PIPE, token = process.env.LXE_MCP_CLI_TOKEN;
-  if (!!path !== !!token) throw new Error("Incomplete MCP management connection");
   const { dataRoot } = resolveExecRuntimePaths();
   const configPath = process.env.LXE_MCP_CONFIG_PATH?.trim() || join(dataRoot, "config", "mcp_servers.local.json");
 
@@ -48,10 +46,13 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   const signal = cmd.kind === "login" ? AbortSignal.timeout(cmd.timeout) : undefined;
   if (cmd.kind === "login") process.stdout.write(`Checking connection to MCP server "${cmd.name}".\n`);
   const reportLogout = (name: string, removed: boolean) => process.stdout.write(removed ? `Forgot saved OAuth credentials for ${name}.\n` : "No saved OAuth credentials.\n");
-  if (path && token) {
+  // list always probes fresh connections in this process, even inside a chat.
+  // Only OAuth actions need the host to update the chat's existing connection.
+  const path = process.env.LXE_MCP_CLI_PIPE, token = process.env.LXE_MCP_CLI_TOKEN;
+  if (cmd.kind !== "list" && !!path !== !!token) throw new Error("Incomplete MCP management connection");
+  if (cmd.kind !== "list" && path && token) {
     const session_id = process.env.LXE_MCP_CLI_SESSION_ID;
     if (!session_id) throw new Error("MCP command requires its chat session");
-    if (cmd.kind === "list") return printList(await requestDesktopPipe(path, token, "mcp/list", { session_id }) as McpCliServer[], cmd.json);
     if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name, session_id }) === true);
     else {
       const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS,
