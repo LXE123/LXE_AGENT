@@ -8827,9 +8827,6 @@ pre {
 
 .conversation-transcript {
   padding: 0;
-  /* Keep this viewport keyboard-scrollable without drawing a second frame
-     between the conversation and composer. Child controls keep their rings. */
-  outline: none;
   scrollbar-gutter: stable;
   scrollbar-color: rgba(122, 112, 101, 0.22) transparent;
   scrollbar-width: thin;
