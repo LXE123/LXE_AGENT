@@ -38,7 +38,7 @@ test("desktop exec can list and sign in by the original server name using only t
     ]);
     expect(await command("agent-cli mcp list")).toMatchObject({ code: 1, out: expect.stringContaining("Sign in with: agent-cli mcp login team-skills") });
     expect(await command("agent-cli mcp login team_skills")).toMatchObject({ code: 1, err: expect.stringContaining("MCP server not found: team_skills") });
-    expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("Signed in and connected to team-skills") });
+    expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining('Connected to MCP server "team-skills"') });
     expect(await command("agent-cli mcp list")).toMatchObject({ code: 0, out: "team-skills: ready (streamable-http, 1 tool)\n  find\n" });
     expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("already connected") });
     expect(JSON.parse((await command("agent-cli mcp list --json")).out)[0].tools).toEqual(tools);

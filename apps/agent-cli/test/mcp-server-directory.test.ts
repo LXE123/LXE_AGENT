@@ -186,6 +186,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     const failed = received.at(-1)?.messages.at(-1)?.content;
     expect(failed).toContain("OAuth credentials were saved");
     expect(failed).toContain("503");
+    expect(failed).toContain('MCP server "team-skills"');
+    expect(failed).not.toContain("If prompted, approve access");
     expect(await current()).toMatchObject({ has_credentials: true });
     expect(browserOpens).toBe(1);
     // The retry uses the saved grant, even when HTTP discovery takes longer than two seconds.
@@ -193,7 +195,8 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await turn("desktop", "desktop", "agent-cli mcp login team-skills");
     handshake = "normal";
     expect(browserOpens).toBe(1);
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("Signed in and connected to team-skills.");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain('Connected to MCP server "team-skills".');
+    expect(received.at(-1)?.messages.at(-1)?.content).not.toContain("Signed in");
     await turn("cli", "cli", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: ready");
     expect(browserOpens).toBe(1);
@@ -220,7 +223,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       });
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(code, stderr).toBe(0);
-      expect(stdout).toContain("Signed in and connected to terminal-login");
+      expect(stdout).toContain('Connected to MCP server "terminal-login"');
       expect(stdout).toContain("terminal-login: ready (streamable-http, 2 tools)");
       expect(stdout).not.toContain("oauth-fixture");
     };

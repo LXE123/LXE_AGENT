@@ -84,7 +84,9 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
       const error = incoming.searchParams.get("error");
       if (error || !code) {
         response.writeHead(400).end("Sign-in did not complete. Return to LXE Agent.");
-        completed.reject(new Error(error ? "MCP authorization: " + error : "MCP login callback is missing the authorization code"));
+        // Keep the returned OAuth error code visible; "authorization:" is treated
+        // as a credential header by the shared redactor.
+        completed.reject(new Error(error ? "MCP OAuth callback error: " + error : "MCP login callback is missing the authorization code"));
         return;
       }
       const iss = incoming.searchParams.get("iss");

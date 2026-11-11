@@ -10,15 +10,23 @@ When the user asks to sign in, run that command with `exec`, for example
 `agent-cli mcp login team-skills`. Use the configured name from the list,
 including hyphens; `mcp__team_skills` is the tool namespace, not the server name.
 
-The Harness opens the authorization page; the user approves in their browser.
-If `exec` returns an `exec_id`, tell the user to finish in their browser and
-use `wait` with that ID to collect the outcome. Do not launch a second login.
+`login` first checks the connection. It uses saved credentials when available
+and opens the authorization page only if the server requires sign-in. The initial
+"Checking connection" output does not mean a browser has opened.
+If `exec` reports `status: running`, use `wait` with its `exec_id` to collect the
+outcome. Both running and finished commands have an `exec_id`; check the status
+and exit code. A finished command with a nonzero exit code has failed and is no
+longer waiting for browser approval. Do not launch a second login while one runs.
 A successful command means the Harness has verified the connection; its tools
-are then available for discovery. An already connected server needs no login.
+are then available for discovery. It may have reused credentials without a new
+browser login. An already connected server needs no login.
 If OAuth credentials were saved but the connection failed, report both facts.
 Retry the same login command to reconnect using the saved credentials. The
 Harness asks for browser sign-in again only if the server challenges them.
-If sign-in fails, report the returned error. A server configured with a fixed
+Failures identify the server and phase: connection, sign-in, credential saving,
+or reconnection after credentials were saved. Report the actual returned error;
+a network failure alone does not establish that the user needs to sign in.
+A server configured with a fixed
 API key or Authorization header may need its configured credentials updated instead.
 
 From a terminal without an active chat, the same commands work independently.

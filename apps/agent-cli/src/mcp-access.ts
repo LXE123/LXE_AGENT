@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { McpManager, OfficialMcpConnector, usesMcpOAuth, type McpConfig } from "@lxe/runtime";
-import { sanitizeLogValueWithPolicy } from "@lxe/core";
+import { createLogger, sanitizeLogValueWithPolicy } from "@lxe/core";
 import { McpAuthStore } from "./mcp-auth-store";
 import { loginToMcp } from "./mcp-oauth";
 
@@ -16,6 +16,7 @@ export async function openMcpBrowser(url: string): Promise<void> {
 
 /** One session's connections, using grants shared by all Harness processes for this data root. */
 export class McpAccess {
+  private readonly logger = createLogger("agent.mcp.access");
   readonly manager: McpManager;
   private readonly logins = new Map<string, AbortController>();
   private readonly lastToken = new Map<string, string | undefined>();
@@ -54,6 +55,7 @@ export class McpAccess {
     const controller = new AbortController();
     this.logins.set(name, controller);
     const signal = caller ? AbortSignal.any([caller, controller.signal]) : controller.signal;
+    let stage: "connection" | "sign-in" | "credential-save" | "reconnection" = "connection";
     try {
       signal.throwIfAborted();
       const state = this.manager.state(name);
@@ -67,15 +69,26 @@ export class McpAccess {
       }
       const previous = this.store.get(name, server.url);
       const target = this.manager.loginTarget(name, previous?.url);
+      stage = "sign-in";
       const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, this.openBrowser, signal) };
+      stage = "credential-save";
       await this.store.save(grant, signal);
+      stage = "reconnection";
       signal.throwIfAborted();
       await this.manager.reconnect(name);
       signal.throwIfAborted();
       const status = this.manager.status(name);
       if (!status.connected) {
-        throw new Error("MCP OAuth credentials were saved, but the connection failed: " + (status.error || status.state));
+        throw new Error(status.error || status.state);
       }
+    } catch (error) {
+      this.logger.warn("mcp_login_failed", { server_name: name, stage, error });
+      const context = stage === "connection" ? `MCP server "${name}" failed to connect`
+        : stage === "sign-in" ? `MCP server "${name}" sign-in failed`
+        : stage === "credential-save" ? `MCP server "${name}" failed to save OAuth credentials`
+        : `MCP server "${name}": OAuth credentials were saved, but the connection failed`;
+      const detail = sanitizeLogValueWithPolicy(error instanceof Error ? error.message : String(error), { maxString: 4_000 });
+      throw new Error(`${context}:\n${detail}`, { cause: error });
     } finally {
       this.logins.delete(name);
     }

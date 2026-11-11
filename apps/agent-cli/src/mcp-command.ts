@@ -14,9 +14,10 @@ function printList(servers: McpCliServer[], json: boolean): number {
   else {
     if (!servers.length) process.stdout.write("No MCP servers configured.\n");
     for (const server of servers) {
-      process.stdout.write(`${server.name}: ${server.status} (${server.transport}, ${server.tool_count} ${server.tool_count === 1 ? "tool" : "tools"})\n`);
+      const count = server.status === "ready" ? `, ${server.tool_count} ${server.tool_count === 1 ? "tool" : "tools"}` : "";
+      process.stdout.write(`${server.name}: ${server.status} (${server.transport}${count})\n`);
       for (const tool of server.tools) process.stdout.write(`  ${tool.rawName}\n`);
-      if (server.error) process.stdout.write(`  ${server.error}\n`);
+      if (server.error) process.stdout.write(`  Error: ${server.error.split("\n").join("\n  ")}\n`);
       if (server.status === "needs_auth") process.stdout.write(`  Sign in with: agent-cli mcp login ${server.name}\n`);
     }
   }
@@ -44,7 +45,7 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
     return 0;
   }
   const signal = cmd.kind === "login" ? AbortSignal.timeout(cmd.timeout) : undefined;
-  if (cmd.kind === "login") process.stdout.write(`Requesting sign-in for ${cmd.name}. If prompted, approve access in your browser.\n`);
+  if (cmd.kind === "login") process.stdout.write(`Checking connection to MCP server "${cmd.name}".\n`);
   const reportLogout = (name: string, removed: boolean) => process.stdout.write(removed ? `Forgot saved OAuth credentials for ${name}.\n` : "No saved OAuth credentials.\n");
   if (path && token) {
     const session_id = process.env.LXE_MCP_CLI_SESSION_ID;
@@ -53,7 +54,7 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
     if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name, session_id }) === true);
     else {
       const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS);
-      process.stdout.write(result === "already_connected" ? `${cmd.name} is already connected.\n` : `Signed in and connected to ${cmd.name}.\n`);
+      process.stdout.write(result === "already_connected" ? `${cmd.name} is already connected.\n` : `Connected to MCP server "${cmd.name}".\n`);
     }
     return 0;
   }
@@ -84,9 +85,11 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
     const status = access.manager.status(cmd.name);
     if (status.connected) process.stdout.write(`${cmd.name} is already connected.\n`);
     else {
-      if (status.state !== "needs_auth" && !access.canRelogin(cmd.name)) throw new Error(status.error || status.state);
+      if (status.state !== "needs_auth" && !access.canRelogin(cmd.name)) {
+        throw new Error(`MCP server "${cmd.name}" failed to connect:\n${status.error || status.state}`);
+      }
       await access.login(cmd.name, signal);
-      process.stdout.write(`Signed in and connected to ${cmd.name}.\n`);
+      process.stdout.write(`Connected to MCP server "${cmd.name}".\n`);
     }
   } finally {
     signal?.removeEventListener("abort", abort);
