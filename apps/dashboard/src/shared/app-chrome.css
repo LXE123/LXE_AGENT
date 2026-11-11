@@ -19,8 +19,7 @@
   --app-chrome-selected: var(--cds-alpha-2);
 }
 
-.desktop-window-frame,
-.app-shell > .main-panel {
+.desktop-window-frame {
   background: var(--app-chrome-bg);
 }
 

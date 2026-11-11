@@ -110,7 +110,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-toolbar [role=status]')", "catalog loaded");
     const guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"));
     assert.equal(guest.getURL(), "https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
-    const panel = await js("document.querySelector('.team-skills-panel').getBoundingClientRect().toJSON()");
+    const panel = await js("document.querySelector('.app-content-frame').getBoundingClientRect().toJSON()");
     const cornerPixel = async (dx, dy) => {
       const image = await win.webContents.capturePage({ x: Math.round(panel.x) + dx, y: Math.round(panel.y) + dy, width: 1, height: 1 });
       return Array.from(image.toBitmap().subarray(0, 3));

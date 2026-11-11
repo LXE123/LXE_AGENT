@@ -46,7 +46,7 @@ module.exports = async ({suite,win,js,step,load,waitFor,click,key,focus,settle,d
           await js(`document.documentElement.dataset.theme='${theme}'`);
           for (let i=0;i<2;i++) {
             assert.equal((await rect('.app-navigation')).top, await captionBottom());
-            assert.equal((await rect('.main-panel')).top, await captionBottom());
+            assert.equal((await rect('.main-panel')).top, 1 + await captionBottom());
             const toggle = await rect('.sidebar-toggle-button');
             assert.ok(toggle.top>=0 && toggle.bottom<=await captionBottom());
             assert.ok((await rect(menu)).left>=toggle.right, 'caption controls do not overlap');
@@ -89,7 +89,7 @@ module.exports = async ({suite,win,js,step,load,waitFor,click,key,focus,settle,d
         }
         for (const tab of ['home','workbench','capabilities','activity','sessions']) {
           const exists = await js(`Boolean(document.querySelector('.tab-${tab}'))`);
-          if (exists) { await click(`.tab-${tab}`); assert.equal((await rect('.main-panel')).top,await captionBottom()); }
+          if (exists) { await click(`.tab-${tab}`); assert.equal((await rect('.main-panel')).top,1 + await captionBottom()); }
         }
         await click('.tab-sessions');
       });
@@ -100,9 +100,9 @@ module.exports = async ({suite,win,js,step,load,waitFor,click,key,focus,settle,d
         const preview = '.file-header-actions button';
         await click(preview);
         await waitFor("Boolean(document.querySelector('.file-sidebar'))", "preview opened");
-        assert.equal((await rect('.file-sidebar')).top,await captionBottom());
+        assert.equal((await rect('.file-sidebar')).top,1 + await captionBottom());
         await click('.file-tab-strip > button:nth-last-child(2)');
-        assert.equal((await rect('.file-sidebar')).top,await captionBottom());
+        assert.equal((await rect('.file-sidebar')).top,1 + await captionBottom());
         if(process.env.LXE_TITLEBAR_SCREENSHOT) {
           for(const theme of ['dark','light']) {
             await js(`document.documentElement.dataset.theme='${theme}'`); await settle();

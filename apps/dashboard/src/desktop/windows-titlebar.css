@@ -31,7 +31,6 @@
 }
 
 .desktop-platform-win32 .app-navigation { padding-top: 6px; }
-.desktop-platform-win32 .app-shell > .main-panel { padding-top: 0; }
 
 .desktop-platform-win32 .app-sidebar.is-expanded {
   height: 100%;
