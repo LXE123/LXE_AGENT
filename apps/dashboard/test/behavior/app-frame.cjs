@@ -25,6 +25,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
   for (const platform of ["darwin", "win32"]) {
     await step(`${platform}: every destination shares one rounded canvas in both themes`, async () => {
       await load(`?app=1&workspaces=1&contracts=1&section=sessions&platform=${platform}&language=zh`);
+      assert.equal(await js("window.lxe.desktop.platform"), platform, "explicit fixture platform overrides the host");
       await waitFor("Boolean(document.querySelector('.reference-editor'))", "conversation ready");
       for (const theme of ["light", "dark"]) {
         await js(`document.documentElement.dataset.theme='${theme}'`);

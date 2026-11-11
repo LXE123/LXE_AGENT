@@ -237,11 +237,15 @@ const health: DesktopHealth = {
 };
 const currentModel = modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model")]);
 const subscribe = () => () => {};
+const platformOverride = new URLSearchParams(location.search).get("platform");
+const fixturePlatform = platformOverride === "win32" || platformOverride === "darwin"
+  ? platformOverride
+  : navigator.userAgent.includes("Windows") ? "win32" : "darwin";
 const desktop = {
   selectWorkspace: async () => { calls.push({ operation: "chooseWorkspace" }); return chosenDirectory; },
   getWorkspaceApplications: async () => [{ id: "finder", name: "Finder", icon: null }],
   openWorkspace: async (directory: string) => { calls.push({ operation: "openWorkspace", input: directory }); },
-  platform: (new URLSearchParams(location.search).get("platform") === "win32" || navigator.userAgent.includes("Windows")) ? "win32" as const : "darwin" as const,
+  platform: fixturePlatform,
   getSetupState: async () => setupState({ complete }),
   getHealth: async () => ({ ...health }),
   restartAgent: async () => { await contractFixture.controls.restartAgent(); return { ...health }; },

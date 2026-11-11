@@ -764,8 +764,9 @@ app.whenReady().then(async () => {
       // background can otherwise paint over a correctly rounded parent.
       const assertCorner = async (selector, rounded, label) => {
         const { left, top } = await rect(selector);
-        // Include layers beneath an open drawer/peek when checking its canvas.
-        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => !el.closest(".sidebar-dismiss, .app-sidebar") && document.querySelector(${JSON.stringify(selector)}).contains(el))`);
+        // Ignore drawer overlays and the Windows caption's transparent pointer
+        // corridor; neither paints the canvas corner beneath the hovering list.
+        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => !el.closest(".sidebar-dismiss, .app-sidebar, .sidebar-window-controls") && document.querySelector(${JSON.stringify(selector)}).contains(el))`);
         assert.equal(await inside(1, 1), !rounded, `${label}: corner cutout`);
         assert.equal(await inside(16, 16), true, `${label}: canvas inside corner`);
       };
@@ -778,7 +779,12 @@ app.whenReady().then(async () => {
         assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 41 : 43)) < 0.02);
         assert.equal((await rect(".app-sidebar")).left, railWidth + 1);
         assert.equal((await rect(".main-panel")).left, railWidth + 1 + 256);
-        assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
+        const workspaceScroll = await rect(".workspace-index-scroll");
+        const sidebar = await rect(".app-sidebar");
+        const bottomInset = await js("(()=>{const style=getComputedStyle(document.querySelector('.app-sidebar'));return parseFloat(style.paddingBottom)+parseFloat(style.borderBottomWidth)})()");
+        assert.ok(workspaceScroll.height > 0);
+        assert.ok(Math.abs(workspaceScroll.bottom - (sidebar.bottom - bottomInset)) < 1,
+          `workspace list fills the space below its controls: ${JSON.stringify({ workspaceScroll, sidebar, bottomInset })}`);
         await click(".tab-home");
         assert.equal(await js("document.querySelector('.tab-home').getAttribute('aria-current')"), "page");
         assert.equal(await expanded(), true);
@@ -815,6 +821,8 @@ app.whenReady().then(async () => {
         move(toggle.left + 10, toggle.top + 10);
         await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "hover peek");
         assert.equal((await rect(".main-panel")).left, railWidth + 1);
+        assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-window-controls'), '::after').backgroundColor"), "rgba(0, 0, 0, 0)",
+          "the pointer corridor must remain transparent");
         await assertCorner(".app-content-frame", true, "hover peek keeps the chat corner");
         const search = await rect(".sidebar-search-button");
         move(search.left + 10, search.top + 10);

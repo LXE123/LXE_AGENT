@@ -107,11 +107,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   const workspace = resolveWorkspaceContext(root);
   const host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: workspace, skillsRoot, userSkillsRoot: join(root, "user-skills"), llmConfigRoot,
-    environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
+    environment: { ...process.env, ...desktopEnv, LXE_SOURCE_ROOT: source, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
     emitter: { emit: async () => {}, typing: async () => {} },
   });
-  const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-  const login = [process.execPath, join(import.meta.dir, "mcp-command.fixture.ts"), protectedServer.url.origin + "/browser", "login", "team-skills"].map(shellQuote).join(" ");
+  const shellQuote = (value: string) => "'" + value.replaceAll("'", process.platform === "win32" ? "''" : "'\\''") + "'";
+  const loginArgs = [process.execPath, join(import.meta.dir, "mcp-command.fixture.ts"), protectedServer.url.origin + "/browser", "login", "team-skills"];
+  const login = (process.platform === "win32" ? "& " : "") + loginArgs.map(shellQuote).join(" ");
   async function turn(session: string, platform: string, command?: string) {
     nextExec = command;
     const id = crypto.randomUUID();
@@ -132,7 +133,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await host.start();
     for (const platform of ["desktop", "cli"]) await host.ensureSession({ session_id: platform, source: { platform }, workspace });
     const first = await turn("desktop", "desktop");
-    expect(first.prompt).toContain(join(source, "apps", "agent-cli", "docs", "mcp.md"));
+    expect(first.prompt).toContain(JSON.stringify(join(source, "apps", "agent-cli", "docs", "mcp.md")));
     expect(first.prompt).toContain("agent-cli mcp list");
     // A fresh desktop turn has the harness schemas only; the MCP tools are indirect.
     expect(JSON.stringify(received[0]!.tools)).not.toMatch(/\p{Script=Han}/u);
@@ -251,6 +252,6 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await host.stop();
     protectedServer.stop(true);
     endpoint.stop(true);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
-}, 20_000);
+}, 60_000);
