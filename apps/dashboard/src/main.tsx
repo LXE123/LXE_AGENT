@@ -25,6 +25,7 @@ import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
 import "./shared/app-chrome.css";
+import "./shared/app-frame.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
 import { DashboardQueryProvider } from "./api/query-client";
 import {
@@ -70,6 +71,7 @@ import { NavigationRail } from "./shared/navigation-rail";
 import type {
   DashboardSection,
 } from "./shared/navigation";
+import { AppFrame } from "./shared/app-frame";
 const DOCS_HOME_PATH = "README.md";
 
 function App({
@@ -208,16 +210,17 @@ function App({
 
   return (
     <>
-      <main className={shellClassName}>
-        <NavigationRail
+      <AppFrame className={shellClassName}
+        navigation={<NavigationRail
           items={tabs}
           activeSection={activeSection}
           label={t.nav.aria}
           onNavigate={openDashboardSection}
           footer={<SidebarStatus onOpen={() => onOpenDesktopSettings?.("status")} />}
-        />
-        <SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions} />
-
+        />}
+        sidebar={<SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions} />}
+        resizer={<SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />}
+      >
         <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
           {!showDashboardHome && !hasEmbeddedPageHeader ? (
             <header className={`main-header tab-${activeSection}`}>
@@ -327,15 +330,14 @@ function App({
             ) : null}
           </section>
         </section>
+      </AppFrame>
+      <DetailModal
+        themeClassName={capabilitiesOpen ? "capabilities-theme" : undefined}
+        enabled={dashboardRuntimeReady}
+        target={detailTarget}
+        onClose={() => setDetailTarget(null)}
+      />
 
-        <DetailModal
-          themeClassName={capabilitiesOpen ? "capabilities-theme" : undefined}
-          enabled={dashboardRuntimeReady}
-          target={detailTarget}
-          onClose={() => setDetailTarget(null)}
-        />
-        <SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />
-      </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
         {runtimeStatusPopover}
       </div>

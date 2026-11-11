@@ -10,8 +10,8 @@ const passed = [];
 const errors = [];
 
 app.whenReady().then(async () => {
-  // Caption restoration and chart focus tooltips need native document focus.
-  const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages';
+  // Caption focus ownership, restoration and chart tooltips need native focus.
+  const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages' || suite === 'app-frame';
   const catalog = suite === "overview-pages";
   const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
     webPreferences: { ...(catalog ? { webviewTag: true, preload: require.resolve("./catalog-preload.cjs") } : {}), offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
@@ -77,7 +77,9 @@ app.whenReady().then(async () => {
   };
   try {
     await load();
-    if (suite === "workspace-deletion") {
+    if (suite === "app-frame") {
+      await require("./app-frame.cjs")({win,js,step,load,waitFor,click,settle,delay});
+    } else if (suite === "workspace-deletion") {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "session-fork") {
       await require("./session-fork.cjs")({win,js,step,load,waitFor,click,key,settle,state});
@@ -763,7 +765,7 @@ app.whenReady().then(async () => {
       const assertCorner = async (selector, rounded, label) => {
         const { left, top } = await rect(selector);
         // Include layers beneath an open drawer/peek when checking its canvas.
-        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => document.querySelector(${JSON.stringify(selector)}).contains(el))`);
+        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => !el.closest(".sidebar-dismiss, .app-sidebar") && document.querySelector(${JSON.stringify(selector)}).contains(el))`);
         assert.equal(await inside(1, 1), !rounded, `${label}: corner cutout`);
         assert.equal(await inside(16, 16), true, `${label}: canvas inside corner`);
       };
@@ -773,9 +775,9 @@ app.whenReady().then(async () => {
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
         assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 7);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
-        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 42)) < 0.02);
-        assert.equal((await rect(".app-sidebar")).left, railWidth);
-        assert.equal((await rect(".main-panel")).left, railWidth + 256);
+        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 41 : 43)) < 0.02);
+        assert.equal((await rect(".app-sidebar")).left, railWidth + 1);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1 + 256);
         assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
         await click(".tab-home");
         assert.equal(await js("document.querySelector('.tab-home').getAttribute('aria-current')"), "page");
@@ -787,7 +789,7 @@ app.whenReady().then(async () => {
       await step("collapsing only hides the list; navigation and settings remain usable", async () => {
         await click(".sidebar-toggle-button"); await delay(220);
         assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
-        assert.equal((await rect(".main-panel")).left, railWidth);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
         await click(".tab-home"); await click(".tab-sessions");
         assert.equal(await expanded(), false);
         await click(".sidebar-settings-button");
@@ -812,8 +814,8 @@ app.whenReady().then(async () => {
         const toggle = await rect(".sidebar-toggle-button");
         move(toggle.left + 10, toggle.top + 10);
         await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "hover peek");
-        assert.equal((await rect(".main-panel")).left, railWidth);
-        await assertCorner(".conversation-body", true, "hover peek keeps the chat corner");
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
+        await assertCorner(".app-content-frame", true, "hover peek keeps the chat corner");
         const search = await rect(".sidebar-search-button");
         move(search.left + 10, search.top + 10);
         await click(".sidebar-search-button");
@@ -839,17 +841,17 @@ app.whenReady().then(async () => {
           JSON.stringify({ handle, before, after: await rect(".app-sidebar") }));
         await load(sidebarQuery);
         await waitFor("document.querySelectorAll('.workspace-group').length === 3", "reloaded list");
-        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${railWidth + before.width + 60}`, "restored width animation completed");
+        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${railWidth + 1 + before.width + 60}`, "restored width animation completed");
         assert.equal(await expanded(), true);
         assert.equal((await rect(".app-sidebar")).width, before.width + 60);
-        assert.equal((await rect(".main-panel")).left, railWidth + before.width + 60);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1 + before.width + 60);
         await focus(".sidebar-resizer"); await key("Left");
         assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), before.width + 50);
       });
       await step("narrow windows use a dismissible drawer while keeping the rail accessible", async () => {
         win.setContentSize(800, 900); await delay(250);
-        assert.equal((await rect(".main-panel")).left, railWidth);
-        await assertCorner(".conversation-body", true, "narrow chat behind drawer");
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
+        await assertCorner(".app-content-frame", true, "narrow chat behind drawer");
         assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-dismiss')).display"), "block");
         const panel = await rect(".app-sidebar");
         assert.ok(panel.left > railWidth && panel.right < 800);
@@ -862,9 +864,9 @@ app.whenReady().then(async () => {
         win.setContentSize(1200, 900); await delay(250);
       });
       await step("both desktop title-bar layouts keep controls and list clear in either theme", async () => {
-        const original = await js("document.querySelector('.desktop-window-frame').className");
         for (const platform of ["darwin", "win32"]) {
-          await js(`document.querySelector('.desktop-window-frame').className='desktop-window-frame desktop-platform-${platform}'`);
+          await load(sidebarQuery + "&platform=" + platform);
+          await waitFor("Boolean(document.querySelector('.conversation-header'))", "caption mounted");
           for (const theme of ["dark", "light"]) {
             await js(`document.documentElement.dataset.theme='${theme}'`);
             for (const open of [false, true]) {
@@ -880,22 +882,22 @@ app.whenReady().then(async () => {
                 assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header button')).webkitAppRegion"), "no-drag");
               }
               if (platform === "win32") {
-                assert.equal((await rect(".main-panel")).top, 40);
+                assert.equal((await rect(".main-panel")).top, 41);
                 assert.equal((await rect(".app-navigation")).top, 40);
                 assert.ok((await rect(".conversation-header-actions")).right > 1200 - 138);
               }
               const body = await rect(".conversation-body"), header = await rect(".conversation-header");
-              assert.ok(Math.abs(body.top - header.bottom) < 0.02, "chat canvas begins below its caption");
-              await assertCorner(".conversation-body", !open, `${platform} ${theme} chat ${open}`);
+              assert.ok(Math.abs(body.top - header.bottom) <= 1.02, "chat canvas begins below its caption");
+              await assertCorner(".app-content-frame", true, `${platform} ${theme} chat ${open}`);
               await click(".tab-home");
-              await assertCorner(".content-panel", !open, `${platform} ${theme} home ${open}`);
+              await assertCorner(".app-content-frame", true, `${platform} ${theme} home ${open}`);
               await click(".tab-sessions");
               if (open) {
                 const sidebar = await rect(".app-sidebar"), resize = await rect(".sidebar-resizer");
                 assert.ok(Math.abs(resize.top - sidebar.top) < 0.02, `${platform}: resize starts below caption`);
                 assert.ok(Math.abs(resize.bottom - sidebar.bottom) < 0.02);
                 if (platform === "darwin") {
-                  assert.ok(Math.abs((await rect(".conversation-header")).bottom - sidebar.top) < 0.02, "chat header meets sidebar edge");
+                  assert.ok(Math.abs((await rect(".conversation-header")).bottom - sidebar.top) <= 1.02, "chat header meets sidebar edge");
                   assert.equal(await js(`document.elementFromPoint(${resize.left + resize.width / 2}, ${sidebar.top / 2})?.closest('.sidebar-resizer') !== null`), false, "caption must not become a sidebar resize target");
                   await click(".tab-home");
                   assert.ok(Math.abs((await rect(".content-panel")).top - sidebar.top) < 0.02, "home canvas meets the same caption edge");
@@ -905,7 +907,7 @@ app.whenReady().then(async () => {
             }
           }
         }
-        await js(`document.querySelector('.desktop-window-frame').className=${JSON.stringify(original)}`);
+
         if (process.env.LXE_SIDEBAR_SCREENSHOT) {
           await load(sidebarQuery + "&language=zh");
           await waitFor("document.querySelectorAll('.workspace-group').length === 3", "preview loaded");

@@ -54,7 +54,7 @@ export class ManualToolsService {
       case "browser.get": return this.browsers.get(sessionId, id);
       case "browser.navigate": return this.browsers.navigate(sessionId, id, call.input.url);
       case "browser.command": return this.browsers.command(sessionId, id, call.input.command);
-      case "browser.present": return this.browsers.present(sessionId, id, call.input.bounds);
+      case "browser.present": return this.browsers.present(sessionId, id, call.input.bounds, call.input.clip);
       case "browser.close": await this.creating.get(`browser.create:${id}`)?.catch(() => {}); return this.browsers.close(sessionId, id);
     }
   }

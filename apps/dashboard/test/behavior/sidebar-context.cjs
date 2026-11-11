@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 module.exports = async ({ win, js, step, load, waitFor, click, delay, rect, move, railWidth }) => {
   const preference = () => js("localStorage.getItem('lxe.dashboard.sidebar.expanded')");
   const absent = async () => {
-    await waitFor(`document.querySelector('.main-panel')?.getBoundingClientRect().left === ${railWidth}`, "content uses the released sidebar space");
+    await waitFor(`document.querySelector('.main-panel')?.getBoundingClientRect().left === ${railWidth + 1}`, "content uses the released sidebar space");
     assert.equal(await js("document.querySelector('.app-sidebar').checkVisibility()"), false);
     assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
     assert.equal(await js("document.querySelector('.sidebar-toggle-button').checkVisibility()"), false);

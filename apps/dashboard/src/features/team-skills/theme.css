@@ -1,8 +1,6 @@
 .content-panel.team-skills-panel {
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   background: var(--cds-surface-panel);
-  border-top: 1px solid var(--app-chrome-border);
-  border-left: 1px solid var(--app-chrome-border);
 }
 .team-skills-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .team-skills-toolbar {

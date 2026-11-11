@@ -81,10 +81,16 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
       frame = requestAnimationFrame(() => {
         if (disposed || !ready || !viewport.current) return;
         const rect = viewport.current.getBoundingClientRect();
+        const canvas = viewport.current.closest<HTMLElement>(".app-content-frame");
+        const outer = canvas?.getBoundingClientRect();
+        const edge = canvas ? parseFloat(getComputedStyle(canvas).borderLeftWidth) : 0;
+        const clip = outer && canvas ? { x: outer.x + edge, y: outer.y + edge,
+          width: canvas.clientWidth, height: canvas.clientHeight,
+          radius: Math.max(0, parseFloat(getComputedStyle(canvas).borderTopLeftRadius) - edge) } : undefined;
         const dismiss = document.querySelector(".sidebar-dismiss");
         const blocked = document.hidden || Boolean(document.querySelector('[role="dialog"], [role="menu"], .app-sidebar.is-peek'))
           || Boolean(dismiss && getComputedStyle(dismiss).display !== "none");
-        void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: blocked ? null : { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } }).catch(fail);
+        void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, clip, bounds: blocked ? null : { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } }).catch(fail);
       });
     };
     const unsubscribe = api.subscribe(event => { if (event.kind === "browser.state" && event.snapshot.id === tab.key && event.snapshot.sessionId === sessionId && !disposed) { setState(event.snapshot); if (event.snapshot.url !== currentUrl.current) { currentUrl.current = event.snapshot.url; setAddress(event.snapshot.url); } } });

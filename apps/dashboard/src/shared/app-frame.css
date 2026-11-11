@@ -1,0 +1,99 @@
+/* Geometry belongs to the shell, not to individual pages. Only the rail and
+   caption are outside this continuous four-corner canvas. */
+.app-shell {
+  --app-frame-inset: 4px;
+  --app-frame-caption-height: var(--app-titlebar-height);
+  --app-sidebar-track: var(--app-sidebar-width);
+  grid-template-columns: var(--app-navigation-width) minmax(0, 1fr);
+  grid-template-rows: var(--app-frame-caption-height) minmax(0, 1fr);
+  padding: 0 var(--app-frame-inset) var(--app-frame-inset) 0;
+  transition: none;
+}
+.app-shell:is(.sidebar-collapsed, .sidebar-unavailable) { --app-sidebar-track: 0px; }
+.app-shell > .app-navigation { grid-row: 1 / -1; }
+.app-content-frame {
+  position: relative;
+  grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: var(--app-sidebar-track) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-chrome-border);
+  border-radius: var(--app-panel-radius);
+  background: var(--cds-surface-panel);
+  transition: grid-template-columns 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+.app-shell[data-sidebar-resizing] .app-content-frame { transition: none; }
+.app-content-frame > .main-panel {
+  grid-column: 2;
+  grid-row: 1;
+  height: 100%;
+  padding-top: 0;
+  background: var(--app-chrome-bg);
+}
+.app-content-frame > .app-sidebar.is-expanded {
+  grid-column: 1;
+  grid-row: 1;
+  height: 100%;
+  margin-top: 0;
+  border-top: 0;
+  border-radius: 0;
+}
+.app-content-frame > .sidebar-resizer {
+  inset-block: 0;
+  left: calc(var(--app-sidebar-width) - 3px);
+}
+.app-shell[data-sidebar-resizing] .sidebar-resizer::after {
+  background: color-mix(in srgb, var(--text) 35%, var(--bg));
+}
+.app-content-frame :is(.content-panel, .conversation-body) { border-radius: 0; }
+.app-content-frame .team-skills-panel { border: 0; }
+
+.app-caption {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  min-width: 0;
+  margin-left: var(--app-sidebar-track);
+  padding-inline: 1px;
+  position: relative;
+  z-index: 21;
+  transition: margin-left 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+.app-shell[data-sidebar-resizing] .app-caption { transition: none; }
+.app-caption-title { flex: 1; min-width: 0; }
+.app-caption-tools { flex: 0 0 var(--caption-tools-width); min-width: 0; border-left: 5px solid transparent; }
+.app-caption-tools:empty { display: none; }
+.app-caption-tools[data-expanded] { flex: 1; border-left: 0; }
+.app-caption:has(.app-caption-tools[data-expanded]) .app-caption-title { display: none; }
+.app-caption .file-tab-strip { border-bottom: 0; }
+.app-shell.sidebar-collapsed .app-caption-tools[data-expanded] .file-tab-strip {
+  padding-left: calc(var(--sidebar-control-left) + 44px - var(--app-navigation-width));
+}
+/* One short divider in the caption, aligned with the docked session list. */
+.app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable) .app-caption::before {
+  content: ""; position: absolute; top: calc((var(--app-titlebar-height) - 16px) / 2);
+  left: 0; width: 1px; height: 16px; background: var(--app-chrome-border); pointer-events: none;
+}
+.desktop-platform-win32 .app-shell { --app-frame-caption-height: 0px; }
+
+@media (max-width: 920px) {
+  .app-shell { --app-sidebar-track: 0px; }
+  .app-caption::before { display: none; }
+  .app-caption-tools[data-expanded] .file-tab-strip {
+    padding-left: calc(var(--sidebar-control-left) + 44px - var(--app-navigation-width));
+  }
+  .app-content-frame > .app-sidebar.is-expanded {
+    height: calc(100vh - 64px);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--app-panel-radius);
+  }
+  .desktop-platform-win32 .app-content-frame > .app-sidebar.is-expanded {
+    height: calc(100dvh - var(--desktop-caption-height) - 24px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-content-frame, .app-caption { transition: none; }
+}

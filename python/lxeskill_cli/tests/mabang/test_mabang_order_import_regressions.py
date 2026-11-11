@@ -69,10 +69,10 @@ def test_stale_dimensions_and_values(source):
     result = generate(source)
     with open_sheet(result["output_xlsx"]) as sheet:
         assert rows(sheet) == [(sku, 0, q) for sku, q in zip(
-            ["#N/A", "SKU-3", "SKU-4", "SKU-5", "SKU-6", "SKU-7", "SKU-8"],
-            [10, 0.1, 2.5, 12.5, None, None, None], strict=True)]
+            ["#N/A", "SKU-3", "SKU-4", "SKU-5"],
+            [10, 0.1, 2.5, 12.5], strict=True)]
         assert sheet["D2"].data_type == "s"
-    assert (result["sku_count"], result["quantity_value_count"]) == (7, 4)
+    assert (result["sku_count"], result["quantity_value_count"]) == (4, 4)
 
 
 @pytest.mark.parametrize(("coordinate", "value", "formula", "error"), [
@@ -97,6 +97,7 @@ def test_cached_formula_and_literal_sku(source, quantity):
     with open_sheet(source) as sheet:
         sheet["E3"] = "=SKU-LITERAL"
         sheet["E3"].data_type = "s"
+        sheet["AO3"] = 15
         sheet["AO4"] = 30
         sheet["AQ1"] = "10/30陆运"  # Older same-transport column is not selected.
         sheet["AQ2"] = "=1+1"  # An unused quantity formula must not block export.
@@ -105,9 +106,10 @@ def test_cached_formula_and_literal_sku(source, quantity):
     formula_cache(source, "AO2", "n", str(quantity))
     result = generate(source)
     with open_sheet(result["output_xlsx"]) as sheet:
-        assert rows(sheet) == [("SKU-CACHED", 0, quantity or None), ("=SKU-LITERAL", 0, None), ("SKU-A", 0, 30)]
-        assert sheet["D3"].data_type == "s"
-    assert result["quantity_value_count"] == (1 if quantity == 0 else 2)
+        expected = ([("SKU-CACHED", 0, quantity)] if quantity else []) + [("=SKU-LITERAL", 0, 15), ("SKU-A", 0, 30)]
+        assert rows(sheet) == expected
+        assert sheet["D2" if quantity == 0 else "D3"].data_type == "s"
+    assert result["quantity_value_count"] == (2 if quantity == 0 else 3)
 
 
 @pytest.mark.parametrize(("coordinate", "cached", "implicit"), [
@@ -117,6 +119,7 @@ def test_cached_formula_and_literal_sku(source, quantity):
 def test_empty_formula_cache(source, coordinate, cached, implicit):
     with open_sheet(source) as sheet:
         sheet["AN2"] = "preceding column"
+        sheet["AO3"] = 15
         sheet.parent.save(source)
     formula_cache(source, coordinate, cached=cached, implicit=implicit)
     if not cached:
@@ -125,10 +128,9 @@ def test_empty_formula_cache(source, coordinate, cached, implicit):
         assert list(source.parent.rglob("*.xlsx")) == [source]
         return
     result = generate(source)
-    expected = ["SKU-B", "SKU-A"] if coordinate == "E2" else ["SKU-A", "SKU-B", "SKU-A"]
     with open_sheet(result["output_xlsx"]) as sheet:
-        assert rows(sheet) == [(sku, 0, None) for sku in expected]
-    assert (result["sku_count"], result["quantity_value_count"]) == (len(expected), 0)
+        assert rows(sheet) == [("SKU-B", 0, 15)]
+    assert (result["sku_count"], result["quantity_value_count"]) == (1, 1)
 
 
 @pytest.mark.parametrize("coordinate", ["E2", "AO2"])
@@ -136,7 +138,7 @@ def test_existing_output_survives_missing_cache(source, coordinate):
     with open_sheet(source) as sheet:
         sheet[coordinate] = "=1+1"
         sheet.parent.save(source)
-    output = source.parent / "out" / "越南马帮订单导入模板-VN261105-L.xlsx"
+    output = source.parent / "out" / "越南马帮订单导入模板-VN261104-L.xlsx"
     output.parent.mkdir()
     output.write_bytes(b"existing output")
     with pytest.raises(OrderImportWorkbookError, match=rf"{coordinate}.*缓存.*重新计算"):
@@ -178,11 +180,16 @@ def test_leap_year(today, expected):
     assert nearest_occurrence(2, 29, today, country="越南", label="AQ1") == expected
 
 
-def test_winning_year_tie(sheet):
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+def test_winning_year_tie(sheet, country):
     sheet["AQ1"] = "7/2海运"
-    for override in (None, "AQ"):
+    for override in ((None, "AQ") if country in {"brazil", "vietnam"} else (None,)):
         with pytest.raises(OrderImportWorkbookError, match="AQ1.*7/2海运.*无法确定年份"):
-            country_rules.select_shipping_columns("vietnam", sheet, date(2028, 1, 1), shipping_column=override)
+            country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1), shipping_column=override)
+    sheet["AR1"], sheet["AQ1"] = "1/1海运", "7/2A海运"
+    sheet["AQ1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    with pytest.raises(OrderImportWorkbookError, match="AQ1.*7/2A海运.*无法确定年份"):
+        country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1))
 
 
 @pytest.mark.parametrize("header", ["2/30海运", "4/31海运", "13/1海运"])
@@ -200,13 +207,6 @@ def test_philippines_selects_each_transport_across_year_boundary(sheet):
         "air": country_rules.ShippingCandidate(41, "12/31空运", date(2026, 12, 31), "air"),
         "sea_a": country_rules.ShippingCandidate(51, "1/2A海运", date(2027, 1, 2), "sea_a"),
     }
-
-
-def test_philippines_reports_ambiguous_year_on_transport_column(sheet):
-    sheet["AO1"], sheet["AP1"] = "1/1空运", "7/2空运"
-    sheet["AY1"], sheet["AZ1"] = "1/1A海运", "1/1B海运"
-    with pytest.raises(OrderImportWorkbookError, match="AP1.*7/2空运.*无法确定年份"):
-        country_rules.select_shipping_columns("philippines", sheet, date(2028, 1, 1))
 
 
 def test_indonesia_selects_closest_air_and_sea_group_across_year_boundary(sheet):

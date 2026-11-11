@@ -1,6 +1,7 @@
 /** Desktop-owned, user-operated tools. These calls are never exposed to model tools. */
 export interface TerminalSnapshot { id: string; sessionId: string; shell: string; output: string; sequence: number; exited: boolean; exitCode?: number; error?: string }
 export interface BrowserSnapshot { id: string; sessionId: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; error: string }
+export interface BrowserClip { x: number; y: number; width: number; height: number; radius: number }
 export interface ManualToolOperations {
   "terminal.create": { input: { sessionId: string; id: string; cols: number; rows: number }; result: TerminalSnapshot };
   "terminal.get": { input: { sessionId: string; id: string }; result: TerminalSnapshot | null };
@@ -11,7 +12,7 @@ export interface ManualToolOperations {
   "browser.get": { input: { sessionId: string; id: string }; result: BrowserSnapshot | null };
   "browser.navigate": { input: { sessionId: string; id: string; url: string }; result: void };
   "browser.command": { input: { sessionId: string; id: string; command: "back" | "forward" | "reload" }; result: void };
-  "browser.present": { input: { sessionId: string; id: string; bounds: { x: number; y: number; width: number; height: number } | null }; result: void };
+  "browser.present": { input: { sessionId: string; id: string; bounds: { x: number; y: number; width: number; height: number } | null; clip?: BrowserClip }; result: void };
   "browser.close": { input: { sessionId: string; id: string }; result: void };
 }
 export type ManualToolOperation = keyof ManualToolOperations;
@@ -40,6 +41,11 @@ export function parseManualToolCall(value: unknown): ManualToolCall {
   if (operation === "browser.present" && input.bounds !== null) {
     const b = input.bounds as Record<string, unknown> | undefined;
     if (!b || ["x", "y", "width", "height"].some(key => typeof b[key] !== "number" || !Number.isFinite(b[key]) || Math.abs(Number(b[key])) > 100000) || Number(b.width) < 0 || Number(b.height) < 0) throw new Error("Invalid browser bounds");
+  }
+  if (operation === "browser.present" && input.clip !== undefined) {
+    const clip = input.clip as Record<string, unknown> | null;
+    if (!clip || ["x", "y", "width", "height", "radius"].some(key => typeof clip[key] !== "number" || !Number.isFinite(clip[key]) || Math.abs(Number(clip[key])) > 100000)
+      || Number(clip.width) < 0 || Number(clip.height) < 0 || Number(clip.radius) < 0) throw new Error("Invalid browser clip");
   }
   return value as ManualToolCall;
 }
