@@ -26,7 +26,7 @@ import {
   type ManagedLlmCredential,
   type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
-import { assertWorkspaceAvailable, createLogger, type Logger } from "@lxe/core";
+import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
@@ -252,12 +252,14 @@ export function createAgentRuntimeHost(
     finally { settingsLogins.delete(access); access.stop(); await access.manager.stop(); }
   }
   async function withMcpSession<T>(sessionId: string, run: (session: SessionMcpRuntime) => Promise<T>): Promise<T> {
-    const session = await store.getSession(sessionId);
-    if (!session) throw new Error("Session not found: " + sessionId);
-    const lease = await sessions.acquireCommand(sessionId, assertWorkspaceAvailable(session.workspace).directory, String(session.source.platform ?? ""));
-    try {
-      return await run(lease);
-    } finally { lease.release(); }
+    return runWithLogContext({ session_id: sessionId }, async () => {
+      const session = await store.getSession(sessionId);
+      if (!session) throw new Error("Session not found: " + sessionId);
+      const lease = await sessions.acquireCommand(sessionId, assertWorkspaceAvailable(session.workspace).directory, String(session.source.platform ?? ""));
+      try {
+        return await run(lease);
+      } finally { lease.release(); }
+    });
   }
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({

@@ -90,6 +90,17 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ## 连接管理
 
+### 连接诊断日志
+
+`runtime.mcp.connection` 为每次启动或重连生成 `connection_attempt_id`，记录服务名、当前会话（会话内命令也携带 `session_id`）、启动预算和总耗时。
+
+- SDK 层记录 `connect` 和 `tool_discovery` 的开始、完成或失败。HTTP 另外逐条记录 `server/discover`、`initialize`、`notifications/initialized` 和每页 `tools/list` 的耗时；现代协议不执行的阶段不会凭空出现。
+- `mcp_connection_http_response` 的 `headers_duration_ms` 只表示收到响应头，带 HTTP 状态和内容类型。对应 RPC 的 `mcp_connection_stage_completed` 才表示收到协议回复；SSE 响应头已经返回、正文仍在等待时，不会提前记录成功。
+- 超时或取消时，尚未完成的阶段立即记录原始中断原因和耗时；传输错误及 SDK 错误保留实际 message、stack、cause，以及可用的错误码与上游详情。探测报错后仍可能正常回退，应以同一次尝试最后的 `mcp_connection_completed` 或 `mcp_connection_failed` 判断最终结果。
+- OAuth 凭据读取和续期分别记录 `oauth_credentials`、`oauth_refresh`。不记录请求参数、工具定义、完整 URL 或请求头，错误详情经过脱敏和显式截断。启动结束后不继续跟踪普通工具请求。
+
+stdio 保留 SDK 原本的探测子进程机制，只记录 SDK 建连与工具发现的整体阶段，不为诊断改变传输行为。日志按 Harness 现有日志配置写入 `var/logs/runtime/<日期>/runtime.log`。
+
 管理器为每个服务提供 `status(name)`，其中 `state` 表示当前状态：
 
 | 状态 | 含义 |

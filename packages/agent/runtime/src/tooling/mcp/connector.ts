@@ -1,10 +1,11 @@
 import { Client, extractWWWAuthenticateParams, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { JsonObject } from "@lxe/protocol";
-import type { Environment } from "@lxe/core";
+import type { Environment, Logger } from "@lxe/core";
 import type { McpConnection, McpConnector, McpRemoteTool, McpServerConfig } from "./types";
 import { resolveMcpHttpHeaders } from "./config";
 import { mapping } from "./support";
+import { McpConnectionDiagnostics } from "./connection-diagnostics";
 
 type McpSdkClientPort = Pick<Client,
   "connect" | "close" | "onclose" | "listTools" | "callTool" | "getNegotiatedProtocolVersion" | "getProtocolEra"
@@ -23,6 +24,7 @@ export class OfficialMcpConnector implements McpConnector {
     private readonly environment: Environment = process.env,
     private readonly clientFactory: (options: ClientOptions) => McpSdkClientPort = options => new Client({ name: "lxe-agent", version: "0.1.0" }, options),
     private readonly accessToken?: (name: string, url: string, rejectedToken?: string) => string | undefined | Promise<string | undefined>,
+    private readonly logger?: Logger,
   ) {}
 
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
@@ -30,6 +32,16 @@ export class OfficialMcpConnector implements McpConnector {
     const oauth = server.transport === "streamable-http" && !new Headers(headers).has("authorization");
     let challenge: McpOAuthChallenge | undefined;
     signal?.throwIfAborted();
+    const diagnostics = new McpConnectionDiagnostics(server, this.logger);
+    for (const value of Object.values(headers)) {
+      diagnostics.rememberSecret(value);
+      if (/^Bearer /i.test(value)) diagnostics.rememberSecret(value.slice(7));
+    }
+    const credential = (rejectedToken?: string) => diagnostics.measure(rejectedToken ? "oauth_refresh" : "oauth_credentials", async () => {
+      const token = await this.accessToken?.(server.name, server.url, rejectedToken);
+      diagnostics.rememberSecret(token);
+      return token;
+    });
     const mode = server.protocolMode ?? "auto";
     const client = this.clientFactory({
       versionNegotiation: {
@@ -55,14 +67,14 @@ export class OfficialMcpConnector implements McpConnector {
       })
       : new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: { headers },
-        ...(oauth && { fetch: async (input, init) => {
-          if (new URL(input).href !== new URL(server.url).href) return fetch(input, init);
+        fetch: async (input, init) => {
+          if (!oauth || new URL(input).href !== new URL(server.url).href) return diagnostics.fetch(input, init);
           const send = (token?: string) => {
             const requestHeaders = new Headers(init?.headers);
             if (token) requestHeaders.set("Authorization", "Bearer " + token);
-            return fetch(input, { ...init, headers: requestHeaders });
+            return diagnostics.fetch(input, { ...init, headers: requestHeaders });
           };
-          const token = await this.accessToken?.(server.name, server.url);
+          const token = await credential();
           let response = await send(token);
           if (response.status === 401) {
             const params = extractWWWAuthenticateParams(response);
@@ -71,7 +83,7 @@ export class OfficialMcpConnector implements McpConnector {
             if (token && params.error !== "insufficient_scope") {
               init?.signal?.throwIfAborted();
               let replacement: string | undefined;
-              try { replacement = await this.accessToken?.(server.name, server.url, token); }
+              try { replacement = await credential(token); }
               catch (error) {
                 await response.body?.cancel();
                 throw new Error("MCP HTTP 401; OAuth refresh failed: " + (error instanceof Error ? error.message : String(error)), { cause: error });
@@ -84,21 +96,24 @@ export class OfficialMcpConnector implements McpConnector {
             }
           }
           return response;
-        } }),
-
+        },
       });
+    // Keep the SDK's exact stdio transport: its auto negotiation owns a disposable
+    // probe subprocess. HTTP can expose individual RPC stages through Transport.
+    const connectionTransport = server.transport === "streamable-http" ? diagnostics.httpTransport(transport) : transport;
     // During v2 discovery the transport is not yet attached to Client. Closing
     // only Client would let the sibling probe finish and spawn a session later.
     const closeOnAbort = (): void => {
+      diagnostics.finish(signal?.reason, { aborted: true });
       void transport.close().catch(() => undefined);
       void client.close().catch(() => undefined);
     };
     signal?.addEventListener("abort", closeOnAbort, { once: true });
     try {
-      await client.connect(transport, signal ? { signal } : undefined);
+      await diagnostics.measure("connect", () => client.connect(connectionTransport, signal ? { signal } : undefined), { scope: "sdk" });
       signal?.throwIfAborted();
       // v2 aggregates pages, detects cursor loops and bounds the walk.
-      const listed = await client.listTools(undefined, signal ? { signal } : undefined);
+      const listed = await diagnostics.measure("tool_discovery", () => client.listTools(undefined, signal ? { signal } : undefined), { scope: "sdk" });
       signal?.throwIfAborted();
       const tools: McpRemoteTool[] = listed.tools.map((tool) => ({
         name: tool.name,
@@ -110,6 +125,7 @@ export class OfficialMcpConnector implements McpConnector {
       const protocolVersion = client.getNegotiatedProtocolVersion();
       const instructions = client.getInstructions?.();
       const protocolEra = client.getProtocolEra();
+      diagnostics.finish(undefined, { tool_count: tools.length, protocol_version: protocolVersion, protocol_era: protocolEra });
       return {
         tools,
         ...(instructions ? { instructions } : {}),
@@ -132,6 +148,7 @@ export class OfficialMcpConnector implements McpConnector {
         close: () => client.close(),
       };
     } catch (error) {
+      diagnostics.finish(error);
       await client.close().catch(() => undefined);
       await transport.close().catch(() => undefined);
       if (challenge) throw new McpLoginRequired(challenge, error);
