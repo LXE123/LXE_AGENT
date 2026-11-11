@@ -1,3 +1,4 @@
+import { harnessFetch } from "../network/fetch";
 import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, legacyMessage, completeTool, replayReasoningDetails } from "../messages/replay";
@@ -234,7 +235,7 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: async (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        const response = await fetch(input, init);
+        const response = await harnessFetch(input, init);
         onResponse?.(response);
         return response;
       },

@@ -1,4 +1,5 @@
 import { withManagedModels, managedCredentialFor, type ManagedLlmState } from "@lxe/core";
+import { harnessFetch } from "../network/fetch";
 import { canReplayMetadata, legacyMessage, completeTool } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import { readFileSync } from "node:fs";
@@ -887,7 +888,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        return fetch(input, init);
+        return harnessFetch(input, init);
       },
     }) as unknown as AnthropicClientPort;
   }

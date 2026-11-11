@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { harnessFetch } from "../network/fetch";
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProviderDescriptor } from "./provider";
@@ -106,7 +107,7 @@ export class DeepSeekFilesService {
     form.set("expires_after[anchor]", "created_at");
     form.set("expires_after[seconds]", String(DEEPSEEK_FILE_TTL_SECONDS));
     form.set("file", new Blob([image.bytes as Uint8Array<ArrayBuffer>], { type: image.mediaType }), `${image.key}.${extension(image.mediaType)}`);
-    const response = await (this.options.fetch ?? globalThis.fetch)(target.url, {
+    const response = await (this.options.fetch ?? harnessFetch)(target.url, {
       method: "POST", headers: target.headers, body: form, signal, redirect: "error",
     });
     const raw = await response.text();

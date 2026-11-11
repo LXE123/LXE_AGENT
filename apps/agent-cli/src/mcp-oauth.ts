@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { auth, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
-import type { McpOAuthChallenge } from "@lxe/runtime";
+import { harnessFetch, type McpOAuthChallenge } from "@lxe/runtime";
 
 export type McpGrant = {
   name: string;
@@ -32,7 +32,7 @@ export async function renewMcpGrant(grant: McpGrant): Promise<McpGrant> {
   const tokens = await refreshAuthorization(webUrl(renewal.issuer), {
     clientInformation: renewal.client, refreshToken: renewal.refresh_token,
     ...(renewal.metadata && { metadata: renewal.metadata }), ...(renewal.resource && { resource: renewal.resource }),
-    fetchFn: (url, init) => fetch(webUrl(url), { ...init, signal, redirect: "error" }),
+    fetchFn: (url, init) => harnessFetch(webUrl(url), { ...init, signal, redirect: "error" }),
   });
   const { expires_at: _oldExpiry, ...rest } = grant;
   return { ...rest, ...accessFields(tokens), renewal: { ...renewal, refresh_token: tokens.refresh_token || renewal.refresh_token } };
@@ -111,7 +111,7 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
     const options = { serverUrl: resource,
       ...(target.resourceMetadataUrl && { resourceMetadataUrl: webUrl(target.resourceMetadataUrl) }),
       ...(target.scope && { scope: target.scope }),
-      fetchFn: (input: string | URL, init?: RequestInit) => fetch(webUrl(input), { ...init, signal, redirect: "error" }),
+      fetchFn: (input: string | URL, init?: RequestInit) => harnessFetch(webUrl(input), { ...init, signal, redirect: "error" }),
     };
     try {
       if (await auth(provider, options) === "REDIRECT") {

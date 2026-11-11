@@ -41,3 +41,4 @@ export { WorkspaceFileSearch, DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES } from ".
 export { relocateAgentData } from "./state/relocate-data";
 
 export * from "./state/session-title";
+export { harnessFetch } from "./network/fetch";

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { harnessFetch } from "../../network/fetch";
 import { ProtocolError, SdkError, type Transport } from "@modelcontextprotocol/client";
 import { createLogger, currentLogContext, sanitizeLogValueWithPolicy, type Logger, type LogFields } from "@lxe/core";
 import type { McpServerConfig } from "./types";
@@ -74,7 +75,7 @@ export class McpConnectionDiagnostics {
   }
 
   async fetch(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> {
-    if (!this.active) return fetch(input, init);
+    if (!this.active) return harnessFetch(input, init);
     const started = performance.now();
     let rpcMethod: string | undefined;
     let rpcId: string | number | undefined;
@@ -88,7 +89,7 @@ export class McpConnectionDiagnostics {
     const fields = { http_method: init?.method ?? "GET", rpc_method: rpcMethod, rpc_id: rpcId };
     this.logger.info("mcp_connection_http_started", fields);
     try {
-      const response = await fetch(input, init);
+      const response = await harnessFetch(input, init);
       if (this.active) this.logger.info("mcp_connection_http_response", { ...fields,
         headers_duration_ms: Math.round(performance.now() - started), http_status: response.status,
         content_type: response.headers.get("content-type") });

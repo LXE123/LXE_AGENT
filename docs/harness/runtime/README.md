@@ -20,6 +20,7 @@ Runtime 是 agentcli 的执行核心，负责模型调用、上下文、工具�
 | 历史如何组装、压缩和持久化 | [Context](context/README.md) |
 | 模型定义从哪里来，如何选用和适配 | [模型目录](../llm/provider_catalog.md)、[LLM 适配](../llm/README.md) |
 | 每个会话的模型选择如何保存 | [会话模型与 effort](session-models.md) |
+| 模型、HTTP MCP 和 OAuth 如何使用系统代理 | [HTTP 与系统代理](network.md) |
 | 会话标题如何生成、改名与恢复 | [会话标题](session-titles.md) |
 | Tool 如何暴露、执行和管理进程 | [工具手册](tools/README.md) |
 | 文件写入范围、权限模式和单次提权 | [权限专题](permission-policy.md) |

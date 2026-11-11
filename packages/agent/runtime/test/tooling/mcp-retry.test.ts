@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import * as network from "../../src/network/fetch";
 import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import { McpManager, OfficialMcpConnector, type McpConnection, type McpServerConfig } from "../../src/tooling/mcp";
 import { McpLoginRequired } from "../../src/tooling/mcp/connector";
@@ -44,8 +45,8 @@ for (const stage of ["server/discover", "initialize", "tools/list"]) {
       const reply = legacyReply(message);
       return reply ? Response.json(reply) : new Response(null, { status: 202 });
     } });
-    const realFetch = globalThis.fetch;
-    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (...[input, init]: Parameters<typeof fetch>) => {
+    const realFetch = network.harnessFetch;
+    const fetchSpy = spyOn(network, "harnessFetch").mockImplementation(async (...[input, init]: Parameters<typeof network.harnessFetch>) => {
       if (new URL(String(input)).origin === http.url.origin && init?.method === "POST") {
         const message = JSON.parse(String(init.body)) as WireMessage;
         requests.push(message);
@@ -55,7 +56,7 @@ for (const stage of ["server/discover", "initialize", "tools/list"]) {
         }
       }
       return realFetch(input, init);
-    }, { preconnect: realFetch.preconnect }));
+    });
     const official = new OfficialMcpConnector({});
     const server = config({ url: http.url.href });
     const registry = new ToolRegistry();

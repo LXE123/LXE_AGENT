@@ -1,3 +1,4 @@
+import { harnessFetch } from "../network/fetch";
 import { directoryRevisions, directoryUpdateText, toolDeclarationBatches } from "../engine/prompt-state";
 import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
@@ -313,7 +314,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        return fetch(input, init);
+        return harnessFetch(input, init);
       },
     }) as unknown as ResponsesClientPort;
   }

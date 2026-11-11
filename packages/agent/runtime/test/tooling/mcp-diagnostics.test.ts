@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import * as network from "../../src/network/fetch";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import { McpManager, OfficialMcpConnector, type McpServerConfig } from "../../src/tooling/mcp";
 import { ToolRegistry } from "../../src/tooling/registry";
@@ -99,7 +100,7 @@ test("transport failures preserve the original error and cause in the request st
   const { rows, logger } = recorder();
   const cause = new Error("fixture connection reset");
   const error = new TypeError("fixture socket closed unexpectedly", { cause });
-  const fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(error);
+  const fetchSpy = spyOn(network, "harnessFetch").mockRejectedValue(error);
   try {
     await expect(new OfficialMcpConnector({}, undefined, undefined, logger)
       .connect(config("http://127.0.0.1:1/mcp"))).rejects.toThrow("fixture socket closed unexpectedly");

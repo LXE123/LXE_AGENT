@@ -17,6 +17,7 @@
     "@modelcontextprotocol/client": "2.3.1",
     "iconv-lite": "0.7.3",
     "openai": "7.4.0",
+    "undici": "7.28.0",
     "yaml": "2.8.1"
   },
   "devDependencies": {
