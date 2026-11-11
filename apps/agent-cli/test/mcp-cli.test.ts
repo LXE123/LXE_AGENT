@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { McpAuthStore } from "../src/mcp-auth-store";
+import { ExecSandbox } from "../../../packages/agent/runtime/src/permissions/exec-sandbox";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,7 +17,7 @@ test("standalone user commands preserve unrelated config, probe active tools and
   async function cli(...args: string[]) {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args],
       { cwd: root, env: { ...process.env, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: path, LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "",
-        LOCAL_LOGS_ENABLED: "1", LOG_LEVEL: "DEBUG" },
+        LXE_WORKSPACE_ROOT: "", LOCAL_LOGS_ENABLED: "1", LOG_LEVEL: "DEBUG", RUNTIME_LOG_LEVEL: "DEBUG" },
         stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { out, err, code };
@@ -51,9 +52,10 @@ test("standalone user commands preserve unrelated config, probe active tools and
     expect(listing.code, listing.err).toBe(0);
     expect(listing.err).toBe("");
     expect(listing.out).not.toContain("mcp_connection_stage");
-    const logFiles = [...new Bun.Glob("logs/runtime/*/mcp-cli.log").scanSync({ cwd: root, absolute: true })];
+    const logFiles = [...new Bun.Glob(".lxeagent/logs/runtime/*/mcp-cli.log").scanSync({ cwd: root, absolute: true })];
     expect(logFiles.length).toBeGreaterThan(0);
     expect(logFiles.map(file => readFileSync(file, "utf8")).join("\n")).toContain("mcp_connection_stage_completed");
+    expect(existsSync(join(root, "logs"))).toBe(false);
     const { servers: [files, off], errors } = JSON.parse(listing.out);
     expect(errors).toEqual([]);
     expect(files).toMatchObject({ name: "files", state: "connected", scope: "global", source: path });
@@ -75,3 +77,47 @@ test("standalone user commands preserve unrelated config, probe active tools and
     expect(doc().mcpServers.docs.url).toBe(url);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
+
+test.each(process.platform === "darwin" ? [false, true] : [false])(
+  "MCP diagnostics stay in the selected workspace after cd (sandbox=%s)", async confined => {
+    // Keep the data root outside both the selected workspace and OS temp grants.
+    const root = realpathSync(mkdtempSync(join(process.cwd(), ".lxe-mcp-log-")));
+    const workspace = join(root, "workspace 中文"), cwd = join(workspace, "nested"), dataRoot = join(root, "data");
+    const configPath = join(dataRoot, "config", "mcp_servers.local.json");
+    const sandbox = new ExecSandbox();
+    const policy = { mode: "workspace-write" as const, workspaceRoot: workspace, sessionId: root };
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(join(dataRoot, "config"), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({ mcpServers: { files: { enabled: true, command: process.execPath,
+      args: [join(import.meta.dir, "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture.ts"), "modern"],
+    } } }));
+    const run = async (argv: string[]) => {
+      const spec = confined ? await sandbox.prepare(policy, { argv, detached: false }) : { argv };
+      const child = Bun.spawn(spec.argv, { cwd, env: { ...process.env, LXE_WORKSPACE_ROOT: workspace,
+        LXE_DATA_ROOT: dataRoot, LXE_MCP_CONFIG_PATH: configPath,
+        LOCAL_LOGS_ENABLED: "1", RUNTIME_LOG_LEVEL: "DEBUG" }, stdout: "pipe", stderr: "pipe" });
+      const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      return { out, err, code };
+    };
+    try {
+      if (confined) {
+        const denied = await run([process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(join(dataRoot, "denied"))}, 'no')`]);
+        expect(denied.code).not.toBe(0);
+        expect(denied.err).toMatch(/EPERM|EACCES|Operation not permitted/i);
+        expect(existsSync(join(dataRoot, "denied"))).toBe(false);
+      }
+      const result = await run([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", "list", "--json"]);
+      expect(result.code, result.err).toBe(0);
+      expect(result.err).toBe("");
+      expect(JSON.parse(result.out).servers).toContainEqual(expect.objectContaining({ name: "files", state: "connected", source: configPath, tools: ["echo", "second"] }));
+      const logFiles = [...new Bun.Glob(".lxeagent/logs/runtime/*/mcp-cli.log").scanSync({ cwd: workspace, absolute: true })];
+      expect(logFiles.length).toBeGreaterThan(0);
+      expect(logFiles.map(file => readFileSync(file, "utf8")).join("\n")).toContain("mcp_connection_stage_completed");
+      expect(existsSync(join(cwd, ".lxeagent"))).toBe(false);
+      expect(existsSync(join(dataRoot, "logs"))).toBe(false);
+    } finally {
+      await sandbox.stop();
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  }, 30_000,
+);

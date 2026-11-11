@@ -81,5 +81,7 @@ standalone command. A chat awaiting sign-in also checks for updated credentials
 before its next model call.
 
 Commands report results, sign-in progress and actual errors. When local logging is
-enabled, connection-stage diagnostics go to `logs/runtime/<date>/mcp-cli.log`
-under the data root instead of filling the command output.
+enabled, connection-stage diagnostics go to
+`<workspace>/.lxeagent/logs/runtime/<date>/mcp-cli.log` instead of filling the
+command output. The workspace comes from `LXE_WORKSPACE_ROOT`, or the current
+directory in a standalone terminal when that variable is unset.

@@ -46,7 +46,8 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   if (cmd.kind === "help") { process.stdout.write(usage); return 0; }
   const { dataRoot } = resolveExecRuntimePaths();
   const configPath = process.env.LXE_MCP_CONFIG_PATH?.trim() || join(dataRoot, "config", "mcp_servers.local.json");
-  const logging = configureLogging({ projectRoot: dataRoot, stateRoot: dataRoot, fileName: "mcp-cli.log",
+  const workspaceRoot = process.env.LXE_WORKSPACE_ROOT?.trim() || process.cwd();
+  const logging = configureLogging({ projectRoot: workspaceRoot, stateRoot: join(workspaceRoot, ".lxeagent"), fileName: "mcp-cli.log",
     environment: process.env, consoleEnabled: false });
   try { return await executeMcpCommand(cmd, dataRoot, configPath, openBrowser); }
   finally { await logging.close(); }
