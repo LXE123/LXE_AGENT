@@ -118,3 +118,8 @@
 - 新增 `_is_blank` 并在销量候选筛选和数字转换中共用；纯空白不再占候选位，显式 0 仍是有效销量，后续非空非法值仍报错。
 - 新增工作流回归，首条记录三种空白、后条记录销量 7/15/30，并读回实际生成的 XLSX 验证结果。测试修复前复现失败；修复后马帮定向套件 **219 passed**。测试使用 FakeClient、本地工作簿，未访问 TMS；`git diff --check` 通过。
 - 改动尚未提交或推送。主仓库业务 PR 依照雅仓 #151 → 马帮顺序评审；个人仓库 PR #14 当前仍指向修复前提交。
+
+## 2026-11-09：销量口径说明
+
+- pool-20、`codex/mabang-tms-fix`：仅调整 `skills/mabang-tms-products-export/SKILL.md`，说明各销量字段按列表 API 返回顺序分别取首个非空值；删除重复说明，不改计算、命令和 `LXE_MABANG_TMS_ACCOUNT` / `LXE_MABANG_TMS_PASSWORD` 凭据接线。
+- 本轮为说明修改，未运行马帮业务测试；未访问平台。Git 状态以 `git status` 为准；按雅仓、TMS、菲律宾的评审顺序归位并复核下游。

@@ -41,7 +41,7 @@ packages = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "python/lxeskill_cli/services/vietnam_replenishment/resources/skeleton.xlsx" = "services/vietnam_replenishment/resources/skeleton.xlsx"
-"python/lxeskill_cli/services/mabang/brazil_order_import/resources/template.xlsx" = "services/mabang/brazil_order_import/resources/template.xlsx"
+"python/lxeskill_cli/services/mabang/order_import/resources/template.xlsx" = "services/mabang/order_import/resources/template.xlsx"
 
 [tool.pytest.ini_options]
 testpaths = ["python/lxeskill_cli/tests"]

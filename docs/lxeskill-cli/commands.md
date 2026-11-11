@@ -93,19 +93,16 @@ $ lxeskill help replenishment
 备货：库存与销量采集、分析和补货计算
 
 东南亚及巴西备货：
-  philippines reports export           取数并合并菲律宾库存动销和库存列表
-  mabang brazil reports export         导出马帮巴西海外仓报表
-  mabang brazil order-import generate  根据巴西备货清单生成马帮订单导入模板
-  mabang-tms products export           导出马帮 TMS 商品、库存和销量
-  yacang reports export                导出雅仓报表
-  vietnam replenishment calculate      计算越南补货并生成备货清单
-  shangman products export             导出上马商品、库存和销量
+  philippines reports export       取数并合并菲律宾库存动销和库存列表
+  mabang brazil reports export     导出马帮巴西海外仓报表
+  mabang order-import generate     根据巴西、马来西亚、越南、菲律宾或印尼备货清单生成马帮订单导入模板
+  mabang-tms products export       导出马帮 TMS 商品、库存和销量
+  yacang reports export            导出雅仓报表
+  vietnam replenishment calculate  计算越南补货并生成备货清单
+  shangman products export         导出上马商品、库存和销量
 
 雅仓登录：
-  yacang login prepare  获取雅仓登录验证码图片
-  yacang login submit   提交雅仓验证码
-  yacang login status   查询本地雅仓登录态
-  yacang login clear    清除本地雅仓登录态
+  yacang login  管理雅仓验证码登录与本地登录态
 
 上马数据采集的登录准备：
   shangman login prepare  准备登录并获取验证码
@@ -151,8 +148,8 @@ $ lxeskill help common
 公共能力与维护：浏览器操作与共用认证维护
 
 浏览器操作：
-  browser store  管理紫鸟店铺浏览器
-  browser page   读取或操作紫鸟浏览器页面
+  browser store       管理紫鸟店铺浏览器
+  browser script run  运行紫鸟浏览器自动化脚本
 
 马帮认证维护：
   mabang auth refresh         强制刷新已配置账号的马帮 ERP 登录态

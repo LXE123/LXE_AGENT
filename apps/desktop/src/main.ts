@@ -3,6 +3,7 @@ import { DesktopAmazonV2SettingsService } from "./main/amazon-v2-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
+import { registerTeamSkillsGuest } from "./main/team-skills-view";
 import { ManualToolsService } from "./main/manual-tools/service";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -703,9 +704,11 @@ async function bootstrap(): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
     },
   });
   if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
+  registerTeamSkillsGuest(window.webContents);
   trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
   window.webContents.on("context-menu", (_event, params) => {
     const template = editableContextMenuTemplate(params);

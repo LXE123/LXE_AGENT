@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./team-skills": "./src/team-skills.ts",
     "./composer-references": "./src/composer-references.ts"
   },
   "scripts": {

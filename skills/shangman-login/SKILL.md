@@ -7,10 +7,7 @@ commands:
   - lxeskill shangman login submit
   - lxeskill shangman login status
   - lxeskill shangman login clear
-  - lxeskill yacang login prepare
-  - lxeskill yacang login submit
-  - lxeskill yacang login status
-  - lxeskill yacang login clear
+  - lxeskill yacang login
 ---
 
 # 图片验证码登录：上马与雅仓
@@ -21,6 +18,8 @@ commands:
 | --- | --- | --- |
 | 上马 | `lxeskill shangman login` | 本地检查保存的 token 和记录的到期时间 |
 | 雅仓 | `lxeskill yacang login` | 本地检查 token 是否存在，平台有效期尚未确认 |
+
+雅仓登录是一个命令，`prepare`、`submit`、`status`、`clear` 是必填的位置参数 `action`。例如 `lxeskill yacang login status`；`submit` 还必须提供 `--challenge-id` 和 `--captcha-code`。可用 `lxeskill describe yacang login` 查询契约。
 
 ## 登录
 

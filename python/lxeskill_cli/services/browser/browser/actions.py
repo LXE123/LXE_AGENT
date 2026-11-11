@@ -425,9 +425,12 @@ def _click_resolved_element(driver: WebDriver, aid: str):
 
 
 def save_screenshot(driver: WebDriver, output_dir: Path, *, prefix: str = "page") -> str:
+    png = driver.get_screenshot_as_png()
+    if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("WebDriver returned a screenshot without a PNG signature")
     output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{prefix}-{int(time.time())}.png"
-    driver.save_screenshot(str(file_path))
+    file_path.write_bytes(png)
     return str(file_path)
 
 

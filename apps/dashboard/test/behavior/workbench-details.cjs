@@ -103,7 +103,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await capture("assets-empty-dark");
     await click('.workbench-back');
     await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
-    assert.equal(await js("document.querySelector('.workbench-tool-card:last-child .workbench-tool-name').textContent"), "FBA模版与数据源");
+    assert.equal(await js("document.querySelector('.workbench-tool-card:nth-child(4) .workbench-tool-name').textContent"), "FBA模版与数据源");
     await win.setContentSize(480, 900); await open(4, "en");
     await waitFor("document.querySelectorAll('.asset-slot').length===5", "narrow assets ready");
     await capture("assets-narrow-en");
