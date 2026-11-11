@@ -26,7 +26,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, settle, stat
     assert.ok(Math.abs(bounds.more.left - bounds.menu.left) <= 1 && bounds.more.top - bounds.menu.bottom >= 0
       && bounds.more.top - bounds.menu.bottom <= 8, "reply menu opens just above its trigger");
     await click(action);
-    await title("Branch 1");
+    await title("Default chat(1)");
     assert.deepEqual((await forkCalls()).at(-1).input, { session_id: "Default chat", turn_id: "one" });
     assert.equal(await js("document.querySelector('.reference-editor').textContent"), "");
     assert.equal(await js("document.querySelector('.conversation-body').innerText.includes('assistant two')"), false);
@@ -48,7 +48,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, settle, stat
       return m.top >= b.bottom && m.top - b.bottom <= 8 && Math.abs(b.right - m.right) <= 1; })()`),
       "titlebar menu opens below and stays aligned to the trigger");
     await click(action);
-    await title("Branch 2");
+    await title("Default chat(2)");
     assert.deepEqual((await forkCalls()).at(-1).input, { session_id: "Default chat" });
   });
   await step("branch disclosure works with keyboard, preserves selection, and uses CDS guides in both themes", async () => {
@@ -56,11 +56,11 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, settle, stat
     await waitFor("document.querySelectorAll('.session-branch-children .session-index-item').length === 2", "both children");
     await click(toggle);
     assert.equal(await js("document.querySelector('.session-branch-children').hidden"), true);
-    await title("Branch 2");
+    await title("Default chat(2)");
     await key("Enter");
     assert.equal(await js("document.querySelector('.session-branch-children').hidden"), false);
     await click('[data-session-id="Branch 1"] .session-index-open');
-    await title("Branch 1");
+    await title("Default chat(1)");
     for (const theme of ["light", "dark"]) {
       await js(`document.documentElement.dataset.theme = '${theme}'`);
       await settle();
@@ -96,29 +96,73 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, settle, stat
   await step("forking a branch creates another level, and opening it expands its ancestors", async () => {
     await click(header);
     await click(action);
-    await title("Branch 3");
+    await title("Default chat(3)");
     await waitFor("document.querySelector('.session-branch-children .session-branch-children [data-session-id=\"Branch 3\"]')", "nested child");
     await click('[data-session-id="Default chat"] .session-branch-toggle');
     await click(header);
     await click(action);
-    await title("Branch 4");
+    await title("Default chat(4)");
     await waitFor("document.querySelector('[data-session-id=\"Branch 4\"]')?.getClientRects().length > 0", "new nested branch visible");
     assert.equal(await js("document.querySelector('[data-session-id=\"Default chat\"] .session-branch-toggle').getAttribute('aria-expanded')"), "true");
   });
   await step("search finds branches as standalone rows and normal browsing restores the hierarchy", async () => {
     await click('.sidebar-search-button');
     await click('.search-box input');
-    await win.webContents.insertText('Branch');
+    await win.webContents.insertText('Default chat(');
     await waitFor("document.querySelectorAll('.session-index-open').length === 4", "matching branches");
     assert.equal(await js("document.querySelectorAll('.session-branch-children').length"), 0);
     await click('[data-session-id="Branch 4"] .session-index-open');
-    await title('Branch 4');
+    await title('Default chat(4)');
     await click('.session-search-close');
     await waitFor("document.querySelector('.session-branch-children .session-branch-children [data-session-id=\"Branch 4\"]')?.getClientRects().length > 0", "restored family");
   });
-  await step("running work disables the header while completed history remains available", async () => {
-    await js("behavior.busySession('Branch 4')");
+  await step("clicking the empty area after a parent disclosure opens the chat without collapsing it", async () => {
+    const point = await js(`(() => {
+      const row = document.querySelector('[data-session-id="Default chat"]');
+      const toggle = row.querySelector('.session-branch-toggle').getBoundingClientRect();
+      const menu = row.querySelector('.session-index-actions').getBoundingClientRect();
+      const x = Math.round((toggle.right + menu.left) / 2), y = Math.round(toggle.top + toggle.height / 2);
+      return { x, y, gap: menu.left - toggle.right, target: document.elementFromPoint(x, y)?.className };
+    })()`);
+    assert.ok(point.gap > 8, "exercise the empty area, not the title button");
+    assert.match(point.target, /session-index-item/);
+    for (const type of ["mouseDown", "mouseUp"]) win.webContents.sendInputEvent({ type, button: "left", clickCount: 1, x: point.x, y: point.y });
+    await title("Default chat");
+    assert.equal(await js("document.querySelector('[data-session-id=\"Default chat\"] .session-branch-toggle').getAttribute('aria-expanded')"), "true");
+  });
+  const menuAction = pattern => js(`Array.from(document.querySelectorAll('.session-actions-menu [role="menuitem"]')).find(b => ${pattern}.test(b.textContent)).click()`);
+  await step("pinning a middle branch keeps the remaining family joined, and unpinning restores its direct parent", async () => {
+    const depth = id => js(`document.querySelector('[data-session-id="${id}"]').style.getPropertyValue('--session-branch-depth')`);
+    assert.equal(await depth("Branch 3"), "2");
+    await click('[data-session-id="Branch 1"] .session-index-actions');
+    await menuAction('/^(Pin|置顶)$/');
+    await waitFor("document.querySelector('[data-session-id=\"Branch 3\"]').style.getPropertyValue('--session-branch-depth') === '1'", "promoted child");
+    assert.equal(await depth("Branch 1"), "0");
+    assert.equal(await depth("Branch 4"), "2");
+    assert.equal(await js("document.querySelectorAll('[data-session-id=\"Branch 1\"]').length"), 1);
+    assert.equal((await state()).sessions.find(row => row.session_id === "Branch 3").source.fork.session_id, "Branch 1");
+    if (process.env.LXE_FORK_SCREENSHOTS) {
+      await settle();
+      const rect = await js("(() => { const b = document.querySelector('.workspace-group').getBoundingClientRect(); return { x: Math.floor(b.x), y: Math.floor(b.y), width: Math.ceil(b.width), height: Math.ceil(b.height) }; })()");
+      require('node:fs').writeFileSync(require('node:path').join(process.env.LXE_FORK_SCREENSHOTS, 'fork-pinned-middle.png'), (await win.webContents.capturePage(rect)).toPNG());
+    }
+    await click('[data-session-id="Branch 1"] .session-index-actions');
+    await menuAction('/^(Unpin|取消置顶)$/');
+    await waitFor("document.querySelector('[data-session-id=\"Branch 3\"]').style.getPropertyValue('--session-branch-depth') === '2'", "restored direct parent");
+  });
+  await step("the sidebar menu forks its own target, even when another conversation is selected", async () => {
+    await title("Default chat");
+    await click('[data-session-id="Branch 2"] .session-index-actions');
+    await menuAction('/^(Create branch|创建分支)$/');
+    await title("Default chat(5)");
+    assert.deepEqual((await forkCalls()).at(-1).input, { session_id: "Branch 2" });
+    await waitFor("document.querySelector('[id=\"session-branches-Branch 2\"] [data-session-id=\"Branch 5\"]')", "menu branch parent");
+  });
+  await step("running work disables the header and sidebar fork while completed history remains available", async () => {
+    await js("behavior.busySession('Branch 5')");
     await waitFor("document.querySelector(" + JSON.stringify(header) + ")?.disabled", "busy header");
     assert.equal(await js("document.querySelector(" + JSON.stringify(footer) + ")?.disabled"), false);
+    await click('[data-session-id="Branch 5"] .session-index-actions');
+    assert.equal(await js("Array.from(document.querySelectorAll('.session-actions-menu [role=menuitem]')).find(b=>/Create branch|创建分支/.test(b.textContent))?.disabled"), true);
   });
 };

@@ -38,6 +38,7 @@ import {
   Copy,
   FileText,
   FolderOpen,
+  GitFork,
   Info,
   LoaderCircle,
   MessageSquareText,
@@ -1629,6 +1630,8 @@ function SessionActionsMenu({
   onDelete,
   onPin,
   onRename,
+  onFork,
+  forkDisabled = false,
 }: {
   anchor: HTMLElement;
   deletingBlocked: boolean;
@@ -1639,12 +1642,14 @@ function SessionActionsMenu({
   onDelete: () => void;
   onPin: () => void;
   onRename?: () => void;
+  onFork?: () => void;
+  forkDisabled?: boolean;
 }) {
   const t = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
   const rect = anchor.getBoundingClientRect();
   const width = 150;
-  const estimatedHeight = error ? 147 : 116;
+  const estimatedHeight = (error ? 147 : 116) + (onFork ? 32 : 0);
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
   const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
     ? rect.bottom + 5
@@ -1695,6 +1700,7 @@ function SessionActionsMenu({
       style={{ left, top, width }}
     >
       {onRename && !session.blank ? <button disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></button> : null}
+      {onFork && <button disabled={pending || forkDisabled} onClick={onFork} role="menuitem" type="button"><GitFork size={12} /><span>{t.sessions.createBranch}</span></button>}
       <button disabled={pending} onClick={onPin} role="menuitem" type="button">
         {session.pinned_at > 0 ? <PinOff size={12} /> : <Pin size={12} />}
         <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
@@ -1779,6 +1785,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onOpen,
   onPin,
   onRenameSession,
+  onForkSession,
+  forking = false,
   onDelete,
   onTransientInteractionChange,
   visible = true,
@@ -1805,6 +1813,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
   onRenameSession?: (session: SessionPayload) => void;
+  onForkSession?: (session: SessionPayload) => Promise<void>;
+  forking?: boolean;
   onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
   onDelete: (session: SessionPayload) => Promise<void>;
   onTransientInteractionChange?: (active: boolean) => void;
@@ -1828,7 +1838,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
   const searching = Boolean(trimmedQuery);
   const { pinned: pinnedSessions, recent: recentSessions } = useMemo(() => groupSidebarSessions(sessions, searching), [sessions, searching]);
-  const trees = useMemo(() => ({ pinned: sessionTree(pinnedSessions), recent: sessionTree(recentSessions) }), [pinnedSessions, recentSessions]);
+  const trees = useMemo(() => ({ pinned: sessionTree(pinnedSessions, sessions), recent: sessionTree(recentSessions, sessions) }), [pinnedSessions, recentSessions, sessions]);
   const [collapsedBranches, setCollapsedBranches] = useState<ReadonlySet<string>>(() => new Set());
   const selectedPath = JSON.stringify(sessionBranchPath([...trees.pinned, ...trees.recent], selectedSessionId).slice(0, -1));
   useEffect(() => {
@@ -1925,7 +1935,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     return (
       <div className={`session-index-item${selected ? " active" : ""}${menuOpen ? " menu-open" : ""}${hasBranches ? " has-branches" : ""}`}
         key={session.session_id} data-session-id={session.session_id}
-        style={{ "--session-branch-depth": guides.length } as React.CSSProperties}>
+        style={{ "--session-branch-depth": guides.length } as React.CSSProperties}
+        onClick={event => { if (event.target === event.currentTarget) onOpen(session); }}>
         {guides.length > 0 && <span className="session-branch-guides" aria-hidden="true">
           {guides.map((continues, index) => <span key={index}
             className={`session-branch-guide${continues ? " through" : index === guides.length - 1 ? " elbow" : ""}`} />)}
@@ -2055,6 +2066,10 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           }}
           onPin={() => void pinSelected()}
           onRename={onRenameSession ? () => { const session = menu.session; closeMenu(); onRenameSession(session); } : undefined}
+          onFork={onForkSession ? () => { const session = menu.session; closeMenu(); void onForkSession(session); } : undefined}
+          forkDisabled={forking || !!menu.session.blank || blockedIds.has(menu.session.session_id)
+            || ["running", "stopping", "queued"].includes(statuses?.get(menu.session.session_id)?.state ?? "")
+            || waitingSessionIds?.has(menu.session.session_id)}
         />
       ) : null}
       {confirmation ? (

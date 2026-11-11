@@ -41,6 +41,24 @@ describe("sidebar branch families", () => {
     expect(ids(sessionTree([moved, rows[1]!]))).toEqual([["child", []], ["parent", []]]);
   });
 
+  test("pinning an intermediate branch promotes its descendants to the nearest unpinned ancestor", () => {
+    const rows = [session("grandchild", "middle"), session("middle", "parent", 1), session("parent")];
+    const groups = groupSidebarSessions(rows, false);
+    expect(ids(sessionTree(groups.pinned, rows))).toEqual([["middle", []]]);
+    expect(ids(sessionTree(groups.recent, rows))).toEqual([["parent", [["grandchild", []]]]]);
+    expect(rows[0]!.source).toEqual({ fork: { session_id: "middle" } });
+    const unpinned = rows.map(row => ({ ...row, pinned_at: 0 }));
+    expect(ids(sessionTree(unpinned))).toEqual([["parent", [["middle", [["grandchild", []]]]]]]);
+  });
+
+  test("multiple pinned ancestors can be skipped, without joining unrelated workspaces", () => {
+    const rows = [session("leaf", "middle-2"), session("middle-2", "middle-1", 2), session("middle-1", "root", 1), session("root")];
+    const groups = groupSidebarSessions(rows, false);
+    expect(ids(sessionTree(groups.recent, rows))).toEqual([["root", [["leaf", []]]]]);
+    const moved = rows.map(row => row.session_id === "middle-2" ? { ...row, workspace: { directory: "/other", worktree: "/other" } } : row);
+    expect(ids(sessionTree(groups.recent, moved))).toEqual([["leaf", []], ["root", []]]);
+  });
+
   test("malformed source data and cycles cannot make conversations disappear", () => {
     const broken = { ...session("broken"), source: { fork: "invalid" } };
     const tree = sessionTree([session("a", "b"), session("b", "a"), session("self", "self"), broken]);

@@ -7,15 +7,27 @@ export type SessionBranch = {
 };
 
 /** Group only available rows. Missing/deleted parents leave an accessible root. */
-export function sessionTree(sessions: readonly SessionPayload[]): SessionBranch[] {
+export function sessionTree(sessions: readonly SessionPayload[], allSessions: readonly SessionPayload[] = sessions): SessionBranch[] {
   const nodes = new Map(sessions.map(session => [session.session_id, { session, children: [] } as SessionBranch]));
+  const all = new Map(allSessions.map(session => [session.session_id, session]));
   const parents = new Map<string, string>();
   for (const session of sessions) {
-    const fork = session.source.fork;
-    const parentId = isRecord(fork) ? fork.session_id : undefined;
-    const parent = typeof parentId === "string" ? nodes.get(parentId)?.session : undefined;
-    if (!parent || parent.session_id === session.session_id || parent.workspace_id !== session.workspace_id
-      || parent.workspace.directory !== session.workspace.directory) continue;
+    let current = session;
+    let parent: SessionPayload | undefined;
+    const visited = new Set([session.session_id]);
+    while (true) {
+      const fork = current.source.fork;
+      const parentId = isRecord(fork) ? fork.session_id : undefined;
+      const candidate = typeof parentId === "string" ? all.get(parentId) : undefined;
+      if (!candidate || visited.has(candidate.session_id) || candidate.workspace_id !== session.workspace_id
+        || candidate.workspace.directory !== session.workspace.directory) break;
+      if (nodes.has(candidate.session_id)) { parent = candidate; break; }
+      // A pinned intermediate row lives in the other section. Keep the nearest
+      // visible ancestor here without rewriting the actual fork relationship.
+      visited.add(candidate.session_id);
+      current = candidate;
+    }
+    if (!parent) continue;
     // Ignore malformed cycles without hiding any conversation.
     let ancestor: string | undefined = parent.session_id;
     while (ancestor && ancestor !== session.session_id) ancestor = parents.get(ancestor);

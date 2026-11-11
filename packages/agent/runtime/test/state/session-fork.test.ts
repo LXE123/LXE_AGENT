@@ -33,8 +33,9 @@ test("a fork copies exactly through the selected terminal node, including cancel
   const old = await store.forkSession("parent", "one");
   const oldId = String(old.session_id);
   const prefix = events(oldId);
-  expect(prefix[0]!.fork).toEqual({ session_id: "parent", turn_id: "one", entry_id: String(prefix.at(-1)!.id) });
-  expect(prefix.slice(1)).toEqual(events("parent").slice(1, prefix.length));
+  expect(prefix[0]!.fork).toEqual({ session_id: "parent", turn_id: "one", entry_id: String(prefix.at(-2)!.id) });
+  expect(prefix.slice(1, -1)).toEqual(events("parent").slice(1, prefix.length - 1));
+  expect(prefix.at(-1)).toMatchObject({ kind: "session_title", title: old.title, parent_id: prefix.at(-2)!.id });
   expect((await store.loadMessages(oldId)).map(m => m.content)).toEqual(["first", "answer"]);
   await store.appendMessage("parent", { role: "user", content: "stopped", runtimeContextKind: "turn_aborted" }, "turn_aborted", "two");
   await store.appendTurnEnd("parent", "two", "cancelled");
@@ -55,6 +56,25 @@ test("a fork copies exactly through the selected terminal node, including cancel
   expect(await store.loadMessages(String(nested.session_id))).toEqual(await store.loadMessages(String(cancelled.session_id)));
   await store.appendMessage(oldId, { role: "user", content: "independent" }, "turn_input", "new");
   expect(events(oldId).at(-1)!.parent_id).toBe(prefix.at(-1)!.id);
+});
+
+test("fork titles use one family sequence, survive title replay and allow concurrent forks", async () => {
+  const { store, events } = await setup();
+  await store.appendMessage("parent", { role: "user", content: "hello" }, "turn_input", "one");
+  await store.appendTurnEnd("parent", "one", "completed");
+  await store.acceptTitle("parent", "对话", "user");
+  const first = await store.forkSession("parent");
+  expect(first.title).toBe("对话(1)");
+  const second = await store.forkSession(String(first.session_id));
+  expect(second.title).toBe("对话(2)");
+  expect(events(String(second.session_id)).at(-1)).toMatchObject({ kind: "session_title", title: "对话(2)" });
+  const concurrent = await Promise.all([store.forkSession("parent"), store.forkSession(String(first.session_id))]);
+  expect(concurrent.map(row => row.title).sort()).toEqual(["对话(3)", "对话(4)"]);
+  await store.stop(); await store.start();
+  await store.sessionDetail(String(second.session_id), { limit: 30 });
+  expect(store.sessionMetadata(String(second.session_id))).toMatchObject({ title: "对话(2)" });
+  await store.deleteSession("parent");
+  expect((await store.forkSession(String(second.session_id))).title).toBe("对话(5)");
 });
 
 test("the header copies the current conversation leaf, while a turn footer stops at its recorded end", async () => {

@@ -1,4 +1,5 @@
 import { fallbackSessionTitle, type SessionTitleState, type SessionTitleSource } from "./session-title";
+import { nextForkTitle } from "./session-fork-title";
 import { parseModelSelection } from "./model-selection";
 import { omitImageData } from "../messages/image-content";
 import { DEFAULT_PERMISSION_MODE, parsePermissionMode, type PermissionMode } from "@lxe/protocol";
@@ -1459,20 +1460,30 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const childHeader = { ...transcriptHeader(child), fork, legacy_turn_ends: headerTurnEnds(header).filter(end => ids.has(end.id)) };
       const childPath = this.transcriptPath(child);
       await publishTranscript(childPath, [childHeader, ...history]);
+      let forkTitle: string;
       try {
+        forkTitle = nextForkTitle(sessionId, this.allPrepared<{ session_id: string; title: string; source: string }>(
+          "SELECT session_id, title, source FROM agent_sessions WHERE workspace_directory = ?",
+          text(parseObject(source.workspace).directory),
+        ).map(row => ({ ...row, parentId: text(parseObject(parseObject(row.source).fork).session_id) || undefined })));
         const now = Date.now() / 1_000;
         this.db().query(`INSERT INTO agent_sessions
           (session_id, source, workspace_directory, workspace_worktree, workspace_id, permission_mode,
            created_at, last_active_at, message_count, title, blank, title_automatic)
           SELECT ?, ?, workspace_directory, workspace_worktree, workspace_id, permission_mode,
-                 ?, ?, ?, title, 0, 0 FROM agent_sessions WHERE session_id = ?`).run(child,
+                 ?, ?, ?, ?, 0, 0 FROM agent_sessions WHERE session_id = ?`).run(child,
           JSON.stringify({ platform: "desktop", chat_type: "dm", fork }), now, now,
-          history.filter(entry => entry.kind === "message").length, sessionId);
+          history.filter(entry => entry.kind === "message").length, forkTitle, sessionId);
       } catch (error) {
         await unlink(childPath);
         throw error;
       }
       try {
+        await this.enqueueIndexSync(child, childPath);
+        // Copied title events belong to the source. Record the new title after
+        // that prefix so rebuilding the index cannot restore the source title.
+        await this.appendTranscriptEvent(child, { kind: "session_title", title: forkTitle, source: "fallback",
+          version: (this.readTitleState(child)?.version ?? 0) + 1, message_ids: [], ts: Date.now() / 1_000 });
         await this.enqueueIndexSync(child, childPath);
         return this.sessionMetadata(child)!;
       } catch (error) {

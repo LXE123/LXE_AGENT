@@ -160,7 +160,9 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       return { items: rows.slice(offset, offset + limit), total: rows.length, offset, limit };
     }
     case "sessions.fork": {
-      const child = workspaceSession("Branch " + (workspaceSessions.filter(s => s.source.fork).length + 1), "/fixture/default");
+      const number = workspaceSessions.filter(s => s.source.fork).length + 1;
+      const child = workspaceSession("Branch " + number, "/fixture/default");
+      child.title = `Default chat(${number})`;
       child.source.fork = { session_id: input.session_id, turn_id: input.turn_id ?? "two", entry_id: "end" };
       workspaceSessions.push(child);
       return child;
@@ -360,7 +362,9 @@ const dashboard = {
           await new Promise<void>(resolve => pendingWorkspaceResponses.push(resolve));
           return snapshot;
         }
-        return result;
+        // Match Electron IPC: later fixture mutations cannot change an earlier
+        // response already held by the query cache.
+        return structuredClone(await result);
       }
     }
     switch (call.operation) {

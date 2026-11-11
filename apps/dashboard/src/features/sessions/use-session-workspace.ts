@@ -230,18 +230,19 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
 
   const forkPending = useRef(false);
   const [forking, setForking] = useState(false);
-  const forkConversation = useLatestCallback(async (turnId?: string) => {
-    if (!selectedSessionId || forkPending.current) return;
+  const forkSession = useLatestCallback(async (sessionId: string, turnId?: string) => {
+    if (!sessionId || forkPending.current) return;
     const revision = workspaceSelectionRevision.current;
     forkPending.current = true;
     setForking(true);
     try {
-      const child = await sessionActions.fork(selectedSessionId, turnId);
+      const child = await sessionActions.fork(sessionId, turnId);
       if (workspaceSelectionRevision.current === revision) openSession(child);
       await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
     } catch (cause) { onError(queryError(cause)); }
     finally { forkPending.current = false; setForking(false); }
   });
+  const forkConversation = useLatestCallback((turnId?: string) => forkSession(selectedSessionId, turnId));
 
   async function stopConversation(): Promise<void> {
     if (!selectedSessionId) return;
@@ -320,6 +321,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     onNew: useLatestCallback(startNewConversation),
     onOpen: useLatestCallback(openSession),
     onPin: useLatestCallback(setSessionPinned),
+    onForkSession: useLatestCallback((session: SessionPayload) => forkSession(session.session_id)),
     onRenameSession: useLatestCallback((session: SessionPayload) => { if (!session.blank) setRenamingSession(session); }),
     onDelete: useLatestCallback(deleteSession),
   };
@@ -329,6 +331,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   return {
     selection: { selectedSessionId, newConversation, selectedSession } as const,
     sidebar: {
+      forking,
       renamingSession,
       expanded: expandedWorkspaces,
       display: sessionDetailQuery.display,
