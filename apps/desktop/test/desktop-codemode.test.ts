@@ -13,6 +13,7 @@ import { DesktopAutomations } from "../src/main/automations";
 import { NodeAutomationStore } from "../src/main/automation-store";
 import { desktopCodemodeReport } from "./fixtures/desktop-codemode-script";
 import { runPiReference } from "./fixtures/pi-codemode-reference";
+import { prepareExecSandbox } from "../../../scripts/prepare-exec-sandbox";
 
 // Run this exact script against the packaged agent and (when supplied) the reference Pi CLI.
 const discoverAndEdit = (dir: string) => `
@@ -37,7 +38,10 @@ const reportFromStore = `
 
 
 test.each(["compile", "build"] as const)("%s artifact discovers and calls desktop MCP with identical wire tools", async mode => {
-  const root = mkdtempSync(join(tmpdir(), "lxe-codemode-"));
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "lxe-codemode-"));
+  const root = join(fixtureRoot, "workspace"), temporary = join(fixtureRoot, "tmp");
+  mkdirSync(root);
+  mkdirSync(temporary);
   const repo = resolve(import.meta.dir, "../../..");
   const executable = join(root, "agent-cli" + (process.platform === "win32" ? ".exe" : ""));
   const bundleDir = join(root, "bundle");
@@ -70,7 +74,9 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
   const db = new Database(":memory:");
   const store = new NodeAutomationStore(db as unknown as DatabaseSync);
   const environment = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
-    TEMP: root, TMP: root, TMPDIR: root, LOCAL_LOGS_ENABLED: "0" };
+    TEMP: temporary, TMP: temporary, TMPDIR: temporary, LOCAL_LOGS_ENABLED: "0",
+    LXE_EXEC_SANDBOX_NODE: process.env.LXE_EXEC_SANDBOX_NODE || Bun.which("node") || undefined,
+    LXE_EXEC_SANDBOX_RUNNER: process.platform === "win32" ? join(fixtureRoot, "sandbox", "runner.mjs") : undefined };
   const workspace = resolveWorkspaceContext(root);
   const llmConfigRoot = join(root, "config", "llm");
   const job: AgentJob = { job_id: "turn", session_id: "chat", session_key: "chat", conversation_id: "chat",
@@ -88,6 +94,7 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     composition: { parts: { scheduler: { activeRun: () => handle, runStatuses: () => [],
       isSessionDeletionFenced: () => false } } } as unknown as DirectGatewayComposition });
   try {
+    if (process.platform === "win32") await prepareExecSandbox(repo, join(fixtureRoot, "sandbox"));
     const output = mode === "compile" ? ["--outfile", executable] : ["--outdir", bundleDir];
     const build = Bun.spawn([process.execPath, "run", `agent-cli:${mode}`, ...output],
       { cwd: repo, stdout: "ignore", stderr: "pipe" });
@@ -231,6 +238,6 @@ test.each(["compile", "build"] as const)("%s artifact discovers and calls deskto
     await app.close();
     await provider.stop(true);
     db.close(true);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(fixtureRoot, { recursive: true, force: true });
   }
-}, 30_000);
+}, process.platform === "win32" ? 120_000 : 30_000);
