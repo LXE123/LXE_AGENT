@@ -29,8 +29,8 @@ test("opening settings, saving and toggling either transport never opens a conne
   const trace = join(root, "spawn.jsonl");
   const requests: Array<string | null> = [];
   const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    if (request.method !== "POST") return new Response(null, { status: 405 });
     requests.push(request.headers.get("Authorization"));
+    if (request.method !== "POST") return new Response(null, { status: 405 });
     const reply = legacyReply(await request.json() as WireMessage);
     return reply ? Response.json(reply) : new Response(null, { status: 202 });
   } });
@@ -52,25 +52,26 @@ test("opening settings, saving and toggling either transport never opens a conne
     await host.dashboardCall({ operation: "mcp.servers.add", input: local });
     const remote = { name: "team-skills", transport: "streamable-http" as const, url: http.url.href, bearer_token_env_var: "MCP_TEST_TOKEN" };
     await host.dashboardCall({ operation: "mcp.servers.add", input: remote });
+    await host.dashboardCall({ operation: "mcp.servers.add", input: { name: "oauth", transport: "streamable-http", url: http.url.href } });
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...remote, name: "team_skills" } })).rejects.toThrow("mcp__team_skills");
     await host.dashboardCall({ operation: "mcp.servers.add", input: { ...remote, name: "missing", bearer_token_env_var: "UNSET_TOKEN" } });
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...local, name: "lxe_desktop" } })).rejects.toThrow("reserved");
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: { ...local, name: "lxe-desktop" } })).rejects.toThrow("reserved");
     await expect(host.dashboardCall({ operation: "mcp.servers.add", input: local })).rejects.toThrow("already exists");
     const saved = await list();
-    expect(saved.total).toBe(3);
+    expect(saved.total).toBe(4);
     expect(JSON.stringify(saved)).not.toContain("fixture-token");
     const live = saved.items;
-    for (const name of ["local", "team-skills"]) {
+    for (const name of ["local", "team-skills", "oauth"]) {
       expect(live.find(item => item.name === name)).toMatchObject({ enabled: true, exposure: "codemode" });
+      await host.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled: false } });
+      await host.dashboardCall({ operation: "mcp.servers.update", input: { name, enabled: true } });
     }
-    await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "local", enabled: false } });
-    await host.dashboardCall({ operation: "mcp.servers.update", input: { name: "local", enabled: true } });
     expect((await list()).items.find(item => item.name === "local")?.enabled).toBe(true);
     expect(requests).toHaveLength(0);
     expect(existsSync(trace)).toBe(false);
     for (const item of live) {
-      for (const key of ["status", "error", "tools", "tool_count"]) expect(item).not.toHaveProperty(key);
+      for (const key of ["status", "error", "tools", "tool_count", "can_login", "has_credentials"]) expect(item).not.toHaveProperty(key);
     }
   } finally {
     await host.stop();

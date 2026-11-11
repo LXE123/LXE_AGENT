@@ -54,7 +54,6 @@ export function dashboardDomainsForMutation(operation: DashboardRpcOperation): D
     case "models.update":
     case "models.thinking.update":
       return ["models"];
-    case "mcp.servers.login":
     case "mcp.servers.add":
     case "mcp.servers.update":
       return ["tools"];

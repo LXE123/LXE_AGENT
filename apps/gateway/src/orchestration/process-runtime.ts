@@ -17,7 +17,6 @@ import {
   parseJsonRpcJson,
   decodeAgentEvent,
   type AgentDashboardRpcCall,
-  MCP_CLI_LOGIN_TIMEOUT_MS,
   type AgentDashboardRpcOperation,
   type AgentCommand,
   type ConversationImagePreviewSource,
@@ -432,7 +431,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {
-    return await this.request("dashboard_call", call, call.operation === "mcp.servers.login" ? MCP_CLI_LOGIN_TIMEOUT_MS : undefined) as DashboardRpcResult<O>;
+    return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
   }
   async sessionStatus(request: import("@lxe/desktop-protocol").SessionStatusRequest): Promise<import("@lxe/desktop-protocol").SessionRunSummary[]> {
     return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];

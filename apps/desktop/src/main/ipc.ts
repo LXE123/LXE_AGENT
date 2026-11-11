@@ -154,7 +154,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.installUpdate, (event, value:unknown) => application.installUpdate?.(updateTarget(event,value)) ?? {phase:"unsupported"});
   ipcMain.handle(IPC_CHANNELS.dashboardCall, (event, call: unknown) => {
     const request = validateDashboardRpcCall(call);
-    if ((request.operation === "mcp.servers.add" || request.operation === "mcp.servers.login") && !application.isTrustedFileSender(event)) {
+    if (request.operation === "mcp.servers.add" && !application.isTrustedFileSender(event)) {
       throw new Error("MCP configuration is only available to the desktop main frame");
     }
     return application.dashboardCall(request);

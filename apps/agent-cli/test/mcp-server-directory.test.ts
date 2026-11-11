@@ -172,8 +172,10 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(waiting.prompt).toContain("- mcp__team_skills (codemode)");
     expect(waiting.prompt).not.toContain("401");
     expect(waiting.tools.some(name => name.startsWith("mcp__team_skills__"))).toBe(false);
-    const listing = await host.dashboardCall({ operation: "mcp.servers.list", input: {} });
-    expect(listing.items.find(x => x.name === "team-skills")).toMatchObject({ can_login: true, has_credentials: false });
+    const configured = await current();
+    expect(configured).toMatchObject({ name: "team-skills", enabled: true, transport: "streamable-http" });
+    expect(configured).not.toHaveProperty("can_login");
+    expect(configured).not.toHaveProperty("has_credentials");
     // Exercise the normal macOS exec sandbox. Other test hosts have no packaged ACL runner.
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
     await turn("desktop", "desktop", "agent-cli mcp list");
@@ -188,7 +190,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(failed).toContain("503");
     expect(failed).toContain('MCP server "team-skills"');
     expect(failed).not.toContain("If prompted, approve access");
-    expect(await current()).toMatchObject({ has_credentials: true });
+    expect(await current()).toEqual(configured);
     expect(browserOpens).toBe(1);
     // The retry uses the saved grant, even when HTTP discovery takes longer than two seconds.
     handshake = "slow";
@@ -200,8 +202,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await turn("cli", "cli", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: ready");
     expect(browserOpens).toBe(1);
-    expect(await current()).toMatchObject({ has_credentials: true });
-    expect(await host.dashboardCall({ operation: "mcp.servers.login", input: { name: "team-skills" } })).toEqual({ name: "team-skills" });
+    expect(await current()).toEqual(configured);
     // A second process uses only the data root while this same turn is between provider calls.
     const external = "terminal-login";
     await host.dashboardCall({ operation: "mcp.servers.add", input: { name: external, transport: "streamable-http", url: protectedServer.url.href } });
@@ -234,7 +235,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");
     await turn("desktop", "desktop", "agent-cli mcp logout team-skills");
-    expect(await current()).toMatchObject({ has_credentials: false });
+    expect(await current()).toEqual(configured);
     onModelRequest = undefined;
     const logout = Bun.spawn([process.execPath, join(source, "apps/agent-cli/src/main.ts"), "mcp", "logout", external], {
       cwd: root, env: { PATH: process.env.PATH, LXE_DATA_ROOT: root }, stdout: "pipe", stderr: "pipe",

@@ -1,10 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { callDashboard } from "../../api/client";
-import { dashboardQueryKeys } from "../../api/query-keys";
 import { Plus, Plug } from "lucide-react";
 import { useState } from "react";
 import type { McpServerPayload } from "../../api/payloads";
-import { queryError } from "../../api/queries";
 import { EmptyState } from "../../shared/components";
 import { useUiText } from "../../shared/i18n";
 import { McpAddForm } from "./add-server-form";
@@ -19,21 +15,6 @@ function McpServerRow({
   onToggle: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  const cache = useQueryClient();
-  const [signingIn, setSigningIn] = useState(false);
-  const [loginError, setLoginError] = useState("");
-  async function login() {
-    setSigningIn(true);
-    setLoginError("");
-    try {
-      await callDashboard({ operation: "mcp.servers.login", input: { name: server.name } });
-      await cache.invalidateQueries({ queryKey: dashboardQueryKeys.tools.all });
-    } catch (cause) { setLoginError(queryError(cause)); }
-    finally {
-      setSigningIn(false);
-      void cache.invalidateQueries({ queryKey: dashboardQueryKeys.mcpServers.all });
-    }
-  }
   const title = server.server_title || server.connector_name || server.name;
   return (
     <article className="connection-row">
@@ -48,9 +29,6 @@ function McpServerRow({
         <span>{server.transport || t.common.unknown}</span>
       </div>
       <div className="mcp-row-actions">
-        {server.enabled && server.can_login && !server.has_credentials && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
-          {signingIn ? t.mcp.signingIn : t.mcp.login}
-        </button>}
         <button
           aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
           className={server.enabled ? "mcp-toggle on" : "mcp-toggle"}
@@ -61,7 +39,6 @@ function McpServerRow({
           {saving ? t.tools.saving : server.enabled ? t.tools.disable : t.tools.enable}
         </button>
       </div>
-      {loginError && <p className="connection-row-error" role="alert">{loginError}</p>}
     </article>
   );
 }

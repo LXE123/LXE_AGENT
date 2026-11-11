@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { resolveWorkspaceContext } from "@lxe/core";
 import type { AgentJob } from "@lxe/protocol";
 import { AgentProtocolError, type AgentEvent } from "@lxe/desktop-protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
@@ -63,11 +64,17 @@ afterEach(async () => {
 });
 
 describe("ProcessAgentRuntime", () => {
-  test("the Harness renews its saved MCP grant before the first request without gateway credentials", async () => {
+  test("settings stay offline; a session renews its saved MCP grant before the first request", async () => {
     const seen: string[] = [];
     let refreshes = 0;
+    let modelCalls = 0;
     const mcp = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
       if (req.method !== "POST") return new Response(null, { status: 405 });
+      if (new URL(req.url).pathname.endsWith("/chat/completions")) {
+        modelCalls++;
+        const chunk = { id: "fixture", choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
+        return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      }
       if (new URL(req.url).pathname === "/token") {
         expect(new URLSearchParams(await req.text()).get("refresh_token")).toBe("refresh-1");
         refreshes++;
@@ -79,8 +86,15 @@ describe("ProcessAgentRuntime", () => {
       return reply ? Response.json(reply) : new Response(null, { status: 202 });
     } });
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-refresh-"));
+    const workspace = resolveWorkspaceContext(root);
     temporaryRoots.push(root);
     mkdirSync(join(root, "config"));
+    mkdirSync(join(root, "skills"));
+    cpSync(resolve("config/llm"), join(root, "config/llm"), { recursive: true });
+    const providerPath = join(root, "config/llm/providers/zhipuai.json");
+    const provider = JSON.parse(readFileSync(providerPath, "utf8"));
+    writeFileSync(providerPath, JSON.stringify({ ...provider, base_url: mcp.url.origin }));
+    writeFileSync(join(root, "config/auth.json"), JSON.stringify({ zhipuai: { type: "api_key", key: "fixture" } }));
     writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
       fixture: { transport: "streamable-http", url: mcp.url.href, enabled: true, protocol_mode: "legacy" },
     } }));
@@ -89,15 +103,25 @@ describe("ProcessAgentRuntime", () => {
       issuer: mcp.url.href, client: { client_id: "test" }, refresh_token: "refresh-1", metadata: { token_endpoint: mcp.url.origin + "/token" },
     } }]), { mode: 0o600 });
     const runtime = new ProcessAgentRuntime({ command: process.execPath, arguments: [resolve("apps/agent-cli/src/main.ts")],
-      cwd: process.cwd(), environment: { PATH: process.env.PATH, LOCAL_LOGS_ENABLED: "0", AGENT_LLM_PROVIDER: "zhipuai", ZHIPUAI_API_KEY: "fixture" },
-      ...resourcePaths(process.cwd()), dataRoot: root, legacyWorkspace: workspaceFor(root),
+      cwd: process.cwd(), environment: { PATH: process.env.PATH, LOCAL_LOGS_ENABLED: "0", AGENT_LLM_PROVIDER: "zhipuai", LXE_DATA_SERVER_ENABLED: "0" },
+      ...resourcePaths(root), dataRoot: root, legacyWorkspace: workspace,
     });
     try {
       await runtime.start();
-      expect((await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items[0]).toMatchObject({ name: "fixture", status: "ready", can_relogin: true });
+      const configured = (await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items[0];
+      expect(configured).toMatchObject({ name: "fixture", enabled: true, transport: "streamable-http" });
+      expect(configured).not.toHaveProperty("status");
+      expect(refreshes).toBe(0);
+      expect(seen).toHaveLength(0);
+      expect(modelCalls).toBe(0);
+      const job = { ...agentJob(), source: { platform: "desktop" }, workspace };
+      await runtime.ensureSession({ session_id: job.session_id, source: job.source, workspace: job.workspace });
+      expect(await runtime.runTurn(job, new RunHandle(job))).toMatchObject({ status: "completed", reply: "ok" });
+      expect(modelCalls).toBeGreaterThan(0);
       expect(refreshes).toBe(1);
       expect(seen.length).toBeGreaterThan(1);
       expect(new Set(seen)).toEqual(new Set(["Bearer fresh"]));
+      expect((await runtime.dashboardCall({ operation: "mcp.servers.list", input: {} })).items[0]).toEqual(configured);
     } finally { await runtime.stop(); await mcp.stop(true); }
   });
   test.skipIf(process.platform!=="win32")("Windows forced shutdown waits for the runtime and its owned child",async()=>{

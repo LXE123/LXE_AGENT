@@ -93,14 +93,8 @@ export function createDashboardContractFixture(calls: Call[]) {
       case "mcp.servers.add": return (async () => {
         await gate(call.operation);
         const name = String(call.input.name);
-        added.push({ ...dormantServer, name, server_title: name, enabled: true, can_login: call.input.transport === "streamable-http", transport: String(call.input.transport) });
+        added.push({ ...dormantServer, name, server_title: name, enabled: true, transport: String(call.input.transport) });
         return { name };
-      })();
-      case "mcp.servers.login": return (async () => {
-        await gate(call.operation);
-        const item = added.find(item => item.name === call.input.name)!;
-        item.has_credentials = true;
-        return { name: item.name };
       })();
       case "mcp.servers.update": return (async () => {
         await gate(call.operation);

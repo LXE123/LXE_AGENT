@@ -38,7 +38,6 @@ import {
   queryLxeSkillCommandSkills,
   addMcpServer,
   loadMcpConfig,
-  usesMcpOAuth,
   mcpNamespace,
   TurnUsageSyncService,
   PermissionPolicyService,
@@ -242,16 +241,6 @@ export function createAgentRuntimeHost(
     try { await access.login(name, signal, onProgress); }
     finally { loggingIn.delete(name); await options.onMcpChanged?.(); }
   }
-  // Settings only contact the selected service after an explicit login action.
-  const settingsLogins = new Set<McpAccess>();
-  async function loginMcp(name: string, signal?: AbortSignal) {
-    const server = refreshMcpConfig().servers.find(server => server.name === name);
-    if (!server || !server.enabled || !usesMcpOAuth(server)) throw new Error("MCP login requires an enabled OAuth server");
-    const access = new McpAccess({ servers: [structuredClone(server)] }, mcpAuth, environment, options.openMcpBrowser);
-    settingsLogins.add(access);
-    try { await access.manager.start(new ToolRegistry()); await signIn(access, name, signal); }
-    finally { settingsLogins.delete(access); access.stop(); await access.manager.stop(); }
-  }
   async function withMcpSession<T>(sessionId: string, run: (session: SessionMcpRuntime) => Promise<T>): Promise<T> {
     return runWithLogContext({ session_id: sessionId }, async () => {
       const session = await store.getSession(sessionId);
@@ -284,13 +273,11 @@ export function createAgentRuntimeHost(
       const server = addMcpServer(mcpConfigPath, name, definition, environment, "");
       mcpConfig.servers.push(server);
     }),
-    loginMcp,
     setMcpEnabled: async (serverName, enabled) => {
       if (serverName !== desktopMcp?.name) await withMcpConfigLock(mcpConfigPath, () => setMcpServerEnabled(mcpConfigPath, serverName, enabled));
       else desktopMcp.enabled = enabled;
       refreshMcpConfig();
     },
-    mcpAuthStatus: server => ({ can_login: usesMcpOAuth(server), has_credentials: !!mcpAuth.get(server.name, server.url) }),
     skillCatalog,
     allowedSkillTypes,
     providerManager,
@@ -315,7 +302,6 @@ export function createAgentRuntimeHost(
       });
     },
     async stop() {
-      for (const access of settingsLogins) { access.stop(); await access.manager.stop(); }
       await mcpCli?.close();
       await sessions.stop();
       mcpCli = undefined;

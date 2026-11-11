@@ -144,10 +144,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.deepEqual(inputs.at(-2), {name:'orders',transport:'streamable-http',url:'https://example.test/mcp',bearer_token_env_var:'ORDERS_TOKEN',headers:{},env_headers:{}});
     assert.equal((await operations()).includes('restartAgent'),false);
     assert.equal((await operations()).includes('mcp.servers.login'),false);
-    await textClick('Sign in');
-    await waitFor("!document.querySelector('.mcp-row-actions .mcp-primary')", 'saved credentials remove the sign-in action');
-    assert.equal((await operations()).filter(op => op === 'mcp.servers.login').length, 1);
-    assert.equal((await operations()).includes('restartAgent'),false);
+    assert.equal(await js("Array.from(document.querySelectorAll('.mcp-row-actions')).every(row => row.querySelectorAll('button').length === 1 && Boolean(row.querySelector('button.mcp-toggle')))"), true,
+      'each configuration row only offers its enable/disable action');
   });
   await step('MCP list failures are shown independently of tool catalog data', async () => {
     await open();

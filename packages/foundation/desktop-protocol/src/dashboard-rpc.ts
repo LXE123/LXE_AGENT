@@ -361,8 +361,6 @@ export type McpServerAddInput =
       env_headers?: Record<string, string>; bearer_token_env_var?: string };
 
 export type McpServerPayload = {
-  can_login?: boolean;
-  has_credentials?: boolean;
   name: string;
   enabled: boolean;
   transport: string;
@@ -587,7 +585,6 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
   };
   "commands.list": { input: DashboardRpcEmptyInput; result: ApiList<CliCommandPayload> };
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
-  "mcp.servers.login": { input: { name: string }; result: { name: string } };
   "mcp.servers.add": { input: McpServerAddInput; result: { name: string } };
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
@@ -993,9 +990,6 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         name: textValue(input.name, `${operation}.name`)!,
         path: textValue(input.path, `${operation}.path`)!,
       } };
-    case "mcp.servers.login":
-      exactKeys(input, ["name"], "mcp.servers.login");
-      return { operation, input: { name: textValue(input.name, "mcp.servers.login.name")! } };
     case "mcp.servers.add":
       return { operation, input: parseMcpServerAdd(input) };
     case "mcp.servers.update":

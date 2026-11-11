@@ -26,6 +26,8 @@ describe("desktop IPC validation", () => {
       { ...remote, headers: { Foo: "one\r\ntwo" } }, { ...remote, env_headers: { A: "bad name" } }]) {
       expect(() => parse(invalid)).toThrow();
     }
+    expect(() => validateDashboardRpcCall({ operation: "mcp.servers.login", input: { name: "remote" } }))
+      .toThrow("unsupported Dashboard RPC operation: mcp.servers.login");
   });
 
   test("accepts only resolved desktop appearances", () => {

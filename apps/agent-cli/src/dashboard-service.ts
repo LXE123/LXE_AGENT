@@ -63,9 +63,7 @@ interface DashboardServiceOptions {
   addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void | Promise<void>;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
-  loginMcp?: (name: string) => Promise<void>;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
-  mcpAuthStatus?: (server: McpConfig["servers"][number]) => { can_login: boolean; has_credentials: boolean };
   providerManager?: RuntimeProviderManager;
   managedLlmState?: () => ManagedLlmState | undefined;
   skillCatalog?: SkillCatalog;
@@ -316,11 +314,6 @@ export class DashboardService {
       await this.options.addMcpServer(input);
       return { name: input.name };
     },
-    "mcp.servers.login": async ({ name }) => {
-      if (!this.options.loginMcp) throw new DashboardRpcError("invalid_request", "MCP login unavailable");
-      await this.options.loginMcp(name);
-      return { name };
-    },
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
     "stats.overview": (input) => this.overview(input.days) as DashboardRpcResult<"stats.overview">,
@@ -511,7 +504,6 @@ export class DashboardService {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      ...this.options.mcpAuthStatus?.(server),
       server_title: server.connectorName,
       connector_id: server.connectorId,
       connector_name: server.connectorName,
