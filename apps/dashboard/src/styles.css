@@ -4937,11 +4937,12 @@ h1 {
   background: linear-gradient(to bottom, var(--conversation-bg) 30%, transparent);
 }
 
-/* The composer dock's own gradient sits below the scroll container, so it
-   never reached the edge that does the cutting. This one covers that edge. */
+/* Fade only at the composer edge, reaching full opacity at the boundary
+   rather than hiding an extra band of text above the input. */
 .conversation-scroll-area::after {
   bottom: 0;
-  background: linear-gradient(to top, var(--conversation-bg) 30%, transparent);
+  height: 12px;
+  background: linear-gradient(to top, var(--conversation-bg), transparent);
 }
 
 .conversation-jump-latest {
