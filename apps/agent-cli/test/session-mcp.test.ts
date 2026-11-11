@@ -45,9 +45,9 @@ test("session leases isolate cwd, registry, codemode and discovery; reuse one in
     const read = async (lease: typeof first, id: string, directory: string) => {
       const exposure = lease.tools.createExposureState({ platform: "cli" });
       const ctx = { ...context(id, directory), exposureState: exposure };
-      const result = await lease.tools.execute("codemode", { code: 'const hits = await searchTools("workspace identity"); text((await tools[hits[0].name]({})).content);' }, ctx);
-      const output = JSON.stringify(result.content);
-      expect(output).toContain(directory);
+      const result = await lease.tools.execute("codemode", { code: 'const hits = await searchTools("workspace identity"); text(JSON.parse((await tools[hits[0].name]({})).content[0].text));' }, ctx);
+      const output = JSON.parse((result.content[0] as { text: string }).text) as { cwd: string; pid: number };
+      expect(output.cwd).toBe(directory);
       const hits = await lease.tools.execute("tool_search", { query: "workspace identity" }, ctx);
       expect(JSON.stringify(hits)).toContain("mcp__local__where");
       expect(exposure.schemas().some(t => t.name === "mcp__local__where")).toBe(true);

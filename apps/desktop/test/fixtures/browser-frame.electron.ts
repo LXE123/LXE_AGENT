@@ -8,7 +8,7 @@ if (process.platform === "win32") app.disableHardwareAcceleration();
 app.on("window-all-closed", () => {});
 const pause = (ms = 60) => new Promise(resolve => setTimeout(resolve, ms));
 void app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 700, height: 600, show: true, webPreferences: { contextIsolation: true, sandbox: true } });
+  const win = new BrowserWindow({ width: 700, height: 600, useContentSize: true, show: true, webPreferences: { contextIsolation: true, sandbox: true } });
   const browsers = new ManualBrowsers(() => win, () => {});
   const server = createServer((_req, response) => response.end('<body style="margin:0;background:#00aaee"><input id="draft" value="keep me"></body>'));
   try {

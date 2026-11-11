@@ -1,8 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { McpServerAddInput } from "@lxe/desktop-protocol";
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
 import { queryError } from "./queries";
 import type { McpServerListPayload, McpServerPayload } from "./payloads";
+
+export function addMcpServer(input: McpServerAddInput) {
+  return callDashboard({ operation: "mcp.servers.add", input });
+}
 
 export function useMcpActions(onError: (message: string) => void) {
   const queryClient = useQueryClient();

@@ -2,7 +2,7 @@ import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { McpServerAddInput } from "@lxe/desktop-protocol";
-import { callDashboard } from "../../api/client";
+import { addMcpServer } from "../../api/mcp-actions";
 import { queryError } from "../../api/queries";
 import { dashboardQueryKeys } from "../../api/query-keys";
 import { useUiText } from "../../shared/i18n";
@@ -60,7 +60,7 @@ export function McpAddForm({ onClose }: { onClose: () => void }) {
         input = { name, transport, url: field("url"), ...(field("token") && { bearer_token_env_var: field("token") }),
           headers: Object.fromEntries(pairs("headers")), env_headers: Object.fromEntries(pairs("env_headers")) };
       }
-      await callDashboard({ operation: "mcp.servers.add", input });
+      await addMcpServer(input);
       await cache.invalidateQueries({ queryKey: dashboardQueryKeys.mcpServers.all });
       onClose();
     } catch (cause) {
