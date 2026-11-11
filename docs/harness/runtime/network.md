@@ -23,4 +23,4 @@ HTTP 重定向按新 URL 重新选择代理；跨源跳转移除 Authorization�
 
 `runtime.network` 的 debug 事件 `http_request_route` 记录目标 origin、选择来源（environment/system/bypass/direct）和代理 origin，不记录请求路径、查询参数、认证头或代理密码。连接错误由现有模型、MCP 和 OAuth 链路保留真实诊断；网络层不新增重试。
 
-实现入口：[统一请求](../../../packages/agent/runtime/src/network/fetch.ts)、[系统配置读取](../../../packages/agent/runtime/src/network/system-proxy.ts)。本地可运行 `bun test packages/agent/runtime/test/network`；Windows 系统读取仍需在 Windows 上实际验收。
+实现入口：[统一请求](../../../packages/agent/runtime/src/network/fetch.ts)、[系统配置读取](../../../packages/agent/runtime/src/network/system-proxy.ts)。从仓库根目录运行 `bun test packages/agent/runtime/test/network`，验证代理选择、重定向、取消和上传；系统代理读取与真实网络连通性需在目标操作系统上验证，验收结果记录在对应 PR。
