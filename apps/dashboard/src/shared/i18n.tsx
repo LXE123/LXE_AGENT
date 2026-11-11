@@ -289,7 +289,9 @@ export const ZH_TEXT = {
     unknown: "unknown"
   },
   sessions: {
-    forkMenu: "对话分叉选项", fork: "在新对话中分叉", forkSource: "查看分叉来源",
+    forkMenu: "对话分叉选项", fork: "在新对话中分叉",
+    expandBranches: (title: string) => `展开「${title}」的分叉`,
+    collapseBranches: (title: string) => `收起「${title}」的分叉`,
     title: "会话",
     newConversation: "新对话",
     newConversationAria: "创建新对话",
@@ -1227,7 +1229,9 @@ export const UI_TEXT: Record<Language, UiText> = {
       unknown: "unknown"
     },
     sessions: {
-    forkMenu: "Branch options", fork: "Branch in new chat", forkSource: "View branch source",
+    forkMenu: "Branch options", fork: "Branch in new chat",
+    expandBranches: (title: string) => `Expand branches of ${title}`,
+    collapseBranches: (title: string) => `Collapse branches of ${title}`,
       title: "Sessions",
       newConversation: "New chat",
       newConversationAria: "Start a new chat",

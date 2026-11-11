@@ -2,6 +2,8 @@ import { ForkMenu } from "./ForkMenu";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
+import "./session-tree.css";
+import { sessionBranchPath, sessionTree, type SessionBranch } from "./session-tree";
 import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
 import { ReferenceComposer } from "./ReferenceComposer";
@@ -23,7 +25,6 @@ import { createPortal } from "react-dom";
 import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import {
   ArrowUp,
-  GitFork,
   Brain,
   Cloud,
   Check,
@@ -1475,7 +1476,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   && a.onFork === b.onFork && a.forkDisabled === b.forkDisabled && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
-  onFork, forking, onOpenForkSource,
+  onFork, forking,
   workspaceControl,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   fallbackSession,
@@ -1507,7 +1508,6 @@ export function SessionDetailView({
 }: {
   onFork?: (turnId?: string) => void;
   forking?: boolean;
-  onOpenForkSource?: (sessionId: string, turnId: string) => void;
   workspaceControl?: React.ReactNode;
   approvals?: PendingApproval[];
   onApprovalChanged?: () => void;
@@ -1556,9 +1556,6 @@ export function SessionDetailView({
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
   const toggleRow = useCallback((id: string) => setExpandedRows((current) => new Map(current).set(id, !current.get(id))), []);
-  const origin = session?.source?.fork;
-  const forkSource = isRecord(origin) && typeof origin.session_id === "string" && typeof origin.turn_id === "string"
-    ? { sessionId: origin.session_id, turnId: origin.turn_id } : null;
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
@@ -1574,8 +1571,6 @@ export function SessionDetailView({
           )}
         </div>
         <div className="conversation-header-actions">
-          {forkSource && onOpenForkSource && <button type="button" className="icon-button" aria-label={t.sessions.forkSource}
-            title={t.sessions.forkSource} onClick={() => onOpenForkSource(forkSource.sessionId, forkSource.turnId)}><GitFork size={15} /></button>}
           {newConversation ? null : workspaceControl}
           {!newConversation && onFork && <ForkMenu disabled={!runtimeReady || !!forking || !detail?.has_forkable_turn
             || !!activity?.active || !!activity?.queued.length || pendingMessages.some(item => !item.error)}
@@ -1830,7 +1825,20 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
-  const { pinned: pinnedSessions, recent: recentSessions } = groupSidebarSessions(sessions, Boolean(trimmedQuery));
+  const searching = Boolean(trimmedQuery);
+  const { pinned: pinnedSessions, recent: recentSessions } = useMemo(() => groupSidebarSessions(sessions, searching), [sessions, searching]);
+  const trees = useMemo(() => ({ pinned: sessionTree(pinnedSessions), recent: sessionTree(recentSessions) }), [pinnedSessions, recentSessions]);
+  const [collapsedBranches, setCollapsedBranches] = useState<ReadonlySet<string>>(() => new Set());
+  const selectedPath = JSON.stringify(sessionBranchPath([...trees.pinned, ...trees.recent], selectedSessionId).slice(0, -1));
+  useEffect(() => {
+    const ancestors = JSON.parse(selectedPath) as string[];
+    setCollapsedBranches(previous => {
+      if (!ancestors.some(id => previous.has(id))) return previous;
+      const next = new Set(previous);
+      for (const id of ancestors) next.delete(id);
+      return next;
+    });
+  }, [selectedSessionId, selectedPath]);
   const transientInteractionActive = Boolean(menu);
 
   useEffect(() => {
@@ -1902,7 +1910,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     }
   }
 
-  const renderSession = (session: SessionPayload) => {
+  const renderSession = (session: SessionPayload, guides: readonly boolean[] = [], branch?: SessionBranch) => {
     const selected = selectedSessionId === session.session_id;
     const sessionTitle = session.title || t.common.unnamedSession;
     const menuOpen = menu?.session.session_id === session.session_id;
@@ -1910,8 +1918,17 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     const failure=statusError||summary?.error;
     const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
     const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
+    const hasBranches = Boolean(branch?.children.length);
+    const expanded = !collapsedBranches.has(session.session_id);
+    const branchesId = `session-branches-${session.session_id}`;
     return (
-      <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
+      <div className={`session-index-item${selected ? " active" : ""}${menuOpen ? " menu-open" : ""}${hasBranches ? " has-branches" : ""}`}
+        key={session.session_id} data-session-id={session.session_id}
+        style={{ "--session-branch-depth": guides.length } as React.CSSProperties}>
+        {guides.length > 0 && <span className="session-branch-guides" aria-hidden="true">
+          {guides.map((continues, index) => <span key={index}
+            className={`session-branch-guide${continues ? " through" : index === guides.length - 1 ? " elbow" : ""}`} />)}
+        </span>}
         <button
           aria-current={selected ? "page" : undefined}
           aria-label={`${sessionTitle} · ${statusLabel}`}
@@ -1923,6 +1940,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
           <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
         </button>
+        {hasBranches && <button type="button" className="session-branch-toggle" aria-expanded={expanded}
+          aria-controls={branchesId} aria-label={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          title={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          onClick={() => setCollapsedBranches(previous => {
+            const next = new Set(previous);
+            if (expanded) next.add(session.session_id); else next.delete(session.session_id);
+            return next;
+          })}>
+          {expanded ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+        </button>}
         <button
           aria-expanded={menuOpen}
           aria-haspopup="menu"
@@ -1941,6 +1968,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       </div>
     );
   };
+
+  const renderBranch = (branch: SessionBranch, guides: readonly boolean[] = []): React.ReactNode => (
+    <React.Fragment key={branch.session.session_id}>
+      {renderSession(branch.session, guides, branch)}
+      {branch.children.length > 0 && <div className="session-branch-children" id={`session-branches-${branch.session.session_id}`}
+        hidden={collapsedBranches.has(branch.session.session_id)}>
+        {branch.children.map((child, index) => renderBranch(child, [...guides, index < branch.children.length - 1]))}
+      </div>}
+    </React.Fragment>
+  );
 
   return (
     <div className="session-index-panel">
@@ -1986,11 +2023,11 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           {pinnedSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.pinned}</div>
           ) : null}
-          {pinnedSessions.map(renderSession)}
+          {trees.pinned.map(branch => renderBranch(branch))}
           {!embedded && !trimmedQuery && recentSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.recent}</div>
           ) : null}
-          {recentSessions.map(renderSession)}
+          {trimmedQuery ? recentSessions.map(session => renderSession(session)) : trees.recent.map(branch => renderBranch(branch))}
           {loadingMore ? (
             <span aria-label={t.common.loading} className="sessions-load-more-indicator" role="status">
               <LoaderCircle aria-hidden="true" className="conversation-spinner" size={14} />
