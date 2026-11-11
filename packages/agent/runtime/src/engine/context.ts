@@ -17,6 +17,8 @@ import type {
 } from "./types";
 import { compactionSummaryProviderText } from "./compaction-summary";
 import { RuntimeProviderError } from "../providers/provider-errors";
+import { providerErrorText, safeProviderErrorText } from "../providers/provider-error-details";
+import { MAX_PROVIDER_RETRY_DELAY_MS } from "../providers/provider-retry";
 
 export const IMAGE_TOKEN_ESTIMATE = 1_600;
 export const RECENT_RAW_TURN_TOKEN_LIMIT = 20_000;
@@ -777,13 +779,14 @@ export class ContextCompactionError extends Error {
   constructor(
     readonly reason: "no_safe_prefix" | "summary_failed" | "summary_not_smaller",
     readonly estimatedTokens: number,
+    readonly providerError?: string,
   ) {
     const detail = reason === "no_safe_prefix"
       ? "没有找到可安全压缩且保持工具调用闭合的历史前缀"
       : reason === "summary_not_smaller"
         ? "摘要没有降低上下文 token 数"
-        : "上下文摘要在多次尝试后仍失败或为空";
-    super(`上下文已达到压缩阈值，但无法安全完成压缩：${detail}（estimated=${estimatedTokens}）。原始历史未被删除，请稍后重试。`);
+        : "上下文摘要未能生成";
+    super(`上下文已达到压缩阈值，但无法安全完成压缩：${detail}（estimated=${estimatedTokens}）。原始历史未被删除。${providerError ? `\n${providerError}` : ""}`);
     this.name = "ContextCompactionError";
   }
 }
@@ -799,6 +802,7 @@ export interface ContextCompactionResult {
   usage: RuntimeUsage;
   hardLimitExceeded: boolean;
   failureReason?: "no_safe_prefix" | "summary_failed" | "summary_not_smaller";
+  providerError?: string;
 }
 
 export interface ContextPipelineOptions {
@@ -942,7 +946,7 @@ export class ContextPipeline {
         );
         apiCalls += history.attempts;
         if (!history.text) {
-          return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+          return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", history.error);
         }
         historyText = history.text;
         historyInventory = history.fileInventory;
@@ -957,7 +961,7 @@ export class ContextPipeline {
       );
       apiCalls += turnPrefix.attempts;
       if (!turnPrefix.text) {
-        return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+        return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", turnPrefix.error);
       }
       const inventory = mergeFileInventories(historyInventory, turnPrefix.fileInventory);
       const summaryText = appendFileInventory(
@@ -993,7 +997,7 @@ export class ContextPipeline {
     );
     apiCalls += history.attempts;
     if (!history.text) {
-      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", history.error);
     }
     const summaryText = appendFileInventory(history.text, history.fileInventory);
     const nextMessages = [
@@ -1022,7 +1026,7 @@ export class ContextPipeline {
       previousSummary?: string;
       inheritedInventory?: FileInventory;
     } = {},
-  ): Promise<{ text: string; attempts: number; fileInventory: FileInventory }> {
+  ): Promise<{ text: string; attempts: number; fileInventory: FileInventory; error?: string }> {
     const prepared = prepareSummaryMessages(
       messages,
       options.inheritedInventory ?? { readFiles: [], modifiedFiles: [] },
@@ -1040,9 +1044,11 @@ export class ContextPipeline {
     const prompt = promptParts.join("\n\n");
     const maxOutputTokens = Math.max(1, Math.floor(this.reserveTokens * (kind === "history" ? 0.8 : 0.5)));
     const maxAttempts = this.summaryMaxRetries + 1;
+    let lastError = "";
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       let retryable = false;
+      let serverDelayMs = 0;
       try {
         const result = await this.options.provider.summarize({
           messages: [{ role: "user", content: prompt }],
@@ -1060,20 +1066,23 @@ export class ContextPipeline {
           };
         }
         retryable = true;
+        lastError = "Provider returned an empty summary";
         this.logger.warn("context summary returned empty", { kind, attempt, max_attempts: maxAttempts });
       } catch (error) {
         if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
         this.logger.warn("context summary failed", { kind, attempt, max_attempts: maxAttempts, error });
+        lastError = error instanceof RuntimeProviderError ? error.userMessage : safeProviderErrorText(providerErrorText(error));
         if (isContextOverflowError(error)) {
-          return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+          return { text: "", attempts: attempt, fileInventory: prepared.fileInventory, error: lastError };
         }
         retryable = error instanceof RuntimeProviderError && error.retryable;
+        if (error instanceof RuntimeProviderError) serverDelayMs = error.details.retryAfterMs ?? 0;
       }
-      if (!retryable || attempt >= maxAttempts) {
-        return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+      if (!retryable || attempt >= maxAttempts || serverDelayMs > MAX_PROVIDER_RETRY_DELAY_MS) {
+        return { text: "", attempts: attempt, fileInventory: prepared.fileInventory, error: lastError };
       }
       const retryNumber = attempt;
-      const delayMs = this.summaryRetryBaseDelayMs * 2 ** (retryNumber - 1);
+      const delayMs = Math.max(serverDelayMs, this.summaryRetryBaseDelayMs * 2 ** (retryNumber - 1));
       this.logger.warn("context summary retry scheduled", {
         kind,
         retry: retryNumber,
@@ -1159,6 +1168,7 @@ export class ContextPipeline {
     usage: RuntimeUsage,
     apiCalls: number,
     failureReason?: ContextCompactionResult["failureReason"],
+    providerError?: string,
   ): ContextCompactionResult {
     return {
       messages,
@@ -1171,6 +1181,7 @@ export class ContextPipeline {
       usage,
       hardLimitExceeded: false,
       ...(failureReason === undefined ? {} : { failureReason }),
+      ...(providerError === undefined ? {} : { providerError }),
     };
   }
 }

@@ -289,7 +289,7 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
         : watchdog.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
-              this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
+              this.descriptor.name, "请求超时", true,
             )
           : normalizeProviderError(failure, this.descriptor);
       wireError = String(classified instanceof Error ? classified.message : classified);
@@ -336,7 +336,6 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
-          `${this.descriptor.name} 请求超时，请稍后重试。`,
           true,
         );
       }

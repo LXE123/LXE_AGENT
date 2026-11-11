@@ -71,7 +71,7 @@ class SummaryProvider implements RuntimeProvider {
 }
 
 const summaryProviderError = (retryable: boolean, message = "summary unavailable"): RuntimeProviderError =>
-  new RuntimeProviderError(message, "test", "测试错误", message, retryable);
+  new RuntimeProviderError(message, "test", "测试错误", retryable);
 
 const closedTurn = (label: string, size = 0): RuntimeMessage[] => [
   { role: "user", content: `${label} request ${"u".repeat(size)}` },
@@ -514,9 +514,24 @@ src/b.ts
     expect(result.compacted).toBe(false);
     expect(result.apiCalls).toBe(1);
     expect(result.failureReason).toBe("summary_failed");
+    expect(result.providerError).toContain("invalid credentials");
     expect(provider.requests).toHaveLength(1);
     expect(store.replacements.filter((item) => item.kind === "compaction")).toHaveLength(0);
     expect(result.messages).toEqual(messages);
+  });
+
+  test.each([5000, 61000])("honors the summary provider minimum retry delay of %s ms", async retryAfterMs => {
+    const store = new MemoryStore();
+    const provider = new SummaryProvider();
+    provider.summaries = [new RuntimeProviderError("Slow down", "openai", "限流", true, 429, false, { retryAfterMs }), "summary"];
+    const delays: number[] = [];
+    const pipeline = new ContextPipeline({ provider, store, contextWindowTokens: 1000, reserveTokens: 100, recentRawTokens: 100,
+      summaryRetryWait: async ms => { delays.push(ms); } });
+    const result = await pipeline.prepare({ sessionId: "s1", messages: [...closedTurn("old", 2000), ...closedTurn("recent", 50)],
+      systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal });
+    expect(delays).toEqual(retryAfterMs > 60000 ? [] : [5000]);
+    expect(provider.requests.length).toBe(retryAfterMs > 60000 ? 1 : 2);
+    if (retryAfterMs > 60000) expect(result.providerError).toContain("Slow down");
   });
 
   test("preserves history after exhausting all summary retries", async () => {

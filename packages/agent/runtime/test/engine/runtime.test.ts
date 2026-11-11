@@ -201,7 +201,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: { summarize, turn: async () => {
         events.push("model");
         attempts++;
-        if (attempts === 1) throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+        if (attempts === 1) throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
         if (attempts === 2) return messageFixture({ stopReason: "toolUse", content: [
           { type: "tool_call", id: "call1", name: "lookup", arguments: {} },
         ] });
@@ -1144,7 +1144,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: { summarize, turn: async (request) => {
         requests.push(structuredClone(request.messages));
         setSystemTime(crossDay ? new Date(2026, 8, 5 + requests.length, 12) : new Date(`2026-09-05T01:0${5 + requests.length}:00Z`));
-        if (requests.length === 1) throw new RuntimeProviderError("busy", "test", "busy", "busy", true, 503);
+        if (requests.length === 1) throw new RuntimeProviderError("busy", "test", "busy", true, 503);
         return messageFixture({
           content: requests.length === 2
             ? [{ type: "tool_call", id: "call-1", name: "noop", arguments: {} }]
@@ -2471,7 +2471,7 @@ describe("TypeScriptAgentRuntime", () => {
           providerCalls += 1;
           if (scenario !== "empty") queue.push({ text: scenario === "blank" ? "  " : "补充指令" });
           if (scenario === "cancel") controller.abort();
-          if (scenario === "error") throw new RuntimeProviderError("provider failed", "test", "test", "provider failed", false);
+          if (scenario === "error") throw new RuntimeProviderError("provider failed", "test", "test", false);
           return messageFixture({
             content: [{ type: "text", text: "原回答" }],
             stopReason: scenario === "returned_error" ? "error" : scenario === "returned_aborted" ? "aborted" : "stop",
@@ -2542,7 +2542,6 @@ describe("TypeScriptAgentRuntime", () => {
               retryable ? "service unavailable" : "invalid authentication",
               "kimi_coding",
               retryable ? "服务暂时异常" : "认证错误",
-              retryable ? "Kimi Coding 服务暂时异常，请稍后重试。" : "Kimi Coding 认证失败，请检查 API Key。",
               retryable,
               retryable ? 503 : 401,
             );
@@ -2559,13 +2558,13 @@ describe("TypeScriptAgentRuntime", () => {
     expect(retryable.calls).toBe(3);
     expect(retryable.contexts).toBe(1);
     expect(retryable.snapshots).toBe(1);
-    expect(retryable.outcome.reply).toBe("执行失败: Kimi Coding 服务暂时异常，请稍后重试。");
+    expect(retryable.outcome.reply).toBe("执行失败: kimi_coding (HTTP 503): service unavailable");
     expect(retryable.turnErrors).toEqual([{ turn_id: "j1", message: retryable.outcome.reply }]);
     const fatal = await run(false);
     expect(fatal.calls).toBe(1);
     expect(fatal.contexts).toBe(1);
     expect(fatal.snapshots).toBe(1);
-    expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
+    expect(fatal.outcome.reply).toBe("执行失败: kimi_coding (HTTP 401): invalid authentication");
   });
 
   test("reports a cloud authentication failure once and blocks the invalid revision on later turns", async () => {
@@ -2605,7 +2604,6 @@ describe("TypeScriptAgentRuntime", () => {
             "invalid authentication",
             "deepseek",
             "认证失败",
-            "DeepSeek 认证失败，请检查 API Key 是否正确。",
             false,
             401,
           );
@@ -2667,7 +2665,6 @@ describe("TypeScriptAgentRuntime", () => {
             "model access denied",
             "deepseek",
             "权限错误",
-            "DeepSeek 当前账号无权使用该模型。",
             false,
             401,
           );
@@ -2711,7 +2708,7 @@ describe("TypeScriptAgentRuntime", () => {
         turn: async () => {
           calls += 1;
           if (calls === 1) {
-            throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+            throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
           }
           if (calls === 2) {
             return messageFixture({
@@ -2756,6 +2753,33 @@ describe("TypeScriptAgentRuntime", () => {
   });
 });
 
+test.each(["cancel", "server-delay-too-long"] as const)("does not send another model request after %s during recovery", async mode => {
+  const store = new MemoryStore();
+  const controller = new AbortController();
+  let calls = 0;
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
+    store, tools: new ToolRegistry(), systemPrompt: "test",
+    provider: { summarize, turn: async () => {
+      calls++;
+      if (mode === "cancel") setTimeout(() => controller.abort(), 20);
+      throw new RuntimeProviderError("Ramp traffic more slowly", "openai", "限流", true, 429, false,
+        { retryAfterMs: mode === "cancel" ? 30_000 : 61_000 });
+    } },
+    emitter: { emit: async () => undefined, typing: async () => undefined },
+  });
+  await runtime.start();
+  try {
+    const result = await runtime.runTurn(job(), { ...handle(), signal: controller.signal });
+    expect(calls).toBe(1);
+    expect(result.status).toBe(mode === "cancel" ? "cancelled" : "error");
+    if (mode !== "cancel") {
+      expect(result.reply).toContain("Ramp traffic more slowly");
+      expect(result.reply).toContain("retry_after_ms: 61000");
+      expect(store.turnErrors[0]?.message).toBe(result.reply);
+    }
+  } finally { await runtime.stop(); }
+});
+
 test("accounts failed attempts once and isolates their streamed text from the retry", async () => {
   const store = new MemoryStore();
   const emitted: EmitRequest[] = [];
@@ -2765,14 +2789,14 @@ test("accounts failed attempts once and isolates their streamed text from the re
     store, tools: new ToolRegistry(), systemPrompt: "test",
     provider: { summarize, turn: async (request) => {
       if (calls) expect(JSON.stringify(request.messages)).not.toContain("failed prefix");
-      const a = new AssistantMessageAccumulator({ name: "test", model: "test", apiStyle: "openai_completions" }, request.onEvent);
+      const a = new AssistantMessageAccumulator({ name: "openai", model: "gpt-6-astra", apiStyle: "openai_responses" }, request.onEvent);
       messageIds.push(a.message.id);
       const textIndex = a.startText();
       calls++;
       a.append(textIndex, calls === 1 ? "failed prefix" : "good answer");
       a.usage({ input_tokens: calls === 1 ? 3 : 5, output_tokens: 2, status: "partial" });
       if (calls === 1) {
-        const error = new RuntimeProviderError("connection reset", "test", "transport", "connection reset", true);
+        const error = new RuntimeProviderError("connection reset", "openai", "transport", true);
         a.fail("error", error); await a.drain(); throw error;
       }
       a.usage({ status: "complete" });
@@ -2822,7 +2846,7 @@ test.each(["error", "aborted"] as const)("archives streamed text on %s and omits
         stream.startTool({ id: "unfinished-tool", name: "orders" });
         if (reason === "aborted") controller.abort();
         const error = reason === "aborted" ? controller.signal.reason
-          : new RuntimeProviderError("connection lost", "test", "transport", "connection lost", false);
+          : new RuntimeProviderError("connection lost", "test", "transport", false);
         stream.fail(reason, error);
         await stream.drain();
         throw error;
@@ -3006,7 +3030,7 @@ test.each(["error","cancelled"] as const)("saves final consumption on %s without
         cancellation.abort();
         throw new DOMException("fixture cancelled","AbortError");
       }
-      throw new RuntimeProviderError("fixture failure","test","error","fixture failure",false);
+      throw new RuntimeProviderError("fixture failure","test","error",false);
     }},
     emitter:{emit:async()=>undefined,typing:async()=>undefined},
   });
@@ -3211,7 +3235,7 @@ test("mode changes during provider retries and a removed environment baseline re
       if (environment?.role === "user") modes.push(environment.environmentContext!.permission_mode!);
       if (requests++ === 0) {
         store.permissionMode = "read-only";
-        throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+        throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
       }
       return messageFixture({ stopReason: "stop", content: [{ type: "text", text: "done" }] });
     } },

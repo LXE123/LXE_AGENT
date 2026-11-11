@@ -1044,7 +1044,7 @@ describe("Anthropic-compatible provider", () => {
         end: (ok, error) => terminal.push({ ok, ...(error === undefined ? {} : { error }) }),
       },
     })).rejects.toThrow("transport failed");
-    expect(terminal).toEqual([{ ok: false, error: "transport failed token=private" }]);
+    expect(terminal).toEqual([{ ok: false, error: "transport failed token=[redacted]" }]);
   });
 
   test("ignores wire listener registration failures while preserving the Provider result", async () => {
@@ -1252,7 +1252,7 @@ describe("Anthropic-compatible provider", () => {
     expect(manager.acquire().descriptor.apiKey).toBe("");
     await expect(provider.turn(request)).rejects.toMatchObject({
       category: "模型未配置",
-      userMessage: expect.stringContaining("API Key"),
+      userMessage: expect.stringContaining("missing API key for provider: deepseek"),
     });
     writeFileSync(authPath, JSON.stringify({ deepseek: { type: "api_key", key: "local-one" } }));
     await provider.turn(request);

@@ -48,6 +48,7 @@ import {
   type RuntimeProviderManager,
 } from "../providers/provider";
 import { RuntimeTurnObserver } from "./turn-observer";
+import { providerRetryDelayMs, waitForProviderRetry } from "../providers/provider-retry";
 import { prepareUserContent, withTurnContext } from "./system-events";
 import type { RuntimeWireTraceControllerPort } from "../providers/wire-trace";
 import type {
@@ -449,7 +450,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           "managed LLM credential revision is invalid",
           descriptor.name,
           "认证失败",
-          "云端模型凭证已失效，正在尝试从公司服务器刷新。",
           false,
           401,
         );
@@ -649,7 +649,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.context(prepared);
           messages = prepared.messages;
           if (prepared.failureReason) {
-            throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens);
+            throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens, prepared.providerError);
           }
           if (prepared.hardLimitExceeded) {
             throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
@@ -751,10 +751,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 attemptObserver.fail(error, false);
                 throw error;
               }
-              const retryable = error instanceof RuntimeProviderError ? error.retryable : true;
+              const delayMs = attempt < maximumAttempts ? providerRetryDelayMs(error, attempt) : undefined;
               lastError = error;
-              attemptObserver.fail(error, retryable && attempt < maximumAttempts);
-              if (!retryable || attempt >= maximumAttempts) throw error;
+              attemptObserver.fail(error, delayMs !== undefined, delayMs);
+              if (delayMs === undefined) throw error;
+              await waitForProviderRetry(delayMs, handle.signal);
             }
           }
           throw lastError ?? new Error("provider request failed");
@@ -779,7 +780,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.context(overflow);
           messages = overflow.messages;
           if (overflow.failureReason) {
-            throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens);
+            throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens, overflow.providerError);
           }
           if (!overflow.compacted || overflow.hardLimitExceeded) throw error;
           response = await invokeProvider(1);
@@ -838,7 +839,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               messages = postTurn.messages;
               await updateContext();
               if (postTurn.failureReason) {
-                throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens);
+                throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens, postTurn.providerError);
               }
               if (postTurn.hardLimitExceeded) {
                 this.logger.warn("post-turn context remains over hard limit", {

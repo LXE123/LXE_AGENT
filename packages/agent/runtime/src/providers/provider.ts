@@ -745,9 +745,6 @@ class CredentialResolvingRuntimeProvider implements RuntimeProvider {
           message,
           descriptor.name,
           "模型未配置",
-          descriptor.credentialSource === "cloud"
-            ? "公司云端模型凭证暂不可用，正在等待同步。"
-            : `模型服务 ${descriptor.name} 尚未配置 API Key，请在模型设置中填写。`,
           false,
         );
       }
@@ -958,7 +955,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         : watchdog.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
-              this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
+              this.descriptor.name, "请求超时", true,
             )
           : normalizeProviderError(failure, this.descriptor);
       wireError = String(classified instanceof Error ? classified.message : classified);
@@ -1008,7 +1005,6 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
-          `${this.descriptor.name} 请求超时，请稍后重试。`,
           true,
         );
       }

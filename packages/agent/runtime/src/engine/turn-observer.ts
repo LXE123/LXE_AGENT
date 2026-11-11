@@ -105,7 +105,7 @@ export class RuntimeProviderAttemptObserver {
     });
   }
 
-  fail(error: unknown, retryable: boolean): void {
+  fail(error: unknown, retryable: boolean, retryDelayMs?: number): void {
     if (this.completed) return;
     this.completed = true;
     this.owner.logger.warn("provider_attempt_failed", {
@@ -113,6 +113,7 @@ export class RuntimeProviderAttemptObserver {
       attempt: this.attempt,
       latency_ms: Math.max(0, this.owner.now() - this.startedAt),
       retryable,
+      ...(retryDelayMs === undefined ? {} : { retry_delay_ms: retryDelayMs }),
       error,
       ...streamFields(this.snapshot),
     });

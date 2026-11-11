@@ -51,11 +51,17 @@ assistant 先落盘，再执行工具；进程在工具执行中退出时，repl
 
 ## Provider 与流式输出
 
-普通失败按 Runtime 的 attempt 预算重试，step number 不变，仅增加 attempt。timeout、连接故障、429 和可重试的 5xx 可进入重试；认证、权限、非法请求和 abort 不重试。错误分类与预算以 [Runtime](../../../packages/agent/runtime/src/engine/runtime.ts) 和 [Provider](../../../packages/agent/runtime/src/providers/provider.ts) 为准。
+普通请求最多尝试 3 次（含首次），step number 不变，仅增加 attempt。可重试的错误在约 1 秒、2 秒的指数退避基础上增加随机等待；等待可以取消。供应商给出 `Retry-After` 或 `retry-after-ms` 时，不能比它要求的时间更早重试；超过 60 秒等待上限则停止本轮自动重试，保留原错误和要求的等待时间。SDK 自身重试关闭，避免叠加预算。摘要沿用自己的次数和退避预算，也遵守服务端最短等待时间与 60 秒上限。
+
+OpenAI 同时检查 HTTP 状态与 `error.code/type`：暂时限流、过载和连接故障可重试；认证、权限、参数、额度或消费上限错误不重试。`content_filter` 等未完成原因按实际原因报错，`max_output_tokens` 单独记为 `length`。分类依据见 [OpenAI 官方错误说明](https://developers.openai.com/api/docs/guides/error-codes)，实现见 [错误分类](../../../packages/agent/runtime/src/providers/provider-errors.ts) 和 [重试等待](../../../packages/agent/runtime/src/providers/provider-retry.ts)。
+
+界面、会话错误记录和最终回复展示供应商的实际错误正文、错误码、HTTP 状态、可用的 request ID 及网络底层原因，只做必要脱敏与显式截断。分类标签用来决定恢复动作，不替代错误正文；摘要压缩失败同样保留具体的供应商原因。
+
+流式失败继续采用 Pi 式恢复：已收到的半截回复留在 transcript，下一次请求排除该失败消息；可重试错误等待后重新请求，不接着半截正文拼接，也不重跑此前步骤已完成的工具。手动停止不自动重试。
 
 context overflow 独立走一次强制 compaction；压缩成功且预算回到硬上限内，才允许再次请求。重复 overflow 或压缩失败终止 turn，不继续消耗普通重试预算。
 
-`FinalAnswerStreamer` 节流展示更新，维护同一 emit id 和单调 sequence；只有完整 provider response 成为 assistant message。thinking signature 和加密块可保留在模型历史，平台展示和日志只接收各自允许的内容。
+`FinalAnswerStreamer` 节流展示更新，维护同一 emit id 和单调 sequence。完整响应成为可回放的 assistant message；失败或停止时，已收到的内容以 `error` / `aborted` 状态保存，仅供历史展示。thinking signature 和加密块可保留在模型历史，平台展示和日志只接收各自允许的内容。
 
 ## 工具执行与暴露
 
