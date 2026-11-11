@@ -29,6 +29,11 @@ for (const suite of ["workspace-deletion", "session-titles", "conversation-conte
     const profile = mkdtempSync(resolve(tmpdir(), "lxe-renderer-test-"));
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
+    if (suite === "overview-pages") {
+      const guest = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "../../../desktop/src/main/team-skills-view.ts")],
+        outdir: profile, naming: "team-skills-view.cjs", target: "node", format: "cjs", external: ["electron"] });
+      expect(guest.success, guest.logs.join("\n")).toBe(true);
+    }
     const child = Bun.spawn([
       require(resolve(import.meta.dirname, "../../../desktop/node_modules/electron")),
       // Electron on Windows rejects arguments after a URL; keep the URL last.
@@ -44,7 +49,7 @@ for (const suite of ["workspace-deletion", "session-titles", "conversation-conte
       expect(line, `Renderer did not report completed scenarios\n${stdout}\n${stderr}`).toBeDefined();
       const report = JSON.parse(line!.slice("LXE_BEHAVIOR_RESULT=".length));
       expect(report.suite).toBe(suite);
-      expect(report.passed).toHaveLength({ "workspace-deletion": 7, "session-titles": 5, "conversation-content": 4, "conversation-window": 8, "dashboard-pages": 9, "navigation-rail": 8, "overview-pages": 3, "home-page": 3, "workbench-details": 3, markdown: 7, "streaming-markdown": 5, "session-workspace": 9, "app-actions": 7, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 10, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8 }[suite]);
+      expect(report.passed).toHaveLength({ "workspace-deletion": 7, "session-titles": 5, "conversation-content": 4, "conversation-window": 8, "dashboard-pages": 9, "navigation-rail": 8, "overview-pages": 4, "home-page": 3, "workbench-details": 3, markdown: 7, "streaming-markdown": 5, "session-workspace": 9, "app-actions": 7, "conversation-events": 4, dialog: 3, composer: 5, references: 13, readiness: 5, sidebar: 10, "windows-titlebar": 2, "windows-menu": 2, workspaces: 15, mermaid: 3, permissions: 10, updates: 4, "vietnam-settings": 8 }[suite]);
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null) { child.kill(); await child.exited; }

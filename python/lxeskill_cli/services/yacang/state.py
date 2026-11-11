@@ -1,4 +1,4 @@
-"""Only non-secret submission/cooldown records; authentication lives in memory."""
+"""Non-secret submission and cooldown records for Yacang exports."""
 from __future__ import annotations
 
 from contextlib import contextmanager

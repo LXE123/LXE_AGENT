@@ -22,10 +22,9 @@ export function RendererFailureView(): ReactNode {
       <div aria-hidden className="desktop-window-drag-region" />
       <section className="desktop-fatal-card">
         <div className="desktop-fatal-mark"><BrandMark title="LXE Agent" /></div>
-        <p className="desktop-eyebrow">LXE Agent Desktop</p>
         <h1>{t.title}</h1>
         <p>{t.description}</p>
-        <button className="desktop-primary-button" onClick={() => reloadDesktopRenderer()} type="button">
+        <button className="desktop-fatal-reload" onClick={() => reloadDesktopRenderer()} type="button">
           {t.reload}
         </button>
       </section>
@@ -44,7 +43,7 @@ export class DashboardRootErrorBoundary extends Component<
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
-    console.error("LXE Agent Renderer failed to start", error, info);
+    console.error("LXE Agent Renderer failed", error, info);
   }
 
   render(): ReactNode {

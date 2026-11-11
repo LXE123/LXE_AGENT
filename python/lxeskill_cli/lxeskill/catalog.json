@@ -2,9 +2,26 @@
   "protocol_version": "1",
   "entries": [
     {"name": "mabang_brazil_overseas_export", "module": "services.commands.mabang.brazil_overseas_export", "command_path": ["mabang", "brazil", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-reports-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "pending-transfers-within-3-months", "received-transfers-before-3-months"]}}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮巴西海外仓报表", "examples": ["lxeskill mabang brazil reports export --report inventory-sales"]}},
-    {"name": "mabang_brazil_order_import_generate", "module": "services.commands.mabang.brazil_order_import_generate", "command_path": ["mabang", "brazil", "order-import", "generate"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-brazil-order-import-generate"], "exposed": true, "timeout_ms": 300000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传巴西备货清单 XLSX，并使用附件保存后的真实绝对路径。"}}, "shipping_column": {"type": "string", "enum": ["AT", "AU", "AV", "AW", "AX", "AY", "AZ", "BA", "BB", "BC", "BD"], "description": "仅当最近海运日期并列时，指定其中一列。"}}, "required": ["input_xlsx"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "根据巴西备货清单生成马帮订单导入模板", "examples": ["lxeskill mabang brazil order-import generate --input-xlsx <巴西备货清单.xlsx>"]}},
+    {"name": "mabang_order_import_generate", "module": "services.commands.mabang.order_import_generate", "command_path": ["mabang", "order-import", "generate"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-order-import-generate"], "exposed": true, "timeout_ms": 300000, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"country": {"type": "string", "enum": ["brazil", "malaysia", "vietnam", "philippines", "indonesia"]}, "input_xlsx": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传对应国家的备货清单 XLSX，并使用附件保存后的真实绝对路径。"}}, "shipping_column": {"type": "string", "description": "巴西或越南指定已选运输方式及批次离当天最近的候选列；重复时用于消歧，不影响其他批次。"}, "air_shipping_column": {"type": "string", "description": "菲律宾普通空运离当天最近的日期有重复列时，指定候选列。"}, "sea_a_shipping_column": {"type": "string", "description": "菲律宾 A 海运离当天最近的日期有重复列时，指定候选列。"}, "sea_b_shipping_column": {"type": "string", "description": "菲律宾 B 海运离当天最近的日期有重复列时，指定候选列。"}}, "required": ["country", "input_xlsx"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "根据巴西、马来西亚、越南、菲律宾或印尼备货清单生成马帮订单导入模板", "examples": ["lxeskill mabang order-import generate --country vietnam --input-xlsx <越南备货清单.xlsx>"]}},
     {"name": "mabang_tms_export_run", "module": "services.commands.mabang_tms.export_run", "command_path": ["mabang-tms", "products", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-tms-products-export"], "exposed": true, "timeout_ms": 960000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"warehouse": {"type": "string", "enum": ["PH1", "VN1", "all"], "description": "PH1 菲律宾、VN1 越南或 all 当前账号全部仓库；按仓库分别生成保留原列的 SKU 汇总文件，Agent 必须先确认范围并显式传入。"}}, "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出马帮 TMS 商品、库存和销量", "examples": ["lxeskill mabang-tms products export --warehouse VN1"]}},
     {"name": "yacang_export_run", "module": "services.commands.yacang.export_run", "command_path": ["yacang", "reports", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["yacang-reports-export"], "exposed": true, "timeout_ms": 3600000, "deliver_artifacts_on_failure": true, "artifact_paths": [{"field": "artifacts[].path", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"report": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["inventory-sales", "inventory", "products"]}}, "warehouse": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["MY8801", "PH8805", "TH8802", "VN8806"]}}, "created_from": {"type": "string"}, "created_to": {"type": "string"}}, "required": ["report"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出雅仓报表", "examples": ["lxeskill yacang reports export --report inventory-sales --warehouse VN8806"]}},
+    {
+      "name": "yacang_login", "command_path": ["yacang", "login"], "positional": ["action"],
+      "visibility": "business", "session_mode": "none", "module": "services.commands.yacang.login",
+      "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["prepare", "submit", "status", "clear"], "description": "prepare 获取验证码图片；submit 提交验证码；status 查询本地登录态；clear 清除本地登录态。"},
+          "challenge_id": {"type": "string", "minLength": 1, "description": "仅 submit 使用，必填；来自 prepare 返回的挑战编号。"},
+          "captcha_code": {"type": "string", "minLength": 1, "maxLength": 128, "description": "仅 submit 使用，必填；当前图片中的验证码。"}
+        },
+        "required": ["action"], "additionalProperties": false,
+        "allOf": [{"if": {"properties": {"action": {"const": "submit"}}}, "then": {"required": ["challenge_id", "captcha_code"]}, "else": {"properties": {"challenge_id": false, "captcha_code": false}}}]
+      },
+      "artifact_paths": [{"field": "image_path", "role": "model_input"}],
+      "help": {"group": "replenishment", "section": "雅仓登录", "summary": "管理雅仓验证码登录与本地登录态", "examples": ["lxeskill yacang login prepare", "lxeskill yacang login submit --challenge-id <挑战ID> --captcha-code <验证码>", "lxeskill yacang login status", "lxeskill yacang login clear"]}
+    },
     {"name": "vietnam_replenishment_generate", "module": "services.commands.vietnam_replenishment.generate", "command_path": ["vietnam", "replenishment", "calculate"], "visibility": "business", "session_mode": "none", "owner_skills": ["vietnam-replenishment"], "exposed": true, "timeout_ms": 3600000, "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "input_schema": {"type": "object", "properties": {"sales_file": {"type": "string", "minLength": 1}, "inventory_file": {"type": "string", "minLength": 1}, "products_file": {"type": "string", "minLength": 1}, "template_file": {"type": "string", "minLength": 1, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传完整的东南亚越南备货九表 XLSX 模板，或使用已保存的当前模板。"}}}, "required": ["sales_file", "inventory_file", "products_file"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "计算越南补货并生成备货清单", "examples": ["lxeskill vietnam replenishment calculate --sales-file 销量.xlsx --inventory-file 库存.xlsx --products-file 商品.xlsx"]}},
     {"name": "shangman_goods_export", "command_path": ["shangman", "products", "export"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.goods_export", "owner_skills": ["shangman-products-export"], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "artifact_path", "role": "deliverable"}], "input_modes": ["flags"], "help": {"group": "replenishment", "section": "东南亚及巴西备货", "summary": "导出上马商品、库存和销量", "examples": ["lxeskill shangman products export"]}},
     {"name": "shangman_login_prepare", "command_path": ["shangman", "login", "prepare"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_prepare", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "artifact_paths": [{"field": "image_path", "role": "model_input"}], "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "准备登录并获取验证码", "examples": ["lxeskill shangman login prepare"]}},
@@ -22,20 +39,28 @@
       "timeout_ms": 600000,
       "exposed": true,
       "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
-    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status --store-id <店铺ID>"]}},
+    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status"]}},
     {
-      "name": "ziniao_page",
-      "command_path": ["browser", "page"],
-      "legacy_aliases": ["ziniao_page"],
+      "name": "ziniao_script_run",
+      "command_path": ["browser", "script", "run"],
       "visibility": "browser",
       "session_mode": "lxe_session",
       "handler": "browser",
       "owner_skills": ["ziniao-browser"],
-      "timeout_ms": 600000,
       "exposed": true,
-      "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "单个页面动作；与 steps 二选一，连续多步交互优先用 steps。交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动的紫鸟店铺 ID（open_store 使用的 store_id）。"}, "steps": {"type": "array", "minItems": 1, "maxItems": 20, "description": "批量页面动作：一次附着按顺序执行，与 action 互斥。连续交互（如 click→type→click）应合并为一个批；ref 来自上一次调用的 snapshot。CLI 用重复的 --steps 传入，每个值一个紧凑单行 JSON 对象。browser_vision 仅允许作为最后一步；某步失败则停止并返回已完成步骤与当前页面快照；批执行后自动附带最终页面快照。", "items": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "该步的页面动作。"}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action"], "additionalProperties": false}}, "full": {"type": "boolean", "description": "browser_snapshot 是否返回更完整的文本和元素快照。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["store_id"], "additionalProperties": false}
-    , "help": {"group": "common", "section": "浏览器操作", "summary": "读取或操作紫鸟浏览器页面", "examples": ["lxeskill browser page --store-id <店铺ID> --action browser_snapshot"]}},
+      "timeout_ms": 610000,
+      "artifact_paths": [{"field": "downloads[]", "role": "deliverable"}, {"field": "screenshots[]", "role": "deliverable"}],
+      "input_schema": {
+        "type": "object", "additionalProperties": false, "required": ["store_id", "script_file"],
+        "properties": {
+          "store_id": {"type": "string", "minLength": 1, "description": "已运行会话对应的紫鸟店铺 ID。"},
+          "script_file": {"type": "string", "minLength": 1, "description": "本机 Node.js 控制脚本路径（.js）。"},
+          "params_file": {"type": "string", "minLength": 1, "description": "传给控制脚本的 JSON 对象文件，省略时为 {}。"},
+          "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600, "description": "整次执行时限（秒），默认 180。"}
+        }
+      },
+      "help": {"group": "common", "section": "浏览器操作", "summary": "运行紫鸟浏览器自动化脚本", "examples": ["lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json"]}
+    },
     {
       "name": "mabang_auth_refresh",
       "command_path": ["mabang", "auth", "refresh"],
@@ -361,6 +386,10 @@
   "datasets": {
     "mabang_brazil_exports": {"dir": "mabang/brazil/exports", "holds": "巴西库存 XLSX 及调拨原始分批 XLS，按账号与运行隔离。"},
     "mabang_brazil_order_import": {"dir": "mabang/brazil/order_import", "holds": "根据巴西备货清单生成的马帮订单导入模板，每次运行独立保存。"},
+    "mabang_indonesia_order_import": {"dir": "mabang/indonesia/order_import", "holds": "根据印尼备货清单中各运输方式最近日期及黄标批次生成的马帮订单导入模板，每次运行独立保存。"},
+    "mabang_malaysia_order_import": {"dir": "mabang/malaysia/order_import", "holds": "根据马来西亚备货清单各运输方式最近日期及黄标批次生成的马帮订单导入模板，每次运行独立保存。"},
+    "mabang_philippines_order_import": {"dir": "mabang/philippines/order_import", "holds": "根据菲律宾备货清单各运输方式最近日期及黄标批次生成的马帮订单导入模板，每次运行独立保存。"},
+    "mabang_vietnam_order_import": {"dir": "mabang/vietnam/order_import", "holds": "根据用户上传的越南备货清单生成的马帮订单导入模板，每次运行独立保存。"},
     "mabang_tms_exports": {"dir": "mabang_tms/exports", "holds": "马帮 TMS 原始分批文件及各仓 SKU 汇总 XLSX，按账号与运行隔离。"},
     "yacang_exports": {"dir": "yacang/exports", "holds": "雅仓三类 XLSX，按账号摘要与本次运行隔离。库存动销下载后去掉末列创建日期，只保存最终文件；另两类原样交付。"},
     "vietnam_recommendations": {"dir": "vietnam/recommendations", "holds": "越南备货九表最终 XLSX；每次运行保存到独立目录，成功校验后交付。"},
@@ -388,7 +417,7 @@
     "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
     "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
-    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
+    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器自动化脚本归档的下载文件和页面截图，按会话和每次运行分目录。", "legacy_dirs": []},
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
   },
   "input_assets": {

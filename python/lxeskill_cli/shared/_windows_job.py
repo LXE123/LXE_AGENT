@@ -1,4 +1,4 @@
-"""Own one Office process tree, including children whose parent has already exited."""
+"""Own one subprocess tree, including children whose parent has already exited."""
 
 import ctypes
 from ctypes import wintypes
@@ -34,7 +34,7 @@ class _ExtendedLimits(ctypes.Structure):
     ]
 
 
-class OfficeJob:
+class ProcessJob:
     def __init__(self, *, existing_name: str | None = None) -> None:
         self.api = ctypes.WinDLL("kernel32", use_last_error=True)
         for name, result, args in (
@@ -48,7 +48,7 @@ class OfficeJob:
         ):
             function = getattr(self.api, name)
             function.restype, function.argtypes = result, args
-        self.name = existing_name or f"Local\\LXEOffice-{uuid.uuid4()}"
+        self.name = existing_name or f"Local\\LXEWorker-{uuid.uuid4()}"
         self.handle = (
             self.api.OpenJobObjectW(0x0001, False, self.name) if existing_name
             else self.api.CreateJobObjectW(None, self.name)

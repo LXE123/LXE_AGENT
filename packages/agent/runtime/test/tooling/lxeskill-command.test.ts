@@ -56,3 +56,16 @@ test("attributes both replenishment versions through the real CLI contract", asy
     skill: "amazon-replenishment", command: "replenish calculate",
   }));
 });
+
+test("attributes all Yacang login actions through one real CLI command", async () => {
+  const stats = new TurnStatistics({ directory: root, commandSkills: () => queryLxeSkillCommandSkills({
+    cwd: root, environment: { ...process.env, LXESKILL_SKILL_SCOPE: "shangman-login" },
+    executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
+  }) });
+  for (const action of ["prepare", "submit", "status", "clear"]) {
+    stats.observe("exec", { command: `lxeskill yacang login ${action}` });
+  }
+  expect((await stats.snapshot()).executions).toMatchObject(Array(4).fill({
+    skill: "shangman-login", command: "yacang login",
+  }));
+});

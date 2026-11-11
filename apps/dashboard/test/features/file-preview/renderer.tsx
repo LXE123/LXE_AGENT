@@ -2,6 +2,7 @@ import { UnifiedConversationRow } from "../../../src/features/sessions/view";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setDashboardTransportForTests } from "../../../src/api/client";
 import { SentAttachmentList } from "../../../src/features/sessions/sent-attachments";
+import { DraftImageAttachment } from "../../../src/features/sessions/draft-image-attachment";
 import { UserReferenceText } from "../../../src/features/sessions/UserReferenceText";
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -10,11 +11,14 @@ import { readingState } from "../../../src/features/file-preview/reading-state";
 import { FilePreviewError, setFileBridgeForTests } from "../../../src/features/file-preview/api";
 import type { DesktopFilesApi, FileMetadata, SessionFileRef } from "@lxe/desktop-protocol";
 import "../../../src/styles.css";
+import "../../../src/desktop/windows-titlebar.css";
 const imageSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="960" height="540" fill="#dbeafe"/><rect x="80" y="80" width="800" height="380" rx="28" fill="#2563eb"/><text x="480" y="270" text-anchor="middle" fill="white" font-size="48">Image preview</text></svg>';
+const smallImageSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="18" fill="#dbeafe"/><circle cx="48" cy="48" r="27" fill="#2563eb"/></svg>';
 setDashboardTransportForTests({ call: async call => {
   if (call.operation === "sessions.attachment.preview") {
     calls.push(`attachment:${call.input.variant}`);
-    return { data_url: `data:image/svg+xml,${encodeURIComponent(imageSvg)}`, source: "history" };
+    const svg = call.input.attachment_id === "small.svg" ? smallImageSvg : imageSvg;
+    return { data_url: `data:image/svg+xml,${encodeURIComponent(svg)}`, source: "history" };
   }
   throw new Error(`Unexpected dashboard operation: ${call.operation}`);
 } } as import("@lxe/desktop-protocol").DashboardTransport);
@@ -75,7 +79,11 @@ function Fixture() {
   (window as any).previewFixture = { session, calls, pending, workers, watches, cards: setCards, images: setImages, slowPrepare: (value: boolean) => { slowPrepare = value; }, fault: (path: string, kind?: "not_found" | "permission_denied") => { if (kind) faults.set(path, kind); else faults.delete(path); }, appFailure: (value: boolean) => { appFailure = value; }, openFailure: (value: boolean) => { openFailure = value; }, removeTreeFile: () => { removedTreeFile = true; version = String(Number(version) + 1); }, diagnostics: () => ({ reading: readingState("first", "first文档.md"), scroll: document.querySelector(".file-text-scroll")?.scrollTop, visible: document.visibilityState, focused: document.hasFocus() }), slow: (value: boolean) => { slow = value; }, change: () => { version = String(Number(version) + 1); }, switchSession: () => setSession(s => s === "first" ? "second" : "first") };
   return <FilePreviewLayout sessionId={session}><Controls session={session} />{images ? <div id="chat-images" style={{ padding: 20, minWidth: 260 }}>
     <div id="chat-image-card"><UnifiedConversationRow row={{ id: "test-image", kind: "artifacts", groupId: "test", turnId: "test", createdAt: 1, artifacts: [{ artifact_id: "截图示例.svg", turn_id: "test", tool_call_id: "fixture", name: "截图示例.svg" }] }} expanded={false} onToggle={() => {}} onOpenFile={async () => {}} onRevealFile={async () => {}} onOpenAttachment={async () => {}} attachmentSessionId={session} /></div>
-    <SentAttachmentList key={session} attachments={[{ attachment_id: "图.png", name: "已发送图片.png", media_type: "image/png", size_bytes: 100 }]} sessionId={session} onOpen={async () => { throw new Error("Unexpected system open"); }} />
+    <SentAttachmentList key={session} attachments={[
+      { attachment_id: "图.png", name: "已发送图片.png", media_type: "image/png", size_bytes: 100 },
+      { attachment_id: "small.svg", name: "工作区截图-5c114fa3-b30d-45cb-bb97-5af5c6ffdc52-3856bd99-0732-41e9-be7c-5f12888b6c24.svg", media_type: "image/svg+xml", size_bytes: 100 },
+    ]} sessionId={session} onOpen={async () => { throw new Error("Unexpected system open"); }} />
+    <DraftImageAttachment attachment={{ attachment_id: "draft-image", name: "待发送.svg", media_type: "image/svg+xml", size_bytes: 100, preview_data_url: `data:image/svg+xml,${encodeURIComponent(smallImageSvg)}` }} />
     <UserReferenceText text="@截图示例.svg" />
   </div> : null}{cards ? <div id="test-file-cards" style={{ padding: 20, maxWidth: 520 }}><p>测试夹具 · 真实生产文件卡片组件</p><UnifiedConversationRow row={{ id: "test-artifacts", kind: "artifacts", groupId: "test", turnId: "test", createdAt: 1, artifacts: ["book.xlsx", "doc.pdf", "文档.md"].map(name => ({ artifact_id: name, turn_id: "test", tool_call_id: "fixture", name: name === "book.xlsx" ? "销售统计-包含所有区域和部门的最终版本.xlsx" : name })) }} expanded={false} onToggle={() => {}} onOpenFile={async () => {}} onRevealFile={async () => {}} onOpenAttachment={async () => {}} attachmentSessionId={session} /></div> : null}</FilePreviewLayout>;
 }
