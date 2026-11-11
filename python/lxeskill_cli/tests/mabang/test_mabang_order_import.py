@@ -42,30 +42,31 @@ def invoke(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize(("country", "override", "changes", "expected"), [
-    ("brazil", None, {"F1": "sku"}, [("BR261105-H", "BD", "11/6海运", "2026-11-06", [10, None, 30])]),
+    ("brazil", None, {"F1": "sku"}, [("BR261106-H", "BD", "11/6海运", "2026-11-06", [10, None, 30])]),
     ("malaysia", None, {}, [
-        ("MY261105A-H", 2, "11/4A海运", "2026-11-04", [7, None, None]),
-        ("MY261105B-H", 7, "11/4B海运", "2026-11-04", [None, None, 9]),
-        ("MY261105-K", 8, "11/4空运", "2026-11-04", [5, None, 3]),
+        ("MY261104A-H", 2, "11/4A海运", "2026-11-04", [7, None, None]),
+        ("MY261104B-H", 7, "11/4B海运", "2026-11-04", [None, None, 9]),
+        ("MY261104-K", 8, "11/4空运", "2026-11-04", [5, None, 3]),
     ]),
-    ("vietnam", None, {}, [("VN261105-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
-                            ("VN261105-H", 43, "10/30海运", "2026-10-30", [3, 4, None])]),
-    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261105-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
-                                               ("VN261105-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
+    ("vietnam", None, {}, [("VN261104-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
+                            ("VN261030-H", 43, "10/30海运", "2026-10-30", [3, 4, None])]),
+    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261104-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
+                                               ("VN261106-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
     ("philippines", None, {}, [
         ("PH261105-K", 41, "11/5空运", "2026-11-05", [10, None, None]),
-        ("PH261105A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
+        ("PH261104A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
     ]),
     ("indonesia", None, {}, [
-        ("IN261105-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
-        ("IN261105-H", 59, "11/6海运", "2026-11-06", [None, 8, 4]),
+        ("IN261106-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
+        ("IN261106-H", 59, "11/6海运", "2026-11-06", [None, 8, 4]),
     ]),
 ])
 def test_cli_generates_country_artifacts(invoke, country, override, changes, expected):
     code, result, _ = invoke(country, changes, shipping_column=override)
     data = result["data"]
     assert code == 0 and result["ok"] and data["success"]
-    assert (data["status"], data["country"], data["sku_count"]) == ("completed", country, 3)
+    assert (data["status"], data["country"], data["sku_count"]) == (
+        "completed", country, sum(q is not None for q in expected[0][4]))
     assert data["validation"]["status"] == "passed"
     assert data["order_ids"] == [item[0] for item in expected]
     assert result["files"] == [item["path"] for item in data["artifacts"]]
@@ -87,18 +88,19 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
         assert path.is_absolute() and path.name == filename
         assert tuple(artifact[key] for key in ("order_id", "shipping_column", "shipping_header", "shipping_date")) == (
             order_id, column, header, day)
-        assert artifact["sku_count"] == 3
+        expected_rows = [(sku, 0, q) for sku, q in zip(["SKU-A", "SKU-B", "SKU-A"], quantities) if q is not None]
+        assert artifact["sku_count"] == len(expected_rows)
         assert artifact["quantity_value_count"] == sum(q is not None for q in quantities)
         if country == "vietnam":
             assert artifact["shipping_mode"] == ("陆运" if order_id.endswith("-L") else "海运")
         with open_sheet(path) as sheet, open_sheet(TEMPLATE) as template:
             assert sheet.title == "订单标准模板"
-            assert sheet.max_row == 4 and sheet.auto_filter.ref == "A1:AE4"
-            assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], quantities))
-            assert [(sheet.cell(r, 1).value, sheet.cell(r, 2).value) for r in range(2, 5)] == [(order_id, order_id)] * 3
+            assert sheet.max_row == len(expected_rows) + 1 and sheet.auto_filter.ref == f"A1:AE{len(expected_rows) + 1}"
+            assert rows(sheet) == expected_rows
+            assert [(sheet.cell(r, 1).value, sheet.cell(r, 2).value) for r in range(2, sheet.max_row + 1)] == [(order_id, order_id)] * len(expected_rows)
             assert [sheet[f"{c}2"].value for c in ("E", "F", "G", "J", "M")] == [
                 "SHEN", "深圳", "中国", 111111, "深圳龙华"]
-            assert all(sheet.cell(r, 4)._style == template["D2"]._style for r in range(2, 5))
+            assert all(sheet.cell(r, 4)._style == template["D2"]._style for r in range(2, sheet.max_row + 1))
 
 
 @pytest.mark.parametrize(("country", "changes", "sheet_name", "error"), [
@@ -133,7 +135,7 @@ def test_malaysia_chooses_closest_date_group_even_when_a_later_group_exists(invo
     assert [a["field"] for a in artifacts] == ["sea_a", "sea_b", "air"]
     assert [a["shipping_column"] for a in artifacts] == [2, 7, 8]
     assert [a["shipping_date"] for a in artifacts] == ["2026-11-04"] * 3
-    for artifact, quantity in zip(artifacts, [7, None, 5], strict=True):
+    for artifact, quantity in zip(artifacts, [7, 9, 5], strict=True):
         with open_sheet(artifact["path"]) as sheet:
             assert sheet["T2"].value == quantity
 
@@ -184,38 +186,38 @@ def test_philippines_rejects_override_outside_closest_candidates(invoke):
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
-def test_philippines_keeps_all_skus_when_a_transport_has_no_quantity(invoke):
+def test_philippines_keeps_no_skus_when_a_transport_has_no_quantity(invoke):
     code, result, _ = invoke("philippines", {"AO2": None, "AO3": 0, "AO4": None})
     assert code == 0 and result["ok"]
     air = result["data"]["artifacts"][0]
-    assert air["sku_count"] == 3 and air["quantity_value_count"] == 0
+    assert air["sku_count"] == 0 and air["quantity_value_count"] == 0
     with open_sheet(air["path"]) as sheet:
-        assert rows(sheet) == [("SKU-A", 0, None), ("SKU-B", 0, None), ("SKU-A", 0, None)]
+        assert rows(sheet) == []
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
     # Dates closer to today win over later dates.
     ({"BB1": "11/20空运", "BG1": "11/20海运", "BC1": "11/5A海运", "BD1": "11/5B海运"},
-     [("air", "IN261105-K", 53, [None, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
+     [("air", "IN261103-K", 53, [None, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
       ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
     # Older ordinary sea columns do not compete with the closest A/B group.
     ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运", "BD1": "11/6B海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
-      ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea_a", "IN261106A-H", 55, [20, None, None]),
+      ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
     ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None])]),
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea_a", "IN261106A-H", 55, [20, None, None])]),
     ({"BF1": "11/2海运", "BG1": "11/1海运", "BD1": "11/6B海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
     # When the closest date has ordinary and both A/B, all three are exported.
     ({"BC1": "11/6A海运", "BD1": "11/6B海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4]),
-      ("sea_a", "IN261105A-H", 55, [20, None, None]), ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4]),
+      ("sea_a", "IN261106A-H", 55, [20, None, None]), ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
     # Duplicated older columns have no bearing on the selected closest date.
     ({"BE1": "11/4海运"},
-     [("air", "IN261105-K", 54, [10, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
-    # Even an entirely empty air shipment preserves every source SKU.
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4])]),
+    # An entirely empty air shipment contains no SKU rows.
     ({"BB2": None, "BB3": 0, "BB4": None},
-     [("air", "IN261105-K", 54, [None, None, None]), ("sea", "IN261105-H", 59, [None, 8, 4])]),
+     [("air", "IN261106-K", 54, [None, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4])]),
 ])
 def test_indonesia_exports_all_modes_at_closest_sea_date(invoke, changes, expected):
     code, result, _ = invoke("indonesia", changes)
@@ -225,17 +227,18 @@ def test_indonesia_exports_all_modes_at_closest_sea_date(invoke, changes, expect
         (field, order, column) for field, order, column, _ in expected]
     for artifact, (_, order, _, quantities) in zip(artifacts, expected, strict=True):
         assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
-        assert artifact["sku_count"] == 3
+        expected_rows = [(sku, 0, q) for sku, q in zip(["SKU-A", "SKU-B", "SKU-A"], quantities) if q is not None]
+        assert artifact["sku_count"] == len(expected_rows)
         with open_sheet(artifact["path"]) as sheet:
-            assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], quantities))
+            assert rows(sheet) == expected_rows
 
 
 @pytest.mark.parametrize(("changes", "expected_id", "expected_column", "expected_quantities"), [
-    ({"BA1": None, "BB1": None}, "IN261105-H", 59, [None, 8, 4]),
+    ({"BA1": None, "BB1": None}, "IN261106-H", 59, [None, 8, 4]),
     ({"BC1": None, "BD1": None, "BE1": None, "BF1": None, "BG1": None},
-     "IN261105-K", 54, [10, None, None]),
+     "IN261106-K", 54, [10, None, None]),
     ({"BA1": None, "BB1": None, "BC1": None, "BD1": None, "BE1": None, "BF1": None,
-      "BG1": None, "BH1": "11/7陆运", "BH2": 17}, "IN261105-L", 60, [17, None, None]),
+      "BG1": None, "BH1": "11/7陆运", "BH2": 17}, "IN261107-L", 60, [17, None, None]),
 ])
 def test_indonesia_allows_one_transport_mode(invoke, changes, expected_id, expected_column, expected_quantities):
     code, result, _ = invoke("indonesia", changes)
@@ -245,7 +248,7 @@ def test_indonesia_allows_one_transport_mode(invoke, changes, expected_id, expec
     assert (artifacts[0]["order_id"], artifacts[0]["shipping_column"]) == (expected_id, expected_column)
     assert Path(artifacts[0]["path"]).name == f"印尼马帮订单导入模板-{expected_id}.xlsx"
     with open_sheet(artifacts[0]["path"]) as sheet:
-        assert rows(sheet) == list(zip(["SKU-A", "SKU-B", "SKU-A"], [0, 0, 0], expected_quantities))
+        assert rows(sheet) == [(sku, 0, q) for sku, q in zip(["SKU-A", "SKU-B", "SKU-A"], expected_quantities) if q is not None]
 
 
 def test_indonesia_each_transport_mode_selects_its_own_closest_date(invoke):
@@ -254,14 +257,14 @@ def test_indonesia_each_transport_mode_selects_its_own_closest_date(invoke):
     assert code == 0 and result["ok"]
     artifacts = result["data"]["artifacts"]
     assert {a["order_id"]: (a["shipping_column"], a["shipping_date"]) for a in artifacts} == {
-        "IN261105-K": (53, "2026-11-03"),
-        "IN261105-H": (58, "2026-11-04"),
-        "IN261105-L": (60, "2026-11-20"),
+        "IN261103-K": (53, "2026-11-03"),
+        "IN261104-H": (58, "2026-11-04"),
+        "IN261120-L": (60, "2026-11-20"),
     }
     for artifact in artifacts:
-        assert artifact["sku_count"] == 3
         with open_sheet(artifact["path"]) as sheet:
-            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+            assert artifact["sku_count"] == len(rows(sheet))
+            assert all(item[2] is not None for item in rows(sheet))
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
@@ -280,9 +283,13 @@ def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes,
     assert len(artifacts) == len(expected) + 1  # the existing closest air column
     for order, artifact in sea.items():
         assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
-        assert artifact["sku_count"] == 3
+        expected_rows = {
+            59: [("SKU-B", 0, 8), ("SKU-A", 0, 4)],
+            55: [("SKU-A", 0, 20)], 56: [("SKU-B", 0, 22)], 60: [("SKU-A", 0, 33)],
+        }[artifact["shipping_column"]]
+        assert artifact["sku_count"] == len(expected_rows)
         with open_sheet(artifact["path"]) as sheet:
-            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+            assert rows(sheet) == expected_rows
 
 
 def test_indonesia_batches_apply_to_air_and_land_as_well(invoke):
@@ -291,11 +298,11 @@ def test_indonesia_batches_apply_to_air_and_land_as_well(invoke):
     assert code == 0 and result["ok"]
     artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
     assert {order: item["shipping_column"] for order, item in artifacts.items()} == {
-        "IN261105A-K": 60, "IN261105B-L": 61, "IN261105-H": 59,
+        "IN261105A-K": 60, "IN261109B-L": 61, "IN261106-H": 59,
     }
-    for order, amount in (("IN261105A-K", 21), ("IN261105B-L", 34)):
+    for order, amount in (("IN261105A-K", 21), ("IN261109B-L", 34)):
         with open_sheet(artifacts[order]["path"]) as sheet:
-            assert rows(sheet) == [("SKU-A", 0, amount), ("SKU-B", 0, None), ("SKU-A", 0, None)]
+            assert rows(sheet) == [("SKU-A", 0, amount)]
 
 
 @pytest.mark.parametrize(("mode", "code", "field"), [
@@ -310,16 +317,16 @@ def test_indonesia_unbatched_and_abc_batches_are_distinct_for_each_mode(invoke, 
     result_code, result, _ = invoke("indonesia", changes)
     assert result_code == 0 and result["ok"]
     artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
-    assert set(artifacts) == {f"IN261105{batch}-{code}" for batch in ("", "A", "B", "C")}
+    assert set(artifacts) == {f"IN261106{batch}-{code}" for batch in ("", "A", "B", "C")}
     for batch, quantity in zip(("", "A", "B", "C"), (11, 22, 33, 44), strict=True):
-        order = f"IN261105{batch}-{code}"
+        order = f"IN261106{batch}-{code}"
         artifact = artifacts[order]
         assert artifact["field"] == (f"{field}_{batch.lower()}" if batch else field)
         assert artifact["shipping_mode"] == f"{batch}{mode}"
-        assert artifact["sku_count"] == 3
+        expected_rows = [("SKU-A", 0, quantity)] + ([("SKU-B", 0, 22)] if batch == "C" else [])
+        assert artifact["sku_count"] == len(expected_rows)
         with open_sheet(artifact["path"]) as sheet:
-            assert rows(sheet)[0] == ("SKU-A", 0, quantity)
-            assert [item[0] for item in rows(sheet)] == ["SKU-A", "SKU-B", "SKU-A"]
+            assert rows(sheet) == expected_rows
 
 
 @pytest.mark.parametrize("header", ["海运/空运合计", "海运7/30天销量"])
@@ -327,7 +334,7 @@ def test_indonesia_ignores_non_date_headers(invoke, header):
     code, result, _ = invoke("indonesia", {"BH1": header})
     assert code == 0 and result["ok"]
     assert [(item["order_id"], item["shipping_column"]) for item in result["data"]["artifacts"]] == [
-        ("IN261105-K", 54), ("IN261105-H", 59),
+        ("IN261106-K", 54), ("IN261106-H", 59),
     ]
 
 
@@ -385,15 +392,15 @@ def test_four_countries_export_each_transport_closest_date_and_all_batches(invok
     assert code == 0 and result["ok"]
     artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
     expected = {
-        f"{prefix}261105-L": ("11/6陆运", 2), f"{prefix}261105A-L": ("11/6A陆运", 3),
-        f"{prefix}261105-K": ("11/5空运", 4), f"{prefix}261105-H": ("11/8海运", 6),
-        f"{prefix}261105B-H": ("11/8B海运", 7),
+        f"{prefix}261106-L": ("11/6陆运", 2), f"{prefix}261106A-L": ("11/6A陆运", 3),
+        f"{prefix}261105-K": ("11/5空运", 4), f"{prefix}261108-H": ("11/8海运", 6),
+        f"{prefix}261108B-H": ("11/8B海运", 7),
     }
     assert set(artifacts) == set(expected)
     for order, (header, quantity) in expected.items():
         assert artifacts[order]["shipping_header"] == header
         with open_sheet(artifacts[order]["path"]) as sheet:
-            assert rows(sheet) == [("SKU-A", 0, quantity), ("SKU-B", 0, None), ("SKU-A", 0, None)]
+            assert rows(sheet) == [("SKU-A", 0, quantity)]
 
 
 @pytest.mark.parametrize(("country", "prefix", "mode", "suffix"), [
@@ -404,7 +411,7 @@ def test_four_countries_allow_a_single_transport(invoke, country, prefix, mode, 
     changes = unified_headers(country, {"BJ": (f"11/6C{mode}", 8)})
     code, result, _ = invoke(country, changes)
     assert code == 0 and result["ok"]
-    assert result["data"]["order_ids"] == [f"{prefix}261105C-{suffix}"]
+    assert result["data"]["order_ids"] == [f"{prefix}261106C-{suffix}"]
 
 
 @pytest.mark.parametrize("country", ["brazil", "vietnam", "philippines"])

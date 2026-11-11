@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 from openpyxl.styles import Color, PatternFill
+from openpyxl.utils import get_column_letter
 
 from services.mabang.order_import import country_rules
-from order_import_test_helpers import TEMPLATE, open_sheet
+from services.mabang.order_import.workbook import OrderImportWorkbookError
+from order_import_test_helpers import LAYOUTS, TEMPLATE, open_sheet, rows, source_workbook
 
 
 TODAY = date(2026, 11, 5)
@@ -119,11 +121,83 @@ def test_xlsx_output_uses_nearest_and_yellow_columns_without_collisions(tmp_path
     )
 
     assert {item["order_id"]: item["shipping_header"] for item in artifacts} == {
-        "IN261105-H": "11/5海运", "IN261105A-H": "11/5A海运", "IN261105B-H": "11/4B海运",
+        "IN261105-H": "11/5海运", "IN261105A-H": "11/5A海运", "IN261104B-H": "11/4B海运",
     }
     assert len({item["output_xlsx"] for item in artifacts}) == 3
     for artifact in artifacts:
         with open_sheet(Path(artifact["output_xlsx"])) as output:
-            assert output["T2"].value == {"IN261105-H": 2, "IN261105A-H": 5, "IN261105B-H": 4}[
+            assert output["T2"].value == {"IN261105-H": 2, "IN261105A-H": 5, "IN261104B-H": 4}[
                 artifact["order_id"]
             ]
+
+
+@pytest.mark.parametrize(("country", "prefix"), [
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"),
+    ("philippines", "PH"), ("indonesia", "IN"),
+])
+def test_selected_date_and_nonempty_quantities_determine_each_file(tmp_path, country, prefix):
+    changes = {f"{get_column_letter(col)}1": None for col in LAYOUTS[country][2]}
+    changes.update({"BJ1": "11/4海运", "BJ2": 10, "BJ3": None, "BJ4": 0,
+                    "BK1": "11/3A海运", "BK2": None, "BK3": 25, "BK4": 30})
+    source = source_workbook(tmp_path / "source.xlsx", country, changes)
+    with open_sheet(source) as sheet:
+        sheet["BK1"].fill = YELLOW
+        sheet.parent.save(source)
+
+    artifacts = country_rules.generate_order_workbooks(
+        country, source, tmp_path / "output", today=TODAY, template_path=TEMPLATE,
+    )
+
+    expected = {
+        f"{prefix}261104-H": ("11/4海运", [("SKU-A", 0, 10)]),
+        f"{prefix}261103A-H": ("11/3A海运", [("SKU-B", 0, 25), ("SKU-A", 0, 30)]),
+    }
+    assert {item["order_id"] for item in artifacts} == set(expected)
+    for artifact in artifacts:
+        header, expected_rows = expected[artifact["order_id"]]
+        assert artifact["shipping_header"] == header
+        assert artifact["sku_count"] == artifact["quantity_value_count"] == len(expected_rows)
+        with open_sheet(artifact["output_xlsx"]) as sheet:
+            assert rows(sheet) == expected_rows
+            assert [(sheet.cell(i, 1).value, sheet.cell(i, 2).value)
+                    for i in range(2, sheet.max_row + 1)] == [(artifact["order_id"],) * 2] * len(expected_rows)
+
+
+def test_order_date_uses_selected_year_across_new_year(tmp_path):
+    changes = {f"{get_column_letter(col)}1": None for col in LAYOUTS["brazil"][2]}
+    changes.update({"BJ1": "12/31海运", "BJ2": 10})
+    source = source_workbook(tmp_path / "source.xlsx", "brazil", changes)
+
+    artifacts = country_rules.generate_order_workbooks(
+        "brazil", source, tmp_path / "output", today=date(2027, 1, 1), template_path=TEMPLATE,
+    )
+
+    assert [(item["order_id"], item["shipping_date"]) for item in artifacts] == [
+        ("BR261231-H", "2026-12-31")
+    ]
+
+
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+def test_unselected_ambiguous_yellow_column_does_not_block_closer_batch(country):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet["A1"], sheet["B1"], sheet["C1"] = "1/1海运", "7/2A海运", "1/1A海运"
+    sheet["B1"].fill = YELLOW
+
+    selected = country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1))
+
+    assert {field: item.header for field, item in selected.items()} == {
+        "sea": "1/1海运", "sea_a": "1/1A海运",
+    }
+    workbook.close()
+
+
+def test_selected_yellow_column_with_ambiguous_year_still_fails():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet["A1"], sheet["B1"] = "1/1海运", "7/2A海运"
+    sheet["B1"].fill = YELLOW
+
+    with pytest.raises(OrderImportWorkbookError, match="B1.*7/2A海运.*无法确定年份"):
+        country_rules.select_shipping_columns("indonesia", sheet, date(2028, 1, 1))
+    workbook.close()

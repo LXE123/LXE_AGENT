@@ -42,9 +42,7 @@ def generate_order_workbook(
     order_id: str,
     template_path: str | Path,
 ) -> dict[str, Any]:
-    """Write every input SKU row into a Mabang template and validate the result."""
-    if not rows:
-        raise OrderImportWorkbookError("备货清单没有非空 SKU")
+    """Write selected SKU rows into a Mabang template and validate the result."""
     template = Path(template_path)
     if not template.is_file() or template.suffix.lower() != ".xlsx":
         raise OrderImportWorkbookError("马帮订单导入模板不存在或不是 XLSX 文件")

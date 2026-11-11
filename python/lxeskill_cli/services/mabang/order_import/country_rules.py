@@ -105,7 +105,7 @@ def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[Shippin
             field += f"_{batch.lower()}"
         shipping_date = nearest_occurrence(
             int(match.group("month")), int(match.group("day")), today,
-            country=rule.name, label=f"{cell.coordinate}: {label}",
+            country=rule.name, label=f"{cell.coordinate}: {label}", defer_year_tie=True,
         )
         candidates.append(ShippingCandidate(cell.column, label, shipping_date, field, _is_yellow_header(cell)))
     return candidates
@@ -192,7 +192,13 @@ def select_shipping_columns(
         if match is None:
             raise OrderImportWorkbookError(f"指定的运输列 {column} 不是离当天最近的候选列")
         overrides[match.field] = column
-    return _select_nearest_per_transport(rule, candidates, overrides, today)
+    selected = _select_nearest_per_transport(rule, candidates, overrides, today)
+    for candidate in selected.values():
+        nearest_occurrence(
+            candidate.shipping_date.month, candidate.shipping_date.day, today,
+            country=rule.name, label=f"{get_column_letter(candidate.column)}1: {candidate.header}",
+        )
+    return selected
 
 
 def generate_order_workbooks(
@@ -224,10 +230,10 @@ def generate_order_workbooks(
     artifacts: list[dict[str, Any]] = []
     for field, candidate in selected.items():
         _, suffix = _transport_output(field)
-        order_id = f"{rule.prefix}{today:%y%m%d}{suffix}"
+        order_id = f"{rule.prefix}{candidate.shipping_date:%y%m%d}{suffix}"
         output = Path(output_directory) / rule.filename.format(order_id=order_id)
         result = generate_order_workbook(
-            [(sku, quantities[field]) for sku, quantities in rows],
+            [(sku, quantities[field]) for sku, quantities in rows if quantities[field] is not None],
             output,
             order_id=order_id,
             template_path=template_path,
