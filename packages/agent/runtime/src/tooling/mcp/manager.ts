@@ -1,11 +1,14 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "../registry";
 import { McpLoginRequired, OfficialMcpConnector, type McpOAuthChallenge } from "./connector";
 import { usesMcpOAuth } from "./config";
 import { adaptMcpTools } from "./tool-adapter";
 import { reserveMcpNamespace } from "./naming";
-import { mcpFailureText, withTimeout } from "./support";
+import { isTransientMcpHttpError, mcpFailureText, withTimeout } from "./support";
 import type { McpConfig, McpConnection, McpConnectionState, McpConnector, McpServerConfig, McpServerStatus } from "./types";
+
+const HTTP_STARTUP_RETRY_DELAYS_MS = [250, 1_000];
 
 interface ServerEntry {
   config: McpServerConfig;
@@ -171,6 +174,31 @@ export class McpManager {
     return entry.cleanup;
   }
 
+  private async connectWithRetries(entry: ServerEntry, signal: AbortSignal): Promise<McpConnection> {
+    const delays = entry.config.transport === "streamable-http" ? HTTP_STARTUP_RETRY_DELAYS_MS : [];
+    for (let attempt = 0; ; attempt++) {
+      signal.throwIfAborted();
+      try {
+        return await withTimeout(async attemptSignal => {
+          const result = await this.connector.connect(entry.config, attemptSignal);
+          if (attemptSignal.aborted) {
+            await this.close(entry, result);
+            attemptSignal.throwIfAborted();
+          }
+          return result;
+        }, entry.config.startupTimeoutMs, `MCP server ${entry.config.name} startup`, signal);
+      } catch (error) {
+        const delayMs = delays[attempt];
+        if (signal.aborted || delayMs === undefined || !isTransientMcpHttpError(error)) throw error;
+        this.logger.warn("mcp_startup_retry", {
+          server_name: entry.config.name, failed_attempt: attempt + 1, retry_delay_ms: delayMs,
+          error: mcpFailureText(error),
+        });
+        await sleep(delayMs, undefined, { signal });
+      }
+    }
+  }
+
   private connect(entry: ServerEntry, registry: ToolRegistry): Promise<void> {
     if (entry.pending) return entry.pending.promise;
     const generation = ++entry.generation;
@@ -184,14 +212,7 @@ export class McpManager {
       await cleanup;
       if (!current()) return;
       try {
-        const connection = await withTimeout(async signal => {
-          const result = await this.connector.connect(entry.config, signal);
-          if (signal.aborted) {
-            await this.close(entry, result);
-            signal.throwIfAborted();
-          }
-          return result;
-        }, entry.config.startupTimeoutMs, `MCP server ${entry.config.name} startup`, controller.signal);
+        const connection = await this.connectWithRetries(entry, controller.signal);
         if (!current()) { await this.close(entry, connection); return; }
         entry.connection = connection;
         entry.unsubscribe = connection.onClose?.(() => {

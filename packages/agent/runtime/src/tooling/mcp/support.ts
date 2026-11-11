@@ -1,4 +1,4 @@
-import { ProtocolError, SdkError } from "@modelcontextprotocol/client";
+import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
 
 export const mapping = (value: unknown): Record<string, unknown> =>
@@ -8,6 +8,18 @@ export const mapping = (value: unknown): Record<string, unknown> =>
 
 export const stringMapping = (value: unknown): Record<string, string> =>
   Object.fromEntries(Object.entries(mapping(value)).map(([key, item]) => [key, String(item ?? "")]));
+
+/** Match Pi's HTTP startup retry policy using actual error types, never message text. */
+export const isTransientMcpHttpError = (error: unknown): boolean => {
+  if (error instanceof SdkHttpError) {
+    return error.status === 408 || error.status === 429 || (error.status >= 500 && error.status !== 501);
+  }
+  // The SDK wraps a failed server/discover fetch, but preserves the network cause.
+  if (error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed) {
+    return error.cause instanceof TypeError;
+  }
+  return error instanceof TypeError;
+};
 
 export const mcpFailureText = (error: unknown): string => {
   let observed = error instanceof Error ? error.message : String(error);

@@ -278,7 +278,8 @@ for (const status of [401, 403, 500]) {
       expect(error).toContain(`actual fixture failure ${status}`);
       expect(error).toContain("[redacted]");
       expect(error).not.toContain("private-value");
-      expect(methods).toEqual(["server/discover"]);
+      // Transient HTTP failures retry discovery, but never downgrade to initialize.
+      expect(methods).toEqual(Array(status === 500 ? 3 : 1).fill("server/discover"));
     } finally { await manager.stop(); await http.stop(true); }
   });
 }

@@ -70,7 +70,7 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 | --- | --- | --- |
 | `config.ts` | 读取和校验 JSON、展开占位符、写回开关、解析 HTTP 请求头 | 不选择文件存放位置，不保存运行状态 |
 | `connector.ts` | 封装 SDK，建立 stdio/HTTP 通信、协商协议、发现和调用工具、关闭连接、报告底层关闭 | 不重连、不注册 Agent 工具，不识别具体业务服务名 |
-| `manager.ts` | 启停服务器、维护状态、处理超时与取消、手动重连、注册和移除工具 | 不读写配置文件，不自动重试 |
+| `manager.ts` | 启停服务器、维护状态、处理超时与取消、HTTP 启动短暂重试、手动重连、注册和移除工具 | 不读写配置文件，不在每个模型 step 反复重试失败连接 |
 | `tool-adapter.ts` | 工具过滤、唯一命名、绑定原始工具名、转换调用结果与实际错误 | 不创建连接，不决定连接生命周期 |
 
 `apps/agent-cli/src/runtime-host.ts` 选择配置路径并组装这些模块。`lxe_desktop` 继续通过宿主注入，开关仍由桌面保存；它的凭据和连接定义不写入用户 JSON。
@@ -90,9 +90,15 @@ agentcli 负责 MCP 客户端。用户提供服务器配置后，Runtime 建立�
 
 ## 连接管理
 
+HTTP 启动遇到网络 `TypeError`（包括 SDK 协议探测包装的原始网络错误），或 HTTP 408、429、5xx（501 除外）时，最多再试两次，分别等待 250 ms 和 1 秒，与 Pi 的短暂重试策略一致。每次重新创建连接，完整执行协议协商、初始化与工具发现；每次尝试各自使用 `startup_timeout_s` 预算，默认 10 秒。重试期间状态保持 `connecting`，成功后才注册工具。
+
+认证失败、非瞬时 HTTP 错误、协议错误、取消及启动预算超时不走这组重试。停止或停用会立即取消重试等待。重试耗尽后保留最后一次实际错误，后续模型 step 不会再次自动尝试；用户显式重连或配置、凭据变化仍可发起新的启动。此策略不应用于 stdio，也不重放普通 `tools/call`。
+
 ### 连接诊断日志
 
 `runtime.mcp.connection` 为每次启动或重连生成 `connection_attempt_id`，记录服务名、当前会话（会话内命令也携带 `session_id`）、启动预算和总耗时。
+
+每次短暂重试都会产生独立的连接阶段日志。管理器另外记录 `mcp_startup_retry`，包含失败尝试序号、等待毫秒数和经过脱敏的实际错误；最终失败仍记录 `mcp_startup_failed`。
 
 - SDK 层记录 `connect` 和 `tool_discovery` 的开始、完成或失败。HTTP 另外逐条记录 `server/discover`、`initialize`、`notifications/initialized` 和每页 `tools/list` 的耗时；现代协议不执行的阶段不会凭空出现。
 - `mcp_connection_http_response` 的 `headers_duration_ms` 只表示收到响应头，带 HTTP 状态和内容类型。对应 RPC 的 `mcp_connection_stage_completed` 才表示收到协议回复；SSE 响应头已经返回、正文仍在等待时，不会提前记录成功。
