@@ -1,0 +1,57 @@
+.session-branch-children:not([hidden]) {
+  display: grid;
+  gap: 1px;
+}
+
+.session-index-item.has-branches,
+.app-sidebar.conversation-chrome-theme .session-index-item.has-branches {
+  grid-template-columns: minmax(0, max-content) 24px;
+  justify-content: start;
+  padding-right: 28px;
+}
+.session-index-item.has-branches .session-index-actions { position: absolute; right: 0; }
+.app-sidebar.conversation-chrome-theme .session-index-item.has-branches .primary-cell {
+  /* The disclosure follows short titles; only long titles need truncation. */
+  -webkit-mask-image: none;
+  mask-image: none;
+  text-overflow: ellipsis;
+}
+
+.session-index-item .session-index-open,
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-item .session-index-open {
+  padding-left: calc(var(--sidebar-row-pad, 8px) + var(--session-branch-depth, 0) * 20px);
+}
+
+.session-branch-toggle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sidebar-ink-soft, var(--muted));
+  cursor: pointer;
+}
+.session-branch-toggle:hover { background: var(--sidebar-hover, var(--row-hover)); }
+.session-branch-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+
+/* Guides stay behind full-width row highlights, and never intercept clicks. */
+.session-branch-guides {
+  position: absolute;
+  left: calc(var(--sidebar-row-pad, 8px) + var(--sidebar-icon-column, 16px) / 2);
+  top: -1px;
+  bottom: 0;
+  display: flex;
+  pointer-events: none;
+}
+.session-branch-guide { width: 20px; }
+.session-branch-guide.through { border-left: 1px solid var(--cds-alpha-3, var(--border-strong)); }
+.session-branch-guide.elbow {
+  width: 12px;
+  height: calc(50% + 1px);
+  border-left: 1px solid var(--cds-alpha-3, var(--border-strong));
+  border-bottom: 1px solid var(--cds-alpha-3, var(--border-strong));
+  border-bottom-left-radius: 8px;
+}

@@ -40,6 +40,7 @@ export interface AssistantMessageError {
 }
 /** One local request attempt. Only its accumulator may mutate it, until terminal delivery. */
 export interface AssistantMessage {
+  promptState?: import("../engine/types").PromptState;
   contextTokenAnchor?: import("../engine/context-meter").ContextTokenAnchor;
   id: string;
   role: "assistant";
@@ -49,6 +50,8 @@ export interface AssistantMessage {
   model: string;
   responseId?: string;
   responseModel?: string;
+  /** Effective wire effort used to generate this reply, for replay of configuration updates. */
+  providerThinkingLevel?: string;
   content: AssistantContent[];
   usage: AssistantUsage;
   stopReason: AssistantStopReason;

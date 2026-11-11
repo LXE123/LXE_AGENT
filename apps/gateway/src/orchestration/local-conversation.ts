@@ -25,7 +25,6 @@ import { createLogger, resolveWorkspaceContext } from "@lxe/core";
 import { accessSync, constants } from "node:fs";
 import type { ChannelAdapter } from "../channels/registry";
 import type { OutboundRequest, ResponseRouteRecord } from "../state/models";
-import type { SessionRuntimeState } from "../state/session-state";
 import { SchedulerBusyError, type SchedulerJobStateEvent, type SessionScheduler } from "./scheduler";
 import { AutomationBlockedError } from "./automations";
 
@@ -48,7 +47,6 @@ export interface LocalConversationStorage {
     source: JsonObject;
     workspace: WorkspaceContext;
   } | undefined>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined>;
 }
 
@@ -83,7 +81,6 @@ type BackgroundTaskChangedEvent = Extract<AgentEvent, { type: "background_task.c
 export interface LocalConversationControllerOptions {
   storage: LocalConversationStorage;
   scheduler: SessionScheduler;
-  runtimeState: SessionRuntimeState;
   defaultWorkspace(): WorkspaceContext;
   onActivity?: (activity: DesktopConversationActivityPayload) => void;
   onStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
@@ -250,7 +247,6 @@ export class LocalConversationController {
     };
     this.turns.set(turnId, turn);
     activity.queuedTurnIds.push(turnId);
-    if (!automation) this.options.runtimeState.resumeAutonomy(sessionId);
     try {
       await this.options.scheduler.enqueue(job, {
         ...(session.blank ? { beforeAccept: () => this.options.storage.ensureSession({
@@ -298,7 +294,6 @@ export class LocalConversationController {
       try {
         if (await this.options.scheduler.requestStop(sessionId, activeTurnId)) {
           stoppedTurnId = activeTurnId;
-          this.options.runtimeState.suspendAutonomy(sessionId);
         } else if (turn && this.sessions.get(sessionId)?.activeTurnId === activeTurnId) {
           turn.payload.state = "running";
           this.publish(sessionId);
@@ -340,9 +335,6 @@ export class LocalConversationController {
     if (event.state === "queued") {
       turn.payload.state = "queued";
     } else if (event.state === "running") {
-      // A scheduled run is a new turn. A user stop still suppresses continuation
-      // of the old turn until the next turn is actually admitted and starts.
-      if (event.job.raw_data.automation_id) this.options.runtimeState.resumeAutonomy(sessionId);
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       activity.activeTurnId = turnId;
       turn.payload.state = "running";
@@ -742,6 +734,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
   const imageView = status === "success" && image && clean(image.view_id) && clean(image.name) && clean(image.media_type)
     ? { view_id: clean(image.view_id), name: clean(image.name), media_type: clean(image.media_type) } : undefined;
   const resultBlock = sanitizeToolDisplayBlock(step.result_block);
+  const inputBlock = sanitizeToolDisplayBlock(step.input_block);
   const errorBlock = sanitizeToolDisplayBlock(step.error_block);
   return {
     id: clean(step.id),
@@ -755,6 +748,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
     status,
     duration_ms: integer(step.duration_ms),
     ...(imageView ? { image_view: imageView } : {}),
+    ...(inputBlock ? { input_block: inputBlock } : {}),
     ...(resultBlock ? { result_block: resultBlock } : {}),
     ...(errorBlock ? { error_block: errorBlock } : {}),
   };
@@ -771,6 +765,7 @@ function sanitizeToolDisplayBlock(value: unknown): ToolDisplayBlock | undefined 
 function cloneToolStep(step: ToolStep): ToolStep {
   return {
     ...step,
+    ...(step.input_block ? { input_block: { ...step.input_block } } : {}),
     ...(step.image_view ? { image_view: { ...step.image_view } } : {}),
     ...(step.result_block ? { result_block: { ...step.result_block } } : {}),
     ...(step.error_block ? { error_block: { ...step.error_block } } : {}),

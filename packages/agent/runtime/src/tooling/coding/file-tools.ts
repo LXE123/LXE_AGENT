@@ -13,7 +13,7 @@ import { approveIfNeeded, requestedPolicy, permissionInputProperties, permission
 import type { JsonObject } from "@lxe/protocol";
 import { inspectFileWriteTarget, recheckFileWriteTarget, type FileWriteTarget } from "../../permissions/file-write-policy";
 import { detectReadImageMime, type ModelImageProcessor } from "../../providers/model-image";
-import { scanNumberedTextChunks, type NumberedTextRangeResult } from "../text-range";
+import { READ_MAX_BYTES, READ_MAX_LINES, scanNumberedTextChunks } from "../text-range";
 import { ToolExecutionError, type ToolDefinition } from "../registry";
 import { isProbablyBinary } from "../workspace-search";
 import {
@@ -31,11 +31,8 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 const READ_CHUNK_BYTES = 256 * 1_024;
-const DEFAULT_READ_LINES = 2_000;
-const READ_HINT_CHAR_RESERVE = 160;
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
-const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
 const isMissingPathError = (cause: unknown): boolean =>
   cause instanceof Error
   && "code" in cause
@@ -67,27 +64,30 @@ const readHeadBytes = async (path: string, count: number, signal?: AbortSignal):
   }
 };
 
-const readNumberedRange = async (
+const readTextRange = async (
   path: string,
   startLine: number,
-  maxLines: number,
-  charBudget: number,
+  maxLines: number | undefined,
+  plainText: boolean,
   signal?: AbortSignal,
-): Promise<NumberedTextRangeResult> => {
+): Promise<string> => {
   assertActive(signal);
   const handle = await open(path, "r");
   try {
     const chunks = async function* (): AsyncGenerator<Uint8Array> {
       const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-      while (true) {
+      // Bound a regular-file scan even when another process appends during the read.
+      let remaining = (await handle.stat()).size || Infinity;
+      while (remaining > 0) {
         assertActive(signal);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, remaining), null);
         assertActive(signal);
         if (bytesRead === 0) return;
+        remaining -= bytesRead;
         yield buffer.subarray(0, bytesRead);
       }
     };
-    return await scanNumberedTextChunks(chunks(), { startLine, maxLines, charBudget, ...(signal ? { signal } : {}) });
+    return await scanNumberedTextChunks(chunks(), { startLine, ...(maxLines !== undefined ? { maxLines } : {}), plainText, ...(signal ? { signal } : {}) });
   } finally {
     await handle.close();
   }
@@ -101,7 +101,7 @@ const assertFileVersionUnchanged = async (path: string, expected: FileVersion): 
     // Treated as a version change.
   }
   if (actual !== expected) {
-    throw new Error(`read 期间文件发生变化，请重新读取最新内容: ${path}`);
+    throw new Error(`File changed during read. Read it again to get the current contents: ${path}`);
   }
 };
 
@@ -120,18 +120,21 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
   const tools: ToolDefinition[] = [
     {
       name: "read",
-      description: "Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Reading records the file version required by edit/write.",
+      codemodeResult: "text-or-image",
+      description: `Read any text or image file accessible to the local LXE Agent process. Relative paths resolve from the session working directory. Text pages contain up to ${READ_MAX_LINES} lines or ${READ_MAX_BYTES / 1024} KiB, whichever comes first. For the whole file, continue with the returned offset until complete. Reading records the file version required by edit/write.`,
       input_schema: {
         type: "object",
         properties: {
           path: { type: "string", description: "Path to the file to read (absolute or relative to the session working directory)." },
           offset: { type: "integer", description: "Line number to start reading from (1-indexed; defaults to 1). Applies only to text files; ignored for images." },
-          limit: { type: "integer", description: "Maximum number of lines to read (defaults to 2000). Applies only to text files; ignored for images. Output may be truncated by the tool's output limit; use the returned offset to continue." },
+          limit: { type: "integer", description: "Maximum number of text lines to request. The per-page line and byte limits still apply. Ignored for images." },
         },
         required: ["path"],
         additionalProperties: false,
       },
       execute: async (input, context) => {
+        const signal = context.signal ?? context.handle.signal;
+        const plainText = context.exposureState?.scope === "codemode";
         const target = paths.resolveReadable(context.workspace, input.path);
         const path = target.path;
         let info: BigIntStats;
@@ -143,12 +146,12 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         }
         if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
         const version = fileVersionFromStats(info);
-        const head = await readHeadBytes(path, 4_100, context.handle.signal);
+        const head = await readHeadBytes(path, 4_100, signal);
         if (detectReadImageMime(head)) {
-          const data = await readFile(path, { signal: context.handle.signal });
+          const data = await readFile(path, { signal });
           await assertFileVersionUnchanged(path, version);
           const prepared = await imageProcessor.process(data, "read");
-          assertActive(context.handle.signal);
+          assertActive(signal);
           ledger.recordVersion(context.session_id, path, version);
           const scale = prepared.processed.width > 0 ? prepared.original.width / prepared.processed.width : 1;
           return {
@@ -165,45 +168,33 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
         const extension = extname(path).toLowerCase();
         if (BINARY_EXTENSIONS.has(extension)) throw new Error(`binary file cannot be read as text: ${input.path}`);
         if (isProbablyBinary(head)) throw new Error(`binary file cannot be read as text: ${input.path}`);
-        const start = Math.max(1, Number(input.offset ?? 1));
-        const count = Math.max(1, Number(input.limit ?? DEFAULT_READ_LINES));
-        const charBudget = Math.max(1, toolOutputLimit - READ_HINT_CHAR_RESERVE);
-        const range = await readNumberedRange(
-          path,
-          start,
-          count,
-          charBudget,
-          context.handle.signal,
-        );
+        const start = Math.max(1, Math.trunc(Number(input.offset ?? 1)));
+        const limit = input.limit === undefined ? undefined : Math.max(1, Math.trunc(Number(input.limit)));
+        const page = await readTextRange(path, start, limit, plainText, signal);
         await assertFileVersionUnchanged(path, version);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         ledger.recordVersion(context.session_id, path, version);
-        const hint = range.truncatedLine === undefined
-          ? range.hasMore && range.nextOffset !== undefined
-            ? `... (更多内容，使用 offset=${range.nextOffset} 继续)`
-            : ""
-          : `... (第 ${range.truncatedLine} 行超过本次 ${charBudget} 字符正文预算（含行号）；请使用 exec 的字节工具读取该超长行)`;
         await context.exposureState?.activateSkillPath(path);
-        if (!hint) return { content: textBlock(range.body) };
-        const separator = range.body ? "\n" : "";
-        const bodyLimit = Math.max(0, toolOutputLimit - separator.length - hint.length);
-        return { content: textBlock(`${range.body.slice(0, bodyLimit)}${separator}${hint}`) };
+        return { content: textBlock(page) };
       },
     },
     {
       name: "write",
+      codemodeResult: "text",
       description: "Create or overwrite a UTF-8 file. Relative paths resolve from the session working directory." + permissionToolDescription,
       input_schema: { type: "object", properties: { ...permissionInputProperties, file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"], additionalProperties: false },
       execute: async (input, context) => {
         input = structuredClone(input);
+        if (typeof input.content !== "string") throw new ToolExecutionError("invalid_argument", "write requires string content");
+        const signal = context.signal ?? context.handle.signal;
         const policy = requestedPolicy(input, context.executionPolicy);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         const requested = paths.resolveWritable(context.workspace, input.file_path);
         const target = inspectFileWriteTarget(policy, requested, true, executionPaths);
         const { path } = target;
         const version = writeTargetVersion(target);
         if (version !== undefined) ledger.assertVersion(context.session_id, requested, "write", version);
-        const content = inputText(input, "content");
+        const content = input.content;
         if (policy.mode !== context.executionPolicy.mode) {
           const identity = canonicalPathCandidate(requested);
           await approveIfNeeded(dependencies.approvals, "write", input, context, policy, { path: requested, content });
@@ -211,15 +202,15 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
           const after = recheckFileWriteTarget(policy, requested, target, executionPaths);
           if (writeTargetVersion(after) !== version) throw new Error(`write target changed during approval; read it again: ${requested}`);
         }
-        assertActive(context.handle.signal);
+        assertActive(signal);
         mkdirSync(dirname(path), { recursive: true });
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
         const currentVersion = writeTargetVersion(current);
         if (version !== currentVersion) {
-          throw new Error(`write 被拒绝：文件在写入前发生变化，请重新 read 确认最新内容: ${path}`);
+          throw new Error(`write rejected. The file changed before the write. Read it again before writing: ${path}`);
         }
         if (version !== undefined) ledger.assertVersion(context.session_id, requested, "write", currentVersion);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         writeFileSync(path, content, "utf8");
         ledger.recordCurrent(context.session_id, requested, path);
         return { content: textBlock(`Wrote ${relative(context.workspace.directory, requested)}`) };
@@ -227,12 +218,14 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
     },
     {
       name: "edit",
+      codemodeResult: "text",
       description: "Edit an existing UTF-8 file using edits[{oldText,newText}]. Read the file first; changes since the last read/write are rejected. Combine disjoint changes in one call: every oldText must uniquely match the same ORIGINAL file, and targets must not overlap. Exact matching is preferred, with normalized whitespace/Unicode matching as fallback. All edits are checked before writing. Returns a bounded diff summary. Relative paths resolve from the session working directory." + permissionToolDescription,
       input_schema: editInputSchema,
       execute: async (input, context) => {
+        const signal = context.signal ?? context.handle.signal;
         input = structuredClone(input);
         const policy = requestedPolicy(input, context.executionPolicy);
-        assertActive(context.handle.signal);
+        assertActive(signal);
         const args = validateEditInput(input);
         const requested = paths.resolveWritable(context.workspace, args.path);
         const target = inspectFileWriteTarget(policy, requested, false, executionPaths);
@@ -248,9 +241,9 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
           if (canonicalPathCandidate(requested) !== identity) throw new Error(`edit target changed during approval; read it again: ${requested}`);
         }
         const current = recheckFileWriteTarget(policy, requested, target, executionPaths);
-        if (writeTargetVersion(current) !== version) throw new Error(`edit 被拒绝：文件发生变化，请重新 read: ${path}`);
+        if (writeTargetVersion(current) !== version) throw new Error(`edit rejected. The file changed. Read it again before editing: ${path}`);
         ledger.assertVersion(context.session_id, requested, "edit", writeTargetVersion(current));
-        assertActive(context.handle.signal);
+        assertActive(signal);
         writeFileSync(path, prepared.content, "utf8");
         ledger.recordCurrent(context.session_id, requested, path);
         return { content: textBlock(summary) };

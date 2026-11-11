@@ -35,6 +35,7 @@ import {
   useModelsQuery,
   useSkillsQuery,
   useToolsetsQuery,
+  useMcpServersQuery,
 } from "./api/queries";
 import { formatDate, formatNumber } from "./shared/format";
 import {
@@ -124,9 +125,10 @@ function App({
     dashboardRuntimeReady && capabilitiesOpen && capabilityView === "skills",
   );
   const toolsetsQuery = useToolsetsQuery(
-    dashboardRuntimeReady
-      && capabilitiesOpen
-      && (capabilityView === "tools" || capabilityView === "connections"),
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "tools",
+  );
+  const mcpServersQuery = useMcpServersQuery(
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "connections",
   );
   useConversationEvents();
 
@@ -156,7 +158,7 @@ function App({
         : activeSection === "capabilities" && capabilityView === "skills"
           ? [skillsQuery, commandsQuery]
           : activeSection === "capabilities" && capabilityView === "connections"
-            ? [toolsetsQuery]
+            ? [mcpServersQuery]
             : [];
   const showRefreshIndicator = dashboardRuntimeReady && activeSection !== "sessions"
     && activeQueries.some((current) => current.isFetching && !current.isPending);
@@ -308,6 +310,7 @@ function App({
                 skillsQuery={skillsQuery}
                 commandsQuery={commandsQuery}
                 toolsetsQuery={toolsetsQuery}
+                mcpServersQuery={mcpServersQuery}
                 onOpenDetail={setDetailTarget}
                 startSkillConversation={startSkillConversation}
                 mcpSavingId={mcpSavingId}

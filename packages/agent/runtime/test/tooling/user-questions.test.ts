@@ -177,7 +177,7 @@ describe("runtime user question ownership", () => {
     for (const platform of ["feishu", "cli", ""]) {
       const state = registry.createExposureState({ platform });
       expect(state.schemas()).toEqual([]);
-      expect(state.search("question")).toEqual([]);
+      expect(await state.search("question")).toEqual([]);
       await expect(registry.execute("ask_user_question", input, context("s", new AbortController(), platform))).rejects.toThrow("not available");
       await expect(service.ask(input, context("s", new AbortController(), platform))).rejects.toThrow("only available");
     }

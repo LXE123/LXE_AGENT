@@ -7,10 +7,10 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "lxe-bootstrap-")); roots.push(root);
-  const source = join(root, "default.yaml"), data = join(root, "data");
-  const defaults = readFileSync("config/mcp_servers.default.yaml", "utf8");
+  const source = join(root, "default.json"), data = join(root, "data");
+  const defaults = readFileSync("config/mcp_servers.default.json", "utf8");
   writeFileSync(source, defaults);
-  return { source, data, defaults, target: join(data, "config/mcp_servers.local.yaml") };
+  return { source, data, defaults, target: join(data, "config/mcp_servers.local.json") };
 }
 test("copies the default configuration on initialization", () => {
   const f = fixture(); bootstrapDesktopState(f.source, f.data);
@@ -118,13 +118,19 @@ test("rejects a redirected default workspace root without marking migration comp
   expect(existsSync(f.marker)).toBe(false);
   expect(existsSync(join(outside, ".lxeagent"))).toBe(false);
 });
-test("does not convert old company credentials or overwrite local settings", () => {
+test("does not import legacy YAML or overwrite existing JSON settings", () => {
   const f = fixture(); mkdirSync(join(f.data, "config"), { recursive: true });
-  const old = "mcpServers:\n  lxe-saihu:\n    enabled: false\n    url: http://10.88.0.1:8000/mcp/\n    bearer_token_env_var: LXE_SAIHU_MCP_API_KEY\n    startup_timeout_s: 17\n    disabled_tools: [write]\n";
-  writeFileSync(f.target, old);
+  const old = "mcpServers:\n  unused:\n    enabled: true\n    command: never-start-this\n";
+  const legacy = join(f.data, "config/mcp_servers.local.yaml");
+  writeFileSync(legacy, old);
   const state = join(f.data, "config/unrelated.json");
   writeFileSync(state, '{"other":true}');
-  bootstrapDesktopState(f.source, f.data); bootstrapDesktopState(f.source, f.data);
-  expect(readFileSync(f.target, "utf8")).toBe(old);
+  bootstrapDesktopState(f.source, f.data);
+  expect(JSON.parse(readFileSync(f.target, "utf8"))).toEqual({ servers: {} });
+  const local = '{"servers":{"local":{"command":"node","enabled":false}}}';
+  writeFileSync(f.target, local);
+  bootstrapDesktopState(f.source, f.data);
+  expect(readFileSync(f.target, "utf8")).toBe(local);
+  expect(readFileSync(legacy, "utf8")).toBe(old);
   expect(readFileSync(state, "utf8")).toBe('{"other":true}');
 });

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
 import { queryError } from "./queries";
-import type { ApiList, McpServerPayload, ToolsetPayload } from "./payloads";
+import type { McpServerListPayload, McpServerPayload } from "./payloads";
 
 export function useMcpActions(onError: (message: string) => void) {
   const queryClient = useQueryClient();
@@ -10,7 +10,7 @@ export function useMcpActions(onError: (message: string) => void) {
     McpServerPayload,
     unknown,
     McpServerPayload,
-    { toolsets?: ApiList<ToolsetPayload> }
+    { servers?: McpServerListPayload }
   >({
     mutationFn: (server) => callDashboard({
       operation: "mcp.servers.update",
@@ -18,31 +18,30 @@ export function useMcpActions(onError: (message: string) => void) {
     }),
     onMutate: async (server) => {
       onError("");
-      await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.tools.all });
-      const toolsets = queryClient.getQueryData<ApiList<ToolsetPayload>>(dashboardQueryKeys.tools.all);
+      await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.mcpServers.all });
+      const servers = queryClient.getQueryData<McpServerListPayload>(dashboardQueryKeys.mcpServers.all);
       const nextEnabled = !server.enabled;
-      queryClient.setQueryData<ApiList<ToolsetPayload> | undefined>(
-        dashboardQueryKeys.tools.all,
+      queryClient.setQueryData<McpServerListPayload | undefined>(
+        dashboardQueryKeys.mcpServers.all,
         (current) => current ? {
           ...current,
-          items: current.items.map((toolset) => toolset.name === "mcp" ? {
-            ...toolset,
-            servers: (toolset.servers || []).map((item) => item.name === server.name ? {
-              ...item,
-              enabled: nextEnabled,
-              status: nextEnabled ? item.status : "disabled",
-            } : item),
-          } : toolset),
+          items: current.items.map((item) => item.name === server.name ? {
+            ...item,
+            enabled: nextEnabled,
+          } : item),
         } : current,
       );
-      return { toolsets };
+      return { servers };
     },
     onError: (cause, _server, context) => {
-      queryClient.setQueryData(dashboardQueryKeys.tools.all, context?.toolsets);
+      queryClient.setQueryData(dashboardQueryKeys.mcpServers.all, context?.servers);
       onError(queryError(cause));
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.tools.all });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.mcpServers.all }),
+        queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.tools.all }),
+      ]);
     },
   });
 

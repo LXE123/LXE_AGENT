@@ -32,7 +32,6 @@ export interface StoragePort {
   upsertResponseRoute(request: JsonObject): Promise<void>;
   /** Reads the session from the in-process Runtime store. */
   getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
 }
 
 export interface RouterSchedulerPort {
@@ -160,7 +159,6 @@ export class SessionRouter {
     const session = await this.options.storage.getSession(entry.session_id);
     if (!session) throw new SessionNotFoundError(entry.session_id);
     await this.options.storage.upsertResponseRoute(responseRoutePayload(context));
-    this.state.resumeAutonomy(entry.session_id);
     if (await this.trySteer(entry.session_id, context)) {
       this.logger.info("message_steered", { session_id: entry.session_id });
       return { route_kind: "agent_steer", platform: context.platform };
@@ -272,29 +270,25 @@ export class SessionRouter {
     }
     const cleared = this.options.scheduler.clearPending(entry.session_id);
     const stopped = await this.options.scheduler.requestStop(entry.session_id);
-    this.state.suspendAutonomy(entry.session_id);
     if (stopped || cleared > 0) {
       await this.sendFeedback(
         context,
         entry.session_id,
-        "已停止当前回复，并暂停自动继续。后台任务结果会在你下次发消息时一并汇报。",
+        "已停止当前回复。",
       );
       return;
     }
     await this.sendFeedback(
       context,
       entry.session_id,
-      "当前没有正在执行的回复。已暂停自动继续，后台任务结果会在你下次发消息时一并汇报。",
+      "当前没有正在执行的回复。",
     );
   }
 
   private async handleClear(entry: SessionBindingEntry | undefined, context: SessionContext): Promise<void> {
-    if (entry?.session_id) {
-      if (this.options.scheduler.hasInflightWork(entry.session_id)) {
-        await this.sendFeedback(context, entry.session_id, "当前有进行中的回复，暂不创建新会话。");
-        return;
-      }
-      this.state.resumeAutonomy(entry.session_id);
+    if (entry?.session_id && this.options.scheduler.hasInflightWork(entry.session_id)) {
+      await this.sendFeedback(context, entry.session_id, "当前有进行中的回复，暂不创建新会话。");
+      return;
     }
     const next = this.options.bindings.rotate(SessionSource.from(context.source));
     await this.options.storage.ensureSession({

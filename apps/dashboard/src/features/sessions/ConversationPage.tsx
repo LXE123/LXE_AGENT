@@ -12,7 +12,7 @@ type Props = Readonly<{
   actions: Pick<SessionWorkspace["actions"],
     "switchConversationWorkspace" | "chooseConversationWorkspace" | "questionAnswered" | "approvalChanged" |
     "loadOlder" | "loadNewer" | "visibleGroupsChanged" | "jumpToLatest" | "followingChanged" |
-    "sendConversation" | "stopConversation" | "openConversationFile" | "revealConversationFile" | "openConversationAttachment">;
+    "forkConversation" | "sendConversation" | "stopConversation" | "openConversationFile" | "revealConversationFile" | "openConversationAttachment">;
   model: Readonly<Pick<ComponentProps<typeof SessionDetailView>,
     "currentModel" | "models" | "modelLoading" | "modelSaving" | "thinkingSaving" | "onModelChange" | "onThinkingLevelChange">>;
   setupComplete: boolean;
@@ -52,6 +52,7 @@ export function ConversationPage({ selection, conversation, workspace, actions, 
             onJumpToLatest={actions.jumpToLatest}
             onSend={actions.sendConversation}
             onStop={actions.stopConversation}
+            onFork={actions.forkConversation}
             onOpenFile={actions.openConversationFile}
             onRevealFile={actions.revealConversationFile}
             onOpenAttachment={actions.openConversationAttachment}

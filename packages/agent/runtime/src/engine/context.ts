@@ -1,3 +1,4 @@
+import { directoryRevisions, directoryUpdateText, latestPromptState, toolDeclarationBatches } from "./prompt-state";
 import { omitImageData } from "../messages/image-content";
 import { latestContextAnchor, measureContext } from "./context-meter";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
@@ -16,6 +17,8 @@ import type {
 } from "./types";
 import { compactionSummaryProviderText } from "./compaction-summary";
 import { RuntimeProviderError } from "../providers/provider-errors";
+import { providerErrorText, safeProviderErrorText } from "../providers/provider-error-details";
+import { MAX_PROVIDER_RETRY_DELAY_MS } from "../providers/provider-retry";
 
 export const IMAGE_TOKEN_ESTIMATE = 1_600;
 export const RECENT_RAW_TURN_TOKEN_LIMIT = 20_000;
@@ -196,14 +199,22 @@ export function requestContextTokenEstimate(
   systemPrompt: string,
   messages: readonly RuntimeMessage[],
   toolSchemas: readonly ToolSchema[] = [],
+  capabilities?: ContextPipelineOptions["promptCapabilities"],
 ): number {
-  return estimateTokens(systemPrompt) +
+  // systemPrompt already includes the latest directory; account for its earlier versions on the wire.
+  const directories = capabilities?.midConvo ? directoryRevisions(messages, capabilities.currentMcpDirectory) : [];
+  const directoryTokens = directories.length > 1
+    ? estimateTokens(directories[0]!.directory) - estimateTokens(directories.at(-1)!.directory)
+      + directories.slice(1).reduce((sum, revision) => sum + estimateTokens(directoryUpdateText(revision.directory)), 0) : 0;
+  const batches = capabilities?.inlineTools ? toolDeclarationBatches(messages, [...toolSchemas]) : undefined;
+  const toolTokens = batches ? estimateTokens(batches.initial) +
+    Array.from(batches.updates.values()).reduce((sum, batch) => sum + estimateTokens(batch), 0) : estimateTokens(toolSchemas);
+  return estimateTokens(systemPrompt) + directoryTokens + toolTokens +
     messages.reduce((total, message) => total + estimateTokens(
       message.role === "compactionSummary"
         ? { role: "user", content: compactionSummaryProviderText(message.summary) }
         : { role: message.role, content: message.content },
-    ), 0) +
-    estimateTokens(toolSchemas);
+    ), 0);
 }
 
 const cleanBlock = (raw: unknown, role: RuntimeMessage["role"]): JsonObject | undefined => {
@@ -259,6 +270,7 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
   const cleaned: RuntimeMessage[] = [];
   for (const raw of messages) {
     const role = raw?.role;
+    if (role === "assistant" && "stopReason" in raw && (raw.stopReason === "error" || raw.stopReason === "aborted")) continue;
     if (role === "compactionSummary") {
       const summary = text(raw.summary).trim();
       if (!summary) continue;
@@ -266,6 +278,7 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
       const modified = new Set(modifiedFiles);
       const readFiles = [...new Set(raw.details.readFiles.map((path) => path.trim()).filter((path) => path && !modified.has(path)))].sort();
       cleaned.push({
+        ...(raw.promptState ? { promptState: raw.promptState } : {}),
         ...(raw.contextTokenAnchor ? { contextTokenAnchor: raw.contextTokenAnchor } : {}),
         role,
         summary,
@@ -527,6 +540,10 @@ const turnSpans = (messages: readonly RuntimeMessage[]): Array<[number, number]>
   return starts.map((start, index) => [start, starts[index + 1] ?? messages.length]);
 };
 
+// Snapshots describe provider declarations and are measured separately from raw chat history.
+const rawHistoryTokens = (messages: RuntimeMessage[]) =>
+  estimateTokens(messages.map(({ promptState, ...message }) => message));
+
 const selectRecentTurns = (
   messages: readonly RuntimeMessage[],
   recentRawTokens: number,
@@ -536,7 +553,7 @@ const selectRecentTurns = (
   let consumed = 0;
   for (let index = spans.length - 1; index >= 0; index -= 1) {
     const [start, end] = spans[index]!;
-    const size = estimateTokens(messages.slice(start, end));
+    const size = rawHistoryTokens(messages.slice(start, end));
     if (consumed > 0 && consumed + size > recentRawTokens) break;
     keepStart = start;
     consumed += size;
@@ -585,7 +602,7 @@ const selectMidturnPlan = (messages: readonly RuntimeMessage[], recentRawTokens:
   let consumed = 0;
   for (let index = spans.length - 1; index >= 0; index -= 1) {
     const [start, end] = spans[index]!;
-    const size = estimateTokens(messages.slice(start, end));
+    const size = rawHistoryTokens(messages.slice(start, end));
     if (consumed > 0 && consumed + size > recentRawTokens) break;
     keepIndex = index;
     consumed += size;
@@ -626,7 +643,7 @@ const prepareCompaction = (
     .map((message) => structuredClone(message) as RuntimeMessage);
   const recent = selectRecentTurns(conversation, recentRawTokens);
   const userStart = latestUserStart(conversation);
-  const latestTurnTokens = estimateTokens(conversation.slice(userStart));
+  const latestTurnTokens = rawHistoryTokens(conversation.slice(userStart));
   const shouldSplitTurn = latestTurnTokens > recentRawTokens || recent.compacted.length === 0;
   const midturn = shouldSplitTurn ? selectMidturnPlan(conversation, recentRawTokens) : undefined;
   if (midturn) {
@@ -762,13 +779,14 @@ export class ContextCompactionError extends Error {
   constructor(
     readonly reason: "no_safe_prefix" | "summary_failed" | "summary_not_smaller",
     readonly estimatedTokens: number,
+    readonly providerError?: string,
   ) {
     const detail = reason === "no_safe_prefix"
       ? "没有找到可安全压缩且保持工具调用闭合的历史前缀"
       : reason === "summary_not_smaller"
         ? "摘要没有降低上下文 token 数"
-        : "上下文摘要在多次尝试后仍失败或为空";
-    super(`上下文已达到压缩阈值，但无法安全完成压缩：${detail}（estimated=${estimatedTokens}）。原始历史未被删除，请稍后重试。`);
+        : "上下文摘要未能生成";
+    super(`上下文已达到压缩阈值，但无法安全完成压缩：${detail}（estimated=${estimatedTokens}）。原始历史未被删除。${providerError ? `\n${providerError}` : ""}`);
     this.name = "ContextCompactionError";
   }
 }
@@ -784,9 +802,11 @@ export interface ContextCompactionResult {
   usage: RuntimeUsage;
   hardLimitExceeded: boolean;
   failureReason?: "no_safe_prefix" | "summary_failed" | "summary_not_smaller";
+  providerError?: string;
 }
 
 export interface ContextPipelineOptions {
+  promptCapabilities?: { midConvo: boolean; inlineTools: boolean; currentMcpDirectory?: string | undefined };
   provider: RuntimeProvider;
   store: RuntimeStore;
   contextWindowTokens?: number;
@@ -801,7 +821,7 @@ export interface ContextPipelineOptions {
 
 export class ContextPipeline {
   measure(system: string, messages: RuntimeMessage[], tools: ToolSchema[], fingerprint?: string) {
-    return measureContext(messages, requestContextTokenEstimate(system, messages, tools), fingerprint, this.contextWindowTokens);
+    return measureContext(messages, requestContextTokenEstimate(system, messages, tools, this.options.promptCapabilities), fingerprint, this.contextWindowTokens);
   }
   private readonly logger = createLogger("runtime.context");
   private readonly contextWindowTokens: number;
@@ -903,6 +923,12 @@ export class ContextPipeline {
       return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "no_safe_prefix");
     }
 
+    // Summaries replace the consumed prefix. Seed replay with the state effective at that cut.
+    const checkpoint = latestPromptState([
+      ...params.messages.filter(message => message.role === "compactionSummary"),
+      ...preparation.historyMessages, ...preparation.turnPrefixMessages,
+    ]);
+    const summaryState = Object.keys(checkpoint).length ? { promptState: checkpoint } : {};
     if (preparation.splitTurn) {
       let historyText = preparation.previousSummary || "No prior history.";
       let historyInventory = preparation.inheritedInventory;
@@ -920,7 +946,7 @@ export class ContextPipeline {
         );
         apiCalls += history.attempts;
         if (!history.text) {
-          return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+          return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", history.error);
         }
         historyText = history.text;
         historyInventory = history.fileInventory;
@@ -935,7 +961,7 @@ export class ContextPipeline {
       );
       apiCalls += turnPrefix.attempts;
       if (!turnPrefix.text) {
-        return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+        return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", turnPrefix.error);
       }
       const inventory = mergeFileInventories(historyInventory, turnPrefix.fileInventory);
       const summaryText = appendFileInventory(
@@ -943,7 +969,7 @@ export class ContextPipeline {
         inventory,
       );
       const nextMessages = [
-        summaryMessage(summaryText, params.beforeTokens, inventory),
+        { ...summaryMessage(summaryText, params.beforeTokens, inventory), ...summaryState },
         ...preparation.retained,
       ];
       return this.persistCompaction(
@@ -971,11 +997,11 @@ export class ContextPipeline {
     );
     apiCalls += history.attempts;
     if (!history.text) {
-      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed");
+      return this.noCompaction(params.messages, params.beforeTokens, usage, apiCalls, "summary_failed", history.error);
     }
     const summaryText = appendFileInventory(history.text, history.fileInventory);
     const nextMessages = [
-      summaryMessage(summaryText, params.beforeTokens, history.fileInventory),
+      { ...summaryMessage(summaryText, params.beforeTokens, history.fileInventory), ...summaryState },
       ...preparation.retained,
     ];
     return this.persistCompaction(
@@ -1000,7 +1026,7 @@ export class ContextPipeline {
       previousSummary?: string;
       inheritedInventory?: FileInventory;
     } = {},
-  ): Promise<{ text: string; attempts: number; fileInventory: FileInventory }> {
+  ): Promise<{ text: string; attempts: number; fileInventory: FileInventory; error?: string }> {
     const prepared = prepareSummaryMessages(
       messages,
       options.inheritedInventory ?? { readFiles: [], modifiedFiles: [] },
@@ -1018,9 +1044,11 @@ export class ContextPipeline {
     const prompt = promptParts.join("\n\n");
     const maxOutputTokens = Math.max(1, Math.floor(this.reserveTokens * (kind === "history" ? 0.8 : 0.5)));
     const maxAttempts = this.summaryMaxRetries + 1;
+    let lastError = "";
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       let retryable = false;
+      let serverDelayMs = 0;
       try {
         const result = await this.options.provider.summarize({
           messages: [{ role: "user", content: prompt }],
@@ -1038,20 +1066,23 @@ export class ContextPipeline {
           };
         }
         retryable = true;
+        lastError = "Provider returned an empty summary";
         this.logger.warn("context summary returned empty", { kind, attempt, max_attempts: maxAttempts });
       } catch (error) {
         if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
         this.logger.warn("context summary failed", { kind, attempt, max_attempts: maxAttempts, error });
+        lastError = error instanceof RuntimeProviderError ? error.userMessage : safeProviderErrorText(providerErrorText(error));
         if (isContextOverflowError(error)) {
-          return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+          return { text: "", attempts: attempt, fileInventory: prepared.fileInventory, error: lastError };
         }
         retryable = error instanceof RuntimeProviderError && error.retryable;
+        if (error instanceof RuntimeProviderError) serverDelayMs = error.details.retryAfterMs ?? 0;
       }
-      if (!retryable || attempt >= maxAttempts) {
-        return { text: "", attempts: attempt, fileInventory: prepared.fileInventory };
+      if (!retryable || attempt >= maxAttempts || serverDelayMs > MAX_PROVIDER_RETRY_DELAY_MS) {
+        return { text: "", attempts: attempt, fileInventory: prepared.fileInventory, error: lastError };
       }
       const retryNumber = attempt;
-      const delayMs = this.summaryRetryBaseDelayMs * 2 ** (retryNumber - 1);
+      const delayMs = Math.max(serverDelayMs, this.summaryRetryBaseDelayMs * 2 ** (retryNumber - 1));
       this.logger.warn("context summary retry scheduled", {
         kind,
         retry: retryNumber,
@@ -1137,6 +1168,7 @@ export class ContextPipeline {
     usage: RuntimeUsage,
     apiCalls: number,
     failureReason?: ContextCompactionResult["failureReason"],
+    providerError?: string,
   ): ContextCompactionResult {
     return {
       messages,
@@ -1149,6 +1181,7 @@ export class ContextPipeline {
       usage,
       hardLimitExceeded: false,
       ...(failureReason === undefined ? {} : { failureReason }),
+      ...(providerError === undefined ? {} : { providerError }),
     };
   }
 }

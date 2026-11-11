@@ -1,4 +1,5 @@
 import { withManagedModels, managedCredentialFor, type ManagedLlmState } from "@lxe/core";
+import { harnessFetch } from "../network/fetch";
 import { canReplayMetadata, legacyMessage, completeTool } from "../messages/replay";
 import { AssistantMessageAccumulator } from "../messages/accumulator";
 import { readFileSync } from "node:fs";
@@ -108,6 +109,7 @@ interface ProviderLoadOptions {
   llmConfigRoot?: string;
   /** Load model metadata without retaining or validating an API key. */
   deferCredential?: boolean;
+  strictSelection?: boolean;
   /** Pi-compatible local auth.json. When set, it is authoritative for local credentials. */
   localAuthPath?: string;
 }
@@ -201,7 +203,10 @@ export function loadProviderDescriptor(
     ? runtimeConfigPathsFromRoot(options.llmConfigRoot)
     : runtimeConfigPaths(projectRoot);
   const credentialSource = envText(env, "AGENT_LLM_CREDENTIAL_SOURCE", "local") === "cloud" ? "cloud" : "local";
-  const catalog = withManagedModels(loadLlmProviderCatalog(paths.root), credentialSource === "cloud" ? options.managedLlmState : undefined);
+  const localCatalog = loadLlmProviderCatalog(paths.root);
+  const catalog = credentialSource === "cloud" ? withManagedModels(localCatalog, options.managedLlmState, {
+    provider: envText(env, "LXE_MANAGED_LLM_PROVIDER", ""), model: envText(env, "LXE_MANAGED_LLM_MODEL", ""),
+  }) : localCatalog;
   const requested = normalizeProviderKey(envText(env, "AGENT_LLM_PROVIDER", catalog.defaultProvider));
   const spec = catalog.requireProvider(requested);
   const name = spec.name;
@@ -209,12 +214,13 @@ export function loadProviderDescriptor(
   const configuredModel = envText(env, "AGENT_LLM_MODEL", "");
   const requestedModel = configuredModel || preference.model || spec.defaultModel;
   let model = catalog.resolveModel(spec, requestedModel);
+  if (!model && options.strictSelection && credentialSource === "local") throw new Error(`unsupported session LLM model: ${name}/${requestedModel}`);
   if (!model && preference.model && credentialSource === "local") model = spec.defaultModel;
   if (!model && credentialSource === "cloud" && options.deferCredential) model = requestedModel;
   if (!model) throw new Error(`unsupported LLM model: ${name}/${requestedModel}`);
   // Unavailable cloud selections still need metadata for startup and diagnostics.
   // Credentials always resolve strictly at the turn boundary; this cannot execute the fallback.
-  const localSpec = loadLlmProviderCatalog(paths.root).requireProvider(name);
+  const localSpec = localCatalog.requireProvider(name);
   const selectedModel = spec.models[model] ?? { ...localSpec.models[localSpec.defaultModel]!, id: model,
     supportsThinking: false, thinkingLevels: [], thinkingDefault: "off" };
   const thinkingLevels = selectedModel.thinkingLevels;
@@ -287,6 +293,7 @@ export function loadProviderDescriptor(
     apiStyle: spec.apiStyle,
     credentialSource,
     credentialRevision,
+    ...(selectedModel.compat && credentialSource === "local" ? { compat: selectedModel.compat } : {}),
     ...(definition ? { compat: definition.compat, thinkingLevelMap: definition.thinkingLevelMap, configurationRevision: managedModel?.configuration_revision } : {}),
     supportsTemperature: selectedModel.supportsTemperature,
     baseURL: definition?.baseUrl ?? spec.baseURL,
@@ -479,7 +486,14 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
         ...(block.is_error === true ? { is_error: true } : {}),
       };
     }).filter((block): block is JsonObject => Boolean(block));
-    if (content.length > 0) adapted.push({ role: "user", content });
+    if (!content.length) continue;
+    // Anthropic receives the answers to a parallel tool call in a single user message.
+    const prior = adapted.at(-1);
+    if (prior?.role === "user" && Array.isArray(prior.content) && prior.content[0]?.type === "tool_result") {
+      prior.content.push(...content);
+    } else {
+      adapted.push({ role: "user", content });
+    }
   }
   return adapted;
 }
@@ -732,9 +746,6 @@ class CredentialResolvingRuntimeProvider implements RuntimeProvider {
           message,
           descriptor.name,
           "模型未配置",
-          descriptor.credentialSource === "cloud"
-            ? "公司云端模型凭证暂不可用，正在等待同步。"
-            : `模型服务 ${descriptor.name} 尚未配置 API Key，请在模型设置中填写。`,
           false,
         );
       }
@@ -783,8 +794,8 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
         LXE_MANAGED_LLM_PROVIDER: selection.provider, LXE_MANAGED_LLM_MODEL: selection.model,
       } : {}),
     };
-    const descriptor = this.load(environment, true, this.managedLlmState?.());
-    if (descriptor.model !== selection.model) throw new Error(`unsupported session LLM model: ${selection.provider}/${selection.model}`);
+    const descriptor = this.load(environment, true, this.managedLlmState?.(), true);
+    if (selection.credential_source === "cloud" && descriptor.model !== selection.model) throw new Error(`unsupported session LLM model: ${selection.provider}/${selection.model}`);
     return { generation: this.snapshot.generation, descriptor, provider: this.resolvingProvider(descriptor, environment) };
   }
 
@@ -817,11 +828,11 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     return this.snapshot;
   }
 
-  private load(environment: Environment, deferCredential: boolean, managedState?: ManagedLlmState): ProviderDescriptor {
+  private load(environment: Environment, deferCredential: boolean, managedState?: ManagedLlmState, strictSelection = false): ProviderDescriptor {
     return loadProviderDescriptor(this.projectRoot, environment, {
       ...(this.llmConfigRoot ? { llmConfigRoot: this.llmConfigRoot } : {}),
       ...(this.localAuthPath ? { localAuthPath: this.localAuthPath } : {}),
-      deferCredential,
+      deferCredential, strictSelection,
       ...(managedState ? { managedLlmState: managedState } : {}),
     });
   }
@@ -877,7 +888,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        return fetch(input, init);
+        return harnessFetch(input, init);
       },
     }) as unknown as AnthropicClientPort;
   }
@@ -945,7 +956,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         : watchdog.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
-              this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
+              this.descriptor.name, "请求超时", true,
             )
           : normalizeProviderError(failure, this.descriptor);
       wireError = String(classified instanceof Error ? classified.message : classified);
@@ -995,7 +1006,6 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
-          `${this.descriptor.name} 请求超时，请稍后重试。`,
           true,
         );
       }

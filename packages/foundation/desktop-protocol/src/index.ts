@@ -43,7 +43,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 27 as const;
+export const AGENT_PROTOCOL_VERSION = 30 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -125,8 +125,6 @@ export type AgentCommandPayloads = {
     message_id: string;
   };
   ensure_session: { request: SessionWorkspaceRequest };
-  append_pending_event: { session_id: string; event: JsonObject };
-  has_pending_events: { session_id: string };
   resolve_workspace_directory: { session_id: string };
   resolve_artifact: { session_id: string; artifact_id: string };
   resolve_image_view: { session_id: string; view_id: string };
@@ -269,10 +267,6 @@ export type AgentEvent =
         operation: "start" | "stop";
         emit_id: string;
       };
-    }
-  | {
-      type: "agent.wake";
-      payload: JsonObject;
     }
   | {
       type: "background_task.changed";
@@ -779,8 +773,6 @@ const agentCommands = new Set<AgentCommand>([
   "cancel_turn",
   "steer_turn",
   "ensure_session",
-  "append_pending_event",
-  "has_pending_events",
   "resolve_workspace_directory",
   "resolve_artifact",
   "resolve_image_view",
@@ -795,7 +787,6 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "item.completed",
   "conversation.stream.delta",
   "typing.changed",
-  "agent.wake",
   "background_task.changed",
   "managed_llm.authentication_failed",
   "session.changed",
@@ -906,9 +897,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireObject("request");
       requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);
       break;
-    case "has_pending_events":
-      requireText("session_id");
-      break;
     case "resolve_workspace_directory":
       requireText("session_id");
       break;
@@ -928,10 +916,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "resolve_attachment":
       requireText("session_id");
       requireText("attachment_id");
-      break;
-    case "append_pending_event":
-      requireText("session_id");
-      requireObject("event");
       break;
     case "dashboard_call":
       parseAgentDashboardRpcCall(payload);

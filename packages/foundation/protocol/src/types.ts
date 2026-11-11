@@ -24,11 +24,3 @@ export interface InboundEvent {
   user_content_blocks: JsonObject[];
   diagnostics: AgentDiagnostic[];
 }
-
-export type PendingSystemEvent = JsonObject & {
-  event_id: string;
-  job_id: string;
-  created_at: number;
-  text: string;
-  response_route_id?: string;
-};

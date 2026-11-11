@@ -252,7 +252,7 @@ app.whenReady().then(async () => {
       const marker = await js("questionFixture.messages().find(m=>m.source_reason==='turn_aborted')");
       assert.equal(marker.turn.turn_id, oldB.turn_id, "Stop context belongs to the cancelled turn");
       assert.ok(marker.content.includes("<turn_aborted>"));
-      assert.equal(await js("document.body.innerText.includes('用户主动中断了上一回合') || document.body.innerText.includes('<turn_aborted>')"), false);
+      assert.equal(await js("document.body.innerText.includes('The user interrupted the previous turn') || document.body.innerText.includes('<turn_aborted>')"), false);
       assert.equal(await js("document.querySelectorAll('[data-row-kind=message]').length"), 1, "Only the original user bubble is shown");
       assert.equal(await js("document.body.innerText.includes('已停止')"), true);
     };

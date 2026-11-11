@@ -189,7 +189,7 @@ export function prepareTextEdit(source: string, edits: TextEdit[]): PreparedText
   chunks.push(originalLines.slice(cursor).map((line) => line.text).join(""));
   const updated = chunks.join("");
   const content = bom + (ending === "\r\n" ? updated.replaceAll("\n", "\r\n") : updated);
-  if (content === source) throw new Error("No changes made: 未产生修改.");
+  if (content === source) throw new Error("No changes made.");
   const lineEndingChanged = raw !== (ending === "\r\n" ? original.replaceAll("\n", "\r\n") : original);
   const firstEndingChange = lineEndingChanged
     ? (raw.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []).findIndex((line) => {

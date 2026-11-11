@@ -11,6 +11,20 @@
 
 两类来源分别解析。公司模型不可用时返回配置或授权错误，不自动换用个人 Key 或本地默认模型。设备同步、加密缓存、下架与断网处理统一见 [云端接入手册](../../desktop/cloud-access.md)。
 
+使用 OpenAI 项目 Key 时，在桌面设置的「本地模型」中选择 OpenAI 并保存 Key，再在对话栏选择 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。五款 GPT-6 模型的本地上下文窗口均为 272,000 tokens，默认选用 `gpt-6.1-sol` 和 `medium` 推理强度；各型号可用档位见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+
+OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning.effort` 固定为 `medium`，实际档位随 `configuration_update` 追加到 `input`。后续请求在原位置回放历史档位，让切档前的输入前缀可供缓存复用。选择 `off` 时，支持关闭推理的型号使用顶层 `reasoning.effort: "none"`。上下文压缩沿用 Harness 的会话摘要流程。
+
+### MCP 目录和工具在请求中的位置
+
+| 个人凭据路线 | MCP 目录有变化 | 工具定义有变化 |
+| --- | --- | --- |
+| OpenAI 直连的五款 GPT-6 | 在本轮用户消息前追加 `developer` 指令 | 首批放在 `input` 开头的 `additional_tools`，新增和同名修改在当步追加。撤下工具时按有效清单重建声明前缀。 |
+| DeepSeek 的 `deepseek-flash` 和 `deepseek-v4-pro` | 在本轮用户消息前追加 `system` 指令 | 下次请求更新顶层 `tools`。 |
+| Kimi、智谱、OpenRouter 当前模型 | 初始指令包含最新目录 | 下次请求更新顶层 `tools`。 |
+
+`supportsMidConvoSystemMessages` 控制中途指令。Responses 路线还需开启 `supportsAdditionalTools` 才会在 `input` 里声明工具。公司模型按发布的能力配置执行，省略这两个字段时沿用原请求布局。个人配置和旧会话中的 `deepseek-v4-flash` 会解析为 `deepseek-flash`，公司凭据继续匹配发布时的模型 ID。
+
 ## 定义与校验
 
 模型定义包含供应商和模型标识、展示名称、协议与地址、上下文窗口、输出上限、图片输入能力、thinking／effort 选项及协议兼容参数。目录中的认证环境变量名用于识别凭据配置，不包含实际 Key。

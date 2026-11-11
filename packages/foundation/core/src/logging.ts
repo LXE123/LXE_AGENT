@@ -53,6 +53,8 @@ export interface ConfigureLoggingOptions {
   projectRoot: string;
   stateRoot?: string;
   fileName?: string;
+  /** Commands can reserve stdout/stderr for results while retaining file diagnostics. */
+  consoleEnabled?: boolean;
   environment: Environment;
   onStatusChange?: (status: LoggingStatus) => void;
 }
@@ -511,7 +513,7 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
     write(level, logger, record, line) {
       if (closed) return;
       const override = overrideLevel(logger, overrides);
-      if (shouldWrite(level, consoleLevel, override)) {
+      if (options.consoleEnabled !== false && shouldWrite(level, consoleLevel, override)) {
         safeConsole("log", formatConsoleLine(record, consoleColors));
       }
       if (filePath && fileUsable && shouldWrite(level, fileLevel, override)) {

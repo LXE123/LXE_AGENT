@@ -5,26 +5,23 @@ import { join } from "node:path";
 import { DesktopGateway } from "../../src/main/desktop-gateway";
 import { DesktopAutomations } from "../../src/main/automations";
 import { NodeAutomationStore } from "../../src/main/automation-store";
-import { SessionRuntimeState } from "../../../gateway/src/state/session-state";
 
 async function verifyStop(state: "running" | "queued") {
   const db = new DatabaseSync(":memory:");
   const store = new NodeAutomationStore(db);
-  const runtimeState = new SessionRuntimeState();
   const sent: string[] = [], stopped: Array<[string, string | undefined]> = [];
   const runtime = { isReady: true, dashboardCall: async (call: { operation: string }) => {
     if (call.operation === "sessions.detail") return { session: { source_summary: { platform: "desktop" } } };
     if (["sessions.questions", "sessions.approvals"].includes(call.operation)) return { items: [] };
     throw new Error(`Unexpected fixture RPC ${call.operation}`);
   } };
-  const composition = { parts: { runtimeState,
+  const composition = { parts: {
     scheduler: { isSessionDeletionFenced: () => false, hasInflightWork: () => false },
     sessionStatus: { list: async () => ({ items: [{ state: "idle" }] }), flush: async () => {} },
     conversations: {
       stop: async (sessionId: string, turnId?: string) => {
         stopped.push([sessionId, turnId]);
         if (turnId === "old-turn") throw new Error("This task is no longer active");
-        runtimeState.suspendAutonomy(sessionId);
         return { session_id: sessionId, stopped_turn_id: state === "running" ? "turn" : null,
           cleared_turn_ids: state === "queued" ? ["turn"] : [] };
       },
@@ -50,7 +47,6 @@ async function verifyStop(state: "running" | "queued") {
     assert.deepEqual(stopped, [["chat", "turn"]]);
     assert.deepEqual(automations.service.get(first.id), first);
     assert.deepEqual(automations.service.get(second.id), second);
-    assert.equal(runtimeState.isAutonomySuspended("chat"), true);
     await assert.rejects(gateway.dashboardCall({ operation: "sessions.stop", input: { session_id: "chat", turn_id: "old-turn" } }), /no longer active/);
     assert.deepEqual(automations.service.get(first.id), first);
     // Simulate the next persisted deadline, with the prior turn already settled.

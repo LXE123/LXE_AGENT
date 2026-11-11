@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { startDesktopPipe } from "../src/mcp/pipe";
+import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
 import { takeDesktopMcpConfig } from "../../agent-cli/src/desktop-mcp";
 import { OfficialMcpConnector } from "../../../packages/agent/runtime/src/tooling/mcp";
 
@@ -19,6 +19,6 @@ test.skipIf(!node)("packaged standalone MCP bundle runs under Node without works
     connection=await new OfficialMcpConnector().connect(config);
     expect(connection.protocolVersion).toBe("2026-07-28");expect(connection.tools).toHaveLength(4);
     const result=await connection.callTool("automation_list",{});
-    expect(result.isError).toBe(false);expect(JSON.stringify(result.content)).toContain("automation_list");
+    expect(result.isError).toBeUndefined();expect(JSON.stringify(result.content)).toContain("automation_list");
   }finally{await connection?.close();await pipe.close();rmSync(root,{recursive:true,force:true});}
 },15_000);

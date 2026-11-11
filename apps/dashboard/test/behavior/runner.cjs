@@ -81,6 +81,8 @@ app.whenReady().then(async () => {
       await require("./app-frame.cjs")({win,js,step,load,waitFor,click,settle,delay});
     } else if (suite === "workspace-deletion") {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
+    } else if (suite === "session-fork") {
+      await require("./session-fork.cjs")({win,js,step,load,waitFor,click,key,settle,state});
     } else if (suite === "session-titles") {
       await require("./session-titles.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
     } else if (suite === "streaming-markdown") {

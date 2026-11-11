@@ -108,7 +108,7 @@ export class CodingProcessManager {
   async ensureOutputFile(execId: string, sessionId: string): Promise<JsonObject> {
     const entry = this.entries.get(execId);
     if (!entry || entry.sessionId !== sessionId) {
-      return { output_file_error: `exec ${execId} 不存在或不属于当前会话。` };
+      return { output_file_error: `Exec ${execId} does not exist or belongs to another session.` };
     }
     await entry.output.ensureSpill();
     const payload: JsonObject = {};
@@ -128,6 +128,8 @@ export class CodingProcessManager {
     workspace: WorkspaceContext;
     yieldMs: number;
     signal: AbortSignal;
+    /** Return programmatic output without presentation markers or whitespace trimming. */
+    rawOutput?: boolean;
     toolCallId: string;
     turnId?: string;
     env?: Record<string, string>;
@@ -143,15 +145,16 @@ export class CodingProcessManager {
     const entry = started.entry;
 
     await this.observe(entry, request.yieldMs, request.signal);
+    if (request.rawOutput) request.signal.throwIfAborted();
     if (entry.endedAt !== undefined) {
       entry.finalObserved = true;
-      return this.completedPayload(entry);
+      return this.completedPayload(entry, request.rawOutput);
     }
     entry.notifyOnExit = true;
     runWithLogContext(this.logContext(entry), () => {
       this.logger.info("process_yielded", this.processFields(entry));
     });
-    return this.runningPayload(entry, true);
+    return this.runningPayload(entry, request.rawOutput);
   }
 
   private async spawnEntry(request: {
@@ -323,10 +326,12 @@ export class CodingProcessManager {
     yieldMs: number;
     terminate: boolean;
     signal: AbortSignal;
+    rawOutput?: boolean;
   }): Promise<JsonObject> {
+    if (request.rawOutput) request.signal.throwIfAborted();
     const entry = this.entries.get(request.execId);
     if (!entry || entry.sessionId !== request.sessionId || entry.finalObserved) {
-      return { error: `exec ${request.execId} 不存在或已经关闭。` };
+      return { error: `Exec ${request.execId} does not exist or has already closed.` };
     }
     // Termination is claimed and issued before waiting for the observation lock.
     // This wakes an active long poll and gives the terminating observation priority
@@ -335,8 +340,9 @@ export class CodingProcessManager {
       ? this.requestTermination(entry, "process_killed")
       : undefined;
     return this.withObservation(entry, async () => {
+      if (request.rawOutput) request.signal.throwIfAborted();
       if (entry.finalObserved && !request.terminate) {
-        return { error: `exec ${request.execId} 不存在或已经关闭。` };
+        return { error: `Exec ${request.execId} does not exist or has already closed.` };
       }
       entry.recency = this.touch();
       if (request.terminate) {
@@ -345,13 +351,15 @@ export class CodingProcessManager {
       } else if (entry.endedAt === undefined) {
         await this.observe(entry, request.yieldMs, request.signal);
       }
+      // A cancelled script cannot receive this result. Leave its output for the next wait.
+      if (request.rawOutput) request.signal.throwIfAborted();
       const terminal = entry.endedAt !== undefined;
       const slice = entry.output.renderSince(entry.outputCursor);
       const payload: JsonObject = {
         exec_id: entry.id,
         sandbox: { ...entry.sandbox },
         status: terminal ? entry.status : "running",
-        new_output: slice.text || "(no new output)",
+        new_output: request.rawOutput ? slice.text : slice.text || "(no new output)",
       };
       if (terminal) {
         payload.exit_code = entry.exitCode;
@@ -359,7 +367,7 @@ export class CodingProcessManager {
         entry.finalObserved = true;
       }
       this.describeOutputCompleteness(entry, payload);
-      this.describeTruncation(entry, payload, slice.missed);
+      this.describeTruncation(entry, payload, slice.missed && !request.rawOutput);
       this.describeOutputFile(entry, payload);
       entry.outputCursor = slice.cursor;
       return payload;
@@ -438,12 +446,12 @@ export class CodingProcessManager {
   private truncationMarker(entry: ProcessEntry): string {
     const omitted = entry.output.droppedBytes;
     if (!entry.output.spillPath) {
-      return `[... 已省略开头 ${omitted} 字节；只保留了输出末尾 ...]`;
+      return `[... First ${omitted} bytes omitted. Only the end of the output is shown. ...]`;
     }
     return [
-      `[... 已省略开头 ${omitted} 字节，只保留了输出末尾。`,
-      `已捕获的输出记录在 ${entry.output.spillPath}；是否覆盖全部捕获内容见 output_file_covers_captured。`,
-      "——用 grep 检索或 read 带 offset/limit 查看需要的片段，不要整个读回。 ...]",
+      `[... First ${omitted} bytes omitted. Only the end of the output is shown.`,
+      `Captured output was saved to ${entry.output.spillPath}. Check output_file_covers_captured for completeness.`,
+      "Use exec to search the saved file or read with offset/limit to inspect the relevant section. ...]",
     ].join("\n");
   }
 
@@ -466,26 +474,27 @@ export class CodingProcessManager {
     payload.output_incomplete = true;
     payload.output_incomplete_reason = entry.outputIncompleteReason ?? "stream_read_error";
     payload.output_warning = entry.outputIncompleteReason === "stream_drain_timeout"
-      ? "进程退出后输出管道未在 2 秒内关闭；结果只包含截止排空期限前捕获的输出。"
-      : "读取进程输出流时发生错误；结果只包含成功捕获的输出。";
+      ? "The output pipe was still open 2 seconds after the process exited. Only output captured before that deadline is included."
+      : "An error occurred while reading process output. Only successfully captured output is included.";
   }
 
-  private completedPayload(entry: ProcessEntry): JsonObject {
+  private completedPayload(entry: ProcessEntry, rawOutput = false): JsonObject {
+    const output = entry.output.renderRetained();
     const payload: JsonObject = {
       status: entry.status,
       exec_id: entry.id,
       sandbox: { ...entry.sandbox },
       exit_code: entry.exitCode,
-      output: entry.output.renderRetained().trim() || "(no output)",
+      output: rawOutput ? output : output.trim() || "(no output)",
       duration_sec: this.duration(entry),
     };
     this.describeOutputCompleteness(entry, payload);
-    this.describeTruncation(entry, payload, true);
+    this.describeTruncation(entry, payload, !rawOutput);
     this.describeOutputFile(entry, payload);
     return payload;
   }
 
-  private runningPayload(entry: ProcessEntry, advanceCursor: boolean): JsonObject {
+  private runningPayload(entry: ProcessEntry, rawOutput = false): JsonObject {
     const slice = entry.output.renderSince(entry.outputCursor);
     const payload: JsonObject = {
       status: entry.status,
@@ -493,12 +502,12 @@ export class CodingProcessManager {
       sandbox: { ...entry.sandbox },
       pid: entry.process.pid,
       duration_sec: this.duration(entry),
-      message: `命令仍在运行。使用 wait(exec_id='${entry.id}') 查看新输出或终止命令。`,
-      output: slice.text || "(暂无输出)",
+      message: `The command is still running. Call wait with exec_id="${entry.id}" to get new output, or set terminate=true to stop it.`,
+      output: rawOutput ? slice.text : slice.text || "(no output yet)",
     };
-    this.describeTruncation(entry, payload, slice.missed);
+    this.describeTruncation(entry, payload, slice.missed && !rawOutput);
     this.describeOutputFile(entry, payload);
-    if (advanceCursor) entry.outputCursor = slice.cursor;
+    entry.outputCursor = slice.cursor;
     return payload;
   }
 

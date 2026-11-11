@@ -38,7 +38,7 @@ macOS 同时回归了修改的 SQLite / MCP 测试、新增 Electron 测试、�
 复现本轮定向测试：
 
 ```sh
-bun test apps/gateway/test/orchestration/automations.test.ts apps/gateway/test/orchestration/local-conversation.test.ts apps/gateway/test/orchestration/scheduler.test.ts apps/gateway/test/orchestration/heartbeat-bridge.test.ts apps/gateway/test/orchestration/router.test.ts apps/dashboard/test/features/automations/form.test.ts apps/desktop/test/automation-store.test.ts apps/desktop/test/automation-stop.test.ts apps/desktop/test/automation-electron.test.ts apps/desktop/test/automation-clock-bundle.test.ts apps/desktop/test/desktop-mcp.test.ts
+bun test apps/gateway/test/orchestration/automations.test.ts apps/gateway/test/orchestration/local-conversation.test.ts apps/gateway/test/orchestration/scheduler.test.ts apps/gateway/test/orchestration/router.test.ts apps/dashboard/test/features/automations/form.test.ts apps/desktop/test/automation-store.test.ts apps/desktop/test/automation-stop.test.ts apps/desktop/test/automation-electron.test.ts apps/desktop/test/automation-clock-bundle.test.ts apps/desktop/test/desktop-mcp.test.ts
 bun run typecheck
 bun run desktop:build
 bun run cds:check:automations

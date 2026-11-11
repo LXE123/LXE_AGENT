@@ -2,7 +2,6 @@ const clean = (value: unknown): string => String(value ?? "").trim();
 
 export class SessionRuntimeState {
   private readonly steeringEnabled = new Set<string>();
-  private readonly autonomySuspended = new Set<string>();
 
   isSteeringEnabled(sessionId: string): boolean {
     return this.steeringEnabled.has(clean(sessionId));
@@ -23,22 +22,8 @@ export class SessionRuntimeState {
     return enabled;
   }
 
-  suspendAutonomy(sessionId: string): void {
-    const safe = clean(sessionId);
-    if (safe) this.autonomySuspended.add(safe);
-  }
-
-  resumeAutonomy(sessionId: string): boolean {
-    return this.autonomySuspended.delete(clean(sessionId));
-  }
-
-  isAutonomySuspended(sessionId: string): boolean {
-    return this.autonomySuspended.has(clean(sessionId));
-  }
-
   forget(sessionId: string): void {
     const safe = clean(sessionId);
     this.steeringEnabled.delete(safe);
-    this.autonomySuspended.delete(safe);
   }
 }

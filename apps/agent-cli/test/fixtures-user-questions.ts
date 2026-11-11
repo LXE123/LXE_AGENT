@@ -54,8 +54,6 @@ const server = new AgentProtocolServer({
       start: () => runtime.start(), stop: async () => { await questions.stop(); await runtime.stop(); },
       runTurn: (job, handle) => runtime.runTurn(job, handle),
       ensureSession: request => store.ensureSession(request),
-      appendPendingEvent: (id, event) => store.appendPendingEvent(id, event),
-      hasPendingEvents: id => store.hasPendingEvents(id),
       resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImageView: async () => undefined, resolveImagePreview: async () => undefined,
       dashboardCall: call => dashboard.call(call), updateSkillPermissions: () => {}, health: () => ({ ready: true }),
     };

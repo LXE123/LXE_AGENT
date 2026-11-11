@@ -239,6 +239,7 @@ const extraResources: BuilderFileSet[] = [
     to: `${scopeEntry("runtime-tools").target}/exiftool`,
     filter: ["**/*"],
   },
+  exactFileSet(join(repositoryRoot, "apps", "agent-cli", "docs", "mcp.md"), `${scopeEntry("runtime-agent-cli").target}/mcp.md`),
   exactFileSet(agentCli, `${scopeEntry("runtime-agent-cli").target}/agent-cli.exe`),
   { from: dashboardRoot, to: scopeEntry("dashboard").target, filter: ["**/*"] },
   {

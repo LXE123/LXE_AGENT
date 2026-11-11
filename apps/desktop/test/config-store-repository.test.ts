@@ -45,7 +45,7 @@ describe("DesktopConfigRepository", () => {
       migration_version: 0,
       llm: {
         provider: "deepseek",
-        profiles: { deepseek: { model: "deepseek-v4-flash", thinking_level: "low" } },
+        profiles: { deepseek: { model: "deepseek-flash", thinking_level: "low" } },
       },
       logging: { profile: "standard", retention_days: 7 },
       cloud: { tunnel_name: "lxe-agent", switch_in_progress: false },
@@ -66,7 +66,7 @@ describe("DesktopConfigRepository", () => {
       migration_version: 0,
       llm: {
         provider: "deepseek",
-        profiles: { deepseek: { model: "deepseek-v4-flash", thinking_level: "low" } },
+        profiles: { deepseek: { model: "deepseek-flash", thinking_level: "low" } },
       },
       integrations: { feishu: { managed: true, app_id: "legacy-app-id" } },
       logging: { profile: "standard", retention_days: 7 },

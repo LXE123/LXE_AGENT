@@ -50,14 +50,14 @@
       "type": "boolean"
     },
     "message_id": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "user_input": {
       "type": "string"
     },
     "job_kind": {
-      "type": "string",
-      "minLength": 1
+      "const": "turn"
     },
     "sender_nick": {
       "type": "string"
@@ -84,27 +84,5 @@
         "$ref": "common.schema.json#/$defs/AgentDiagnostic"
       }
     }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "job_kind": {
-            "const": "heartbeat"
-          }
-        },
-        "required": [
-          "job_kind"
-        ]
-      },
-      "else": {
-        "properties": {
-          "message_id": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      }
-    }
-  ]
+  }
 }

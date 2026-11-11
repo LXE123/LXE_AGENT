@@ -473,6 +473,19 @@ export function useToolsetsQuery(enabled = true) {
   });
 }
 
+export function useMcpServersQuery(enabled = true) {
+  return useQuery({
+    queryKey: dashboardQueryKeys.mcpServers.all,
+    queryFn: async ({ signal }) => {
+      const result = await callDashboard({ operation: "mcp.servers.list", input: {} });
+      signal.throwIfAborted();
+      return result;
+    },
+    enabled,
+    staleTime: ACTIVE_DATA_STALE_TIME_MS,
+  });
+}
+
 export function useSkillContentQuery(name: string, enabled = true) {
   return useQuery({
     ...SKILL_QUERY_OPTIONS,

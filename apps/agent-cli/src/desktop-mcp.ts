@@ -12,7 +12,7 @@ export function takeDesktopMcpConfig(environment: Record<string, string | undefi
     name: DESKTOP_MCP_NAME, enabled: enabled !== "0", transport: "stdio", protocolMode: "2026-07-28",
     command, args: [script], cwd: "", env: { LXE_DESKTOP_MCP_PIPE: pipe, LXE_DESKTOP_MCP_TOKEN: token },
     url: "", headers: {}, envHeaders: {}, bearerTokenEnvVar: "", connectorId: "", connectorName: "桌面应用",
-    connectorDescription: "管理桌面定时任务", startupTimeoutMs: 10_000, toolTimeoutMs: 30_000,
-    enabledTools: new Set(), disabledTools: new Set(), exposure: "deferred", platforms: ["desktop"], callerMetadataKey: DESKTOP_MCP_META,
+    connectorDescription: "Manage scheduled tasks in the desktop app.", startupTimeoutMs: 10_000, toolTimeoutMs: 30_000,
+    enabledTools: new Set(), disabledTools: new Set(), exposure: "codemode", platforms: ["desktop"], callerMetadataKey: DESKTOP_MCP_META,
   };
 }

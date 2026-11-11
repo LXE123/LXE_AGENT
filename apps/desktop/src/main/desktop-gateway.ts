@@ -92,14 +92,6 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     }
   }
 
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    return this.agent.appendPendingEvent(sessionId, event);
-  }
-
-  hasPendingEvents(sessionId: string): Promise<boolean> {
-    return this.agent.hasPendingEvents(sessionId);
-  }
-
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined> {
     return this.gateway.getResponseRoute(responseRouteId);
   }
@@ -130,6 +122,7 @@ export interface DesktopGatewayOptions {
   onExecUpdate?: (update: BackgroundTaskChangedPayload) => void;
   onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
+
 
 export class DesktopGateway {
   private updatePreparing = false;
@@ -208,7 +201,7 @@ export class DesktopGateway {
       TEMP: join(this.options.paths.dataRoot, "tmp"),
       TMPDIR: join(this.options.paths.dataRoot, "tmp"),
       AGENT_SESSION_BINDINGS_PATH: join(this.options.paths.dataRoot, "db", "sessions.json"),
-      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.yaml"),
+      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.json"),
       LXE_MANAGED_PATH: this.options.paths.managedPath,
       LXE_FD_PATH: this.options.paths.fdPath,
       LXE_MANAGED_PYTHON: this.options.paths.managedPythonPath,
@@ -250,11 +243,12 @@ export class DesktopGateway {
     const feishu = loadFeishuConfig(environment);
     const allowedSkillTypes = this.options.allowedSkillTypes();
     let composition: DirectGatewayComposition | undefined;
+    const agentEnvironment = { ...environment };
     const runtime = new ProcessAgentRuntime({
       command: this.options.paths.agentCommand,
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
-      environment,
+      environment: agentEnvironment,
       skillsRoot: this.options.paths.skillsRoot,
       userSkillsRoot: this.options.paths.userSkillsRoot,
       llmConfigRoot: this.options.paths.llmConfigRoot,
@@ -276,7 +270,6 @@ export class DesktopGateway {
       onTyping: async (request) => {
         await composition?.parts.emitter?.typing(request);
       },
-      onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
       onEvent: (event) => {
         if (event.type === "managed_llm.authentication_failed") {
           void this.options.onManagedLlmAuthenticationFailure?.(
@@ -346,7 +339,7 @@ export class DesktopGateway {
       this.automations = new DesktopAutomations({
         timeWorker: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "automation-time-worker.mjs")
           : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "automation-time-worker.mjs"),
-        store: store.automations!, composition, runtime, environment,
+        store: store.automations!, composition, runtime, environment: agentEnvironment,
         node: this.options.paths.officeNodePath,
         script: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "desktop-mcp.mjs")
           : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "desktop-mcp.mjs"),
@@ -364,7 +357,7 @@ export class DesktopGateway {
       this.lastError = error.message;
       this.gatewayState = "error";
       await Promise.allSettled([composition.stop()]);
-      await this.automations?.close(); this.automations = undefined;
+      await this.closeDesktopPipes();
       store.stop();
       this.composition = undefined;
       this.runtime = undefined;
@@ -389,6 +382,10 @@ export class DesktopGateway {
     return () => { this.updatePreparing = false; release(); };
   }
 
+  private async closeDesktopPipes(): Promise<void> {
+    await this.automations?.close(); this.automations = undefined;
+  }
+
   async stop(strict = false): Promise<void> {
     await this.automations?.service.stop();
     await this.lxeskillHealth?.stop();
@@ -399,7 +396,7 @@ export class DesktopGateway {
     if (strict && composition?.parts.lifecycle.shutdownError) {
       throw new Error("更新前清理失败：" + composition.parts.lifecycle.shutdownError + "。请手动重启应用后重试");
     }
-    await this.automations?.close(); this.automations = undefined;
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop();
     this.store = undefined;
@@ -411,7 +408,7 @@ export class DesktopGateway {
 
   async recoverAfterUpdate(): Promise<void> {
     if (this.runtime?.hasProcess) throw new Error("Agent process exit is unconfirmed; restart the application before retrying");
-    await this.automations?.close(); this.automations = undefined;
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop(); this.store = undefined; this.runtime = undefined;
     await this.start();
@@ -500,6 +497,14 @@ export class DesktopGateway {
         await this.composition.parts.channels.healthSnapshot(),
       );
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.fork") {
+      const activity = this.composition.parts.conversations.activity(call.input.session_id);
+      if (call.input.turn_id ? activity.active?.turn_id === call.input.turn_id :
+        this.composition.parts.scheduler.hasInflightWork(call.input.session_id) || activity.active || activity.queued.length) {
+        throw new DashboardRpcError("failed_precondition", "Wait for the current turn to finish");
+      }
+      return this.runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.fork">) as Promise<DashboardRpcResult<O>>;
     }
     if (call.operation === "sessions.delete") {
       await this.composition.parts.sessionStatus?.flush();

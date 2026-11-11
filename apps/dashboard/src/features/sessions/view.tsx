@@ -1,7 +1,10 @@
+import { ForkMenu } from "./ForkMenu";
 import { AppCaption } from "../../shared/app-frame";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
+import "./session-tree.css";
+import { sessionBranchPath, sessionTree, type SessionBranch } from "./session-tree";
 import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
 import { ReferenceComposer } from "./ReferenceComposer";
@@ -35,6 +38,7 @@ import {
   Copy,
   FileText,
   FolderOpen,
+  GitFork,
   Info,
   LoaderCircle,
   MessageSquareText,
@@ -129,10 +133,12 @@ function MessageMeta({
   createdAt,
   role,
   text,
+  children,
 }: {
   createdAt: number;
   role: "assistant" | "user";
   text: string;
+  children?: React.ReactNode;
 }) {
   const t = useUiText();
   const [copied, setCopied] = useState(false);
@@ -150,7 +156,7 @@ function MessageMeta({
   const copyButton = text ? (
     <button
       aria-label={copyLabel}
-      className="message-meta-copy"
+      className="message-meta-action message-meta-copy"
       onClick={handleCopy}
       title={copyLabel}
       type="button"
@@ -161,10 +167,11 @@ function MessageMeta({
   const time = timestamp ? (
     <time dateTime={new Date(createdAt * 1000).toISOString()}>{timestamp}</time>
   ) : null;
-  if (!copyButton && !time) return null;
+  if (!copyButton && !time && !children) return null;
   return (
     <div className={`message-meta role-${role}`}>
       {role === "user" ? time : copyButton}
+      {children}
       {role === "user" ? copyButton : time}
     </div>
   );
@@ -406,23 +413,33 @@ function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
  * it is — a shell command as shell, a path as a path — with the remaining
  * arguments kept below rather than dropped.
  */
-function ToolCallArguments({ operation }: { operation: ToolOperation }) {
+function ToolCallArguments({ operation, preview }: { operation: ToolOperation; preview?: LiveToolStep["input_block"] }) {
   const t = useUiText();
   const { primary, rest } = toolOperationArguments(operation);
   const restKeys = Object.keys(rest);
-  if (!primary && !restKeys.length) return null;
+  const call = isRecord(operation.call) ? operation.call : undefined;
+  const input = call?.input ?? call?.arguments;
+  if (!preview && !primary && !restKeys.length && !isRecord(input)) return null;
+  const script = operation.name === "codemode";
+  // A cut-off JSON preview stays readable as text even when it cannot be parsed.
+  const block = preview ?? (operation.action === "tool" && !script && isRecord(input)
+    ? { language: "json", content: shortText(sanitizeForDisplay(input, { truncateStrings: false }), 16_000) }
+    : undefined);
   const primaryLanguage = operation.action === "run"
     ? "bash"
-    : languageForPath(primary);
+    : script ? "javascript" : languageForPath(primary);
   const isPath = ["read", "edit", "write", "list", "send"].includes(operation.action);
   return (
     <div className="tool-call-args">
-      {primary
+      <div className="block-title"><Wrench size={14} /><span>{t.message.toolInput}</span></div>
+      {block ? <CodeBlock code={block.content} language={block.language === "json" ? "json" : script ? "javascript" : ""} />
+        : primary
         ? (isPath
           ? <div className="tool-call-path" title={primary}>{primary}</div>
           : <CodeBlock code={primary} language={primaryLanguage} />)
         : null}
-      {restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && !primary && !restKeys.length ? <code>{"{}"}</code> : null}
     </div>
   );
 }
@@ -476,7 +493,7 @@ function defaultToolOperationBody(operation: ToolOperation): React.ReactNode {
 
 type LiveToolStep = DesktopConversationStreamPayload["tool_steps"][number];
 
-function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
+function liveToolOperations(steps: LiveToolStep[], call?: unknown): ToolOperation[] {
   return steps.map((step, index) => {
     const name = String(step.name || "tool");
     const argument = String(step.detail || "");
@@ -487,7 +504,7 @@ function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
       ...toolOperationPresentation(name, argument),
       status: step.status,
       expandable: hasLiveToolOperationDetails(step),
-      call: undefined,
+      call,
       result: step,
     };
   });
@@ -498,7 +515,7 @@ function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   const language = resultLanguage(operation);
   return (
     <>
-      <ToolCallArguments operation={operation} />
+      <ToolCallArguments operation={operation} preview={step.input_block} />
       {step.result_block ? (
         <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} language={language} />
       ) : null}
@@ -741,7 +758,7 @@ export function ConversationModelPicker({
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
-        <div aria-label={t.models.model} className="conversation-model-menu" role="menu">
+        <div aria-label={t.models.model} className="conversation-model-menu conversation-model-selector-menu" role="menu">
           <div className="conversation-model-menu-heading">{t.models.model}</div>
           <div className="conversation-model-options">
             {choices.length ? choices.map((choice) => {
@@ -1376,7 +1393,8 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId, onFork, forkDisabled }: {
+  onFork?: (turnId?: string) => void; forkDisabled?: boolean;
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
   attachmentSessionId?: string;
@@ -1392,7 +1410,9 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     </div>;
   }
   if (row.kind === "answer_meta") return <div className="answer-footer">
-    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
+    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt}>
+      {onFork && row.answerMeta?.forkable && <ForkMenu placement="reply" disabled={!!forkDisabled} onFork={() => onFork(row.turnId)} />}
+    </MessageMeta>
   </div>;
   if (row.kind === "process") return <button type="button" className="conversation-process-toggle conversation-chrome-theme"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>
@@ -1401,7 +1421,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "artifacts") return <TurnFileList sessionId={attachmentSessionId} files={row.artifacts ?? []} onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
   if (row.kind === "image_views") return <ImageViewGroup rows={row.imageRows ?? []} sessionId={attachmentSessionId} />;
   if (row.kind === "tool") {
-    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
+    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool], row.liveCall)[0] : undefined);
     if (!operation) return null;
     const answers = questionAnswerSummary(operation);
     if (answers) return <UserQuestionSummary items={answers} />;
@@ -1455,9 +1475,10 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
 }, (a, b) => a.expanded === b.expanded && a.onToggle === b.onToggle && a.onOpenFile === b.onOpenFile
   && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment
-  && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
+  && a.onFork === b.onFork && a.forkDisabled === b.forkDisabled && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
+  onFork, forking,
   workspaceControl,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   fallbackSession,
@@ -1487,6 +1508,8 @@ export function SessionDetailView({
   onOpenAttachment,
   pendingMessages, display, onFollowingChange,
 }: {
+  onFork?: (turnId?: string) => void;
+  forking?: boolean;
   workspaceControl?: React.ReactNode;
   approvals?: PendingApproval[];
   onApprovalChanged?: () => void;
@@ -1551,6 +1574,9 @@ export function SessionDetailView({
         </div>
         <div className="conversation-header-actions">
           {newConversation ? null : workspaceControl}
+          {!newConversation && onFork && <ForkMenu disabled={!runtimeReady || !!forking || !detail?.has_forkable_turn
+            || !!activity?.active || !!activity?.queued.length || pendingMessages.some(item => !item.error)}
+            onFork={() => onFork()} />}
           <PreviewHeaderActions />
         </div>
       </header></AppCaption>
@@ -1564,6 +1590,7 @@ export function SessionDetailView({
             : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
             : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
           renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+            onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
             onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
         <div className="conversation-composer-dock">
           <ConversationComposer
@@ -1603,6 +1630,8 @@ function SessionActionsMenu({
   onDelete,
   onPin,
   onRename,
+  onFork,
+  forkDisabled = false,
 }: {
   anchor: HTMLElement;
   deletingBlocked: boolean;
@@ -1613,12 +1642,14 @@ function SessionActionsMenu({
   onDelete: () => void;
   onPin: () => void;
   onRename?: () => void;
+  onFork?: () => void;
+  forkDisabled?: boolean;
 }) {
   const t = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
   const rect = anchor.getBoundingClientRect();
   const width = 150;
-  const estimatedHeight = error ? 147 : 116;
+  const estimatedHeight = (error ? 147 : 116) + (onFork ? 32 : 0);
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
   const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
     ? rect.bottom + 5
@@ -1669,6 +1700,7 @@ function SessionActionsMenu({
       style={{ left, top, width }}
     >
       {onRename && !session.blank ? <button disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></button> : null}
+      {onFork && <button disabled={pending || forkDisabled} onClick={onFork} role="menuitem" type="button"><GitFork size={12} /><span>{t.sessions.createBranch}</span></button>}
       <button disabled={pending} onClick={onPin} role="menuitem" type="button">
         {session.pinned_at > 0 ? <PinOff size={12} /> : <Pin size={12} />}
         <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
@@ -1753,6 +1785,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onOpen,
   onPin,
   onRenameSession,
+  onForkSession,
+  forking = false,
   onDelete,
   onTransientInteractionChange,
   visible = true,
@@ -1779,6 +1813,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
   onRenameSession?: (session: SessionPayload) => void;
+  onForkSession?: (session: SessionPayload) => Promise<void>;
+  forking?: boolean;
   onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
   onDelete: (session: SessionPayload) => Promise<void>;
   onTransientInteractionChange?: (active: boolean) => void;
@@ -1800,7 +1836,20 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
-  const { pinned: pinnedSessions, recent: recentSessions } = groupSidebarSessions(sessions, Boolean(trimmedQuery));
+  const searching = Boolean(trimmedQuery);
+  const { pinned: pinnedSessions, recent: recentSessions } = useMemo(() => groupSidebarSessions(sessions, searching), [sessions, searching]);
+  const trees = useMemo(() => ({ pinned: sessionTree(pinnedSessions, sessions), recent: sessionTree(recentSessions, sessions) }), [pinnedSessions, recentSessions, sessions]);
+  const [collapsedBranches, setCollapsedBranches] = useState<ReadonlySet<string>>(() => new Set());
+  const selectedPath = JSON.stringify(sessionBranchPath([...trees.pinned, ...trees.recent], selectedSessionId).slice(0, -1));
+  useEffect(() => {
+    const ancestors = JSON.parse(selectedPath) as string[];
+    setCollapsedBranches(previous => {
+      if (!ancestors.some(id => previous.has(id))) return previous;
+      const next = new Set(previous);
+      for (const id of ancestors) next.delete(id);
+      return next;
+    });
+  }, [selectedSessionId, selectedPath]);
   const transientInteractionActive = Boolean(menu);
 
   useEffect(() => {
@@ -1872,7 +1921,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     }
   }
 
-  const renderSession = (session: SessionPayload) => {
+  const renderSession = (session: SessionPayload, guides: readonly boolean[] = [], branch?: SessionBranch) => {
     const selected = selectedSessionId === session.session_id;
     const sessionTitle = session.title || t.common.unnamedSession;
     const menuOpen = menu?.session.session_id === session.session_id;
@@ -1880,8 +1929,18 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     const failure=statusError||summary?.error;
     const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
     const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
+    const hasBranches = Boolean(branch?.children.length);
+    const expanded = !collapsedBranches.has(session.session_id);
+    const branchesId = `session-branches-${session.session_id}`;
     return (
-      <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
+      <div className={`session-index-item${selected ? " active" : ""}${menuOpen ? " menu-open" : ""}${hasBranches ? " has-branches" : ""}`}
+        key={session.session_id} data-session-id={session.session_id}
+        style={{ "--session-branch-depth": guides.length } as React.CSSProperties}
+        onClick={event => { if (event.target === event.currentTarget) onOpen(session); }}>
+        {guides.length > 0 && <span className="session-branch-guides" aria-hidden="true">
+          {guides.map((continues, index) => <span key={index}
+            className={`session-branch-guide${continues ? " through" : index === guides.length - 1 ? " elbow" : ""}`} />)}
+        </span>}
         <button
           aria-current={selected ? "page" : undefined}
           aria-label={`${sessionTitle} · ${statusLabel}`}
@@ -1893,6 +1952,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
           <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
         </button>
+        {hasBranches && <button type="button" className="session-branch-toggle" aria-expanded={expanded}
+          aria-controls={branchesId} aria-label={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          title={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          onClick={() => setCollapsedBranches(previous => {
+            const next = new Set(previous);
+            if (expanded) next.add(session.session_id); else next.delete(session.session_id);
+            return next;
+          })}>
+          {expanded ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+        </button>}
         <button
           aria-expanded={menuOpen}
           aria-haspopup="menu"
@@ -1911,6 +1980,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       </div>
     );
   };
+
+  const renderBranch = (branch: SessionBranch, guides: readonly boolean[] = []): React.ReactNode => (
+    <React.Fragment key={branch.session.session_id}>
+      {renderSession(branch.session, guides, branch)}
+      {branch.children.length > 0 && <div className="session-branch-children" id={`session-branches-${branch.session.session_id}`}
+        hidden={collapsedBranches.has(branch.session.session_id)}>
+        {branch.children.map((child, index) => renderBranch(child, [...guides, index < branch.children.length - 1]))}
+      </div>}
+    </React.Fragment>
+  );
 
   return (
     <div className="session-index-panel">
@@ -1956,11 +2035,11 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           {pinnedSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.pinned}</div>
           ) : null}
-          {pinnedSessions.map(renderSession)}
+          {trees.pinned.map(branch => renderBranch(branch))}
           {!embedded && !trimmedQuery && recentSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.recent}</div>
           ) : null}
-          {recentSessions.map(renderSession)}
+          {trimmedQuery ? recentSessions.map(session => renderSession(session)) : trees.recent.map(branch => renderBranch(branch))}
           {loadingMore ? (
             <span aria-label={t.common.loading} className="sessions-load-more-indicator" role="status">
               <LoaderCircle aria-hidden="true" className="conversation-spinner" size={14} />
@@ -1987,6 +2066,10 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           }}
           onPin={() => void pinSelected()}
           onRename={onRenameSession ? () => { const session = menu.session; closeMenu(); onRenameSession(session); } : undefined}
+          onFork={onForkSession ? () => { const session = menu.session; closeMenu(); void onForkSession(session); } : undefined}
+          forkDisabled={forking || !!menu.session.blank || blockedIds.has(menu.session.session_id)
+            || ["running", "stopping", "queued"].includes(statuses?.get(menu.session.session_id)?.state ?? "")
+            || waitingSessionIds?.has(menu.session.session_id)}
         />
       ) : null}
       {confirmation ? (

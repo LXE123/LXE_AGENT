@@ -8,24 +8,26 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 
 ## 工具来源
 
-- Native direct tools：Runtime 内置的 read/write/edit/grep/find/ls/send_files/exec/wait 等能力。
+- Native direct tools：普通会话使用 read/write/edit/send_files/exec/wait 等内置工具。列目录、找文件和搜索内容默认通过 `exec`。
 - Desktop interaction：`ask_user_question` 只对真实来源为桌面的当前回合开放，返回答案后继续同一工具调用。
 - 外部命令：模型通过 `exec` 调用 `lxeskill`、`lark-cli` 等 CLI，不注册为独立的 model tool。lxeskill 的调用契约与统计归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
-- MCP tools：从 enabled server 动态发现，可 direct 或 deferred。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
+- MCP tools：从已启用的服务动态发现，暴露方式由服务的 [exposure 配置](mcp.md#工具适配与上下文的边界) 决定。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
-- `tool_search`：搜索 deferred definition 并更新 exposure state。
+- `tool_search`：当前平台启用了 `deferred` 服务时出现。它搜索尚未加载的工具，命中后从下一次模型请求起可以直接调用；续聊和分叉按当前分支恢复已加载的工具。
+- `codemode`：在当前平台启用了 `codemode` 服务时出现。脚本可组合 MCP 工具与内置的 `read`、`edit`、`write`、`exec` 和 `wait`；脚本搜索保持顶层工具清单稳定。
 
 ## 专题导航
 
 - [Tool Schema](tool_schema.md)：definition、命名、JSON schema 和 exposure。
 - [Tool Execution](tool_execution.md)：dispatch、cancel、result、artifact 与错误语义。
 - [Ask User Question](ask-user-question.md)：问题卡片、专用答复接口和失效规则。
+- [MCP](mcp.md)：JSON 配置、连接器、连接管理与工具适配。
 
 ## 常用行为
 
-- `find` 按 glob 搜索路径，`grep` 搜索文件内容。参数、忽略规则和输出限制分别见 [路径搜索](tool_schema.md#路径搜索-find)和 [内容搜索](tool_schema.md#内容搜索-grep)。
+- 宿主可在注册编码工具时传入 `includeSearchTools: true` 启用专用的 [路径搜索](tool_schema.md#路径搜索-find)、[内容搜索](tool_schema.md#内容搜索-grep) 和 [目录分页](tool_schema.md#目录分页-ls)。普通会话默认关闭三项。
 - `read` 可以读取文本和受支持的图片；已知二进制文件会明确拒绝。文本输出有统一上限，大文件通过 `offset` 和 `limit` 分段继续，不把整文件一次塞给模型。
-- `ls` 支持目录分页，`edit` 支持同一文件的批量编辑。参数与边界见 [目录分页](tool_schema.md#目录分页-ls)和 [批量编辑](tool_schema.md#批量编辑-edit)。
+- `edit` 支持同一文件的[批量编辑](tool_schema.md#批量编辑-edit)。
 - `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。它先观察最多 `yield-time-ms`；命令仍运行时返回 `exec_id`，不设默认硬超时。
 - `wait` 只接受所属 Session 的 `exec_id`，返回上次成功观察后的新增输出；`terminate=true` 会终止完整进程树。v1 不提供 PTY、stdin、list 或重连。
 
@@ -36,7 +38,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 - [`registry.ts`](../../../../packages/agent/runtime/src/tooling/registry.ts)：工具注册与 exposure state。
 - [`coding/register.ts`](../../../../packages/agent/runtime/src/tooling/coding/register.ts)：文件、搜索、exec/wait 和文件交付工具的装配入口。
 - [`statistics/`](../../../../packages/agent/runtime/src/statistics/)：独立的调用统计与 `lxeskill list` 归属查询。
-- [`mcp.ts`](../../../../packages/agent/runtime/src/tooling/mcp.ts)：MCP 配置、连接和工具注册。
+- [`mcp.ts`](../../../../../packages/agent/runtime/src/tooling/mcp.ts)：MCP 公共入口，实现拆分在同级 `mcp/` 目录。
 - [`skills.ts`](../../../../packages/agent/runtime/src/tooling/skills.ts)：Skill 发现与提示词内容。
 - [`runtime-host.ts`](../../../../apps/agent-cli/src/runtime-host.ts)：工具、MCP、工作区和 CLI scope 的宿主装配。
 
@@ -48,6 +50,7 @@ Definition 注册与模型可见是两个不同阶段。Registry 保存所有可
 - `exposure=deferred` 的工具先隐藏，命中 `tool_search` 后可见。
 - 有 `ownerSkills` 的工具要求至少一个 owner skill 已激活。
 - MCP 服务的启用状态由 MCP manager 管理。
+- Dashboard 工具页通过 `toolsets.list` 读取工具分组，连接页通过 `mcp.servers.list` 独立读取服务状态。启停后刷新两份查询；工具分组不携带服务器列表，停用或没有工具的服务仍可在连接页管理。
 
 平台过滤依据本轮任务来源，不根据会话最初来自哪里判断。Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的工具从下一 provider request 生效。
 
@@ -67,7 +70,7 @@ Skill 为模型提供工作上下文，具体操作通过工具执行。编写�
 
 所有 handler 接收当前 `RunHandle`。Provider、MCP 和本次 `exec`/`wait` 的观察会监听 turn abort；但进程一旦创建成功，所有权就立即转交 Session 级 manager。最终回复、turn 失败或取消只结束当前观察，不 kill 命令。命令可以在同一应用运行期、同一 Session 的后续 turn 继续用 `wait` 观察。
 
-Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整进程树。异步 exec 完成只发送 `background_task.changed` UI 事件，用于刷新原工具卡；它不写 pending event，也不触发 heartbeat、`agent.wake` 或外部渠道消息。
+Session 删除、Runtime 停止和显式 `wait(terminate=true)` 会终止完整进程树。异步 exec 完成只发送 `background_task.changed` UI 事件，用于刷新原工具卡。模型通过 `wait` 获取后台任务结果。
 
 ## Model-visible result
 

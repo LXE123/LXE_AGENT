@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "${LXE_AGENT_CLI_BUN:-bun}" "${0%/*}/../src/main.ts" "$@"

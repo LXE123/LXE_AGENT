@@ -49,7 +49,7 @@ describe("batch text edits", () => {
   });
   test("rejects empty normalized targets and unchanged batches", () => {
     expect(() => replace("   ", " ", "x")).toThrow("empty after normalization");
-    expect(() => replace("hello", "hello", "hello")).toThrow("未产生修改");
+    expect(() => replace("hello", "hello", "hello")).toThrow("No changes made");
   });
   test("supports deletion, including an entire file", () => {
     expect(replace("a\nb\nc\n", "b\n", "").content).toBe("a\nc\n");

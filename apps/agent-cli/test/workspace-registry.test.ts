@@ -47,10 +47,8 @@ test("workspace deletion addresses the registration, retains live sessions, and 
   try {
     const registration = await service.call({ operation: "workspaces.register", input: { directory: root } });
     const blank = await service.call({ operation: "sessions.create", input: { workspace_id: registration.workspace_id } });
-    await store.appendPendingEvent(blank.session_id, { event_id: "queued", text: "Continue later" });
     expect(await service.call({ operation: "workspaces.delete", input: { workspace_id: registration.workspace_id } })).toEqual({ deleted: true });
     expect(store.sessionMetadata(blank.session_id)).toMatchObject({ workspace_id: null, workspace: blank.workspace });
-    expect(await store.hasPendingEvents(blank.session_id)).toBe(true);
     expect(stopped).toEqual([]);
     const next = await service.call({ operation: "workspaces.register", input: { directory: root } });
     expect(next.workspace_id).not.toBe(registration.workspace_id);

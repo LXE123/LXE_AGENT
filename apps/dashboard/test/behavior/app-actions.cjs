@@ -58,10 +58,10 @@ module.exports = async ({suite, js, step, settle, click, type, focus, key, state
       assert.equal((await state()).calls.filter(c=>c.operation==='mcp.servers.update').length,1);
       await js('behavior.actions.release()');
       await waitFor('!document.querySelector(".mcp-toggle").disabled','MCP accepted');
-      assert.equal(await js('document.querySelector(".connection-state").classList.contains("on")'),false);
+      assert.equal(await js('document.querySelector(".mcp-toggle").classList.contains("on")'),false);
       await js('behavior.actions.fail("mcp.servers.update")'); await click('.mcp-toggle');
       await waitFor('document.querySelector("#action-error").textContent.includes("mcp.servers.update")','MCP rejected');
-      assert.equal(await js('document.querySelector(".connection-state").classList.contains("on")'),false);
+      assert.equal(await js('document.querySelector(".mcp-toggle").classList.contains("on")'),false);
     });
     await step('session switches isolate pending model and effort saves, including late responses and remount', async () => {
       await js('behavior.actions.fail(""); behavior.openModelSession("a")');

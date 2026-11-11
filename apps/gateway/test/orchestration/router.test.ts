@@ -49,9 +49,7 @@ const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
 class FakeStorage implements StoragePort {
   readonly ensured: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
-  readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
   readonly sessions = new Map<string, WorkspaceContext>();
-  appendFails = false;
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     this.ensured.push(request);
@@ -63,10 +61,6 @@ class FakeStorage implements StoragePort {
   async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject; workspace: typeof testWorkspace } | undefined> {
     const workspace = this.sessions.get(sessionId);
     return workspace ? { session_id: sessionId, source: {}, workspace } : undefined;
-  }
-  async appendPendingEvent(sessionId: string, value: JsonObject): Promise<void> {
-    if (this.appendFails) throw new Error("append failed");
-    this.appended.push({ sessionId, event: value });
   }
 }
 
@@ -244,14 +238,11 @@ describe("SessionRouter normal routes", () => {
     expect(scheduler.jobs[0]?.job.raw_data.system_events).toBeUndefined();
   });
 
-  test("refreshes existing sessions and resumes autonomy on the next user message", async () => {
-    const { router, bindings, storage, state } = setup();
+  test("refreshes an existing session on the next user message", async () => {
+    const { router, storage } = setup();
     await router.routeMessage(event());
-    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
-    state.suspendAutonomy(sessionId);
     await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
     expect(storage.ensured).toHaveLength(2);
-    expect(state.isAutonomySuspended(sessionId)).toBe(false);
   });
 
   test("keeps an existing session on its workspace while clear uses the latest default", async () => {
@@ -300,7 +291,6 @@ describe("SessionRouter controls and steering", () => {
     await setupValue.router.routeMessage(event({ user_input: command }));
     expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toBe(feedback);
     expect(setupValue.scheduler.stopped).toEqual([]);
-    expect(setupValue.state.isAutonomySuspended(sessionId)).toBe(false);
     expect(setupValue.state.isSteeringEnabled(sessionId)).toBe(false);
   });
 
@@ -325,8 +315,8 @@ describe("SessionRouter controls and steering", () => {
     expect(channel.outbound[0]?.payload).toEqual({ markdown: "当前没有正在执行的回复。" });
   });
 
-  test("stop clears pending work, cancels active run and suspends autonomy without queuing context", async () => {
-    const { router, bindings, scheduler, storage, state, channel } = setup();
+  test("stop clears queued work and cancels the active run", async () => {
+    const { router, bindings, scheduler, channel } = setup();
     await router.routeMessage(event());
     const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
     scheduler.active.add(sessionId);
@@ -335,24 +325,20 @@ describe("SessionRouter controls and steering", () => {
     await router.routeMessage(event({ user_input: "/stop", message_id: "stop-message" }));
     expect(scheduler.stopped).toEqual([sessionId]);
     expect(scheduler.pending.has(sessionId)).toBe(false);
-    expect(state.isAutonomySuspended(sessionId)).toBe(true);
-    expect(storage.appended).toEqual([]);
     expect(channel.outbound.at(-1)?.payload).toEqual({
-      markdown: "已停止当前回复，并暂停自动继续。后台任务结果会在你下次发消息时一并汇报。",
+      markdown: "已停止当前回复。",
     });
   });
 
-  test("clearing only queued work does not create a stop advisory", async () => {
+  test("stop clears queued work when there is no active run", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
     const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
     setupValue.scheduler.pending.set(sessionId, 2);
-    setupValue.storage.appendFails = true;
     await expect(setupValue.router.routeMessage(event({ user_input: "/stop" }))).resolves.toBeDefined();
     expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toContain("已停止当前回复");
     expect(setupValue.scheduler.stopped).toEqual([]);
     expect(setupValue.scheduler.pending.has(sessionId)).toBe(false);
-    expect(setupValue.storage.appended).toEqual([]);
   });
 
   test("clear refuses inflight work then rotates and ensures a new session", async () => {

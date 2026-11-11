@@ -17,7 +17,8 @@ export function createDashboardContractFixture(calls: Call[]) {
     if (failures.has(operation)) throw new Error(`EACCES: fixture ${operation} denied`);
   }
   const models: ModelPayload[] = [
-    modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model"), modelOption("next-model")]),
+    modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model"),
+      ...Array.from({length: 14}, (_, i) => modelOption(`catalog-model-${i}`)), modelOption("next-model")]),
     modelRow("kimi_coding", "local", "Kimi Coding", [modelOption("kimi-model")]),
     modelRow("openrouter", "cloud", "OpenRouter", [modelOption("unavailable-model")], false),
   ];
@@ -35,13 +36,15 @@ export function createDashboardContractFixture(calls: Call[]) {
     current = defaultModel;
     return structuredClone(saved);
   }
-  const server: McpServerPayload = { name: "fixture-server", enabled: true, transport: "stdio", status: "ready", tool_count: 1,
-    error: "", server_title: "Fixture server", connector_id: "fixture", connector_name: "Fixture connector",
-    connector_description: "Local fixture", exposure: "full", tools: [{ rawName: "lookup", modelName: "fixture_lookup" }] };
-  const toolsets: ToolsetPayload[] = [{ name: "mcp", label: "MCP", enabled: true, servers: [server], tools: [{
+  const server: McpServerPayload = { name: "fixture-server", enabled: true, transport: "stdio", server_title: "Fixture server", connector_id: "fixture", connector_name: "Fixture connector",
+    connector_description: "Local fixture", exposure: "full" };
+  const dormantServer: McpServerPayload = { ...server, name: "empty-server", server_title: "Empty server",
+    enabled: false };
+  const added: McpServerPayload[] = [];
+  const toolsets: ToolsetPayload[] = [{ name: "mcp:fixture-server", label: "Fixture server", enabled: true, tools: [{
     name: "fixture_lookup", raw_name: "lookup", description: "Look up fixture data", parameters: {}, requires_resource: null,
     source: "mcp", exposure: "full", connector_name: "Fixture connector",
-  }] }];
+  }] }, { name: "mcp:empty-server", label: "Empty server", enabled: false, tools: [] }];
   let task: DesktopSyntheticPerformerTask | null = null;
   const controls = {
     fail(operation: string, value: boolean) { if (value) failures.add(operation); else failures.delete(operation); },
@@ -51,6 +54,9 @@ export function createDashboardContractFixture(calls: Call[]) {
     listeners() { return { cloud: cloudListeners.size, task: taskListeners.size }; },
     completeTask() { if (task) { task = { ...task, state: "completed", stage: "done", processed: 1 }; taskListeners.forEach(listener => listener(structuredClone(task!))); } },
     task(value: DesktopSyntheticPerformerTask) { task = structuredClone(value); taskListeners.forEach(listener => listener(structuredClone(task!))); },
+    async restartAgent() {
+      await record("restartAgent");
+    },
     clearCalls() { calls.length = 0; },
   };
   const desktop = {
@@ -79,8 +85,22 @@ export function createDashboardContractFixture(calls: Call[]) {
         return saveModel(call.input, { ...row, ...row.model_options.find(m => m.model === call.input.model)!, model: String(call.input.model) }); })();
       case "models.thinking.update": return (async () => { await gate(call.operation);
         return saveModel(call.input, { ...selectedModel(call.input.session_id), thinking_state: { enabled: call.input.level !== "off", editable: true, level: String(call.input.level) } }); })();
-      case "toolsets.list": return { items: structuredClone(toolsets) };
-      case "mcp.servers.update": return (async () => { await gate(call.operation); server.enabled = Boolean(call.input.enabled); return structuredClone(server); })();
+      case "toolsets.list": return { items: structuredClone(toolsets.map(group => group.name === "mcp:fixture-server"
+        ? { ...group, enabled: server.enabled, tools: server.enabled ? group.tools : [] } : group)) };
+      case "mcp.servers.list": return (async () => { await gate(call.operation); return {
+        items: structuredClone([server, dormantServer, ...added]), total: 2 + added.length,
+      }; })();
+      case "mcp.servers.add": return (async () => {
+        await gate(call.operation);
+        const name = String(call.input.name);
+        added.push({ ...dormantServer, name, server_title: name, enabled: true, transport: String(call.input.transport) });
+        return { name };
+      })();
+      case "mcp.servers.update": return (async () => {
+        await gate(call.operation);
+        server.enabled = Boolean(call.input.enabled);
+        return structuredClone(server);
+      })();
       case "skills.list": return { items: [{ name: "fixture-skill", description: "Fixture skill", type: "default", source: "default", commands: [], references: [], location: "/skills/fixture-skill/SKILL.md" }], total: 1 };
       case "commands.list": return { items: [] };
       case "sessions.file.open": return (async () => { await gate(call.operation); return { opened: true }; })();

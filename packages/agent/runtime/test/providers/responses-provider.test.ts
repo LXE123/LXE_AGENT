@@ -16,6 +16,7 @@ import {
   type ResponsesClientPort,
 } from "../../src/providers/responses-provider";
 import type { RuntimeMessage, AssistantMessageEvent } from "../../src/engine/types";
+import { normalizeTranscriptMessages } from "../../src/state/transcript";
 
 const descriptor = (patch: Partial<ProviderDescriptor> = {}): ProviderDescriptor => ({
   name: "deepseek",
@@ -61,6 +62,102 @@ const fakeClient = (events: Array<[string, unknown]>, final: unknown, captured?:
       };
     },
   },
+});
+
+describe("direct OpenAI Responses", () => {
+  const root = repositoryRoot(import.meta.dir);
+  const load = (model: string, effort = "medium") => loadProviderDescriptor(root, {
+    AGENT_LLM_PROVIDER: "openai", AGENT_LLM_MODEL: model,
+    AGENT_LLM_THINKING_EFFORT: effort, OPENAI_API_KEY: "test-only",
+  });
+
+  test("uses the 272k window and only exposes off on models that accept none", () => {
+    for (const [id, supportsOff] of [
+      ["gpt-6-astra", false], ["gpt-6.1-sol", false], ["gpt-6.1-terra", true],
+      ["gpt-6-sol", true], ["gpt-6-luna", true],
+    ] as const) {
+      const model = load(id, "off");
+      expect(providerEndpointUrl(model)).toBe("https://api.openai.com/v1/responses");
+      expect(model.contextWindowTokens).toBe(272000);
+      expect(model.maxTokens).toBe(128000);
+      expect(model.thinkingLevels.includes("off")).toBe(supportsOff);
+      expect(model.thinkingEnabled).toBe(!supportsOff);
+    }
+  });
+
+  test("replays encrypted reasoning and a tool exchange after the transcript is reopened", async () => {
+    const model = load("gpt-6-luna", "low");
+    const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque-test" };
+    const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "read", arguments: '{"path":"README.md"}' };
+    const client = fakeClient([], { status: "completed", output: [reasoning, call] });
+    const provider = new ResponsesRuntimeProvider(model, client);
+    const request = {
+      system: "Help the user", messages: [{ role: "user" as const, content: "Read README.md" }],
+      tools: [{ name: "read", description: "Read file", input_schema: { type: "object" } }],
+      toolChoice: "auto" as const, signal: new AbortController().signal,
+    };
+    const answer = await provider.turn(request);
+    expect(answer.providerThinkingLevel).toBe("low");
+    const output = { type: "function_call_output", call_id: "call_1", output: "File contents" };
+    const history = normalizeTranscriptMessages([...request.messages, answer, { role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "call_1", content: output.output }],
+    }]);
+    const first = buildResponsesRequest(model, request);
+    const next = buildResponsesRequest(load("gpt-6-luna", "high"), { ...request, messages: history });
+    const update = (effort: string) => ({ type: "configuration_update", reasoning: { effort } });
+    expect(first.reasoning).toEqual({ effort: "medium", summary: "auto" });
+    expect(next.reasoning).toEqual(first.reasoning);
+    const prefix = [
+      expect.objectContaining({ type: "additional_tools", role: "developer", tools: [expect.objectContaining({ name: "read", strict: false })] }),
+      expect.objectContaining({ role: "developer" }),
+    ];
+    expect(first.input).toEqual([...prefix, expect.objectContaining({ role: "user" }), update("low")]);
+    expect(next.input).toEqual([...(first.input as unknown[]), reasoning, call, output, update("high")]);
+    expect(next.store).toBe(false);
+    expect(next.include).toEqual(["reasoning.encrypted_content"]);
+    expect(next.tools).toBeUndefined();
+    const otherModel = buildResponsesRequest(load("gpt-6-astra"), { ...request, messages: history });
+    expect(JSON.stringify(otherModel.input)).not.toContain(reasoning.encrypted_content);
+    expect(otherModel.input).not.toContainEqual(update("low"));
+
+    const off = buildResponsesRequest(load("gpt-6-luna", "off"), { ...request, messages: history });
+    expect(off.reasoning).toEqual({ effort: "none" });
+    expect(off.input).toEqual([...prefix, expect.objectContaining({ role: "user" }), reasoning, call, output]);
+    expect(off.include).toBeUndefined();
+  });
+
+  test("redeclares only changed schemas, rebases removals, and can forbid calls on the final step", () => {
+    const model = load("gpt-6-luna", "off");
+    const tool = (name: string, description: string) => ({ name, description, input_schema: { type: "object" } });
+    const read = tool("read", "old"), revised = tool("read", "new"), write = tool("write", "write");
+    const messages: RuntimeMessage[] = [{ role: "assistant", content: "first", promptState: { tools: [read] } },
+      { role: "assistant", content: "second", promptState: { tools: [read, write] } }];
+    const build = (tools: typeof read[]) => buildResponsesRequest(model, { system: "sys", messages, tools, toolChoice: "none" });
+    const batches = (body: Record<string, unknown>) => (body.input as Array<{ type: string; tools?: unknown[] }>)
+      .filter(item => item.type === "additional_tools").map(item => item.tools);
+    const changed = build([revised, write]);
+    expect(batches(changed)).toMatchObject([[read], [write], [revised]].map(batch =>
+      batch.map(({ name, description }) => ({ name, description }))));
+    expect(changed.tool_choice).toBe("none");
+    expect(changed.tools).toBeUndefined();
+    const removed = build([read]);
+    expect(batches(removed)).toMatchObject([[{ name: "read" }]]);
+    expect(JSON.stringify(removed.input)).not.toContain('"name":"write"');
+    expect(batches(build([]))).toEqual([]);
+  });
+
+  test("adds the current effort after legacy history and after compacting the conversation", () => {
+    const request = { system: "Help the user", tools: [], toolChoice: "auto" as const };
+    const descriptor = load("gpt-6-astra", "max");
+    const inputs: RuntimeMessage[][] = [
+      normalizeTranscriptMessages([{ role: "user", content: "Hi" }, { role: "assistant", content: "Hello" }]),
+      [{ role: "compactionSummary", summary: "History", tokensBefore: 100, details: { readFiles: [], modifiedFiles: [] } }],
+    ];
+    for (const messages of inputs) {
+      const { input } = buildResponsesRequest(descriptor, { ...request, messages });
+      expect(input).toEqual([expect.objectContaining({ role: "developer" }), ...adaptMessagesForResponses(messages), { type: "configuration_update", reasoning: { effort: "max" } }]);
+    }
+  });
 });
 
 describe("DeepSeek Responses provider", () => {

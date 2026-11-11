@@ -1,3 +1,5 @@
+import { harnessFetch } from "../network/fetch";
+import { directoryRevisions, directoryUpdateText, toolDeclarationBatches } from "../engine/prompt-state";
 import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, completeTool, replaySignature } from "../messages/replay";
@@ -37,6 +39,22 @@ const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 const text = (value: unknown): string => String(value ?? "");
+
+function responsesEffort(descriptor: ProviderDescriptor): string {
+  const mapped = descriptor.thinkingLevelMap?.[descriptor.thinkingEffort];
+  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || mapped === "off") return "none";
+  return mapped ?? normalizeThinkingEffort(
+    descriptor.thinkingEffort, descriptor.thinkingLevels.filter(level => level !== "off"), descriptor.thinkingDefault,
+  );
+}
+
+function configurationUpdateEffort(descriptor?: ProviderDescriptor): string | undefined {
+  if (descriptor?.thinkingStyle !== "openai-configuration-update") return undefined;
+  const effort = responsesEffort(descriptor);
+  return effort === "none" ? undefined : effort;
+}
+
+const configurationUpdate = (effort: string): JsonObject => ({ type: "configuration_update", reasoning: { effort } });
 
 const imageInputPart = (block: Record<string, unknown>, supportsVision: boolean): JsonObject => {
   if (!supportsVision) return { type: "input_text", text: IMAGE_PLACEHOLDER };
@@ -99,9 +117,20 @@ const toolResultOutput = (content: unknown, supportsVision: boolean): string | J
  * items rather than as content blocks inside a message, so one RuntimeMessage
  * can expand into several input items.
  */
-export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor): JsonObject[] {
+export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor,
+  updates?: ReadonlyMap<number, ToolSchema[]>, currentDirectory?: string): JsonObject[] {
   const input: JsonObject[] = [];
+  const effort = configurationUpdateEffort(descriptor);
+  const directories = descriptor?.compat?.supportsMidConvoSystemMessages === true
+    ? new Map(directoryRevisions(messages, currentDirectory).slice(1).map(({ index, directory }) => [index, directory])) : undefined;
+  const appendUpdates = (index: number) => {
+    const batch = updates?.get(index);
+    if (batch) input.push(additionalTools(batch, descriptor?.name === "openai"));
+    const next = directories?.get(index);
+    if (descriptor && next !== undefined) input.push(instructionMessage(descriptor, directoryUpdateText(next)));
+  };
   for (const [messageIndex, message] of messages.entries()) {
+    appendUpdates(messageIndex);
     if (message.role === "compactionSummary") {
       input.push({
         type: "message",
@@ -131,6 +160,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
         ? message.content
         : [{ type: "text", text: text(message.content) }];
       const replay = canReplayMetadata(message, descriptor);
+      const output: JsonObject[] = [];
       const grouped = new Map<string, JsonObject>();
       const emittedReasoning = new Set<string>();
       for (const [blockIndex, raw] of source.entries()) {
@@ -139,7 +169,7 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
         if (block.type === "thinking") {
           const item = replay ? replaySignature(block.thinkingSignature) : undefined;
           if (item?.type === "reasoning" && typeof item.id === "string" && !emittedReasoning.has(item.id)) {
-            input.push(item as JsonObject);
+            output.push(item as JsonObject);
             emittedReasoning.add(item.id);
           }
         } else if (block.type === "text") {
@@ -150,16 +180,24 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
             item = { type: "message", role: "assistant", id, status: "completed", content: [],
               ...(typeof signature?.phase === "string" ? { phase: signature.phase } : {}) };
             grouped.set(id, item);
-            input.push(item);
+            output.push(item);
           }
           (item.content as JsonObject[]).push({ type: "output_text", text: text(block.text), annotations: [] });
         } else if (block.type === "tool_call") {
-          input.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
+          output.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
             arguments: JSON.stringify(block.arguments),
             ...(replay && typeof block.providerItemId === "string" ? { id: block.providerItemId } : {}),
             ...(replay && typeof block.namespace === "string" ? { namespace: block.namespace } : {}),
           });
         }
+      }
+      if (output.length) {
+        // The previous request ended with its effort item, immediately before this reply.
+        const previous = "providerThinkingLevel" in message ? message.providerThinkingLevel : undefined;
+        if (effort && replay && previous && descriptor?.thinkingLevels.includes(previous) && previous !== "off") {
+          input.push(configurationUpdate(previous));
+        }
+        input.push(...output);
       }
       continue;
     }
@@ -174,15 +212,27 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
       });
     }
   }
+  appendUpdates(messages.length);
+  if (effort) input.push(configurationUpdate(effort));
   return input;
 }
 
-export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => tools.map((tool) => ({
+export const adaptToolsForResponses = (tools: ToolSchema[], strict?: boolean): JsonObject[] => tools.map((tool) => ({
   type: "function",
   name: tool.name,
   description: tool.description,
   parameters: tool.input_schema,
+  ...(strict === undefined ? {} : { strict }),
 }));
+
+function additionalTools(tools: ToolSchema[], directOpenAI: boolean): JsonObject {
+  return { type: "additional_tools", role: "developer", tools: adaptToolsForResponses(tools, directOpenAI ? false : undefined) };
+}
+
+function instructionMessage(descriptor: ProviderDescriptor, content: string): JsonObject {
+  return { type: "message", role: descriptor.compat?.supportsDeveloperRole === true ? "developer" : "system",
+    content: [{ type: "input_text", text: content }] };
+}
 
 /**
  * Responses spells thinking differently from the Anthropic-compatible wire:
@@ -194,18 +244,8 @@ export const adaptToolsForResponses = (tools: ToolSchema[]): JsonObject[] => too
  */
 export const buildResponsesThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   if (descriptor.thinkingStyle === "provider-managed") return {};
-  if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "none" || descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] === "off") {
-    return { reasoning: { effort: "none" } };
-  }
-  return {
-    reasoning: {
-      effort: descriptor.thinkingLevelMap?.[descriptor.thinkingEffort] ?? normalizeThinkingEffort(
-        descriptor.thinkingEffort,
-        descriptor.thinkingLevels.filter((level) => level !== "off"),
-        descriptor.thinkingDefault,
-      ),
-    },
-  };
+  if (configurationUpdateEffort(descriptor)) return { reasoning: { effort: "medium", summary: "auto" } };
+  return { reasoning: { effort: responsesEffort(descriptor) } };
 };
 
 /** Summaries follow the active session's thinking setting. */
@@ -215,25 +255,33 @@ export const buildResponsesSummaryThinkingPayload = (
 
 export function buildResponsesRequest(
   descriptor: ProviderDescriptor,
-  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature" | "auxiliary">,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice" | "userIdentity" | "temperature" | "auxiliary" | "currentMcpDirectory">,
 ): Record<string, unknown> {
   descriptor = auxiliaryDescriptor(descriptor, request);
   // This wire drops `metadata`, but takes `user` - which is the field DeepSeek
   // rate-limits and isolates against. A shared Feishu bot would otherwise put
   // everyone in one bucket.
-  const user = providerUserIdentifier(request.userIdentity);
+  const directOpenAI = descriptor.name === "openai";
+  const midConvo = descriptor.compat?.supportsMidConvoSystemMessages === true;
+  const inline = midConvo && descriptor.compat?.supportsAdditionalTools === true
+    ? toolDeclarationBatches(request.messages, request.tools) : undefined;
+  const instructionsInInput = midConvo || descriptor.compat?.supportsDeveloperRole === true;
+  const user = directOpenAI ? undefined : providerUserIdentifier(request.userIdentity);
   return {
     ...(user ? { user } : {}),
     model: descriptor.model,
-    ...(descriptor.compat?.supportsDeveloperRole === true ? {} : { instructions: request.system.trim() }),
+    ...(instructionsInInput ? {} : { instructions: request.system.trim() }),
     input: [
-      ...(descriptor.compat?.supportsDeveloperRole === true && request.system.trim() ? [{ type: "message", role: "developer", content: [{ type: "input_text", text: request.system.trim() }] }] : []),
-      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor),
+      ...(inline?.initial.length ? [additionalTools(inline.initial, directOpenAI)] : []),
+      ...(instructionsInInput && request.system.trim() ? [instructionMessage(descriptor, request.system.trim())] : []),
+      ...adaptMessagesForResponses(request.messages, descriptor.supportsVision === true, descriptor, inline?.updates, request.currentMcpDirectory),
     ],
     ...(descriptor.compat?.supportsMaxOutputTokens === false ? {} : { max_output_tokens: descriptor.maxTokens }),
     stream: true,
+    ...(directOpenAI ? { store: false } : {}),
+    ...(directOpenAI && descriptor.thinkingEnabled ? { include: ["reasoning.encrypted_content"] } : {}),
     ...(request.tools.length > 0
-      ? { tools: adaptToolsForResponses(request.tools), tool_choice: request.toolChoice }
+      ? { ...(inline ? {} : { tools: adaptToolsForResponses(request.tools, directOpenAI ? false : undefined) }), tool_choice: request.toolChoice }
       : {}),
     ...buildResponsesThinkingPayload(descriptor),
     ...providerTemperature(descriptor, request.temperature),
@@ -266,13 +314,15 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        return fetch(input, init);
+        return harnessFetch(input, init);
       },
     }) as unknown as ResponsesClientPort;
   }
 
   async turn(request: RuntimeProviderRequest): Promise<AssistantMessage> {
-    const accumulator = new AssistantMessageAccumulator(this.descriptor, request.onEvent);
+    const providerThinkingLevel = configurationUpdateEffort(auxiliaryDescriptor(this.descriptor, request));
+    const origin = providerThinkingLevel ? { ...this.descriptor, providerThinkingLevel } : this.descriptor;
+    const accumulator = new AssistantMessageAccumulator(origin, request.onEvent);
     let parseFailure: unknown;
     let watchdog: ProviderIdleWatchdog | undefined;
     let trace = request.wireTrace;
@@ -345,7 +395,7 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
         : watchdog?.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
-              this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
+              this.descriptor.name, "请求超时", true,
             )
           : normalizeProviderError(failure, this.descriptor);
       wireError = String(classified instanceof Error ? classified.message : classified);
@@ -409,7 +459,6 @@ export class ResponsesRuntimeProvider implements RuntimeProvider {
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
-          `${this.descriptor.name} 请求超时，请稍后重试。`,
           true,
         );
       }

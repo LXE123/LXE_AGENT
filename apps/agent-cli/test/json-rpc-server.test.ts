@@ -25,7 +25,7 @@ const setup = (host: Record<string, unknown> = {}) => {
   });
   servers.push(server);
   const call = (method: string, params?: unknown, id: unknown = "request") => server.accept(JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) }));
-  const responses = (): AgentResponse[] => output.flatMap((item) => Array.isArray(item) ? item : "id" in item ? [item] : []);
+  const responses = (): AgentResponse[] => output.flatMap(item => Array.isArray(item) ? item : "method" in item ? [] : [item]);
   return { server, output, call, responses, creates: () => creates };
 };
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });

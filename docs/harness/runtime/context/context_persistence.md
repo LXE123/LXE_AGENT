@@ -2,13 +2,13 @@
 
 ## 先说结论
 
-Context 持久化解决两个问题：进程重启后还能继续对话，以及历史太长时能缩短模型看到的内容。Runtime 不会重写旧消息，而是在 Transcript v2 中持续追加事件。
+Context 持久化解决两个问题：进程重启后还能继续对话，以及历史太长时能缩短模型看到的内容。Runtime 不会重写旧消息，而是在 Transcript v3 中持续追加事件。
 
 普通消息写一次；压缩、修复和重置通过最小 `context_patch` 改变“当前模型视图”。这样既能保留完整审计轨迹，也能让下一次模型请求使用更短的上下文。
 
 数据库和文件的完整分工见 [本地数据与存储](../../../storage/README.md)。本篇只解释 transcript 如何写入和 replay。
 
-## Transcript v2 事件
+## Transcript v3 事件
 
 每个 session 对应数据目录下的 `db/session_transcripts/<session>.jsonl` 文件。与模型历史及选择相关的主要事件如下；其他审计事件以 transcript 契约为准：
 
@@ -17,7 +17,10 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 | `transcript_header` | 标记 transcript 版本和 session |
 | `message` | 保存统一消息，包括用户输入、模型响应与工具结果 |
 | `model_selection` | 保存会话模型选择及版本，详见 [会话模型](../session-models.md) |
+| `turn_end` | 记录轮尾节点及结果（完成、手动停止或错误等终态），供界面选择分叉位置 |
 | `turn_context` | 记录本轮实际 provider、model、effort 和 context window |
+| `codemode_store` | 保存单次成功脚本的 `set` 和 `delete`。按分支顺序恢复脚本数据，模型消息回放跳过此记录 |
+| `tools_loaded` | 记录一次 `tool_search` 新加载的工具。MCP 工具按服务名和原始工具名定位，续聊和分叉使用当前可用的定义；模型消息回放跳过此记录 |
 | `context_patch` | 对当前模型视图做最小删除和插入 |
 
 一次压缩可能追加这样的事件：
@@ -50,7 +53,8 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 - 当前 user message 在第一次 provider request 前写入。
 - steering 被消费时立即作为独立 user message 写入。
 - 完整 assistant response 在 tool dispatch 前写入。
-- 本批 tool result 按原调用顺序组成 tool message 写入，保证 tool call 闭合。
+- 流式请求出错或中止时，已收到的非空正文按本次请求的消息 ID 保存为一条助手消息，事件的 `reason` 为 `assistant_partial`，消息的 `stopReason` 为 `error` 或 `aborted`。只有推理或工具参数草稿时不写助手正文。自动重试、续聊和分叉后的模型请求都会跳过这条未完成的回复。
+- 每个工具调用的结果单独写入一条 tool message，同批结果按调用顺序写入。
 - compaction 只有在摘要有效、上下文确实变短且没有取消时才写 `context_patch`。
 - post-turn maintenance 可以继续治理长期历史；失败只记 warning，不撤销已经发送的最终答案。
 
@@ -74,7 +78,15 @@ transcript 保留图片的原始 Base64，完成、取消或重启后仍可回�
 
 ## 旧数据兼容
 
-Runtime 只直接读取 Transcript v2。带 `replacement_history` 的 v1 整段替换事件、v1 工具块命名（`tool_use`/`tool_use_id`）以及 transcript 机制之前的 `session_messages/*.jsonl`，在加载时都会抛出错误并提示先用 `scripts/migrate-transcripts-v2.ts` 迁移。当前版本的新写入一律使用 Transcript v2 的最小 `context_patch`。
+首次打开或继续写入 v2 对话时，Runtime 按原顺序为文件头之后的每条事件补上 `id` 和 `parent_id`，首条的父节点为 `null`，并原子替换文件。旧的一批工具结果保留原粒度，已有压缩补丁的位置继续有效。可确认的旧轮尾保存在文件头。旧版 v1 和更早的 `session_messages/*.jsonl` 仍需先运行 `scripts/migrate-transcripts-v2.ts`。
+
+## 在新对话中分叉
+
+从历史轮尾分叉时，agentcli 复制截至该轮终点的完整前缀。新对话有独立的 session ID，文件头的 `fork` 保存直接来源的 `session_id`、`turn_id` 和 `entry_id`。复制的节点保留原 ID，下一条记录以复制的最后一个节点为父节点。新对话从零累计自己的用量。同一组分叉使用根对话标题和连续编号，如 `对话(1)`、`对话(2)`；从分叉再次创建分叉也沿用这组编号。新标题作为独立的 `session_title` 记录追加到复制的前缀后，重建索引时不会退回来源标题。桌面标题栏和侧栏菜单的「创建分支」复制当前会话末尾，包括最后一轮结束后已落盘的上下文更新；目标会话有运行或排队任务时暂时禁用此入口。
+
+桌面侧栏按直接来源将分叉缩进排列，可折叠子分叉；再次分叉会形成下一层。点击行内空白或标题均打开对应对话，箭头只负责展开或折叠。不提供跳转到来源轮次的入口。搜索结果保持平铺，置顶按单个对话处理：中间分叉置顶后，普通列表中的后代连接到最近的未置顶祖先；取消置顶恢复原层级，实际分叉来源不变。来源已删除、尚未加载或位于另一工作区时，分叉作为普通行显示，避免隐藏可用对话。
+
+手动停止时，模型下一轮可见 `<turn_aborted>` 中断标记。历史中标记为 `stopReason: "aborted"` 或 `"error"` 的助手回复会在组装模型请求时跳过。用于界面展示的 `turn_error` 也不会成为下一轮的助手消息。
 
 ## 故障处理
 
@@ -84,4 +96,4 @@ Runtime 只直接读取 Transcript v2。带 `replacement_history` 的 v1 整段�
 - SQLite 事务失败不能留下半条 session、route 或 usage 更新。
 - summary 失败、为空或没有降低 token 时，不写 patch，原模型视图保持不变。
 
-实现事实来源是 [Transcript v2](../../../../packages/agent/runtime/src/state/transcript.ts) 和 [Runtime storage](../../../../packages/agent/runtime/src/state/storage.ts)。
+实现事实来源是 [Transcript v3](../../../../packages/agent/runtime/src/state/transcript.ts) 和 [Runtime storage](../../../../packages/agent/runtime/src/state/storage.ts)。

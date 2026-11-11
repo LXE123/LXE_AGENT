@@ -1,10 +1,10 @@
-# Emitter and Heartbeat Wake
+# Gateway 出站与工具卡片更新
 
 ## 目的
 
-本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及 heartbeat/wake 与 exec 完成通知为什么是两条独立链路。
+本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及桌面如何更新后台 exec 工具卡。
 
-事实来源：[`emitter.ts`](/apps/gateway/src/channels/emitter.ts)、[`heartbeat-bridge.ts`](/apps/gateway/src/orchestration/heartbeat-bridge.ts) 和 [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts)。
+事实来源：[`emitter.ts`](/apps/gateway/src/channels/emitter.ts) 和 [`local-conversation.ts`](/apps/gateway/src/orchestration/local-conversation.ts)。
 
 ## Emitter 边界
 
@@ -62,27 +62,15 @@ typing 只对飞书执行，operation 必须是 `start` 或 `stop`。adapter 使
 
 一个飞书 turn 只创建一个 streamer 和一个 emit id。streamer 负责节流 delta、保持 sequence、发送 final/error 和有界关闭 sender task。只有从未成功投递任何 stream frame 时，才允许一次普通 final/error fallback；cancel 不额外制造错误卡。
 
-## Exec 完成通知
+## 后台 exec 工具卡更新
 
-已经 yielded 的 exec 到达终态时，Agent 只发送一次 `background_task.changed`：
+`exec` 返回 `exec_id` 后，Agent 通过 `background_task.changed` 通知桌面更新运行中的输出和最终状态。
 
-1. 事件携带 Session、来源 Turn、原 `tool_call_id` 和有界任务快照。
+1. 事件携带 Session、来源 Turn、原 `tool_call_id`、递增的 `revision` 和有界任务快照。
 2. Desktop 使对应 Session 查询失效；本地会话控制器把原 exec 工具卡从 `running` 更新为 `success` 或 `error`。
 3. 若完成事件早于工具卡，控制器暂存事件，并在卡片出现后补上终态。
 
-该事件不进入 transcript 或模型消息，不写 `agent_session_pending_events`，不触发 heartbeat/`agent.wake`，也不向飞书等外部渠道主动发消息。通用 heartbeat/wake 基础设施仍服务于其它自主调度来源。
-
-## HeartbeatBridge 调度
-
-bridge 默认 normal delay 为 250ms、retry delay 为 1000ms：
-
-- 同一时间最多一个 flush。
-- flush 期间到达的新 wake 只记录 reschedule kind。
-- normal 优先级高于 retry。
-- stop 清理 timer 并等待真实 in-flight flush。
-- queue/observer 错误转成 retry，不使 Gateway 退出。
-
-busy session 的 wake 会重新排为 retry；autonomy suspended、无 pending event 或无有效 session 的 wake 被丢弃。
+后台完成事件只更新界面。模型可通过 `wait` 获取命令的输出和退出状态。
 
 ## 可观测性与安全
 

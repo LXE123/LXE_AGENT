@@ -13,6 +13,7 @@ import type {
 import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
 import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
 import type { SkillCatalogSnapshot } from "../tooling/skills";
+import type { ToolReference } from "../tooling/tool-reference";
 
 export interface TextBlock extends JsonObject {
   type: "text";
@@ -54,7 +55,14 @@ export interface RuntimeEnvironmentSnapshot {
   model: string;
 }
 
+/** Branch-local snapshots. Absence inherits the preceding snapshot; empty means cleared. */
+export interface PromptState {
+  mcpDirectory?: string;
+  tools?: ToolSchema[];
+}
+
 export interface RuntimeConversationMessage {
+  promptState?: PromptState;
   invoked_skills?: string[];
   runtimeContextKind?: "turn_aborted";
   contextTokenAnchor?: import("./context-meter").ContextTokenAnchor;
@@ -66,6 +74,7 @@ export interface RuntimeConversationMessage {
 }
 
 export interface RuntimeCompactionSummaryMessage {
+  promptState?: PromptState;
   contextTokenAnchor?: import("./context-meter").ContextTokenAnchor;
   role: "compactionSummary";
   content?: never;
@@ -106,6 +115,7 @@ export interface RuntimeSummaryResult {
 }
 
 export interface RuntimeProviderRequest {
+  currentMcpDirectory?: string;
   auxiliary?: { maxOutputTokens: number; reasoning: "minimum" };
   temperature?: number;
   system: string;
@@ -198,7 +208,7 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
 export interface RuntimeTurnContextRecord extends JsonObject {
   model_selection_version?: number;
   turn_id: string;
-  job_kind: "turn" | "heartbeat";
+  job_kind: "turn";
   provider: string;
   model: string;
   credential_source?: "local" | "cloud";
@@ -244,13 +254,15 @@ export interface RuntimeStore {
   start(): Promise<void>;
   stop(): Promise<void>;
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
-  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
+  readLoadedTools(sessionId: string): Promise<ToolReference[]>;
+  appendLoadedTools(sessionId: string, turnId: string, tools: ToolReference[], signal: AbortSignal): Promise<void>;
   appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
   appendImageView(sessionId: string, view: RuntimeImageViewRecord, image?: JsonObject): Promise<void>;
   clearPendingImageViews(sessionId: string, turnId?: string): void;
   resolveImageView(sessionId: string, viewId: string): Promise<RuntimeImageViewRecord | undefined>;
   appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void>;
+  appendTurnEnd(sessionId: string, turnId: string, status: TurnOutcome["status"]): Promise<void>;
   appendTurnError(sessionId: string, turnId: string, message: string): Promise<void>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined>;
   resolveAttachment(sessionId: string, attachmentId: string): Promise<RuntimeAttachmentRecord | undefined>;
@@ -270,6 +282,8 @@ export interface RuntimeStore {
 
 export interface SystemPromptContext {
   platform: string;
+  /** Explicit job source used by tool exposure and execution. */
+  toolPlatform: string;
   provider: string;
   model: string;
   skillPrompt: string;
@@ -289,6 +303,8 @@ export interface ToolSchema {
 }
 
 export interface ToolExecutionResult {
+  /** Programmatic result for tools with a declared output schema. */
+  structuredContent?: unknown;
   /** Display-only metadata; never included in model content. */
   image_view?: { path: string; name: string; media_type: string };
   content: JsonObject[];
@@ -318,7 +334,25 @@ export interface TurnOutcome {
   tool_calls: number;
 }
 
+export interface RuntimeEventMap {
+  before_turn: { readonly type: "before_turn"; readonly userInput: string };
+  before_model_step: { readonly type: "before_model_step"; readonly step: number };
+}
+
+export interface RuntimeTurnEventContext {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly workspace: Readonly<WorkspaceContext>;
+  readonly platform: string;
+  readonly toolPlatform: string;
+  readonly signal: AbortSignal;
+}
+
+export type RuntimeEventHandler<K extends keyof RuntimeEventMap> =
+  (event: RuntimeEventMap[K], ctx: RuntimeTurnEventContext) => void | Promise<void>;
+
 export interface AgentRuntime {
+  on<K extends keyof RuntimeEventMap>(type: K, handler: RuntimeEventHandler<K>): () => void;
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RuntimeHandle): Promise<TurnOutcome>;

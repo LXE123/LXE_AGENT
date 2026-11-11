@@ -152,7 +152,7 @@ export const migrateTranscriptText = (
 ): TranscriptMigrationResult => {
   const sourceEvents = parseTranscriptText(raw);
   const first = sourceEvents[0];
-  if (first?.kind === "transcript_header" && Number(first.version) === TRANSCRIPT_VERSION) {
+  if (first?.kind === "transcript_header" && [2, TRANSCRIPT_VERSION].includes(Number(first.version))) {
     replayTranscript(sourceEvents);
     return {
       text: raw,
@@ -164,7 +164,7 @@ export const migrateTranscriptText = (
     };
   }
 
-  const targetEvents: JsonObject[] = [transcriptHeader(sessionId, createdAt)];
+  const targetEvents: JsonObject[] = [{ ...transcriptHeader(sessionId, createdAt), version: 2 }];
   let modelView: RuntimeMessage[] = [];
   let patchCount = 0;
   for (const event of sourceEvents) {

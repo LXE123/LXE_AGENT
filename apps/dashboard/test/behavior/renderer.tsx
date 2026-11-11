@@ -44,6 +44,7 @@ const contractFixture = createDashboardContractFixture(calls);
 const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-build",file_name:"fixture.exe",size:100,sha512:"fixture",notes:"Renderer update"};
 let updateState: DesktopUpdateState = {phase:"unsupported"};
 let releaseUpdateDownload: (()=>void) | undefined;
+const forkFixture = new URLSearchParams(location.search).has("forkFixture");
 const workspaceMode = new URLSearchParams(location.search).has("workspaces");
 let referenceMode = false;
 let slowCandidates = false;
@@ -158,9 +159,32 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       const offset = Number(input.offset ?? 0), limit = Number(input.limit ?? 10);
       return { items: rows.slice(offset, offset + limit), total: rows.length, offset, limit };
     }
-    case "sessions.detail": return { session: workspaceSessions.find(row => row.session_id === input.session_id),
+    case "sessions.fork": {
+      const number = workspaceSessions.filter(s => s.source.fork).length + 1;
+      const child = workspaceSession("Branch " + number, "/fixture/default");
+      child.title = `Default chat(${number})`;
+      child.source.fork = { session_id: input.session_id, turn_id: input.turn_id ?? "two", entry_id: "end" };
+      workspaceSessions.push(child);
+      return child;
+    }
+    case "sessions.detail": {
+      const session = workspaceSessions.find(row => row.session_id === input.session_id);
+      if (forkFixture && session) {
+        const origin = session.source.fork as { turn_id: string } | undefined;
+        const ids = origin?.turn_id === "one" ? ["one"] : ["one", "two"];
+        const messages = ids.flatMap((id, index) => ["user", "assistant"].map((role, block) => ({
+          role, content: role + " " + id, display_id: id + role, display_group_id: id + block, created_at: index + 1,
+          turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
+        })));
+        const groups = messages.map(m => m.display_group_id);
+        return { session, has_forkable_turn: true, messages, messages_page: { group_cursors: groups, total: groups.length,
+          raw_message_total: groups.length, limit: 10, fetched_at: 1, oldest_cursor: groups[0], newest_cursor: groups.at(-1),
+          previous_cursor: null, next_cursor: null, has_previous: false, has_next: false } };
+      }
+      return { session,
       messages: [], messages_page: { group_cursors: [], total: 0, raw_message_total: 0, limit: 10, fetched_at: 1,
         oldest_cursor: null, newest_cursor: null, previous_cursor: null, next_cursor: null, has_previous: false, has_next: false } };
+    }
     case "sessions.activity": return { session_id: input.session_id,
       active: busySessions.has(String(input.session_id)) ? { turn_id: "active", message_id: "active-input", text: "Running task", state: "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } : null,
       latest: null, queued: busySessions.has(String(input.session_id)) ? [{ turn_id: "queued", message_id: "queued-input", text: "Next task", state: "queued", started_at: 0, user_persisted_at: 0, settled_at: 0 }] : [] };
@@ -220,6 +244,7 @@ const desktop = {
   platform: (new URLSearchParams(location.search).get("platform") === "win32" || navigator.userAgent.includes("Windows")) ? "win32" as const : "darwin" as const,
   getSetupState: async () => setupState({ complete }),
   getHealth: async () => ({ ...health }),
+  restartAgent: async () => { await contractFixture.controls.restartAgent(); return { ...health }; },
   getCloudState: async () => cloudState(),
   getUpdateState: async () => updateState,
   checkForUpdate: async () => { calls.push({operation:"update.check"}); return updateState={phase:"available",release:updateRelease}; },
@@ -337,7 +362,9 @@ const dashboard = {
           await new Promise<void>(resolve => pendingWorkspaceResponses.push(resolve));
           return snapshot;
         }
-        return result;
+        // Match Electron IPC: later fixture mutations cannot change an earlier
+        // response already held by the query cache.
+        return structuredClone(await result);
       }
     }
     switch (call.operation) {

@@ -181,7 +181,6 @@ test("runtime starts the title on the first main request, finishes chat independ
     if (request.auxiliary) return new Promise(resolve => { finish = resolve; });
     return messageFixture({ content: [{ type: "text", text: "Main answer" }], usage: { input_tokens: 7, output_tokens: 3 } });
   });
-  await f.store.appendPendingEvent("s1", { text: "Private system event", event_id: "e1", job_id: "j1" });
   const runtime = new TypeScriptAgentRuntime({ store: f.store, sessionTitles: f.service,
     providerManager: { acquire: () => f.snapshot, reconfigure: async () => { throw Error("must not change settings"); } },
     permissionPolicy: new PermissionPolicyService(), tools: new ToolRegistry(), systemPrompt: "System instructions",
@@ -190,12 +189,15 @@ test("runtime starts the title on the first main request, finishes chat independ
   await runtime.start();
   const result = await runtime.runTurn({ job_id: "j1", session_id: "s1", session_key: "agent:main:desktop:dm:c1", response_route_id: "r1",
     user_id: "u1", conversation_id: "c1", is_group: false, message_id: "m1", user_input: "Fix a bug", job_kind: "turn", sender_nick: "Tester",
-    source: { platform: "desktop" }, raw_data: {}, user_content_blocks: [], diagnostics: [], workspace: testWorkspace,
+    source: { platform: "desktop" }, raw_data: {}, user_content_blocks: [], workspace: testWorkspace,
+    diagnostics: [{ type: "operation_failure", provider: "fixture", operation: "open", stage: "parse",
+      error_name: "SyntaxError", observed_error: "Diagnostic for the main turn", redacted: false, truncated: false, cause_known: false }],
   }, { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} });
   expect(result).toMatchObject({ status: "completed", reply: "Main answer", input_tokens: 7, output_tokens: 3 });
   await until(() => Boolean(finish));
   expect(requests.filter(request => request.auxiliary)).toHaveLength(1);
-  expect(JSON.stringify(requests.find(request => request.auxiliary)?.messages)).not.toContain("Private system event");
+  expect(JSON.stringify(requests.find(request => !request.auxiliary)?.messages)).toContain("Diagnostic for the main turn");
+  expect(JSON.stringify(requests.find(request => request.auxiliary)?.messages)).not.toContain("Diagnostic for the main turn");
   expect((await f.store.titleState("s1"))?.title).toBe("Fix a bug");
   finish(messageFixture({ content: [{ type: "text", text: "Fixed title" }], usage: { input_tokens: 999, output_tokens: 999 } }));
   await until(async () => (await f.store.titleState("s1"))?.title === "Fixed title");

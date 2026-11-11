@@ -20,7 +20,7 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 
 Users select the `off`, `standard`, or `diagnostic` logging profile and retention period in Desktop settings. Desktop stores that choice in `<data-root>/config/settings.json` and projects the internal `LOG_LEVEL`, `RUNTIME_LOG_LEVEL`, `LOCAL_LOGS_ENABLED`, retention, and trace variables into child processes. Those environment names are process transport, not user-owned configuration files.
 
-Terminal logs always use the human-readable pretty format; managed files use JSONL. Local files are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
+Terminal logs always use the human-readable pretty format; managed files use JSONL. Host logs are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Standalone MCP command diagnostics use the selected workspace's `.lxeagent/logs/` tree, so workspace-write commands can save diagnostics within their permitted directory. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
 Wire traces use the main-compatible per-attempt layout:
 
@@ -36,6 +36,7 @@ File responsibilities are intentionally separate:
 
 - Electron Main and Gateway records (JSONL): `<data-root>/logs/runtime/YYYYMMDD/desktop.log`.
 - Private `agent-cli` and Runtime records (JSONL): `<data-root>/logs/runtime/YYYYMMDD/runtime.log`.
+- Standalone `agent-cli mcp` diagnostics (JSONL): `<workspace>/.lxeagent/logs/runtime/YYYYMMDD/mcp-cli.log`. Use `LXE_WORKSPACE_ROOT`, or the current directory when unset; the same logging profile and retention period apply.
 - Python text logs (standalone `lxeskill` commands): `<data-root>/logs/runtime/YYYYMMDD/runtime-py.log`.
 - Browser-auth text logs: `<data-root>/logs/browser_auth_service/YYYYMMDD/browser_auth_service.log`.
 - Feishu raw events: `<data-root>/logs/feishu_raw_events/YYYYMMDD.jsonl`.
@@ -99,7 +100,6 @@ Successful health polling and repetitive stream updates should not dominate INFO
 | --- | --- |
 | 回合与模型调用 | `turn_started` / `turn_completed`、Provider attempt 和工具执行；[Runtime](../packages/agent/runtime/src/engine/runtime.ts) |
 | 入站路由与调度 | session、route、排队、steering 和取消；[Router](../apps/gateway/src/orchestration/router.ts)、[Scheduler](../apps/gateway/src/orchestration/scheduler.ts) |
-| Heartbeat | 唤醒、合并、延后或丢弃的原因；[Heartbeat bridge](../apps/gateway/src/orchestration/heartbeat-bridge.ts) |
 | 飞书接入与交付 | 连接、消息归一化、资源获取和卡片交付；[飞书适配](../apps/gateway/src/channels/feishu/) |
 | exec 进程 | 创建、等待、退出、终止和后台完成通知；[Process manager](../packages/agent/runtime/src/tooling/coding/process-manager.ts) |
 | 用量同步 | `data_sync_uploaded`、`data_sync_skipped`、`data_sync_failed`；[TurnUsageSyncService](../packages/agent/runtime/src/operations/turn-usage-sync.ts) |

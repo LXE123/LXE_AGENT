@@ -2,6 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 describe("tool display", () => {
+  test("desktop previews arguments at start and finish without changing the compact summary or other channels", () => {
+    const code = 'const a = 2;\nreturn a;';
+    for (const status of ["running", "success", "error"] as const) {
+      const show = (name: string, input: Record<string, string>) =>
+        buildToolDisplayStep("call-1", name, input, status, 0, { showInput: true });
+      expect(show("codemode", { code })).toMatchObject({ detail: "", input_block: { language: "text", content: code } });
+      const write = show("write", { file_path: "x", content: "one\ntwo" });
+      expect(write.detail).toBe("x");
+      expect(JSON.parse(write.input_block!.content)).toEqual({ file_path: "x", content: "one\ntwo" });
+      expect(JSON.parse(show("wait", { exec_id: "exec_123" }).input_block!.content)).toEqual({ exec_id: "exec_123" });
+      expect(buildToolDisplayStep("call-1", "codemode", { code }, status, 0)).not.toHaveProperty("input_block");
+    }
+    const args = { query: { selected: [1, 2], api_token: "fixture-secret" }, picture: {type:"image",data:"fixture-bytes"} };
+    const preview = buildToolDisplayStep("call", "mcp__inventory__list", args, "running", 0, { showInput: true }).input_block!;
+    expect(JSON.parse(preview.content).query).toEqual({ selected: [1, 2], api_token: "[redacted]" });
+    expect(preview.content).not.toContain("fixture-bytes");
+    const large = buildToolDisplayStep("call", "codemode", {code:"x".repeat(50_000)}, "running", 0, {showInput:true});
+    expect(large.input_block!.content.length).toBeLessThan(50_000);
+    expect(large.input_block!.content).toEndWith("[input truncated]");
+  });
   test("preserves paths and escaped newlines in plain and JSON tool content", () => {
     const text = "output:\n缓存目录不存在\nC:\\Users\\Alice\\my reports\\report.txt\n/private/workspace/report.txt\nT:\\new\\test.txt";
     const structured = [{ type: "text", text }];

@@ -13,7 +13,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
-test("old compaction events have identical indexed/direct markers without rewriting the transcript", async () => {
+test("old compaction events retain identical indexed/direct markers across the one-time node migration", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-compaction-display-")); roots.push(root);
   const database = join(root, "agent.sqlite3");
   let store = new SqliteRuntimeStore(database);
@@ -41,11 +41,13 @@ test("old compaction events have identical indexed/direct markers without rewrit
     expect(indexed.messages.map(message => message.context_marker)).toEqual([
       undefined, { kind: "compaction", compacted_count: 255 }, { kind: "compaction" }, undefined, undefined, undefined, undefined,
     ]);
+    const migrated = readFileSync(path, "utf8");
+    expect(JSON.parse(migrated.split("\n")[0]!).version).toBe(3);
     const latest = await store.loadTranscriptDisplayPage("s", { limit: 5 });
     expect(latest.messages[0]?.context_marker).toEqual({ kind: "compaction" });
     await store.stop(); store = new SqliteRuntimeStore(database); await store.start();
     expect(fields((await store.loadTranscriptDisplayPage("s", { limit: 20 })).messages)).toEqual(fields(indexed.messages));
-    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(readFileSync(path, "utf8")).toBe(migrated);
   } finally { await store.stop(); }
 });
 
@@ -155,7 +157,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       name: "report.xlsx",
       ts: 101,
     });
-    await store.appendPendingEvent("delete-me", { event_id: "pending-1", job_id: "job-1", text: "wake" });
     await store.recordTurn("delete-me", {
       turn_id: "turn-delete", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 2, output_tokens: 3, tool_calls: 1, api_calls: 1,
@@ -169,7 +170,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(await store.deleteSession("delete-me")).toBe(true);
     expect(await store.deleteSession("delete-me")).toBe(false);
     expect(await store.sessionDetail("delete-me", { limit: 10 })).toBeUndefined();
-    expect(await store.hasPendingEvents("delete-me")).toBe(false);
     expect(await store.resolveAttachment("delete-me", "attachment-1")).toBeUndefined();
     expect(await store.resolveArtifact("delete-me", "artifact-1")).toBeUndefined();
     expect(existsSync(transcriptPath)).toBe(false);

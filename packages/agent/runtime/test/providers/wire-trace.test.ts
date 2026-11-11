@@ -71,6 +71,7 @@ describe("provider wire traces", () => {
         image: { type: "base64", media_type: "image/png", data: "image-private" },
         assistant: { type: "redacted_thinking", data: "opaque-private" },
         signature: "signature-private",
+        reasoning: { type: "reasoning", encrypted_content: "ciphertext-private" },
       },
     );
     attempt!.requestStart({}, {});
@@ -119,6 +120,7 @@ describe("provider wire traces", () => {
     expect(wireText).not.toContain("request-secret");
     expect(wireText).not.toContain("private-cookie");
     expect(wireText).not.toContain("signature-private");
+    expect(wireText).not.toContain("ciphertext-private");
     expect(wireText).not.toContain("opaque-private");
     expect(wireText).not.toContain("image-private");
     expect(wireText).not.toContain("parse-private");

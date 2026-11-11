@@ -29,6 +29,8 @@ export interface ExecEnvironmentContext {
 export interface ExecShellAdapterOptions {
   platform?: NodeJS.Platform;
   environment?: Environment;
+  /** Additional CLI directory owned by this host, visible only on the exec search path. */
+  binDirectory?: string;
   fileExists?: (path: string) => boolean;
   which?: (command: string) => string | null;
   powerShellMajor?: (executable: string) => number | undefined;
@@ -249,7 +251,7 @@ export class ExecShellAdapter {
       ...childEnvironment
     } = this.environment;
     return {
-      ...withExecutablePath(childEnvironment, managedPath || projectBin, this.platform),
+      ...withExecutablePath(childEnvironment, [this.options.binDirectory, managedPath || projectBin].filter(Boolean).join(this.platform === "win32" ? ";" : ":"), this.platform),
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",

@@ -79,10 +79,7 @@ const withStatement = <Result>(
   }
 };
 
-export class NodeGatewayStore implements Omit<
-  DirectGatewayStorage,
-  "appendPendingEvent" | "hasPendingEvents"
-> {
+export class NodeGatewayStore implements DirectGatewayStorage {
   private database: DatabaseSync | undefined;
   automations: NodeAutomationStore | undefined;
 

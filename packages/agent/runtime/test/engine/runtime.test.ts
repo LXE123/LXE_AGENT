@@ -1,10 +1,14 @@
+import { buildResponsesRequest } from "../../src/providers/responses-provider";
+import { SqliteRuntimeStore } from "../../src/state/storage";
+import { parseTranscriptText } from "../../src/state/transcript";
+import { AssistantMessageAccumulator } from "../../src/messages/accumulator";
 import { skillPathKey } from "../../src/tooling/skill-files";
 import { PermissionPolicyService } from "../../src/permissions/policy";
 import { messageFixture, eventFixture } from "../message-fixtures";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/engine/system-prompt";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { registerCodingTools } from "../../src/tooling/coding-tools";
 import { ExecShellAdapter } from "../../src/tooling/exec-shell";
@@ -14,6 +18,7 @@ import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core
 import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject, ToolStep } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
+  loadProviderDescriptor,
   RuntimeProviderError,
   type RuntimeProviderManager,
   type RuntimeProviderSnapshot,
@@ -60,7 +65,6 @@ const job = (overrides: Partial<AgentJob> = {}): AgentJob => ({
 class MemoryStore implements RuntimeStore {
   permissionMode: RuntimeSessionRecord["permission_mode"] = "danger-full-access";
   messages: RuntimeMessage[] = [];
-  pendingEvents: JsonObject[] = [];
   metrics: JsonObject[] = [];
   turnContexts: RuntimeTurnContextRecord[] = [];
   statePatches: JsonObject[] = [];
@@ -83,10 +87,10 @@ class MemoryStore implements RuntimeStore {
       workspace,
     };
   }
-  async popPendingEvents(): Promise<JsonObject[]> {
-    return this.pendingEvents.splice(0);
-  }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
+  private loadedTools: Awaited<ReturnType<RuntimeStore["readLoadedTools"]>> = [];
+  async readLoadedTools() { return [...this.loadedTools]; }
+  async appendLoadedTools(_session: string, _turn: string, tools: typeof this.loadedTools) { this.loadedTools.push(...tools); }
   async appendTurnContext(_sessionId: string, context: RuntimeTurnContextRecord): Promise<void> {
     this.turnContexts.push(structuredClone(context));
     this.operations.push("turn_context");
@@ -94,6 +98,10 @@ class MemoryStore implements RuntimeStore {
   async appendArtifact(_sessionId: string, artifact: RuntimeArtifactRecord): Promise<void> {
     this.artifacts.push(structuredClone(artifact));
     this.operations.push("artifact");
+  }
+  turnEnds: Array<{ turnId: string; status: string }> = [];
+  async appendTurnEnd(_sessionId: string, turnId: string, status: string): Promise<void> {
+    this.turnEnds.push({ turnId, status });
   }
   async appendTurnError(_sessionId: string, turnId: string, message: string): Promise<void> {
     this.turnErrors.push({ turn_id: turnId, message });
@@ -143,6 +151,123 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
+  test("uses the session registry for schemas and execution, and releases it on completion or cancellation", async () => {
+    const events: string[] = [];
+    let attempt = 0;
+    const global = new ToolRegistry();
+    global.register({ name: "lookup", description: "global", input_schema: {}, execute: async () => { throw new Error("must not use global tool"); } });
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: global, permissionPolicy, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      acquireSessionTools: async ctx => {
+        const tools = new ToolRegistry();
+        events.push("acquire:" + ctx.sessionId);
+        tools.register({ name: "lookup", description: ctx.sessionId, input_schema: { type: "object" },
+          execute: async () => { events.push("execute:" + ctx.sessionId); return { content: [{ type: "text", text: ctx.sessionId }] }; } });
+        return { tools, mcpServerDirectory: () => "directory:" + ctx.sessionId, release: () => { events.push("release:" + ctx.sessionId); } };
+      },
+      provider: { summarize, turn: async request => {
+        const id = attempt < 2 ? "A" : "B";
+        expect(request.tools.find(tool => tool.name === "lookup")?.description).toBe(id);
+        expect(request.system).toContain("directory:" + id);
+        attempt++;
+        return attempt % 2 ? messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "call" + attempt, name: "lookup", arguments: {} }] })
+          : messageFixture({ content: [{ type: "text", text: "done" }] });
+      } },
+    });
+    await runtime.start();
+    try {
+      for (const id of ["A", "B"]) expect((await runtime.runTurn(job({ session_id: id, job_id: id }), handle())).status).toBe("completed");
+      const controller = new AbortController();
+      runtime.on("before_model_step", () => controller.abort());
+      expect((await runtime.runTurn(job({ session_id: "C", job_id: "C" }), { ...handle(), signal: controller.signal })).status).toBe("cancelled");
+      expect(events).toEqual(["acquire:A", "execute:A", "release:A", "acquire:B", "execute:B", "release:B", "acquire:C", "release:C"]);
+    } finally { await runtime.stop(); }
+  });
+
+  test("awaits turn and step listeners in order before snapshots, once per step across provider retries", async () => {
+    const events: string[] = [];
+    const run = handle();
+    let attempts = 0;
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "lookup", description: "fixture", input_schema: { type: "object" },
+      execute: async () => { events.push("tool"); return { content: [] }; },
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools, permissionPolicy,
+      systemPrompt: () => { events.push("prompt"); return "test"; },
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async () => {
+        events.push("model");
+        attempts++;
+        if (attempts === 1) throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
+        if (attempts === 2) return messageFixture({ stopReason: "toolUse", content: [
+          { type: "tool_call", id: "call1", name: "lookup", arguments: {} },
+        ] });
+        return messageFixture({ content: [{ type: "text", text: "done" }] });
+      } },
+    });
+    runtime.on("before_turn", async (event, ctx) => {
+      expect(event).toEqual({ type: "before_turn", userInput: "hello" });
+      expect(ctx).toMatchObject({ sessionId: "s1", turnId: "j1", workspace, platform: "feishu", toolPlatform: "feishu" });
+      expect(ctx.signal).toBe(run.signal);
+      await Promise.resolve();
+      events.push("turn");
+    });
+    runtime.on("before_model_step", async (event, ctx) => {
+      expect(ctx.signal).toBe(run.signal);
+      await Promise.resolve();
+      events.push(`step ${event.step}`);
+    });
+    const unsubscribe = runtime.on("before_model_step", event => {
+      events.push(`once ${event.step}`);
+      unsubscribe();
+    });
+    await runtime.start();
+    try {
+      expect((await runtime.runTurn(job(), run)).status).toBe("completed");
+      expect(events).toEqual(["turn", "prompt", "step 0", "once 0", "model", "model", "tool", "step 1", "model"]);
+    } finally { await runtime.stop(); }
+  });
+
+  test("a failed listener reports its error and a later listener can still prepare the turn", async () => {
+    const logs: string[] = [];
+    let instruction = "initial";
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: new ToolRegistry(), permissionPolicy, systemPrompt: () => instruction,
+      logger: createLogger("test.runtime", { write: line => logs.push(line) }),
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async request => messageFixture({ content: [{ type: "text", text: request.system }] }) },
+    });
+    runtime.on("before_turn", async () => { throw new Error("fixture listener failed"); });
+    runtime.on("before_turn", () => { instruction = "prepared"; });
+    await runtime.start();
+    try {
+      expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "prepared" });
+      expect(logs.map(line => JSON.parse(line))).toContainEqual(expect.objectContaining({
+        message: "runtime_event_handler_failed", event: "before_turn", error: expect.objectContaining({ message: "fixture listener failed" }),
+      }));
+    } finally { await runtime.stop(); }
+  });
+
+  test("stopping during a step listener skips the remaining listeners and model request", async () => {
+    const controller = new AbortController();
+    const events: string[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store: new MemoryStore(), tools: new ToolRegistry(), permissionPolicy, systemPrompt: "test",
+      emitter: { emit: async () => {}, typing: async () => {} },
+      provider: { summarize, turn: async () => { events.push("model"); return messageFixture(); } },
+    });
+    runtime.on("before_model_step", () => { events.push("stop"); controller.abort(); });
+    runtime.on("before_model_step", () => { events.push("next"); });
+    await runtime.start();
+    try {
+      expect((await runtime.runTurn(job(), { ...handle(), signal: controller.signal })).status).toBe("cancelled");
+      expect(events).toEqual(["stop"]);
+    } finally { await runtime.stop(); }
+  });
+
   test.each(["read-only", "workspace-write"] as const)("describes %s before contacting the model", async mode => {
     const store = new MemoryStore();
     store.permissionMode = mode;
@@ -240,7 +365,7 @@ describe("TypeScriptAgentRuntime", () => {
       expect(store.messageTurnIds.at(-1)).toBe("j1");
       const marker = store.messages.at(-1)!;
       expect(marker.role).toBe("user");
-      expect(marker.content).toBe("<turn_aborted>\n用户主动中断了上一回合。被中断的工具或命令可能已部分执行；后续继续时请先核实实际状态。\n</turn_aborted>");
+      expect(marker.content).toBe("<turn_aborted>\nThe user interrupted the previous turn. A tool or command may have run partially. Check its current state before continuing.\n</turn_aborted>");
       if (phase !== "model") {
         const results = store.messages.flatMap(m => Array.isArray(m.content) ? m.content : [])
           .filter(block => block.type === "tool_result" && block.tool_call_id === "stopped-call");
@@ -442,7 +567,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await runtime.start();
     await runtime.runTurn(job(), handle());
-    expect(changes).toEqual(["s1:messages", "s1:messages", "s1:messages", "s1:usage"]);
+    expect(changes).toEqual(["s1:messages", "s1:messages", "s1:messages", "s1:usage", "s1:messages"]);
+    expect(store.turnEnds).toEqual([{ turnId: "j1", status: "completed" }]);
     expect(store.messageTurnIds).toEqual(["j1", "j1", "j1"]);
     expect(store.metrics[0]).toMatchObject({
       platform: "feishu",
@@ -474,7 +600,7 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await failedUsageRuntime.start();
     await failedUsageRuntime.runTurn(job(), handle());
-    expect(failedUsageChanges).toEqual(["messages", "messages", "messages"]);
+    expect(failedUsageChanges).toEqual(["messages", "messages", "messages", "messages"]);
     await failedUsageRuntime.stop();
 
     const failedMessageChanges: string[] = [];
@@ -497,7 +623,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await failedMessageRuntime.start();
     expect((await failedMessageRuntime.runTurn(job(), handle())).status).toBe("error");
-    expect(failedMessageChanges).toEqual(["messages", "usage"]);
+    expect(failedMessageChanges).toEqual(["messages", "usage", "messages"]);
+    expect(failedMessageStore.turnEnds).toEqual([{ turnId: "j1", status: "error" }]);
     await failedMessageRuntime.stop();
   });
 
@@ -545,7 +672,7 @@ describe("TypeScriptAgentRuntime", () => {
       expect.objectContaining({ type: "local_file", path: "/private/input/photo.png" }),
       expect.objectContaining({ type: "image" }),
     ]));
-    expect(changes).toEqual(["messages", "attachments", "messages", "messages", "usage"]);
+    expect(changes).toEqual(["messages", "attachments", "messages", "messages", "usage", "messages"]);
     await runtime.stop();
   });
 
@@ -859,58 +986,6 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.metrics[0]?.executions).toEqual([]);
   });
 
-  test("completes an empty heartbeat without loading history or calling the provider", async () => {
-    const store = new MemoryStore();
-    store.messages.push({ role: "user", content: "private history" });
-    let calls = 0;
-    let snapshotCalls = 0;
-    let systemPromptCalls = 0;
-    let wireTurns = 0;
-    let wireAttempts = 0;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async () => {
-          calls += 1;
-          throw new Error("provider must not be called");
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      skillSnapshot: () => {
-        snapshotCalls += 1;
-        return { names: [], prompt: "", modules: {} };
-      },
-      systemPrompt: () => {
-        systemPromptCalls += 1;
-        return "test";
-      },
-      wireTraceController: {
-        startTurn: () => {
-          wireTurns += 1;
-          return {
-            startProviderAttempt: () => {
-              wireAttempts += 1;
-              return undefined;
-            },
-          };
-        },
-      },
-    });
-    await runtime.start();
-    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
-    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "" }));
-    expect(calls).toBe(0);
-    expect(store.messages).toEqual([{ role: "user", content: "private history" }]);
-    expect(store.turnContexts).toEqual([]);
-    expect(snapshotCalls).toBe(0);
-    expect(systemPromptCalls).toBe(0);
-    expect(wireTurns).toBe(1);
-    expect(wireAttempts).toBe(0);
-    expect(store.metrics).toContainEqual(expect.objectContaining({ status: "completed", api_calls: 0 }));
-  });
-
   test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
@@ -991,12 +1066,8 @@ describe("TypeScriptAgentRuntime", () => {
     });
   });
 
-  test("ignores embedded system events and consumes stored pending events when an ordinary turn starts", async () => {
+  test("uses the submitted message and ignores embedded system events", async () => {
     const store = new MemoryStore();
-    store.pendingEvents.push(
-      { event_id: "stored-1", job_id: "stored-1", created_at: 0, text: "stored first" },
-      { event_id: "stored-2", job_id: "stored-2", created_at: 0, text: "stored second" },
-    );
     let captured: RuntimeProviderRequest | undefined;
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
       store,
@@ -1026,11 +1097,8 @@ describe("TypeScriptAgentRuntime", () => {
     }, handle());
     await runtime.stop();
 
-    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toEndWith(
-      "System: stored first\n\nSystem: stored second\n\nhello",
-    );
+    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toBe("hello");
     expect(captured?.userIdentity).toEqual({ platform: "feishu", userId: "u1" });
-    expect(store.pendingEvents).toEqual([]);
   });
 
   test("appends changed dates and restores a missing baseline across runtime restarts", async () => {
@@ -1076,7 +1144,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: { summarize, turn: async (request) => {
         requests.push(structuredClone(request.messages));
         setSystemTime(crossDay ? new Date(2026, 8, 5 + requests.length, 12) : new Date(`2026-09-05T01:0${5 + requests.length}:00Z`));
-        if (requests.length === 1) throw new RuntimeProviderError("busy", "test", "busy", "busy", true, 503);
+        if (requests.length === 1) throw new RuntimeProviderError("busy", "test", "busy", true, 503);
         return messageFixture({
           content: requests.length === 2
             ? [{ type: "tool_call", id: "call-1", name: "noop", arguments: {} }]
@@ -1160,80 +1228,6 @@ describe("TypeScriptAgentRuntime", () => {
     expect(requests[1]?.messages.at(-1)?.content).not.toContain("Failed to parse raw card JSON at position 7");
     expect(requests[1]?.messages.at(-1)?.content).toContain("forged diagnostic");
     expect(JSON.stringify(store.messages)).toContain("Failed to parse raw card JSON at position 7");
-  });
-
-  test("consumes stored pending events for an ordinary turn without embedded system events", async () => {
-    const store = new MemoryStore();
-    store.pendingEvents.push({
-      event_id: "stored",
-      job_id: "stored",
-      created_at: 0,
-      text: "stored only",
-    });
-    let captured: RuntimeProviderRequest | undefined;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async (request) => {
-          captured = request;
-          return messageFixture({
-            content: [{ type: "text", text: "done" }],
-            stopReason: "stop",
-            usage: { input_tokens: 1, output_tokens: 1 },
-          });
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
-    });
-    await runtime.start();
-    await runtime.runTurn(job(), handle());
-    await runtime.stop();
-
-    expect(captured?.messages.filter((message) => message.role === "user" && !message.environmentContext).at(-1)?.content).toEndWith("System: stored only\n\nhello");
-    expect(store.pendingEvents).toEqual([]);
-  });
-
-  test("reports heartbeat events without history or tools", async () => {
-    const store = new MemoryStore();
-    store.messages.push({ role: "user", content: "private history" });
-    store.pendingEvents.push({
-      event_id: "event-1",
-      job_id: "background-1",
-      created_at: 1_700_000_000,
-      text: "refresh completed",
-    });
-    let captured: RuntimeProviderRequest | undefined;
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store,
-      tools: new ToolRegistry(),
-      provider: {
-        summarize,
-        turn: async (request) => {
-          captured = request;
-          return messageFixture({
-            content: [{ type: "text", text: "刷新已完成。" }],
-            stopReason: "stop",
-            usage: { input_tokens: 3, output_tokens: 2 },
-          });
-        },
-      },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
-    });
-    await runtime.start();
-    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
-    expect(outcome.reply).toBe("刷新已完成。");
-    expect(captured?.tools).toEqual([]);
-    expect(captured?.toolChoice).toBe("none");
-    expect(captured?.messages).toHaveLength(2);
-    expect(captured?.messages[1]?.content).toContain("<environment_context>");
-    expect(store.messages).toContainEqual(captured!.messages[0]!);
-    expect(JSON.stringify(captured?.messages)).not.toContain("private history");
-    expect(store.pendingEvents).toEqual([]);
-    expect(store.turnContexts).toEqual([expect.objectContaining({ job_kind: "heartbeat", turn_id: "j1" })]);
   });
 
   test("records the acquired model and effort once before the real turn input", async () => {
@@ -1559,11 +1553,12 @@ describe("TypeScriptAgentRuntime", () => {
     expect(events.indexOf("start:c")).toBeGreaterThan(events.indexOf("end:read"));
     expect(events.indexOf("start:d")).toBeGreaterThan(events.indexOf("end:read"));
     expect(events.indexOf("start:d")).toBeLessThan(events.indexOf("end:c"));
-    const toolMessage = store.messages.find((message) => message.role === "tool");
-    if (!toolMessage || toolMessage.role !== "tool" || !Array.isArray(toolMessage.content)) throw new Error("tool results expected");
-    expect(toolMessage.content.map((block) => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
-    expect(toolMessage.content[1]).toEqual(expect.objectContaining({ tool_call_id: "t2", is_error: true }));
-    expect(JSON.stringify(toolMessage.content[0]?.content)).toContain("result a");
+    const toolMessages = store.messages.filter(message => message.role === "tool");
+    expect(toolMessages.map(message => Array.isArray(message.content) ? message.content.length : 0)).toEqual([1, 1, 1, 1, 1]);
+    const blocks = toolMessages.flatMap(message => Array.isArray(message.content) ? message.content : []);
+    expect(blocks.map(block => block.tool_call_id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
+    expect(blocks[1]).toMatchObject({ tool_call_id: "t2", is_error: true });
+    expect(JSON.stringify(blocks[0]?.content)).toContain("result a");
     const terminal = emitted.slice().reverse().find((request) => request.emit_kind === "stream");
     expect(terminal?.tool_steps.map((tool) => tool.id)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
     await runtime.stop();
@@ -2360,9 +2355,9 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.start();
     const outcome = await runtime.runTurn(job(), runHandle);
     expect(outcome.status).toBe("cancelled");
-    expect(store.messages.at(-1)?.content).toEqual([
-      expect.objectContaining({ type: "tool_result", tool_call_id: "t1" }),
-      expect.objectContaining({ type: "tool_result", tool_call_id: "t2", is_error: true }),
+    expect(store.messages.slice(-2).map(message => message.content)).toEqual([
+      [expect.objectContaining({ type: "tool_result", tool_call_id: "t1" })],
+      [expect.objectContaining({ type: "tool_result", tool_call_id: "t2", is_error: true })],
     ]);
     await runtime.stop();
   });
@@ -2476,7 +2471,7 @@ describe("TypeScriptAgentRuntime", () => {
           providerCalls += 1;
           if (scenario !== "empty") queue.push({ text: scenario === "blank" ? "  " : "补充指令" });
           if (scenario === "cancel") controller.abort();
-          if (scenario === "error") throw new RuntimeProviderError("provider failed", "test", "test", "provider failed", false);
+          if (scenario === "error") throw new RuntimeProviderError("provider failed", "test", "test", false);
           return messageFixture({
             content: [{ type: "text", text: "原回答" }],
             stopReason: scenario === "returned_error" ? "error" : scenario === "returned_aborted" ? "aborted" : "stop",
@@ -2547,7 +2542,6 @@ describe("TypeScriptAgentRuntime", () => {
               retryable ? "service unavailable" : "invalid authentication",
               "kimi_coding",
               retryable ? "服务暂时异常" : "认证错误",
-              retryable ? "Kimi Coding 服务暂时异常，请稍后重试。" : "Kimi Coding 认证失败，请检查 API Key。",
               retryable,
               retryable ? 503 : 401,
             );
@@ -2564,13 +2558,13 @@ describe("TypeScriptAgentRuntime", () => {
     expect(retryable.calls).toBe(3);
     expect(retryable.contexts).toBe(1);
     expect(retryable.snapshots).toBe(1);
-    expect(retryable.outcome.reply).toBe("执行失败: Kimi Coding 服务暂时异常，请稍后重试。");
+    expect(retryable.outcome.reply).toBe("执行失败: kimi_coding (HTTP 503): service unavailable");
     expect(retryable.turnErrors).toEqual([{ turn_id: "j1", message: retryable.outcome.reply }]);
     const fatal = await run(false);
     expect(fatal.calls).toBe(1);
     expect(fatal.contexts).toBe(1);
     expect(fatal.snapshots).toBe(1);
-    expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
+    expect(fatal.outcome.reply).toBe("执行失败: kimi_coding (HTTP 401): invalid authentication");
   });
 
   test("reports a cloud authentication failure once and blocks the invalid revision on later turns", async () => {
@@ -2610,7 +2604,6 @@ describe("TypeScriptAgentRuntime", () => {
             "invalid authentication",
             "deepseek",
             "认证失败",
-            "DeepSeek 认证失败，请检查 API Key 是否正确。",
             false,
             401,
           );
@@ -2672,7 +2665,6 @@ describe("TypeScriptAgentRuntime", () => {
             "model access denied",
             "deepseek",
             "权限错误",
-            "DeepSeek 当前账号无权使用该模型。",
             false,
             401,
           );
@@ -2716,7 +2708,7 @@ describe("TypeScriptAgentRuntime", () => {
         turn: async () => {
           calls += 1;
           if (calls === 1) {
-            throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+            throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
           }
           if (calls === 2) {
             return messageFixture({
@@ -2761,6 +2753,33 @@ describe("TypeScriptAgentRuntime", () => {
   });
 });
 
+test.each(["cancel", "server-delay-too-long"] as const)("does not send another model request after %s during recovery", async mode => {
+  const store = new MemoryStore();
+  const controller = new AbortController();
+  let calls = 0;
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
+    store, tools: new ToolRegistry(), systemPrompt: "test",
+    provider: { summarize, turn: async () => {
+      calls++;
+      if (mode === "cancel") setTimeout(() => controller.abort(), 20);
+      throw new RuntimeProviderError("Ramp traffic more slowly", "openai", "限流", true, 429, false,
+        { retryAfterMs: mode === "cancel" ? 30_000 : 61_000 });
+    } },
+    emitter: { emit: async () => undefined, typing: async () => undefined },
+  });
+  await runtime.start();
+  try {
+    const result = await runtime.runTurn(job(), { ...handle(), signal: controller.signal });
+    expect(calls).toBe(1);
+    expect(result.status).toBe(mode === "cancel" ? "cancelled" : "error");
+    if (mode !== "cancel") {
+      expect(result.reply).toContain("Ramp traffic more slowly");
+      expect(result.reply).toContain("retry_after_ms: 61000");
+      expect(store.turnErrors[0]?.message).toBe(result.reply);
+    }
+  } finally { await runtime.stop(); }
+});
+
 test("accounts failed attempts once and isolates their streamed text from the retry", async () => {
   const store = new MemoryStore();
   const emitted: EmitRequest[] = [];
@@ -2769,15 +2788,15 @@ test("accounts failed attempts once and isolates their streamed text from the re
   const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
     store, tools: new ToolRegistry(), systemPrompt: "test",
     provider: { summarize, turn: async (request) => {
-      const { AssistantMessageAccumulator } = await import("../../src/messages/accumulator");
-      const a = new AssistantMessageAccumulator({ name: "test", model: "test", apiStyle: "openai_completions" }, request.onEvent);
+      if (calls) expect(JSON.stringify(request.messages)).not.toContain("failed prefix");
+      const a = new AssistantMessageAccumulator({ name: "openai", model: "gpt-6-astra", apiStyle: "openai_responses" }, request.onEvent);
       messageIds.push(a.message.id);
       const textIndex = a.startText();
       calls++;
       a.append(textIndex, calls === 1 ? "failed prefix" : "good answer");
       a.usage({ input_tokens: calls === 1 ? 3 : 5, output_tokens: 2, status: "partial" });
       if (calls === 1) {
-        const error = new RuntimeProviderError("connection reset", "test", "transport", "connection reset", true);
+        const error = new RuntimeProviderError("connection reset", "openai", "transport", true);
         a.fail("error", error); await a.drain(); throw error;
       }
       a.usage({ status: "complete" });
@@ -2792,11 +2811,78 @@ test("accounts failed attempts once and isolates their streamed text from the re
   expect(calls).toBe(2);
   expect(new Set(messageIds).size).toBe(2);
   expect(store.metrics[0]).toMatchObject({ input_tokens: 8, output_tokens: 4, api_calls: 2 });
-  expect(store.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+  expect(store.messages.filter(m => m.role === "assistant").map(m => m.content)).toEqual([
+    [{ type: "text", text: "failed prefix", contentIndex: 0 }], [{ type: "text", text: "good answer" }],
+  ]);
+  expect(store.messageReasons.filter(reason => reason === "assistant_partial")).toHaveLength(1);
   const terminal = emitted.filter((e) => e.emit_kind === "stream" && e.state === "final").at(-1);
   expect(terminal?.content).toBe("good answer");
   if (terminal?.emit_kind !== "stream") throw new Error("Missing terminal stream");
   expect(terminal.process_parts.filter((p) => p.type === "text").map((p) => p.status)).toEqual(["error", "completed"]);
+});
+
+test.each(["error", "aborted"] as const)("archives streamed text on %s and omits it on resume and fork", async reason => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-partial-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  const controller = new AbortController();
+  const tools = new ToolRegistry();
+  tools.register({ name: "orders", description: "test", input_schema: { type: "object" },
+    execute: async () => ({ content: [{ type: "text", text: "20 orders" }] }) });
+  let calls = 0;
+  const subsequentRequests: RuntimeMessage[][] = [];
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",
+    emitter: { emit: async () => {}, typing: async () => {} },
+    provider: { summarize, turn: async request => {
+      calls++;
+      if (calls === 1) return messageFixture({ stopReason: "toolUse", content: [
+        { type: "tool_call", id: "list-orders", name: "orders", arguments: {} },
+      ] });
+      if (calls === 2) {
+        const stream = new AssistantMessageAccumulator({ name: "test", model: "test", apiStyle: "openai_responses" }, request.onEvent);
+        stream.append(stream.startThinking(), "private reasoning");
+        const index = stream.startText();
+        stream.append(index, "unfinished ");
+        stream.append(index, "summary");
+        stream.startTool({ id: "unfinished-tool", name: "orders" });
+        if (reason === "aborted") controller.abort();
+        const error = reason === "aborted" ? controller.signal.reason
+          : new RuntimeProviderError("connection lost", "test", "transport", false);
+        stream.fail(reason, error);
+        await stream.drain();
+        throw error;
+      }
+      subsequentRequests.push(request.messages);
+      return messageFixture({ content: [{ type: "text", text: "continued" }] });
+    } },
+  });
+  await runtime.start();
+  try {
+    await store.ensureSession({ session_id: "s1", workspace, source: {} });
+    const result = await runtime.runTurn(job(), { ...handle(), signal: controller.signal, cancelReason: "user_stop" });
+    expect(result.status).toBe(reason === "aborted" ? "cancelled" : "error");
+    await runtime.stop(); await runtime.start();
+    const branch = await store.forkSession("s1", "j1");
+    for (const id of ["s1", String(branch.session_id)]) {
+      const readTranscript = () => parseTranscriptText(readFileSync(join(root, "session_transcripts", id + ".jsonl"), "utf8"));
+      const partial = readTranscript().filter(entry => entry.reason === "assistant_partial");
+      expect(partial).toHaveLength(1);
+      expect(partial[0]?.message).toMatchObject({ stopReason: reason, content: [
+        { type: "text", text: "unfinished summary", contentIndex: 1 },
+      ] });
+      expect(JSON.stringify(partial)).not.toContain("private reasoning");
+      expect(JSON.stringify(partial)).not.toContain("unfinished-tool");
+      expect((await runtime.runTurn(job({ session_id: id, job_id: "continue-" + id, message_id: "m2", user_input: "continue" }), handle())).status).toBe("completed");
+      expect(readTranscript().filter(entry => entry.reason === "assistant_partial")).toEqual(partial);
+    }
+    expect(subsequentRequests).toHaveLength(2);
+    for (const request of subsequentRequests) {
+      const body = JSON.stringify(request);
+      expect(body).toContain("20 orders");
+      expect(body).not.toContain("unfinished summary");
+      expect(body).not.toContain("unfinished-tool");
+      expect(body.includes("<turn_aborted>")).toBe(reason === "aborted");
+    }
+  } finally { await runtime.stop(); await removeTemporaryRoot(root); }
 });
 
 test("does not execute or synthesize results for truncated tool drafts", async () => {
@@ -2877,7 +2963,7 @@ test.each(["partial", "unreported", "zero", "different-model", "images-omitted"]
   expect(store.messages.filter(message=>message.contextTokenAnchor!==undefined)).toHaveLength(0);
 });
 
-test("persists coherent display observations and isolates heartbeat and persistence failures", async () => {
+test("persists coherent display observations and isolates persistence failures", async () => {
   const snapshots: import("@lxe/protocol").ContextDisplaySnapshot[]=[];
   const store = new MemoryStore() as MemoryStore & Pick<RuntimeStore,"beginContextDisplay"|"saveContextDisplay">;
   let begins=0;
@@ -2900,13 +2986,6 @@ test("persists coherent display observations and isolates heartbeat and persiste
     input_tokens:100,output_tokens:50,cache_read_input_tokens:200,
   });
   expect(snapshots.at(-1)!.context_tokens).toBeGreaterThan(300);
-  const count=snapshots.length;
-  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
-  expect(snapshots).toHaveLength(count);
-  expect(begins).toBe(1);
-  store.pendingEvents.push({event_id:"e",job_id:"background",created_at:1,text:"background completed"});
-  await runtime.runTurn(job({job_kind:"heartbeat",user_input:""}),handle());
-  expect(snapshots).toHaveLength(count);
   expect(begins).toBe(1);
   store.saveContextDisplay=async()=>{throw new Error("fixture sqlite write failure");};
   expect((await runtime.runTurn(job({job_id:"next"}),handle())).status).toBe("completed");
@@ -2944,18 +3023,21 @@ test.each(["error","cancelled"] as const)("saves final consumption on %s without
     store,tools:new ToolRegistry(),systemPrompt:"s",
     provider:{summarize,turn:async request=>{
       const failed=messageFixture({stopReason:status==="cancelled"?"aborted":"error",
+        content:[{type:"thinking",thinking:"unfinished reasoning"}, {type:"text",text:""}],
         usage:{input_tokens:100,output_tokens:3,status:"partial"}});
       await request.onEvent?.({type:"error",reason:status==="cancelled"?"aborted":"error",error:failed});
       if(status==="cancelled") {
         cancellation.abort();
         throw new DOMException("fixture cancelled","AbortError");
       }
-      throw new RuntimeProviderError("fixture failure","test","error","fixture failure",false);
+      throw new RuntimeProviderError("fixture failure","test","error",false);
     }},
     emitter:{emit:async()=>undefined,typing:async()=>undefined},
   });
   await runtime.start();
   expect((await runtime.runTurn(job(),turnHandle)).status).toBe(status);
+  expect(store.turnEnds).toEqual([{ turnId: "j1", status }]);
+  expect(store.messageReasons).not.toContain("assistant_partial");
   await runtime.stop();
   expect(snapshots.at(-1)).toMatchObject({input_tokens:100,output_tokens:3,context_source:"estimated"});
   expect(snapshots.at(-1)!.context_tokens).toBe(snapshots.at(-2)!.context_tokens);
@@ -3072,7 +3154,6 @@ describe("skill loading", () => {
   test("injects only direct input, exposes owned tools, persists immutable load evidence and avoids replay loads", async () => {
     const store = new MemoryStore(), tools = new ToolRegistry(), looked: string[] = [];
     store.messages = [{ role: "user", content: "/history-skill" }];
-    store.pendingEvents = [{ type: "notice", text: "/event-skill" }];
     tools.register({ name: "office_action", description: "fixture", input_schema: { type: "object" }, exposure: "deferred", ownerSkills: ["office-xlsx"], execute: async () => ({ content: [] }) });
     let calls = 0;
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",
@@ -3154,7 +3235,7 @@ test("mode changes during provider retries and a removed environment baseline re
       if (environment?.role === "user") modes.push(environment.environmentContext!.permission_mode!);
       if (requests++ === 0) {
         store.permissionMode = "read-only";
-        throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+        throw new RuntimeProviderError("retry", "custom", "temporary", true, 503);
       }
       return messageFixture({ stopReason: "stop", content: [{ type: "text", text: "done" }] });
     } },
@@ -3169,4 +3250,84 @@ test("mode changes during provider retries and a removed environment baseline re
     expect(modes.at(-1)).toBe("workspace-write");
     expect(JSON.stringify(store.messages)).toContain("Desktop single-operation approval is available");
   } finally { await runtime.stop(); }
+});
+
+
+test("Responses replays MCP directory and discovery at branch positions after reopening", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-prefix-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  const registry = new ToolRegistry();
+  const lookup = "mcp__orders__lookup";
+  registry.register({ name: lookup, description: "orders lookup", input_schema: { type: "object" },
+    source: "mcp", connectorName: "orders", exposure: "deferred", execute: async () => ({ content: [] }) });
+  registry.register({ name: "tool_search", description: "Search", input_schema: { type: "object" },
+    execute: async (_args, context) => {
+      directory = "## mcp_servers\nOrders and Inventory and team-skills";
+      const hits = await context.exposureState!.search(lookup);
+      expect(hits.map(tool => tool.name)).toEqual([lookup]);
+      return { content: [{ type: "text", text: lookup }] };
+    } });
+  const gpt = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "openai" }, { deferCredential: true });
+  const deepseek = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "deepseek" }, { deferCredential: true });
+  let descriptor = gpt;
+  let directory = "## mcp_servers\nOrders";
+  const inputs: JsonObject[][] = [];
+  const bodies: Record<string, unknown>[] = [];
+  const provider = { summarize, turn: async (request: RuntimeProviderRequest) => {
+    const body = buildResponsesRequest(descriptor, request);
+    bodies.push(body);
+    inputs.push(body.input as JsonObject[]);
+    return inputs.length === 2
+      ? messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "find", name: "tool_search", arguments: {} }] })
+      : messageFixture({ content: [{ type: "text", text: "done" }] });
+  } };
+  const snapshot = () => ({ descriptor, provider, generation: 1 });
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools: registry, systemPrompt: "base",
+    mcpServerDirectory: () => directory, providerManager: { acquire: snapshot, reconfigure: async () => snapshot() },
+    emitter: { emit: async () => {}, typing: async () => {} } });
+  const turn = async (id: string, session = "s1") => {
+    expect((await runtime.runTurn(job({ session_id: session, job_id: id, message_id: id, user_input: id }), handle())).status).toBe("completed");
+  };
+  try {
+    await runtime.start();
+    await store.ensureSession({ session_id: "s1", workspace, source: {} });
+    await turn("first");
+    directory = "## mcp_servers\nOrders and Inventory";
+    await turn("second");
+    const [first, second, loaded] = inputs;
+    expect(second!.slice(0, 2)).toEqual(first!.slice(0, 2));
+    expect(first![0]).toMatchObject({ type: "additional_tools", tools: [{ name: "tool_search" }] });
+    const updateAt = second!.findIndex(item => item.role === "developer" && JSON.stringify(item).includes("Inventory"));
+    expect(updateAt).toBeGreaterThan(1);
+    expect(second![updateAt + 1]).toMatchObject({ role: "user", content: [{ text: "second" }] });
+    const resultAt = loaded!.findIndex(item => item.type === "function_call_output" && item.call_id === "find");
+    expect(resultAt).toBeGreaterThan(updateAt);
+    expect(loaded![resultAt + 1]).toMatchObject({ type: "additional_tools", tools: [{ name: lookup }] });
+    expect(JSON.stringify(second)).not.toContain("team-skills");
+    expect(loaded![resultAt + 2]).toMatchObject({ role: "developer" });
+    expect(JSON.stringify(loaded![resultAt + 2])).toContain("team-skills");
+    expect(bodies.every(body => body.tools === undefined)).toBe(true);
+    await runtime.stop(); await runtime.start();
+    const branch = await store.forkSession("s1", "first");
+    directory = "";
+    await turn("branch", String(branch.session_id));
+    const branched = inputs.at(-1)!;
+    expect(branched[1]).toEqual(first![1]);
+    expect(JSON.stringify(branched)).not.toContain("Inventory");
+    expect(branched.filter(item => item.type === "additional_tools")).toHaveLength(1);
+    expect(JSON.stringify(branched)).toContain("No MCP servers");
+    await turn("resume");
+    expect(inputs.at(-1)!.filter(item => item.type === "additional_tools")).toEqual(loaded!.filter(item => item.type === "additional_tools"));
+    descriptor = deepseek;
+    await turn("switch");
+    const ds = inputs.at(-1)!;
+    expect(ds[0]).toMatchObject({ role: "system", content: [{ text: "base\n\n## mcp_servers\nOrders" }] });
+    expect(ds.filter(item => item.role === "system")).toHaveLength(4);
+    expect(ds.filter(item => item.role === "system" && JSON.stringify(item).includes("team-skills"))).toHaveLength(1);
+    expect(ds.some(item => item.type === "additional_tools" || item.role === "developer")).toBe(false);
+    expect(bodies.at(-1)?.tools).toMatchObject([{ name: "tool_search" }, { name: lookup }]);
+  } finally {
+    await runtime.stop();
+    await removeTemporaryRoot(root);
+  }
 });

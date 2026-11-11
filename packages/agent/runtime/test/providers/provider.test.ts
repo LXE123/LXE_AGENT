@@ -24,6 +24,17 @@ import { providerErrorStatusCode } from "../../src/providers/provider-errors";
 import type { RuntimeContentBlock, RuntimeMessage, AssistantMessageEvent } from "../../src/engine/types";
 
 describe("Anthropic-compatible provider", () => {
+  test("per-call transcript entries preserve the batched tool result request", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi-coding", KIMI_CODE_API_KEY: "fixture-key",
+    });
+    const results = ["one", "two"].map(id => ({ type: "tool_result" as const, tool_call_id: id, content: id }));
+    const user: RuntimeMessage = { role: "user", content: "continue" };
+    const batched = adaptMessagesForProvider([{ role: "tool", content: results }, user], descriptor);
+    const separate = results.map(result => ({ role: "tool" as const, content: [result] }));
+    expect(adaptMessagesForProvider([...separate, user], descriptor)).toEqual(batched);
+    expect(batched).toHaveLength(2);
+  });
   test("loads the existing provider catalog and auth profile without changing env names", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const descriptor = loadProviderDescriptor(projectRoot, {
@@ -59,7 +70,7 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(descriptor).toEqual(expect.objectContaining({
       name: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       thinkingEnabled: true,
       thinkingEffort: "low",
       thinkingDefault: "low",
@@ -1033,7 +1044,7 @@ describe("Anthropic-compatible provider", () => {
         end: (ok, error) => terminal.push({ ok, ...(error === undefined ? {} : { error }) }),
       },
     })).rejects.toThrow("transport failed");
-    expect(terminal).toEqual([{ ok: false, error: "transport failed token=private" }]);
+    expect(terminal).toEqual([{ ok: false, error: "transport failed token=[redacted]" }]);
   });
 
   test("ignores wire listener registration failures while preserving the Provider result", async () => {
@@ -1155,10 +1166,10 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(first.descriptor.name).toBe("kimi_coding");
     expect(next).toEqual(expect.objectContaining({ generation: 2 }));
-    expect(next.descriptor).toEqual(expect.objectContaining({ name: "deepseek", model: "deepseek-v4-flash" }));
+    expect(next.descriptor).toEqual(expect.objectContaining({ name: "deepseek", model: "deepseek-flash" }));
     expect(environment.AGENT_LLM_PROVIDER).toBe("deepseek");
     expect(persisted).toEqual([expect.objectContaining({ AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" })]);
-    expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-v4-flash"]);
+    expect(created).toEqual(["kimi_coding/kimi-for-coding", "deepseek/deepseek-flash"]);
   });
 
   test("keeps the managed target and key frozen in an acquired turn snapshot", async () => {
@@ -1241,7 +1252,7 @@ describe("Anthropic-compatible provider", () => {
     expect(manager.acquire().descriptor.apiKey).toBe("");
     await expect(provider.turn(request)).rejects.toMatchObject({
       category: "模型未配置",
-      userMessage: expect.stringContaining("API Key"),
+      userMessage: expect.stringContaining("missing API key for provider: deepseek"),
     });
     writeFileSync(authPath, JSON.stringify({ deepseek: { type: "api_key", key: "local-one" } }));
     await provider.turn(request);

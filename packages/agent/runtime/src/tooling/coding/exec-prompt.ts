@@ -47,26 +47,7 @@ const truncationLine = (profile: ExecShellProfile, limits: ExecPromptLimits): st
   const selfTruncation = isWindows(profile)
     ? "`Select-Object -First`, `Select-Object -Last`"
     : "`head`, `tail`";
-  return `Output over ${limits.maxOutputBytes} bytes keeps its END inline and writes captured output to a bounded file returned as output_path. max-output-tokens can request a smaller model-visible observation; when that omits output, a recovery file is created even below the byte threshold. For a running command the file only covers output captured so far. Check status, output_file_covers_captured, output_file_truncated, and output_incomplete before treating a terminal file as complete. Do NOT pipe through ${selfTruncation} or similar to shrink output: that discards the data before it can be captured. Read the transcript with grep, or read with offset/limit.`;
-};
-
-const fileToolLines = (profile: ExecShellProfile): string[] => {
-  const replaced = isWindows(profile)
-    ? {
-      search: "`Get-ChildItem`",
-      content: "`Select-String`",
-      read: "`Get-Content`",
-      write: "`Set-Content`/`Out-File`",
-    }
-    : {
-      search: "shell `find`/`ls`",
-      content: "shell `grep`",
-      read: "`cat`/`head`/`tail`",
-      write: "`echo >`/heredocs",
-    };
-  return [
-    `Do not use exec for file work; the dedicated tools exist for it. Use the find and ls tools instead of ${replaced.search}, the grep tool instead of ${replaced.content}, the read tool instead of ${replaced.read}, and the write and edit tools instead of ${replaced.write}.`,
-  ];
+  return `Output over ${limits.maxOutputBytes} bytes keeps its END inline and writes captured output to a bounded file returned as output_path. max-output-tokens can request a smaller model-visible observation; when that omits output, a recovery file is created even below the byte threshold. For a running command the file only covers output captured so far. Check status, output_file_covers_captured, output_file_truncated, and output_incomplete before treating a terminal file as complete. Do NOT pipe through ${selfTruncation} or similar to shrink output: that discards the data before it can be captured. Search the saved file with exec or use read with offset/limit.`;
 };
 
 export function execToolDescription(profile: ExecShellProfile, limits: ExecPromptLimits): string {
@@ -80,7 +61,10 @@ export function execToolDescription(profile: ExecShellProfile, limits: ExecPromp
     "",
     chainingLine(profile),
     ...quotingLines(profile),
-    ...fileToolLines(profile),
+    isWindows(profile)
+      ? "Use exec to list directories and search files with Get-ChildItem and Select-String."
+      : "Use exec to list directories and search files with ls, find, and rg (or grep when rg is unavailable).",
+    "Use read to inspect a file, edit to change existing text, and write to create or replace a file.",
     truncationLine(profile, limits),
     "Use wait with the returned exec_id to observe new output or terminate a running command. Finishing does not automatically wake the model.",
     "",

@@ -228,6 +228,22 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     ]);
   }
 
+  const forkPending = useRef(false);
+  const [forking, setForking] = useState(false);
+  const forkSession = useLatestCallback(async (sessionId: string, turnId?: string) => {
+    if (!sessionId || forkPending.current) return;
+    const revision = workspaceSelectionRevision.current;
+    forkPending.current = true;
+    setForking(true);
+    try {
+      const child = await sessionActions.fork(sessionId, turnId);
+      if (workspaceSelectionRevision.current === revision) openSession(child);
+      await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+    } catch (cause) { onError(queryError(cause)); }
+    finally { forkPending.current = false; setForking(false); }
+  });
+  const forkConversation = useLatestCallback((turnId?: string) => forkSession(selectedSessionId, turnId));
+
   async function stopConversation(): Promise<void> {
     if (!selectedSessionId) return;
     await sessionActions.stop(selectedSessionId);
@@ -305,6 +321,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     onNew: useLatestCallback(startNewConversation),
     onOpen: useLatestCallback(openSession),
     onPin: useLatestCallback(setSessionPinned),
+    onForkSession: useLatestCallback((session: SessionPayload) => forkSession(session.session_id)),
     onRenameSession: useLatestCallback((session: SessionPayload) => { if (!session.blank) setRenamingSession(session); }),
     onDelete: useLatestCallback(deleteSession),
   };
@@ -314,6 +331,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   return {
     selection: { selectedSessionId, newConversation, selectedSession } as const,
     sidebar: {
+      forking,
       renamingSession,
       expanded: expandedWorkspaces,
       display: sessionDetailQuery.display,
@@ -341,6 +359,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       deleteBlockedSessionIds,
     } as const,
     conversation: {
+      forking,
       question: newConversation ? undefined : pendingQuestions.find(q => q.session_id === selectedSessionId),
       approvals: pendingApprovals.filter(request => request.session_id === selectedSessionId),
       fallbackSession: selectedSession,
@@ -363,7 +382,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     } as const)),
     actions: {
       openSession, openSessionRun, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
-      sendConversation, stopConversation, setSessionPinned, deleteSession, renameSession,
+      sendConversation, stopConversation, forkConversation, setSessionPinned, deleteSession, renameSession,
       cancelSessionRename: () => setRenamingSession(null),
       openConversationFile, revealConversationFile, openConversationAttachment,
       openSearch: handleSessionSearchToggle,

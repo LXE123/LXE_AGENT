@@ -8,6 +8,7 @@ describe("system prompt builder", () => {
       workspace: { directory: "/workspace", worktree: "/workspace" },
     };
     const unavailable = buildSystemPrompt({ ...options, larkCliAvailable: false });
+    expect(unavailable).not.toMatch(/\p{Script=Han}/u);
     expect(buildSystemPrompt(options)).toBe(unavailable);
     const [stable, volatile] = unavailable.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
     const [availableStable, availableVolatile] = buildSystemPrompt({ ...options, larkCliAvailable: true })

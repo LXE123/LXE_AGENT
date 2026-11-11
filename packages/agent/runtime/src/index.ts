@@ -28,6 +28,7 @@ export * from "./tooling/process-output";
 export * from "./state/storage";
 export * from "./tooling/registry";
 export * from "./tooling/tool-search";
+export { createToolSearchDocument, rankDocuments } from "./tooling/tool-search-ranking";
 export * from "./providers/wire-trace";
 export * from "./engine/turn-observer";
 export * from "./engine/types";
@@ -40,3 +41,4 @@ export { WorkspaceFileSearch, DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES } from ".
 export { relocateAgentData } from "./state/relocate-data";
 
 export * from "./state/session-title";
+export { harnessFetch } from "./network/fetch";

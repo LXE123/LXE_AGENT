@@ -53,8 +53,10 @@ export function dashboardDomainsForMutation(operation: DashboardRpcOperation): D
     case "models.update":
     case "models.thinking.update":
       return ["models"];
+    case "mcp.servers.add":
     case "mcp.servers.update":
       return ["tools"];
+    case "sessions.fork":
     case "sessions.create":
     case "sessions.send":
     case "sessions.answer":

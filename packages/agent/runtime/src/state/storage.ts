@@ -1,4 +1,5 @@
 import { fallbackSessionTitle, type SessionTitleState, type SessionTitleSource } from "./session-title";
+import { nextForkTitle } from "./session-fork-title";
 import { parseModelSelection } from "./model-selection";
 import { omitImageData } from "../messages/image-content";
 import { DEFAULT_PERMISSION_MODE, parsePermissionMode, type PermissionMode } from "@lxe/protocol";
@@ -28,8 +29,12 @@ import {
   workspaceContextFrom,
 } from "@lxe/core";
 import {
+  TRANSCRIPT_VERSION,
+  applyCodemodeStoreEvent,
+  applyToolsLoadedEvent,
   applyTranscriptEvent,
   createContextPatchEvent,
+  normalizeTranscriptMessage,
   legacyTranscriptMigrationHint,
   scanTranscriptBuffer,
   transcriptDisplayMarker,
@@ -40,6 +45,8 @@ import { allPrepared, getPrepared, parseObject, text } from "./sql";
 import { indexHistoryImages, extractHistoryImage, type HistoryImageLocation } from "./history-images";
 import type { ConversationImagePreviewSource } from "./history-images";
 import { transcriptImageView, indexImageView, attachImageView } from "./image-views";
+import { currentTurnId, headerTurnEnds, isTerminalStatus, legacyTurnEnds, publishTranscript, type TerminalStatus } from "./transcript-nodes";
+import type { ToolReference } from "../tooling/tool-reference";
 import { UsageStore } from "./usage-store";
 import { SessionStatusStore } from "./session-status-store";
 import type { SessionStatusRequest, SessionRunSummary } from "@lxe/protocol/session-status";
@@ -119,6 +126,7 @@ const publicMessage = (value: JsonObject): JsonObject => {
     ...value,
     content: (value.content as JsonValue[]).filter((block) => parseObject(block).type !== "image"),
   } : value) as JsonObject;
+  delete message.promptState;
   delete message.image_views;
   delete message.artifacts;
   delete message.attachments;
@@ -364,6 +372,14 @@ interface ReplayCacheEntry {
   messages: RuntimeMessage[];
 }
 
+interface TranscriptTip {
+  size: number;
+  mtimeMs: number;
+  id: string | null;
+  codemodeStore: Map<string, JsonValue>;
+  loadedTools: Map<string, ToolReference>;
+}
+
 interface TranscriptFileState {
   file_size: number;
   mtime_ms: number;
@@ -372,6 +388,7 @@ interface TranscriptFileState {
   raw_message_count: number;
   display_group_count: number;
   last_display_kind: string;
+  latest_turn_id: string;
 }
 
 export interface SqliteRuntimeStoreOptions {
@@ -398,6 +415,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private usageStore: UsageStore | undefined;
   private readonly pendingImages = new Map<string, { sessionId: string; turnId: string; image: JsonObject }>();
   private readonly replayCache = new Map<string, ReplayCacheEntry>();
+  private readonly tips = new Map<string, TranscriptTip>();
   private readonly writeQueues = new Map<string, Promise<void>>();
   private readonly indexQueues = new Map<string, Promise<void>>();
   private readonly replayCacheMaxEntries: number;
@@ -452,15 +470,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
           pinned_at REAL NOT NULL DEFAULT 0,
           api_call_count INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS agent_session_pending_events (
-          queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          session_id TEXT NOT NULL,
-          event_id TEXT NOT NULL UNIQUE,
-          job_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          text TEXT NOT NULL,
-          queued_at TEXT NOT NULL,
-          FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
+        DROP TABLE IF EXISTS agent_session_pending_events;
+        CREATE TABLE IF NOT EXISTS transcript_turn_ends (
+          session_id TEXT NOT NULL REFERENCES agent_sessions(session_id) ON DELETE CASCADE,
+          turn_id TEXT NOT NULL, entry_id TEXT NOT NULL, status TEXT NOT NULL,
+          PRIMARY KEY (session_id, turn_id)
         );
         CREATE TABLE IF NOT EXISTS transcript_history_images (
           session_id TEXT NOT NULL, kind TEXT NOT NULL, target_id TEXT NOT NULL, turn_id TEXT NOT NULL,
@@ -476,6 +490,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           raw_message_count INTEGER NOT NULL DEFAULT 0,
           display_group_count INTEGER NOT NULL DEFAULT 0,
           last_display_kind TEXT NOT NULL DEFAULT '',
+          latest_turn_id TEXT NOT NULL DEFAULT '',
           updated_at REAL NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS transcript_display_groups (
@@ -520,6 +535,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
         CREATE INDEX IF NOT EXISTS idx_transcript_attachments_turn
           ON transcript_attachments (session_id, turn_id);
       `);
+      if (!this.allPrepared<{ name: string }>("PRAGMA table_info(transcript_file_state)").some(column => column.name === "latest_turn_id")) {
+        database.exec("ALTER TABLE transcript_file_state ADD COLUMN latest_turn_id TEXT NOT NULL DEFAULT ''; DELETE FROM transcript_file_state");
+      }
       const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
       if (!columns.some(column => column.name === "blank")) {
         database.exec("ALTER TABLE agent_sessions ADD COLUMN blank INTEGER NOT NULL DEFAULT 0");
@@ -591,6 +609,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           DELETE FROM transcript_file_state;
         `);
       }
+      database.exec("CREATE INDEX IF NOT EXISTS idx_transcript_display_turn ON transcript_display_groups (session_id, turn_id, group_number)");
       database.exec("COMMIT");
       await this.catchUpTranscriptIndexes();
     } catch (error) {
@@ -605,6 +624,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   async stop(): Promise<void> {
     await Promise.all([...this.writeQueues.values(), ...this.indexQueues.values()]);
+    this.tips.clear();
     this.pendingImages.clear();
     this.database?.close(false);
     this.database = undefined;
@@ -670,7 +690,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   async getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined> {
-    await this.waitForSessionWrites(sessionId);
+    await this.openTranscript(sessionId);
     await this.enqueueIndexSync(sessionId, this.transcriptPath(sessionId));
     const row = this.getPrepared<{
       session_id: string;
@@ -749,68 +769,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
     });
   }
 
-  async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    const now = new Date().toISOString();
-    const createdAt = Math.trunc(Date.now() / 1_000);
-    this.db().query(`
-      INSERT OR IGNORE INTO agent_session_pending_events
-        (session_id, event_id, job_id, created_at, text, queued_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      text(sessionId),
-      text(event.event_id) || randomUUID().replaceAll("-", ""),
-      text(event.job_id),
-      text(event.created_at) || String(createdAt),
-      text(event.text),
-      now,
-    );
-  }
-
-  async hasPendingEvents(sessionId: string): Promise<boolean> {
-    const row = this.getPrepared<{ present: number }>(
-      "SELECT 1 AS present FROM agent_session_pending_events WHERE session_id = ? LIMIT 1",
-      text(sessionId),
-    );
-    return Boolean(row?.present);
-  }
-
-  async popPendingEvents(sessionId: string): Promise<JsonObject[]> {
-    const safeSessionId = text(sessionId);
-    const transaction = this.db().transaction(() => {
-      const rows = this.allPrepared<Record<string, unknown>>(`
-        SELECT event_id, job_id, created_at, text, queued_at
-        FROM agent_session_pending_events WHERE session_id = ? ORDER BY queue_id ASC
-      `, safeSessionId);
-      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
-      return rows.map((row) => ({
-        event_id: text(row.event_id),
-        job_id: text(row.job_id),
-        created_at: text(row.created_at),
-        text: text(row.text),
-        queued_at: text(row.queued_at),
-      }));
-    });
-    return transaction();
-  }
-
-  discardPendingEvent(sessionId: string, jobId: string): number {
-    const safeSessionId = text(sessionId);
-    const safeJobId = text(jobId);
-    if (!safeSessionId || !safeJobId) return 0;
-    const result = this.db().transaction(() => this.db().query(`
-      DELETE FROM agent_session_pending_events
-      WHERE session_id = ? AND job_id = ?
-    `).run(safeSessionId, safeJobId))();
-    return Number(result.changes ?? 0);
-  }
-
-  discardPendingEvents(sessionId: string): number {
-    const result = this.db().transaction(() => this.db().query(
-      "DELETE FROM agent_session_pending_events WHERE session_id = ?",
-    ).run(text(sessionId)))();
-    return Number(result.changes ?? 0);
-  }
-
   async resetContext(sessionId: string, reason: "context_reset" | "memory_clear" = "context_reset"): Promise<void> {
     const safeSessionId = text(sessionId);
     await this.enqueueSessionWrite(safeSessionId, async () => {
@@ -818,11 +776,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const previous = await this.loadMessagesUnqueued(safeSessionId);
       this.validCacheBeforeWrite(safeSessionId, path);
       await this.appendTranscriptEvent(safeSessionId, createContextPatchEvent(previous, [], reason));
-      this.db().transaction(() => {
-        this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0, context_display = ? WHERE session_id = ?")
-          .run(Date.now() / 1_000, JSON.stringify({ epoch: randomUUID(), reset_at: Date.now(), snapshot: null }), safeSessionId);
-        this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
-      })();
+      this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0, context_display = ? WHERE session_id = ?")
+        .run(Date.now() / 1_000, JSON.stringify({ epoch: randomUUID(), reset_at: Date.now(), snapshot: null }), safeSessionId);
       await this.updateCacheAfterWrite(safeSessionId, path, []);
       await this.enqueueIndexSync(safeSessionId, path);
     });
@@ -840,7 +795,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
       delete source.tool_state;
       this.db().query("UPDATE agent_sessions SET source = ?, last_active_at = ? WHERE session_id = ?")
         .run(JSON.stringify(source), Date.now() / 1_000, safeSessionId);
-      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
     })();
   }
 
@@ -855,8 +809,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   async loadMessages(sessionId: string): Promise<RuntimeMessage[]> {
     const safeSessionId = text(sessionId);
-    await this.waitForSessionWrites(safeSessionId);
-    return await this.loadMessagesUnqueued(safeSessionId);
+    return this.enqueueSessionWrite(safeSessionId, async () => {
+      await this.prepareTranscript(safeSessionId);
+      return this.loadMessagesUnqueued(safeSessionId);
+    });
   }
 
   private async loadMessagesUnqueued(safeSessionId: string): Promise<RuntimeMessage[]> {
@@ -892,7 +848,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   ): Promise<TranscriptDisplayPage> {
     const safeSessionId = text(sessionId);
     const path = this.transcriptPath(safeSessionId);
-    await this.waitForSessionWrites(safeSessionId);
+    await this.openTranscript(safeSessionId);
     const state = await this.enqueueIndexSync(safeSessionId, path);
     if (!state) return transcriptDisplayPage(safeSessionId, [], options);
     return await this.readIndexedDisplayPage(safeSessionId, path, state, options);
@@ -968,6 +924,53 @@ export class SqliteRuntimeStore implements RuntimeStore {
       });
       if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
       await this.enqueueIndexSync(safeSessionId, path);
+    });
+  }
+
+  async appendTurnEnd(sessionId: string, turnId: string, status: TerminalStatus): Promise<void> {
+    await this.enqueueSessionWrite(sessionId, async () => {
+      const path = this.transcriptPath(sessionId);
+      const cached = this.validCacheBeforeWrite(sessionId, path);
+      await this.appendTranscriptEvent(sessionId, { kind: "turn_end", turn_id: turnId, status, ts: Date.now() / 1_000 });
+      if (cached) await this.refreshReplayCacheMetadata(sessionId, path, cached);
+      await this.enqueueIndexSync(sessionId, path);
+    });
+  }
+
+  async readCodemodeStore(sessionId: string): Promise<JsonObject> {
+    return this.enqueueSessionWrite(sessionId, async () => {
+      const tip = await this.prepareTranscript(sessionId);
+      return tip ? structuredClone(Object.fromEntries(tip.codemodeStore)) : {};
+    });
+  }
+
+  async appendCodemodeStore(
+    sessionId: string, turnId: string | undefined, writes: { set: JsonObject; delete: string[] }, signal: AbortSignal,
+  ): Promise<void> {
+    if (!Object.keys(writes.set).length && !writes.delete.length) return;
+    await this.appendToolState(sessionId, { kind: "codemode_store", ...writes }, turnId, signal);
+  }
+
+  async readLoadedTools(sessionId: string): Promise<ToolReference[]> {
+    return this.enqueueSessionWrite(sessionId, async () => {
+      const tip = await this.prepareTranscript(sessionId);
+      return tip ? structuredClone([...tip.loadedTools.values()]) : [];
+    });
+  }
+
+  async appendLoadedTools(sessionId: string, turnId: string, tools: ToolReference[], signal: AbortSignal): Promise<void> {
+    if (tools.length) await this.appendToolState(sessionId, { kind: "tools_loaded", tools }, turnId, signal);
+  }
+
+  private async appendToolState(sessionId: string, event: JsonObject, turnId: string | undefined, signal: AbortSignal): Promise<void> {
+    await this.enqueueSessionWrite(sessionId, async () => {
+      const path = this.transcriptPath(sessionId);
+      const cached = this.validCacheBeforeWrite(sessionId, path);
+      await this.appendTranscriptEvent(sessionId, {
+        ...event, ...(turnId ? { turn_id: turnId } : {}), ts: Date.now() / 1_000,
+      }, signal);
+      if (cached) await this.refreshReplayCacheMetadata(sessionId, path, cached);
+      await this.enqueueIndexSync(sessionId, path);
     });
   }
 
@@ -1431,6 +1434,65 @@ export class SqliteRuntimeStore implements RuntimeStore {
     });
   }
 
+  /** Snapshot one terminal turn under the same queue used by transcript writers. */
+  async forkSession(sessionId: string, turnId?: string): Promise<JsonObject> {
+    return this.enqueueSessionWrite(sessionId, async () => {
+      const source = this.sessionMetadata(sessionId);
+      if (!source) throw new Error("Session not found");
+      await this.prepareTranscript(sessionId);
+      const path = this.transcriptPath(sessionId);
+      const state = await this.enqueueIndexSync(sessionId, path);
+      if (!state) throw new Error("No turn to fork");
+      const [header, ...entries] = scanTranscriptBuffer(await readFile(path), 0, true).lines.map(line => line.event);
+      const target = turnId ?? state.latest_turn_id;
+      if (!header || !target) throw new Error("No turn to fork");
+      const end = this.getPrepared<{ entry_id: string }>(
+        "SELECT entry_id FROM transcript_turn_ends WHERE session_id = ? AND turn_id = ?", sessionId, target);
+      if (!end) throw new Error("This turn has not finished");
+      // The title bar snapshots the current leaf, including maintenance after the last turn.
+      // A footer identifies the exact turn boundary even when it belongs to the latest turn.
+      const boundary = turnId === undefined ? entries.length - 1 : entries.findIndex(entry => entry.id === end.entry_id);
+      if (boundary < 0) throw new Error("Transcript turn boundary is missing");
+      const history = entries.slice(0, boundary + 1);
+      const ids = new Set(history.map(entry => entry.id));
+      const child = randomUUID().replaceAll("-", "");
+      const fork = { session_id: sessionId, turn_id: target, entry_id: String(entries[boundary]!.id) };
+      const childHeader = { ...transcriptHeader(child), fork, legacy_turn_ends: headerTurnEnds(header).filter(end => ids.has(end.id)) };
+      const childPath = this.transcriptPath(child);
+      await publishTranscript(childPath, [childHeader, ...history]);
+      let forkTitle: string;
+      try {
+        forkTitle = nextForkTitle(sessionId, this.allPrepared<{ session_id: string; title: string; source: string }>(
+          "SELECT session_id, title, source FROM agent_sessions WHERE workspace_directory = ?",
+          text(parseObject(source.workspace).directory),
+        ).map(row => ({ ...row, parentId: text(parseObject(parseObject(row.source).fork).session_id) || undefined })));
+        const now = Date.now() / 1_000;
+        this.db().query(`INSERT INTO agent_sessions
+          (session_id, source, workspace_directory, workspace_worktree, workspace_id, permission_mode,
+           created_at, last_active_at, message_count, title, blank, title_automatic)
+          SELECT ?, ?, workspace_directory, workspace_worktree, workspace_id, permission_mode,
+                 ?, ?, ?, ?, 0, 0 FROM agent_sessions WHERE session_id = ?`).run(child,
+          JSON.stringify({ platform: "desktop", chat_type: "dm", fork }), now, now,
+          history.filter(entry => entry.kind === "message").length, forkTitle, sessionId);
+      } catch (error) {
+        await unlink(childPath);
+        throw error;
+      }
+      try {
+        await this.enqueueIndexSync(child, childPath);
+        // Copied title events belong to the source. Record the new title after
+        // that prefix so rebuilding the index cannot restore the source title.
+        await this.appendTranscriptEvent(child, { kind: "session_title", title: forkTitle, source: "fallback",
+          version: (this.readTitleState(child)?.version ?? 0) + 1, message_ids: [], ts: Date.now() / 1_000 });
+        await this.enqueueIndexSync(child, childPath);
+        return this.sessionMetadata(child)!;
+      } catch (error) {
+        await this.deleteSession(child);
+        throw error;
+      }
+    });
+  }
+
   async deleteSession(sessionId: string): Promise<boolean> {
     const safeSessionId = text(sessionId);
     if (!safeSessionId) return false;
@@ -1453,6 +1515,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       try {
         this.db().transaction(() => {
           new SessionStatusStore(this.db()).delete(safeSessionId);
+          this.db().query("DELETE FROM transcript_turn_ends WHERE session_id = ?").run(safeSessionId);
           this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(safeSessionId);
           this.db().query("DELETE FROM transcript_history_images WHERE session_id = ?").run(safeSessionId);
           this.clearPendingImageViews(safeSessionId);
@@ -1481,6 +1544,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         throw error;
       }
       this.removeReplayCacheEntry(safeSessionId);
+      this.tips.delete(safeSessionId);
       if (movedTranscript) {
         try {
           await unlink(tombstone);
@@ -1517,6 +1581,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const resetAt = Math.max(0, Number(envelope.reset_at ?? 0) || 0);
     return {
       session: this.sessionPayload(row),
+      has_forkable_turn: Boolean(this.getPrepared(`SELECT 1 FROM transcript_file_state s JOIN transcript_turn_ends e
+        ON e.session_id = s.session_id AND e.turn_id = s.latest_turn_id WHERE s.session_id = ?`, safeSessionId)),
       context_display: displaySnapshot,
       context_reset_at: resetAt,
       latest_turn_usage: displaySnapshot ? null : this.usage().latestSessionUsage(safeSessionId, resetAt),
@@ -1719,7 +1785,74 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return this.enqueueKeyed(this.indexQueues, sessionId, () => this.syncTranscriptIndex(sessionId, path));
   }
 
-  private async appendTranscriptEvent(sessionId: string, event: JsonObject): Promise<void> {
+  private openTranscript(sessionId: string): Promise<unknown> {
+    return this.enqueueSessionWrite(sessionId, () => this.prepareTranscript(sessionId));
+  }
+
+  // Called under the session write queue. Merely listing sessions never upgrades their files.
+  private async prepareTranscript(sessionId: string): Promise<TranscriptTip | null> {
+    const path = this.transcriptPath(sessionId);
+    let info;
+    try { info = await stat(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    if (!info.size) return null;
+    const cached = this.tips.get(sessionId);
+    if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) return cached;
+    const { lines } = scanTranscriptBuffer(await readFile(path), 0, true);
+    const events = lines.map(line => line.event);
+    const hasHeader = events[0]?.kind === "transcript_header";
+    const header = hasHeader ? events.shift()! : { ...transcriptHeader(sessionId), version: 2 };
+    if (header.version !== 2 && header.version !== TRANSCRIPT_VERSION) throw new Error("Unsupported transcript version");
+    let parent: string | null = null;
+    let upgrade = header.version === 2;
+    const ids = new Set<string>();
+    const codemodeStore = new Map<string, JsonValue>();
+    const loadedTools = new Map<string, ToolReference>();
+    for (const event of events) {
+      applyCodemodeStoreEvent(codemodeStore, event);
+      applyToolsLoadedEvent(loadedTools, event);
+      if (!hasHeader) {
+        // Headerless v2-shaped logs exist. Older replacement-history/tool encodings still need the offline converter.
+        if (event.kind === "message") normalizeTranscriptMessage(event.message);
+        else if (event.kind !== "context_patch") applyTranscriptEvent([], event);
+      }
+      if (header.version === 2 || (event.id === undefined && event.parent_id === undefined)) {
+        event.id = randomUUID();
+        event.parent_id = parent;
+        upgrade = true;
+      }
+      if (typeof event.id !== "string" || !event.id || ids.has(event.id) || event.parent_id !== parent) {
+        throw new Error("Invalid transcript node chain");
+      }
+      parent = event.id;
+      ids.add(parent);
+    }
+    if (upgrade) {
+      const ends = header.version === 2 ? legacyTurnEnds(events, id => this.lookupTurn(sessionId, id).state) : headerTurnEnds(header);
+      await this.enqueueKeyed(this.indexQueues, sessionId, async () => {
+        this.clearTranscriptIndex(sessionId);
+        this.removeReplayCacheEntry(sessionId);
+        await publishTranscript(path, [{ ...header, version: TRANSCRIPT_VERSION, legacy_turn_ends: ends }, ...events]);
+        await this.syncTranscriptIndex(sessionId, path);
+      });
+      info = await stat(path);
+    }
+    const tip = { size: info.size, mtimeMs: info.mtimeMs, id: parent, codemodeStore, loadedTools };
+    this.cacheTranscriptTip(sessionId, tip);
+    return tip;
+  }
+
+  private cacheTranscriptTip(sessionId: string, tip: TranscriptTip): void {
+    this.tips.delete(sessionId);
+    this.tips.set(sessionId, tip);
+    // Evicted branch snapshots are rebuilt from the transcript on demand.
+    if (this.tips.size > DEFAULT_REPLAY_CACHE_MAX_ENTRIES) this.tips.delete(this.tips.keys().next().value!);
+  }
+
+  private async appendTranscriptEvent(sessionId: string, event: JsonObject, signal?: AbortSignal): Promise<void> {
+    const previous = await this.prepareTranscript(sessionId);
     const path = this.transcriptPath(sessionId);
     await mkdir(dirname(path), { recursive: true });
     let size = 0;
@@ -1738,7 +1871,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
       }
     }
     const prefix = size === 0 ? `${JSON.stringify(transcriptHeader(sessionId))}\n` : "";
-    await appendFile(path, `${separator}${prefix}${JSON.stringify(event)}\n`, "utf8");
+    const id = randomUUID();
+    signal?.throwIfAborted();
+    await appendFile(path, `${separator}${prefix}${JSON.stringify({ ...event, id, parent_id: previous?.id ?? null })}\n`, "utf8");
+    const info = await stat(path);
+    const codemodeStore = previous?.codemodeStore ?? new Map<string, JsonValue>();
+    const loadedTools = previous?.loadedTools ?? new Map<string, ToolReference>();
+    applyCodemodeStoreEvent(codemodeStore, event);
+    applyToolsLoadedEvent(loadedTools, event);
+    this.cacheTranscriptTip(sessionId, { size: info.size, mtimeMs: info.mtimeMs, id, codemodeStore, loadedTools });
   }
 
   /**
@@ -1790,6 +1931,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   private clearTranscriptIndex(sessionId: string): void {
     this.db().transaction(() => {
+      this.db().query("DELETE FROM transcript_turn_ends WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_history_images WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_image_views WHERE session_id = ?").run(sessionId);
@@ -1836,7 +1978,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     }
     const rawState = this.getPrepared<Record<string, unknown>>(`
       SELECT file_size, mtime_ms, indexed_bytes, event_count, raw_message_count,
-             display_group_count, last_display_kind
+             display_group_count, last_display_kind, latest_turn_id
       FROM transcript_file_state WHERE session_id = ?
     `, sessionId);
     const state: TranscriptFileState | undefined = rawState ? {
@@ -1847,6 +1989,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       raw_message_count: Number(rawState.raw_message_count ?? 0),
       display_group_count: Number(rawState.display_group_count ?? 0),
       last_display_kind: text(rawState.last_display_kind),
+      latest_turn_id: text(rawState.latest_turn_id),
     } : undefined;
     if (
       state &&
@@ -1864,11 +2007,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
     let eventCount = rebuild ? 0 : state.event_count;
     let rawMessageCount = rebuild ? 0 : state.raw_message_count;
     let displayGroupCount = rebuild ? 0 : state.display_group_count;
+    let latestTurnId = rebuild ? "" : state.latest_turn_id;
     let lastDisplayKind = rebuild ? "" : state.last_display_kind;
     let latestContext: JsonObject | undefined;
 
     const transaction = this.db().transaction(() => {
       if (rebuild) {
+        this.db().query("DELETE FROM transcript_turn_ends WHERE session_id = ?").run(sessionId);
         this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
         this.db().query("DELETE FROM transcript_history_images WHERE session_id = ?").run(sessionId);
         this.db().query("DELETE FROM transcript_image_views WHERE session_id = ?").run(sessionId);
@@ -1883,6 +2028,14 @@ export class SqliteRuntimeStore implements RuntimeStore {
       for (const line of scanned.lines) {
         const event = line.event;
         eventCount += 1;
+        latestTurnId = currentTurnId(event, latestTurnId);
+        const ends = event.kind === "transcript_header" ? headerTurnEnds(event)
+          : event.kind === "turn_end" && isTerminalStatus(event.status)
+            ? [{ turn_id: text(event.turn_id), id: text(event.id), status: event.status }] : [];
+        for (const end of ends) {
+          this.db().query("INSERT OR REPLACE INTO transcript_turn_ends (session_id, turn_id, entry_id, status) VALUES (?, ?, ?, ?)")
+            .run(sessionId, end.turn_id, end.id, end.status);
+        }
         if (text(event.kind) === "turn_context") latestContext = event;
         if (event.kind === "model_selection") {
           if (!Number.isSafeInteger(event.version) || Number(event.version) < 1) throw new Error("invalid session model selection version");
@@ -2052,8 +2205,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
       this.db().query(`
         INSERT INTO transcript_file_state (
           session_id, file_size, mtime_ms, indexed_bytes, event_count,
-          raw_message_count, display_group_count, last_display_kind, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          raw_message_count, display_group_count, last_display_kind, latest_turn_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
           file_size = excluded.file_size,
           mtime_ms = excluded.mtime_ms,
@@ -2062,6 +2215,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           raw_message_count = excluded.raw_message_count,
           display_group_count = excluded.display_group_count,
           last_display_kind = excluded.last_display_kind,
+          latest_turn_id = excluded.latest_turn_id,
           updated_at = excluded.updated_at
       `).run(
         sessionId,
@@ -2072,6 +2226,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         rawMessageCount,
         displayGroupCount,
         lastDisplayKind,
+        latestTurnId,
         Date.now() / 1_000,
       );
     });
@@ -2084,6 +2239,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       raw_message_count: rawMessageCount,
       display_group_count: displayGroupCount,
       last_display_kind: lastDisplayKind,
+      latest_turn_id: latestTurnId,
     };
   }
 
@@ -2104,14 +2260,18 @@ export class SqliteRuntimeStore implements RuntimeStore {
       byte_start: number;
       byte_end: number;
       turn_id: string;
+      forkable: number;
       turn_status: string | null;
       turn_elapsed_ms: number | null;
     }>(`
       SELECT groups.group_number, groups.byte_start, groups.byte_end, groups.turn_id,
-             usage.status AS turn_status, usage.elapsed_ms AS turn_elapsed_ms
+             ends.entry_id IS NOT NULL AND groups.group_number = (SELECT MAX(g.group_number) FROM transcript_display_groups g
+               WHERE g.session_id = groups.session_id AND g.turn_id = groups.turn_id) AS forkable,
+             COALESCE(ends.status, usage.status) AS turn_status, usage.elapsed_ms AS turn_elapsed_ms
       FROM transcript_display_groups AS groups
       -- turn_usage belongs to UsageStore; this stays a read-only join so the
       -- display page keeps resolving turn status in a single query.
+      LEFT JOIN transcript_turn_ends AS ends ON ends.session_id = groups.session_id AND ends.turn_id = groups.turn_id
       LEFT JOIN turn_usage AS usage
         ON usage.session_id = groups.session_id AND usage.turn_id = groups.turn_id
       WHERE groups.session_id = ? AND groups.group_number >= ? AND groups.group_number < ?
@@ -2138,6 +2298,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         const turn = turnId ? {
           turn_id: turnId,
           status: turnStatus,
+          ...(group.forkable ? { forkable: true } : {}),
           elapsed_ms: Number.isFinite(elapsed) ? elapsed : null,
         } : undefined;
         let messageOrdinal = 0;

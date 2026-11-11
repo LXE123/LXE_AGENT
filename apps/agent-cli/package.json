@@ -5,20 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "bun src/main.ts",
-    "build": "bun build src/main.ts --outdir dist --target bun",
-    "compile": "bun build --compile src/main.ts --outfile ../../dist/agent-cli/agent-cli.exe",
+    "build": "bun build src/main.ts src/codemode-worker.ts --outdir dist --target bun",
+    "compile": "bun build --compile src/main.ts src/codemode-worker.ts --outfile ../../dist/agent-cli/agent-cli.exe",
     "typecheck": "tsc --noEmit",
     "test": "bun test test"
   },
   "dependencies": {
+    "@earendil-works/pi-codemode": "1.5.0",
     "@larksuiteoapi/node-sdk": "1.70.0",
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
-    "@lxe/runtime": "workspace:*"
+    "@lxe/runtime": "workspace:*",
+    "@modelcontextprotocol/client": "2.3.1",
+    "proper-lockfile": "4.1.2",
+    "quickjs-wasi": "3.6.2"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
+    "@types/proper-lockfile": "4.1.4",
     "@types/node": "24.10.1",
     "typescript": "7.0.2"
   }

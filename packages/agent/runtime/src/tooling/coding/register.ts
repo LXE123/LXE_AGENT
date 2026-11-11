@@ -49,13 +49,15 @@ export function registerCodingTools(
   })) {
     registry.register(tool);
   }
-  for (const tool of createSearchTools({
-    paths,
-    toolOutputLimit,
-    ...(options.fdPath === undefined ? {} : { fdPath: options.fdPath }),
-    ...(options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath }),
-  })) {
-    registry.register(tool);
+  if (options.includeSearchTools) {
+    for (const tool of createSearchTools({
+      paths,
+      toolOutputLimit,
+      ...(options.fdPath === undefined ? {} : { fdPath: options.fdPath }),
+      ...(options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath }),
+    })) {
+      registry.register(tool);
+    }
   }
   registry.register(createSendFilesTool({ paths }));
   for (const tool of createExecTools({

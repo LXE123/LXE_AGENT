@@ -21,11 +21,11 @@ SQLite 保存适合查询和更新的状态、索引及统计，消息和工具�
 | 文件 | 所属模块／维护方 | 保存什么 |
 | --- | --- | --- |
 | `db/gateway.sqlite3` | Electron Main / Gateway | Gateway session、平台来源和 response route |
-| `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session（含独立的 `permission_mode`）、pending event、usage、模型信息和 transcript 索引 |
+| `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session（含独立的 `permission_mode`）、usage、模型信息和 transcript 索引 |
 | `db/exec-sessions/<thread-id>/agent.sqlite3` | 一次性 `agent-cli exec` / Runtime | 单个 CLI thread 的 session、usage、模型信息和 transcript 索引 |
 | `db/lxeskill.sqlite3` | lxeskillCLI | 业务状态与可丢弃的紫鸟会话缓存；浏览器真实状态以紫鸟客户端实时接口为准 |
 
-session、route、pending event 和 usage 更新使用各自数据库事务。Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立对应记录；response route 留在 Gateway，pending event 留在 Agent。两边通过稳定的 session id 关联，不通过共享 SQLite 表通信。
+session、route 和 usage 更新使用各自数据库事务。Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立对应记录；response route 留在 Gateway，usage 留在 Agent。两边通过稳定的 session id 关联，不通过共享 SQLite 表通信。
 
 独立 CLI 为每个持久化 thread 使用单独的数据库，并用独占锁保证同一时刻只有一个 `exec resume` 写入。`--ephemeral` 改用临时存储并在结束时删除，具体规则见 [Agent CLI exec](../harness/runtime/agent_cli_exec.md#会话与存储)。
 
@@ -78,7 +78,7 @@ JSON、JSONL 和业务文件按各自格式及目录规则管理。文件放在 
 
 1. Gateway 能找到原 session 和 response route。
 2. Agent 能 replay transcript，且最近消息与 Dashboard 一致。
-3. pending event、usage 和 transcript 索引可以正常读取。
+3. usage 和 transcript 索引可以正常读取。
 4. 相关 SQLite 都没有 integrity 或 lock 错误。
 
 优先使用带备份和完整性检查的迁移脚本，不直接手改数据库行或 JSONL。

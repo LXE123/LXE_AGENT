@@ -22,7 +22,7 @@ Skill 可以根据任务需要，向模型介绍 Electron、lxeskillCLI 等模�
 
 ## 红线（违反 = 生产事故）
 
-- **状态归属**：各模块的生产实现分别管理自身数据，通过约定接口协作，不把其他模块的内部存储作为集成接口，也不建立对方状态的副本来替代接口。Electron 管理桌面配置、凭据、缓存及 Gateway 接入数据；agentcli 管理 Agent 会话、执行状态和统计，SQLite 保存状态与索引，JSONL transcript 保存消息和工具记录；lxeskillCLI 管理业务数据与配置。桌面运行时的数据库分别为数据目录下的 `db/gateway.sqlite3`、`db/agent.sqlite3` 和 `db/lxeskill.sqlite3`。
+- **状态归属**：各模块的生产实现分别管理自身数据，通过约定接口协作，不把其他模块的内部存储作为集成接口，也不建立对方状态的副本来替代接口。Electron 管理桌面配置、凭据、缓存及 Gateway 接入数据；agentcli 管理 MCP OAuth 凭据、Agent 会话、执行状态和统计，SQLite 保存状态与索引，JSONL transcript 保存消息和工具记录；lxeskillCLI 管理业务数据与配置。桌面运行时的数据库分别为数据目录下的 `db/gateway.sqlite3`、`db/agent.sqlite3` 和 `db/lxeskill.sqlite3`。
 - **紫鸟状态**：浏览器真实状态以紫鸟客户端实时接口和浏览器实际状态为准，本地只保留可丢弃的缓存。
 - **紫鸟浏览器页面自动化只允许官方配对的 Selenium 链路**（`SeleniumRunner` + 按 `core_version` 配对的 chromedriver）。禁止引入 Playwright / Puppeteer / 裸 CDP 做页面级操作——会被站点风控识别，有封店风险。依据与豁免清单见 `docs/harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md`。
 - **禁止共享或复制 `.venv`**：editable 安装的 `.pth` 指向创建它的 checkout 绝对路径，共享会导致"改的是这份代码、跑的却是另一份"。每个 worktree 各自 `uv sync --frozen`，`wt-claim` 会自动同步。

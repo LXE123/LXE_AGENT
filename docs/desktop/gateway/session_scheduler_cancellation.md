@@ -2,7 +2,7 @@
 
 ## 目的
 
-`SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行，允许不同 session 同时执行，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。
+`SessionScheduler` 把用户消息和定时任务提交的 job 转换成有序 turn。它保证同 session 串行，允许不同 session 同时执行，并把 cancel、steering 和 Runtime completion 聚合到一个 `RunHandle`。
 
 事实来源是 [`apps/gateway/src/orchestration/scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) 及其测试。
 
@@ -60,7 +60,7 @@ Scheduler 只接受 run id、session id 和 job id 与 active handle 完全一�
 
 取消发生在多个 tool use 中间时，Runtime 会为尚未 dispatch 的 tool 写 cancelled result stub，使 provider history 和 transcript 保持 tool-use closure。
 
-主动停止说明的写入条件、技术取消的区分及桌面隐藏规则统一见 [Runtime 取消与失败](../../harness/runtime/turn_execution.md#cancel-与失败)。Gateway 不再为停止追加 pending event。
+主动停止说明的写入条件、技术取消的区分及桌面隐藏规则统一见 [Runtime 取消与失败](../../harness/runtime/turn_execution.md#cancel-与失败)。
 
 ## Steering
 
@@ -74,17 +74,6 @@ Scheduler 只接受 run id、session id 和 job id 与 active handle 完全一�
 
 如果 steering 到达时 run 已 closing 或不存在，Router 会把它作为普通消息排队。
 
-## Heartbeat job
-
-`HeartbeatWakeQueue` 按 session 合并 wake request。exec 完成不再进入该队列；其它 wake 处理时依次检查：
-
-1. session autonomy 未 suspended。
-2. SQLite 中仍有 pending event。
-3. session 当前没有 inflight work。
-4. session source 仍能构造有效 key。
-
-忙碌 session 被重新标记为 retry；无事件、无 session 或 source 无效的 wake 被丢弃。最终 heartbeat 仍生成标准 `AgentJob` 并经过同一 scheduler。
-
 ## 停止与健康状态
 
 Gateway stop 先让 scheduler 拒绝新 job，再取消 active run 并等待 Runtime 停止。Runtime readiness 变化会暂停或恢复 drain。health 需要同时反映 queued、active、runtime ready 与 channel 状态，不能只根据进程存活判断可用性。
@@ -95,4 +84,3 @@ Gateway stop 先让 scheduler 拒绝新 job，再取消 active run 并等待 Run
 - completion 是释放 active slot 的唯一正常入口。
 - cancel 不绕过 transcript closure。
 - steering 不允许丢失或跨 session。
-- heartbeat 不绕过 permission/session/scheduler 路径。

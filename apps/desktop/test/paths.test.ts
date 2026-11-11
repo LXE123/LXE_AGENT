@@ -25,7 +25,7 @@ describe("desktop private runtime paths", () => {
     expect(paths.skillsRoot).toBe(posix.join(sourceRoot, "skills"));
     expect(paths.userSkillsRoot).toBe(posix.join(sourceRoot, "var", "skills"));
     expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
-    expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.yaml"));
+    expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.json"));
     expect(paths.projectRoot).toBe(sourceRoot);
     expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
     expect(paths.defaultWorkspaceRoot).toBe(posix.join(sourceRoot, "var", "workspace"));
@@ -58,7 +58,7 @@ describe("desktop private runtime paths", () => {
     expect(paths.skillsRoot).toBe(win32.join(root, "skills"));
     expect(paths.userSkillsRoot).toBe(win32.join(paths.dataRoot, "skills"));
     expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));
-    expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.yaml"));
+    expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.json"));
     expect(paths.dataRoot).toBe("C:\\Users\\tester\\AppData\\Local\\LXE Agent");
     expect(paths.defaultWorkspaceRoot).toBe(win32.join(paths.dataRoot, "workspace"));
     expect(paths.agentCommand).toBe(win32.join(root, "runtime", "agent-cli", "agent-cli.exe"));
