@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 import pytest
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
 from lxeskill import cli
@@ -25,8 +26,13 @@ def invoke(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
 
-    def run(country, changes=None, sheet_name=None, shipping_column=None, shipping_overrides=None):
+    def run(country, changes=None, sheet_name=None, shipping_column=None, shipping_overrides=None, yellow_headers=()):
         source = source_workbook(tmp_path / "source.xlsx", country, changes, sheet_name)
+        if yellow_headers:
+            with open_sheet(source) as sheet:
+                for coordinate in yellow_headers:
+                    sheet[coordinate].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+                sheet.parent.save(source)
         original = source.read_bytes()
         args = ["mabang", "order-import", "generate", "--country", country, "--input-xlsx", str(source)]
         if shipping_column:
@@ -124,22 +130,6 @@ def test_cli_rejects_source_errors(invoke, country, changes, sheet_name, error):
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
-def test_malaysia_chooses_closest_date_group_even_when_a_later_group_exists(invoke):
-    changes = {
-        "BA1": "11/20A海运", "BB1": "11/20B海运", "BC1": "11/20空运",
-        "BA2": 11, "BB2": 22, "BC2": 33,
-    }
-    code, result, _ = invoke("malaysia", changes)
-    assert code == 0 and result["ok"]
-    artifacts = result["data"]["artifacts"]
-    assert [a["field"] for a in artifacts] == ["sea_a", "sea_b", "air"]
-    assert [a["shipping_column"] for a in artifacts] == [2, 7, 8]
-    assert [a["shipping_date"] for a in artifacts] == ["2026-11-04"] * 3
-    for artifact, quantity in zip(artifacts, [7, 9, 5], strict=True):
-        with open_sheet(artifact["path"]) as sheet:
-            assert sheet["T2"].value == quantity
-
-
 def test_brazil_cli_accepts_selected_duplicate_closest_candidate(invoke):
     changes = {"BC1": "11/6海运", "BC2": 19}
     code, result, source = invoke("brazil", changes)
@@ -186,38 +176,19 @@ def test_philippines_rejects_override_outside_closest_candidates(invoke):
     assert list(source.parent.rglob("*.xlsx")) == [source]
 
 
-def test_philippines_keeps_no_skus_when_a_transport_has_no_quantity(invoke):
-    code, result, _ = invoke("philippines", {"AO2": None, "AO3": 0, "AO4": None})
-    assert code == 0 and result["ok"]
-    air = result["data"]["artifacts"][0]
-    assert air["sku_count"] == 0 and air["quantity_value_count"] == 0
-    with open_sheet(air["path"]) as sheet:
-        assert rows(sheet) == []
-
-
 @pytest.mark.parametrize(("changes", "expected"), [
     # Dates closer to today win over later dates.
     ({"BB1": "11/20空运", "BG1": "11/20海运", "BC1": "11/5A海运", "BD1": "11/5B海运"},
      [("air", "IN261103-K", 53, [None, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
       ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
-    # Older ordinary sea columns do not compete with the closest A/B group.
-    ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运", "BD1": "11/6B海运"},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea_a", "IN261106A-H", 55, [20, None, None]),
-      ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
-    ({"BF1": "11/2海运", "BG1": "11/1海运", "BC1": "11/6A海运"},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea_a", "IN261106A-H", 55, [20, None, None])]),
-    ({"BF1": "11/2海运", "BG1": "11/1海运", "BD1": "11/6B海运"},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
-    # When the closest date has ordinary and both A/B, all three are exported.
-    ({"BC1": "11/6A海运", "BD1": "11/6B海运"},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4]),
+    ({"BH1": "11/5d海运", "BH2": 33},
+     [("air", "IN261106-K", 54, [10, None, None]), ("sea_d", "IN261105D-H", 60, [33, None, None])]),
+    # The latest ordinary and A/B sea batches coexist; duplicated older columns
+    # do not interfere, and an empty air column produces no SKU rows.
+    ({"BC1": "11/6A海运", "BD1": "11/6B海运", "BE1": "11/4海运",
+      "BB2": None, "BB3": 0, "BB4": None},
+     [("air", "IN261106-K", 54, [None, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4]),
       ("sea_a", "IN261106A-H", 55, [20, None, None]), ("sea_b", "IN261106B-H", 56, [None, 22, None])]),
-    # Duplicated older columns have no bearing on the selected closest date.
-    ({"BE1": "11/4海运"},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4])]),
-    # An entirely empty air shipment contains no SKU rows.
-    ({"BB2": None, "BB3": 0, "BB4": None},
-     [("air", "IN261106-K", 54, [None, None, None]), ("sea", "IN261106-H", 59, [None, 8, 4])]),
 ])
 def test_indonesia_exports_all_modes_at_closest_sea_date(invoke, changes, expected):
     code, result, _ = invoke("indonesia", changes)
@@ -228,7 +199,7 @@ def test_indonesia_exports_all_modes_at_closest_sea_date(invoke, changes, expect
     for artifact, (_, order, _, quantities) in zip(artifacts, expected, strict=True):
         assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
         expected_rows = [(sku, 0, q) for sku, q in zip(["SKU-A", "SKU-B", "SKU-A"], quantities) if q is not None]
-        assert artifact["sku_count"] == len(expected_rows)
+        assert artifact["sku_count"] == artifact["quantity_value_count"] == len(expected_rows)
         with open_sheet(artifact["path"]) as sheet:
             assert rows(sheet) == expected_rows
 
@@ -249,60 +220,6 @@ def test_indonesia_allows_one_transport_mode(invoke, changes, expected_id, expec
     assert Path(artifacts[0]["path"]).name == f"印尼马帮订单导入模板-{expected_id}.xlsx"
     with open_sheet(artifacts[0]["path"]) as sheet:
         assert rows(sheet) == [(sku, 0, q) for sku, q in zip(["SKU-A", "SKU-B", "SKU-A"], expected_quantities) if q is not None]
-
-
-def test_indonesia_each_transport_mode_selects_its_own_closest_date(invoke):
-    changes = {"BB1": "11/10空运", "BG1": "11/15海运", "BH1": "11/20陆运", "BH2": 17}
-    code, result, _ = invoke("indonesia", changes)
-    assert code == 0 and result["ok"]
-    artifacts = result["data"]["artifacts"]
-    assert {a["order_id"]: (a["shipping_column"], a["shipping_date"]) for a in artifacts} == {
-        "IN261103-K": (53, "2026-11-03"),
-        "IN261104-H": (58, "2026-11-04"),
-        "IN261120-L": (60, "2026-11-20"),
-    }
-    for artifact in artifacts:
-        with open_sheet(artifact["path"]) as sheet:
-            assert artifact["sku_count"] == len(rows(sheet))
-            assert all(item[2] is not None for item in rows(sheet))
-
-
-@pytest.mark.parametrize(("changes", "expected"), [
-    # Every batch at one mode's closest date produces its own distinct order.
-    ({"BG1": "11/5海运", "BC1": "11/5A海运", "BD1": "11/5B海运", "BH1": "11/5c海运", "BH2": 33},
-     {"IN261105-H": 59, "IN261105A-H": 55, "IN261105B-H": 56, "IN261105C-H": 60}),
-    # The closest sea batch may be D and may be the only batch on that date.
-    ({"BH1": "11/5d海运", "BH2": 33}, {"IN261105D-H": 60}),
-])
-def test_indonesia_sea_batches_are_optional_and_case_normalized(invoke, changes, expected):
-    code, result, _ = invoke("indonesia", changes)
-    assert code == 0 and result["ok"]
-    artifacts = result["data"]["artifacts"]
-    sea = {a["order_id"]: a for a in artifacts if a["shipping_header"].endswith("海运")}
-    assert {order: item["shipping_column"] for order, item in sea.items()} == expected
-    assert len(artifacts) == len(expected) + 1  # the existing closest air column
-    for order, artifact in sea.items():
-        assert Path(artifact["path"]).name == f"印尼马帮订单导入模板-{order}.xlsx"
-        expected_rows = {
-            59: [("SKU-B", 0, 8), ("SKU-A", 0, 4)],
-            55: [("SKU-A", 0, 20)], 56: [("SKU-B", 0, 22)], 60: [("SKU-A", 0, 33)],
-        }[artifact["shipping_column"]]
-        assert artifact["sku_count"] == len(expected_rows)
-        with open_sheet(artifact["path"]) as sheet:
-            assert rows(sheet) == expected_rows
-
-
-def test_indonesia_batches_apply_to_air_and_land_as_well(invoke):
-    changes = {"BH1": "11/5a空运", "BH2": 21, "BI1": "11/9b陆运", "BI2": 34}
-    code, result, _ = invoke("indonesia", changes)
-    assert code == 0 and result["ok"]
-    artifacts = {a["order_id"]: a for a in result["data"]["artifacts"]}
-    assert {order: item["shipping_column"] for order, item in artifacts.items()} == {
-        "IN261105A-K": 60, "IN261109B-L": 61, "IN261106-H": 59,
-    }
-    for order, amount in (("IN261105A-K", 21), ("IN261109B-L", 34)):
-        with open_sheet(artifacts[order]["path"]) as sheet:
-            assert rows(sheet) == [("SKU-A", 0, amount)]
 
 
 @pytest.mark.parametrize(("mode", "code", "field"), [
@@ -380,21 +297,26 @@ def unified_headers(country, columns):
 
 
 @pytest.mark.parametrize(("country", "prefix"), [
-    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"),
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"),
 ])
-def test_four_countries_export_each_transport_closest_date_and_all_batches(invoke, country, prefix):
+def test_five_countries_export_each_transport_closest_date_and_all_batches(invoke, country, prefix):
     changes = unified_headers(country, {
         "BJ": ("11/1陆运", 1), "BK": ("11/6陆运", 2), "BL": ("11/6A陆运", 3),
         "BM": ("11/5空运", 4), "BN": ("11/7c空运", 5),
         "BO": ("11/8海运", 6), "BP": ("11/8B海运", 7),
+        "BQ": ("11/5a空运", 9), "BR": ("11/6b陆运", 10),
+        "BS": ("11/1C海运", 11),
+        "BT": ("11/20A海运", 12), "BU": ("11/20B海运", 13), "BV": ("11/20空运", 14),
     })
-    code, result, _ = invoke(country, changes)
+    code, result, _ = invoke(country, changes, yellow_headers=("BS1",))
     assert code == 0 and result["ok"]
     artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
     expected = {
         f"{prefix}261106-L": ("11/6陆运", 2), f"{prefix}261106A-L": ("11/6A陆运", 3),
         f"{prefix}261105-K": ("11/5空运", 4), f"{prefix}261108-H": ("11/8海运", 6),
         f"{prefix}261108B-H": ("11/8B海运", 7),
+        f"{prefix}261105A-K": ("11/5a空运", 9), f"{prefix}261106B-L": ("11/6b陆运", 10),
+        f"{prefix}261101C-H": ("11/1C海运", 11),
     }
     assert set(artifacts) == set(expected)
     for order, (header, quantity) in expected.items():

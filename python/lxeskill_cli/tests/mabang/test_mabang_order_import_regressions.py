@@ -180,11 +180,16 @@ def test_leap_year(today, expected):
     assert nearest_occurrence(2, 29, today, country="越南", label="AQ1") == expected
 
 
-def test_winning_year_tie(sheet):
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+def test_winning_year_tie(sheet, country):
     sheet["AQ1"] = "7/2海运"
-    for override in (None, "AQ"):
+    for override in ((None, "AQ") if country in {"brazil", "vietnam"} else (None,)):
         with pytest.raises(OrderImportWorkbookError, match="AQ1.*7/2海运.*无法确定年份"):
-            country_rules.select_shipping_columns("vietnam", sheet, date(2028, 1, 1), shipping_column=override)
+            country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1), shipping_column=override)
+    sheet["AR1"], sheet["AQ1"] = "1/1海运", "7/2A海运"
+    sheet["AQ1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    with pytest.raises(OrderImportWorkbookError, match="AQ1.*7/2A海运.*无法确定年份"):
+        country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1))
 
 
 @pytest.mark.parametrize("header", ["2/30海运", "4/31海运", "13/1海运"])
@@ -202,30 +207,6 @@ def test_philippines_selects_each_transport_across_year_boundary(sheet):
         "air": country_rules.ShippingCandidate(41, "12/31空运", date(2026, 12, 31), "air"),
         "sea_a": country_rules.ShippingCandidate(51, "1/2A海运", date(2027, 1, 2), "sea_a"),
     }
-
-
-def test_philippines_ignores_unselected_column_with_ambiguous_year(tmp_path):
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "菲律宾备货清单"
-    sheet["E1"], sheet["E2"] = "SKU", "SKU-A"
-    sheet["AO1"], sheet["AP1"] = "1/1空运", "7/2空运"
-    sheet["AY1"], sheet["AZ1"] = "1/1A海运", "1/1B海运"
-    sheet["AO2"], sheet["AP2"], sheet["AY2"], sheet["AZ2"] = 10, 99, 20, 30
-    source = tmp_path / "source.xlsx"
-    workbook.save(source)
-    workbook.close()
-
-    results = country_rules.generate_order_workbooks(
-        "philippines", source, tmp_path / "out", today=date(2028, 1, 1), template_path=TEMPLATE,
-    )
-    assert {item["field"]: item["shipping_header"] for item in results} == {
-        "air": "1/1空运", "sea_a": "1/1A海运", "sea_b": "1/1B海运",
-    }
-    for item in results:
-        assert item["order_id"].startswith("PH280101")
-        with open_sheet(item["output_xlsx"]) as output:
-            assert rows(output) == [("SKU-A", 0, {"air": 10, "sea_a": 20, "sea_b": 30}[item["field"]])]
 
 
 def test_indonesia_selects_closest_air_and_sea_group_across_year_boundary(sheet):
