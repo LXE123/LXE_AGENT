@@ -48,8 +48,8 @@ function McpServerRow({
         <span>{server.transport || t.common.unknown}</span>
       </div>
       <div className="mcp-row-actions">
-        {server.enabled && server.can_login && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
-          {signingIn ? t.mcp.signingIn : server.has_credentials ? t.mcp.relogin : t.mcp.login}
+        {server.enabled && server.can_login && !server.has_credentials && <button type="button" className="mcp-primary" onClick={login} disabled={signingIn || saving}>
+          {signingIn ? t.mcp.signingIn : t.mcp.login}
         </button>}
         <button
           aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}

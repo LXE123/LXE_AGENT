@@ -145,10 +145,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal((await operations()).includes('restartAgent'),false);
     assert.equal((await operations()).includes('mcp.servers.login'),false);
     await textClick('Sign in');
-    await waitFor("document.body.textContent.includes('Sign in again')", 'credentials saved without claiming a connection');
-    await textClick('Sign in again');
-    await waitFor("!document.body.textContent.includes('Waiting for sign-in')", 'finished reauthentication');
-    assert.equal((await operations()).filter(op => op === 'mcp.servers.login').length, 2);
+    await waitFor("!document.querySelector('.mcp-row-actions .mcp-primary')", 'saved credentials remove the sign-in action');
+    assert.equal((await operations()).filter(op => op === 'mcp.servers.login').length, 1);
     assert.equal((await operations()).includes('restartAgent'),false);
   });
   await step('MCP list failures are shown independently of tool catalog data', async () => {

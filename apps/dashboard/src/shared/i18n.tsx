@@ -584,7 +584,7 @@ export const ZH_TEXT = {
     bearer: "Bearer Token 环境变量名", headers: "请求头", envHeaders: "从环境变量读取的请求头", key: "名称", value: "值", variable: "环境变量名",
     remove: "移除", addRow: "添加一项", duplicate: "有重复的名称，请检查后保存。",
     states: { ready: "已连接", connecting: "连接中", disconnected: "已断开", configured: "已配置", error: "连接失败", needs_auth: "需要登录" },
-    save: "保存", cancel: "取消", login: "登录", relogin: "重新登录", reconnect: "重新连接", reconnecting: "连接中…", signingIn: "等待登录…", details: "查看服务器响应",
+    save: "保存", cancel: "取消", login: "登录", reconnect: "重新连接", reconnecting: "连接中…", signingIn: "等待登录…", details: "查看服务器响应",
     description: "管理向 Agent 提供工具的外部服务。",
   },
   skillModal: {
@@ -1522,7 +1522,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       bearer: "Bearer token environment variable", headers: "Headers", envHeaders: "Headers from environment variables", key: "Name", value: "Value", variable: "Variable name",
       remove: "Remove", addRow: "Add item", duplicate: "Duplicate names. Check the entries and save again.",
       states: { ready: "Connected", connecting: "Connecting", disconnected: "Disconnected", configured: "Configured", error: "Connection failed", needs_auth: "Sign-in required" },
-      save: "Save", cancel: "Cancel", login: "Sign in", relogin: "Sign in again", reconnect: "Reconnect", reconnecting: "Connecting…", signingIn: "Waiting for sign-in…", details: "View server response",
+      save: "Save", cancel: "Cancel", login: "Sign in", reconnect: "Reconnect", reconnecting: "Connecting…", signingIn: "Waiting for sign-in…", details: "View server response",
       description: "Manage external services that provide tools to the agent.",
     },
     skillModal: {
