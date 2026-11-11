@@ -1,193 +1,211 @@
 from contextlib import closing
-from datetime import date
+from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
-from unittest.mock import ANY, Mock, call
+import sqlite3
 
 from openpyxl import load_workbook
 import pytest
+import requests
 
 from lxeskill import cli
 from services.philippines_reports import workflow
-from services.mabang_tms.workflow import run_with_events as run_tms_export
-from services.yacang.validation import INVENTORY_SALES_HEADERS
-from shared.workspace import artifact_root
+from services.yacang.auth_state import YacangAuthState
+from services.yacang.contracts import Credentials
+from shared.datasets import dataset_dir
 
 
 pytestmark = pytest.mark.usefixtures("ph_workspace")
 
 
-@pytest.mark.parametrize("submitted", [False, True])
-def test_resume_after_login_keeps_completed_yacang_file(ph_files, ph_online, ph_rows, submitted, capsys):
-    yacang, _, yacang_mock, tms_mock = ph_online(ph_files())
-    sales, inventory = yacang["artifacts"]
-    yacang_mock.side_effect = [
-        {"success": False, "status": "partial_success", "artifacts": [sales],
-         "tasks": [{"report": "inventory-current-snapshot", "submitted_in_run": submitted}],
-         "error": {"code": "login_required", "message": "login required"}},
-        {"success": True, "status": "completed", "artifacts": [inventory]},
-    ]
+def result_record(capfd):
+    records = [json.loads(line) for line in capfd.readouterr().out.splitlines() if line.strip()]
+    return records[-1], records[:-1]
+
+
+@pytest.mark.parametrize("operation,submitted", [
+    ("inventory-baseline", False), ("inventory-submit", True), ("inventory.xlsx", True),
+])
+def test_resume_after_login_keeps_completed_yacang_file(ph_files, ph_online, ph_rows, operation, submitted, capfd):
+    platform = ph_online(ph_files())
+    platform["reject"][("yacang", operation)] = (401, {"status": 0, "message": "actual expired session"})
     assert cli.main(["philippines", "reports", "export"]) == cli.EXIT_BUSINESS
-    failed = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
-    tms_mock.assert_not_called()
+    failed, _ = result_record(capfd)
+    assert failed["files"] == []
+    failed = failed["data"]
+    assert failed["stage"] == "yacang_export"
+    assert not any(call["source"] == "tms" for call in platform["calls"])
+
+    progress_file, = dataset_dir("philippines_reports").rglob("*.json")
+    progress = json.loads(progress_file.read_text(encoding="utf-8"))
+    assert progress["submitted_in_run"] is submitted
+    retained = Path(progress["artifacts"][0]["path"])
+    original = retained.read_bytes()
+    assert not any(secret in progress_file.read_text(encoding="utf-8")
+                   for secret in ("yacang-test-password", "yacang-offline-token"))
+
+    platform["reject"].clear()
+    YacangAuthState(Credentials.from_environment()).save_session("yacang-offline-token")
     assert cli.main(["philippines", "reports", "export", "--resume-id", failed["resume_id"]]) == 0
-    result = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
-    assert yacang_mock.call_args_list[1] == call(
-        {"params": {"reports": ["inventory-current-snapshot"], "warehouses": ["PH8805"]}},
-        require_fresh=not submitted,
-    )
-    assert len(result["artifacts"]) == 2
+    record, _ = result_record(capfd)
+    result = record["data"]
+    assert len(record["files"]) == len(result["artifacts"]) == 2
     sales_row, inventory_row = (ph_rows(item)[0] for item in result["artifacts"])
     assert (sales_row["7天销量"], inventory_row["可用库存"]) == (12, 130)
+    assert retained.read_bytes() == original
+    assert sum(call["operation"] == "sales-submit" for call in platform["calls"]) == 1
+    assert not progress_file.exists()
+    with sqlite3.connect(os.environ["LXE_SQLITE_DB_PATH"]) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM yacang_submissions").fetchone()[0] == 0
 
 
-def test_retry_tms_keeps_both_yacang_files(ph_files, ph_online, capsys):
-    _, tms, yacang_mock, tms_mock = ph_online(ph_files())
-    tms_mock.side_effect = [
-        {"success": False, "status": "failed", "error": {"code": "export_failed", "message": "failed"}},
-        tms,
-    ]
+def test_retry_tms_keeps_both_yacang_files(ph_files, ph_online, capfd):
+    platform = ph_online(ph_files())
+    platform["reject"][("tms", "login")] = (429, {"message": "actual TMS rate limit"})
     assert cli.main(["philippines", "reports", "export"]) == cli.EXIT_BUSINESS
-    failed = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
-    assert cli.main(["philippines", "reports", "export", "--resume-id", failed["resume_id"]]) == 0
-    result = [json.loads(line) for line in capsys.readouterr().out.splitlines()][-1]["data"]
-    assert len(result["artifacts"]) == 2
-    assert yacang_mock.call_count == 1
+    failed, _ = result_record(capfd)
+    assert failed["files"] == [] and failed["data"]["stage"] == "tms_export"
+    yacang_calls = [call for call in platform["calls"] if call["source"] == "yacang"]
+    retained = {Path(item["path"]): Path(item["path"]).read_bytes()
+                for item in failed["data"]["source_exports"][0]["artifacts"]}
+
+    platform["reject"].clear()
+    assert cli.main(["philippines", "reports", "export", "--resume-id", failed["data"]["resume_id"]]) == 0
+    record, _ = result_record(capfd)
+    assert len(record["files"]) == 2 and record["ok"]
+    assert [call for call in platform["calls"] if call["source"] == "yacang"] == yacang_calls
+    assert {path: path.read_bytes() for path in retained} == retained
 
 
-def test_online_export_uses_fixed_sources_and_start_date_across_midnight(ph_files, ph_online, ph_rows, monkeypatch, capsys):
+def test_cli_runs_both_real_workflows_and_delivers_only_merged_pair(ph_files, ph_online, ph_rows, capfd):
     paths = ph_files()
-    yacang, tms, yacang_mock, tms_mock = ph_online(paths)
-    clock = {"today": date(2026, 11, 5)}
-    monkeypatch.setattr(workflow, "_today", lambda: clock["today"])
-    calls = Mock()
-    calls.attach_mock(yacang_mock, "yacang")
-    calls.attach_mock(tms_mock, "tms")
-
-    def export_yacang(arguments, *, require_fresh):
-        clock["today"] = date(2026, 11, 6)
-        return yacang
-
-    def export_tms(arguments, on_event):
-        on_event({"message": "sample batch complete"})
-        return tms
-
-    yacang_mock.side_effect = export_yacang
-    tms_mock.side_effect = export_tms
+    ph_online(paths)
     assert cli.main(["philippines", "reports", "export"]) == 0
-    records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
-    record, events = records[-1], records[:-1]
+    record, events = result_record(capfd)
     result = record["data"]
-    assert result["success"] is True and len(result["artifacts"]) == 2, result
-    assert record["ok"] is True and record["type"] == "result"
+    assert record["ok"] and result["success"] and result["status"] == "completed"
+    assert len(record["files"]) == 2
     assert set(record["files"]) == {item["path"] for item in result["artifacts"]}
     assert set(record["files"]).isdisjoint(paths.values())
-    sales_source = next(item for item in result["source_files"] if item["report"] == "inventory-sales" and item["source"] == "yacang")
-    assert sales_source["sha256"] == hashlib.sha256(Path(paths["sales_file"]).read_bytes()).hexdigest()
+    for source in result["source_files"]:
+        assert source["sha256"] == hashlib.sha256(Path(source["path"]).read_bytes()).hexdigest()
+        assert source["path"] not in record["files"]
     sales, inventory = (ph_rows(item)[0] for item in result["artifacts"])
     assert (sales["7天销量"], sales["可用"], inventory["可用库存"]) == (12, 130, 130)
-    assert calls.mock_calls == [
-        call.yacang({"params": {"reports": ["inventory-sales", "inventory-current-snapshot"], "warehouses": ["PH8805"]}}, require_fresh=True),
-        call.tms({"warehouse": "PH1"}, ANY),
-    ]
     assert all(event["type"] == "progress" for event in events)
-    assert any(event.get("message") == "sample batch complete" for event in events)
-    assert [event.get("stage") for event in events if event.get("stage")] == ["yacang_export", "tms_export", "merge"]
-    assert result["report_date"] == "2026-11-05" and result["timezone"] == "Asia/Shanghai"
+    stages = [event.get("stage") for event in events]
+    assert stages.index("yacang_export") < stages.index("tms_export") < stages.index("merge")
+    assert all(secret not in json.dumps(record) for secret in
+               ("yacang-test-password", "tms-test-password", "yacang-offline-token", "tms-offline-token"))
+
+
+def test_start_date_survives_midnight_during_export(ph_files, ph_online, monkeypatch):
+    ph_online(ph_files())
+    clock = {"day": 5}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, clock["day"], tzinfo=tz)
+
+    monkeypatch.setattr(workflow, "datetime", Clock)
+
+    def on_event(event):
+        if event.get("stage") == "tms_export":
+            clock["day"] = 6
+
+    result = workflow.export_reports(on_event)
+    assert result["success"], result
+    assert result["report_date"] == "2026-11-05"
     assert all(Path(item["path"]).name.endswith("-2026年11月05日.xlsx") for item in result["artifacts"])
 
 
-@pytest.mark.parametrize("failed_source,message,code", [
-    ("yacang", "actual upstream response 429", "rate_limited"),
-    ("tms", "actual upstream response 429", "rate_limited"),
-    ("exception", "actual source error 503", "philippines_reports_failed"),
+@pytest.mark.parametrize("source,operation,status,code", [
+    ("yacang", "sales-submit", 429, "rate_limited"),
+    ("tms", "login", 429, "http_429"),
+    ("tms", "login", None, "network_error"),
 ])
-def test_failed_export_preserves_diagnostic_without_merging(ph_files, ph_online, monkeypatch, failed_source, message, code, capsys):
-    paths = ph_files()
-    yacang, tms, _, tms_mock = ph_online(paths)
-    secrets = {"LXE_YACANG_MOBILE": "yacang-test-account", "LXE_YACANG_PASSWORD": "yacang-test-password",
-               "LXE_MABANG_TMS_ACCOUNT": "tms-test-account", "LXE_MABANG_TMS_PASSWORD": "tms-test-password"}
-    for name, value in secrets.items():
-        monkeypatch.setenv(name, value)
-    diagnostic = message + " " + " ".join(secrets.values())
-    if failed_source == "exception":
-        tms_mock.side_effect = RuntimeError(diagnostic)
-    else:
-        (yacang if failed_source == "yacang" else tms).update(
-            success=False, status="partial_success", error={"code": code, "message": diagnostic})
-    monkeypatch.setattr(workflow, "build_reports", lambda **kwargs: pytest.fail("partial export must not merge"))
+def test_failed_http_export_preserves_diagnostic_and_never_delivers_pair(ph_files, ph_online, source, operation, status, code, capfd):
+    platform = ph_online(ph_files())
+    secrets = ("yacang-test-account", "yacang-test-password", "tms-test-account", "tms-test-password")
+    message = "actual upstream response 503 " + " ".join(secrets)
+    platform["reject"][(source, operation)] = (
+        (status, {"status": 0, "message": message}) if status
+        else requests.ConnectionError(message)
+    )
     assert cli.main(["philippines", "reports", "export"]) == cli.EXIT_BUSINESS
-    record = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()][-1]
+    record, _ = result_record(capfd)
     result = record["data"]
-    assert record["ok"] is False and record["files"] == []
-    assert result["success"] is False and result["artifacts"] == []
-    assert result["error"]["code"] == code and message in result["error"]["message"]
-    assert message in record["error"]["message"]
-    assert all(secret not in json.dumps(record, ensure_ascii=False) for secret in secrets.values())
+    assert not record["ok"] and record["files"] == [] and result["artifacts"] == []
+    assert result["error"]["code"] == code and "actual upstream response 503" in result["error"]["message"]
+    assert "actual upstream response 503" in record["error"]["message"]
+    assert all(secret not in json.dumps(record, ensure_ascii=False) for secret in secrets)
     assert "[REDACTED]" in result["error"]["message"]
-    assert paths["sales_file"] in json.dumps(result["source_exports"], ensure_ascii=False)
-    assert not list(artifact_root().rglob("*.xlsx"))
-    if failed_source == "yacang":
-        tms_mock.assert_not_called()
+    assert not list(dataset_dir("philippines_reports").rglob("*.xlsx"))
+    if source == "yacang":
+        assert not any(call["source"] == "tms" for call in platform["calls"])
 
 
-def test_invalid_tms_api_number_blocks_philippines_pair(ph_files, ph_online, tmp_path, monkeypatch):
-    paths = ph_files()
-    ph_online(paths)
-    client = Mock()
-    client.list_page.return_value = {"code": "200", "totalNum": 1, "datas": [{
-        "id": 1, "stockSku": "001", "warehouseId": 12107, "warehouseName": "菲律宾PH1仓",
-        "stockQuantity": "bad", "sale1": 1, "sale2": 3, "sale3": 4}]}
-    client.export.return_value = "https://tms-cos.mabangerp.com/test"
-    client.download.return_value = Path(paths["tms_file"]).read_bytes()
-    client.safe.side_effect = str
-    monkeypatch.setenv("LXE_MABANG_TMS_ACCOUNT", "account")
-    monkeypatch.setenv("LXE_MABANG_TMS_PASSWORD", "password")
-    monkeypatch.setattr(workflow.tms_workflow, "run_with_events", run_tms_export)
-    monkeypatch.setattr(workflow.tms_workflow, "TmsClient", lambda *args: client)
-    monkeypatch.setattr(workflow.tms_workflow, "dataset_dir", lambda *parts: tmp_path.joinpath("tms", *parts[1:]))
+def test_invalid_tms_api_number_blocks_philippines_pair(ph_files, ph_online):
+    platform = ph_online(ph_files())
+    platform["tms_records"][0]["stockQuantity"] = "bad"
     result = workflow.export_reports()
-    assert result["success"] is False and result["stage"] == "tms_export"
+    assert not result["success"] and result["stage"] == "tms_export"
     assert result["artifacts"] == []
     assert "stockQuantity" in result["error"]["message"] and "bad" in result["error"]["message"]
-    assert not list(artifact_root().rglob("*.xlsx"))
+    assert not list(dataset_dir("philippines_reports").rglob("*.xlsx"))
 
 
-@pytest.mark.parametrize("source, mutate, stage, code", [
-    ("yacang", lambda x: x["artifacts"].pop(), "yacang_export", "source_metadata_invalid"),
-    ("yacang", lambda x: x["artifacts"][0].update(warehouse="VN8806"), "yacang_export", "source_metadata_invalid"),
-    ("yacang", lambda x: x["artifacts"][0].update(created_date={"start_date": "2026-10-01", "end_date": "2026-10-30"}),
-     "yacang_export", "source_metadata_invalid"),
-    ("tms", lambda x: x.update(warehouse="VN1", warehouse_id=12831), "tms_export", "source_metadata_invalid"),
-    ("tms", lambda x: x.update(artifacts=[]), "tms_export", "source_metadata_invalid"),
-    ("tms", lambda x: x.pop("source_row_count"), "tms_export", "source_metadata_invalid"),
-    ("tms", lambda x: x.update(row_count=99, distinct_skus=99, source_row_count=99,
-                              artifacts=[{**x["artifacts"][0], "row_count": 99}]), "merge", "source_count_mismatch"),
-    ("yacang", lambda x: x["artifacts"][0].update(row_count=99), "merge", "source_count_mismatch"),
-])
-def test_invalid_export_contract_prevents_publication(ph_files, ph_online, source, mutate, stage, code):
-    yacang, tms, _, tms_mock = ph_online(ph_files())
-    mutate(yacang if source == "yacang" else tms)
+@pytest.mark.parametrize("source", ["yacang", "tms"])
+def test_upstream_warehouse_validation_blocks_wrong_sources(ph_files, ph_online, source):
+    paths = ph_files()
+    platform = ph_online(paths)
+    if source == "yacang":
+        with closing(load_workbook(paths["inventory_file"])) as book:
+            book.active["E2"] = "VN8806"
+            book.save(paths["inventory_file"])
+    else:
+        platform["tms_records"][0]["warehouseId"] = 12831
     result = workflow.export_reports()
-    assert result["success"] is False and result["artifacts"] == []
-    assert result["stage"] == stage and result["error"]["code"] == code
-    assert result["error"]["message"]
-    assert not list(artifact_root().rglob("*.xlsx"))
-    if stage == "yacang_export":
-        tms_mock.assert_not_called()
+    assert not result["success"] and result["artifacts"] == []
+    assert result["stage"] == ("yacang_export" if source == "yacang" else "tms_export")
+    assert "VN8806" in result["error"]["message"] if source == "yacang" else "12831" in result["error"]["message"]
+    assert not list(dataset_dir("philippines_reports").rglob("*.xlsx"))
+
+
+@pytest.mark.parametrize("source", ["yacang", "tms"])
+def test_changed_source_row_count_prevents_pair_publication(ph_files, ph_online, source):
+    ph_online(ph_files())
+
+    def change_file(event):
+        if event.get("stage") != "merge":
+            return
+        root = dataset_dir("yacang_exports" if source == "yacang" else "mabang_tms_exports")
+        prefix = "雅仓-当前库存" if source == "yacang" else "马帮TMS-商品-"
+        path, = (path for path in root.rglob("*.xlsx") if path.name.startswith(prefix))
+        with closing(load_workbook(path)) as book:
+            row = [cell.value for cell in book.active[2]]
+            row[1 if source == "yacang" else 0] = "another-sku"
+            book.active.append(row)
+            book.save(path)
+
+    result = workflow.export_reports(change_file)
+    assert not result["success"] and result["stage"] == "merge"
+    assert result["error"]["code"] == "source_count_mismatch" and result["artifacts"] == []
+    assert not list(dataset_dir("philippines_reports").rglob("*.xlsx"))
 
 
 def test_confirmed_empty_tms_still_generates_yacang_reports(ph_files, ph_online, ph_rows):
-    _, tms, _, _ = ph_online(ph_files(sales_headers=INVENTORY_SALES_HEADERS))
-    tms.update(reported_total=0, read_unique_ids=0, exported_unique_ids=0, source_row_count=0,
-               row_count=0, distinct_skus=0, artifacts=[])
+    platform = ph_online(ph_files())
+    platform["tms_records"].clear()
     result = workflow.export_reports()
-    assert result["success"] is True and len(result["artifacts"]) == 2, result
+    assert result["success"] and result["tms_empty"] and len(result["artifacts"]) == 2, result
     assert result["statistics"]["tms_rows"] == 0
-    assert result["field_mappings"] == {"inventory": {}, "inventory-sales": {}}
     assert ph_rows(result["artifacts"][1])[0]["可用库存"] == 100
     assert ph_rows(result["artifacts"][0])[0]["7天销量"] == 10
+    assert not any(call["operation"] == "exportStockwarehouse" for call in platform["calls"])
     with closing(load_workbook(result["artifacts"][0]["path"])) as book:
-        assert book.worksheets[0].max_column == 16 and book.worksheets[1].max_column == 15
+        assert book.worksheets[0].max_column == book.worksheets[1].max_column == 15
         assert book.worksheets[1]["N2"].value == 100

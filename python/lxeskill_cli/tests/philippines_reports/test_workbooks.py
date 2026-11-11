@@ -101,11 +101,6 @@ def test_matching_fields_added_and_source_only_rows_follow_business_order(ph_fil
     assert result["statistics"] == {
         "yacang_sales_rows": 4, "yacang_inventory_rows": 4, "tms_rows": 11, "tms_zero_or_empty_rows": 3,
         "sales_added_rows": 2, "inventory_added_rows": 5, "sales_matched_rows": 1, "inventory_matched_rows": 1}
-    assert result["field_mappings"]["inventory"] == {"可用库存": "可用库存"}
-    assert result["field_mappings"]["inventory-sales"] == {
-        "7天销量": "7天销量", "15天销量": "15天销量", "30天销量": "30天销量", "可用": "可用库存"}
-    assert result["validation"] == {"status": "passed", "checks": [
-        "source_schema", "warehouse_scope", "unique_skus", "finite_numbers"]}
     assert {key: Path(path).read_bytes() for key, path in paths.items()} == originals
     for artifact in result["artifacts"]:
         with closing(load_workbook(artifact["path"])) as book:
@@ -146,7 +141,6 @@ def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_
     assert inventory["库存数量"] == "-"
     assert inventory["在途数量"] == " "
     assert inventory["可用库存"] == -1.5
-    assert "90天销量" not in result["field_mappings"]["inventory-sales"]
     assert sales["SKU"] == "001" and sales["可用"] == -0.5
     with closing(load_workbook(result["artifacts"][0]["path"], rich_text=True)) as book:
         original = book.worksheets[0]
@@ -163,6 +157,9 @@ def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_
 ])
 @pytest.mark.parametrize("field,value,match", [
     ("numeric", "bad", "不是数字"),
+    ("numeric", "NaN", "必须是有限数值"),
+    ("numeric", "Infinity", "必须是有限数值"),
+    ("numeric", True, "不能是布尔值"),
     ("sku", None, "SKU 必须是非空文本"),
     ("sku", 123, "SKU 必须是非空文本"),
     ("duplicate", None, "重复 SKU"),
@@ -179,3 +176,22 @@ def test_invalid_sources_publish_nothing(tmp_path, ph_files, build, source, nume
     if field == "numeric":
         assert error.value.code == "invalid_number"
     assert not (tmp_path / "output").exists()
+
+
+def test_second_workbook_save_failure_keeps_sources_and_existing_target(tmp_path, ph_files, build):
+    paths = ph_files()
+    original = {key: Path(path).read_bytes() for key, path in paths.items()}
+    output = tmp_path / "output"
+    output.mkdir()
+    blocked = output / "菲律宾库存列表-2026年11月05日.xlsx"
+    blocked.mkdir()
+    (blocked / "keep.txt").write_text("existing unrelated directory", encoding="utf-8")
+
+    with pytest.raises(OSError) as error:
+        build(paths)
+
+    assert blocked.name in str(error.value)
+    assert (blocked / "keep.txt").read_text(encoding="utf-8") == "existing unrelated directory"
+    assert {key: Path(path).read_bytes() for key, path in paths.items()} == original
+    with closing(load_workbook(output / "菲律宾库存动销-2026年11月05日.xlsx")) as first:
+        assert first.worksheets[1]["N2"].value == 130

@@ -1,11 +1,19 @@
 from contextlib import closing
-from unittest.mock import Mock
+from functools import partial
+import io
+import json
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 import pytest
+import requests
 
-from services.philippines_reports import workflow
+from services.mabang_tms import workflow as tms_workflow
+from services.mabang_tms.client import TmsClient
+from services.yacang.auth_state import YacangAuthState
+from services.yacang.contracts import Credentials
 from services.yacang.validation import INVENTORY_LIST_HEADERS, INVENTORY_SALES_DELIVERY_HEADERS
 from shared.workspace import activate_project_workspace
 
@@ -63,29 +71,114 @@ def ph_rows():
 
 @pytest.fixture
 def ph_workspace(tmp_path, monkeypatch):
-    monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path / "workspace"))
-    monkeypatch.setenv("LXE_DATA_ROOT", str(tmp_path / "state"))
+    def unexpected_network(*args, **kwargs):
+        pytest.fail("unexpected HTTP request outside the offline export fixture")
+
+    monkeypatch.setattr(requests.Session, "send", unexpected_network)
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "philippines-reports-export")
-    activate_project_workspace()
-    monkeypatch.setattr(workflow.yacang_workflow, "run", lambda *args: pytest.fail("unexpected Yacang export"))
-    monkeypatch.setattr(workflow.tms_workflow, "run_with_events", lambda *args: pytest.fail("unexpected TMS export"))
+    try:
+        with monkeypatch.context() as environment:
+            for name, value in {
+                "LXE_WORKSPACE_ROOT": str(tmp_path / "workspace"),
+                "LXE_DATA_ROOT": str(tmp_path / "state"),
+                "LXE_SQLITE_DB_PATH": str(tmp_path / "state/db/lxeskill.sqlite3"),
+                "LXE_YACANG_MOBILE": "yacang-test-account",
+                "LXE_YACANG_PASSWORD": "yacang-test-password",
+                "LXE_MABANG_TMS_ACCOUNT": "tms-test-account",
+                "LXE_MABANG_TMS_PASSWORD": "tms-test-password",
+            }.items():
+                environment.setenv(name, value)
+            activate_project_workspace()
+            yield
+    finally:
+        activate_project_workspace()
 
 
 @pytest.fixture
-def ph_online(monkeypatch):
+def ph_online(ph_workspace, monkeypatch):
+    """Synthetic HTTP responses; both ERP clients, workflows and storage are real."""
     def install(paths):
-        yacang = {"success": True, "status": "completed", "artifacts": [
-            {"source": "yacang", "report": report, "warehouse": "PH8805", "created_date": None,
-             "path": paths[key], "row_count": 1}
-            for key, report in (("sales_file", "inventory-sales"), ("inventory_file", "inventory-current-snapshot"))
-        ]}
-        tms = {"success": True, "status": "completed", "warehouse": "PH1", "warehouse_id": 12107,
-               "warehouse_scope": "selected_warehouse", "reported_total": 1, "read_unique_ids": 1,
-               "exported_unique_ids": 1, "remaining_records": 0, "source_row_count": 1,
-               "row_count": 1, "distinct_skus": 1, "artifacts": [{
-                   "path": paths["tms_file"], "warehouse": "菲律宾PH1仓", "row_count": 1}]}
-        yacang_mock, tms_mock = Mock(return_value=yacang), Mock(return_value=tms)
-        monkeypatch.setattr(workflow.yacang_workflow, "run", yacang_mock)
-        monkeypatch.setattr(workflow.tms_workflow, "run_with_events", tms_mock)
-        return yacang, tms, yacang_mock, tms_mock
+        state = {"calls": [], "queue": [], "reject": {}, "downloaded": set(), "tms_records": []}
+        with closing(load_workbook(paths["tms_file"])) as book:
+            rows = book.active.iter_rows(values_only=True)
+            headers = next(rows)
+            for index, row in enumerate(rows, 1):
+                values = dict(zip(headers, row))
+                state["tms_records"].append({
+                    "id": index, "stockSku": values["库存SKU"], "warehouseId": 12107,
+                    "warehouseName": values["仓库"], "stockQuantity": values["可用库存"],
+                    "sale1": values["7天销量"], "sale2": values["15天销量"], "sale3": values["30天销量"],
+                })
+
+        def response(request, status, body):
+            result = requests.Response()
+            result.status_code, result.url, result.request = status, request.url, request
+            result._content = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+            result._content_consumed = True
+            result.headers["Content-Length"] = str(len(result._content))
+            return result
+
+        def send(_session, request, **kwargs):
+            url = urlsplit(request.url)
+            params = {key: values[0] for key, values in parse_qs(url.query).items()}
+            body = json.loads(request.body or "{}")
+            source = "yacang" if url.hostname in {"api-oms.seaya.cn", "oss-accelerate.seaya.cn"} else "tms"
+            operation = url.path.rsplit("/", 1)[-1]
+            if url.hostname == "api-oms.seaya.cn":
+                operation = {"/sys/customer/mrpPrepare/export": "sales-submit",
+                             "/sys/customer/stockWarehouse/export": "inventory-submit",
+                             "/sys/customer/downPath/list": "queue"}[url.path]
+                if (operation == "queue" and "sales" in state["downloaded"]
+                        and not any(row["type"] == "1" for row in state["queue"])):
+                    operation = "inventory-baseline"
+            state["calls"].append({"source": source, "operation": operation, "params": params, "body": body})
+            rejected = state["reject"].get((source, operation))
+            if isinstance(rejected, Exception):
+                raise rejected
+            if rejected:
+                return response(request, *rejected)
+            if source == "yacang":
+                if url.hostname == "oss-accelerate.seaya.cn":
+                    report = "sales" if operation == "sales.xlsx" else "inventory"
+                    state["downloaded"].add(report)
+                    if report == "sales":
+                        with closing(load_workbook(paths["sales_file"])) as book:
+                            sheet = book.active
+                            if sheet.max_column == 15:
+                                sheet.cell(1, 16, "创建日期")
+                                for row in range(2, sheet.max_row + 1):
+                                    sheet.cell(row, 16, "2026-11-05 00:00:00")
+                            content = io.BytesIO()
+                            book.save(content)
+                        return response(request, 200, content.getvalue())
+                    return response(request, 200, Path(paths["inventory_file"]).read_bytes())
+                if operation in {"queue", "inventory-baseline"}:
+                    return response(request, 200, {"status": 1, "data": {"list": state["queue"]}})
+                assert params["warehouse_id"] == "46"
+                inventory = operation == "inventory-submit"
+                report = "inventory" if inventory else "sales"
+                state["queue"].append({
+                    "id": str(len(state["queue"]) + 1), "type": "1" if inventory else "10",
+                    "name": "库存导出" if inventory else "库存动销导出",
+                    "param_where": {"warehouse_id": "46", **({"goods_sku_condition": "2"} if inventory else {})},
+                    "path": f"https://oss-accelerate.seaya.cn/{report}.xlsx",
+                })
+                return response(request, 200, {"status": 1})
+            if operation == "login":
+                return response(request, 200, {"code": "200", "data": {"apiToken": "tms-offline-token"}})
+            if operation == "findMyStockwarehouseList":
+                assert body["warehouseId"] == 12107
+                return response(request, 200, {"code": "200", "datas": state["tms_records"],
+                                               "totalNum": len(state["tms_records"]), "page": body["page"]})
+            if operation == "exportStockwarehouse":
+                assert body["warehouseId"] == 12107
+                return response(request, 200, {"code": "200", "pop": "https://tms-cos.mabangerp.com/offline.xlsx"})
+            assert url.hostname == "tms-cos.mabangerp.com" and operation == "offline.xlsx"
+            return response(request, 200, Path(paths["tms_file"]).read_bytes())
+
+        monkeypatch.setattr(requests.Session, "send", send)
+        monkeypatch.setattr("services.yacang.state.time.sleep", lambda _: None)
+        monkeypatch.setattr(tms_workflow, "TmsClient", partial(TmsClient, sleeper=lambda _: None))
+        YacangAuthState(Credentials.from_environment()).save_session("yacang-offline-token")
+        return state
     return install
