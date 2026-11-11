@@ -227,9 +227,22 @@ export class McpManager {
         // A connection can close between discovery and subscribing above.
         if (entry.connection !== connection) return;
         const definitions = adaptMcpTools(entry.config, connection.tools,
-          (name, input, signal, metadata) => {
+          async (name, input, signal, metadata) => {
             if (!current() || entry.connection !== connection) throw new Error(`MCP server ${entry.config.name} connection is no longer active`);
-            return connection.callTool(name, input, signal, metadata);
+            try {
+              return await connection.callTool(name, input, signal, metadata);
+            } catch (error) {
+              if (error instanceof McpLoginRequired && current() && entry.connection === connection) {
+                // Invalidate this generation before closing: concurrent calls and late close events
+                // must not restore ready/disconnected or overwrite a replacement connection.
+                const cleanup = this.reset(entry, "needs_auth", registry);
+                entry.challenge = error.challenge;
+                entry.error = mcpFailureText(error.original);
+                this.logger.warn("mcp_authorization_required", { server_name: entry.config.name, error: entry.error });
+                await cleanup;
+              }
+              throw error;
+            }
           },
           new Set(registry.definitionsSnapshot().map(tool => tool.name)),
           observed => { if (current() && entry.connection === connection) entry.error = observed; },

@@ -1,10 +1,10 @@
-import { Client, extractWWWAuthenticateParams, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
+import { Client, extractWWWAuthenticateParams, SdkHttpError, StreamableHTTPClientTransport, type ClientOptions } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { JsonObject } from "@lxe/protocol";
 import type { Environment, Logger } from "@lxe/core";
 import type { McpConnection, McpConnector, McpRemoteTool, McpServerConfig } from "./types";
 import { resolveMcpHttpHeaders } from "./config";
-import { mapping } from "./support";
+import { mapping, mcpFailureText } from "./support";
 import { McpConnectionDiagnostics } from "./connection-diagnostics";
 
 type McpSdkClientPort = Pick<Client,
@@ -15,7 +15,7 @@ export interface McpOAuthChallenge { url: string; resourceMetadataUrl?: string; 
 
 export class McpLoginRequired extends Error {
   constructor(readonly challenge: McpOAuthChallenge, readonly original: unknown) {
-    super(original instanceof Error ? original.message : String(original), { cause: original });
+    super(mcpFailureText(original), { cause: original });
   }
 }
 
@@ -78,7 +78,7 @@ export class OfficialMcpConnector implements McpConnector {
           let response = await send(token);
           if (response.status === 401) {
             const params = extractWWWAuthenticateParams(response);
-            challenge = { url: server.url, ...(params.scope && { scope: params.scope }),
+            const rejectedChallenge = { url: server.url, ...(params.scope && { scope: params.scope }),
               ...(params.resourceMetadataUrl && { resourceMetadataUrl: params.resourceMetadataUrl.href }) };
             if (token && params.error !== "insufficient_scope") {
               init?.signal?.throwIfAborted();
@@ -86,14 +86,25 @@ export class OfficialMcpConnector implements McpConnector {
               try { replacement = await credential(token); }
               catch (error) {
                 await response.body?.cancel();
-                throw new Error("MCP HTTP 401; OAuth refresh failed: " + (error instanceof Error ? error.message : String(error)), { cause: error });
+                const failure = new Error("MCP HTTP 401; OAuth refresh failed: " + (error instanceof Error ? error.message : String(error)), { cause: error });
+                // A rejected grant needs consent; a failed network request to the issuer does not.
+                if (error instanceof McpLoginRequired) {
+                  challenge = rejectedChallenge;
+                  throw new McpLoginRequired(rejectedChallenge, failure);
+                }
+                throw failure;
               }
               if (replacement && replacement !== token) {
                 await response.body?.cancel();
                 response = await send(replacement);
-                if (response.ok) challenge = undefined;
               }
             }
+            // Keep only an unresolved challenge, including one returned by the refreshed request.
+            if (response.status === 401) {
+              const final = extractWWWAuthenticateParams(response);
+              challenge = { ...rejectedChallenge, ...(final.scope && { scope: final.scope }),
+                ...(final.resourceMetadataUrl && { resourceMetadataUrl: final.resourceMetadataUrl.href }) };
+            } else challenge = undefined;
           }
           return response;
         },
@@ -137,7 +148,15 @@ export class OfficialMcpConnector implements McpConnector {
         ...(protocolVersion === undefined ? {} : { protocolVersion }),
         ...(protocolEra === undefined ? {} : { protocolEra }),
         callTool: async (name, arguments_, signal, metadata) => {
-          const result = await client.callTool({ name, arguments: arguments_, ...(metadata ? { _meta: metadata } : {}) }, signal ? { signal } : {});
+          let result;
+          try {
+            result = await client.callTool({ name, arguments: arguments_, ...(metadata ? { _meta: metadata } : {}) }, signal ? { signal } : {});
+          } catch (error) {
+            if (oauth && error instanceof SdkHttpError && error.status === 401) {
+              throw new McpLoginRequired(challenge ?? { url: server.url }, error);
+            }
+            throw error;
+          }
           const content = Array.isArray(result.content)
             ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
             : [];

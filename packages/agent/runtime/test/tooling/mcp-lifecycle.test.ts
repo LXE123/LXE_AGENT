@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { McpManager, type McpConnection, type McpServerConfig } from "../../src/tooling/mcp";
+import { McpLoginRequired, McpManager, type McpConnection, type McpServerConfig } from "../../src/tooling/mcp";
 import { ToolRegistry } from "../../src/tooling/registry";
 import { policyFor, testWorkspace } from "../workspace";
 
@@ -158,6 +158,29 @@ test("business failures retain diagnostics without declaring the transport disco
     await manager.start(registry);
     await expect(registry.execute("mcp__fixture__echo", {}, context())).rejects.toThrow("actual input rejected");
     expect(manager.status("fixture")).toMatchObject({ state: "ready", connected: true, error: "actual input rejected", toolCount: 1 });
+  } finally { await manager.stop(); }
+});
+
+test("an old in-flight authorization failure cannot invalidate a replacement connection", async () => {
+  const failed = Promise.withResolvers<never>();
+  const started = Promise.withResolvers<void>();
+  const first = connection(), next = connection();
+  first.value.callTool = async () => { started.resolve(); return failed.promise; };
+  let attempts = 0;
+  const manager = new McpManager({ servers: [server()] }, { connect: async () => ++attempts === 1 ? first.value : next.value });
+  const registry = new ToolRegistry();
+  try {
+    await manager.start(registry);
+    const pending = registry.execute("mcp__fixture__echo", {}, context());
+    const observed = pending.catch(error => error);
+    await started.promise;
+    await manager.reconnect("fixture");
+    failed.reject(new McpLoginRequired({ url: "https://fixture/mcp" }, new Error("old token rejected")));
+    expect(String(await observed)).toContain("old token rejected");
+    expect(manager.status("fixture")).toMatchObject({ state: "ready", error: "", toolCount: 1 });
+    expect(next.closes()).toBe(0);
+    await registry.execute("mcp__fixture__echo", {}, context());
+    expect(next.calls).toEqual(["echo"]);
   } finally { await manager.stop(); }
 });
 

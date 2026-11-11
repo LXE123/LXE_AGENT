@@ -6,6 +6,10 @@ reuses its connections across turns; after 30 idle minutes they are released
 and rebuilt on the next use. Configuration and OAuth credentials remain shared.
 
 For a server marked `needs_auth`, the output includes its sign-in command.
+An established connection can enter this state when a tool request is rejected
+and automatic token renewal cannot restore authorization. Its tools are withdrawn;
+the actual error remains available in the tool result and `mcp list`. Signing in
+restores the connection. Network or business errors alone do not require sign-in.
 When the user asks to sign in, run that command with `exec`, for example
 `agent-cli mcp login team-skills`. Use the configured name from the list,
 including hyphens; `mcp__team_skills` is the tool namespace, not the server name.

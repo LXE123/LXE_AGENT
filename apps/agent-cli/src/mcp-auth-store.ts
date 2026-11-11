@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import lockfile from "proper-lockfile";
 import { OAuthError } from "@modelcontextprotocol/client";
 import { sanitizeLogValueWithPolicy } from "@lxe/core";
+import { McpLoginRequired } from "@lxe/runtime";
 import { renewMcpGrant, type McpGrant } from "./mcp-oauth";
 
 export class McpAuthStore {
@@ -82,7 +83,8 @@ export class McpAuthStore {
       let refreshed: McpGrant;
       try { refreshed = await renewMcpGrant(current); }
       catch (error) {
-        if (error instanceof OAuthError && ["invalid_grant", "invalid_client", "unauthorized_client"].includes(error.code)) {
+        const needsLogin = error instanceof OAuthError && ["invalid_grant", "invalid_client", "unauthorized_client"].includes(error.code);
+        if (needsLogin) {
           const { renewal, ...remaining } = current;
           this.write(remaining);
         }
@@ -92,7 +94,9 @@ export class McpAuthStore {
         for (const secret of [current.access_token, current.renewal.refresh_token, current.renewal.client.client_secret]) {
           if (secret) message = message.replaceAll(secret, "[redacted]");
         }
-        throw new Error(String(sanitizeLogValueWithPolicy(message, { maxString: 8192 })));
+        const failure = new Error(String(sanitizeLogValueWithPolicy(message, { maxString: 8192 })));
+        if (needsLogin) throw new McpLoginRequired({ url }, failure);
+        throw failure;
       }
       this.write(refreshed);
       return refreshed.access_token;
