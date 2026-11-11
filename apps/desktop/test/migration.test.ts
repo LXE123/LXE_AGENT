@@ -126,7 +126,7 @@ test("does not import legacy YAML or overwrite existing JSON settings", () => {
   const state = join(f.data, "config/unrelated.json");
   writeFileSync(state, '{"other":true}');
   bootstrapDesktopState(f.source, f.data);
-  expect(JSON.parse(readFileSync(f.target, "utf8"))).toEqual({ servers: {} });
+  expect(JSON.parse(readFileSync(f.target, "utf8"))).toEqual(JSON.parse(f.defaults));
   const local = '{"servers":{"local":{"command":"node","enabled":false}}}';
   writeFileSync(f.target, local);
   bootstrapDesktopState(f.source, f.data);

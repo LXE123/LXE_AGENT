@@ -4,7 +4,7 @@
 
 ## 新配置与已有配置
 
-[默认 MCP 配置](../config/mcp_servers.default.json)不再预置外部服务器；桌面宿主注入的 `lxe_desktop` 保留。普通 stdio 和 Streamable HTTP 服务仍可通过用户配置接入。
+[默认 MCP 配置](../config/mcp_servers.default.json)不再包含 `lxe-saihu`，现预置并启用通用 Streamable HTTP 服务 `team-skills`；桌面宿主注入的 `lxe_desktop` 保留。其他 stdio 和 Streamable HTTP 服务仍可通过用户配置接入。
 
 赛狐 MCP 尚未被用户使用，本次直接删除专用实现与默认条目，不增加旧配置迁移。之前由默认模板生成的本地配置可能仍有关闭的 `lxe-saihu` 条目，可手动删除；启动时不会自动备份或改写用户配置。
 

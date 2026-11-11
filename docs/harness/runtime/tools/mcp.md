@@ -32,7 +32,9 @@ HTTP 连接和 OAuth 请求统一遵循 Harness 的[环境变量与系统手动�
 
 ## 配置文件
 
-默认读取数据目录中的 `config/mcp_servers.local.json`；可用 `LXE_MCP_CONFIG_PATH` 指定另一个 JSON 文件。文件不存在或 `servers` 为空时，没有用户配置的服务器。桌面首次启动会复制空的默认 JSON 模板。
+默认读取数据目录中的 `config/mcp_servers.local.json`；可用 `LXE_MCP_CONFIG_PATH` 指定另一个 JSON 文件。文件不存在或 `servers` 为空时，没有用户配置的服务器。
+
+桌面在本地 JSON 配置不存在时复制[默认模板](../../../../config/mcp_servers.default.json)，预置并启用 `team-skills`（Streamable HTTP）。需要授权时，由用户主动发起登录。已有配置保持原样；升级不会自动补回已删除的服务，也不会重新启用已关闭的服务。
 
 只支持 JSON。旧的 `mcp_servers.local.yaml` 不读取、不迁移、不删除；它里面的服务器不会自动连接。需要继续使用的服务，由用户写入 JSON 文件。显式指定的文件也按 JSON 解析，格式错误直接报告，不回退到其他文件。单个配置项无效时，记录错误并跳过该项，继续加载其他有效服务；`list` 汇总配置错误并以退出码 1 结束。添加、替换和删除不会改写其他无效项。
 
