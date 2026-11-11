@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { repositoryRoot } from "@lxe/core";
+import * as directTransport from "undici/index.js";
+import * as network from "../../src/network/fetch";
 import { classifyProviderError } from "../../src/providers/provider-errors";
 import { providerErrorDetails } from "../../src/providers/provider-error-details";
 import { providerRetryDelayMs, waitForProviderRetry } from "../../src/providers/provider-retry";
@@ -118,10 +120,22 @@ describe("bounded and cancellable provider backoff", () => {
 describe("actual OpenAI SDK with simulated HTTP and SSE responses", () => {
   const request = { system: "test", messages: [], tools: [], toolChoice: "none" as const };
   const withFetch = async (response: () => Response, run: () => Promise<void>) => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = Object.assign(async () => { calls++; return response(); }, { preconnect: original.preconnect }) as typeof fetch;
-    try { await run(); expect(calls).toBe(1); } finally { globalThis.fetch = original; }
+    // Keep the real SDK, but intercept before proxy/direct routing. Neither transport
+    // may reach the network if a provider accidentally bypasses this fixture.
+    const fetch = spyOn(network, "harnessFetch").mockImplementation(async () => response());
+    const unexpectedNetwork = new Error("Provider error test attempted a real network request");
+    const nativeFetch = spyOn(globalThis, "fetch").mockRejectedValue(unexpectedNetwork);
+    const directFetch = spyOn(directTransport, "fetch").mockRejectedValue(unexpectedNetwork);
+    try {
+      await run();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(nativeFetch).not.toHaveBeenCalled();
+      expect(directFetch).not.toHaveBeenCalled();
+    } finally {
+      directFetch.mockRestore();
+      nativeFetch.mockRestore();
+      fetch.mockRestore();
+    }
   };
 
   test("retains the HTTP body, request ID and Retry-After without SDK retries", async () => {
