@@ -1,3 +1,9 @@
 {
-  "servers": {}
+  "servers": {
+    "team-skills": {
+      "enabled": true,
+      "transport": "streamable-http",
+      "url": "https://qcnd7w5806gy.feishu.link/mcp/app_17gftabyhpd"
+    }
+  }
 }
