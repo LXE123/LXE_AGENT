@@ -1,72 +1,59 @@
 # Manage user MCP servers
 
-In a local chat, use `exec` to run `agent-cli mcp list`. It reports the live
-connections used by this chat. Other chats own separate connections. A chat
-reuses its connections across turns; after 30 idle minutes they are released
-and rebuilt on the next use. Configuration and OAuth credentials remain shared.
+## Check status
 
-For a server marked `needs_auth`, the output includes its sign-in command.
-An established connection can enter this state when a tool request is rejected
-and automatic token renewal cannot restore authorization. Its tools are withdrawn;
-the actual error remains available in the tool result and `mcp list`. Signing in
-restores the connection. Network or business errors alone do not require sign-in.
-When the user asks to sign in, run that command with `exec`, for example
-`agent-cli mcp login team-skills`. Use the configured name from the list,
-including hyphens; `mcp__team_skills` is the tool namespace, not the server name.
+Run `agent-cli mcp list` with `exec` to see this chat's live connection states,
+tool names, errors and sign-in commands. Use `list --json` for a JSON array.
+Other chats own separate connections. From an independent terminal, `list`
+temporarily connects to enabled user servers, discovers their tools and closes
+the connections. Desktop-injected services such as `lxe_desktop` are available
+only in the desktop host.
 
-`login` first checks the connection. It uses saved credentials when available
-and opens the authorization page only if the server requires sign-in. The initial
-"Checking connection" output does not mean a browser has opened.
-When an authorization URL is ready, the command prints
-`Sign in to MCP server "<name>" in your browser:` followed by the URL and attempts
-to open it. The user can open that URL manually if needed. This is an invitation
-to authorize, not proof that the browser opened or that authorization succeeded.
-After saving credentials, it prints that they were saved and it is verifying
-the connection. The final result determines whether the server is usable.
-If `exec` reports `status: running`, use `wait` with its `exec_id` to collect the
-outcome. Both running and finished commands have an `exec_id`; check the status
-and exit code. A finished command with a nonzero exit code has failed and is no
-longer waiting for browser approval. Do not launch a second login while one runs.
-A successful command means the Harness has verified the connection; its tools
-are then available for discovery. It may have reused credentials without a new
-browser login. An already connected server needs no login.
-If OAuth credentials were saved but the connection failed, report both facts.
-Retry the same login command to reconnect using the saved credentials. The
-Harness asks for browser sign-in again only if the server challenges them.
-Failures identify the server and phase: connection, sign-in, credential saving,
-or reconnection after credentials were saved. Report the actual returned error;
-a network failure alone does not establish that the user needs to sign in.
-A server configured with a fixed
-API key or Authorization header may need its configured credentials updated instead.
+## Sign in and out
 
-From a terminal without an active chat, the same commands work independently.
-Use the same LXE data root (`LXE_DATA_ROOT`) as the chat to share credentials.
-Standalone `list` opens temporary connections to each enabled user server, discovers
-its tools and closes the connections before exiting. Desktop-injected services
-such as `lxe_desktop` are only present in the desktop host. Both forms print the
-connection state, tool names and any error; `list --json` returns a JSON array.
-Exit status 1 means an enabled server is not ready or the configuration is invalid.
-Standalone `login` connects only the requested service. A running Harness picks
-up the new credentials for a service awaiting sign-in before its next model call.
+For a server marked `needs_auth`, run its sign-in command when the user requests
+login, for example:
 
-Use `agent-cli mcp logout <name>` to forget that server’s locally stored OAuth
-credentials without removing the server. To sign in again, run `login <name>`.
-Logging out does not revoke access at the provider or remove fixed HTTP headers.
+```sh
+agent-cli mcp login team-skills
+```
 
-From a terminal, add or replace a user configuration with either form:
+Use the configured server name, including hyphens, rather than its tool namespace
+(`mcp__team_skills`). `login` checks the connection using saved credentials when
+available. If browser authorization is needed, it prints the authorization URL
+and attempts to open it; the user can open the URL manually. If the command is
+still running, use `wait` with its `exec_id` to collect the final result.
+
+Report progress from the command's output. A successful final result means the
+connection was verified and its tools are available. If credentials were saved
+but reconnection failed, report both facts and retry the same login command to
+use those credentials. Preserve the actual returned error: a network failure
+alone does not establish that sign-in is needed. Fixed API keys or Authorization
+headers may need updating in the configuration instead.
+
+`agent-cli mcp logout <name>` deletes locally saved OAuth credentials while
+keeping the server configuration. It does not revoke provider access, end the
+browser's login session or remove fixed HTTP headers.
+
+## Add and remove servers
+
+Add or replace a user configuration:
 
 ```sh
 agent-cli mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
 agent-cli mcp add files --cwd /path/to/workspace -- node /path/to/mcp-server.js
-agent-cli mcp remove files
 ```
 
-`add` saves the definition without starting it; `remove` keeps saved OAuth
-credentials. Config edits apply before each chat’s next model call and on the
-next standalone command. You can also add services through
-**Capabilities → MCP services → Add service**; viewing or saving settings does
-not probe connections. All workspaces using the same
-LXE data root share the configuration. Run `agent-cli mcp --help` or a subcommand
-with `--help` for options. Invalid command arguments exit with status 2 and print
-the argument error and usage. For `login` and `logout`, a name that does not match
-a configured server exits with status 1 and lists the configured names.
+`add` saves the definition without starting it. `agent-cli mcp remove <name>`
+removes the definition but keeps saved OAuth credentials. The desktop also
+provides **Capabilities → MCP services → Add service**. Run
+`agent-cli mcp --help` or a subcommand with `--help` for options.
+
+## Configuration scope
+
+Configuration and OAuth credentials are shared by all workspaces using the same
+LXE data root (`LXE_DATA_ROOT`); connections belong to individual chats. Use the
+same data root in an independent terminal to manage the same servers and credentials.
+Configuration changes apply before each chat's next model call and on the next
+standalone command. A chat awaiting sign-in also checks for updated credentials
+before its next model call.
