@@ -116,6 +116,7 @@ export class McpManager {
     return {
       state: entry.state, connected: entry.state === "ready", error: entry.error,
       toolCount: entry.toolCount, tools: structuredClone(entry.tools),
+      ...(entry.connection?.resources && { resources: true }),
     };
   }
 

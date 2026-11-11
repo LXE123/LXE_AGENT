@@ -20,10 +20,3 @@ export const AUTOMATION_DEFINITION_SCHEMA = {
     ] },
   },
 };
-
-// This pipe is scoped to MCP management; it is separate from desktop automation.
-export const MCP_CLI_LOGIN_TIMEOUT_MS = 6 * 60_000; // includes the five-minute OAuth callback window
-export type McpCliServer = {
-  name: string; status: string; transport: string; tool_count: number; error: string;
-  tools: Array<{ rawName: string; modelName: string }>;
-};

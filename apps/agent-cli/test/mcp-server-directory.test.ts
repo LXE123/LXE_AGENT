@@ -67,6 +67,13 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   let browserOpens = 0;
   const protectedServer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const { pathname, origin } = new URL(request.url);
+    if (pathname === "/browser") {
+      browserOpens++;
+      const auth = new URL(await request.text()), callback = new URL(auth.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", auth.searchParams.get("state")!);
+      callback.searchParams.set("code", "approved");
+      return new Response(null, { status: (await fetch(callback)).status });
+    }
     if (pathname === "/resource") return Response.json({ resource: origin + "/", authorization_servers: [origin] });
     if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
       authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
@@ -101,16 +108,10 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
   const host = createAgentRuntimeHost({
     dataRoot: root, legacyWorkspace: workspace, skillsRoot, userSkillsRoot: join(root, "user-skills"), llmConfigRoot,
     environment: { ...desktopEnv, LXE_SOURCE_ROOT: source, AGENT_LLM_PROVIDER: "zhipuai", LOCAL_LOGS_ENABLED: "0", LXE_DATA_SERVER_ENABLED: "0" },
-    openMcpBrowser: async link => {
-      browserOpens++;
-      const auth = new URL(link);
-      const callback = new URL(auth.searchParams.get("redirect_uri")!);
-      callback.searchParams.set("state", auth.searchParams.get("state")!);
-      callback.searchParams.set("code", "approved");
-      expect((await fetch(callback)).ok).toBe(true);
-    },
     emitter: { emit: async () => {}, typing: async () => {} },
   });
+  const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const login = [process.execPath, join(import.meta.dir, "mcp-command.fixture.ts"), protectedServer.url.origin + "/browser", "login", "team-skills"].map(shellQuote).join(" ");
   async function turn(session: string, platform: string, command?: string) {
     nextExec = command;
     const id = crypto.randomUUID();
@@ -179,12 +180,12 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     // Exercise the normal macOS exec sandbox. Other test hosts have no packaged ACL runner.
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "desktop", permission_mode: "danger-full-access" } });
     await turn("desktop", "desktop", "agent-cli mcp list");
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("Sign in with: agent-cli mcp login team-skills");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("sign in with: agent-cli mcp login team-skills");
     if (process.platform !== "darwin") await host.dashboardCall({ operation: "sessions.permission.set", input: { session_id: "cli", permission_mode: "danger-full-access" } });
     await turn("cli", "cli", "agent-cli mcp list");
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: needs_auth");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: needs sign-in");
     handshake = "fail";
-    await turn("desktop", "desktop", "agent-cli mcp login team-skills");
+    await turn("desktop", "desktop", login);
     const failed = received.at(-1)?.messages.at(-1)?.content;
     expect(failed).toContain("OAuth credentials were saved");
     expect(failed).toContain("503");
@@ -194,13 +195,13 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     expect(browserOpens).toBe(1);
     // The retry uses the saved grant, even when HTTP discovery takes longer than two seconds.
     handshake = "slow";
-    await turn("desktop", "desktop", "agent-cli mcp login team-skills");
+    await turn("desktop", "desktop", login);
     handshake = "normal";
     expect(browserOpens).toBe(1);
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain('Connected to MCP server "team-skills".');
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain('Already signed in to MCP server "team-skills"');
     expect(received.at(-1)?.messages.at(-1)?.content).not.toContain("Signed in");
     await turn("cli", "cli", "agent-cli mcp list");
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: ready");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("team-skills: connected");
     expect(browserOpens).toBe(1);
     expect(await current()).toEqual(configured);
     // A second process uses only the data root while this same turn is between provider calls.
@@ -224,17 +225,17 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
       });
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(code, stderr).toBe(0);
-      expect(stdout).toContain('Connected to MCP server "terminal-login"');
-      expect(stdout).toContain("terminal-login: ready (streamable-http, 2 tools)");
+      expect(stdout).toContain('Signed in to MCP server "terminal-login"');
+      expect(stdout).toContain("terminal-login: connected, 2 tools (codemode, global)");
       expect(stdout).not.toContain("oauth-fixture");
     };
     await turn("desktop", "desktop", "agent-cli mcp list");
     expect(observed).toBe(2);
     // list reads the freshly saved grant immediately, independent of this chat's connection snapshot.
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: connected");
     onModelRequest = undefined;
     await turn("desktop", "desktop", "agent-cli mcp list");
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: ready");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: connected");
     await turn("desktop", "desktop", "agent-cli mcp logout team-skills");
     expect(await current()).toEqual(configured);
     onModelRequest = undefined;
@@ -243,7 +244,7 @@ test("desktop and CLI turns send platform-scoped MCP directories to the model", 
     });
     expect(await logout.exited, await new Response(logout.stderr).text()).toBe(0);
     await turn("desktop", "desktop", "agent-cli mcp list");
-    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: needs_auth");
+    expect(received.at(-1)?.messages.at(-1)?.content).toContain("terminal-login: needs sign-in");
     expect(JSON.stringify(received)).not.toContain("oauth-fixture");
     expect(readFileSync(join(root, "config/mcp_servers.local.json"), "utf8")).not.toContain("oauth-fixture");
   } finally {

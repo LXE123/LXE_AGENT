@@ -1,7 +1,5 @@
 import { join } from "node:path";
-import { MCP_CLI_LOGIN_TIMEOUT_MS, type McpCliServer } from "@lxe/desktop-protocol";
-import { requestDesktopPipe } from "@lxe/desktop-protocol/local-pipe";
-import { addMcpServer, loadMcpConfig, removeMcpServer, ToolRegistry, usesMcpOAuth } from "@lxe/runtime";
+import { addMcpServer, loadMcpConfig, removeMcpServer, ToolRegistry, usesMcpOAuth, type McpConfig } from "@lxe/runtime";
 import { resolveExecRuntimePaths } from "./exec-paths";
 import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
@@ -10,91 +8,79 @@ import { printMcpLoginProgress } from "./mcp-login-progress";
 import { withMcpConfigLock } from "./mcp-config-lock";
 import { sessionMcpConfig } from "./session-mcp";
 
-function printList(servers: McpCliServer[], json: boolean): number {
-  if (json) process.stdout.write(JSON.stringify(servers, null, 2) + "\n");
+function printList(config: McpConfig, access: McpAccess, source: string, json: boolean): number {
+  const errors = config.errors ?? [];
+  const servers = config.servers.map(server => {
+    const status = access.manager.status(server.name);
+    const state = status.state === "ready" ? "connected" : status.state === "needs_auth" ? "needs-auth"
+      : status.state === "error" ? "failed" : status.state;
+    return { name: server.name, scope: "global", source, enabled: server.enabled, exposure: server.exposure,
+      transport: server.transport === "stdio" ? [server.command, ...server.args].join(" ") : server.url,
+      state, tools: status.tools.map(tool => tool.rawName),
+      ...(status.resources && { resources: true }),
+      ...(status.error && !status.connected && { error: status.error }) };
+  });
+  if (json) process.stdout.write(JSON.stringify({ servers, errors }, null, 2) + "\n");
   else {
-    if (!servers.length) process.stdout.write("No MCP servers configured.\n");
+    if (!servers.length && !errors.length) process.stdout.write(`No MCP servers configured. Add them with agent-cli mcp add or edit ${source}.\n`);
     for (const server of servers) {
-      const count = server.status === "ready" ? `, ${server.tool_count} ${server.tool_count === 1 ? "tool" : "tools"}` : "";
-      process.stdout.write(`${server.name}: ${server.status} (${server.transport}${count})\n`);
-      for (const tool of server.tools) process.stdout.write(`  ${tool.rawName}\n`);
-      if (server.error) process.stdout.write(`  Error: ${server.error.split("\n").join("\n  ")}\n`);
-      if (server.status === "needs_auth") process.stdout.write(`  Sign in with: agent-cli mcp login ${server.name}\n`);
+      const state = server.state === "connected" ? `connected, ${server.tools.length} ${server.tools.length === 1 ? "tool" : "tools"}`
+        : server.state === "needs-auth" ? "needs sign-in" : server.state;
+      process.stdout.write(`${server.name}: ${state} (${server.exposure}, ${server.scope})\n  ${server.transport}\n`);
+      if (server.state === "needs-auth") process.stdout.write(`  sign in with: agent-cli mcp login ${server.name}\n`);
+      if (server.tools.length) process.stdout.write(`  tools: ${server.tools.join(", ")}\n`);
+      if (server.resources) process.stdout.write("  offers resources\n");
+      if (server.error) process.stdout.write(`  ${server.error.split("\n").join("\n  ")}\n`);
     }
+    for (const error of errors) process.stdout.write(`config error: ${error}\n`);
   }
-  return servers.some(s => s.status !== "ready" && s.status !== "disabled") ? 1 : 0;
+  return errors.length || servers.some(server => server.enabled && server.state !== "connected") ? 1 : 0;
 }
 
+/** Terminal commands own temporary connections, including when invoked by a model. */
 export async function runMcpCommand(args: string[], openBrowser?: (url: string) => Promise<void>): Promise<number> {
   let cmd: ReturnType<typeof parseMcpCommand>;
   try { cmd = parseMcpCommand(args); }
-  catch (error) { process.stderr.write(`${(error as Error).message}\n${usage}`); return 2; }
+  catch (error) { process.stderr.write(`${(error as Error).message}\n${usage}`); return 1; }
   if (cmd.kind === "help") { process.stdout.write(usage); return 0; }
   const { dataRoot } = resolveExecRuntimePaths();
   const configPath = process.env.LXE_MCP_CONFIG_PATH?.trim() || join(dataRoot, "config", "mcp_servers.local.json");
-
-  // Edit as the invoking process, with its normal filesystem permissions. The chat
-  // pipe must never be a route to execute a new stdio command in the host.
   if (cmd.kind === "add" || cmd.kind === "remove") {
     await withMcpConfigLock(configPath, () => {
       if (cmd.kind === "add") addMcpServer(configPath, cmd.name, cmd.definition, process.env, "", true);
       else removeMcpServer(configPath, cmd.name);
     });
-    process.stdout.write(`${cmd.kind === "add" ? "Saved" : "Removed"} ${cmd.name} in user configuration. Chats load the change before their next model call.\n`);
-    return 0;
-  }
-  const signal = cmd.kind === "login" ? AbortSignal.timeout(cmd.timeout) : undefined;
-  if (cmd.kind === "login") process.stdout.write(`Checking connection to MCP server "${cmd.name}".\n`);
-  const reportLogout = (name: string, removed: boolean) => process.stdout.write(removed ? `Forgot saved OAuth credentials for ${name}.\n` : "No saved OAuth credentials.\n");
-  // list always probes fresh connections in this process, even inside a chat.
-  // Only OAuth actions need the host to update the chat's existing connection.
-  const path = process.env.LXE_MCP_CLI_PIPE, token = process.env.LXE_MCP_CLI_TOKEN;
-  if (cmd.kind !== "list" && !!path !== !!token) throw new Error("Incomplete MCP management connection");
-  if (cmd.kind !== "list" && path && token) {
-    const session_id = process.env.LXE_MCP_CLI_SESSION_ID;
-    if (!session_id) throw new Error("MCP command requires its chat session");
-    if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name, session_id }) === true);
-    else {
-      const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS,
-        event => printMcpLoginProgress(cmd.name, event));
-      process.stdout.write(result === "already_connected" ? `${cmd.name} is already connected.\n` : `Connected to MCP server "${cmd.name}".\n`);
-    }
+    process.stdout.write(`${cmd.kind === "add" ? "Saved" : "Removed"} MCP server "${cmd.name}" in ${configPath}.\n`);
+    if (cmd.kind === "add") process.stdout.write("Check with: agent-cli mcp list\n");
     return 0;
   }
   const config = sessionMcpConfig(loadMcpConfig(configPath, process.env), process.cwd(), "cli");
   const store = new McpAuthStore(dataRoot);
   if (cmd.kind !== "list") {
+    for (const error of config.errors ?? []) process.stderr.write(`config error: ${error}\n`);
     const server = requireMcpServer(cmd.name, config.servers);
-    if (server.transport !== "streamable-http") throw new Error("MCP OAuth requires a Streamable HTTP server");
+    if (!usesMcpOAuth(server)) throw new Error(`MCP ${cmd.kind} requires a Streamable HTTP server without a configured Authorization header`);
     if (cmd.kind === "logout") {
-      if (!usesMcpOAuth(server)) throw new Error("MCP logout requires a Streamable HTTP server without a configured Authorization header");
-      reportLogout(cmd.name, await store.forget(server.name, server.url));
+      const removed = await store.forget(server.name, server.url);
+      process.stdout.write(removed ? `Signed out of MCP server "${cmd.name}".\n` : `No stored credentials for MCP server "${cmd.name}".\n`);
       return 0;
     }
-    if (!server.enabled) throw new Error("MCP login requires an enabled server");
-    config.servers = [server];
+    // Explicit login can check a disabled server without changing its configuration.
+    config.servers = [{ ...server, enabled: true }];
+    process.stdout.write(`Checking connection to MCP server "${cmd.name}".\n`);
   }
   const access = new McpAccess(config, store, process.env, openBrowser);
-  const abort = () => { access.stop(); void access.manager.stop(); };
-  signal?.addEventListener("abort", abort, { once: true });
   try {
     await access.manager.start(new ToolRegistry());
-    if (cmd.kind === "list") return printList(config.servers.map(({ name, transport }) => {
-      const { state: status, toolCount: tool_count, error, tools } = access.manager.status(name);
-      return { name, status, transport, tool_count, error, tools };
-    }), cmd.json);
-    signal?.throwIfAborted();
+    if (cmd.kind === "list") return printList(config, access, configPath, cmd.json);
     const status = access.manager.status(cmd.name);
-    if (status.connected) process.stdout.write(`${cmd.name} is already connected.\n`);
+    if (status.connected) process.stdout.write(`Already signed in to MCP server "${cmd.name}" (${status.toolCount} tools).\n`);
     else {
-      if (status.state !== "needs_auth" && !access.canRelogin(cmd.name)) {
-        throw new Error(`MCP server "${cmd.name}" failed to connect:\n${status.error || status.state}`);
-      }
-      await access.login(cmd.name, signal, event => printMcpLoginProgress(cmd.name, event));
-      process.stdout.write(`Connected to MCP server "${cmd.name}".\n`);
+      if (status.state !== "needs_auth") throw new Error(`MCP server "${cmd.name}" failed to connect:\n${status.error || status.state}`);
+      await access.login(cmd.name, undefined, event => printMcpLoginProgress(cmd.name, event), cmd.timeout);
+      process.stdout.write(`Signed in to MCP server "${cmd.name}" (${access.manager.status(cmd.name).toolCount} tools).\n`);
     }
   } finally {
-    signal?.removeEventListener("abort", abort);
     access.stop();
     await access.manager.stop();
   }

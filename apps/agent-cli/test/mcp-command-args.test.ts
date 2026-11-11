@@ -13,7 +13,7 @@ test("MCP arguments distinguish bad commands, missing names, options and transpo
     [["logout", "docs", "--unknown"], "Unknown option '--unknown'"],
     [["remove", "docs", "extra"], "Unexpected argument 'extra'"],
     [["login", "docs", "--timeout"], "argument missing"],
-    [["login", "docs", "--timeout", "0"], "--timeout must be between 1 and 300 seconds"],
+    [["login", "docs", "--timeout", "0"], "--timeout must be a positive number of seconds"],
     [["add", "docs"], "Specify --url"],
     [["add", "docs", "--url", "invalid"], "--url must be a valid HTTP or HTTPS URL"],
     [["add", "docs", "--url", "https://example.com/mcp", "--cwd", "."], "--cwd only applies to stdio"],
@@ -25,6 +25,13 @@ test("MCP arguments distinguish bad commands, missing names, options and transpo
   for (const [args, error] of cases) expect(() => parseMcpCommand(args), args.join(" ")).toThrow(error);
   expect(parseMcpCommand(["add", "docs", "--", "node", "--help"])).toMatchObject({ kind: "add", definition: { command: "node", args: ["--help"] } });
   expect(parseMcpCommand(["list", "--json"])).toEqual({ kind: "list", json: true });
+  expect(parseMcpCommand(["login", "docs", "--timeout", "600"])).toMatchObject({ timeout: 600_000 });
+  expect(parseMcpCommand(["login", "docs", "--timeout", "0.5"])).toMatchObject({ timeout: 500 });
+  for (const value of ["NaN", "Infinity", "-1"]) expect(() => parseMcpCommand(["login", "docs", "--timeout", value])).toThrow();
+  expect(parseMcpCommand(["add", "docs", "--url", "https://example.com/mcp", "--oauth-client-id", "client", "--oauth-client-secret", "${CLIENT_SECRET}",
+    "--oauth-callback-port", "8765", "--oauth-client-name", "My agent", "--oauth-client-registration", "dcr"])).toMatchObject({ definition: {
+    oauth: { clientId: "client", clientSecret: "${CLIENT_SECRET}", callbackPort: 8765, clientName: "My agent", clientRegistration: "dcr" },
+  } });
 });
 
 test("unknown server hints use configured names without silently changing the requested target", () => {
@@ -36,11 +43,11 @@ test("unknown server hints use configured names without silently changing the re
   expect(() => requireMcpServer("missing", [])).toThrow("No MCP servers configured.");
 });
 
-test("MCP help and invalid arguments finish before opening configuration or contacting the Harness", async () => {
+test("MCP help and invalid arguments finish before opening configuration or connecting to a server", async () => {
   async function cli(args: string[]) {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args], {
-      // Any accidental access would fail with an incomplete management connection.
-      env: { ...process.env, LXE_MCP_CLI_PIPE: "not-a-pipe", LXE_MCP_CLI_TOKEN: "" }, stdout: "pipe", stderr: "pipe",
+      // Help and argument parsing must not read this invalid configuration path.
+      env: { ...process.env, LXE_MCP_CONFIG_PATH: "/not-a-config-file" }, stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { out, err, code };
@@ -53,7 +60,7 @@ test("MCP help and invalid arguments finish before opening configuration or cont
   }
   for (const args of [["unknown"], ["login"], ["list", "--unknown"], ["remove", "docs", "extra"]]) {
     const result = await cli(args);
-    expect(result.code, result.err).toBe(2);
+    expect(result.code, result.err).toBe(1);
     expect(result.out).toBe("");
     expect(result.err).toContain("Usage: agent-cli mcp");
     expect(result.err).not.toContain("Incomplete MCP management connection");

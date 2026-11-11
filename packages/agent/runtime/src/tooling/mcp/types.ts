@@ -4,6 +4,14 @@ import type { ToolExposure } from "../registry";
 export type McpTransportKind = "stdio" | "streamable-http";
 export type McpProtocolMode = "auto" | "legacy" | "2026-07-28";
 
+export interface McpOAuthSettings {
+  clientId?: string;
+  clientSecret?: string;
+  callbackPort?: number;
+  clientName?: string;
+  clientRegistration?: "dcr";
+}
+
 export interface McpServerConfig {
   name: string;
   /** Supplied only by the host, never loaded from user MCP configuration. */
@@ -20,6 +28,7 @@ export interface McpServerConfig {
   headers: Record<string, string>;
   envHeaders: Record<string, string>;
   bearerTokenEnvVar: string;
+  oauth?: McpOAuthSettings;
   connectorId: string;
   connectorName: string;
   connectorDescription: string;
@@ -32,6 +41,7 @@ export interface McpServerConfig {
 
 export interface McpConfig {
   servers: McpServerConfig[];
+  errors?: string[];
 }
 
 export interface McpRemoteTool {
@@ -43,6 +53,7 @@ export interface McpRemoteTool {
 
 export interface McpConnection {
   tools: McpRemoteTool[];
+  resources?: boolean;
   instructions?: string;
   /** Subscribe to transport closure; late subscribers are notified immediately. */
   onClose?(listener: () => void): () => void;
@@ -72,4 +83,5 @@ export interface McpServerStatus {
   error: string;
   toolCount: number;
   tools: Array<{ rawName: string; modelName: string }>;
+  resources?: boolean;
 }

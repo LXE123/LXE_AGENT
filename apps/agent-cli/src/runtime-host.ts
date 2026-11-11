@@ -2,11 +2,9 @@ import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
 import { withMcpConfigLock } from "./mcp-config-lock";
-import { openMcpCliBridge } from "./mcp-cli-bridge";
-import type { McpLoginProgress } from "./mcp-login-progress";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
-import { SessionMcpPool, sessionMcpConfig, type SessionMcpRuntime } from "./session-mcp";
+import { SessionMcpPool, sessionMcpConfig } from "./session-mcp";
 import { SessionTitleService, TaskTitleService } from "@lxe/runtime";
 import { withManagedModels, managedCredentialFor, managedTargetKey, singleManagedState, loadLlmProviderCatalog, type ManagedLlmState } from "@lxe/core";
 import { existsSync } from "node:fs";
@@ -27,7 +25,7 @@ import {
   type ManagedLlmCredential,
   type ManagedLlmTarget,
 } from "@lxe/desktop-protocol";
-import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
+import { assertWorkspaceAvailable, createLogger, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
@@ -73,8 +71,6 @@ export interface AgentRuntimeHostOptions {
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
   managedLlmState?: ManagedLlmState;
-  openMcpBrowser?: (url: string) => Promise<void>;
-  onMcpChanged?: () => Promise<void> | void;
   onBackgroundTaskChanged?: (snapshot: JsonObject) => Promise<void> | void;
   onSkillsChanged?: (revision: number) => Promise<void> | void;
   onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
@@ -124,12 +120,6 @@ export function createAgentRuntimeHost(
     LXE_WORKSPACE_ROOT: join(options.dataRoot, "workspace"),
     PYTHONDONTWRITEBYTECODE: "1",
   };
-  let mcpCli: Awaited<ReturnType<typeof openMcpCliBridge>> | undefined;
-  // A nested Harness owns its own command pipe. Never forward its parent's capability.
-  for (const key of ["LXE_MCP_CLI_PIPE", "LXE_MCP_CLI_TOKEN", "LXE_MCP_CLI_SESSION_ID"]) {
-    delete environment[key];
-    delete process.env[key];
-  }
   const desktopMcp = takeDesktopMcpConfig(environment);
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
@@ -196,9 +186,9 @@ export function createAgentRuntimeHost(
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     execShell,
-    execEnv: ({ skillNames, platform, sessionId }) => ({
+    execEnv: ({ skillNames }) => ({
       LXESKILL_SKILL_SCOPE: skillNames.join(","),
-      ...((platform === "desktop" || platform === "cli") && mcpCli && { ...mcpCli.environment, LXE_MCP_CLI_SESSION_ID: sessionId, ...(sourceRoot && { LXE_MCP_CLI_BUN: process.execPath }) }),
+      ...(sourceRoot && { LXE_AGENT_CLI_BUN: process.execPath }),
     }),
     ...(options.onBackgroundTaskChanged ? { onExecUpdate: options.onBackgroundTaskChanged } : {}),
   });
@@ -215,6 +205,7 @@ export function createAgentRuntimeHost(
     || join(options.dataRoot, "config", "mcp_servers.local.json");
   function readMcpConfig() {
     const config = loadMcpConfig(mcpConfigPath, environment);
+    for (const error of config.errors ?? []) logger.warn("mcp_config_error", { error });
     if (desktopMcp) {
       if (config.servers.some(server => mcpNamespace(server.name) === mcpNamespace(desktopMcp.name))) throw new Error("The mcp__lxe_desktop namespace is reserved for the app-managed MCP server");
       config.servers.push(desktopMcp);
@@ -222,7 +213,7 @@ export function createAgentRuntimeHost(
     return config;
   }
   const mcpConfig = readMcpConfig();
-  const refreshMcpConfig = () => { mcpConfig.servers = readMcpConfig().servers; return mcpConfig; };
+  const refreshMcpConfig = () => { Object.assign(mcpConfig, readMcpConfig()); return mcpConfig; };
   const nativeTools = tools.definitionsSnapshot();
   registerMcpDiscoveryTools(tools, mcpConfig, store);
   const mcpAuth = new McpAuthStore(options.dataRoot);
@@ -231,26 +222,9 @@ export function createAgentRuntimeHost(
     const registry = new ToolRegistry();
     for (const tool of nativeTools) registry.register(tool);
     registerMcpDiscoveryTools(registry, config, store);
-    const access = new McpAccess(config, mcpAuth, environment, options.openMcpBrowser);
+    const access = new McpAccess(config, mcpAuth, environment);
     return { tools: registry, config, access };
   }, undefined, error => logger.warn("mcp_session_cleanup_failed", { error }));
-  const loggingIn = new Set<string>();
-  async function signIn(access: McpAccess, name: string, signal?: AbortSignal, onProgress?: (event: McpLoginProgress) => void) {
-    if (loggingIn.has(name)) throw new Error("MCP login already in progress");
-    loggingIn.add(name);
-    try { await access.login(name, signal, onProgress); }
-    finally { loggingIn.delete(name); await options.onMcpChanged?.(); }
-  }
-  async function withMcpSession<T>(sessionId: string, run: (session: SessionMcpRuntime) => Promise<T>): Promise<T> {
-    return runWithLogContext({ session_id: sessionId }, async () => {
-      const session = await store.getSession(sessionId);
-      if (!session) throw new Error("Session not found: " + sessionId);
-      const lease = await sessions.acquireCommand(sessionId, assertWorkspaceAvailable(session.workspace).directory, String(session.source.platform ?? ""));
-      try {
-        return await run(lease);
-      } finally { lease.release(); }
-    });
-  }
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
     questions, approvals, sessionTitles, taskTitles,
@@ -289,22 +263,9 @@ export function createAgentRuntimeHost(
     },
   });
   runtimeServices.push({
-    async start() {
-      mcpCli = await openMcpCliBridge({
-        list: sessionId => withMcpSession(sessionId, async ({ config, access }) => config.servers.map(({ name, transport }) => {
-          const status = access.manager.status(name);
-          return { name, transport, status: status.state, tool_count: status.toolCount, error: status.error, tools: status.tools };
-        })),
-        login: (name, signal, sessionId, onProgress) => withMcpSession(sessionId, session => signIn(session.access, name, signal, onProgress)),
-        logout: (name, sessionId) => withMcpSession(sessionId, async session => {
-          try { return await session.access.logout(name); } finally { await options.onMcpChanged?.(); }
-        }),
-      });
-    },
+    async start() {},
     async stop() {
-      await mcpCli?.close();
       await sessions.stop();
-      mcpCli = undefined;
       dashboardService.dispose();
     },
   });
@@ -356,7 +317,7 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
-      ...(mcpCli && (context.toolPlatform === "desktop" || context.toolPlatform === "cli") && { mcpCliDocs }),
+      ...((context.toolPlatform === "desktop" || context.toolPlatform === "cli") && { mcpCliDocs }),
       larkCliAvailable: execShell.hasExecutable("lark-cli", context.workspace.worktree, context.workspace.directory),
     }),
     services: runtimeServices,

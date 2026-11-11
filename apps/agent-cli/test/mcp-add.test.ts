@@ -90,6 +90,7 @@ test("a namespace collision in user configuration is reported without overwritin
     expect(() => addMcpServer(path, "team_skills", definition, {}, root)).toThrow("share the model namespace");
     expect(readFileSync(path, "utf8")).toBe(before);
     writeFileSync(path, JSON.stringify({ servers: { "team-skills": definition, team_skills: definition } }));
-    expect(() => loadMcpConfig(path, {})).toThrow("mcp__team_skills");
+    expect(loadMcpConfig(path, {}).errors).toEqual([expect.stringContaining("mcp__team_skills")]);
+    expect(loadMcpConfig(path, {}).servers).toHaveLength(1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

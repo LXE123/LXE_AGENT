@@ -1,2 +1,2 @@
 #!/bin/sh
-exec "${LXE_MCP_CLI_BUN:-bun}" "${0%/*}/../src/main.ts" "$@"
+exec "${LXE_AGENT_CLI_BUN:-bun}" "${0%/*}/../src/main.ts" "$@"

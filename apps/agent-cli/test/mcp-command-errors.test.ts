@@ -2,10 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ToolRegistry, type McpConfig, type McpServerConfig } from "@lxe/runtime";
+import { ToolRegistry, type McpServerConfig } from "@lxe/runtime";
 import { McpAccess } from "../src/mcp-access";
 import { McpAuthStore } from "../src/mcp-auth-store";
-import { openMcpCliBridge } from "../src/mcp-cli-bridge";
 import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 
 const serverConfig = (url: string): McpServerConfig => ({
@@ -15,19 +14,11 @@ const serverConfig = (url: string): McpServerConfig => ({
   toolTimeoutMs: 1_000, enabledTools: new Set(), disabledTools: new Set(), exposure: "codemode",
 });
 
-async function bridgeFor(access: McpAccess, config: McpConfig) {
-  return openMcpCliBridge({
-    list: async () => config.servers.map(({ name, transport }) => {
-      const { state: status, toolCount: tool_count, error, tools } = access.manager.status(name);
-      return { name, transport, status, tool_count, error, tools };
-    }),
-    login: (name, signal, _sessionId, onProgress) => access.login(name, signal, onProgress),
-    logout: name => access.logout(name),
-  });
-}
-
 async function cli(root: string, environment: Record<string, string>, ...args: string[]) {
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args], {
+  const entry = environment.MCP_TEST_BROWSER_ENDPOINT
+    ? [join(import.meta.dir, "mcp-command.fixture.ts"), environment.MCP_TEST_BROWSER_ENDPOINT]
+    : [join(import.meta.dir, "../src/main.ts"), "mcp"];
+  const child = Bun.spawn([process.execPath, ...entry, ...args], {
     cwd: root,
     env: { ...process.env, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: join(root, "config/mcp_servers.local.json"),
       LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "", LXE_MCP_CLI_SESSION_ID: "test-chat", ...environment },
@@ -60,36 +51,35 @@ test("list probes fresh HTTP connections from both chat and terminal despite a p
   writeConfig(root, http.url.href);
   const config = { servers: [serverConfig(http.url.href)] };
   const access = new McpAccess(config, new McpAuthStore(root), {}, async () => { throw new Error("list must not open a browser"); });
-  const bridge = await bridgeFor(access, config);
   try {
     await access.manager.start(new ToolRegistry());
     const original = access.manager.status("team-skills");
     expect(original.state).toBe("error");
     response = "ready";
     // The command ignores host pipe metadata, even when it is incomplete or stale.
-    for (const environment of [bridge.environment, {}, { LXE_MCP_CLI_PIPE: "missing-pipe", LXE_MCP_CLI_TOKEN: "", LXE_MCP_CLI_SESSION_ID: "" }]) {
+    for (const environment of [{ LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, {}, { LXE_MCP_CLI_PIPE: "missing-pipe", LXE_MCP_CLI_TOKEN: "", LXE_MCP_CLI_SESSION_ID: "" }]) {
       const before = handshakes;
       const result = await cli(root, environment, "list", "--json");
       expect(result.code, result.err).toBe(0);
-      expect(JSON.parse(result.out)).toEqual([expect.objectContaining({ name: "team-skills", status: "ready", tool_count: 2, error: "" })]);
+      expect(JSON.parse(result.out)).toMatchObject({ servers: [{ name: "team-skills", state: "connected", tools: ["echo", "second"] }], errors: [] });
       expect(handshakes).toBe(before + 1);
       expect(access.manager.status("team-skills")).toEqual(original);
     }
     expect(discoveries).toBe(6); // Each temporary connection discovers both tool pages.
-    for (const environment of [bridge.environment, {}]) {
+    for (const environment of [{ LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, {}]) {
       response = "needs_auth";
       const auth = await cli(root, environment, "list");
       expect(auth.code, auth.err).toBe(1);
-      expect(auth.out).toContain("team-skills: needs_auth");
-      expect(auth.out).toContain("Sign in with: agent-cli mcp login team-skills");
+      expect(auth.out).toContain("team-skills: needs sign-in");
+      expect(auth.out).toContain("sign in with: agent-cli mcp login team-skills");
       response = "error";
       const failure = await cli(root, environment, "list");
       expect(failure.code, failure.err).toBe(1);
       expect(failure.out).toContain("fixture upstream unavailable");
-      expect(failure.out).not.toContain("Sign in with:");
+      expect(failure.out).not.toContain("sign in with:");
     }
     expect(access.manager.status("team-skills")).toEqual(original);
-  } finally { await bridge.close(); access.stop(); await access.manager.stop(); http.stop(true); rmSync(root, { recursive: true, force: true }); }
+  } finally { access.stop(); await access.manager.stop(); http.stop(true); rmSync(root, { recursive: true, force: true }); }
 }, 15_000);
 
 test("chat and terminal commands report a real connection failure without claiming browser sign-in", async () => {
@@ -100,18 +90,17 @@ test("chat and terminal commands report a real connection failure without claimi
   writeConfig(root, http.url.href);
   let browserOpens = 0;
   const access = new McpAccess(config, new McpAuthStore(root), {}, async () => { browserOpens++; });
-  const bridge = await bridgeFor(access, config);
   try {
     await access.manager.start(new ToolRegistry());
-    const list = await cli(root, bridge.environment, "list");
+    const list = await cli(root, { LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, "list");
     expect(list.code).toBe(1);
-    expect(list.out).toStartWith("team-skills: error (streamable-http)\n  Error:");
+    expect(list.out).toStartWith("team-skills: failed (codemode, global)\n");
     expect(list.out).toContain("fixture upstream unavailable");
     expect(list.out).not.toContain("0 tools");
-    expect(list.out).not.toContain("Sign in with:");
-    const json = await cli(root, bridge.environment, "list", "--json");
-    expect(JSON.parse(json.out)[0]).toMatchObject({ name: "team-skills", status: "error", tool_count: 0 });
-    for (const environment of [bridge.environment, {}]) {
+    expect(list.out).not.toContain("sign in with:");
+    const json = await cli(root, { LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, "list", "--json");
+    expect(JSON.parse(json.out).servers[0]).toMatchObject({ name: "team-skills", state: "failed", tools: [] });
+    for (const environment of [{ LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, {}]) {
       const result = await cli(root, environment, "login", "team-skills");
       expect(result.code).toBe(1);
       expect(result.out).toBe('Checking connection to MCP server "team-skills".\n');
@@ -122,7 +111,7 @@ test("chat and terminal commands report a real connection failure without claimi
       expect(result.err).not.toContain("fixture-secret");
     }
     expect(browserOpens).toBe(0);
-  } finally { await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
+  } finally { await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
 }, 15_000);
 
 for (const failure of ["denied", "save", "browser"] as const) {
@@ -131,6 +120,20 @@ for (const failure of ["denied", "save", "browser"] as const) {
     let browserOpens = 0;
     const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       const { pathname, origin } = new URL(request.url);
+      if (pathname === "/browser") {
+        try {
+          const url = await request.text();
+      browserOpens++;
+      if (failure === "browser") throw new Error("fixture browser launcher unavailable");
+      const auth = new URL(url), callback = new URL(auth.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", auth.searchParams.get("state")!);
+      callback.searchParams.set(failure === "denied" ? "error" : "code", failure === "denied" ? "access_denied" : "approved");
+      // A real filesystem error after authorization, rather than a fabricated user-facing diagnostic.
+      if (failure === "save") mkdirSync(join(root, "config/mcp-auth.json"), { recursive: true });
+      expect((await fetch(callback)).status).toBe(failure === "denied" ? 400 : 200);
+          return new Response(null);
+        } catch (error) { return new Response((error as Error).message, { status: 500 }); }
+      }
       if (pathname === "/resource") return Response.json({ resource: origin + "/mcp", authorization_servers: [origin] });
       if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
         authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
@@ -142,23 +145,13 @@ for (const failure of ["denied", "save", "browser"] as const) {
     } });
     const config = { servers: [serverConfig(http.url.origin + "/mcp")] };
     writeConfig(root, http.url.origin + "/mcp");
-    const access = new McpAccess(config, new McpAuthStore(root), {}, async url => {
-      browserOpens++;
-      if (failure === "browser") throw new Error("fixture browser launcher unavailable");
-      const auth = new URL(url), callback = new URL(auth.searchParams.get("redirect_uri")!);
-      callback.searchParams.set("state", auth.searchParams.get("state")!);
-      callback.searchParams.set(failure === "denied" ? "error" : "code", failure === "denied" ? "access_denied" : "approved");
-      // A real filesystem error after authorization, rather than a fabricated user-facing diagnostic.
-      if (failure === "save") mkdirSync(join(root, "config/mcp-auth.json"), { recursive: true });
-      expect((await fetch(callback)).status).toBe(failure === "denied" ? 400 : 200);
-    });
-    const bridge = await bridgeFor(access, config);
-    try {
+    const access = new McpAccess(config, new McpAuthStore(root), {});
+      try {
       await access.manager.start(new ToolRegistry());
-      const list = await cli(root, bridge.environment, "list");
-      expect(list.out).toContain("team-skills: needs_auth (streamable-http)");
-      expect(list.out).toContain("Sign in with: agent-cli mcp login team-skills");
-      const result = await cli(root, bridge.environment, "login", "team-skills");
+      const list = await cli(root, { LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" }, "list");
+      expect(list.out).toContain("team-skills: needs sign-in (codemode, global)");
+      expect(list.out).toContain("sign in with: agent-cli mcp login team-skills");
+      const result = await cli(root, { MCP_TEST_BROWSER_ENDPOINT: http.url.origin + "/browser" }, "login", "team-skills");
       expect(result.code).toBe(1);
       expect(result.out).toStartWith('Checking connection to MCP server "team-skills".\nSign in to MCP server "team-skills" in your browser:\n');
       expect(result.out).toContain(http.url.origin + "/authorize?");
@@ -171,11 +164,11 @@ for (const failure of ["denied", "save", "browser"] as const) {
       expect(result.err).not.toContain("credentials were saved");
       expect(result.err).not.toContain("fixture-token");
       expect(browserOpens).toBe(1);
-    } finally { await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
+    } finally { await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
   });
 }
 
-for (const mode of ["chat", "terminal"] as const) {
+for (const mode of ["chat", "terminal", "cancelled", "timeout"] as const) {
   test(`${mode} login streams the authorization URL before approval, then reports saved credentials and connection`, async () => {
     const root = mkdtempSync(join(tmpdir(), "mcp-login-progress-"));
     let exchanges = 0;
@@ -196,8 +189,7 @@ for (const mode of ["chat", "terminal"] as const) {
     const config = { servers: [serverConfig(http.url.origin + "/mcp")] };
     const store = new McpAuthStore(root);
     const access = new McpAccess(config, store, {}, async () => {});
-    const bridge = await bridgeFor(access, config);
-    mkdirSync(join(root, "config"), { recursive: true });
+      mkdirSync(join(root, "config"), { recursive: true });
     writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
       "team-skills": { url: http.url.origin + "/mcp", transport: "streamable-http", enabled: true },
     } }));
@@ -205,12 +197,12 @@ for (const mode of ["chat", "terminal"] as const) {
     const runner = join(root, "command.ts");
     writeFileSync(runner, `import { runMcpCommand } from ${JSON.stringify(join(import.meta.dir, "../src/mcp-command.ts"))};
       console.log = (...values) => { process.stderr.write(values.map(String).join(" ") + "\\n"); };
-      process.exitCode = await runMcpCommand(["login", "team-skills"], async () => {});`);
+      process.exitCode = await runMcpCommand(["login", "team-skills", "--timeout", ${JSON.stringify(mode === "timeout" ? "0.5" : "300")}], async () => {});`);
     await access.manager.start(new ToolRegistry());
     const child = Bun.spawn([process.execPath, runner], { cwd: root,
       env: { ...process.env, LOCAL_LOGS_ENABLED: "0", LXE_DATA_ROOT: root,
         LXE_MCP_CONFIG_PATH: join(root, "config/mcp_servers.local.json"), LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "",
-        LXE_MCP_CLI_SESSION_ID: "test-chat", ...(mode === "chat" ? bridge.environment : {}) }, stdout: "pipe", stderr: "pipe" });
+        LXE_MCP_CLI_SESSION_ID: "test-chat", ...(mode === "chat" ? { LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" } : {}) }, stdout: "pipe", stderr: "pipe" });
     let output = "";
     const advertised = Promise.withResolvers<URL>();
     const reading = (async () => {
@@ -229,24 +221,69 @@ for (const mode of ["chat", "terminal"] as const) {
       expect(exchanges).toBe(0);
       expect(store.get("team-skills", config.servers[0]!.url)).toBeUndefined();
       const callback = new URL(url.searchParams.get("redirect_uri")!);
+      if (mode === "cancelled" || mode === "timeout") {
+        if (mode === "cancelled") child.kill();
+        const [code, error] = await Promise.all([child.exited, stderr, reading]);
+        expect(code).not.toBe(0);
+        if (mode === "timeout") expect(error).toContain("timed out");
+        expect(exchanges).toBe(0);
+        expect(store.get("team-skills", config.servers[0]!.url)).toBeUndefined();
+        await expect(fetch(callback)).rejects.toThrow();
+        return;
+      }
       callback.searchParams.set("state", url.searchParams.get("state")!);
       callback.searchParams.set("code", "fixture-private-code");
       expect((await fetch(callback)).status).toBe(200);
       const [code, error] = await Promise.all([child.exited, stderr, reading]);
       expect(code, error).toBe(0);
       expect(exchanges).toBe(1);
-      expect(output).toContain('OAuth credentials for MCP server "team-skills" were saved. Verifying the connection.\nConnected to MCP server "team-skills".');
+      expect(output).toContain('OAuth credentials for MCP server "team-skills" were saved. Verifying the connection.\nSigned in to MCP server "team-skills" (2 tools).');
       expect(output).not.toContain("fixture-private-token");
       expect(output).not.toContain("fixture-private-code");
-      if (mode === "chat") expect(access.manager.status("team-skills")).toMatchObject({ connected: true, toolCount: 2 });
-      const reuse = await cli(root, mode === "chat" ? bridge.environment : {}, "login", "team-skills");
+      expect(access.manager.state("team-skills")).toBe("needs_auth");
+      expect(await access.reconnectAfterExternalAuthChange()).toBe(true);
+      expect(access.manager.status("team-skills")).toMatchObject({ connected: true, toolCount: 2 });
+      const reuse = await cli(root, mode === "chat" ? { LXE_MCP_CLI_PIPE: "obsolete-pipe", LXE_MCP_CLI_TOKEN: "obsolete-token" } : {}, "login", "team-skills");
       expect(reuse.code, reuse.err).toBe(0);
-      expect(reuse.out).toContain("already connected");
+      expect(reuse.out).toContain("Already signed in");
       expect(reuse.out).not.toContain("in your browser");
       expect(exchanges).toBe(1);
     } finally {
       child.kill(); await child.exited; await reading; await stderr;
-      await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true });
+      await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true });
     }
   }, 15_000);
 }
+
+test("list reports config errors alongside valid resource-only and disabled servers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mcp-list-config-"));
+  let toolsRequested = 0;
+  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    const message = await request.json() as WireMessage;
+    if (message.method === "tools/list") toolsRequested++;
+    if (message.method === "initialize") return Response.json({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-11-25", serverInfo: { name: "resources", version: "1" }, capabilities: { resources: {} },
+    } });
+    const reply = legacyReply(message);
+    return reply ? Response.json(reply) : new Response(null, { status: 202 });
+  } });
+  mkdirSync(join(root, "config"));
+  writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
+    broken: null, off: { command: "not-installed", enabled: false },
+    resources: { transport: "streamable-http", url: http.url.href, enabled: true, protocol_mode: "legacy" },
+  } }));
+  try {
+    const json = await cli(root, {}, "list", "--json");
+    expect(json.code, json.err).toBe(1);
+    expect(JSON.parse(json.out)).toMatchObject({ errors: [expect.stringContaining("server broken must be an object")], servers: [
+      { name: "off", state: "disabled", enabled: false, tools: [] },
+      { name: "resources", state: "connected", tools: [], resources: true, scope: "global" },
+    ] });
+    const text = await cli(root, {}, "list");
+    expect(text.out).toContain("resources: connected, 0 tools (codemode, global)");
+    expect(text.out).toContain("offers resources");
+    expect(text.out).toContain("config error:");
+    expect(toolsRequested).toBe(0);
+  } finally { http.stop(true); rmSync(root, { recursive: true, force: true }); }
+});

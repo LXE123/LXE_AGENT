@@ -5,7 +5,7 @@ import type { McpAccess } from "./mcp-access";
 export const MCP_IDLE_TIMEOUT_MS = 30 * 60 * 1_000;
 
 export function sessionMcpConfig(config: McpConfig, directory: string, platform?: string): McpConfig {
-  return { servers: config.servers.filter(server => !server.platforms || server.platforms.includes(platform ?? ""))
+  return { ...config, servers: config.servers.filter(server => !server.platforms || server.platforms.includes(platform ?? ""))
     .map(server => ({ ...structuredClone(server),
       cwd: server.transport === "stdio" ? resolve(directory, server.cwd || ".") : server.cwd,
     })) };
@@ -28,7 +28,7 @@ interface Entry {
   closing?: Promise<void>;
 }
 
-/** Leases cover whole turns and explicit CLI operations, including calls waiting for OAuth. */
+/** Leases cover whole turns, including their tool calls. CLI commands own separate connections. */
 export class SessionMcpPool {
   private readonly entries = new Map<string, Entry>();
   private stopped = false;
@@ -84,11 +84,6 @@ export class SessionMcpPool {
       if (this.entries.get(sessionId) === owned) await this.dispose(sessionId).catch(this.onError);
       throw error;
     }
-  }
-
-  acquireCommand(sessionId: string, directory: string, platform: string): Promise<SessionMcpLease> {
-    const entry = this.entries.get(sessionId);
-    return this.acquire(sessionId, entry?.directory ?? directory, entry?.platform ?? platform);
   }
 
   /** Used only while a caller already owns a turn/operation lease. */

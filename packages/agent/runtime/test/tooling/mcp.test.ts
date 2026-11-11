@@ -121,7 +121,7 @@ describe("MCP manager", () => {
         }
       }
     }), "utf8");
-    expect(() => loadMcpConfig(missing, {})).toThrow("missing environment variable MISSING");
+    expect(loadMcpConfig(missing, {}).errors).toEqual([expect.stringContaining("missing environment variable MISSING")]);
 
     const path = join(root, "timeout.json");
     writeFileSync(path, JSON.stringify({
@@ -304,7 +304,7 @@ test("validates explicit protocol modes without changing JSON fields", () => {
         }
       }
     }));
-  expect(() => loadMcpConfig(path, {})).toThrow("unsupported MCP protocol_mode for local: unknown");
+  expect(loadMcpConfig(path, {}).errors).toEqual([expect.stringContaining("unsupported MCP protocol_mode for local: unknown")]);
 });
 
 test("structured results remain model-readable including null and falsey values", async () => {

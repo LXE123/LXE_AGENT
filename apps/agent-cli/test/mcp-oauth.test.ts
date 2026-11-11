@@ -60,3 +60,60 @@ test("interactive MCP login binds the callback state and uses PKCE before return
     expect(exchanged).toBe(1);
   } finally { issuer.stop(true); }
 });
+
+for (const staticClient of [false, true]) {
+  test(`${staticClient ? "pre-registered" : "DCR"} OAuth settings and pasted callbacks use the actual authorization exchange`, async () => {
+    let registrations = 0, exchanges = 0, redirect: URL | undefined, promptSignal: AbortSignal | undefined;
+    const reserved = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null) });
+    const callbackPort = reserved.port!;
+    await reserved.stop(true);
+    const issuer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      const { origin, pathname } = new URL(request.url);
+      if (pathname === "/resource") return Response.json({ resource: origin + "/mcp", authorization_servers: [origin] });
+      if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
+        authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
+        response_types_supported: ["code"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["client_secret_basic", "none"] });
+      if (pathname === "/register") {
+        registrations++;
+        const data = await request.json() as { client_name: string; redirect_uris: string[] };
+        expect(data.client_name).toBe("Fixture application");
+        expect(data.redirect_uris).toEqual([`http://127.0.0.1:${callbackPort}/callback`]);
+        return Response.json({ ...data, client_id: "fixture-dcr" }, { status: 201 });
+      }
+      if (pathname === "/token") {
+        exchanges++;
+        const data = new URLSearchParams(await request.text());
+        expect(data.get("code")).toBe("pasted-code");
+        expect(data.get("redirect_uri")).toBe(`http://127.0.0.1:${callbackPort}/callback`);
+        if (staticClient) expect(request.headers.get("authorization")).toBe("Basic " + btoa("fixture-client:fixture-secret"));
+        else expect(data.get("client_id")).toBe("fixture-dcr");
+        return Response.json({ access_token: "fixture-pasted-token", token_type: "Bearer" });
+      }
+      return new Response(null, { status: 404 });
+    } });
+    const target = { url: issuer.url.origin + "/mcp", resourceMetadataUrl: issuer.url.origin + "/resource" };
+    const settings = { callbackPort, clientName: "Fixture application", clientRegistration: "dcr" as const,
+      ...(staticClient && { clientId: "fixture-client", clientSecret: "fixture-secret" }) };
+    const open = async (link: string) => {
+      const auth = new URL(link);
+      redirect = new URL(auth.searchParams.get("redirect_uri")!);
+      redirect.searchParams.set("state", auth.searchParams.get("state")!);
+      redirect.searchParams.set("code", "pasted-code");
+    };
+    try {
+      const grant = await loginToMcp(target, open, AbortSignal.timeout(5_000), settings, async signal => { promptSignal = signal; return redirect!.href; });
+      expect(grant.access_token).toBe("fixture-pasted-token");
+      expect(registrations).toBe(staticClient ? 0 : 1);
+      expect(promptSignal?.aborted).toBe(true);
+      for (const invalid of ["state", "origin"]) {
+        await expect(loginToMcp(target, open, AbortSignal.timeout(5_000), settings, async () => {
+          if (invalid === "state") redirect!.searchParams.set("state", "wrong");
+          else redirect!.hostname = "localhost";
+          return redirect!.href;
+        })).rejects.toThrow("Invalid login callback URL or state");
+      }
+      expect(exchanges).toBe(1);
+      await expect(fetch(`http://127.0.0.1:${callbackPort}/callback`)).rejects.toThrow();
+    } finally { issuer.stop(true); }
+  });
+}

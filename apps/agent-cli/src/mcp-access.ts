@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { McpManager, OfficialMcpConnector, usesMcpOAuth, type McpConfig } from "@lxe/runtime";
+import { McpManager, OfficialMcpConnector, type McpConfig } from "@lxe/runtime";
 import { createLogger, sanitizeLogValueWithPolicy } from "@lxe/core";
 import { McpAuthStore } from "./mcp-auth-store";
 import { loginToMcp } from "./mcp-oauth";
@@ -25,7 +25,7 @@ export class McpAccess {
   private configuring: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: McpConfig, private readonly store: McpAuthStore,
-    environment: Record<string, string | undefined>, private readonly openBrowser = openMcpBrowser) {
+    private readonly environment: Record<string, string | undefined>, private readonly openBrowser = openMcpBrowser) {
     this.manager = new McpManager(config, new OfficialMcpConnector(environment, undefined, async (name, url, rejected) => {
       const token = await store.token(name, url, rejected);
       // Keep the last authenticated connection recognizable until it has been reset,
@@ -33,11 +33,6 @@ export class McpAccess {
       if (token || this.manager.state(name) !== "ready") this.lastToken.set(name, token);
       return token;
     }));
-  }
-
-  canRelogin(name: string): boolean {
-    const server = this.config.servers.find(s => s.name === name);
-    return !!server && this.manager.canRelogin(name, server.url) && !!this.store.get(name, server.url);
   }
 
   configure(config: McpConfig): Promise<void> {
@@ -49,7 +44,7 @@ export class McpAccess {
     return update;
   }
 
-  async login(name: string, caller?: AbortSignal, onProgress?: (event: McpLoginProgress) => void): Promise<void> {
+  async login(name: string, caller?: AbortSignal, onProgress?: (event: McpLoginProgress) => void, timeoutMs = 300_000): Promise<void> {
     if (this.logins.has(name)) throw new Error("MCP login already in progress");
     const server = this.config.servers.find(s => s.name === name);
     if (!server) throw new Error("MCP server not found: " + name);
@@ -71,10 +66,16 @@ export class McpAccess {
       const previous = this.store.get(name, server.url);
       const target = this.manager.loginTarget(name, previous?.url);
       stage = "sign-in";
+      const settings = { ...server.oauth };
+      if (settings.clientSecret) settings.clientSecret = settings.clientSecret.replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, key: string) => {
+        const value = this.environment[key];
+        if (!value) throw new Error(`Missing environment variable ${key} for MCP OAuth client secret`);
+        return value;
+      });
       const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, async url => {
         onProgress?.({ type: "authorization_required", url });
         await this.openBrowser(url);
-      }, signal) };
+      }, AbortSignal.any([signal, AbortSignal.timeout(Math.ceil(timeoutMs))]), settings) };
       stage = "credential-save";
       await this.store.save(grant, signal);
       stage = "reconnection";
@@ -99,20 +100,6 @@ export class McpAccess {
     }
   }
 
-  async logout(name: string): Promise<boolean> {
-    const server = this.config.servers.find(s => s.name === name);
-    if (!server) throw new Error("MCP server not found: " + name);
-    if (!usesMcpOAuth(server)) throw new Error("MCP logout requires a Streamable HTTP server without a configured Authorization header");
-    this.cancel(name);
-    const removed = await this.store.forget(name, server.url);
-    if (server.enabled && (removed || this.lastToken.get(name))) {
-      this.lastToken.delete(name);
-      await this.manager.reconnect(name);
-    }
-    return removed;
-  }
-
-  cancel(name: string): void { this.logins.get(name)?.abort(); }
   stop(): void {
     for (const login of this.logins.values()) login.abort();
   }

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadMcpConfig, setMcpServerEnabled } from "../../src/tooling/mcp";
+import { addMcpServer, loadMcpConfig, setMcpServerEnabled } from "../../src/tooling/mcp";
 
 const roots: string[] = [];
 const fixture = () => {
@@ -43,7 +43,8 @@ test("malformed JSON and invalid configuration shapes fail explicitly", () => {
   const { path } = fixture();
   for (const text of ["servers: {}", "{", "[]", "null", '{"servers":null}', '{"servers":[]}', '{"servers":{"bad":null}}', '{"servers":{},"mcpServers":{}}']) {
     writeFileSync(path, text);
-    expect(() => loadMcpConfig(path, {})).toThrow();
+    expect(loadMcpConfig(path, {}).errors).toHaveLength(1);
+    expect(loadMcpConfig(path, {}).servers).toEqual([]);
   }
   for (const server of [
     { enabled: true }, { command: "" }, { transport: "streamable-http" },
@@ -51,7 +52,8 @@ test("malformed JSON and invalid configuration shapes fail explicitly", () => {
     { command: "node", env: [] }, { command: "node", headers: { Token: 123 } }, { command: "node", exposure: "tool_search" },
   ]) {
     writeFileSync(path, JSON.stringify({ servers: { invalid: server } }));
-    expect(() => loadMcpConfig(path, {})).toThrow();
+    expect(loadMcpConfig(path, {}).errors).toHaveLength(1);
+    expect(loadMcpConfig(path, {}).servers).toEqual([]);
   }
 });
 
@@ -63,5 +65,24 @@ test("normalizes server exposure without rewriting user configuration", () => {
     writeFileSync(path, json);
     expect(loadMcpConfig(path, {}).servers[0]?.exposure).toBe(expected);
     expect(readFileSync(path, "utf8")).toBe(json);
+  }
+});
+
+test("bad entries are reported while valid servers remain loadable and editable", () => {
+  const { path } = fixture();
+  const source = { marker: "keep", servers: { broken: null, valid: { command: "node", enabled: false } } };
+  writeFileSync(path, JSON.stringify(source));
+  const config = loadMcpConfig(path, {});
+  expect(config.errors).toEqual([expect.stringContaining("server broken must be an object")]);
+  expect(config.servers.map(server => server.name)).toEqual(["valid"]);
+  addMcpServer(path, "docs", { transport: "streamable-http", url: "https://example.com/mcp", oauth: {
+    clientId: "fixture", clientSecret: "${NOT_SET_UNTIL_LOGIN}", callbackPort: 8765, clientName: "Fixture", clientRegistration: "dcr",
+  } }, {}, "");
+  expect(loadMcpConfig(path, {}).servers[0]?.oauth?.clientSecret).toBe("${NOT_SET_UNTIL_LOGIN}");
+  expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject(source);
+  const unchanged = readFileSync(path, "utf8");
+  for (const oauth of [{ clientSecret: "secret" }, { callbackPort: 0 }, { callbackPort: 65536 }, { clientName: "" }, { clientRegistration: "cimd" }]) {
+    expect(() => addMcpServer(path, "invalid", { transport: "streamable-http", url: "https://example.com/mcp", oauth }, {}, "")).toThrow();
+    expect(readFileSync(path, "utf8")).toBe(unchanged);
   }
 });

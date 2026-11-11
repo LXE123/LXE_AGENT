@@ -4,7 +4,9 @@
 
 Run `agent-cli mcp list` to connect to every enabled user-configured server and
 print its state, tools, errors and sign-in command. It exits with status 1 if an
-enabled server fails to connect. Use `list --json` for a JSON array.
+enabled server fails to connect or a configuration error is found. Invalid entries
+are reported without hiding valid servers. `list --json` returns `{ servers, errors }`;
+each server includes its source, exposure, state, tool names and any actual error.
 
 Each run creates temporary connections and closes them afterward, whether run
 through `exec` or in a terminal. This checks connectivity without replacing a
@@ -13,7 +15,7 @@ of this check.
 
 ## Sign in and out
 
-For a server marked `needs_auth`, run its sign-in command when the user requests
+For a server marked `needs sign-in` (`needs-auth` in JSON), run its sign-in command when the user requests
 login, for example:
 
 ```sh
@@ -27,13 +29,19 @@ and attempts to open it; the user can open the URL manually. If the command is
 still running, use `wait` with its `exec_id` to collect the final result.
 
 Report progress from the command's output. A successful final result means the
-connection was verified and its tools are available. If credentials were saved
+temporary connection was verified and tools were discovered. If credentials were saved
 but reconnection failed, report both facts and retry the same login command to
 use those credentials. Preserve the actual returned error: a network failure
 alone does not establish that sign-in is needed. Fixed API keys or Authorization
 headers may need updating in the configuration instead.
 
-`agent-cli mcp logout <name>` deletes locally saved OAuth credentials while
+`login` always creates a fresh connection, verifies it and closes it, including
+when run through `exec`. It does not reuse or replace a chat connection.
+`--timeout <seconds>` sets the OAuth timeout (default: 300; any positive number).
+In an interactive terminal, you can paste the final redirect URL if the browser
+cannot reach the machine running the command.
+
+`agent-cli mcp logout <name>` only deletes locally saved OAuth credentials while
 keeping the server configuration. It does not revoke provider access, end the
 browser's login session or remove fixed HTTP headers.
 
@@ -50,6 +58,12 @@ agent-cli mcp add files --cwd /path/to/workspace -- node /path/to/mcp-server.js
 removes the definition but keeps saved OAuth credentials. The desktop also
 provides **Capabilities → MCP services → Add service**. Run
 `agent-cli mcp --help` or a subcommand with `--help` for options.
+
+OAuth uses dynamic client registration (DCR). For a pre-registered application,
+set `--oauth-client-id` and, if needed, `--oauth-client-secret`; the secret can
+reference an environment variable such as `${CLIENT_SECRET}`.
+`--oauth-callback-port` fixes the local callback port; `--oauth-client-name` sets
+the application name used for DCR. CIMD and project-level configuration are not supported.
 
 ## Configuration scope
 

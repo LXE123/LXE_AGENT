@@ -288,7 +288,6 @@ export class AgentProtocolServer {
             payload: update,
           });
         },
-        onMcpChanged: () => this.publish({ type: "mcp.changed", payload: {} }),
         onSkillsChanged: revision => this.publish({ type: "skills.changed", payload: { revision } }),
         onSessionChanged: (sessionId, change) => this.publish({
           type: "session.changed",

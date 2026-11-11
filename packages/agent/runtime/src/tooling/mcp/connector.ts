@@ -9,7 +9,7 @@ import { McpConnectionDiagnostics } from "./connection-diagnostics";
 
 type McpSdkClientPort = Pick<Client,
   "connect" | "close" | "onclose" | "listTools" | "callTool" | "getNegotiatedProtocolVersion" | "getProtocolEra"
-> & Partial<Pick<Client, "getInstructions">>;
+> & Partial<Pick<Client, "getInstructions" | "getServerCapabilities">>;
 
 export interface McpOAuthChallenge { url: string; resourceMetadataUrl?: string; scope?: string }
 
@@ -124,7 +124,9 @@ export class OfficialMcpConnector implements McpConnector {
       await diagnostics.measure("connect", () => client.connect(connectionTransport, signal ? { signal } : undefined), { scope: "sdk" });
       signal?.throwIfAborted();
       // v2 aggregates pages, detects cursor loops and bounds the walk.
-      const listed = await diagnostics.measure("tool_discovery", () => client.listTools(undefined, signal ? { signal } : undefined), { scope: "sdk" });
+      const capabilities = client.getServerCapabilities?.();
+      const listed = capabilities && !capabilities.tools ? { tools: [] }
+        : await diagnostics.measure("tool_discovery", () => client.listTools(undefined, signal ? { signal } : undefined), { scope: "sdk" });
       signal?.throwIfAborted();
       const tools: McpRemoteTool[] = listed.tools.map((tool) => ({
         name: tool.name,
@@ -139,6 +141,7 @@ export class OfficialMcpConnector implements McpConnector {
       diagnostics.finish(undefined, { tool_count: tools.length, protocol_version: protocolVersion, protocol_era: protocolEra });
       return {
         tools,
+        ...(capabilities?.resources && { resources: true }),
         ...(instructions ? { instructions } : {}),
         onClose: listener => {
           if (closed) listener();

@@ -34,7 +34,7 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后
 {"jsonrpc":"2.0","method":"session.changed","params":{"thread_id":"session-1","payload":{"changes":["messages"]}}}
 ```
 
-MCP 设置页通过 `dashboard_call` 的 `mcp.servers.list/add/update` 查看配置、添加服务和切换开关，不建立连接或发起登录。登录由 Harness 的 `agent-cli mcp login <name>` 发起，Harness 负责打开授权页、处理回调、保存凭据、续期与重连。收到 `mcp.changed` 后，Electron 刷新配置列表。
+MCP 设置页通过 `dashboard_call` 的 `mcp.servers.list/add/update` 查看配置、添加服务和切换开关，不建立连接或发起登录。登录由 Harness 的 `agent-cli mcp login <name>` 发起，Harness 负责打开授权页、处理回调、保存凭据、续期与重连。设置页配置变更通过原有 Dashboard 操作刷新列表，独立登录不发送连接状态事件。
 
 方法名、参数和通知列表统一以 [`AgentCommandPayloads` 与 `AgentEvent`](../../../packages/foundation/desktop-protocol/src/index.ts) 为准。执行与控制使用 `run_turn`、`cancel_turn`、`steer_turn`，会话状态使用 `session_status`；Dashboard 查询使用 `dashboard_call` 携带 `{ operation, input }`。方法只接受对象参数，省略 params 按空对象校验。
 

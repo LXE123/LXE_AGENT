@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { ToolRegistry, type McpServerConfig } from "@lxe/runtime";
 import { McpAccess } from "../src/mcp-access";
 import { McpAuthStore } from "../src/mcp-auth-store";
-import { openMcpCliBridge } from "../src/mcp-cli-bridge";
 import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 import { policyFor, testWorkspace } from "../../../packages/agent/runtime/test/workspace";
 
@@ -16,6 +15,14 @@ async function fixture(failure: Failure) {
   let accepted = "access-1", broken = false, refreshes = 0, browsers = 0, calls = 0, handshakes = 0;
   const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
     const { origin, pathname } = new URL(req.url);
+    if (pathname === "/browser") {
+      browsers++;
+      const auth = new URL(await req.text()), callback = new URL(auth.searchParams.get("redirect_uri")!);
+      expect(auth.searchParams.get("scope")).toBe("orders.read");
+      callback.searchParams.set("code", "approved");
+      callback.searchParams.set("state", auth.searchParams.get("state")!);
+      return new Response(null, { status: (await fetch(callback)).status });
+    }
     if (pathname === "/resource") return Response.json({ resource: origin + "/mcp", authorization_servers: [origin] });
     if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
       authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
@@ -63,21 +70,7 @@ async function fixture(failure: Failure) {
     refresh_token: "refresh-1", issuer: http.url.origin, client: { client_id: "fixture" },
   } }) });
   const registry = new ToolRegistry();
-  const access = new McpAccess({ servers: [server] }, store, {}, async link => {
-    browsers++;
-    const auth = new URL(link);
-    expect(auth.searchParams.get("scope")).toBe("orders.read");
-    const callback = new URL(auth.searchParams.get("redirect_uri")!);
-    callback.searchParams.set("code", "approved");
-    callback.searchParams.set("state", auth.searchParams.get("state")!);
-    expect((await fetch(callback)).ok).toBe(true);
-  });
-  const bridge = await openMcpCliBridge({
-    list: async () => { const state = access.manager.status(server.name); return [{ name: server.name, status: state.state,
-      transport: server.transport, tool_count: state.toolCount, error: state.error, tools: state.tools }]; },
-    login: (name, signal, _session, progress) => access.login(name, signal, progress),
-    logout: name => access.logout(name),
-  });
+  const access = new McpAccess({ servers: [server] }, store, {});
   await access.manager.start(registry);
   const call = () => registry.execute("mcp__orders__echo", {}, {
     session_id: "audit", workspace: testWorkspace, executionPolicy: policyFor(testWorkspace.directory),
@@ -85,8 +78,8 @@ async function fixture(failure: Failure) {
     exposureState: registry.createExposureState().forCodemode(),
   });
   async function cli(...args: string[]) {
-    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args], {
-      env: { ...process.env, ...bridge.environment, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: configPath,
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "mcp-command.fixture.ts"), http.url.origin + "/browser", ...args], {
+      env: { ...process.env, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: configPath,
         LXE_MCP_CLI_SESSION_ID: "audit" }, stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -94,7 +87,7 @@ async function fixture(failure: Failure) {
   }
   return { access, registry, call, cli, counts: () => ({ browsers, refreshes, calls, handshakes }),
     breakAuthorization: () => { broken = true; if (!["tool-500", "business-error"].includes(failure)) accepted = "revoked"; },
-    async close() { await bridge.close(); access.stop(); await access.manager.stop(); http.stop(true); rmSync(root, { recursive: true, force: true }); },
+    async close() { access.stop(); await access.manager.stop(); http.stop(true); rmSync(root, { recursive: true, force: true }); },
   };
 }
 
@@ -111,7 +104,7 @@ for (const failure of ["no-refresh", "invalid-grant", "reject-renewed"] as const
       expect(f.counts().browsers).toBe(0);
       const list = await f.cli("list");
       expect(list.code, list.err).toBe(1);
-      expect(list.out).toContain("orders: needs_auth");
+      expect(list.out).toContain("orders: needs sign-in");
       expect(list.out).toContain("agent-cli mcp login orders");
       expect(list.out).toContain("fixture access denied"); // The fresh probe reports its own 401, not the earlier tool/refresh error.
       expect(list.out).not.toContain("refresh-1");
@@ -121,11 +114,13 @@ for (const failure of ["no-refresh", "invalid-grant", "reject-renewed"] as const
       const login = await f.cli("login", "orders");
       expect(login.code, login.err).toBe(0);
       expect(login.out).toContain('Sign in to MCP server "orders" in your browser:');
-      expect(login.out).toContain('Connected to MCP server "orders"');
+      expect(login.out).toContain('Signed in to MCP server "orders"');
       expect(login.out).not.toContain("already connected");
       expect(f.counts().browsers).toBe(1);
+      expect(f.access.manager.state("orders")).toBe("needs_auth");
+      expect(await f.access.reconnectAfterExternalAuthChange()).toBe(true);
       expect(f.access.manager.status("orders")).toMatchObject({ state: "ready", error: "" });
-      expect(await f.cli("list")).toMatchObject({ code: 0, out: expect.stringContaining("orders: ready") });
+      expect(await f.cli("list")).toMatchObject({ code: 0, out: expect.stringContaining("orders: connected") });
       await f.call();
     } finally { await f.close(); }
   });

@@ -243,7 +243,6 @@ export type BackgroundTaskChangedPayload = {
 };
 
 export type AgentEvent =
-  | { type: "mcp.changed"; payload: Record<string, never> }
   | { type: "skills.changed"; payload: { revision: number } }
   | {
       type: "item.completed";
@@ -784,7 +783,6 @@ const agentCommands = new Set<AgentCommand>([
   "shutdown",
 ]);
 const agentEventTypes = new Set<AgentEvent["type"]>([
-  "mcp.changed",
   "skills.changed",
   "item.completed",
   "conversation.stream.delta",
@@ -954,9 +952,6 @@ export function decodeAgentEvent(notification: AgentNotification): AgentEvent {
   const object = { ...notification.params, type: notification.method } as Record<string, unknown>;
   if (!agentEventTypes.has(object.type as AgentEvent["type"]) || !objectValue(object.payload)) {
     throw new JsonRpcError(-32602, "Unknown or malformed agent notification");
-  }
-  if (object.type === "mcp.changed" && Object.keys(object.payload as object).length) {
-    throw new JsonRpcError(-32602, "mcp.changed has an empty payload");
   }
   if (object.type === "skills.changed") {
     const payload = object.payload as Record<string, unknown>;

@@ -12,10 +12,14 @@ export const usage = `Usage: agent-cli mcp <command>
 Add options: --exposure <codemode|deferred|direct|hidden>, --description <text>,
   stdio: --cwd <dir>, --env KEY=VALUE (repeatable)
   HTTP:  --header KEY=VALUE (repeatable), --bearer-token-env-var <name>
+  OAuth: --oauth-client-id <id>, --oauth-client-secret <secret>,
+         --oauth-callback-port <port>, --oauth-client-name <name>,
+         --oauth-client-registration dcr (default; CIMD is not supported)
+Login timeout: any positive number of seconds (default: 300).
 `;
 
 type Command = { kind: "help" } | { kind: "list"; json: boolean } | { kind: "login"; name: string; timeout: number }
-  | { kind: "remove" | "logout"; name: string } | { kind: "add"; name: string; definition: Record<string, unknown> };
+  | { kind: "remove"; name: string } | { kind: "logout"; name: string } | { kind: "add"; name: string; definition: Record<string, unknown> };
 
 function pairs(entries: string[] | undefined, header: boolean) {
   return Object.fromEntries((entries ?? []).map(entry => {
@@ -52,7 +56,7 @@ export function parseMcpCommand([kind, ...args]: string[]): Command {
   if (kind === "login") {
     const { values } = parseArgs({ args: rest, options: { timeout: { type: "string", default: "300" } }, allowPositionals: false });
     const seconds = Number(values.timeout);
-    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 300) throw new Error("--timeout must be between 1 and 300 seconds");
+    if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("--timeout must be a positive number of seconds");
     return { kind, name, timeout: seconds * 1_000 };
   }
   if (kind !== "add") throw new Error("Invalid MCP command or arguments");
@@ -61,6 +65,9 @@ export function parseMcpCommand([kind, ...args]: string[]): Command {
     url: { type: "string" }, cwd: { type: "string" }, env: { type: "string", multiple: true },
     header: { type: "string", multiple: true }, "bearer-token-env-var": { type: "string" },
     description: { type: "string" }, exposure: { type: "string" },
+    "oauth-client-id": { type: "string" }, "oauth-client-secret": { type: "string" },
+    "oauth-callback-port": { type: "string" }, "oauth-client-name": { type: "string" },
+    "oauth-client-registration": { type: "string" },
   } });
   if (v.exposure !== undefined && !["codemode", "deferred", "direct", "hidden"].includes(v.exposure)) {
     throw new Error("--exposure must be codemode, deferred, direct or hidden");
@@ -69,7 +76,7 @@ export function parseMcpCommand([kind, ...args]: string[]): Command {
   if (split >= 0) {
     const [command, ...argv] = rest.slice(split + 1);
     if (!command) throw new Error("Missing executable after --. Usage: agent-cli mcp add <name> [options] -- <command> [args]");
-    const misplaced = ["url", "header", "bearer-token-env-var"].find(option => v[option as keyof typeof v] !== undefined);
+    const misplaced = ["url", "header", "bearer-token-env-var", "oauth-client-id", "oauth-client-secret", "oauth-callback-port", "oauth-client-name", "oauth-client-registration"].find(option => v[option as keyof typeof v] !== undefined);
     if (misplaced) throw new Error(`--${misplaced} only applies to HTTP servers; omit the stdio command after --`);
     return { kind, name, definition: { ...common, transport: "stdio", command, args: argv,
       ...(v.env && { env: pairs(v.env, false) }), ...(v.cwd && { cwd: v.cwd }) } };
@@ -79,7 +86,15 @@ export function parseMcpCommand([kind, ...args]: string[]): Command {
   if (!url || !["http:", "https:"].includes(url.protocol)) throw new Error("--url must be a valid HTTP or HTTPS URL");
   const misplaced = ["cwd", "env"].find(option => v[option as keyof typeof v] !== undefined);
   if (misplaced) throw new Error(`--${misplaced} only applies to stdio servers, not --url`);
+  const oauth = {
+    ...(v["oauth-client-id"] !== undefined && { clientId: v["oauth-client-id"] }),
+    ...(v["oauth-client-secret"] !== undefined && { clientSecret: v["oauth-client-secret"] }),
+    ...(v["oauth-callback-port"] !== undefined && { callbackPort: Number(v["oauth-callback-port"]) }),
+    ...(v["oauth-client-name"] !== undefined && { clientName: v["oauth-client-name"] }),
+    ...(v["oauth-client-registration"] !== undefined && { clientRegistration: v["oauth-client-registration"] }),
+  };
   return { kind, name, definition: { ...common, transport: "streamable-http", url: v.url,
+    ...(Object.keys(oauth).length && { oauth }),
     ...(v.header && { headers: pairs(v.header, true) }), ...(v["bearer-token-env-var"] && { bearer_token_env_var: v["bearer-token-env-var"] }) } };
 }
 

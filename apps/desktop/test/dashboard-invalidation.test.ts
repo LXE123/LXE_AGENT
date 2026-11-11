@@ -181,8 +181,6 @@ describe("Dashboard invalidation bridge", () => {
 
 
 test("skill changes refresh all skill lists and details without sending a session message", () => {
-  expect(dashboardInvalidationForAgentEvent({ type: "mcp.changed", payload: {} }))
-    .toEqual({ domains: ["tools"], sessionIds: [] });
   expect(dashboardInvalidationForAgentEvent({ type: "skills.changed", payload: { revision: 3 } }))
     .toEqual({ domains: ["skills"], sessionIds: [] });
   expect(dashboardDomainsForMutation("skills.user.setEnabled")).toEqual(["skills"]);

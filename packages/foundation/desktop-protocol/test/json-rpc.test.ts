@@ -86,7 +86,6 @@ describe("JSON-RPC boundary", () => {
       }, step: { id: "tool", name: "exec", title: "Run command", detail: "echo ok", icon_token: "setting_outlined", status: "success", duration_ms: 1000 } } },
       { type: "managed_llm.authentication_failed", payload: { provider: "test", model: "model", credential_revision: "a".repeat(64) } },
       { type: "session.changed", thread_id: "s", payload: { changes: ["messages"] } },
-      { type: "mcp.changed", payload: {} },
       { type: "system.ready", payload: { state: "ready" } },
       { type: "system.status", payload: { state: "stopped" } },
       { type: "thread.started", thread_id: "s", payload: {} },
@@ -94,7 +93,7 @@ describe("JSON-RPC boundary", () => {
       { type: "turn.completed", ...scope, payload: {} },
       { type: "turn.failed", ...scope, payload: { error: "actual failure" } },
     ];
-    expect(new Set(events.map((event) => event.type)).size).toBe(13);
+    expect(new Set(events.map((event) => event.type)).size).toBe(12);
     for (const event of events) {
       const wire = encodeAgentEvent(event);
       expect(Object.keys(wire).sort()).toEqual(["jsonrpc", "method", "params"]);
