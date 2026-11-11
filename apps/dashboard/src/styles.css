@@ -3752,6 +3752,10 @@ h1 {
   color: #9db4f5;
 }
 
+.provider-brand-mark[data-provider-mark="openai"] {
+  color: var(--text);
+}
+
 /* The OpenRouter mark is a currentColor SVG. Give it the official brand
    colors directly: purple #7624F4 on light surfaces, lime #C8FF00 on dark. */
 .provider-brand-mark[data-provider-mark="openrouter"] {
