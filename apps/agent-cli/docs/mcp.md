@@ -41,7 +41,7 @@ when run through `exec`. It does not reuse or replace a chat connection.
 In an interactive terminal, you can paste the final redirect URL if the browser
 cannot reach the machine running the command.
 
-`agent-cli mcp logout <name>` only deletes locally saved OAuth credentials while
+`agent-cli mcp logout <name>` deletes the saved client registration and OAuth tokens while
 keeping the server configuration. It does not revoke provider access, end the
 browser's login session or remove fixed HTTP headers.
 
@@ -65,6 +65,12 @@ reference an environment variable such as `${CLIENT_SECRET}`.
 `--oauth-callback-port` fixes the local callback port; `--oauth-client-name` sets
 the application name used for DCR. CIMD and project-level configuration are not supported.
 
+DCR registration is saved before browser approval, independently of tokens, and
+survives cancellation. Later sign-ins reuse it and its callback port when available.
+A changed callback URL or authorization server requires a new registration.
+To apply a changed client name, log out first. The registration is stored with
+OAuth tokens in `config/mcp-auth.json` under the LXE data root.
+
 ## Configuration scope
 
 Configuration and OAuth credentials are shared by all workspaces using the same
@@ -73,3 +79,7 @@ same data root in an independent terminal to manage the same servers and credent
 Configuration changes apply before each chat's next model call and on the next
 standalone command. A chat awaiting sign-in also checks for updated credentials
 before its next model call.
+
+Commands report results, sign-in progress and actual errors. When local logging is
+enabled, connection-stage diagnostics go to `logs/runtime/<date>/mcp-cli.log`
+under the data root instead of filling the command output.

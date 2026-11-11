@@ -129,7 +129,10 @@ for (const failure of ["denied", "save", "browser"] as const) {
       callback.searchParams.set("state", auth.searchParams.get("state")!);
       callback.searchParams.set(failure === "denied" ? "error" : "code", failure === "denied" ? "access_denied" : "approved");
       // A real filesystem error after authorization, rather than a fabricated user-facing diagnostic.
-      if (failure === "save") mkdirSync(join(root, "config/mcp-auth.json"), { recursive: true });
+      if (failure === "save") {
+        rmSync(join(root, "config/mcp-auth.json"), { force: true });
+        mkdirSync(join(root, "config/mcp-auth.json"));
+      }
       expect((await fetch(callback)).status).toBe(failure === "denied" ? 400 : 200);
           return new Response(null);
         } catch (error) { return new Response((error as Error).message, { status: 500 }); }
@@ -220,6 +223,8 @@ for (const mode of ["chat", "terminal", "cancelled", "timeout"] as const) {
       expect(child.exitCode).toBeNull();
       expect(exchanges).toBe(0);
       expect(store.get("team-skills", config.servers[0]!.url)).toBeUndefined();
+      const registration = store.clientRegistration("team-skills", config.servers[0]!.url).load();
+      expect(registration?.client_id).toBe("fixture");
       const callback = new URL(url.searchParams.get("redirect_uri")!);
       if (mode === "cancelled" || mode === "timeout") {
         if (mode === "cancelled") child.kill();
@@ -228,6 +233,7 @@ for (const mode of ["chat", "terminal", "cancelled", "timeout"] as const) {
         if (mode === "timeout") expect(error).toContain("timed out");
         expect(exchanges).toBe(0);
         expect(store.get("team-skills", config.servers[0]!.url)).toBeUndefined();
+        expect(store.clientRegistration("team-skills", config.servers[0]!.url).load()).toEqual(registration);
         await expect(fetch(callback)).rejects.toThrow();
         return;
       }

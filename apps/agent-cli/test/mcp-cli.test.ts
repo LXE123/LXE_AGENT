@@ -15,7 +15,8 @@ test("standalone user commands preserve unrelated config, probe active tools and
   const auth = new McpAuthStore(root), url = "https://example.invalid/mcp";
   async function cli(...args: string[]) {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "mcp", ...args],
-      { cwd: root, env: { ...process.env, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: path, LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "" },
+      { cwd: root, env: { ...process.env, LXE_DATA_ROOT: root, LXE_MCP_CONFIG_PATH: path, LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "",
+        LOCAL_LOGS_ENABLED: "1", LOG_LEVEL: "DEBUG" },
         stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { out, err, code };
@@ -48,6 +49,11 @@ test("standalone user commands preserve unrelated config, probe active tools and
     expect(auth.get("docs", url)).toBeDefined();
     const listing = await cli("list", "--json");
     expect(listing.code, listing.err).toBe(0);
+    expect(listing.err).toBe("");
+    expect(listing.out).not.toContain("mcp_connection_stage");
+    const logFiles = [...new Bun.Glob("logs/runtime/*/mcp-cli.log").scanSync({ cwd: root, absolute: true })];
+    expect(logFiles.length).toBeGreaterThan(0);
+    expect(logFiles.map(file => readFileSync(file, "utf8")).join("\n")).toContain("mcp_connection_stage_completed");
     const { servers: [files, off], errors } = JSON.parse(listing.out);
     expect(errors).toEqual([]);
     expect(files).toMatchObject({ name: "files", state: "connected", scope: "global", source: path });

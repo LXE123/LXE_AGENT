@@ -43,3 +43,29 @@ test("two Harness processes renew a rotating grant once and preserve independent
     expect(readFileSync(file, "utf8")).toBe("unparseable secret data");
   } finally { issuer.stop(true); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("registration invalidation and late token saves cannot replace a newer login or restore a logged-out client", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-mcp-registration-store-"));
+  const store = new McpAuthStore(root);
+  const url = "https://mcp.example.test/", issuer = "https://auth.example.test/";
+  const registration = store.clientRegistration("docs", url);
+  const first = { client_id: "first", client_secret: "first-secret", issuer, redirect_uris: ["http://127.0.0.1:5001/callback"] };
+  const second = { ...first, client_id: "second", client_secret: "second-secret" };
+  try {
+    await registration.save(first, new AbortController().signal);
+    await store.save({ name: "docs", url, registration: first, access_token: "first-token" });
+    await new McpAuthStore(root).clientRegistration("docs", url).save(second, new AbortController().signal);
+    await registration.invalidate(first, "client");
+    await registration.invalidate(first, "tokens");
+    await expect(store.save({ name: "docs", url, registration: first, access_token: "late-first-token" })).rejects.toThrow("registration changed");
+    expect(registration.load()).toEqual(second);
+    expect(store.get("docs", url)).toBeUndefined();
+    await store.save({ name: "docs", url, registration: second, access_token: "second-token" });
+    await registration.invalidate(second, "tokens");
+    expect(registration.load()).toEqual(second);
+    expect(store.get("docs", url)).toBeUndefined();
+    await store.forget("docs", url);
+    await expect(store.save({ name: "docs", url, registration: second, access_token: "late-second-token" })).rejects.toThrow("registration changed");
+    expect(registration.load()).toBeUndefined();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { configureLogging } from "@lxe/core";
 import { addMcpServer, loadMcpConfig, removeMcpServer, ToolRegistry, usesMcpOAuth, type McpConfig } from "@lxe/runtime";
 import { resolveExecRuntimePaths } from "./exec-paths";
 import { McpAccess } from "./mcp-access";
@@ -45,6 +46,14 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   if (cmd.kind === "help") { process.stdout.write(usage); return 0; }
   const { dataRoot } = resolveExecRuntimePaths();
   const configPath = process.env.LXE_MCP_CONFIG_PATH?.trim() || join(dataRoot, "config", "mcp_servers.local.json");
+  const logging = configureLogging({ projectRoot: dataRoot, stateRoot: dataRoot, fileName: "mcp-cli.log",
+    environment: process.env, consoleEnabled: false });
+  try { return await executeMcpCommand(cmd, dataRoot, configPath, openBrowser); }
+  finally { await logging.close(); }
+}
+
+async function executeMcpCommand(cmd: Exclude<ReturnType<typeof parseMcpCommand>, { kind: "help" }>,
+  dataRoot: string, configPath: string, openBrowser?: (url: string) => Promise<void>): Promise<number> {
   if (cmd.kind === "add" || cmd.kind === "remove") {
     await withMcpConfigLock(configPath, () => {
       if (cmd.kind === "add") addMcpServer(configPath, cmd.name, cmd.definition, process.env, "", true);

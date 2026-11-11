@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { createInterface } from "node:readline/promises";
-import { auth, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
+import { auth, fetchToken, OAuthError, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
 import { harnessFetch, type McpOAuthChallenge, type McpOAuthSettings } from "@lxe/runtime";
 
 export type McpGrant = {
@@ -11,6 +11,7 @@ export type McpGrant = {
   access_token: string;
   expires_at?: number;
   login?: McpOAuthChallenge;
+  registration?: StoredOAuthClientInformation;
   renewal?: {
     refresh_token: string;
     issuer: string;
@@ -19,6 +20,18 @@ export type McpGrant = {
     resource?: string;
   };
 };
+
+/** DCR registration survives an unfinished sign-in and does not require tokens. */
+export interface McpClientRegistrationStore {
+  load(): StoredOAuthClientInformation | undefined;
+  save(client: StoredOAuthClientInformation, signal: AbortSignal): Promise<void>;
+  invalidate(client: StoredOAuthClientInformation, scope: "client" | "tokens"): Promise<void>;
+}
+
+function registeredRedirectUrls(client: StoredOAuthClientInformation | undefined): string[] {
+  const urls = client && "redirect_uris" in client ? client.redirect_uris : undefined;
+  return Array.isArray(urls) ? urls.filter((url): url is string => typeof url === "string") : [];
+}
 
 function accessFields(tokens: StoredOAuthTokens) {
   if (!tokens.access_token || tokens.token_type.toLowerCase() !== "bearer") throw new Error("MCP OAuth did not return a bearer access token");
@@ -60,24 +73,46 @@ async function promptForRedirectUrl(signal: AbortSignal): Promise<string | undef
 
 /** Interactive sign-in, explicitly requested by the user. */
 export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: string) => Promise<void>, signal: AbortSignal,
-  settings: McpOAuthSettings = {}, prompt = promptForRedirectUrl): Promise<Omit<McpGrant, "name">> {
+  settings: McpOAuthSettings = {}, prompt = promptForRedirectUrl,
+  registrations?: McpClientRegistrationStore): Promise<Omit<McpGrant, "name">> {
   const resource = webUrl(target.url);
   signal.throwIfAborted();
   const state = randomBytes(32).toString("hex");
   const server = createServer();
   let verifier = "";
   let client: StoredOAuthClientInformation | undefined = settings.clientId
-    ? { client_id: settings.clientId, ...(settings.clientSecret && { client_secret: settings.clientSecret }) } : undefined;
+    ? { client_id: settings.clientId, ...(settings.clientSecret && { client_secret: settings.clientSecret }) } : registrations?.load();
   let tokens: StoredOAuthTokens | undefined;
   let discovery: OAuthDiscoveryState | undefined;
   let audience: string | undefined;
   try {
-    const listening = once(server, "listening", { signal });
-    server.listen(settings.callbackPort ?? 0, "127.0.0.1");
-    await listening;
+    const registeredRedirect = registeredRedirectUrls(client)[0];
+    const registeredUrl = registeredRedirect ? URL.parse(registeredRedirect) : undefined;
+    const storedPort = registeredUrl?.protocol === "http:" && registeredUrl.hostname === "127.0.0.1"
+      ? Number(registeredUrl.port) || undefined : undefined;
+    const listen = async (port: number) => {
+      const listening = once(server, "listening", { signal });
+      server.listen(port, "127.0.0.1");
+      await listening;
+    };
+    try { await listen(settings.callbackPort ?? storedPort ?? 0); }
+    catch (error) {
+      // A configured port is required; the previous DCR port is only preferred.
+      signal.throwIfAborted();
+      if (settings.callbackPort !== undefined || storedPort === undefined) throw error;
+      await listen(0);
+    }
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("MCP login callback is unavailable");
     const callback = new URL("http://127.0.0.1:" + address.port + "/callback");
+    const invalidateClient = async () => {
+      if (client && !settings.clientId) await registrations?.invalidate(client, "client");
+      if (!settings.clientId) client = undefined;
+      tokens = undefined;
+    };
+    if (client && !settings.clientId && !registeredRedirectUrls(client).includes(callback.href)) {
+      await invalidateClient();
+    }
     const completed = Promise.withResolvers<{ authorizationCode: string; iss?: string }>();
     // A callback or cancellation may arrive while the browser is still being opened.
     void completed.promise.catch(() => {});
@@ -118,7 +153,25 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
           response_types: ["code"], token_endpoint_auth_method: "none" };
       },
       saveResourceUrl: value => { audience = value; },
-      state: () => state, clientInformation: () => client, saveClientInformation: value => { client = value; },
+      state: () => state,
+      clientInformation: async context => {
+        // Never send a registration (or its secret) to a different authorization server.
+        if (client && !settings.clientId && context && client.issuer !== context.issuer) await invalidateClient();
+        return client;
+      },
+      saveClientInformation: async value => {
+        if (!settings.clientId) await registrations?.save(value, signal);
+        client = value;
+      },
+      invalidateCredentials: async scope => {
+        if (scope === "all" || scope === "client") await invalidateClient();
+        if (scope === "all" || scope === "tokens") {
+          if (client && !settings.clientId) await registrations?.invalidate(client, "tokens");
+          tokens = undefined;
+        }
+        if (scope === "all" || scope === "verifier") verifier = "";
+        if (scope === "all" || scope === "discovery") discovery = undefined;
+      },
       tokens: () => tokens, saveTokens: value => { tokens = value; },
       saveCodeVerifier: value => { verifier = value; }, codeVerifier: () => verifier,
       saveDiscoveryState: value => { discovery = value; }, discoveryState: () => discovery,
@@ -139,12 +192,29 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
           }).catch(error => completed.reject(error));
           const response = await completed.promise;
           prompting.abort();
-          await auth(provider, { ...options, ...response });
+          if (!discovery) throw new Error("MCP login authorization server discovery is unavailable");
+          try {
+            // Exchange against the issuer discovered for this sign-in. Unlike auth(),
+            // fetchToken() does not replay a rejected code or replace its actual error.
+            tokens = await fetchToken(provider, discovery.authorizationServerUrl, {
+              ...response, ...(discovery.authorizationServerMetadata && { metadata: discovery.authorizationServerMetadata }),
+              ...(audience && { resource: audience }), fetchFn: options.fetchFn,
+            });
+          } catch (error) {
+            if (error instanceof OAuthError) {
+              if (["invalid_client", "unauthorized_client"].includes(error.code)) await provider.invalidateCredentials!("client");
+              if (["invalid_client", "unauthorized_client", "invalid_grant", "invalid_dpop_proof"].includes(error.code)) {
+                await provider.invalidateCredentials!("tokens");
+              }
+            }
+            throw error;
+          }
         } finally { prompting.abort(); }
       }
       signal.throwIfAborted();
       if (!tokens) throw new Error("MCP login did not return tokens");
       return { url: target.url, login: target, ...accessFields(tokens),
+        ...(registrations && !settings.clientId && client && { registration: client }),
         ...(tokens.refresh_token && discovery && client && { renewal: {
           refresh_token: tokens.refresh_token, issuer: discovery.authorizationServerUrl, client,
           ...(discovery.authorizationServerMetadata && { metadata: discovery.authorizationServerMetadata }),

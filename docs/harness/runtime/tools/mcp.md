@@ -28,6 +28,8 @@ HTTP 连接和 OAuth 请求统一遵循 Harness 的[环境变量与系统手动�
 
 `login/logout` 在聊天和独立终端中也一致：`login` 临时连接指定服务，需要授权时登录，保存后验证连接并关闭；`logout` 只删除共享凭据。命令不经宿主管道操作聊天连接。等待授权的会话在下一次模型调用前读取新凭据并重连。命令行和桌面的配置变更都在各会话下一次模型调用前读取。
 
+命令输出服务状态、授权进度和实际错误。启用本地日志时，连接阶段耗时与结构化诊断写入数据目录下的 `logs/runtime/<日期>/mcp-cli.log`，不混入 stdout/stderr，避免挤占模型和桌面的输出预览。
+
 ## 配置文件
 
 默认读取数据目录中的 `config/mcp_servers.local.json`；可用 `LXE_MCP_CONFIG_PATH` 指定另一个 JSON 文件。文件不存在或 `servers` 为空时，没有用户配置的服务器。桌面首次启动会复制空的默认 JSON 模板。
@@ -65,6 +67,8 @@ HTTP 连接和 OAuth 请求统一遵循 Harness 的[环境变量与系统手动�
 授权服务器签发令牌后，Harness 立即将 OAuth 凭据按服务名和 URL 保存到数据目录的 `config/mcp-auth.json`，与服务定义和模型 API Key 分开。文件使用 JSON 明文，POSIX 权限为 `0600`。登录和续期通过跨进程文件锁与原子替换保存。如果随后 MCP 握手或工具发现失败，连接状态显示实际错误，凭据保留。再次运行登录命令会先用已存凭据重试；若服务仍要求授权，再打开浏览器。旧测试版本的桌面凭据需要重新登录一次。
 
 OAuth 默认使用 DCR，不接入 CIMD。添加服务时可通过 `--oauth-client-id` / `--oauth-client-secret` 使用预配置客户端，通过 `--oauth-callback-port` 指定回调端口，通过 `--oauth-client-name` 设置 DCR 的应用名称；对应配置写入 `oauth.clientId/clientSecret/callbackPort/clientName`。客户端密钥支持 `${VAR}`，在登录时解析。`login --timeout <秒>` 默认 300 秒，接受任意有限正数；OAuth 完成后的连接验证使用服务自己的启动预算。交互终端支持粘贴完整回调 URL，仍校验回调地址、state 和授权服务器 issuer。
+
+DCR 注册结果在打开浏览器前独立写入 `mcp-auth.json` 的 `registration` 字段，包含客户端 ID、服务端返回的注册元数据及 issuer；取消登录或没有刷新令牌也能复用。再次登录优先绑定原回调端口，端口被占用时改用空闲端口并重新注册；显式配置的端口不可用则报告实际错误。回调地址或授权服务器变化也会重新注册。`invalid_client` / `unauthorized_client` 会清除对应注册，`invalid_grant` 保留注册供再次授权。`logout` 同时删除注册和令牌，`remove` 保留两者；修改应用名称需先退出登录，才能用新名称注册。
 
 配置层展开命令、参数和环境变量中的 `${VAR}`。HTTP 请求头里的占位符和令牌在连接时解析；写回开关不会把解析后的秘密写进文件。缺失变量会明确报错。
 

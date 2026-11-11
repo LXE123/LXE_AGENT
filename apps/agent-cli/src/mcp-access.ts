@@ -75,7 +75,8 @@ export class McpAccess {
       const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, async url => {
         onProgress?.({ type: "authorization_required", url });
         await this.openBrowser(url);
-      }, AbortSignal.any([signal, AbortSignal.timeout(Math.ceil(timeoutMs))]), settings) };
+      }, AbortSignal.any([signal, AbortSignal.timeout(Math.ceil(timeoutMs))]), settings, undefined,
+      this.store.clientRegistration(name, server.url)) };
       stage = "credential-save";
       await this.store.save(grant, signal);
       stage = "reconnection";

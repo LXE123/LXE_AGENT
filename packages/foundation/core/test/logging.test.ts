@@ -180,6 +180,24 @@ describe("structured logger", () => {
     }));
   });
 
+  test("command diagnostics can retain actual file errors without writing console output", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-command-"));
+    roots.push(root);
+    const output = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const controller = logging.configureLogging({ projectRoot: root, consoleEnabled: false,
+        environment: { LOCAL_LOGS_ENABLED: "1", LOG_LEVEL: "DEBUG" } });
+      controllers.push(controller);
+      const logger = logging.createLogger("runtime.mcp.connection");
+      logger.info("connected");
+      logger.error("connection_failed", { error: new Error("fixture socket closed") });
+      expect(output).not.toHaveBeenCalled();
+      const content = readFileSync(controller.filePath!, "utf8");
+      expect(content).toContain("connected");
+      expect(content).toContain("fixture socket closed");
+    } finally { output.mockRestore(); }
+  });
+
   test("accepts a canonical state root without adding a second var segment", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "lxe-logging-state-root-"));
     roots.push(projectRoot);
