@@ -6,6 +6,7 @@ import { ToolRegistry, type McpConfig, type McpServerConfig } from "@lxe/runtime
 import { McpAccess } from "../src/mcp-access";
 import { McpAuthStore } from "../src/mcp-auth-store";
 import { openMcpCliBridge } from "../src/mcp-cli-bridge";
+import { legacyReply, type WireMessage } from "../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
 
 const serverConfig = (url: string): McpServerConfig => ({
   name: "team-skills", enabled: true, transport: "streamable-http", protocolMode: "auto", url,
@@ -20,7 +21,7 @@ async function bridgeFor(access: McpAccess, config: McpConfig) {
       const { state: status, toolCount: tool_count, error, tools } = access.manager.status(name);
       return { name, transport, status, tool_count, error, tools };
     }),
-    login: (name, signal) => access.login(name, signal),
+    login: (name, signal, _sessionId, onProgress) => access.login(name, signal, onProgress),
     logout: name => access.logout(name),
   });
 }
@@ -72,8 +73,8 @@ test("chat and terminal commands report a real connection failure without claimi
   } finally { await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
 }, 15_000);
 
-for (const failure of ["denied", "save"] as const) {
-  test(`chat login identifies ${failure === "denied" ? "authorization denial" : "credential saving failure"} and retains the actual error`, async () => {
+for (const failure of ["denied", "save", "browser"] as const) {
+  test(`chat login identifies ${failure === "denied" ? "authorization denial" : failure === "save" ? "credential saving failure" : "browser launcher failure"} and retains the actual error`, async () => {
     const root = mkdtempSync(join(tmpdir(), "mcp-login-failure-"));
     let browserOpens = 0;
     const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -90,6 +91,7 @@ for (const failure of ["denied", "save"] as const) {
     const config = { servers: [serverConfig(http.url.origin + "/mcp")] };
     const access = new McpAccess(config, new McpAuthStore(root), {}, async url => {
       browserOpens++;
+      if (failure === "browser") throw new Error("fixture browser launcher unavailable");
       const auth = new URL(url), callback = new URL(auth.searchParams.get("redirect_uri")!);
       callback.searchParams.set("state", auth.searchParams.get("state")!);
       callback.searchParams.set(failure === "denied" ? "error" : "code", failure === "denied" ? "access_denied" : "approved");
@@ -105,14 +107,93 @@ for (const failure of ["denied", "save"] as const) {
       expect(list.out).toContain("Sign in with: agent-cli mcp login team-skills");
       const result = await cli(root, bridge.environment, "login", "team-skills");
       expect(result.code).toBe(1);
-      expect(result.out).toBe('Checking connection to MCP server "team-skills".\n');
+      expect(result.out).toStartWith('Checking connection to MCP server "team-skills".\nSign in to MCP server "team-skills" in your browser:\n');
+      expect(result.out).toContain(http.url.origin + "/authorize?");
+      expect(result.out).not.toContain("were saved");
       expect(result.err).toContain(failure === "denied"
         ? 'MCP server "team-skills" sign-in failed:\nMCP OAuth callback error: access_denied'
-        : 'MCP server "team-skills" failed to save OAuth credentials:');
+        : failure === "save" ? 'MCP server "team-skills" failed to save OAuth credentials:'
+        : 'MCP server "team-skills" sign-in failed:\nfixture browser launcher unavailable');
       if (failure === "save") expect(result.err).toContain("EISDIR");
       expect(result.err).not.toContain("credentials were saved");
       expect(result.err).not.toContain("fixture-token");
       expect(browserOpens).toBe(1);
     } finally { await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true }); }
   });
+}
+
+for (const mode of ["chat", "terminal"] as const) {
+  test(`${mode} login streams the authorization URL before approval, then reports saved credentials and connection`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "mcp-login-progress-"));
+    let exchanges = 0;
+    const http = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      const { pathname, origin } = new URL(request.url);
+      if (pathname === "/resource") return Response.json({ resource: origin + "/mcp", authorization_servers: [origin] });
+      if (pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: origin,
+        authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
+        response_types_supported: ["code"], code_challenge_methods_supported: ["S256"] });
+      if (pathname === "/register") return Response.json({ ...await request.json() as Record<string, unknown>, client_id: "fixture" }, { status: 201 });
+      if (pathname === "/token") { exchanges++; return Response.json({ access_token: "fixture-private-token", token_type: "Bearer" }); }
+      if (request.headers.get("Authorization") !== "Bearer fixture-private-token") return new Response("Sign in first", { status: 401,
+        headers: { "WWW-Authenticate": `Bearer resource_metadata="${origin}/resource"` } });
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const reply = legacyReply(await request.json() as WireMessage);
+      return reply ? Response.json(reply) : new Response(null, { status: 202 });
+    } });
+    const config = { servers: [serverConfig(http.url.origin + "/mcp")] };
+    const store = new McpAuthStore(root);
+    const access = new McpAccess(config, store, {}, async () => {});
+    const bridge = await bridgeFor(access, config);
+    mkdirSync(join(root, "config"), { recursive: true });
+    writeFileSync(join(root, "config/mcp_servers.local.json"), JSON.stringify({ servers: {
+      "team-skills": { url: http.url.origin + "/mcp", transport: "streamable-http", enabled: true },
+    } }));
+    // Replace only the OS browser launcher; exercise the actual command, SDK and OAuth callback.
+    const runner = join(root, "command.ts");
+    writeFileSync(runner, `import { runMcpCommand } from ${JSON.stringify(join(import.meta.dir, "../src/mcp-command.ts"))};
+      console.log = (...values) => { process.stderr.write(values.map(String).join(" ") + "\\n"); };
+      process.exitCode = await runMcpCommand(["login", "team-skills"], async () => {});`);
+    await access.manager.start(new ToolRegistry());
+    const child = Bun.spawn([process.execPath, runner], { cwd: root,
+      env: { ...process.env, LOCAL_LOGS_ENABLED: "0", LXE_DATA_ROOT: root,
+        LXE_MCP_CONFIG_PATH: join(root, "config/mcp_servers.local.json"), LXE_MCP_CLI_PIPE: "", LXE_MCP_CLI_TOKEN: "",
+        LXE_MCP_CLI_SESSION_ID: "test-chat", ...(mode === "chat" ? bridge.environment : {}) }, stdout: "pipe", stderr: "pipe" });
+    let output = "";
+    const advertised = Promise.withResolvers<URL>();
+    const reading = (async () => {
+      const decoder = new TextDecoder();
+      for await (const chunk of child.stdout) {
+        output += decoder.decode(chunk, { stream: true });
+        const link = output.split("\n").find(line => line.startsWith(http.url.origin + "/authorize?"));
+        if (link && output.includes(link + "\n")) advertised.resolve(new URL(link));
+      }
+      advertised.reject(new Error("Command exited before reporting an authorization URL"));
+    })();
+    const stderr = new Response(child.stderr).text();
+    try {
+      const url = await advertised.promise;
+      expect(child.exitCode).toBeNull();
+      expect(exchanges).toBe(0);
+      expect(store.get("team-skills", config.servers[0]!.url)).toBeUndefined();
+      const callback = new URL(url.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", url.searchParams.get("state")!);
+      callback.searchParams.set("code", "fixture-private-code");
+      expect((await fetch(callback)).status).toBe(200);
+      const [code, error] = await Promise.all([child.exited, stderr, reading]);
+      expect(code, error).toBe(0);
+      expect(exchanges).toBe(1);
+      expect(output).toContain('OAuth credentials for MCP server "team-skills" were saved. Verifying the connection.\nConnected to MCP server "team-skills".');
+      expect(output).not.toContain("fixture-private-token");
+      expect(output).not.toContain("fixture-private-code");
+      if (mode === "chat") expect(access.manager.status("team-skills")).toMatchObject({ connected: true, toolCount: 2 });
+      const reuse = await cli(root, mode === "chat" ? bridge.environment : {}, "login", "team-skills");
+      expect(reuse.code, reuse.err).toBe(0);
+      expect(reuse.out).toContain("already connected");
+      expect(reuse.out).not.toContain("in your browser");
+      expect(exchanges).toBe(1);
+    } finally {
+      child.kill(); await child.exited; await reading; await stderr;
+      await bridge.close(); await access.manager.stop(); await http.stop(true); rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 }

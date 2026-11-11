@@ -43,7 +43,7 @@ test("desktop exec can list and sign in by the original server name using only t
     expect(await command("agent-cli mcp login team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("already connected") });
     expect(JSON.parse((await command("agent-cli mcp list --json")).out)[0].tools).toEqual(tools);
     expect(await command("agent-cli mcp logout team-skills")).toMatchObject({ code: 0, out: expect.stringContaining("Forgot saved OAuth credentials") });
-    expect(calls).toEqual(["team_skills", "team-skills"]);
+    expect(calls).toEqual(["team-skills"]);
     await expect(requestDesktopPipe(path, token, "mcp.servers.add", { session_id: "chat-A" })).rejects.toThrow("Unknown MCP management command");
     expect(await command("agent-cli mcp login team-skills", { ...env, LXE_MCP_CLI_TOKEN: "" })).toMatchObject({ code: 1, err: expect.stringContaining("Incomplete MCP management connection") });
   } finally { await bridge.close(); }
@@ -51,7 +51,8 @@ test("desktop exec can list and sign in by the original server name using only t
 
 test("terminating a pending CLI request cancels its browser login", async () => {
   const started = Promise.withResolvers<void>(), cancelled = Promise.withResolvers<void>();
-  const bridge = await openMcpCliBridge({ list: async () => [], logout: async () => false, login: async (_name, signal) => {
+  const bridge = await openMcpCliBridge({ list: async () => [{ name: "docs", status: "needs_auth", transport: "streamable-http", tool_count: 0, tools: [], error: "" }], logout: async () => false, login: async (_name, signal, _sessionId, onProgress) => {
+    onProgress({ type: "authorization_required", url: "https://example.invalid/authorize" });
     started.resolve();
     await new Promise<void>(resolve => signal.addEventListener("abort", resolve.bind(null, undefined), { once: true }));
     cancelled.resolve();

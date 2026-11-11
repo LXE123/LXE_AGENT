@@ -13,6 +13,12 @@ including hyphens; `mcp__team_skills` is the tool namespace, not the server name
 `login` first checks the connection. It uses saved credentials when available
 and opens the authorization page only if the server requires sign-in. The initial
 "Checking connection" output does not mean a browser has opened.
+When an authorization URL is ready, the command prints
+`Sign in to MCP server "<name>" in your browser:` followed by the URL and attempts
+to open it. The user can open that URL manually if needed. This is an invitation
+to authorize, not proof that the browser opened or that authorization succeeded.
+After saving credentials, it prints that they were saved and it is verifying
+the connection. The final result determines whether the server is usable.
 If `exec` reports `status: running`, use `wait` with its `exec_id` to collect the
 outcome. Both running and finished commands have an `exec_id`; check the status
 and exit code. A finished command with a nonzero exit code has failed and is no
@@ -56,4 +62,7 @@ credentials. Config edits apply before each chat’s next model call and on the
 next standalone command. You can also add services through
 **Capabilities → MCP services → Add service**; viewing or saving settings does
 not probe connections. All workspaces using the same
-LXE data root share the configuration. Run `agent-cli mcp --help` for options.
+LXE data root share the configuration. Run `agent-cli mcp --help` or a subcommand
+with `--help` for options. Invalid command arguments exit with status 2 and print
+the argument error and usage. For `login` and `logout`, a name that does not match
+a configured server exits with status 1 and lists the configured names.

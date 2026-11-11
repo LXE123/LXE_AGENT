@@ -5,7 +5,8 @@ import { addMcpServer, loadMcpConfig, removeMcpServer, ToolRegistry, usesMcpOAut
 import { resolveExecRuntimePaths } from "./exec-paths";
 import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
-import { parseMcpCommand, usage } from "./mcp-command-args";
+import { parseMcpCommand, requireMcpServer, usage } from "./mcp-command-args";
+import { printMcpLoginProgress } from "./mcp-login-progress";
 import { withMcpConfigLock } from "./mcp-config-lock";
 import { sessionMcpConfig } from "./session-mcp";
 
@@ -25,10 +26,10 @@ function printList(servers: McpCliServer[], json: boolean): number {
 }
 
 export async function runMcpCommand(args: string[], openBrowser?: (url: string) => Promise<void>): Promise<number> {
-  if (args.length === 1 && ["-h", "--help"].includes(args[0]!)) { process.stdout.write(usage); return 0; }
   let cmd: ReturnType<typeof parseMcpCommand>;
   try { cmd = parseMcpCommand(args); }
   catch (error) { process.stderr.write(`${(error as Error).message}\n${usage}`); return 2; }
+  if (cmd.kind === "help") { process.stdout.write(usage); return 0; }
   const path = process.env.LXE_MCP_CLI_PIPE, token = process.env.LXE_MCP_CLI_TOKEN;
   if (!!path !== !!token) throw new Error("Incomplete MCP management connection");
   const { dataRoot } = resolveExecRuntimePaths();
@@ -53,7 +54,8 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
     if (cmd.kind === "list") return printList(await requestDesktopPipe(path, token, "mcp/list", { session_id }) as McpCliServer[], cmd.json);
     if (cmd.kind === "logout") reportLogout(cmd.name, await requestDesktopPipe(path, token, "mcp/logout", { name: cmd.name, session_id }) === true);
     else {
-      const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS);
+      const result = await requestDesktopPipe(path, token, "mcp/login", { name: cmd.name, session_id }, signal, MCP_CLI_LOGIN_TIMEOUT_MS,
+        event => printMcpLoginProgress(cmd.name, event));
       process.stdout.write(result === "already_connected" ? `${cmd.name} is already connected.\n` : `Connected to MCP server "${cmd.name}".\n`);
     }
     return 0;
@@ -61,8 +63,7 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
   const config = sessionMcpConfig(loadMcpConfig(configPath, process.env), process.cwd(), "cli");
   const store = new McpAuthStore(dataRoot);
   if (cmd.kind !== "list") {
-    const server = config.servers.find(s => s.name === cmd.name);
-    if (!server) throw new Error("MCP server not found: " + cmd.name);
+    const server = requireMcpServer(cmd.name, config.servers);
     if (server.transport !== "streamable-http") throw new Error("MCP OAuth requires a Streamable HTTP server");
     if (cmd.kind === "logout") {
       if (!usesMcpOAuth(server)) throw new Error("MCP logout requires a Streamable HTTP server without a configured Authorization header");
@@ -88,7 +89,7 @@ export async function runMcpCommand(args: string[], openBrowser?: (url: string) 
       if (status.state !== "needs_auth" && !access.canRelogin(cmd.name)) {
         throw new Error(`MCP server "${cmd.name}" failed to connect:\n${status.error || status.state}`);
       }
-      await access.login(cmd.name, signal);
+      await access.login(cmd.name, signal, event => printMcpLoginProgress(cmd.name, event));
       process.stdout.write(`Connected to MCP server "${cmd.name}".\n`);
     }
   } finally {

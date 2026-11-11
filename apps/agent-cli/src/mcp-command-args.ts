@@ -14,7 +14,7 @@ Add options: --exposure <codemode|deferred|direct|hidden>, --description <text>,
   HTTP:  --header KEY=VALUE (repeatable), --bearer-token-env-var <name>
 `;
 
-type Command = { kind: "list"; json: boolean } | { kind: "login"; name: string; timeout: number }
+type Command = { kind: "help" } | { kind: "list"; json: boolean } | { kind: "login"; name: string; timeout: number }
   | { kind: "remove" | "logout"; name: string } | { kind: "add"; name: string; definition: Record<string, unknown> };
 
 function pairs(entries: string[] | undefined, header: boolean) {
@@ -29,35 +29,65 @@ function pairs(entries: string[] | undefined, header: boolean) {
 }
 
 export function parseMcpCommand([kind, ...args]: string[]): Command {
-  if (kind === "list" && (!args.length || (args.length === 1 && args[0] === "--json"))) return { kind, json: !!args.length };
+  const commands = ["add", "remove", "list", "login", "logout"];
+  if (kind === undefined || (["help", "--help", "-h"].includes(kind) && !args.length)) return { kind: "help" };
+  if (kind === "help" && args.length === 1 && commands.includes(args[0]!)) return { kind: "help" };
+  if (!commands.includes(kind)) throw new Error(`Unknown MCP command "${kind}". Expected: ${commands.join(", ")}.`);
+  if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) return { kind: "help" };
+  if (kind === "list") {
+    const { values } = parseArgs({ args, options: { json: { type: "boolean" } }, allowPositionals: false });
+    return { kind, json: values.json === true };
+  }
   const [name, ...rest] = args;
-  if (!name || !/^[A-Za-z0-9_-]+$/.test(name) || name.startsWith("-")) throw new Error("Expected a configured MCP server name");
+  if (!name || name.startsWith("-")) throw new Error(`Missing MCP server name. Usage: agent-cli mcp ${kind} <name>${kind === "add" ? " [options] (--url <url> | -- <command> [args])" : ""}`);
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Invalid MCP server name "${name}". Use letters, digits, underscores or hyphens.`);
+  if (rest.length === 1 && ["--help", "-h"].includes(rest[0]!)) return { kind: "help" };
   if (kind === "remove" || kind === "add") {
     if (mcpNamespace(name) === mcpNamespace(DESKTOP_MCP_NAME)) throw new Error("The mcp__lxe_desktop namespace is managed by the desktop app");
   }
-  if ((kind === "remove" || kind === "logout") && !rest.length) return { kind, name };
+  if (kind === "remove" || kind === "logout") {
+    parseArgs({ args: rest, options: {}, allowPositionals: false });
+    return { kind, name };
+  }
   if (kind === "login") {
-    const { values } = parseArgs({ args: rest, options: { timeout: { type: "string", default: "300" } } });
+    const { values } = parseArgs({ args: rest, options: { timeout: { type: "string", default: "300" } }, allowPositionals: false });
     const seconds = Number(values.timeout);
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 300) throw new Error("--timeout must be between 1 and 300 seconds");
     return { kind, name, timeout: seconds * 1_000 };
   }
   if (kind !== "add") throw new Error("Invalid MCP command or arguments");
   const split = rest.indexOf("--");
-  const { values: v } = parseArgs({ args: split < 0 ? rest : rest.slice(0, split), options: {
+  const { values: v } = parseArgs({ args: split < 0 ? rest : rest.slice(0, split), allowPositionals: false, options: {
     url: { type: "string" }, cwd: { type: "string" }, env: { type: "string", multiple: true },
     header: { type: "string", multiple: true }, "bearer-token-env-var": { type: "string" },
     description: { type: "string" }, exposure: { type: "string" },
   } });
+  if (v.exposure !== undefined && !["codemode", "deferred", "direct", "hidden"].includes(v.exposure)) {
+    throw new Error("--exposure must be codemode, deferred, direct or hidden");
+  }
   const common = { exposure: v.exposure ?? "codemode", ...(v.description && { connector_description: v.description }) };
   if (split >= 0) {
     const [command, ...argv] = rest.slice(split + 1);
-    if (!command || v.url !== undefined || v.header || v["bearer-token-env-var"] !== undefined) throw new Error("Expected -- <command> [args] without HTTP options");
+    if (!command) throw new Error("Missing executable after --. Usage: agent-cli mcp add <name> [options] -- <command> [args]");
+    const misplaced = ["url", "header", "bearer-token-env-var"].find(option => v[option as keyof typeof v] !== undefined);
+    if (misplaced) throw new Error(`--${misplaced} only applies to HTTP servers; omit the stdio command after --`);
     return { kind, name, definition: { ...common, transport: "stdio", command, args: argv,
       ...(v.env && { env: pairs(v.env, false) }), ...(v.cwd && { cwd: v.cwd }) } };
   }
-  const url = v.url && URL.parse(v.url);
-  if (!url || !["http:", "https:"].includes(url.protocol) || v.cwd !== undefined || v.env) throw new Error("Expected --url <http(s) URL> without stdio options");
+  if (v.url === undefined) throw new Error("Specify --url <http(s) URL> or -- <command> [args] when adding an MCP server");
+  const url = URL.parse(v.url);
+  if (!url || !["http:", "https:"].includes(url.protocol)) throw new Error("--url must be a valid HTTP or HTTPS URL");
+  const misplaced = ["cwd", "env"].find(option => v[option as keyof typeof v] !== undefined);
+  if (misplaced) throw new Error(`--${misplaced} only applies to stdio servers, not --url`);
   return { kind, name, definition: { ...common, transport: "streamable-http", url: v.url,
     ...(v.header && { headers: pairs(v.header, true) }), ...(v["bearer-token-env-var"] && { bearer_token_env_var: v["bearer-token-env-var"] }) } };
+}
+
+export function requireMcpServer<T extends { name: string }>(name: string, servers: T[]): T {
+  const server = servers.find(item => item.name === name);
+  if (server) return server;
+  // Prefer the original name when a model supplied its normalized namespace.
+  const match = servers.find(item => mcpNamespace(item.name) === mcpNamespace(name.replace(/^mcp__/, "")));
+  throw new Error(`MCP server not found: ${name}.${match ? ` Did you mean "${match.name}"? Use the configured server name, not its tool namespace.` : ""}`
+    + (servers.length ? ` Configured servers: ${servers.map(item => item.name).join(", ")}.` : " No MCP servers configured."));
 }

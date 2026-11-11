@@ -10,7 +10,7 @@ import { sanitizeLogValueWithPolicy } from "@lxe/core";
 export async function startDesktopPipe(options: {
   token: string;
   timeoutMs?: number;
-  call: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
+  call: (method: string, params: unknown, signal: AbortSignal, progress: (value: unknown) => void) => Promise<unknown>;
 }): Promise<{ path: string; close(): Promise<void> }> {
   const directory = process.platform === "win32" ? undefined : await mkdtemp(join(tmpdir(), "lxe-mcp-"));
   if (directory) await chmod(directory, 0o700);
@@ -32,7 +32,12 @@ export async function startDesktopPipe(options: {
           const provided = Buffer.from(typeof message.token === "string" ? message.token : "");
           const expected = Buffer.from(options.token);
           if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) throw new Error("Desktop pipe authentication failed");
-          const result = await options.call(message.method, message.params, controller.signal);
+          const progress = (value: unknown) => {
+            if (message.progress === true && !controller.signal.aborted && !socket.writableEnded) {
+              socket.write(encodePipeFrame({ jsonrpc: "2.0", method: "progress", params: { requestId: id, value } }));
+            }
+          };
+          const result = await options.call(message.method, message.params, controller.signal, progress);
           if (!controller.signal.aborted) socket.end(encodePipeFrame({ jsonrpc: "2.0", id, result }));
         } catch (error) {
           if (!socket.destroyed) socket.end(encodePipeFrame({ jsonrpc: "2.0", id, error: { code: -32000,

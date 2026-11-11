@@ -4,6 +4,7 @@ import { McpManager, OfficialMcpConnector, usesMcpOAuth, type McpConfig } from "
 import { createLogger, sanitizeLogValueWithPolicy } from "@lxe/core";
 import { McpAuthStore } from "./mcp-auth-store";
 import { loginToMcp } from "./mcp-oauth";
+import type { McpLoginProgress } from "./mcp-login-progress";
 
 export async function openMcpBrowser(url: string): Promise<void> {
   const [command, args] = process.platform === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]] as const
@@ -48,7 +49,7 @@ export class McpAccess {
     return update;
   }
 
-  async login(name: string, caller?: AbortSignal): Promise<void> {
+  async login(name: string, caller?: AbortSignal, onProgress?: (event: McpLoginProgress) => void): Promise<void> {
     if (this.logins.has(name)) throw new Error("MCP login already in progress");
     const server = this.config.servers.find(s => s.name === name);
     if (!server) throw new Error("MCP server not found: " + name);
@@ -70,10 +71,14 @@ export class McpAccess {
       const previous = this.store.get(name, server.url);
       const target = this.manager.loginTarget(name, previous?.url);
       stage = "sign-in";
-      const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, this.openBrowser, signal) };
+      const grant = { name, ...await loginToMcp({ ...previous?.login, ...target }, async url => {
+        onProgress?.({ type: "authorization_required", url });
+        await this.openBrowser(url);
+      }, signal) };
       stage = "credential-save";
       await this.store.save(grant, signal);
       stage = "reconnection";
+      onProgress?.({ type: "credentials_saved" });
       signal.throwIfAborted();
       await this.manager.reconnect(name);
       signal.throwIfAborted();

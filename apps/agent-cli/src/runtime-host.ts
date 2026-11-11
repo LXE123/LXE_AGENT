@@ -3,6 +3,7 @@ import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
 import { withMcpConfigLock } from "./mcp-config-lock";
 import { openMcpCliBridge } from "./mcp-cli-bridge";
+import type { McpLoginProgress } from "./mcp-login-progress";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
 import { SessionMcpPool, sessionMcpConfig, type SessionMcpRuntime } from "./session-mcp";
@@ -235,10 +236,10 @@ export function createAgentRuntimeHost(
     return { tools: registry, config, access };
   }, undefined, error => logger.warn("mcp_session_cleanup_failed", { error }));
   const loggingIn = new Set<string>();
-  async function signIn(access: McpAccess, name: string, signal?: AbortSignal) {
+  async function signIn(access: McpAccess, name: string, signal?: AbortSignal, onProgress?: (event: McpLoginProgress) => void) {
     if (loggingIn.has(name)) throw new Error("MCP login already in progress");
     loggingIn.add(name);
-    try { await access.login(name, signal); }
+    try { await access.login(name, signal, onProgress); }
     finally { loggingIn.delete(name); await options.onMcpChanged?.(); }
   }
   // Settings only contact the selected service after an explicit login action.
@@ -307,7 +308,7 @@ export function createAgentRuntimeHost(
           const status = access.manager.status(name);
           return { name, transport, status: status.state, tool_count: status.toolCount, error: status.error, tools: status.tools };
         })),
-        login: (name, signal, sessionId) => withMcpSession(sessionId, session => signIn(session.access, name, signal)),
+        login: (name, signal, sessionId, onProgress) => withMcpSession(sessionId, session => signIn(session.access, name, signal, onProgress)),
         logout: (name, sessionId) => withMcpSession(sessionId, async session => {
           try { return await session.access.logout(name); } finally { await options.onMcpChanged?.(); }
         }),
