@@ -190,6 +190,7 @@ export const ZH_TEXT = {
     saved: "旺季加成设置已保存。", saving: "正在保存…",
     loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用工作台中打开亚马逊备货旺季加成。",
   },
+  teamSkills: { name: "团队技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
   workbenchIndex: {
     eyebrow: "工作台",
     title: "功能",
@@ -930,8 +931,8 @@ export const ZH_TEXT = {
     }
   },
   fatal: {
-    title: "界面启动失败",
-    description: "应用没有完成界面初始化。请重新加载；如果问题持续出现，请查看终端或应用日志。",
+    title: "界面未能正常显示",
+    description: "请重新加载界面。如果问题持续出现，请查看终端或应用日志。",
     reload: "重新加载"
   },
   errors: {
@@ -1127,6 +1128,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       saved: "Seasonal boost settings saved.", saving: "Saving…",
       loading: "Loading settings…", retry: "Retry", unavailable: "Open Amazon replenishment seasonal boost in the desktop workbench.",
     },
+    teamSkills: { name: "Team skills catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
     workbenchIndex: {
       eyebrow: "Workbench",
       title: "Features",
@@ -1867,8 +1869,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       }
     },
     fatal: {
-      title: "Failed to start the interface",
-      description: "The app did not finish initializing the interface. Reload to try again; if the problem persists, check the terminal or app logs.",
+      title: "The interface couldn’t be displayed",
+      description: "Reload to try again. If the problem persists, check the terminal or app logs.",
       reload: "Reload"
     },
     errors: {

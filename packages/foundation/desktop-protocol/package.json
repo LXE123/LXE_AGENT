@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./local-pipe-server": "./src/local-pipe-server.ts",
     "./local-pipe": "./src/local-pipe.ts",
+    "./team-skills": "./src/team-skills.ts",
     "./composer-references": "./src/composer-references.ts"
   },
   "scripts": {

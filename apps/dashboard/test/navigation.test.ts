@@ -53,6 +53,14 @@ describe("Dashboard information architecture", () => {
     }, "tools").activityView).toBe("stats");
   });
 
+  test("opens the catalog as a standalone page from both current and old history entries", () => {
+    for (const entry of [{ section: "team-skills" }, { section: "workbench", workbenchView: "team-skills" }]) {
+      expect(dashboardRouteFromHistory(entry, "tools")).toEqual({
+        section: "team-skills", capabilityView: "tools", activityView: "stats", workbenchView: "index",
+      });
+    }
+  });
+
   test("persists only valid capability views and fails safely without storage", () => {
     const values = new Map<string, string>();
     const storage = {
