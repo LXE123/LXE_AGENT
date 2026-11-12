@@ -21,7 +21,7 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [anchor, onClose]);
-  return createPortal(<div className="session-actions-menu" ref={ref} role="menu" aria-label={t.workspaces.actions}
+  return createPortal(<div className="session-actions-menu conversation-chrome-theme" ref={ref} role="menu" aria-label={t.workspaces.actions}
     style={{ width: 150, left: Math.max(8, Math.min(innerWidth - 158, rect.right - 150)), top: Math.max(8, Math.min(innerHeight - 88, rect.bottom + 5)) }}
     onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }

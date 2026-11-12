@@ -1687,7 +1687,7 @@ function SessionActionsMenu({
   return createPortal(
     <div
       aria-label={t.sessions.actionsFor(session.title || t.common.unnamedSession)}
-      className="session-actions-menu"
+      className="session-actions-menu conversation-chrome-theme"
       onKeyDown={handleKeyDown}
       ref={menuRef}
       role="menu"

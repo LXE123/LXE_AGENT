@@ -78,6 +78,8 @@
 - **navigation-focus**：`.session-index-open:focus-visible`。真实 Tab 聚焦、Enter 选中，读取 outline；不把程序添加 class 当成焦点。
 - **navigation-na**：`SessionsIndex props`。不伪造整行禁用／错误样本；会话状态图标不在本轮范围。
 
+会话与工作区的更多菜单通过 portal 挂到 `body`，自身显式携带 `conversation-chrome-theme`；菜单底色使用 `--cds-surface-popover`，文字、边框、悬停和删除项继承 CDS 语义色，阴影使用 `--shadow-medium`。这是 LXE 适配，菜单尺寸与操作方式保持原样。
+
 尚未查清：
 
 - 已取得的直接导航证据来自 Claude 设置页，Claude 会话导航的专用状态规则未确认。

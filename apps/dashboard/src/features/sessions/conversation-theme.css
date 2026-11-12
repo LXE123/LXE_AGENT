@@ -260,6 +260,12 @@
   --heatmap-level-4: var(--cds-accent);
 }
 
+/* Portal menus carry their own theme because they live outside the sidebar. */
+.session-actions-menu.conversation-chrome-theme {
+  background: var(--cds-surface-popover);
+  box-shadow: 0 6px 24px var(--shadow-medium);
+}
+
 .conversation-fork-menu[popover] {
   position: fixed;
   inset: auto;
