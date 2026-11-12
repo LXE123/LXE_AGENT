@@ -8799,7 +8799,6 @@ pre {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 9px;
 }
 
 .conversation-header-actions {
@@ -8820,13 +8819,6 @@ pre {
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* The anchor the row starts from, so the title is not the first thing the eye
-   has to parse. */
-.conversation-header-icon {
-  flex: 0 0 auto;
-  color: var(--muted-light);
 }
 
 .conversation-transcript {

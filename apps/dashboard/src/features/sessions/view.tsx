@@ -41,7 +41,6 @@ import {
   GitFork,
   Info,
   LoaderCircle,
-  MessageSquareText,
   MoreVertical,
   PackageCheck,
   Paperclip,
@@ -1565,12 +1564,7 @@ export function SessionDetailView({
         {/* Keep title and actions in the two grid columns; a third sibling
             would create another row in the native title bar. */}
         <div className="conversation-header-copy">
-          {newConversation ? workspaceControl : (
-            <>
-              <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
-              <h2 title={title}>{title}</h2>
-            </>
-          )}
+          {newConversation ? workspaceControl : <h2 title={title}>{title}</h2>}
         </div>
         <div className="conversation-header-actions">
           {newConversation ? null : workspaceControl}
