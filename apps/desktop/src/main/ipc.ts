@@ -75,7 +75,7 @@ export interface DesktopIpcApplication {
   retryCloudConnection(): Promise<DesktopCloudState>;
   openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
   logsDirectory: string;
-  applyAppearance(appearance: "light" | "dark"): void;
+  applyAppearance(appearance: "system" | "light" | "dark"): void;
   registerSyntheticPerformerSources(
     kind: DesktopSyntheticPerformerSourceKind,
     paths: string[],

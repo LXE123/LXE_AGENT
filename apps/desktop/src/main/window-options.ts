@@ -8,7 +8,7 @@ export type DesktopAppearance = "light" | "dark";
 /**
  * The caption strip Windows draws its own buttons on.
  *
- * macOS keeps its controls under the system's appearance and needs nothing
+ * macOS keeps its controls under nativeTheme and needs nothing
  * here. Windows takes the colour from us once and holds it, so a strip left at
  * the light theme's value stays light behind a dark page — matching the
  * renderer's `--cds-surface-chrome` and `--cds-secondary` keeps it part of the window.

@@ -30,10 +30,10 @@ describe("desktop IPC validation", () => {
       .toThrow("unsupported Dashboard RPC operation: mcp.servers.login");
   });
 
-  test("accepts only resolved desktop appearances", () => {
+  test("accepts system, light and dark desktop appearances", () => {
     expect(validateDesktopAppearance("light")).toBe("light");
     expect(validateDesktopAppearance("dark")).toBe("dark");
-    expect(() => validateDesktopAppearance("system")).toThrow("unsupported");
+    expect(validateDesktopAppearance("system")).toBe("system");
     expect(() => validateDesktopAppearance({ theme: "dark" })).toThrow("unsupported");
   });
 

@@ -22,6 +22,20 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
     mkdirSync(process.env.LXE_FRAME_SCREENSHOTS, { recursive: true });
     writeFileSync(join(process.env.LXE_FRAME_SCREENSHOTS, name + ".png"), (await win.webContents.capturePage()).toPNG());
   };
+  await step("appearance settings send the selected mode, including a return to system", async () => {
+    await load("?app=1&workspaces=1&contracts=1&theme=system&language=en");
+    await js("window.appearanceChoices = []; window.lxe.desktop.applyAppearance = async value => { window.appearanceChoices.push(value); }; void 0");
+    await click(".sidebar-settings-button");
+    await click(".desktop-settings-nav-item");
+    await waitFor("Boolean(document.querySelector('.desktop-appearance-panel'))", "appearance settings");
+    for (const [index, mode] of [[3, "dark"], [2, "light"], [1, "system"]]) {
+      await click(`[aria-label="Appearance theme"] .desktop-appearance-option:nth-child(${index})`);
+      assert.equal(await js("window.appearanceChoices.at(-1)"), mode);
+      assert.equal(await js("localStorage.getItem('lxe.window.main.theme.v1')"), mode);
+      assert.equal(await js("document.documentElement.dataset.theme"), mode === "system"
+        ? await js("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'") : mode);
+    }
+  });
   for (const platform of ["darwin", "win32"]) {
     await step(`${platform}: every destination shares one rounded canvas in both themes`, async () => {
       await load(`?app=1&workspaces=1&contracts=1&section=sessions&platform=${platform}&language=zh`);

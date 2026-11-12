@@ -370,10 +370,9 @@ function DashboardApplication() {
     // Native controls - scrollbars, selects, form widgets - follow this and
     // nothing else, so leaving it out gives light scrollbars on a dark page.
     document.documentElement.style.colorScheme = resolved;
-    // The window frame is painted by the Main process and does not follow the
-    // page: on Windows the caption strip keeps whatever colour it was built
-    // with, so it has to be told.
-    void window.lxe?.desktop?.applyAppearance(resolved);
+    // Preserve "system" so nativeTheme can release an earlier manual override.
+    // Native chrome and embedded pages then receive the same browser preference.
+    void window.lxe?.desktop?.applyAppearance(theme);
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
