@@ -55,11 +55,14 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
       await js("window.frameDraft = document.querySelector('.reference-editor'); window.frameDraft.focus()");
       await win.webContents.insertText("保留草稿 / keep this draft");
       const first = await checkFrame();
+      await js(`window.frameFilesCall = window.lxe.files.call;
+        window.lxe.files.call = call => { if (call.operation === 'focus-preview') window.framePreviewFocused = call.input.focused; return window.frameFilesCall(call); }; void 0`);
       await click(".file-header-actions button");
       await waitFor("Boolean(document.querySelector('.file-sidebar'))", "tools visible");
       await settle();
-      await js(`window.frameFilesCall = window.lxe.files.call;
-        window.lxe.files.call = call => { if (call.operation === 'focus-preview') window.framePreviewFocused = call.input.focused; return window.frameFilesCall(call); }; void 0`);
+      assert.equal(await js("document.querySelectorAll('.file-header-actions button, .file-panel-hide').length"), 1, "only the far-right tools toggle remains when open");
+      assert.equal(await js("document.activeElement === document.querySelector('.file-panel-hide')"), true, "focus follows the visible toggle");
+      assert.equal(await js("window.framePreviewFocused"), true, "opening tools also transfers native preview focus");
       await click('.file-tab [role="tab"]');
       assert.equal(await js("window.framePreviewFocused"), true, "caption tabs keep native preview focus");
       const modifier = platform === "darwin" || process.platform === "darwin" ? "metaKey" : "ctrlKey";
@@ -72,6 +75,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
         await settle();
         assert.deepEqual(await checkFrame(), first);
         const pane = await rect(".file-sidebar"), strip = await rect(".file-tab-strip");
+        assert.equal(await js("document.querySelectorAll('.file-header-actions button, .file-panel-hide').length"), 1, "split and full-width tools each have one toggle");
         assert.ok(Math.abs(pane.right - first.right + 1) < 0.02);
         assert.ok(Math.abs(strip.right - pane.right) < 0.02, "tool caption aligns with its pane");
         assert.ok(Math.abs(pane.bottom - first.bottom + 1) < 0.02);
@@ -81,6 +85,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
       }
       await click(".file-panel-hide");
       assert.equal(await js("document.querySelector('.app-caption-tools')?.children.length ?? 0"), 0, "closing tools releases its caption slot");
+      assert.equal(await js("document.querySelectorAll('.file-header-actions button, .file-panel-hide').length"), 1, "closing tools restores the conversation toggle");
+      assert.equal(await js("document.activeElement === document.querySelector('.file-header-actions button')"), true, "focus returns to the conversation toggle");
       await click(".sidebar-toggle-button"); await delay(220);
       assert.deepEqual(await checkFrame(), first);
       win.setContentSize(800, 700); await delay(250);
