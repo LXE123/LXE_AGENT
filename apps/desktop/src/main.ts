@@ -20,6 +20,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  nativeTheme,
   powerMonitor,
   protocol,
   safeStorage,
@@ -536,16 +537,16 @@ async function bootstrap(): Promise<void> {
     checkForUpdate: () => updates.check(),
     downloadUpdate: target => updates.download(target),
     installUpdate: target => updates.install(target),
-    // The renderer paints its own surface but not the frame around it. macOS
-    // draws its controls from the system appearance and needs nothing; Windows
-    // holds whatever colour it was handed at construction, so the caption strip
-    // has to be repainted here or it stays light behind a dark page.
+    // Native chrome and webContents (including team skills) share this preference.
+    // Keep "system" intact so later OS changes still reach media-query listeners.
     applyAppearance: (appearance) => {
-      const palette = DESKTOP_TITLEBAR_COLOURS[appearance];
+      nativeTheme.themeSource = appearance;
+      const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+      const palette = DESKTOP_TITLEBAR_COLOURS[resolved];
       if (!window || window.isDestroyed()) return;
       window.setBackgroundColor(palette.color);
       if (desktopPlatform === "darwin") return;
-      window.setTitleBarOverlay({ ...(desktopPlatform === "win32" ? WINDOWS_TITLEBAR_COLOURS[appearance] : palette), height: DESKTOP_TITLEBAR_HEIGHT });
+      window.setTitleBarOverlay({ ...(desktopPlatform === "win32" ? WINDOWS_TITLEBAR_COLOURS[resolved] : palette), height: DESKTOP_TITLEBAR_HEIGHT });
     },
     dashboardCall: async <O extends DashboardRpcOperation>(
       call: DashboardRpcCall<O>,

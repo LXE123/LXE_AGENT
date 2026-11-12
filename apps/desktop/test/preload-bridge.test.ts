@@ -85,7 +85,7 @@ describe("preload bridge", () => {
     await bridge.desktop.selectZiniaoApp();
     await bridge.desktop.selectZiniaoWebDriverDirectory();
     await bridge.desktop.openLogsDirectory();
-    await bridge.desktop.applyAppearance("dark");
+    await bridge.desktop.applyAppearance("system");
     await bridge.desktop.getHealth();
     await bridge.desktop.selectSyntheticPerformerSources("files");
     await bridge.desktop.selectSyntheticPerformerOutput();
@@ -233,7 +233,7 @@ describe("preload bridge", () => {
       selection_id: "selection-1",
       recursive: false,
     }]);
-    expect(invocations.find(call => call.channel === IPC_CHANNELS.applyAppearance)?.arguments).toEqual(["dark"]);
+    expect(invocations.find(call => call.channel === IPC_CHANNELS.applyAppearance)?.arguments).toEqual(["system"]);
   });
 });
 

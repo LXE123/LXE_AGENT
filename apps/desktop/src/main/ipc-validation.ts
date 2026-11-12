@@ -84,8 +84,8 @@ export function validateCloudDestination(value: unknown): DesktopCloudDestinatio
   return value;
 }
 
-export function validateDesktopAppearance(value: unknown): "light" | "dark" {
-  if (value !== "light" && value !== "dark") {
+export function validateDesktopAppearance(value: unknown): "system" | "light" | "dark" {
+  if (value !== "system" && value !== "light" && value !== "dark") {
     throw new Error("Desktop appearance is unsupported");
   }
   return value;
