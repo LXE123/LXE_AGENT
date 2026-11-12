@@ -14,7 +14,7 @@ YELLOW = PatternFill(fill_type="solid", fgColor="FFFFFF00")
 
 
 @pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
-def test_closest_date_and_yellow_batches_apply_to_every_country(country):
+def test_closest_date_ignores_older_yellow_batches_for_every_country(country):
     workbook = Workbook()
     sheet = workbook.active
     for coordinate, header in {
@@ -28,7 +28,7 @@ def test_closest_date_and_yellow_batches_apply_to_every_country(country):
     selected = country_rules.select_shipping_columns(country, sheet, TODAY)
 
     assert {field: item.header for field, item in selected.items()} == {
-        "sea": "11/5海运", "sea_a": "11/5A海运", "sea_b": "11/4B海运", "air": "11/5空运",
+        "sea": "11/5海运", "sea_a": "11/5A海运", "air": "11/5空运",
     }
     sheet["A1"], sheet["B1"], sheet["C1"] = "1/1海运", "7/2A海运", "1/1A海运"
     sheet["D1"], sheet["E1"] = None, None
@@ -48,7 +48,7 @@ def test_closer_date_wins_over_a_later_date_without_yellow():
     workbook.close()
 
 
-def test_yellow_batch_selects_its_closest_date_even_when_that_column_is_not_yellow():
+def test_older_yellow_batch_does_not_select_another_old_date():
     workbook = Workbook()
     sheet = workbook.active
     sheet["A1"], sheet["B1"], sheet["C1"] = "11/5海运", "11/3A海运", "11/4A海运"
@@ -56,9 +56,7 @@ def test_yellow_batch_selects_its_closest_date_even_when_that_column_is_not_yell
 
     selected = country_rules.select_shipping_columns("indonesia", sheet, TODAY)
 
-    assert {field: item.header for field, item in selected.items()} == {
-        "sea": "11/5海运", "sea_a": "11/4A海运",
-    }
+    assert {field: item.header for field, item in selected.items()} == {"sea": "11/5海运"}
     workbook.close()
 
 
@@ -74,20 +72,18 @@ def test_equal_distance_for_one_batch_selects_the_later_date():
     workbook.close()
 
 
-def test_equally_close_dates_in_different_batches_are_both_selected():
+def test_equally_close_dates_in_different_batches_choose_later_date():
     workbook = Workbook()
     sheet = workbook.active
     sheet["A1"], sheet["B1"] = "11/4A海运", "11/6B海运"
 
     selected = country_rules.select_shipping_columns("indonesia", sheet, TODAY)
 
-    assert {field: item.header for field, item in selected.items()} == {
-        "sea_a": "11/4A海运", "sea_b": "11/6B海运",
-    }
+    assert {field: item.header for field, item in selected.items()} == {"sea_b": "11/6B海运"}
     workbook.close()
 
 
-def test_indexed_yellow_is_selected_but_a_green_theme_is_not():
+def test_color_does_not_include_older_dates():
     workbook = Workbook()
     sheet = workbook.active
     sheet["A1"], sheet["B1"], sheet["C1"] = "11/5海运", "11/4A海运", "11/3B海运"
@@ -96,13 +92,11 @@ def test_indexed_yellow_is_selected_but_a_green_theme_is_not():
 
     selected = country_rules.select_shipping_columns("indonesia", sheet, TODAY)
 
-    assert {field: item.header for field, item in selected.items()} == {
-        "sea": "11/5海运", "sea_a": "11/4A海运",
-    }
+    assert {field: item.header for field, item in selected.items()} == {"sea": "11/5海运"}
     workbook.close()
 
 
-def test_xlsx_output_uses_nearest_and_yellow_columns_across_year_boundary(tmp_path):
+def test_xlsx_output_uses_nearest_columns_across_year_boundary(tmp_path):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "印尼"
@@ -126,16 +120,15 @@ def test_xlsx_output_uses_nearest_and_yellow_columns_across_year_boundary(tmp_pa
 
     assert {item["order_id"]: item["shipping_header"] for item in artifacts} == {
         "IN280101-H": "1/1海运", "IN280101A-H": "1/1A海运",
-        "IN271231B-H": "12/31B海运", "IN280101-K": "1/1空运",
+        "IN280101-K": "1/1空运",
     }
-    assert len({item["output_xlsx"] for item in artifacts}) == 4
+    assert len({item["output_xlsx"] for item in artifacts}) == 3
     expected = {
         "IN280101-H": [("SKU-A", 0, 2)], "IN280101-K": [("SKU-A", 0, 7)],
         "IN280101A-H": [("SKU-A", 0, 5), ("SKU-C", 0, 10)],
-        "IN271231B-H": [("SKU-A", 0, 4), ("SKU-B", 0, 9)],
     }
     for artifact in artifacts:
-        assert artifact["shipping_date"] == ("2027-12-31" if artifact["order_id"] == "IN271231B-H" else "2028-01-01")
+        assert artifact["shipping_date"] == "2028-01-01"
         with open_sheet(Path(artifact["output_xlsx"])) as output:
             assert rows(output) == expected[artifact["order_id"]]
             assert artifact["sku_count"] == artifact["quantity_value_count"] == len(expected[artifact["order_id"]])

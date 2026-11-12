@@ -54,13 +54,10 @@ def invoke(tmp_path, monkeypatch, capsys):
         ("MY261104B-H", 7, "11/4B海运", "2026-11-04", [None, None, 9]),
         ("MY261104-K", 8, "11/4空运", "2026-11-04", [5, None, 3]),
     ]),
-    ("vietnam", None, {}, [("VN261104-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
-                            ("VN261030-H", 43, "10/30海运", "2026-10-30", [3, 4, None])]),
-    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261104-L", 41, "11/4陆运", "2026-11-04", [5, None, None]),
-                                               ("VN261106-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
+    ("vietnam", None, {}, [("VN261104-L", 41, "11/4陆运", "2026-11-04", [5, None, None])]),
+    ("vietnam", "AQ", {"AQ1": "11/6海运"}, [("VN261106-H", 43, "11/6海运", "2026-11-06", [3, 4, None])]),
     ("philippines", None, {}, [
         ("PH261105-K", 41, "11/5空运", "2026-11-05", [10, None, None]),
-        ("PH261104A-H", 51, "11/4A海运", "2026-11-04", [None, 8, None]),
     ]),
     ("indonesia", None, {}, [
         ("IN261106-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
@@ -77,8 +74,8 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
     assert data["order_ids"] == [item[0] for item in expected]
     assert result["files"] == [item["path"] for item in data["artifacts"]]
     if country == "philippines":
-        assert [a["field"] for a in data["artifacts"]] == ["air", "sea_a"]
-        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "A海运"]
+        assert [a["field"] for a in data["artifacts"]] == ["air"]
+        assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运"]
     elif country == "indonesia":
         assert [a["field"] for a in data["artifacts"]] == ["air", "sea"]
         assert [a["shipping_mode"] for a in data["artifacts"]] == ["空运", "海运"]
@@ -179,10 +176,10 @@ def test_philippines_rejects_override_outside_closest_candidates(invoke):
 @pytest.mark.parametrize(("changes", "expected"), [
     # Dates closer to today win over later dates.
     ({"BB1": "11/20空运", "BG1": "11/20海运", "BC1": "11/5A海运", "BD1": "11/5B海运"},
-     [("air", "IN261103-K", 53, [None, None, None]), ("sea_a", "IN261105A-H", 55, [20, None, None]),
+     [("sea_a", "IN261105A-H", 55, [20, None, None]),
       ("sea_b", "IN261105B-H", 56, [None, 22, None])]),
     ({"BH1": "11/5d海运", "BH2": 33},
-     [("air", "IN261106-K", 54, [10, None, None]), ("sea_d", "IN261105D-H", 60, [33, None, None])]),
+     [("sea_d", "IN261105D-H", 60, [33, None, None])]),
     # The latest ordinary and A/B sea batches coexist; duplicated older columns
     # do not interfere, and an empty air column produces no SKU rows.
     ({"BC1": "11/6A海运", "BD1": "11/6B海运", "BE1": "11/4海运",
@@ -299,12 +296,28 @@ def unified_headers(country, columns):
 @pytest.mark.parametrize(("country", "prefix"), [
     ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"),
 ])
-def test_five_countries_export_each_transport_closest_date_and_all_batches(invoke, country, prefix):
+def test_five_countries_only_export_globally_closest_date(invoke, country, prefix):
     changes = unified_headers(country, {
-        "BJ": ("11/1陆运", 1), "BK": ("11/6陆运", 2), "BL": ("11/6A陆运", 3),
+        "BJ": ("11/4空运", 10), "BK": ("11/5A海运", 20), "BL": ("11/5B海运", 30),
+    })
+    code, result, _ = invoke(country, changes, yellow_headers=("BJ1", "BK1"))
+    assert code == 0 and result["ok"]
+    artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
+    assert set(artifacts) == {f"{prefix}261105A-H", f"{prefix}261105B-H"}
+    for order, quantity in ((f"{prefix}261105A-H", 20), (f"{prefix}261105B-H", 30)):
+        with open_sheet(artifacts[order]["path"]) as sheet:
+            assert rows(sheet) == [("SKU-A", 0, quantity)]
+
+
+@pytest.mark.parametrize(("country", "prefix"), [
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"),
+])
+def test_five_countries_export_all_columns_on_one_closest_date(invoke, country, prefix):
+    changes = unified_headers(country, {
+        "BJ": ("11/1陆运", 1), "BK": ("11/5陆运", 2), "BL": ("11/5A陆运", 3),
         "BM": ("11/5空运", 4), "BN": ("11/7c空运", 5),
-        "BO": ("11/8海运", 6), "BP": ("11/8B海运", 7),
-        "BQ": ("11/5a空运", 9), "BR": ("11/6b陆运", 10),
+        "BO": ("11/5海运", 6), "BP": ("11/5B海运", 7),
+        "BQ": ("11/5a空运", 9), "BR": ("11/5b陆运", 10),
         "BS": ("11/1C海运", 11),
         "BT": ("11/20A海运", 12), "BU": ("11/20B海运", 13), "BV": ("11/20空运", 14),
     })
@@ -312,11 +325,10 @@ def test_five_countries_export_each_transport_closest_date_and_all_batches(invok
     assert code == 0 and result["ok"]
     artifacts = {item["order_id"]: item for item in result["data"]["artifacts"]}
     expected = {
-        f"{prefix}261106-L": ("11/6陆运", 2), f"{prefix}261106A-L": ("11/6A陆运", 3),
-        f"{prefix}261105-K": ("11/5空运", 4), f"{prefix}261108-H": ("11/8海运", 6),
-        f"{prefix}261108B-H": ("11/8B海运", 7),
-        f"{prefix}261105A-K": ("11/5a空运", 9), f"{prefix}261106B-L": ("11/6b陆运", 10),
-        f"{prefix}261101C-H": ("11/1C海运", 11),
+        f"{prefix}261105-L": ("11/5陆运", 2), f"{prefix}261105A-L": ("11/5A陆运", 3),
+        f"{prefix}261105B-L": ("11/5b陆运", 10), f"{prefix}261105-K": ("11/5空运", 4),
+        f"{prefix}261105A-K": ("11/5a空运", 9), f"{prefix}261105-H": ("11/5海运", 6),
+        f"{prefix}261105B-H": ("11/5B海运", 7),
     }
     assert set(artifacts) == set(expected)
     for order, (header, quantity) in expected.items():
