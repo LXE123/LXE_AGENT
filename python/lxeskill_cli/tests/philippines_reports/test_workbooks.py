@@ -5,6 +5,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
+from openpyxl.styles import Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 import pytest
 
 from services.philippines_reports.errors import PhilippinesReportError
@@ -120,6 +122,46 @@ def test_matching_fields_added_and_source_only_rows_follow_business_order(ph_fil
             assert original.cell(1, column).value == (" 可用库存 " if is_inventory else " 可用 ")
             assert original.cell(2, column).value == 100
             assert original["B4" if is_inventory else "A4"].value == "Zero"
+
+
+def test_merged_sheets_follow_original_styles_after_filtering_and_column_mapping(ph_files, build):
+    paths = ph_files(
+        sales=[{"SKU": "filtered"}, {"SKU": "kept", "7天销量": 2}],
+        inventory=[{"SKU": "filtered"}, {"SKU": "kept", "可用库存": 2}],
+        tms=[{"库存SKU": "new", "仓库": "菲律宾PH1仓", "7天销量": 1, "可用库存": 1}],
+    )
+    for key in ("sales_file", "inventory_file"):
+        with closing(load_workbook(paths[key])) as book:
+            sheet = book.active
+            headers = [str(cell.value or "").strip() for cell in sheet[1]]
+            column = headers.index("可用" if key == "sales_file" else "可用库存") + 1
+            letter = get_column_letter(column)
+            sheet.column_dimensions[letter].width = 39
+            sheet.row_dimensions[2].height = 22
+            sheet.row_dimensions[3].height = 33
+            sheet.cell(1, column).font = Font(bold=True, color="FF123456")
+            sheet.cell(2, column).fill = PatternFill("solid", fgColor="FF112233")
+            sheet.cell(3, column).fill = PatternFill("solid", fgColor="FF445566")
+            sheet.cell(3, column).border = Border(bottom=Side(style="double"))
+            sheet.cell(3, column).number_format = "0.00"
+            book.save(paths[key])
+    originals = {key: Path(path).read_bytes() for key, path in paths.items()}
+    result = build(paths)
+    for artifact in result["artifacts"]:
+        with closing(load_workbook(artifact["path"])) as book:
+            original, merged = book.worksheets[:2]
+            field = "可用库存" if artifact["report"] == "inventory" else "可用"
+            original_column = [cell.value for cell in original[1]].index(field) + 1
+            target_column = [cell.value for cell in merged[1]].index(field) + 1
+            assert merged.cell(1, target_column)._style == original.cell(1, original_column)._style
+            assert merged.cell(2, target_column)._style == original.cell(3, original_column)._style
+            assert merged.cell(3, target_column)._style == original.cell(2, original_column)._style
+            assert merged.column_dimensions[get_column_letter(target_column)].width == 39
+            assert (merged.row_dimensions[1].height, merged.row_dimensions[2].height,
+                    merged.row_dimensions[3].height) == (28, 33, 22)
+            assert merged.freeze_panes == original.freeze_panes
+            assert merged.sheet_view.showGridLines == original.sheet_view.showGridLines
+    assert {key: Path(path).read_bytes() for key, path in paths.items()} == originals
 
 
 def test_decimal_sums_and_blank_rich_text_preserve_original_values(ph_files, ph_rows, build):
