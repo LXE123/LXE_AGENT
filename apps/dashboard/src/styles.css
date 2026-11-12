@@ -8808,14 +8808,12 @@ pre {
   gap: 5px;
 }
 
-/* A label for where you are, not a headline. Session titles here can be a
-   whole sentence long, and at 650 weight that sentence became the loudest thing
-   on the page. */
+/* Match the regular weight of titles in the session list. */
 .conversation-header-copy h2 {
   overflow: hidden;
   color: var(--text-strong);
   font-size: 0.8125rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;

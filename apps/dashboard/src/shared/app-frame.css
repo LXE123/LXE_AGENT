@@ -64,7 +64,7 @@
 }
 .app-shell[data-sidebar-resizing] .app-caption { transition: none; }
 .app-caption-title { flex: 1; min-width: 0; }
-.app-caption-tools { flex: 0 0 var(--caption-tools-width); min-width: 0; border-left: 5px solid transparent; }
+.app-caption-tools { position: relative; flex: 0 0 var(--caption-tools-width); min-width: 0; border-left: 5px solid transparent; }
 .app-caption-tools:empty { display: none; }
 .app-caption-tools[data-expanded] { flex: 1; border-left: 0; }
 .app-caption:has(.app-caption-tools[data-expanded]) .app-caption-title { display: none; }
@@ -72,7 +72,8 @@
 .app-shell.sidebar-collapsed .app-caption-tools[data-expanded] .file-tab-strip {
   padding-left: calc(var(--sidebar-control-left) + 44px - var(--app-navigation-width));
 }
-/* One short divider in the caption, aligned with the docked session list. */
+/* Short caption dividers align with the docked session list and tools pane. */
+.app-caption-tools:not(:empty):not([data-expanded])::before,
 .app-shell:not(.sidebar-collapsed):not(.sidebar-unavailable) .app-caption::before {
   content: ""; position: absolute; top: calc((var(--app-titlebar-height) - 16px) / 2);
   left: 0; width: 1px; height: 16px; background: var(--app-chrome-border); pointer-events: none;
