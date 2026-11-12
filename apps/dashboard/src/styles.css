@@ -2211,7 +2211,7 @@ button {
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-open,
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-selected {
-  color: var(--sidebar-ink);
+  color: var(--sidebar-ink-soft);
 }
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button:hover {

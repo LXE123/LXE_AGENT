@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { SessionRenameDialog } from "./session-rename";
-import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { PanelLeft, Search } from "lucide-react";
 import { useUiText } from "../../shared/i18n";
 import type { useThreeStateSidebar } from "../../shared/use-three-state-sidebar";
 import type { SessionWorkspace } from "./use-session-workspace";
@@ -46,7 +46,7 @@ export function SessionSidebar({ sidebar, data, actions }: Props) {
         title={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
         type="button"
       >
-        {sessionSidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+        <PanelLeft size={17} strokeWidth={1.5} aria-hidden="true" />
       </button>
     </div>
     {sidebar.available && sessionSidebarExpanded ? <button
