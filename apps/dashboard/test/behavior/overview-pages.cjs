@@ -107,7 +107,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("document.querySelector('.tab-team-skills[aria-current=page]')", "catalog selected");
     assert.equal(await js("history.state.section"), "team-skills");
     assert.equal(await js("Boolean(document.querySelector('.workbench-back'))"), false);
-    await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-toolbar [role=status]')", "catalog loaded");
+    await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-page [role=status]')", "catalog loaded");
     const guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"));
     assert.equal(guest.getURL(), "https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
     const panel = await js("document.querySelector('.app-content-frame').getBoundingClientRect().toJSON()");
@@ -124,6 +124,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
+    assert.ok(Math.abs(viewport.top - panel.top - 1) < 1, "catalog reaches the top inside the shared frame");
+    assert.ok(Math.abs(viewport.bottom - panel.bottom + 1) < 1, "catalog fills the frame height");
     const point = { x: Math.round(viewport.x + viewport.width / 3), y: Math.round(viewport.y + viewport.height / 2) };
     const sample = async () => {
       const image = await win.webContents.capturePage({ ...point, width: 1, height: 1 });

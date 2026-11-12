@@ -48,11 +48,8 @@ export function TeamSkillsPage() {
   }, [attempt, prepare, copy.name]);
 
   return <section className="team-skills-page" aria-label={copy.name}>
-    <header className="team-skills-toolbar">
-      <h1>{copy.name}</h1>
-      {prepare && loading ? <span role="status">{t.common.loading}…</span> : null}
-    </header>
     <div className="team-skills-viewport" ref={viewport}>
+      {prepare && loading ? <span className="team-skills-loading" role="status">{t.common.loading}…</span> : null}
       {error ? <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt(v => v + 1)}>{copy.retry}</button></div> : null}
       {!prepare || error ? <a href={TEAM_SKILLS_URL} target="_blank" rel="noopener noreferrer">{copy.openInBrowser}</a> : null}
     </div>
