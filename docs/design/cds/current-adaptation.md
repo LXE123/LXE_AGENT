@@ -78,7 +78,7 @@
 - **navigation-focus**：`.session-index-open:focus-visible`。真实 Tab 聚焦、Enter 选中，读取 outline；不把程序添加 class 当成焦点。
 - **navigation-na**：`SessionsIndex props`。不伪造整行禁用／错误样本；会话状态图标不在本轮范围。
 
-会话与工作区的更多菜单通过 portal 挂到 `body`，自身显式携带 `conversation-chrome-theme`；菜单底色使用 `--cds-surface-popover`，文字、边框、悬停和删除项继承 CDS 语义色，阴影使用 `--shadow-medium`。这是 LXE 适配，菜单尺寸与操作方式保持原样。
+会话与工作区的更多菜单通过 portal 挂到 `body`，自身显式携带 `conversation-chrome-theme`；菜单底色使用 `--cds-surface-popover`，文字、边框、悬停和删除项继承 CDS 语义色，阴影使用 `--shadow-medium`。工作区菜单按内容撑宽，常规窗口最小宽度 180px，选项保持单行；定位按实际尺寸计算，距窗口边缘至少 8px，极窄窗口才截断文字。这些是 LXE 适配，操作方式保持原样。
 
 尚未查清：
 
