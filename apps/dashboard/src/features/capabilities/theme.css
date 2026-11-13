@@ -63,6 +63,14 @@
 }
 .capabilities-theme .skill-add-menu-popup button { font-size: .8125rem; color: var(--text); }
 .capabilities-theme .skill-add-menu-popup button:hover { background: var(--row-hover); }
+.capabilities-theme .skill-add-menu > .skill-add-menu-popup {
+  border-color: var(--cds-alpha-1);
+  box-shadow: 0 3px 12px var(--shadow-soft);
+}
+.capabilities-theme .skill-add-menu > .skill-add-menu-popup button:is(:hover, :focus-visible) {
+  background: var(--row-hover);
+  outline: none;
+}
 .capabilities-theme .dashboard-query-notice {
   background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border);
 }
