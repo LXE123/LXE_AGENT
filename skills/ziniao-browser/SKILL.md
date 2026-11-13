@@ -11,6 +11,8 @@ commands:
 
 紫鸟在本项目中只用于登录和操作电商平台的卖家店铺后台，如 Amazon Seller Central。已有业务命令的流程按对应 Skill 执行。例如，创建 FBA 货件时，先用 `browser store` 取得 `store_id`，再按 `fba-shipment-create` 执行四阶段命令。
 
+固定流程出错时，按业务 Skill 的失败说明处理，只有用户明确要求用紫鸟脚本排查或补救当前步骤时，才另行调用 `lxeskill browser script run`。
+
 ## 输入与依赖
 
 - 通过 `exec` 调用 frontmatter 声明的 lxeskill 命令，页面操作由 CLI 内部的官方配对 Selenium 链路完成。
