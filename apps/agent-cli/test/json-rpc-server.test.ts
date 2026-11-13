@@ -31,6 +31,30 @@ const setup = (host: Record<string, unknown> = {}) => {
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });
 
 describe("JSON-RPC server semantics", () => {
+  test("MCP preset synchronization validates inputs and preserves actual host errors", async () => {
+    const received: unknown[] = [];
+    const { call, responses } = setup({ syncMcpServerPresets: async (servers: unknown) => {
+      received.push(servers);
+      if (received.length > 1) throw new Error("MCP servers must be an object");
+      return { added: ["skills"], updated: [] };
+    } });
+    const params = { servers: [{ name: "skills", enabled: true, transport: "streamable-http", url: "https://example.com/mcp" }] };
+    await call("sync_mcp_server_presets", params, "early");
+    expect(responses().at(-1)).toMatchObject({ error: { code: -32001 } });
+    await call("initialize", initialize);
+    await call("sync_mcp_server_presets", params, "sync");
+    expect(responses().at(-1)).toMatchObject({ result: { added: ["skills"], updated: [] } });
+    for (const invalid of [{}, { servers: {} }, { ...params, unexpected: true },
+      { servers: [{ ...params.servers[0], enabled: "true" }] },
+      { servers: [{ ...params.servers[0], url: "not-a-url" }] },
+      { servers: [params.servers[0], params.servers[0]] }]) {
+      await call("sync_mcp_server_presets", invalid, "invalid");
+      expect(responses().at(-1)).toMatchObject({ error: { code: -32602 } });
+    }
+    expect(received).toEqual([params.servers]);
+    await call("sync_mcp_server_presets", params, "failure");
+    expect(responses().at(-1)).toMatchObject({ error: { message: "MCP servers must be an object" } });
+  });
   test.each([undefined, "user_stop"] as const)("cancel reason %s targets only the matching active turn", async reason => {
     const ready = Promise.withResolvers<AgentRunHandle>();
     const { call, responses } = setup({ runTurn: async (_job: AgentJob, handle: AgentRunHandle) => {

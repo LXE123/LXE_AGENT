@@ -20,10 +20,16 @@ stdout 只写协议消息，日志写 stderr。桌面 Renderer ↔ Electron 的 
 
 业务协议 v28 移除了后台任务唤醒接口。`run_turn` 只接受带有消息 ID 的普通回合。
 
-agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应后才标记 ready。
+agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应并完成产品 MCP 配置同步后才标记 ready。
 版本不匹配立即失败，不自动重启同一不兼容程序。初始化期间复用同一个 Promise，
 完成后重复初始化返回当前健康信息；初始化前只允许 `initialize` 与 `shutdown`。
 两端随桌面应用一起更新，不接收原来的 `version/command/payload/ok` wire 封装。
+
+桌面在每次 Harness 启动（包括重启）后调用 `sync_mcp_server_presets`，参数为 `{ servers: [...] }`。
+每项使用 MCP 添加接口的 `name`、`transport` 和连接字段，另带 `enabled` 作为新条目的默认开关。
+Harness 在配置文件锁内补齐条目、更新传入的连接字段，保留已有开关和未传入的用户字段；返回 `{ added: string[], updated: string[] }`。
+多个条目一起校验和写入，配置损坏或名称冲突时返回实际错误且不写文件。接口只同步配置，不建立连接。
+产品服务清单由 Electron 提供，用户配置的读写归 Harness；未传预置清单的独立 Harness 不执行这一步。
 
 ## 请求、响应与通知
 
