@@ -2211,7 +2211,7 @@ button {
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-open,
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-selected {
-  color: var(--sidebar-ink);
+  color: var(--sidebar-ink-soft);
 }
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button:hover {
@@ -8799,7 +8799,6 @@ pre {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 9px;
 }
 
 .conversation-header-actions {
@@ -8809,24 +8808,15 @@ pre {
   gap: 5px;
 }
 
-/* A label for where you are, not a headline. Session titles here can be a
-   whole sentence long, and at 650 weight that sentence became the loudest thing
-   on the page. */
+/* Match the regular weight of titles in the session list. */
 .conversation-header-copy h2 {
   overflow: hidden;
   color: var(--text-strong);
   font-size: 0.8125rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* The anchor the row starts from, so the title is not the first thing the eye
-   has to parse. */
-.conversation-header-icon {
-  flex: 0 0 auto;
-  color: var(--muted-light);
 }
 
 .conversation-transcript {

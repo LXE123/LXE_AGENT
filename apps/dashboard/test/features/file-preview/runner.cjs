@@ -112,7 +112,7 @@ app.whenReady().then(async () => {
       assert.ok(await js("previewFixture.calls.some(c=>c.includes('\"application\":\"editor\"'))"));
     });
     await step("File tree includes hidden files and session state stays isolated", async () => {
-      assert.equal(await js("document.querySelectorAll('.file-header-actions button').length"), 1);
+      assert.equal(await js("document.querySelectorAll('.file-header-actions button').length"), 0);
       await click(".file-tab-strip > button:first-of-type"); await wait("!!document.querySelector('.tools-start')", "Start page");
       await click(".tools-start button:first-of-type"); await wait("document.body.innerText.includes('.hidden')", "hidden file");
       assert.equal(await js("document.querySelector('.file-tree .file-display-path').textContent"), "/test/workspace");

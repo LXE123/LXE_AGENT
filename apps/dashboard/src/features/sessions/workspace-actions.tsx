@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { queryError } from "../../api/queries";
@@ -12,7 +12,19 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
 }) {
   const t = useUiText();
   const ref = useRef<HTMLDivElement>(null);
-  const rect = anchor.getBoundingClientRect();
+  useLayoutEffect(() => {
+    const place = () => {
+      const menu = ref.current;
+      if (!menu) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const { width, height } = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, anchorRect.right - width))}px`;
+      menu.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, anchorRect.bottom + 5))}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [anchor, t]);
   useEffect(() => {
     ref.current?.querySelector("button")?.focus();
     const outside = (event: PointerEvent) => {
@@ -21,8 +33,7 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [anchor, onClose]);
-  return createPortal(<div className="session-actions-menu" ref={ref} role="menu" aria-label={t.workspaces.actions}
-    style={{ width: 150, left: Math.max(8, Math.min(innerWidth - 158, rect.right - 150)), top: Math.max(8, Math.min(innerHeight - 88, rect.bottom + 5)) }}
+  return createPortal(<div className="session-actions-menu workspace-actions-menu conversation-chrome-theme" ref={ref} role="menu" aria-label={t.workspaces.actions}
     onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
       if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
@@ -33,8 +44,8 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
       }
       if (event.key === "Tab") onClose(false);
     }}>
-    <button role="menuitem" type="button" onClick={onRename}><Pencil size={13} />{t.workspaces.rename}</button>
-    <button className="danger" role="menuitem" type="button" onClick={onDelete}><Trash2 size={13} />{t.workspaces.delete}</button>
+    <button role="menuitem" type="button" onClick={onRename}><Pencil size={13} /><span>{t.workspaces.rename}</span></button>
+    <button className="danger" role="menuitem" type="button" onClick={onDelete}><Trash2 size={13} /><span>{t.workspaces.delete}</span></button>
   </div>, document.body);
 }
 
