@@ -1,13 +1,8 @@
 import { BrowserWindow, View, WebContentsView, session, Menu, type Session } from "electron";
 import { randomUUID } from "node:crypto";
 import type { BrowserSnapshot, ManualToolEvent, BrowserClip } from "@lxe/desktop-protocol";
+import { browserUrl } from "../browser-navigation";
 interface Browser { view: WebContentsView; clipView?: View; snapshot: BrowserSnapshot }
-export function browserUrl(raw: string): string {
-  const value = raw.trim();
-  const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`);
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Browser URLs must use HTTP or HTTPS without embedded credentials");
-  return url.href;
-}
 export class ManualBrowsers {
   private readonly items = new Map<string, Browser>();
   private readonly partitions = new Map<string, Session>();
@@ -60,9 +55,7 @@ export class ManualBrowsers {
     return { ...entry.snapshot };
   }
   private validate(raw: string): string {
-    const url = browserUrl(raw), renderer = this.window()?.webContents.getURL();
-    if (renderer && new URL(url).origin === new URL(renderer).origin) throw new Error("The application renderer cannot be opened in the browser panel");
-    return url;
+    return browserUrl(raw, this.window()?.webContents.getURL());
   }
   navigate(sessionId: string, id: string, raw: string): void {
     const entry = this.owned(sessionId, id); if (!entry) throw new Error("Browser tab not found");

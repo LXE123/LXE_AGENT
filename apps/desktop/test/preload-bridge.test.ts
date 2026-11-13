@@ -31,7 +31,7 @@ describe("preload bridge", () => {
       "deleteLocalModelCredential",
       "discardConversationFiles",
       "getCloudState",
-      "prepareTeamSkillsView", "getAmazonV2Settings", "saveAmazonV2Settings",
+      "onTeamSkillsNavigationError", "prepareTeamSkillsView", "getAmazonV2Settings", "saveAmazonV2Settings",
       "getHealth",
       "getSetupState",
       "getUsageBalance",
@@ -73,6 +73,13 @@ describe("preload bridge", () => {
       "startSyntheticPerformerTask",
     ].sort());
     expect(bridge.desktop.platform).toBe("win32");
+    const navigationErrors: string[] = [];
+    const stopNavigationErrors = bridge.desktop.onTeamSkillsNavigationError(message => navigationErrors.push(message));
+    listeners.get(IPC_CHANNELS.teamSkillsNavigationError)?.({}, "HTTP or HTTPS required");
+    listeners.get(IPC_CHANNELS.teamSkillsNavigationError)?.({}, "");
+    expect(navigationErrors).toEqual(["HTTP or HTTPS required", ""]);
+    stopNavigationErrors();
+    expect(listeners.has(IPC_CHANNELS.teamSkillsNavigationError)).toBe(false);
     await bridge.dashboard.call({ operation: "models.list", input: {} });
     await bridge.desktop.saveLocalModelCredential({ provider: "deepseek", api_key: "local-key" });
     await bridge.desktop.deleteLocalModelCredential("deepseek");

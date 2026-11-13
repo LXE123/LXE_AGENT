@@ -102,7 +102,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step("standalone team catalog keeps its guest visible under runtime status and releases it on exit", async () => {
     await open("workbench");
-    await js("window.lxe.desktop.prepareTeamSkillsView = window.prepareCatalogFixture; void 0");
+    await js("window.lxe.desktop.prepareTeamSkillsView = window.prepareCatalogFixture; window.lxe.desktop.onTeamSkillsNavigationError = window.onCatalogNavigationError; void 0");
     await click(".tab-team-skills");
     await waitFor("document.querySelector('.tab-team-skills[aria-current=page]')", "catalog selected");
     assert.equal(await js("history.state.section"), "team-skills");
@@ -153,5 +153,53 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await js("history.back()");
     await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "back restores the directory");
     assert.ok(guest.isDestroyed(), "leaving the catalog releases its guest");
+  });
+  await step("catalog follows cross-site web navigation and reports blocked destinations without losing the page", async () => {
+    await click(".tab-team-skills");
+    await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-page [role=status]')", "catalog ready");
+    const guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe').contentDocument.querySelector('webview').getWebContentsId()"));
+    const navigate = async (url, popup = false) => {
+      await guest.executeJavaScript(`{ const a=document.createElement('a'); a.href=${JSON.stringify(url)}; a.target=${JSON.stringify(popup ? '_blank' : '_self')}; document.body.append(a); a.click(); }`, true);
+    };
+    const arrived = async url => {
+      const deadline = Date.now() + 8000;
+      while ((guest.getURL() !== url || guest.isLoading()) && Date.now() < deadline) await settle();
+      assert.equal(guest.getURL(), url);
+      assert.equal(guest.isLoading(), false);
+    };
+    await guest.executeJavaScript("document.cookie='catalog_fixture=retained'; document.querySelector('input').value='keep me'");
+    await navigate("https://accounts.doubao.test/login");
+    await arrived("https://accounts.doubao.test/login");
+    await navigate("http://identity.example.test/next");
+    await arrived("http://identity.example.test/next");
+    const windowsBefore = require("electron").BrowserWindow.getAllWindows().length;
+    await navigate("https://accounts.doubao.test/popup", true);
+    await arrived("https://accounts.doubao.test/popup");
+    assert.equal(require("electron").BrowserWindow.getAllWindows().length, windowsBefore, "popup request never creates a native window");
+    await navigate("https://accounts.doubao.test/redirect");
+    await arrived("http://identity.example.test/complete");
+    assert.equal(await guest.executeJavaScript("typeof window.lxe + ':' + typeof require"), "undefined:undefined");
+    assert.equal(guest.getLastWebPreferences().sandbox, true);
+    assert.equal(guest.getLastWebPreferences().contextIsolation, true);
+    assert.equal(guest.getLastWebPreferences().webSecurity, true);
+    await guest.executeJavaScript("document.querySelector('input').value='retain after block'");
+    await navigate("lark://client", true);
+    await waitFor("document.querySelector('.team-skills-navigation-error')?.textContent.includes('HTTP or HTTPS')", "special protocol is visibly rejected");
+    assert.equal(guest.getURL(), "http://identity.example.test/complete");
+    assert.equal(await guest.executeJavaScript("document.querySelector('input').value"), "retain after block");
+    await navigate("https://user:secret@identity.example.test/private", true);
+    await waitFor("document.querySelector('.team-skills-navigation-error')?.textContent.includes('embedded credentials')", "credentials rejected");
+    assert.ok(!(await js("document.querySelector('.team-skills-navigation-error').textContent")).includes("secret"));
+    await navigate("https://accounts.doubao.test/redirect-blocked");
+    await waitFor("document.querySelector('.team-skills-navigation-error')?.textContent.includes('application renderer')", "redirect to desktop rejected");
+    assert.equal(guest.getURL(), "http://identity.example.test/complete");
+    await navigate(new URL(win.webContents.getURL()).origin + "/private");
+    await waitFor("document.querySelector('.team-skills-navigation-error')?.textContent.includes('application renderer')", "desktop origin rejected");
+    await navigate("https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
+    await arrived("https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
+    await waitFor("!document.querySelector('.team-skills-navigation-error')", "successful navigation clears the error");
+    assert.ok(await guest.executeJavaScript("document.cookie.includes('catalog_fixture=retained')"), "return keeps the catalog login session");
+    await click(".tab-home");
+    assert.ok(guest.isDestroyed(), "navigation subscription and guest are released on exit");
   });
 };

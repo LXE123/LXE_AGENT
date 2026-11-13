@@ -8,19 +8,25 @@ export function TeamSkillsPage() {
   const viewport = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true), [error, setError] = useState("");
+  const [navigationError, setNavigationError] = useState("");
   const prepare = window.lxe?.desktop?.prepareTeamSkillsView;
+  const onNavigationError = window.lxe?.desktop?.onTeamSkillsNavigationError;
 
   useEffect(() => {
     const element = viewport.current;
     if (!element || !prepare) return;
     let active = true;
     const guest = document.createElement("webview");
+    // Route popup requests through the main-process validator; it denies native windows.
+    guest.setAttribute("allowpopups", "");
     // Own the guest in a local document. Removing that document releases the
     // guest and its frame together when leaving the catalog (Electron 43).
     const frame = document.createElement("iframe");
     frame.title = copy.name;
     setError("");
+    setNavigationError("");
     setLoading(true);
+    const unsubscribe = onNavigationError?.(message => { if (active) setNavigationError(message); });
     const fail = (message: string) => {
       if (!active) return;
       frame.remove();
@@ -44,10 +50,11 @@ export function TeamSkillsPage() {
       guest.style.height = "100vh";
       body.appendChild(guest);
     }).catch(cause => fail(cause instanceof Error ? cause.message : String(cause)));
-    return () => { active = false; frame.remove(); };
-  }, [attempt, prepare, copy.name]);
+    return () => { active = false; unsubscribe?.(); frame.remove(); };
+  }, [attempt, prepare, onNavigationError, copy.name]);
 
   return <section className="team-skills-page" aria-label={copy.name}>
+    {navigationError && !error ? <div className="team-skills-navigation-error" role="alert">{navigationError}</div> : null}
     <div className="team-skills-viewport" ref={viewport}>
       {prepare && loading ? <span className="team-skills-loading" role="status">{t.common.loading}…</span> : null}
       {error ? <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt(v => v + 1)}>{copy.retry}</button></div> : null}

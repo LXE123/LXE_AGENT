@@ -1,20 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { ipcMain, session, shell, type WebContents } from "electron";
+import { ipcMain, session, type WebContents } from "electron";
 import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
+import { browserNavigationError, browserUrl } from "./browser-navigation";
 
-const catalogOrigin = new URL(TEAM_SKILLS_URL).origin;
 const partition = "persist:lxe-workbench-team-skills";
-
-function httpsUrl(raw: string): URL | undefined {
-  const url = URL.canParse(raw) ? new URL(raw) : undefined;
-  return url?.protocol === "https:" && !url.username && !url.password ? url : undefined;
-}
-
-// Feishu redirects between its Accounts, Passport and Miaoda hosts during sign-in.
-function isFeishuPage(url: URL | undefined): boolean {
-  return !!url && (url.origin === catalogOrigin || (!url.port && url.hostname.endsWith(".feishu.cn")));
-}
 
 export function registerTeamSkillsGuest(dashboard: WebContents): void {
   // will-attach-webview does not identify the requesting frame. Only the dashboard's
@@ -40,7 +30,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents): void {
 
   dashboard.on("will-attach-webview", (event, preferences, params) => {
     if (!pendingSrc || params.src !== pendingSrc || params.webpreferences || params.preload
-      || params.partition || params.allowpopups || params.httpreferrer || params.useragent
+      || params.partition || params.httpreferrer || params.useragent
       || params.blinkfeatures || params.disableblinkfeatures || params.plugins
       || params.nodeintegration || params.nodeintegrationinsubframes || params.disablewebsecurity) {
       event.preventDefault();
@@ -57,19 +47,27 @@ export function registerTeamSkillsGuest(dashboard: WebContents): void {
   });
 
   dashboard.on("did-attach-webview", (_event, guest) => {
+    const publishError = (message: string) => {
+      if (!dashboard.isDestroyed() && !guest.isDestroyed()) dashboard.send(IPC_CHANNELS.teamSkillsNavigationError, message);
+    };
+    const validate = (url: string): string | undefined => {
+      try { return browserUrl(url, dashboard.getURL()); }
+      catch (error) { publishError(browserNavigationError(error)); return undefined; }
+    };
     guest.on("will-navigate", event => {
-      if (!isFeishuPage(httpsUrl(event.url))) event.preventDefault();
+      if (!validate(event.url)) event.preventDefault();
     });
     guest.on("will-redirect", event => {
-      if (event.isMainFrame && !isFeishuPage(httpsUrl(event.url))) event.preventDefault();
+      if (event.isMainFrame && !validate(event.url)) event.preventDefault();
     });
+    guest.on("did-navigate", () => publishError(""));
     guest.setWindowOpenHandler(({ url }) => {
-      const target = httpsUrl(url);
-      if (target && isFeishuPage(target) && target.origin !== catalogOrigin) {
-        void guest.loadURL(target.href).catch(() => {});
-      } else if (target && (target.origin === catalogOrigin || target.origin === "https://agentskills.io")) {
-        void shell.openExternal(target.href).catch(() => {});
-      }
+      const target = validate(url);
+      // The catalog has one view: follow web links there, keeping its login session.
+      // Do not let remote pages create native windows or invoke OS URL handlers.
+      if (target) setImmediate(() => {
+        if (!guest.isDestroyed()) void guest.loadURL(target).catch(error => publishError(browserNavigationError(error)));
+      });
       return { action: "deny" };
     });
   });

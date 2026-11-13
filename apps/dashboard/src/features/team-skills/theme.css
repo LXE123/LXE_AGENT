@@ -12,6 +12,7 @@
   position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; color: var(--text-soft); overflow-wrap: anywhere;
 }
+.team-skills-navigation-error { padding: 10px 16px; color: var(--text-soft); overflow-wrap: anywhere; }
 .team-skills-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .team-skills-viewport [role="alert"] { max-width: min(48ch, 90%); text-align: center; }
 .team-skills-viewport > iframe { align-self: stretch; flex: 1; min-height: 0; border: 0; }

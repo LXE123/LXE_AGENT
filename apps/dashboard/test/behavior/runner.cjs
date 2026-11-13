@@ -18,8 +18,14 @@ app.whenReady().then(async () => {
   if (catalog) {
     require(require("node:path").join(profile, "team-skills-view.cjs")).registerTeamSkillsGuest(win.webContents);
     const catalogSession = session.fromPartition("persist:lxe-workbench-team-skills");
-    catalogSession.protocol.handle("https", () => new Response(
-      '<body style="background:#24689c"><input aria-label="Filter"></body>', { headers: { "Content-Type": "text/html" } }));
+    const catalogResponse = request => {
+      if (new URL(request.url).pathname === "/redirect-blocked") return Response.redirect(new URL(url).origin + "/private", 302);
+      if (new URL(request.url).pathname === "/redirect") return Response.redirect("http://identity.example.test/complete", 302);
+      return new Response('<body style="background:#24689c"><input aria-label="Filter"></body>',
+        { headers: { "Content-Type": "text/html" } });
+    };
+    catalogSession.protocol.handle("https", catalogResponse);
+    catalogSession.protocol.handle("http", catalogResponse);
   }
   // Do not permit accidental external requests from fixtures or production UI.
   win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
