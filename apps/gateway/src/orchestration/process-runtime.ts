@@ -29,6 +29,7 @@ import {
   type DesktopLoggingSinkStatus,
   type ManagedLlmCredential,
   type ManagedLlmTarget,
+  type McpServerPreset,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
 import type {
@@ -59,6 +60,7 @@ export interface ProcessAgentRuntimeOptions {
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
+  mcpServerPresets?: McpServerPreset[];
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -237,6 +239,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         throw new AgentProcessError(`Unsupported agent protocol version: expected ${AGENT_PROTOCOL_VERSION}, received ${String(this.remoteHealthSnapshot.protocol_version)}`, "AgentProtocolVersionMismatch", -32002);
       }
       if (this.child !== child) throw new AgentProcessError("agent-cli connection changed during initialization");
+      if (this.options.mcpServerPresets?.length) {
+        await this.request("sync_mcp_server_presets", { servers: this.options.mcpServerPresets });
+        if (this.child !== child) throw new AgentProcessError("agent-cli exited during MCP preset synchronization");
+      }
       this.setStatus("ready", "agent-cli is ready");
       this.restartAttempt = 0;
     } catch (cause) {
@@ -632,6 +638,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       }
       this.treeTermination = undefined;
     }
+    // The exit handler may already have released this child. Do not advance the
+    // generation twice or discard a replacement process while finishing cleanup.
+    if (this.child !== child) return;
     this.child = undefined;
     this.generation += 1;
     this.notifications = Promise.resolve();

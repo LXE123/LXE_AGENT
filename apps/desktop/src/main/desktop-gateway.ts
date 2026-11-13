@@ -1,4 +1,5 @@
 import { DesktopAutomations } from "./automations";
+import { loadDesktopMcpPresets } from "./mcp-presets";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
 import { OfficePreviewCache } from "./file-preview/office-cache";
@@ -256,6 +257,7 @@ export class DesktopGateway {
       legacyWorkspace,
       allowedSkillTypes,
       managedLlmState: this.options.config.managedLlmState(),
+      mcpServerPresets: loadDesktopMcpPresets(this.options.paths.mcpDefaultPath),
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
