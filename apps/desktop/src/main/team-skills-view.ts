@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ipcMain, session, shell, type WebContents } from "electron";
 import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
+import type { ManualBrowsers } from "./manual-tools/browsers";
 
 const catalogOrigin = new URL(TEAM_SKILLS_URL).origin;
 const partition = "persist:lxe-workbench-team-skills";
@@ -16,9 +17,10 @@ function isFeishuPage(url: URL | undefined): boolean {
   return !!url && (url.origin === catalogOrigin || (!url.port && url.hostname.endsWith(".feishu.cn")));
 }
 
-export function registerTeamSkillsGuest(dashboard: WebContents): void {
+export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers): void {
   // will-attach-webview does not identify the requesting frame. Only the dashboard's
   // main frame can obtain this single-use initial src. Replace it before navigation.
+  browsers?.watchWindow(dashboard);
   let pendingSrc: string | undefined;
   ipcMain.handle(IPC_CHANNELS.prepareTeamSkillsView, event => {
     if (event.sender !== dashboard || event.senderFrame !== dashboard.mainFrame) {
@@ -39,16 +41,20 @@ export function registerTeamSkillsGuest(dashboard: WebContents): void {
   profile.setDisplayMediaRequestHandler((_request, callback) => callback({}));
 
   dashboard.on("will-attach-webview", (event, preferences, params) => {
-    if (!pendingSrc || params.src !== pendingSrc || params.webpreferences || params.preload
-      || params.partition || params.allowpopups || params.httpreferrer || params.useragent
+    if (params.webpreferences || params.preload || params.partition || params.httpreferrer || params.useragent
       || params.blinkfeatures || params.disableblinkfeatures || params.plugins
       || params.nodeintegration || params.nodeintegrationinsubframes || params.disablewebsecurity) {
       event.preventDefault();
       return;
     }
-    pendingSrc = undefined;
-    params.src = TEAM_SKILLS_URL;
-    preferences.partition = partition;
+    if (pendingSrc && params.src === pendingSrc && !params.allowpopups) {
+      pendingSrc = undefined;
+      params.src = TEAM_SKILLS_URL;
+      preferences.partition = partition;
+    } else if (!browsers?.prepareGuest(dashboard, preferences, params)) {
+      event.preventDefault();
+      return;
+    }
     preferences.sandbox = true;
     preferences.contextIsolation = true;
     preferences.nodeIntegration = false;
@@ -57,6 +63,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents): void {
   });
 
   dashboard.on("did-attach-webview", (_event, guest) => {
+    if (browsers?.attachGuest(dashboard, guest)) return;
     guest.on("will-navigate", event => {
       if (!isFeishuPage(httpsUrl(event.url))) event.preventDefault();
     });

@@ -1,10 +1,11 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, webContents } from "electron";
 import { strict as assert } from "node:assert";
 import { createServer } from "node:http";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ManualToolsService } from "../../src/main/manual-tools/service";
+import { registerTeamSkillsGuest } from "../../src/main/team-skills-view";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 if (process.platform === "win32") app.disableHardwareAcceleration();
 app.on("window-all-closed", () => {});
@@ -12,9 +13,9 @@ const profile = mkdtempSync(join(tmpdir(), "lxe-manual-native-")); app.setPath("
 const wait = async (condition: () => unknown | Promise<unknown>, label: string) => { const deadline = Date.now() + 20000; while (Date.now() < deadline) { if (await condition()) return; await delay(40); } throw new Error(`Timed out: ${label}`); };
 void app.whenReady().then(async () => {
   const root = resolve(process.argv[3]!), workspace = join(profile, "工作区 space"); mkdirSync(workspace); writeFileSync(join(workspace, "cwd-marker.txt"), "workspace marker");
-  const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
+  const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, webviewTag: true } });
   const service = new ManualToolsService(() => win, root, async id => id === "missing" ? undefined : id === "isolated" ? profile : workspace); service.register();
-  win.on("hide", () => service.browsers.hide()); win.webContents.on("did-start-loading", () => service.browsers.hide());
+  registerTeamSkillsGuest(win.webContents, service.browsers);
   const server = createServer((request, response) => {
     if (request.url === "/download") { response.setHeader("Content-Disposition", "attachment; filename=test.txt"); response.end("download blocked"); }
     else { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<title>${request.url}</title><h1>网页测试</h1><input id="entry"><a id="next" href="/second">Next</a><a id="popup" target="_blank" href="/popup">Popup</a><a id="download" href="/download">Download</a>`); }
@@ -23,7 +24,10 @@ void app.whenReady().then(async () => {
   const address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
-  const activeGuest = () => win.contentView.children.filter((view: any) => view.webContents && view.webContents !== win.webContents).find((view: any) => view.getVisible()) as unknown as { webContents: Electron.WebContents; getBounds(): Electron.Rectangle } | undefined;
+  const activeGuest = async () => {
+    const id = await js("(()=>{try{return document.querySelector('.tool-browser-page iframe')?.contentDocument.querySelector('webview')?.getWebContentsId()}catch{return null}})()");
+    return id ? webContents.fromId(id) : undefined;
+  };
   const passed: string[] = [];
   try {
     await win.loadFile(resolve(process.argv[2]!));
@@ -68,40 +72,46 @@ void app.whenReady().then(async () => {
     await delay(600);
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: process.platform === "win32" ? "Write-Output ('CTRL_' + 'OK')\r" : "printf '%s%s\\n' 'CTRL_' 'OK'\r" } });
     await wait(() => terminal().output.includes("CTRL_OK"), "Ctrl+C").catch(error => { console.error(JSON.stringify(terminal())); throw error; }); passed.push("resize and Ctrl+C");
-    await click('[aria-label="新标签页"]'); await click('.tools-start button:nth-of-type(3)'); await wait(() => Boolean(activeGuest()), "native browser view");
+    await click('[aria-label="新标签页"]'); await click('.tools-start button:nth-of-type(3)'); await wait(async () => Boolean(await activeGuest()), "sidebar webview");
     const browserId = await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.a')).active");
     await service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: address + "/first" } });
     await wait(() => service.browsers.get("a", browserId)?.title === "/first" && !service.browsers.get("a", browserId)?.loading, "browser load");
-    const wc = activeGuest()!.webContents;
+    const wc = (await activeGuest())!;
     assert.equal(await wc.executeJavaScript("typeof window.lxe + ':' + typeof require"), "undefined:undefined"); passed.push("browser isolation");
     await wc.executeJavaScript("document.cookie='test_cookie=yes';document.querySelector('#next').click()");
     await wait(() => service.browsers.get("a", browserId)?.canGoBack, "history");
     await service.call({ operation: "browser.command", input: { sessionId: "a", id: browserId, command: "back" } });
     await wait(() => service.browsers.get("a", browserId)?.url.endsWith("/first"), "back"); passed.push("browser navigation and history");
-    await service.call({ operation: "browser.create", input: { sessionId: "b", id: "shared", url: address + "/shared" } });
-    await service.call({ operation: "browser.create", input: { sessionId: "isolated", id: "isolated", url: address + "/isolated" } });
-    const guests = () => win.contentView.children.map((v: any) => v.webContents).filter((w: any) => w && w !== win.webContents) as Electron.WebContents[];
-    await wait(() => guests().some(w => w.getURL().endsWith("/isolated")), "second workspace");
-    const shared = guests().find(w => w.getURL().endsWith("/shared"))!, isolated = guests().find(w => w.getURL().endsWith("/isolated"))!;
-    assert((await shared.session.cookies.get({ name: "test_cookie" })).length === 1); assert((await isolated.session.cookies.get({ name: "test_cookie" })).length === 0); assert.equal(shared.session.isPersistent(), false); passed.push("workspace profiles share and isolate in memory");
-    await js("window.toolsFixture.setModal(true)"); await wait(() => !activeGuest(), "modal hides native page"); await js("window.toolsFixture.setModal(false)"); await wait(() => Boolean(activeGuest()), "modal dismissal");
-    await js("{ const overlay = document.createElement('div'); overlay.id = 'sidebar-peek'; overlay.className = 'app-sidebar is-peek'; document.body.append(overlay); }");
-    await wait(() => !activeGuest(), "sidebar peek hides page");
-    await js("document.querySelector('#sidebar-peek').remove()"); await wait(() => Boolean(activeGuest()), "peek dismissal");
-    win.setSize(1000, 700); await wait(() => (activeGuest()?.getBounds().width ?? 0) > 200, "native bounds after resize"); passed.push("native bounds and modal visibility");
-    win.webContents.setZoomFactor(1.25);
-    await js("window.dispatchEvent(new Event('resize'))");
-    await wait(async () => {
-      const bounds = activeGuest()?.getBounds();
-      const left = await js("document.querySelector('.tool-browser-viewport')?.getBoundingClientRect().left");
-      return bounds && typeof left === "number" && Math.abs(bounds.x - left * 1.25) <= 1;
-    }, "native bounds after zoom"); passed.push("window zoom bounds");
+    const newBrowser = async (sessionId: string, path: string) => {
+      await js("window.toolsFixture.setSession(" + JSON.stringify(sessionId) + ")");
+      await click('[aria-label="工具侧栏"]');
+      await click('.tools-start button:nth-of-type(3)');
+      const id = await js("JSON.parse(localStorage.getItem(" + JSON.stringify("lxe.file-preview.v1." + sessionId) + ")).active");
+      await wait(async () => Boolean(await activeGuest()), "new workspace guest");
+      await service.call({ operation: "browser.navigate", input: { sessionId, id, url: address + path } });
+      await wait(() => service.browsers.get(sessionId, id)?.title === path, "workspace page loaded");
+      return (await activeGuest())!;
+    };
+    await wc.executeJavaScript("document.querySelector('#entry').value='unfinished draft'");
+    const shared = await newBrowser("b", "/shared"), isolated = await newBrowser("isolated", "/isolated");
+    assert((await shared.session.cookies.get({ name: "test_cookie" })).length === 1);
+    assert((await isolated.session.cookies.get({ name: "test_cookie" })).length === 0);
+    assert.equal(shared.session.isPersistent(), false); passed.push("workspace profiles share and isolate in memory");
+    await js("window.toolsFixture.setSession('a')");
+    await wait(async () => (await activeGuest())?.id === wc.id, "switch back to the same live page");
+    assert.equal(await wc.executeJavaScript("document.querySelector('#entry').value"), "unfinished draft");
+    await js("window.toolsFixture.setModal(true)");
+    assert.equal((await activeGuest())?.id, wc.id);
+    await js("window.toolsFixture.setModal(false)");
+    win.setSize(1000, 700); win.webContents.setZoomFactor(1.25);
+    await wait(() => js("document.querySelector('.tool-browser-page iframe')?.getBoundingClientRect().width > 100"), "webview layout after resize and zoom");
+    passed.push("live page survives switching, dialog, resize and zoom");
     await wc.executeJavaScript("document.querySelector('#download').click()"); await wait(() => service.browsers.get("a", browserId)?.error.includes("Downloads are disabled"), "download denied"); passed.push("downloads blocked");
     await assert.rejects(service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: "file:///etc/passwd" } }), /HTTP/);
     await assert.rejects(service.call({ operation: "terminal.write", input: { sessionId: "b", id: terminalId, data: "no" } }), /another session/); passed.push("ownership and URL checks");
     await wc.executeJavaScript("document.querySelector('#popup').click()", true);
-    await wait(() => guests().some(w => w.getURL().endsWith("/popup")), "popup becomes sidebar tab"); passed.push("popup opens in sidebar");
-    await wait(() => Boolean(activeGuest()?.webContents.getURL().endsWith("/popup")) && !activeGuest()?.webContents.isLoading(), "popup visible and loaded");
+    await wait(() => webContents.getAllWebContents().some(w => w.getURL().endsWith("/popup")), "popup becomes sidebar tab"); passed.push("popup opens in sidebar");
+    await wait(async () => { const page = await activeGuest(); return page?.getURL().endsWith("/popup") && !page.isLoading(); }, "popup visible and loaded");
     await delay(500);
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: process.platform === "win32"
       ? "$p = Start-Process -FilePath $env:ComSpec -ArgumentList '/c ping -n 60 127.0.0.1 >nul' -WindowStyle Hidden -PassThru; Set-Content -Path child.pid -Value $p.Id\r"

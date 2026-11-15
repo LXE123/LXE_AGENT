@@ -503,8 +503,11 @@
 .tool-browser-toolbar button:disabled { opacity:.35; cursor:default; }
 .tool-browser-toolbar input { flex:1; min-width:0; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px; background:var(--cds-field); color:var(--text); }
 .tool-browser-toolbar input::placeholder { color:var(--muted-light); }
-.tool-browser-viewport { flex:1; min-height:0; }
-.tool-browser-viewport>p { margin:32px 16px; color:var(--muted); text-align:center; font-size:13px; }
+.tool-browser-viewport { position:relative; flex:1; min-height:0; overflow:hidden; }
+.tool-browser-page { position:absolute; inset:0; }
+.sidebar-browser-frame { display:block; width:100%; height:100%; border:0; }
+.sidebar-browser-frame[hidden] { display:none; }
+.tool-browser-viewport>p { position:relative; pointer-events:none; margin:32px 16px; color:var(--muted); text-align:center; font-size:13px; }
 .tool-browser-toolbar .is-loading { animation:tool-spin 1s linear infinite; }
 @keyframes tool-spin { to { transform:rotate(360deg); } }
 

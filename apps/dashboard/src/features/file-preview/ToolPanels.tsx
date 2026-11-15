@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ArrowLeft, ArrowRight, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
 import type { BrowserSnapshot, ManualToolEvent, TerminalSnapshot } from "@lxe/desktop-protocol";
+import { showBrowserGuest } from "./browser-guests";
 import { useUiText } from "../../shared/i18n";
 import type { PreviewTab } from "./layout-state";
 import "@xterm/xterm/css/xterm.css";
@@ -72,36 +73,39 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
   const [state, setState] = useState<BrowserSnapshot | null>(null), [address, setAddress] = useState(tab.url ?? ""), [error, setError] = useState("");
   const latestUrl = useRef(tab.url); latestUrl.current = tab.url;
   const currentUrl = useRef(tab.url ?? "");
-  useEffect(() => {
-    let disposed = false, ready = false, frame = 0;
+  useLayoutEffect(() => {
+    let disposed = false;
+    let park: (() => void) | undefined;
+    let mountSrc: string | undefined;
     const api = toolBridge();
-    const fail = (cause: unknown) => { if (!disposed) setError(errorText(cause)); };
-    const present = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (disposed || !ready || !viewport.current) return;
-        const rect = viewport.current.getBoundingClientRect();
-        const canvas = viewport.current.closest<HTMLElement>(".app-content-frame");
-        const outer = canvas?.getBoundingClientRect();
-        const edge = canvas ? parseFloat(getComputedStyle(canvas).borderLeftWidth) : 0;
-        const clip = outer && canvas ? { x: outer.x + edge, y: outer.y + edge,
-          width: canvas.clientWidth, height: canvas.clientHeight,
-          radius: Math.max(0, parseFloat(getComputedStyle(canvas).borderTopLeftRadius) - edge) } : undefined;
-        const dismiss = document.querySelector(".sidebar-dismiss");
-        const blocked = document.hidden || Boolean(document.querySelector('[role="dialog"], [role="menu"], .app-sidebar.is-peek'))
-          || Boolean(dismiss && getComputedStyle(dismiss).display !== "none");
-        void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, clip, bounds: blocked ? null : { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } }).catch(fail);
-      });
+    const input = { sessionId, id: tab.key };
+    const unsubscribe = api.subscribe(event => {
+      if (event.kind !== "browser.state" || event.snapshot.id !== tab.key || event.snapshot.sessionId !== sessionId || disposed) return;
+      setState(event.snapshot);
+      if (event.snapshot.url !== currentUrl.current) {
+        currentUrl.current = event.snapshot.url;
+        setAddress(event.snapshot.url);
+      }
+    });
+    async function show() {
+      while (!disposed && viewport.current) {
+        const mount = await api.call({ operation: "browser.create", input: { ...input, url: latestUrl.current } });
+        if (disposed) return;
+        mountSrc = mount.mountSrc;
+        // A background page can be suspended while its mount reply is in flight.
+        if (!await api.call({ operation: "browser.visible", input: { ...input, mountSrc, visible: true } })) continue;
+        if (disposed || !viewport.current) return;
+        setState(mount);
+        setAddress(mount.url);
+        park = showBrowserGuest(viewport.current, mount, api);
+        return;
+      }
+    }
+    void show().catch(cause => { if (!disposed) setError(errorText(cause)); });
+    return () => {
+      disposed = true; unsubscribe(); park?.();
+      if (mountSrc) void api.call({ operation: "browser.visible", input: { ...input, mountSrc, visible: false } }).catch(() => {});
     };
-    const unsubscribe = api.subscribe(event => { if (event.kind === "browser.state" && event.snapshot.id === tab.key && event.snapshot.sessionId === sessionId && !disposed) { setState(event.snapshot); if (event.snapshot.url !== currentUrl.current) { currentUrl.current = event.snapshot.url; setAddress(event.snapshot.url); } } });
-    const observer = new ResizeObserver(present); if (viewport.current) observer.observe(viewport.current);
-    const mutations = new MutationObserver(present); mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style", "open", "role"] });
-    window.addEventListener("resize", present); window.addEventListener("focus", present); document.addEventListener("visibilitychange", present);
-    void api.call({ operation: "browser.create", input: { sessionId, id: tab.key, ...(latestUrl.current ? { url: latestUrl.current } : {}) } }).then(snapshot => {
-      if (disposed) { void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: null } }).catch(() => {}); return; }
-      setState(snapshot); if (snapshot.url) setAddress(snapshot.url); ready = true; present();
-    }).catch(fail);
-    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); mutations.disconnect(); unsubscribe(); window.removeEventListener("resize", present); window.removeEventListener("focus", present); document.removeEventListener("visibilitychange", present); void api.call({ operation: "browser.present", input: { sessionId, id: tab.key, bounds: null } }).catch(() => {}); };
   }, [sessionId, tab.key]);
   const command = async (command: "back" | "forward" | "reload") => { try { setError(""); await toolBridge().call({ operation: "browser.command", input: { sessionId, id: tab.key, command } }); } catch (cause) { setError(errorText(cause)); } };
   return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); setError(""); void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url: address } }).catch(cause => setError(errorText(cause))); }}>
@@ -109,5 +113,5 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
     <button type="button" aria-label={t.manualTools.forward} disabled={!state?.canGoForward} onClick={() => void command("forward")}><ArrowRight size={16} /></button>
     <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} onClick={() => void command("reload")}><RotateCw size={15} className={state?.loading ? "is-loading" : ""} /></button>
     <input aria-label={t.manualTools.address} placeholder="https://" value={address} onChange={event => setAddress(event.target.value)} spellCheck={false} /><button type="submit" aria-label={t.manualTools.go}>↵</button>
-  </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}<div className="tool-browser-viewport" ref={viewport}>{!state?.url ? <p>{t.manualTools.enterAddress}</p> : null}</div></div>;
+  </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}<div className="tool-browser-viewport"><div ref={viewport} className="tool-browser-page" />{!state?.url ? <p>{t.manualTools.enterAddress}</p> : null}</div></div>;
 }

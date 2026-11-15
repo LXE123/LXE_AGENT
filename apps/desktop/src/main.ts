@@ -709,7 +709,7 @@ async function bootstrap(): Promise<void> {
     },
   });
   if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
-  registerTeamSkillsGuest(window.webContents);
+  registerTeamSkillsGuest(window.webContents, manualTools?.browsers);
   trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
   window.webContents.on("context-menu", (_event, params) => {
     const template = editableContextMenuTemplate(params);
@@ -734,8 +734,6 @@ async function bootstrap(): Promise<void> {
     event.preventDefault();
     window?.hide();
   });
-  window.on("hide", () => manualTools?.browsers.hide());
-  window.webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => { if (main) manualTools?.browsers.hide(); });
   window.on("closed", () => { window = undefined; });
   window.once("ready-to-show", () => window?.show());
   await window.loadURL(
