@@ -13,6 +13,7 @@ import {
   envText,
   loadLlmProviderCatalog,
   normalizeProviderKey,
+  PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI,
   PROVIDER_API_STYLE_OPENAI_COMPLETIONS,
   PROVIDER_API_STYLE_OPENAI_RESPONSES,
   type Environment,
@@ -155,6 +156,9 @@ const readObject = (path: string): Record<string, unknown> => {
 export const providerEndpointUrl = (descriptor: ProviderDescriptor): string => {
   const base = descriptor.baseURL.replace(/\/+$/u, "");
   if (!base) return "";
+  if (descriptor.apiStyle === PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI) {
+    return `${base}/models/${encodeURIComponent(descriptor.model)}:streamGenerateContent?alt=sse`;
+  }
   if (descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_RESPONSES) return `${base}/responses`;
   if (descriptor.apiStyle === PROVIDER_API_STYLE_OPENAI_COMPLETIONS) return `${base}/chat/completions`;
   return `${base}/v1/messages`;

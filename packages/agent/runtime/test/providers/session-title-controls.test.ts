@@ -27,21 +27,24 @@ test("all protocol adapters apply auxiliary limits without changing the main req
   }
 });
 
-test("a main turn and its title share one credential snapshot while the next turn sees new auth", async () => {
+test.each([["deepseek", "deepseek-v4-flash"], ["google", "gemini-4-hydrogen"]])(
+  "a %s turn and its title share the local credential while the next turn sees new auth", async (provider, model) => {
   const root = mkdtempSync(join(tmpdir(), "lxe-title-credentials-"));
   try {
     mkdirSync(join(root, "config")); const authPath = join(root, "config/auth.json"); const observed: string[] = [];
     const manager = new AtomicRuntimeProviderManager(repositoryRoot(import.meta.dir),
-      { AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-flash" }, descriptor => ({
+      { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model, GEMINI_API_KEY: "unrelated-env-key" }, descriptor => ({
         turn: async () => { observed.push(descriptor.apiKey); return messageFixture(); },
         summarize: async () => ({ text: "summary", usage: { input_tokens: 0, output_tokens: 0 } }),
       }), undefined, authPath);
-    writeFileSync(authPath, JSON.stringify({ deepseek: { type: "api_key", key: "first" } }));
+    writeFileSync(authPath, JSON.stringify({ [provider]: { type: "api_key", key: "first" } }));
     const captured = manager.acquire().provider.captureForTurn!();
     await captured.turn(request);
-    writeFileSync(authPath, JSON.stringify({ deepseek: { type: "api_key", key: "second" } }));
+    writeFileSync(authPath, JSON.stringify({ [provider]: { type: "api_key", key: "second" } }));
     await captured.turn({ ...request, auxiliary: { maxOutputTokens: 4096, reasoning: "minimum" } });
     await manager.acquire().provider.captureForTurn!().turn(request);
     expect(observed).toEqual(["first", "first", "second"]);
+    writeFileSync(authPath, "{}");
+    await expect(manager.acquire().provider.captureForTurn!().turn(request)).rejects.toThrow("missing API key");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

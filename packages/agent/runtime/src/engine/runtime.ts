@@ -327,6 +327,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       provider,
       store: this.options.store,
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+      ...(descriptor?.apiStyle === "google_generative_ai" ? { reserveTokens: descriptor.maxTokens } : {}),
     });
     const turnPlatform = String(job.source.platform ?? session.source.platform ?? "").trim();
     const userIdentity = { platform: turnPlatform, userId: String(job.user_id ?? "") };

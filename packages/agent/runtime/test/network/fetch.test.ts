@@ -58,7 +58,7 @@ test("redirects select the new route, strip cross-origin credentials and convert
     return requests.length === 1 ? new Response(null, { status: 302, headers: { location: "http://service.internal/next" } }) : new Response("done");
   } });
   const response = await fetch("https://public.example.com", { method: "POST", body: "secret body",
-    headers: { authorization: "Bearer test", "x-api-key": "key", cookie: "session=test", "content-type": "text/plain" } });
+    headers: { authorization: "Bearer test", "x-api-key": "key", "x-goog-api-key": "google-key", cookie: "session=test", "content-type": "text/plain" } });
   expect(proxy(requests[0]!.init)).toBe("http://manual:8080");
   expect(proxy(requests[1]!.init)).toBe(false);
   expect(requests[1]!.init.method).toBe("GET");

@@ -25,6 +25,12 @@ afterEach(async () => {
 });
 
 describe("structured logger", () => {
+  test("redacts Google headers, opaque signatures and inline image bytes", () => {
+    expect(logging.sanitizeLogValue({ "x-goog-api-key": "example", thoughtSignature: "opaque",
+      inlineData: { mimeType: "image/png", data: "aW1n" } })).toEqual({
+      "x-goog-api-key": "***", thoughtSignature: "***", inlineData: { mimeType: "image/png", data: "***" },
+    });
+  });
   test("emits one JSON record with stable context and a serialized error", () => {
     const lines: string[] = [];
     const logger = logging.createLogger("gateway", {

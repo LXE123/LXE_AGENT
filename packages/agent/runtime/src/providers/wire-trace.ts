@@ -42,6 +42,11 @@ const truncateWireText = (value: string): string => {
 const normalizedKey = (value: string): string => value.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "");
 const textLength = (value: unknown): number => typeof value === "string" ? value.length : 0;
 
+// A gateway or a malformed SSE frame can quote part of the original Google payload.
+const redactGoogleFields = (text: string): string => text
+  .replace(/("(?:thoughtSignature|thinkingSignature|textSignature|x-goog-api-key)"\s*:\s*)"[^"]*(?:"|$)/giu, '$1"***"')
+  .replace(/("inline_?data"\s*:\s*\{[^{}]*?"data"\s*:\s*)"[^"]*(?:"|$)/giu, '$1"[image base64 omitted]"');
+
 const prepareWireValue = (
   value: unknown,
   key = "",
@@ -50,14 +55,15 @@ const prepareWireValue = (
 ): unknown => {
   const normalized = normalizedKey(key);
   if (normalized === "signature" || normalized === "signaturedelta"
-    || normalized === "encryptedcontent" || normalized === "thinkingsignature") return "***";
+    || normalized === "encryptedcontent" || normalized === "thinkingsignature"
+    || normalized === "thoughtsignature" || normalized === "textsignature") return "***";
   if (parentType === "redacted_thinking" && normalized === "data") {
     return `[redacted thinking data omitted: ${textLength(value)} chars]`;
   }
   if (value === null || value === undefined || typeof value === "boolean" || typeof value === "number") return value;
   if (typeof value === "string") {
     if (/^data:image\/[a-z0-9.+-]+;base64,/iu.test(value)) return `[image data URL omitted: ${value.length} chars]`;
-    return truncateWireText(value.replaceAll(ABSOLUTE_PATH, "<path>"));
+    return truncateWireText(redactGoogleFields(value).replaceAll(ABSOLUTE_PATH, "<path>"));
   }
   if (typeof value !== "object") return value;
   if (value instanceof Error || value instanceof Date || value instanceof URL) return value;
@@ -97,7 +103,7 @@ const sanitizeRawWireData = (value: string): string => {
   try {
     return JSON.stringify(sanitizeWireTraceValue(JSON.parse(value)));
   } catch {
-    return truncateWireText(value
+    return truncateWireText(redactGoogleFields(value)
       .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
       .replace(
         /((?:"?)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|password|signature|thinkingSignature|encrypted_content)(?:"?)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,

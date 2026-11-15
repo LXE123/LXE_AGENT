@@ -1,6 +1,6 @@
 # 模型请求的消息与流事件
 
-`RuntimeProvider.turn()` 每次调用创建一条 `AssistantMessage`。三个协议使用同一个累积器，返回值与 `done.message` 是同一对象。runtime 负责重试，SDK 内置重试关闭，每次重试生成新的本地消息 ID。
+`RuntimeProvider.turn()` 每次调用创建一条 `AssistantMessage`。各协议使用同一个累积器，返回值与 `done.message` 是同一对象。runtime 负责重试，SDK 内置重试关闭，每次重试生成新的本地消息 ID。
 
 ## 生命周期
 
@@ -15,6 +15,7 @@
 - Completions 使用工具 index 关联分片，读取 finish reason 和无正文的 usage 尾帧。
 - Responses 按 item ID、output index 和 content index 关联内容；done 载荷校正全文，最终 response 补齐签名和 usage。工具 id 保存 call_id，providerItemId 单独保存输出 item ID。
 - Anthropic 使用原生 block index，保留 signature 和 redacted thinking。
+- Google 将每个带 `thoughtSignature` 的 part 保存在对应内容块上，包括空文本。回放并行工具调用时，结果按原调用顺序排列，图片放在对应的 `functionResponse.parts` 中。
 
 消息上的 api/provider/model 表示来源。只有匹配的来源才重放不透明签名、供应商 item ID 和 namespace。旧记录可以继续读取，但不会补造来源。既有 Completions reasoning 字段签名仍可读。
 

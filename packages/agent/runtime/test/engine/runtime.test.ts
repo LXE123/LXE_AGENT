@@ -1,4 +1,5 @@
 import { buildResponsesRequest } from "../../src/providers/responses-provider";
+import { GoogleRuntimeProvider } from "../../src/providers/google-provider";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { parseTranscriptText } from "../../src/state/transcript";
 import { AssistantMessageAccumulator } from "../../src/messages/accumulator";
@@ -2200,6 +2201,32 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
+  test("Gemini reserves its 65536 output tokens and compacts near the shared window before calling the model", async () => {
+    const store = new MemoryStore();
+    store.messages = [{ role: "user", content: "a".repeat(4_000_000) }, { role: "assistant", content: "previous answer" }];
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google" }, { deferCredential: true });
+    const budgets: number[] = [];
+    const snapshot: RuntimeProviderSnapshot = { generation: 1, descriptor, provider: {
+      summarize: async request => {
+        budgets.push(request.maxOutputTokens);
+        return { text: "checkpoint from Google", usage: { input_tokens: 1000000, output_tokens: 5 } };
+      },
+      turn: async request => {
+        expect(request.messages.some(message => message.role === "compactionSummary" && message.summary.includes("checkpoint from Google"))).toBe(true);
+        return messageFixture({ content: [{ type: "text", text: "continued" }], stopReason: "stop" });
+      },
+    } };
+    const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools: new ToolRegistry(), systemPrompt: "test",
+      providerManager: { acquire: () => snapshot, reconfigure: async () => snapshot },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+    });
+    await runtime.start();
+    try {
+      expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "continued" });
+      expect(budgets).toEqual([Math.floor(65536 * 0.8)]);
+    } finally { await runtime.stop(); }
+  });
+
   test("forces one compaction and retries once after provider context overflow", async () => {
     const store = new MemoryStore();
     store.messages = [
@@ -2881,6 +2908,46 @@ test.each(["error", "aborted"] as const)("archives streamed text on %s and omits
       expect(body).not.toContain("unfinished summary");
       expect(body).not.toContain("unfinished-tool");
       expect(body.includes("<turn_aborted>")).toBe(reason === "aborted");
+    }
+  } finally { await runtime.stop(); await removeTemporaryRoot(root); }
+});
+
+test("a native Gemini turn executes a tool, returns its result and replays the signed exchange after restart", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-google-transcript-"));
+  const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+  const tools = new ToolRegistry();
+  const executions: string[] = [];
+  tools.register({ name: "lookup", description: "Look up a product", input_schema: { type: "object", properties: { sku: { type: "string" } } },
+    execute: async input => { executions.push(String(input.sku)); return { content: [{ type: "text", text: "SKU available" }] }; },
+  });
+  const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google", GEMINI_API_KEY: "fixture" });
+  const call = { id: "lookup-1", name: "lookup", args: { sku: "123" } };
+  const requests: JsonObject[] = [];
+  const provider = new GoogleRuntimeProvider(descriptor, async (_, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    const parts = requests.length === 1 ? [{ text: "", thoughtSignature: "sig-empty" }, { functionCall: call, thoughtSignature: "sig-call" }]
+      : [{ text: "SKU is available" }];
+    return new Response("data: " + JSON.stringify({ candidates: [{ content: { parts }, finishReason: "STOP" }] }) + "\n\n",
+      { headers: { "content-type": "text/event-stream" } });
+  });
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, provider, systemPrompt: "test",
+    emitter: { emit: async () => undefined, typing: async () => undefined } });
+  await runtime.start();
+  try {
+    await store.ensureSession({ session_id: "s1", source: {}, workspace });
+    expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "SKU is available" });
+    expect(executions).toEqual(["123"]);
+    await runtime.stop(); await runtime.start();
+    expect(await runtime.runTurn(job({ job_id: "second", message_id: "m2", user_input: "recall" }), handle()))
+      .toMatchObject({ status: "completed" });
+    expect(requests).toHaveLength(3);
+    for (const body of requests.slice(1)) {
+      expect(body.contents).toContainEqual({ role: "model", parts: [
+        { text: "", thoughtSignature: "sig-empty" }, { functionCall: call, thoughtSignature: "sig-call" },
+      ] });
+      expect(body.contents).toContainEqual({ role: "user", parts: [
+        { functionResponse: { id: call.id, name: call.name, response: { output: "SKU available" } } },
+      ] });
     }
   } finally { await runtime.stop(); await removeTemporaryRoot(root); }
 });

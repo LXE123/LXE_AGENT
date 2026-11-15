@@ -306,6 +306,8 @@ export function classifyProviderError(error: unknown, descriptor: ProviderDescri
         )
       : descriptor.name === "openai"
         ? openaiClassification(status, text, details)
+        : descriptor.name === "google" && details.incompleteReason
+        ? { category: "回复未完成", retryable: false }
         : genericClassification(status, text);
   return new RuntimeProviderError(
     safeProviderErrorText(rawMessage, secrets),

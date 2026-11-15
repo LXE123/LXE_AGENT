@@ -5,8 +5,10 @@ import { join } from "node:path";
 export const PROVIDER_API_STYLE_ANTHROPIC_MESSAGES = "anthropic_messages" as const;
 export const PROVIDER_API_STYLE_OPENAI_COMPLETIONS = "openai_completions" as const;
 export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses" as const;
+export const PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI = "google_generative_ai" as const;
 
 export type LlmProviderApiStyle =
+  | typeof PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI
   | typeof PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
   | typeof PROVIDER_API_STYLE_OPENAI_COMPLETIONS
   | typeof PROVIDER_API_STYLE_OPENAI_RESPONSES;
@@ -113,6 +115,7 @@ export const normalizeProviderKey = (value: unknown): string =>
 const normalizeApiStyle = (value: unknown, path: string): LlmProviderApiStyle => {
   const style = normalizeProviderKey(requiredString(value, path));
   if (style !== PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
+    && style !== PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI
     && style !== PROVIDER_API_STYLE_OPENAI_COMPLETIONS
     && style !== PROVIDER_API_STYLE_OPENAI_RESPONSES) {
     throw new Error(`${path} is unsupported: ${String(value)}`);
