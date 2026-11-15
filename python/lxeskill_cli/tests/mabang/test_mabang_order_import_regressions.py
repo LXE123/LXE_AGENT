@@ -182,11 +182,11 @@ def test_leap_year(today, expected):
 
 
 @pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
-def test_winning_year_tie(sheet, country):
+def test_year_tie_selects_later_year(sheet, country):
     sheet["AQ1"] = "7/2海运"
     for override in ((None, "AQ") if country in {"brazil", "vietnam"} else (None,)):
-        with pytest.raises(OrderImportWorkbookError, match="AQ1.*7/2海运.*无法确定年份"):
-            country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1), shipping_column=override)
+        selected = country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1), shipping_column=override)
+        assert selected["sea"].shipping_date == date(2028, 7, 2)
     sheet["AR1"], sheet["AQ1"] = "1/1海运", "7/2A海运"
     sheet["AQ1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
     selected = country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1))

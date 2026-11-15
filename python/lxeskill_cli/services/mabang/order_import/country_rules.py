@@ -88,7 +88,7 @@ def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[Shippin
             field += f"_{batch.lower()}"
         shipping_date = nearest_occurrence(
             int(match.group("month")), int(match.group("day")), today,
-            country=rule.name, label=f"{cell.coordinate}: {label}", defer_year_tie=True,
+            country=rule.name, label=f"{cell.coordinate}: {label}",
         )
         candidates.append(ShippingCandidate(cell.column, label, shipping_date, field))
     return candidates
@@ -168,13 +168,7 @@ def select_shipping_columns(
         if match is None:
             raise OrderImportWorkbookError(f"指定的运输列 {column} 不是离当天最近的候选列")
         overrides[match.field] = column
-    selected = _select_nearest_date(rule, candidates, overrides, today)
-    for candidate in selected.values():
-        nearest_occurrence(
-            candidate.shipping_date.month, candidate.shipping_date.day, today,
-            country=rule.name, label=f"{get_column_letter(candidate.column)}1: {candidate.header}",
-        )
-    return selected
+    return _select_nearest_date(rule, candidates, overrides, today)
 
 
 def generate_order_workbooks(

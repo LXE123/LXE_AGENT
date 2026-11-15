@@ -23,9 +23,8 @@ def nearest_occurrence(
     *,
     country: str,
     label: str,
-    defer_year_tie: bool = False,
 ) -> date:
-    """Defer a year tie only while scanning; recheck the selected column strictly."""
+    """Resolve a month/day to the nearest date, preferring the later year on ties."""
     possible = []
     # Adjacent leap days can be eight years apart around a non-leap century.
     for year in range(max(1, today.year - 4), min(9999, today.year + 4) + 1):
@@ -35,11 +34,7 @@ def nearest_occurrence(
             continue
     if not possible:
         raise OrderImportWorkbookError(f"{country}工作表运输日期表头无效: {label}")
-    distance = min(abs((candidate - today).days) for candidate in possible)
-    nearest = [candidate for candidate in possible if abs((candidate - today).days) == distance]
-    if len(nearest) != 1 and not defer_year_tie:
-        raise OrderImportWorkbookError(f"{country}工作表日期表头 {label} 跨年后与中国当天距离相同，无法确定年份")
-    return nearest[0]
+    return min(possible, key=lambda candidate: (abs((candidate - today).days), -candidate.toordinal()))
 
 
 @contextmanager
