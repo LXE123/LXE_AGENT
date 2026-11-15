@@ -57,6 +57,10 @@ RULES = {
         "印尼", "印尼", 5, ("land", "air", "sea"), "IN",
         "印尼马帮订单导入模板-{order_id}.xlsx", "印尼备货清单", "mabang_indonesia_order_import",
     ),
+    "thailand": CountryRule(
+        "泰国", "泰国", 5, ("land", "air", "sea"), "TH",
+        "泰国马帮订单导入模板-{order_id}.xlsx", "泰国备货清单", "mabang_thailand_order_import",
+    ),
 }
 DATASET_IDS = {country: rule.dataset_id for country, rule in RULES.items()}
 COUNTRIES = tuple(RULES)
@@ -209,14 +213,14 @@ def generate_order_workbooks(
             template_path=template_path,
         )
         artifact = {**result}
-        if country in {"malaysia", "philippines", "indonesia"}:
+        if country in {"malaysia", "philippines", "indonesia", "thailand"}:
             artifact["field"] = field
         artifact.update({
             "shipping_column": get_column_letter(candidate.column) if country == "brazil" else candidate.column,
             "shipping_header": candidate.header,
             "shipping_date": candidate.shipping_date.isoformat(),
         })
-        if country in {"vietnam", "philippines", "indonesia"}:
+        if country in {"vietnam", "philippines", "indonesia", "thailand"}:
             artifact["shipping_mode"] = _transport_output(field)[0]
         artifacts.append(artifact)
     return artifacts

@@ -63,6 +63,10 @@ def invoke(tmp_path, monkeypatch, capsys):
         ("IN261106-K", 54, "11/6空运", "2026-11-06", [10, None, None]),
         ("IN261106-H", 59, "11/6海运", "2026-11-06", [None, 8, 4]),
     ]),
+    ("thailand", None, {}, [
+        ("TH261106A-L", 43, "11/6A陆运", "2026-11-06", [10, None, 30]),
+        ("TH261106B-L", 44, "11/6B陆运", "2026-11-06", [None, 20, 40]),
+    ]),
 ])
 def test_cli_generates_country_artifacts(invoke, country, override, changes, expected):
     code, result, _ = invoke(country, changes, shipping_column=override)
@@ -86,7 +90,7 @@ def test_cli_generates_country_artifacts(invoke, country, override, changes, exp
         assert all("field" not in a and "shipping_mode" not in a for a in data["artifacts"])
     for artifact, (order_id, column, header, day, quantities) in zip(data["artifacts"], expected, strict=True):
         path = Path(artifact["path"])
-        prefix = {"brazil": "巴西", "malaysia": "马来西亚", "vietnam": "越南", "philippines": "菲律宾", "indonesia": "印尼"}[country]
+        prefix = {"brazil": "巴西", "malaysia": "马来西亚", "vietnam": "越南", "philippines": "菲律宾", "indonesia": "印尼", "thailand": "泰国"}[country]
         filename = f"{prefix}马帮订单导入模板-{order_id}.xlsx"
         assert path.is_absolute() and path.name == filename
         assert tuple(artifact[key] for key in ("order_id", "shipping_column", "shipping_header", "shipping_date")) == (
@@ -294,9 +298,9 @@ def unified_headers(country, columns):
 
 
 @pytest.mark.parametrize(("country", "prefix"), [
-    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"),
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"), ("thailand", "TH"),
 ])
-def test_five_countries_only_export_globally_closest_date(invoke, country, prefix):
+def test_countries_only_export_globally_closest_date(invoke, country, prefix):
     changes = unified_headers(country, {
         "BJ": ("11/4空运", 10), "BK": ("11/5A海运", 20), "BL": ("11/5B海运", 30),
     })
@@ -310,9 +314,9 @@ def test_five_countries_only_export_globally_closest_date(invoke, country, prefi
 
 
 @pytest.mark.parametrize(("country", "prefix"), [
-    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"),
+    ("brazil", "BR"), ("malaysia", "MY"), ("vietnam", "VN"), ("philippines", "PH"), ("indonesia", "IN"), ("thailand", "TH"),
 ])
-def test_five_countries_export_all_columns_on_one_closest_date(invoke, country, prefix):
+def test_countries_export_all_columns_on_one_closest_date(invoke, country, prefix):
     changes = unified_headers(country, {
         "BJ": ("11/1陆运", 1), "BK": ("11/5陆运", 2), "BL": ("11/5A陆运", 3),
         "BM": ("11/5空运", 4), "BN": ("11/7c空运", 5),

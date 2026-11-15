@@ -1,6 +1,6 @@
 ---
 name: mabang-order-import-generate
-description: 根据巴西、马来西亚、越南、菲律宾或印尼备货 XLSX，按全表离当天最近日期的运输列生成马帮订单导入表。
+description: 根据巴西、马来西亚、越南、菲律宾、印尼或泰国备货 XLSX，按全表离当天最近日期的运输列生成马帮订单导入表。
 type: replenishment
 commands:
   - lxeskill mabang order-import generate
@@ -20,7 +20,7 @@ lxeskill mabang order-import generate --country indonesia --input-xlsx "/实际�
 
 ## 国家规则
 
-五国都使用用户提供的备货表和 lxeskillCLI 随包提供的马帮模板。按生成时的北京时间判断最近日期并解释日期表头的年份；每份订单编号使用该文件选中列的日期。
+各国都使用用户提供的备货表和 lxeskillCLI 随包提供的马帮模板。按生成时的北京时间判断最近日期并解释日期表头的年份；每份订单编号使用该文件选中列的日期。
 
 | 国家 | 国家参数 | 来源表与 SKU 列 | 订单前缀 |
 |---|---|---|---|
@@ -29,8 +29,9 @@ lxeskill mabang order-import generate --country indonesia --input-xlsx "/实际�
 | 越南 | `vietnam` | 「越南备货清单」工作表，E 列为 SKU。 | `VN` |
 | 菲律宾 | `philippines` | 「菲律宾备货清单」工作表，E 列为 SKU。 | `PH` |
 | 印尼 | `indonesia` | 「印尼」工作表，E 列为 SKU。 | `IN` |
+| 泰国 | `thailand` | 「泰国」工作表，E 列为 SKU。 | `TH` |
 
-五国均扫描第 1 行 `M/D` + 可选单个英文字母批次 + `陆运`、`空运` 或 `海运` 表头，巴西不限制在 AT:BD。从所有运输列中确定离生成当天最近的一个日期，并导出该日期的全部运输方式和批次；日期等距时选较晚的日期。选中日期可以晚于生成日，也可以只有一种运输方式。
+各国均扫描第 1 行 `M/D` + 可选单个英文字母批次 + `陆运`、`空运` 或 `海运` 表头，巴西不限制在 AT:BD。从所有运输列中确定离生成当天最近的一个日期，并导出该日期的全部运输方式和批次；日期等距时选较晚的日期。选中日期可以晚于生成日，也可以只有一种运输方式。
 
 表头是否标黄不影响选列：最近日期的列均导出，其他日期的列即使标黄也不导出。没有有效运输列时命令报错；同一方式和批次在选定日期出现重复列时，按下文处理。
 
@@ -44,7 +45,7 @@ lxeskill mabang order-import generate --country indonesia --input-xlsx "/实际�
 
 同一运输方式和批次在选定日期有重复列且未指定候选列时，命令会报错并列出候选列。巴西或越南可请用户选择候选列，再使用 `--shipping-column <Excel列字母>` 指定，例如 `AT`。
 
-菲律宾普通空运、A 海运或 B 海运分别使用 `--air-shipping-column`、`--sea-a-shipping-column`、`--sea-b-shipping-column` 指定候选列；可同时使用多个参数。菲律宾其他批次及马来西亚、印尼的重复列需要修正源表。
+菲律宾普通空运、A 海运或 B 海运分别使用 `--air-shipping-column`、`--sea-a-shipping-column`、`--sea-b-shipping-column` 指定候选列；可同时使用多个参数。菲律宾其他批次及马来西亚、印尼、泰国的重复列需要修正源表。
 
 这些参数也可确认没有重复的候选列；所选列必须属于全表确定的最近日期，菲律宾按方式参数还须匹配对应批次。指定一列后，其他运输方式和批次仍按规则生成。
 

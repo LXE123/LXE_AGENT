@@ -13,7 +13,7 @@ TODAY = date(2026, 11, 5)
 YELLOW = PatternFill(fill_type="solid", fgColor="FFFFFF00")
 
 
-@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia", "thailand"])
 def test_closest_date_ignores_older_yellow_batches_for_every_country(country):
     workbook = Workbook()
     sheet = workbook.active
@@ -72,12 +72,13 @@ def test_equal_distance_for_one_batch_selects_the_later_date():
     workbook.close()
 
 
-def test_equally_close_dates_in_different_batches_choose_later_date():
+@pytest.mark.parametrize("country", ["indonesia", "thailand"])
+def test_equally_close_dates_in_different_batches_choose_later_date(country):
     workbook = Workbook()
     sheet = workbook.active
     sheet["A1"], sheet["B1"] = "11/4A海运", "11/6B海运"
 
-    selected = country_rules.select_shipping_columns("indonesia", sheet, TODAY)
+    selected = country_rules.select_shipping_columns(country, sheet, TODAY)
 
     assert {field: item.header for field, item in selected.items()} == {"sea_b": "11/6B海运"}
     workbook.close()

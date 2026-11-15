@@ -181,7 +181,7 @@ def test_leap_year(today, expected):
     assert nearest_occurrence(2, 29, today, country="越南", label="AQ1") == expected
 
 
-@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia"])
+@pytest.mark.parametrize("country", ["brazil", "malaysia", "vietnam", "philippines", "indonesia", "thailand"])
 def test_year_tie_selects_later_year(sheet, country):
     sheet["AQ1"] = "7/2海运"
     for override in ((None, "AQ") if country in {"brazil", "vietnam"} else (None,)):
@@ -191,6 +191,21 @@ def test_year_tie_selects_later_year(sheet, country):
     sheet["AQ1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
     selected = country_rules.select_shipping_columns(country, sheet, date(2028, 1, 1))
     assert {field: item.header for field, item in selected.items()} == {"sea": "1/1海运"}
+
+
+def test_year_tie_uses_later_year_in_generated_order_id(tmp_path):
+    source = source_workbook(tmp_path / "source.xlsx", "thailand")
+    with open_sheet(source) as sheet:
+        for column in ("AO", "AP", "AR"):
+            sheet[f"{column}1"] = None
+        sheet["AQ1"] = "7/2A陆运"
+        sheet.parent.save(source)
+    artifacts = country_rules.generate_order_workbooks(
+        "thailand", source, tmp_path / "out", today=date(2028, 1, 1), template_path=TEMPLATE,
+    )
+    assert [artifact["order_id"] for artifact in artifacts] == ["TH280702A-L"]
+    with open_sheet(artifacts[0]["output_xlsx"]) as sheet:
+        assert rows(sheet) == [("SKU-A", 0, 10), ("SKU-A", 0, 30)]
 
 
 @pytest.mark.parametrize("header", ["2/30海运", "4/31海运", "13/1海运"])
