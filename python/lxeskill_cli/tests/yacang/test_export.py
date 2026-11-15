@@ -282,13 +282,43 @@ def test_unknown_submit_recovers_queue_and_honors_fresh_requirement(platform, re
     first = workflow.run(request(warehouses=['MY8801']))
     assert first['error']['code'] == 'submit_unknown'
     platform['rows'].append({'id': 'late', 'name': '库存动销导出', 'type': '10',
-                            'param_where': json.dumps([['warehouse_id', '=', 26]]), 'path': platform['origin'] + '/file-late.xlsx'})
+                            'param_where': json.dumps({
+                                'where': [['user_id', '=', 'fixture-user'], ['warehouse_id', 'in', ['26']]],
+                                'order_name': 'three_data', 'order_by': 'desc',
+                            }),
+                            'path': platform['origin'] + '/file-late.xlsx'})
     platform['files']['/file-late.xlsx'] = xlsx('inventory-sales', 'MY8801', empty=True)
     del platform['reject'][endpoint]
     result = workflow.run(request(warehouses=['MY8801']), require_fresh=require_fresh)
     assert result['success'], result
     assert len(submits(platform)) == 1 + require_fresh
     assert result['artifacts'][0]['row_count'] == int(require_fresh)
+
+
+def test_unknown_inventory_submit_recovers_task_with_stock_metadata(platform):
+    endpoint = REPORTS['inventory-current-snapshot'][1]
+    platform['reject'][endpoint] = (500, {'msg': 'submit result unknown'})
+    first = workflow.run(request(reports=['inventory-current-snapshot'], warehouses=['MY8801']))
+    assert first['error']['code'] == 'submit_unknown'
+
+    platform['rows'].append({
+        'id': 'late-inventory',
+        'name': '库存导出',
+        'type': '1',
+        'param_where': json.dumps({
+            'warehouse_id': '26', 'order_field': 'create_time', 'order_type': 'desc',
+            'goods_sku_condition': '2', 'stock_warehouse_list': 1, 'user_id': 'fixture-user',
+        }),
+        'path': platform['origin'] + '/file-inventory.xlsx',
+    })
+    platform['files']['/file-inventory.xlsx'] = xlsx('inventory-current-snapshot', 'MY8801', empty=True)
+    del platform['reject'][endpoint]
+
+    result = workflow.run(request(reports=['inventory-current-snapshot'], warehouses=['MY8801']))
+
+    assert result['success'], result
+    assert result['artifacts'][0]['warehouse'] == 'MY8801'
+    assert len(submits(platform)) == 1
 
 
 def test_fresh_export_stops_if_previous_task_cannot_be_checked(platform):
@@ -403,6 +433,53 @@ def test_queue_filters_use_report_specific_shapes_and_exclude_other_ranges():
     task = tasks_for(normalize({'reports': ['warehouse-products']}))[0]
     row = {'type': '6', 'name': '资料导出', 'param_where': '[["status","=","0"]]'}
     assert not queue.matches(row, task)
+
+
+def test_queue_accepts_only_observed_metadata_values_without_weakening_filters():
+    task = tasks_for(normalize({'reports': ['inventory-sales'], 'warehouses': ['MY8801']}))[0]
+    row = {
+        'id': 'new',
+        'type': '10',
+        'name': '库存动销导出',
+        'param_where': json.dumps({
+            'where': [['user_id', '=', 'fixture-user'], ['warehouse_id', 'in', ['26']]],
+            'order_name': 'three_data',
+            'order_by': 'desc',
+        }),
+    }
+
+    assert queue.matches(row, task)
+    for invalid_metadata in (
+        {'order_name': 'other', 'order_by': 'desc'},
+        {'order_name': 'three_data', 'order_by': 'asc'},
+        {'order_name': 'three_data', 'order_by': 'desc', 'sku': 'unrequested-subset'},
+    ):
+        where = {'where': [['user_id', '=', 'fixture-user'], ['warehouse_id', 'in', ['26']]], **invalid_metadata}
+        row['param_where'] = json.dumps(where)
+        assert not queue.matches(row, task)
+
+    task = tasks_for(normalize({'reports': ['inventory-current-snapshot'], 'warehouses': ['MY8801']}))[0]
+    row = {
+        'id': 'new-inventory',
+        'type': '1',
+        'name': '库存导出',
+        'param_where': json.dumps({
+            'warehouse_id': '26', 'order_field': 'create_time', 'order_type': 'desc',
+            'goods_sku_condition': '2', 'stock_warehouse_list': 1, 'user_id': 'fixture-user',
+        }),
+    }
+    assert queue.matches(row, task)
+    for invalid_metadata in (
+        {'order_field': 'other', 'order_type': 'desc', 'stock_warehouse_list': 1},
+        {'order_field': 'create_time', 'order_type': 'asc', 'stock_warehouse_list': 1},
+        {'order_field': 'create_time', 'order_type': 'desc', 'stock_warehouse_list': 0},
+        {'order_field': 'create_time', 'order_type': 'desc', 'stock_warehouse_list': 1, 'sku': 'subset'},
+    ):
+        where = {
+            'warehouse_id': '26', 'goods_sku_condition': '2', 'user_id': 'fixture-user', **invalid_metadata,
+        }
+        row['param_where'] = json.dumps(where)
+        assert not queue.matches(row, task)
 
 
 def test_queue_never_uses_baseline_or_ambiguous_files():
