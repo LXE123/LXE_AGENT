@@ -313,6 +313,24 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await waitFor(`Boolean(document.querySelector(${JSON.stringify(row)}))`, 'session in sidebar');
       await click(row);
       await waitFor(`document.querySelector('.conversation-header h2')?.textContent === ${JSON.stringify(session)} && Boolean(document.querySelector(${JSON.stringify(report)}))`, 'report link in selected chat');
+      if (session === 'Default chat') {
+        const element = `document.querySelector(${JSON.stringify(report)})`;
+        const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
+        for (const theme of ['light', 'dark']) {
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; ${element}.scrollIntoView({ block: 'center' })`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
+          await settle();
+          const [text, underline] = await colors();
+          assert.notEqual(underline, text);
+          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getBoundingClientRect())`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
+          assert.deepEqual(await colors(), [text, text]);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
+          await settle();
+          assert.deepEqual(await colors(), [text, underline]);
+        }
+      }
       await focus(report);
       await key('Enter');
       await waitFor(`document.querySelector('.file-sidebar .file-markdown h1')?.textContent === ${JSON.stringify('Report from ' + session)}`, 'report from the selected workspace');
