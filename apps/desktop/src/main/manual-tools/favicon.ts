@@ -43,11 +43,12 @@ export function watchFavicons(guest: WebContents, allowed: (url: string) => stri
   let pending: AbortController | undefined;
   let documentUrl: string | undefined;
   let revision = 0;
+  let failed = false;
   let lastCandidates: string[] = [];
 
   function update(candidates: string[]) {
     const page = URL.parse(guest.getURL());
-    if (!page || !["http:", "https:"].includes(page.protocol)) return;
+    if (failed || !page || !["http:", "https:"].includes(page.protocol)) return;
     const urls = [...new Set([...candidates.slice(0, 8).filter(url => url.length <= MAX_ICON_BYTES * 4), new URL("/favicon.ico", page).href])];
     if (urls.length === lastCandidates.length && urls.every((url, i) => url === lastCandidates[i])) return;
     lastCandidates = urls;
@@ -72,6 +73,16 @@ export function watchFavicons(guest: WebContents, allowed: (url: string) => stri
     })();
   }
 
+  guest.on("did-start-navigation", event => {
+    if (event.isMainFrame && !event.isSameDocument) failed = false;
+  });
+  guest.on("did-fail-load", (_event, code, _description, _url, mainFrame) => {
+    if (!mainFrame || code === -3) return;
+    failed = true;
+    revision++;
+    pending?.abort();
+    publish(null);
+  });
   guest.on("did-navigate", (_event, url) => {
     revision++;
     pending?.abort();
@@ -81,7 +92,7 @@ export function watchFavicons(guest: WebContents, allowed: (url: string) => stri
   });
   guest.on("page-favicon-updated", (_event, urls) => { revision++; update(urls); });
   guest.on("did-finish-load", () => {
-    if (lastCandidates.length || !documentUrl) return;
+    if (failed || lastCandidates.length || !documentUrl) return;
     // Chromium doesn't repeat the event when the next document declares the same icon.
     const current = revision;
     const code = `Array.from(document.querySelectorAll('link[rel~="icon" i]')).slice(0, 8).map(link => link.href)`;

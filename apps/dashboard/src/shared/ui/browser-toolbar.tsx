@@ -60,6 +60,15 @@ export function BrowserToolbar({ url, enabled, canGoBack, canGoForward, loading,
           autoComplete="off" autoCapitalize="none" disabled={!enabled} placeholder="https://"
           value={draft ?? (URL.canParse(url) ? new URL(url).host : url)}
           onFocus={() => setDraft(previous => previous ?? url)}
+          onKeyDown={event => {
+            if (event.key.toLowerCase() !== "a" || event.altKey || event.shiftKey || event.nativeEvent.isComposing) return;
+            const mac = window.lxe?.desktop?.platform === "darwin" || /Mac/.test(navigator.platform);
+            const primary = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+            if (primary) {
+              event.preventDefault();
+              event.currentTarget.select();
+            }
+          }}
           onChange={event => { setDraft(event.target.value); setMessage(""); }} />
         {editing && <button type="submit" aria-label={t.manualTools.go} title={t.manualTools.go}
           disabled={!enabled || !draft.trim()} onMouseDown={event => event.preventDefault()}><CornerDownLeft size={14} /></button>}

@@ -221,7 +221,10 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await waitFor(`${currentHost} === '${new URL(callback).host}'`, "address reflects the login redirect");
       await focus(address);
       assert.equal(await js(currentHost), callback, "editing reveals full URL");
+      await js(`document.querySelector('${address}').setSelectionRange(4, 4)`);
+      await key("A", [process.platform === "darwin" ? "meta" : "control"]);
       await win.webContents.insertText("unsubmitted.example");
+      assert.equal(await js(currentHost), "unsubmitted.example", "select-all replaces the full catalog address");
       await key("Escape");
       assert.equal(guest.getURL(), callback);
       await focus(address);

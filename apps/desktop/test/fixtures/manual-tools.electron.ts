@@ -31,6 +31,7 @@ void app.whenReady().then(async () => {
       formRequests.push(`${request.method} ${request.url}`);
     }
     if (request.url === "/favicon.ico") { response.writeHead(404).end(); return; }
+    if (request.url === "/broken-page") { request.socket.destroy(); return; }
     if (request.url === "/tab-icon.svg") { response.writeHead(302, { Location: "/site-icon.svg" }).end(); return; }
     if (request.url === "/site-icon.svg") { response.writeHead(200, { "Content-Type": "image/svg+xml" }).end(iconSvg); return; }
     const icon = request.url === "/first" || request.url === "/same-icon" ? "/tab-icon.svg"
@@ -155,6 +156,8 @@ void app.whenReady().then(async () => {
     await wait(hasFavicon, "site SVG displayed as the browser tab icon");
     await wc.loadURL(address + "/same-icon");
     await wait(hasFavicon, "two successive documents using the same favicon");
+    await assert.rejects(wc.loadURL(address + "/broken-page"));
+    await wait(() => js("!!document.querySelector('.file-tabs [aria-selected=true] .lucide-globe')"), "failed navigation clears the previous site's icon");
     await wc.loadURL(address + "/first");
     await wait(hasFavicon, "first page icon before navigating away");
     assert.equal(await wc.executeJavaScript("typeof window.lxe + ':' + typeof require"), "undefined:undefined"); passed.push("browser isolation");
@@ -225,9 +228,14 @@ void app.whenReady().then(async () => {
     await js("window.refreshTestMarker = true");
     await wc.executeJavaScript("window.refreshTestMarker = true");
     win.webContents.focus();
-    await js("document.querySelector('.browser-toolbar input').select()");
+    // Production reserves menu shortcuts while the sidebar owns focus.
+    win.webContents.setIgnoreMenuShortcuts(true);
+    await js("document.querySelector('.browser-toolbar input').setSelectionRange(5, 5)");
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "A", modifiers });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "A", modifiers });
+    assert.ok(await js("(() => { const field = document.querySelector('.browser-toolbar input'); return field.selectionStart === 0 && field.selectionEnd === field.value.length; })()"), "select-all covers the entire editable URL");
     await win.webContents.insertText(address + "/unsubmitted");
-    await wait(() => js("document.querySelector('.browser-toolbar input').value.endsWith('/unsubmitted')"), "draft address");
+    await wait(() => js(`document.querySelector('.browser-toolbar input').value === ${JSON.stringify(address + "/unsubmitted")}`), "typing replaces the selected URL");
     await click(externalButton);
     await wait(() => externalRequests.length > 0, "toolbar opens the system-browser route");
     assert.deepEqual(externalRequests, [address + "/popup"]);
