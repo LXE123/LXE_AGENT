@@ -203,6 +203,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await click(".tab-team-skills");
       await waitFor("document.querySelector('.team-skills-viewport iframe') && !document.querySelector('.team-skills-loading')", "catalog home loaded");
       const guest = webContents.fromId(await js("document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId()"));
+      const catalogHome = guest.getURL();
       const navigate = async selector => {
         const loaded = once(guest, "did-finish-load", { signal: AbortSignal.timeout(5000) });
         await guest.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`, true);
@@ -239,9 +240,17 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await click(navButtons + ":nth-child(2)");
       await waitFor(`${currentHost} === 'partner.example'`, "forward restores typed URL");
       const reloaded = once(guest, "did-finish-load", { signal: AbortSignal.timeout(5000) });
-      await click(navButtons + ":last-child");
+      await click(".team-skills-page [data-preview-refresh]");
       await reloaded;
       assert.equal(guest.getURL(), typed, "refresh reloads the embedded page");
+      const homeButton = ".team-skills-page [data-preview-refresh] + button";
+      assert.equal(await js(`document.querySelector('${homeButton}').textContent`), "回到技能目录");
+      await click(homeButton);
+      await waitFor(`${currentHost} === '${new URL(catalogHome).host}'`, "home button returns to the catalog");
+      assert.equal(guest.getURL(), catalogHome, "opens the fixed home URL in the same guest");
+      await click(navButtons + ":first-child");
+      await waitFor(`${currentHost} === 'partner.example'`, "back from catalog home restores the typed page");
+      assert.equal(guest.getURL(), typed);
       await click(navButtons + ":first-child");
       await waitFor(`${currentHost} === '${new URL(callback).host}'`, "back after reload");
       await guest.executeJavaScript("document.querySelector('button').click()", true);

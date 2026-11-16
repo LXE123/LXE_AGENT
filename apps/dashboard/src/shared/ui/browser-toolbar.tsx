@@ -12,10 +12,11 @@ interface BrowserToolbarProps {
   canGoForward?: boolean;
   loading?: boolean;
   onAction: (action: BrowserAction) => void | Promise<unknown>;
+  homePage?: { url: string; label: string };
   onOpenExternal?: (url: string) => void;
 }
 
-export function BrowserToolbar({ url, enabled, canGoBack, canGoForward, loading, onAction, onOpenExternal }: BrowserToolbarProps) {
+export function BrowserToolbar({ url, enabled, canGoBack, canGoForward, loading, onAction, homePage, onOpenExternal }: BrowserToolbarProps) {
   const t = useUiText();
   const input = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -46,6 +47,8 @@ export function BrowserToolbar({ url, enabled, canGoBack, canGoForward, loading,
           disabled={!enabled || !canGoForward} onClick={() => void run("forward")}><ArrowRight size={16} /></button>
         <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} title={t.filePreview.refresh}
           disabled={!enabled} onClick={() => void run("reload")}><RotateCw size={15} className={loading ? "is-loading" : undefined} /></button>
+        {homePage && <button type="button" className="browser-toolbar-home" disabled={!enabled}
+          onClick={() => void run({ url: homePage.url })}>{homePage.label}</button>}
       </div>
       <div className="browser-toolbar-address" onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget)) setDraft(null);

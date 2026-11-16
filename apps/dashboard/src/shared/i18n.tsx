@@ -190,7 +190,7 @@ export const ZH_TEXT = {
     saved: "旺季加成设置已保存。", saving: "正在保存…",
     loading: "正在读取设置…", retry: "重试", unavailable: "请在桌面应用工作台中打开亚马逊备货旺季加成。",
   },
-  teamSkills: { name: "团队技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
+  teamSkills: { name: "团队技能目录", backToCatalog: "回到技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
   workbenchIndex: {
     eyebrow: "工作台",
     title: "功能",
@@ -1131,7 +1131,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       saved: "Seasonal boost settings saved.", saving: "Saving…",
       loading: "Loading settings…", retry: "Retry", unavailable: "Open Amazon replenishment seasonal boost in the desktop workbench.",
     },
-    teamSkills: { name: "Team skills catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
+    teamSkills: { name: "Team skills catalog", backToCatalog: "Return to catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
     workbenchIndex: {
       eyebrow: "Workbench",
       title: "Features",
