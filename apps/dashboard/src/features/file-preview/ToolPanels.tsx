@@ -71,7 +71,9 @@ export function TerminalPanel({ sessionId, tab, restart }: { sessionId: string; 
 export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: PreviewTab }) {
   const t = useUiText(), viewport = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<BrowserSnapshot | null>(null), [address, setAddress] = useState(tab.url ?? ""), [error, setError] = useState("");
-  const latestUrl = useRef(tab.url); latestUrl.current = tab.url;
+  const savedUrl = useRef(tab.url).current;
+  const [awaitingRestore, setAwaitingRestore] = useState(false);
+  const [request, setRequest] = useState<{ url: string }>();
   const currentUrl = useRef(tab.url ?? "");
   useLayoutEffect(() => {
     let disposed = false;
@@ -88,33 +90,61 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
       }
     });
     async function show() {
+      // Live, suspended and newly requested popup tabs belong to the current desktop process.
+      if (savedUrl && !request && !await api.call({ operation: "browser.get", input })) {
+        if (!disposed) setAwaitingRestore(true);
+        return;
+      }
       while (!disposed && viewport.current) {
-        const mount = await api.call({ operation: "browser.create", input: { ...input, url: latestUrl.current } });
+        const mount = await api.call({ operation: "browser.create", input: { ...input, url: request?.url ?? savedUrl } });
         if (disposed) return;
         mountSrc = mount.mountSrc;
         // A background page can be suspended while its mount reply is in flight.
         if (!await api.call({ operation: "browser.visible", input: { ...input, mountSrc, visible: true } })) continue;
         if (disposed || !viewport.current) return;
+        setAwaitingRestore(false);
         setState(mount);
         setAddress(mount.url);
+        currentUrl.current = mount.url;
         park = showBrowserGuest(viewport.current, mount, api);
         return;
       }
     }
-    void show().catch(cause => { if (!disposed) setError(errorText(cause)); });
+    void show().catch(cause => {
+      if (disposed) return;
+      setError(errorText(cause));
+      if (savedUrl) setAwaitingRestore(true);
+    });
     return () => {
       disposed = true; unsubscribe(); park?.();
       if (mountSrc) void api.call({ operation: "browser.visible", input: { ...input, mountSrc, visible: false } }).catch(() => {});
     };
-  }, [sessionId, tab.key]);
+  }, [sessionId, tab.key, savedUrl, request]);
   const command = async (command: "back" | "forward" | "reload") => { try { setError(""); await toolBridge().call({ operation: "browser.command", input: { sessionId, id: tab.key, command } }); } catch (cause) { setError(errorText(cause)); } };
-  const pageUrl = state?.url;
-  return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); setError(""); void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url: address } }).catch(cause => setError(errorText(cause))); }}>
+  const pageUrl = awaitingRestore ? savedUrl : state?.url;
+  const canNavigate = state !== null || (awaitingRestore && (!request || Boolean(error)));
+  const navigate = (url: string) => {
+    if (!canNavigate) return;
+    setError("");
+    if (awaitingRestore) setRequest({ url });
+    else if (state) void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url } }).catch(cause => setError(errorText(cause)));
+  };
+  const reload = () => {
+    if (awaitingRestore && savedUrl) navigate(savedUrl);
+    else if (state) void command("reload");
+  };
+  return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); navigate(address); }}>
     <button type="button" aria-label={t.manualTools.back} disabled={!state?.canGoBack} onClick={() => void command("back")}><ArrowLeft size={16} /></button>
     <button type="button" aria-label={t.manualTools.forward} disabled={!state?.canGoForward} onClick={() => void command("forward")}><ArrowRight size={16} /></button>
-    <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} onClick={() => void command("reload")}><RotateCw size={15} className={state?.loading ? "is-loading" : ""} /></button>
-    <input aria-label={t.manualTools.address} placeholder="https://" value={address} onChange={event => setAddress(event.target.value)} spellCheck={false} /><button type="submit" aria-label={t.manualTools.go}>↵</button>
+    <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} disabled={!canNavigate} onClick={reload}><RotateCw size={15} className={state?.loading ? "is-loading" : ""} /></button>
+    <input aria-label={t.manualTools.address} placeholder="https://" value={address} onChange={event => setAddress(event.target.value)} spellCheck={false} /><button type="submit" aria-label={t.manualTools.go} disabled={!canNavigate}>↵</button>
     <button type="button" title={t.manualTools.openExternal} aria-label={t.manualTools.openExternal} disabled={!pageUrl}
       onClick={() => { if (pageUrl) window.open(pageUrl, "_blank", "noopener,noreferrer"); }}><ExternalLink size={16} /></button>
-  </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}<div className="tool-browser-viewport"><div ref={viewport} className="tool-browser-page" />{!state?.url ? <p>{t.manualTools.enterAddress}</p> : null}</div></div>;
+  </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}
+    <div className="tool-browser-viewport"><div ref={viewport} className="tool-browser-page" />
+      {awaitingRestore && savedUrl ? <div className="tool-browser-restore">
+        <strong>{tab.name}</strong><span>{savedUrl}</span>
+        <button type="button" disabled={!canNavigate} onClick={reload}>{t.manualTools.restorePage}</button>
+      </div> : state && !state.url ? <p>{t.manualTools.enterAddress}</p> : null}
+    </div></div>;
 }

@@ -113,7 +113,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
         return { ...all, [owner]: next };
       });
     } else if (event.kind === "browser.open") {
-      setLayouts(all => ({ ...all, [event.sessionId]: openToolTab(all[event.sessionId] ?? restoreLayout(storage(), event.sessionId), { key: `browser:${crypto.randomUUID()}`, name: toolsText.browser, kind: "browser", url: event.url }) }));
+      setLayouts(all => ({ ...all, [event.sessionId]: openToolTab(all[event.sessionId] ?? restoreLayout(storage(), event.sessionId), { key: event.id, name: toolsText.browser, kind: "browser", url: event.url }) }));
     }
   }), [toolsText.browser]);
   const label = (tab: PreviewTab) => tab.key === "tree" ? t.files : tab.key === "start" ? toolsText.start : tab.name;

@@ -22,7 +22,7 @@ export type ManualToolEvent =
   | { kind: "terminal.state"; snapshot: TerminalSnapshot }
   | { kind: "browser.state"; snapshot: BrowserSnapshot }
   | { kind: "browser.release"; id: string; sessionId: string; mountSrc: string }
-  | { kind: "browser.open"; sessionId: string; url: string };
+  | { kind: "browser.open"; sessionId: string; id: string; url: string };
 export interface ManualToolsBridge {
   call<K extends ManualToolOperation>(call: ManualToolCall<K>): Promise<ManualToolOperations[K]["result"]>;
   subscribe(listener: (event: ManualToolEvent) => void): () => void;

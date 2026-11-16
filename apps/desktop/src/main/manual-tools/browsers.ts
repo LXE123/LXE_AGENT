@@ -73,15 +73,21 @@ export class ManualBrowsers {
     return tab ? { ...tab.snapshot } : null;
   }
 
+  private newTab(owner: WebContents, workspace: Pick<Browser, "profile" | "partition">, sessionId: string, id: string, url: string): Browser {
+    const tab: Browser = { owner, profile: workspace.profile, partition: workspace.partition,
+      attaching: false, restoring: false, visible: false, lastUsed: 0,
+      snapshot: { id, sessionId, url, title: "", loading: false, canGoBack: false, canGoForward: false, error: "" } };
+    this.items.set(id, tab);
+    return tab;
+  }
+
   create(sessionId: string, id: string, directory: string, initial?: string): BrowserMount {
     const owner = this.window()?.webContents;
     if (!owner || owner.isDestroyed()) throw new Error("Desktop window is unavailable");
     let tab = this.owned(sessionId, id);
     if (!tab) {
       const url = initial ? this.validate(initial) : "";
-      tab = { owner, ...this.profile(directory), attaching: false, restoring: false, visible: false, lastUsed: 0,
-        snapshot: { id, sessionId, url, title: "", loading: false, canGoBack: false, canGoForward: false, error: "" } };
-      this.items.set(id, tab);
+      tab = this.newTab(owner, this.profile(directory), sessionId, id, url);
     }
     if (tab.owner !== owner) throw new Error("Browser belongs to another window");
     tab.mountSrc ??= `about:blank#lxe-browser-${randomUUID()}`;
@@ -138,7 +144,12 @@ export class ManualBrowsers {
     wc.setWindowOpenHandler(({ url, postBody }) => {
       // A URL-only sidebar tab cannot carry the original form data.
       if (postBody !== undefined) return { action: "deny" };
-      try { this.emit({ kind: "browser.open", sessionId, url: this.validate(url) }); } catch (error) { fail(error); }
+      try {
+        const target = this.validate(url);
+        const childId = `browser:${randomUUID()}`;
+        this.newTab(tab.owner, tab, sessionId, childId, target);
+        this.emit({ kind: "browser.open", sessionId, id: childId, url: target });
+      } catch (error) { fail(error); }
       return { action: "deny" };
     });
     wc.on("before-input-event", (event, input) => {

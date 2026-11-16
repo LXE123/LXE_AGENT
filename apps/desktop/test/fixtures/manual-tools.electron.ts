@@ -1,18 +1,19 @@
 import { app, BrowserWindow, webContents } from "electron";
 import { strict as assert } from "node:assert";
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ManualToolsService } from "../../src/main/manual-tools/service";
 import { registerTeamSkillsGuest } from "../../src/main/team-skills-view";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 if (process.platform === "win32") app.disableHardwareAcceleration();
 app.on("window-all-closed", () => {});
-const profile = mkdtempSync(join(tmpdir(), "lxe-manual-native-")); app.setPath("userData", profile);
+const profile = process.argv[4]!;
+const restart = process.argv[5] === "restart";
+app.setPath("userData", profile);
 const wait = async (condition: () => unknown | Promise<unknown>, label: string) => { const deadline = Date.now() + 20000; while (Date.now() < deadline) { if (await condition()) return; await delay(40); } throw new Error(`Timed out: ${label}`); };
 void app.whenReady().then(async () => {
-  const root = resolve(process.argv[3]!), workspace = join(profile, "工作区 space"); mkdirSync(workspace); writeFileSync(join(workspace, "cwd-marker.txt"), "workspace marker");
+  const root = resolve(process.argv[3]!), workspace = join(profile, "工作区 space"); mkdirSync(workspace, { recursive: true }); writeFileSync(join(workspace, "cwd-marker.txt"), "workspace marker");
   const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, webviewTag: true } });
   const service = new ManualToolsService(() => win, root, async id => id === "missing" ? undefined : id === "isolated" ? profile : workspace); service.register();
   registerTeamSkillsGuest(win.webContents, service.browsers);
@@ -22,7 +23,9 @@ void app.whenReady().then(async () => {
     return { action: "deny" };
   });
   const formRequests: string[] = [];
+  const restartPaths: string[] = [];
   const server = createServer((request, response) => {
+    if (restart && request.url !== "/favicon.ico") restartPaths.push(request.url!);
     if (request.url?.startsWith("/print-") || request.url === "/popup") {
       formRequests.push(`${request.method} ${request.url}`);
     }
@@ -32,7 +35,10 @@ void app.whenReady().then(async () => {
         <button id="print-current">Print here</button><button id="print-popup" formaction="/print-popup" formtarget="_blank">Print in new tab</button>
       </form>`); }
   });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const portFile = join(profile, "fixture-port");
+  const port = restart ? Number(readFileSync(portFile, "utf8")) : 0;
+  await new Promise<void>((resolve, reject) => server.once("error", reject).listen(port, "127.0.0.1", resolve));
+  if (!restart) writeFileSync(portFile, String((server.address() as { port: number }).port));
   const address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -44,6 +50,52 @@ void app.whenReady().then(async () => {
   try {
     await win.loadFile(resolve(process.argv[2]!));
     await wait(() => js("!!window.toolsFixture"), "renderer");
+    if (restart) {
+      const expectSaved = async (sessionId: string, path: string) => {
+        await js(`window.toolsFixture.setSession(${JSON.stringify(sessionId)})`);
+        await wait(() => js(`document.querySelector('.tool-browser-restore strong')?.textContent === ${JSON.stringify(path)}
+          && document.querySelector('.tool-browser-restore span')?.textContent === ${JSON.stringify(address + path)}`), "saved title and URL for " + path);
+        assert.equal(await activeGuest(), undefined);
+      };
+      const expectLoaded = (path: string) => wait(async () => {
+        const page = await activeGuest();
+        return page?.getURL() === address + path && !page.isLoading();
+      }, "loaded " + path);
+
+      await expectSaved("a", "/popup");
+      await expectSaved("b", "/shared");
+      await expectSaved("isolated", "/isolated");
+      assert.deepEqual(restartPaths, []);
+      passed.push("cold launch and session switches show saved titles and URLs without requests or guests");
+
+      await click(".tool-browser-restore button");
+      await expectLoaded("/isolated");
+      await expectSaved("b", "/shared");
+      await click("[data-preview-refresh]");
+      await expectLoaded("/shared");
+      await expectSaved("a", "/popup");
+      win.focus();
+      await js("document.querySelector('.tool-browser-toolbar input').select()");
+      await win.webContents.insertText("file:///invalid-restore");
+      await click(".tool-browser-toolbar button[type=submit]");
+      await wait(() => js("document.querySelector('.tool-error')?.textContent.includes('HTTP')"), "invalid navigation can be corrected on the restore screen");
+      await js("document.querySelector('.tool-browser-toolbar input').select()");
+      await win.webContents.insertText(address + "/replacement");
+      await click(".tool-browser-toolbar button[type=submit]");
+      await expectLoaded("/replacement");
+      assert.deepEqual(restartPaths, ["/isolated", "/shared", "/replacement"]);
+      passed.push("restore, refresh and a corrected address each request only the chosen page once");
+
+      await win.loadFile(resolve(process.argv[2]!));
+      await expectLoaded("/replacement");
+      assert.equal(await js("document.querySelector('.tool-browser-restore') === null"), true);
+      passed.push("reloading the dashboard in the same process reattaches the existing tab");
+
+      win.destroy(); await service.stop(); server.close();
+      console.log("LXE_MANUAL_RESULT=" + JSON.stringify({ passed }));
+      app.exit(0);
+      return;
+    }
     await click('[aria-label="工具侧栏"]'); await wait(() => js("!!document.querySelector('.tools-start')"), "Start"); passed.push("Start on first open");
     await delay(400);
     writeFileSync(join(profile, "start.png"), (await win.webContents.capturePage()).toPNG());
@@ -177,6 +229,7 @@ void app.whenReady().then(async () => {
     writeFileSync(join(profile, "tools.png"), (await win.webContents.capturePage()).toPNG());
     await service.closeSession("a"); assert.equal(service.terminals.get("a", terminalId), null); assert.equal(service.browsers.get("a", browserId), null); passed.push("session cleanup");
     await wait(() => { try { process.kill(childPid, 0); return false; } catch { return true; } }, "child process cleanup"); passed.push("child process cleanup");
+    win.webContents.session.flushStorageData();
     win.destroy(); await service.stop(); server.close();
     console.log("LXE_MANUAL_RESULT=" + JSON.stringify({ passed, screenshot: join(profile, "tools.png") }));
     app.exit(0);
