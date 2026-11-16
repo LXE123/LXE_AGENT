@@ -3,6 +3,7 @@
   display: grid; grid-template-columns: 1fr minmax(0, 54%) 1fr; align-items: center; gap: 8px;
   flex: none; min-height: 46px; padding: 6px 12px; box-sizing: border-box;
   background: var(--cds-surface-nav);
+  border-bottom: 1px solid var(--cds-alpha-2);
 }
 .browser-toolbar-actions, .browser-toolbar-history { display: inline-flex; align-items: center; }
 .browser-toolbar-actions { justify-self: end; gap: 4px; }
