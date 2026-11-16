@@ -4,7 +4,7 @@ import type { Components, Options } from "react-markdown";
 
 import "katex/dist/katex.min.css";
 import { useUiText } from "../i18n";
-import { workspaceFileLinkPath } from "../markdown";
+import { workspaceFileLink, type WorkspaceFileLink } from "../markdown";
 import { CodeBlock } from "./code-block";
 
 export { markdownRemarkPlugins } from "../markdown-plugins";
@@ -70,7 +70,10 @@ function renderMermaidChart(id: string, chart: string) {
 }
 
 const EXTERNAL_LINK_PATTERN = /^https?:\/\//i;
-export const OpenMarkdownFileContext = React.createContext<((path: string) => void) | null>(null);
+export const OpenMarkdownFileContext = React.createContext<{
+  directory?: string;
+  open(link: WorkspaceFileLink): void;
+} | null>(null);
 
 export const markdownComponents = {
   a: function MarkdownLink({ href, children, node: _node, ...props }) {
@@ -79,11 +82,11 @@ export const markdownComponents = {
     if (EXTERNAL_LINK_PATTERN.test(target)) {
       return <a {...props} href={target} rel="noreferrer noopener" target="_blank">{children}</a>;
     }
-    const path = openFile && workspaceFileLinkPath(target);
-    if (openFile && path) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? path}
+    const link = openFile && workspaceFileLink(target, openFile.directory);
+    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? (link.line ? link.path + ":" + link.line : link.path)}
       onClick={event => {
         if (event.detail > 0 && window.getSelection()?.isCollapsed === false) return;
-        openFile(path);
+        openFile.open(link);
       }}>{children}</button>;
     if ("data-footnote-backref" in props) return null;
     return <span className="markdown-inert-link">{children}</span>;

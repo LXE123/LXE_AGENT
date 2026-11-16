@@ -62,10 +62,14 @@ function ImageViewer({ bytes, extension, name, state, failed }: { bytes: Uint8Ar
     {url ? <img alt={name} src={url} onLoad={e => setNaturalWidth(e.currentTarget.naturalWidth)} onError={() => failed(new Error(`Image could not be decoded: ${name}`))} style={{ maxWidth: "none", width: naturalWidth ? naturalWidth * (zoom || fit) / 100 : "100%" }} /> : null}
   </div><ZoomBar zoom={zoom} fitPercent={fit} change={change} /></div>;
 }
-function PagedText({ preview, state, mode, wrap, failed }: { preview: PreparedPreview; state: ReadingState; mode: ViewMode; wrap: boolean; failed(error: unknown): void }) {
+function PagedText({ preview, state, mode, wrap, failed, fromStart }: { preview: PreparedPreview; state: ReadingState; mode: ViewMode; wrap: boolean; failed(error: unknown): void; fromStart(): void }) {
   const t = useUiText().filePreview, viewport = useRef<HTMLDivElement>(null), generation = useRef(0);
   const [text, setText] = useState(""), [eof, setEof] = useState(false), [busy, setBusy] = useState(true), [error, setError] = useState(""), [copied, setCopied] = useState(false);
-  const next = useRef(1), pending = useRef(false), restoring = useRef(true), saved = useRef<{ top: number; left: number } | null>(state.scroll[mode] ?? { top: 0, left: 0 });
+  const [targetLine] = useState(state.lineRequest?.line);
+  // A distant link reads one window around the line, without loading every preceding page.
+  const [firstLine] = useState(() => targetLine ? Math.max(1, targetLine - 100) : state.scroll[mode]?.firstLine ?? 1);
+  const next = useRef(firstLine), pending = useRef(false), restoring = useRef(true);
+  const saved = useRef<{ top: number; left: number } | null>(targetLine ? null : state.scroll[mode] ?? { top: 0, left: 0 });
   const load = async (restoreTo = 0) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); const current = generation.current;
@@ -75,14 +79,21 @@ function PagedText({ preview, state, mode, wrap, failed }: { preview: PreparedPr
         if (current !== generation.current) return;
         if (page.version !== preview.metadata.version) throw new Error("File changed; reload preview");
         setText(value => value + page.text); setCopied(false); next.current = page.next; setEof(page.eof);
-        state.loadedLines = Math.max(0, page.next - 1);
+        state.loadedLines = Math.max(0, page.next - firstLine);
         if (page.eof || page.next > restoreTo) break;
       } while (true);
       if (current === generation.current) { setError(""); restoring.current = false; }
     } catch (error) { if (current === generation.current) { setError(errorText(error)); restoring.current = false; failed(error); } }
     finally { if (current === generation.current) { pending.current = false; setBusy(false); } }
   };
-  useEffect(() => { ++generation.current; void load(state.loadedLines); return () => { generation.current++; }; }, [preview.handle]);
+  useEffect(() => { ++generation.current; void load(targetLine ?? firstLine + state.loadedLines - 1); return () => { generation.current++; }; }, [preview.handle]);
+  useLayoutEffect(() => {
+    if (busy || !targetLine || !state.lineRequest?.line) return;
+    const el = viewport.current;
+    el?.querySelector('.file-target-line')?.scrollIntoView({ block: "center", inline: "nearest" });
+    if (el) state.scroll[mode] = { top: el.scrollTop, left: el.scrollLeft, firstLine };
+    delete state.lineRequest.line;
+  }, [busy, targetLine, firstLine, mode, state]);
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element || !saved.current) return;
@@ -100,15 +111,19 @@ function PagedText({ preview, state, mode, wrap, failed }: { preview: PreparedPr
   }, [text, busy]);
   const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); } catch (error) { setError(errorText(error)); } };
   return <div className="file-paged-text">
-    <div className="file-text-actions"><span>{mode === "code" ? languageForPath(preview.metadata.name) || preview.metadata.extension.slice(1) : ""}</span><button onClick={() => void copy()} disabled={busy && !text}>{copied ? t.copied : eof ? t.copy : t.copyLoaded}</button></div>
+    <div className="file-text-actions"><span>{mode === "code" ? languageForPath(preview.metadata.name) || preview.metadata.extension.slice(1) : ""}</span>
+      {firstLine > 1 ? <button onClick={fromStart}>{t.fromStart}</button> : null}
+      <button onClick={() => void copy()} disabled={busy && !text}>{copied ? t.copied : eof && firstLine === 1 ? t.copy : t.copyLoaded}</button></div>
     <div className="file-text-scroll" ref={viewport} onWheelCapture={() => { saved.current = null; }} onPointerDownCapture={() => { saved.current = null; }} onKeyDownCapture={() => { saved.current = null; }} onScroll={e => {
       const el = e.currentTarget;
-      if (!saved.current) state.scroll[mode] = { top: el.scrollTop, left: el.scrollLeft };
+      if (!saved.current) state.scroll[mode] = { top: el.scrollTop, left: el.scrollLeft, firstLine };
       if (!restoring.current && !busy && !eof && !error && el.scrollHeight - el.scrollTop - el.clientHeight < 400) void load();
     }}>
+      {eof && targetLine && targetLine >= next.current ? <p className="file-preview-note file-line-missing" role="status">{t.missingLine(targetLine)}</p> : null}
       {mode === "rendered" ? <div className="file-markdown message-markdown"><ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins} components={{ ...markdownComponents,
         img: ({ src, alt }) => typeof src === "string" && !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(src) ? <LocalImage handle={preview.handle} src={src} alt={alt} /> : <span>{alt}</span>,
-      }}>{text}</ReactMarkdown></div> : <div className={`file-text${wrap ? " wrap" : ""}`}><CodeBlock language={mode === "code" ? preview.metadata.extension.slice(1) : ""} code={text} autoDetect={false} lineNumbers={mode === "code"} /></div>}
+      }}>{text}</ReactMarkdown></div> : <div className={`file-text${wrap ? " wrap" : ""}`}><CodeBlock language={mode === "code" ? preview.metadata.extension.slice(1) : ""} code={text} autoDetect={false}
+        lineNumbers={mode === "code" || !!targetLine || firstLine > 1} firstLine={firstLine} highlightLine={targetLine && targetLine < next.current ? targetLine : undefined} /></div>}
       {busy ? <p className="file-preview-loading" role="status">{t.loading}</p> : null}
       {error ? <div className="file-preview-error" role="alert"><ErrorDetails failure={failureOf(error, "read_text")} /><button onClick={() => void load()}>{t.retry}</button></div> : !eof && !busy ? <button className="file-load-more" onClick={() => void load()}>{t.more}</button> : null}
     </div>
@@ -182,7 +197,10 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
     <div className="file-document-content">
       {error ? <FileFailurePanel failure={error} name={name} retry={refresh} /> : !preview || preparedMode !== mode || !textMode && !bytes ? <p className="file-preview-loading" role="status">{t.loading}</p> : <PreviewBoundary key={preview.handle} failed={cause => fatal.current(cause)}><Suspense fallback={<p className="file-preview-loading" role="status">{t.loading}</p>}>
         {preview.metadata.kind === "unsupported" ? <div className="file-preview-empty">{t.unsupported}<OpenFileButton file={file} label /></div>
-          : textMode ? <PagedText key={`${preview.handle}:${mode}`} preview={preview} state={state} mode={mode} wrap={wrap} failed={cause => fatal.current(cause)} />
+          : textMode ? <PagedText key={`${preview.handle}:${mode}`} preview={preview} state={state} mode={mode} wrap={wrap} failed={cause => fatal.current(cause)} fromStart={() => {
+            delete state.scroll[mode]; if (state.lineRequest) delete state.lineRequest.line;
+            state.loadedLines = 0; refresh();
+          }} />
           : mode === "image" ? <ImageViewer bytes={bytes!} extension={preview.metadata.extension} name={name} state={state} failed={cause => fatal.current(cause)} />
           : mode === "pdf" ? <PdfViewer bytes={bytes!} state={state} failed={cause => fatal.current(cause)} />
           : mode === "html" ? <HtmlViewer handle={preview.handle} bytes={bytes!}

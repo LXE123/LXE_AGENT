@@ -436,6 +436,7 @@
 .file-text pre { margin:0; font-size:12px; line-height:1.6; overflow:visible; tab-size:4 }
 .file-text .numbered-code { display:block; counter-reset:line }
 .file-text .code-line { display:block; position:relative; padding-left:4.5em; min-height:1.6em }
+.file-text .file-target-line { background:var(--cds-selected); box-shadow:inset 2px 0 var(--accent) }
 .file-text .code-line::before { content:attr(data-line); position:absolute; left:0; width:3.3em; text-align:right; color:var(--muted-light); user-select:none; -webkit-user-select:none }
 .file-load-more { display:block; margin:16px auto }
 .file-visual { flex:1; min-height:0; position:relative; display:flex; flex-direction:column }

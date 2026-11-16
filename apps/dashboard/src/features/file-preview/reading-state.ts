@@ -2,13 +2,14 @@ import { forgetFileSession } from "./application-state";
 import type { DirectoryPage } from "@lxe/desktop-protocol";
 
 export type ViewMode = "rendered" | "plain" | "code" | "image" | "table" | "pdf" | "html" | "unsupported";
-export interface ScrollPosition { top: number; left: number }
+export interface ScrollPosition { top: number; left: number; firstLine?: number }
 export interface SheetPosition extends ScrollPosition { zoom: number; selection: Array<{ row: number[]; column: number[] }> }
 export interface ReadingState {
   mode?: ViewMode;
   wrap: boolean;
   scroll: Record<string, ScrollPosition>;
   loadedLines: number;
+  lineRequest?: { id: string; line?: number };
   version?: string;
   zoom: number;
   pdf: { page: number; offset: number; rotation: number };

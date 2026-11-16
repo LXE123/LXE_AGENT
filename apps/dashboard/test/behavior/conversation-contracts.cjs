@@ -323,5 +323,19 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     }
     await click('.conversation-feed .markdown-file-link[title="missing.txt"]');
     await waitFor("!!document.querySelector('.file-sidebar .file-failure-panel')", 'missing file feedback in sidebar');
+    const link = line => `.conversation-feed .markdown-file-link[title="scripts/source.ts:${line}"]`;
+    for (const line of [42, 50, 42, 6500]) {
+      await click(link(line));
+      await waitFor(`(() => {
+        const row = document.querySelector('.file-sidebar .file-target-line[data-line="${line}"]');
+        const viewport = row?.closest('.file-text-scroll')?.getBoundingClientRect();
+        return row?.textContent === '// source line ${line}' && row.getBoundingClientRect().top >= viewport.top && row.getBoundingClientRect().bottom <= viewport.bottom;
+      })()`, 'visible source line ' + line);
+    }
+    assert.equal(await js("Array.from(document.querySelectorAll('.file-tab [role=tab]')).filter(tab => tab.textContent.includes('source.ts')).length"), 1);
+    await click('.file-text-actions button:first-of-type');
+    await waitFor("!!document.querySelector('.file-sidebar .code-line[data-line=\"1\"]')", 'return to beginning of distant source link');
+    await click(link(9999));
+    await waitFor("!!document.querySelector('.file-sidebar .file-line-missing')", 'line past end of file');
   });
 };

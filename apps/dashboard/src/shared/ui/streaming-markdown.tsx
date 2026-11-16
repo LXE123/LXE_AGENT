@@ -1,10 +1,15 @@
 import React, { Fragment, memo, useState } from "react";
-import ReactMarkdown, { type Components, type Options } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components, type Options, type UrlTransform } from "react-markdown";
 import { advanceMarkdown, type MarkdownBlock, type MarkdownSnapshot } from "../streaming-markdown";
 import { CodeBlock } from "./code-block";
 import { markdownComponents, markdownRehypePlugins, markdownRemarkPlugins } from "./markdown";
 
 const StandardPre = markdownComponents.pre ?? "pre";
+// Markdown can interpret a Windows drive or a filename before ":42" as a URL scheme.
+// The chat link component checks these destinations against the session workspace.
+const chatUrlTransform: UrlTransform = (url, key, node) =>
+  node.tagName === "a" && key === "href" && /^(?:[a-z]:(?:\/|%5c)|[\w.-]+\.[\w-]+:[1-9]\d*$)/i.test(url)
+    ? url : defaultUrlTransform(url);
 const previewComponents: Components = {
   ...markdownComponents,
   pre(props) {
@@ -26,7 +31,7 @@ const MarkdownPart = memo(function MarkdownPart({ block }: { block: MarkdownBloc
   const plugins: Options["remarkPlugins"] = block.node
     ? [() => () => ({ type: "root", children: [structuredClone(block.node!)] }), ...markdownRemarkPlugins]
     : markdownRemarkPlugins;
-  return <ReactMarkdown components={block.deferDiagrams ? previewComponents : markdownComponents}
+  return <ReactMarkdown components={block.deferDiagrams ? previewComponents : markdownComponents} urlTransform={chatUrlTransform}
     remarkPlugins={plugins} rehypePlugins={markdownRehypePlugins}>{block.node ? "" : block.text}</ReactMarkdown>;
 });
 

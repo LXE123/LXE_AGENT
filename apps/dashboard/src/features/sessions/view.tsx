@@ -25,6 +25,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
 import { OpenMarkdownFileContext } from "../../shared/ui/markdown";
+import type { WorkspaceFileLink } from "../../shared/markdown";
 import {
   ArrowUp,
   Brain,
@@ -1555,10 +1556,13 @@ export function SessionDetailView({
   const messageSessionId = display?.sessionId || session?.session_id;
   const panel = usePreviewSidebar();
   const openPreview = panel?.session === messageSessionId ? panel?.open : undefined;
+  const directory = session?.session_id === messageSessionId ? session?.workspace.directory : undefined;
   const openMarkdownFile = useMemo(() => {
     if (!messageSessionId || !openPreview) return null;
-    return (path: string) => { void openPreview({ session_id: messageSessionId, kind: "workspace", path }, undefined, "sidebar"); };
-  }, [messageSessionId, openPreview]);
+    return { directory, open({ path, line }: WorkspaceFileLink) {
+      void openPreview({ session_id: messageSessionId, kind: "workspace", path }, undefined, "sidebar", line);
+    } };
+  }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
