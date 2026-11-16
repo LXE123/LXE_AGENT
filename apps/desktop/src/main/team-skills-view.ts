@@ -7,18 +7,7 @@ import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
 
 const logger = createLogger("desktop.team-skills");
-const catalogOrigin = new URL(TEAM_SKILLS_URL).origin;
 const partition = "persist:lxe-workbench-team-skills";
-
-function httpsUrl(raw: string): URL | undefined {
-  const url = URL.canParse(raw) ? new URL(raw) : undefined;
-  return url?.protocol === "https:" && !url.username && !url.password ? url : undefined;
-}
-
-// Feishu redirects between its Accounts, Passport and Miaoda hosts during sign-in.
-function isFeishuPage(url: URL | undefined): boolean {
-  return !!url && (url.origin === catalogOrigin || (!url.port && url.hostname.endsWith(".feishu.cn")));
-}
 
 export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers): void {
   // will-attach-webview does not identify the requesting frame. Only the dashboard's
@@ -99,7 +88,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
       event.preventDefault();
       return;
     }
-    if (pendingSrc && params.src === pendingSrc && !params.allowpopups) {
+    if (pendingSrc && params.src === pendingSrc) {
       const ticket = pendingSrc;
       pendingSrc = undefined;
       const created = (_event: Electron.Event, guest: WebContents) => {
@@ -133,18 +122,23 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     });
     guest.on("did-stop-loading", () => budget.enforce());
     guest.on("audio-state-changed", () => budget.enforce());
+    const dashboardOrigin = URL.parse(dashboard.getURL())?.origin;
+    const targetUrl = (raw: string) => {
+      const target = URL.parse(raw);
+      if (target?.protocol !== "https:" || target.username || target.password || target.origin === dashboardOrigin) return;
+      return target;
+    };
     guest.on("will-navigate", event => {
-      if (!isFeishuPage(httpsUrl(event.url))) event.preventDefault();
+      if (!targetUrl(event.url)) event.preventDefault();
     });
     guest.on("will-redirect", event => {
-      if (event.isMainFrame && !isFeishuPage(httpsUrl(event.url))) event.preventDefault();
+      if (event.isMainFrame && !targetUrl(event.url)) event.preventDefault();
     });
-    guest.setWindowOpenHandler(({ url }) => {
-      const target = httpsUrl(url);
-      if (target && isFeishuPage(target) && target.origin !== catalogOrigin) {
-        void guest.loadURL(target.href).catch(() => {});
-      } else if (target && (target.origin === catalogOrigin || target.origin === "https://agentskills.io")) {
-        void shell.openExternal(target.href).catch(() => {});
+    guest.setWindowOpenHandler(({ url, postBody }) => {
+      // The system browser can open a URL, but cannot receive a popup's POST body.
+      const target = targetUrl(url);
+      if (target && postBody === undefined) {
+        void shell.openExternal(target.href).catch(error => logger.warn("catalog_external_open_failed", { error }));
       }
       return { action: "deny" };
     });

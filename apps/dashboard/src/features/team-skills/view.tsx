@@ -56,6 +56,7 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
     setLoading(true);
     body.style.margin = "0";
     guest.style.height = "100vh";
+    guest.setAttribute("allowpopups", "");
     guest.setAttribute("src", mountSrc);
     body.appendChild(guest);
     return () => {

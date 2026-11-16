@@ -172,4 +172,60 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await click(".tab-team-skills");
     await waitFor("(() => { try { const wc = document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId(); return wc !== " + guestId + " && !!wc && !document.querySelector('.team-skills-loading') } catch { return false } })()", "return recreates a released guest");
   });
+  await step("catalog links and login redirects cross origins, new-window links use the system browser", async () => {
+    const { session, shell, webContents } = require("electron");
+    const { EventEmitter, once } = require("node:events");
+    const catalogSession = session.fromPartition("persist:lxe-workbench-team-skills");
+    const partner = "https://partner.example/docs";
+    const signIn = "https://partner.example/sign-in";
+    const login = "https://identity.example/authorize";
+    const callback = "https://qcnd7w5806gy.feishuapp.com/callback";
+    const external = "https://other.example/guide?lang=zh#start";
+    const post = "https://other.example/submit";
+    const handoffs = new EventEmitter(), opened = [], requested = [];
+    const openExternal = shell.openExternal;
+    shell.openExternal = async url => { opened.push(url); handoffs.emit("open", url); };
+    try {
+      catalogSession.protocol.unhandle("https");
+      catalogSession.protocol.handle("https", request => {
+        requested.push(request.url);
+        if (request.url === signIn) return Response.redirect(login, 302);
+        if (request.url === login) return Response.redirect(callback, 302);
+        const html = request.url === callback
+          ? `<a id="external" target="_blank" href="${external}">Guide</a><form target="_blank" method="post" action="${post}"><input name="test" value="fixture"><button>Submit</button></form>`
+          : request.url === partner ? `<a id="login" href="${signIn}">Sign in</a>` : `<a id="partner" href="${partner}">Partner</a>`;
+        return new Response(html, { headers: { "Content-Type": "text/html" } });
+      });
+      await open("workbench");
+      await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; void 0");
+      await click(".tab-team-skills");
+      await waitFor("document.querySelector('.team-skills-viewport iframe') && !document.querySelector('.team-skills-loading')", "catalog home loaded");
+      const guest = webContents.fromId(await js("document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId()"));
+      const navigate = async selector => {
+        const loaded = once(guest, "did-finish-load", { signal: AbortSignal.timeout(5000) });
+        await guest.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`, true);
+        await loaded;
+      };
+      await navigate("#partner");
+      assert.equal(guest.getURL(), partner);
+      const redirects = [];
+      guest.on("will-redirect", event => { if (event.isMainFrame) redirects.push(event.url); });
+      await navigate("#login");
+      assert.equal(guest.getURL(), callback);
+      assert.deepEqual(redirects, [login, callback], "both main-frame redirects reached the navigation policy");
+      await guest.executeJavaScript("document.querySelector('button').click()", true);
+      const handoff = once(handoffs, "open", { signal: AbortSignal.timeout(5000) });
+      await guest.executeJavaScript("document.querySelector('#external').click()", true);
+      assert.deepEqual(await handoff, [external]);
+      const scripted = "https://other.example/help";
+      const nextHandoff = once(handoffs, "open", { signal: AbortSignal.timeout(5000) });
+      await guest.executeJavaScript(`window.open(${JSON.stringify(scripted)}, "_blank"); void 0`, true);
+      assert.deepEqual(await nextHandoff, [scripted]);
+      assert.deepEqual(opened, [external, scripted], "the POST was not reopened as a GET");
+      assert.ok(!requested.includes(post));
+      assert.equal(guest.getURL(), callback, "the catalog stays on the current page");
+    } finally {
+      shell.openExternal = openExternal;
+    }
+  });
 };
