@@ -417,7 +417,7 @@
 /* Reading controls follow LXE colours; heavyweight viewers own their scroll area. */
 .file-tab>button:last-child { visibility:hidden }
 .file-tab:is(.active,:hover,:focus-within)>button:last-child { visibility:visible }
-.file-tab svg { flex:none }
+.file-tab svg, .file-tab-favicon { flex:none }
 .file-document-content { overflow:hidden; display:flex; flex-direction:column }
 .file-document-toolbar { gap:5px; padding:7px 9px }
 .file-document-toolbar select { max-width:90px; border:1px solid var(--border); border-radius:5px; background:var(--cds-field, transparent); color:inherit; font-size:12px; padding:4px 2px }

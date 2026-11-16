@@ -1,4 +1,5 @@
 import { AppCaption } from "../../shared/app-frame";
+import { tabFavicon } from "./browser-favicon";
 import { BrowserPanel, StartPanel, TerminalPanel, toolBridge } from "./ToolPanels";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Plus, Compass, Globe, TerminalSquare, FolderOpen, PanelRight, X, Maximize2, Minimize2, FileText, Image, FileSpreadsheet, File } from "lucide-react";
@@ -12,7 +13,21 @@ import { FileTree } from "./FileTree";
 import { readingState, forgetReadingTab, moveReadingTab } from "./reading-state";
 import { checkFile, fileRefKey } from "./application-state";
 import "./sidebar.css";
-function TabIcon({ name }: { name: string }) { const ext = name.split(".").pop()?.toLowerCase(); const Icon = ["xlsx", "xls", "csv", "tsv"].includes(ext ?? "") ? FileSpreadsheet : ["png", "jpg", "jpeg", "svg", "gif", "webp", "bmp"].includes(ext ?? "") ? Image : ["pdf", "md", "txt", "doc", "docx"].includes(ext ?? "") ? FileText : File; return <Icon size={14} />; }
+function TabIcon({ tab }: { tab: PreviewTab }) {
+  if (tab.key === "tree") return <FolderOpen size={14} />;
+  if (tab.kind === "start") return <Compass size={14} />;
+  if (tab.kind === "terminal") return <TerminalSquare size={14} />;
+  if (tab.kind === "browser") {
+    return tab.favicon?.startsWith("data:image/png;base64,")
+      ? <img className="file-tab-favicon" src={tab.favicon} width={14} height={14} alt="" />
+      : <Globe size={14} />;
+  }
+  const ext = tab.name.split(".").pop()?.toLowerCase() ?? "";
+  const Icon = ["xlsx", "xls", "csv", "tsv"].includes(ext) ? FileSpreadsheet
+    : ["png", "jpg", "jpeg", "svg", "gif", "webp", "bmp"].includes(ext) ? Image
+    : ["pdf", "md", "txt", "doc", "docx"].includes(ext) ? FileText : File;
+  return <Icon size={14} />;
+}
 interface Controls { session: string; shown: boolean; toggleRef: RefObject<HTMLButtonElement | null>; open(ref: SessionFileRef, name?: string, imageTarget?: "dialog" | "sidebar"): Promise<void>; toggle(): void }
 const Context = createContext<Controls | null>(null);
 export const usePreviewSidebar = () => useContext(Context);
@@ -102,20 +117,42 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
     }
     update(current => openToolTab(current, tab));
   };
-  useEffect(() => window.lxe?.tools?.subscribe(event => {
-    if (event.kind === "browser.state") {
-      const { sessionId: owner, id, url, title } = event.snapshot;
+  useEffect(() => {
+    const decoding = new Map<string, symbol>();
+    function updateBrowserTab(owner: string, id: string, changes: Partial<Pick<PreviewTab, "url" | "name" | "favicon">>) {
       setLayouts(all => {
         const current = all[owner] ?? restoreLayout(storage(), owner);
         if (!current.tabs.some(tab => tab.key === id)) return all;
-        const next = { ...current, tabs: current.tabs.map(tab => tab.key === id ? { ...tab, url, name: title || toolsText.browser } : tab) };
+        const next = { ...current, tabs: current.tabs.map(tab => tab.key === id ? { ...tab, ...changes } : tab) };
         try { storage()?.setItem(`lxe.file-preview.v1.${owner}`, JSON.stringify(next)); } catch { /* Optional layout. */ }
         return { ...all, [owner]: next };
       });
-    } else if (event.kind === "browser.open") {
-      setLayouts(all => ({ ...all, [event.sessionId]: openToolTab(all[event.sessionId] ?? restoreLayout(storage(), event.sessionId), { key: event.id, name: toolsText.browser, kind: "browser", url: event.url }) }));
     }
-  }), [toolsText.browser]);
+    const unsubscribe = window.lxe?.tools?.subscribe(event => {
+      if (event.kind === "browser.state") {
+        const { sessionId, id, url, title } = event.snapshot;
+        updateBrowserTab(sessionId, id, { url, name: title || toolsText.browser });
+      } else if (event.kind === "browser.favicon") {
+        const { sessionId, id, data } = event;
+        const key = JSON.stringify([sessionId, id]);
+        if (!data) {
+          decoding.delete(key);
+          updateBrowserTab(sessionId, id, { favicon: undefined });
+          return;
+        }
+        const request = Symbol();
+        decoding.set(key, request);
+        void tabFavicon(data).then(favicon => {
+          if (decoding.get(key) !== request) return;
+          decoding.delete(key);
+          updateBrowserTab(sessionId, id, { favicon });
+        });
+      } else if (event.kind === "browser.open") {
+        setLayouts(all => ({ ...all, [event.sessionId]: openToolTab(all[event.sessionId] ?? restoreLayout(storage(), event.sessionId), { key: event.id, name: toolsText.browser, kind: "browser", url: event.url }) }));
+      }
+    });
+    return () => { unsubscribe?.(); decoding.clear(); };
+  }, [toolsText.browser]);
   const label = (tab: PreviewTab) => tab.key === "tree" ? t.files : tab.key === "start" ? toolsText.start : tab.name;
   return <Context.Provider value={controls}><div className={`file-layout${layout.shown && sessionId ? " has-preview" : ""}${full ? " preview-full" : ""}`} ref={frame} style={{ "--preview-width": `${width}px` } as React.CSSProperties}>
     <div className="file-layout-main">{children}</div>
@@ -135,7 +172,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
           const index = layout.tabs.findIndex(tab => tab.key === layout.active);
           const next = layout.tabs[e.key === "Home" ? 0 : e.key === "End" ? layout.tabs.length - 1 : (index + direction + layout.tabs.length) % layout.tabs.length];
           if (next) { update(l => ({ ...l, active: next.key })); requestAnimationFrame(() => tabsRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()); }
-        }}>{layout.tabs.map(tab => <div className={`file-tab${layout.active === tab.key ? " active" : ""}`} key={tab.key}><button role="tab" tabIndex={layout.active === tab.key ? 0 : -1} aria-selected={layout.active === tab.key} title={label(tab)} onClick={() => { ++intent.current; update(l => ({ ...l, active: tab.key })); }}>{tab.key === "tree" ? <FolderOpen size={14} /> : tab.kind === "start" ? <Compass size={14} /> : tab.kind === "terminal" ? <TerminalSquare size={14} /> : tab.kind === "browser" ? <Globe size={14} /> : <TabIcon name={tab.name} />}<span>{label(tab)}</span></button><button aria-label={`${t.close} ${tab.name}`} onClick={() => close(tab.key)}><X size={12} /></button></div>)}</div>
+        }}>{layout.tabs.map(tab => <div className={`file-tab${layout.active === tab.key ? " active" : ""}`} key={tab.key}><button role="tab" tabIndex={layout.active === tab.key ? 0 : -1} aria-selected={layout.active === tab.key} title={label(tab)} onClick={() => { ++intent.current; update(l => ({ ...l, active: tab.key })); }}><TabIcon tab={tab} /><span>{label(tab)}</span></button><button aria-label={`${t.close} ${tab.name}`} onClick={() => close(tab.key)}><X size={12} /></button></div>)}</div>
           <button className="file-tab-new" aria-label={toolsText.newTab} title={toolsText.newTab} onClick={start}><Plus size={16} /></button>
           <button className="file-panel-expand" aria-label={layout.expanded ? t.collapse : t.expand} title={layout.expanded ? t.collapse : t.expand} onClick={() => update(l => ({ ...l, expanded: !l.expanded }))}>{layout.expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <button className="file-panel-hide" ref={hideRef} aria-label={sidebarText.collapse} title={sidebarText.collapse} aria-expanded={true} onClick={controls.toggle}><PanelRight size={17} strokeWidth={1.5} aria-hidden="true" /></button>

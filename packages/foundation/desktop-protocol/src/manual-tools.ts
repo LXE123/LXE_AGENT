@@ -21,6 +21,7 @@ export type ManualToolEvent =
   | { kind: "terminal.output"; sessionId: string; id: string; sequence: number; data: string }
   | { kind: "terminal.state"; snapshot: TerminalSnapshot }
   | { kind: "browser.state"; snapshot: BrowserSnapshot }
+  | { kind: "browser.favicon"; sessionId: string; id: string; data: string | null }
   | { kind: "browser.release"; id: string; sessionId: string; mountSrc: string }
   | { kind: "browser.open"; sessionId: string; id: string; url: string };
 export interface ManualToolsBridge {

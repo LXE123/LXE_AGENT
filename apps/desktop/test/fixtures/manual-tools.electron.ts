@@ -24,13 +24,19 @@ void app.whenReady().then(async () => {
   });
   const formRequests: string[] = [];
   const restartPaths: string[] = [];
+  const iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="red"/></svg>';
   const server = createServer((request, response) => {
     if (restart && request.url !== "/favicon.ico") restartPaths.push(request.url!);
     if (request.url?.startsWith("/print-") || request.url === "/popup") {
       formRequests.push(`${request.method} ${request.url}`);
     }
+    if (request.url === "/favicon.ico") { response.writeHead(404).end(); return; }
+    if (request.url === "/tab-icon.svg") { response.writeHead(302, { Location: "/site-icon.svg" }).end(); return; }
+    if (request.url === "/site-icon.svg") { response.writeHead(200, { "Content-Type": "image/svg+xml" }).end(iconSvg); return; }
+    const icon = request.url === "/first" || request.url === "/same-icon" ? "/tab-icon.svg"
+      : request.url === "/popup" ? `data:image/svg+xml;base64,${Buffer.from(iconSvg).toString("base64")}` : "";
     if (request.url === "/download") { response.setHeader("Content-Disposition", "attachment; filename=test.txt"); response.end("download blocked"); }
-    else { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<title>${request.url}</title><h1>网页测试</h1><input id="entry"><a id="next" href="/second">Next</a><a id="popup" target="_blank" href="/popup">Popup</a><a id="download" href="/download">Download</a>
+    else { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<title>${request.url}</title>${icon ? `<link rel="icon" href="${icon}">` : ""}<h1>网页测试</h1><input id="entry"><a id="next" href="/second">Next</a><a id="popup" target="_blank" href="/popup">Popup</a><a id="download" href="/download">Download</a>
       <form method="post" action="/print-current"><input name="order" value="123">
         <button id="print-current">Print here</button><button id="print-popup" formaction="/print-popup" formtarget="_blank">Print in new tab</button>
       </form>`); }
@@ -46,6 +52,7 @@ void app.whenReady().then(async () => {
     const id = await js("(()=>{try{return document.querySelector('.tool-browser-page iframe')?.contentDocument.querySelector('webview')?.getWebContentsId()}catch{return null}})()");
     return id ? webContents.fromId(id) : undefined;
   };
+  const hasFavicon = () => js("document.querySelector('.file-tabs [aria-selected=true] img')?.naturalWidth === 32");
   const passed: string[] = [];
   try {
     await win.loadFile(resolve(process.argv[2]!));
@@ -63,6 +70,8 @@ void app.whenReady().then(async () => {
       }, "loaded " + path);
 
       await expectSaved("a", "/popup");
+      assert.ok(await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.a')).tabs.find(tab => tab.name === '/popup')?.favicon"), "restored layout contains the saved icon");
+      await wait(hasFavicon, "saved favicon before restoring the page");
       await expectSaved("b", "/shared");
       await expectSaved("isolated", "/isolated");
       assert.deepEqual(restartPaths, []);
@@ -143,11 +152,18 @@ void app.whenReady().then(async () => {
     await service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: address + "/first" } });
     await wait(() => service.browsers.get("a", browserId)?.title === "/first" && !service.browsers.get("a", browserId)?.loading, "browser load");
     const wc = (await activeGuest())!;
+    await wait(hasFavicon, "site SVG displayed as the browser tab icon");
+    await wc.loadURL(address + "/same-icon");
+    await wait(hasFavicon, "two successive documents using the same favicon");
+    await wc.loadURL(address + "/first");
+    await wait(hasFavicon, "first page icon before navigating away");
     assert.equal(await wc.executeJavaScript("typeof window.lxe + ':' + typeof require"), "undefined:undefined"); passed.push("browser isolation");
     await wc.executeJavaScript("document.cookie='test_cookie=yes';document.querySelector('#next').click()");
+    await wait(() => wc.getURL() === address + "/second" && !wc.isLoading(), "second page committed");
     const backButton = '.browser-toolbar [aria-label="后退"]';
     const forwardButton = '.browser-toolbar [aria-label="前进"]';
     await wait(() => js(`!document.querySelector(${JSON.stringify(backButton)}).disabled`), "history available");
+    await wait(() => js("!!document.querySelector('.file-tabs [aria-selected=true] .lucide-globe')"), "page without an icon returns to the globe");
     await click(backButton);
     await wait(() => wc.getURL() === address + "/first" && !wc.isLoading(), "back");
     await click(forwardButton);
@@ -195,6 +211,7 @@ void app.whenReady().then(async () => {
     assert.equal(wc.getURL(), address + "/print-current", "the rejected popup leaves its source page in place");
     passed.push("new-window POST is ignored and same-tab POST still submits");
 
+    await wait(hasFavicon, "popup uses its inline favicon");
     const popup = (await activeGuest())!;
     const modifiers: Electron.KeyboardInputEvent["modifiers"] = [process.platform === "darwin" ? "meta" : "control"];
     const refresh = (target: Electron.WebContents) => {
@@ -236,6 +253,8 @@ void app.whenReady().then(async () => {
     await wait(() => existsSync(join(workspace, "child.pid")), "background child");
     const childPid = Number(readFileSync(join(workspace, "child.pid"), "utf8").replace(/[^0-9]/g, ""));
     assert(childPid > 0);
+    await wait(hasFavicon, "favicon after repeated page reloads");
+    assert.ok(await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.a')).tabs.find(tab => tab.name === '/popup')?.favicon"), "layout saved the current icon");
     writeFileSync(join(profile, "tools.png"), (await win.webContents.capturePage()).toPNG());
     await service.closeSession("a"); assert.equal(service.terminals.get("a", terminalId), null); assert.equal(service.browsers.get("a", browserId), null); passed.push("session cleanup");
     await wait(() => { try { process.kill(childPid, 0); return false; } catch { return true; } }, "child process cleanup"); passed.push("child process cleanup");

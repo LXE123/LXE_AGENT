@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, session, type NavigationEntry, type Session, type WebContents, type WebPreferences } from "electron";
 import { randomUUID } from "node:crypto";
 import type { BrowserMount, BrowserSnapshot, ManualToolEvent } from "@lxe/desktop-protocol";
+import { watchFavicons } from "./favicon";
 import { WindowTabBudget, type TrackedPage } from "./tab-budget";
 
 interface Browser {
@@ -8,6 +9,7 @@ interface Browser {
   profile: Session;
   partition: string;
   snapshot: BrowserSnapshot;
+  favicon: string | null;
   mountSrc?: string;
   contents?: WebContents;
   history?: { entries: NavigationEntry[]; index: number };
@@ -68,7 +70,7 @@ export class ManualBrowsers {
 
   private newTab(owner: WebContents, workspace: Pick<Browser, "profile" | "partition">, sessionId: string, id: string, url: string): Browser {
     const tab: Browser = { owner, profile: workspace.profile, partition: workspace.partition,
-      attaching: false, restoring: false,
+      attaching: false, restoring: false, favicon: null,
       budgetPage: this.budgetFor(owner).track(`chat:${sessionId}`, {
         isLive: () => !!tab.contents && !tab.contents.isDestroyed(),
         isBusy: () => tab.restoring || !!tab.contents?.isLoading() || !!tab.contents?.isCurrentlyAudible(),
@@ -163,6 +165,11 @@ export class ManualBrowsers {
       Menu.buildFromTemplate(params.isEditable ? [{ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] : [{ role: "copy", enabled: Boolean(params.selectionText) }, { role: "selectAll" }]).popup({ window });
     });
     const update = () => { if (tab.contents === wc) this.publish(tab); };
+    watchFavicons(wc, url => this.validate(url), data => {
+      if (tab.contents !== wc) return;
+      tab.favicon = data;
+      this.emit({ kind: "browser.favicon", sessionId, id, data });
+    });
     wc.on("did-start-loading", update);
     wc.on("page-title-updated", update);
     wc.on("did-navigate", update);
@@ -233,6 +240,7 @@ export class ManualBrowsers {
     const tab = this.owned(sessionId, id);
     if (!tab || tab.mountSrc !== mountSrc) return false;
     tab.budgetPage.setVisible(visible);
+    if (visible && tab.favicon) this.emit({ kind: "browser.favicon", sessionId, id, data: tab.favicon });
     return true;
   }
 
