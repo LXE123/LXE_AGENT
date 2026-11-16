@@ -3,18 +3,22 @@
   display: grid; grid-template-columns: 1fr minmax(0, 54%) 1fr; align-items: center; gap: 8px;
   flex: none; min-height: 46px; padding: 6px 12px; box-sizing: border-box;
   background: var(--cds-surface-nav);
-  border-bottom: 1px solid var(--cds-alpha-2);
 }
 .browser-toolbar-actions, .browser-toolbar-history { display: inline-flex; align-items: center; }
 .browser-toolbar-actions { justify-self: end; gap: 4px; }
-.browser-toolbar-history {
-  justify-self: start; padding: 1px; border: 1px solid var(--cds-alpha-2); border-radius: 9px;
+.browser-toolbar-history, .browser-toolbar input {
+  border: 0; border-radius: 999px; background: var(--cds-alpha-2);
+}
+.browser-toolbar-history { justify-self: start; padding: 2px; }
+.browser-toolbar-history [data-preview-refresh] { position: relative; margin-inline-start: 5px; }
+.browser-toolbar-history [data-preview-refresh]::before {
+  content: ""; position: absolute; inset-inline-start: -3px; width: 1px; height: 14px; background: var(--cds-alpha-2);
 }
 .browser-toolbar button {
   box-sizing: border-box; display: grid; place-items: center; width: 32px; height: 32px;
   padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--cds-secondary); cursor: pointer;
 }
-.browser-toolbar-history button, .browser-toolbar-address button { width: 28px; height: 28px; border-radius: 7px; }
+.browser-toolbar-history button, .browser-toolbar-address button { width: 28px; height: 28px; border-radius: 50%; }
 .browser-toolbar button:enabled:hover { background: var(--cds-alpha-1); color: var(--cds-ink); }
 .browser-toolbar button:enabled:active { background: var(--cds-selected); color: var(--cds-ink); }
 .browser-toolbar button:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: -2px; }
@@ -23,12 +27,10 @@
 .browser-toolbar-address { position: relative; min-width: 0; }
 .browser-toolbar input {
   box-sizing: border-box; width: 100%; min-width: 0; height: 32px; padding: 0 12px;
-  border: 1px solid var(--cds-alpha-2); border-radius: 8px; background: var(--cds-field);
   text-align: center; color: var(--cds-ink); font: inherit; font-size: .8125rem; text-overflow: ellipsis;
 }
-.browser-toolbar input:enabled:hover:not(:focus) { border-color: var(--cds-alpha-3); }
 .browser-toolbar input:focus {
-  padding-right: 34px; text-align: left; outline: 0; border-color: transparent; box-shadow: var(--cds-focus);
+  padding-right: 34px; text-align: left; outline: 0; box-shadow: var(--cds-focus);
 }
 .browser-toolbar input:disabled { color: var(--cds-disabled-ink); background: var(--cds-disabled-fill); }
 .browser-toolbar-address button { position: absolute; top: 2px; right: 2px; }

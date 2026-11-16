@@ -37,7 +37,7 @@
 | 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
 | 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
 | 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
-| 浏览器工具栏 | [browser-toolbar.tsx](../../../apps/dashboard/src/shared/ui/browser-toolbar.tsx)、[browser-toolbar.css](../../../apps/dashboard/src/shared/ui/browser-toolbar.css)。对话侧栏与团队技能页共用中性导航按钮、CDS 输入框表面和蓝色焦点环。工具栏使用导航表面色，深色模式比窗口外框略深，浅色模式比外框略浅。团队技能页的目录 Logo 位于最右侧。 |
+| 浏览器工具栏 | [browser-toolbar.tsx](../../../apps/dashboard/src/shared/ui/browser-toolbar.tsx)、[browser-toolbar.css](../../../apps/dashboard/src/shared/ui/browser-toolbar.css)。对话侧栏与团队技能页共用工具栏。导航按钮组和地址栏以无描边的圆角底色区分，键盘聚焦时显示蓝色焦点环。工具栏使用导航表面色，深色模式比窗口外框略深，浅色模式比外框略浅。团队技能页的目录 Logo 位于最右侧。 |
 | 右侧工具侧栏与文件打开菜单 | [sidebar.css](../../../apps/dashboard/src/features/file-preview/sidebar.css)、[Sidebar.tsx](../../../apps/dashboard/src/features/file-preview/Sidebar.tsx)、[ToolPanels.tsx](../../../apps/dashboard/src/features/file-preview/ToolPanels.tsx)、[OpenFileButton.tsx](../../../apps/dashboard/src/features/file-preview/OpenFileButton.tsx) |
 | 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |
 | 首页 | [home/theme.css](../../../apps/dashboard/src/features/home/theme.css) |
