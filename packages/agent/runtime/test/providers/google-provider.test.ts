@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { repositoryRoot } from "@lxe/core";
-import type { JsonObject } from "@lxe/protocol";
-import { sanitizeMessagesForProvider } from "../../src/engine/context";
+import { isContextOverflowError, sanitizeMessagesForProvider } from "../../src/engine/context";
 import type { AssistantMessageEvent, RuntimeMessage, RuntimeProviderRequest } from "../../src/engine/types";
 import { GoogleRuntimeProvider } from "../../src/providers/google-provider";
 import { buildGoogleRequest } from "../../src/providers/google-request";
 import { loadProviderDescriptor, providerEndpointUrl, SUMMARY_SYSTEM_PROMPT } from "../../src/providers/provider";
 import { createRuntimeProvider } from "../../src/providers/provider-factory";
 import { normalizeTranscriptMessages } from "../../src/state/transcript";
+import { candidate, googleHttpError, inputOverflowMessage, sse } from "./google-fixtures";
 
 const load = (model = "gemini-4-hydrogen", effort = "") => loadProviderDescriptor(repositoryRoot(import.meta.dir), {
   AGENT_LLM_PROVIDER: "google", AGENT_LLM_MODEL: model, AGENT_LLM_THINKING_EFFORT: effort, GEMINI_API_KEY: "fixture-google-key",
@@ -17,18 +17,6 @@ const request = (): RuntimeProviderRequest => ({
   tools: [{ name: "read", description: "Read file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
   toolChoice: "auto", temperature: 0.7,
 });
-const candidate = (parts: JsonObject[], finishReason?: string) => ({
-  candidates: [{ content: { role: "model", parts }, ...(finishReason ? { finishReason } : {}) }],
-});
-function sse(...chunks: unknown[]): Response {
-  const bytes = new TextEncoder().encode(chunks.map(chunk => "data: " + JSON.stringify(chunk) + "\r\n\r\n").join(""));
-  return new Response(new ReadableStream({
-    start(controller) {
-      for (let i = 0; i < bytes.length; i += 3) controller.enqueue(bytes.slice(i, i + 3));
-      controller.close();
-    },
-  }), { headers: { "Content-Type": "text/event-stream; charset=utf-8" } });
-}
 
 test.each([
   ["gemini-4-hydrogen", "high", ["low", "medium", "high", "xhigh"]],
@@ -160,6 +148,32 @@ test("length, missing terminal, interrupted stream and provider blocks produce d
     await expect(run(response, events)).rejects.toThrow(reason);
     expect(events.at(-1)).toMatchObject({ type: "error", error: { stopReason: "error", error: { retryable, message: expect.stringContaining(reason) } } });
   }
+});
+
+test("CONTINUATION finishes the streamed text with one done(length) event", async () => {
+  const events: AssistantMessageEvent[] = [];
+  let requests = 0;
+  const provider = new GoogleRuntimeProvider(load(), async () => {
+    requests++;
+    return sse(candidate([{ text: "partial" }]), candidate([], "CONTINUATION", "token-1"));
+  });
+  const message = await provider.turn({ ...request(), onEvent: event => { events.push(event); } });
+  expect(message).toMatchObject({ stopReason: "length", rawStopReason: "CONTINUATION", content: [{ type: "text", text: "partial" }] });
+  expect(events.map(event => event.type)).toEqual(["start", "text_start", "text_delta", "text_end", "done"]);
+  expect(events.at(-1)).toMatchObject({ type: "done", reason: "length" });
+  expect(requests).toBe(1);
+});
+
+test.each([
+  [400, "INVALID_ARGUMENT", inputOverflowMessage, "上下文超限", true, false],
+  [400, "INVALID_ARGUMENT", "maxOutputTokens exceeds the maximum number of tokens allowed", "请求错误", false, false],
+  [429, "RESOURCE_EXHAUSTED", "Quota exceeded for input tokens per minute", "限流", false, true],
+] as const)("classifies Gemini HTTP %i %s (%s)", async (status, code, message, category, overflow, retryable) => {
+  const provider = new GoogleRuntimeProvider(load(), async () => googleHttpError(status, code, message));
+  const error = await provider.turn(request()).catch(error => error);
+  expect(error).toMatchObject({ statusCode: status, category, contextOverflow: overflow, retryable,
+    message: expect.stringContaining(message) });
+  expect(isContextOverflowError(error)).toBe(overflow);
 });
 
 test.each([400, 403, 429, 503])("HTTP %i preserves real diagnostics, retry advice and redaction", async status => {

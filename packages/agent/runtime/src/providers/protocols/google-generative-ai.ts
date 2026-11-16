@@ -52,7 +52,7 @@ export class GoogleStreamAdapter {
       if (this.finishReason && this.finishReason !== reason) throw new Error("Conflicting Gemini finishReason: " + reason);
       this.finishReason = reason;
       this.accumulator.message.rawStopReason = reason;
-      if (reason !== "STOP" && reason !== "MAX_TOKENS") {
+      if (reason !== "STOP" && reason !== "MAX_TOKENS" && reason !== "CONTINUATION") {
         throw this.incomplete(reason, "Gemini finishReason: " + reason + (candidate.finishMessage ? " — " + candidate.finishMessage : ""));
       }
     }
@@ -100,7 +100,7 @@ export class GoogleStreamAdapter {
   result() {
     if (!this.finishReason) throw new Error("Gemini stream ended without finishReason");
     this.closeText();
-    const reason = this.finishReason === "MAX_TOKENS" ? "length" : this.callIds.size ? "toolUse" : "stop";
+    const reason = this.finishReason === "STOP" ? (this.callIds.size ? "toolUse" : "stop") : "length";
     return this.accumulator.complete(reason, this.finishReason);
   }
 }

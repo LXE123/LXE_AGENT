@@ -1,5 +1,6 @@
 import { buildResponsesRequest } from "../../src/providers/responses-provider";
 import { GoogleRuntimeProvider } from "../../src/providers/google-provider";
+import { candidate, googleHttpError, inputOverflowMessage, sse } from "../providers/google-fixtures";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { parseTranscriptText } from "../../src/state/transcript";
 import { AssistantMessageAccumulator } from "../../src/messages/accumulator";
@@ -21,6 +22,7 @@ import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
   loadProviderDescriptor,
   RuntimeProviderError,
+  SUMMARY_SYSTEM_PROMPT,
   type RuntimeProviderManager,
   type RuntimeProviderSnapshot,
 } from "../../src/providers/provider";
@@ -2227,6 +2229,40 @@ describe("TypeScriptAgentRuntime", () => {
     } finally { await runtime.stop(); }
   });
 
+  test.each(["success", "second overflow"] as const)("Gemini input overflow triggers one compacted retry: %s", async result => {
+    const store = new MemoryStore();
+    store.messages = [{ role: "user", content: "Archived request " + "a".repeat(90_000) },
+      { role: "assistant", content: "Archived answer" }];
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google", GEMINI_API_KEY: "fixture" });
+    const turns: string[] = [];
+    const calls: string[] = [];
+    const provider = new GoogleRuntimeProvider(descriptor, async (_, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.systemInstruction.parts[0].text === SUMMARY_SYSTEM_PROMPT) {
+        calls.push("summary");
+        return sse(candidate([{ text: "Earlier decision" }], "STOP"));
+      }
+      calls.push("turn");
+      turns.push(JSON.stringify(body.contents));
+      if (turns.length === 1 || result === "second overflow") return googleHttpError(400, "INVALID_ARGUMENT", inputOverflowMessage);
+      return sse(candidate([{ text: "recovered" }], "STOP"));
+    });
+    const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools: new ToolRegistry(), provider,
+      systemPrompt: "test", contextWindowTokens: 100_000, emitter: { emit: async () => {}, typing: async () => {} } });
+    await runtime.start();
+    try {
+      const outcome = await runtime.runTurn(job(), handle());
+      expect(calls).toEqual(["turn", "summary", "turn"]);
+      expect(turns[0]).toContain("Archived request");
+      expect(turns[1]).not.toContain("Archived request");
+      expect(turns[1]).toContain("Earlier decision");
+      expect(turns[1]).toContain("hello");
+      expect(turns[1]!.length).toBeLessThan(turns[0]!.length);
+      if (result === "success") expect(outcome).toMatchObject({ status: "completed", reply: "recovered" });
+      else expect(outcome).toMatchObject({ status: "error", reply: expect.stringContaining(inputOverflowMessage) });
+    } finally { await runtime.stop(); }
+  });
+
   test("forces one compaction and retries once after provider context overflow", async () => {
     const store = new MemoryStore();
     store.messages = [
@@ -2970,6 +3006,36 @@ test("does not execute or synthesize results for truncated tool drafts", async (
   expect(result).toMatchObject({ status: "completed", reply: "partial answer" });
   expect(executions).toBe(0);
   expect(store.messages.some((m) => m.role === "tool")).toBe(false);
+});
+
+test("Gemini CONTINUATION with a tool call preserves text without executing or replaying the call", async () => {
+  const store = new MemoryStore();
+  const tools = new ToolRegistry();
+  let executions = 0;
+  tools.register({ name: "lookup", description: "Look up a product", input_schema: { type: "object" },
+    execute: async () => { executions++; return { content: [] }; } });
+  const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google", GEMINI_API_KEY: "fixture" });
+  const turns: string[] = [];
+  const provider = new GoogleRuntimeProvider(descriptor, async (_, init) => {
+    turns.push(JSON.stringify(JSON.parse(String(init?.body)).contents));
+    return turns.length === 1
+      ? sse(candidate([{ text: "partial answer" }, { functionCall: { id: "unexecuted", name: "lookup", args: {} } }], "CONTINUATION", "token-1"))
+      : sse(candidate([{ text: "next answer" }], "STOP"));
+  });
+  const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, provider, systemPrompt: "test",
+    emitter: { emit: async () => {}, typing: async () => {} } });
+  await runtime.start();
+  try {
+    expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "partial answer" });
+    expect(turns).toHaveLength(1);
+    expect(store.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "length", rawStopReason: "CONTINUATION" });
+    expect(await runtime.runTurn(job({ job_id: "next", message_id: "m2", user_input: "follow up" }), handle()))
+      .toMatchObject({ status: "completed", reply: "next answer" });
+    expect(turns).toHaveLength(2);
+    expect(turns[1]).toContain("partial answer");
+    expect(turns[1]).not.toContain("unexecuted");
+    expect(executions).toBe(0);
+  } finally { await runtime.stop(); }
 });
 
 test("request anchors survive restart and power next-request display without summary usage", async () => {

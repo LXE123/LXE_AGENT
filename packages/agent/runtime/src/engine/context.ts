@@ -334,8 +334,19 @@ export function sanitizeMessagesForProvider(messages: readonly RuntimeMessage[])
   const pending = new Set<string>();
   const repaired: RuntimeMessage[] = [];
 
-  for (const message of cleaned) {
+  for (const [index, entry] of cleaned.entries()) {
+    let message = entry;
     if (message.role === "assistant") {
+      if ("stopReason" in message && message.stopReason === "length" && message.content.some(isToolCall)) {
+        // Only replay truncated calls with a recorded result from this turn. IDs can recur in later turns.
+        const results = new Set<string>();
+        for (let next = index + 1; cleaned[next]?.role === "tool"; next++) {
+          for (const block of blocks(cleaned[next]!)) if (isToolResult(block)) results.add(block.tool_call_id);
+        }
+        const content = message.content.filter(block => block.type !== "tool_call" || results.has(block.id));
+        if (!content.length) continue;
+        message = { ...message, content };
+      }
       for (const block of blocks(message)) if (isToolCall(block)) pending.add(block.id);
       repaired.push(message);
       continue;
