@@ -16,6 +16,11 @@ void app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, webviewTag: true } });
   const service = new ManualToolsService(() => win, root, async id => id === "missing" ? undefined : id === "isolated" ? profile : workspace); service.register();
   registerTeamSkillsGuest(win.webContents, service.browsers);
+  const externalRequests: string[] = [];
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    externalRequests.push(url);
+    return { action: "deny" };
+  });
   const formRequests: string[] = [];
   const server = createServer((request, response) => {
     if (request.url?.startsWith("/print-") || request.url === "/popup") {
@@ -80,6 +85,8 @@ void app.whenReady().then(async () => {
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: process.platform === "win32" ? "Write-Output ('CTRL_' + 'OK')\r" : "printf '%s%s\\n' 'CTRL_' 'OK'\r" } });
     await wait(() => terminal().output.includes("CTRL_OK"), "Ctrl+C").catch(error => { console.error(JSON.stringify(terminal())); throw error; }); passed.push("resize and Ctrl+C");
     await click('[aria-label="新标签页"]'); await click('.tools-start button:nth-of-type(3)'); await wait(async () => Boolean(await activeGuest()), "sidebar webview");
+    const externalButton = '[aria-label="用系统浏览器打开"]';
+    assert.equal(await js(`document.querySelector(${JSON.stringify(externalButton)}).disabled`), true);
     const browserId = await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.a')).active");
     await service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: address + "/first" } });
     await wait(() => service.browsers.get("a", browserId)?.title === "/first" && !service.browsers.get("a", browserId)?.loading, "browser load");
@@ -128,6 +135,38 @@ void app.whenReady().then(async () => {
     assert.equal(await tabCount(), beforePopup + 1, "only the ordinary link creates a tab");
     assert.equal(wc.getURL(), address + "/print-current", "the rejected popup leaves its source page in place");
     passed.push("new-window POST is ignored and same-tab POST still submits");
+
+    const popup = (await activeGuest())!;
+    const modifiers: Electron.KeyboardInputEvent["modifiers"] = [process.platform === "darwin" ? "meta" : "control"];
+    const refresh = (target: Electron.WebContents) => {
+      target.sendInputEvent({ type: "keyDown", keyCode: "R", modifiers });
+      target.sendInputEvent({ type: "keyUp", keyCode: "R", modifiers });
+    };
+    win.focus();
+    await js("window.refreshTestMarker = true");
+    await wc.executeJavaScript("window.refreshTestMarker = true");
+    win.webContents.focus();
+    await js("document.querySelector('.tool-browser-toolbar input').select()");
+    await win.webContents.insertText(address + "/unsubmitted");
+    await wait(() => js("document.querySelector('.tool-browser-toolbar input').value.endsWith('/unsubmitted')"), "draft address");
+    await click(externalButton);
+    await wait(() => externalRequests.length > 0, "toolbar opens the system-browser route");
+    assert.deepEqual(externalRequests, [address + "/popup"]);
+    assert.equal(await tabCount(), beforePopup + 1);
+    passed.push("open externally uses the current page URL even with an unsubmitted address");
+
+    await js("document.querySelector('.tool-browser-toolbar input').focus()");
+    refresh(win.webContents);
+    await wait(() => formRequests.length >= 3 && !popup.isLoading(), "refresh from address bar");
+    popup.focus();
+    await popup.executeJavaScript("document.querySelector('#entry').focus()");
+    refresh(popup);
+    await wait(() => formRequests.length >= 4 && !popup.isLoading(), "refresh from focused webpage");
+    assert.deepEqual(formRequests, ["POST /print-current", "GET /popup", "GET /popup", "GET /popup"]);
+    assert.equal(await js("window.refreshTestMarker"), true, "dashboard stayed loaded");
+    assert.equal(await wc.executeJavaScript("window.refreshTestMarker"), true, "background tab stayed loaded");
+    assert.equal((await activeGuest())?.id, popup.id);
+    passed.push("address bar and guest shortcuts each reload only the current page");
     await delay(500);
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: process.platform === "win32"
       ? "$p = Start-Process -FilePath $env:ComSpec -ArgumentList '/c ping -n 60 127.0.0.1 >nul' -WindowStyle Hidden -PassThru; Set-Content -Path child.pid -Value $p.Id\r"

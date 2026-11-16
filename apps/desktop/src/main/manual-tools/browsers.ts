@@ -141,6 +141,13 @@ export class ManualBrowsers {
       try { this.emit({ kind: "browser.open", sessionId, url: this.validate(url) }); } catch (error) { fail(error); }
       return { action: "deny" };
     });
+    wc.on("before-input-event", (event, input) => {
+      const refreshModifier = process.platform === "darwin" ? input.meta && !input.control : input.control && !input.meta;
+      if (input.type !== "keyDown" || input.key.toLowerCase() !== "r" || !refreshModifier || input.alt || input.shift) return;
+      if (tab.contents !== wc || !tab.visible) return;
+      event.preventDefault();
+      if (!input.isAutoRepeat) this.command(sessionId, id, "reload");
+    });
     wc.on("context-menu", (_event, params) => {
       const window = this.window();
       if (!window || window.isDestroyed()) return;

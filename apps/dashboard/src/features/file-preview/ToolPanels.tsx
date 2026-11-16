@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ArrowLeft, ArrowRight, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
+import { ArrowLeft, ArrowRight, ExternalLink, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
 import type { BrowserSnapshot, ManualToolEvent, TerminalSnapshot } from "@lxe/desktop-protocol";
 import { showBrowserGuest } from "./browser-guests";
 import { useUiText } from "../../shared/i18n";
@@ -108,10 +108,13 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
     };
   }, [sessionId, tab.key]);
   const command = async (command: "back" | "forward" | "reload") => { try { setError(""); await toolBridge().call({ operation: "browser.command", input: { sessionId, id: tab.key, command } }); } catch (cause) { setError(errorText(cause)); } };
+  const pageUrl = state?.url;
   return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); setError(""); void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url: address } }).catch(cause => setError(errorText(cause))); }}>
     <button type="button" aria-label={t.manualTools.back} disabled={!state?.canGoBack} onClick={() => void command("back")}><ArrowLeft size={16} /></button>
     <button type="button" aria-label={t.manualTools.forward} disabled={!state?.canGoForward} onClick={() => void command("forward")}><ArrowRight size={16} /></button>
     <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} onClick={() => void command("reload")}><RotateCw size={15} className={state?.loading ? "is-loading" : ""} /></button>
     <input aria-label={t.manualTools.address} placeholder="https://" value={address} onChange={event => setAddress(event.target.value)} spellCheck={false} /><button type="submit" aria-label={t.manualTools.go}>↵</button>
+    <button type="button" title={t.manualTools.openExternal} aria-label={t.manualTools.openExternal} disabled={!pageUrl}
+      onClick={() => { if (pageUrl) window.open(pageUrl, "_blank", "noopener,noreferrer"); }}><ExternalLink size={16} /></button>
   </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}<div className="tool-browser-viewport"><div ref={viewport} className="tool-browser-page" />{!state?.url ? <p>{t.manualTools.enterAddress}</p> : null}</div></div>;
 }
