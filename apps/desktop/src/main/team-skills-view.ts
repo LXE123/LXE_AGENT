@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -20,6 +20,12 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   let contents: WebContents | undefined;
   let history: { entries: NavigationEntry[]; index: number } | undefined;
   let restoring = false;
+
+  function targetUrl(raw: string): URL | undefined {
+    const target = URL.parse(raw);
+    if (target?.protocol !== "https:" || target.username || target.password || target.origin === URL.parse(dashboard.getURL())?.origin) return;
+    return target;
+  }
 
   function release(): void {
     const guest = contents;
@@ -54,6 +60,31 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     }
     if (!mountSrc) pendingSrc = mountSrc = `about:blank#${randomUUID()}`;
     return mountSrc;
+  });
+  dashboard.ipc.handle(IPC_CHANNELS.teamSkillsBrowser, async (event, ticket: unknown, command: unknown): Promise<TeamSkillsBrowserState | null> => {
+    if (event.senderFrame !== dashboard.mainFrame) throw new Error("Team skills requires the desktop main frame");
+    const guest = contents;
+    if (!guest || guest.isDestroyed() || ticket !== mountSrc) return null;
+    const nav = guest.navigationHistory;
+    if (command !== "state") {
+      if (!page.visible) return null;
+      if (command === "back") { if (nav.canGoBack()) nav.goBack(); }
+      else if (command === "forward") { if (nav.canGoForward()) nav.goForward(); }
+      else if (command === "reload") guest.reload();
+      else if (command && typeof command === "object" && "url" in command && typeof command.url === "string") {
+        const address = command.url.trim();
+        const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(address) && !/^[\w.-]+:\d+(?:[/?#]|$)/.test(address);
+        const target = targetUrl(hasScheme ? address : `https://${address}`);
+        if (!target) throw new Error("Enter an HTTPS website address without embedded credentials.");
+        try { await guest.loadURL(target.href); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ERR_ABORTED") throw error;
+        }
+      } else throw new Error("Unknown team skills browser command");
+    }
+    if (contents !== guest || guest.isDestroyed()) return null;
+    const url = guest.getURL();
+    return { url: url.startsWith("https://") ? url : "", canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward() };
   });
   dashboard.on("did-start-navigation", event => {
     if (event.isMainFrame && !event.isSameDocument) {
@@ -122,12 +153,6 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     });
     guest.on("did-stop-loading", () => budget.enforce());
     guest.on("audio-state-changed", () => budget.enforce());
-    const dashboardOrigin = URL.parse(dashboard.getURL())?.origin;
-    const targetUrl = (raw: string) => {
-      const target = URL.parse(raw);
-      if (target?.protocol !== "https:" || target.username || target.password || target.origin === dashboardOrigin) return;
-      return target;
-    };
     guest.on("will-navigate", event => {
       if (!targetUrl(event.url)) event.preventDefault();
     });

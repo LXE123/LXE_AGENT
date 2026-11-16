@@ -21,3 +21,33 @@
 body:has(.runtime-status-popover) .team-skills-viewport::after {
   content: ""; position: absolute; inset: 0;
 }
+
+.team-skills-toolbar {
+  display: grid; grid-template-columns: 1fr minmax(0, 54%) 1fr; align-items: center; gap: 8px;
+  flex: none; min-height: 46px; padding: 6px 12px; box-sizing: border-box;
+  background: var(--cds-surface-chrome); border-bottom: 1px solid var(--cds-alpha-2);
+}
+.team-skills-history, .team-skills-toolbar input {
+  border: 1px solid var(--cds-alpha-2); border-radius: 999px; background: var(--cds-alpha-1);
+}
+.team-skills-history { display: inline-flex; align-items: center; justify-self: start; padding: 2px; }
+.team-skills-history button {
+  display: grid; place-items: center; position: relative; width: 29px; height: 25px; padding: 0;
+  color: var(--cds-ink); background: transparent; border: 0; border-radius: 999px; cursor: pointer;
+}
+.team-skills-history button:disabled { color: var(--cds-disabled-ink); cursor: default; }
+.team-skills-history button:enabled:hover { background: var(--cds-alpha-2); }
+.team-skills-history button:last-child { margin-left: 5px; }
+.team-skills-history button:last-child::before {
+  content: ""; position: absolute; left: -3px; width: 1px; height: 13px; background: var(--cds-alpha-3);
+}
+.team-skills-toolbar input {
+  box-sizing: border-box; width: 100%; min-width: 0; height: 31px; padding: 0 15px;
+  text-align: center; color: var(--cds-ink); font: inherit; font-size: .8125rem; text-overflow: ellipsis;
+}
+.team-skills-toolbar input:focus { text-align: left; background: var(--cds-surface-panel); }
+.team-skills-toolbar :is(button, input):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.team-skills-address-error { padding: 4px 12px; color: var(--cds-ink); overflow-wrap: anywhere; font-size: .8125rem; }
+@media (max-width: 620px) {
+  .team-skills-toolbar { grid-template-columns: auto minmax(0, 1fr); padding-inline: 8px; }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { useUiText } from "../../shared/i18n";
+import { TeamSkillsToolbar } from "./toolbar";
 import "./theme.css";
 
 export function TeamSkillsPage({ visible }: { visible: boolean }) {
@@ -8,6 +9,7 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
   const viewport = useRef<HTMLDivElement>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [mountSrc, setMountSrc] = useState<string | null>(null);
+  const [browser, setBrowser] = useState<TeamSkillsBrowserState | null>(null);
   const [attempt, setAttempt] = useState(0);
   const previousAttempt = useRef(0);
   const [loading, setLoading] = useState(true), [error, setError] = useState("");
@@ -37,7 +39,18 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
     element.appendChild(frame);
     const body = frame.contentDocument!.body;
     const guest = document.createElement("webview");
-    const loaded = () => setLoading(false);
+    let connected = true;
+    const syncNavigation = () => {
+      void window.lxe!.desktop.teamSkillsBrowser(mountSrc, "state").then(state => {
+        if (connected) setBrowser(state);
+      }).catch(cause => { if (connected) setError(String(cause)); });
+    };
+    const navigated = (event: Event) => {
+      if ((event as Event & { isMainFrame?: boolean }).isMainFrame === false) return;
+      setError("");
+      syncNavigation();
+    };
+    const loaded = () => { setLoading(false); syncNavigation(); };
     const fail = (message: string) => {
       setLoading(false);
       setError(message);
@@ -49,7 +62,10 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
       if (isMainFrame && errorCode !== -3) fail(`${errorDescription} (${errorCode})`);
     };
     const gone = (event: Event) => fail((event as Event & { details: { reason: string } }).details.reason);
+    guest.addEventListener("did-navigate", navigated);
+    guest.addEventListener("did-navigate-in-page", navigated);
     guest.addEventListener("did-stop-loading", loaded);
+    setBrowser(null);
     guest.addEventListener("did-fail-load", failed);
     guest.addEventListener("render-process-gone", gone);
     setError("");
@@ -60,6 +76,9 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
     guest.setAttribute("src", mountSrc);
     body.appendChild(guest);
     return () => {
+      connected = false;
+      guest.removeEventListener("did-navigate", navigated);
+      guest.removeEventListener("did-navigate-in-page", navigated);
       guest.removeEventListener("did-stop-loading", loaded);
       guest.removeEventListener("did-fail-load", failed);
       guest.removeEventListener("render-process-gone", gone);
@@ -71,6 +90,7 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
   if (!visible && !mountSrc) return null;
 
   return <section className="team-skills-page" hidden={!visible} aria-label={copy.name}>
+    {control && <TeamSkillsToolbar key={mountSrc} state={browser} ticket={confirmed ? mountSrc : null} />}
     <div className="team-skills-viewport" ref={viewport} aria-label={copy.name} data-show-page={confirmed && !error}>
       {control && loading ? <span className="team-skills-loading" role="status">{t.common.loading}…</span> : null}
       {error ? <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt(v => v + 1)}>{copy.retry}</button></div> : null}

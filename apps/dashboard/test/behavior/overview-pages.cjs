@@ -102,7 +102,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step("standalone team catalog keeps its guest visible under runtime status and reuses the live page on return", async () => {
     await open("workbench");
-    await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; void 0");
+    await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; window.lxe.desktop.teamSkillsBrowser = window.catalogBrowserFixture; void 0");
     assert.equal(await js("!!document.querySelector('.team-skills-viewport iframe')"), false, "no guest before first visit");
     await click(".tab-team-skills");
     await waitFor("document.querySelector('.tab-team-skills[aria-current=page]')", "catalog selected");
@@ -129,7 +129,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
-    assert.ok(Math.abs(viewport.top - panel.top - 1) < 1, "catalog reaches the top inside the shared frame");
+    const toolbar = await js("document.querySelector('.team-skills-toolbar').getBoundingClientRect().toJSON()");
+    assert.ok(Math.abs(toolbar.top - panel.top - 1) < 1 && toolbar.height > 0);
+    assert.ok(Math.abs(viewport.top - toolbar.bottom) < 1, "catalog starts directly below its toolbar");
     assert.ok(Math.abs(viewport.bottom - panel.bottom + 1) < 1, "catalog fills the frame height");
     const point = { x: Math.round(viewport.x + viewport.width / 3), y: Math.round(viewport.y + viewport.height / 2) };
     const sample = async () => {
@@ -197,7 +199,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
         return new Response(html, { headers: { "Content-Type": "text/html" } });
       });
       await open("workbench");
-      await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; void 0");
+      await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; window.lxe.desktop.teamSkillsBrowser = window.catalogBrowserFixture; void 0");
       await click(".tab-team-skills");
       await waitFor("document.querySelector('.team-skills-viewport iframe') && !document.querySelector('.team-skills-loading')", "catalog home loaded");
       const guest = webContents.fromId(await js("document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId()"));
@@ -213,6 +215,32 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await navigate("#login");
       assert.equal(guest.getURL(), callback);
       assert.deepEqual(redirects, [login, callback], "both main-frame redirects reached the navigation policy");
+      const address = ".team-skills-toolbar input";
+      const navButtons = ".team-skills-history button";
+      const currentHost = `document.querySelector('${address}').value`;
+      await waitFor(`${currentHost} === '${new URL(callback).host}'`, "address reflects the login redirect");
+      await focus(address);
+      assert.equal(await js(currentHost), callback, "editing reveals full URL");
+      await win.webContents.insertText("unsubmitted.example");
+      await key("Escape");
+      assert.equal(guest.getURL(), callback);
+      await focus(address);
+      await win.webContents.insertText("partner.example/typed#section");
+      await key("Enter");
+      const typed = "https://partner.example/typed#section";
+      await waitFor(`${currentHost} === 'partner.example'`, "typed bare address navigated");
+      assert.equal(guest.getURL(), typed);
+      assert.ok(await js(`document.querySelector('${navButtons}:nth-child(2)').disabled`));
+      await click(navButtons + ":first-child");
+      await waitFor(`${currentHost} === '${new URL(callback).host}'`, "back restores callback");
+      await click(navButtons + ":nth-child(2)");
+      await waitFor(`${currentHost} === 'partner.example'`, "forward restores typed URL");
+      const reloaded = once(guest, "did-finish-load", { signal: AbortSignal.timeout(5000) });
+      await click(navButtons + ":last-child");
+      await reloaded;
+      assert.equal(guest.getURL(), typed, "refresh reloads the embedded page");
+      await click(navButtons + ":first-child");
+      await waitFor(`${currentHost} === '${new URL(callback).host}'`, "back after reload");
       await guest.executeJavaScript("document.querySelector('button').click()", true);
       const handoff = once(handoffs, "open", { signal: AbortSignal.timeout(5000) });
       await guest.executeJavaScript("document.querySelector('#external').click()", true);
