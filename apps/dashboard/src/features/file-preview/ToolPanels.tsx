@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ArrowLeft, ArrowRight, ExternalLink, FolderOpen, Globe, RotateCw, TerminalSquare } from "lucide-react";
+import { FolderOpen, Globe, TerminalSquare } from "lucide-react";
 import type { BrowserSnapshot, ManualToolEvent, TerminalSnapshot } from "@lxe/desktop-protocol";
+import { BrowserToolbar } from "../../shared/ui/browser-toolbar";
 import { showBrowserGuest } from "./browser-guests";
 import { useUiText } from "../../shared/i18n";
 import type { PreviewTab } from "./layout-state";
@@ -70,11 +71,10 @@ export function TerminalPanel({ sessionId, tab, restart }: { sessionId: string; 
 }
 export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: PreviewTab }) {
   const t = useUiText(), viewport = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<BrowserSnapshot | null>(null), [address, setAddress] = useState(tab.url ?? ""), [error, setError] = useState("");
+  const [state, setState] = useState<BrowserSnapshot | null>(null), [error, setError] = useState("");
   const savedUrl = useRef(tab.url).current;
   const [awaitingRestore, setAwaitingRestore] = useState(false);
   const [request, setRequest] = useState<{ url: string }>();
-  const currentUrl = useRef(tab.url ?? "");
   useLayoutEffect(() => {
     let disposed = false;
     let park: (() => void) | undefined;
@@ -84,10 +84,6 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
     const unsubscribe = api.subscribe(event => {
       if (event.kind !== "browser.state" || event.snapshot.id !== tab.key || event.snapshot.sessionId !== sessionId || disposed) return;
       setState(event.snapshot);
-      if (event.snapshot.url !== currentUrl.current) {
-        currentUrl.current = event.snapshot.url;
-        setAddress(event.snapshot.url);
-      }
     });
     async function show() {
       // Live, suspended and newly requested popup tabs belong to the current desktop process.
@@ -104,8 +100,6 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
         if (disposed || !viewport.current) return;
         setAwaitingRestore(false);
         setState(mount);
-        setAddress(mount.url);
-        currentUrl.current = mount.url;
         park = showBrowserGuest(viewport.current, mount, api);
         return;
       }
@@ -120,31 +114,33 @@ export function BrowserPanel({ sessionId, tab }: { sessionId: string; tab: Previ
       if (mountSrc) void api.call({ operation: "browser.visible", input: { ...input, mountSrc, visible: false } }).catch(() => {});
     };
   }, [sessionId, tab.key, savedUrl, request]);
-  const command = async (command: "back" | "forward" | "reload") => { try { setError(""); await toolBridge().call({ operation: "browser.command", input: { sessionId, id: tab.key, command } }); } catch (cause) { setError(errorText(cause)); } };
   const pageUrl = awaitingRestore ? savedUrl : state?.url;
   const canNavigate = state !== null || (awaitingRestore && (!request || Boolean(error)));
-  const navigate = (url: string) => {
-    if (!canNavigate) return;
+  const restore = (url: string) => {
     setError("");
-    if (awaitingRestore) setRequest({ url });
-    else if (state) void toolBridge().call({ operation: "browser.navigate", input: { sessionId, id: tab.key, url } }).catch(cause => setError(errorText(cause)));
+    setRequest({ url });
   };
-  const reload = () => {
-    if (awaitingRestore && savedUrl) navigate(savedUrl);
-    else if (state) void command("reload");
-  };
-  return <div className="tool-browser"><form className="tool-browser-toolbar" onSubmit={event => { event.preventDefault(); navigate(address); }}>
-    <button type="button" aria-label={t.manualTools.back} disabled={!state?.canGoBack} onClick={() => void command("back")}><ArrowLeft size={16} /></button>
-    <button type="button" aria-label={t.manualTools.forward} disabled={!state?.canGoForward} onClick={() => void command("forward")}><ArrowRight size={16} /></button>
-    <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} disabled={!canNavigate} onClick={reload}><RotateCw size={15} className={state?.loading ? "is-loading" : ""} /></button>
-    <input aria-label={t.manualTools.address} placeholder="https://" value={address} onChange={event => setAddress(event.target.value)} spellCheck={false} /><button type="submit" aria-label={t.manualTools.go} disabled={!canNavigate}>↵</button>
-    <button type="button" title={t.manualTools.openExternal} aria-label={t.manualTools.openExternal} disabled={!pageUrl}
-      onClick={() => { if (pageUrl) window.open(pageUrl, "_blank", "noopener,noreferrer"); }}><ExternalLink size={16} /></button>
-  </form>{error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}
+  return <div className="tool-browser">
+    <BrowserToolbar url={pageUrl ?? ""} enabled={canNavigate}
+      canGoBack={state?.canGoBack} canGoForward={state?.canGoForward} loading={state?.loading}
+      onAction={action => {
+        if (awaitingRestore && savedUrl) {
+          if (action === "reload") restore(savedUrl);
+          else if (typeof action === "object") restore(action.url);
+          return;
+        }
+        setError("");
+        const input = { sessionId, id: tab.key };
+        return typeof action === "object"
+          ? toolBridge().call({ operation: "browser.navigate", input: { ...input, url: action.url } })
+          : toolBridge().call({ operation: "browser.command", input: { ...input, command: action } });
+      }}
+      onOpenExternal={url => { window.open(url, "_blank", "noopener,noreferrer"); }} />
+    {error || state?.error ? <div className="tool-error" role="alert">{error || state?.error}</div> : null}
     <div className="tool-browser-viewport"><div ref={viewport} className="tool-browser-page" />
       {awaitingRestore && savedUrl ? <div className="tool-browser-restore">
         <strong>{tab.name}</strong><span>{savedUrl}</span>
-        <button type="button" disabled={!canNavigate} onClick={reload}>{t.manualTools.restorePage}</button>
+        <button type="button" disabled={!canNavigate} onClick={() => restore(savedUrl)}>{t.manualTools.restorePage}</button>
       </div> : state && !state.url ? <p>{t.manualTools.enterAddress}</p> : null}
     </div></div>;
 }

@@ -129,7 +129,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
-    const toolbar = await js("document.querySelector('.team-skills-toolbar').getBoundingClientRect().toJSON()");
+    const toolbar = await js("document.querySelector('.team-skills-page .browser-toolbar').getBoundingClientRect().toJSON()");
     assert.ok(Math.abs(toolbar.top - panel.top - 1) < 1 && toolbar.height > 0);
     assert.ok(Math.abs(viewport.top - toolbar.bottom) < 1, "catalog starts directly below its toolbar");
     assert.ok(Math.abs(viewport.bottom - panel.bottom + 1) < 1, "catalog fills the frame height");
@@ -215,8 +215,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await navigate("#login");
       assert.equal(guest.getURL(), callback);
       assert.deepEqual(redirects, [login, callback], "both main-frame redirects reached the navigation policy");
-      const address = ".team-skills-toolbar input";
-      const navButtons = ".team-skills-history button";
+      const address = ".team-skills-page .browser-toolbar input";
+      const navButtons = ".team-skills-page .browser-toolbar-history button";
       const currentHost = `document.querySelector('${address}').value`;
       await waitFor(`${currentHost} === '${new URL(callback).host}'`, "address reflects the login redirect");
       await focus(address);
