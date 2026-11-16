@@ -1,5 +1,5 @@
 import type { SessionFileRef } from "@lxe/desktop-protocol";
-export interface PreviewTab { key: string; name: string; ref?: SessionFileRef; kind?: "start" | "terminal" | "browser"; url?: string }
+export interface PreviewTab { key: string; name: string; ref?: SessionFileRef; kind?: "start" | "terminal" | "browser"; url?: string; favicon?: string }
 export interface PreviewLayout { tabs: PreviewTab[]; active: string; shown: boolean; expanded: boolean; width: number }
 export const emptyLayout = (): PreviewLayout => ({ tabs: [], active: "", shown: false, expanded: false, width: 420 });
 export function restoreLayout(storage: Pick<Storage, "getItem"> | undefined, session: string): PreviewLayout {

@@ -1,5 +1,6 @@
 export * from "./manual-tools";
 export * from "./team-skills";
+import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState } from "./team-skills";
 export type * from "./file-preview";
 import { parseManagedState, type ManagedLlmState } from "@lxe/core/managed-llm";
 import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
@@ -744,7 +745,8 @@ export interface LxeDesktopBridge {
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
     exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
-    prepareTeamSkillsView(): Promise<string>;
+    teamSkillsBrowser(mountSrc: string, command: TeamSkillsBrowserCommand): Promise<TeamSkillsBrowserState | null>;
+    teamSkillsView(action: "show" | "hide" | "retry"): Promise<string | null>;
     getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
     saveAmazonV2Settings(input: DesktopAmazonV2Settings): Promise<DesktopAmazonV2Settings>;
     onSyntheticPerformerTaskChanged(

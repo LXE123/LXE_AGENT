@@ -290,7 +290,7 @@ function App({
             {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
               <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
             ) : null}
-            {activeSection === "team-skills" ? <TeamSkillsPage /> : null}
+            <TeamSkillsPage visible={activeSection === "team-skills"} />
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
                 error={assetSlots.error}

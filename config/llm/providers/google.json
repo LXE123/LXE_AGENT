@@ -1,0 +1,40 @@
+{
+  "name": "google",
+  "label": "Google",
+  "api_style": "google-generative-ai",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "default_model": "gemini-4-hydrogen",
+  "request_idle_timeout_ms": 900000,
+  "models": {
+    "gemini-4-hydrogen": {
+      "context_window_tokens": 1048576,
+      "max_tokens": 65536,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "google-thinking-level",
+      "thinking_levels": ["low", "medium", "high", "xhigh"],
+      "thinking_default": "high"
+    },
+    "gemini-4-argon": {
+      "context_window_tokens": 1048576,
+      "max_tokens": 32768,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "google-thinking-level",
+      "thinking_levels": ["low", "medium", "high"],
+      "thinking_default": "medium"
+    },
+    "gemini-4-carbon": {
+      "context_window_tokens": 1048576,
+      "max_tokens": 32768,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "google-thinking-level",
+      "thinking_levels": ["low", "medium", "high"],
+      "thinking_default": "medium"
+    }
+  }
+}

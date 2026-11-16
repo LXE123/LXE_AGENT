@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   showTitlebarMenu: "lxe:desktop:titlebar-menu",
-  prepareTeamSkillsView: "lxe:workbench:prepare-team-skills",
+  teamSkillsBrowser: "lxe:workbench:team-skills-browser",
+  teamSkillsView: "lxe:workbench:team-skills-view",
   manualToolCall: "lxe:manual-tools:call",
   manualToolEvent: "lxe:manual-tools:event",
   fileCall: "lxe:files:call",

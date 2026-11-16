@@ -117,7 +117,8 @@ export function createDesktopBridge(
       exportVietnamTemplate: () => ipc.invoke(IPC_CHANNELS.exportVietnamTemplate),
       getVietnamSettings: () => ipc.invoke(IPC_CHANNELS.getVietnamSettings),
       saveVietnamParameters: (input) => ipc.invoke(IPC_CHANNELS.saveVietnamParameters, input),
-      prepareTeamSkillsView: () => ipc.invoke(IPC_CHANNELS.prepareTeamSkillsView),
+      teamSkillsBrowser: (mountSrc, command) => ipc.invoke(IPC_CHANNELS.teamSkillsBrowser, mountSrc, command),
+      teamSkillsView: action => ipc.invoke(IPC_CHANNELS.teamSkillsView, action),
       getAmazonV2Settings: () => ipc.invoke(IPC_CHANNELS.getAmazonV2Settings),
       saveAmazonV2Settings: (input) => ipc.invoke(IPC_CHANNELS.saveAmazonV2Settings, input),
       onCloudStateChanged: (listener) => {

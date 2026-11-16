@@ -1,5 +1,10 @@
 {
   "profiles": {
+    "google": {
+      "type": "api_key",
+      "env_names": ["GEMINI_API_KEY"],
+      "required": true
+    },
     "deepseek": {
       "type": "api_key",
       "env_names": ["DEEPSEEK_API"],

@@ -644,6 +644,25 @@ describe("DesktopConfigStore", () => {
     expect(restarted.state()).toMatchObject({ complete: false, managed_model_configured: false });
   });
 
+  test("Google keys initialize Hydrogen once and keep the selected model and effort when replaced", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    const auth = () => JSON.parse(readFileSync(join(root, "config", "auth.json"), "utf8"));
+    const saved = store.saveLocalModelCredential({ provider: "google", api_key: "first-fixture" });
+    expect(saved).toMatchObject({ provider: "google", credential_source: "local", local_model_providers:
+      expect.arrayContaining([expect.objectContaining({ provider: "google", label: "Google", configured: true })]) });
+    expect(store.environment()).toMatchObject({ AGENT_LLM_PROVIDER: "google", AGENT_LLM_MODEL: "gemini-4-hydrogen" });
+    expect(auth().google).toEqual({ type: "api_key", key: "first-fixture" });
+    store.saveRuntimePreference("google", "gemini-4-argon", "low");
+    store.saveLocalModelCredential({ provider: "google", api_key: "second-fixture" });
+    const reopened = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    expect(reopened.environment()).toMatchObject({ AGENT_LLM_MODEL: "gemini-4-argon", AGENT_LLM_THINKING_EFFORT: "low" });
+    expect(auth().google.key).toBe("second-fixture");
+    expect(reopened.deleteLocalModelCredential("google")).toMatchObject({ local_model_providers:
+      expect.arrayContaining([expect.objectContaining({ provider: "google", configured: false })]) });
+    expect(auth().google).toBeUndefined();
+  });
+
   test("selects OpenRouter from the shipped catalog for local and managed credentials", () => {
     const localRoot = createRoot();
     const local = new DesktopConfigStore(localRoot, join(localRoot, "workspace"), safeStorage);
