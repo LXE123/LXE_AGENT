@@ -126,7 +126,10 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       assert.deepEqual(pixel(1, 1), pixel(-4, 1), `${theme}: chrome shows through the curved cutout`);
       assert.notDeepEqual(pixel(30, 0), pixel(-4, 1), `${theme}: top edge is visible`);
       assert.notDeepEqual(pixel(0, 30), pixel(-4, 1), `${theme}: left edge is visible`);
-      assert.notDeepEqual(pixel(30, 4), pixel(-4, 1), `${theme}: toolbar surface differs from the window chrome`);
+      const chrome = pixel(-4, 1);
+      const toolbar = pixel(30, 4);
+      assert.ok(toolbar.every((channel, i) => theme === "dark" ? channel < chrome[i] : channel > chrome[i]),
+        `${theme}: expected toolbar [${toolbar}] to be ${theme === "dark" ? "darker" : "lighter"} than chrome [${chrome}]`);
       await screenshot("catalog-toolbar-" + theme);
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
