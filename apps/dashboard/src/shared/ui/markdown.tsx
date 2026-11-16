@@ -71,6 +71,7 @@ function renderMermaidChart(id: string, chart: string) {
 
 const EXTERNAL_LINK_PATTERN = /^https?:\/\//i;
 export const OpenMarkdownFileContext = React.createContext<{
+  sessionId: string;
   directory?: string;
   open(link: WorkspaceFileLink): void;
 } | null>(null);
@@ -83,7 +84,8 @@ export const markdownComponents = {
       return <a {...props} href={target} rel="noreferrer noopener" target="_blank">{children}</a>;
     }
     const link = openFile && workspaceFileLink(target, openFile.directory);
-    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? (link.line ? link.path + ":" + link.line : link.path)}
+    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? link.path + (link.line ? ":" + link.line : "") + (link.endLine ? "-" + link.endLine : "")}
+      data-linked-session={link.kind === "linked" ? openFile.sessionId : undefined} data-linked-path={link.kind === "linked" ? link.path : undefined}
       onClick={event => {
         if (event.detail > 0 && window.getSelection()?.isCollapsed === false) return;
         openFile.open(link);

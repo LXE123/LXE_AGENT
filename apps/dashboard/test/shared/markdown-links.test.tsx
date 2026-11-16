@@ -11,7 +11,7 @@ const render = (markdown: string): string => renderToStaticMarkup(
     {markdown}
   </ReactMarkdown>,
 );
-const conversation = { directory: "/Users/me/project", open() {} };
+const conversation = { sessionId: "s", directory: "/Users/me/project", open() {} };
 
 describe("conversation markdown links", () => {
   test("workspace links render in streaming and completed conversations with a preview handler", () => {
@@ -25,8 +25,8 @@ describe("conversation markdown links", () => {
     }
   });
 
-  test("keeps escaped Markdown, anchors and non-workspace targets inert", () => {
-    const urls = ["#section", "../other.md", "/tmp/other.md", "C:/other.md", "//example.org/file", "file:///file", "mailto:user@example.org", "%2e%2e/other.md", "%2Fexternal", "foo%5Cbar", "bad%00.md"];
+  test("keeps escaped Markdown, anchors, foreign drives and network file URLs inert", () => {
+    const urls = ["#section", "C:/other.md", "//example.org/file", "file://server/share", "file:////server/share", "mailto:user@example.org", "%2e%2e/other.md", "%2Fexternal", "foo%5Cbar", "bad%00.md"];
     const markdown = ["[报告]\\(./report.md)", ...urls.map(href => `[label](${href})`)].join(" ");
     const markup = renderToStaticMarkup(<OpenMarkdownFileContext.Provider value={conversation}><StreamingMarkdown text={markdown} /></OpenMarkdownFileContext.Provider>);
     expect(markup).not.toContain('role="link"');
@@ -44,18 +44,27 @@ describe("conversation markdown links", () => {
       for (const title of ["README.md", "scripts/source.ts:42", "scripts/source.ts:50"]) {
         expect(markup.split(`title="${title}"`).length - 1).toBe(2);
       }
-      expect(markup.match(/role="link"/g)).toHaveLength(6);
+      expect(markup.match(/role="link"/g)).toHaveLength(7);
+      expect(markup).toContain('data-linked-path="/Users/me/project-old/README.md"');
       expect(markup).toMatch(/<code[^>]*>scripts\/source\.ts:42<\/code>/);
     }
   });
 
-  test("Windows drive links stay scoped to their workspace and root-level relative links can carry lines", () => {
+  test("Windows drive links can cross workspaces and root-level relative links can carry lines", () => {
     const text = "[a](c:/PROJECT/src/app.ts:42) [b](C:%5CProject%5Cdir%5Cb.ts#L50) [c](README.md:9) [outside](D:/Project/file.ts) [sibling](C:/Project2/file.ts) [share](//remote/Project/file.ts)";
     const markup = renderToStaticMarkup(<OpenMarkdownFileContext.Provider value={{ ...conversation, directory: "C:\\Project" }}>
       <StreamingMarkdown text={text} />
     </OpenMarkdownFileContext.Provider>);
-    expect(markup.match(/role="link"/g)).toHaveLength(3);
+    expect(markup.match(/role="link"/g)).toHaveLength(5);
+    expect(markup).toContain('data-linked-path="D:/Project/file.ts"');
     for (const title of ["src/app.ts:42", "dir/b.ts:50", "README.md:9"]) expect(markup).toContain(`title="${title}"`);
+  });
+
+  test("explicit local links retain their filename, line or range across workspace boundaries", () => {
+    const text = "[报告](file:///tmp/项目%20%231.md) [父目录](../src/app.ts:42:7) [主目录](~/app.ts#L50-L42) [区间](/tmp/test.ts:42-50)";
+    const markup = renderToStaticMarkup(<OpenMarkdownFileContext.Provider value={conversation}><StreamingMarkdown text={text} /></OpenMarkdownFileContext.Provider>);
+    expect(markup.match(/data-linked-session="s"/g)).toHaveLength(4);
+    for (const title of ["/tmp/项目 #1.md", "../src/app.ts:42", "~/app.ts:42-50", "/tmp/test.ts:42-50"]) expect(markup).toContain(`title="${title}"`);
   });
 
   test("sends a web link to the system browser and keeps the opener isolated", () => {

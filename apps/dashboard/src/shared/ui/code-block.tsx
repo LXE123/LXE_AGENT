@@ -83,6 +83,7 @@ export function CodeBlock({
   lineNumbers = false,
   firstLine = 1,
   highlightLine,
+  highlightEnd,
 }: {
   code: string;
   language?: string;
@@ -91,6 +92,7 @@ export function CodeBlock({
   lineNumbers?: boolean;
   firstLine?: number;
   highlightLine?: number;
+  highlightEnd?: number;
 }) {
   const normalizedLanguage = normalizeCodeLanguage(language);
   const supported = Boolean(normalizedLanguage || autoDetect);
@@ -122,7 +124,7 @@ export function CodeBlock({
     .filter(Boolean)
     .join(" ");
 
-  const numbered = lineNumbers ? numberCodeLines(html || code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"), firstLine, highlightLine) : "";
+  const numbered = lineNumbers ? numberCodeLines(html || code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"), firstLine, highlightLine, highlightEnd) : "";
   return (
     <pre className={classes}>
       {numbered ? <code className="hljs numbered-code" dangerouslySetInnerHTML={{ __html: numbered }} /> : html
@@ -133,7 +135,7 @@ export function CodeBlock({
 }
 
 /** Highlight.js emits spans only; reopen spans across lines so multiline tokens keep their colour. */
-export function numberCodeLines(html: string, firstLine = 1, highlightLine?: number): string {
+export function numberCodeLines(html: string, firstLine = 1, highlightLine?: number, highlightEnd = highlightLine): string {
   const stack: string[] = [], lines: string[] = []; let current = "";
   for (const token of html.split(/(<span[^>]*>|<\/span>|\r?\n)/g)) {
     if (token === "\n" || token === "\r\n") { lines.push(current + "</span>".repeat(stack.length)); current = stack.join(""); }
@@ -142,7 +144,7 @@ export function numberCodeLines(html: string, firstLine = 1, highlightLine?: num
   lines.push(current);
   return lines.map((line, i) => {
     const number = firstLine + i;
-    const className = number === highlightLine ? "code-line file-target-line" : "code-line";
+    const className = highlightLine !== undefined && number >= highlightLine && number <= (highlightEnd ?? highlightLine) ? "code-line file-target-line" : "code-line";
     return '<span class="' + className + '" data-line="' + number + '">' + (line || "&#8203;") + '</span>';
   }).join("");
 }

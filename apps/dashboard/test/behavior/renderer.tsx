@@ -175,7 +175,7 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
         const ids = origin?.turn_id === "one" ? ["one"] : ["one", "two"];
         const messages = ids.flatMap((id, index) => ["user", "assistant"].map((role, block) => ({
           role, content: fileLinksFixture && role === "assistant"
-            ? `[查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)\n\n| 文件 | 位置 |\n| --- | --- |\n| [源文件](${session.workspace.directory}/scripts/source.ts) | [起点](${session.workspace.directory}/scripts/source.ts:42) · [终点](${session.workspace.directory}/scripts/source.ts:50) |\n\n[远处](./scripts/source.ts:6500) [越界行](./scripts/source.ts:9999)` : role + " " + id,
+            ? `[查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)\n\n| 文件 | 位置 |\n| --- | --- |\n| [源文件](${session.workspace.directory}/scripts/source.ts) | [起点](${session.workspace.directory}/scripts/source.ts:42) · [终点](${session.workspace.directory}/scripts/source.ts:50) |\n\n[远处](./scripts/source.ts:6500) [越界行](./scripts/source.ts:9999) [对照](file:///fixture/shared/reference.ts#L42-L50)` : role + " " + id,
           display_id: id + role, display_group_id: id + block, created_at: index + 1,
           turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
         })));
@@ -399,10 +399,11 @@ const files = {
     const ref = call.input.ref;
     if (ref?.path === "missing.txt") return { ok: false, error: { kind: "not_found", operation: call.operation, diagnostic: "ENOENT: fixture missing.txt" } };
     const metadata = { key: ref?.id ?? ref?.path, name: ref?.kind === "skill" ? "SKILL.md" : ref?.path, displayPath: "/fixture/" + (ref?.id ?? ref?.path), size: 20, version: "1", kind: "markdown", extension: ".md", source: "current_file" };
-    if (ref?.path === "scripts/source.ts") Object.assign(metadata, { kind: "text", extension: ".ts" });
+    const sourceFile = ref?.path === "scripts/source.ts" || ref?.path === "/fixture/shared/reference.ts";
+    if (sourceFile) Object.assign(metadata, { kind: "text", extension: ".ts" });
     if (call.operation === "stat") return { ok: true, value: metadata };
     if (call.operation === "applications") return { ok: true, value: [] };
-    if (call.operation === "prepare") return { ok: true, value: { handle: ref?.path === "scripts/source.ts" ? "fixture-source" : fileLinksFixture ? ref.session_id : "fixture-handle", metadata, missingFonts: [] } };
+    if (call.operation === "prepare") return { ok: true, value: { handle: sourceFile ? "fixture-source" : fileLinksFixture ? ref.session_id : "fixture-handle", metadata, missingFonts: [] } };
     throw new Error(`Unexpected fixture file operation: ${call.operation}`);
   },
   async readText(handle: string, { offset = 1 } = {}) {

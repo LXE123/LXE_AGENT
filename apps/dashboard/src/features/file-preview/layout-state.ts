@@ -6,8 +6,16 @@ export function restoreLayout(storage: Pick<Storage, "getItem"> | undefined, ses
   try {
     const value = JSON.parse(storage?.getItem(`lxe.file-preview.v1.${session}`) ?? "null");
     if (!value || !Array.isArray(value.tabs)) return emptyLayout();
-    const tabs = value.tabs.filter((tab: PreviewTab) => typeof tab?.key === "string" && typeof tab.name === "string" && (tab.key === "tree" || tab.key === "start" || ["terminal", "browser"].includes(tab.kind ?? "") || tab.ref?.session_id === session && (tab.ref.kind === "workspace" ? typeof tab.ref.path === "string" : ["artifact", "attachment", "skill"].includes(tab.ref.kind) && typeof tab.ref.id === "string")));
-    return { tabs, active: tabs.some((t: PreviewTab) => t.key === value.active) ? value.active : tabs[0]?.key ?? "", shown: value.shown === true, expanded: false, width: Number.isFinite(value.width) ? Math.max(320, Math.min(1000, value.width)) : 420 };
+    const tabs = value.tabs.filter((tab: PreviewTab) => {
+      if (typeof tab?.key !== "string" || typeof tab.name !== "string") return false;
+      if (tab.key === "tree" || tab.key === "start" || ["terminal", "browser"].includes(tab.kind ?? "")) return true;
+      const ref = tab.ref;
+      // External file access belongs to a click in the current window.
+      if (!ref || ref.session_id !== session || ref.kind === "linked") return false;
+      if (ref.kind === "workspace") return typeof ref.path === "string";
+      return ["artifact", "attachment", "skill"].includes(ref.kind) && typeof ref.id === "string";
+    });
+    return { tabs, active: tabs.some((t: PreviewTab) => t.key === value.active) ? value.active : tabs[0]?.key ?? "", shown: value.shown === true && tabs.length > 0, expanded: false, width: Number.isFinite(value.width) ? Math.max(320, Math.min(1000, value.width)) : 420 };
   } catch { return emptyLayout(); }
 }
 export function openTab(state: PreviewLayout, tab: PreviewTab): PreviewLayout {

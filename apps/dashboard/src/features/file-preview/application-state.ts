@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { FileApplication, FileFailure, FileMetadata, SessionFileRef } from "@lxe/desktop-protocol";
 import { failureOf, filesApi } from "./api";
-export const fileRefKey = (file: SessionFileRef) => JSON.stringify([file.session_id, file.kind, file.kind === "workspace" ? file.path : file.id]);
+export const fileRefKey = (file: SessionFileRef) => JSON.stringify([file.session_id, file.kind, "path" in file ? file.path : file.id]);
 interface Snapshot { apps: FileApplication[]; loaded: boolean; error?: FileFailure; metadata?: FileMetadata; previewError?: FileFailure; sourceError?: FileFailure }
 interface Entry { disposed?: boolean; refreshApps?: boolean; value: Snapshot; listeners: Set<() => void>; appsPending?: Promise<void>; statPending?: Promise<FileMetadata>; appsGeneration: number; statGeneration: number; expires: number; checked: number }
 const entries = new Map<string, Entry>();

@@ -6,9 +6,9 @@ import { markdownComponents, markdownRehypePlugins, markdownRemarkPlugins } from
 
 const StandardPre = markdownComponents.pre ?? "pre";
 // Markdown can interpret a Windows drive or a filename before ":42" as a URL scheme.
-// The chat link component checks these destinations against the session workspace.
+// Preserve local destinations for the conversation file-link renderer.
 const chatUrlTransform: UrlTransform = (url, key, node) =>
-  node.tagName === "a" && key === "href" && /^(?:[a-z]:(?:\/|%5c)|[\w.-]+\.[\w-]+:[1-9]\d*$)/i.test(url)
+  node.tagName === "a" && key === "href" && /^(?:file:\/\/\/|[a-z]:(?:\/|%5c)|[^/:?#]+\.[\w-]+:[1-9]\d*(?:[-:][1-9]\d*)?(?:[?#]|$))/i.test(url)
     ? url : defaultUrlTransform(url);
 const previewComponents: Components = {
   ...markdownComponents,

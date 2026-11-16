@@ -653,6 +653,7 @@ async function bootstrap(): Promise<void> {
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     isTrustedFileSender: event => !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,
     fileCall: call => gateway.fileCall(call),
+    clickedFileLink: (session, path) => gateway.clickedFileLink(session, path),
     fileRead: (handle, relativeImage) => gateway.fileRead(handle, relativeImage),
     fileReadText: (handle, range) => gateway.fileReadText(handle, range),
     previewDraftConversationFile: async (attachmentId, variant = "expanded") => {

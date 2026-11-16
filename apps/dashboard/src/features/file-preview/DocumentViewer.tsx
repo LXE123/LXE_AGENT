@@ -66,6 +66,7 @@ function PagedText({ preview, state, mode, wrap, failed, fromStart }: { preview:
   const t = useUiText().filePreview, viewport = useRef<HTMLDivElement>(null), generation = useRef(0);
   const [text, setText] = useState(""), [eof, setEof] = useState(false), [busy, setBusy] = useState(true), [error, setError] = useState(""), [copied, setCopied] = useState(false);
   const [targetLine] = useState(state.lineRequest?.line);
+  const [endLine] = useState(state.lineRequest?.endLine);
   // A distant link reads one window around the line, without loading every preceding page.
   const [firstLine] = useState(() => targetLine ? Math.max(1, targetLine - 100) : state.scroll[mode]?.firstLine ?? 1);
   const next = useRef(firstLine), pending = useRef(false), restoring = useRef(true);
@@ -123,7 +124,7 @@ function PagedText({ preview, state, mode, wrap, failed, fromStart }: { preview:
       {mode === "rendered" ? <div className="file-markdown message-markdown"><ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins} components={{ ...markdownComponents,
         img: ({ src, alt }) => typeof src === "string" && !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(src) ? <LocalImage handle={preview.handle} src={src} alt={alt} /> : <span>{alt}</span>,
       }}>{text}</ReactMarkdown></div> : <div className={`file-text${wrap ? " wrap" : ""}`}><CodeBlock language={mode === "code" ? preview.metadata.extension.slice(1) : ""} code={text} autoDetect={false}
-        lineNumbers={mode === "code" || !!targetLine || firstLine > 1} firstLine={firstLine} highlightLine={targetLine && targetLine < next.current ? targetLine : undefined} /></div>}
+        lineNumbers={mode === "code" || !!targetLine || firstLine > 1} firstLine={firstLine} highlightEnd={endLine} highlightLine={targetLine && targetLine < next.current ? targetLine : undefined} /></div>}
       {busy ? <p className="file-preview-loading" role="status">{t.loading}</p> : null}
       {error ? <div className="file-preview-error" role="alert"><ErrorDetails failure={failureOf(error, "read_text")} /><button onClick={() => void load()}>{t.retry}</button></div> : !eof && !busy ? <button className="file-load-more" onClick={() => void load()}>{t.more}</button> : null}
     </div>

@@ -9,7 +9,7 @@ export interface ReadingState {
   wrap: boolean;
   scroll: Record<string, ScrollPosition>;
   loadedLines: number;
-  lineRequest?: { id: string; line?: number };
+  lineRequest?: { id: string; line?: number; endLine?: number };
   version?: string;
   zoom: number;
   pdf: { page: number; offset: number; rotation: number };

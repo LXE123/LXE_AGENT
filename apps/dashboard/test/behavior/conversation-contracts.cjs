@@ -337,5 +337,11 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("!!document.querySelector('.file-sidebar .code-line[data-line=\"1\"]')", 'return to beginning of distant source link');
     await click(link(9999));
     await waitFor("!!document.querySelector('.file-sidebar .file-line-missing')", 'line past end of file');
+    await click('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]');
+    await waitFor("document.querySelectorAll('.file-sidebar .file-target-line').length === 9", 'external file source range');
+    assert.deepEqual(await js("Array.from(document.querySelectorAll('.file-sidebar .file-target-line'), row => Number(row.dataset.line))"),
+      [42, 43, 44, 45, 46, 47, 48, 49, 50]);
+    assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'linked'
+      && call.input.ref.path === '/fixture/shared/reference.ts' && call.input.ref.session_id === 'Shop chat 1'));
   });
 };

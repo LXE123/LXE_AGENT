@@ -1559,8 +1559,8 @@ export function SessionDetailView({
   const directory = session?.session_id === messageSessionId ? session?.workspace.directory : undefined;
   const openMarkdownFile = useMemo(() => {
     if (!messageSessionId || !openPreview) return null;
-    return { directory, open({ path, line }: WorkspaceFileLink) {
-      void openPreview({ session_id: messageSessionId, kind: "workspace", path }, undefined, "sidebar", line);
+    return { directory, sessionId: messageSessionId, open({ kind, path, line, endLine }: WorkspaceFileLink) {
+      void openPreview({ session_id: messageSessionId, kind, path }, undefined, "sidebar", line, endLine);
     } };
   }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,

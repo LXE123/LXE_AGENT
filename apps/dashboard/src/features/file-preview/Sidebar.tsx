@@ -28,7 +28,7 @@ function TabIcon({ tab }: { tab: PreviewTab }) {
     : ["pdf", "md", "txt", "doc", "docx"].includes(ext) ? FileText : File;
   return <Icon size={14} />;
 }
-interface Controls { session: string; shown: boolean; toggleRef: RefObject<HTMLButtonElement | null>; open(ref: SessionFileRef, name?: string, imageTarget?: "dialog" | "sidebar", line?: number): Promise<void>; toggle(): void }
+interface Controls { session: string; shown: boolean; toggleRef: RefObject<HTMLButtonElement | null>; open(ref: SessionFileRef, name?: string, imageTarget?: "dialog" | "sidebar", line?: number, endLine?: number): Promise<void>; toggle(): void }
 const Context = createContext<Controls | null>(null);
 export const usePreviewSidebar = () => useContext(Context);
 function storage() { try { return window.localStorage; } catch { return undefined; } }
@@ -67,13 +67,13 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
       return { ...current, tabs, active: current.active === previous.key ? info.key : current.active };
     });
   }, [update]);
-  const open = useCallback(async (ref: SessionFileRef, name?: string, imageTarget: "dialog" | "sidebar" = "dialog", line?: number) => {
+  const open = useCallback(async (ref: SessionFileRef, name?: string, imageTarget: "dialog" | "sidebar" = "dialog", line?: number, endLine?: number) => {
     const request = ++intent.current;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     let metadata: FileMetadata | undefined;
     try { metadata = await checkFile(ref, true); } catch { /* The viewer renders the structured failure and keeps checking. */ }
     if (sessionNow.current !== ref.session_id || request !== intent.current) return;
-    const displayName = name ?? metadata?.name ?? (ref.kind === "workspace" ? ref.path.split(/[\\/]/).pop()! : ref.id);
+    const displayName = name ?? metadata?.name ?? ("path" in ref ? ref.path.split(/[\\/]/).pop()! : ref.id);
     // Keep the sidebar's active tool and layout intact while inspecting an image.
     // Even an unavailable image should open its retry/error UI in the same dialog.
     if (imageTarget === "dialog" && (metadata ? metadata.kind === "image" : viewModes(displayName).includes("image"))) {
@@ -83,7 +83,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
     setImage(undefined);
     const modes = line === undefined ? [] : viewModes(displayName);
     const sourceMode = modes.includes("code") ? "code" : modes.includes("plain") ? "plain" : undefined;
-    const lineRequest = sourceMode ? { id: crypto.randomUUID(), line } : undefined;
+    const lineRequest = sourceMode ? { id: crypto.randomUUID(), line, endLine } : undefined;
     update(current => {
       const existing = current.tabs.find(tab => tab.ref && fileRefKey(tab.ref) === fileRefKey(ref));
       const key = metadata?.key ?? existing?.key ?? `ref:${fileRefKey(ref)}`;
@@ -93,7 +93,7 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
         state.mode = sourceMode;
         state.lineRequest = lineRequest;
       }
-      return openTab({ ...current, tabs: current.tabs.filter(tab => !existing || tab.key !== existing.key || existing.key === key) }, { key, name: name ?? existing?.name ?? metadata?.name ?? (ref.kind === "workspace" ? ref.path.split(/[\\/]/).pop()! : ref.id), ref });
+      return openTab({ ...current, tabs: current.tabs.filter(tab => !existing || tab.key !== existing.key || existing.key === key) }, { key, name: name ?? existing?.name ?? metadata?.name ?? ("path" in ref ? ref.path.split(/[\\/]/).pop()! : ref.id), ref });
     });
   }, [update]);
   const controls = useMemo<Controls>(() => ({ session: sessionId, shown: layout.shown, toggleRef, open, toggle: () => { ++intent.current; focusToggle.current = true; update(current => current.tabs.length ? { ...current, shown: !current.shown } : openTab(current, { key: "start", name: toolsText.start, kind: "start" })); } }), [sessionId, layout.shown, open, update, toolsText.start]);
