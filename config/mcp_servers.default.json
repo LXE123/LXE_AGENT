@@ -3,7 +3,7 @@
     "team-skills": {
       "enabled": true,
       "transport": "streamable-http",
-      "connector_description": "`team-skills` 用于搜索、下载和发布团队共享的 Agent 技能。用户要求安装技能时，将下载的完整技能目录放到 `environment_context` 的 `user_skills_root` 下，保留其中的 `SKILL.md` 和配套文件。",
+      "connector_description": "Search, download, and publish agent skills shared by your team. When the user asks to install a skill, place the entire downloaded skill directory under `environment_context.user_skills_root`, including `SKILL.md` and all supporting files.",
       "url": "https://qcnd7w5806gy.feishu.link/mcp/app_17gftabyhpd"
     }
   }
